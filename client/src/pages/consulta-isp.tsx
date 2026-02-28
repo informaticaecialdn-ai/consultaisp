@@ -15,7 +15,6 @@ import {
   CheckCircle,
   BarChart3,
   Info,
-  X,
   Clock,
   FileText,
   CreditCard,
@@ -30,6 +29,13 @@ import {
   Minus,
   Plus,
   ClipboardCopy,
+  Lock,
+  Eye,
+  EyeOff,
+  ArrowRight,
+  Users,
+  Zap,
+  Router,
 } from "lucide-react";
 
 interface ProviderDetail {
@@ -82,11 +88,11 @@ function formatCpfCnpj(value: string): string {
 }
 
 function ScoreGauge({ score, riskTier }: { score: number; riskTier: string }) {
-  const colors: Record<string, { bg: string; text: string; ring: string; gradient: string }> = {
-    low: { bg: "bg-emerald-50", text: "text-emerald-700", ring: "ring-emerald-200", gradient: "from-emerald-400 to-emerald-600" },
-    medium: { bg: "bg-amber-50", text: "text-amber-700", ring: "ring-amber-200", gradient: "from-amber-400 to-amber-600" },
-    high: { bg: "bg-orange-50", text: "text-orange-700", ring: "ring-orange-200", gradient: "from-orange-400 to-orange-600" },
-    critical: { bg: "bg-rose-50", text: "text-rose-700", ring: "ring-rose-200", gradient: "from-rose-400 to-rose-600" },
+  const colors: Record<string, { bg: string; text: string; ring: string }> = {
+    low: { bg: "bg-emerald-50", text: "text-emerald-700", ring: "ring-emerald-200" },
+    medium: { bg: "bg-amber-50", text: "text-amber-700", ring: "ring-amber-200" },
+    high: { bg: "bg-orange-50", text: "text-orange-700", ring: "ring-orange-200" },
+    critical: { bg: "bg-rose-50", text: "text-rose-700", ring: "ring-rose-200" },
   };
   const c = colors[riskTier] || colors.critical;
   const pct = Math.max(0, Math.min(100, score));
@@ -117,6 +123,22 @@ function ScoreGauge({ score, riskTier }: { score: number; riskTier: string }) {
       </div>
     </div>
   );
+}
+
+function getPaymentStatusLabel(daysOverdue: number, cancelledDate?: string): string {
+  if (daysOverdue === 0 && !cancelledDate) return "Em dia";
+  if (daysOverdue === 0 && cancelledDate) return "Cancelado (quitado)";
+  if (daysOverdue <= 30) return "Inadimplente (1-30 dias)";
+  if (daysOverdue <= 60) return "Inadimplente (31-60 dias)";
+  if (daysOverdue <= 90) return "Inadimplente (61-90 dias)";
+  return "Inadimplente (90+ dias)";
+}
+
+function getPaymentStatusColor(daysOverdue: number): string {
+  if (daysOverdue === 0) return "bg-emerald-100 text-emerald-700";
+  if (daysOverdue <= 30) return "bg-amber-100 text-amber-700";
+  if (daysOverdue <= 60) return "bg-orange-100 text-orange-700";
+  return "bg-rose-100 text-rose-700";
 }
 
 export default function ConsultaISPPage() {
@@ -175,6 +197,13 @@ export default function ConsultaISPPage() {
     critical: "bg-rose-500",
   };
 
+  const consultations = data?.consultations || [];
+  const approvedCount = consultations.filter((c: any) => c.approved).length;
+  const rejectedCount = consultations.filter((c: any) => !c.approved).length;
+  const avgScore = consultations.length > 0
+    ? Math.round(consultations.reduce((acc: number, c: any) => acc + (c.score || 0), 0) / consultations.length)
+    : 0;
+
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto" data-testid="consulta-isp-page">
       <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -184,7 +213,7 @@ export default function ConsultaISPPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold" data-testid="text-consulta-isp-title">Consulta ISP</h1>
-            <p className="text-sm text-muted-foreground">Sistema de analise de credito para provedores de internet</p>
+            <p className="text-sm text-muted-foreground">Rede colaborativa de protecao ao credito para provedores</p>
           </div>
         </div>
         <Badge variant="secondary" className="gap-1.5 px-3 py-1.5 text-sm">
@@ -197,7 +226,7 @@ export default function ConsultaISPPage() {
         <Card className="p-4 bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20 border-blue-200/50 dark:border-blue-800/30">
           <div className="flex items-center justify-between gap-2 mb-2">
             <span className="text-sm text-muted-foreground">Consultas Hoje</span>
-            <TrendingUp className="w-5 h-5 text-orange-500" />
+            <TrendingUp className="w-5 h-5 text-blue-500" />
           </div>
           <div className="text-2xl font-bold" data-testid="text-isp-today">{isLoading ? <Skeleton className="h-7 w-8" /> : data?.todayCount}</div>
         </Card>
@@ -215,8 +244,8 @@ export default function ConsultaISPPage() {
           </div>
           <div className="text-2xl font-bold">
             {isLoading ? <Skeleton className="h-7 w-8" /> : (
-              data?.consultations?.length > 0
-                ? Math.round((data.consultations.filter((c: any) => c.approved).length / data.consultations.length) * 100) + "%"
+              consultations.length > 0
+                ? Math.round((approvedCount / consultations.length) * 100) + "%"
                 : "0%"
             )}
           </div>
@@ -226,13 +255,7 @@ export default function ConsultaISPPage() {
             <span className="text-sm text-muted-foreground">Score Medio ISP</span>
             <BarChart3 className="w-5 h-5 text-purple-500" />
           </div>
-          <div className="text-2xl font-bold">
-            {isLoading ? <Skeleton className="h-7 w-8" /> : (
-              data?.consultations?.length > 0
-                ? Math.round(data.consultations.reduce((acc: number, c: any) => acc + (c.score || 0), 0) / data.consultations.length)
-                : 0
-            )}
-          </div>
+          <div className="text-2xl font-bold">{isLoading ? <Skeleton className="h-7 w-8" /> : avgScore}</div>
         </Card>
       </div>
 
@@ -246,11 +269,11 @@ export default function ConsultaISPPage() {
             <Clock className="w-3.5 h-3.5" />
             Historico
           </TabsTrigger>
-          <TabsTrigger value="relatorios" className="gap-1.5">
+          <TabsTrigger value="relatorios" className="gap-1.5" data-testid="tab-relatorios">
             <BarChart3 className="w-3.5 h-3.5" />
             Relatorios
           </TabsTrigger>
-          <TabsTrigger value="info" className="gap-1.5">
+          <TabsTrigger value="info" className="gap-1.5" data-testid="tab-info">
             <Info className="w-3.5 h-3.5" />
             Informacoes
           </TabsTrigger>
@@ -310,10 +333,9 @@ export default function ConsultaISPPage() {
               <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
               <p className="text-sm text-muted-foreground">
                 <span className="font-semibold text-foreground">Busca Inteligente:</span> Digite um{" "}
-                <span className="font-bold text-blue-600">CPF</span> (11 digitos),{" "}
-                <span className="font-bold text-blue-600">CNPJ</span> (14 digitos) ou{" "}
-                <span className="font-bold text-blue-600">CEP</span> (8 digitos).{" "}
-                O sistema detecta automaticamente o tipo de busca.
+                <span className="font-bold text-blue-600">CPF</span> (11 digitos) ou{" "}
+                <span className="font-bold text-blue-600">CNPJ</span> (14 digitos).{" "}
+                O sistema busca em todos os provedores da rede colaborativa e retorna score, restricoes, equipamentos e alertas.
               </p>
             </div>
 
@@ -347,6 +369,7 @@ export default function ConsultaISPPage() {
                         Este documento nao possui registros na base de dados colaborativa ISP.
                       </p>
                       <Badge className="mt-3 bg-emerald-100 text-emerald-800 border-0">Score: 100/100 - Sem restricoes</Badge>
+                      <p className="text-xs text-muted-foreground mt-3">Recomendacao: Aprovar - Prosseguir para Consulta SPC para verificacao completa</p>
                     </div>
                   ) : (
                     <div className="p-6 space-y-6">
@@ -369,6 +392,12 @@ export default function ConsultaISPPage() {
                             <span className="text-sm text-muted-foreground">Encontrado em:</span>
                             <span className="text-sm font-semibold">{result.providersFound} provedor(es)</span>
                           </div>
+                          {result.isOwnCustomer && (
+                            <div className="flex items-center gap-2">
+                              <Shield className="w-4 h-4 text-blue-500" />
+                              <span className="text-sm text-blue-600 font-medium">Cliente do seu provedor (consulta gratuita)</span>
+                            </div>
+                          )}
                           <button
                             onClick={() => setShowScoreDetails(!showScoreDetails)}
                             className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 transition-colors"
@@ -415,6 +444,10 @@ export default function ConsultaISPPage() {
                                 ))}
                               </div>
                             )}
+                            <div className="mt-3 pt-3 border-t flex items-center justify-between text-sm">
+                              <span className="font-semibold">Score Final:</span>
+                              <span className="text-lg font-bold">{result.score}/100</span>
+                            </div>
                           </div>
                         </Card>
                       )}
@@ -426,82 +459,96 @@ export default function ConsultaISPPage() {
                         </h4>
                         <div className="space-y-3">
                           {result.providerDetails.map((detail, i) => (
-                            <Card key={i} className="p-4 border-l-4" style={{
-                              borderLeftColor: detail.daysOverdue > 0 ? "#f43f5e" : "#10b981"
-                            }} data-testid={`provider-detail-${i}`}>
-                              <div className="flex items-center justify-between mb-3">
-                                <div className="flex items-center gap-2">
-                                  <Wifi className="w-4 h-4 text-blue-600" />
-                                  <span className="font-semibold">{detail.providerName}</span>
-                                  {detail.isSameProvider && (
-                                    <Badge variant="secondary" className="text-xs">Seu provedor</Badge>
+                            <Card key={i} className="p-0 overflow-hidden" data-testid={`provider-detail-${i}`}>
+                              <div className="flex">
+                                <div className="w-1.5 flex-shrink-0 rounded-l-lg" style={{ backgroundColor: detail.daysOverdue > 0 ? "#f43f5e" : "#10b981" }} />
+                                <div className="flex-1 p-4">
+                                  <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2">
+                                      <Wifi className="w-4 h-4 text-blue-600" />
+                                      <span className="font-semibold">{detail.providerName}</span>
+                                      {detail.isSameProvider && (
+                                        <Badge variant="secondary" className="text-xs">Seu provedor</Badge>
+                                      )}
+                                      {!detail.isSameProvider && (
+                                        <Badge variant="outline" className="text-xs gap-1">
+                                          <Lock className="w-3 h-3" /> Dados parciais
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    <Badge className={`border-0 ${getPaymentStatusColor(detail.daysOverdue)}`}>
+                                      {getPaymentStatusLabel(detail.daysOverdue, detail.cancelledDate)}
+                                    </Badge>
+                                  </div>
+                                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                                    <div>
+                                      <span className="text-muted-foreground">Nome:</span>
+                                      <p className="font-medium">{detail.customerName}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-muted-foreground">Dias em atraso:</span>
+                                      <p className={`font-medium ${detail.daysOverdue > 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                                        {detail.daysOverdue > 0 ? `${detail.daysOverdue} dias` : "0 (em dia)"}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <span className="text-muted-foreground">Valor em aberto:</span>
+                                      <p className="font-medium">
+                                        {detail.isSameProvider && detail.overdueAmount !== undefined
+                                          ? `R$ ${detail.overdueAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+                                          : detail.overdueAmountRange || "R$ 0,00"}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <span className="text-muted-foreground">Faturas vencidas:</span>
+                                      <p className="font-medium">{detail.overdueInvoicesCount}</p>
+                                    </div>
+                                    <div>
+                                      <span className="text-muted-foreground">Equipamentos:</span>
+                                      <p className={`font-medium ${detail.hasUnreturnedEquipment ? "text-rose-600" : "text-emerald-600"}`}>
+                                        {detail.hasUnreturnedEquipment
+                                          ? detail.isSameProvider
+                                            ? `${detail.unreturnedEquipmentCount} nao devolvido(s)`
+                                            : detail.equipmentPendingSummary
+                                          : "Devolvidos"}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <span className="text-muted-foreground">Cliente desde:</span>
+                                      <p className="font-medium">
+                                        {new Date(detail.contractStartDate).toLocaleDateString("pt-BR")}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  {detail.cancelledDate && (
+                                    <div className="mt-3 pt-3 border-t flex items-center gap-2 text-sm">
+                                      <span className="text-muted-foreground">Cancelado em:</span>
+                                      <span className="font-medium text-rose-600">{new Date(detail.cancelledDate).toLocaleDateString("pt-BR")}</span>
+                                    </div>
+                                  )}
+                                  {detail.isSameProvider && detail.equipmentDetails && detail.equipmentDetails.length > 0 && (
+                                    <div className="mt-3 pt-3 border-t">
+                                      <span className="text-xs font-semibold text-muted-foreground uppercase flex items-center gap-1.5">
+                                        <Router className="w-3 h-3" />
+                                        Equipamentos nao devolvidos
+                                      </span>
+                                      <div className="mt-2 space-y-1">
+                                        {detail.equipmentDetails.map((eq, j) => (
+                                          <div key={j} className="flex items-center justify-between text-sm p-2 bg-rose-50 dark:bg-rose-950/20 rounded">
+                                            <span>{eq.type} {eq.brand} {eq.model}</span>
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-rose-600 font-medium">R$ {parseFloat(eq.value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</span>
+                                              {eq.inRecoveryProcess && (
+                                                <Badge variant="secondary" className="text-xs">Em recuperacao</Badge>
+                                              )}
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
                                   )}
                                 </div>
-                                <Badge className={`border-0 ${detail.daysOverdue > 0 ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"}`}>
-                                  {detail.status}
-                                </Badge>
                               </div>
-                              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-                                <div>
-                                  <span className="text-muted-foreground">Nome:</span>
-                                  <p className="font-medium">{detail.customerName}</p>
-                                </div>
-                                <div>
-                                  <span className="text-muted-foreground">Dias em atraso:</span>
-                                  <p className="font-medium">{detail.daysOverdue > 0 ? `${detail.daysOverdue} dias` : "Em dia"}</p>
-                                </div>
-                                <div>
-                                  <span className="text-muted-foreground">Valor em aberto:</span>
-                                  <p className="font-medium">
-                                    {detail.isSameProvider && detail.overdueAmount !== undefined
-                                      ? `R$ ${detail.overdueAmount.toFixed(2)}`
-                                      : detail.overdueAmountRange || "Sem debito"}
-                                  </p>
-                                </div>
-                                <div>
-                                  <span className="text-muted-foreground">Faturas vencidas:</span>
-                                  <p className="font-medium">{detail.overdueInvoicesCount}</p>
-                                </div>
-                                <div>
-                                  <span className="text-muted-foreground">Equipamentos:</span>
-                                  <p className="font-medium">
-                                    {detail.hasUnreturnedEquipment
-                                      ? detail.isSameProvider
-                                        ? `${detail.unreturnedEquipmentCount} nao devolvido(s)`
-                                        : detail.equipmentPendingSummary
-                                      : "Todos devolvidos"}
-                                  </p>
-                                </div>
-                                <div>
-                                  <span className="text-muted-foreground">Cliente desde:</span>
-                                  <p className="font-medium">
-                                    {new Date(detail.contractStartDate).toLocaleDateString("pt-BR")}
-                                  </p>
-                                </div>
-                              </div>
-                              {detail.isSameProvider && detail.equipmentDetails && detail.equipmentDetails.length > 0 && (
-                                <div className="mt-3 pt-3 border-t">
-                                  <span className="text-xs font-semibold text-muted-foreground uppercase">Equipamentos nao devolvidos</span>
-                                  <div className="mt-2 space-y-1">
-                                    {detail.equipmentDetails.map((eq, j) => (
-                                      <div key={j} className="flex items-center justify-between text-sm p-2 bg-rose-50 dark:bg-rose-950/20 rounded">
-                                        <span>{eq.type} {eq.brand} {eq.model}</span>
-                                        <div className="flex items-center gap-2">
-                                          <span className="text-rose-600 font-medium">R$ {parseFloat(eq.value).toFixed(2)}</span>
-                                          {eq.inRecoveryProcess && (
-                                            <Badge variant="secondary" className="text-xs">Em recuperacao</Badge>
-                                          )}
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                              {detail.cancelledDate && (
-                                <div className="mt-2 text-sm text-muted-foreground">
-                                  Cancelado em: {new Date(detail.cancelledDate).toLocaleDateString("pt-BR")}
-                                </div>
-                              )}
                             </Card>
                           ))}
                         </div>
@@ -511,12 +558,12 @@ export default function ConsultaISPPage() {
                         <Card className="p-4 bg-amber-50 dark:bg-amber-950/20 border-amber-200">
                           <h4 className="text-sm font-semibold mb-3 flex items-center gap-2 text-amber-800">
                             <AlertTriangle className="w-4 h-4" />
-                            Alertas
+                            Alertas Anti-Fraude
                           </h4>
                           <div className="space-y-2">
                             {result.alerts.map((alert, i) => (
                               <div key={i} className="flex items-start gap-2 text-sm" data-testid={`alert-${i}`}>
-                                <span className="text-amber-600 mt-0.5">&#8226;</span>
+                                <div className="w-2 h-2 rounded-full bg-amber-500 mt-1.5 flex-shrink-0" />
                                 <span className="text-amber-800">{alert}</span>
                               </div>
                             ))}
@@ -533,7 +580,7 @@ export default function ConsultaISPPage() {
                           <div className="space-y-2">
                             {result.recommendedActions.map((action, i) => (
                               <div key={i} className="flex items-start gap-2 text-sm" data-testid={`action-${i}`}>
-                                <span className="text-blue-600 font-semibold">{i + 1}.</span>
+                                <span className="text-blue-600 font-semibold min-w-[20px]">{i + 1}.</span>
                                 <span className="text-blue-800">{action}</span>
                               </div>
                             ))}
@@ -551,25 +598,36 @@ export default function ConsultaISPPage() {
         <TabsContent value="historico">
           <Card className="p-6">
             <h2 className="text-lg font-semibold mb-4">Historico de Consultas</h2>
-            {data?.consultations?.length === 0 ? (
+            {consultations.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <Search className="w-12 h-12 mx-auto mb-3 opacity-30" />
                 <p>Nenhuma consulta realizada ainda</p>
               </div>
             ) : (
               <div className="space-y-2">
-                {data?.consultations?.map((c: any) => {
+                {consultations.map((c: any) => {
                   const tier = c.score >= 80 ? "low" : c.score >= 50 ? "medium" : c.score >= 25 ? "high" : "critical";
+                  const resultData = c.result as any;
+                  const customerName = resultData?.providerDetails?.[0]?.customerName;
+                  const providersFound = resultData?.providersFound || 0;
                   return (
                     <div key={c.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg" data-testid={`consultation-${c.id}`}>
                       <div className="flex items-center gap-3">
                         <div className={`w-2.5 h-2.5 rounded-full ${c.approved ? "bg-emerald-500" : "bg-rose-500"}`} />
                         <div>
                           <span className="text-sm font-medium">{formatCpfCnpj(c.cpfCnpj)}</span>
-                          <span className="text-xs text-muted-foreground ml-3">{c.searchType?.toUpperCase()}</span>
+                          {customerName && (
+                            <span className="text-xs text-muted-foreground ml-2">{customerName}</span>
+                          )}
+                          {!customerName && resultData?.notFound && (
+                            <span className="text-xs text-muted-foreground ml-2">Nao encontrado</span>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
+                        {providersFound > 0 && (
+                          <span className="text-xs text-muted-foreground">{providersFound} provedor(es)</span>
+                        )}
                         <span className="text-sm font-medium">Score: {c.score}/100</span>
                         <Badge className={`${riskColors[tier]} border-0 text-xs`}>
                           {c.decisionReco === "Accept" ? "Aprovar" : c.decisionReco === "Review" ? "Revisar" : "Rejeitar"}
@@ -593,56 +651,303 @@ export default function ConsultaISPPage() {
 
         <TabsContent value="relatorios">
           <Card className="p-6">
-            <div className="text-center py-12 text-muted-foreground">
-              <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p className="font-medium">Relatorios em breve</p>
-              <p className="text-sm mt-1">Funcionalidade em desenvolvimento</p>
-            </div>
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <BarChart3 className="w-5 h-5" />
+              Resumo de Consultas
+            </h2>
+            {consultations.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <BarChart3 className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p>Realize consultas para ver o resumo</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <Card className="p-4 text-center">
+                    <span className="text-xs text-muted-foreground">Total Consultas</span>
+                    <p className="text-2xl font-bold mt-1">{consultations.length}</p>
+                  </Card>
+                  <Card className="p-4 text-center">
+                    <span className="text-xs text-muted-foreground">Aprovadas</span>
+                    <p className="text-2xl font-bold mt-1 text-emerald-600">{approvedCount}</p>
+                  </Card>
+                  <Card className="p-4 text-center">
+                    <span className="text-xs text-muted-foreground">Rejeitadas</span>
+                    <p className="text-2xl font-bold mt-1 text-rose-600">{rejectedCount}</p>
+                  </Card>
+                  <Card className="p-4 text-center">
+                    <span className="text-xs text-muted-foreground">Score Medio</span>
+                    <p className="text-2xl font-bold mt-1">{avgScore}/100</p>
+                  </Card>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold mb-3">Distribuicao por Decisao</h3>
+                  <div className="flex gap-2 h-4 rounded-full overflow-hidden">
+                    {approvedCount > 0 && (
+                      <div
+                        className="bg-emerald-500 rounded-l-full"
+                        style={{ width: `${(approvedCount / consultations.length) * 100}%` }}
+                        title={`Aprovadas: ${approvedCount}`}
+                      />
+                    )}
+                    {rejectedCount > 0 && (
+                      <div
+                        className="bg-rose-500 rounded-r-full"
+                        style={{ width: `${(rejectedCount / consultations.length) * 100}%` }}
+                        title={`Rejeitadas: ${rejectedCount}`}
+                      />
+                    )}
+                  </div>
+                  <div className="flex justify-between mt-2 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1.5">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500" /> Aprovadas ({approvedCount})
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <div className="w-2 h-2 rounded-full bg-rose-500" /> Rejeitadas ({rejectedCount})
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold mb-3">Creditos Consumidos</h3>
+                  <div className="space-y-1">
+                    {(() => {
+                      const freeCount = consultations.filter((c: any) => c.cost === 0).length;
+                      const paidCount = consultations.filter((c: any) => c.cost > 0).length;
+                      const totalSpent = consultations.reduce((sum: number, c: any) => sum + (c.cost || 0), 0);
+                      return (
+                        <>
+                          <div className="flex justify-between p-2 bg-muted/50 rounded text-sm">
+                            <span>Consultas gratuitas (proprio/nao encontrado)</span>
+                            <span className="font-medium text-emerald-600">{freeCount}</span>
+                          </div>
+                          <div className="flex justify-between p-2 bg-muted/50 rounded text-sm">
+                            <span>Consultas pagas (outro provedor)</span>
+                            <span className="font-medium text-blue-600">{paidCount}</span>
+                          </div>
+                          <div className="flex justify-between p-2 bg-blue-50 dark:bg-blue-950/20 rounded text-sm font-semibold">
+                            <span>Total creditos consumidos</span>
+                            <span className="text-blue-600">{totalSpent}</span>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold mb-3">Alertas Gerados</h3>
+                  {(() => {
+                    const withAlerts = consultations.filter((c: any) => (c.result as any)?.alerts?.length > 0).length;
+                    return (
+                      <div className="flex justify-between p-2 bg-amber-50 dark:bg-amber-950/20 rounded text-sm">
+                        <span>Consultas com alertas anti-fraude</span>
+                        <span className="font-medium text-amber-700">{withAlerts}</span>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
           </Card>
         </TabsContent>
 
         <TabsContent value="info">
           <Card className="p-6">
             <h2 className="text-lg font-semibold mb-4">Sobre a Consulta ISP</h2>
-            <div className="space-y-4 text-sm text-muted-foreground">
-              <p>A Consulta ISP verifica o historico de um cliente em uma base de dados colaborativa entre provedores de internet. Funciona como um "SPC do setor de telecom".</p>
+            <div className="space-y-6 text-sm text-muted-foreground">
+              <p>A Consulta ISP e uma rede colaborativa de protecao ao credito exclusiva para provedores de internet. Funciona como um "SPC do setor de telecom", onde provedores compartilham informacoes sobre clientes inadimplentes para proteger uns aos outros.</p>
 
               <div>
-                <h3 className="font-semibold text-foreground mb-2">Classificacao de Risco</h3>
+                <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
+                  <Target className="w-4 h-4" />
+                  Fluxo da Consulta
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex items-start gap-3 p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
+                    <span className="font-bold text-blue-600 min-w-[24px]">1.</span>
+                    <div>
+                      <p className="font-medium text-foreground">Digite CPF ou CNPJ</p>
+                      <p className="text-xs">Valida o formato do documento automaticamente</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-center">
+                    <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                  <div className="flex items-start gap-3 p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
+                    <span className="font-bold text-blue-600 min-w-[24px]">2.</span>
+                    <div>
+                      <p className="font-medium text-foreground">Sistema busca em TODOS os provedores</p>
+                      <p className="text-xs">Carrega dados do cliente, faturas, equipamentos e calcula score</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-center">
+                    <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                  <div className="flex items-start gap-3 p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
+                    <span className="font-bold text-blue-600 min-w-[24px]">3.</span>
+                    <div>
+                      <p className="font-medium text-foreground">Gera alertas anti-fraude (se aplicavel)</p>
+                      <p className="text-xs">Notifica provedores originais sobre clientes inadimplentes consultados</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-center">
+                    <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                  <div className="flex items-start gap-3 p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
+                    <span className="font-bold text-blue-600 min-w-[24px]">4.</span>
+                    <div>
+                      <p className="font-medium text-foreground">Resultado consolidado com score e recomendacao</p>
+                      <p className="text-xs">Debita creditos (se consulta de outro provedor) e salva no historico</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4" />
+                  Calculo do Score ISP (0-100)
+                </h3>
+                <p className="mb-3">Score = 100 - Penalidades + Bonus (minimo 0, maximo 100)</p>
+
+                <div className="mb-3">
+                  <span className="text-xs font-semibold text-rose-600 uppercase">Penalidades</span>
+                  <div className="mt-1 space-y-1">
+                    <div className="flex justify-between p-2 bg-rose-50 dark:bg-rose-950/20 rounded">
+                      <span>Atraso 1-30 dias</span><span className="font-medium text-rose-600">-10</span>
+                    </div>
+                    <div className="flex justify-between p-2 bg-rose-50 dark:bg-rose-950/20 rounded">
+                      <span>Atraso 31-60 dias</span><span className="font-medium text-rose-600">-20</span>
+                    </div>
+                    <div className="flex justify-between p-2 bg-rose-50 dark:bg-rose-950/20 rounded">
+                      <span>Atraso 61-90 dias</span><span className="font-medium text-rose-600">-30</span>
+                    </div>
+                    <div className="flex justify-between p-2 bg-rose-50 dark:bg-rose-950/20 rounded">
+                      <span>Atraso 90+ dias</span><span className="font-medium text-rose-600">-40</span>
+                    </div>
+                    <div className="flex justify-between p-2 bg-rose-50 dark:bg-rose-950/20 rounded">
+                      <span>Cada R$ 100 em aberto</span><span className="font-medium text-rose-600">-5</span>
+                    </div>
+                    <div className="flex justify-between p-2 bg-rose-50 dark:bg-rose-950/20 rounded">
+                      <span>Equipamento nao devolvido (cada)</span><span className="font-medium text-rose-600">-15</span>
+                    </div>
+                    <div className="flex justify-between p-2 bg-rose-50 dark:bg-rose-950/20 rounded">
+                      <span>Contrato menor que 6 meses</span><span className="font-medium text-rose-600">-10</span>
+                    </div>
+                    <div className="flex justify-between p-2 bg-rose-50 dark:bg-rose-950/20 rounded">
+                      <span>Contrato menor que 3 meses</span><span className="font-medium text-rose-600">-15</span>
+                    </div>
+                    <div className="flex justify-between p-2 bg-rose-50 dark:bg-rose-950/20 rounded">
+                      <span>Multiplas consultas (&gt;3 em 30 dias)</span><span className="font-medium text-rose-600">-20</span>
+                    </div>
+                    <div className="flex justify-between p-2 bg-rose-50 dark:bg-rose-950/20 rounded">
+                      <span>Divida em multiplos provedores</span><span className="font-medium text-rose-600">-25</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-xs font-semibold text-emerald-600 uppercase">Bonus</span>
+                  <div className="mt-1 space-y-1">
+                    <div className="flex justify-between p-2 bg-emerald-50 dark:bg-emerald-950/20 rounded">
+                      <span>Cliente ha mais de 2 anos (em dia)</span><span className="font-medium text-emerald-600">+10</span>
+                    </div>
+                    <div className="flex justify-between p-2 bg-emerald-50 dark:bg-emerald-950/20 rounded">
+                      <span>Nunca atrasou pagamento</span><span className="font-medium text-emerald-600">+15</span>
+                    </div>
+                    <div className="flex justify-between p-2 bg-emerald-50 dark:bg-emerald-950/20 rounded">
+                      <span>Equipamentos sempre devolvidos</span><span className="font-medium text-emerald-600">+5</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
+                  <Shield className="w-4 h-4" />
+                  Classificacao de Risco
+                </h3>
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                   <Card className="p-3">
                     <div className="flex items-center gap-2 mb-1">
                       <div className="w-3 h-3 rounded-full bg-emerald-500" />
                       <span className="text-sm font-medium text-foreground">80-100</span>
                     </div>
-                    <p className="text-xs">Baixo Risco - Aprovar</p>
+                    <p className="text-xs font-medium">BAIXO RISCO</p>
+                    <p className="text-xs">Aprovar</p>
                   </Card>
                   <Card className="p-3">
                     <div className="flex items-center gap-2 mb-1">
                       <div className="w-3 h-3 rounded-full bg-amber-500" />
                       <span className="text-sm font-medium text-foreground">50-79</span>
                     </div>
-                    <p className="text-xs">Medio Risco - Aprovar com cautela</p>
+                    <p className="text-xs font-medium">MEDIO RISCO</p>
+                    <p className="text-xs">Aprovar com cautela</p>
                   </Card>
                   <Card className="p-3">
                     <div className="flex items-center gap-2 mb-1">
                       <div className="w-3 h-3 rounded-full bg-orange-500" />
                       <span className="text-sm font-medium text-foreground">25-49</span>
                     </div>
-                    <p className="text-xs">Alto Risco - Exigir garantias</p>
+                    <p className="text-xs font-medium">ALTO RISCO</p>
+                    <p className="text-xs">Exigir garantias</p>
                   </Card>
                   <Card className="p-3">
                     <div className="flex items-center gap-2 mb-1">
                       <div className="w-3 h-3 rounded-full bg-rose-500" />
                       <span className="text-sm font-medium text-foreground">0-24</span>
                     </div>
-                    <p className="text-xs">Critico - Rejeitar</p>
+                    <p className="text-xs font-medium">CRITICO</p>
+                    <p className="text-xs">Rejeitar</p>
                   </Card>
                 </div>
               </div>
 
               <div>
-                <h3 className="font-semibold text-foreground mb-2">Regras de Creditos</h3>
+                <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4" />
+                  Sistema Anti-Fraude
+                </h3>
+                <p className="mb-3">Alertas sao gerados automaticamente nas seguintes situacoes:</p>
+                <div className="space-y-1">
+                  <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/20 rounded">
+                    <Zap className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <span className="font-medium text-foreground">Cliente inadimplente consultado</span>
+                      <p className="text-xs">Quando outro provedor consulta um cliente seu com atraso</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/20 rounded">
+                    <Router className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <span className="font-medium text-foreground">Equipamento nao devolvido</span>
+                      <p className="text-xs">Quando outro provedor consulta cliente com equipamento pendente</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/20 rounded">
+                    <Users className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <span className="font-medium text-foreground">Multiplas consultas</span>
+                      <p className="text-xs">Quando mais de 2 provedores consultam o mesmo documento em 30 dias</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/20 rounded">
+                    <Clock className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <span className="font-medium text-foreground">Contrato recente</span>
+                      <p className="text-xs">Quando contrato com menos de 90 dias e consultado</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
+                  <CreditCard className="w-4 h-4" />
+                  Regras de Creditos
+                </h3>
                 <div className="space-y-1">
                   <div className="flex justify-between p-2 bg-muted/50 rounded">
                     <span>Consulta de cliente proprio</span>
@@ -660,8 +965,67 @@ export default function ConsultaISPPage() {
               </div>
 
               <div>
-                <h3 className="font-semibold text-foreground mb-2">Privacidade</h3>
-                <p>Ao consultar clientes de outros provedores, voce tera acesso a: nome, status de pagamento, faixa de valor em aberto, dias de atraso, status de equipamentos e nome do provedor de origem. Dados sensiveis como endereco, telefone e email nao sao compartilhados.</p>
+                <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
+                  <Lock className="w-4 h-4" />
+                  Privacidade e Isolamento
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Card className="p-3 border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/10">
+                    <h4 className="text-xs font-semibold text-emerald-700 mb-2 flex items-center gap-1.5">
+                      <Eye className="w-3.5 h-3.5" /> Pode ver (outro provedor)
+                    </h4>
+                    <div className="space-y-1 text-xs">
+                      <p>Nome do cliente</p>
+                      <p>Status de pagamento</p>
+                      <p>Faixa de valor em aberto</p>
+                      <p>Dias de atraso</p>
+                      <p>Se tem equipamento pendente</p>
+                      <p>Nome do provedor de origem</p>
+                    </div>
+                  </Card>
+                  <Card className="p-3 border-rose-200 bg-rose-50/50 dark:bg-rose-950/10">
+                    <h4 className="text-xs font-semibold text-rose-700 mb-2 flex items-center gap-1.5">
+                      <EyeOff className="w-3.5 h-3.5" /> Nao pode ver
+                    </h4>
+                    <div className="space-y-1 text-xs">
+                      <p>Endereco completo</p>
+                      <p>Telefone / Email</p>
+                      <p>Detalhes das faturas</p>
+                      <p>Historico de interacoes</p>
+                      <p>Dados sensiveis</p>
+                    </div>
+                  </Card>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-foreground mb-3 flex items-center gap-2">
+                  <Lightbulb className="w-4 h-4" />
+                  Fluxo Recomendado
+                </h3>
+                <div className="space-y-2">
+                  <div className="flex items-start gap-3 p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
+                    <span className="font-bold text-blue-600">1.</span>
+                    <div>
+                      <p className="font-medium text-foreground">Consulta ISP (rapida e barata)</p>
+                      <p className="text-xs">Se encontrar restricoes em provedores: RECUSAR. Se limpo: prosseguir para SPC.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 p-3 bg-purple-50 dark:bg-purple-950/20 rounded-lg">
+                    <span className="font-bold text-purple-600">2.</span>
+                    <div>
+                      <p className="font-medium text-foreground">Consulta SPC (completa)</p>
+                      <p className="text-xs">Confirma situacao financeira geral. Score nacional + restricoes + historico.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 p-3 bg-emerald-50 dark:bg-emerald-950/20 rounded-lg">
+                    <span className="font-bold text-emerald-600">3.</span>
+                    <div>
+                      <p className="font-medium text-foreground">Decisao Final</p>
+                      <p className="text-xs">ISP limpo + SPC limpo = Aprovar. ISP com pendencia = Recusar ou exigir garantias. SPC com restricoes = Avaliar caso a caso.</p>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </Card>

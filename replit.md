@@ -12,8 +12,8 @@ Sistema multi-tenant de consulta de inadimplentes focado em provedores regionais
 ## Key Features
 - Login/Register with provider creation
 - Dashboard with KPIs (customers, equipment, revenue, overdue)
-- Consulta ISP (collaborative defaulter database with full score engine)
-- Consulta SPC (SPC credit bureau simulation)
+- Consulta ISP (collaborative defaulter database with full score engine, detailed results)
+- Consulta SPC (SPC credit bureau simulation with cadastral data, restrictions, score 0-1000)
 - Anti-Fraud module (auto-generated alerts on ISP consultation)
 - Defaulters list with contact actions
 - Heat map placeholder (requires Google Maps)
@@ -28,7 +28,15 @@ Bonuses: 2+ year client in good standing (+10), never late (+15), all equipment 
 Risk tiers: 80-100 Low, 50-79 Medium, 25-49 High, 0-24 Critical
 Credit rules: own customer = free, other provider = 1 credit, not found = free
 Privacy: cross-provider queries show name, status, overdue range (not exact), days overdue, equipment status, provider name. No address/phone/email.
-Anti-fraud alerts auto-generated when: defaulter queried, unreturned equipment, multiple providers querying same doc (>2 in 30 days).
+Anti-fraud alerts auto-generated when: defaulter queried, unreturned equipment, multiple providers querying same doc (>2 in 30 days), recent contract (<90 days).
+UI: Provider cards use inner flex with colored accent strip (not border-l-4). Payment status labels: Em dia, Inadimplente (1-30/31-60/61-90/90+ dias). Cross-provider cards show "Dados parciais" badge.
+Info tab: Full penalty/bonus tables, 4 risk classifications, anti-fraud system (4 triggers), credit rules, privacy (can/cannot see), recommended flow (ISP→SPC→Decision).
+Relatorios tab: Analytics with approval/rejection distribution bar, credit consumption breakdown, alerts count.
+
+## Consulta SPC (Bureau Simulation)
+Score 0-1000, 5 risk levels (very_low to very_high). Mock data generator based on document hash seed.
+Returns: cadastral data (nome, CPF/CNPJ, nascimento/fundacao, nome da mae, situacao RF, obito), typed restrictions (PEFIN/REFIN/CCF/Protesto/Acao Judicial/Falencia with severity/creditor/value/date), previous consultations by segment, special alerts.
+Info tab: 5-level score classification, restriction types reference, recommended ISP-then-SPC flow.
 
 ## Test Credentials
 - Email: admin@ispanalizze.com / Password: 123456
