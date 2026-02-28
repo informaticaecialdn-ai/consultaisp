@@ -60,6 +60,8 @@ export interface IStorage {
 
   getDashboardStats(providerId: number): Promise<any>;
   getDefaultersByProvider(providerId: number): Promise<any[]>;
+  getHeatmapDataByProvider(providerId: number): Promise<any[]>;
+  getHeatmapDataAllProviders(): Promise<any[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -319,6 +321,45 @@ export class DatabaseStorage implements IStorage {
         )
       )
       .orderBy(desc(invoices.dueDate));
+    return result;
+  }
+  async getHeatmapDataByProvider(providerId: number): Promise<any[]> {
+    const result = await db.select({
+      id: customers.id,
+      name: customers.name,
+      latitude: customers.latitude,
+      longitude: customers.longitude,
+      city: customers.city,
+      totalOverdueAmount: customers.totalOverdueAmount,
+      maxDaysOverdue: customers.maxDaysOverdue,
+      overdueInvoicesCount: customers.overdueInvoicesCount,
+      riskTier: customers.riskTier,
+      paymentStatus: customers.paymentStatus,
+    }).from(customers).where(
+      and(
+        eq(customers.providerId, providerId),
+        sql`${customers.paymentStatus} != 'current'`,
+        sql`${customers.latitude} IS NOT NULL`,
+        sql`${customers.longitude} IS NOT NULL`,
+      )
+    );
+    return result;
+  }
+
+  async getHeatmapDataAllProviders(): Promise<any[]> {
+    const result = await db.select({
+      latitude: customers.latitude,
+      longitude: customers.longitude,
+      city: customers.city,
+      totalOverdueAmount: customers.totalOverdueAmount,
+      maxDaysOverdue: customers.maxDaysOverdue,
+    }).from(customers).where(
+      and(
+        sql`${customers.paymentStatus} != 'current'`,
+        sql`${customers.latitude} IS NOT NULL`,
+        sql`${customers.longitude} IS NOT NULL`,
+      )
+    );
     return result;
   }
 }

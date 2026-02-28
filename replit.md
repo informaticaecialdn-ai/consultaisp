@@ -16,7 +16,7 @@ Sistema multi-tenant de consulta de inadimplentes focado em provedores regionais
 - Consulta SPC (SPC credit bureau simulation with cadastral data, restrictions, score 0-1000)
 - Anti-Fraud module (6 tabs: Alertas, Score de Risco, Padroes, Analise IA, Regras, Configuracoes)
 - Defaulters list with contact actions
-- Heat map placeholder (requires Google Maps)
+- Heat map with Google Maps integration (two tabs: Meu Provedor with weighted heatmap, Benchmarking Regional with anonymized clusters)
 - Credits purchase system
 - ERP import tools
 - Administration panel
@@ -59,7 +59,7 @@ API routes: GET /api/anti-fraud/alerts, PATCH /api/anti-fraud/alerts/:id/status,
 ## Database Schema
 - providers: ISP providers (multi-tenant, ispCredits, spcCredits)
 - users: System users linked to providers
-- customers: Provider's customers (paymentStatus, totalOverdueAmount, maxDaysOverdue, overdueInvoicesCount, ispScore, riskTier)
+- customers: Provider's customers (paymentStatus, totalOverdueAmount, maxDaysOverdue, overdueInvoicesCount, ispScore, riskTier, latitude, longitude)
 - contracts: Service contracts (startDate, endDate)
 - invoices: Bills/invoices (status: pending, paid, overdue)
 - equipment: Comodato equipment (status: installed, returned, not_returned; inRecoveryProcess)

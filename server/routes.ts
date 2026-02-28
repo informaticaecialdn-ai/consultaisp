@@ -905,5 +905,48 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/config/maps-key", requireAuth, async (_req, res) => {
+    const key = process.env.GOOGLE_MAPS_API_KEY || "";
+    return res.json({ key });
+  });
+
+  app.get("/api/heatmap/provider", requireAuth, async (req, res) => {
+    try {
+      const data = await storage.getHeatmapDataByProvider(req.session.providerId!);
+      return res.json(data);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/heatmap/regional", requireAuth, async (_req, res) => {
+    try {
+      const data = await storage.getHeatmapDataAllProviders();
+      const roundPrecision = 2;
+      const cityGroups = new Map<string, { lat: number; lng: number; count: number; totalOverdue: number }>();
+      for (const item of data) {
+        const roundedLat = parseFloat(parseFloat(item.latitude).toFixed(roundPrecision));
+        const roundedLng = parseFloat(parseFloat(item.longitude).toFixed(roundPrecision));
+        const key = `${roundedLat},${roundedLng}`;
+        const existing = cityGroups.get(key);
+        if (existing) {
+          existing.count += 1;
+          existing.totalOverdue += parseFloat(item.totalOverdueAmount || "0");
+        } else {
+          cityGroups.set(key, {
+            lat: roundedLat,
+            lng: roundedLng,
+            count: 1,
+            totalOverdue: parseFloat(item.totalOverdueAmount || "0"),
+          });
+        }
+      }
+      const results = Array.from(cityGroups.values()).filter(p => p.count >= 2);
+      return res.json(results);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
   return httpServer;
 }

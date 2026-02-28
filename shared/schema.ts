@@ -36,6 +36,8 @@ export const customers = pgTable("customers", {
   city: text("city"),
   state: text("state"),
   cep: text("cep"),
+  latitude: decimal("latitude", { precision: 10, scale: 7 }),
+  longitude: decimal("longitude", { precision: 10, scale: 7 }),
   status: text("status").notNull().default("active"),
   paymentStatus: text("payment_status").notNull().default("current"),
   totalOverdueAmount: decimal("total_overdue_amount", { precision: 10, scale: 2 }).default("0"),
