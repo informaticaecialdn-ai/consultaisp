@@ -566,17 +566,157 @@ export async function registerRoutes(
       }
 
       const cleaned = cpfCnpj.replace(/\D/g, "");
-      const score = Math.floor(Math.random() * 600) + 200;
+      const isCpf = cleaned.length === 11;
+
+      const hash = cleaned.split("").reduce((a, b) => a + parseInt(b), 0);
+      const seed = hash % 100;
+
+      let score: number;
+      let situacaoRf: string;
+      let obitoRegistrado = false;
+
+      if (seed < 15) {
+        score = Math.floor(Math.random() * 300) + 100;
+        situacaoRf = seed < 5 ? "Irregular" : "Regular";
+        obitoRegistrado = seed < 3;
+      } else if (seed < 40) {
+        score = Math.floor(Math.random() * 200) + 301;
+        situacaoRf = "Regular";
+      } else if (seed < 70) {
+        score = Math.floor(Math.random() * 200) + 501;
+        situacaoRf = "Regular";
+      } else {
+        score = Math.floor(Math.random() * 200) + 750;
+        situacaoRf = "Regular";
+      }
+
+      const firstNames = ["Joao", "Maria", "Pedro", "Ana", "Carlos", "Fernanda", "Lucas", "Julia", "Rafael", "Camila"];
+      const lastNames = ["Silva", "Santos", "Oliveira", "Souza", "Rodrigues", "Ferreira", "Almeida", "Pereira", "Lima", "Costa"];
+      const motherNames = ["Maria", "Ana", "Luisa", "Helena", "Teresa", "Rosa", "Carmen", "Lucia"];
+      const nameIdx = hash % firstNames.length;
+      const lastIdx = (hash + 3) % lastNames.length;
+      const motherIdx = (hash + 7) % motherNames.length;
+
+      const birthYear = 1960 + (hash % 40);
+      const birthMonth = (hash % 12) + 1;
+      const birthDay = (hash % 28) + 1;
+
+      const cadastralData = isCpf ? {
+        nome: `${firstNames[nameIdx]} ${lastNames[lastIdx]} dos Santos`.toUpperCase(),
+        cpfCnpj: cleaned,
+        dataNascimento: `${String(birthDay).padStart(2, "0")}/${String(birthMonth).padStart(2, "0")}/${birthYear}`,
+        nomeMae: `${motherNames[motherIdx]} ${lastNames[(lastIdx + 2) % lastNames.length]}`.toUpperCase(),
+        situacaoRf,
+        obitoRegistrado,
+        tipo: "PF" as const,
+      } : {
+        nome: `${firstNames[nameIdx].toUpperCase()} ${lastNames[lastIdx].toUpperCase()} TELECOMUNICACOES LTDA`,
+        cpfCnpj: cleaned,
+        dataFundacao: `${String(birthDay).padStart(2, "0")}/${String(birthMonth).padStart(2, "0")}/${birthYear + 20}`,
+        situacaoRf,
+        obitoRegistrado: false,
+        tipo: "PJ" as const,
+      };
+
+      const restrictionTypes = [
+        { type: "PEFIN", desc: "Pendencia Financeira", severity: "medium" as const },
+        { type: "REFIN", desc: "Restricao Financeira", severity: "high" as const },
+        { type: "CCF", desc: "Cheque sem Fundo", severity: "high" as const },
+        { type: "Protesto", desc: "Titulo protestado em cartorio", severity: "high" as const },
+        { type: "Acao Judicial", desc: "Processo de cobranca", severity: "critical" as const },
+        { type: "Falencia", desc: "Processo falimentar", severity: "critical" as const },
+      ];
+
+      const creditors = [
+        "Claro S.A.", "Banco Itau S.A.", "Vivo Telefonica", "Casas Bahia", "Magazine Luiza",
+        "Banco do Brasil", "Caixa Economica", "Oi S.A.", "Tim S.A.", "Bradesco S.A.",
+        "Lojas Americanas", "Santander S.A.", "Banco Pan", "Net Servicos", "Sky Brasil",
+      ];
+
+      const restrictions: any[] = [];
+      if (score < 700) {
+        const numRestrictions = score < 300 ? Math.floor(Math.random() * 3) + 3 : score < 500 ? Math.floor(Math.random() * 2) + 1 : Math.random() > 0.5 ? 1 : 0;
+        for (let i = 0; i < numRestrictions; i++) {
+          const rType = restrictionTypes[Math.floor(Math.random() * (score < 300 ? 6 : 4))];
+          const value = Math.floor(Math.random() * 5000) + 100;
+          const daysAgo = Math.floor(Math.random() * 365) + 30;
+          const date = new Date();
+          date.setDate(date.getDate() - daysAgo);
+          restrictions.push({
+            type: rType.type,
+            description: rType.desc,
+            severity: rType.severity,
+            creditor: creditors[Math.floor(Math.random() * creditors.length)],
+            value: value.toFixed(2),
+            date: date.toISOString().split("T")[0],
+            origin: i % 2 === 0 ? "SPC" : "Serasa",
+          });
+        }
+      }
+
+      const totalRestrictions = restrictions.reduce((sum, r) => sum + parseFloat(r.value), 0);
+
+      const segments = ["Telecomunicacoes", "Varejo", "Financeiras", "Servicos", "Industria"];
+      const previousConsultations: any[] = [];
+      const numPrevConsultations = Math.floor(Math.random() * 10) + 1;
+      for (let i = 0; i < numPrevConsultations; i++) {
+        const daysAgo = Math.floor(Math.random() * 90) + 1;
+        const d = new Date();
+        d.setDate(d.getDate() - daysAgo);
+        previousConsultations.push({
+          date: d.toISOString().split("T")[0],
+          segment: segments[Math.floor(Math.random() * segments.length)],
+        });
+      }
+
+      const segmentCounts: Record<string, number> = {};
+      previousConsultations.forEach(c => {
+        segmentCounts[c.segment] = (segmentCounts[c.segment] || 0) + 1;
+      });
+
+      const alerts: { type: string; message: string; severity: string }[] = [];
+      if (numPrevConsultations > 5) {
+        alerts.push({ type: "many_queries", message: `${numPrevConsultations} consultas nos ultimos 90 dias - possivel cliente "rodando" entre empresas`, severity: "high" });
+      }
+      if (restrictions.some(r => ["Claro S.A.", "Vivo Telefonica", "Oi S.A.", "Tim S.A.", "Net Servicos", "Sky Brasil"].includes(r.creditor))) {
+        alerts.push({ type: "telecom_debt", message: "Dividas no segmento de telecomunicacoes detectadas", severity: "high" });
+      }
+      if (situacaoRf === "Irregular") {
+        alerts.push({ type: "cpf_irregular", message: "CPF irregular na Receita Federal - documento com problema", severity: "critical" });
+      }
+      if (obitoRegistrado) {
+        alerts.push({ type: "death_registered", message: "Obito registrado - possivel fraude de identidade", severity: "critical" });
+      }
+      if (score < 400 && restrictions.length > 0) {
+        alerts.push({ type: "score_drop", message: "Score muito baixo com restricoes ativas - situacao financeira critica", severity: "medium" });
+      }
+
+      let riskLevel: string;
+      let riskLabel: string;
+      let recommendation: string;
+
+      if (score >= 901) { riskLevel = "very_low"; riskLabel = "RISCO MUITO BAIXO"; recommendation = "Aprovar"; }
+      else if (score >= 701) { riskLevel = "low"; riskLabel = "RISCO BAIXO"; recommendation = "Aprovar"; }
+      else if (score >= 501) { riskLevel = "medium"; riskLabel = "RISCO MEDIO"; recommendation = "Aprovar com cautela"; }
+      else if (score >= 301) { riskLevel = "high"; riskLabel = "RISCO ALTO"; recommendation = "Nao aprovar sem garantias"; }
+      else { riskLevel = "very_high"; riskLabel = "RISCO MUITO ALTO"; recommendation = "Rejeitar"; }
 
       const result = {
         cpfCnpj: cleaned,
+        cadastralData,
         score,
-        status: score >= 500 ? "regular" : "irregular",
-        restrictions: score < 400 ? [
-          { type: "Divida bancaria", value: "R$ 2.350,00", date: "2024-06-15" },
-        ] : [],
-        protests: [],
-        bouncedChecks: [],
+        riskLevel,
+        riskLabel,
+        recommendation,
+        status: restrictions.length === 0 ? "clean" : "restricted",
+        restrictions,
+        totalRestrictions,
+        previousConsultations: {
+          total: numPrevConsultations,
+          last90Days: numPrevConsultations,
+          bySegment: segmentCounts,
+        },
+        alerts,
       };
 
       const consultation = await storage.createSpcConsultation({
