@@ -68,7 +68,7 @@ function AuthenticatedApp() {
           <header className="flex items-center gap-2 p-3 border-b bg-background/95 backdrop-blur-sm sticky top-0 z-50">
             <SidebarTrigger data-testid="button-sidebar-toggle" />
           </header>
-          <main className="flex-1 overflow-auto bg-muted/30">
+          <main className="flex-1 overflow-auto bg-background">
             <Router />
           </main>
         </div>
