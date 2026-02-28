@@ -29,6 +29,7 @@ import {
   Target,
   Minus,
   Plus,
+  ClipboardCopy,
 } from "lucide-react";
 
 interface ProviderDetail {
@@ -150,6 +151,16 @@ export default function ConsultaISPPage() {
     mutation.mutate(query);
   };
 
+  const getDetectedType = (val: string) => {
+    const cleaned = val.replace(/\D/g, "");
+    if (cleaned.length === 11) return "CPF";
+    if (cleaned.length === 14) return "CNPJ";
+    if (cleaned.length === 8) return "CEP";
+    return null;
+  };
+
+  const detectedType = getDetectedType(query);
+
   const riskColors: Record<string, string> = {
     low: "bg-emerald-100 text-emerald-800",
     medium: "bg-amber-100 text-amber-800",
@@ -235,6 +246,10 @@ export default function ConsultaISPPage() {
             <Clock className="w-3.5 h-3.5" />
             Historico
           </TabsTrigger>
+          <TabsTrigger value="relatorios" className="gap-1.5">
+            <BarChart3 className="w-3.5 h-3.5" />
+            Relatorios
+          </TabsTrigger>
           <TabsTrigger value="info" className="gap-1.5">
             <Info className="w-3.5 h-3.5" />
             Informacoes
@@ -248,24 +263,28 @@ export default function ConsultaISPPage() {
               <h2 className="text-lg font-semibold">Realizar Consulta ISP</h2>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex gap-3 items-center">
               <div className="relative flex-1">
                 <Input
                   data-testid="input-isp-search"
-                  placeholder="Digite CPF ou CNPJ"
+                  placeholder="Digite CPF, CNPJ ou CEP"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSearch()}
                   className="pr-10"
                 />
-                {query && (
-                  <button
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
-                    onClick={() => { setQuery(""); setResult(null); }}
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
+                <button
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={() => {
+                    navigator.clipboard.readText().then((text) => {
+                      if (text) setQuery(text);
+                    }).catch(() => {});
+                  }}
+                  title="Colar da area de transferencia"
+                  data-testid="button-paste-clipboard"
+                >
+                  <ClipboardCopy className="w-4 h-4" />
+                </button>
               </div>
               <Button variant="ghost" onClick={() => { setQuery(""); setResult(null); }} data-testid="button-clear-isp">
                 Limpar
@@ -276,17 +295,24 @@ export default function ConsultaISPPage() {
                 className="bg-gradient-to-r from-blue-600 to-blue-700"
                 data-testid="button-consultar-isp"
               >
-                <Search className="w-4 h-4 mr-2" />
                 {mutation.isPending ? "Consultando..." : "Consultar ISP"}
               </Button>
             </div>
+
+            {detectedType && (
+              <div className="mt-2 flex items-center gap-1.5" data-testid="text-detected-type">
+                <CheckCircle className="w-4 h-4 text-emerald-500" />
+                <span className="text-sm font-medium text-emerald-600">{detectedType} detectado</span>
+              </div>
+            )}
 
             <div className="mt-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg p-4 flex items-start gap-3">
               <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
               <p className="text-sm text-muted-foreground">
                 <span className="font-semibold text-foreground">Busca Inteligente:</span> Digite um{" "}
-                <span className="font-bold text-foreground">CPF</span> (11 digitos) ou{" "}
-                <span className="font-bold text-foreground">CNPJ</span> (14 digitos).{" "}
+                <span className="font-bold text-blue-600">CPF</span> (11 digitos),{" "}
+                <span className="font-bold text-blue-600">CNPJ</span> (14 digitos) ou{" "}
+                <span className="font-bold text-blue-600">CEP</span> (8 digitos).{" "}
                 O sistema detecta automaticamente o tipo de busca.
               </p>
             </div>
@@ -562,6 +588,16 @@ export default function ConsultaISPPage() {
                 })}
               </div>
             )}
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="relatorios">
+          <Card className="p-6">
+            <div className="text-center py-12 text-muted-foreground">
+              <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p className="font-medium">Relatorios em breve</p>
+              <p className="text-sm mt-1">Funcionalidade em desenvolvimento</p>
+            </div>
           </Card>
         </TabsContent>
 
