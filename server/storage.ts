@@ -55,6 +55,8 @@ export interface IStorage {
 
   getAlertsByProvider(providerId: number): Promise<AntiFraudAlert[]>;
   createAlert(alert: InsertAntiFraudAlert): Promise<AntiFraudAlert>;
+  updateAlertStatus(alertId: number, providerId: number, status: string): Promise<AntiFraudAlert | undefined>;
+  getAlertsByCustomer(customerId: number): Promise<AntiFraudAlert[]>;
 
   getDashboardStats(providerId: number): Promise<any>;
   getDefaultersByProvider(providerId: number): Promise<any[]>;
@@ -232,6 +234,21 @@ export class DatabaseStorage implements IStorage {
   async createAlert(alert: InsertAntiFraudAlert): Promise<AntiFraudAlert> {
     const [created] = await db.insert(antiFraudAlerts).values(alert).returning();
     return created;
+  }
+
+  async updateAlertStatus(alertId: number, providerId: number, status: string): Promise<AntiFraudAlert | undefined> {
+    const resolved = status === "resolved" || status === "dismissed";
+    const [updated] = await db.update(antiFraudAlerts)
+      .set({ status, resolved })
+      .where(and(eq(antiFraudAlerts.id, alertId), eq(antiFraudAlerts.providerId, providerId)))
+      .returning();
+    return updated;
+  }
+
+  async getAlertsByCustomer(customerId: number): Promise<AntiFraudAlert[]> {
+    return db.select().from(antiFraudAlerts)
+      .where(eq(antiFraudAlerts.customerId, customerId))
+      .orderBy(desc(antiFraudAlerts.createdAt));
   }
 
   async getDashboardStats(providerId: number): Promise<any> {

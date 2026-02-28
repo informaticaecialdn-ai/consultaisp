@@ -1,0 +1,726 @@
+Módulo Anti-Fraude - Detalhes Minuciosos
+O que é?
+Sistema de detecção e prevenção de fraudes no setor de telecom. Monitora quando seus clientes inadimplentes são consultados por outros provedores, indicando possível tentativa de "golpe" (cancelar devendo e contratar em outro lugar).
+
+🎯 PROBLEMA QUE RESOLVE
+O Golpe Clássico do Setor
+1️⃣ Cliente contrata Provedor A
+         ↓
+2️⃣ Recebe equipamento em comodato (ONU, roteador)
+         ↓
+3️⃣ Para de pagar após alguns meses
+         ↓
+4️⃣ Ignora cobranças do Provedor A
+         ↓
+5️⃣ Contrata Provedor B (concorrente)
+         ↓
+6️⃣ Provedor A fica com:
+   • Faturas em aberto
+   • Equipamento não devolvido
+   • Prejuízo financeiro
+Com o Anti-Fraude
+1️⃣ Cliente do Provedor A está inadimplente
+         ↓
+2️⃣ Provedor B consulta CPF do cliente
+         ↓
+3️⃣ Sistema DETECTA a consulta
+         ↓
+4️⃣ Provedor A recebe ALERTA IMEDIATO:
+   "⚠️ Seu cliente João foi consultado pela Empresa B!
+    Pendências: R$ 450 + 1 ONU não devolvida"
+         ↓
+5️⃣ Provedor A pode:
+   • Intensificar cobrança
+   • Agendar retirada do equipamento
+   • Negativar no SPC
+   • Acionar juridicamente
+📊 ARQUITETURA DO SISTEMA
+Entidades Principais
+┌─────────────────────────────────────────────────────────────┐
+│  AntiFraudAlert (Alerta de Fraude)                          │
+├─────────────────────────────────────────────────────────────┤
+│  id                      │ Identificador único              │
+│  customer_id             │ Cliente que gerou o alerta       │
+│  original_provider_id    │ Provedor DONO do cliente         │
+│  consulting_provider_id  │ Provedor que CONSULTOU           │
+│  consulting_provider_name│ Nome do provedor consultante     │
+│  reason                  │ Motivo do alerta                 │
+│  status                  │ new | resolved | dismissed       │
+│  flagged_date            │ Data/hora do alerta              │
+│  risk_score              │ Pontuação de risco (0-100)       │
+│  risk_level              │ low | medium | high | critical   │
+│  risk_factors            │ Array de fatores de risco        │
+│  days_overdue            │ Dias de atraso do cliente        │
+│  overdue_amount          │ Valor total em aberto            │
+│  equipment_not_returned  │ Qtd equipamentos pendentes       │
+│  equipment_value         │ Valor dos equipamentos           │
+│  recent_consultations    │ Consultas nos últimos 30 dias    │
+│  notification_sent       │ Se email foi enviado             │
+│  notification_sent_to    │ Lista de emails notificados      │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│  AntiFraudConfig (Configurações por Provedor)               │
+├─────────────────────────────────────────────────────────────┤
+│  provider_id                    │ Provedor dono da config   │
+│  enabled                        │ Módulo ativo (true/false) │
+│  min_overdue_days_alert         │ Dias mínimos para alertar │
+│  min_contract_age_days          │ Idade mínima do contrato  │
+│  alert_on_equipment_risk        │ Alertar equipamentos      │
+│  min_equipment_value_alert      │ Valor mínimo equipamento  │
+│  alert_on_multiple_consultations│ Alertar múltiplas consultas│
+│  max_consultations_30_days      │ Limite de consultas       │
+│  notification_emails            │ Emails para notificação   │
+│  notify_on_critical             │ Notificar alertas críticos│
+│  notify_on_high                 │ Notificar alertas altos   │
+│  custom_rules                   │ Regras personalizadas     │
+│  fraud_automations              │ Automações configuradas   │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│  AntiFraudAuditLog (Histórico de Ações)                     │
+├─────────────────────────────────────────────────────────────┤
+│  provider_id      │ Provedor                                │
+│  alert_id         │ Alerta relacionado                      │
+│  customer_id      │ Cliente relacionado                     │
+│  action           │ created | viewed | resolved | dismissed │
+│                   │ reopened | commented | escalated        │
+│                   │ notification_sent                       │
+│  action_by        │ Email do usuário                        │
+│  action_by_name   │ Nome do usuário                         │
+│  previous_status  │ Status anterior                         │
+│  new_status       │ Novo status                             │
+│  comment          │ Comentário/observação                   │
+│  metadata         │ Dados adicionais                        │
+│  timestamp        │ Data/hora da ação                       │
+└─────────────────────────────────────────────────────────────┘
+🔄 FLUXO DE DETECÇÃO
+Gatilho: Consulta ISP
+// Quando Provedor B consulta um CPF:
+
+async function performIspConsultation(document, consultingProviderId) {
+  
+  // 1. Busca cliente em todos os provedores
+  const customers = await Customer.filter({ document });
+  
+  for (const customer of customers) {
+    
+    // 2. Pula se é do próprio provedor
+    if (customer.provider_id === consultingProviderId) continue;
+    
+    // 3. Carrega configuração anti-fraude do provedor original
+    const config = await AntiFraudConfig.filter({ 
+      provider_id: customer.provider_id 
+    });
+    
+    // 4. Verifica se deve gerar alerta
+    const shouldAlert = evaluateAlertConditions(customer, config);
+    
+    if (shouldAlert) {
+      // 5. Calcula score de risco
+      const riskData = calculateRiskScore(customer);
+      
+      // 6. Cria o alerta
+      await AntiFraudAlert.create({
+        customer_id: customer.id,
+        original_provider_id: customer.provider_id,
+        consulting_provider_id: consultingProviderId,
+        consulting_provider_name: consultingProvider.name,
+        reason: buildAlertReason(customer),
+        status: 'new',
+        flagged_date: new Date().toISOString(),
+        risk_score: riskData.score,
+        risk_level: riskData.level,
+        risk_factors: riskData.factors,
+        days_overdue: customer.max_days_overdue,
+        overdue_amount: customer.total_overdue_amount,
+        // ... demais campos
+      });
+      
+      // 7. Envia notificação por email (se configurado)
+      if (config.notify_on_critical && riskData.level === 'critical') {
+        await sendAlertEmail(config.notification_emails, alertData);
+      }
+    }
+  }
+}
+📈 CÁLCULO DO SCORE DE RISCO
+Fórmula Detalhada
+function calculateRiskScore(customer, equipment, alerts) {
+  let score = 0;
+  let factors = [];
+  
+  // ═══════════════════════════════════════════════════════
+  // FATOR 1: DIAS DE ATRASO (máx 35 pontos)
+  // ═══════════════════════════════════════════════════════
+  const daysOverdue = customer.max_days_overdue || 0;
+  
+  if (daysOverdue >= 90) {
+    score += 35;
+    factors.push("Atraso superior a 90 dias");
+  } else if (daysOverdue >= 60) {
+    score += 25;
+    factors.push("Atraso entre 60-90 dias");
+  } else if (daysOverdue >= 30) {
+    score += 15;
+    factors.push("Atraso entre 30-60 dias");
+  } else if (daysOverdue >= 1) {
+    score += 8;
+    factors.push("Atraso de 1-30 dias");
+  }
+  
+  // ═══════════════════════════════════════════════════════
+  // FATOR 2: VALOR EM ABERTO (máx 25 pontos)
+  // ═══════════════════════════════════════════════════════
+  const overdueAmount = customer.total_overdue_amount || 0;
+  
+  if (overdueAmount >= 1000) {
+    score += 25;
+    factors.push(`Valor alto em aberto: R$ ${overdueAmount.toFixed(2)}`);
+  } else if (overdueAmount >= 500) {
+    score += 18;
+    factors.push(`Valor médio em aberto: R$ ${overdueAmount.toFixed(2)}`);
+  } else if (overdueAmount >= 200) {
+    score += 10;
+    factors.push(`Valor em aberto: R$ ${overdueAmount.toFixed(2)}`);
+  } else if (overdueAmount > 0) {
+    score += 5;
+    factors.push(`Pequeno valor em aberto: R$ ${overdueAmount.toFixed(2)}`);
+  }
+  
+  // ═══════════════════════════════════════════════════════
+  // FATOR 3: EQUIPAMENTOS NÃO DEVOLVIDOS (máx 25 pontos)
+  // ═══════════════════════════════════════════════════════
+  const notReturnedEquipment = equipment.filter(e => 
+    e.status === 'not_returned' || e.status === 'installed'
+  );
+  const equipmentValue = notReturnedEquipment.reduce(
+    (sum, e) => sum + (e.value || 0), 0
+  );
+  
+  if (equipmentValue >= 500) {
+    score += 25;
+    factors.push(`Equipamento de alto valor: R$ ${equipmentValue.toFixed(2)}`);
+  } else if (equipmentValue >= 200) {
+    score += 18;
+    factors.push(`Equipamento não devolvido: R$ ${equipmentValue.toFixed(2)}`);
+  } else if (notReturnedEquipment.length > 0) {
+    score += 10;
+    factors.push(`${notReturnedEquipment.length} equipamento(s) pendente(s)`);
+  }
+  
+  // ═══════════════════════════════════════════════════════
+  // FATOR 4: CONSULTAS RECENTES (máx 15 pontos)
+  // ═══════════════════════════════════════════════════════
+  const recentAlerts = alerts.filter(a => {
+    const alertDate = new Date(a.flagged_date);
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    return alertDate >= thirtyDaysAgo;
+  });
+  
+  if (recentAlerts.length >= 5) {
+    score += 15;
+    factors.push(`Consultado por ${recentAlerts.length} provedores recentemente`);
+  } else if (recentAlerts.length >= 3) {
+    score += 10;
+    factors.push(`Múltiplas consultas recentes: ${recentAlerts.length}`);
+  } else if (recentAlerts.length >= 2) {
+    score += 5;
+    factors.push("Consultado por 2 provedores nos últimos 30 dias");
+  }
+  
+  // ═══════════════════════════════════════════════════════
+  // FATOR 5: IDADE DO CONTRATO (máx 10 pontos)
+  // ═══════════════════════════════════════════════════════
+  const contractStart = new Date(customer.contract_start_date);
+  const contractAgeDays = Math.floor(
+    (new Date() - contractStart) / (1000 * 60 * 60 * 24)
+  );
+  
+  if (contractAgeDays < 30) {
+    score += 10;
+    factors.push("Contrato muito recente (< 30 dias)");
+  } else if (contractAgeDays < 90) {
+    score += 5;
+    factors.push("Contrato recente (< 90 dias)");
+  }
+  
+  // ═══════════════════════════════════════════════════════
+  // DETERMINAÇÃO DO NÍVEL DE RISCO
+  // ═══════════════════════════════════════════════════════
+  let riskLevel;
+  if (score >= 75) {
+    riskLevel = 'critical';
+  } else if (score >= 50) {
+    riskLevel = 'high';
+  } else if (score >= 25) {
+    riskLevel = 'medium';
+  } else {
+    riskLevel = 'low';
+  }
+  
+  return { score, level: riskLevel, factors };
+}
+Tabela de Classificação
+┌─────────────┬────────────┬─────────────────────────────────────┐
+│ Score       │ Nível      │ Significado                         │
+├─────────────┼────────────┼─────────────────────────────────────┤
+│ 75-100      │ 🔴 CRÍTICO │ Alto risco de perda financeira      │
+│ 50-74       │ 🟠 ALTO    │ Situação preocupante                │
+│ 25-49       │ 🟡 MÉDIO   │ Monitorar de perto                  │
+│ 0-24        │ 🟢 BAIXO   │ Situação controlada                 │
+└─────────────┴────────────┴─────────────────────────────────────┘
+🖥️ INTERFACE DO USUÁRIO
+Página Principal (AntiFraud.js)
+┌──────────────────────────────────────────────────────────────┐
+│  🛡️ MÓDULO ANTI-FRAUDE                                      │
+│  Monitore clientes de alto risco e proteja seu negócio      │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  [🔴 3 Críticos] [🟠 5 Altos] [🔔 Notificações] [↻ Atualizar]│
+│                                                              │
+│  ┌──────────────────────────────────────────────────────────┐│
+│  │ TABS:                                                    ││
+│  │ [Alertas] [Score de Risco] [Padrões] [Análise IA]       ││
+│  │ [Regras] [Configurações]                                 ││
+│  └──────────────────────────────────────────────────────────┘│
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+Aba: Alertas
+┌──────────────────────────────────────────────────────────────┐
+│  📋 ALERTAS ATIVOS                                           │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ 🔴 CRÍTICO | Score: 85                                 │ │
+│  │                                                        │ │
+│  │ Cliente: João Silva                                    │ │
+│  │ CPF: 123.456.789-00                                    │ │
+│  │ Consultado por: NET Fibra Ltda                         │ │
+│  │ Data: 28/02/2026 às 14:30                              │ │
+│  │                                                        │ │
+│  │ 💰 Valor em aberto: R$ 780,00                          │ │
+│  │ 📅 Dias em atraso: 95                                  │ │
+│  │ 📦 Equipamentos: 2 (R$ 450,00)                         │ │
+│  │                                                        │ │
+│  │ Fatores de Risco:                                      │ │
+│  │ • Atraso superior a 90 dias                            │ │
+│  │ • Valor alto em aberto                                 │ │
+│  │ • Equipamento de alto valor não devolvido              │ │
+│  │ • Consultado por 3 provedores recentemente             │ │
+│  │                                                        │ │
+│  │ [✅ Resolver] [❌ Ignorar] [📞 Contatar] [📝 Comentar] │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ 🟠 ALTO | Score: 62                                    │ │
+│  │ Cliente: Maria Souza...                                │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+Aba: Score de Risco
+┌──────────────────────────────────────────────────────────────┐
+│  📊 RANKING DE RISCO DOS CLIENTES                            │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Estatísticas:                                               │
+│  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐                │
+│  │ 🔴 12  │ │ 🟠 25  │ │ 🟡 48  │ │ 🟢 215 │                │
+│  │Crítico │ │ Alto   │ │ Médio  │ │ Baixo  │                │
+│  └────────┘ └────────┘ └────────┘ └────────┘                │
+│                                                              │
+│  Score Médio: 35.2                                           │
+│                                                              │
+│  TOP CLIENTES EM RISCO:                                      │
+│  ┌──────────────────────────────────────────────────────────┐│
+│  │ #1 │ João Silva    │ Score: 92 │ 🔴 │ R$ 1.200 │ 120d   ││
+│  │ #2 │ Pedro Santos  │ Score: 88 │ 🔴 │ R$ 890   │ 95d    ││
+│  │ #3 │ Ana Costa     │ Score: 85 │ 🔴 │ R$ 650   │ 88d    ││
+│  │ #4 │ Carlos Lima   │ Score: 78 │ 🟠 │ R$ 450   │ 72d    ││
+│  │ #5 │ Maria Souza   │ Score: 65 │ 🟠 │ R$ 320   │ 45d    ││
+│  └──────────────────────────────────────────────────────────┘│
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+Aba: Padrões Recorrentes
+┌──────────────────────────────────────────────────────────────┐
+│  🔄 PADRÕES DE FRAUDE DETECTADOS                             │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Estatísticas:                                               │
+│  • 15 clientes com padrões identificados                     │
+│  • 8 alertas críticos relacionados                           │
+│  • 5 casos de recidiva                                       │
+│  • 3 casos de múltiplos provedores                           │
+│                                                              │
+│  PADRÕES IDENTIFICADOS:                                      │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ 🔴 RECIDIVA - João Silva                               │ │
+│  │                                                        │ │
+│  │ Descrição: Cliente com histórico de inadimplência      │ │
+│  │ repetida em múltiplos ciclos.                          │ │
+│  │                                                        │ │
+│  │ Histórico:                                             │ │
+│  │ • 2024: Deveu R$ 400 por 60 dias                       │ │
+│  │ • 2025: Deveu R$ 650 por 90 dias                       │ │
+│  │ • 2026: Atual - R$ 780 há 95 dias                      │ │
+│  │                                                        │ │
+│  │ [🤖 Analisar com IA]                                   │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ 🟠 CICLO DE FRAUDE - Pedro Santos                      │ │
+│  │                                                        │ │
+│  │ Descrição: Cliente consultado por 4 provedores em      │ │
+│  │ 30 dias, indicando tentativa de contratar em vários.   │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+Aba: Análise IA
+┌──────────────────────────────────────────────────────────────┐
+│  🤖 ANÁLISE DE FRAUDE COM IA                                 │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  [🔍 Executar Análise de Fraude]                             │
+│                                                              │
+│  ══════════════════════════════════════════════════════════ │
+│  RESULTADO DA ANÁLISE                                        │
+│  ══════════════════════════════════════════════════════════ │
+│                                                              │
+│  📊 RESUMO DE RISCO                                          │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ Score Geral: 72/100 (ALTO)                             │ │
+│  │ Tendência: ↗️ Piorando                                  │ │
+│  │ Casos críticos: 8                                      │ │
+│  │ Valor total em risco: R$ 12.450,00                     │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  🎯 PADRÕES DETECTADOS                                       │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ 1. Concentração geográfica de inadimplência            │ │
+│  │    → 60% dos casos no bairro Centro                    │ │
+│  │                                                        │ │
+│  │ 2. Padrão temporal                                     │ │
+│  │    → Aumento de 40% nas consultas em fevereiro         │ │
+│  │                                                        │ │
+│  │ 3. Perfil de risco                                     │ │
+│  │    → Contratos < 6 meses têm 3x mais inadimplência     │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  💡 AÇÕES RECOMENDADAS                                       │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ 🔴 URGENTE: Recuperar equipamentos de 3 clientes       │ │
+│  │    → João Silva, Pedro Santos, Ana Costa               │ │
+│  │    → Valor total: R$ 1.250,00                          │ │
+│  │    [Agendar Retiradas]                                 │ │
+│  │                                                        │ │
+│  │ 🟠 IMPORTANTE: Intensificar cobrança em 5 casos        │ │
+│  │    → Total em aberto: R$ 2.800,00                      │ │
+│  │    [Enviar Notificações]                               │ │
+│  │                                                        │ │
+│  │ 🟡 PREVENTIVO: Revisar política de crédito             │ │
+│  │    → Exigir caução para contratos novos no Centro      │ │
+│  │    [Ver Sugestões]                                     │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+Aba: Regras Personalizadas
+┌──────────────────────────────────────────────────────────────┐
+│  ⚙️ CONSTRUTOR DE REGRAS                                     │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  [+ Nova Regra] [🤖 Gerar com IA]                            │
+│                                                              │
+│  REGRAS ATIVAS:                                              │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ ✅ Regra: Alerta Equipamento Alto Valor                │ │
+│  │    Prioridade: 1                                       │ │
+│  │                                                        │ │
+│  │    SE: equipment_value > 300                           │ │
+│  │    ENTÃO: add_risk_points(20)                          │ │
+│  │                                                        │ │
+│  │    [Editar] [Desativar] [Excluir] [Testar]             │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ ✅ Regra: Cliente Novo com Atraso                      │ │
+│  │    Prioridade: 2                                       │ │
+│  │                                                        │ │
+│  │    SE: contract_age < 90 AND days_overdue > 30         │ │
+│  │    ENTÃO: add_risk_points(25), send_notification       │ │
+│  │                                                        │ │
+│  │    [Editar] [Desativar] [Excluir] [Testar]             │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ ❌ Regra: Múltiplas Consultas (DESATIVADA)             │ │
+│  │    Prioridade: 3                                       │ │
+│  │                                                        │ │
+│  │    SE: consultations_count > 3                         │ │
+│  │    ENTÃO: block_approval                               │ │
+│  │                                                        │ │
+│  │    [Editar] [Ativar] [Excluir] [Testar]                │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+Aba: Configurações
+┌──────────────────────────────────────────────────────────────┐
+│  ⚙️ CONFIGURAÇÕES ANTI-FRAUDE                                │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  CONFIGURAÇÕES GERAIS                                        │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ [✅] Módulo Anti-Fraude Ativo                          │ │
+│  │                                                        │ │
+│  │ Dias mínimos de atraso para alerta:    [__1__] dias    │ │
+│  │ Idade mínima do contrato (risco):      [_90__] dias    │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  ALERTAS DE EQUIPAMENTO                                      │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ [✅] Alertar quando cliente tem equipamento em risco   │ │
+│  │ Valor mínimo para alerta:              [_100_] R$      │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  ALERTAS DE MÚLTIPLAS CONSULTAS                              │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ [✅] Alertar quando cliente é consultado múltiplas vezes│
+│  │ Máximo de consultas em 30 dias:        [__2__]         │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  NOTIFICAÇÕES POR EMAIL                                      │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ Emails para notificação:                               │ │
+│  │ [admin@meuprovedor.com.br________________] [+ Adicionar]│
+│  │ [financeiro@meuprovedor.com.br___________] [x Remover] │ │
+│  │                                                        │ │
+│  │ [✅] Notificar alertas CRÍTICOS                        │ │
+│  │ [ ] Notificar alertas ALTOS                            │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  [💾 Salvar Configurações]                                   │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+📧 SISTEMA DE NOTIFICAÇÕES
+Email de Alerta
+═══════════════════════════════════════════════════════════════
+De: alertas@consultaisp.com.br
+Para: admin@seuprovedor.com.br
+Assunto: 🚨 ALERTA CRÍTICO - Cliente consultado por concorrente
+═══════════════════════════════════════════════════════════════
+
+Olá,
+
+Detectamos uma consulta suspeita em um de seus clientes:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 DETALHES DO ALERTA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Cliente: João Silva
+CPF: 123.456.789-00
+Consultado por: NET Fibra Ltda
+Data/Hora: 28/02/2026 às 14:30
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ SITUAÇÃO DO CLIENTE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔴 Score de Risco: 85/100 (CRÍTICO)
+💰 Valor em aberto: R$ 780,00
+📅 Dias em atraso: 95
+📦 Equipamentos pendentes: 2 (Valor: R$ 450,00)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 AÇÕES RECOMENDADAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Entre em contato imediato com o cliente
+2. Agende retirada dos equipamentos
+3. Considere negativação no SPC
+4. Avalie ação judicial
+
+[Ver Alerta no Sistema] [Marcar como Resolvido]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Este é um email automático do sistema Consulta ISP.
+Para configurar notificações, acesse: Configurações > Anti-Fraude
+
+═══════════════════════════════════════════════════════════════
+Centro de Notificações (In-App)
+┌──────────────────────────────────────────────────────────────┐
+│ 🔔 NOTIFICAÇÕES                               [Marcar Lidas] │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│ ● 🔴 há 5 min                                                │
+│   Cliente João Silva consultado por NET Fibra                │
+│   Score: 85 | R$ 780,00 em aberto                            │
+│                                                              │
+│ ● 🟠 há 1 hora                                               │
+│   Cliente Maria Souza consultado por Speed Telecom           │
+│   Score: 62 | R$ 320,00 em aberto                            │
+│                                                              │
+│ ○ 🟡 há 3 horas                                              │
+│   Cliente Pedro Santos consultado por Fibra Max              │
+│   Score: 45 | R$ 150,00 em aberto                            │
+│                                                              │
+│ [🔔 Ativar Notificações do Navegador]                        │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+🔒 SEGURANÇA E AUDITORIA
+Registro de Todas as Ações
+// Cada ação no sistema é registrada:
+
+await AntiFraudAuditLog.create({
+  provider_id: user.provider_id,
+  alert_id: alert.id,
+  customer_id: alert.customer_id,
+  action: 'resolved',              // created, viewed, resolved, dismissed, etc
+  action_by: user.email,
+  action_by_name: user.full_name,
+  previous_status: 'new',
+  new_status: 'resolved',
+  comment: 'Cliente quitou débito e devolveu equipamento',
+  metadata: {
+    ip_address: request.ip,
+    user_agent: request.headers['user-agent'],
+    resolution_type: 'payment_received'
+  },
+  timestamp: new Date().toISOString()
+});
+Histórico Visível no Alerta
+┌──────────────────────────────────────────────────────────────┐
+│ 📜 HISTÓRICO DO ALERTA                                       │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│ 28/02/2026 14:30 - 🆕 Alerta criado                          │
+│   Sistema detectou consulta pelo provedor NET Fibra          │
+│                                                              │
+│ 28/02/2026 14:35 - 👁️ Visualizado                            │
+│   Por: admin@seuprovedor.com.br                              │
+│                                                              │
+│ 28/02/2026 15:00 - 💬 Comentário adicionado                  │
+│   Por: financeiro@seuprovedor.com.br                         │
+│   "Tentei contato, cliente não atendeu"                      │
+│                                                              │
+│ 28/02/2026 16:30 - 📞 Contato realizado                      │
+│   Por: financeiro@seuprovedor.com.br                         │
+│   "Cliente prometeu pagar até sexta-feira"                   │
+│                                                              │
+│ 01/03/2026 10:00 - ✅ Resolvido                              │
+│   Por: admin@seuprovedor.com.br                              │
+│   "Pagamento confirmado, equipamento retirado"               │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+📊 MÉTRICAS E RELATÓRIOS
+Dashboard de Métricas
+┌────────────────────────────────────────────────────────────┐
+│  📊 MÉTRICAS ANTI-FRAUDE - Fevereiro/2026                  │
+├────────────────────────────────────────────────────────────┤
+│                                                            │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
+│  │    47    │ │    38    │ │   81%    │ │ R$ 8.5k  │      │
+│  │ Alertas  │ │Resolvidos│ │  Taxa    │ │Recuperado│      │
+│  │  Gerados │ │          │ │Resolução │ │          │      │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
+│                                                            │
+│  📈 TENDÊNCIA SEMANAL                                      │
+│  ┌────────────────────────────────────────────────────┐   │
+│  │     ▄▄                                             │   │
+│  │  ▄▄ ██                                             │   │
+│  │  ██ ██ ▄▄    ▄▄                                    │   │
+│  │  ██ ██ ██ ▄▄ ██                                    │   │
+│  │  ██ ██ ██ ██ ██ ▄▄ ▄▄                              │   │
+│  │  Seg Ter Qua Qui Sex Sab Dom                       │   │
+│  │  ■ Críticos  ■ Altos  ■ Médios                     │   │
+│  └────────────────────────────────────────────────────┘   │
+│                                                            │
+│  🏢 TOP PROVEDORES CONSULTANTES                            │
+│  ┌────────────────────────────────────────────────────┐   │
+│  │ 1. NET Fibra Ltda          │ 12 consultas │ 🔴     │   │
+│  │ 2. Speed Telecom           │  8 consultas │ 🟠     │   │
+│  │ 3. Fibra Max               │  5 consultas │ 🟡     │   │
+│  │ 4. Internet PRO            │  3 consultas │ 🟢     │   │
+│  └────────────────────────────────────────────────────┘   │
+│                                                            │
+└────────────────────────────────────────────────────────────┘
+💡 CASOS DE USO PRÁTICOS
+Caso 1: Prevenção de Perda
+Situação:
+- Cliente João está devendo R$ 500 há 60 dias
+- João foi consultado pela NET Fibra
+
+Alerta gerado:
+- Score: 72 (ALTO)
+- Provedor notificado por email
+
+Ação do provedor:
+1. Liga para João imediatamente
+2. Descobre que ele quer cancelar e ir para NET
+3. Oferece desconto para quitação
+4. João paga R$ 400 (com desconto)
+5. Equipamento devolvido
+
+Resultado:
+✅ Recuperou R$ 400 que seriam perdidos
+✅ Equipamento de R$ 280 recuperado
+✅ Evitou inadimplência prolongada
+Caso 2: Identificação de Golpista
+Situação:
+- Cliente Pedro foi consultado por 5 provedores em 20 dias
+- Tem dívidas em 3 provedores diferentes
+- Nunca devolveu equipamentos
+
+Padrão detectado:
+- IA identifica como "GOLPISTA SERIAL"
+- Score: 95 (CRÍTICO)
+- Histórico de R$ 3.000 em prejuízos na rede
+
+Ações recomendadas:
+1. Bloquear aprovação de crédito
+2. Exigir pagamento antecipado se contratar
+3. Não fornecer equipamento em comodato
+4. Compartilhar alerta na rede
+Caso 3: Recuperação de Equipamento
+Situação:
+- Cliente Maria cancelou há 30 dias
+- Não devolveu ONU (R$ 350)
+- Consultada pelo provedor XYZ
+
+Ação imediata:
+1. Sistema envia alerta para provedor original
+2. Provedor agenda visita técnica
+3. Técnico retira equipamento
+4. ONU volta ao estoque
+
+Resultado:
+✅ Equipamento recuperado antes de "desaparecer"
+✅ R$ 350 de patrimônio preservado
+🔧 INTEGRAÇÕES
+Com Outros Módulos
+┌─────────────────────────────────────────────────────────────┐
+│                    ANTI-FRAUDE                              │
+│                         │                                   │
+│    ┌────────────────────┼────────────────────┐              │
+│    │                    │                    │              │
+│    ▼                    ▼                    ▼              │
+│ ┌──────┐           ┌──────┐           ┌──────────┐         │
+│ │CONSUL│           │INAD. │           │EQUIPAMENT│         │
+│ │TA ISP│           │      │           │          │         │
+│ └──────┘           └──────┘           └──────────┘         │
+│    │                    │                    │              │
+│    │ Gera alertas       │ Lista clientes     │ Recuperação │
+│    │ em consultas       │ de risco           │ automática   │
+│    │                    │                    │              │
+│    └────────────────────┴────────────────────┘              │
+│                         │                                   │
+│                         ▼                                   │
+│                   ┌──────────┐                              │
+│                   │  EMAIL   │                              │
+│                   │NOTIFICAT.│                              │
+│                   └──────────┘                              │
+└─────────────────────────────────────────────────────────────┘
+Esse é o detalhamento completo do módulo Anti-Fraude. 

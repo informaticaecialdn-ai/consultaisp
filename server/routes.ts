@@ -391,31 +391,66 @@ export async function registerRoutes(
         providerDetails.push(detail);
 
         if (customer.providerId !== providerId) {
-          if (maxDays >= 1) {
-            alerts.push(`Cliente inadimplente em ${customerProvider?.name || "outro provedor"} (${maxDays} dias de atraso)`);
-            await storage.createAlert({
-              providerId: customer.providerId,
-              customerId: customer.id,
-              consultingProviderId: providerId,
-              type: "defaulter_consulted",
-              severity: maxDays > 90 ? "critical" : maxDays > 60 ? "high" : "medium",
-              message: `Seu cliente ${customer.name} foi consultado por ${provider.name}. O cliente possui R$ ${totalOverdue.toFixed(2)} em atraso.`,
-              riskScore: maxDays > 90 ? 90 : maxDays > 60 ? 70 : 50,
-              resolved: false,
-            });
-          }
+          const equipmentValue = unreturnedEquipment.reduce((sum, eq) => sum + parseFloat(eq.value || "0"), 0);
+          const totalConsultingProviders = recentConsultationsCount + 1;
 
-          if (unreturnedCount > 0) {
-            alerts.push(`Equipamento nao devolvido em ${customerProvider?.name || "outro provedor"}`);
+          let riskScore = 0;
+          const riskFactors: string[] = [];
+
+          if (maxDays >= 90) { riskScore += 35; riskFactors.push("Atraso superior a 90 dias"); }
+          else if (maxDays >= 60) { riskScore += 25; riskFactors.push("Atraso entre 60-90 dias"); }
+          else if (maxDays >= 30) { riskScore += 15; riskFactors.push("Atraso entre 30-60 dias"); }
+          else if (maxDays >= 1) { riskScore += 8; riskFactors.push("Atraso de 1-30 dias"); }
+
+          if (totalOverdue >= 1000) { riskScore += 25; riskFactors.push(`Valor alto em aberto: R$ ${totalOverdue.toFixed(2)}`); }
+          else if (totalOverdue >= 500) { riskScore += 18; riskFactors.push(`Valor medio em aberto: R$ ${totalOverdue.toFixed(2)}`); }
+          else if (totalOverdue >= 200) { riskScore += 10; riskFactors.push(`Valor em aberto: R$ ${totalOverdue.toFixed(2)}`); }
+          else if (totalOverdue > 0) { riskScore += 5; riskFactors.push(`Pequeno valor em aberto: R$ ${totalOverdue.toFixed(2)}`); }
+
+          if (equipmentValue >= 500) { riskScore += 25; riskFactors.push(`Equipamento de alto valor: R$ ${equipmentValue.toFixed(2)}`); }
+          else if (equipmentValue >= 200) { riskScore += 18; riskFactors.push(`Equipamento nao devolvido: R$ ${equipmentValue.toFixed(2)}`); }
+          else if (unreturnedCount > 0) { riskScore += 10; riskFactors.push(`${unreturnedCount} equipamento(s) pendente(s)`); }
+
+          if (totalConsultingProviders >= 5) { riskScore += 15; riskFactors.push(`Consultado por ${totalConsultingProviders} provedores recentemente`); }
+          else if (totalConsultingProviders >= 3) { riskScore += 10; riskFactors.push(`Multiplas consultas recentes: ${totalConsultingProviders}`); }
+          else if (totalConsultingProviders >= 2) { riskScore += 5; riskFactors.push("Consultado por 2 provedores nos ultimos 30 dias"); }
+
+          if (contractAgeDays < 30) { riskScore += 10; riskFactors.push("Contrato muito recente (< 30 dias)"); }
+          else if (contractAgeDays < 90) { riskScore += 5; riskFactors.push("Contrato recente (< 90 dias)"); }
+
+          riskScore = Math.min(riskScore, 100);
+          const riskLevel = riskScore >= 75 ? "critical" : riskScore >= 50 ? "high" : riskScore >= 25 ? "medium" : "low";
+          const severity = riskLevel;
+
+          if (maxDays >= 1 || unreturnedCount > 0 || contractAgeDays < 90) {
+            const alertType = maxDays >= 1 ? "defaulter_consulted" : unreturnedCount > 0 ? "equipment_risk" : "recent_contract";
+            const alertMessage = maxDays >= 1
+              ? `Seu cliente ${customer.name} foi consultado por ${provider.name}. O cliente possui R$ ${totalOverdue.toFixed(2)} em atraso ha ${maxDays} dias.`
+              : unreturnedCount > 0
+              ? `Seu cliente ${customer.name} possui ${unreturnedCount} equipamento(s) nao devolvido(s) (R$ ${equipmentValue.toFixed(2)}) e foi consultado por ${provider.name}.`
+              : `Seu cliente ${customer.name} (contrato recente: ${contractAgeDays} dias) foi consultado por ${provider.name}.`;
+
+            alerts.push(alertMessage);
             await storage.createAlert({
               providerId: customer.providerId,
               customerId: customer.id,
               consultingProviderId: providerId,
-              type: "equipment_risk",
-              severity: "high",
-              message: `Seu cliente ${customer.name} possui ${unreturnedCount} equipamento(s) nao devolvido(s) e foi consultado por ${provider.name}.`,
-              riskScore: 75,
+              consultingProviderName: provider.name,
+              customerName: customer.name,
+              customerCpfCnpj: customer.cpfCnpj,
+              type: alertType,
+              severity,
+              message: alertMessage,
+              riskScore,
+              riskLevel,
+              riskFactors,
+              daysOverdue: maxDays,
+              overdueAmount: totalOverdue.toFixed(2),
+              equipmentNotReturned: unreturnedCount,
+              equipmentValue: equipmentValue.toFixed(2),
+              recentConsultations: totalConsultingProviders,
               resolved: false,
+              status: "new",
             });
           }
         }
@@ -424,16 +459,29 @@ export async function registerRoutes(
       if (recentConsultationsCount > 2) {
         alerts.push(`Consultado por ${recentConsultationsCount + 1} provedores nos ultimos 30 dias`);
         for (const customer of allCustomerRecords) {
-          await storage.createAlert({
-            providerId: customer.providerId,
-            customerId: customer.id,
-            consultingProviderId: providerId,
-            type: "multiple_consultations",
-            severity: "high",
-            message: `Seu cliente ${customer.name} foi consultado por ${recentConsultationsCount + 1} provedores nos ultimos 30 dias. Possivel padrao de fraude.`,
-            riskScore: 80,
-            resolved: false,
-          });
+          if (customer.providerId !== providerId) {
+            await storage.createAlert({
+              providerId: customer.providerId,
+              customerId: customer.id,
+              consultingProviderId: providerId,
+              consultingProviderName: provider.name,
+              customerName: customer.name,
+              customerCpfCnpj: customer.cpfCnpj,
+              type: "multiple_consultations",
+              severity: "high",
+              message: `Seu cliente ${customer.name} foi consultado por ${recentConsultationsCount + 1} provedores nos ultimos 30 dias. Possivel padrao de fraude.`,
+              riskScore: 80,
+              riskLevel: "high",
+              riskFactors: [`Consultado por ${recentConsultationsCount + 1} provedores nos ultimos 30 dias`, "Possivel padrao de fraude"],
+              daysOverdue: customer.maxDaysOverdue || 0,
+              overdueAmount: customer.totalOverdueAmount || "0",
+              equipmentNotReturned: 0,
+              equipmentValue: "0",
+              recentConsultations: recentConsultationsCount + 1,
+              resolved: false,
+              status: "new",
+            });
+          }
         }
       }
 
@@ -743,6 +791,94 @@ export async function registerRoutes(
     try {
       const alerts = await storage.getAlertsByProvider(req.session.providerId!);
       return res.json(alerts);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/anti-fraud/alerts/:id/status", requireAuth, async (req, res) => {
+    try {
+      const alertId = parseInt(req.params.id);
+      const { status } = req.body;
+      if (!["new", "resolved", "dismissed"].includes(status)) {
+        return res.status(400).json({ message: "Status invalido" });
+      }
+      const updated = await storage.updateAlertStatus(alertId, req.session.providerId!, status);
+      if (!updated) {
+        return res.status(404).json({ message: "Alerta nao encontrado" });
+      }
+      return res.json(updated);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/anti-fraud/customer-risk", requireAuth, async (req, res) => {
+    try {
+      const providerId = req.session.providerId!;
+      const allCustomers = await storage.getCustomersByProvider(providerId);
+      const customerRisk = [];
+      for (const customer of allCustomers) {
+        const customerEquipment = await storage.getEquipmentByCustomer(customer.id);
+        const unreturnedEquipment = customerEquipment.filter(eq => eq.status === "not_returned");
+        const equipmentValue = unreturnedEquipment.reduce((sum, eq) => sum + parseFloat(eq.value || "0"), 0);
+        const overdueAmount = parseFloat(customer.totalOverdueAmount || "0");
+        const daysOverdue = customer.maxDaysOverdue || 0;
+        const existingAlerts = await storage.getAlertsByCustomer(customer.id);
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const recentAlertCount = existingAlerts.filter(a => a.createdAt && new Date(a.createdAt) >= thirtyDaysAgo).length;
+
+        const customerContracts = await storage.getContractsByCustomer(customer.id);
+        const oldestContract = customerContracts.reduce((oldest, ct) => {
+          const start = ct.startDate ? new Date(ct.startDate) : new Date();
+          return start < oldest ? start : oldest;
+        }, new Date());
+        const contractAgeDays = Math.floor((Date.now() - oldestContract.getTime()) / (1000 * 60 * 60 * 24));
+
+        let riskScore = 0;
+        const riskFactors: string[] = [];
+        if (daysOverdue >= 90) { riskScore += 35; riskFactors.push("Atraso superior a 90 dias"); }
+        else if (daysOverdue >= 60) { riskScore += 25; riskFactors.push("Atraso entre 60-90 dias"); }
+        else if (daysOverdue >= 30) { riskScore += 15; riskFactors.push("Atraso entre 30-60 dias"); }
+        else if (daysOverdue >= 1) { riskScore += 8; riskFactors.push("Atraso de 1-30 dias"); }
+
+        if (overdueAmount >= 1000) { riskScore += 25; riskFactors.push(`Valor alto em aberto: R$ ${overdueAmount.toFixed(2)}`); }
+        else if (overdueAmount >= 500) { riskScore += 18; riskFactors.push(`Valor medio em aberto: R$ ${overdueAmount.toFixed(2)}`); }
+        else if (overdueAmount >= 200) { riskScore += 10; riskFactors.push(`Valor em aberto: R$ ${overdueAmount.toFixed(2)}`); }
+        else if (overdueAmount > 0) { riskScore += 5; riskFactors.push(`Pequeno valor em aberto: R$ ${overdueAmount.toFixed(2)}`); }
+
+        if (equipmentValue >= 500) { riskScore += 25; riskFactors.push(`Equipamento de alto valor: R$ ${equipmentValue.toFixed(2)}`); }
+        else if (equipmentValue >= 200) { riskScore += 18; riskFactors.push(`Equipamento nao devolvido: R$ ${equipmentValue.toFixed(2)}`); }
+        else if (unreturnedEquipment.length > 0) { riskScore += 10; riskFactors.push(`${unreturnedEquipment.length} equipamento(s) pendente(s)`); }
+
+        if (recentAlertCount >= 5) { riskScore += 15; riskFactors.push(`Consultado por ${recentAlertCount} provedores`); }
+        else if (recentAlertCount >= 3) { riskScore += 10; riskFactors.push(`Multiplas consultas: ${recentAlertCount}`); }
+        else if (recentAlertCount >= 2) { riskScore += 5; riskFactors.push("Consultado por 2+ provedores"); }
+
+        if (contractAgeDays < 30) { riskScore += 10; riskFactors.push("Contrato muito recente"); }
+        else if (contractAgeDays < 90) { riskScore += 5; riskFactors.push("Contrato recente"); }
+
+        riskScore = Math.min(riskScore, 100);
+        const riskLevel = riskScore >= 75 ? "critical" : riskScore >= 50 ? "high" : riskScore >= 25 ? "medium" : "low";
+
+        customerRisk.push({
+          id: customer.id,
+          name: customer.name,
+          cpfCnpj: customer.cpfCnpj,
+          riskScore,
+          riskLevel,
+          riskFactors,
+          daysOverdue,
+          overdueAmount,
+          equipmentNotReturned: unreturnedEquipment.length,
+          equipmentValue,
+          recentConsultations: recentAlertCount,
+          alertCount: existingAlerts.length,
+        });
+      }
+      customerRisk.sort((a, b) => b.riskScore - a.riskScore);
+      return res.json(customerRisk);
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
     }

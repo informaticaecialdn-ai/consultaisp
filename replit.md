@@ -14,7 +14,7 @@ Sistema multi-tenant de consulta de inadimplentes focado em provedores regionais
 - Dashboard with KPIs (customers, equipment, revenue, overdue)
 - Consulta ISP (collaborative defaulter database with full score engine, detailed results)
 - Consulta SPC (SPC credit bureau simulation with cadastral data, restrictions, score 0-1000)
-- Anti-Fraud module (auto-generated alerts on ISP consultation)
+- Anti-Fraud module (6 tabs: Alertas, Score de Risco, Padroes, Analise IA, Regras, Configuracoes)
 - Defaulters list with contact actions
 - Heat map placeholder (requires Google Maps)
 - Credits purchase system
@@ -38,6 +38,13 @@ Score 0-1000, 5 risk levels (very_low to very_high). Mock data generator based o
 Returns: cadastral data (nome, CPF/CNPJ, nascimento/fundacao, nome da mae, situacao RF, obito), typed restrictions (PEFIN/REFIN/CCF/Protesto/Acao Judicial/Falencia with severity/creditor/value/date), previous consultations by segment, special alerts.
 Info tab: 5-level score classification, restriction types reference, recommended ISP-then-SPC flow.
 
+## Anti-Fraud Module
+Risk Score 0-100, 5 weighted factors: days overdue (max 35), overdue amount (max 25), unreturned equipment value (max 25), recent ISP consultations (max 15), contract age (max 10).
+Risk levels: 75-100 Critical, 50-74 High, 25-49 Medium, 0-24 Low.
+Alerts auto-generated on ISP consultation when cross-provider customer has: overdue debt, unreturned equipment, recent contract, or document queried by >2 providers in 30 days.
+6 Tabs: Alertas (detailed cards with risk factors, Resolver/Ignorar/Contatar actions, search/filter by status), Score de Risco (customer risk ranking with stats), Padroes (recidiva and ciclo de fraude detection from alert patterns), Analise IA (mock AI analysis with risk summary, detected patterns, recommended actions), Regras (custom rule builder with SE/ENTAO conditions), Configuracoes (toggles for min overdue days, contract age, equipment threshold, multi-query limit, notification emails, critical/high notification toggles).
+API routes: GET /api/anti-fraud/alerts, PATCH /api/anti-fraud/alerts/:id/status, GET /api/anti-fraud/customer-risk.
+
 ## Test Credentials
 - Email: admin@ispanalizze.com / Password: 123456
 - Email: carlos@vertical.com / Password: 123456
@@ -58,7 +65,7 @@ Info tab: 5-level score classification, restriction types reference, recommended
 - equipment: Comodato equipment (status: installed, returned, not_returned; inRecoveryProcess)
 - isp_consultations: ISP credit checks (decisionReco, cost)
 - spc_consultations: SPC credit checks
-- anti_fraud_alerts: Fraud detection alerts (consultingProviderId, riskScore)
+- anti_fraud_alerts: Fraud detection alerts (riskScore 0-100, riskLevel, riskFactors jsonb, daysOverdue, overdueAmount, equipmentNotReturned, equipmentValue, consultingProviderName, customerName, customerCpfCnpj, status: new/resolved/dismissed, recentConsultations)
 
 ## File Structure
 - shared/schema.ts: All data models and types
