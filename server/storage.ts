@@ -34,16 +34,19 @@ export interface IStorage {
   createContract(contract: InsertContract): Promise<Contract>;
 
   getInvoicesByProvider(providerId: number): Promise<Invoice[]>;
+  getInvoicesByCustomer(customerId: number): Promise<Invoice[]>;
   getOverdueInvoicesByProvider(providerId: number): Promise<Invoice[]>;
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
 
   getEquipmentByProvider(providerId: number): Promise<Equipment[]>;
+  getEquipmentByCustomer(customerId: number): Promise<Equipment[]>;
   createEquipment(equipment: InsertEquipment): Promise<Equipment>;
 
   getIspConsultationsByProvider(providerId: number): Promise<IspConsultation[]>;
   createIspConsultation(consultation: InsertIspConsultation): Promise<IspConsultation>;
   getIspConsultationCountToday(providerId: number): Promise<number>;
   getIspConsultationCountMonth(providerId: number): Promise<number>;
+  getRecentConsultationsForDocument(cpfCnpj: string, days: number): Promise<IspConsultation[]>;
 
   getSpcConsultationsByProvider(providerId: number): Promise<SpcConsultation[]>;
   createSpcConsultation(consultation: InsertSpcConsultation): Promise<SpcConsultation>;
@@ -126,6 +129,10 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(invoices).where(eq(invoices.providerId, providerId)).orderBy(desc(invoices.dueDate));
   }
 
+  async getInvoicesByCustomer(customerId: number): Promise<Invoice[]> {
+    return db.select().from(invoices).where(eq(invoices.customerId, customerId)).orderBy(desc(invoices.dueDate));
+  }
+
   async getOverdueInvoicesByProvider(providerId: number): Promise<Invoice[]> {
     return db.select().from(invoices).where(
       and(
@@ -142,6 +149,10 @@ export class DatabaseStorage implements IStorage {
 
   async getEquipmentByProvider(providerId: number): Promise<Equipment[]> {
     return db.select().from(equipment).where(eq(equipment.providerId, providerId));
+  }
+
+  async getEquipmentByCustomer(customerId: number): Promise<Equipment[]> {
+    return db.select().from(equipment).where(eq(equipment.customerId, customerId));
   }
 
   async createEquipment(eq_data: InsertEquipment): Promise<Equipment> {
@@ -175,6 +186,13 @@ export class DatabaseStorage implements IStorage {
     const result = await db.select({ count: count() }).from(ispConsultations)
       .where(and(eq(ispConsultations.providerId, providerId), gte(ispConsultations.createdAt, firstDay)));
     return result[0]?.count || 0;
+  }
+
+  async getRecentConsultationsForDocument(cpfCnpj: string, days: number): Promise<IspConsultation[]> {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    return db.select().from(ispConsultations)
+      .where(and(eq(ispConsultations.cpfCnpj, cpfCnpj), gte(ispConsultations.createdAt, since)));
   }
 
   async getSpcConsultationsByProvider(providerId: number): Promise<SpcConsultation[]> {

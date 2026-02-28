@@ -5,6 +5,123 @@ import { sessionMiddleware, requireAuth, requireAdmin } from "./auth";
 import { loginSchema, registerSchema } from "@shared/schema";
 import { hashPassword, verifyPassword } from "./password";
 
+function calculateIspScore(params: {
+  maxDaysOverdue: number;
+  totalOverdueAmount: number;
+  unreturnedEquipmentCount: number;
+  contractAgeDays: number;
+  recentConsultationsCount: number;
+  providersWithDebt: number;
+  clientYears: number;
+  neverLate: boolean;
+  allEquipmentReturned: boolean;
+}): { score: number; penalties: { reason: string; points: number }[]; bonuses: { reason: string; points: number }[] } {
+  let score = 100;
+  const penalties: { reason: string; points: number }[] = [];
+  const bonuses: { reason: string; points: number }[] = [];
+
+  if (params.maxDaysOverdue > 90) {
+    penalties.push({ reason: "Atraso superior a 90 dias", points: -40 });
+    score -= 40;
+  } else if (params.maxDaysOverdue > 60) {
+    penalties.push({ reason: "Atraso de 61-90 dias", points: -30 });
+    score -= 30;
+  } else if (params.maxDaysOverdue > 30) {
+    penalties.push({ reason: "Atraso de 31-60 dias", points: -20 });
+    score -= 20;
+  } else if (params.maxDaysOverdue > 0) {
+    penalties.push({ reason: "Atraso de 1-30 dias", points: -10 });
+    score -= 10;
+  }
+
+  const amountPenalty = Math.floor(params.totalOverdueAmount / 100) * 5;
+  if (amountPenalty > 0) {
+    penalties.push({ reason: `R$ ${params.totalOverdueAmount.toFixed(2)} em aberto (-5 a cada R$100)`, points: -amountPenalty });
+    score -= amountPenalty;
+  }
+
+  if (params.unreturnedEquipmentCount > 0) {
+    const eqPenalty = params.unreturnedEquipmentCount * 15;
+    penalties.push({ reason: `${params.unreturnedEquipmentCount} equipamento(s) nao devolvido(s)`, points: -eqPenalty });
+    score -= eqPenalty;
+  }
+
+  if (params.contractAgeDays < 90) {
+    penalties.push({ reason: "Contrato com menos de 3 meses", points: -15 });
+    score -= 15;
+  } else if (params.contractAgeDays < 180) {
+    penalties.push({ reason: "Contrato com menos de 6 meses", points: -10 });
+    score -= 10;
+  }
+
+  if (params.recentConsultationsCount > 3) {
+    penalties.push({ reason: `Consultado por ${params.recentConsultationsCount} provedores nos ultimos 30 dias`, points: -20 });
+    score -= 20;
+  }
+
+  if (params.providersWithDebt > 1) {
+    penalties.push({ reason: "Divida em multiplos provedores", points: -25 });
+    score -= 25;
+  }
+
+  if (params.clientYears >= 2 && params.maxDaysOverdue === 0) {
+    bonuses.push({ reason: "Cliente ha mais de 2 anos (em dia)", points: 10 });
+    score += 10;
+  }
+
+  if (params.neverLate) {
+    bonuses.push({ reason: "Nunca atrasou pagamento", points: 15 });
+    score += 15;
+  }
+
+  if (params.allEquipmentReturned) {
+    bonuses.push({ reason: "Equipamentos sempre devolvidos", points: 5 });
+    score += 5;
+  }
+
+  return { score: Math.max(0, Math.min(100, score)), penalties, bonuses };
+}
+
+function getRiskTier(score: number): { tier: string; label: string; recommendation: string } {
+  if (score >= 80) return { tier: "low", label: "BAIXO RISCO", recommendation: "Aprovar" };
+  if (score >= 50) return { tier: "medium", label: "MEDIO RISCO", recommendation: "Aprovar com cautela" };
+  if (score >= 25) return { tier: "high", label: "ALTO RISCO", recommendation: "Exigir garantias" };
+  return { tier: "critical", label: "CRITICO", recommendation: "Rejeitar" };
+}
+
+function getDecisionReco(score: number): string {
+  if (score >= 80) return "Accept";
+  if (score >= 50) return "Review";
+  return "Reject";
+}
+
+function getOverdueAmountRange(amount: number): string {
+  if (amount === 0) return "Sem debito";
+  if (amount <= 100) return "Ate R$ 100";
+  if (amount <= 300) return "R$ 100 - R$ 300";
+  if (amount <= 500) return "R$ 300 - R$ 500";
+  if (amount <= 1000) return "R$ 500 - R$ 1.000";
+  return "Acima de R$ 1.000";
+}
+
+function getRecommendedActions(score: number, hasUnreturnedEquipment: boolean): string[] {
+  const actions: string[] = [];
+  if (score < 25) {
+    actions.push("Exigir pagamento antecipado (3-6 meses)");
+    actions.push("Nao fornecer equipamento em comodato");
+    actions.push("Contrato com multa de fidelidade");
+    actions.push("Solicitar fiador/avalista");
+  } else if (score < 50) {
+    actions.push("Exigir pagamento antecipado (1-3 meses)");
+    if (hasUnreturnedEquipment) actions.push("Nao fornecer equipamento em comodato");
+    actions.push("Contrato com multa de fidelidade");
+  } else if (score < 80) {
+    actions.push("Monitorar pagamentos nos primeiros 3 meses");
+    actions.push("Considerar contrato com fidelidade");
+  }
+  return actions;
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -163,52 +280,263 @@ export async function registerRoutes(
         return res.status(400).json({ message: "CPF/CNPJ obrigatorio" });
       }
 
-      const provider = await storage.getProvider(req.session.providerId!);
-      if (!provider || provider.ispCredits <= 0) {
-        return res.status(400).json({ message: "Creditos ISP insuficientes" });
-      }
-
       const cleaned = cpfCnpj.replace(/\D/g, "");
       let searchType = "cpf";
       if (cleaned.length === 14) searchType = "cnpj";
       else if (cleaned.length === 8) searchType = "cep";
 
-      const records = await storage.getCustomerByCpfCnpj(cleaned);
+      const providerId = req.session.providerId!;
+      const provider = await storage.getProvider(providerId);
+      if (!provider) {
+        return res.status(400).json({ message: "Provedor nao encontrado" });
+      }
 
-      const hasOverdue = records.some(r => r.status === "inactive");
-      const score = records.length === 0 ? 750 : hasOverdue ? 250 : 650;
-      const approved = score >= 400;
+      const allCustomerRecords = await storage.getCustomerByCpfCnpj(cleaned);
+
+      const isOwnCustomer = allCustomerRecords.some(c => c.providerId === providerId);
+      const hasOtherProviderRecords = allCustomerRecords.some(c => c.providerId !== providerId);
+      const notFound = allCustomerRecords.length === 0;
+
+      let cost = 0;
+      if (!isOwnCustomer && !notFound) {
+        cost = 1;
+        if (provider.ispCredits <= 0) {
+          return res.status(400).json({ message: "Creditos ISP insuficientes" });
+        }
+      }
+
+      const recentConsultations = await storage.getRecentConsultationsForDocument(cleaned, 30);
+      const distinctProviders = new Set(recentConsultations.map(c => c.providerId));
+      const recentConsultationsCount = distinctProviders.size;
+
+      const providerDetails: any[] = [];
+      const alerts: string[] = [];
+      let globalMaxDaysOverdue = 0;
+      let globalTotalOverdue = 0;
+      let providersWithDebtCount = 0;
+      let hasUnreturnedEquipmentGlobal = false;
+
+      for (const customer of allCustomerRecords) {
+        const customerProvider = await storage.getProvider(customer.providerId);
+        const customerContracts = await storage.getContractsByCustomer(customer.id);
+        const customerEquipment = await storage.getEquipmentByCustomer(customer.id);
+        const customerInvoices = await storage.getInvoicesByCustomer(customer.id);
+
+        const overdueInvoices = customerInvoices.filter(inv => inv.status === "overdue");
+        const totalOverdue = overdueInvoices.reduce((sum, inv) => sum + parseFloat(inv.value || "0"), 0);
+        const overdueCount = overdueInvoices.length;
+
+        let maxDays = 0;
+        for (const inv of overdueInvoices) {
+          const dueDate = new Date(inv.dueDate);
+          const diffDays = Math.floor((Date.now() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+          if (diffDays > maxDays) maxDays = diffDays;
+        }
+
+        const unreturnedEquipment = customerEquipment.filter(eq => eq.status === "not_returned");
+        const unreturnedCount = unreturnedEquipment.length;
+
+        if (totalOverdue > 0) providersWithDebtCount++;
+        if (maxDays > globalMaxDaysOverdue) globalMaxDaysOverdue = maxDays;
+        globalTotalOverdue += totalOverdue;
+        if (unreturnedCount > 0) hasUnreturnedEquipmentGlobal = true;
+
+        const oldestContract = customerContracts.reduce((oldest, ct) => {
+          const start = ct.startDate ? new Date(ct.startDate) : new Date();
+          return start < oldest ? start : oldest;
+        }, new Date());
+        const contractAgeDays = Math.floor((Date.now() - oldestContract.getTime()) / (1000 * 60 * 60 * 24));
+
+        let paymentStatusLabel = "Em dia";
+        if (maxDays > 90) paymentStatusLabel = "Inadimplente (90+ dias)";
+        else if (maxDays > 60) paymentStatusLabel = "Inadimplente (61-90 dias)";
+        else if (maxDays > 30) paymentStatusLabel = "Inadimplente (31-60 dias)";
+        else if (maxDays > 0) paymentStatusLabel = "Inadimplente (1-30 dias)";
+
+        const isSameProvider = customer.providerId === providerId;
+
+        const detail: any = {
+          providerName: customerProvider?.name || "Provedor desconhecido",
+          isSameProvider,
+          customerName: customer.name,
+          status: paymentStatusLabel,
+          daysOverdue: maxDays,
+          overdueAmount: isSameProvider ? totalOverdue : undefined,
+          overdueAmountRange: isSameProvider ? undefined : getOverdueAmountRange(totalOverdue),
+          overdueInvoicesCount: overdueCount,
+          contractStartDate: oldestContract.toISOString(),
+          contractAgeDays,
+          hasUnreturnedEquipment: unreturnedCount > 0,
+          unreturnedEquipmentCount: unreturnedCount,
+        };
+
+        if (isSameProvider) {
+          detail.equipmentDetails = unreturnedEquipment.map(eq => ({
+            type: eq.type,
+            brand: eq.brand,
+            model: eq.model,
+            value: eq.value,
+            inRecoveryProcess: eq.inRecoveryProcess,
+          }));
+          const newestContract = customerContracts.length > 0 ? customerContracts[0] : null;
+          if (newestContract?.endDate) {
+            detail.cancelledDate = newestContract.endDate;
+          }
+        } else {
+          detail.equipmentPendingSummary = unreturnedCount > 0
+            ? `${unreturnedCount} equipamento(s) nao devolvido(s)`
+            : "Todos devolvidos";
+        }
+
+        providerDetails.push(detail);
+
+        if (customer.providerId !== providerId) {
+          if (maxDays >= 1) {
+            alerts.push(`Cliente inadimplente em ${customerProvider?.name || "outro provedor"} (${maxDays} dias de atraso)`);
+            await storage.createAlert({
+              providerId: customer.providerId,
+              customerId: customer.id,
+              consultingProviderId: providerId,
+              type: "defaulter_consulted",
+              severity: maxDays > 90 ? "critical" : maxDays > 60 ? "high" : "medium",
+              message: `Seu cliente ${customer.name} foi consultado por ${provider.name}. O cliente possui R$ ${totalOverdue.toFixed(2)} em atraso.`,
+              riskScore: maxDays > 90 ? 90 : maxDays > 60 ? 70 : 50,
+              resolved: false,
+            });
+          }
+
+          if (unreturnedCount > 0) {
+            alerts.push(`Equipamento nao devolvido em ${customerProvider?.name || "outro provedor"}`);
+            await storage.createAlert({
+              providerId: customer.providerId,
+              customerId: customer.id,
+              consultingProviderId: providerId,
+              type: "equipment_risk",
+              severity: "high",
+              message: `Seu cliente ${customer.name} possui ${unreturnedCount} equipamento(s) nao devolvido(s) e foi consultado por ${provider.name}.`,
+              riskScore: 75,
+              resolved: false,
+            });
+          }
+        }
+      }
+
+      if (recentConsultationsCount > 2) {
+        alerts.push(`Consultado por ${recentConsultationsCount + 1} provedores nos ultimos 30 dias`);
+        for (const customer of allCustomerRecords) {
+          await storage.createAlert({
+            providerId: customer.providerId,
+            customerId: customer.id,
+            consultingProviderId: providerId,
+            type: "multiple_consultations",
+            severity: "high",
+            message: `Seu cliente ${customer.name} foi consultado por ${recentConsultationsCount + 1} provedores nos ultimos 30 dias. Possivel padrao de fraude.`,
+            riskScore: 80,
+            resolved: false,
+          });
+        }
+      }
+
+      if (providersWithDebtCount > 1) {
+        alerts.push("Padrao de divida em multiplos provedores detectado");
+      }
+
+      let contractAgeDays = 365;
+      let neverLate = true;
+      let allEquipmentReturned = true;
+      let clientYears = 0;
+      let hasAnyContract = false;
+
+      if (allCustomerRecords.length > 0) {
+        for (const customer of allCustomerRecords) {
+          const cts = await storage.getContractsByCustomer(customer.id);
+          for (const ct of cts) {
+            hasAnyContract = true;
+            const start = ct.startDate ? new Date(ct.startDate) : new Date();
+            const age = Math.floor((Date.now() - start.getTime()) / (1000 * 60 * 60 * 24));
+            if (age < contractAgeDays) contractAgeDays = age;
+            const years = age / 365;
+            if (years > clientYears) clientYears = years;
+          }
+          const invs = await storage.getInvoicesByCustomer(customer.id);
+          if (invs.some(inv => inv.status === "overdue")) neverLate = false;
+          const eqs = await storage.getEquipmentByCustomer(customer.id);
+          if (eqs.some(eq => eq.status === "not_returned")) allEquipmentReturned = false;
+        }
+      }
+
+      if (!hasAnyContract) {
+        contractAgeDays = 365;
+      }
+
+      let actualUnreturnedCount = 0;
+      for (const customer of allCustomerRecords) {
+        const eqs = await storage.getEquipmentByCustomer(customer.id);
+        actualUnreturnedCount += eqs.filter(eq => eq.status === "not_returned").length;
+      }
+
+      const recalculated = allCustomerRecords.length === 0
+        ? { score: 100, penalties: [], bonuses: [] }
+        : calculateIspScore({
+            maxDaysOverdue: globalMaxDaysOverdue,
+            totalOverdueAmount: globalTotalOverdue,
+            unreturnedEquipmentCount: actualUnreturnedCount,
+            contractAgeDays,
+            recentConsultationsCount: recentConsultationsCount + 1,
+            providersWithDebt: providersWithDebtCount,
+            clientYears,
+            neverLate,
+            allEquipmentReturned,
+          });
+
+      const finalScore = recalculated.score;
+      const risk = getRiskTier(finalScore);
+      const decisionReco = getDecisionReco(finalScore);
+      const recommendedActions = getRecommendedActions(finalScore, hasUnreturnedEquipmentGlobal);
 
       const result = {
         cpfCnpj: cleaned,
-        recordsFound: records.length,
-        providersFound: [...new Set(records.map(r => r.providerId))].length,
-        hasDefaultHistory: hasOverdue,
-        details: records.map(r => ({
-          providerName: "Provedor Regional",
-          status: r.status,
-          city: r.city,
-        })),
+        searchType,
+        notFound: allCustomerRecords.length === 0,
+        score: finalScore,
+        riskTier: risk.tier,
+        riskLabel: risk.label,
+        recommendation: risk.recommendation,
+        decisionReco,
+        providersFound: new Set(allCustomerRecords.map(c => c.providerId)).size,
+        providerDetails,
+        penalties: recalculated.penalties,
+        bonuses: recalculated.bonuses,
+        alerts,
+        recommendedActions,
+        creditsCost: cost,
+        isOwnCustomer,
       };
 
+      const customerIdForLog = allCustomerRecords.length > 0 ? allCustomerRecords[0].id : null;
       const consultation = await storage.createIspConsultation({
-        providerId: req.session.providerId!,
+        providerId,
         userId: req.session.userId!,
         cpfCnpj: cleaned,
         searchType,
         result,
-        score,
-        approved,
+        score: finalScore,
+        decisionReco,
+        cost,
+        approved: finalScore >= 50,
       });
 
-      await storage.updateProviderCredits(
-        provider.id,
-        provider.ispCredits - 1,
-        provider.spcCredits,
-      );
+      if (cost > 0) {
+        await storage.updateProviderCredits(
+          provider.id,
+          provider.ispCredits - cost,
+          provider.spcCredits,
+        );
+      }
 
-      return res.json({ consultation, result: { ...result, score, approved } });
+      return res.json({ consultation, result });
     } catch (error: any) {
+      console.error("ISP consultation error:", error);
       return res.status(500).json({ message: error.message });
     }
   });

@@ -37,6 +37,12 @@ export const customers = pgTable("customers", {
   state: text("state"),
   cep: text("cep"),
   status: text("status").notNull().default("active"),
+  paymentStatus: text("payment_status").notNull().default("current"),
+  totalOverdueAmount: decimal("total_overdue_amount", { precision: 10, scale: 2 }).default("0"),
+  maxDaysOverdue: integer("max_days_overdue").default(0),
+  overdueInvoicesCount: integer("overdue_invoices_count").default(0),
+  ispScore: integer("isp_score").default(100),
+  riskTier: text("risk_tier").default("low"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -70,7 +76,9 @@ export const equipment = pgTable("equipment", {
   brand: text("brand"),
   model: text("model"),
   serialNumber: text("serial_number"),
-  status: text("status").notNull().default("in_use"),
+  mac: text("mac"),
+  status: text("status").notNull().default("installed"),
+  inRecoveryProcess: boolean("in_recovery_process").default(false),
   value: decimal("value", { precision: 10, scale: 2 }),
 });
 
@@ -82,6 +90,8 @@ export const ispConsultations = pgTable("isp_consultations", {
   searchType: text("search_type").notNull(),
   result: jsonb("result"),
   score: integer("score"),
+  decisionReco: text("decision_reco"),
+  cost: integer("cost").default(1),
   approved: boolean("approved"),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -100,9 +110,11 @@ export const antiFraudAlerts = pgTable("anti_fraud_alerts", {
   id: serial("id").primaryKey(),
   providerId: integer("provider_id").notNull().references(() => providers.id),
   customerId: integer("customer_id").references(() => customers.id),
+  consultingProviderId: integer("consulting_provider_id").references(() => providers.id),
   type: text("type").notNull(),
   severity: text("severity").notNull().default("medium"),
   message: text("message").notNull(),
+  riskScore: integer("risk_score"),
   resolved: boolean("resolved").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
