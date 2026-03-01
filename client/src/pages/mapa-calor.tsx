@@ -108,17 +108,34 @@ function loadHeatPlugin(): Promise<void> {
   });
 }
 
+async function geocodeCity(city: string, state?: string): Promise<[number, number] | null> {
+  if (!city) return null;
+  try {
+    const q = encodeURIComponent([city, state, "Brasil"].filter(Boolean).join(", "));
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&countrycodes=br`, {
+      headers: { "Accept-Language": "pt-BR" },
+    });
+    const data = await res.json();
+    if (data?.[0]?.lat && data?.[0]?.lon) {
+      return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+    }
+  } catch {}
+  return null;
+}
+
 type HeatPoint = { lat: number; lng: number; weight: number };
 
 function LeafletHeatMap({
   points,
   mode,
   clusterPoints,
+  defaultCenter,
   height = 480,
 }: {
   points: HeatPoint[];
   mode: "provider" | "regional";
   clusterPoints?: RegionalCluster[];
+  defaultCenter?: [number, number] | null;
   height?: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -135,14 +152,16 @@ function LeafletHeatMap({
     if (!containerRef.current || !ready) return;
 
     if (!mapRef.current) {
-      const center: [number, number] = points.length > 0
+      const BRAZIL_CENTER: [number, number] = [-15.8, -48.0];
+      const center: [number, number] = defaultCenter ?? (points.length > 0
         ? [
             points.reduce((s, p) => s + p.lat, 0) / points.length,
             points.reduce((s, p) => s + p.lng, 0) / points.length,
           ]
-        : [-15.8, -48.0];
+        : BRAZIL_CENTER);
+      const zoom = points.length > 0 ? 7 : (defaultCenter ? 11 : 5);
 
-      mapRef.current = L.map(containerRef.current, { zoomControl: true, scrollWheelZoom: false }).setView(center, points.length > 0 ? 7 : 5);
+      mapRef.current = L.map(containerRef.current, { zoomControl: true, scrollWheelZoom: false }).setView(center, zoom);
 
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>',
@@ -250,6 +269,7 @@ function LeafletHeatMap({
 export default function MapaCalorPage() {
   const { provider } = useAuth();
   const [activeTab, setActiveTab] = useState("provider");
+  const [providerCenter, setProviderCenter] = useState<[number, number] | null>(null);
 
   const { data: providerData = [], isLoading: providerLoading } = useQuery<ProviderHeatmapPoint[]>({
     queryKey: ["/api/heatmap/provider"],
@@ -262,6 +282,15 @@ export default function MapaCalorPage() {
   const { data: cityRanking = [], isLoading: cityLoading } = useQuery<CityRanking[]>({
     queryKey: ["/api/heatmap/city-ranking"],
   });
+
+  useEffect(() => {
+    const city = provider?.addressCity || "";
+    const state = provider?.addressState || "";
+    if (!city) return;
+    geocodeCity(city, state).then(coords => {
+      if (coords) setProviderCenter(coords);
+    });
+  }, [provider?.addressCity, provider?.addressState]);
 
   const providerPoints: HeatPoint[] = providerData
     .map(p => ({
@@ -360,10 +389,11 @@ export default function MapaCalorPage() {
                 </div>
               ) : (
                 <LeafletHeatMap
-                  key={`provider-${providerPoints.length}`}
+                  key={`provider-${providerPoints.length}-${providerCenter?.[0]}`}
                   points={providerPoints}
                   mode="provider"
                   clusterPoints={providerData as any}
+                  defaultCenter={providerCenter}
                 />
               )}
             </Card>
@@ -457,10 +487,11 @@ export default function MapaCalorPage() {
                   </div>
                 ) : (
                   <LeafletHeatMap
-                    key={`regional-${regionalPoints.length}`}
+                    key={`regional-${regionalPoints.length}-${providerCenter?.[0]}`}
                     points={regionalPoints}
                     mode="regional"
                     clusterPoints={regionalData}
+                    defaultCenter={providerCenter}
                   />
                 )}
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">

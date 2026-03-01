@@ -39,7 +39,22 @@ function loadHeatPlugin(): Promise<void> {
   });
 }
 
-function MiniHeatMap({ points, providerPoints }: { points: HeatPoint[]; providerPoints: any[] }) {
+async function geocodeCity(city: string, state?: string): Promise<[number, number] | null> {
+  if (!city) return null;
+  try {
+    const q = encodeURIComponent([city, state, "Brasil"].filter(Boolean).join(", "));
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&countrycodes=br`, {
+      headers: { "Accept-Language": "pt-BR" },
+    });
+    const data = await res.json();
+    if (data?.[0]?.lat && data?.[0]?.lon) {
+      return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+    }
+  } catch {}
+  return null;
+}
+
+function MiniHeatMap({ points, providerPoints, defaultCenter }: { points: HeatPoint[]; providerPoints: any[]; defaultCenter?: [number, number] | null }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const heatRef = useRef<any>(null);
@@ -52,9 +67,11 @@ function MiniHeatMap({ points, providerPoints }: { points: HeatPoint[]; provider
     if (!containerRef.current || !ready) return;
 
     if (!mapRef.current) {
-      const center: [number, number] = points.length > 0
+      const BRAZIL_CENTER: [number, number] = [-15.8, -48.0];
+      const center: [number, number] = defaultCenter ?? (points.length > 0
         ? [points.reduce((s, p) => s + p.lat, 0) / points.length, points.reduce((s, p) => s + p.lng, 0) / points.length]
-        : [-15.8, -48.0];
+        : BRAZIL_CENTER);
+      const zoom = points.length > 0 ? 9 : (defaultCenter ? 11 : 5);
 
       mapRef.current = L.map(containerRef.current, {
         zoomControl: false,
@@ -64,7 +81,7 @@ function MiniHeatMap({ points, providerPoints }: { points: HeatPoint[]; provider
         boxZoom: false,
         keyboard: false,
         attributionControl: false,
-      }).setView(center, points.length > 0 ? 7 : 5);
+      }).setView(center, zoom);
 
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(mapRef.current);
       markersRef.current = L.layerGroup().addTo(mapRef.current);
@@ -101,7 +118,7 @@ function MiniHeatMap({ points, providerPoints }: { points: HeatPoint[]; provider
       const group = L.featureGroup(points.map(p => L.circleMarker([p.lat, p.lng], { radius: 0 })));
       mapRef.current?.fitBounds(group.getBounds().pad(0.2));
     }
-  }, [points, providerPoints, ready]);
+  }, [points, providerPoints, defaultCenter, ready]);
 
   useEffect(() => { buildMap(); }, [buildMap]);
 
@@ -123,6 +140,7 @@ function MiniHeatMap({ points, providerPoints }: { points: HeatPoint[]; provider
 
 export default function DashboardPage() {
   const { provider } = useAuth();
+  const [providerCenter, setProviderCenter] = useState<[number, number] | null>(null);
 
   const { data: stats, isLoading } = useQuery<any>({
     queryKey: ["/api/dashboard/stats"],
@@ -131,6 +149,15 @@ export default function DashboardPage() {
   const { data: heatmapData = [] } = useQuery<any[]>({
     queryKey: ["/api/heatmap/provider"],
   });
+
+  useEffect(() => {
+    const city = provider?.addressCity || "";
+    const state = provider?.addressState || "";
+    if (!city) return;
+    geocodeCity(city, state).then(coords => {
+      if (coords) setProviderCenter(coords);
+    });
+  }, [provider?.addressCity, provider?.addressState]);
 
   const heatPoints: HeatPoint[] = heatmapData
     .map(p => ({
@@ -253,7 +280,12 @@ export default function DashboardPage() {
           </div>
         ) : (
           <>
-            <MiniHeatMap points={heatPoints} providerPoints={heatmapData} />
+            <MiniHeatMap
+              key={`dash-${heatPoints.length}-${providerCenter?.[0]}`}
+              points={heatPoints}
+              providerPoints={heatmapData}
+              defaultCenter={providerCenter}
+            />
             <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground">
               <div className="flex items-center gap-1.5">
                 <span className="inline-flex gap-0.5">
