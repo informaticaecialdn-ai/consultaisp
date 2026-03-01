@@ -710,15 +710,6 @@ export default function AdminSistemaPage() {
                       >
                         <ChevronRight className="w-3.5 h-3.5" />Painel
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-1.5 text-xs h-8"
-                        onClick={() => setSelectedProvider(p)}
-                        data-testid={`button-manage-provider-${p.id}`}
-                      >
-                        <Settings2 className="w-3.5 h-3.5" />Gerenciar
-                      </Button>
                       {p.status === "active" && (
                         <Button
                           variant="ghost"
