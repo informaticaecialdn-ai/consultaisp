@@ -70,7 +70,6 @@ const financeMenu = [
 
 const toolsMenu = [
   { title: "Importacao", url: "/importacao", icon: Upload },
-  { title: "Administracao", url: "/administracao", icon: Settings },
 ];
 
 const ADMIN_GROUPS = [
