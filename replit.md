@@ -15,7 +15,7 @@ Sistema multi-tenant de consulta de inadimplentes focado em provedores regionais
 - Consulta ISP (collaborative defaulter database with full score engine, detailed results)
 - Consulta SPC (SPC credit bureau simulation with cadastral data, restrictions, score 0-1000)
 - Anti-Fraud module (6 tabs: Alertas, Score de Risco, Padroes, Analise IA, Regras, Configuracoes)
-- Defaulters list with contact actions
+- Inadimplentes module redesigned as "Base de Inadimplentes" — ERP source hub (iXC Soft, SGP, MK Solutions, Tiacos, Hubsoft, Fly Speed, Manual) with search/filter by ERP origin and risk tier, table with KPI cards, export CSV, WhatsApp/phone actions; new /api/inadimplentes endpoint; customers.erpSource and customers.lastSyncAt fields added
 - Heat map with Google Maps integration (two tabs: Meu Provedor with weighted heatmap, Benchmarking Regional with anonymized clusters)
 - Credits purchase system
 - ERP import tools

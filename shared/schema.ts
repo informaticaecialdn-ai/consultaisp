@@ -93,6 +93,8 @@ export const customers = pgTable("customers", {
   overdueInvoicesCount: integer("overdue_invoices_count").default(0),
   ispScore: integer("isp_score").default(100),
   riskTier: text("risk_tier").default("low"),
+  erpSource: text("erp_source").default("manual"),
+  lastSyncAt: timestamp("last_sync_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

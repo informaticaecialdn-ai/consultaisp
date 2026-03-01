@@ -1,4 +1,4 @@
-import { eq, and, desc, sql, gte, lte, count } from "drizzle-orm";
+import { eq, and, desc, sql, gte, lte, count, inArray } from "drizzle-orm";
 import { db } from "./db";
 import {
   providers, users, customers, contracts, invoices, equipment,
@@ -76,6 +76,7 @@ export interface IStorage {
 
   getDashboardStats(providerId: number): Promise<any>;
   getDefaultersList(providerId: number): Promise<any[]>;
+  getInadimplentes(providerId: number): Promise<any[]>;
   getDefaultersByProvider(providerId: number): Promise<any[]>;
   getHeatmapDataByProvider(providerId: number): Promise<any[]>;
   getHeatmapDataAllProviders(): Promise<any[]>;
@@ -411,12 +412,62 @@ export class DatabaseStorage implements IStorage {
       overdueInvoicesCount: customers.overdueInvoicesCount,
       riskTier: customers.riskTier,
       paymentStatus: customers.paymentStatus,
+      erpSource: customers.erpSource,
+      lastSyncAt: customers.lastSyncAt,
     }).from(customers)
       .where(and(
         eq(customers.providerId, providerId),
         sql`${customers.paymentStatus} != 'current'`,
       ))
       .orderBy(desc(customers.totalOverdueAmount));
+  }
+
+  async getInadimplentes(providerId: number): Promise<any[]> {
+    const list = await db.select({
+      id: customers.id,
+      name: customers.name,
+      cpfCnpj: customers.cpfCnpj,
+      phone: customers.phone,
+      email: customers.email,
+      city: customers.city,
+      state: customers.state,
+      totalOverdueAmount: customers.totalOverdueAmount,
+      maxDaysOverdue: customers.maxDaysOverdue,
+      overdueInvoicesCount: customers.overdueInvoicesCount,
+      riskTier: customers.riskTier,
+      paymentStatus: customers.paymentStatus,
+      erpSource: customers.erpSource,
+      lastSyncAt: customers.lastSyncAt,
+      createdAt: customers.createdAt,
+    }).from(customers)
+      .where(and(
+        eq(customers.providerId, providerId),
+        sql`${customers.paymentStatus} != 'current'`,
+      ))
+      .orderBy(desc(customers.totalOverdueAmount));
+
+    const ids = list.map(c => c.id);
+    if (ids.length === 0) return [];
+
+    const equipData = await db.select({
+      customerId: equipment.customerId,
+      count: count(),
+      total: sql<string>`COALESCE(SUM(CAST(${equipment.value} AS DECIMAL)), 0)`,
+    }).from(equipment)
+      .where(and(
+        eq(equipment.providerId, providerId),
+        inArray(equipment.customerId, ids),
+        sql`${equipment.status} != 'returned'`,
+      ))
+      .groupBy(equipment.customerId);
+
+    const equipMap = new Map(equipData.map(e => [e.customerId, { count: Number(e.count), value: Number(e.total) }]));
+
+    return list.map(c => ({
+      ...c,
+      unreturnedEquipmentCount: equipMap.get(c.id)?.count ?? 0,
+      unreturnedEquipmentValue: equipMap.get(c.id)?.value ?? 0,
+    }));
   }
 
   async getDefaultersByProvider(providerId: number): Promise<any[]> {
