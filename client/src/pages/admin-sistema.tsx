@@ -702,6 +702,15 @@ export default function AdminSistemaPage() {
                         {PLAN_LABELS[p.plan]?.label}
                       </Badge>
                       <Button
+                        variant="default"
+                        size="sm"
+                        className="gap-1.5 text-xs h-8"
+                        onClick={() => navigate(`/admin/provedor/${p.id}`)}
+                        data-testid={`button-painel-provider-${p.id}`}
+                      >
+                        <ChevronRight className="w-3.5 h-3.5" />Painel
+                      </Button>
+                      <Button
                         variant="outline"
                         size="sm"
                         className="gap-1.5 text-xs h-8"

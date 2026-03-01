@@ -1209,6 +1209,58 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/providers/:id/detail", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const provider = await storage.getProvider(id);
+      if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
+
+      const [users, customers, equipmentList, ispList, spcList, invoices, planHistory] = await Promise.all([
+        storage.getUsersByProvider(id),
+        storage.getCustomersByProvider(id),
+        storage.getEquipmentByProvider(id),
+        storage.getIspConsultationsByProvider(id),
+        storage.getSpcConsultationsByProvider(id),
+        storage.getAllProviderInvoices(id),
+        storage.getPlanChanges(id),
+      ]);
+
+      const safeUsers = users.map(u => ({
+        id: u.id, name: u.name, email: u.email, role: u.role,
+        emailVerified: u.emailVerified, createdAt: u.createdAt,
+      }));
+
+      const now = new Date();
+      const firstDayMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const ispMonth = ispList.filter(c => new Date(c.createdAt) >= firstDayMonth).length;
+      const spcMonth = spcList.filter(c => new Date(c.createdAt) >= firstDayMonth).length;
+
+      const totalPaid = invoices.filter(i => i.status === "paid").reduce((s, i) => s + parseFloat(i.amount), 0);
+      const totalPending = invoices.filter(i => i.status === "pending").reduce((s, i) => s + parseFloat(i.amount), 0);
+      const totalOverdue = invoices.filter(i => i.status === "overdue").reduce((s, i) => s + parseFloat(i.amount), 0);
+
+      return res.json({
+        provider,
+        users: safeUsers,
+        stats: {
+          customers: customers.length,
+          equipment: equipmentList.length,
+          ispConsultations: ispList.length,
+          spcConsultations: spcList.length,
+          ispConsultationsMonth: ispMonth,
+          spcConsultationsMonth: spcMonth,
+        },
+        invoices,
+        planHistory,
+        financial: { totalPaid, totalPending, totalOverdue },
+        recentIsp: ispList.slice(0, 20),
+        recentSpc: spcList.slice(0, 20),
+      });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/users", requireSuperAdmin, async (_req, res) => {
     try {
       const allUsers = await storage.getAllUsers();

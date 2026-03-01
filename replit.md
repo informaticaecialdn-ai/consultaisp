@@ -24,6 +24,28 @@ Sistema multi-tenant de consulta de inadimplentes focado em provedores regionais
 - Sidebar shows subdomain chip (xxx.consultaisp.com.br) and plan badge
 - Email verification via Resend on registration
 
+## Superadmin System (/admin-sistema)
+- Superadmins are auto-redirected from provider-only pages to /admin-sistema
+- Hash-based navigation (#painel, #provedores, #usuarios, #financeiro, #suporte)
+- Collapsible sidebar groups: Visao Geral, Gestao, Financeiro, Suporte
+- Painel Geral: system-wide KPI cards + plan distribution
+- Provedores: list with search, each provider has "Painel" (full control panel) and "Gerenciar" (inline edit) buttons
+- Usuarios: system-wide users list with delete
+- Financeiro: MRR/ARR cards, 6-month chart, invoice management with filters and inline creation
+- Suporte: chat interface with providers
+
+## Provider Control Panel (/admin/provedor/:id)
+- Accessed via "Painel" button in providers list
+- Header: provider name, plan badge, status badge, subdomain, creation date
+- Action buttons: Editar (info), Plano (change plan), Creditos (add ISP/SPC), Fatura (create invoice), Suspender/Ativar
+- 6 KPI cards: Clientes, Equipamentos, Consultas ISP (with monthly sub), Consultas SPC (with monthly sub), Creditos ISP, Creditos SPC
+- Tab: Geral — registration details + plan/credits summary + financial overview (paid/pending/overdue)
+- Tab: Financeiro — full invoices list with mark paid/overdue actions, create new invoice
+- Tab: Usuarios — user list with role badges, email verification status
+- Tab: Consumo — ISP and SPC consultation logs (last 20 each)
+- Tab: Historico — plan change and credit addition history
+- Backend: GET /api/admin/providers/:id/detail (consolidated endpoint)
+
 ## Consulta ISP Score Engine
 Score = 100 - penalties + bonuses (clamped 0-100)
 Penalties: overdue days (-10 to -40), R$100 blocks (-5 each), unreturned equipment (-15 each), new contract (-10/-15), multiple queries (-20), multi-provider debt (-25)
