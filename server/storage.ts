@@ -124,6 +124,11 @@ export interface IStorage {
   deleteProviderDocument(id: number, providerId: number): Promise<void>;
   updateProviderDocumentStatus(id: number, status: string, reviewedById: number, reviewerName: string, rejectionReason?: string): Promise<ProviderDocument>;
   updateProviderProfile(id: number, data: Partial<Provider>): Promise<Provider>;
+
+  getProviderWebhookToken(providerId: number): Promise<string>;
+  regenerateWebhookToken(providerId: number): Promise<string>;
+  getProviderByWebhookToken(token: string): Promise<Provider | undefined>;
+  syncErpCustomers(providerId: number, erpSource: string, customersData: any[]): Promise<{ upserted: number; errors: number }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -934,6 +939,90 @@ export class DatabaseStorage implements IStorage {
   async updateProviderProfile(id: number, data: Partial<Provider>): Promise<Provider> {
     const [updated] = await db.update(providers).set(data as any).where(eq(providers.id, id)).returning();
     return updated;
+  }
+
+  async getProviderWebhookToken(providerId: number): Promise<string> {
+    const [provider] = await db.select({ webhookToken: providers.webhookToken }).from(providers).where(eq(providers.id, providerId));
+    if (provider?.webhookToken) return provider.webhookToken;
+    const { randomBytes } = await import("crypto");
+    const token = randomBytes(32).toString("hex");
+    await db.update(providers).set({ webhookToken: token } as any).where(eq(providers.id, providerId));
+    return token;
+  }
+
+  async regenerateWebhookToken(providerId: number): Promise<string> {
+    const { randomBytes } = await import("crypto");
+    const token = randomBytes(32).toString("hex");
+    await db.update(providers).set({ webhookToken: token } as any).where(eq(providers.id, providerId));
+    return token;
+  }
+
+  async getProviderByWebhookToken(token: string): Promise<Provider | undefined> {
+    const [provider] = await db.select().from(providers).where(sql`${providers.webhookToken} = ${token}`);
+    return provider;
+  }
+
+  async syncErpCustomers(providerId: number, erpSource: string, customersData: any[]): Promise<{ upserted: number; errors: number }> {
+    let upserted = 0;
+    let errors = 0;
+    const now = new Date();
+
+    const computeRisk = (days: number): string => {
+      if (days >= 90) return "critical";
+      if (days >= 60) return "high";
+      if (days >= 30) return "medium";
+      return "low";
+    };
+    const computeStatus = (days: number): string => {
+      if (days >= 90) return "90+";
+      if (days >= 60) return "60-90";
+      if (days >= 30) return "30-60";
+      if (days > 0) return "1-30";
+      return "current";
+    };
+
+    for (const c of customersData) {
+      try {
+        if (!c.cpfCnpj || !c.name) { errors++; continue; }
+        const cpf = c.cpfCnpj.replace(/\D/g, "");
+        const days = Number(c.maxDaysOverdue ?? 0);
+        const amount = String(c.totalOverdueAmount ?? "0");
+        const invoicesCount = Number(c.overdueInvoicesCount ?? 0);
+
+        const existing = await db.select({ id: customers.id })
+          .from(customers)
+          .where(and(eq(customers.providerId, providerId), sql`${customers.cpfCnpj} = ${cpf}`))
+          .limit(1);
+
+        const payload: any = {
+          name: c.name,
+          cpfCnpj: cpf,
+          email: c.email ?? null,
+          phone: c.phone?.replace(/\D/g, "") ?? null,
+          city: c.city ?? null,
+          state: c.state ?? null,
+          address: c.address ?? null,
+          cep: c.cep?.replace(/\D/g, "") ?? null,
+          totalOverdueAmount: amount,
+          maxDaysOverdue: days,
+          overdueInvoicesCount: invoicesCount,
+          riskTier: computeRisk(days),
+          paymentStatus: computeStatus(days),
+          erpSource,
+          lastSyncAt: now,
+        };
+
+        if (existing.length > 0) {
+          await db.update(customers).set(payload).where(eq(customers.id, existing[0].id));
+        } else {
+          await db.insert(customers).values({ ...payload, providerId, status: "active" });
+        }
+        upserted++;
+      } catch {
+        errors++;
+      }
+    }
+    return { upserted, errors };
   }
 
   async getFinancialSummary(): Promise<any> {

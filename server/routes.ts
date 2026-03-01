@@ -1087,6 +1087,53 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/provider/integration", requireAuth, async (req, res) => {
+    try {
+      const token = await storage.getProviderWebhookToken(req.session.providerId!);
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      return res.json({ token, webhookUrl: `${baseUrl}/api/webhooks/erp-sync` });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/provider/integration/regenerate-token", requireAuth, async (req, res) => {
+    try {
+      if (req.session.role !== "admin") return res.status(403).json({ message: "Apenas administradores" });
+      const token = await storage.regenerateWebhookToken(req.session.providerId!);
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      return res.json({ token, webhookUrl: `${baseUrl}/api/webhooks/erp-sync` });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/webhooks/erp-sync", async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader?.startsWith("Bearer ")) {
+        return res.status(401).json({ message: "Token de autorizacao ausente" });
+      }
+      const token = authHeader.slice(7);
+      const provider = await storage.getProviderByWebhookToken(token);
+      if (!provider) return res.status(401).json({ message: "Token invalido" });
+
+      const { erpSource, customers: customersData } = req.body;
+      if (!erpSource || !Array.isArray(customersData)) {
+        return res.status(400).json({ message: "Payload invalido. Esperado: { erpSource, customers: [] }" });
+      }
+      const validSources = ["ixc", "sgp", "mk", "tiacos", "hubsoft", "flyspeed", "netflash", "manual"];
+      if (!validSources.includes(erpSource)) {
+        return res.status(400).json({ message: `erpSource invalido. Valores aceitos: ${validSources.join(", ")}` });
+      }
+
+      const result = await storage.syncErpCustomers(provider.id, erpSource, customersData);
+      return res.json({ success: true, ...result, providerId: provider.id });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
   app.patch("/api/provider/profile", requireAuth, async (req, res) => {
     try {
       if (req.session.role !== "admin") {

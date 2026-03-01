@@ -13,7 +13,8 @@ import {
   ExternalLink, Plus, Trash2, Shield, User, Mail, Phone, Link2,
   BarChart3, Search, AlertTriangle, Wifi, Save, RefreshCw, Crown,
   Lock, Star, FileText, Upload, Download, Eye, MapPin, Calendar,
-  Briefcase, X, Pencil, ClipboardList, UserCheck, Wand2, Info
+  Briefcase, X, Pencil, ClipboardList, UserCheck, Wand2, Info,
+  EyeOff, Key, Zap, Terminal, ArrowRight, Database, CheckCheck
 } from "lucide-react";
 
 const MAIN_DOMAIN = "consultaisp.com.br";
@@ -76,9 +77,24 @@ export default function PainelProvedorPage() {
   const [activeTab, setActiveTab] = useState("visao-geral");
   const [showAddUser, setShowAddUser] = useState(false);
   const [newUser, setNewUser] = useState({ name: "", email: "", password: "", role: "user" });
+  const [showToken, setShowToken] = useState(false);
 
   const { data: profileData, isLoading: profileLoading } = useQuery<any>({
     queryKey: ["/api/provider/profile"],
+  });
+
+  const { data: integrationData, refetch: refetchIntegration } = useQuery<any>({
+    queryKey: ["/api/provider/integration"],
+    enabled: activeTab === "integracao",
+  });
+
+  const regenerateTokenMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/provider/integration/regenerate-token"),
+    onSuccess: () => {
+      refetchIntegration();
+      toast({ title: "Token regenerado", description: "Novo token gerado com sucesso. Atualize o N8N." });
+    },
+    onError: () => toast({ title: "Erro", description: "Nao foi possivel regenerar o token.", variant: "destructive" }),
   });
 
   const [empresa, setEmpresa] = useState<any>(null);
@@ -428,6 +444,9 @@ export default function PainelProvedorPage() {
           </TabsTrigger>
           <TabsTrigger value="creditos" className="gap-1.5" data-testid="tab-creditos">
             <CreditCard className="w-3.5 h-3.5" />Creditos
+          </TabsTrigger>
+          <TabsTrigger value="integracao" className="gap-1.5" data-testid="tab-integracao">
+            <Zap className="w-3.5 h-3.5" />Integracao
           </TabsTrigger>
         </TabsList>
 
@@ -1353,6 +1372,213 @@ export default function PainelProvedorPage() {
               </div>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* ======================== INTEGRACAO ======================== */}
+        <TabsContent value="integracao" className="space-y-4" data-testid="tab-content-integracao">
+          {/* Header */}
+          <Card className="p-5">
+            <div className="flex items-start gap-4">
+              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-sm flex-shrink-0">
+                <Zap className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="font-bold text-base">Integracao com ERPs via N8N</h2>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Use o N8N como middleware para buscar os dados do seu ERP e enviar automaticamente para a base de inadimplentes do Consulta ISP. Configure o webhook abaixo no seu fluxo N8N.
+                </p>
+              </div>
+            </div>
+          </Card>
+
+          {/* Token e URL */}
+          <div className="grid md:grid-cols-2 gap-4">
+            <Card className="p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <Key className="w-4 h-4 text-muted-foreground" />
+                <h3 className="font-semibold text-sm">Token de Autorizacao</h3>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Adicione este token no header <code className="bg-muted px-1 rounded text-xs">Authorization: Bearer &lt;token&gt;</code> das requisicoes N8N.
+              </p>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 bg-muted rounded-lg px-3 py-2 font-mono text-xs break-all select-all" data-testid="text-webhook-token">
+                    {integrationData?.token
+                      ? showToken
+                        ? integrationData.token
+                        : `${integrationData.token.slice(0, 8)}${"•".repeat(24)}${integrationData.token.slice(-8)}`
+                      : "Carregando..."}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 flex-shrink-0"
+                    onClick={() => setShowToken(v => !v)}
+                    title={showToken ? "Ocultar" : "Mostrar"}
+                    data-testid="button-toggle-token"
+                  >
+                    {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 flex-shrink-0"
+                    onClick={() => { navigator.clipboard.writeText(integrationData?.token ?? ""); toast({ title: "Copiado!", description: "Token copiado para a area de transferencia." }); }}
+                    title="Copiar token"
+                    data-testid="button-copy-token"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-xs gap-1.5 text-rose-600 border-rose-200 hover:bg-rose-50 dark:hover:bg-rose-900/10"
+                  onClick={() => {
+                    if (confirm("Tem certeza? O token atual sera invalidado e voce precisara atualizar o N8N.")) {
+                      regenerateTokenMutation.mutate();
+                    }
+                  }}
+                  disabled={regenerateTokenMutation.isPending}
+                  data-testid="button-regenerate-token"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${regenerateTokenMutation.isPending ? "animate-spin" : ""}`} />
+                  Regenerar Token
+                </Button>
+              </div>
+            </Card>
+
+            <Card className="p-5 space-y-4">
+              <div className="flex items-center gap-2">
+                <Link2 className="w-4 h-4 text-muted-foreground" />
+                <h3 className="font-semibold text-sm">URL do Webhook</h3>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Configure esta URL como destino HTTP no no N8N. Envie um POST com os clientes inadimplentes do ERP.
+              </p>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 bg-muted rounded-lg px-3 py-2 font-mono text-xs break-all" data-testid="text-webhook-url">
+                  {integrationData?.webhookUrl ?? "Carregando..."}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 flex-shrink-0"
+                  onClick={() => { navigator.clipboard.writeText(integrationData?.webhookUrl ?? ""); toast({ title: "Copiado!", description: "URL copiada para a area de transferencia." }); }}
+                  title="Copiar URL"
+                  data-testid="button-copy-url"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:bg-emerald-900/10 p-3">
+                <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">Metodo: POST</p>
+                <p className="text-xs text-emerald-600 dark:text-emerald-500 mt-0.5">Content-Type: application/json</p>
+              </div>
+            </Card>
+          </div>
+
+          {/* ERPs Suportados */}
+          <Card className="p-5">
+            <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
+              <Database className="w-4 h-4 text-muted-foreground" />
+              ERPs Suportados
+            </h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              {[
+                { key: "ixc",      name: "iXC Soft",     color: "from-blue-500 to-blue-600",    desc: "iXC Provedor" },
+                { key: "sgp",      name: "SGP",          color: "from-purple-500 to-purple-600", desc: "Solucao Gestao" },
+                { key: "mk",       name: "MK Solutions", color: "from-green-500 to-green-600",   desc: "MK-AUTH / MK-ERP" },
+                { key: "tiacos",   name: "Tiacos",       color: "from-orange-500 to-orange-600", desc: "Tiacos ISP" },
+                { key: "hubsoft",  name: "Hubsoft",      color: "from-indigo-500 to-indigo-600", desc: "Hubsoft ERP" },
+                { key: "flyspeed", name: "Fly Speed",    color: "from-cyan-500 to-cyan-600",     desc: "Fly Speed ISP" },
+              ].map(erp => (
+                <div key={erp.key} className="rounded-xl border p-3 flex flex-col gap-2 hover:shadow-sm transition-shadow">
+                  <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${erp.color} flex items-center justify-center`}>
+                    <Wifi className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold">{erp.name}</p>
+                    <p className="text-xs text-muted-foreground">{erp.desc}</p>
+                  </div>
+                  <span className="inline-flex items-center gap-1 text-xs text-amber-600 bg-amber-50 dark:bg-amber-900/20 rounded-full px-2 py-0.5 w-fit">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    Aguardando
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* Payload */}
+          <Card className="p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Terminal className="w-4 h-4 text-muted-foreground" />
+              <h3 className="font-semibold text-sm">Formato do Payload (JSON)</h3>
+            </div>
+            <p className="text-xs text-muted-foreground mb-3">
+              O N8N deve enviar um POST para o webhook com o seguinte corpo. O campo <code className="bg-muted px-1 rounded">erpSource</code> identifica a origem dos dados.
+            </p>
+            <pre className="bg-muted rounded-xl p-4 text-xs font-mono overflow-x-auto leading-relaxed" data-testid="code-payload">
+{`{
+  "erpSource": "ixc",
+  "customers": [
+    {
+      "name": "Joao da Silva",
+      "cpfCnpj": "123.456.789-00",
+      "phone": "(43) 99999-8888",
+      "email": "joao@email.com",
+      "city": "Londrina",
+      "state": "PR",
+      "cep": "86010-180",
+      "address": "Rua Exemplo, 100",
+      "totalOverdueAmount": 450.00,
+      "maxDaysOverdue": 95,
+      "overdueInvoicesCount": 3
+    }
+  ]
+}`}
+            </pre>
+            <div className="mt-3 grid sm:grid-cols-2 gap-2">
+              <div className="rounded-lg bg-muted/50 p-3 text-xs space-y-1">
+                <p className="font-semibold">erpSource aceitos:</p>
+                <p className="text-muted-foreground font-mono">ixc · sgp · mk · tiacos · hubsoft · flyspeed · netflash · manual</p>
+              </div>
+              <div className="rounded-lg bg-muted/50 p-3 text-xs space-y-1">
+                <p className="font-semibold">Campos obrigatorios:</p>
+                <p className="text-muted-foreground font-mono">name, cpfCnpj</p>
+              </div>
+            </div>
+          </Card>
+
+          {/* Instrucoes */}
+          <Card className="p-5">
+            <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
+              <ClipboardList className="w-4 h-4 text-muted-foreground" />
+              Como Configurar no N8N
+            </h3>
+            <ol className="space-y-3">
+              {[
+                { step: "1", title: "Copie o Token e a URL do Webhook", desc: "Acima nesta pagina voce encontra o Token de Autorizacao e a URL do Webhook." },
+                { step: "2", title: "Crie um fluxo no N8N", desc: "No N8N, crie um novo workflow com gatilho por agendamento (ex: a cada 1 hora)." },
+                { step: "3", title: "Adicione um no para consultar o ERP", desc: "Use o no HTTP Request ou um conector especifico do seu ERP (iXC, SGP, MK, etc.) para buscar os clientes inadimplentes." },
+                { step: "4", title: "Adicione um no de transformacao", desc: "Use um no Function ou Set para mapear os campos do ERP para o formato JSON esperado pelo Consulta ISP." },
+                { step: "5", title: "Adicione um no HTTP Request para o webhook", desc: "Metodo POST, URL do webhook acima, adicione o header Authorization: Bearer <seu-token> e o body com os dados mapeados." },
+                { step: "6", title: "Ative o fluxo", desc: "Com o fluxo ativo, os clientes inadimplentes serao sincronizados automaticamente no modulo Base de Inadimplentes." },
+              ].map(item => (
+                <li key={item.step} className="flex gap-3">
+                  <div className="w-6 h-6 rounded-full bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">
+                    {item.step}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">{item.title}</p>
+                    <p className="text-xs text-muted-foreground">{item.desc}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
