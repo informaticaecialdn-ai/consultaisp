@@ -1,4 +1,4 @@
-import { Switch, Route, useLocation } from "wouter";
+import { Switch, Route, useLocation, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -44,6 +44,12 @@ function Router() {
   );
 }
 
+const PROVIDER_ONLY_PATHS = [
+  "/", "/consulta-isp", "/consulta-spc", "/anti-fraude",
+  "/inadimplentes", "/mapa-calor", "/creditos", "/importacao",
+  "/administracao", "/painel-provedor",
+];
+
 function AuthenticatedApp() {
   const { user, isLoading } = useAuth();
   const [location] = useLocation();
@@ -66,6 +72,10 @@ function AuthenticatedApp() {
 
   if (!user) {
     return <LoginPage />;
+  }
+
+  if (user.role === "superadmin" && PROVIDER_ONLY_PATHS.includes(location)) {
+    return <Redirect to="/admin-sistema" />;
   }
 
   const style = {

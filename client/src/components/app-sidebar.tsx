@@ -110,12 +110,27 @@ const ADMIN_GROUPS = [
 function AdminCollapsibleGroup({
   group,
   activeHash,
+  onNavigate,
 }: {
   group: (typeof ADMIN_GROUPS)[number];
   activeHash: string;
+  onNavigate: (hash: string) => void;
 }) {
-  const isGroupActive = group.items.some((i) => i.hash === activeHash);
-  const [open, setOpen] = useState<boolean>(isGroupActive || true);
+  const [open, setOpen] = useState<boolean>(true);
+
+  const ItemButton = ({ item }: { item: (typeof ADMIN_GROUPS)[number]["items"][number] }) => (
+    <SidebarMenuItem key={item.hash}>
+      <SidebarMenuButton
+        data-active={activeHash === item.hash}
+        data-testid={item.testId}
+        onClick={() => onNavigate(item.hash)}
+        className="cursor-pointer"
+      >
+        <item.icon className="w-4 h-4" />
+        <span>{item.title}</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
 
   if (!group.collapsible) {
     return (
@@ -125,20 +140,7 @@ function AdminCollapsibleGroup({
         </SidebarGroupLabel>
         <SidebarGroupContent>
           <SidebarMenu>
-            {group.items.map((item) => (
-              <SidebarMenuItem key={item.hash}>
-                <SidebarMenuButton
-                  asChild
-                  data-active={activeHash === item.hash}
-                  data-testid={item.testId}
-                >
-                  <a href={`/admin-sistema#${item.hash}`}>
-                    <item.icon className="w-4 h-4" />
-                    <span>{item.title}</span>
-                  </a>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
+            {group.items.map((item) => <ItemButton key={item.hash} item={item} />)}
           </SidebarMenu>
         </SidebarGroupContent>
       </SidebarGroup>
@@ -159,20 +161,7 @@ function AdminCollapsibleGroup({
         <CollapsibleContent>
           <SidebarGroupContent>
             <SidebarMenu>
-              {group.items.map((item) => (
-                <SidebarMenuItem key={item.hash}>
-                  <SidebarMenuButton
-                    asChild
-                    data-active={activeHash === item.hash}
-                    data-testid={item.testId}
-                  >
-                    <a href={`/admin-sistema#${item.hash}`}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </a>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {group.items.map((item) => <ItemButton key={item.hash} item={item} />)}
             </SidebarMenu>
           </SidebarGroupContent>
         </CollapsibleContent>
@@ -182,7 +171,7 @@ function AdminCollapsibleGroup({
 }
 
 export function AppSidebar() {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const { user, provider, logout } = useAuth();
   const subdomain = (provider as any)?.subdomain;
   const planLabel = PLAN_LABELS[provider?.plan || "free"] || "Gratuito";
@@ -202,11 +191,20 @@ export function AppSidebar() {
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, [isSuperAdmin]);
 
+  const handleAdminNavigate = (hash: string) => {
+    setActiveHash(hash);
+    if (location !== "/admin-sistema") {
+      navigate("/admin-sistema");
+    }
+    window.history.replaceState(null, "", `/admin-sistema#${hash}`);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  };
+
   if (isSuperAdmin) {
     return (
       <Sidebar>
         <SidebarHeader className="p-4 pb-3">
-          <a href="/admin-sistema#painel">
+          <button onClick={() => handleAdminNavigate("painel")} className="w-full text-left">
             <div className="flex items-center gap-3 cursor-pointer">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-600 to-rose-700 flex items-center justify-center flex-shrink-0">
                 <Shield className="w-5 h-5 text-white" />
@@ -216,12 +214,12 @@ export function AppSidebar() {
                 <span className="text-[11px] text-muted-foreground leading-tight">Sistema Admin</span>
               </div>
             </div>
-          </a>
+          </button>
         </SidebarHeader>
 
         <SidebarContent className="gap-0">
           {ADMIN_GROUPS.map((group) => (
-            <AdminCollapsibleGroup key={group.key} group={group} activeHash={activeHash} />
+            <AdminCollapsibleGroup key={group.key} group={group} activeHash={activeHash} onNavigate={handleAdminNavigate} />
           ))}
         </SidebarContent>
 
