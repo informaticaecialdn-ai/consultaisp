@@ -18,6 +18,7 @@ import MapaCalorPage from "@/pages/mapa-calor";
 import CreditosPage from "@/pages/creditos";
 import ImportacaoPage from "@/pages/importacao";
 import AdministracaoPage from "@/pages/administracao";
+import PainelProvedorPage from "@/pages/painel-provedor";
 import { Skeleton } from "@/components/ui/skeleton";
 
 function Router() {
@@ -32,6 +33,7 @@ function Router() {
       <Route path="/creditos" component={CreditosPage} />
       <Route path="/importacao" component={ImportacaoPage} />
       <Route path="/administracao" component={AdministracaoPage} />
+      <Route path="/painel-provedor" component={PainelProvedorPage} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -10,7 +10,7 @@ Sistema multi-tenant de consulta de inadimplentes focado em provedores regionais
 - **Auth**: Session-based with express-session + connect-pg-simple
 
 ## Key Features
-- Login/Register with provider creation
+- Login/Register with provider creation (includes subdomain auto-generation + real-time availability check)
 - Dashboard with KPIs (customers, equipment, revenue, overdue)
 - Consulta ISP (collaborative defaulter database with full score engine, detailed results)
 - Consulta SPC (SPC credit bureau simulation with cadastral data, restrictions, score 0-1000)
@@ -20,6 +20,9 @@ Sistema multi-tenant de consulta de inadimplentes focado em provedores regionais
 - Credits purchase system
 - ERP import tools
 - Administration panel
+- Multi-tenant provider admin panel (/painel-provedor) with tabs: Visao Geral, Dados do Provedor, Subdominio, Usuarios, Plano e Creditos
+- Sidebar shows subdomain chip (xxx.consultaisp.com.br) and plan badge
+- Email verification via Resend on registration
 
 ## Consulta ISP Score Engine
 Score = 100 - penalties + bonuses (clamped 0-100)

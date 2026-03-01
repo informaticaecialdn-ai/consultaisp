@@ -1,11 +1,23 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Shield, Users, Search, BarChart3, CheckCircle, Lock, Mail, Zap, Eye, EyeOff, MailCheck, RefreshCw } from "lucide-react";
+import { Shield, Users, Search, BarChart3, CheckCircle, Lock, Mail, Zap, Eye, EyeOff, MailCheck, RefreshCw, Globe } from "lucide-react";
+
+function slugifySubdomain(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 30);
+}
 
 type PageState = "login" | "register" | "check-email";
 
@@ -17,13 +29,40 @@ export default function LoginPage() {
   const [resendLoading, setResendLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [pendingEmail, setPendingEmail] = useState("");
+  const [subdomainEdited, setSubdomainEdited] = useState(false);
+  const [subdomainStatus, setSubdomainStatus] = useState<"idle" | "checking" | "available" | "taken">("idle");
   const [form, setForm] = useState({
     email: "",
     password: "",
     name: "",
     providerName: "",
     cnpj: "",
+    subdomain: "",
   });
+
+  useEffect(() => {
+    if (!subdomainEdited && form.providerName) {
+      setForm(f => ({ ...f, subdomain: slugifySubdomain(f.providerName) }));
+    }
+  }, [form.providerName, subdomainEdited]);
+
+  useEffect(() => {
+    if (!form.subdomain || form.subdomain.length < 3) {
+      setSubdomainStatus("idle");
+      return;
+    }
+    setSubdomainStatus("checking");
+    const timer = setTimeout(async () => {
+      try {
+        const res = await apiRequest("GET", `/api/auth/check-subdomain?subdomain=${encodeURIComponent(form.subdomain)}`);
+        const data = await res.json();
+        setSubdomainStatus(data.available ? "available" : "taken");
+      } catch {
+        setSubdomainStatus("idle");
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [form.subdomain]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -251,6 +290,45 @@ export default function LoginPage() {
                         onChange={(e) => setForm({ ...form, cnpj: e.target.value })}
                         required
                       />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium mb-1.5 block flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5" />Subdominio do Painel
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <Input
+                            data-testid="input-subdomain"
+                            placeholder="seuprovedor"
+                            value={form.subdomain}
+                            onChange={(e) => {
+                              setSubdomainEdited(true);
+                              const val = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 30);
+                              setForm({ ...form, subdomain: val });
+                            }}
+                            className={
+                              subdomainStatus === "available" ? "border-emerald-500 pr-8" :
+                              subdomainStatus === "taken" ? "border-red-500 pr-8" : "pr-8"
+                            }
+                            required
+                          />
+                          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs">
+                            {subdomainStatus === "checking" && <RefreshCw className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
+                            {subdomainStatus === "available" && <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />}
+                            {subdomainStatus === "taken" && <span className="text-red-500 font-bold">!</span>}
+                          </span>
+                        </div>
+                        <span className="text-sm text-muted-foreground whitespace-nowrap">.consultaisp.com.br</span>
+                      </div>
+                      {subdomainStatus === "taken" && (
+                        <p className="text-xs text-red-500 mt-1">Subdominio ja em uso. Escolha outro.</p>
+                      )}
+                      {subdomainStatus === "available" && (
+                        <p className="text-xs text-emerald-600 mt-1">Subdominio disponivel!</p>
+                      )}
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Auto-gerado a partir do nome do provedor. Voce pode editar.
+                      </p>
                     </div>
                   </>
                 )}

@@ -5,6 +5,7 @@ import { sessionMiddleware, requireAuth, requireAdmin } from "./auth";
 import { loginSchema, registerSchema } from "@shared/schema";
 import { hashPassword, verifyPassword } from "./password";
 import { sendVerificationEmail } from "./email";
+import { slugifySubdomain, buildSubdomainUrl } from "./tenant";
 import crypto from "crypto";
 
 function calculateIspScore(params: {
@@ -155,13 +156,20 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/auth/check-subdomain", async (req, res) => {
+    const { subdomain } = req.query as { subdomain?: string };
+    if (!subdomain) return res.status(400).json({ message: "Subdominio obrigatorio" });
+    const existing = await storage.getProviderBySubdomain(subdomain);
+    return res.json({ available: !existing });
+  });
+
   app.post("/api/auth/register", async (req, res) => {
     try {
       const parsed = registerSchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ message: "Dados invalidos" });
+        return res.status(400).json({ message: "Dados invalidos: " + parsed.error.errors.map(e => e.message).join(", ") });
       }
-      const { email, password, name, providerName, cnpj } = parsed.data;
+      const { email, password, name, providerName, cnpj, subdomain } = parsed.data;
 
       const existing = await storage.getUserByEmail(email);
       if (existing) {
@@ -173,7 +181,12 @@ export async function registerRoutes(
         return res.status(409).json({ message: "CNPJ ja cadastrado" });
       }
 
-      const provider = await storage.createProvider({ name: providerName, cnpj, plan: "free", status: "active" });
+      const existingSubdomain = await storage.getProviderBySubdomain(subdomain);
+      if (existingSubdomain) {
+        return res.status(409).json({ message: "Subdominio ja em uso. Escolha outro." });
+      }
+
+      const provider = await storage.createProvider({ name: providerName, cnpj, subdomain, plan: "free", status: "active" });
       const user = await storage.createUser({
         email,
         password: await hashPassword(password),
@@ -964,6 +977,93 @@ export async function registerRoutes(
     try {
       const ctrs = await storage.getContractsByProvider(req.session.providerId!);
       return res.json(ctrs);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/tenant/resolve", async (req, res) => {
+    const { subdomain } = req.query as { subdomain?: string };
+    if (!subdomain) return res.status(400).json({ message: "Subdominio obrigatorio" });
+    const provider = await storage.getProviderBySubdomain(subdomain);
+    if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
+    return res.json({
+      id: provider.id,
+      name: provider.name,
+      subdomain: provider.subdomain,
+      plan: provider.plan,
+      status: provider.status,
+    });
+  });
+
+  app.get("/api/provider/users", requireAuth, async (req, res) => {
+    try {
+      const providerUsers = await storage.getUsersByProvider(req.session.providerId!);
+      const safe = providerUsers.map(u => ({
+        id: u.id, name: u.name, email: u.email, role: u.role,
+        emailVerified: u.emailVerified, createdAt: u.createdAt,
+      }));
+      return res.json(safe);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/provider/users", requireAuth, async (req, res) => {
+    try {
+      if (req.session.role !== "admin") {
+        return res.status(403).json({ message: "Apenas administradores podem convidar usuarios" });
+      }
+      const { name, email, password, role } = req.body as { name: string; email: string; password: string; role: string };
+      if (!name || !email || !password) {
+        return res.status(400).json({ message: "Nome, email e senha sao obrigatorios" });
+      }
+      const existing = await storage.getUserByEmail(email);
+      if (existing) return res.status(409).json({ message: "Email ja cadastrado" });
+
+      const newUser = await storage.createUser({
+        name, email,
+        password: await hashPassword(password),
+        role: role === "admin" ? "admin" : "user",
+        providerId: req.session.providerId!,
+        emailVerified: true,
+      });
+      return res.status(201).json({ id: newUser.id, name: newUser.name, email: newUser.email, role: newUser.role });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/provider/users/:id", requireAuth, async (req, res) => {
+    try {
+      if (req.session.role !== "admin") {
+        return res.status(403).json({ message: "Apenas administradores podem remover usuarios" });
+      }
+      const userId = parseInt(req.params.id);
+      if (userId === req.session.userId) {
+        return res.status(400).json({ message: "Voce nao pode remover sua propria conta" });
+      }
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser || targetUser.providerId !== req.session.providerId) {
+        return res.status(404).json({ message: "Usuario nao encontrado" });
+      }
+      await storage.deleteUser(userId);
+      return res.json({ message: "Usuario removido com sucesso" });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/provider/settings", requireAuth, async (req, res) => {
+    try {
+      if (req.session.role !== "admin") {
+        return res.status(403).json({ message: "Apenas administradores podem alterar configuracoes" });
+      }
+      const { updateProviderSchema } = await import("@shared/schema");
+      const parsed = updateProviderSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Dados invalidos" });
+      const updated = await storage.updateProvider(req.session.providerId!, parsed.data);
+      return res.json(updated);
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
     }

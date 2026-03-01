@@ -12,6 +12,9 @@ export const providers = pgTable("providers", {
   status: text("status").notNull().default("active"),
   ispCredits: integer("isp_credits").notNull().default(50),
   spcCredits: integer("spc_credits").notNull().default(0),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  website: text("website"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -175,6 +178,14 @@ export const registerSchema = z.object({
   name: z.string().min(2),
   providerName: z.string().min(2),
   cnpj: z.string().min(14),
+  subdomain: z.string().min(3).max(30).regex(/^[a-z0-9-]+$/, "Apenas letras minusculas, numeros e hifens"),
+});
+
+export const updateProviderSchema = z.object({
+  name: z.string().min(2).optional(),
+  contactEmail: z.string().email().optional().or(z.literal("")),
+  contactPhone: z.string().optional(),
+  website: z.string().optional(),
 });
 
 export type LoginData = z.infer<typeof loginSchema>;

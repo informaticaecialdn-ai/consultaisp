@@ -21,10 +21,14 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   setEmailVerified(userId: number): Promise<void>;
   setVerificationToken(userId: number, token: string, expiresAt: Date): Promise<void>;
+  getUsersByProvider(providerId: number): Promise<User[]>;
+  deleteUser(id: number): Promise<void>;
 
   getProvider(id: number): Promise<Provider | undefined>;
   getProviderByCnpj(cnpj: string): Promise<Provider | undefined>;
+  getProviderBySubdomain(subdomain: string): Promise<Provider | undefined>;
   createProvider(provider: InsertProvider): Promise<Provider>;
+  updateProvider(id: number, data: Partial<Pick<Provider, "name" | "contactEmail" | "contactPhone" | "website">>): Promise<Provider>;
   getAllProviders(): Promise<Provider[]>;
   updateProviderCredits(id: number, ispCredits: number, spcCredits: number): Promise<void>;
 
@@ -100,6 +104,14 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
+  async getUsersByProvider(providerId: number): Promise<User[]> {
+    return db.select().from(users).where(eq(users.providerId, providerId));
+  }
+
+  async deleteUser(id: number): Promise<void> {
+    await db.delete(users).where(eq(users.id, id));
+  }
+
   async getProvider(id: number): Promise<Provider | undefined> {
     const [provider] = await db.select().from(providers).where(eq(providers.id, id));
     return provider;
@@ -110,9 +122,19 @@ export class DatabaseStorage implements IStorage {
     return provider;
   }
 
+  async getProviderBySubdomain(subdomain: string): Promise<Provider | undefined> {
+    const [provider] = await db.select().from(providers).where(eq(providers.subdomain, subdomain));
+    return provider;
+  }
+
   async createProvider(provider: InsertProvider): Promise<Provider> {
     const [created] = await db.insert(providers).values(provider).returning();
     return created;
+  }
+
+  async updateProvider(id: number, data: Partial<Pick<Provider, "name" | "contactEmail" | "contactPhone" | "website">>): Promise<Provider> {
+    const [updated] = await db.update(providers).set(data).where(eq(providers.id, id)).returning();
+    return updated;
   }
 
   async getAllProviders(): Promise<Provider[]> {
