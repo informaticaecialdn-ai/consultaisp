@@ -125,6 +125,98 @@ function getRecommendedActions(score: number, hasUnreturnedEquipment: boolean): 
   return actions;
 }
 
+async function testErpConnection(source: string, apiUrl: string, apiUser: string, apiToken: string): Promise<{ ok: boolean; message: string }> {
+  const base = apiUrl.replace(/\/+$/, "");
+  try {
+    if (source === "ixc") {
+      const auth = Buffer.from(`${apiUser}:${apiToken}`).toString("base64");
+      const r = await fetch(`${base}/webservice/v1/`, {
+        method: "POST",
+        headers: { "Authorization": `Basic ${auth}`, "Content-Type": "application/json", "ixcsoft": "listar" },
+        body: JSON.stringify({ qtype: "fn_areceber.id", query: "1", oper: "=", page: "1", rp: "1", sortname: "fn_areceber.id", sortorder: "asc" }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (r.ok || r.status === 200) return { ok: true, message: "Conexao com iXC Soft estabelecida com sucesso" };
+      return { ok: false, message: `iXC respondeu com status ${r.status}` };
+    }
+    if (source === "mk") {
+      const r = await fetch(`${base}/api/v1/clientes?limit=1`, {
+        headers: { "Authorization": `Bearer ${apiToken}`, "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (r.ok) return { ok: true, message: "Conexao com MK Solutions estabelecida com sucesso" };
+      return { ok: false, message: `MK Solutions respondeu com status ${r.status}` };
+    }
+    if (source === "sgp") {
+      const r = await fetch(`${base}/api/clientes?limit=1`, {
+        headers: { "Authorization": `Bearer ${apiToken}` },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (r.ok) return { ok: true, message: "Conexao com SGP estabelecida com sucesso" };
+      return { ok: false, message: `SGP respondeu com status ${r.status}` };
+    }
+    const r = await fetch(`${base}/`, { headers: { "Authorization": `Bearer ${apiToken}` }, signal: AbortSignal.timeout(8000) });
+    return r.ok ? { ok: true, message: "Conexao estabelecida" } : { ok: false, message: `ERP respondeu com status ${r.status}` };
+  } catch (err: any) {
+    if (err.name === "TimeoutError") return { ok: false, message: "Timeout: o ERP nao respondeu em 8 segundos" };
+    return { ok: false, message: `Erro de conexao: ${err.message}` };
+  }
+}
+
+async function fetchErpCustomers(source: string, apiUrl: string, apiUser: string, apiToken: string): Promise<{ ok: boolean; message: string; customers: any[] }> {
+  const base = apiUrl.replace(/\/+$/, "");
+  try {
+    if (source === "ixc") {
+      const auth = Buffer.from(`${apiUser}:${apiToken}`).toString("base64");
+      const r = await fetch(`${base}/webservice/v1/`, {
+        method: "POST",
+        headers: { "Authorization": `Basic ${auth}`, "Content-Type": "application/json", "ixcsoft": "listar" },
+        body: JSON.stringify({ qtype: "fn_areceber.status", query: "A", oper: "=", page: "1", rp: "1000", sortname: "fn_areceber.id", sortorder: "asc" }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!r.ok) return { ok: false, message: `iXC respondeu com status ${r.status}`, customers: [] };
+      const json: any = await r.json();
+      const rows: any[] = json?.registros || json?.records || [];
+      const now = new Date();
+      const customers = rows
+        .filter((row: any) => row.vencimento && new Date(row.vencimento) < now)
+        .map((row: any) => ({
+          cpfCnpj: row.cpf_cnpj || row.cnpj_cpf || "",
+          name: row.razao || row.nome || "",
+          email: row.email || "",
+          phone: row.fone || row.telefone || "",
+          totalOverdueAmount: parseFloat(row.valor || "0"),
+          maxDaysOverdue: Math.floor((now.getTime() - new Date(row.vencimento).getTime()) / 86400000),
+          erpSource: "ixc",
+        }));
+      return { ok: true, message: `${customers.length} inadimplentes encontrados`, customers };
+    }
+    if (source === "mk") {
+      const r = await fetch(`${base}/api/v1/financeiro/inadimplentes?limit=1000`, {
+        headers: { "Authorization": `Bearer ${apiToken}`, "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!r.ok) return { ok: false, message: `MK Solutions respondeu com status ${r.status}`, customers: [] };
+      const json: any = await r.json();
+      const rows: any[] = Array.isArray(json) ? json : json?.data || json?.clientes || [];
+      const customers = rows.map((row: any) => ({
+        cpfCnpj: row.cpf_cnpj || row.cpf || row.cnpj || "",
+        name: row.nome || row.razao_social || "",
+        email: row.email || "",
+        phone: row.telefone || row.fone || "",
+        totalOverdueAmount: parseFloat(row.valor_total || row.saldo_devedor || "0"),
+        maxDaysOverdue: parseInt(row.dias_atraso || row.atraso_dias || "0"),
+        erpSource: "mk",
+      }));
+      return { ok: true, message: `${customers.length} inadimplentes encontrados`, customers };
+    }
+    return { ok: false, message: `Sincronizacao automatica para ${source} ainda nao implementada. Use a importacao manual.`, customers: [] };
+  } catch (err: any) {
+    if (err.name === "TimeoutError") return { ok: false, message: "Timeout: o ERP nao respondeu em 30 segundos", customers: [] };
+    return { ok: false, message: `Erro de conexao: ${err.message}`, customers: [] };
+  }
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -1122,13 +1214,67 @@ export async function registerRoutes(
       const { source } = req.params;
       const validSources = ["ixc", "sgp", "mk", "tiacos", "hubsoft", "flyspeed", "netflash", "manual"];
       if (!validSources.includes(source)) return res.status(400).json({ message: "ERP invalido" });
-      const allowed = ["isEnabled", "notes"];
+      const allowed = ["isEnabled", "notes", "apiUrl", "apiToken", "apiUser", "syncIntervalHours"];
       const data: any = {};
       for (const k of allowed) { if (req.body[k] !== undefined) data[k] = req.body[k]; }
       const integration = await storage.upsertErpIntegration(req.session.providerId!, source, data);
       return res.json(integration);
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/provider/erp-integrations/:source/test", requireAuth, async (req, res) => {
+    try {
+      const { source } = req.params;
+      const providerId = req.session.providerId!;
+      const integrations = await storage.getErpIntegrations(providerId);
+      const intg = integrations.find(i => i.erpSource === source);
+      if (!intg?.apiUrl || !intg?.apiToken) {
+        return res.status(400).json({ ok: false, message: "Configure a URL e o token antes de testar" });
+      }
+      const result = await testErpConnection(source, intg.apiUrl, intg.apiUser || "", intg.apiToken);
+      return res.json(result);
+    } catch (error: any) {
+      return res.status(500).json({ ok: false, message: error.message });
+    }
+  });
+
+  app.post("/api/provider/erp-integrations/:source/sync", requireAuth, async (req, res) => {
+    try {
+      const { source } = req.params;
+      const providerId = req.session.providerId!;
+      const integrations = await storage.getErpIntegrations(providerId);
+      const intg = integrations.find(i => i.erpSource === source);
+      if (!intg?.apiUrl || !intg?.apiToken) {
+        return res.status(400).json({ ok: false, message: "Configure a URL e o token antes de sincronizar" });
+      }
+      const fetchResult = await fetchErpCustomers(source, intg.apiUrl, intg.apiUser || "", intg.apiToken);
+      if (!fetchResult.ok) {
+        await storage.createErpSyncLog({
+          providerId, erpSource: source,
+          upserted: 0, errors: 0, status: "error",
+          ipAddress: null, payload: { error: fetchResult.message },
+          syncType: "manual", recordsProcessed: 0, recordsFailed: 0,
+        });
+        await storage.upsertErpIntegration(providerId, source, { status: "error", lastSyncStatus: "error", lastSyncAt: new Date() });
+        return res.status(502).json({ ok: false, message: fetchResult.message });
+      }
+      const syncResult = await storage.syncErpCustomers(providerId, source, fetchResult.customers);
+      const syncStatus = syncResult.errors > 0 && syncResult.upserted === 0 ? "error" : syncResult.errors > 0 ? "partial" : "success";
+      await storage.createErpSyncLog({
+        providerId, erpSource: source,
+        upserted: syncResult.upserted, errors: syncResult.errors, status: syncStatus,
+        ipAddress: null, payload: { total: fetchResult.customers.length },
+        syncType: "manual", recordsProcessed: fetchResult.customers.length, recordsFailed: syncResult.errors,
+      });
+      await storage.upsertErpIntegration(providerId, source, {
+        status: syncStatus, lastSyncStatus: syncStatus, lastSyncAt: new Date(),
+      });
+      await storage.incrementErpIntegrationCounters(providerId, source, syncResult.upserted, syncResult.errors);
+      return res.json({ ok: true, synced: syncResult.upserted, errors: syncResult.errors, total: fetchResult.customers.length });
+    } catch (error: any) {
+      return res.status(500).json({ ok: false, message: error.message });
     }
   });
 

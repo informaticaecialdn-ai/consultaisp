@@ -16,7 +16,7 @@ import {
   BarChart3, Search, AlertTriangle, Wifi, Save, RefreshCw, Crown,
   Lock, Star, FileText, Upload, Download, Eye, MapPin, Calendar,
   Briefcase, X, Pencil, ClipboardList, UserCheck, Wand2, Info,
-  EyeOff, Key, Zap, Terminal, ArrowRight, Database, CheckCheck, Clock
+  EyeOff, Key, Zap, Terminal, ArrowRight, Database, CheckCheck, Clock, Settings2
 } from "lucide-react";
 
 const MAIN_DOMAIN = "consultaisp.com.br";
@@ -53,62 +53,14 @@ const KYC_CONFIG: Record<string, { label: string; color: string; icon: any }> = 
 };
 
 const ERP_LIST = [
-  { key: "ixc",      name: "iXC Soft",    desc: "iXC Provedor",   grad: "from-blue-500 to-blue-600",    },
-  { key: "sgp",      name: "SGP",          desc: "Solucao Gestao", grad: "from-purple-500 to-purple-600", },
-  { key: "mk",       name: "MK Solutions", desc: "MK-AUTH/ERP",    grad: "from-green-500 to-green-600",   },
-  { key: "tiacos",   name: "Tiacos",       desc: "Tiacos ISP",     grad: "from-orange-500 to-orange-600", },
-  { key: "hubsoft",  name: "Hubsoft",      desc: "Hubsoft ERP",    grad: "from-indigo-500 to-indigo-600", },
-  { key: "flyspeed", name: "Fly Speed",    desc: "Fly Speed ISP",  grad: "from-cyan-500 to-cyan-600",     },
-  { key: "netflash", name: "Netflash",     desc: "Netflash ISP",   grad: "from-rose-500 to-pink-600",     },
+  { key: "ixc",      name: "iXC Soft",    desc: "iXC Provedor",   grad: "from-blue-500 to-blue-600",    authType: "basic",  authHint: "Usuario: login do iXC | Token: token da API iXC" },
+  { key: "sgp",      name: "SGP",          desc: "Solucao Gestao", grad: "from-purple-500 to-purple-600", authType: "bearer", authHint: "Token: chave de API do SGP" },
+  { key: "mk",       name: "MK Solutions", desc: "MK-AUTH/ERP",    grad: "from-green-500 to-green-600",   authType: "bearer", authHint: "Token: Bearer token do MK Solutions" },
+  { key: "tiacos",   name: "Tiacos",       desc: "Tiacos ISP",     grad: "from-orange-500 to-orange-600", authType: "bearer", authHint: "Token: chave de API do Tiacos" },
+  { key: "hubsoft",  name: "Hubsoft",      desc: "Hubsoft ERP",    grad: "from-indigo-500 to-indigo-600", authType: "bearer", authHint: "Token: chave de API do Hubsoft" },
+  { key: "flyspeed", name: "Fly Speed",    desc: "Fly Speed ISP",  grad: "from-cyan-500 to-cyan-600",     authType: "bearer", authHint: "Token: chave de API do Fly Speed" },
+  { key: "netflash", name: "Netflash",     desc: "Netflash ISP",   grad: "from-rose-500 to-pink-600",     authType: "bearer", authHint: "Token: chave de API do Netflash" },
 ];
-
-function buildN8nTemplate(webhookUrl: string, token: string): string {
-  const workflow = {
-    name: "Consulta ISP - Sincronizar Inadimplentes",
-    nodes: [
-      {
-        parameters: { rule: { interval: [{ field: "hours", hoursInterval: 1 }] } },
-        id: "trigger-1",
-        name: "A cada 1 hora",
-        type: "n8n-nodes-base.scheduleTrigger",
-        typeVersion: 1.1,
-        position: [240, 300],
-      },
-      {
-        parameters: {
-          httpMethod: "POST",
-          url: webhookUrl,
-          sendHeaders: true,
-          headerParameters: {
-            parameters: [{ name: "Authorization", value: `Bearer ${token}` }, { name: "Content-Type", value: "application/json" }],
-          },
-          sendBody: true,
-          bodyContentType: "json",
-          jsonBody: JSON.stringify({
-            erpSource: "ixc",
-            customers: [
-              { name: "={{$json.nome}}", cpfCnpj: "={{$json.cpf_cnpj}}", phone: "={{$json.telefone}}", email: "={{$json.email}}", city: "={{$json.cidade}}", state: "={{$json.estado}}", totalOverdueAmount: "={{$json.valor_total}}", maxDaysOverdue: "={{$json.dias_em_atraso}}", overdueInvoicesCount: "={{$json.qtd_faturas}}" },
-            ],
-          }),
-          options: {},
-        },
-        id: "http-1",
-        name: "Enviar para Consulta ISP",
-        type: "n8n-nodes-base.httpRequest",
-        typeVersion: 4.2,
-        position: [480, 300],
-      },
-    ],
-    connections: { "A cada 1 hora": { main: [[{ node: "Enviar para Consulta ISP", type: "main", index: 0 }]] } },
-    pinData: {},
-    settings: { executionOrder: "v1" },
-    staticData: null,
-    tags: [],
-    triggerCount: 0,
-    versionId: crypto.randomUUID ? crypto.randomUUID() : "n8n-template-v1",
-  };
-  return JSON.stringify(workflow, null, 2);
-}
 
 function relDate(d: string | null): string {
   if (!d) return "Nunca";
@@ -172,15 +124,6 @@ export default function PainelProvedorPage() {
     enabled: activeTab === "integracao",
   });
 
-  const regenerateTokenMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/provider/integration/regenerate-token"),
-    onSuccess: () => {
-      refetchIntegration();
-      toast({ title: "Token regenerado", description: "Novo token gerado com sucesso. Atualize o N8N." });
-    },
-    onError: () => toast({ title: "Erro", description: "Nao foi possivel regenerar o token.", variant: "destructive" }),
-  });
-
   const toggleErpMutation = useMutation({
     mutationFn: ({ source, isEnabled }: { source: string; isEnabled: boolean }) =>
       apiRequest("PATCH", `/api/provider/erp-integrations/${source}`, { isEnabled }),
@@ -188,59 +131,56 @@ export default function PainelProvedorPage() {
     onError: () => toast({ title: "Erro", description: "Nao foi possivel atualizar a integracao.", variant: "destructive" }),
   });
 
-  const [testErpSource, setTestErpSource] = useState("ixc");
-  const [testWebhookResult, setTestWebhookResult] = useState<{ ok: boolean; msg: string } | null>(null);
-  const testWebhookMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch("/api/webhooks/erp-sync", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${integrationData?.token ?? ""}`,
-        },
-        body: JSON.stringify({
-          erpSource: testErpSource,
-          customers: [{
-            name: "Teste Webhook Consulta ISP",
-            cpfCnpj: "000.000.000-00",
-            phone: "00000000000",
-            email: "teste@consultaisp.com.br",
-            city: "Londrina",
-            state: "PR",
-            totalOverdueAmount: 1.00,
-            maxDaysOverdue: 1,
-            overdueInvoicesCount: 1,
-          }],
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Erro ao testar");
-      return data;
-    },
-    onSuccess: (data) => {
-      setTestWebhookResult({ ok: true, msg: `Sucesso! ${data.upserted} cliente(s) sincronizado(s).` });
+  const saveErpConfigMutation = useMutation({
+    mutationFn: ({ source, data }: { source: string; data: any }) =>
+      apiRequest("PATCH", `/api/provider/erp-integrations/${source}`, data),
+    onSuccess: () => {
       refetchErpList();
-      refetchSyncLogs();
+      toast({ title: "Configuracao salva", description: "Credenciais atualizadas com sucesso." });
     },
-    onError: (err: any) => {
-      setTestWebhookResult({ ok: false, msg: err.message ?? "Erro desconhecido" });
-    },
+    onError: () => toast({ title: "Erro", description: "Nao foi possivel salvar as credenciais.", variant: "destructive" }),
   });
 
-  const downloadN8nTemplate = () => {
-    if (!integrationData?.token || !integrationData?.webhookUrl) {
-      toast({ title: "Aguarde", description: "Carregando dados de integracao...", variant: "destructive" });
-      return;
+  const [erpTestResults, setErpTestResults] = useState<Record<string, { ok: boolean; msg: string } | null>>({});
+  const [erpSyncResults, setErpSyncResults] = useState<Record<string, { ok: boolean; msg: string } | null>>({});
+  const [erpPending, setErpPending] = useState<Record<string, { testing?: boolean; syncing?: boolean; saving?: boolean }>>({});
+  const [expandedErp, setExpandedErp] = useState<string | null>(null);
+  const [erpForms, setErpForms] = useState<Record<string, { apiUrl: string; apiUser: string; apiToken: string; showToken: boolean }>>({});
+
+  const getErpForm = (key: string) => {
+    if (erpForms[key]) return erpForms[key];
+    const intg = getIntg(key);
+    return { apiUrl: intg?.apiUrl || "", apiUser: intg?.apiUser || "", apiToken: intg?.apiToken || "", showToken: false };
+  };
+
+  const testConnection = async (source: string) => {
+    setErpPending(p => ({ ...p, [source]: { ...p[source], testing: true } }));
+    setErpTestResults(r => ({ ...r, [source]: null }));
+    try {
+      const res = await fetch(`/api/provider/erp-integrations/${source}/test`, { method: "POST" });
+      const data = await res.json();
+      setErpTestResults(r => ({ ...r, [source]: { ok: data.ok, msg: data.message } }));
+    } catch {
+      setErpTestResults(r => ({ ...r, [source]: { ok: false, msg: "Erro de conexao" } }));
+    } finally {
+      setErpPending(p => ({ ...p, [source]: { ...p[source], testing: false } }));
     }
-    const json = buildN8nTemplate(integrationData.webhookUrl, integrationData.token);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "consulta-isp-n8n-workflow.json";
-    a.click();
-    URL.revokeObjectURL(url);
-    toast({ title: "Template baixado!", description: "Importe o arquivo JSON no N8N (Settings > Import Workflow)." });
+  };
+
+  const syncNow = async (source: string) => {
+    setErpPending(p => ({ ...p, [source]: { ...p[source], syncing: true } }));
+    setErpSyncResults(r => ({ ...r, [source]: null }));
+    try {
+      const res = await fetch(`/api/provider/erp-integrations/${source}/sync`, { method: "POST" });
+      const data = await res.json();
+      setErpSyncResults(r => ({ ...r, [source]: { ok: data.ok, msg: data.ok ? `${data.synced} registros sincronizados (${data.total} processados)` : data.message } }));
+      refetchErpList();
+      refetchSyncLogs();
+    } catch {
+      setErpSyncResults(r => ({ ...r, [source]: { ok: false, msg: "Erro ao sincronizar" } }));
+    } finally {
+      setErpPending(p => ({ ...p, [source]: { ...p[source], syncing: false } }));
+    }
   };
 
   const [empresa, setEmpresa] = useState<any>(null);
@@ -1539,18 +1479,13 @@ export default function PainelProvedorPage() {
                       <Zap className="w-5 h-5 text-white" />
                     </div>
                     <div>
-                      <h2 className="font-bold text-base leading-tight">Integracao com ERPs via N8N</h2>
-                      <p className="text-xs text-muted-foreground">Gerencie e monitore as integracoes com seu ERP</p>
+                      <h2 className="font-bold text-base leading-tight">Integracao com ERPs</h2>
+                      <p className="text-xs text-muted-foreground">O sistema busca automaticamente os inadimplentes na API do seu ERP</p>
                     </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={downloadN8nTemplate} data-testid="button-download-n8n-template">
-                      <Download className="w-3.5 h-3.5" />Template N8N
-                    </Button>
-                    <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={() => { refetchErpList(); refetchSyncLogs(); refetchIntegration(); }} data-testid="button-refresh-integrations">
-                      <RefreshCw className="w-3.5 h-3.5" />Atualizar
-                    </Button>
-                  </div>
+                  <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={() => { refetchErpList(); refetchSyncLogs(); }} data-testid="button-refresh-integrations">
+                    <RefreshCw className="w-3.5 h-3.5" />Atualizar
+                  </Button>
                 </div>
 
                 {/* Stats */}
@@ -1574,37 +1509,45 @@ export default function PainelProvedorPage() {
                   ))}
                 </div>
 
-                {/* ERP Cards */}
-                <Card className="p-4">
-                  <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
-                    <Wifi className="w-4 h-4 text-muted-foreground" />
-                    Gerenciar Integracoes ERP
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {ERP_LIST.map(erp => {
-                      const intg = getIntg(erp.key);
-                      const enabled = intg?.isEnabled ?? false;
-                      const status = intg?.status ?? "idle";
-                      const synced = intg?.totalSynced ?? 0;
-                      const errorsCount = intg?.totalErrors ?? 0;
-                      const lastSync = intg?.lastSyncAt ?? null;
-                      const statusBadge = status === "success" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/20"
-                        : status === "error" ? "bg-red-100 text-red-700 dark:bg-red-900/20"
-                        : status === "partial" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/20"
-                        : "bg-gray-100 text-gray-500 dark:bg-gray-800";
-                      const statusLabel = status === "success" ? "Sucesso" : status === "error" ? "Erro" : status === "partial" ? "Parcial" : "Aguardando";
-                      return (
-                        <div key={erp.key} className={`rounded-xl border p-3.5 transition-all ${enabled ? "border-violet-200 bg-violet-50/30 dark:bg-violet-900/10 dark:border-violet-800" : "opacity-80"}`} data-testid={`card-erp-${erp.key}`}>
-                          <div className="flex items-start justify-between mb-2.5">
-                            <div className="flex items-center gap-2.5">
-                              <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${erp.grad} flex items-center justify-center flex-shrink-0`}>
-                                <Wifi className="w-4 h-4 text-white" />
-                              </div>
-                              <div>
-                                <p className="text-sm font-bold leading-tight">{erp.name}</p>
-                                <p className="text-xs text-muted-foreground">{erp.desc}</p>
-                              </div>
+                {/* ERP Connection Cards */}
+                <div className="space-y-3">
+                  {ERP_LIST.map(erp => {
+                    const intg = getIntg(erp.key);
+                    const enabled = intg?.isEnabled ?? false;
+                    const form = getErpForm(erp.key);
+                    const isExpanded = expandedErp === erp.key;
+                    const hasCredentials = !!(intg?.apiUrl && intg?.apiToken);
+                    const status = intg?.lastSyncStatus ?? "idle";
+                    const statusBadge = status === "success" ? "bg-emerald-100 text-emerald-700"
+                      : status === "error" ? "bg-red-100 text-red-700"
+                      : status === "partial" ? "bg-amber-100 text-amber-700"
+                      : "bg-gray-100 text-gray-500";
+                    return (
+                      <Card key={erp.key} className={`overflow-hidden transition-all ${enabled ? "border-violet-200" : ""}`} data-testid={`card-erp-${erp.key}`}>
+                        {/* Card header row */}
+                        <div className="flex items-center gap-3 px-4 py-3">
+                          <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${erp.grad} flex items-center justify-center flex-shrink-0`}>
+                            <Wifi className="w-4 h-4 text-white" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-bold">{erp.name}</p>
+                              <span className="text-xs text-muted-foreground">{erp.desc}</span>
+                              {hasCredentials && <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${statusBadge}`}>{status === "success" ? "Sucesso" : status === "error" ? "Erro" : status === "partial" ? "Parcial" : "Aguardando"}</span>}
                             </div>
+                            {intg?.lastSyncAt && (
+                              <p className="text-xs text-muted-foreground">Ultima sync: {relDate(intg.lastSyncAt)} · {(intg.totalSynced ?? 0).toLocaleString("pt-BR")} registros</p>
+                            )}
+                            {!hasCredentials && <p className="text-xs text-amber-600">Credenciais nao configuradas</p>}
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <Button
+                              variant="ghost" size="sm" className="h-7 text-xs gap-1"
+                              onClick={() => setExpandedErp(isExpanded ? null : erp.key)}
+                              data-testid={`button-config-${erp.key}`}
+                            >
+                              <Settings2 className="w-3.5 h-3.5" />{isExpanded ? "Fechar" : "Configurar"}
+                            </Button>
                             <button
                               onClick={() => toggleErpMutation.mutate({ source: erp.key, isEnabled: !enabled })}
                               disabled={toggleErpMutation.isPending}
@@ -1614,96 +1557,102 @@ export default function PainelProvedorPage() {
                               <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 m-0.5 ${enabled ? "translate-x-4" : "translate-x-0"}`} />
                             </button>
                           </div>
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                              <span className="flex items-center gap-1"><Database style={{ width: 11 }} />{synced}</span>
-                              {errorsCount > 0 && <span className="flex items-center gap-1 text-rose-500"><AlertTriangle style={{ width: 11 }} />{errorsCount}</span>}
-                              <span>{relDate(lastSync)}</span>
-                            </div>
-                            <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${statusBadge}`}>{statusLabel}</span>
-                          </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                </Card>
-
-                {/* Token & URL condensed */}
-                <div className="grid md:grid-cols-2 gap-3">
-                  <Card className="p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-semibold flex items-center gap-1.5"><Key className="w-3.5 h-3.5" />Token de Autorizacao</span>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setShowToken(v => !v)} data-testid="button-toggle-token">
-                          {showToken ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { navigator.clipboard.writeText(integrationData?.token ?? ""); toast({ title: "Token copiado!" }); }} data-testid="button-copy-token">
-                          <Copy className="w-3 h-3" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-6 w-6 text-rose-500" title="Regenerar" onClick={() => confirm("Invalidar token atual?") && regenerateTokenMutation.mutate()} data-testid="button-regenerate-token">
-                          <RefreshCw className={`w-3 h-3 ${regenerateTokenMutation.isPending ? "animate-spin" : ""}`} />
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="bg-muted rounded-lg px-3 py-2 font-mono text-xs break-all select-all" data-testid="text-webhook-token">
-                      {integrationData?.token ? showToken ? integrationData.token : `${integrationData.token.slice(0, 8)}${"•".repeat(20)}${integrationData.token.slice(-8)}` : "Carregando..."}
-                    </div>
-                  </Card>
-                  <Card className="p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-semibold flex items-center gap-1.5"><Link2 className="w-3.5 h-3.5" />URL do Webhook (POST)</span>
-                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => { navigator.clipboard.writeText(integrationData?.webhookUrl ?? ""); toast({ title: "URL copiada!" }); }} data-testid="button-copy-url">
-                        <Copy className="w-3 h-3" />
-                      </Button>
-                    </div>
-                    <div className="bg-muted rounded-lg px-3 py-2 font-mono text-xs break-all" data-testid="text-webhook-url">
-                      {integrationData?.webhookUrl ?? "Carregando..."}
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1.5">Header: <code className="bg-muted px-1 rounded">Authorization: Bearer &lt;token&gt;</code></p>
-                  </Card>
+                        {/* Expandable form */}
+                        {isExpanded && (
+                          <div className="border-t px-4 py-4 bg-muted/20 space-y-3">
+                            <p className="text-xs text-muted-foreground">{erp.authHint}</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              <div className="space-y-1 md:col-span-2">
+                                <label className="text-xs font-medium">URL da API do ERP</label>
+                                <Input
+                                  value={form.apiUrl}
+                                  onChange={e => setErpForms(f => ({ ...f, [erp.key]: { ...getErpForm(erp.key), apiUrl: e.target.value } }))}
+                                  placeholder={erp.key === "ixc" ? "https://ixc.seudominio.com.br" : "https://erp.seudominio.com.br"}
+                                  className="h-8 text-xs font-mono"
+                                  data-testid={`input-api-url-${erp.key}`}
+                                />
+                              </div>
+                              {erp.authType === "basic" && (
+                                <div className="space-y-1">
+                                  <label className="text-xs font-medium">Usuario</label>
+                                  <Input
+                                    value={form.apiUser}
+                                    onChange={e => setErpForms(f => ({ ...f, [erp.key]: { ...getErpForm(erp.key), apiUser: e.target.value } }))}
+                                    placeholder="usuario_api"
+                                    className="h-8 text-xs"
+                                    data-testid={`input-api-user-${erp.key}`}
+                                  />
+                                </div>
+                              )}
+                              <div className={`space-y-1 ${erp.authType === "basic" ? "" : "md:col-span-2"}`}>
+                                <label className="text-xs font-medium">Token / Chave de API</label>
+                                <div className="relative">
+                                  <Input
+                                    type={form.showToken ? "text" : "password"}
+                                    value={form.apiToken}
+                                    onChange={e => setErpForms(f => ({ ...f, [erp.key]: { ...getErpForm(erp.key), apiToken: e.target.value } }))}
+                                    placeholder="Token de autenticacao"
+                                    className="h-8 text-xs pr-8"
+                                    data-testid={`input-api-token-${erp.key}`}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                    onClick={() => setErpForms(f => ({ ...f, [erp.key]: { ...getErpForm(erp.key), showToken: !form.showToken } }))}
+                                  >
+                                    {form.showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap gap-2 pt-1">
+                              <Button
+                                size="sm" className="h-7 text-xs gap-1.5"
+                                onClick={() => saveErpConfigMutation.mutate({ source: erp.key, data: { apiUrl: form.apiUrl, apiUser: form.apiUser, apiToken: form.apiToken } })}
+                                disabled={saveErpConfigMutation.isPending || !form.apiUrl || !form.apiToken}
+                                data-testid={`button-save-config-${erp.key}`}
+                              >
+                                {saveErpConfigMutation.isPending ? <RefreshCw className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
+                                Salvar Credenciais
+                              </Button>
+                              <Button
+                                size="sm" variant="outline" className="h-7 text-xs gap-1.5"
+                                onClick={() => testConnection(erp.key)}
+                                disabled={erpPending[erp.key]?.testing || !hasCredentials}
+                                data-testid={`button-test-connection-${erp.key}`}
+                              >
+                                {erpPending[erp.key]?.testing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                                Testar Conexao
+                              </Button>
+                              <Button
+                                size="sm" variant="outline" className="h-7 text-xs gap-1.5"
+                                onClick={() => syncNow(erp.key)}
+                                disabled={erpPending[erp.key]?.syncing || !hasCredentials || !enabled}
+                                data-testid={`button-sync-now-${erp.key}`}
+                              >
+                                {erpPending[erp.key]?.syncing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                                Sincronizar Agora
+                              </Button>
+                            </div>
+                            {erpTestResults[erp.key] && (
+                              <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium ${erpTestResults[erp.key]!.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-700 border border-red-200"}`} data-testid={`result-test-${erp.key}`}>
+                                {erpTestResults[erp.key]!.ok ? <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />}
+                                {erpTestResults[erp.key]!.msg}
+                              </div>
+                            )}
+                            {erpSyncResults[erp.key] && (
+                              <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium ${erpSyncResults[erp.key]!.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-700 border border-red-200"}`} data-testid={`result-sync-${erp.key}`}>
+                                {erpSyncResults[erp.key]!.ok ? <Database className="w-3.5 h-3.5 flex-shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />}
+                                {erpSyncResults[erp.key]!.msg}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </Card>
+                    );
+                  })}
                 </div>
-
-                {/* Test Webhook */}
-                <Card className="p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Zap className="w-4 h-4 text-violet-500" />
-                    <h3 className="font-semibold text-sm">Testar Conexao Webhook</h3>
-                    <span className="text-xs text-muted-foreground ml-auto">Envia 1 cliente de teste para verificar a integracao</span>
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-medium text-muted-foreground">ERP:</span>
-                      <div className="flex gap-1 flex-wrap">
-                        {ERP_LIST.map(erp => (
-                          <button
-                            key={erp.key}
-                            onClick={() => { setTestErpSource(erp.key); setTestWebhookResult(null); }}
-                            data-testid={`btn-test-erp-${erp.key}`}
-                            className={`text-xs px-2 py-1 rounded-md border transition-colors ${testErpSource === erp.key ? "bg-violet-500 text-white border-violet-500" : "border-border hover:border-violet-300"}`}
-                          >
-                            {erp.name}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <Button
-                      size="sm"
-                      className="h-7 gap-1.5 text-xs bg-violet-500 hover:bg-violet-600 ml-auto"
-                      onClick={() => { setTestWebhookResult(null); testWebhookMutation.mutate(); }}
-                      disabled={testWebhookMutation.isPending || !integrationData?.token}
-                      data-testid="button-test-webhook"
-                    >
-                      {testWebhookMutation.isPending ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
-                      Testar Webhook
-                    </Button>
-                  </div>
-                  {testWebhookResult && (
-                    <div className={`mt-3 flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium ${testWebhookResult.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400" : "bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/20 dark:text-red-400"}`} data-testid="text-test-webhook-result">
-                      {testWebhookResult.ok ? <CheckCheck className="w-3.5 h-3.5 flex-shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />}
-                      {testWebhookResult.msg}
-                    </div>
-                  )}
-                </Card>
 
                 {/* Sync Logs */}
                 <Card className="overflow-hidden">
@@ -1717,7 +1666,7 @@ export default function PainelProvedorPage() {
                         <Database className="w-6 h-6 text-muted-foreground/40" />
                       </div>
                       <p className="text-sm font-medium text-muted-foreground">Nenhuma sincronizacao ainda</p>
-                      <p className="text-xs text-muted-foreground/60 mt-1">Configure o N8N e execute o fluxo para ver os logs aqui.</p>
+                      <p className="text-xs text-muted-foreground/60 mt-1">Configure as credenciais do ERP e use "Sincronizar Agora" para ver os logs aqui.</p>
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
@@ -1761,67 +1710,6 @@ export default function PainelProvedorPage() {
                       </Table>
                     </div>
                   )}
-                </Card>
-
-                {/* Payload reference */}
-                <Card className="p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Terminal className="w-4 h-4 text-muted-foreground" />
-                    <h3 className="font-semibold text-sm">Referencia do Payload JSON</h3>
-                  </div>
-                  <pre className="bg-muted rounded-lg p-3 text-xs font-mono overflow-x-auto leading-relaxed" data-testid="code-payload">
-{`POST ${integrationData?.webhookUrl ?? "/api/webhooks/erp-sync"}
-Authorization: Bearer <token>
-Content-Type: application/json
-
-{
-  "erpSource": "ixc",
-  "customers": [
-    {
-      "name": "Joao da Silva",        // obrigatorio
-      "cpfCnpj": "123.456.789-00",    // obrigatorio
-      "phone": "(43) 99999-8888",
-      "email": "joao@email.com",
-      "city": "Londrina",
-      "state": "PR",
-      "totalOverdueAmount": 450.00,
-      "maxDaysOverdue": 95,
-      "overdueInvoicesCount": 3
-    }
-  ]
-}`}
-                  </pre>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {["ixc", "sgp", "mk", "tiacos", "hubsoft", "flyspeed", "netflash", "manual"].map(s => (
-                      <code key={s} className="text-xs bg-muted px-1.5 py-0.5 rounded">{s}</code>
-                    ))}
-                  </div>
-                </Card>
-
-                {/* Setup steps */}
-                <Card className="p-4">
-                  <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
-                    <ClipboardList className="w-4 h-4 text-muted-foreground" />
-                    Como Configurar no N8N
-                  </h3>
-                  <ol className="space-y-2.5">
-                    {[
-                      { n: "1", t: "Ative o ERP desejado", d: "Use os toggles acima para ativar a integracao com o seu ERP." },
-                      { n: "2", t: "Copie o Token e a URL", d: "Copie o Token de Autorizacao e a URL do Webhook desta pagina." },
-                      { n: "3", t: "Crie um workflow no N8N", d: "Gatilho por agendamento (ex: a cada 1 hora) para buscar dados do ERP." },
-                      { n: "4", t: "Consulte o ERP", d: "Use HTTP Request ou conector nativo do ERP para buscar clientes inadimplentes." },
-                      { n: "5", t: "Mapeie os campos", d: "No do N8N Code ou Set: mapeie campos do ERP para o formato JSON acima." },
-                      { n: "6", t: "Envie para o Webhook", d: "HTTP Request POST para a URL com header Authorization: Bearer <token>." },
-                    ].map(item => (
-                      <li key={item.n} className="flex gap-2.5">
-                        <span className="w-5 h-5 rounded-full bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">{item.n}</span>
-                        <div>
-                          <p className="text-sm font-semibold leading-tight">{item.t}</p>
-                          <p className="text-xs text-muted-foreground">{item.d}</p>
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
                 </Card>
           </>
         </TabsContent>

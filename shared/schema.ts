@@ -110,6 +110,10 @@ export const erpIntegrations = pgTable("erp_integrations", {
   lastSyncAt: timestamp("last_sync_at"),
   lastSyncStatus: text("last_sync_status"),
   notes: text("notes"),
+  apiUrl: text("api_url"),
+  apiToken: text("api_token"),
+  apiUser: text("api_user"),
+  syncIntervalHours: integer("sync_interval_hours").notNull().default(24),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -123,6 +127,9 @@ export const erpSyncLogs = pgTable("erp_sync_logs", {
   status: text("status").notNull().default("success"),
   ipAddress: text("ip_address"),
   payload: jsonb("payload"),
+  syncType: text("sync_type").notNull().default("manual"),
+  recordsProcessed: integer("records_processed").notNull().default(0),
+  recordsFailed: integer("records_failed").notNull().default(0),
 });
 
 export type ErpIntegration = typeof erpIntegrations.$inferSelect;
