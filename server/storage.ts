@@ -17,7 +17,10 @@ import {
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
+  getUserByVerificationToken(token: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  setEmailVerified(userId: number): Promise<void>;
+  setVerificationToken(userId: number, token: string, expiresAt: Date): Promise<void>;
 
   getProvider(id: number): Promise<Provider | undefined>;
   getProviderByCnpj(cnpj: string): Promise<Provider | undefined>;
@@ -73,6 +76,23 @@ export class DatabaseStorage implements IStorage {
   async getUserByEmail(email: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.email, email));
     return user;
+  }
+
+  async getUserByVerificationToken(token: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.verificationToken, token));
+    return user;
+  }
+
+  async setEmailVerified(userId: number): Promise<void> {
+    await db.update(users)
+      .set({ emailVerified: true, verificationToken: null, verificationTokenExpiresAt: null })
+      .where(eq(users.id, userId));
+  }
+
+  async setVerificationToken(userId: number, token: string, expiresAt: Date): Promise<void> {
+    await db.update(users)
+      .set({ verificationToken: token, verificationTokenExpiresAt: expiresAt })
+      .where(eq(users.id, userId));
   }
 
   async createUser(user: InsertUser): Promise<User> {

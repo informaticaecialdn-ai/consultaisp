@@ -45,6 +45,17 @@ Alerts auto-generated on ISP consultation when cross-provider customer has: over
 6 Tabs: Alertas (detailed cards with risk factors, Resolver/Ignorar/Contatar actions, search/filter by status), Score de Risco (customer risk ranking with stats), Padroes (recidiva and ciclo de fraude detection from alert patterns), Analise IA (mock AI analysis with risk summary, detected patterns, recommended actions), Regras (custom rule builder with SE/ENTAO conditions), Configuracoes (toggles for min overdue days, contract age, equipment threshold, multi-query limit, notification emails, critical/high notification toggles).
 API routes: GET /api/anti-fraud/alerts, PATCH /api/anti-fraud/alerts/:id/status, GET /api/anti-fraud/customer-risk.
 
+## Email Verification (Resend)
+New registrations require email verification before login:
+- POST /api/auth/register returns { needsVerification: true, email } without creating session
+- Verification email sent via Resend with 24-hour token
+- GET /api/auth/verify-email?token=xxx verifies token and creates session
+- POST /api/auth/resend-verification resends verification email
+- POST /api/auth/login returns 403 with code EMAIL_NOT_VERIFIED if unverified
+- Frontend: "check email" screen after registration; /verificar-email page handles token validation
+- Seed users are pre-marked as emailVerified=true
+- Sender: EMAIL_FROM env var (fallback: onboarding@resend.dev); requires RESEND_API_KEY secret
+
 ## Test Credentials
 - Email: admin@ispanalizze.com / Password: 123456
 - Email: carlos@vertical.com / Password: 123456
@@ -76,4 +87,5 @@ API routes: GET /api/anti-fraud/alerts, PATCH /api/anti-fraud/alerts/:id/status,
 - server/seed.ts: Seed data (3 providers, cross-tenant customers)
 - client/src/lib/auth.tsx: Auth context
 - client/src/components/app-sidebar.tsx: Navigation sidebar
-- client/src/pages/: All page components
+- client/src/pages/: All page components (incl. verificar-email.tsx for email verification)
+- server/email.ts: Resend email service

@@ -4,6 +4,8 @@ import { storage } from "./storage";
 import { sessionMiddleware, requireAuth, requireAdmin } from "./auth";
 import { loginSchema, registerSchema } from "@shared/schema";
 import { hashPassword, verifyPassword } from "./password";
+import { sendVerificationEmail } from "./email";
+import crypto from "crypto";
 
 function calculateIspScore(params: {
   maxDaysOverdue: number;
@@ -140,6 +142,9 @@ export async function registerRoutes(
       if (!user || !valid) {
         return res.status(401).json({ message: "Email ou senha incorretos" });
       }
+      if (!user.emailVerified) {
+        return res.status(403).json({ message: "Email nao verificado. Verifique sua caixa de entrada.", code: "EMAIL_NOT_VERIFIED", email: user.email });
+      }
       req.session.userId = user.id;
       req.session.providerId = user.providerId!;
       req.session.role = user.role;
@@ -175,12 +180,71 @@ export async function registerRoutes(
         name,
         role: "admin",
         providerId: provider.id,
+        emailVerified: false,
       });
 
+      const token = crypto.randomBytes(32).toString("hex");
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      await storage.setVerificationToken(user.id, token, expiresAt);
+
+      try {
+        await sendVerificationEmail(email, name, token);
+      } catch (emailError: any) {
+        console.error("[email] Falha ao enviar email de verificacao:", emailError.message);
+      }
+
+      return res.status(201).json({ needsVerification: true, email });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/auth/verify-email", async (req, res) => {
+    try {
+      const { token } = req.query as { token?: string };
+      if (!token) {
+        return res.status(400).json({ message: "Token ausente" });
+      }
+      const user = await storage.getUserByVerificationToken(token);
+      if (!user) {
+        return res.status(400).json({ message: "Token invalido ou ja utilizado" });
+      }
+      if (user.verificationTokenExpiresAt && new Date() > user.verificationTokenExpiresAt) {
+        return res.status(400).json({ message: "Token expirado. Solicite um novo email de verificacao.", code: "TOKEN_EXPIRED" });
+      }
+      await storage.setEmailVerified(user.id);
       req.session.userId = user.id;
-      req.session.providerId = provider.id;
+      req.session.providerId = user.providerId!;
       req.session.role = user.role;
+      const provider = await storage.getProvider(user.providerId!);
       return res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role }, provider });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/auth/resend-verification", async (req, res) => {
+    try {
+      const { email } = req.body as { email?: string };
+      if (!email) {
+        return res.status(400).json({ message: "Email obrigatorio" });
+      }
+      const user = await storage.getUserByEmail(email);
+      if (!user) {
+        return res.json({ message: "Se esse email existir, um novo link foi enviado." });
+      }
+      if (user.emailVerified) {
+        return res.json({ message: "Email ja verificado. Faca o login normalmente." });
+      }
+      const token = crypto.randomBytes(32).toString("hex");
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      await storage.setVerificationToken(user.id, token, expiresAt);
+      try {
+        await sendVerificationEmail(email, user.name, token);
+      } catch (emailError: any) {
+        console.error("[email] Falha ao reenviar email:", emailError.message);
+      }
+      return res.json({ message: "Novo link de verificacao enviado. Verifique sua caixa de entrada." });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
     }

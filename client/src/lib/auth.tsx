@@ -6,8 +6,8 @@ interface AuthState {
   user: { id: number; email: string; name: string; role: string } | null;
   provider: Provider | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (data: { email: string; password: string; name: string; providerName: string; cnpj: string }) => Promise<void>;
+  login: (email: string, password: string) => Promise<{ code?: string; email?: string } | void>;
+  register: (data: { email: string; password: string; name: string; providerName: string; cnpj: string }) => Promise<{ needsVerification: boolean; email: string }>;
   logout: () => Promise<void>;
 }
 
@@ -39,6 +39,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     const res = await apiRequest("POST", "/api/auth/login", { email, password });
     const data = await res.json();
+    if (!res.ok) {
+      const err = new Error(data.message || "Erro ao fazer login") as any;
+      err.code = data.code;
+      err.email = data.email;
+      throw err;
+    }
     setUser(data.user);
     setProvider(data.provider);
   };
@@ -46,8 +52,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const register = async (data: { email: string; password: string; name: string; providerName: string; cnpj: string }) => {
     const res = await apiRequest("POST", "/api/auth/register", data);
     const d = await res.json();
-    setUser(d.user);
-    setProvider(d.provider);
+    if (!res.ok) {
+      throw new Error(d.message || "Erro ao cadastrar");
+    }
+    return { needsVerification: d.needsVerification as boolean, email: d.email as string };
   };
 
   const logout = async () => {
