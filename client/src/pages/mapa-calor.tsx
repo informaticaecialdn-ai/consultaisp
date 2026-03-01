@@ -315,8 +315,6 @@ export default function MapaCalorPage() {
   const uniqueCities = new Set(providerData.map(p => p.city).filter(Boolean));
 
   const regionalTotal = regionalData.reduce((s, p) => s + p.count, 0);
-  const regionalTotalOverdue = regionalData.reduce((s, p) => s + p.totalOverdue, 0);
-  const topCity = cityRanking[0];
   const maxCityCount = cityRanking.length > 0 ? cityRanking[0].count : 1;
   const maxCityOverdue = cityRanking.length > 0 ? Math.max(...cityRanking.map(c => c.totalOverdue), 1) : 1;
 
@@ -445,19 +443,6 @@ export default function MapaCalorPage() {
 
         {/* ======================== BENCHMARKING REGIONAL ======================== */}
         <TabsContent value="regional" className="space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <KpiCard label="Total na Rede" value={regionalTotal} icon={Users} color="bg-purple-500" sub="todos os provedores" />
-            <KpiCard label="Valor Total" value={formatCurrency(regionalTotalOverdue)} icon={DollarSign} color="bg-indigo-500" />
-            <KpiCard label="Cidades Afetadas" value={cityRanking.length} icon={MapPin} color="bg-rose-500" />
-            <KpiCard
-              label="Cidade Critica"
-              value={topCity?.city || "—"}
-              icon={Flame}
-              color="bg-orange-500"
-              sub={topCity ? `${topCity.count} inadimplentes` : ""}
-            />
-          </div>
-
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {regionalLoading ? (
               <Card className="lg:col-span-2 p-6 flex items-center justify-center py-20">
