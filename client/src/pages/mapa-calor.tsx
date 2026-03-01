@@ -188,26 +188,6 @@ function LeafletHeatMap({
       ).addTo(mapRef.current);
     }
 
-    if (mode === "regional" && clusterPoints && markersRef.current) {
-      const maxCount = Math.max(...(clusterPoints.map(c => c.count)), 1);
-      for (const c of clusterPoints) {
-        if (c.count < 1) continue;
-        const color = c.count / maxCount >= 0.75 ? "#ef4444" : c.count / maxCount >= 0.45 ? "#f97316" : c.count / maxCount >= 0.2 ? "#eab308" : "#3b82f6";
-        const size = 20 + Math.min(c.count * 4, 30);
-        const icon = L.divIcon({
-          className: "",
-          html: `<div style="width:${size}px;height:${size}px;background:${color};border:2px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.35)">${c.count}</div>`,
-          iconSize: [size, size],
-          iconAnchor: [size / 2, size / 2],
-        });
-        const marker = L.marker([c.lat, c.lng], { icon });
-        if (c.city) {
-          marker.bindPopup(`<b>${c.city}</b><br>${c.count} inadimplentes<br>${formatCurrency(c.totalOverdue)} em aberto`, { closeButton: false });
-        }
-        markersRef.current.addLayer(marker);
-      }
-    }
-
     if (mode === "provider" && clusterPoints && markersRef.current) {
       for (const c of clusterPoints) {
         const lat = parseFloat(String(c.lat));
