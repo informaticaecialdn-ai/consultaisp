@@ -243,6 +243,8 @@ function LeafletHeatMap({
       if (mapRef.current) {
         try {
           const m = mapRef.current as any;
+          const pane = m._mapPane as HTMLElement | undefined;
+          if (pane) { pane.style.transition = "none"; void pane.offsetWidth; }
           m._onZoomTransitionEnd = () => {};
           m._onZoomAnim = () => {};
           m.off();
