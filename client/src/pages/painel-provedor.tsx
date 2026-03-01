@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useState, useRef } from "react";
@@ -57,7 +58,56 @@ const ERP_LIST = [
   { key: "tiacos",   name: "Tiacos",       desc: "Tiacos ISP",     grad: "from-orange-500 to-orange-600", },
   { key: "hubsoft",  name: "Hubsoft",      desc: "Hubsoft ERP",    grad: "from-indigo-500 to-indigo-600", },
   { key: "flyspeed", name: "Fly Speed",    desc: "Fly Speed ISP",  grad: "from-cyan-500 to-cyan-600",     },
+  { key: "netflash", name: "Netflash",     desc: "Netflash ISP",   grad: "from-rose-500 to-pink-600",     },
 ];
+
+function buildN8nTemplate(webhookUrl: string, token: string): string {
+  const workflow = {
+    name: "Consulta ISP - Sincronizar Inadimplentes",
+    nodes: [
+      {
+        parameters: { rule: { interval: [{ field: "hours", hoursInterval: 1 }] } },
+        id: "trigger-1",
+        name: "A cada 1 hora",
+        type: "n8n-nodes-base.scheduleTrigger",
+        typeVersion: 1.1,
+        position: [240, 300],
+      },
+      {
+        parameters: {
+          httpMethod: "POST",
+          url: webhookUrl,
+          sendHeaders: true,
+          headerParameters: {
+            parameters: [{ name: "Authorization", value: `Bearer ${token}` }, { name: "Content-Type", value: "application/json" }],
+          },
+          sendBody: true,
+          bodyContentType: "json",
+          jsonBody: JSON.stringify({
+            erpSource: "ixc",
+            customers: [
+              { name: "={{$json.nome}}", cpfCnpj: "={{$json.cpf_cnpj}}", phone: "={{$json.telefone}}", email: "={{$json.email}}", city: "={{$json.cidade}}", state: "={{$json.estado}}", totalOverdueAmount: "={{$json.valor_total}}", maxDaysOverdue: "={{$json.dias_em_atraso}}", overdueInvoicesCount: "={{$json.qtd_faturas}}" },
+            ],
+          }),
+          options: {},
+        },
+        id: "http-1",
+        name: "Enviar para Consulta ISP",
+        type: "n8n-nodes-base.httpRequest",
+        typeVersion: 4.2,
+        position: [480, 300],
+      },
+    ],
+    connections: { "A cada 1 hora": { main: [[{ node: "Enviar para Consulta ISP", type: "main", index: 0 }]] } },
+    pinData: {},
+    settings: { executionOrder: "v1" },
+    staticData: null,
+    tags: [],
+    triggerCount: 0,
+    versionId: crypto.randomUUID ? crypto.randomUUID() : "n8n-template-v1",
+  };
+  return JSON.stringify(workflow, null, 2);
+}
 
 function relDate(d: string | null): string {
   if (!d) return "Nunca";
@@ -130,6 +180,61 @@ export default function PainelProvedorPage() {
     onSuccess: () => { refetchErpList(); },
     onError: () => toast({ title: "Erro", description: "Nao foi possivel atualizar a integracao.", variant: "destructive" }),
   });
+
+  const [testErpSource, setTestErpSource] = useState("ixc");
+  const [testWebhookResult, setTestWebhookResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const testWebhookMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/webhooks/erp-sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${integrationData?.token ?? ""}`,
+        },
+        body: JSON.stringify({
+          erpSource: testErpSource,
+          customers: [{
+            name: "Teste Webhook Consulta ISP",
+            cpfCnpj: "000.000.000-00",
+            phone: "00000000000",
+            email: "teste@consultaisp.com.br",
+            city: "Londrina",
+            state: "PR",
+            totalOverdueAmount: 1.00,
+            maxDaysOverdue: 1,
+            overdueInvoicesCount: 1,
+          }],
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Erro ao testar");
+      return data;
+    },
+    onSuccess: (data) => {
+      setTestWebhookResult({ ok: true, msg: `Sucesso! ${data.upserted} cliente(s) sincronizado(s).` });
+      refetchErpList();
+      refetchSyncLogs();
+    },
+    onError: (err: any) => {
+      setTestWebhookResult({ ok: false, msg: err.message ?? "Erro desconhecido" });
+    },
+  });
+
+  const downloadN8nTemplate = () => {
+    if (!integrationData?.token || !integrationData?.webhookUrl) {
+      toast({ title: "Aguarde", description: "Carregando dados de integracao...", variant: "destructive" });
+      return;
+    }
+    const json = buildN8nTemplate(integrationData.webhookUrl, integrationData.token);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "consulta-isp-n8n-workflow.json";
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: "Template baixado!", description: "Importe o arquivo JSON no N8N (Settings > Import Workflow)." });
+  };
 
   const [empresa, setEmpresa] = useState<any>(null);
   const profileRef = profileData;
@@ -1431,9 +1536,14 @@ export default function PainelProvedorPage() {
                       <p className="text-xs text-muted-foreground">Gerencie e monitore as integracoes com seu ERP</p>
                     </div>
                   </div>
-                  <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={() => { refetchErpList(); refetchSyncLogs(); }} data-testid="button-refresh-integrations">
-                    <RefreshCw className="w-3.5 h-3.5" />Atualizar
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={downloadN8nTemplate} data-testid="button-download-n8n-template">
+                      <Download className="w-3.5 h-3.5" />Template N8N
+                    </Button>
+                    <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={() => { refetchErpList(); refetchSyncLogs(); refetchIntegration(); }} data-testid="button-refresh-integrations">
+                      <RefreshCw className="w-3.5 h-3.5" />Atualizar
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Stats */}
@@ -1545,6 +1655,48 @@ export default function PainelProvedorPage() {
                     <p className="text-xs text-muted-foreground mt-1.5">Header: <code className="bg-muted px-1 rounded">Authorization: Bearer &lt;token&gt;</code></p>
                   </Card>
                 </div>
+
+                {/* Test Webhook */}
+                <Card className="p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Zap className="w-4 h-4 text-violet-500" />
+                    <h3 className="font-semibold text-sm">Testar Conexao Webhook</h3>
+                    <span className="text-xs text-muted-foreground ml-auto">Envia 1 cliente de teste para verificar a integracao</span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium text-muted-foreground">ERP:</span>
+                      <div className="flex gap-1 flex-wrap">
+                        {ERP_LIST.map(erp => (
+                          <button
+                            key={erp.key}
+                            onClick={() => { setTestErpSource(erp.key); setTestWebhookResult(null); }}
+                            data-testid={`btn-test-erp-${erp.key}`}
+                            className={`text-xs px-2 py-1 rounded-md border transition-colors ${testErpSource === erp.key ? "bg-violet-500 text-white border-violet-500" : "border-border hover:border-violet-300"}`}
+                          >
+                            {erp.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      className="h-7 gap-1.5 text-xs bg-violet-500 hover:bg-violet-600 ml-auto"
+                      onClick={() => { setTestWebhookResult(null); testWebhookMutation.mutate(); }}
+                      disabled={testWebhookMutation.isPending || !integrationData?.token}
+                      data-testid="button-test-webhook"
+                    >
+                      {testWebhookMutation.isPending ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                      Testar Webhook
+                    </Button>
+                  </div>
+                  {testWebhookResult && (
+                    <div className={`mt-3 flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium ${testWebhookResult.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400" : "bg-red-50 text-red-700 border border-red-200 dark:bg-red-900/20 dark:text-red-400"}`} data-testid="text-test-webhook-result">
+                      {testWebhookResult.ok ? <CheckCheck className="w-3.5 h-3.5 flex-shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />}
+                      {testWebhookResult.msg}
+                    </div>
+                  )}
+                </Card>
 
                 {/* Sync Logs */}
                 <Card className="overflow-hidden">
