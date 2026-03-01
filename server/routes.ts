@@ -1625,6 +1625,22 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/providers/:id/integration", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const provider = await storage.getProvider(id);
+      if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
+      const [token, integrations, logs] = await Promise.all([
+        storage.getProviderWebhookToken(id),
+        storage.getErpIntegrations(id),
+        storage.getErpSyncLogs(id, undefined, 20),
+      ]);
+      return res.json({ token, integrations, logs });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/users", requireSuperAdmin, async (_req, res) => {
     try {
       const allUsers = await storage.getAllUsers();
