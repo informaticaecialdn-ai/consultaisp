@@ -1534,6 +1534,15 @@ export async function registerRoutes(
 
   // ============ FINANCIAL INVOICE ROUTES ============
 
+  app.get("/api/admin/financial/saas-metrics", requireSuperAdmin, async (_req, res) => {
+    try {
+      const metrics = await storage.getSaasMetrics();
+      return res.json(metrics);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/financial/summary", requireSuperAdmin, async (_req, res) => {
     try {
       const summary = await storage.getFinancialSummary();

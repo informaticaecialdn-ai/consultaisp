@@ -23,6 +23,7 @@ import PainelProvedorPage from "@/pages/painel-provedor";
 import AdminSistemaPage from "@/pages/admin-sistema";
 import AdminProvedorPage from "@/pages/admin-provedor";
 import InvoiceViewPage from "@/pages/invoice-view";
+import AdminFinanceiroPage from "@/pages/admin-financeiro";
 import { Skeleton } from "@/components/ui/skeleton";
 
 function Router() {
@@ -41,6 +42,7 @@ function Router() {
       <Route path="/admin-sistema" component={AdminSistemaPage} />
       <Route path="/admin/provedor/:id" component={AdminProvedorPage} />
       <Route path="/admin/fatura/:id" component={InvoiceViewPage} />
+      <Route path="/admin/financeiro" component={AdminFinanceiroPage} />
       <Route component={NotFound} />
     </Switch>
   );

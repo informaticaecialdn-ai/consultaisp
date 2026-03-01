@@ -39,6 +39,7 @@ import {
   FileText,
   MessageSquare,
   UserCog,
+  TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -94,6 +95,7 @@ const ADMIN_GROUPS = [
     key: "financeiro",
     collapsible: true,
     items: [
+      { title: "Dashboard SaaS", hash: "financeiro-dash", icon: TrendingUp, testId: "link-admin-financeiro-dash", url: "/admin/financeiro" },
       { title: "Faturas e Cobrancas", hash: "financeiro", icon: FileText, testId: "link-admin-financeiro" },
     ],
   },
@@ -111,26 +113,32 @@ function AdminCollapsibleGroup({
   group,
   activeHash,
   onNavigate,
+  onNavigateDirect,
 }: {
   group: (typeof ADMIN_GROUPS)[number];
   activeHash: string;
   onNavigate: (hash: string) => void;
+  onNavigateDirect: (url: string) => void;
 }) {
   const [open, setOpen] = useState<boolean>(true);
+  const [location] = useLocation();
 
-  const ItemButton = ({ item }: { item: (typeof ADMIN_GROUPS)[number]["items"][number] }) => (
-    <SidebarMenuItem key={item.hash}>
-      <SidebarMenuButton
-        data-active={activeHash === item.hash}
-        data-testid={item.testId}
-        onClick={() => onNavigate(item.hash)}
-        className="cursor-pointer"
-      >
-        <item.icon className="w-4 h-4" />
-        <span>{item.title}</span>
-      </SidebarMenuButton>
-    </SidebarMenuItem>
-  );
+  const ItemButton = ({ item }: { item: (typeof ADMIN_GROUPS)[number]["items"][number] }) => {
+    const isActive = (item as any).url ? location === (item as any).url : activeHash === item.hash;
+    return (
+      <SidebarMenuItem key={item.hash}>
+        <SidebarMenuButton
+          data-active={isActive}
+          data-testid={item.testId}
+          onClick={() => (item as any).url ? onNavigateDirect((item as any).url) : onNavigate(item.hash)}
+          className="cursor-pointer"
+        >
+          <item.icon className="w-4 h-4" />
+          <span>{item.title}</span>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    );
+  };
 
   if (!group.collapsible) {
     return (
@@ -219,7 +227,7 @@ export function AppSidebar() {
 
         <SidebarContent className="gap-0">
           {ADMIN_GROUPS.map((group) => (
-            <AdminCollapsibleGroup key={group.key} group={group} activeHash={activeHash} onNavigate={handleAdminNavigate} />
+            <AdminCollapsibleGroup key={group.key} group={group} activeHash={activeHash} onNavigate={handleAdminNavigate} onNavigateDirect={navigate} />
           ))}
         </SidebarContent>
 
