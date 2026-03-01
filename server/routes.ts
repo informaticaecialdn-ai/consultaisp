@@ -1108,6 +1108,53 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/provider/erp-integrations", requireAuth, async (req, res) => {
+    try {
+      const integrations = await storage.getErpIntegrations(req.session.providerId!);
+      return res.json(integrations);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/provider/erp-integrations/:source", requireAuth, async (req, res) => {
+    try {
+      const { source } = req.params;
+      const validSources = ["ixc", "sgp", "mk", "tiacos", "hubsoft", "flyspeed", "netflash", "manual"];
+      if (!validSources.includes(source)) return res.status(400).json({ message: "ERP invalido" });
+      const allowed = ["isEnabled", "notes"];
+      const data: any = {};
+      for (const k of allowed) { if (req.body[k] !== undefined) data[k] = req.body[k]; }
+      const integration = await storage.upsertErpIntegration(req.session.providerId!, source, data);
+      return res.json(integration);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/provider/erp-sync-logs", requireAuth, async (req, res) => {
+    try {
+      const { source, limit } = req.query;
+      const logs = await storage.getErpSyncLogs(
+        req.session.providerId!,
+        source as string | undefined,
+        limit ? parseInt(limit as string) : 30,
+      );
+      return res.json(logs);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/provider/erp-integration-stats", requireAuth, async (req, res) => {
+    try {
+      const stats = await storage.getErpIntegrationStats(req.session.providerId!);
+      return res.json(stats);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
   app.post("/api/webhooks/erp-sync", async (req, res) => {
     try {
       const authHeader = req.headers.authorization;
@@ -1128,6 +1175,25 @@ export async function registerRoutes(
       }
 
       const result = await storage.syncErpCustomers(provider.id, erpSource, customersData);
+      const syncStatus = result.errors > 0 && result.upserted === 0 ? "error" : result.errors > 0 ? "partial" : "success";
+
+      await storage.createErpSyncLog({
+        providerId: provider.id,
+        erpSource,
+        upserted: result.upserted,
+        errors: result.errors,
+        status: syncStatus,
+        ipAddress: (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || null,
+        payload: { total: customersData.length },
+      });
+      await storage.upsertErpIntegration(provider.id, erpSource, {
+        isEnabled: true,
+        status: syncStatus,
+        lastSyncAt: new Date(),
+        lastSyncStatus: syncStatus,
+      });
+      await storage.incrementErpIntegrationCounters(provider.id, erpSource, result.upserted, result.errors);
+
       return res.json({ success: true, ...result, providerId: provider.id });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });

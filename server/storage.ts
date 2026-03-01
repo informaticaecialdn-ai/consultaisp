@@ -4,7 +4,7 @@ import {
   providers, users, customers, contracts, invoices, equipment,
   ispConsultations, spcConsultations, antiFraudAlerts,
   supportThreads, supportMessages, planChanges, providerInvoices, creditOrders,
-  providerPartners, providerDocuments,
+  providerPartners, providerDocuments, erpIntegrations, erpSyncLogs,
   type Provider, type InsertProvider,
   type User, type InsertUser,
   type Customer, type InsertCustomer,
@@ -21,6 +21,7 @@ import {
   type CreditOrder, type InsertCreditOrder,
   type ProviderPartner, type InsertProviderPartner,
   type ProviderDocument, type InsertProviderDocument,
+  type ErpIntegration, type ErpSyncLog,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -129,6 +130,13 @@ export interface IStorage {
   regenerateWebhookToken(providerId: number): Promise<string>;
   getProviderByWebhookToken(token: string): Promise<Provider | undefined>;
   syncErpCustomers(providerId: number, erpSource: string, customersData: any[]): Promise<{ upserted: number; errors: number }>;
+
+  getErpIntegrations(providerId: number): Promise<ErpIntegration[]>;
+  upsertErpIntegration(providerId: number, erpSource: string, data: Partial<ErpIntegration>): Promise<ErpIntegration>;
+  incrementErpIntegrationCounters(providerId: number, erpSource: string, upserted: number, errors: number): Promise<void>;
+  getErpSyncLogs(providerId: number, erpSource?: string, limit?: number): Promise<ErpSyncLog[]>;
+  createErpSyncLog(log: Omit<ErpSyncLog, "id" | "syncedAt">): Promise<ErpSyncLog>;
+  getErpIntegrationStats(providerId?: number): Promise<any>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -960,6 +968,67 @@ export class DatabaseStorage implements IStorage {
   async getProviderByWebhookToken(token: string): Promise<Provider | undefined> {
     const [provider] = await db.select().from(providers).where(sql`${providers.webhookToken} = ${token}`);
     return provider;
+  }
+
+  async getErpIntegrations(providerId: number): Promise<ErpIntegration[]> {
+    return db.select().from(erpIntegrations)
+      .where(eq(erpIntegrations.providerId, providerId))
+      .orderBy(erpIntegrations.erpSource);
+  }
+
+  async upsertErpIntegration(providerId: number, erpSource: string, data: Partial<ErpIntegration>): Promise<ErpIntegration> {
+    const existing = await db.select().from(erpIntegrations)
+      .where(and(eq(erpIntegrations.providerId, providerId), eq(erpIntegrations.erpSource, erpSource)))
+      .limit(1);
+    if (existing.length > 0) {
+      const [updated] = await db.update(erpIntegrations)
+        .set(data as any)
+        .where(and(eq(erpIntegrations.providerId, providerId), eq(erpIntegrations.erpSource, erpSource)))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(erpIntegrations)
+      .values({ providerId, erpSource, ...data } as any)
+      .returning();
+    return created;
+  }
+
+  async incrementErpIntegrationCounters(providerId: number, erpSource: string, upserted: number, errors: number): Promise<void> {
+    await db.execute(sql`
+      UPDATE erp_integrations
+      SET total_synced = total_synced + ${upserted},
+          total_errors = total_errors + ${errors}
+      WHERE provider_id = ${providerId} AND erp_source = ${erpSource}
+    `);
+  }
+
+  async getErpSyncLogs(providerId: number, erpSource?: string, limit = 50): Promise<ErpSyncLog[]> {
+    const conditions = [eq(erpSyncLogs.providerId, providerId)];
+    if (erpSource) conditions.push(eq(erpSyncLogs.erpSource, erpSource));
+    return db.select().from(erpSyncLogs)
+      .where(and(...conditions))
+      .orderBy(desc(erpSyncLogs.syncedAt))
+      .limit(limit);
+  }
+
+  async createErpSyncLog(log: Omit<ErpSyncLog, "id" | "syncedAt">): Promise<ErpSyncLog> {
+    const [created] = await db.insert(erpSyncLogs).values(log as any).returning();
+    return created;
+  }
+
+  async getErpIntegrationStats(providerId?: number): Promise<any> {
+    const conditions = providerId ? [eq(erpIntegrations.providerId, providerId)] : [];
+    const integrations = await db.select().from(erpIntegrations)
+      .where(conditions.length ? and(...conditions) : undefined);
+    const totalEnabled = integrations.filter(i => i.isEnabled).length;
+    const totalSynced = integrations.reduce((s, i) => s + (i.totalSynced ?? 0), 0);
+    const totalErrors = integrations.reduce((s, i) => s + (i.totalErrors ?? 0), 0);
+    const lastSync = integrations.reduce((latest, i) => {
+      if (!i.lastSyncAt) return latest;
+      if (!latest) return i.lastSyncAt;
+      return i.lastSyncAt > latest ? i.lastSyncAt : latest;
+    }, null as Date | null);
+    return { totalEnabled, totalSynced, totalErrors, lastSync, integrations };
   }
 
   async syncErpCustomers(providerId: number, erpSource: string, customersData: any[]): Promise<{ upserted: number; errors: number }> {

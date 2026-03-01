@@ -99,6 +99,36 @@ export const customers = pgTable("customers", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const erpIntegrations = pgTable("erp_integrations", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  erpSource: text("erp_source").notNull(),
+  isEnabled: boolean("is_enabled").notNull().default(false),
+  status: text("status").notNull().default("idle"),
+  totalSynced: integer("total_synced").notNull().default(0),
+  totalErrors: integer("total_errors").notNull().default(0),
+  lastSyncAt: timestamp("last_sync_at"),
+  lastSyncStatus: text("last_sync_status"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const erpSyncLogs = pgTable("erp_sync_logs", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  erpSource: text("erp_source").notNull(),
+  syncedAt: timestamp("synced_at").defaultNow(),
+  upserted: integer("upserted").notNull().default(0),
+  errors: integer("errors").notNull().default(0),
+  status: text("status").notNull().default("success"),
+  ipAddress: text("ip_address"),
+  payload: jsonb("payload"),
+});
+
+export type ErpIntegration = typeof erpIntegrations.$inferSelect;
+export type InsertErpIntegration = typeof erpIntegrations.$inferInsert;
+export type ErpSyncLog = typeof erpSyncLogs.$inferSelect;
+
 export const contracts = pgTable("contracts", {
   id: serial("id").primaryKey(),
   customerId: integer("customer_id").notNull().references(() => customers.id),
