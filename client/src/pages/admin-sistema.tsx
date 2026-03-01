@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
@@ -574,32 +573,8 @@ export default function AdminSistemaPage() {
         </Badge>
       </div>
 
-      <Tabs value={activeTab} onValueChange={changeTab}>
-        <TabsList className="flex-wrap h-auto gap-1">
-          <TabsTrigger value="painel" className="gap-1.5" data-testid="tab-admin-painel">
-            <Activity className="w-3.5 h-3.5" />Painel Geral
-          </TabsTrigger>
-          <TabsTrigger value="provedores" className="gap-1.5" data-testid="tab-admin-provedores">
-            <Building2 className="w-3.5 h-3.5" />Provedores
-          </TabsTrigger>
-          <TabsTrigger value="usuarios" className="gap-1.5" data-testid="tab-admin-usuarios">
-            <Users className="w-3.5 h-3.5" />Usuarios
-          </TabsTrigger>
-          <TabsTrigger value="financeiro" className="gap-1.5" data-testid="tab-admin-financeiro">
-            <CreditCard className="w-3.5 h-3.5" />Financeiro
-          </TabsTrigger>
-          <TabsTrigger value="suporte" className="gap-1.5 relative" data-testid="tab-admin-suporte">
-            <MessageSquare className="w-3.5 h-3.5" />
-            Suporte
-            {totalUnread > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center">
-                {totalUnread}
-              </span>
-            )}
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="painel" className="space-y-4">
+      <div>
+        {activeTab === "painel" && (<div className="space-y-4">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {STAT_CARDS.map((s) => (
               <Card key={s.label} className="p-4" data-testid={`stat-card-${s.label.toLowerCase().replace(/ /g, "-")}`}>
@@ -673,9 +648,9 @@ export default function AdminSistemaPage() {
               </div>
             </Card>
           </div>
-        </TabsContent>
+        </div>)}
 
-        <TabsContent value="provedores" className="space-y-4">
+        {activeTab === "provedores" && (<div className="space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -754,9 +729,9 @@ export default function AdminSistemaPage() {
               </div>
             )}
           </Card>
-        </TabsContent>
+        </div>)}
 
-        <TabsContent value="usuarios" className="space-y-4">
+        {activeTab === "usuarios" && (<div className="space-y-4">
           <div className="flex items-center gap-3">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -818,9 +793,9 @@ export default function AdminSistemaPage() {
               </div>
             )}
           </Card>
-        </TabsContent>
+        </div>)}
 
-        <TabsContent value="financeiro" className="space-y-5">
+        {activeTab === "financeiro" && (<div className="space-y-5">
           {/* KPI Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
@@ -1272,12 +1247,12 @@ export default function AdminSistemaPage() {
               </div>
             </Card>
           </div>
-        </TabsContent>
+        </div>)}
 
-        <TabsContent value="suporte">
+        {activeTab === "suporte" && (<div>
           <ChatPanel threads={chatThreads} />
-        </TabsContent>
-      </Tabs>
+        </div>)}
+      </div>
 
       {selectedProvider && (
         <ProviderCreditsModal provider={selectedProvider} onClose={() => setSelectedProvider(null)} />

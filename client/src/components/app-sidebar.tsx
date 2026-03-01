@@ -115,7 +115,7 @@ function AdminCollapsibleGroup({
   activeHash: string;
 }) {
   const isGroupActive = group.items.some((i) => i.hash === activeHash);
-  const [open, setOpen] = useState(isGroupActive || true);
+  const [open, setOpen] = useState<boolean>(isGroupActive || true);
 
   if (!group.collapsible) {
     return (
