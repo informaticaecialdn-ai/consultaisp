@@ -197,6 +197,31 @@ export const providerInvoices = pgTable("provider_invoices", {
   asaasBillingType: text("asaas_billing_type"),
 });
 
+export const creditOrders = pgTable("credit_orders", {
+  id: serial("id").primaryKey(),
+  orderNumber: text("order_number").notNull().unique(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  providerName: text("provider_name").notNull(),
+  packageName: text("package_name").notNull(),
+  ispCredits: integer("isp_credits").notNull().default(0),
+  spcCredits: integer("spc_credits").notNull().default(0),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  status: text("status").notNull().default("pending"),
+  paymentMethod: text("payment_method"),
+  asaasChargeId: text("asaas_charge_id"),
+  asaasCustomerId: text("asaas_customer_id"),
+  asaasStatus: text("asaas_status"),
+  asaasInvoiceUrl: text("asaas_invoice_url"),
+  asaasBankSlipUrl: text("asaas_bank_slip_url"),
+  asaasPixKey: text("asaas_pix_key"),
+  asaasBillingType: text("asaas_billing_type"),
+  creditedAt: timestamp("credited_at"),
+  notes: text("notes"),
+  createdById: integer("created_by_id").references(() => users.id),
+  createdByName: text("created_by_name"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const insertProviderSchema = createInsertSchema(providers).omit({ id: true, createdAt: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true });
@@ -251,6 +276,7 @@ export const insertSupportThreadSchema = createInsertSchema(supportThreads).omit
 export const insertSupportMessageSchema = createInsertSchema(supportMessages).omit({ id: true, createdAt: true });
 export const insertPlanChangeSchema = createInsertSchema(planChanges).omit({ id: true, createdAt: true });
 export const insertProviderInvoiceSchema = createInsertSchema(providerInvoices).omit({ id: true, createdAt: true });
+export const insertCreditOrderSchema = createInsertSchema(creditOrders).omit({ id: true, createdAt: true });
 
 export type SupportThread = typeof supportThreads.$inferSelect;
 export type InsertSupportThread = z.infer<typeof insertSupportThreadSchema>;
@@ -260,6 +286,14 @@ export type PlanChange = typeof planChanges.$inferSelect;
 export type InsertPlanChange = z.infer<typeof insertPlanChangeSchema>;
 export type ProviderInvoice = typeof providerInvoices.$inferSelect;
 export type InsertProviderInvoice = z.infer<typeof insertProviderInvoiceSchema>;
+export type CreditOrder = typeof creditOrders.$inferSelect;
+export type InsertCreditOrder = z.infer<typeof insertCreditOrderSchema>;
+
+export const CREDIT_PACKAGES = [
+  { id: "basico",       name: "Basico",       ispCredits: 50,  spcCredits: 20,  price: 4990,  priceLabel: "R$ 49,90" },
+  { id: "profissional", name: "Profissional",  ispCredits: 200, spcCredits: 100, price: 14990, priceLabel: "R$ 149,90", popular: true },
+  { id: "enterprise",   name: "Enterprise",    ispCredits: 500, spcCredits: 300, price: 29990, priceLabel: "R$ 299,90" },
+];
 
 export const PLAN_PRICES: Record<string, number> = {
   free: 0,

@@ -40,6 +40,7 @@ import {
   MessageSquare,
   UserCog,
   TrendingUp,
+  ShoppingCart,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -97,6 +98,7 @@ const ADMIN_GROUPS = [
     items: [
       { title: "Dashboard SaaS", hash: "financeiro-dash", icon: TrendingUp, testId: "link-admin-financeiro-dash", url: "/admin/financeiro" },
       { title: "Faturas e Cobrancas", hash: "financeiro", icon: FileText, testId: "link-admin-financeiro" },
+      { title: "Pedidos de Creditos", hash: "creditos-dash", icon: ShoppingCart, testId: "link-admin-creditos", url: "/admin/creditos" },
     ],
   },
   {

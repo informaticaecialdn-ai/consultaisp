@@ -3,7 +3,7 @@ import { db } from "./db";
 import {
   providers, users, customers, contracts, invoices, equipment,
   ispConsultations, spcConsultations, antiFraudAlerts,
-  supportThreads, supportMessages, planChanges, providerInvoices,
+  supportThreads, supportMessages, planChanges, providerInvoices, creditOrders,
   type Provider, type InsertProvider,
   type User, type InsertUser,
   type Customer, type InsertCustomer,
@@ -17,6 +17,7 @@ import {
   type SupportMessage, type InsertSupportMessage,
   type PlanChange, type InsertPlanChange,
   type ProviderInvoice, type InsertProviderInvoice,
+  type CreditOrder, type InsertCreditOrder,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -99,6 +100,13 @@ export interface IStorage {
   updateProviderInvoiceStatus(id: number, status: string, paidDate?: Date, paidAmount?: string): Promise<ProviderInvoice>;
   getNextInvoiceNumber(): Promise<string>;
   getFinancialSummary(): Promise<any>;
+
+  getAllCreditOrders(providerId?: number): Promise<CreditOrder[]>;
+  getCreditOrder(id: number): Promise<CreditOrder | undefined>;
+  createCreditOrder(order: InsertCreditOrder): Promise<CreditOrder>;
+  updateCreditOrder(id: number, data: Partial<CreditOrder>): Promise<CreditOrder>;
+  releaseCreditOrder(id: number): Promise<CreditOrder>;
+  getNextOrderNumber(): Promise<string>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -745,6 +753,51 @@ export class DatabaseStorage implements IStorage {
       },
       providerBillingHealth,
     };
+  }
+
+  async getAllCreditOrders(providerId?: number): Promise<CreditOrder[]> {
+    if (providerId) {
+      return db.select().from(creditOrders).where(eq(creditOrders.providerId, providerId)).orderBy(desc(creditOrders.createdAt));
+    }
+    return db.select().from(creditOrders).orderBy(desc(creditOrders.createdAt));
+  }
+
+  async getCreditOrder(id: number): Promise<CreditOrder | undefined> {
+    const [order] = await db.select().from(creditOrders).where(eq(creditOrders.id, id));
+    return order;
+  }
+
+  async createCreditOrder(order: InsertCreditOrder): Promise<CreditOrder> {
+    const [created] = await db.insert(creditOrders).values(order).returning();
+    return created;
+  }
+
+  async updateCreditOrder(id: number, data: Partial<CreditOrder>): Promise<CreditOrder> {
+    const [updated] = await db.update(creditOrders).set(data as any).where(eq(creditOrders.id, id)).returning();
+    return updated;
+  }
+
+  async releaseCreditOrder(id: number): Promise<CreditOrder> {
+    const order = await this.getCreditOrder(id);
+    if (!order) throw new Error("Pedido nao encontrado");
+    if (order.status === "paid") throw new Error("Creditos ja foram liberados para este pedido");
+    await db.execute(sql`UPDATE providers SET isp_credits = isp_credits + ${order.ispCredits}, spc_credits = spc_credits + ${order.spcCredits} WHERE id = ${order.providerId}`);
+    const [updated] = await db.update(creditOrders).set({ status: "paid", creditedAt: new Date() }).where(eq(creditOrders.id, id)).returning();
+    await db.insert(planChanges).values({
+      providerId: order.providerId,
+      ispCreditsAdded: order.ispCredits,
+      spcCreditsAdded: order.spcCredits,
+      notes: `Creditos liberados via pedido ${order.orderNumber} (${order.packageName})`,
+    });
+    return updated;
+  }
+
+  async getNextOrderNumber(): Promise<string> {
+    const [row] = await db.select({ cnt: count() }).from(creditOrders);
+    const num = (row?.cnt || 0) + 1;
+    const today = new Date();
+    const yyyymm = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}`;
+    return `CR-${yyyymm}-${String(num).padStart(4, "0")}`;
   }
 
   async getFinancialSummary(): Promise<any> {
