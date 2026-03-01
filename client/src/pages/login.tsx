@@ -2,55 +2,12 @@ import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import {
-  Shield,
-  Lock,
-  Mail,
-  Eye,
-  EyeOff,
-  MailCheck,
-  RefreshCw,
-  ArrowRight,
-  Users,
-  Search,
-  AlertTriangle,
-  Database,
-  UserPlus,
-  CheckCircle,
-} from "lucide-react";
+import { Shield, Users, Search, BarChart3, CheckCircle, Lock, Mail, Zap, Eye, EyeOff, MailCheck, RefreshCw } from "lucide-react";
 
 type PageState = "login" | "register" | "check-email";
-
-const STATS = [
-  { value: "100+", label: "Provedores Ativos" },
-  { value: "3", label: "Tipos de Consulta" },
-  { value: "R$ 50K+", label: "Inadimplencias Bloqueadas" },
-];
-
-const HOW_IT_WORKS = [
-  {
-    icon: UserPlus,
-    title: "Cadastre-se",
-    desc: "Crie sua conta com email e os dados do seu provedor de internet.",
-  },
-  {
-    icon: Search,
-    title: "Consulte CPF/CNPJ",
-    desc: "Busque na base colaborativa de inadimplentes antes de assinar contratos.",
-  },
-  {
-    icon: CheckCircle,
-    title: "Analise o Score",
-    desc: "Veja pontuacao detalhada, penalidades e recomendacao de aprovacao.",
-  },
-  {
-    icon: Database,
-    title: "Proteja a Rede",
-    desc: "Compartilhe dados e ajude toda a comunidade de provedores.",
-  },
-];
 
 export default function LoginPage() {
   const { login, register } = useAuth();
@@ -102,175 +59,163 @@ export default function LoginPage() {
     try {
       const res = await apiRequest("POST", "/api/auth/resend-verification", { email: pendingEmail });
       const data = await res.json();
-      toast({ title: "Email enviado", description: data.message });
+      toast({
+        title: "Email enviado",
+        description: data.message || "Novo link de verificacao enviado com sucesso.",
+      });
     } catch {
-      toast({ title: "Erro", description: "Nao foi possivel reenviar o email.", variant: "destructive" });
+      toast({
+        title: "Erro",
+        description: "Nao foi possivel reenviar o email. Tente novamente.",
+        variant: "destructive",
+      });
     } finally {
       setResendLoading(false);
     }
   };
 
+  const features = [
+    "Base Colaborativa de Inadimplentes entre Provedores",
+    "Consulta de Historico de Inadimplencia por CPF/CNPJ",
+    "Integracao com SPC Brasil para Analise Completa",
+    "Sistema Anti-Fraude e Deteccao de Risco",
+  ];
+
   return (
-    <div
-      className="min-h-screen flex flex-col lg:flex-row relative overflow-hidden"
-      style={{ background: "linear-gradient(135deg, #0f172a 0%, #1e1b4b 40%, #312e81 70%, #4c1d95 100%)" }}
-      data-testid="login-page"
-    >
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          backgroundImage:
-            "radial-gradient(ellipse at 20% 50%, rgba(99,102,241,0.15) 0%, transparent 60%), radial-gradient(ellipse at 80% 20%, rgba(139,92,246,0.12) 0%, transparent 50%)",
-        }}
-      />
-
-      <div className="relative z-10 flex-1 flex flex-col justify-between p-8 lg:p-12 xl:p-16 lg:max-w-[58%]">
-        <div className="flex items-center gap-3 mb-10">
-          <div className="w-9 h-9 rounded-lg bg-white/15 flex items-center justify-center backdrop-blur-sm">
-            <Shield className="w-5 h-5 text-white" />
-          </div>
-          <span className="text-white font-bold text-lg tracking-tight">Consulta ISP</span>
-        </div>
-
-        <div className="flex-1 flex flex-col justify-center max-w-2xl">
-          <div className="inline-flex items-center gap-2 mb-6">
-            <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-full px-4 py-1.5 flex items-center gap-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-indigo-300" />
-              <span className="text-white/90 text-sm font-medium">Base Colaborativa de Inadimplentes</span>
+    <div className="min-h-screen flex" data-testid="login-page">
+      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 relative flex-col justify-between p-12 text-white">
+        <div>
+          <div className="flex items-center gap-3 mb-16">
+            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+              <Shield className="w-6 h-6 text-white" />
             </div>
+            <span className="text-xl font-bold">Consulta ISP</span>
           </div>
-
-          <h1 className="text-5xl xl:text-6xl font-extrabold leading-tight mb-5 text-white tracking-tight">
-            Consulte antes,{" "}
-            <span style={{ color: "#fbbf24" }}>proteja<br />seu provedor</span>
+          <h1 className="text-4xl font-bold leading-tight mb-4">
+            Base de Inadimplentes<br />Compartilhada
           </h1>
-
-          <p className="text-white/60 text-lg mb-10 max-w-lg leading-relaxed">
-            Acesse a base colaborativa de clientes inadimplentes de provedores. Consulte o historico antes de liberar novos contratos e evite prejuizos.
+          <p className="text-blue-100 text-lg mb-12 max-w-md">
+            Analise de credito baseada em base de dados colaborativa de clientes inadimplentes de provedores. Consulte o historico antes de liberar novos contratos!
           </p>
-
-          <div className="grid grid-cols-3 gap-3 mb-10">
-            {STATS.map((stat) => (
-              <div
-                key={stat.label}
-                className="rounded-xl border border-white/15 backdrop-blur-sm p-4"
-                style={{ background: "rgba(255,255,255,0.07)" }}
-              >
-                <p className="text-white font-bold text-2xl mb-0.5" data-testid={`stat-${stat.label.toLowerCase().replace(/\s/g, "-")}`}>
-                  {stat.value}
-                </p>
-                <p className="text-white/50 text-xs">{stat.label}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="mb-4">
-            <p className="text-white/40 text-xs font-semibold tracking-widest uppercase mb-3">Como funciona</p>
-            <div className="grid grid-cols-2 gap-3">
-              {HOW_IT_WORKS.map(({ icon: Icon, title, desc }) => (
-                <div
-                  key={title}
-                  className="rounded-xl border border-white/10 p-4 backdrop-blur-sm"
-                  style={{ background: "rgba(255,255,255,0.05)" }}
-                >
-                  <div className="flex items-center gap-2.5 mb-2">
-                    <div className="w-7 h-7 rounded-lg bg-indigo-500/30 flex items-center justify-center">
-                      <Icon className="w-3.5 h-3.5 text-indigo-300" />
-                    </div>
-                    <span className="text-white font-semibold text-sm">{title}</span>
-                  </div>
-                  <p className="text-white/45 text-xs leading-relaxed">{desc}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <button className="text-indigo-300 text-sm font-medium flex items-center gap-1 mt-3 hover:text-indigo-200 transition-colors w-fit">
-            Ver todos os recursos
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
         </div>
 
-        <p className="text-white/25 text-xs mt-10">
-          2025 Consulta ISP - Plataforma de Analise de Credito para Provedores
+        <div className="grid grid-cols-2 gap-4 mb-12">
+          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-2">
+              <Users className="w-5 h-5 text-yellow-300" />
+              <span className="font-semibold text-lg">100+</span>
+            </div>
+            <span className="text-blue-200 text-sm">Provedores Ativos</span>
+          </div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-2">
+              <Search className="w-5 h-5 text-purple-300" />
+              <span className="font-semibold text-lg">Multi</span>
+            </div>
+            <span className="text-blue-200 text-sm">Base Colaborativa</span>
+          </div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-2">
+              <Zap className="w-5 h-5 text-green-300" />
+              <span className="font-semibold text-lg">99.9%</span>
+            </div>
+            <span className="text-blue-200 text-sm">Uptime Garantido</span>
+          </div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-2">
+              <BarChart3 className="w-5 h-5 text-orange-300" />
+              <span className="font-semibold text-lg">#1</span>
+            </div>
+            <span className="text-blue-200 text-sm">Melhor do Mercado</span>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          {features.map((feature) => (
+            <div key={feature} className="flex items-center gap-3">
+              <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0" />
+              <span className="text-blue-100 text-sm">{feature}</span>
+            </div>
+          ))}
+        </div>
+
+        <p className="text-blue-300 text-xs mt-8">
+          2025 ISP Analizze - Plataforma de Analise de Credito para Provedores de Internet
         </p>
       </div>
 
-      <div className="relative z-10 flex items-center justify-center p-6 lg:p-8 lg:w-[42%] xl:w-[38%]">
-        <div className="w-full max-w-sm">
+      <div className="flex-1 flex items-center justify-center p-8 bg-background">
+        <div className="w-full max-w-md">
+          <div className="lg:hidden flex items-center gap-3 mb-8 justify-center">
+            <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center">
+              <Shield className="w-6 h-6 text-white" />
+            </div>
+            <span className="text-xl font-bold">Consulta ISP</span>
+          </div>
 
           {pageState === "check-email" ? (
-            <div
-              className="rounded-2xl p-8 shadow-2xl"
-              style={{ background: "#ffffff" }}
-              data-testid="check-email-card"
-            >
+            <Card className="p-8" data-testid="check-email-card">
               <div className="text-center mb-6">
-                <div className="w-14 h-14 rounded-2xl bg-indigo-100 flex items-center justify-center mx-auto mb-4">
-                  <MailCheck className="w-7 h-7 text-indigo-600" />
+                <div className="w-16 h-16 rounded-full bg-blue-50 dark:bg-blue-950 flex items-center justify-center mx-auto mb-4">
+                  <MailCheck className="w-8 h-8 text-blue-600" />
                 </div>
-                <h2 className="text-gray-900 text-xl font-bold mb-1" data-testid="text-check-email-title">
+                <h2 className="text-2xl font-bold mb-2" data-testid="text-check-email-title">
                   Verifique seu email
                 </h2>
-                <p className="text-gray-500 text-sm">
+                <p className="text-muted-foreground text-sm leading-relaxed">
                   Enviamos um link de confirmacao para
                 </p>
-                <p className="text-gray-800 font-semibold text-sm mt-1" data-testid="text-pending-email">
-                  {pendingEmail}
-                </p>
+                <p className="font-semibold mt-1" data-testid="text-pending-email">{pendingEmail}</p>
               </div>
 
-              <div className="bg-indigo-50 rounded-xl p-4 mb-5 space-y-2.5">
+              <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-4 mb-6 space-y-2">
                 {[
                   "Abra seu email e procure a mensagem do Consulta ISP",
-                  "Clique em \"Confirmar Email\"",
-                  "Voce sera redirecionado automaticamente",
+                  "Clique no botao \"Confirmar Email\"",
+                  "Voce sera redirecionado automaticamente para o sistema",
                 ].map((step, i) => (
-                  <div key={i} className="flex items-start gap-2.5">
-                    <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5 font-semibold">
+                  <div key={i} className="flex items-start gap-3">
+                    <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5 font-semibold">
                       {i + 1}
                     </span>
-                    <span className="text-gray-600 text-sm">{step}</span>
+                    <span className="text-sm text-muted-foreground">{step}</span>
                   </div>
                 ))}
               </div>
 
-              <div className="space-y-3 text-center">
-                <p className="text-gray-400 text-xs">Nao recebeu o email?</p>
-                <button
+              <div className="text-center space-y-3">
+                <p className="text-sm text-muted-foreground">Nao recebeu o email?</p>
+                <Button
+                  variant="outline"
+                  className="w-full gap-2"
                   onClick={handleResend}
                   disabled={resendLoading}
-                  className="w-full border border-gray-200 rounded-xl py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                   data-testid="button-resend-email"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${resendLoading ? "animate-spin" : ""}`} />
-                  {resendLoading ? "Enviando..." : "Reenviar link de verificacao"}
-                </button>
+                  <RefreshCw className={`w-4 h-4 ${resendLoading ? "animate-spin" : ""}`} />
+                  {resendLoading ? "Enviando..." : "Reenviar email de verificacao"}
+                </Button>
                 <button
+                  type="button"
+                  className="text-sm text-blue-600 font-medium"
                   onClick={() => setPageState("login")}
-                  className="text-indigo-600 text-sm font-medium hover:underline"
                   data-testid="button-back-to-login"
                 >
                   Voltar ao login
                 </button>
               </div>
-            </div>
+            </Card>
           ) : (
-            <div
-              className="rounded-2xl p-8 shadow-2xl"
-              style={{ background: "#ffffff" }}
-            >
-              <div className="text-center mb-6">
-                <div className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center mx-auto mb-4">
-                  <Shield className="w-6 h-6 text-indigo-600" />
+            <Card className="p-8">
+              <div className="text-center mb-8">
+                <div className="w-14 h-14 rounded-full bg-blue-50 dark:bg-blue-950 flex items-center justify-center mx-auto mb-4">
+                  <Shield className="w-7 h-7 text-blue-600" />
                 </div>
-                <h2 className="text-gray-900 text-xl font-bold mb-0.5" data-testid="text-login-title">
-                  {pageState === "register" ? "Crie sua conta" : "Bem-vindo de volta"}
+                <h2 className="text-2xl font-bold" data-testid="text-login-title">
+                  {pageState === "register" ? "Cadastre-se" : "Bem-vindo!"}
                 </h2>
-                <p className="text-gray-400 text-sm">
-                  {pageState === "register"
-                    ? "Cadastre seu provedor e comece a consultar"
-                    : "Faca login para acessar o painel"}
+                <p className="text-muted-foreground text-sm mt-1">
+                  {pageState === "register" ? "Crie sua conta para acessar o sistema" : "Faca login para acessar o sistema"}
                 </p>
               </div>
 
@@ -278,41 +223,32 @@ export default function LoginPage() {
                 {pageState === "register" && (
                   <>
                     <div>
-                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                        Nome
-                      </label>
+                      <label className="text-sm font-medium mb-1.5 block">Nome</label>
                       <Input
                         data-testid="input-name"
                         placeholder="Seu nome completo"
                         value={form.name}
                         onChange={(e) => setForm({ ...form, name: e.target.value })}
-                        className="border-gray-200 bg-gray-50 focus:bg-white rounded-xl h-11 text-sm"
                         required
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                        Nome do Provedor
-                      </label>
+                      <label className="text-sm font-medium mb-1.5 block">Nome do Provedor</label>
                       <Input
                         data-testid="input-provider-name"
                         placeholder="Nome do seu provedor"
                         value={form.providerName}
                         onChange={(e) => setForm({ ...form, providerName: e.target.value })}
-                        className="border-gray-200 bg-gray-50 focus:bg-white rounded-xl h-11 text-sm"
                         required
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                        CNPJ
-                      </label>
+                      <label className="text-sm font-medium mb-1.5 block">CNPJ</label>
                       <Input
                         data-testid="input-cnpj"
                         placeholder="00.000.000/0000-00"
                         value={form.cnpj}
                         onChange={(e) => setForm({ ...form, cnpj: e.target.value })}
-                        className="border-gray-200 bg-gray-50 focus:bg-white rounded-xl h-11 text-sm"
                         required
                       />
                     </div>
@@ -320,16 +256,14 @@ export default function LoginPage() {
                 )}
 
                 <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                    Email
-                  </label>
+                  <label className="text-sm font-medium mb-1.5 block">Email</label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <Input
                       data-testid="input-email"
                       type="email"
                       placeholder="seu@email.com"
-                      className="pl-10 border-gray-200 bg-gray-50 focus:bg-white rounded-xl h-11 text-sm"
+                      className="pl-10"
                       value={form.email}
                       onChange={(e) => setForm({ ...form, email: e.target.value })}
                       required
@@ -339,29 +273,27 @@ export default function LoginPage() {
 
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      Senha
-                    </label>
+                    <label className="text-sm font-medium">Senha</label>
                     {pageState === "login" && (
-                      <button type="button" className="text-xs text-indigo-600 font-medium hover:underline">
+                      <button type="button" className="text-xs text-blue-600">
                         Esqueceu a senha?
                       </button>
                     )}
                   </div>
                   <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                     <Input
                       data-testid="input-password"
                       type={showPassword ? "text" : "password"}
-                      placeholder="••••••••"
-                      className="pl-10 pr-10 border-gray-200 bg-gray-50 focus:bg-white rounded-xl h-11 text-sm"
+                      placeholder="******"
+                      className="pl-10 pr-10"
                       value={form.password}
                       onChange={(e) => setForm({ ...form, password: e.target.value })}
                       required
                     />
                     <button
                       type="button"
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
                       onClick={() => setShowPassword(!showPassword)}
                       data-testid="button-toggle-password"
                     >
@@ -370,44 +302,43 @@ export default function LoginPage() {
                   </div>
                 </div>
 
-                <button
+                <Button
                   type="submit"
+                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-600"
                   disabled={isLoading}
-                  className="w-full flex items-center justify-center gap-2 rounded-xl h-11 font-semibold text-white text-sm transition-all disabled:opacity-60"
-                  style={{ background: "linear-gradient(135deg, #4f46e5, #7c3aed)" }}
                   data-testid="button-submit-login"
                 >
-                  {isLoading ? (
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <>
-                      {pageState === "register" ? "Cadastrar" : "Entrar"}
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </button>
+                  <Zap className="w-4 h-4 mr-2" />
+                  {isLoading ? "Aguarde..." : pageState === "register" ? "Cadastrar" : "Entrar no Sistema"}
+                </Button>
               </form>
 
-              <div className="mt-5 text-center">
-                <p className="text-gray-400 text-sm">
-                  {pageState === "register" ? "Ja tem uma conta? " : "Ainda nao tem uma conta? "}
+              <div className="mt-6 text-center">
+                <p className="text-sm text-muted-foreground">
+                  {pageState === "register" ? "Ja tem uma conta?" : "Ainda nao tem uma conta?"}{" "}
                   <button
                     type="button"
-                    className="text-indigo-600 font-semibold hover:underline"
+                    className="text-blue-600 font-medium"
                     onClick={() => setPageState(pageState === "register" ? "login" : "register")}
                     data-testid="button-toggle-register"
                   >
-                    {pageState === "register" ? "Faca login" : "Cadastre-se"}
+                    {pageState === "register" ? "Faca login" : "Cadastre seu provedor"}
                   </button>
                 </p>
               </div>
 
-              <div className="mt-4 flex items-center justify-center gap-1.5 text-gray-400 text-xs">
-                <Lock className="w-3 h-3" />
-                <span>Conexao segura e criptografada</span>
+              <div className="mt-4 text-center">
+                <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+                  <Lock className="w-3 h-3" />
+                  <span>Conexao segura e criptografada</span>
+                </div>
               </div>
-            </div>
+            </Card>
           )}
+
+          <p className="text-center text-xs text-muted-foreground mt-4">
+            ISP Analizze v2.0 - Sistema de Analise de Credito
+          </p>
         </div>
       </div>
     </div>
