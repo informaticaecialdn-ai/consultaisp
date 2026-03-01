@@ -241,7 +241,14 @@ function LeafletHeatMap({
   useEffect(() => {
     return () => {
       if (mapRef.current) {
-        try { mapRef.current.stop(); mapRef.current.remove(); } catch {}
+        try {
+          const m = mapRef.current as any;
+          m._onZoomTransitionEnd = () => {};
+          m._onZoomAnim = () => {};
+          m.off();
+          m.stop();
+          m.remove();
+        } catch {}
         mapRef.current = null;
         heatRef.current = null;
         markersRef.current = null;
