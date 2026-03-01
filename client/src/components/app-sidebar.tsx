@@ -1,4 +1,4 @@
-import { useLocation, Link } from "wouter";
+import { useLocation, useSearch, Link } from "wouter";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import {
@@ -41,6 +41,7 @@ import {
   UserCog,
   TrendingUp,
   ShoppingCart,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -70,6 +71,7 @@ const financeMenu = [
 
 const toolsMenu = [
   { title: "Importacao", url: "/importacao", icon: Upload },
+  { title: "Integracoes ERP", url: "/painel-provedor?tab=integracao", icon: Zap },
 ];
 
 const ADMIN_GROUPS = [
@@ -181,6 +183,7 @@ function AdminCollapsibleGroup({
 
 export function AppSidebar() {
   const [location, navigate] = useLocation();
+  const search = useSearch();
   const { user, provider, logout } = useAuth();
   const subdomain = (provider as any)?.subdomain;
   const planLabel = PLAN_LABELS[provider?.plan || "free"] || "Gratuito";
@@ -339,16 +342,20 @@ export function AppSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {toolsMenu.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild data-active={location === item.url}>
-                    <Link href={item.url}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {toolsMenu.map((item) => {
+                const [itemPath, itemQuery] = item.url.split("?");
+                const isActive = location === itemPath && (!itemQuery || search === `?${itemQuery}`);
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild data-active={isActive}>
+                      <Link href={item.url}>
+                        <item.icon className="w-4 h-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
               <SidebarMenuItem>
                 <SidebarMenuButton asChild data-active={location === "/painel-provedor"}>
                   <Link href="/painel-provedor" data-testid="link-painel-provedor">
