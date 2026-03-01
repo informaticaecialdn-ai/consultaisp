@@ -9,20 +9,21 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import {
-  Users,
-  Wifi,
-  DollarSign,
   AlertTriangle,
   Search,
   ShieldAlert,
-  Settings,
-  UserPlus,
   RefreshCw,
   CreditCard,
   MapPin,
   Flame,
   ExternalLink,
   Eye,
+  Wifi,
+  TrendingUp,
+  Users,
+  ChevronRight,
+  Clock,
+  Package,
 } from "lucide-react";
 
 type HeatPoint = { lat: number; lng: number; weight: number };
@@ -47,9 +48,7 @@ async function geocodeCity(city: string, state?: string): Promise<[number, numbe
       headers: { "Accept-Language": "pt-BR" },
     });
     const data = await res.json();
-    if (data?.[0]?.lat && data?.[0]?.lon) {
-      return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
-    }
+    if (data?.[0]?.lat && data?.[0]?.lon) return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
   } catch {}
   return null;
 }
@@ -65,55 +64,37 @@ function MiniHeatMap({ points, providerPoints, defaultCenter }: { points: HeatPo
 
   const buildMap = useCallback(() => {
     if (!containerRef.current || !ready) return;
-
     if (!mapRef.current) {
       const BRAZIL_CENTER: [number, number] = [-15.8, -48.0];
       const center: [number, number] = defaultCenter ?? (points.length > 0
         ? [points.reduce((s, p) => s + p.lat, 0) / points.length, points.reduce((s, p) => s + p.lng, 0) / points.length]
         : BRAZIL_CENTER);
       const zoom = defaultCenter ? 11 : (points.length > 0 ? 9 : 5);
-
       mapRef.current = L.map(containerRef.current, {
-        zoomControl: false,
-        scrollWheelZoom: false,
-        dragging: false,
-        doubleClickZoom: false,
-        boxZoom: false,
-        keyboard: false,
-        attributionControl: false,
+        zoomControl: false, scrollWheelZoom: false, dragging: false,
+        doubleClickZoom: false, boxZoom: false, keyboard: false, attributionControl: false,
       }).setView(center, zoom);
-
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(mapRef.current);
       markersRef.current = L.layerGroup().addTo(mapRef.current);
     }
-
     if (heatRef.current) { mapRef.current.removeLayer(heatRef.current); heatRef.current = null; }
     if (markersRef.current) markersRef.current.clearLayers();
-
     if (points.length > 0 && (L as any).heatLayer) {
       heatRef.current = (L as any).heatLayer(
         points.map(p => [p.lat, p.lng, p.weight]),
         { radius: 40, blur: 22, maxZoom: 14, gradient: { 0.2: "#22c55e", 0.5: "#facc15", 0.75: "#f97316", 1.0: "#ef4444" }, minOpacity: 0.45 }
       ).addTo(mapRef.current);
     }
-
     if (markersRef.current) {
       for (const p of providerPoints) {
-        const lat = parseFloat(p.latitude);
-        const lng = parseFloat(p.longitude);
+        const lat = parseFloat(p.latitude); const lng = parseFloat(p.longitude);
         if (isNaN(lat) || isNaN(lng)) continue;
-        const icon = L.divIcon({
-          className: "",
-          html: `<div style="width:8px;height:8px;background:#ef4444;border:1.5px solid #fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.5)"></div>`,
-          iconSize: [8, 8],
-          iconAnchor: [4, 4],
-        });
+        const icon = L.divIcon({ className: "", html: `<div style="width:8px;height:8px;background:#ef4444;border:1.5px solid #fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.5)"></div>`, iconSize: [8, 8], iconAnchor: [4, 4] });
         const marker = L.marker([lat, lng], { icon });
         marker.bindTooltip(`${p.name} · ${p.city || ""}`, { permanent: false, direction: "top", offset: [0, -6] });
         markersRef.current.addLayer(marker);
       }
     }
-
     if (points.length > 1 && !defaultCenter) {
       const group = L.featureGroup(points.map(p => L.circleMarker([p.lat, p.lng], { radius: 0 })));
       mapRef.current?.fitBounds(group.getBounds().pad(0.2));
@@ -137,8 +118,8 @@ function MiniHeatMap({ points, providerPoints, defaultCenter }: { points: HeatPo
   }, []);
 
   return (
-    <div className="relative rounded-lg overflow-hidden border">
-      <div ref={containerRef} style={{ height: "260px" }} className="w-full" data-testid="dashboard-heatmap" />
+    <div className="relative rounded-xl overflow-hidden border border-border">
+      <div ref={containerRef} style={{ height: "240px" }} className="w-full" data-testid="dashboard-heatmap" />
       {!ready && (
         <div className="absolute inset-0 flex items-center justify-center bg-muted/60">
           <RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" />
@@ -148,139 +129,302 @@ function MiniHeatMap({ points, providerPoints, defaultCenter }: { points: HeatPo
   );
 }
 
+const fmt = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const RISK_CONFIG: Record<string, { label: string; color: string; bg: string; dot: string }> = {
+  critical: { label: "Critico",  color: "text-red-700 dark:text-red-400",    bg: "bg-red-500",    dot: "bg-red-500" },
+  high:     { label: "Alto",     color: "text-orange-700 dark:text-orange-400", bg: "bg-orange-500", dot: "bg-orange-500" },
+  medium:   { label: "Medio",    color: "text-yellow-700 dark:text-yellow-400", bg: "bg-yellow-500", dot: "bg-yellow-500" },
+  low:      { label: "Baixo",    color: "text-green-700 dark:text-green-400",  bg: "bg-green-500",  dot: "bg-green-500" },
+};
+
+function RiskBadge({ tier }: { tier: string }) {
+  const cfg = RISK_CONFIG[tier] ?? RISK_CONFIG.low;
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${cfg.color} bg-current/10`}
+      style={{ background: "transparent" }}>
+      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+      {cfg.label}
+    </span>
+  );
+}
+
 export default function DashboardPage() {
   const { provider } = useAuth();
   const [providerCenter, setProviderCenter] = useState<[number, number] | null>(null);
 
-  const { data: stats, isLoading } = useQuery<any>({
-    queryKey: ["/api/dashboard/stats"],
-  });
-
-  const { data: heatmapData = [] } = useQuery<any[]>({
-    queryKey: ["/api/heatmap/provider"],
-  });
+  const { data: stats, isLoading } = useQuery<any>({ queryKey: ["/api/dashboard/stats"] });
+  const { data: defaultersList = [], isLoading: listLoading } = useQuery<any[]>({ queryKey: ["/api/dashboard/defaulters"] });
+  const { data: heatmapData = [] } = useQuery<any[]>({ queryKey: ["/api/heatmap/provider"] });
 
   useEffect(() => {
     const city = provider?.addressCity || "";
     const state = provider?.addressState || "";
     if (city) {
-      geocodeCity(city, state).then(coords => {
-        if (coords) setProviderCenter(coords);
-      });
+      geocodeCity(city, state).then(coords => { if (coords) setProviderCenter(coords); });
       return;
     }
     if (heatmapData.length > 0) {
-      const topCustomer = [...heatmapData].sort(
-        (a, b) => parseFloat(b.totalOverdueAmount || "0") - parseFloat(a.totalOverdueAmount || "0")
-      )[0];
-      const lat = parseFloat(topCustomer.latitude);
-      const lng = parseFloat(topCustomer.longitude);
+      const top = [...heatmapData].sort((a, b) => parseFloat(b.totalOverdueAmount || "0") - parseFloat(a.totalOverdueAmount || "0"))[0];
+      const lat = parseFloat(top.latitude); const lng = parseFloat(top.longitude);
       if (!isNaN(lat) && !isNaN(lng)) setProviderCenter([lat, lng]);
     }
   }, [provider?.addressCity, provider?.addressState, heatmapData]);
 
   const heatPoints: HeatPoint[] = heatmapData
-    .map(p => ({
-      lat: parseFloat(p.latitude),
-      lng: parseFloat(p.longitude),
-      weight: Math.max(0.2, ((p.maxDaysOverdue || 0) / 90) + (parseFloat(p.totalOverdueAmount || "0") / 500)),
-    }))
+    .map(p => ({ lat: parseFloat(p.latitude), lng: parseFloat(p.longitude), weight: Math.max(0.2, ((p.maxDaysOverdue || 0) / 90) + (parseFloat(p.totalOverdueAmount || "0") / 500)) }))
     .filter(p => !isNaN(p.lat) && !isNaN(p.lng));
+
+  const totalRisk = (stats?.criticalCount || 0) + (stats?.highCount || 0) + (stats?.mediumCount || 0);
+  const riskBar = (v: number) => totalRisk > 0 ? Math.round((v / totalRisk) * 100) : 0;
+
+  const kpiCards = [
+    {
+      label: "Inadimplentes",
+      value: isLoading ? null : stats?.defaulters ?? 0,
+      sub: isLoading ? null : `${stats?.overdueInvoicesCount ?? 0} faturas em atraso`,
+      icon: Users,
+      accent: "from-rose-500 to-red-600",
+      iconBg: "bg-rose-100 dark:bg-rose-900/30",
+      iconColor: "text-rose-600",
+      testId: "card-defaulters",
+    },
+    {
+      label: "Total em Aberto",
+      value: isLoading ? null : `R$ ${fmt(Number(stats?.overdueTotal ?? 0))}`,
+      sub: "valor acumulado inadimplente",
+      icon: AlertTriangle,
+      accent: "from-orange-500 to-amber-500",
+      iconBg: "bg-orange-100 dark:bg-orange-900/30",
+      iconColor: "text-orange-600",
+      testId: "card-overdue-total",
+    },
+    {
+      label: "Equipamentos Retidos",
+      value: isLoading ? null : stats?.unreturnedEquipmentCount ?? 0,
+      sub: "nao devolvidos por inadimplentes",
+      icon: Wifi,
+      accent: "from-violet-500 to-indigo-600",
+      iconBg: "bg-violet-100 dark:bg-violet-900/30",
+      iconColor: "text-violet-600",
+      testId: "card-equipment-count",
+    },
+    {
+      label: "Valor em Risco",
+      value: isLoading ? null : `R$ ${fmt(Number(stats?.unreturnedEquipmentValue ?? 0))}`,
+      sub: "valor dos equipamentos retidos",
+      icon: Package,
+      accent: "from-sky-500 to-blue-600",
+      iconBg: "bg-sky-100 dark:bg-sky-900/30",
+      iconColor: "text-sky-600",
+      testId: "card-equipment-value",
+    },
+  ];
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto" data-testid="dashboard-page">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <h1 className="text-2xl font-bold" data-testid="text-dashboard-title">Dashboard</h1>
-        <div className="flex items-center gap-3 flex-wrap">
-          <Badge variant="default" className="bg-gradient-to-r from-blue-500 to-blue-600 text-white border-0 gap-1.5 px-3 py-1.5">
+
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold" data-testid="text-dashboard-title">Central de Inadimplencia</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">{provider?.name} — monitoramento em tempo real</p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge variant="outline" className="gap-1.5 px-3 py-1.5 text-xs font-semibold border-blue-300 text-blue-700 dark:text-blue-400">
             <CreditCard className="w-3.5 h-3.5" />
-            Creditos ISP: {stats?.ispCredits ?? "..."}
+            ISP {stats?.ispCredits ?? "..."}
           </Badge>
-          <Badge variant="default" className="bg-gradient-to-r from-pink-500 to-rose-500 text-white border-0 gap-1.5 px-3 py-1.5">
+          <Badge variant="outline" className="gap-1.5 px-3 py-1.5 text-xs font-semibold border-pink-300 text-pink-700 dark:text-pink-400">
             <CreditCard className="w-3.5 h-3.5" />
-            Creditos SPC: {stats?.spcCredits ?? "..."}
+            SPC {stats?.spcCredits ?? "..."}
           </Badge>
+          <Link href="/consulta-isp">
+            <Button size="sm" className="gap-1.5 h-8 text-xs" data-testid="button-consultar">
+              <Search className="w-3.5 h-3.5" />
+              Consultar CPF/CNPJ
+            </Button>
+          </Link>
         </div>
       </div>
 
-      <div className="bg-card rounded-lg border border-card-border p-4">
-        <p className="text-sm text-muted-foreground">
-          Bem-vindo ao painel de controle do <strong>{provider?.name}</strong>.
-          Acompanhe seus clientes, inadimplentes e creditos em tempo real.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {isLoading ? (
-          Array.from({ length: 4 }).map((_, i) => (
-            <Card key={i} className="p-6 space-y-2">
-              <Skeleton className="h-4 w-24" />
-              <Skeleton className="h-8 w-16" />
-              <Skeleton className="h-3 w-32" />
-            </Card>
-          ))
-        ) : (
-          <>
-            <Card className="p-6" data-testid="card-total-clients">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-medium text-muted-foreground">Total de Clientes</p>
-                <Users className="w-5 h-5 text-blue-500" />
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        {kpiCards.map((card) => (
+          <Card key={card.testId} className="relative overflow-hidden p-5" data-testid={card.testId}>
+            <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${card.accent}`} />
+            <div className="flex items-start justify-between mb-3">
+              <p className="text-sm font-medium text-muted-foreground">{card.label}</p>
+              <div className={`w-9 h-9 rounded-lg ${card.iconBg} flex items-center justify-center flex-shrink-0`}>
+                <card.icon className={`w-4.5 h-4.5 ${card.iconColor}`} style={{ width: "18px", height: "18px" }} />
               </div>
-              <p className="text-3xl font-bold" data-testid="text-total-clients">{stats?.totalCustomers || 0}</p>
-              <p className="text-xs text-muted-foreground mt-1">Inadimplentes: {stats?.defaulters || 0}</p>
-            </Card>
-            <Card className="p-6" data-testid="card-equipment">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-medium text-muted-foreground">Equipamentos</p>
-                <Wifi className="w-5 h-5 text-indigo-500" />
-              </div>
-              <p className="text-3xl font-bold" data-testid="text-equipment-value">
-                R$ {Number(stats?.equipmentValue || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">{stats?.totalEquipment || 0} equipamentos</p>
-            </Card>
-            <Card className="p-6" data-testid="card-monthly-revenue">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-medium text-muted-foreground">Total do Mes</p>
-                <DollarSign className="w-5 h-5 text-emerald-500" />
-              </div>
-              <p className="text-3xl font-bold" data-testid="text-monthly-revenue">
-                R$ {Number(stats?.monthlyRevenue || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">Faturas recebidas este mes</p>
-            </Card>
-            <Card className="p-6" data-testid="card-overdue">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-medium text-muted-foreground">Debitos Acumulados</p>
-                <AlertTriangle className="w-5 h-5 text-rose-500" />
-              </div>
-              <p className="text-3xl font-bold" data-testid="text-overdue-total">
-                R$ {Number(stats?.overdueTotal || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">Dividas acumuladas</p>
-            </Card>
-          </>
-        )}
-      </div>
-
-      {/* Mapa de Calor de Inadimplencia */}
-      <Card className="p-5">
-        <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
-              <Flame className="w-4 h-4 text-orange-600" />
             </div>
+            {card.value === null ? (
+              <>
+                <Skeleton className="h-8 w-24 mb-1" />
+                <Skeleton className="h-3 w-32" />
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-bold tracking-tight" data-testid={`value-${card.testId}`}>{card.value}</p>
+                <p className="text-xs text-muted-foreground mt-1">{card.sub}</p>
+              </>
+            )}
+          </Card>
+        ))}
+      </div>
+
+      {/* Main content: Lista + Risco */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+        {/* Top Inadimplentes */}
+        <Card className="lg:col-span-2 overflow-hidden" data-testid="card-top-defaulters">
+          <div className="flex items-center justify-between p-4 border-b">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-rose-500" />
+              <span className="font-semibold text-sm">Maiores Inadimplentes</span>
+            </div>
+            <Link href="/inadimplentes">
+              <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground">
+                Ver todos
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Button>
+            </Link>
+          </div>
+
+          {listLoading ? (
+            <div className="divide-y">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-4 py-3">
+                  <Skeleton className="h-8 w-8 rounded-full" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-3.5 w-40" />
+                    <Skeleton className="h-3 w-24" />
+                  </div>
+                  <Skeleton className="h-4 w-20" />
+                </div>
+              ))}
+            </div>
+          ) : defaultersList.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center px-4">
+              <Eye className="w-10 h-10 text-muted-foreground/30 mb-3" />
+              <p className="font-medium text-muted-foreground">Nenhum inadimplente registrado</p>
+              <p className="text-xs text-muted-foreground/70 mt-1">Os inadimplentes aparecerão aqui quando houver faturas em atraso.</p>
+            </div>
+          ) : (
+            <div className="divide-y">
+              {defaultersList.slice(0, 8).map((d, idx) => (
+                <div key={d.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/30 transition-colors" data-testid={`row-defaulter-${d.id}`}>
+                  <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0 text-xs font-bold text-muted-foreground">
+                    {idx + 1}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold truncate" data-testid={`text-name-${d.id}`}>{d.name}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      {d.city && (
+                        <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+                          <MapPin className="w-3 h-3" />{d.city}{d.state ? `, ${d.state}` : ""}
+                        </span>
+                      )}
+                      {d.maxDaysOverdue > 0 && (
+                        <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+                          <Clock className="w-3 h-3" />{d.maxDaysOverdue}d
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-sm font-bold text-rose-600 dark:text-rose-400" data-testid={`text-amount-${d.id}`}>
+                      R$ {fmt(Number(d.totalOverdueAmount || 0))}
+                    </p>
+                    <div className="flex justify-end mt-0.5">
+                      <RiskBadge tier={d.riskTier || "low"} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        {/* Distribuição de Risco */}
+        <div className="space-y-4">
+          <Card className="overflow-hidden" data-testid="card-risk-distribution">
+            <div className="flex items-center gap-2 p-4 border-b">
+              <ShieldAlert className="w-4 h-4 text-orange-500" />
+              <span className="font-semibold text-sm">Distribuicao de Risco</span>
+            </div>
+            <div className="p-4 space-y-4">
+              {isLoading ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="space-y-1.5">
+                    <Skeleton className="h-3 w-20" />
+                    <Skeleton className="h-2 w-full rounded-full" />
+                  </div>
+                ))
+              ) : totalRisk === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">Sem inadimplentes com risco classificado</p>
+              ) : (
+                [
+                  { key: "critical", count: stats?.criticalCount ?? 0 },
+                  { key: "high",     count: stats?.highCount ?? 0 },
+                  { key: "medium",   count: stats?.mediumCount ?? 0 },
+                ].map(({ key, count }) => {
+                  const cfg = RISK_CONFIG[key];
+                  const pct = riskBar(count);
+                  return (
+                    <div key={key} data-testid={`risk-bar-${key}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={`text-xs font-semibold ${cfg.color}`}>{cfg.label}</span>
+                        <span className="text-xs text-muted-foreground">{count} cliente{count !== 1 ? "s" : ""} · {pct}%</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-muted overflow-hidden">
+                        <div className={`h-full rounded-full ${cfg.bg} transition-all`} style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </Card>
+
+          {/* Acoes rapidas */}
+          <Card className="overflow-hidden" data-testid="card-quick-actions">
+            <div className="p-3 border-b">
+              <span className="font-semibold text-sm">Acoes Rapidas</span>
+            </div>
+            <div className="p-2 space-y-1">
+              {[
+                { href: "/inadimplentes", icon: Users, label: "Gerenciar Inadimplentes", color: "text-rose-600" },
+                { href: "/consulta-isp", icon: Search, label: "Consulta ISP", color: "text-blue-600" },
+                { href: "/anti-fraude", icon: ShieldAlert, label: "Anti-Fraude", color: "text-orange-600" },
+                { href: "/mapa-calor", icon: Flame, label: "Mapa de Calor", color: "text-amber-600" },
+              ].map(({ href, icon: Icon, label, color }) => (
+                <Link key={href} href={href}>
+                  <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted/50 transition-colors text-left" data-testid={`btn-quick-${href.replace("/", "")}`}>
+                    <Icon className={`w-4 h-4 ${color} flex-shrink-0`} />
+                    <span className="text-sm font-medium">{label}</span>
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground ml-auto" />
+                  </button>
+                </Link>
+              ))}
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      {/* Mapa de Calor */}
+      <Card className="overflow-hidden" data-testid="card-heatmap">
+        <div className="flex items-center justify-between p-4 border-b">
+          <div className="flex items-center gap-2">
+            <Flame className="w-4 h-4 text-orange-500" />
             <div>
-              <h2 className="text-base font-semibold leading-tight">Mapa de Calor de Inadimplencia</h2>
+              <span className="font-semibold text-sm">Mapa de Calor de Inadimplencia</span>
               <p className="text-xs text-muted-foreground">Distribuicao geografica dos clientes em atraso</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="gap-1.5 text-xs">
-              <span className="w-2 h-2 rounded-full bg-rose-500" />
-              {provider?.name}
-            </Badge>
-            <span className="text-sm font-medium text-muted-foreground" data-testid="text-defaulter-count">
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground" data-testid="text-defaulter-count">
               {stats?.defaulters || 0} inadimplentes
             </span>
             <Link href="/mapa-calor">
@@ -292,79 +436,37 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {heatPoints.length === 0 ? (
-          <div className="bg-muted/30 rounded-lg border p-8 flex flex-col items-center justify-center text-center gap-2">
-            <Eye className="w-8 h-8 text-muted-foreground/50" />
-            <p className="text-sm font-medium text-muted-foreground">Nenhum inadimplente com coordenadas cadastradas</p>
-            <p className="text-xs text-muted-foreground/70">Cadastre latitudes e longitudes nos clientes para visualizar o mapa.</p>
-          </div>
-        ) : (
-          <>
-            <MiniHeatMap
-              key={`dash-${heatPoints.length}-${providerCenter?.[0]}`}
-              points={heatPoints}
-              providerPoints={heatmapData}
-              defaultCenter={providerCenter}
-            />
-            <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground">
-              <div className="flex items-center gap-1.5">
-                <span className="inline-flex gap-0.5">
-                  <span className="w-3 h-2 rounded-sm bg-green-500 opacity-70" />
-                  <span className="w-3 h-2 rounded-sm bg-yellow-400" />
-                  <span className="w-3 h-2 rounded-sm bg-orange-500" />
-                  <span className="w-3 h-2 rounded-sm bg-red-600" />
-                </span>
-                Baixo → Critico (dias de atraso + valor)
-              </div>
-              <div className="flex items-center gap-1.5">
-                <MapPin className="w-3 h-3" />
-                {heatPoints.length} pontos visualizados
-              </div>
+        <div className="p-4">
+          {heatPoints.length === 0 ? (
+            <div className="rounded-xl border border-dashed p-10 flex flex-col items-center justify-center text-center gap-2 bg-muted/20">
+              <MapPin className="w-8 h-8 text-muted-foreground/40" />
+              <p className="text-sm font-medium text-muted-foreground">Nenhum ponto de calor disponivel</p>
+              <p className="text-xs text-muted-foreground/60">Cadastre coordenadas nos clientes inadimplentes para visualizar o mapa.</p>
             </div>
-          </>
-        )}
-      </Card>
-
-      <div>
-        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <RefreshCw className="w-5 h-5 text-blue-600" />
-          Acoes Rapidas
-        </h2>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <Link href="/consulta-isp">
-            <Card className="p-6 text-center cursor-pointer hover-elevate">
-              <div className="w-14 h-14 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center mx-auto mb-3">
-                <Search className="w-7 h-7 text-blue-600" />
+          ) : (
+            <>
+              <MiniHeatMap
+                key={`dash-${heatPoints.length}-${providerCenter?.[0]}`}
+                points={heatPoints}
+                providerPoints={heatmapData}
+                defaultCenter={providerCenter}
+              />
+              <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-flex gap-0.5">
+                    <span className="w-3 h-2 rounded-sm bg-green-500 opacity-70" />
+                    <span className="w-3 h-2 rounded-sm bg-yellow-400" />
+                    <span className="w-3 h-2 rounded-sm bg-orange-500" />
+                    <span className="w-3 h-2 rounded-sm bg-red-600" />
+                  </span>
+                  Baixo → Critico
+                </div>
+                <span>{heatPoints.length} pontos visualizados</span>
               </div>
-              <span className="text-sm font-medium" data-testid="link-consultar-clientes">Consultar Clientes</span>
-            </Card>
-          </Link>
-          <Link href="/anti-fraude">
-            <Card className="p-6 text-center cursor-pointer hover-elevate">
-              <div className="w-14 h-14 rounded-full bg-rose-100 dark:bg-rose-900/30 flex items-center justify-center mx-auto mb-3">
-                <ShieldAlert className="w-7 h-7 text-rose-600" />
-              </div>
-              <span className="text-sm font-medium" data-testid="link-anti-fraude">Anti-Fraude</span>
-            </Card>
-          </Link>
-          <Link href="/administracao">
-            <Card className="p-6 text-center cursor-pointer hover-elevate">
-              <div className="w-14 h-14 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mx-auto mb-3">
-                <Settings className="w-7 h-7 text-amber-600" />
-              </div>
-              <span className="text-sm font-medium" data-testid="link-equipamentos">Equipamentos</span>
-            </Card>
-          </Link>
-          <Link href="/inadimplentes">
-            <Card className="p-6 text-center cursor-pointer hover-elevate">
-              <div className="w-14 h-14 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mx-auto mb-3">
-                <UserPlus className="w-7 h-7 text-emerald-600" />
-              </div>
-              <span className="text-sm font-medium" data-testid="link-novo-cliente">Novo Cliente</span>
-            </Card>
-          </Link>
+            </>
+          )}
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

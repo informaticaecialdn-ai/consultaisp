@@ -75,6 +75,7 @@ export interface IStorage {
   getAlertsByCustomer(customerId: number): Promise<AntiFraudAlert[]>;
 
   getDashboardStats(providerId: number): Promise<any>;
+  getDefaultersList(providerId: number): Promise<any[]>;
   getDefaultersByProvider(providerId: number): Promise<any[]>;
   getHeatmapDataByProvider(providerId: number): Promise<any[]>;
   getHeatmapDataAllProviders(): Promise<any[]>;
@@ -351,48 +352,71 @@ export class DatabaseStorage implements IStorage {
   async getDashboardStats(providerId: number): Promise<any> {
     const totalCustomers = await db.select({ count: count() }).from(customers)
       .where(eq(customers.providerId, providerId));
-    
-    const overdueInvoices = await db.select({ count: count() }).from(invoices)
-      .where(and(eq(invoices.providerId, providerId), eq(invoices.status, "overdue")));
 
-    const totalEquipment = await db.select({ count: count() }).from(equipment)
-      .where(eq(equipment.providerId, providerId));
-
-    const equipmentValue = await db.select({
-      total: sql<string>`COALESCE(SUM(CAST(${equipment.value} AS DECIMAL)), 0)`,
-    }).from(equipment).where(eq(equipment.providerId, providerId));
-
-    const monthlyRevenue = await db.select({
-      total: sql<string>`COALESCE(SUM(CAST(${invoices.value} AS DECIMAL)), 0)`,
-    }).from(invoices).where(
-      and(
-        eq(invoices.providerId, providerId),
-        eq(invoices.status, "paid"),
-        gte(invoices.paidDate, sql`date_trunc('month', CURRENT_DATE)`),
-      )
-    );
+    const defaulterCustomers = await db.select({ count: count() }).from(customers)
+      .where(and(eq(customers.providerId, providerId), sql`${customers.paymentStatus} != 'current'`));
 
     const overdueTotal = await db.select({
       total: sql<string>`COALESCE(SUM(CAST(${invoices.value} AS DECIMAL)), 0)`,
     }).from(invoices).where(
-      and(
-        eq(invoices.providerId, providerId),
-        eq(invoices.status, "overdue"),
-      )
+      and(eq(invoices.providerId, providerId), eq(invoices.status, "overdue"))
     );
+
+    const critical = await db.select({ count: count() }).from(customers)
+      .where(and(eq(customers.providerId, providerId), eq(customers.riskTier, "critical")));
+    const high = await db.select({ count: count() }).from(customers)
+      .where(and(eq(customers.providerId, providerId), eq(customers.riskTier, "high")));
+    const medium = await db.select({ count: count() }).from(customers)
+      .where(and(eq(customers.providerId, providerId), eq(customers.riskTier, "medium")));
+
+    const unreturnedEquip = await db.select({
+      count: count(),
+      total: sql<string>`COALESCE(SUM(CAST(${equipment.value} AS DECIMAL)), 0)`,
+    }).from(equipment)
+      .innerJoin(customers, eq(equipment.customerId, customers.id))
+      .where(and(
+        eq(equipment.providerId, providerId),
+        sql`${customers.paymentStatus} != 'current'`,
+        sql`${equipment.status} != 'returned'`,
+      ));
+
+    const overdueInvoicesCount = await db.select({ count: count() }).from(invoices)
+      .where(and(eq(invoices.providerId, providerId), eq(invoices.status, "overdue")));
 
     const provider = await this.getProvider(providerId);
 
     return {
       totalCustomers: totalCustomers[0]?.count || 0,
-      defaulters: overdueInvoices[0]?.count || 0,
-      totalEquipment: totalEquipment[0]?.count || 0,
-      equipmentValue: equipmentValue[0]?.total || "0",
-      monthlyRevenue: monthlyRevenue[0]?.total || "0",
+      defaulters: defaulterCustomers[0]?.count || 0,
+      overdueInvoicesCount: overdueInvoicesCount[0]?.count || 0,
       overdueTotal: overdueTotal[0]?.total || "0",
+      criticalCount: critical[0]?.count || 0,
+      highCount: high[0]?.count || 0,
+      mediumCount: medium[0]?.count || 0,
+      unreturnedEquipmentCount: unreturnedEquip[0]?.count || 0,
+      unreturnedEquipmentValue: unreturnedEquip[0]?.total || "0",
       ispCredits: provider?.ispCredits || 0,
       spcCredits: provider?.spcCredits || 0,
     };
+  }
+
+  async getDefaultersList(providerId: number): Promise<any[]> {
+    return db.select({
+      id: customers.id,
+      name: customers.name,
+      city: customers.city,
+      state: customers.state,
+      totalOverdueAmount: customers.totalOverdueAmount,
+      maxDaysOverdue: customers.maxDaysOverdue,
+      overdueInvoicesCount: customers.overdueInvoicesCount,
+      riskTier: customers.riskTier,
+      paymentStatus: customers.paymentStatus,
+    }).from(customers)
+      .where(and(
+        eq(customers.providerId, providerId),
+        sql`${customers.paymentStatus} != 'current'`,
+      ))
+      .orderBy(desc(customers.totalOverdueAmount));
   }
 
   async getDefaultersByProvider(providerId: number): Promise<any[]> {

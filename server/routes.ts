@@ -290,6 +290,15 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/dashboard/defaulters", requireAuth, async (req, res) => {
+    try {
+      const list = await storage.getDefaultersList(req.session.providerId!);
+      return res.json(list);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/customers", requireAuth, async (req, res) => {
     try {
       const custs = await storage.getCustomersByProvider(req.session.providerId!);
