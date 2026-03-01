@@ -140,6 +140,20 @@ export async function registerRoutes(
       if (!user || !valid) {
         return res.status(401).json({ message: "Email ou senha incorretos" });
       }
+
+      if (!user.emailVerified) {
+        const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
+        const verificationCodeExpiry = new Date(Date.now() + 15 * 60 * 1000);
+        await storage.updateUserVerificationCode(user.id, verificationCode, verificationCodeExpiry);
+        console.log(`[VERIFICACAO] Codigo para ${email}: ${verificationCode}`);
+        return res.json({
+          requiresVerification: true,
+          email: user.email,
+          userId: user.id,
+          message: "Email nao verificado. Codigo enviado.",
+        });
+      }
+
       req.session.userId = user.id;
       req.session.providerId = user.providerId!;
       req.session.role = user.role;
@@ -168,6 +182,9 @@ export async function registerRoutes(
         return res.status(409).json({ message: "CNPJ ja cadastrado" });
       }
 
+      const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
+      const verificationCodeExpiry = new Date(Date.now() + 15 * 60 * 1000);
+
       const provider = await storage.createProvider({ name: providerName, cnpj, plan: "free", status: "active" });
       const user = await storage.createUser({
         email,
@@ -175,12 +192,116 @@ export async function registerRoutes(
         name,
         role: "admin",
         providerId: provider.id,
+        emailVerified: false,
+        verificationCode,
+        verificationCodeExpiry,
       });
 
+      console.log(`[VERIFICACAO] Codigo para ${email}: ${verificationCode}`);
+
+      return res.json({
+        requiresVerification: true,
+        email: user.email,
+        userId: user.id,
+        message: "Codigo de verificacao enviado para o email cadastrado",
+      });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  const verifyAttempts = new Map<string, { count: number; lastAttempt: number }>();
+  const resendTimestamps = new Map<string, number>();
+
+  app.post("/api/auth/verify-email", async (req, res) => {
+    try {
+      const { email, code } = req.body;
+      if (!email || !code) {
+        return res.status(400).json({ message: "Email e codigo sao obrigatorios" });
+      }
+
+      const attempts = verifyAttempts.get(email) || { count: 0, lastAttempt: 0 };
+      if (attempts.count >= 5 && Date.now() - attempts.lastAttempt < 15 * 60 * 1000) {
+        return res.status(429).json({ message: "Muitas tentativas. Aguarde 15 minutos." });
+      }
+      if (Date.now() - attempts.lastAttempt > 15 * 60 * 1000) {
+        attempts.count = 0;
+      }
+
+      const user = await storage.getUserByEmail(email);
+      if (!user) {
+        return res.status(404).json({ message: "Usuario nao encontrado" });
+      }
+
+      if (user.emailVerified) {
+        return res.status(400).json({ message: "Email ja verificado" });
+      }
+
+      if (user.verificationCode !== code) {
+        attempts.count += 1;
+        attempts.lastAttempt = Date.now();
+        verifyAttempts.set(email, attempts);
+        const remaining = 5 - attempts.count;
+        return res.status(400).json({
+          message: remaining > 0
+            ? `Codigo invalido. ${remaining} tentativa${remaining > 1 ? "s" : ""} restante${remaining > 1 ? "s" : ""}.`
+            : "Codigo invalido. Conta bloqueada por 15 minutos.",
+        });
+      }
+
+      if (user.verificationCodeExpiry && new Date() > new Date(user.verificationCodeExpiry)) {
+        return res.status(400).json({ message: "Codigo expirado. Solicite um novo codigo." });
+      }
+
+      verifyAttempts.delete(email);
+      await storage.updateUserVerification(user.id, true);
+
       req.session.userId = user.id;
-      req.session.providerId = provider.id;
+      req.session.providerId = user.providerId!;
       req.session.role = user.role;
-      return res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role }, provider });
+      const provider = await storage.getProvider(user.providerId!);
+
+      return res.json({
+        user: { id: user.id, email: user.email, name: user.name, role: user.role },
+        provider,
+      });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/auth/resend-code", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) {
+        return res.status(400).json({ message: "Email obrigatorio" });
+      }
+
+      const lastResend = resendTimestamps.get(email) || 0;
+      if (Date.now() - lastResend < 60 * 1000) {
+        const waitSecs = Math.ceil((60 * 1000 - (Date.now() - lastResend)) / 1000);
+        return res.status(429).json({ message: `Aguarde ${waitSecs} segundos para reenviar.` });
+      }
+
+      const user = await storage.getUserByEmail(email);
+      if (!user) {
+        return res.status(404).json({ message: "Usuario nao encontrado" });
+      }
+
+      if (user.emailVerified) {
+        return res.status(400).json({ message: "Email ja verificado" });
+      }
+
+      const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
+      const verificationCodeExpiry = new Date(Date.now() + 15 * 60 * 1000);
+      await storage.updateUserVerificationCode(user.id, verificationCode, verificationCodeExpiry);
+      resendTimestamps.set(email, Date.now());
+
+      verifyAttempts.delete(email);
+
+      console.log(`[VERIFICACAO] Novo codigo para ${email}: ${verificationCode}`);
+
+      return res.json({ message: "Novo codigo enviado", email });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
     }

@@ -2,12 +2,21 @@ import { createContext, useContext, useState, useEffect, useCallback } from "rea
 import type { User, Provider } from "@shared/schema";
 import { apiRequest } from "./queryClient";
 
+interface VerificationResult {
+  requiresVerification: true;
+  email: string;
+  userId: number;
+  message: string;
+}
+
 interface AuthState {
   user: { id: number; email: string; name: string; role: string } | null;
   provider: Provider | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (data: { email: string; password: string; name: string; providerName: string; cnpj: string }) => Promise<void>;
+  login: (email: string, password: string) => Promise<VerificationResult | void>;
+  register: (data: { email: string; password: string; name: string; providerName: string; cnpj: string }) => Promise<VerificationResult | void>;
+  verifyEmail: (email: string, code: string) => Promise<void>;
+  resendCode: (email: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -36,18 +45,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     checkAuth();
   }, [checkAuth]);
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string): Promise<VerificationResult | void> => {
     const res = await apiRequest("POST", "/api/auth/login", { email, password });
+    const data = await res.json();
+    if (data.requiresVerification) {
+      return data as VerificationResult;
+    }
+    setUser(data.user);
+    setProvider(data.provider);
+  };
+
+  const register = async (data: { email: string; password: string; name: string; providerName: string; cnpj: string }): Promise<VerificationResult | void> => {
+    const res = await apiRequest("POST", "/api/auth/register", data);
+    const d = await res.json();
+    if (d.requiresVerification) {
+      return d as VerificationResult;
+    }
+    setUser(d.user);
+    setProvider(d.provider);
+  };
+
+  const verifyEmail = async (email: string, code: string) => {
+    const res = await apiRequest("POST", "/api/auth/verify-email", { email, code });
     const data = await res.json();
     setUser(data.user);
     setProvider(data.provider);
   };
 
-  const register = async (data: { email: string; password: string; name: string; providerName: string; cnpj: string }) => {
-    const res = await apiRequest("POST", "/api/auth/register", data);
-    const d = await res.json();
-    setUser(d.user);
-    setProvider(d.provider);
+  const resendCode = async (email: string) => {
+    await apiRequest("POST", "/api/auth/resend-code", { email });
   };
 
   const logout = async () => {
@@ -57,7 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, provider, isLoading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, provider, isLoading, login, register, verifyEmail, resendCode, logout }}>
       {children}
     </AuthContext.Provider>
   );
