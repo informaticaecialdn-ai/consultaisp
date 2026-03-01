@@ -13,7 +13,7 @@ import {
   ExternalLink, Plus, Trash2, Shield, User, Mail, Phone, Link2,
   BarChart3, Search, AlertTriangle, Wifi, Save, RefreshCw, Crown,
   Lock, Star, FileText, Upload, Download, Eye, MapPin, Calendar,
-  Briefcase, X, Pencil, ClipboardList, UserCheck
+  Briefcase, X, Pencil, ClipboardList, UserCheck, Wand2, Info
 } from "lucide-react";
 
 const MAIN_DOMAIN = "consultaisp.com.br";
@@ -102,6 +102,10 @@ export default function PainelProvedorPage() {
     addressCity: profileData?.addressCity || "",
     addressState: profileData?.addressState || "",
   };
+
+  const [cnpjLookupStatus, setCnpjLookupStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [importedQsa, setImportedQsa] = useState<any[]>([]);
+  const [showQsaImport, setShowQsaImport] = useState(false);
 
   const [showPartnerForm, setShowPartnerForm] = useState(false);
   const [editingPartner, setEditingPartner] = useState<any>(null);
@@ -270,6 +274,75 @@ export default function PainelProvedorPage() {
       updatePartner.mutate({ id: editingPartner.id, data: partnerForm });
     } else {
       addPartner.mutate(partnerForm);
+    }
+  };
+
+  const handleCnpjLookup = async () => {
+    const digits = (provider?.cnpj || "").replace(/\D/g, "");
+    if (digits.length !== 14) {
+      toast({ title: "CNPJ invalido", description: "O CNPJ do provedor nao tem 14 digitos.", variant: "destructive" });
+      return;
+    }
+    setCnpjLookupStatus("loading");
+    try {
+      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${digits}`);
+      if (!res.ok) throw new Error("CNPJ nao encontrado");
+      const data = await res.json();
+
+      const streetPrefix = data.descricao_tipo_logradouro ? `${data.descricao_tipo_logradouro} ` : "";
+      const street = data.logradouro ? `${streetPrefix}${data.logradouro}`.trim() : "";
+
+      const naturalezaToLegal: Record<string, string> = {
+        "Empresario Individual": "MEI",
+        "Microempresario Individual (MEI)": "MEI",
+        "Empresa Individual de Responsabilidade Limitada (EIRELI)": "EIRELI",
+        "Sociedade Limitada": "LTDA",
+        "Sociedade Anonima Aberta": "S/A",
+        "Sociedade Anonima Fechada": "S/A",
+      };
+      const legalGuess = naturalezaToLegal[data.natureza_juridica || ""] || "";
+
+      const phoneRaw = data.ddd_telefone_1 || data.ddd_telefone_2 || "";
+      const phone = phoneRaw.replace(/\s+/g, " ").trim();
+
+      const openingRaw = data.data_inicio_atividade || "";
+
+      setEmpresa({
+        ...getEmpresa(),
+        name: data.razao_social || getEmpresa().name,
+        tradeName: data.nome_fantasia || getEmpresa().tradeName,
+        legalType: legalGuess || getEmpresa().legalType,
+        openingDate: openingRaw || getEmpresa().openingDate,
+        contactPhone: phone || getEmpresa().contactPhone,
+        contactEmail: data.email || getEmpresa().contactEmail,
+        addressZip: data.cep?.replace(/\D/g, "") || getEmpresa().addressZip,
+        addressStreet: street || getEmpresa().addressStreet,
+        addressNumber: data.numero || getEmpresa().addressNumber,
+        addressComplement: (data.complemento && data.complemento !== ".") ? data.complemento : getEmpresa().addressComplement,
+        addressNeighborhood: data.bairro || getEmpresa().addressNeighborhood,
+        addressCity: data.municipio || getEmpresa().addressCity,
+        addressState: data.uf || getEmpresa().addressState,
+      });
+
+      const qsa = Array.isArray(data.qsa) ? data.qsa : [];
+      if (qsa.length > 0) {
+        setImportedQsa(qsa.map((s: any) => ({
+          name: s.nome_socio || "",
+          cpf: s.cpf_representante_legal || "",
+          role: s.qualificacao_socio || "",
+          email: "",
+          phone: "",
+          birthDate: "",
+          sharePercentage: "",
+        })));
+        setShowQsaImport(true);
+      }
+
+      setCnpjLookupStatus("done");
+      toast({ title: "Dados importados", description: "Informacoes preenchidas automaticamente via Receita Federal." });
+    } catch (err: any) {
+      setCnpjLookupStatus("error");
+      toast({ title: "Erro na consulta", description: "CNPJ nao encontrado ou servico indisponivel.", variant: "destructive" });
     }
   };
 
@@ -479,6 +552,105 @@ export default function PainelProvedorPage() {
             <div className="flex items-center justify-center py-12"><RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" /></div>
           ) : (
             <div className="space-y-5">
+              <Card className="p-4 bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900">
+                <div className="flex items-start justify-between gap-4 flex-wrap">
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <Wand2 className="w-4 h-4 text-white" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm text-blue-900 dark:text-blue-200">Preenchimento Automatico via Receita Federal</p>
+                      <p className="text-xs text-blue-700 dark:text-blue-400 mt-0.5">
+                        Clique em buscar para preencher os dados da empresa automaticamente usando o CNPJ:
+                        <span className="font-mono font-bold ml-1">{provider?.cnpj}</span>
+                      </p>
+                    </div>
+                  </div>
+                  {user?.role === "admin" && (
+                    <Button
+                      size="sm"
+                      className="gap-2 bg-blue-600 hover:bg-blue-700 text-white flex-shrink-0"
+                      onClick={handleCnpjLookup}
+                      disabled={cnpjLookupStatus === "loading"}
+                      data-testid="button-cnpj-lookup"
+                    >
+                      {cnpjLookupStatus === "loading"
+                        ? <><RefreshCw className="w-4 h-4 animate-spin" />Buscando...</>
+                        : <><Wand2 className="w-4 h-4" />Buscar dados pelo CNPJ</>
+                      }
+                    </Button>
+                  )}
+                </div>
+                {cnpjLookupStatus === "done" && (
+                  <div className="mt-3 flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400">
+                    <CheckCircle className="w-4 h-4" />
+                    Dados preenchidos automaticamente. Revise e clique em "Salvar Dados" para confirmar.
+                  </div>
+                )}
+                {cnpjLookupStatus === "error" && (
+                  <div className="mt-3 flex items-center gap-2 text-xs text-red-600 dark:text-red-400">
+                    <X className="w-4 h-4" />
+                    Nao foi possivel consultar o CNPJ. Verifique a conexao e tente novamente.
+                  </div>
+                )}
+              </Card>
+
+              {showQsaImport && importedQsa.length > 0 && (
+                <Card className="p-5 border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/20">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-semibold text-sm flex items-center gap-2 text-indigo-800 dark:text-indigo-300">
+                      <UserCheck className="w-4 h-4" />
+                      Socios encontrados na Receita Federal ({importedQsa.length})
+                    </h3>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setShowQsaImport(false)}>
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                  <p className="text-xs text-indigo-700 dark:text-indigo-400 mb-3">
+                    Os socios abaixo foram encontrados no Quadro de Socios e Administradores (QSA). Deseja importa-los?
+                  </p>
+                  <div className="space-y-2 mb-3">
+                    {importedQsa.map((s, i) => (
+                      <div key={i} className="flex items-center gap-3 bg-white dark:bg-indigo-900/30 rounded-lg px-3 py-2">
+                        <div className="w-7 h-7 rounded-full bg-indigo-100 dark:bg-indigo-800 flex items-center justify-center text-xs font-bold text-indigo-700 dark:text-indigo-300">
+                          {s.name?.charAt(0)?.toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-indigo-900 dark:text-indigo-200 truncate">{s.name}</p>
+                          {s.role && <p className="text-xs text-indigo-600 dark:text-indigo-400">{s.role}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      className="gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
+                      onClick={async () => {
+                        let count = 0;
+                        for (const s of importedQsa) {
+                          if (!s.name) continue;
+                          try {
+                            const res = await apiRequest("POST", "/api/provider/partners", s);
+                            if (res.ok) count++;
+                          } catch {}
+                        }
+                        qc.invalidateQueries({ queryKey: ["/api/provider/profile"] });
+                        setShowQsaImport(false);
+                        setImportedQsa([]);
+                        toast({ title: "Socios importados", description: `${count} socio(s) adicionado(s) com sucesso.` });
+                      }}
+                      data-testid="button-import-qsa"
+                    >
+                      <Plus className="w-4 h-4" />Importar Socios
+                    </Button>
+                    <Button size="sm" variant="ghost" className="text-indigo-700" onClick={() => { setShowQsaImport(false); setImportedQsa([]); }}>
+                      Ignorar
+                    </Button>
+                  </div>
+                </Card>
+              )}
+
               <Card className="p-6">
                 <h2 className="text-lg font-semibold mb-5 flex items-center gap-2">
                   <Building2 className="w-5 h-5" />Dados da Empresa
