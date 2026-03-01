@@ -17,7 +17,7 @@ import {
   Globe, Mail, Phone, Calendar, Shield, CheckCircle, XCircle,
   Plus, RefreshCw, TrendingUp, TrendingDown, FileText, DollarSign,
   Clock, AlertCircle, Zap, Star, Crown, Edit2, Save, X, Eye,
-  Printer, Ban, RotateCcw, Copy, EyeOff
+  Printer, Ban, RotateCcw, Copy, EyeOff, Wifi, Database, AlertTriangle
 } from "lucide-react";
 
 const PLAN_CONFIG: Record<string, { label: string; color: string; isp: number; spc: number; price: number }> = {
@@ -871,13 +871,33 @@ const ERP_NAMES: Record<string, string> = {
   tiacos: "Tiacos", hubsoft: "Hubsoft", flyspeed: "Fly Speed", netflash: "Netflash",
 };
 
-function IntegracaoTab({ providerId }: { providerId: number }) {
-  const { toast } = useToast();
-  const [showToken, setShowToken] = useState(false);
+const ADMIN_ERP_LIST = [
+  { key: "ixc",      name: "iXC Soft",    grad: "from-blue-500 to-blue-600" },
+  { key: "sgp",      name: "SGP",          grad: "from-purple-500 to-purple-600" },
+  { key: "mk",       name: "MK Solutions", grad: "from-green-500 to-green-600" },
+  { key: "tiacos",   name: "Tiacos",       grad: "from-orange-500 to-orange-600" },
+  { key: "hubsoft",  name: "Hubsoft",      grad: "from-indigo-500 to-indigo-600" },
+  { key: "flyspeed", name: "Fly Speed",    grad: "from-cyan-500 to-cyan-600" },
+  { key: "netflash", name: "Netflash",     grad: "from-rose-500 to-pink-600" },
+];
 
+function relDateAdmin(d: string | null): string {
+  if (!d) return "Nunca";
+  const diff = Math.floor((Date.now() - new Date(d).getTime()) / 60000);
+  if (diff < 60) return `${diff}min atras`;
+  if (diff < 1440) return `${Math.floor(diff / 60)}h atras`;
+  return `${Math.floor(diff / 1440)}d atras`;
+}
+
+function IntegracaoTab({ providerId }: { providerId: number }) {
   const { data, isLoading } = useQuery<{
     token: string;
-    integrations: Array<{ id: number; erpSource: string; enabled: boolean; totalSynced: number; lastSyncAt: string | null; lastSyncStatus: string | null }>;
+    integrations: Array<{
+      id: number; erpSource: string; isEnabled: boolean;
+      apiUrl: string | null; apiToken: string | null;
+      totalSynced: number; totalErrors: number;
+      lastSyncAt: string | null; lastSyncStatus: string | null;
+    }>;
     logs: Array<{ id: number; erpSource: string; status: string; recordsProcessed: number; recordsFailed: number; createdAt: string; ipAddress: string | null }>;
   }>({
     queryKey: ["/api/admin/providers", providerId, "integration"],
@@ -888,14 +908,6 @@ function IntegracaoTab({ providerId }: { providerId: number }) {
     },
   });
 
-  const webhookUrl = typeof window !== "undefined"
-    ? `${window.location.origin}/api/webhooks/erp-sync`
-    : "/api/webhooks/erp-sync";
-
-  const copy = (text: string, label: string) => {
-    navigator.clipboard.writeText(text).then(() => toast({ title: `${label} copiado!` }));
-  };
-
   if (isLoading) return (
     <TabsContent value="integracao">
       <div className="p-8 text-center text-muted-foreground text-sm">Carregando...</div>
@@ -904,74 +916,73 @@ function IntegracaoTab({ providerId }: { providerId: number }) {
 
   const integrations = data?.integrations || [];
   const logs = data?.logs || [];
-  const token = data?.token || "";
+
+  const getIntg = (key: string) => integrations.find(i => i.erpSource === key);
 
   return (
     <TabsContent value="integracao" className="space-y-4" data-testid="tab-content-integracao">
-      {/* Token e URL */}
-      <Card className="overflow-hidden">
-        <div className="px-5 py-3 border-b bg-muted/20">
-          <h3 className="font-semibold flex items-center gap-2"><Zap className="w-4 h-4 text-blue-500" />Credenciais do Webhook</h3>
-          <p className="text-xs text-muted-foreground">Use para configurar o N8N ou outro sistema de automacao</p>
-        </div>
-        <div className="p-5 space-y-3">
-          <div className="space-y-1">
-            <p className="text-xs font-medium text-muted-foreground">URL do Webhook</p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 bg-muted px-3 py-2 rounded text-xs font-mono break-all">{webhookUrl}</code>
-              <Button size="sm" variant="ghost" onClick={() => copy(webhookUrl, "URL")} data-testid="button-copy-webhook-url">
-                <Copy className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
-          <div className="space-y-1">
-            <p className="text-xs font-medium text-muted-foreground">Token de Autenticacao</p>
-            <div className="flex items-center gap-2">
-              <code className="flex-1 bg-muted px-3 py-2 rounded text-xs font-mono break-all">
-                {showToken ? token : token.replace(/./g, "•").slice(0, 32) + "..."}
-              </code>
-              <Button size="sm" variant="ghost" onClick={() => setShowToken(v => !v)} data-testid="button-toggle-token">
-                {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => copy(token, "Token")} data-testid="button-copy-token">
-                <Copy className="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
-      </Card>
+      {/* Header stats */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: "ERPs Ativos", value: integrations.filter(i => i.isEnabled).length, color: "text-emerald-600" },
+          { label: "Total Sincronizados", value: integrations.reduce((s, i) => s + (i.totalSynced || 0), 0).toLocaleString("pt-BR"), color: "text-blue-600" },
+          { label: "Total de Erros", value: integrations.reduce((s, i) => s + (i.totalErrors || 0), 0).toLocaleString("pt-BR"), color: "text-rose-500" },
+        ].map(s => (
+          <Card key={s.label} className="p-3 text-center">
+            <p className="text-xs text-muted-foreground mb-1">{s.label}</p>
+            <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
+          </Card>
+        ))}
+      </div>
 
-      {/* ERP Cards */}
+      {/* ERP Cards grid */}
       <Card className="overflow-hidden">
         <div className="px-5 py-3 border-b bg-muted/20">
-          <h3 className="font-semibold">ERPs Configurados</h3>
-          <p className="text-xs text-muted-foreground">Status de cada integracao ERP do provedor</p>
+          <h3 className="font-semibold flex items-center gap-2"><Wifi className="w-4 h-4 text-violet-500" />Integracoes ERP</h3>
+          <p className="text-xs text-muted-foreground">Status de cada integracao ERP do provedor (somente leitura)</p>
         </div>
-        {integrations.length === 0 ? (
-          <div className="p-8 text-center text-muted-foreground text-sm">Nenhum ERP configurado ainda</div>
-        ) : (
-          <div className="divide-y">
-            {integrations.map((intg) => (
-              <div key={intg.id} className="px-5 py-3 flex items-center justify-between gap-3" data-testid={`row-erp-${intg.erpSource}`}>
-                <div className="flex items-center gap-3">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${intg.enabled ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-400"}`}>
-                    {(ERP_NAMES[intg.erpSource] || intg.erpSource).charAt(0)}
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">{ERP_NAMES[intg.erpSource] || intg.erpSource}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {intg.totalSynced.toLocaleString("pt-BR")} registros sincronizados
-                      {intg.lastSyncAt && ` · Ultimo: ${new Date(intg.lastSyncAt).toLocaleString("pt-BR")}`}
-                    </p>
-                  </div>
+        <div className="divide-y">
+          {ADMIN_ERP_LIST.map(erp => {
+            const intg = getIntg(erp.key);
+            const hasCredentials = !!(intg?.apiUrl && intg?.apiToken);
+            const isEnabled = intg?.isEnabled ?? false;
+            const status = intg?.lastSyncStatus ?? null;
+            return (
+              <div key={erp.key} className="px-5 py-3 flex items-center gap-3" data-testid={`row-erp-${erp.key}`}>
+                <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${erp.grad} flex items-center justify-center flex-shrink-0`}>
+                  <Wifi className="w-4 h-4 text-white" />
                 </div>
-                <Badge className={intg.enabled ? "bg-green-100 text-green-700 border-0" : "bg-gray-100 text-gray-500 border-0"}>
-                  {intg.enabled ? "Ativo" : "Inativo"}
-                </Badge>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-semibold">{erp.name}</p>
+                    {hasCredentials && status && (
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                        status === "success" ? "bg-emerald-100 text-emerald-700" :
+                        status === "error" ? "bg-red-100 text-red-700" :
+                        "bg-amber-100 text-amber-700"
+                      }`}>{status === "success" ? "Sucesso" : status === "error" ? "Erro" : "Parcial"}</span>
+                    )}
+                  </div>
+                  {hasCredentials ? (
+                    <p className="text-xs text-muted-foreground">
+                      {intg!.apiUrl?.replace(/https?:\/\//, "").slice(0, 40)} ·{" "}
+                      {(intg!.totalSynced || 0).toLocaleString("pt-BR")} registros · {relDateAdmin(intg!.lastSyncAt)}
+                      {(intg!.totalErrors || 0) > 0 && <span className="text-rose-500 ml-1">· {intg!.totalErrors} erros</span>}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-amber-600">Credenciais nao configuradas pelo provedor</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {!hasCredentials && <AlertTriangle className="w-4 h-4 text-amber-400" />}
+                  <Badge className={`border-0 text-xs ${isEnabled ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                    {isEnabled ? "Ativo" : "Inativo"}
+                  </Badge>
+                </div>
               </div>
-            ))}
-          </div>
-        )}
+            );
+          })}
+        </div>
       </Card>
 
       {/* Sync Logs */}
