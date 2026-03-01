@@ -558,17 +558,27 @@ export default function AdminSistemaPage() {
     { label: "Mensagens novas", value: totalUnread, icon: MessageSquare, color: "from-rose-500 to-rose-600", sub: "aguardando resposta" },
   ];
 
+  const PAGE_META: Record<string, { title: string; desc: string; icon: any; color: string }> = {
+    painel:    { title: "Painel Geral",        desc: "Visao geral do sistema",          icon: BarChart3,    color: "from-red-600 to-rose-700" },
+    provedores:{ title: "Provedores",          desc: "Gerencie todos os provedores",    icon: Building2,    color: "from-blue-600 to-indigo-700" },
+    usuarios:  { title: "Usuarios",            desc: "Contas e acessos do sistema",     icon: Users,        color: "from-violet-600 to-purple-700" },
+    financeiro:{ title: "Faturas e Cobrancas", desc: "Receita, faturas e pagamentos",   icon: DollarSign,   color: "from-emerald-600 to-teal-700" },
+    suporte:   { title: "Suporte",             desc: "Chat direto com provedores",      icon: MessageSquare,color: "from-orange-500 to-amber-600" },
+  };
+  const meta = PAGE_META[activeTab] || PAGE_META.painel;
+  const MetaIcon = meta.icon;
+
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto" data-testid="admin-sistema-page">
-      <div className="flex items-center gap-4">
-        <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-red-600 to-rose-700 flex items-center justify-center">
-          <Shield className="w-7 h-7 text-white" />
+    <div className="p-6 space-y-5 max-w-7xl mx-auto" data-testid="admin-sistema-page">
+      <div className="flex items-center gap-3">
+        <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${meta.color} flex items-center justify-center flex-shrink-0`}>
+          <MetaIcon className="w-5 h-5 text-white" />
         </div>
-        <div>
-          <h1 className="text-2xl font-bold">Painel Administrativo</h1>
-          <p className="text-sm text-muted-foreground">Gerenciamento total do sistema Consulta ISP</p>
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold leading-tight">{meta.title}</h1>
+          <p className="text-xs text-muted-foreground">{meta.desc}</p>
         </div>
-        <Badge className="ml-auto bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300 gap-1.5">
+        <Badge className="ml-auto bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300 gap-1.5 flex-shrink-0 text-xs">
           <Shield className="w-3 h-3" />Super Admin
         </Badge>
       </div>
