@@ -71,7 +71,7 @@ function MiniHeatMap({ points, providerPoints, defaultCenter }: { points: HeatPo
       const center: [number, number] = defaultCenter ?? (points.length > 0
         ? [points.reduce((s, p) => s + p.lat, 0) / points.length, points.reduce((s, p) => s + p.lng, 0) / points.length]
         : BRAZIL_CENTER);
-      const zoom = points.length > 0 ? 9 : (defaultCenter ? 11 : 5);
+      const zoom = defaultCenter ? 11 : (points.length > 0 ? 9 : 5);
 
       mapRef.current = L.map(containerRef.current, {
         zoomControl: false,
@@ -114,7 +114,7 @@ function MiniHeatMap({ points, providerPoints, defaultCenter }: { points: HeatPo
       }
     }
 
-    if (points.length > 1) {
+    if (points.length > 1 && !defaultCenter) {
       const group = L.featureGroup(points.map(p => L.circleMarker([p.lat, p.lng], { radius: 0 })));
       mapRef.current?.fitBounds(group.getBounds().pad(0.2));
     }
@@ -123,7 +123,7 @@ function MiniHeatMap({ points, providerPoints, defaultCenter }: { points: HeatPo
   useEffect(() => { buildMap(); }, [buildMap]);
 
   useEffect(() => () => {
-    if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; heatRef.current = null; markersRef.current = null; }
+    if (mapRef.current) { try { mapRef.current.stop(); mapRef.current.remove(); } catch {} mapRef.current = null; heatRef.current = null; markersRef.current = null; }
   }, []);
 
   return (
@@ -153,11 +153,21 @@ export default function DashboardPage() {
   useEffect(() => {
     const city = provider?.addressCity || "";
     const state = provider?.addressState || "";
-    if (!city) return;
-    geocodeCity(city, state).then(coords => {
-      if (coords) setProviderCenter(coords);
-    });
-  }, [provider?.addressCity, provider?.addressState]);
+    if (city) {
+      geocodeCity(city, state).then(coords => {
+        if (coords) setProviderCenter(coords);
+      });
+      return;
+    }
+    if (heatmapData.length > 0) {
+      const topCustomer = [...heatmapData].sort(
+        (a, b) => parseFloat(b.totalOverdueAmount || "0") - parseFloat(a.totalOverdueAmount || "0")
+      )[0];
+      const lat = parseFloat(topCustomer.latitude);
+      const lng = parseFloat(topCustomer.longitude);
+      if (!isNaN(lat) && !isNaN(lng)) setProviderCenter([lat, lng]);
+    }
+  }, [provider?.addressCity, provider?.addressState, heatmapData]);
 
   const heatPoints: HeatPoint[] = heatmapData
     .map(p => ({

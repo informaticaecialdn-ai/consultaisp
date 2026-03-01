@@ -159,7 +159,7 @@ function LeafletHeatMap({
             points.reduce((s, p) => s + p.lng, 0) / points.length,
           ]
         : BRAZIL_CENTER);
-      const zoom = points.length > 0 ? 7 : (defaultCenter ? 11 : 5);
+      const zoom = defaultCenter ? 11 : (points.length > 0 ? 7 : 5);
 
       mapRef.current = L.map(containerRef.current, { zoomControl: true, scrollWheelZoom: false }).setView(center, zoom);
 
@@ -228,11 +228,11 @@ function LeafletHeatMap({
       }
     }
 
-    if (points.length > 1) {
+    if (points.length > 1 && !defaultCenter) {
       const group = L.featureGroup(points.map(p => L.circleMarker([p.lat, p.lng], { radius: 0 })));
       mapRef.current.fitBounds(group.getBounds().pad(0.15));
     }
-  }, [points, mode, clusterPoints, ready]);
+  }, [points, mode, clusterPoints, defaultCenter, ready]);
 
   useEffect(() => {
     initMap();
@@ -241,7 +241,7 @@ function LeafletHeatMap({
   useEffect(() => {
     return () => {
       if (mapRef.current) {
-        mapRef.current.remove();
+        try { mapRef.current.stop(); mapRef.current.remove(); } catch {}
         mapRef.current = null;
         heatRef.current = null;
         markersRef.current = null;
@@ -286,11 +286,17 @@ export default function MapaCalorPage() {
   useEffect(() => {
     const city = provider?.addressCity || "";
     const state = provider?.addressState || "";
-    if (!city) return;
-    geocodeCity(city, state).then(coords => {
-      if (coords) setProviderCenter(coords);
-    });
-  }, [provider?.addressCity, provider?.addressState]);
+    if (city) {
+      geocodeCity(city, state).then(coords => {
+        if (coords) setProviderCenter(coords);
+      });
+      return;
+    }
+    if (cityRanking.length > 0) {
+      const top = cityRanking[0];
+      if (top.lat && top.lng) setProviderCenter([top.lat, top.lng]);
+    }
+  }, [provider?.addressCity, provider?.addressState, cityRanking]);
 
   const providerPoints: HeatPoint[] = providerData
     .map(p => ({
