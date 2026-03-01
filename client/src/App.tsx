@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { ChatWidget } from "@/components/chat-widget";
 import NotFound from "@/pages/not-found";
 import LoginPage from "@/pages/login";
 import VerificarEmailPage from "@/pages/verificar-email";
@@ -19,6 +20,7 @@ import CreditosPage from "@/pages/creditos";
 import ImportacaoPage from "@/pages/importacao";
 import AdministracaoPage from "@/pages/administracao";
 import PainelProvedorPage from "@/pages/painel-provedor";
+import AdminSistemaPage from "@/pages/admin-sistema";
 import { Skeleton } from "@/components/ui/skeleton";
 
 function Router() {
@@ -34,6 +36,7 @@ function Router() {
       <Route path="/importacao" component={ImportacaoPage} />
       <Route path="/administracao" component={AdministracaoPage} />
       <Route path="/painel-provedor" component={PainelProvedorPage} />
+      <Route path="/admin-sistema" component={AdminSistemaPage} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -79,6 +82,7 @@ function AuthenticatedApp() {
           <main className="flex-1 overflow-auto bg-background">
             <Router />
           </main>
+          <ChatWidget />
         </div>
       </div>
     </SidebarProvider>

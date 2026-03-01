@@ -114,6 +114,39 @@ export const spcConsultations = pgTable("spc_consultations", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const supportThreads = pgTable("support_threads", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  subject: text("subject").notNull().default("Suporte Geral"),
+  status: text("status").notNull().default("open"),
+  lastMessageAt: timestamp("last_message_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const supportMessages = pgTable("support_messages", {
+  id: serial("id").primaryKey(),
+  threadId: integer("thread_id").notNull().references(() => supportThreads.id),
+  senderId: integer("sender_id").notNull().references(() => users.id),
+  senderName: text("sender_name").notNull(),
+  content: text("content").notNull(),
+  isFromAdmin: boolean("is_from_admin").notNull().default(false),
+  isRead: boolean("is_read").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const planChanges = pgTable("plan_changes", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  oldPlan: text("old_plan"),
+  newPlan: text("new_plan"),
+  ispCreditsAdded: integer("isp_credits_added").default(0),
+  spcCreditsAdded: integer("spc_credits_added").default(0),
+  changedById: integer("changed_by_id").references(() => users.id),
+  changedByName: text("changed_by_name"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const antiFraudAlerts = pgTable("anti_fraud_alerts", {
   id: serial("id").primaryKey(),
   providerId: integer("provider_id").notNull().references(() => providers.id),
@@ -187,6 +220,17 @@ export const updateProviderSchema = z.object({
   contactPhone: z.string().optional(),
   website: z.string().optional(),
 });
+
+export const insertSupportThreadSchema = createInsertSchema(supportThreads).omit({ id: true, createdAt: true, lastMessageAt: true });
+export const insertSupportMessageSchema = createInsertSchema(supportMessages).omit({ id: true, createdAt: true });
+export const insertPlanChangeSchema = createInsertSchema(planChanges).omit({ id: true, createdAt: true });
+
+export type SupportThread = typeof supportThreads.$inferSelect;
+export type InsertSupportThread = z.infer<typeof insertSupportThreadSchema>;
+export type SupportMessage = typeof supportMessages.$inferSelect;
+export type InsertSupportMessage = z.infer<typeof insertSupportMessageSchema>;
+export type PlanChange = typeof planChanges.$inferSelect;
+export type InsertPlanChange = z.infer<typeof insertPlanChangeSchema>;
 
 export type LoginData = z.infer<typeof loginSchema>;
 export type RegisterData = z.infer<typeof registerSchema>;

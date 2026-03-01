@@ -3,6 +3,7 @@ import { db } from "./db";
 import {
   providers, users, customers, contracts, invoices, equipment,
   ispConsultations, spcConsultations, antiFraudAlerts,
+  supportThreads, supportMessages, planChanges,
   type Provider, type InsertProvider,
   type User, type InsertUser,
   type Customer, type InsertCustomer,
@@ -12,6 +13,9 @@ import {
   type IspConsultation, type InsertIspConsultation,
   type SpcConsultation, type InsertSpcConsultation,
   type AntiFraudAlert, type InsertAntiFraudAlert,
+  type SupportThread, type InsertSupportThread,
+  type SupportMessage, type InsertSupportMessage,
+  type PlanChange, type InsertPlanChange,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -69,6 +73,24 @@ export interface IStorage {
   getDefaultersByProvider(providerId: number): Promise<any[]>;
   getHeatmapDataByProvider(providerId: number): Promise<any[]>;
   getHeatmapDataAllProviders(): Promise<any[]>;
+
+  getAllUsers(): Promise<User[]>;
+  adminUpdateProvider(id: number, data: Partial<Provider>): Promise<Provider>;
+  adminDeactivateProvider(id: number): Promise<void>;
+  updateProviderPlan(id: number, plan: string): Promise<Provider>;
+  addCredits(providerId: number, ispCredits: number, spcCredits: number): Promise<Provider>;
+  getSystemStats(): Promise<any>;
+
+  getPlanChanges(providerId?: number): Promise<PlanChange[]>;
+  createPlanChange(change: InsertPlanChange): Promise<PlanChange>;
+
+  getOrCreateSupportThread(providerId: number): Promise<SupportThread>;
+  getAllSupportThreads(): Promise<(SupportThread & { providerName: string; unreadCount: number })[]>;
+  getSupportMessages(threadId: number): Promise<SupportMessage[]>;
+  createSupportMessage(msg: InsertSupportMessage): Promise<SupportMessage>;
+  markMessagesRead(threadId: number, isFromAdmin: boolean): Promise<void>;
+  updateThreadStatus(threadId: number, status: string): Promise<void>;
+  getUnreadCountForProvider(providerId: number): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -403,6 +425,115 @@ export class DatabaseStorage implements IStorage {
       )
     );
     return result;
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
+  async adminUpdateProvider(id: number, data: Partial<Provider>): Promise<Provider> {
+    const { id: _id, createdAt: _c, ...safe } = data as any;
+    const [updated] = await db.update(providers).set(safe).where(eq(providers.id, id)).returning();
+    return updated;
+  }
+
+  async adminDeactivateProvider(id: number): Promise<void> {
+    await db.update(providers).set({ status: "inactive" }).where(eq(providers.id, id));
+  }
+
+  async updateProviderPlan(id: number, plan: string): Promise<Provider> {
+    const [updated] = await db.update(providers).set({ plan }).where(eq(providers.id, id)).returning();
+    return updated;
+  }
+
+  async addCredits(providerId: number, ispCredits: number, spcCredits: number): Promise<Provider> {
+    const [updated] = await db.update(providers)
+      .set({
+        ispCredits: sql`${providers.ispCredits} + ${ispCredits}`,
+        spcCredits: sql`${providers.spcCredits} + ${spcCredits}`,
+      })
+      .where(eq(providers.id, providerId))
+      .returning();
+    return updated;
+  }
+
+  async getSystemStats(): Promise<any> {
+    const [providerCount] = await db.select({ count: count() }).from(providers);
+    const [userCount] = await db.select({ count: count() }).from(users);
+    const [customerCount] = await db.select({ count: count() }).from(customers);
+    const [ispCount] = await db.select({ count: count() }).from(ispConsultations);
+    const [spcCount] = await db.select({ count: count() }).from(spcConsultations);
+    const allProviders = await db.select().from(providers);
+    const totalIspCredits = allProviders.reduce((sum, p) => sum + (p.ispCredits || 0), 0);
+    const totalSpcCredits = allProviders.reduce((sum, p) => sum + (p.spcCredits || 0), 0);
+    return {
+      providers: Number(providerCount.count),
+      users: Number(userCount.count),
+      customers: Number(customerCount.count),
+      ispConsultations: Number(ispCount.count),
+      spcConsultations: Number(spcCount.count),
+      totalIspCredits,
+      totalSpcCredits,
+      activeProviders: allProviders.filter(p => p.status === "active").length,
+    };
+  }
+
+  async getPlanChanges(providerId?: number): Promise<PlanChange[]> {
+    if (providerId) {
+      return db.select().from(planChanges).where(eq(planChanges.providerId, providerId)).orderBy(desc(planChanges.createdAt));
+    }
+    return db.select().from(planChanges).orderBy(desc(planChanges.createdAt));
+  }
+
+  async createPlanChange(change: InsertPlanChange): Promise<PlanChange> {
+    const [created] = await db.insert(planChanges).values(change).returning();
+    return created;
+  }
+
+  async getOrCreateSupportThread(providerId: number): Promise<SupportThread> {
+    const [existing] = await db.select().from(supportThreads).where(eq(supportThreads.providerId, providerId));
+    if (existing) return existing;
+    const [created] = await db.insert(supportThreads).values({ providerId, subject: "Suporte Geral", status: "open" }).returning();
+    return created;
+  }
+
+  async getAllSupportThreads(): Promise<(SupportThread & { providerName: string; unreadCount: number })[]> {
+    const threads = await db.select().from(supportThreads).orderBy(desc(supportThreads.lastMessageAt));
+    const result = await Promise.all(threads.map(async (thread) => {
+      const [provider] = await db.select({ name: providers.name }).from(providers).where(eq(providers.id, thread.providerId));
+      const [{ count: unread }] = await db.select({ count: count() }).from(supportMessages)
+        .where(and(eq(supportMessages.threadId, thread.id), eq(supportMessages.isFromAdmin, false), eq(supportMessages.isRead, false)));
+      return { ...thread, providerName: provider?.name || "Desconhecido", unreadCount: Number(unread) };
+    }));
+    return result;
+  }
+
+  async getSupportMessages(threadId: number): Promise<SupportMessage[]> {
+    return db.select().from(supportMessages).where(eq(supportMessages.threadId, threadId)).orderBy(supportMessages.createdAt);
+  }
+
+  async createSupportMessage(msg: InsertSupportMessage): Promise<SupportMessage> {
+    const [created] = await db.insert(supportMessages).values(msg).returning();
+    await db.update(supportThreads).set({ lastMessageAt: new Date() }).where(eq(supportThreads.id, msg.threadId));
+    return created;
+  }
+
+  async markMessagesRead(threadId: number, isFromAdmin: boolean): Promise<void> {
+    await db.update(supportMessages)
+      .set({ isRead: true })
+      .where(and(eq(supportMessages.threadId, threadId), eq(supportMessages.isFromAdmin, isFromAdmin)));
+  }
+
+  async updateThreadStatus(threadId: number, status: string): Promise<void> {
+    await db.update(supportThreads).set({ status }).where(eq(supportThreads.id, threadId));
+  }
+
+  async getUnreadCountForProvider(providerId: number): Promise<number> {
+    const [thread] = await db.select().from(supportThreads).where(eq(supportThreads.providerId, providerId));
+    if (!thread) return 0;
+    const [{ count: unread }] = await db.select({ count: count() }).from(supportMessages)
+      .where(and(eq(supportMessages.threadId, thread.id), eq(supportMessages.isFromAdmin, true), eq(supportMessages.isRead, false)));
+    return Number(unread);
   }
 }
 

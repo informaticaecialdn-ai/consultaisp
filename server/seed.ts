@@ -379,3 +379,16 @@ export async function seedDatabase() {
 
   console.log("Seed data inserted successfully");
 }
+
+export async function seedSuperAdmin() {
+  const existing = await storage.getUserByEmail("master@consultaisp.com.br");
+  if (existing) return;
+  await storage.createUser({
+    name: "Administrador do Sistema",
+    email: "master@consultaisp.com.br",
+    password: await hashPassword("Master@2024"),
+    role: "superadmin",
+    emailVerified: true,
+  });
+  console.log("SuperAdmin criado: master@consultaisp.com.br / Master@2024");
+}

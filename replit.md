@@ -59,10 +59,32 @@ New registrations require email verification before login:
 - Seed users are pre-marked as emailVerified=true
 - Sender: EMAIL_FROM env var (fallback: onboarding@resend.dev); requires RESEND_API_KEY secret
 
+## System Admin Panel (/admin-sistema)
+- Access: superadmin role only (master@consultaisp.com.br / Master@2024)
+- Sidebar for superadmin shows ONLY "Painel Administrativo" link (no provider features)
+- 5 tabs: Painel Geral (system stats), Provedores (list/create/manage/deactivate), Usuarios (all system users), Financeiro (credits and plan history per provider), Suporte (chat panel with providers)
+- Provider management: create providers with admin user, toggle active/inactive, manage ISP/SPC credits, change plan
+- Support chat: polling every 10s for chat threads, admin can reply to any provider's thread
+- API routes protected with requireSuperAdmin middleware
+
+## Support Chat Widget
+- Floating button at bottom-right for non-superadmin users (data-testid="button-open-chat")
+- Provider-side polls /api/chat/thread every 5s when open; /api/chat/unread every 30s
+- Admin side polls /api/admin/chat/threads every 10s
+- DB tables: support_threads, support_messages (created via direct SQL, not in Drizzle schema)
+
+## Auth & Session Notes
+- Session stores userId, providerId (0 for superadmin), role
+- Login sets providerId = user.providerId || 0 (0 for superadmin with no provider)
+- /api/auth/me returns provider: null for superadmin
+- requireSuperAdmin checks req.session.role === "superadmin"
+- requireAdmin checks req.session.role === "admin" (provider admins only)
+
 ## Test Credentials
-- Email: admin@ispanalizze.com / Password: 123456
-- Email: carlos@vertical.com / Password: 123456
-- Email: admin@speed.com / Password: 123456
+- Email: admin@ispanalizze.com / Password: 123456 (NsLink provider admin)
+- Email: carlos@vertical.com / Password: 123456 (Vertical provider admin)
+- Email: admin@speed.com / Password: 123456 (Speed provider admin)
+- Email: master@consultaisp.com.br / Password: Master@2024 (System superadmin)
 
 ## Seed Data (3 providers)
 - NsLink Provedor (provider1): 4 customers, some defaulters

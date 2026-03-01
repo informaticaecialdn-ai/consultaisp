@@ -28,6 +28,7 @@ import {
   Globe,
   ExternalLink,
   Crown,
+  Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -66,6 +67,60 @@ export function AppSidebar() {
   const subdomain = (provider as any)?.subdomain;
   const planLabel = PLAN_LABELS[provider?.plan || "free"] || "Gratuito";
   const isPro = provider?.plan === "pro" || provider?.plan === "enterprise";
+  const isSuperAdmin = user?.role === "superadmin";
+
+  if (isSuperAdmin) {
+    return (
+      <Sidebar>
+        <SidebarHeader className="p-4">
+          <Link href="/admin-sistema">
+            <div className="flex items-center gap-3 cursor-pointer">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-600 to-rose-700 flex items-center justify-center">
+                <Shield className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-sm font-bold leading-tight">Consulta ISP</span>
+                <span className="text-[11px] text-muted-foreground leading-tight">Sistema Admin</span>
+              </div>
+            </div>
+          </Link>
+        </SidebarHeader>
+        <SidebarContent>
+          <SidebarGroup>
+            <SidebarGroupLabel className="text-[11px] font-semibold tracking-wider uppercase text-muted-foreground">
+              Administracao
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild data-active={location === "/admin-sistema"}>
+                    <Link href="/admin-sistema" data-testid="link-admin-sistema">
+                      <Activity className="w-4 h-4" />
+                      <span>Painel Administrativo</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </SidebarContent>
+        <SidebarFooter className="p-4 space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center text-sm font-bold text-red-700 dark:text-red-300">
+              {user?.name?.charAt(0)?.toUpperCase() || "A"}
+            </div>
+            <div className="flex flex-col min-w-0 flex-1">
+              <span className="text-sm font-medium truncate">{user?.name}</span>
+              <span className="text-[11px] text-red-600 dark:text-red-400 font-medium">Super Admin</span>
+            </div>
+          </div>
+          <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-muted-foreground" onClick={logout} data-testid="button-logout">
+            <LogOut className="w-4 h-4" />Sair
+          </Button>
+        </SidebarFooter>
+      </Sidebar>
+    );
+  }
 
   return (
     <Sidebar>
@@ -183,21 +238,12 @@ export function AppSidebar() {
                   {subdomain}.consultaisp.com.br
                 </span>
               </div>
-              <a
-                href={`https://${subdomain}.consultaisp.com.br`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-shrink-0"
-                data-testid="link-subdomain-external"
-              >
+              <a href={`https://${subdomain}.consultaisp.com.br`} target="_blank" rel="noopener noreferrer" className="flex-shrink-0" data-testid="link-subdomain-external">
                 <ExternalLink className="w-3 h-3 text-blue-400 hover:text-blue-600" />
               </a>
             </div>
             <div className="flex items-center gap-1.5 mt-1">
-              {isPro ? (
-                <Crown className="w-3 h-3 text-amber-500" />
-              ) : null}
-              <span className="text-[10px] text-muted-foreground">Plano {planLabel}</span>
+              {isPro && <Crown className="w-3 h-3 text-amber-500" />}
               <Badge className="text-[9px] px-1 h-4 ml-auto bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">
                 {planLabel}
               </Badge>
@@ -214,13 +260,7 @@ export function AppSidebar() {
             <span className="text-[11px] text-muted-foreground truncate">{provider?.name}</span>
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start gap-2 text-muted-foreground"
-          onClick={logout}
-          data-testid="button-logout"
-        >
+        <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-muted-foreground" onClick={logout} data-testid="button-logout">
           <LogOut className="w-4 h-4" />
           Sair
         </Button>

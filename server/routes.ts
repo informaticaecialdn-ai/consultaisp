@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { sessionMiddleware, requireAuth, requireAdmin } from "./auth";
+import { sessionMiddleware, requireAuth, requireAdmin, requireSuperAdmin } from "./auth";
 import { loginSchema, registerSchema } from "@shared/schema";
 import { hashPassword, verifyPassword } from "./password";
 import { sendVerificationEmail } from "./email";
@@ -147,9 +147,9 @@ export async function registerRoutes(
         return res.status(403).json({ message: "Email nao verificado. Verifique sua caixa de entrada.", code: "EMAIL_NOT_VERIFIED", email: user.email });
       }
       req.session.userId = user.id;
-      req.session.providerId = user.providerId!;
+      req.session.providerId = user.providerId || 0;
       req.session.role = user.role;
-      const provider = await storage.getProvider(user.providerId!);
+      const provider = user.providerId ? await storage.getProvider(user.providerId) : null;
       return res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role }, provider });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
@@ -227,9 +227,9 @@ export async function registerRoutes(
       }
       await storage.setEmailVerified(user.id);
       req.session.userId = user.id;
-      req.session.providerId = user.providerId!;
+      req.session.providerId = user.providerId || 0;
       req.session.role = user.role;
-      const provider = await storage.getProvider(user.providerId!);
+      const provider = user.providerId ? await storage.getProvider(user.providerId) : null;
       return res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role }, provider });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
@@ -277,7 +277,7 @@ export async function registerRoutes(
     if (!user) {
       return res.status(401).json({ message: "Nao autenticado" });
     }
-    const provider = await storage.getProvider(user.providerId!);
+    const provider = user.providerId ? await storage.getProvider(user.providerId) : null;
     return res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role }, provider });
   });
 
@@ -961,18 +961,6 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/admin/providers", requireAuth, async (req, res) => {
-    try {
-      if (req.session.role !== "admin") {
-        return res.status(403).json({ message: "Acesso negado" });
-      }
-      const allProviders = await storage.getAllProviders();
-      return res.json(allProviders);
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
   app.get("/api/contracts", requireAuth, async (req, res) => {
     try {
       const ctrs = await storage.getContractsByProvider(req.session.providerId!);
@@ -1107,6 +1095,233 @@ export async function registerRoutes(
       }
       const results = Array.from(cityGroups.values()).filter(p => p.count >= 2);
       return res.json(results);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ============ SUPER ADMIN ROUTES ============
+
+  app.get("/api/admin/stats", requireSuperAdmin, async (_req, res) => {
+    try {
+      const stats = await storage.getSystemStats();
+      return res.json(stats);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/providers", requireSuperAdmin, async (_req, res) => {
+    try {
+      const allProviders = await storage.getAllProviders();
+      const withStats = await Promise.all(allProviders.map(async (p) => {
+        const provUsers = await storage.getUsersByProvider(p.id);
+        return { ...p, userCount: provUsers.length };
+      }));
+      return res.json(withStats);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/providers", requireSuperAdmin, async (req, res) => {
+    try {
+      const { name, cnpj, subdomain, plan, adminName, adminEmail, adminPassword } = req.body;
+      if (!name || !cnpj || !subdomain || !adminName || !adminEmail || !adminPassword) {
+        return res.status(400).json({ message: "Todos os campos sao obrigatorios" });
+      }
+      const existingCnpj = await storage.getProviderByCnpj(cnpj);
+      if (existingCnpj) return res.status(409).json({ message: "CNPJ ja cadastrado" });
+      const existingSubdomain = await storage.getProviderBySubdomain(subdomain);
+      if (existingSubdomain) return res.status(409).json({ message: "Subdominio ja em uso" });
+      const existingEmail = await storage.getUserByEmail(adminEmail);
+      if (existingEmail) return res.status(409).json({ message: "Email do admin ja cadastrado" });
+
+      const provider = await storage.createProvider({ name, cnpj, subdomain, plan: plan || "free", status: "active" });
+      const user = await storage.createUser({
+        name: adminName, email: adminEmail,
+        password: await hashPassword(adminPassword),
+        role: "admin", providerId: provider.id, emailVerified: true,
+      });
+      return res.status(201).json({ provider, user: { id: user.id, name: user.name, email: user.email } });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/providers/:id", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const updated = await storage.adminUpdateProvider(id, req.body);
+      return res.json(updated);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/providers/:id/plan", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { plan, notes } = req.body;
+      const provider = await storage.getProvider(id);
+      if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
+      const updated = await storage.updateProviderPlan(id, plan);
+      await storage.createPlanChange({
+        providerId: id, oldPlan: provider.plan, newPlan: plan,
+        ispCreditsAdded: 0, spcCreditsAdded: 0,
+        changedById: req.session.userId, changedByName: "Administrador do Sistema",
+        notes: notes || null,
+      });
+      return res.json(updated);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/providers/:id/credits", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { ispCredits = 0, spcCredits = 0, notes } = req.body;
+      const provider = await storage.getProvider(id);
+      if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
+      const updated = await storage.addCredits(id, ispCredits, spcCredits);
+      if (ispCredits !== 0 || spcCredits !== 0) {
+        await storage.createPlanChange({
+          providerId: id, oldPlan: null, newPlan: null,
+          ispCreditsAdded: ispCredits, spcCreditsAdded: spcCredits,
+          changedById: req.session.userId, changedByName: "Administrador do Sistema",
+          notes: notes || `Creditos adicionados: ISP +${ispCredits}, SPC +${spcCredits}`,
+        });
+      }
+      return res.json(updated);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/providers/:id", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.adminDeactivateProvider(id);
+      return res.json({ message: "Provedor desativado" });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/users", requireSuperAdmin, async (_req, res) => {
+    try {
+      const allUsers = await storage.getAllUsers();
+      const safe = allUsers.map(u => ({
+        id: u.id, name: u.name, email: u.email, role: u.role,
+        providerId: u.providerId, emailVerified: u.emailVerified, createdAt: u.createdAt,
+      }));
+      return res.json(safe);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/users/:id", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteUser(id);
+      return res.json({ message: "Usuario removido" });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/plan-history", requireSuperAdmin, async (req, res) => {
+    try {
+      const providerId = req.query.providerId ? parseInt(req.query.providerId as string) : undefined;
+      const changes = await storage.getPlanChanges(providerId);
+      return res.json(changes);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ---- SUPPORT CHAT (Admin side) ----
+  app.get("/api/admin/chat/threads", requireSuperAdmin, async (_req, res) => {
+    try {
+      const threads = await storage.getAllSupportThreads();
+      return res.json(threads);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/chat/threads/:id/messages", requireSuperAdmin, async (req, res) => {
+    try {
+      const threadId = parseInt(req.params.id);
+      const messages = await storage.getSupportMessages(threadId);
+      await storage.markMessagesRead(threadId, false);
+      return res.json(messages);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/chat/threads/:id/messages", requireSuperAdmin, async (req, res) => {
+    try {
+      const threadId = parseInt(req.params.id);
+      const { content } = req.body;
+      if (!content?.trim()) return res.status(400).json({ message: "Mensagem nao pode ser vazia" });
+      const me = await storage.getUser(req.session.userId!);
+      const msg = await storage.createSupportMessage({
+        threadId, senderId: req.session.userId!, senderName: me?.name || "Admin",
+        content: content.trim(), isFromAdmin: true, isRead: false,
+      });
+      return res.json(msg);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/chat/threads/:id/status", requireSuperAdmin, async (req, res) => {
+    try {
+      const threadId = parseInt(req.params.id);
+      const { status } = req.body;
+      await storage.updateThreadStatus(threadId, status);
+      return res.json({ message: "Status atualizado" });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ---- SUPPORT CHAT (Provider side) ----
+  app.get("/api/chat/thread", requireAuth, async (req, res) => {
+    try {
+      const thread = await storage.getOrCreateSupportThread(req.session.providerId!);
+      const messages = await storage.getSupportMessages(thread.id);
+      await storage.markMessagesRead(thread.id, true);
+      return res.json({ thread, messages });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/chat/thread/messages", requireAuth, async (req, res) => {
+    try {
+      const { content } = req.body;
+      if (!content?.trim()) return res.status(400).json({ message: "Mensagem nao pode ser vazia" });
+      const me = await storage.getUser(req.session.userId!);
+      const thread = await storage.getOrCreateSupportThread(req.session.providerId!);
+      const msg = await storage.createSupportMessage({
+        threadId: thread.id, senderId: req.session.userId!, senderName: me?.name || "Usuario",
+        content: content.trim(), isFromAdmin: false, isRead: false,
+      });
+      return res.json(msg);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/chat/unread", requireAuth, async (req, res) => {
+    try {
+      const count = await storage.getUnreadCountForProvider(req.session.providerId!);
+      return res.json({ count });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
     }
