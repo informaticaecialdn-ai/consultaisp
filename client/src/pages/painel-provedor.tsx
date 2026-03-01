@@ -7,12 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   Building2, Globe, Users, CreditCard, Settings, Copy, CheckCircle,
   ExternalLink, Plus, Trash2, Shield, User, Mail, Phone, Link2,
   BarChart3, Search, AlertTriangle, Wifi, Save, RefreshCw, Crown,
-  Lock, Star
+  Lock, Star, FileText, Upload, Download, Eye, MapPin, Calendar,
+  Briefcase, X, Pencil, ClipboardList, UserCheck
 } from "lucide-react";
 
 const MAIN_DOMAIN = "consultaisp.com.br";
@@ -22,6 +23,30 @@ const PLAN_LABELS: Record<string, { label: string; color: string; icon: any }> =
   basic:      { label: "Basico",      color: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300", icon: Star },
   pro:        { label: "Profissional",color: "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300", icon: Crown },
   enterprise: { label: "Enterprise",  color: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300", icon: Crown },
+};
+
+const LEGAL_TYPES = ["MEI", "ME", "EPP", "LTDA", "S/A", "EIRELI", "Outro"];
+const SEGMENTS = ["ISP / Provedor de Internet", "Telecom", "Data Center", "TV por Assinatura", "Outro"];
+
+const DOCUMENT_TYPES: Record<string, string> = {
+  contrato_social: "Contrato Social",
+  rg_socio: "RG dos Socios",
+  cnh_socio: "CNH dos Socios",
+  comprovante_endereco: "Comprovante de Endereco",
+  cartao_cnpj: "Cartao CNPJ",
+  outro: "Outro Documento",
+};
+
+const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
+  pending:  { label: "Pendente",  color: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" },
+  approved: { label: "Aprovado",  color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300" },
+  rejected: { label: "Rejeitado", color: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300" },
+};
+
+const KYC_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
+  pending:  { label: "Verificacao Pendente", color: "bg-amber-100 text-amber-700 border-amber-200", icon: ClipboardList },
+  approved: { label: "Verificado",           color: "bg-emerald-100 text-emerald-700 border-emerald-200", icon: UserCheck },
+  rejected: { label: "Verificacao Rejeitada",color: "bg-red-100 text-red-700 border-red-200", icon: X },
 };
 
 function CopyButton({ text }: { text: string }) {
@@ -38,6 +63,12 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
 export default function PainelProvedorPage() {
   const { user, provider } = useAuth();
   const { toast } = useToast();
@@ -45,89 +76,226 @@ export default function PainelProvedorPage() {
   const [activeTab, setActiveTab] = useState("visao-geral");
   const [showAddUser, setShowAddUser] = useState(false);
   const [newUser, setNewUser] = useState({ name: "", email: "", password: "", role: "user" });
-  const [settings, setSettings] = useState({
-    name: provider?.name || "",
-    contactEmail: (provider as any)?.contactEmail || "",
-    contactPhone: (provider as any)?.contactPhone || "",
-    website: (provider as any)?.website || "",
+
+  const { data: profileData, isLoading: profileLoading } = useQuery<any>({
+    queryKey: ["/api/provider/profile"],
   });
+
+  const [empresa, setEmpresa] = useState<any>(null);
+  const profileRef = profileData;
+
+  const getEmpresa = () => empresa ?? {
+    name: profileData?.name || "",
+    tradeName: profileData?.tradeName || "",
+    cnpj: profileData?.cnpj || "",
+    legalType: profileData?.legalType || "",
+    openingDate: profileData?.openingDate || "",
+    businessSegment: profileData?.businessSegment || "",
+    contactEmail: profileData?.contactEmail || "",
+    contactPhone: profileData?.contactPhone || "",
+    website: profileData?.website || "",
+    addressZip: profileData?.addressZip || "",
+    addressStreet: profileData?.addressStreet || "",
+    addressNumber: profileData?.addressNumber || "",
+    addressComplement: profileData?.addressComplement || "",
+    addressNeighborhood: profileData?.addressNeighborhood || "",
+    addressCity: profileData?.addressCity || "",
+    addressState: profileData?.addressState || "",
+  };
+
+  const [showPartnerForm, setShowPartnerForm] = useState(false);
+  const [editingPartner, setEditingPartner] = useState<any>(null);
+  const [partnerForm, setPartnerForm] = useState({ name: "", cpf: "", birthDate: "", email: "", phone: "", role: "", sharePercentage: "" });
+
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [docType, setDocType] = useState("contrato_social");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const subdomainUrl = provider?.subdomain ? `https://${provider.subdomain}.${MAIN_DOMAIN}` : null;
 
   const { data: providerUsers = [], isLoading: usersLoading } = useQuery<any[]>({
     queryKey: ["/api/provider/users"],
   });
+  const { data: dashStats } = useQuery<any>({ queryKey: ["/api/dashboard/stats"] });
+  const { data: ispConsultations = [] } = useQuery<any[]>({ queryKey: ["/api/isp-consultations"] });
+  const { data: spcConsultations = [] } = useQuery<any[]>({ queryKey: ["/api/spc-consultations"] });
 
-  const { data: dashStats } = useQuery<any>({
-    queryKey: ["/api/dashboard/stats"],
-  });
+  const partners: any[] = profileData?.partners || [];
+  const documents: any[] = profileData?.documents || [];
 
-  const { data: ispConsultations = [] } = useQuery<any[]>({
-    queryKey: ["/api/isp-consultations"],
-  });
-
-  const { data: spcConsultations = [] } = useQuery<any[]>({
-    queryKey: ["/api/spc-consultations"],
-  });
-
-  const settingsMutation = useMutation({
-    mutationFn: async (data: typeof settings) => {
-      const res = await apiRequest("PATCH", "/api/provider/settings", data);
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message);
-      }
+  const savePerfil = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("PATCH", "/api/provider/profile", data);
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
       return res.json();
     },
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/provider/profile"] });
       qc.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      toast({ title: "Configuracoes salvas", description: "Dados do provedor atualizados com sucesso." });
+      setEmpresa(null);
+      toast({ title: "Dados salvos", description: "Informacoes da empresa atualizadas com sucesso." });
     },
-    onError: (err: any) => {
-      toast({ title: "Erro", description: err.message, variant: "destructive" });
+    onError: (err: any) => toast({ title: "Erro", description: err.message, variant: "destructive" }),
+  });
+
+  const addPartner = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/provider/partners", data);
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
+      return res.json();
     },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/provider/profile"] });
+      setShowPartnerForm(false);
+      setPartnerForm({ name: "", cpf: "", birthDate: "", email: "", phone: "", role: "", sharePercentage: "" });
+      toast({ title: "Socio adicionado" });
+    },
+    onError: (err: any) => toast({ title: "Erro", description: err.message, variant: "destructive" }),
+  });
+
+  const updatePartner = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      const res = await apiRequest("PATCH", `/api/provider/partners/${id}`, data);
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/provider/profile"] });
+      setEditingPartner(null);
+      setShowPartnerForm(false);
+      setPartnerForm({ name: "", cpf: "", birthDate: "", email: "", phone: "", role: "", sharePercentage: "" });
+      toast({ title: "Socio atualizado" });
+    },
+    onError: (err: any) => toast({ title: "Erro", description: err.message, variant: "destructive" }),
+  });
+
+  const deletePartner = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/provider/partners/${id}`, undefined);
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/provider/profile"] });
+      toast({ title: "Socio removido" });
+    },
+    onError: (err: any) => toast({ title: "Erro", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteDocument = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/provider/documents/${id}`, undefined);
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/provider/profile"] });
+      toast({ title: "Documento removido" });
+    },
+    onError: (err: any) => toast({ title: "Erro", description: err.message, variant: "destructive" }),
   });
 
   const addUserMutation = useMutation({
     mutationFn: async (data: typeof newUser) => {
       const res = await apiRequest("POST", "/api/provider/users", data);
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message);
-      }
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
       return res.json();
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/provider/users"] });
       setNewUser({ name: "", email: "", password: "", role: "user" });
       setShowAddUser(false);
-      toast({ title: "Usuario criado", description: "Novo usuario adicionado com sucesso." });
+      toast({ title: "Usuario criado" });
     },
-    onError: (err: any) => {
-      toast({ title: "Erro", description: err.message, variant: "destructive" });
-    },
+    onError: (err: any) => toast({ title: "Erro", description: err.message, variant: "destructive" }),
   });
 
   const deleteUserMutation = useMutation({
     mutationFn: async (userId: number) => {
       const res = await apiRequest("DELETE", `/api/provider/users/${userId}`, undefined);
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message);
-      }
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
       return res.json();
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/provider/users"] });
       toast({ title: "Usuario removido" });
     },
-    onError: (err: any) => {
-      toast({ title: "Erro", description: err.message, variant: "destructive" });
-    },
+    onError: (err: any) => toast({ title: "Erro", description: err.message, variant: "destructive" }),
   });
+
+  const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: "Arquivo muito grande", description: "Limite de 10 MB por documento.", variant: "destructive" });
+      return;
+    }
+    setUploadingDoc(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const fileData = reader.result as string;
+        const res = await apiRequest("POST", "/api/provider/documents", {
+          documentType: docType,
+          documentName: file.name,
+          documentMimeType: file.type,
+          documentSize: file.size,
+          fileData,
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.message);
+        }
+        qc.invalidateQueries({ queryKey: ["/api/provider/profile"] });
+        toast({ title: "Documento enviado", description: `${file.name} enviado com sucesso.` });
+        setUploadingDoc(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      };
+      reader.onerror = () => { setUploadingDoc(false); toast({ title: "Erro ao ler arquivo", variant: "destructive" }); };
+      reader.readAsDataURL(file);
+    } catch (err: any) {
+      setUploadingDoc(false);
+      toast({ title: "Erro", description: err.message, variant: "destructive" });
+    }
+  };
+
+  const openEditPartner = (p: any) => {
+    setEditingPartner(p);
+    setPartnerForm({ name: p.name, cpf: p.cpf, birthDate: p.birthDate || "", email: p.email || "", phone: p.phone || "", role: p.role || "", sharePercentage: p.sharePercentage || "" });
+    setShowPartnerForm(true);
+  };
+
+  const handleSavePartner = () => {
+    if (editingPartner) {
+      updatePartner.mutate({ id: editingPartner.id, data: partnerForm });
+    } else {
+      addPartner.mutate(partnerForm);
+    }
+  };
+
+  const handleCepLookup = async (cep: string) => {
+    const clean = cep.replace(/\D/g, "");
+    if (clean.length !== 8) return;
+    try {
+      const resp = await fetch(`https://viacep.com.br/ws/${clean}/json/`);
+      const data = await resp.json();
+      if (!data.erro) {
+        setEmpresa((prev: any) => ({
+          ...(prev ?? getEmpresa()),
+          addressStreet: data.logradouro || "",
+          addressNeighborhood: data.bairro || "",
+          addressCity: data.localidade || "",
+          addressState: data.uf || "",
+        }));
+      }
+    } catch {}
+  };
 
   const planInfo = PLAN_LABELS[provider?.plan || "free"] || PLAN_LABELS.free;
   const PlanIcon = planInfo.icon;
+  const kycStatus = profileData?.verificationStatus || "pending";
+  const kycConfig = KYC_CONFIG[kycStatus] || KYC_CONFIG.pending;
+  const KycIcon = kycConfig.icon;
 
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto" data-testid="painel-provedor-page">
@@ -137,11 +305,15 @@ export default function PainelProvedorPage() {
             <Building2 className="w-7 h-7 text-white" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-2xl font-bold" data-testid="text-painel-title">{provider?.name}</h1>
               <Badge className={`text-xs gap-1 ${planInfo.color}`}>
                 <PlanIcon className="w-3 h-3" />
                 {planInfo.label}
+              </Badge>
+              <Badge className={`text-xs gap-1 border ${kycConfig.color}`}>
+                <KycIcon className="w-3 h-3" />
+                {kycConfig.label}
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground">Painel Administrativo do Provedor</p>
@@ -166,8 +338,14 @@ export default function PainelProvedorPage() {
           <TabsTrigger value="visao-geral" className="gap-1.5" data-testid="tab-visao-geral">
             <BarChart3 className="w-3.5 h-3.5" />Visao Geral
           </TabsTrigger>
-          <TabsTrigger value="dados" className="gap-1.5" data-testid="tab-dados">
-            <Building2 className="w-3.5 h-3.5" />Dados do Provedor
+          <TabsTrigger value="empresa" className="gap-1.5" data-testid="tab-empresa">
+            <Building2 className="w-3.5 h-3.5" />Empresa
+          </TabsTrigger>
+          <TabsTrigger value="socios" className="gap-1.5" data-testid="tab-socios">
+            <UserCheck className="w-3.5 h-3.5" />Socios
+          </TabsTrigger>
+          <TabsTrigger value="documentos" className="gap-1.5" data-testid="tab-documentos">
+            <FileText className="w-3.5 h-3.5" />Documentos
           </TabsTrigger>
           <TabsTrigger value="subdominio" className="gap-1.5" data-testid="tab-subdominio">
             <Globe className="w-3.5 h-3.5" />Subdominio
@@ -180,6 +358,7 @@ export default function PainelProvedorPage() {
           </TabsTrigger>
         </TabsList>
 
+        {/* ======================== VISAO GERAL ======================== */}
         <TabsContent value="visao-geral" className="space-y-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
@@ -194,7 +373,7 @@ export default function PainelProvedorPage() {
                     <s.icon className="w-4 h-4 text-white" />
                   </div>
                   <div>
-                    <p className="text-lg font-bold" data-testid={`stat-${s.label.toLowerCase()}`}>{s.value}</p>
+                    <p className="text-lg font-bold" data-testid={`stat-${s.label.toLowerCase().replace(/\s/g, "-")}`}>{s.value}</p>
                     <p className="text-xs text-muted-foreground">{s.label}</p>
                   </div>
                 </div>
@@ -219,6 +398,10 @@ export default function PainelProvedorPage() {
                   </Badge>
                 </div>
                 <div className="flex justify-between items-center py-2 border-b">
+                  <span className="text-sm text-muted-foreground">Verificacao KYC</span>
+                  <Badge className={`border ${kycConfig.color}`}>{kycConfig.label}</Badge>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b">
                   <span className="text-sm text-muted-foreground">Creditos ISP</span>
                   <span className="font-semibold" data-testid="text-isp-credits">{provider?.ispCredits ?? 0}</span>
                 </div>
@@ -231,25 +414,32 @@ export default function PainelProvedorPage() {
 
             <Card className="p-5">
               <h3 className="font-semibold mb-3 flex items-center gap-2">
-                <Globe className="w-4 h-4" />Seu Subdominio SaaS
+                <Building2 className="w-4 h-4" />Dados Cadastrais
               </h3>
-              {provider?.subdomain ? (
-                <div className="space-y-3">
-                  <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-3">
-                    <p className="text-xs text-muted-foreground mb-1">URL do seu painel:</p>
-                    <div className="flex items-center gap-2">
-                      <code className="text-sm font-mono text-blue-700 dark:text-blue-300 flex-1 break-all">
-                        {provider.subdomain}.{MAIN_DOMAIN}
-                      </code>
-                      <CopyButton text={`https://${provider.subdomain}.${MAIN_DOMAIN}`} />
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Compartilhe esta URL com sua equipe para acessar o sistema diretamente no seu dominio personalizado.
-                  </p>
-                </div>
+              {profileLoading ? (
+                <div className="flex items-center justify-center py-6"><RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" /></div>
               ) : (
-                <p className="text-sm text-muted-foreground">Subdominio nao configurado.</p>
+                <div className="space-y-2 text-sm">
+                  {[
+                    { label: "Razao Social", value: profileData?.name },
+                    { label: "Nome Fantasia", value: profileData?.tradeName },
+                    { label: "CNPJ", value: profileData?.cnpj },
+                    { label: "Tipo", value: profileData?.legalType },
+                    { label: "Cidade", value: profileData?.addressCity && profileData?.addressState ? `${profileData.addressCity} / ${profileData.addressState}` : null },
+                    { label: "Socios", value: partners.length > 0 ? `${partners.length} socio(s) cadastrado(s)` : null },
+                    { label: "Documentos", value: documents.length > 0 ? `${documents.length} doc(s) enviado(s)` : null },
+                  ].filter(i => i.value).map(i => (
+                    <div key={i.label} className="flex justify-between py-1 border-b last:border-0">
+                      <span className="text-muted-foreground">{i.label}</span>
+                      <span className="font-medium text-right">{i.value}</span>
+                    </div>
+                  ))}
+                  {!profileData?.tradeName && !profileData?.legalType && (
+                    <p className="text-muted-foreground text-xs pt-2">
+                      Complete o cadastro na aba <button className="text-blue-600 underline" onClick={() => setActiveTab("empresa")}>Empresa</button>
+                    </p>
+                  )}
+                </div>
               )}
             </Card>
           </div>
@@ -275,78 +465,477 @@ export default function PainelProvedorPage() {
               ))}
               {providerUsers.length > 3 && (
                 <p className="text-xs text-muted-foreground text-center pt-2">
-                  +{providerUsers.length - 3} usuario(s). <button className="text-blue-600" onClick={() => setActiveTab("usuarios")}>Ver todos</button>
+                  +{providerUsers.length - 3} usuario(s).{" "}
+                  <button className="text-blue-600" onClick={() => setActiveTab("usuarios")}>Ver todos</button>
                 </p>
               )}
             </div>
           </Card>
         </TabsContent>
 
-        <TabsContent value="dados">
-          <Card className="p-6">
-            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <Building2 className="w-5 h-5" />Dados do Provedor
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              <div>
-                <label className="text-sm font-medium mb-1.5 block">Nome do Provedor</label>
-                <Input
-                  value={settings.name}
-                  onChange={(e) => setSettings({ ...settings, name: e.target.value })}
-                  data-testid="input-provider-name-settings"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1.5 block">CNPJ</label>
-                <Input value={provider?.cnpj || ""} readOnly className="bg-muted" />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1.5 block">
-                  <Mail className="w-3.5 h-3.5 inline mr-1" />Email de Contato
-                </label>
-                <Input
-                  type="email"
-                  placeholder="contato@seuprovedor.com.br"
-                  value={settings.contactEmail}
-                  onChange={(e) => setSettings({ ...settings, contactEmail: e.target.value })}
-                  data-testid="input-contact-email"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-1.5 block">
-                  <Phone className="w-3.5 h-3.5 inline mr-1" />Telefone de Contato
-                </label>
-                <Input
-                  placeholder="(00) 0000-0000"
-                  value={settings.contactPhone}
-                  onChange={(e) => setSettings({ ...settings, contactPhone: e.target.value })}
-                  data-testid="input-contact-phone"
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="text-sm font-medium mb-1.5 block">
-                  <Link2 className="w-3.5 h-3.5 inline mr-1" />Website
-                </label>
-                <Input
-                  placeholder="https://seuprovedor.com.br"
-                  value={settings.website}
-                  onChange={(e) => setSettings({ ...settings, website: e.target.value })}
-                  data-testid="input-website"
-                />
-              </div>
+        {/* ======================== EMPRESA ======================== */}
+        <TabsContent value="empresa">
+          {profileLoading ? (
+            <div className="flex items-center justify-center py-12"><RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+          ) : (
+            <div className="space-y-5">
+              <Card className="p-6">
+                <h2 className="text-lg font-semibold mb-5 flex items-center gap-2">
+                  <Building2 className="w-5 h-5" />Dados da Empresa
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Razao Social *</label>
+                    <Input
+                      value={getEmpresa().name}
+                      onChange={(e) => setEmpresa({ ...getEmpresa(), name: e.target.value })}
+                      placeholder="Razao Social da Empresa"
+                      data-testid="input-razao-social"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Nome Fantasia</label>
+                    <Input
+                      value={getEmpresa().tradeName}
+                      onChange={(e) => setEmpresa({ ...getEmpresa(), tradeName: e.target.value })}
+                      placeholder="Nome comercial da empresa"
+                      data-testid="input-trade-name"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">CNPJ</label>
+                    <Input value={provider?.cnpj || ""} readOnly className="bg-muted" />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Tipo / Natureza Juridica</label>
+                    <select
+                      className="w-full border rounded-md px-3 py-2 text-sm bg-background"
+                      value={getEmpresa().legalType}
+                      onChange={(e) => setEmpresa({ ...getEmpresa(), legalType: e.target.value })}
+                      data-testid="select-legal-type"
+                    >
+                      <option value="">Selecione...</option>
+                      {LEGAL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block flex items-center gap-1">
+                      <Calendar className="w-3.5 h-3.5" />Data de Abertura
+                    </label>
+                    <Input
+                      type="date"
+                      value={getEmpresa().openingDate}
+                      onChange={(e) => setEmpresa({ ...getEmpresa(), openingDate: e.target.value })}
+                      data-testid="input-opening-date"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block flex items-center gap-1">
+                      <Briefcase className="w-3.5 h-3.5" />Segmento de Atuacao
+                    </label>
+                    <select
+                      className="w-full border rounded-md px-3 py-2 text-sm bg-background"
+                      value={getEmpresa().businessSegment}
+                      onChange={(e) => setEmpresa({ ...getEmpresa(), businessSegment: e.target.value })}
+                      data-testid="select-segment"
+                    >
+                      <option value="">Selecione...</option>
+                      {SEGMENTS.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block flex items-center gap-1">
+                      <Mail className="w-3.5 h-3.5" />Email de Contato
+                    </label>
+                    <Input
+                      type="email"
+                      placeholder="contato@empresa.com.br"
+                      value={getEmpresa().contactEmail}
+                      onChange={(e) => setEmpresa({ ...getEmpresa(), contactEmail: e.target.value })}
+                      data-testid="input-contact-email"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block flex items-center gap-1">
+                      <Phone className="w-3.5 h-3.5" />Telefone de Contato
+                    </label>
+                    <Input
+                      placeholder="(00) 0000-0000"
+                      value={getEmpresa().contactPhone}
+                      onChange={(e) => setEmpresa({ ...getEmpresa(), contactPhone: e.target.value })}
+                      data-testid="input-contact-phone"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="text-sm font-medium mb-1.5 block flex items-center gap-1">
+                      <Link2 className="w-3.5 h-3.5" />Website
+                    </label>
+                    <Input
+                      placeholder="https://seuprovedor.com.br"
+                      value={getEmpresa().website}
+                      onChange={(e) => setEmpresa({ ...getEmpresa(), website: e.target.value })}
+                      data-testid="input-website"
+                    />
+                  </div>
+                </div>
+              </Card>
+
+              <Card className="p-6">
+                <h2 className="text-lg font-semibold mb-5 flex items-center gap-2">
+                  <MapPin className="w-5 h-5" />Endereco da Empresa
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">CEP</label>
+                    <Input
+                      placeholder="00000-000"
+                      value={getEmpresa().addressZip}
+                      onChange={(e) => {
+                        setEmpresa({ ...getEmpresa(), addressZip: e.target.value });
+                        handleCepLookup(e.target.value);
+                      }}
+                      data-testid="input-cep"
+                    />
+                  </div>
+                  <div className="md:col-span-1">
+                    <label className="text-sm font-medium mb-1.5 block">Logradouro</label>
+                    <Input
+                      placeholder="Rua, Avenida..."
+                      value={getEmpresa().addressStreet}
+                      onChange={(e) => setEmpresa({ ...getEmpresa(), addressStreet: e.target.value })}
+                      data-testid="input-street"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Numero</label>
+                    <Input
+                      placeholder="123"
+                      value={getEmpresa().addressNumber}
+                      onChange={(e) => setEmpresa({ ...getEmpresa(), addressNumber: e.target.value })}
+                      data-testid="input-number"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Complemento</label>
+                    <Input
+                      placeholder="Sala, Andar..."
+                      value={getEmpresa().addressComplement}
+                      onChange={(e) => setEmpresa({ ...getEmpresa(), addressComplement: e.target.value })}
+                      data-testid="input-complement"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Bairro</label>
+                    <Input
+                      placeholder="Bairro"
+                      value={getEmpresa().addressNeighborhood}
+                      onChange={(e) => setEmpresa({ ...getEmpresa(), addressNeighborhood: e.target.value })}
+                      data-testid="input-neighborhood"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Cidade</label>
+                    <Input
+                      placeholder="Cidade"
+                      value={getEmpresa().addressCity}
+                      onChange={(e) => setEmpresa({ ...getEmpresa(), addressCity: e.target.value })}
+                      data-testid="input-city"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Estado (UF)</label>
+                    <Input
+                      placeholder="UF"
+                      maxLength={2}
+                      value={getEmpresa().addressState}
+                      onChange={(e) => setEmpresa({ ...getEmpresa(), addressState: e.target.value.toUpperCase() })}
+                      data-testid="input-state"
+                    />
+                  </div>
+                </div>
+              </Card>
+
+              {user?.role === "admin" && (
+                <Button
+                  onClick={() => savePerfil.mutate(getEmpresa())}
+                  disabled={savePerfil.isPending}
+                  className="gap-2"
+                  data-testid="button-save-empresa"
+                >
+                  {savePerfil.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  {savePerfil.isPending ? "Salvando..." : "Salvar Dados"}
+                </Button>
+              )}
             </div>
-            <Button
-              onClick={() => settingsMutation.mutate(settings)}
-              disabled={settingsMutation.isPending}
-              className="gap-2"
-              data-testid="button-save-settings"
-            >
-              {settingsMutation.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              {settingsMutation.isPending ? "Salvando..." : "Salvar Alteracoes"}
-            </Button>
+          )}
+        </TabsContent>
+
+        {/* ======================== SOCIOS ======================== */}
+        <TabsContent value="socios">
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h2 className="text-lg font-semibold flex items-center gap-2">
+                  <UserCheck className="w-5 h-5" />Socios e Responsaveis
+                </h2>
+                <p className="text-sm text-muted-foreground mt-0.5">
+                  Cadastre os socios e responsaveis legais da empresa
+                </p>
+              </div>
+              {user?.role === "admin" && (
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => {
+                    setEditingPartner(null);
+                    setPartnerForm({ name: "", cpf: "", birthDate: "", email: "", phone: "", role: "", sharePercentage: "" });
+                    setShowPartnerForm(!showPartnerForm);
+                  }}
+                  data-testid="button-add-partner"
+                >
+                  <Plus className="w-4 h-4" />Novo Socio
+                </Button>
+              )}
+            </div>
+
+            {showPartnerForm && (
+              <div className="bg-muted/40 rounded-xl p-5 mb-5 border space-y-4">
+                <h3 className="font-semibold text-sm">{editingPartner ? "Editar Socio" : "Adicionar Socio"}</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium mb-1 block">Nome Completo *</label>
+                    <Input placeholder="Nome do socio" value={partnerForm.name} onChange={(e) => setPartnerForm({ ...partnerForm, name: e.target.value })} data-testid="input-partner-name" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block">CPF *</label>
+                    <Input placeholder="000.000.000-00" value={partnerForm.cpf} onChange={(e) => setPartnerForm({ ...partnerForm, cpf: e.target.value })} data-testid="input-partner-cpf" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block">Data de Nascimento</label>
+                    <Input type="date" value={partnerForm.birthDate} onChange={(e) => setPartnerForm({ ...partnerForm, birthDate: e.target.value })} data-testid="input-partner-birthdate" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block">Cargo / Funcao</label>
+                    <Input placeholder="Ex: Socio-Administrador" value={partnerForm.role} onChange={(e) => setPartnerForm({ ...partnerForm, role: e.target.value })} data-testid="input-partner-role" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block">Email</label>
+                    <Input type="email" placeholder="email@socio.com" value={partnerForm.email} onChange={(e) => setPartnerForm({ ...partnerForm, email: e.target.value })} data-testid="input-partner-email" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block">Telefone</label>
+                    <Input placeholder="(00) 00000-0000" value={partnerForm.phone} onChange={(e) => setPartnerForm({ ...partnerForm, phone: e.target.value })} data-testid="input-partner-phone" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block">Participacao (%)</label>
+                    <Input type="number" min="0" max="100" step="0.01" placeholder="0.00" value={partnerForm.sharePercentage} onChange={(e) => setPartnerForm({ ...partnerForm, sharePercentage: e.target.value })} data-testid="input-partner-share" />
+                  </div>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <Button size="sm" onClick={handleSavePartner} disabled={addPartner.isPending || updatePartner.isPending} data-testid="button-save-partner">
+                    {(addPartner.isPending || updatePartner.isPending) ? <RefreshCw className="w-4 h-4 animate-spin mr-1" /> : <Save className="w-4 h-4 mr-1" />}
+                    {editingPartner ? "Atualizar" : "Adicionar"}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => { setShowPartnerForm(false); setEditingPartner(null); }}>Cancelar</Button>
+                </div>
+              </div>
+            )}
+
+            {partners.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <UserCheck className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                <p className="text-sm">Nenhum socio cadastrado.</p>
+                {user?.role === "admin" && (
+                  <button className="text-blue-600 text-sm mt-1 underline" onClick={() => setShowPartnerForm(true)}>Adicionar primeiro socio</button>
+                )}
+              </div>
+            ) : (
+              <div className="divide-y rounded-lg border overflow-hidden">
+                {partners.map((p: any) => (
+                  <div key={p.id} className="flex items-start gap-4 px-4 py-4 bg-background" data-testid={`partner-row-${p.id}`}>
+                    <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center text-sm font-bold text-indigo-700 dark:text-indigo-300 flex-shrink-0">
+                      {p.name?.charAt(0)?.toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-medium text-sm">{p.name}</p>
+                        {p.role && <Badge variant="outline" className="text-xs">{p.role}</Badge>}
+                        {p.sharePercentage && <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300 text-xs">{p.sharePercentage}%</Badge>}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">CPF: {p.cpf}</p>
+                      <div className="flex gap-4 mt-1 text-xs text-muted-foreground flex-wrap">
+                        {p.birthDate && <span>Nascimento: {new Date(p.birthDate).toLocaleDateString("pt-BR", { timeZone: "UTC" })}</span>}
+                        {p.email && <span>{p.email}</span>}
+                        {p.phone && <span>{p.phone}</span>}
+                      </div>
+                    </div>
+                    {user?.role === "admin" && (
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openEditPartner(p)} data-testid={`button-edit-partner-${p.id}`}>
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost" size="sm"
+                          className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => { if (confirm(`Remover socio ${p.name}?`)) deletePartner.mutate(p.id); }}
+                          data-testid={`button-delete-partner-${p.id}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </Card>
         </TabsContent>
 
+        {/* ======================== DOCUMENTOS ======================== */}
+        <TabsContent value="documentos">
+          <div className="space-y-5">
+            <Card className="p-6">
+              <div className="flex items-start justify-between flex-wrap gap-4 mb-2">
+                <div>
+                  <h2 className="text-lg font-semibold flex items-center gap-2">
+                    <FileText className="w-5 h-5" />Documentos KYC
+                  </h2>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    Envie os documentos para verificacao e habilitacao completa da conta
+                  </p>
+                </div>
+                <Badge className={`text-sm px-3 py-1 border gap-1.5 ${kycConfig.color}`}>
+                  <KycIcon className="w-4 h-4" />
+                  {kycConfig.label}
+                </Badge>
+              </div>
+
+              <div className="grid md:grid-cols-3 gap-3 mb-6 mt-4">
+                {Object.entries(DOCUMENT_TYPES).map(([type, label]) => {
+                  const doc = documents.find((d: any) => d.documentType === type);
+                  const statusCfg = doc ? (STATUS_CONFIG[doc.status] || STATUS_CONFIG.pending) : null;
+                  return (
+                    <div key={type} className={`rounded-lg border p-3 ${doc ? "border-solid" : "border-dashed border-muted-foreground/30"}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-xs font-medium">{label}</p>
+                        {doc && <Badge className={`text-xs ${statusCfg?.color}`}>{statusCfg?.label}</Badge>}
+                      </div>
+                      {doc ? (
+                        <p className="text-xs text-muted-foreground truncate">{doc.documentName}</p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">Nao enviado</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+
+            {user?.role === "admin" && (
+              <Card className="p-6">
+                <h3 className="font-semibold mb-4 flex items-center gap-2">
+                  <Upload className="w-4 h-4" />Enviar Novo Documento
+                </h3>
+                <div className="grid md:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Tipo de Documento</label>
+                    <select
+                      className="w-full border rounded-md px-3 py-2 text-sm bg-background"
+                      value={docType}
+                      onChange={(e) => setDocType(e.target.value)}
+                      data-testid="select-doc-type"
+                    >
+                      {Object.entries(DOCUMENT_TYPES).map(([k, v]) => (
+                        <option key={k} value={k}>{v}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1.5 block">Arquivo (max. 10MB)</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                        onChange={handleUploadFile}
+                        className="hidden"
+                        id="doc-upload-input"
+                        data-testid="input-doc-upload"
+                      />
+                      <Button
+                        variant="outline"
+                        className="gap-2 w-full"
+                        disabled={uploadingDoc}
+                        onClick={() => fileInputRef.current?.click()}
+                        data-testid="button-select-file"
+                      >
+                        {uploadingDoc ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                        {uploadingDoc ? "Enviando..." : "Selecionar Arquivo"}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">PDF, JPG, PNG, DOC, DOCX</p>
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            <Card className="p-6">
+              <h3 className="font-semibold mb-4 flex items-center gap-2">
+                <ClipboardList className="w-4 h-4" />Documentos Enviados
+              </h3>
+              {documents.length === 0 ? (
+                <div className="text-center py-10 text-muted-foreground">
+                  <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">Nenhum documento enviado ainda.</p>
+                </div>
+              ) : (
+                <div className="divide-y rounded-lg border overflow-hidden">
+                  {documents.map((doc: any) => {
+                    const statusCfg = STATUS_CONFIG[doc.status] || STATUS_CONFIG.pending;
+                    return (
+                      <div key={doc.id} className="flex items-center gap-4 px-4 py-3 bg-background" data-testid={`doc-row-${doc.id}`}>
+                        <div className="w-9 h-9 rounded-lg bg-blue-50 dark:bg-blue-950 flex items-center justify-center flex-shrink-0">
+                          <FileText className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{doc.documentName}</p>
+                          <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground flex-wrap">
+                            <span>{DOCUMENT_TYPES[doc.documentType] || doc.documentType}</span>
+                            {doc.documentSize && <span>{formatFileSize(doc.documentSize)}</span>}
+                            {doc.uploadedAt && <span>{new Date(doc.uploadedAt).toLocaleDateString("pt-BR")}</span>}
+                          </div>
+                          {doc.status === "rejected" && doc.rejectionReason && (
+                            <p className="text-xs text-red-600 mt-1">Motivo: {doc.rejectionReason}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge className={`text-xs ${statusCfg.color}`}>{statusCfg.label}</Badge>
+                          <a href={`/api/provider/documents/${doc.id}/download`} target="_blank" rel="noopener noreferrer">
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" data-testid={`button-download-doc-${doc.id}`}>
+                              <Download className="w-4 h-4" />
+                            </Button>
+                          </a>
+                          {user?.role === "admin" && doc.status === "pending" && (
+                            <Button
+                              variant="ghost" size="sm"
+                              className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                              onClick={() => { if (confirm(`Remover documento ${doc.documentName}?`)) deleteDocument.mutate(doc.id); }}
+                              data-testid={`button-delete-doc-${doc.id}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* ======================== SUBDOMINIO ======================== */}
         <TabsContent value="subdominio">
           <div className="space-y-4">
             <Card className="p-6">
@@ -356,7 +945,6 @@ export default function PainelProvedorPage() {
               <p className="text-sm text-muted-foreground mb-5">
                 Este e o endereco exclusivo do seu provedor na plataforma Consulta ISP.
               </p>
-
               {provider?.subdomain ? (
                 <>
                   <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 rounded-xl p-5 border border-blue-100 dark:border-blue-900 mb-4">
@@ -372,21 +960,14 @@ export default function PainelProvedorPage() {
                       </div>
                       <div className="flex gap-2">
                         <CopyButton text={`https://${provider.subdomain}.${MAIN_DOMAIN}`} />
-                        <a
-                          href={`https://${provider.subdomain}.${MAIN_DOMAIN}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          data-testid="link-open-subdomain"
-                        >
+                        <a href={`https://${provider.subdomain}.${MAIN_DOMAIN}`} target="_blank" rel="noopener noreferrer" data-testid="link-open-subdomain">
                           <Button variant="outline" size="sm" className="gap-1.5">
-                            <ExternalLink className="w-4 h-4" />
-                            Abrir
+                            <ExternalLink className="w-4 h-4" />Abrir
                           </Button>
                         </a>
                       </div>
                     </div>
                   </div>
-
                   <div className="grid md:grid-cols-2 gap-4">
                     <Card className="p-4 border-dashed">
                       <h3 className="font-medium text-sm mb-2 flex items-center gap-2">
@@ -419,7 +1000,6 @@ export default function PainelProvedorPage() {
                 </div>
               )}
             </Card>
-
             <Card className="p-6 bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900">
               <h3 className="font-semibold mb-2 flex items-center gap-2 text-amber-800 dark:text-amber-300">
                 <Settings className="w-4 h-4" />DNS e Configuracao de Producao
@@ -428,11 +1008,6 @@ export default function PainelProvedorPage() {
                 Para o subdominio funcionar em producao, o administrador do sistema deve configurar o DNS wildcard:
               </p>
               <div className="bg-white dark:bg-gray-900 rounded-lg p-3 space-y-2 text-xs font-mono">
-                <div className="flex items-center gap-3">
-                  <span className="text-muted-foreground w-16">Tipo</span>
-                  <span className="text-muted-foreground w-24">Nome</span>
-                  <span className="text-muted-foreground">Valor</span>
-                </div>
                 <div className="flex items-center gap-3 border-t pt-2">
                   <span className="w-16 font-bold text-blue-600">A</span>
                   <span className="w-24">*.consultaisp</span>
@@ -448,6 +1023,7 @@ export default function PainelProvedorPage() {
           </div>
         </TabsContent>
 
+        {/* ======================== USUARIOS ======================== */}
         <TabsContent value="usuarios">
           <Card className="p-6">
             <div className="flex items-center justify-between mb-5">
@@ -460,14 +1036,8 @@ export default function PainelProvedorPage() {
                 </p>
               </div>
               {user?.role === "admin" && (
-                <Button
-                  size="sm"
-                  className="gap-1.5"
-                  onClick={() => setShowAddUser(!showAddUser)}
-                  data-testid="button-add-user"
-                >
-                  <Plus className="w-4 h-4" />
-                  Novo Usuario
+                <Button size="sm" className="gap-1.5" onClick={() => setShowAddUser(!showAddUser)} data-testid="button-add-user">
+                  <Plus className="w-4 h-4" />Novo Usuario
                 </Button>
               )}
             </div>
@@ -478,70 +1048,35 @@ export default function PainelProvedorPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs font-medium mb-1 block">Nome</label>
-                    <Input
-                      placeholder="Nome completo"
-                      value={newUser.name}
-                      onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
-                      data-testid="input-new-user-name"
-                    />
+                    <Input placeholder="Nome completo" value={newUser.name} onChange={(e) => setNewUser({ ...newUser, name: e.target.value })} data-testid="input-new-user-name" />
                   </div>
                   <div>
                     <label className="text-xs font-medium mb-1 block">Email</label>
-                    <Input
-                      type="email"
-                      placeholder="email@provedor.com"
-                      value={newUser.email}
-                      onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-                      data-testid="input-new-user-email"
-                    />
+                    <Input type="email" placeholder="email@provedor.com" value={newUser.email} onChange={(e) => setNewUser({ ...newUser, email: e.target.value })} data-testid="input-new-user-email" />
                   </div>
                   <div>
                     <label className="text-xs font-medium mb-1 block">Senha temporaria</label>
-                    <Input
-                      type="password"
-                      placeholder="Min. 6 caracteres"
-                      value={newUser.password}
-                      onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                      data-testid="input-new-user-password"
-                    />
+                    <Input type="password" placeholder="Min. 6 caracteres" value={newUser.password} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} data-testid="input-new-user-password" />
                   </div>
                   <div>
                     <label className="text-xs font-medium mb-1 block">Papel</label>
-                    <select
-                      className="w-full border rounded-md px-3 py-2 text-sm bg-background"
-                      value={newUser.role}
-                      onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
-                      data-testid="select-new-user-role"
-                    >
+                    <select className="w-full border rounded-md px-3 py-2 text-sm bg-background" value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value })} data-testid="select-new-user-role">
                       <option value="user">Usuario</option>
                       <option value="admin">Administrador</option>
                     </select>
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => addUserMutation.mutate(newUser)}
-                    disabled={addUserMutation.isPending}
-                    data-testid="button-confirm-add-user"
-                  >
+                  <Button size="sm" onClick={() => addUserMutation.mutate(newUser)} disabled={addUserMutation.isPending} data-testid="button-confirm-add-user">
                     {addUserMutation.isPending ? "Criando..." : "Criar Usuario"}
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setShowAddUser(false)}
-                  >
-                    Cancelar
-                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setShowAddUser(false)}>Cancelar</Button>
                 </div>
               </div>
             )}
 
             {usersLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" />
-              </div>
+              <div className="flex items-center justify-center py-12"><RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" /></div>
             ) : (
               <div className="divide-y rounded-lg border overflow-hidden">
                 {providerUsers.map((u: any) => (
@@ -552,16 +1087,12 @@ export default function PainelProvedorPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="font-medium text-sm">{u.name}</p>
-                        {u.id === user?.id && (
-                          <Badge variant="outline" className="text-xs px-1.5">Voce</Badge>
-                        )}
+                        {u.id === user?.id && <Badge variant="outline" className="text-xs px-1.5">Voce</Badge>}
                       </div>
                       <p className="text-xs text-muted-foreground">{u.email}</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge
-                        className={`text-xs ${u.role === "admin" ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"}`}
-                      >
+                      <Badge className={`text-xs ${u.role === "admin" ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"}`}>
                         {u.role === "admin" ? "Admin" : "Usuario"}
                       </Badge>
                       {u.emailVerified ? (
@@ -571,14 +1102,9 @@ export default function PainelProvedorPage() {
                       )}
                       {user?.role === "admin" && u.id !== user?.id && (
                         <Button
-                          variant="ghost"
-                          size="sm"
+                          variant="ghost" size="sm"
                           className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => {
-                            if (confirm(`Remover usuario ${u.name}?`)) {
-                              deleteUserMutation.mutate(u.id);
-                            }
-                          }}
+                          onClick={() => { if (confirm(`Remover usuario ${u.name}?`)) deleteUserMutation.mutate(u.id); }}
                           data-testid={`button-delete-user-${u.id}`}
                         >
                           <Trash2 className="w-4 h-4" />
@@ -592,6 +1118,7 @@ export default function PainelProvedorPage() {
           </Card>
         </TabsContent>
 
+        {/* ======================== CREDITOS ======================== */}
         <TabsContent value="creditos">
           <div className="space-y-4">
             <div className="grid md:grid-cols-2 gap-4">
@@ -624,16 +1151,15 @@ export default function PainelProvedorPage() {
                 </p>
               </Card>
             </div>
-
             <Card className="p-6">
               <h3 className="font-semibold mb-4 flex items-center gap-2">
                 <CreditCard className="w-4 h-4" />Planos Disponiveis
               </h3>
               <div className="grid md:grid-cols-3 gap-4">
                 {[
-                  { plan: "Basico", price: "R$ 99/mes", isp: 200, spc: 50, color: "border-blue-200", badge: "bg-blue-100 text-blue-700" },
-                  { plan: "Profissional", price: "R$ 249/mes", isp: 1000, spc: 200, color: "border-purple-200 ring-2 ring-purple-300", badge: "bg-purple-100 text-purple-700", highlight: true },
-                  { plan: "Enterprise", price: "Sob consulta", isp: "Ilimitado", spc: "Ilimitado", color: "border-amber-200", badge: "bg-amber-100 text-amber-700" },
+                  { plan: "Basico",       price: "R$ 199/mes", isp: 200,         spc: 50,           color: "border-blue-200",                               badge: "bg-blue-100 text-blue-700" },
+                  { plan: "Profissional", price: "R$ 399/mes", isp: 1000,        spc: 200,          color: "border-purple-200 ring-2 ring-purple-300",       badge: "bg-purple-100 text-purple-700", highlight: true },
+                  { plan: "Enterprise",  price: "R$ 799/mes", isp: "Ilimitado", spc: "Ilimitado",  color: "border-amber-200",                              badge: "bg-amber-100 text-amber-700" },
                 ].map((p) => (
                   <div key={p.plan} className={`rounded-xl border p-4 relative ${p.color}`}>
                     {p.highlight && (

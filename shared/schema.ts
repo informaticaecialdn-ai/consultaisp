@@ -6,16 +6,58 @@ import { z } from "zod";
 export const providers = pgTable("providers", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  tradeName: text("trade_name"),
   cnpj: text("cnpj").notNull().unique(),
+  legalType: text("legal_type"),
+  openingDate: text("opening_date"),
+  businessSegment: text("business_segment"),
   subdomain: text("subdomain").unique(),
   plan: text("plan").notNull().default("free"),
   status: text("status").notNull().default("active"),
+  verificationStatus: text("verification_status").notNull().default("pending"),
   ispCredits: integer("isp_credits").notNull().default(50),
   spcCredits: integer("spc_credits").notNull().default(0),
   contactEmail: text("contact_email"),
   contactPhone: text("contact_phone"),
   website: text("website"),
+  addressZip: text("address_zip"),
+  addressStreet: text("address_street"),
+  addressNumber: text("address_number"),
+  addressComplement: text("address_complement"),
+  addressNeighborhood: text("address_neighborhood"),
+  addressCity: text("address_city"),
+  addressState: text("address_state"),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const providerPartners = pgTable("provider_partners", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  name: text("name").notNull(),
+  cpf: text("cpf").notNull(),
+  birthDate: text("birth_date"),
+  email: text("email"),
+  phone: text("phone"),
+  role: text("role"),
+  sharePercentage: decimal("share_percentage", { precision: 5, scale: 2 }),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const providerDocuments = pgTable("provider_documents", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  documentType: text("document_type").notNull(),
+  documentName: text("document_name").notNull(),
+  documentMimeType: text("document_mime_type"),
+  documentSize: integer("document_size"),
+  fileData: text("file_data").notNull(),
+  status: text("status").notNull().default("pending"),
+  rejectionReason: text("rejection_reason"),
+  uploadedById: integer("uploaded_by_id").references(() => providers.id),
+  reviewedById: integer("reviewed_by_id"),
+  reviewerName: text("reviewer_name"),
+  reviewedAt: timestamp("reviewed_at"),
+  uploadedAt: timestamp("uploaded_at").defaultNow(),
 });
 
 export const users = pgTable("users", {
@@ -277,6 +319,8 @@ export const insertSupportMessageSchema = createInsertSchema(supportMessages).om
 export const insertPlanChangeSchema = createInsertSchema(planChanges).omit({ id: true, createdAt: true });
 export const insertProviderInvoiceSchema = createInsertSchema(providerInvoices).omit({ id: true, createdAt: true });
 export const insertCreditOrderSchema = createInsertSchema(creditOrders).omit({ id: true, createdAt: true });
+export const insertProviderPartnerSchema = createInsertSchema(providerPartners).omit({ id: true, createdAt: true });
+export const insertProviderDocumentSchema = createInsertSchema(providerDocuments).omit({ id: true, uploadedAt: true });
 
 export type SupportThread = typeof supportThreads.$inferSelect;
 export type InsertSupportThread = z.infer<typeof insertSupportThreadSchema>;
@@ -288,6 +332,10 @@ export type ProviderInvoice = typeof providerInvoices.$inferSelect;
 export type InsertProviderInvoice = z.infer<typeof insertProviderInvoiceSchema>;
 export type CreditOrder = typeof creditOrders.$inferSelect;
 export type InsertCreditOrder = z.infer<typeof insertCreditOrderSchema>;
+export type ProviderPartner = typeof providerPartners.$inferSelect;
+export type InsertProviderPartner = z.infer<typeof insertProviderPartnerSchema>;
+export type ProviderDocument = typeof providerDocuments.$inferSelect;
+export type InsertProviderDocument = z.infer<typeof insertProviderDocumentSchema>;
 
 export const CREDIT_PACKAGES = [
   { id: "basico",       name: "Basico",       ispCredits: 50,  spcCredits: 20,  price: 4990,  priceLabel: "R$ 49,90" },

@@ -20,7 +20,11 @@ Sistema multi-tenant de consulta de inadimplentes focado em provedores regionais
 - Credits purchase system
 - ERP import tools
 - Administration panel
-- Multi-tenant provider admin panel (/painel-provedor) with tabs: Visao Geral, Dados do Provedor, Subdominio, Usuarios, Plano e Creditos
+- Multi-tenant provider admin panel (/painel-provedor) with tabs: Visao Geral, Empresa, Socios, Documentos, Subdominio, Usuarios, Creditos
+  - Empresa tab: full company data (razao social, nome fantasia, CNPJ, tipo juridico, data abertura, segmento, contato, endereco completo com CEP lookup via ViaCEP)
+  - Socios tab: partner/shareholder management (CPF, data nascimento, cargo, % participacao)
+  - Documentos tab: KYC document upload (contrato social, RG socios, CNH socios, comprovante endereco, cartao CNPJ), file stored as base64 in DB, status badge (pending/approved/rejected)
+  - KYC status badge visible in header (verificationStatus field on providers table)
 - Sidebar shows subdomain chip (xxx.consultaisp.com.br) and plan badge
 - Email verification via Resend on registration
 

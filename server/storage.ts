@@ -4,6 +4,7 @@ import {
   providers, users, customers, contracts, invoices, equipment,
   ispConsultations, spcConsultations, antiFraudAlerts,
   supportThreads, supportMessages, planChanges, providerInvoices, creditOrders,
+  providerPartners, providerDocuments,
   type Provider, type InsertProvider,
   type User, type InsertUser,
   type Customer, type InsertCustomer,
@@ -18,6 +19,8 @@ import {
   type PlanChange, type InsertPlanChange,
   type ProviderInvoice, type InsertProviderInvoice,
   type CreditOrder, type InsertCreditOrder,
+  type ProviderPartner, type InsertProviderPartner,
+  type ProviderDocument, type InsertProviderDocument,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -107,6 +110,18 @@ export interface IStorage {
   updateCreditOrder(id: number, data: Partial<CreditOrder>): Promise<CreditOrder>;
   releaseCreditOrder(id: number): Promise<CreditOrder>;
   getNextOrderNumber(): Promise<string>;
+
+  getProviderPartners(providerId: number): Promise<ProviderPartner[]>;
+  createProviderPartner(partner: InsertProviderPartner): Promise<ProviderPartner>;
+  updateProviderPartner(id: number, providerId: number, data: Partial<ProviderPartner>): Promise<ProviderPartner>;
+  deleteProviderPartner(id: number, providerId: number): Promise<void>;
+
+  getProviderDocuments(providerId: number): Promise<ProviderDocument[]>;
+  getProviderDocument(id: number): Promise<ProviderDocument | undefined>;
+  createProviderDocument(doc: InsertProviderDocument): Promise<ProviderDocument>;
+  deleteProviderDocument(id: number, providerId: number): Promise<void>;
+  updateProviderDocumentStatus(id: number, status: string, reviewedById: number, reviewerName: string, rejectionReason?: string): Promise<ProviderDocument>;
+  updateProviderProfile(id: number, data: Partial<Provider>): Promise<Provider>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -798,6 +813,52 @@ export class DatabaseStorage implements IStorage {
     const today = new Date();
     const yyyymm = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}`;
     return `CR-${yyyymm}-${String(num).padStart(4, "0")}`;
+  }
+
+  async getProviderPartners(providerId: number): Promise<ProviderPartner[]> {
+    return db.select().from(providerPartners).where(eq(providerPartners.providerId, providerId)).orderBy(providerPartners.createdAt);
+  }
+
+  async createProviderPartner(partner: InsertProviderPartner): Promise<ProviderPartner> {
+    const [created] = await db.insert(providerPartners).values(partner).returning();
+    return created;
+  }
+
+  async updateProviderPartner(id: number, providerId: number, data: Partial<ProviderPartner>): Promise<ProviderPartner> {
+    const [updated] = await db.update(providerPartners).set(data as any).where(and(eq(providerPartners.id, id), eq(providerPartners.providerId, providerId))).returning();
+    return updated;
+  }
+
+  async deleteProviderPartner(id: number, providerId: number): Promise<void> {
+    await db.delete(providerPartners).where(and(eq(providerPartners.id, id), eq(providerPartners.providerId, providerId)));
+  }
+
+  async getProviderDocuments(providerId: number): Promise<ProviderDocument[]> {
+    return db.select().from(providerDocuments).where(eq(providerDocuments.providerId, providerId)).orderBy(desc(providerDocuments.uploadedAt));
+  }
+
+  async getProviderDocument(id: number): Promise<ProviderDocument | undefined> {
+    const [doc] = await db.select().from(providerDocuments).where(eq(providerDocuments.id, id));
+    return doc;
+  }
+
+  async createProviderDocument(doc: InsertProviderDocument): Promise<ProviderDocument> {
+    const [created] = await db.insert(providerDocuments).values(doc).returning();
+    return created;
+  }
+
+  async deleteProviderDocument(id: number, providerId: number): Promise<void> {
+    await db.delete(providerDocuments).where(and(eq(providerDocuments.id, id), eq(providerDocuments.providerId, providerId)));
+  }
+
+  async updateProviderDocumentStatus(id: number, status: string, reviewedById: number, reviewerName: string, rejectionReason?: string): Promise<ProviderDocument> {
+    const [updated] = await db.update(providerDocuments).set({ status, reviewedById, reviewerName, rejectionReason: rejectionReason || null, reviewedAt: new Date() }).where(eq(providerDocuments.id, id)).returning();
+    return updated;
+  }
+
+  async updateProviderProfile(id: number, data: Partial<Provider>): Promise<Provider> {
+    const [updated] = await db.update(providers).set(data as any).where(eq(providers.id, id)).returning();
+    return updated;
   }
 
   async getFinancialSummary(): Promise<any> {

@@ -1057,6 +1057,212 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/provider/profile", requireAuth, async (req, res) => {
+    try {
+      const provider = await storage.getProvider(req.session.providerId!);
+      if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
+      const partners = await storage.getProviderPartners(req.session.providerId!);
+      const documents = await storage.getProviderDocuments(req.session.providerId!);
+      return res.json({ ...provider, partners, documents });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/provider/profile", requireAuth, async (req, res) => {
+    try {
+      if (req.session.role !== "admin") {
+        return res.status(403).json({ message: "Apenas administradores podem alterar o perfil" });
+      }
+      const allowedFields = [
+        "name", "tradeName", "cnpj", "legalType", "openingDate", "businessSegment",
+        "contactEmail", "contactPhone", "website",
+        "addressZip", "addressStreet", "addressNumber", "addressComplement",
+        "addressNeighborhood", "addressCity", "addressState",
+      ];
+      const data: any = {};
+      for (const field of allowedFields) {
+        if (req.body[field] !== undefined) data[field] = req.body[field];
+      }
+      const updated = await storage.updateProviderProfile(req.session.providerId!, data);
+      return res.json(updated);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/provider/partners", requireAuth, async (req, res) => {
+    try {
+      const partners = await storage.getProviderPartners(req.session.providerId!);
+      return res.json(partners);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/provider/partners", requireAuth, async (req, res) => {
+    try {
+      if (req.session.role !== "admin") {
+        return res.status(403).json({ message: "Apenas administradores podem adicionar socios" });
+      }
+      const { name, cpf, birthDate, email, phone, role, sharePercentage } = req.body;
+      if (!name || !cpf) return res.status(400).json({ message: "Nome e CPF sao obrigatorios" });
+      const partner = await storage.createProviderPartner({
+        providerId: req.session.providerId!,
+        name, cpf, birthDate, email, phone, role,
+        sharePercentage: sharePercentage ? String(sharePercentage) : undefined,
+      });
+      return res.json(partner);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/provider/partners/:id", requireAuth, async (req, res) => {
+    try {
+      if (req.session.role !== "admin") {
+        return res.status(403).json({ message: "Apenas administradores podem editar socios" });
+      }
+      const id = parseInt(req.params.id);
+      const { name, cpf, birthDate, email, phone, role, sharePercentage } = req.body;
+      const updated = await storage.updateProviderPartner(id, req.session.providerId!, {
+        name, cpf, birthDate, email, phone, role,
+        sharePercentage: sharePercentage ? String(sharePercentage) : undefined,
+      });
+      return res.json(updated);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/provider/partners/:id", requireAuth, async (req, res) => {
+    try {
+      if (req.session.role !== "admin") {
+        return res.status(403).json({ message: "Apenas administradores podem remover socios" });
+      }
+      const id = parseInt(req.params.id);
+      await storage.deleteProviderPartner(id, req.session.providerId!);
+      return res.json({ success: true });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/provider/documents", requireAuth, async (req, res) => {
+    try {
+      const docs = await storage.getProviderDocuments(req.session.providerId!);
+      const docsNoData = docs.map(({ fileData, ...rest }) => rest);
+      return res.json(docsNoData);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/provider/documents", requireAuth, async (req, res) => {
+    try {
+      if (req.session.role !== "admin") {
+        return res.status(403).json({ message: "Apenas administradores podem enviar documentos" });
+      }
+      const { documentType, documentName, documentMimeType, documentSize, fileData } = req.body;
+      if (!documentType || !documentName || !fileData) {
+        return res.status(400).json({ message: "Dados do documento incompletos" });
+      }
+      const doc = await storage.createProviderDocument({
+        providerId: req.session.providerId!,
+        documentType, documentName, documentMimeType, documentSize,
+        fileData,
+        status: "pending",
+        uploadedById: req.session.providerId,
+      });
+      const { fileData: _, ...docNoData } = doc;
+      return res.json(docNoData);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/provider/documents/:id", requireAuth, async (req, res) => {
+    try {
+      if (req.session.role !== "admin") {
+        return res.status(403).json({ message: "Apenas administradores podem remover documentos" });
+      }
+      const id = parseInt(req.params.id);
+      await storage.deleteProviderDocument(id, req.session.providerId!);
+      return res.json({ success: true });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/provider/documents/:id/download", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const doc = await storage.getProviderDocument(id);
+      if (!doc || doc.providerId !== req.session.providerId!) {
+        return res.status(404).json({ message: "Documento nao encontrado" });
+      }
+      const buffer = Buffer.from(doc.fileData.split(",")[1] || doc.fileData, "base64");
+      res.setHeader("Content-Type", doc.documentMimeType || "application/octet-stream");
+      res.setHeader("Content-Disposition", `attachment; filename="${doc.documentName}"`);
+      return res.send(buffer);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/providers/:id/documents/:docId/status", requireAuth, async (req, res) => {
+    try {
+      if (req.session.role !== "superadmin") {
+        return res.status(403).json({ message: "Apenas superadmin pode revisar documentos" });
+      }
+      const docId = parseInt(req.params.docId);
+      const { status, rejectionReason } = req.body;
+      if (!["approved", "rejected", "pending"].includes(status)) {
+        return res.status(400).json({ message: "Status invalido" });
+      }
+      const reviewer = await storage.getUser(req.session.userId!);
+      const updated = await storage.updateProviderDocumentStatus(
+        docId, status,
+        req.session.userId!, reviewer?.name || "Admin",
+        rejectionReason
+      );
+      return res.json(updated);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/providers/:id/documents", requireAuth, async (req, res) => {
+    try {
+      if (req.session.role !== "superadmin") {
+        return res.status(403).json({ message: "Acesso negado" });
+      }
+      const providerId = parseInt(req.params.id);
+      const docs = await storage.getProviderDocuments(providerId);
+      const docsNoData = docs.map(({ fileData, ...rest }) => rest);
+      return res.json(docsNoData);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/providers/:id/documents/:docId/download", requireAuth, async (req, res) => {
+    try {
+      if (req.session.role !== "superadmin") {
+        return res.status(403).json({ message: "Acesso negado" });
+      }
+      const docId = parseInt(req.params.docId);
+      const doc = await storage.getProviderDocument(docId);
+      if (!doc) return res.status(404).json({ message: "Documento nao encontrado" });
+      const buffer = Buffer.from(doc.fileData.split(",")[1] || doc.fileData, "base64");
+      res.setHeader("Content-Type", doc.documentMimeType || "application/octet-stream");
+      res.setHeader("Content-Disposition", `attachment; filename="${doc.documentName}"`);
+      return res.send(buffer);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/config/maps-key", requireAuth, async (_req, res) => {
     const key = process.env.GOOGLE_MAPS_API_KEY || "";
     return res.json({ key });
