@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Shield, Users, Search, BarChart3, CheckCircle, Lock, Mail, Zap, Eye, EyeOff, MailCheck, RefreshCw, Globe } from "lucide-react";
+import { Shield, Users, Search, BarChart3, CheckCircle, Lock, Mail, Zap, Eye, EyeOff, MailCheck, RefreshCw, Globe, Building2, X } from "lucide-react";
 
 function slugifySubdomain(name: string): string {
   return name
@@ -17,6 +17,15 @@ function slugifySubdomain(name: string): string {
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
     .slice(0, 30);
+}
+
+function formatCnpj(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 14);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 5) return `${digits.slice(0,2)}.${digits.slice(2)}`;
+  if (digits.length <= 8) return `${digits.slice(0,2)}.${digits.slice(2,5)}.${digits.slice(5)}`;
+  if (digits.length <= 12) return `${digits.slice(0,2)}.${digits.slice(2,5)}.${digits.slice(5,8)}/${digits.slice(8)}`;
+  return `${digits.slice(0,2)}.${digits.slice(2,5)}.${digits.slice(5,8)}/${digits.slice(8,12)}-${digits.slice(12)}`;
 }
 
 type PageState = "login" | "register" | "check-email";
@@ -31,6 +40,9 @@ export default function LoginPage() {
   const [pendingEmail, setPendingEmail] = useState("");
   const [subdomainEdited, setSubdomainEdited] = useState(false);
   const [subdomainStatus, setSubdomainStatus] = useState<"idle" | "checking" | "available" | "taken">("idle");
+  const [cnpjLookup, setCnpjLookup] = useState<"idle" | "loading" | "found" | "error">("idle");
+  const [cnpjData, setCnpjData] = useState<any>(null);
+  const [providerNameEdited, setProviderNameEdited] = useState(false);
   const [form, setForm] = useState({
     email: "",
     password: "",
@@ -45,6 +57,34 @@ export default function LoginPage() {
       setForm(f => ({ ...f, subdomain: slugifySubdomain(f.providerName) }));
     }
   }, [form.providerName, subdomainEdited]);
+
+  useEffect(() => {
+    const digits = form.cnpj.replace(/\D/g, "");
+    if (digits.length !== 14) {
+      if (digits.length === 0) { setCnpjLookup("idle"); setCnpjData(null); }
+      return;
+    }
+    setCnpjLookup("loading");
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${digits}`);
+        if (!res.ok) throw new Error("CNPJ nao encontrado");
+        const data = await res.json();
+        setCnpjData(data);
+        setCnpjLookup("found");
+        const fantasia = data.nome_fantasia?.trim();
+        const razao = data.razao_social?.trim();
+        const nome = fantasia || razao || "";
+        if (nome && !providerNameEdited) {
+          setForm(f => ({ ...f, providerName: nome }));
+        }
+      } catch {
+        setCnpjLookup("error");
+        setCnpjData(null);
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [form.cnpj]);
 
   useEffect(() => {
     if (!form.subdomain || form.subdomain.length < 3) {
@@ -262,7 +302,7 @@ export default function LoginPage() {
                 {pageState === "register" && (
                   <>
                     <div>
-                      <label className="text-sm font-medium mb-1.5 block">Nome</label>
+                      <label className="text-sm font-medium mb-1.5 block">Seu Nome Completo</label>
                       <Input
                         data-testid="input-name"
                         placeholder="Seu nome completo"
@@ -272,22 +312,81 @@ export default function LoginPage() {
                       />
                     </div>
                     <div>
-                      <label className="text-sm font-medium mb-1.5 block">Nome do Provedor</label>
+                      <label className="text-sm font-medium mb-1.5 block flex items-center gap-1.5">
+                        <Building2 className="w-3.5 h-3.5" />CNPJ da Empresa
+                      </label>
+                      <div className="relative">
+                        <Input
+                          data-testid="input-cnpj"
+                          placeholder="00.000.000/0000-00"
+                          value={form.cnpj}
+                          onChange={(e) => setForm({ ...form, cnpj: formatCnpj(e.target.value) })}
+                          className={
+                            cnpjLookup === "found" ? "border-emerald-500 pr-8" :
+                            cnpjLookup === "error" ? "border-red-400 pr-8" : "pr-8"
+                          }
+                          required
+                        />
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2">
+                          {cnpjLookup === "loading" && <RefreshCw className="w-4 h-4 animate-spin text-muted-foreground" />}
+                          {cnpjLookup === "found" && <CheckCircle className="w-4 h-4 text-emerald-500" />}
+                          {cnpjLookup === "error" && <X className="w-4 h-4 text-red-400" />}
+                        </span>
+                      </div>
+                      {cnpjLookup === "loading" && (
+                        <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                          <RefreshCw className="w-3 h-3 animate-spin" />Buscando dados da empresa...
+                        </p>
+                      )}
+                      {cnpjLookup === "found" && cnpjData && (
+                        <div className="mt-2 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-3 space-y-1">
+                          <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                            <CheckCircle className="w-3.5 h-3.5" />Empresa encontrada
+                          </p>
+                          {cnpjData.razao_social && (
+                            <p className="text-xs text-emerald-800 dark:text-emerald-300">
+                              <span className="font-medium">Razao Social:</span> {cnpjData.razao_social}
+                            </p>
+                          )}
+                          {cnpjData.nome_fantasia && (
+                            <p className="text-xs text-emerald-800 dark:text-emerald-300">
+                              <span className="font-medium">Nome Fantasia:</span> {cnpjData.nome_fantasia}
+                            </p>
+                          )}
+                          {cnpjData.municipio && (
+                            <p className="text-xs text-emerald-800 dark:text-emerald-300">
+                              <span className="font-medium">Cidade:</span> {cnpjData.municipio} / {cnpjData.uf}
+                            </p>
+                          )}
+                          {cnpjData.situacao_cadastral && (
+                            <p className="text-xs text-emerald-800 dark:text-emerald-300">
+                              <span className="font-medium">Situacao:</span>{" "}
+                              <span className={cnpjData.situacao_cadastral === "ATIVA" ? "text-emerald-600 font-semibold" : "text-red-600"}>
+                                {cnpjData.situacao_cadastral}
+                              </span>
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      {cnpjLookup === "error" && (
+                        <p className="text-xs text-red-500 mt-1">CNPJ nao encontrado na Receita Federal. Verifique e tente novamente.</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium mb-1.5 block">
+                        Nome do Provedor
+                        {cnpjLookup === "found" && !providerNameEdited && (
+                          <span className="ml-2 text-xs text-emerald-600 font-normal">(preenchido automaticamente)</span>
+                        )}
+                      </label>
                       <Input
                         data-testid="input-provider-name"
                         placeholder="Nome do seu provedor"
                         value={form.providerName}
-                        onChange={(e) => setForm({ ...form, providerName: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium mb-1.5 block">CNPJ</label>
-                      <Input
-                        data-testid="input-cnpj"
-                        placeholder="00.000.000/0000-00"
-                        value={form.cnpj}
-                        onChange={(e) => setForm({ ...form, cnpj: e.target.value })}
+                        onChange={(e) => {
+                          setProviderNameEdited(true);
+                          setForm({ ...form, providerName: e.target.value });
+                        }}
                         required
                       />
                     </div>
