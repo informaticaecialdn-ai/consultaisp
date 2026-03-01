@@ -45,15 +45,6 @@ Alerts auto-generated on ISP consultation when cross-provider customer has: over
 6 Tabs: Alertas (detailed cards with risk factors, Resolver/Ignorar/Contatar actions, search/filter by status), Score de Risco (customer risk ranking with stats), Padroes (recidiva and ciclo de fraude detection from alert patterns), Analise IA (mock AI analysis with risk summary, detected patterns, recommended actions), Regras (custom rule builder with SE/ENTAO conditions), Configuracoes (toggles for min overdue days, contract age, equipment threshold, multi-query limit, notification emails, critical/high notification toggles).
 API routes: GET /api/anti-fraud/alerts, PATCH /api/anti-fraud/alerts/:id/status, GET /api/anti-fraud/customer-risk.
 
-## Email Verification
-- Registration generates a 6-digit verification code (15-min expiry)
-- Code logged to server console in demo mode (`[VERIFICACAO] Codigo para email: XXXXXX`)
-- Unverified users attempting login get a new code and are redirected to verification
-- Rate limiting: 5 verification attempts per 15 minutes, 60s cooldown on resend
-- Existing seed users are pre-verified (emailVerified=true)
-- Schema fields: emailVerified (boolean), verificationCode (text), verificationCodeExpiry (timestamp)
-- API: POST /api/auth/verify-email { email, code }, POST /api/auth/resend-code { email }
-
 ## Test Credentials
 - Email: admin@ispanalizze.com / Password: 123456
 - Email: carlos@vertical.com / Password: 123456

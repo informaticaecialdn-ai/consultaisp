@@ -18,8 +18,6 @@ export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-  updateUserVerification(userId: number, verified: boolean): Promise<void>;
-  updateUserVerificationCode(userId: number, code: string, expiry: Date): Promise<void>;
 
   getProvider(id: number): Promise<Provider | undefined>;
   getProviderByCnpj(cnpj: string): Promise<Provider | undefined>;
@@ -80,21 +78,6 @@ export class DatabaseStorage implements IStorage {
   async createUser(user: InsertUser): Promise<User> {
     const [created] = await db.insert(users).values(user).returning();
     return created;
-  }
-
-  async updateUserVerification(userId: number, verified: boolean): Promise<void> {
-    await db.update(users).set({
-      emailVerified: verified,
-      verificationCode: null,
-      verificationCodeExpiry: null,
-    }).where(eq(users.id, userId));
-  }
-
-  async updateUserVerificationCode(userId: number, code: string, expiry: Date): Promise<void> {
-    await db.update(users).set({
-      verificationCode: code,
-      verificationCodeExpiry: expiry,
-    }).where(eq(users.id, userId));
   }
 
   async getProvider(id: number): Promise<Provider | undefined> {

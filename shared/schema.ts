@@ -22,9 +22,6 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   role: text("role").notNull().default("user"),
   providerId: integer("provider_id").references(() => providers.id),
-  emailVerified: boolean("email_verified").notNull().default(false),
-  verificationCode: text("verification_code"),
-  verificationCodeExpiry: timestamp("verification_code_expiry"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
