@@ -188,6 +188,13 @@ export const providerInvoices = pgTable("provider_invoices", {
   createdById: integer("created_by_id").references(() => users.id),
   createdByName: text("created_by_name"),
   createdAt: timestamp("created_at").defaultNow(),
+  asaasChargeId: text("asaas_charge_id"),
+  asaasCustomerId: text("asaas_customer_id"),
+  asaasStatus: text("asaas_status"),
+  asaasInvoiceUrl: text("asaas_invoice_url"),
+  asaasBankSlipUrl: text("asaas_bank_slip_url"),
+  asaasPixKey: text("asaas_pix_key"),
+  asaasBillingType: text("asaas_billing_type"),
 });
 
 export const insertProviderSchema = createInsertSchema(providers).omit({ id: true, createdAt: true });

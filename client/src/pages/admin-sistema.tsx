@@ -17,7 +17,8 @@ import {
   Globe, TrendingUp, Activity, ChevronRight, Settings2,
   ArrowUpDown, Clock, User, Crown, Star, FileText, DollarSign,
   TrendingDown, AlertCircle, CalendarCheck, Printer, Eye, Ban,
-  ChevronDown, Zap
+  ChevronDown, Zap, Link2, QrCode, Wallet, ScanLine, RotateCcw,
+  ExternalLink, Copy
 } from "lucide-react";
 
 const PLAN_LABELS: Record<string, { label: string; color: string }> = {
@@ -527,6 +528,56 @@ export default function AdminSistemaPage() {
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
 
+  const { data: asaasStatus } = useQuery<any>({
+    queryKey: ["/api/admin/asaas/status"],
+    enabled: isSuperAdmin && activeTab === "financeiro",
+    staleTime: 60000,
+  });
+
+  const [asaasChargeModal, setAsaasChargeModal] = useState<{ invoiceId: number; invoiceNumber: string } | null>(null);
+  const [asaasPixModal, setAsaasPixModal] = useState<{ invoiceId: number; pixData: any } | null>(null);
+
+  const createChargeMutation = useMutation({
+    mutationFn: async ({ id, billingType }: { id: number; billingType: string }) => {
+      const res = await apiRequest("POST", `/api/admin/invoices/${id}/asaas/charge`, { billingType });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/invoices"] });
+      setAsaasChargeModal(null);
+      toast({ title: "Cobranca Asaas criada", description: `ID: ${data.charge?.id}` });
+    },
+    onError: (e: any) => toast({ title: "Erro Asaas", description: e.message, variant: "destructive" }),
+  });
+
+  const syncChargeMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/admin/invoices/${id}/asaas/sync`, {});
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/invoices"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/financial/summary"] });
+      toast({ title: "Status sincronizado com Asaas" });
+    },
+    onError: (e: any) => toast({ title: "Erro ao sincronizar", description: e.message, variant: "destructive" }),
+  });
+
+  const pixMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("GET", `/api/admin/invoices/${id}/asaas/pix`, undefined);
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: (data, id) => {
+      const inv = (allInvoices as any[]).find((i: any) => i.id === id);
+      setAsaasPixModal({ invoiceId: id as number, pixData: data });
+    },
+    onError: (e: any) => toast({ title: "Erro ao buscar PIX", description: e.message, variant: "destructive" }),
+  });
+
   if (!isSuperAdmin) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4 p-8">
@@ -805,7 +856,107 @@ export default function AdminSistemaPage() {
           </Card>
         </div>)}
 
+        {/* ASAAS Charge Modal */}
+        {asaasChargeModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setAsaasChargeModal(null)}>
+            <div className="bg-background rounded-xl shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+              <h2 className="text-base font-bold mb-1 flex items-center gap-2">
+                <Wallet className="w-4 h-4 text-blue-500" />Cobrar via Asaas
+              </h2>
+              <p className="text-xs text-muted-foreground mb-4">Fatura {asaasChargeModal.invoiceNumber}</p>
+              <div className="space-y-2">
+                {[
+                  { type: "UNDEFINED", label: "Livre (cliente escolhe)", icon: Wallet },
+                  { type: "PIX", label: "PIX", icon: QrCode },
+                  { type: "BOLETO", label: "Boleto Bancario", icon: ScanLine },
+                ].map(opt => (
+                  <button
+                    key={opt.type}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border hover:bg-muted/50 transition-colors text-left"
+                    disabled={createChargeMutation.isPending}
+                    onClick={() => createChargeMutation.mutate({ id: asaasChargeModal.invoiceId, billingType: opt.type })}
+                    data-testid={`button-charge-${opt.type.toLowerCase()}`}
+                  >
+                    {createChargeMutation.isPending ? (
+                      <RefreshCw className="w-4 h-4 animate-spin text-muted-foreground" />
+                    ) : (
+                      <opt.icon className="w-4 h-4 text-blue-500" />
+                    )}
+                    <span className="text-sm font-medium">{opt.label}</span>
+                  </button>
+                ))}
+              </div>
+              <Button variant="ghost" size="sm" className="mt-3 w-full text-xs" onClick={() => setAsaasChargeModal(null)}>Cancelar</Button>
+            </div>
+          </div>
+        )}
+
+        {/* PIX QrCode Modal */}
+        {asaasPixModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setAsaasPixModal(null)}>
+            <div className="bg-background rounded-xl shadow-xl p-6 w-full max-w-sm text-center" onClick={e => e.stopPropagation()}>
+              <h2 className="text-base font-bold mb-1 flex items-center gap-2 justify-center">
+                <QrCode className="w-4 h-4 text-blue-500" />QR Code PIX
+              </h2>
+              {asaasPixModal.pixData?.encodedImage ? (
+                <img
+                  src={`data:image/png;base64,${asaasPixModal.pixData.encodedImage}`}
+                  alt="QR Code PIX"
+                  className="mx-auto w-48 h-48 my-4 rounded-lg border"
+                />
+              ) : (
+                <div className="w-48 h-48 mx-auto my-4 rounded-lg border bg-muted/30 flex items-center justify-center">
+                  <QrCode className="w-12 h-12 text-muted-foreground opacity-40" />
+                </div>
+              )}
+              {asaasPixModal.pixData?.payload && (
+                <div className="mt-2">
+                  <p className="text-xs text-muted-foreground mb-1">Codigo Copia e Cola:</p>
+                  <div className="flex gap-2 items-center">
+                    <code className="text-xs bg-muted rounded px-2 py-1 flex-1 text-left truncate">{asaasPixModal.pixData.payload}</code>
+                    <Button
+                      variant="outline" size="sm"
+                      className="h-7 w-7 p-0 flex-shrink-0"
+                      onClick={() => { navigator.clipboard.writeText(asaasPixModal.pixData.payload); toast({ title: "Copiado!" }); }}
+                      data-testid="button-copy-pix"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <Button variant="ghost" size="sm" className="mt-3 w-full text-xs" onClick={() => setAsaasPixModal(null)}>Fechar</Button>
+            </div>
+          </div>
+        )}
+
         {activeTab === "financeiro" && (<div className="space-y-5">
+          {/* Asaas Status Bar */}
+          {asaasStatus && (
+            <Card className={`p-4 flex items-center justify-between gap-4 ${asaasStatus.configured ? "border-emerald-200 bg-emerald-50/50 dark:border-emerald-800 dark:bg-emerald-950/20" : "border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20"}`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${asaasStatus.configured ? "bg-emerald-100 dark:bg-emerald-900" : "bg-amber-100 dark:bg-amber-900"}`}>
+                  <Wallet className={`w-4 h-4 ${asaasStatus.configured ? "text-emerald-600" : "text-amber-600"}`} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold">
+                    Asaas {asaasStatus.configured ? (asaasStatus.mode === "sandbox" ? "— Sandbox ativo" : "— Producao ativo") : "— Nao configurado"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {asaasStatus.configured
+                      ? `Saldo disponivel: R$ ${(asaasStatus.balance?.balance || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+                      : "Configure a chave ASAAS_API_KEY para ativar cobranças automaticas"}
+                  </p>
+                </div>
+              </div>
+              {asaasStatus.configured && (
+                <Badge className={asaasStatus.mode === "sandbox" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}>
+                  {asaasStatus.mode === "sandbox" ? "Sandbox" : "Producao"}
+                </Badge>
+              )}
+            </Card>
+          )}
+
           {/* KPI Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
@@ -1146,9 +1297,16 @@ export default function AdminSistemaPage() {
                               {new Date(inv.dueDate).toLocaleDateString("pt-BR")}
                             </td>
                             <td className="py-3 px-4 text-center">
-                              <Badge className={`text-xs ${STATUS_STYLE[displayStatus] || STATUS_STYLE.pending}`}>
-                                {STATUS_LABEL[displayStatus] || displayStatus}
-                              </Badge>
+                              <div className="flex flex-col items-center gap-1">
+                                <Badge className={`text-xs ${STATUS_STYLE[displayStatus] || STATUS_STYLE.pending}`}>
+                                  {STATUS_LABEL[displayStatus] || displayStatus}
+                                </Badge>
+                                {inv.asaasChargeId && (
+                                  <span className="text-[9px] text-blue-500 font-medium flex items-center gap-0.5">
+                                    <Wallet className="w-2.5 h-2.5" />Asaas
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="py-3 px-4">
                               <div className="flex items-center justify-center gap-1">
@@ -1161,12 +1319,59 @@ export default function AdminSistemaPage() {
                                 >
                                   <Eye className="w-3.5 h-3.5" />
                                 </Button>
+                                {(inv.status === "pending" || displayStatus === "overdue") && !inv.asaasChargeId && asaasStatus?.configured && (
+                                  <Button
+                                    variant="ghost" size="sm"
+                                    className="h-7 w-7 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                    onClick={() => setAsaasChargeModal({ invoiceId: inv.id, invoiceNumber: inv.invoiceNumber })}
+                                    title="Cobrar via Asaas"
+                                    data-testid={`button-asaas-charge-${inv.id}`}
+                                  >
+                                    <Wallet className="w-3.5 h-3.5" />
+                                  </Button>
+                                )}
+                                {inv.asaasChargeId && (
+                                  <Button
+                                    variant="ghost" size="sm"
+                                    className="h-7 w-7 p-0 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-50"
+                                    onClick={() => syncChargeMutation.mutate(inv.id)}
+                                    title="Sincronizar status com Asaas"
+                                    disabled={syncChargeMutation.isPending}
+                                    data-testid={`button-asaas-sync-${inv.id}`}
+                                  >
+                                    {syncChargeMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                                  </Button>
+                                )}
+                                {inv.asaasChargeId && inv.asaasBillingType === "PIX" && inv.status !== "paid" && (
+                                  <Button
+                                    variant="ghost" size="sm"
+                                    className="h-7 w-7 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                    onClick={() => pixMutation.mutate(inv.id)}
+                                    title="QR Code PIX"
+                                    disabled={pixMutation.isPending}
+                                    data-testid={`button-asaas-pix-${inv.id}`}
+                                  >
+                                    <QrCode className="w-3.5 h-3.5" />
+                                  </Button>
+                                )}
+                                {inv.asaasInvoiceUrl && (
+                                  <a
+                                    href={inv.asaasInvoiceUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="h-7 w-7 p-0 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                    title="Link de pagamento Asaas"
+                                    data-testid={`link-asaas-payment-${inv.id}`}
+                                  >
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                  </a>
+                                )}
                                 {(inv.status === "pending" || displayStatus === "overdue") && (
                                   <Button
                                     variant="ghost" size="sm"
                                     className="h-7 w-7 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
                                     onClick={() => updateInvoiceStatusMutation.mutate({ id: inv.id, status: "paid", paidAmount: inv.amount })}
-                                    title="Marcar como pago"
+                                    title="Marcar como pago manualmente"
                                     data-testid={`button-mark-paid-${inv.id}`}
                                   >
                                     <CheckCircle className="w-3.5 h-3.5" />

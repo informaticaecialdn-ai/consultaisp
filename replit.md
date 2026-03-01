@@ -32,7 +32,20 @@ Sistema multi-tenant de consulta de inadimplentes focado em provedores regionais
 - Provedores: list with search, each provider has "Painel" (full control panel) and "Gerenciar" (inline edit) buttons
 - Usuarios: system-wide users list with delete
 - Financeiro: MRR/ARR cards, 6-month chart, invoice management with filters and inline creation
+  - Asaas status bar showing sandbox/production mode + account balance
+  - Per-invoice Asaas actions: create charge (BOLETO/PIX/UNDEFINED), sync status, QR Code PIX, payment link
+  - Asaas badge on invoices with active charges
 - Suporte: chat interface with providers
+
+## Asaas Integration (server/asaas.ts)
+- Payment gateway for SaaS billing via Asaas API
+- Requires ASAAS_API_KEY secret (auto-detects sandbox vs production from key prefix)
+- Sandbox: keys with _hmlg_ → https://sandbox.asaas.com/api/v3
+- Production: other keys → https://api.asaas.com/v3
+- Features: find/create customer, create charge (BOLETO/PIX/UNDEFINED), get charge, cancel charge, get PIX QR code, sync status
+- Webhook: POST /api/asaas/webhook (externalReference=invoice_{id} links to local invoice)
+- DB columns on provider_invoices: asaas_charge_id, asaas_customer_id, asaas_status, asaas_invoice_url, asaas_bank_slip_url, asaas_pix_key, asaas_billing_type
+- Routes: POST /api/admin/invoices/:id/asaas/charge, POST /api/admin/invoices/:id/asaas/sync, DELETE /api/admin/invoices/:id/asaas/charge, GET /api/admin/invoices/:id/asaas/pix, GET /api/admin/asaas/status
 
 ## Provider Control Panel (/admin/provedor/:id)
 - Accessed via "Painel" button in providers list

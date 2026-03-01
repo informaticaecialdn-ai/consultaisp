@@ -581,6 +581,22 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
+  async updateProviderInvoiceAsaas(id: number, asaasData: {
+    asaasChargeId?: string;
+    asaasCustomerId?: string;
+    asaasStatus?: string;
+    asaasInvoiceUrl?: string;
+    asaasBankSlipUrl?: string;
+    asaasPixKey?: string;
+    asaasBillingType?: string;
+    status?: string;
+    paidDate?: Date;
+    paidAmount?: string;
+  }): Promise<ProviderInvoice> {
+    const [updated] = await db.update(providerInvoices).set(asaasData).where(eq(providerInvoices.id, id)).returning();
+    return updated;
+  }
+
   async getFinancialSummary(): Promise<any> {
     const allProviders = await db.select().from(providers);
     const allInvoices = await db.select().from(providerInvoices);

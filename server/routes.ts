@@ -1379,6 +1379,159 @@ export async function registerRoutes(
     }
   });
 
+  // ============ ASAAS INTEGRATION ROUTES ============
+
+  app.get("/api/admin/asaas/status", requireSuperAdmin, async (_req, res) => {
+    try {
+      const { isAsaasConfigured, getAsaasMode, getBalance } = await import("./asaas");
+      const configured = isAsaasConfigured();
+      const mode = getAsaasMode();
+      let balance = null;
+      if (configured) {
+        try { balance = await getBalance(); } catch {}
+      }
+      return res.json({ configured, mode, balance });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/invoices/:id/asaas/charge", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { billingType = "UNDEFINED" } = req.body;
+      const invoice = await storage.getProviderInvoice(id);
+      if (!invoice) return res.status(404).json({ message: "Fatura nao encontrada" });
+      if (invoice.asaasChargeId) return res.status(409).json({ message: "Cobranca Asaas ja existe para esta fatura" });
+
+      const { findOrCreateCustomer, createCharge } = await import("./asaas");
+
+      const provider = await storage.getProvider(invoice.providerId);
+      if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
+
+      const providerUsers = await storage.getUsersByProvider(invoice.providerId);
+      const adminUser = providerUsers.find(u => u.role === "admin") || providerUsers[0];
+
+      const customer = await findOrCreateCustomer({
+        name: provider.name,
+        cpfCnpj: provider.cnpj,
+        email: provider.contactEmail || adminUser?.email,
+        phone: provider.contactPhone || undefined,
+      });
+
+      const dueDate = new Date(invoice.dueDate).toISOString().split("T")[0];
+      const charge = await createCharge({
+        customerId: customer.id,
+        value: parseFloat(invoice.amount),
+        dueDate,
+        description: `${invoice.invoiceNumber} - Plano ${invoice.planAtTime} - Periodo ${invoice.period}`,
+        externalReference: `invoice_${invoice.id}`,
+        billingType: billingType as any,
+      });
+
+      const updated = await storage.updateProviderInvoiceAsaas(id, {
+        asaasChargeId: charge.id,
+        asaasCustomerId: customer.id,
+        asaasStatus: charge.status,
+        asaasInvoiceUrl: charge.invoiceUrl,
+        asaasBankSlipUrl: charge.bankSlipUrl,
+        asaasBillingType: charge.billingType,
+      });
+
+      return res.json({ invoice: updated, charge });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/invoices/:id/asaas/sync", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const invoice = await storage.getProviderInvoice(id);
+      if (!invoice) return res.status(404).json({ message: "Fatura nao encontrada" });
+      if (!invoice.asaasChargeId) return res.status(400).json({ message: "Fatura sem cobranca Asaas" });
+
+      const { getCharge, asaasStatusToLocal } = await import("./asaas");
+      const charge = await getCharge(invoice.asaasChargeId);
+      const newStatus = asaasStatusToLocal(charge.status);
+
+      const updateData: any = {
+        asaasStatus: charge.status,
+        asaasInvoiceUrl: charge.invoiceUrl || invoice.asaasInvoiceUrl,
+        asaasBankSlipUrl: charge.bankSlipUrl || invoice.asaasBankSlipUrl,
+        status: newStatus,
+      };
+      if (newStatus === "paid" && charge.paymentDate) {
+        updateData.paidDate = new Date(charge.paymentDate);
+        updateData.paidAmount = String(charge.value);
+      }
+
+      const updated = await storage.updateProviderInvoiceAsaas(id, updateData);
+      return res.json({ invoice: updated, charge });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/invoices/:id/asaas/charge", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const invoice = await storage.getProviderInvoice(id);
+      if (!invoice) return res.status(404).json({ message: "Fatura nao encontrada" });
+      if (!invoice.asaasChargeId) return res.status(400).json({ message: "Fatura sem cobranca Asaas" });
+
+      const { cancelCharge } = await import("./asaas");
+      await cancelCharge(invoice.asaasChargeId);
+      const updated = await storage.updateProviderInvoiceAsaas(id, {
+        asaasChargeId: undefined,
+        asaasStatus: "DELETED",
+        status: "cancelled",
+      });
+      return res.json(updated);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/invoices/:id/asaas/pix", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const invoice = await storage.getProviderInvoice(id);
+      if (!invoice || !invoice.asaasChargeId) return res.status(404).json({ message: "Cobranca Asaas nao encontrada" });
+
+      const { getPixQrCode } = await import("./asaas");
+      const pix = await getPixQrCode(invoice.asaasChargeId);
+      return res.json(pix);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/asaas/webhook", async (req, res) => {
+    try {
+      const { event, payment } = req.body;
+      if (!payment?.externalReference) return res.json({ ok: true });
+
+      const match = payment.externalReference.match(/^invoice_(\d+)$/);
+      if (!match) return res.json({ ok: true });
+
+      const invoiceId = parseInt(match[1]);
+      const { asaasStatusToLocal } = await import("./asaas");
+      const newStatus = asaasStatusToLocal(payment.status);
+
+      const updateData: any = { asaasStatus: payment.status, status: newStatus };
+      if (newStatus === "paid" && payment.paymentDate) {
+        updateData.paidDate = new Date(payment.paymentDate);
+        updateData.paidAmount = String(payment.value);
+      }
+      await storage.updateProviderInvoiceAsaas(invoiceId, updateData);
+      return res.json({ ok: true });
+    } catch (error: any) {
+      console.error("Webhook Asaas error:", error.message);
+      return res.json({ ok: true });
+    }
+  });
+
   // ============ FINANCIAL INVOICE ROUTES ============
 
   app.get("/api/admin/financial/summary", requireSuperAdmin, async (_req, res) => {
