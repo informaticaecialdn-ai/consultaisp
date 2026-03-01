@@ -1327,5 +1327,126 @@ export async function registerRoutes(
     }
   });
 
+  // ============ FINANCIAL INVOICE ROUTES ============
+
+  app.get("/api/admin/financial/summary", requireSuperAdmin, async (_req, res) => {
+    try {
+      const summary = await storage.getFinancialSummary();
+      return res.json(summary);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/invoices", requireSuperAdmin, async (req, res) => {
+    try {
+      const providerId = req.query.providerId ? parseInt(req.query.providerId as string) : undefined;
+      const invoiceList = await storage.getAllProviderInvoices(providerId);
+      return res.json(invoiceList);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/invoices/:id", requireSuperAdmin, async (req, res) => {
+    try {
+      const invoice = await storage.getProviderInvoice(parseInt(req.params.id));
+      if (!invoice) return res.status(404).json({ message: "Fatura nao encontrada" });
+      return res.json(invoice);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/invoices", requireSuperAdmin, async (req, res) => {
+    try {
+      const { providerId, period, planAtTime, amount, ispCreditsIncluded, spcCreditsIncluded, dueDate, notes } = req.body;
+      if (!providerId || !period || !planAtTime || !amount || !dueDate) {
+        return res.status(400).json({ message: "Campos obrigatorios: providerId, period, planAtTime, amount, dueDate" });
+      }
+      const me = await storage.getUser(req.session.userId!);
+      const invoiceNumber = await storage.getNextInvoiceNumber();
+      const invoice = await storage.createProviderInvoice({
+        invoiceNumber,
+        providerId: parseInt(providerId),
+        period,
+        planAtTime,
+        amount: amount.toString(),
+        ispCreditsIncluded: ispCreditsIncluded || 0,
+        spcCreditsIncluded: spcCreditsIncluded || 0,
+        dueDate: new Date(dueDate),
+        status: "pending",
+        notes: notes || null,
+        createdById: req.session.userId!,
+        createdByName: me?.name || "Admin",
+      });
+      return res.status(201).json(invoice);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/invoices/:id/status", requireSuperAdmin, async (req, res) => {
+    try {
+      const { status, paidAmount } = req.body;
+      if (!status) return res.status(400).json({ message: "Status e obrigatorio" });
+      const paidDate = status === "paid" ? new Date() : undefined;
+      const updated = await storage.updateProviderInvoiceStatus(
+        parseInt(req.params.id), status, paidDate, paidAmount?.toString()
+      );
+      return res.json(updated);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/invoices/:id", requireSuperAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const invoice = await storage.getProviderInvoice(parseInt(id));
+      if (!invoice) return res.status(404).json({ message: "Fatura nao encontrada" });
+      if (invoice.status === "paid") return res.status(400).json({ message: "Nao e possivel cancelar uma fatura paga" });
+      await storage.updateProviderInvoiceStatus(parseInt(id), "cancelled");
+      return res.json({ success: true });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/invoices/generate-monthly", requireSuperAdmin, async (req, res) => {
+    try {
+      const { period } = req.body;
+      if (!period) return res.status(400).json({ message: "Period e obrigatorio (ex: 2026-03)" });
+      const PLAN_PRICES: Record<string, number> = { free: 0, basic: 199, pro: 399, enterprise: 799 };
+      const PLAN_CREDITS: Record<string, { isp: number; spc: number }> = {
+        free: { isp: 50, spc: 0 }, basic: { isp: 200, spc: 50 }, pro: { isp: 500, spc: 150 }, enterprise: { isp: 1500, spc: 500 }
+      };
+      const allProviders = await storage.getAllProviders();
+      const me = await storage.getUser(req.session.userId!);
+      const [year, month] = period.split("-").map(Number);
+      const dueDate = new Date(year, month - 1, 10);
+      let created = 0;
+      let skipped = 0;
+      for (const provider of allProviders) {
+        if (PLAN_PRICES[provider.plan] === 0) { skipped++; continue; }
+        const existingInvoices = await storage.getAllProviderInvoices(provider.id);
+        if (existingInvoices.some(i => i.period === period && i.status !== "cancelled")) { skipped++; continue; }
+        const invoiceNumber = await storage.getNextInvoiceNumber();
+        const credits = PLAN_CREDITS[provider.plan] || { isp: 0, spc: 0 };
+        await storage.createProviderInvoice({
+          invoiceNumber, providerId: provider.id, period,
+          planAtTime: provider.plan, amount: PLAN_PRICES[provider.plan].toString(),
+          ispCreditsIncluded: credits.isp, spcCreditsIncluded: credits.spc,
+          dueDate, status: "pending",
+          createdById: req.session.userId!, createdByName: me?.name || "Admin",
+        });
+        created++;
+      }
+      return res.json({ created, skipped, message: `${created} faturas geradas para ${period}` });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
   return httpServer;
 }

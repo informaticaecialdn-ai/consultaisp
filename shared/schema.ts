@@ -171,6 +171,25 @@ export const antiFraudAlerts = pgTable("anti_fraud_alerts", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const providerInvoices = pgTable("provider_invoices", {
+  id: serial("id").primaryKey(),
+  invoiceNumber: text("invoice_number").notNull().unique(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  period: text("period").notNull(),
+  planAtTime: text("plan_at_time").notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  ispCreditsIncluded: integer("isp_credits_included").notNull().default(0),
+  spcCreditsIncluded: integer("spc_credits_included").notNull().default(0),
+  status: text("status").notNull().default("pending"),
+  dueDate: timestamp("due_date").notNull(),
+  paidDate: timestamp("paid_date"),
+  paidAmount: decimal("paid_amount", { precision: 10, scale: 2 }),
+  notes: text("notes"),
+  createdById: integer("created_by_id").references(() => users.id),
+  createdByName: text("created_by_name"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const insertProviderSchema = createInsertSchema(providers).omit({ id: true, createdAt: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true });
@@ -224,6 +243,7 @@ export const updateProviderSchema = z.object({
 export const insertSupportThreadSchema = createInsertSchema(supportThreads).omit({ id: true, createdAt: true, lastMessageAt: true });
 export const insertSupportMessageSchema = createInsertSchema(supportMessages).omit({ id: true, createdAt: true });
 export const insertPlanChangeSchema = createInsertSchema(planChanges).omit({ id: true, createdAt: true });
+export const insertProviderInvoiceSchema = createInsertSchema(providerInvoices).omit({ id: true, createdAt: true });
 
 export type SupportThread = typeof supportThreads.$inferSelect;
 export type InsertSupportThread = z.infer<typeof insertSupportThreadSchema>;
@@ -231,6 +251,22 @@ export type SupportMessage = typeof supportMessages.$inferSelect;
 export type InsertSupportMessage = z.infer<typeof insertSupportMessageSchema>;
 export type PlanChange = typeof planChanges.$inferSelect;
 export type InsertPlanChange = z.infer<typeof insertPlanChangeSchema>;
+export type ProviderInvoice = typeof providerInvoices.$inferSelect;
+export type InsertProviderInvoice = z.infer<typeof insertProviderInvoiceSchema>;
+
+export const PLAN_PRICES: Record<string, number> = {
+  free: 0,
+  basic: 199,
+  pro: 399,
+  enterprise: 799,
+};
+
+export const PLAN_CREDITS: Record<string, { isp: number; spc: number }> = {
+  free: { isp: 50, spc: 0 },
+  basic: { isp: 200, spc: 50 },
+  pro: { isp: 500, spc: 150 },
+  enterprise: { isp: 1500, spc: 500 },
+};
 
 export type LoginData = z.infer<typeof loginSchema>;
 export type RegisterData = z.infer<typeof registerSchema>;

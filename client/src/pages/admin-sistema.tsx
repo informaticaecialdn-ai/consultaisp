@@ -1,9 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -12,7 +16,9 @@ import {
   Shield, Building2, Users, CreditCard, BarChart3, MessageSquare,
   Plus, Trash2, RefreshCw, CheckCircle, XCircle, Search, Send,
   Globe, TrendingUp, Activity, ChevronRight, Settings2,
-  ArrowUpDown, Clock, User, Crown, Star
+  ArrowUpDown, Clock, User, Crown, Star, FileText, DollarSign,
+  TrendingDown, AlertCircle, CalendarCheck, Printer, Eye, Ban,
+  ChevronDown, Zap
 } from "lucide-react";
 
 const PLAN_LABELS: Record<string, { label: string; color: string }> = {
@@ -375,7 +381,15 @@ export default function AdminSistemaPage() {
   const [selectedProvider, setSelectedProvider] = useState<any>(null);
   const [providerSearch, setProviderSearch] = useState("");
   const [userSearch, setUserSearch] = useState("");
+  const [invoiceFilter, setInvoiceFilter] = useState("all");
+  const [showNewInvoice, setShowNewInvoice] = useState(false);
+  const [invoiceForm, setInvoiceForm] = useState({
+    providerId: "", period: "", amount: "", planAtTime: "basic",
+    ispCreditsIncluded: "0", spcCreditsIncluded: "0",
+    dueDate: "", notes: "",
+  });
   const isSuperAdmin = user?.role === "superadmin";
+  const [, navigate] = useLocation();
 
   const { data: stats } = useQuery<any>({
     queryKey: ["/api/admin/stats"],
@@ -396,6 +410,14 @@ export default function AdminSistemaPage() {
   });
   const { data: planHistory = [] } = useQuery<any[]>({
     queryKey: ["/api/admin/plan-history"],
+    enabled: isSuperAdmin,
+  });
+  const { data: financialSummary } = useQuery<any>({
+    queryKey: ["/api/admin/financial/summary"],
+    enabled: isSuperAdmin,
+  });
+  const { data: allInvoices = [], isLoading: invoicesLoading } = useQuery<any[]>({
+    queryKey: ["/api/admin/invoices"],
     enabled: isSuperAdmin,
   });
 
@@ -421,6 +443,64 @@ export default function AdminSistemaPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
       toast({ title: "Usuario removido" });
+    },
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  const createInvoiceMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/admin/invoices", data);
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/invoices"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/financial/summary"] });
+      setShowNewInvoice(false);
+      setInvoiceForm({ providerId: "", period: "", amount: "", planAtTime: "basic", ispCreditsIncluded: "0", spcCreditsIncluded: "0", dueDate: "", notes: "" });
+      toast({ title: "Fatura emitida com sucesso" });
+    },
+    onError: (e: any) => toast({ title: "Erro ao emitir fatura", description: e.message, variant: "destructive" }),
+  });
+
+  const updateInvoiceStatusMutation = useMutation({
+    mutationFn: async ({ id, status, paidAmount }: { id: number; status: string; paidAmount?: string }) => {
+      const res = await apiRequest("PATCH", `/api/admin/invoices/${id}/status`, { status, paidAmount });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/invoices"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/financial/summary"] });
+      toast({ title: "Status da fatura atualizado" });
+    },
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  const generateMonthlyMutation = useMutation({
+    mutationFn: async (period: string) => {
+      const res = await apiRequest("POST", "/api/admin/invoices/generate-monthly", { period });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/invoices"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/financial/summary"] });
+      toast({ title: "Faturas geradas", description: data.message });
+    },
+    onError: (e: any) => toast({ title: "Erro ao gerar faturas", description: e.message, variant: "destructive" }),
+  });
+
+  const cancelInvoiceMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/admin/invoices/${id}`, undefined);
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/invoices"] });
+      qc.invalidateQueries({ queryKey: ["/api/admin/financial/summary"] });
+      toast({ title: "Fatura cancelada" });
     },
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
@@ -717,75 +797,458 @@ export default function AdminSistemaPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="financeiro" className="space-y-4">
-          <div className="grid md:grid-cols-3 gap-4">
-            {allProviders.map((p: any) => (
-              <Card key={p.id} className="p-4" data-testid={`financial-card-${p.id}`}>
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <div>
-                    <p className="font-semibold text-sm">{p.name}</p>
-                    <Badge className={`text-xs mt-1 ${PLAN_LABELS[p.plan]?.color || ""}`}>
-                      {PLAN_LABELS[p.plan]?.label}
-                    </Badge>
+        <TabsContent value="financeiro" className="space-y-5">
+          {/* KPI Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              {
+                label: "MRR",
+                value: `R$ ${(financialSummary?.mrr || 0).toLocaleString("pt-BR")}`,
+                sub: "Receita mensal recorrente",
+                icon: TrendingUp,
+                color: "from-emerald-500 to-emerald-600",
+                testId: "kpi-mrr",
+              },
+              {
+                label: "ARR",
+                value: `R$ ${(financialSummary?.arr || 0).toLocaleString("pt-BR")}`,
+                sub: "Receita anual recorrente",
+                icon: DollarSign,
+                color: "from-blue-500 to-blue-600",
+                testId: "kpi-arr",
+              },
+              {
+                label: "Em Aberto",
+                value: `R$ ${(financialSummary?.pendingRevenue || 0).toLocaleString("pt-BR")}`,
+                sub: `${financialSummary?.pendingCount || 0} faturas pendentes`,
+                icon: AlertCircle,
+                color: "from-amber-500 to-amber-600",
+                testId: "kpi-pending",
+              },
+              {
+                label: "Em Atraso",
+                value: `R$ ${(financialSummary?.overdueRevenue || 0).toLocaleString("pt-BR")}`,
+                sub: `${financialSummary?.overdueCount || 0} faturas vencidas`,
+                icon: TrendingDown,
+                color: "from-rose-500 to-rose-600",
+                testId: "kpi-overdue",
+              },
+            ].map((card) => (
+              <Card key={card.label} className="overflow-hidden" data-testid={card.testId}>
+                <div className={`h-1.5 bg-gradient-to-r ${card.color}`} />
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">{card.label}</span>
+                    <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${card.color} flex items-center justify-center`}>
+                      <card.icon className="w-4 h-4 text-white" />
+                    </div>
                   </div>
-                  <span className={`w-2 h-2 rounded-full mt-1.5 ${p.status === "active" ? "bg-emerald-500" : "bg-gray-400"}`} />
+                  <p className="text-xl font-bold">{card.value}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{card.sub}</p>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-center mb-3">
-                  <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-2">
-                    <p className="text-xs text-muted-foreground">ISP</p>
-                    <p className="text-lg font-bold text-blue-700 dark:text-blue-300">{p.ispCredits}</p>
-                  </div>
-                  <div className="bg-purple-50 dark:bg-purple-950/30 rounded-lg p-2">
-                    <p className="text-xs text-muted-foreground">SPC</p>
-                    <p className="text-lg font-bold text-purple-700 dark:text-purple-300">{p.spcCredits}</p>
-                  </div>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="w-full text-xs gap-1.5"
-                  onClick={() => setSelectedProvider(p)}
-                  data-testid={`button-financial-manage-${p.id}`}
-                >
-                  <CreditCard className="w-3.5 h-3.5" />Gerenciar Creditos
-                </Button>
               </Card>
             ))}
           </div>
 
-          <Card className="p-5">
-            <h3 className="font-semibold mb-3 flex items-center gap-2">
-              <Clock className="w-4 h-4" />Historico de Alteracoes
-            </h3>
-            <div className="space-y-2 max-h-80 overflow-y-auto">
-              {planHistory.map((h: any) => (
-                <div key={h.id} className="flex items-start gap-3 py-2 border-b last:border-0 text-sm">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                    h.newPlan ? "bg-purple-100 text-purple-700" : "bg-emerald-100 text-emerald-700"
-                  }`}>
-                    {h.newPlan ? <ArrowUpDown className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium text-xs">
-                        {h.newPlan
-                          ? `Plano: ${PLAN_LABELS[h.oldPlan]?.label} → ${PLAN_LABELS[h.newPlan]?.label}`
-                          : `Creditos: ISP +${h.ispCreditsAdded} / SPC +${h.spcCreditsAdded}`}
-                      </span>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        {new Date(h.createdAt).toLocaleDateString("pt-BR")}
-                      </span>
+          {/* Revenue chart + Plan distribution */}
+          <div className="grid lg:grid-cols-3 gap-4">
+            <Card className="lg:col-span-2 p-5">
+              <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-blue-500" />Receita por Mes (ultimos 6 meses)
+              </h3>
+              <div className="flex items-end gap-2 h-32">
+                {(financialSummary?.last6Months || []).map((m: any) => {
+                  const max = Math.max(...(financialSummary?.last6Months || []).map((x: any) => x.revenue), 1);
+                  const pct = max > 0 ? (m.revenue / max) * 100 : 0;
+                  const [y, mo] = m.period.split("-");
+                  const months = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+                  const label = months[parseInt(mo) - 1];
+                  return (
+                    <div key={m.period} className="flex flex-col items-center flex-1 gap-1">
+                      <span className="text-xs text-muted-foreground">{m.revenue > 0 ? `R$${m.revenue}` : ""}</span>
+                      <div
+                        className="w-full rounded-t-sm bg-gradient-to-t from-blue-500 to-indigo-400 transition-all"
+                        style={{ height: `${Math.max(pct, 4)}%` }}
+                      />
+                      <span className="text-[10px] text-muted-foreground">{label}</span>
                     </div>
-                    {h.notes && <p className="text-xs text-muted-foreground mt-0.5 truncate">{h.notes}</p>}
-                    {h.changedByName && <p className="text-xs text-muted-foreground/70">{h.changedByName}</p>}
+                  );
+                })}
+              </div>
+            </Card>
+
+            <Card className="p-5">
+              <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
+                <Crown className="w-4 h-4 text-amber-500" />Distribuicao de Planos
+              </h3>
+              <div className="space-y-2">
+                {Object.entries(financialSummary?.planDistribution || {}).map(([plan, count]: any) => {
+                  const total = Object.values(financialSummary?.planDistribution || {}).reduce((a: any, b: any) => a + b, 0) as number;
+                  const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                  return (
+                    <div key={plan}>
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="font-medium">{PLAN_LABELS[plan]?.label || plan}</span>
+                        <span className="text-muted-foreground">{count} ({pct}%)</span>
+                      </div>
+                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+                {!financialSummary?.planDistribution && (
+                  <p className="text-xs text-muted-foreground text-center py-4">Sem dados</p>
+                )}
+              </div>
+            </Card>
+          </div>
+
+          {/* Invoice management */}
+          <Card className="overflow-hidden">
+            <div className="p-5 border-b">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-indigo-500" />Gestao de Faturas
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">{allInvoices.length} fatura(s) no sistema</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-xs"
+                    onClick={() => {
+                      const period = new Date().toISOString().slice(0, 7);
+                      if (confirm(`Gerar faturas mensais para ${period}?`)) generateMonthlyMutation.mutate(period);
+                    }}
+                    disabled={generateMonthlyMutation.isPending}
+                    data-testid="button-generate-monthly-invoices"
+                  >
+                    {generateMonthlyMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                    Gerar Mensais
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="gap-1.5 text-xs"
+                    onClick={() => setShowNewInvoice(!showNewInvoice)}
+                    data-testid="button-new-invoice"
+                  >
+                    <Plus className="w-3.5 h-3.5" />Nova Fatura
+                  </Button>
+                </div>
+              </div>
+
+              {/* Filter */}
+              <div className="flex gap-1.5 mt-4 flex-wrap">
+                {[
+                  { value: "all", label: "Todas" },
+                  { value: "pending", label: "Pendentes" },
+                  { value: "paid", label: "Pagas" },
+                  { value: "overdue", label: "Vencidas" },
+                  { value: "cancelled", label: "Canceladas" },
+                ].map((f) => (
+                  <Button
+                    key={f.value}
+                    size="sm"
+                    variant={invoiceFilter === f.value ? "default" : "outline"}
+                    className="h-7 text-xs px-3"
+                    onClick={() => setInvoiceFilter(f.value)}
+                    data-testid={`button-invoice-filter-${f.value}`}
+                  >
+                    {f.label}
+                    {f.value !== "all" && (
+                      <span className="ml-1 opacity-70">
+                        ({allInvoices.filter((i: any) => i.status === f.value).length})
+                      </span>
+                    )}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {/* New Invoice Form */}
+            {showNewInvoice && (
+              <div className="p-5 border-b bg-muted/30">
+                <h4 className="font-medium text-sm mb-4">Emitir Nova Fatura</h4>
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                  <div>
+                    <Label className="text-xs">Provedor</Label>
+                    <Select value={invoiceForm.providerId} onValueChange={(v) => {
+                      const p = allProviders.find((x: any) => x.id.toString() === v);
+                      const PLAN_PRICES: Record<string, number> = { free: 0, basic: 199, pro: 399, enterprise: 799 };
+                      const PLAN_CREDITS_MAP: Record<string, { isp: number; spc: number }> = {
+                        free: { isp: 50, spc: 0 }, basic: { isp: 200, spc: 50 }, pro: { isp: 500, spc: 150 }, enterprise: { isp: 1500, spc: 500 }
+                      };
+                      if (p) {
+                        const credits = PLAN_CREDITS_MAP[p.plan] || { isp: 0, spc: 0 };
+                        setInvoiceForm(f => ({ ...f, providerId: v, planAtTime: p.plan, amount: PLAN_PRICES[p.plan]?.toString() || "0", ispCreditsIncluded: credits.isp.toString(), spcCreditsIncluded: credits.spc.toString() }));
+                      } else {
+                        setInvoiceForm(f => ({ ...f, providerId: v }));
+                      }
+                    }}>
+                      <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-invoice-provider">
+                        <SelectValue placeholder="Selecionar provedor" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {allProviders.map((p: any) => (
+                          <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Periodo (AAAA-MM)</Label>
+                    <Input
+                      className="h-8 text-xs mt-1"
+                      placeholder="2026-03"
+                      value={invoiceForm.period}
+                      onChange={(e) => setInvoiceForm(f => ({ ...f, period: e.target.value }))}
+                      data-testid="input-invoice-period"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Plano Cobrado</Label>
+                    <Select value={invoiceForm.planAtTime} onValueChange={(v) => {
+                      const PLAN_PRICES: Record<string, number> = { free: 0, basic: 199, pro: 399, enterprise: 799 };
+                      const PLAN_CREDITS_MAP: Record<string, { isp: number; spc: number }> = {
+                        free: { isp: 50, spc: 0 }, basic: { isp: 200, spc: 50 }, pro: { isp: 500, spc: 150 }, enterprise: { isp: 1500, spc: 500 }
+                      };
+                      const credits = PLAN_CREDITS_MAP[v] || { isp: 0, spc: 0 };
+                      setInvoiceForm(f => ({ ...f, planAtTime: v, amount: PLAN_PRICES[v]?.toString() || "0", ispCreditsIncluded: credits.isp.toString(), spcCreditsIncluded: credits.spc.toString() }));
+                    }}>
+                      <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-invoice-plan">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="free">Gratuito — R$ 0</SelectItem>
+                        <SelectItem value="basic">Basico — R$ 199</SelectItem>
+                        <SelectItem value="pro">Pro — R$ 399</SelectItem>
+                        <SelectItem value="enterprise">Enterprise — R$ 799</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Valor (R$)</Label>
+                    <Input
+                      className="h-8 text-xs mt-1"
+                      type="number"
+                      placeholder="199"
+                      value={invoiceForm.amount}
+                      onChange={(e) => setInvoiceForm(f => ({ ...f, amount: e.target.value }))}
+                      data-testid="input-invoice-amount"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Vencimento</Label>
+                    <Input
+                      className="h-8 text-xs mt-1"
+                      type="date"
+                      value={invoiceForm.dueDate}
+                      onChange={(e) => setInvoiceForm(f => ({ ...f, dueDate: e.target.value }))}
+                      data-testid="input-invoice-due-date"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Observacoes (opcional)</Label>
+                    <Input
+                      className="h-8 text-xs mt-1"
+                      placeholder="Observacao..."
+                      value={invoiceForm.notes}
+                      onChange={(e) => setInvoiceForm(f => ({ ...f, notes: e.target.value }))}
+                      data-testid="input-invoice-notes"
+                    />
                   </div>
                 </div>
-              ))}
-              {planHistory.length === 0 && (
-                <p className="text-sm text-muted-foreground py-4 text-center">Nenhum historico de alteracoes</p>
-              )}
-            </div>
+                <div className="flex gap-2 mt-3">
+                  <Button
+                    size="sm"
+                    className="gap-1.5 text-xs"
+                    disabled={createInvoiceMutation.isPending}
+                    onClick={() => createInvoiceMutation.mutate(invoiceForm)}
+                    data-testid="button-submit-invoice"
+                  >
+                    {createInvoiceMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
+                    Emitir Fatura
+                  </Button>
+                  <Button variant="ghost" size="sm" className="text-xs" onClick={() => setShowNewInvoice(false)}>Cancelar</Button>
+                </div>
+              </div>
+            )}
+
+            {/* Invoice Table */}
+            {invoicesLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : (() => {
+              const filtered = invoiceFilter === "all" ? allInvoices : allInvoices.filter((i: any) => i.status === invoiceFilter);
+              const STATUS_STYLE: Record<string, string> = {
+                pending:   "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+                paid:      "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+                overdue:   "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+                cancelled: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+              };
+              const STATUS_LABEL: Record<string, string> = {
+                pending: "Pendente", paid: "Pago", overdue: "Vencido", cancelled: "Cancelado"
+              };
+              return filtered.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 gap-2">
+                  <FileText className="w-8 h-8 text-muted-foreground opacity-40" />
+                  <p className="text-sm text-muted-foreground">Nenhuma fatura encontrada</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-muted/30">
+                        <th className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground">Numero</th>
+                        <th className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground">Provedor</th>
+                        <th className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground">Periodo</th>
+                        <th className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground">Plano</th>
+                        <th className="text-right py-3 px-4 text-xs font-semibold text-muted-foreground">Valor</th>
+                        <th className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground">Vencimento</th>
+                        <th className="text-center py-3 px-4 text-xs font-semibold text-muted-foreground">Status</th>
+                        <th className="text-center py-3 px-4 text-xs font-semibold text-muted-foreground">Acoes</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {filtered.map((inv: any) => {
+                        const isOverdue = inv.status === "pending" && new Date(inv.dueDate) < new Date();
+                        const displayStatus = isOverdue ? "overdue" : inv.status;
+                        return (
+                          <tr key={inv.id} className="hover:bg-muted/20 transition-colors" data-testid={`invoice-row-${inv.id}`}>
+                            <td className="py-3 px-4">
+                              <span className="font-mono text-xs font-medium text-blue-700 dark:text-blue-300">{inv.invoiceNumber}</span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="font-medium text-xs">{inv.providerName}</span>
+                            </td>
+                            <td className="py-3 px-4 text-xs text-muted-foreground">{inv.period}</td>
+                            <td className="py-3 px-4">
+                              <Badge className={`text-xs ${PLAN_LABELS[inv.planAtTime]?.color || ""}`}>
+                                {PLAN_LABELS[inv.planAtTime]?.label || inv.planAtTime}
+                              </Badge>
+                            </td>
+                            <td className="py-3 px-4 text-right font-semibold text-xs">
+                              R$ {parseFloat(inv.paidAmount || inv.amount).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="py-3 px-4 text-xs text-muted-foreground">
+                              {new Date(inv.dueDate).toLocaleDateString("pt-BR")}
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <Badge className={`text-xs ${STATUS_STYLE[displayStatus] || STATUS_STYLE.pending}`}>
+                                {STATUS_LABEL[displayStatus] || displayStatus}
+                              </Badge>
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="flex items-center justify-center gap-1">
+                                <Button
+                                  variant="ghost" size="sm"
+                                  className="h-7 w-7 p-0"
+                                  onClick={() => navigate(`/admin/fatura/${inv.id}`)}
+                                  title="Ver fatura"
+                                  data-testid={`button-view-invoice-${inv.id}`}
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                </Button>
+                                {(inv.status === "pending" || displayStatus === "overdue") && (
+                                  <Button
+                                    variant="ghost" size="sm"
+                                    className="h-7 w-7 p-0 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                                    onClick={() => updateInvoiceStatusMutation.mutate({ id: inv.id, status: "paid", paidAmount: inv.amount })}
+                                    title="Marcar como pago"
+                                    data-testid={`button-mark-paid-${inv.id}`}
+                                  >
+                                    <CheckCircle className="w-3.5 h-3.5" />
+                                  </Button>
+                                )}
+                                {(inv.status === "pending" || displayStatus === "overdue") && (
+                                  <Button
+                                    variant="ghost" size="sm"
+                                    className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                    onClick={() => { if (confirm("Cancelar esta fatura?")) cancelInvoiceMutation.mutate(inv.id); }}
+                                    title="Cancelar fatura"
+                                    data-testid={`button-cancel-invoice-${inv.id}`}
+                                  >
+                                    <Ban className="w-3.5 h-3.5" />
+                                  </Button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </Card>
+
+          {/* Credits management and history */}
+          <div className="grid lg:grid-cols-2 gap-4">
+            <Card className="p-5">
+              <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
+                <CreditCard className="w-4 h-4 text-blue-500" />Creditos por Provedor
+              </h3>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {allProviders.map((p: any) => (
+                  <div key={p.id} className="flex items-center gap-3 py-2 border-b last:border-0">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{p.name}</p>
+                      <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
+                        <span className="text-blue-600 font-medium">ISP: {p.ispCredits}</span>
+                        <span className="text-purple-600 font-medium">SPC: {p.spcCredits}</span>
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline" size="sm"
+                      className="text-xs h-7 gap-1"
+                      onClick={() => setSelectedProvider(p)}
+                      data-testid={`button-manage-credits-${p.id}`}
+                    >
+                      <Plus className="w-3 h-3" />Creditos
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            <Card className="p-5">
+              <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
+                <Clock className="w-4 h-4 text-muted-foreground" />Historico de Alteracoes
+              </h3>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {planHistory.map((h: any) => (
+                  <div key={h.id} className="flex items-start gap-3 py-2 border-b last:border-0 text-sm">
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                      h.newPlan ? "bg-purple-100 text-purple-700" : "bg-emerald-100 text-emerald-700"
+                    }`}>
+                      {h.newPlan ? <ArrowUpDown className="w-3.5 h-3.5" /> : <Plus className="w-3 h-3" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium text-xs">
+                          {h.newPlan
+                            ? `${PLAN_LABELS[h.oldPlan]?.label} → ${PLAN_LABELS[h.newPlan]?.label}`
+                            : `ISP +${h.ispCreditsAdded} / SPC +${h.spcCreditsAdded}`}
+                        </span>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          {new Date(h.createdAt).toLocaleDateString("pt-BR")}
+                        </span>
+                      </div>
+                      {h.notes && <p className="text-xs text-muted-foreground truncate">{h.notes}</p>}
+                    </div>
+                  </div>
+                ))}
+                {planHistory.length === 0 && (
+                  <p className="text-xs text-muted-foreground py-4 text-center">Nenhum historico</p>
+                )}
+              </div>
+            </Card>
+          </div>
         </TabsContent>
 
         <TabsContent value="suporte">

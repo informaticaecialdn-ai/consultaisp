@@ -62,10 +62,25 @@ New registrations require email verification before login:
 ## System Admin Panel (/admin-sistema)
 - Access: superadmin role only (master@consultaisp.com.br / Master@2024)
 - Sidebar for superadmin shows ONLY "Painel Administrativo" link (no provider features)
-- 5 tabs: Painel Geral (system stats), Provedores (list/create/manage/deactivate), Usuarios (all system users), Financeiro (credits and plan history per provider), Suporte (chat panel with providers)
+- 5 tabs: Painel Geral (system stats), Provedores (list/create/manage/deactivate), Usuarios (all system users), Financeiro (full financial management), Suporte (chat panel with providers)
 - Provider management: create providers with admin user, toggle active/inactive, manage ISP/SPC credits, change plan
 - Support chat: polling every 10s for chat threads, admin can reply to any provider's thread
 - API routes protected with requireSuperAdmin middleware
+
+## Financial System (Financeiro tab)
+- KPI cards: MRR, ARR, Em Aberto (pending revenue/count), Em Atraso (overdue revenue/count)
+- Revenue chart: last 6 months bar chart (data from providerInvoices)
+- Plan distribution: horizontal progress bars by plan type
+- Invoice management table with status filters (Todas/Pendentes/Pagas/Vencidas/Canceladas)
+- Actions per invoice: view (eye icon → /admin/fatura/:id), mark as paid (checkmark), cancel (ban icon)
+- Create manual invoice: form inline with provider dropdown, period, plan, amount, due date
+- Generate monthly invoices: auto-creates one invoice per active non-free provider for a given period
+- Invoice view page (/admin/fatura/:id): print-friendly layout with NF number, provider info, service table, totals
+- Invoice numbering: NF-YEAR-000001 format (auto-incrementing per year)
+- Plan prices: free=R$0, basic=R$199, pro=R$399, enterprise=R$799
+- Plan credits: free={isp:50,spc:0}, basic={isp:200,spc:50}, pro={isp:500,spc:150}, enterprise={isp:1500,spc:500}
+- DB table: providerInvoices (invoiceNumber, providerId, period, amount, planAtTime, ispCreditsIncluded, spcCreditsIncluded, dueDate, status, paidDate, paidAmount, notes, createdById)
+- API: GET/POST /api/admin/invoices, GET /api/admin/invoices/:id, PATCH /api/admin/invoices/:id/status, DELETE /api/admin/invoices/:id, POST /api/admin/invoices/generate-monthly, GET /api/admin/financial/summary
 
 ## Support Chat Widget
 - Floating button at bottom-right for non-superadmin users (data-testid="button-open-chat")
