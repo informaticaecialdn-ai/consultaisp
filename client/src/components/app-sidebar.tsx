@@ -1,4 +1,5 @@
 import { useLocation, Link } from "wouter";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import {
   Sidebar,
@@ -12,6 +13,11 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   LayoutDashboard,
   Search,
@@ -29,6 +35,10 @@ import {
   ExternalLink,
   Crown,
   Activity,
+  ChevronDown,
+  FileText,
+  MessageSquare,
+  UserCog,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -61,6 +71,116 @@ const toolsMenu = [
   { title: "Administracao", url: "/administracao", icon: Settings },
 ];
 
+const ADMIN_GROUPS = [
+  {
+    label: "Visao Geral",
+    key: "overview",
+    collapsible: false,
+    items: [
+      { title: "Painel Geral", hash: "painel", icon: Activity, testId: "link-admin-painel" },
+    ],
+  },
+  {
+    label: "Gestao",
+    key: "gestao",
+    collapsible: true,
+    items: [
+      { title: "Provedores", hash: "provedores", icon: Building2, testId: "link-admin-provedores" },
+      { title: "Usuarios", hash: "usuarios", icon: UserCog, testId: "link-admin-usuarios" },
+    ],
+  },
+  {
+    label: "Financeiro",
+    key: "financeiro",
+    collapsible: true,
+    items: [
+      { title: "Faturas e Cobrancas", hash: "financeiro", icon: FileText, testId: "link-admin-financeiro" },
+    ],
+  },
+  {
+    label: "Suporte",
+    key: "suporte",
+    collapsible: false,
+    items: [
+      { title: "Chat com Provedores", hash: "suporte", icon: MessageSquare, testId: "link-admin-suporte" },
+    ],
+  },
+];
+
+function AdminCollapsibleGroup({
+  group,
+  activeHash,
+}: {
+  group: (typeof ADMIN_GROUPS)[number];
+  activeHash: string;
+}) {
+  const isGroupActive = group.items.some((i) => i.hash === activeHash);
+  const [open, setOpen] = useState(isGroupActive || true);
+
+  if (!group.collapsible) {
+    return (
+      <SidebarGroup className="py-0.5">
+        <SidebarGroupLabel className="text-[10px] font-semibold tracking-wider uppercase text-muted-foreground px-2 py-1.5">
+          {group.label}
+        </SidebarGroupLabel>
+        <SidebarGroupContent>
+          <SidebarMenu>
+            {group.items.map((item) => (
+              <SidebarMenuItem key={item.hash}>
+                <SidebarMenuButton
+                  asChild
+                  data-active={activeHash === item.hash}
+                  data-testid={item.testId}
+                >
+                  <a href={`/admin-sistema#${item.hash}`}>
+                    <item.icon className="w-4 h-4" />
+                    <span>{item.title}</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+    );
+  }
+
+  return (
+    <SidebarGroup className="py-0.5">
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <CollapsibleTrigger asChild>
+          <SidebarGroupLabel className="text-[10px] font-semibold tracking-wider uppercase text-muted-foreground px-2 py-1.5 cursor-pointer flex items-center justify-between w-full hover:text-foreground transition-colors">
+            <span>{group.label}</span>
+            <ChevronDown
+              className={`w-3 h-3 transition-transform duration-200 ${open ? "rotate-0" : "-rotate-90"}`}
+            />
+          </SidebarGroupLabel>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {group.items.map((item) => (
+                <SidebarMenuItem key={item.hash}>
+                  <SidebarMenuButton
+                    asChild
+                    data-active={activeHash === item.hash}
+                    data-testid={item.testId}
+                  >
+                    <a href={`/admin-sistema#${item.hash}`}>
+                      <item.icon className="w-4 h-4" />
+                      <span>{item.title}</span>
+                    </a>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </CollapsibleContent>
+      </Collapsible>
+    </SidebarGroup>
+  );
+}
+
 export function AppSidebar() {
   const [location] = useLocation();
   const { user, provider, logout } = useAuth();
@@ -69,13 +189,26 @@ export function AppSidebar() {
   const isPro = provider?.plan === "pro" || provider?.plan === "enterprise";
   const isSuperAdmin = user?.role === "superadmin";
 
+  const [activeHash, setActiveHash] = useState(() =>
+    typeof window !== "undefined" ? window.location.hash.replace("#", "") || "painel" : "painel"
+  );
+
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    const handleHashChange = () => {
+      setActiveHash(window.location.hash.replace("#", "") || "painel");
+    };
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, [isSuperAdmin]);
+
   if (isSuperAdmin) {
     return (
       <Sidebar>
-        <SidebarHeader className="p-4">
-          <Link href="/admin-sistema">
+        <SidebarHeader className="p-4 pb-3">
+          <a href="/admin-sistema#painel">
             <div className="flex items-center gap-3 cursor-pointer">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-600 to-rose-700 flex items-center justify-center">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-600 to-rose-700 flex items-center justify-center flex-shrink-0">
                 <Shield className="w-5 h-5 text-white" />
               </div>
               <div className="flex flex-col">
@@ -83,38 +216,32 @@ export function AppSidebar() {
                 <span className="text-[11px] text-muted-foreground leading-tight">Sistema Admin</span>
               </div>
             </div>
-          </Link>
+          </a>
         </SidebarHeader>
-        <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupLabel className="text-[11px] font-semibold tracking-wider uppercase text-muted-foreground">
-              Administracao
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild data-active={location === "/admin-sistema"}>
-                    <Link href="/admin-sistema" data-testid="link-admin-sistema">
-                      <Activity className="w-4 h-4" />
-                      <span>Painel Administrativo</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+
+        <SidebarContent className="gap-0">
+          {ADMIN_GROUPS.map((group) => (
+            <AdminCollapsibleGroup key={group.key} group={group} activeHash={activeHash} />
+          ))}
         </SidebarContent>
-        <SidebarFooter className="p-4 space-y-3">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center text-sm font-bold text-red-700 dark:text-red-300">
+
+        <SidebarFooter className="p-4 space-y-3 border-t">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-full bg-rose-100 dark:bg-rose-950 flex items-center justify-center text-sm font-bold text-rose-700 dark:text-rose-300 flex-shrink-0">
               {user?.name?.charAt(0)?.toUpperCase() || "A"}
             </div>
             <div className="flex flex-col min-w-0 flex-1">
               <span className="text-sm font-medium truncate">{user?.name}</span>
-              <span className="text-[11px] text-red-600 dark:text-red-400 font-medium">Super Admin</span>
+              <span className="text-[10px] text-rose-600 dark:text-rose-400 font-semibold uppercase tracking-wide">Super Admin</span>
             </div>
           </div>
-          <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-muted-foreground" onClick={logout} data-testid="button-logout">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
+            onClick={logout}
+            data-testid="button-logout"
+          >
             <LogOut className="w-4 h-4" />Sair
           </Button>
         </SidebarFooter>

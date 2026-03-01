@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -376,7 +376,30 @@ export default function AdminSistemaPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
-  const [activeTab, setActiveTab] = useState("painel");
+
+  const getInitialTab = () => {
+    const hash = window.location.hash.replace("#", "");
+    const valid = ["painel", "provedores", "usuarios", "financeiro", "suporte"];
+    return valid.includes(hash) ? hash : "painel";
+  };
+
+  const [activeTab, setActiveTab] = useState(getInitialTab);
+
+  const changeTab = useCallback((tab: string) => {
+    setActiveTab(tab);
+    window.history.replaceState(null, "", `/admin-sistema#${tab}`);
+  }, []);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const hash = window.location.hash.replace("#", "");
+      const valid = ["painel", "provedores", "usuarios", "financeiro", "suporte"];
+      if (valid.includes(hash)) setActiveTab(hash);
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
   const [showNewProvider, setShowNewProvider] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<any>(null);
   const [providerSearch, setProviderSearch] = useState("");
@@ -551,7 +574,7 @@ export default function AdminSistemaPage() {
         </Badge>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={changeTab}>
         <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="painel" className="gap-1.5" data-testid="tab-admin-painel">
             <Activity className="w-3.5 h-3.5" />Painel Geral
