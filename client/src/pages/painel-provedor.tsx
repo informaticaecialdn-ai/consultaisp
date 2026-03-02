@@ -159,8 +159,8 @@ export default function PainelProvedorPage() {
 
   const saveN8nMutation = useMutation({
     mutationFn: (data: any) => apiRequest("PATCH", "/api/provider/n8n-config", data),
-    onSuccess: () => { refetchN8n(); toast({ title: "N8N salvo", description: "Configuracao N8N atualizada com sucesso." }); },
-    onError: () => toast({ title: "Erro", description: "Nao foi possivel salvar a configuracao N8N.", variant: "destructive" }),
+    onSuccess: () => { refetchN8n(); toast({ title: "Configuracao salva", description: "Integracao atualizada com sucesso." }); },
+    onError: () => toast({ title: "Erro", description: "Nao foi possivel salvar a configuracao.", variant: "destructive" }),
   });
 
   const getErpForm = (key: string) => {
@@ -1505,67 +1505,32 @@ export default function PainelProvedorPage() {
                 </div>
 
                 {/* Stats */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {[
-                    { label: "ERPs Ativos",         value: erpTotalEnabled,                        icon: CheckCheck,    accent: "from-violet-500 to-indigo-500", bg: "bg-violet-100 dark:bg-violet-900/30", ic: "text-violet-600" },
-                    { label: "Total Sincronizados",  value: erpTotalSynced.toLocaleString("pt-BR"), icon: Database,   accent: "from-emerald-500 to-green-500",  bg: "bg-emerald-100 dark:bg-emerald-900/30", ic: "text-emerald-600" },
-                    { label: "Ultima Sincronizacao", value: relDate(erpLastSync),                   icon: Clock,      accent: "from-sky-500 to-blue-500",       bg: "bg-sky-100 dark:bg-sky-900/30", ic: "text-sky-600" },
-                    { label: "Total de Erros",       value: erpTotalErrors.toLocaleString("pt-BR"), icon: AlertTriangle, accent: "from-rose-500 to-red-500", bg: "bg-rose-100 dark:bg-rose-900/30", ic: "text-rose-600" },
-                  ].map(s => (
-                    <Card key={s.label} className="relative overflow-hidden p-3">
-                      <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${s.accent}`} />
-                      <div className="flex items-center justify-between mb-1.5">
-                        <p className="text-xs text-muted-foreground">{s.label}</p>
-                        <div className={`w-6 h-6 rounded-md ${s.bg} flex items-center justify-center`}>
-                          <s.icon className={`${s.ic}`} style={{ width: 13, height: 13 }} />
-                        </div>
-                      </div>
-                      <p className="text-lg font-bold">{s.value}</p>
-                    </Card>
-                  ))}
-                </div>
-
-                {/* ── CARD N8N (somente status) ── */}
                 {(() => {
-                  const n8nEnabled = n8nConfig?.n8nEnabled ?? false;
-                  const n8nConfigured = !!(n8nConfig?.n8nWebhookUrl);
+                  const erpActive = !!(n8nConfig?.n8nEnabled && n8nConfig?.n8nErpProvider);
+                  const erpName = n8nConfig?.n8nErpProvider ? (ERP_LIST.find(e => e.key === n8nConfig.n8nErpProvider)?.name ?? n8nConfig.n8nErpProvider) : "Nenhum";
                   return (
-                    <Card className={`overflow-hidden ${n8nEnabled ? "border-orange-200" : ""}`} data-testid="card-n8n-integration">
-                      <div className="flex items-center gap-3 px-4 py-4">
-                        <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-orange-500 to-red-600 flex items-center justify-center flex-shrink-0">
-                          <Zap className="w-4 h-4 text-white" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="text-sm font-bold">Integracao N8N</p>
-                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                              n8nEnabled ? "bg-emerald-100 text-emerald-700" :
-                              n8nConfigured ? "bg-amber-100 text-amber-700" :
-                              "bg-slate-100 text-slate-500"
-                            }`} data-testid="n8n-status-badge">
-                              {n8nEnabled ? "Ativo" : n8nConfigured ? "Inativo" : "Nao configurado"}
-                            </span>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {[
+                        { label: "Status da Integracao", value: erpActive ? "Ativa" : "Inativa",      icon: CheckCheck,    accent: erpActive ? "from-emerald-500 to-green-500" : "from-slate-400 to-slate-500", bg: erpActive ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-slate-100 dark:bg-slate-800", ic: erpActive ? "text-emerald-600" : "text-slate-500" },
+                        { label: "ERP Integrado",         value: erpName,                              icon: Database,      accent: "from-violet-500 to-indigo-500", bg: "bg-violet-100 dark:bg-violet-900/30", ic: "text-violet-600" },
+                        { label: "Ultima Sincronizacao",  value: relDate(erpLastSync),                 icon: Clock,         accent: "from-sky-500 to-blue-500",      bg: "bg-sky-100 dark:bg-sky-900/30", ic: "text-sky-600" },
+                        { label: "Total de Erros",        value: erpTotalErrors.toLocaleString("pt-BR"), icon: AlertTriangle, accent: "from-rose-500 to-red-500",    bg: "bg-rose-100 dark:bg-rose-900/30", ic: "text-rose-600" },
+                      ].map(s => (
+                        <Card key={s.label} className="relative overflow-hidden p-3">
+                          <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${s.accent}`} />
+                          <div className="flex items-center justify-between mb-1.5">
+                            <p className="text-xs text-muted-foreground">{s.label}</p>
+                            <div className={`w-6 h-6 rounded-md ${s.bg} flex items-center justify-center`}>
+                              <s.icon className={`${s.ic}`} style={{ width: 13, height: 13 }} />
+                            </div>
                           </div>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {n8nEnabled
-                              ? "As consultas ISP estao sendo processadas via API N8N"
-                              : n8nConfigured
-                              ? "Integracao configurada mas desativada pelo administrador"
-                              : "Integracao nao configurada. Contate o administrador do sistema."}
-                          </p>
-                        </div>
-                        {n8nEnabled && (
-                          <div className="flex-shrink-0">
-                            <span className="flex items-center gap-1.5 text-xs text-emerald-600">
-                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                              Online
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    </Card>
+                          <p className="text-lg font-bold truncate">{s.value}</p>
+                        </Card>
+                      ))}
+                    </div>
                   );
                 })()}
+
 
                 {/* ERP Selection / Integrado */}
                 {(() => {
@@ -1604,7 +1569,7 @@ export default function PainelProvedorPage() {
 
                       {showSelection ? (
                         <div className="p-4 space-y-3">
-                          <p className="text-xs text-muted-foreground">Selecione o ERP que sua empresa utiliza. Isso facilita a identificacao da integracao via N8N.</p>
+                          <p className="text-xs text-muted-foreground">Selecione o ERP que sua empresa utiliza para que possamos ativar a integracao automatica de inadimplentes.</p>
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
                             {ERP_LIST.map(erp => {
                               const isSelected = currentSelection === erp.key;
@@ -1660,16 +1625,28 @@ export default function PainelProvedorPage() {
                             <div className="flex items-center gap-2 flex-wrap">
                               <p className="text-sm font-bold">{selectedErpData?.name ?? savedErp}</p>
                               <span className="text-xs text-muted-foreground">{selectedErpData?.desc}</span>
-                              {n8nConfig?.n8nEnabled && (
-                                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Integrado via N8N</span>
-                              )}
+                              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                                n8nConfig?.n8nEnabled
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : "bg-amber-100 text-amber-700"
+                              }`} data-testid="erp-integration-status">
+                                {n8nConfig?.n8nEnabled ? "Ativo" : "Inativo"}
+                              </span>
                             </div>
                             <p className="text-xs text-muted-foreground mt-0.5">
                               {n8nConfig?.n8nEnabled
-                                ? "As consultas ISP utilizam este ERP atraves da integracao N8N"
-                                : "ERP identificado. A integracao N8N esta inativa no momento."}
+                                ? "A integracao com este ERP esta ativa. Os inadimplentes sao consultados automaticamente."
+                                : "A integracao com este ERP esta inativa. Contate o administrador do sistema."}
                             </p>
                           </div>
+                          {n8nConfig?.n8nEnabled && (
+                            <div className="flex-shrink-0">
+                              <span className="flex items-center gap-1.5 text-xs text-emerald-600">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                Online
+                              </span>
+                            </div>
+                          )}
                         </div>
                       )}
                     </Card>
