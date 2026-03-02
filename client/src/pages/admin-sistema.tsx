@@ -379,7 +379,7 @@ export default function AdminSistemaPage() {
 
   const getInitialTab = () => {
     const hash = window.location.hash.replace("#", "");
-    const valid = ["painel", "provedores", "usuarios", "financeiro", "suporte"];
+    const valid = ["painel", "provedores", "usuarios", "financeiro", "suporte", "integracoes"];
     return valid.includes(hash) ? hash : "painel";
   };
 
@@ -393,7 +393,7 @@ export default function AdminSistemaPage() {
   useEffect(() => {
     const onHashChange = () => {
       const hash = window.location.hash.replace("#", "");
-      const valid = ["painel", "provedores", "usuarios", "financeiro", "suporte"];
+      const valid = ["painel", "provedores", "usuarios", "financeiro", "suporte", "integracoes"];
       if (valid.includes(hash)) setActiveTab(hash);
     };
     window.addEventListener("hashchange", onHashChange);
@@ -611,10 +611,11 @@ export default function AdminSistemaPage() {
 
   const PAGE_META: Record<string, { title: string; desc: string; icon: any; color: string }> = {
     painel:    { title: "Painel Geral",        desc: "Visao geral do sistema",          icon: BarChart3,    color: "from-red-600 to-rose-700" },
-    provedores:{ title: "Provedores",          desc: "Gerencie todos os provedores",    icon: Building2,    color: "from-blue-600 to-indigo-700" },
-    usuarios:  { title: "Usuarios",            desc: "Contas e acessos do sistema",     icon: Users,        color: "from-violet-600 to-purple-700" },
-    financeiro:{ title: "Faturas e Cobrancas", desc: "Receita, faturas e pagamentos",   icon: DollarSign,   color: "from-emerald-600 to-teal-700" },
-    suporte:   { title: "Suporte",             desc: "Chat direto com provedores",      icon: MessageSquare,color: "from-orange-500 to-amber-600" },
+    provedores:   { title: "Provedores",          desc: "Gerencie todos os provedores",                icon: Building2,    color: "from-blue-600 to-indigo-700" },
+    usuarios:     { title: "Usuarios",            desc: "Contas e acessos do sistema",                 icon: Users,        color: "from-violet-600 to-purple-700" },
+    financeiro:   { title: "Faturas e Cobrancas", desc: "Receita, faturas e pagamentos",               icon: DollarSign,   color: "from-emerald-600 to-teal-700" },
+    suporte:      { title: "Suporte",             desc: "Chat direto com provedores",                  icon: MessageSquare,color: "from-orange-500 to-amber-600" },
+    integracoes:  { title: "Integracoes",         desc: "Status de integracao N8N e ERP por provedor", icon: Zap,          color: "from-orange-500 to-red-600" },
   };
   const meta = PAGE_META[activeTab] || PAGE_META.painel;
   const MetaIcon = meta.icon;
@@ -855,6 +856,79 @@ export default function AdminSistemaPage() {
             )}
           </Card>
         </div>)}
+
+        {activeTab === "integracoes" && (
+          <div className="space-y-4">
+            <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 flex gap-3">
+              <Zap className="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-orange-800">
+                <p className="font-semibold">Integracoes por Provedor</p>
+                <p className="text-xs mt-0.5 text-orange-700">Status das integracoes N8N e ERP de cada provedor. Cada provedor configura sua propria integracao em Meu Provedor → Integracao.</p>
+              </div>
+            </div>
+
+            <Card className="overflow-hidden">
+              <div className="px-5 py-3 border-b bg-slate-50/50 flex items-center justify-between">
+                <p className="text-sm font-semibold">Status de Integracoes</p>
+                <Badge variant="secondary">{allProviders.length} provedor(es)</Badge>
+              </div>
+              {providersLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {allProviders.map((p: any) => {
+                    const n8nActive = p.n8nEnabled && p.n8nWebhookUrl;
+                    const n8nConfigured = !!p.n8nWebhookUrl;
+                    return (
+                      <div key={p.id} className="flex items-center gap-4 px-5 py-3.5" data-testid={`integracoes-row-${p.id}`}>
+                        <div className="w-9 h-9 rounded-lg bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-sm font-bold text-blue-700 dark:text-blue-300 flex-shrink-0">
+                          {p.name?.charAt(0)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{p.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">{p.subdomain ? `${p.subdomain}.consultaisp.com.br` : "sem subdominio"}</p>
+                        </div>
+                        <div className="flex items-center gap-3 flex-shrink-0 flex-wrap justify-end">
+                          <div className="flex items-center gap-1.5">
+                            <Zap className="w-3.5 h-3.5 text-orange-500" />
+                            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                              n8nActive ? "bg-emerald-100 text-emerald-700" :
+                              n8nConfigured ? "bg-amber-100 text-amber-700" :
+                              "bg-slate-100 text-slate-500"
+                            }`}>
+                              {n8nActive ? "N8N Ativo" : n8nConfigured ? "N8N Inativo" : "N8N Nao config."}
+                            </span>
+                          </div>
+                          {n8nConfigured && (
+                            <span className="text-xs text-muted-foreground hidden md:block max-w-[180px] truncate">
+                              {p.n8nWebhookUrl}
+                            </span>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs gap-1"
+                            onClick={() => setSelectedProvider(p)}
+                            data-testid={`button-integracoes-detail-${p.id}`}
+                          >
+                            Ver Detalhes
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {allProviders.length === 0 && (
+                    <div className="py-10 text-center text-sm text-muted-foreground">
+                      Nenhum provedor cadastrado
+                    </div>
+                  )}
+                </div>
+              )}
+            </Card>
+          </div>
+        )}
 
         {/* ASAAS Charge Modal */}
         {asaasChargeModal && (

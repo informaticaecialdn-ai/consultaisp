@@ -90,6 +90,7 @@ const ADMIN_GROUPS = [
     items: [
       { title: "Provedores", hash: "provedores", icon: Building2, testId: "link-admin-provedores" },
       { title: "Usuarios", hash: "usuarios", icon: UserCog, testId: "link-admin-usuarios" },
+      { title: "Integracoes", hash: "integracoes", icon: Zap, testId: "link-admin-integracoes" },
     ],
   },
   {
@@ -338,7 +339,7 @@ export function AppSidebar() {
 
         <SidebarGroup>
           <SidebarGroupLabel className="text-[11px] font-semibold tracking-wider uppercase text-muted-foreground">
-            Ferramentas
+            Gestao
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
