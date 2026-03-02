@@ -795,118 +795,66 @@ export default function ConsultaISPPage() {
 
         {/* ── ABA: INFORMACOES ── */}
         {activeTab === "info" && (
-          <Card className="shadow-lg rounded-2xl overflow-hidden">
-            <div className="bg-slate-50 border-b px-6 py-4 flex items-center gap-3">
-              <Info className="w-5 h-5 text-slate-500" />
+          <Card className="shadow-lg rounded-2xl overflow-hidden" data-testid="tab-content-info">
+            <div className="px-6 py-4 flex items-center gap-3">
+              <Shield className="w-5 h-5 text-slate-600" />
               <h2 className="text-lg font-semibold text-slate-900">Sobre a Consulta ISP</h2>
             </div>
-            <div className="p-6 space-y-6 text-sm text-slate-600">
-              <p>A Consulta ISP e uma rede colaborativa de protecao ao credito exclusiva para provedores de internet. Funciona como um "SPC do setor de telecom", onde provedores compartilham informacoes sobre clientes inadimplentes para proteger uns aos outros.</p>
-
-              <div>
-                <h3 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
-                  <Target className="w-4 h-4 text-blue-600" />
-                  Fluxo da Consulta
-                </h3>
-                <div className="space-y-2">
-                  {[
-                    { n: "1", t: "Digite CPF ou CNPJ", d: "Valida o formato do documento automaticamente" },
-                    { n: "2", t: "Sistema busca em TODOS os provedores", d: "Carrega dados do cliente, faturas, equipamentos e calcula score" },
-                    { n: "3", t: "Gera alertas anti-fraude (se aplicavel)", d: "Notifica provedores originais sobre clientes inadimplentes consultados" },
-                    { n: "4", t: "Resultado consolidado com score e recomendacao", d: "Debita creditos (se consulta de outro provedor) e salva no historico" },
-                  ].map((step, i) => (
-                    <div key={step.n}>
-                      <div className="flex items-start gap-3 p-3 bg-blue-50 rounded-lg">
-                        <span className="font-bold text-blue-600 min-w-[24px]">{step.n}.</span>
-                        <div>
-                          <p className="font-medium text-slate-900">{step.t}</p>
-                          <p className="text-xs">{step.d}</p>
-                        </div>
-                      </div>
-                      {i < 3 && <div className="flex justify-center my-1"><ArrowRight className="w-4 h-4 text-slate-400" /></div>}
-                    </div>
-                  ))}
-                </div>
+            <div className="px-6 pb-6 space-y-5">
+              {/* Busca Inteligente */}
+              <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-4 flex items-center gap-3">
+                <Search className="w-5 h-5 text-blue-600 flex-shrink-0" />
+                <p className="text-sm text-blue-900">
+                  <span className="font-semibold">Busca Inteligente:</span> O sistema detecta automaticamente se voce digitou um{" "}
+                  <span className="font-semibold">CPF</span> (11 digitos),{" "}
+                  <span className="font-semibold">CNPJ</span> (14 digitos) ou{" "}
+                  <span className="font-semibold">CEP</span> (8 digitos).
+                </p>
               </div>
 
-              <div>
-                <h3 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
-                  <BarChart3 className="w-4 h-4 text-blue-600" />
-                  Calculo do Score ISP (0-100)
-                </h3>
-                <p className="mb-3">Score = 100 - Penalidades + Bonus (minimo 0, maximo 100)</p>
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-red-600 uppercase">Penalidades</p>
-                  {[
-                    ["Atraso 1-30 dias", "-10"], ["Atraso 31-60 dias", "-20"], ["Atraso 61-90 dias", "-30"],
-                    ["Atraso 90+ dias", "-40"], ["Cada R$ 100 em aberto", "-5"],
-                    ["Equipamento nao devolvido (cada)", "-15"], ["Contrato menor que 6 meses", "-10"],
-                    ["Multiplas consultas (>3 em 30 dias)", "-20"], ["Divida em multiplos provedores", "-25"],
-                  ].map(([l, v]) => (
-                    <div key={l} className="flex justify-between p-2 bg-red-50 rounded-lg text-sm">
-                      <span className="text-slate-700">{l}</span>
-                      <span className="font-semibold text-red-600">{v}</span>
-                    </div>
-                  ))}
-                  <p className="text-xs font-semibold text-emerald-600 uppercase mt-3">Bonus</p>
-                  {[
-                    ["Cliente ha mais de 2 anos (em dia)", "+10"],
-                    ["Nunca atrasou pagamento", "+15"],
-                    ["Equipamentos sempre devolvidos", "+5"],
-                  ].map(([l, v]) => (
-                    <div key={l} className="flex justify-between p-2 bg-emerald-50 rounded-lg text-sm">
-                      <span className="text-slate-700">{l}</span>
-                      <span className="font-semibold text-emerald-600">{v}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <h3 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-blue-600" />
-                  Classificacao de Risco
-                </h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {[
-                    { range: "80-100", label: "BAIXO RISCO", desc: "Aprovar", color: "bg-emerald-500" },
-                    { range: "50-79", label: "MEDIO RISCO", desc: "Com cautela", color: "bg-amber-500" },
-                    { range: "25-49", label: "ALTO RISCO", desc: "Exigir garantias", color: "bg-orange-500" },
-                    { range: "0-24", label: "CRITICO", desc: "Rejeitar", color: "bg-red-500" },
-                  ].map(r => (
-                    <div key={r.range} className="p-3 bg-white border border-slate-200 rounded-xl">
-                      <div className="flex items-center gap-2 mb-1">
-                        <div className={`w-3 h-3 rounded-full ${r.color}`} />
-                        <span className="text-sm font-medium text-slate-900">{r.range}</span>
+              {/* Três cards de tipo */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {[
+                  {
+                    icon: FileText,
+                    label: "CPF",
+                    digits: "11 digitos",
+                    example: "Exemplo: 123.456.789-00",
+                    iconColor: "text-blue-600",
+                    iconBg: "bg-blue-50",
+                  },
+                  {
+                    icon: Building2,
+                    label: "CNPJ",
+                    digits: "14 digitos",
+                    example: "Exemplo: 12.345.678/0001-00",
+                    iconColor: "text-blue-600",
+                    iconBg: "bg-blue-50",
+                  },
+                  {
+                    icon: MapPin,
+                    label: "CEP",
+                    digits: "8 digitos",
+                    example: "Exemplo: 12345-678",
+                    iconColor: "text-blue-600",
+                    iconBg: "bg-blue-50",
+                  },
+                ].map(t => (
+                  <div
+                    key={t.label}
+                    className="border border-slate-200 rounded-xl p-5 bg-white"
+                    data-testid={`card-type-${t.label.toLowerCase()}`}
+                  >
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className={`w-9 h-9 rounded-lg ${t.iconBg} flex items-center justify-center`}>
+                        <t.icon className={`w-5 h-5 ${t.iconColor}`} />
                       </div>
-                      <p className="text-xs font-semibold text-slate-800">{r.label}</p>
-                      <p className="text-xs text-slate-500">{r.desc}</p>
+                      <span className="text-base font-semibold text-slate-900">{t.label}</span>
                     </div>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <h3 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-600" />
-                  Sistema Anti-Fraude
-                </h3>
-                <p className="mb-3">Alertas sao gerados automaticamente nas seguintes situacoes:</p>
-                <div className="space-y-2">
-                  {[
-                    { t: "Cliente inadimplente consultado", d: "Quando um provedor busca por CPF/CNPJ de cliente em atraso em outro provedor — possivel tentativa de nova assinatura para fugir da divida." },
-                    { t: "Multiplas consultas do mesmo documento", d: "Quando o mesmo CPF/CNPJ e consultado 3+ vezes em 30 dias por diferentes provedores — possivel uso de identidade fraudulenta." },
-                    { t: "Equipamentos nao devolvidos", d: "Quando cliente possui equipamentos pendentes de devolucao em provedores anteriores." },
-                  ].map(a => (
-                    <div key={a.t} className="flex items-start gap-3 p-3 bg-amber-50 rounded-lg">
-                      <Zap className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
-                      <div>
-                        <p className="font-medium text-slate-900 text-sm">{a.t}</p>
-                        <p className="text-xs text-slate-600 mt-0.5">{a.d}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    <p className="text-sm text-slate-700 font-medium">{t.digits}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{t.example}</p>
+                  </div>
+                ))}
               </div>
             </div>
           </Card>
