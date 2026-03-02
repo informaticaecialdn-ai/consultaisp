@@ -4,7 +4,7 @@ import {
   providers, users, customers, contracts, invoices, equipment,
   ispConsultations, spcConsultations, antiFraudAlerts,
   supportThreads, supportMessages, planChanges, providerInvoices, creditOrders,
-  providerPartners, providerDocuments, erpIntegrations, erpSyncLogs,
+  providerPartners, providerDocuments, erpIntegrations, erpSyncLogs, erpCatalog,
   type Provider, type InsertProvider,
   type User, type InsertUser,
   type Customer, type InsertCustomer,
@@ -22,6 +22,7 @@ import {
   type ProviderPartner, type InsertProviderPartner,
   type ProviderDocument, type InsertProviderDocument,
   type ErpIntegration, type ErpSyncLog,
+  type ErpCatalog, type InsertErpCatalog,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -139,6 +140,12 @@ export interface IStorage {
   getErpSyncLogs(providerId: number, erpSource?: string, limit?: number): Promise<ErpSyncLog[]>;
   createErpSyncLog(log: Omit<ErpSyncLog, "id" | "syncedAt">): Promise<ErpSyncLog>;
   getErpIntegrationStats(providerId?: number): Promise<any>;
+
+  getAllErpCatalog(): Promise<ErpCatalog[]>;
+  getErpCatalogItem(id: number): Promise<ErpCatalog | undefined>;
+  createErpCatalogItem(data: InsertErpCatalog): Promise<ErpCatalog>;
+  updateErpCatalogItem(id: number, data: Partial<InsertErpCatalog>): Promise<ErpCatalog>;
+  deleteErpCatalogItem(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1160,6 +1167,29 @@ export class DatabaseStorage implements IStorage {
       activeProviders: activeProviders.length,
       totalProviders: allProviders.length,
     };
+  }
+
+  async getAllErpCatalog(): Promise<ErpCatalog[]> {
+    return db.select().from(erpCatalog).orderBy(erpCatalog.name);
+  }
+
+  async getErpCatalogItem(id: number): Promise<ErpCatalog | undefined> {
+    const [item] = await db.select().from(erpCatalog).where(eq(erpCatalog.id, id));
+    return item;
+  }
+
+  async createErpCatalogItem(data: InsertErpCatalog): Promise<ErpCatalog> {
+    const [item] = await db.insert(erpCatalog).values(data).returning();
+    return item;
+  }
+
+  async updateErpCatalogItem(id: number, data: Partial<InsertErpCatalog>): Promise<ErpCatalog> {
+    const [item] = await db.update(erpCatalog).set(data).where(eq(erpCatalog.id, id)).returning();
+    return item;
+  }
+
+  async deleteErpCatalogItem(id: number): Promise<void> {
+    await db.delete(erpCatalog).where(eq(erpCatalog.id, id));
   }
 }
 

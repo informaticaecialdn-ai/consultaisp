@@ -157,6 +157,21 @@ export default function PainelProvedorPage() {
     enabled: activeTab === "integracao",
   });
 
+  const { data: erpCatalogData = [] } = useQuery<any[]>({
+    queryKey: ["/api/erp-catalog"],
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const activeErpList = (erpCatalogData.length > 0 ? erpCatalogData.filter((e: any) => e.active) : ERP_LIST).map((e: any) => ({
+    key: e.key,
+    name: e.name,
+    desc: e.description ?? e.desc ?? e.name,
+    grad: e.gradient ?? e.grad ?? "from-slate-500 to-slate-600",
+    authType: e.authType ?? e.auth_type ?? "bearer",
+    authHint: e.authHint ?? e.auth_hint ?? "",
+    logoBase64: e.logoBase64 ?? e.logo_base64 ?? null,
+  }));
+
   const saveN8nMutation = useMutation({
     mutationFn: (data: any) => apiRequest("PATCH", "/api/provider/n8n-config", data),
     onSuccess: () => { refetchN8n(); toast({ title: "Configuracao salva", description: "Integracao atualizada com sucesso." }); },
@@ -1507,7 +1522,7 @@ export default function PainelProvedorPage() {
                 {/* Stats */}
                 {(() => {
                   const erpActive = !!(n8nConfig?.n8nEnabled && n8nConfig?.n8nErpProvider);
-                  const erpName = n8nConfig?.n8nErpProvider ? (ERP_LIST.find(e => e.key === n8nConfig.n8nErpProvider)?.name ?? n8nConfig.n8nErpProvider) : "Nenhum";
+                  const erpName = n8nConfig?.n8nErpProvider ? (activeErpList.find(e => e.key === n8nConfig.n8nErpProvider)?.name ?? n8nConfig.n8nErpProvider) : "Nenhum";
                   return (
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                       {[
@@ -1535,7 +1550,7 @@ export default function PainelProvedorPage() {
                 {/* ERP Selection / Integrado */}
                 {(() => {
                   const savedErp = n8nConfig?.n8nErpProvider ?? null;
-                  const selectedErpData = savedErp ? ERP_LIST.find(e => e.key === savedErp) : null;
+                  const selectedErpData = savedErp ? activeErpList.find(e => e.key === savedErp) : null;
                   const showSelection = !savedErp || erpChanging;
                   const currentSelection = erpLocalSelection ?? savedErp;
 
@@ -1571,7 +1586,7 @@ export default function PainelProvedorPage() {
                         <div className="p-4 space-y-3">
                           <p className="text-xs text-muted-foreground">Selecione o ERP que sua empresa utiliza para que possamos ativar a integracao automatica de inadimplentes.</p>
                           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                            {ERP_LIST.map(erp => {
+                            {activeErpList.map(erp => {
                               const isSelected = currentSelection === erp.key;
                               return (
                                 <button
@@ -1584,12 +1599,16 @@ export default function PainelProvedorPage() {
                                       : "border-transparent bg-slate-50 hover:bg-slate-100 hover:border-slate-200"
                                   }`}
                                 >
-                                  <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${erp.grad} flex items-center justify-center`}>
-                                    <Wifi className="w-4 h-4 text-white" />
+                                  <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${erp.grad} flex items-center justify-center overflow-hidden flex-shrink-0`}>
+                                    {erp.logoBase64 ? (
+                                      <img src={erp.logoBase64} alt={erp.name} className="w-full h-full object-contain p-1.5 bg-white/10" />
+                                    ) : (
+                                      <span className="text-white text-sm font-bold">{erp.name[0]}</span>
+                                    )}
                                   </div>
                                   <div className="text-center">
                                     <p className={`text-xs font-bold leading-tight ${isSelected ? "text-violet-700" : "text-slate-700"}`}>{erp.name}</p>
-                                    <p className="text-xs text-muted-foreground leading-tight">{erp.desc}</p>
+                                    <p className="text-[10px] text-muted-foreground leading-tight">{erp.desc}</p>
                                   </div>
                                   {isSelected && (
                                     <span className="w-4 h-4 rounded-full bg-violet-500 flex items-center justify-center">

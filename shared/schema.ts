@@ -394,6 +394,23 @@ export const PLAN_PRICES: Record<string, number> = {
   enterprise: 799,
 };
 
+export const erpCatalog = pgTable("erp_catalog", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  logoBase64: text("logo_base64"),
+  gradient: text("gradient").notNull().default("from-slate-500 to-slate-600"),
+  active: boolean("active").notNull().default(true),
+  authType: text("auth_type").notNull().default("bearer"),
+  authHint: text("auth_hint"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertErpCatalogSchema = createInsertSchema(erpCatalog).omit({ id: true, createdAt: true });
+export type InsertErpCatalog = z.infer<typeof insertErpCatalogSchema>;
+export type ErpCatalog = typeof erpCatalog.$inferSelect;
+
 export const PLAN_CREDITS: Record<string, { isp: number; spc: number }> = {
   free: { isp: 50, spc: 0 },
   basic: { isp: 200, spc: 50 },

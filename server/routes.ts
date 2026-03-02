@@ -2668,5 +2668,45 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/erp-catalog", requireAuth, async (_req, res) => {
+    try {
+      const items = await storage.getAllErpCatalog();
+      return res.json(items);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/erp-catalog", requireSuperAdmin, async (req, res) => {
+    try {
+      const { insertErpCatalogSchema } = await import("@shared/schema");
+      const data = insertErpCatalogSchema.parse(req.body);
+      const item = await storage.createErpCatalogItem(data);
+      return res.status(201).json(item);
+    } catch (error: any) {
+      return res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/erp-catalog/:id", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const item = await storage.updateErpCatalogItem(id, req.body);
+      return res.json(item);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/admin/erp-catalog/:id", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteErpCatalogItem(id);
+      return res.json({ success: true });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
   return httpServer;
 }
