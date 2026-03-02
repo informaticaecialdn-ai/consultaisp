@@ -11,6 +11,7 @@ import {
   Clock, FileText, CreditCard, AlertTriangle, Shield, Building2,
   Wifi, ChevronDown, ChevronUp, Lightbulb, Target, Minus, Plus,
   Lock, ArrowRight, Zap, Router, MapPin, XCircle, AlertCircle,
+  User, Sparkles, Download, Save, RotateCcw, TrendingDown, TrendingUp,
 } from "lucide-react";
 
 interface ProviderDetail {
@@ -377,19 +378,7 @@ export default function ConsultaISPPage() {
             {!mutation.isPending && result && (
               <div className="space-y-4" data-testid="consultation-result">
 
-                {/* Aviso de confidencialidade */}
-                <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4 flex items-start gap-3">
-                  <Lock className="w-5 h-5 text-amber-700 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="font-bold text-base text-amber-900">INFORMACAO CONFIDENCIAL</p>
-                    <p className="text-sm text-amber-800 mt-0.5">
-                      As informacoes divulgadas atraves desta plataforma sao de uso exclusivo do provedor consulente,
-                      vedada sua divulgacao a terceiros, nos termos da legislacao vigente.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Card de resultado */}
+                {/* Nada Consta */}
                 {result.notFound ? (
                   <Card className="overflow-hidden border-2 border-green-200 shadow-lg rounded-2xl">
                     <div className="bg-green-50 px-6 py-4 flex items-center gap-3">
@@ -413,255 +402,384 @@ export default function ConsultaISPPage() {
                   </Card>
                 ) : (
                   <div className="space-y-4">
-                    {/* Card principal do resultado */}
-                    {(() => {
-                      const style = decisionCardStyle(result.decisionReco);
-                      const DecIcon = decisionIcon(result.decisionReco);
+
+                    {/* Banner múltiplos cadastros */}
+                    {result.providersFound > 0 && (
+                      <div className="rounded-xl bg-amber-50 border border-amber-200 py-4 px-6 text-center" data-testid="banner-multiplos">
+                        <p className="text-base font-bold text-amber-900">Multiplos Cadastros Encontrados</p>
+                        <p className="text-sm text-amber-700 mt-0.5">
+                          {result.providersFound} cadastro(s) encontrado(s) para a busca realizada.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Card por provedor */}
+                    {result.providerDetails.map((detail, i) => {
+                      const contractMonths = Math.max(1, Math.round(detail.contractAgeDays / 30));
+                      const tipoCliente = result.cpfCnpj.replace(/\D/g, "").length <= 11 ? "Pessoa Fisica" : "Pessoa Juridica";
+                      const statusContrato = detail.cancelledDate ? "Cancelado" : "Ativo";
+                      const now = new Date();
+                      const dataConsulta = now.toLocaleDateString("pt-BR") + ", " + now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+                      const decisionLabel = result.decisionReco === "Accept" ? "Aprovar" : result.decisionReco === "Review" ? "Analisar" : "Rejeitar";
+                      const decisionBadgeCls = result.decisionReco === "Accept"
+                        ? "bg-green-100 text-green-700 border-green-200"
+                        : result.decisionReco === "Review"
+                        ? "bg-amber-100 text-amber-700 border-amber-200"
+                        : "bg-red-100 text-red-700 border-red-200";
+                      const statusPagBadgeCls = detail.daysOverdue === 0
+                        ? "bg-green-100 text-green-700 border-green-200"
+                        : detail.daysOverdue <= 30
+                        ? "bg-red-100 text-red-700 border-red-200"
+                        : "bg-red-100 text-red-700 border-red-200";
+                      const statusContratoCls = statusContrato === "Ativo"
+                        ? "bg-green-100 text-green-700 border-green-200"
+                        : "bg-slate-100 text-slate-600 border-slate-200";
+                      const ScoreIcon = result.score >= 50 ? TrendingUp : TrendingDown;
+                      const scoreIconCls = result.score >= 50 ? "text-emerald-500" : "text-red-500";
+
                       return (
-                        <Card className={`overflow-hidden border-2 ${style.border} shadow-lg rounded-2xl`}>
-                          <div className={`${style.header} px-6 py-4 flex items-center justify-between flex-wrap gap-3`}>
-                            <div className="flex items-center gap-3">
-                              <DecIcon className={`w-6 h-6 ${style.iconClass}`} />
-                              <div>
-                                <h3 className="text-lg font-semibold text-slate-900">Resultado da Consulta</h3>
-                                <p className="text-sm text-slate-600">Documento: {formatCpfCnpj(result.cpfCnpj)}</p>
+                        <Card key={i} className="overflow-hidden shadow-md rounded-2xl border border-slate-200" data-testid={`provider-detail-${i}`}>
+
+                          {/* Header do card */}
+                          <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                              <XCircle className="w-5 h-5 text-red-600" />
+                            </div>
+                            <div>
+                              <h3 className="font-semibold text-slate-900 text-sm leading-tight">Resultado da Consulta ISP</h3>
+                              <p className="text-xs text-slate-500">
+                                {detail.isSameProvider ? detail.customerName : detail.providerName}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* 3 colunas: Cliente | Score ISP | Consulta */}
+                          <div className="grid grid-cols-3 divide-x divide-slate-100">
+
+                            {/* Cliente */}
+                            <div className="p-5">
+                              <div className="flex items-center gap-2 mb-3">
+                                <User className="w-3.5 h-3.5 text-slate-400" />
+                                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Cliente</span>
+                              </div>
+                              <div className="space-y-2">
+                                <div>
+                                  <p className="text-xs text-slate-400">Nome:</p>
+                                  <p className="text-sm font-medium text-slate-900">
+                                    {detail.isSameProvider ? detail.customerName : (
+                                      <span className="flex items-center gap-1 text-slate-400">
+                                        <Lock className="w-3 h-3" /> Dado restrito
+                                      </span>
+                                    )}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-slate-400">Documento:</p>
+                                  <p className="text-sm text-slate-700">{formatCpfCnpj(result.cpfCnpj)}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-slate-400">Provedor:</p>
+                                  <p className="text-sm text-slate-700">{detail.providerName}</p>
+                                </div>
                               </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm text-slate-500">{result.providersFound} cadastro(s) encontrado(s)</span>
-                              {result.creditsCost > 0 ? (
-                                <Badge className="bg-blue-100 text-blue-700 border-blue-300 border text-xs">-{result.creditsCost} credito</Badge>
-                              ) : (
-                                <Badge className="bg-green-100 text-green-700 border-green-300 border text-xs">Gratuita</Badge>
+
+                            {/* Score ISP */}
+                            <div className="p-5">
+                              <div className="flex items-center gap-2 mb-3">
+                                <BarChart3 className="w-3.5 h-3.5 text-slate-400" />
+                                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Score ISP</span>
+                              </div>
+                              <div className="border border-slate-200 rounded-xl p-3">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <ScoreIcon className={`w-4 h-4 ${scoreIconCls}`} />
+                                  <span className="text-base font-bold text-slate-900" data-testid="text-score-value">
+                                    Score: {result.score}
+                                  </span>
+                                </div>
+                                <span className={`inline-flex text-xs font-semibold px-2 py-0.5 rounded border ${decisionBadgeCls}`} data-testid="text-risk-tier">
+                                  {result.riskLabel}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Consulta */}
+                            <div className="p-5">
+                              <div className="flex items-center gap-2 mb-3">
+                                <FileText className="w-3.5 h-3.5 text-slate-400" />
+                                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Consulta</span>
+                              </div>
+                              <div className="space-y-2">
+                                <div>
+                                  <p className="text-xs text-slate-400">Data:</p>
+                                  <p className="text-sm text-slate-700">{dataConsulta}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-slate-400">Decisao:</p>
+                                  <span className={`inline-flex text-xs font-semibold px-2 py-0.5 rounded border ${decisionBadgeCls}`}>
+                                    {decisionLabel}
+                                  </span>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-slate-400">Custo:</p>
+                                  {result.creditsCost > 0 ? (
+                                    <span className="inline-flex text-xs font-semibold px-2 py-0.5 rounded border bg-blue-50 text-blue-700 border-blue-200">
+                                      {result.creditsCost} credito(s)
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex text-xs font-semibold px-2 py-0.5 rounded border bg-green-50 text-green-700 border-green-200">
+                                      Gratuita
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 2 colunas: Informações Financeiras | Histórico do Serviço */}
+                          <div className="grid grid-cols-2 divide-x divide-slate-100 border-t border-slate-100">
+
+                            {/* Informações Financeiras */}
+                            <div className="p-5">
+                              <div className="flex items-center gap-2 mb-3">
+                                <CreditCard className="w-3.5 h-3.5 text-slate-400" />
+                                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Informacoes Financeiras</span>
+                              </div>
+                              <div className="space-y-2">
+                                <div className="flex items-start gap-2">
+                                  <span className="text-xs text-slate-400 mt-0.5 w-20 shrink-0">Status Pag.:</span>
+                                  <span className={`inline-flex text-xs font-semibold px-2 py-0.5 rounded border ${statusPagBadgeCls}`}>
+                                    {detail.status}
+                                  </span>
+                                </div>
+                                {detail.isSameProvider && detail.overdueAmount !== undefined && detail.overdueAmount > 0 && (
+                                  <div>
+                                    <p className="text-xs text-slate-400">Valor em aberto:</p>
+                                    <p className="text-sm font-semibold text-red-600">
+                                      R$ {detail.overdueAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                                    </p>
+                                  </div>
+                                )}
+                                {!detail.isSameProvider && detail.overdueAmountRange && (
+                                  <div>
+                                    <p className="text-xs text-slate-400">Faixa de valor:</p>
+                                    <p className="text-sm text-slate-700">{detail.overdueAmountRange}</p>
+                                  </div>
+                                )}
+                                {detail.overdueInvoicesCount > 0 && (
+                                  <div>
+                                    <p className="text-xs text-slate-400">Faturas em atraso:</p>
+                                    <p className="text-sm text-slate-700">{detail.overdueInvoicesCount} fatura(s)</p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Histórico do Serviço */}
+                            <div className="p-5">
+                              <div className="flex items-center gap-2 mb-3">
+                                <Clock className="w-3.5 h-3.5 text-slate-400" />
+                                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Historico do Servico</span>
+                              </div>
+                              <div className="space-y-2">
+                                <div>
+                                  <p className="text-xs text-slate-400">Tempo de Servico:</p>
+                                  <p className="text-sm text-slate-700">{contractMonths} {contractMonths === 1 ? "mes" : "meses"}</p>
+                                </div>
+                                <div className="flex items-start gap-2">
+                                  <span className="text-xs text-slate-400 mt-0.5 w-28 shrink-0">Status do Contrato:</span>
+                                  <span className={`inline-flex text-xs font-semibold px-2 py-0.5 rounded border ${statusContratoCls}`}>
+                                    {statusContrato}
+                                  </span>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-slate-400">Tipo de Cliente:</p>
+                                  <p className="text-sm text-slate-700">{tipoCliente}</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </Card>
+                      );
+                    })}
+
+                    {/* Equipamentos Não Devolvidos */}
+                    {result.providerDetails.some(d => d.isSameProvider && d.hasUnreturnedEquipment && d.equipmentDetails?.length) && (
+                      result.providerDetails.filter(d => d.isSameProvider && d.hasUnreturnedEquipment && d.equipmentDetails?.length).map((detail, i) => {
+                        const totalEqp = detail.equipmentDetails!.reduce((s, e) => s + parseFloat(e.value || "0"), 0);
+                        return (
+                          <Card key={i} className="overflow-hidden shadow-sm rounded-2xl border border-amber-200">
+                            {/* Header */}
+                            <div className="px-5 py-3.5 flex items-center justify-between border-b border-amber-200 bg-white">
+                              <div className="flex items-center gap-2">
+                                <Router className="w-4 h-4 text-amber-600" />
+                                <h4 className="font-semibold text-slate-900">Equipamentos Nao Devolvidos</h4>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-xs text-slate-400">{detail.unreturnedEquipmentCount} Equipamento(s)</p>
+                                <p className="text-base font-bold text-slate-900">
+                                  R$ {totalEqp.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                                </p>
+                                <p className="text-xs text-slate-400">Valor Total dos Equipamentos</p>
+                              </div>
+                            </div>
+                            {/* Lista de equipamentos */}
+                            <div className="divide-y divide-slate-100">
+                              {detail.equipmentDetails!.map((eq, j) => (
+                                <div key={j} className="flex items-center justify-between px-5 py-3">
+                                  <div className="flex items-center gap-3">
+                                    <Router className="w-4 h-4 text-slate-400" />
+                                    <span className="text-sm font-medium text-slate-800">{eq.type}</span>
+                                    <span className="text-xs text-slate-400">
+                                      Serial: {eq.brand}{eq.model}
+                                    </span>
+                                  </div>
+                                  <span className="text-sm font-semibold text-slate-800">
+                                    R$ {parseFloat(eq.value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                            {/* Aviso */}
+                            <div className="px-5 py-3 bg-amber-50 border-t border-amber-200 flex items-center gap-2">
+                              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                              <p className="text-xs text-amber-800">
+                                <span className="font-semibold">Fator de Risco:</span> Historico de equipamentos nao devolvidos.
+                              </p>
+                            </div>
+                          </Card>
+                        );
+                      })
+                    )}
+
+                    {/* Fatores de Risco Identificados */}
+                    {result.alerts.length > 0 && (
+                      <div className="rounded-2xl border-l-4 border-l-amber-400 border border-amber-200 bg-white p-5 shadow-sm">
+                        <h4 className="text-sm font-semibold text-amber-700 mb-3 flex items-center gap-2" data-testid="section-fatores-risco">
+                          <AlertTriangle className="w-4 h-4 text-amber-500" />
+                          Fatores de Risco Identificados:
+                        </h4>
+                        <ul className="space-y-1.5">
+                          {result.alerts.map((alert, i) => (
+                            <li key={i} className="flex items-start gap-2 text-sm" data-testid={`alert-${i}`}>
+                              <span className="text-amber-500 mt-0.5 font-bold flex-shrink-0">•</span>
+                              <span className="text-slate-700">{alert}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Análise com Inteligência Artificial */}
+                    <Card className="overflow-hidden shadow-sm rounded-2xl border border-slate-200">
+                      <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-blue-600" />
+                        <h4 className="font-semibold text-slate-900">Analise com Inteligencia Artificial</h4>
+                      </div>
+                      <div className="p-5 space-y-4">
+                        {/* Quote */}
+                        <div className="bg-slate-50 rounded-xl px-4 py-3 border border-slate-200 text-center">
+                          <p className="text-sm text-slate-600 italic">
+                            "{result.decisionReco === "Accept"
+                              ? "Cliente com bom historico de pagamento e baixo risco de inadimplencia."
+                              : result.decisionReco === "Review"
+                              ? "Cliente com score baixo e situacao de inadimplencia recente, recomendando revisao cautelosa."
+                              : "Cliente com score baixo e riscos de inadimplencia."}"
+                          </p>
+                        </div>
+
+                        {/* Pontos Positivos | Pontos de Atenção */}
+                        <div className="grid grid-cols-2 gap-4">
+                          {/* Pontos Positivos */}
+                          <div>
+                            <h5 className="text-sm font-semibold text-emerald-700 mb-2 flex items-center gap-1.5">
+                              <CheckCircle className="w-4 h-4 text-emerald-500" />
+                              Pontos Positivos
+                            </h5>
+                            <div className="space-y-1.5">
+                              {result.bonuses.length > 0 ? result.bonuses.map((b, i) => (
+                                <div key={i} className="flex items-start gap-2 text-sm">
+                                  <CheckCircle className="w-3.5 h-3.5 text-emerald-500 mt-0.5 flex-shrink-0" />
+                                  <span className="text-slate-700">{b.reason}</span>
+                                </div>
+                              )) : (
+                                <p className="text-xs text-slate-400 italic">Nenhum ponto positivo identificado.</p>
                               )}
                             </div>
                           </div>
 
-                          {/* Tabela de clientes */}
-                          <div className="overflow-x-auto">
-                            <table className="w-full">
-                              <thead>
-                                <tr className="bg-slate-50 border-b border-slate-200 text-xs font-medium text-slate-600 uppercase">
-                                  <th className="text-left px-4 py-3">Cliente</th>
-                                  <th className="text-left px-4 py-3">Status</th>
-                                  <th className="text-left px-4 py-3">Valor Aberto</th>
-                                  <th className="text-center px-4 py-3">Score</th>
-                                  <th className="text-center px-4 py-3">Risco</th>
-                                  <th className="text-left px-4 py-3">Tags</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100">
-                                {result.providerDetails.map((detail, i) => {
-                                  const rowScore = result.score;
-                                  const scoreColorClass = scoreColor(rowScore);
-                                  const scoreBgClass = scoreBg(rowScore);
-                                  return (
-                                    <tr
-                                      key={i}
-                                      className="hover:bg-slate-50 transition-colors"
-                                      data-testid={`provider-detail-${i}`}
-                                    >
-                                      <td className="px-4 py-3">
-                                        <div className="flex items-center gap-3">
-                                          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-md flex-shrink-0">
-                                            {getInitials(detail.customerName || detail.providerName)}
-                                          </div>
-                                          <div>
-                                            <p className="font-medium text-slate-900 text-sm">
-                                              {detail.isSameProvider ? detail.customerName : (
-                                                <span className="flex items-center gap-1">
-                                                  <Lock className="w-3 h-3 text-slate-400" />
-                                                  Dado restrito
-                                                </span>
-                                              )}
-                                            </p>
-                                            <p className="text-xs text-slate-500">{detail.providerName}</p>
-                                            {detail.isSameProvider && (
-                                              <Badge className="text-xs bg-blue-100 text-blue-700 border-0 mt-0.5">Seu provedor</Badge>
-                                            )}
-                                          </div>
-                                        </div>
-                                      </td>
-                                      <td className="px-4 py-3">
-                                        <span className={`inline-flex text-xs font-medium px-2.5 py-1 rounded-full ${getPaymentStatusColor(detail.daysOverdue)}`}>
-                                          {detail.daysOverdue === 0 ? "Em dia" : "Atrasado"}
-                                        </span>
-                                        {detail.daysOverdue > 0 && (
-                                          <p className="text-xs text-slate-500 mt-0.5">{detail.daysOverdue} dias</p>
-                                        )}
-                                      </td>
-                                      <td className="px-4 py-3">
-                                        <p className={`text-sm font-semibold ${detail.daysOverdue > 0 ? "text-red-600" : "text-slate-700"}`}>
-                                          {detail.isSameProvider && detail.overdueAmount !== undefined
-                                            ? `R$ ${detail.overdueAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
-                                            : detail.overdueAmountRange || "R$ 0,00"}
-                                        </p>
-                                        {detail.overdueInvoicesCount > 0 && (
-                                          <p className="text-xs text-slate-500">{detail.overdueInvoicesCount} fatura(s)</p>
-                                        )}
-                                      </td>
-                                      <td className="px-4 py-3 text-center">
-                                        <div className="flex flex-col items-center gap-1">
-                                          <div className="relative w-[50px] h-[50px]">
-                                            <ScoreGaugeSvg score={rowScore} />
-                                            <span className={`absolute inset-0 flex items-center justify-center text-xs font-bold rotate-90 ${scoreColorClass}`} data-testid="text-score-value">
-                                              {rowScore}
-                                            </span>
-                                          </div>
-                                          <span className={`text-xs font-medium px-1.5 py-0.5 rounded border ${scoreBgClass}`}>
-                                            {rowScore}/100
-                                          </span>
-                                        </div>
-                                      </td>
-                                      <td className="px-4 py-3 text-center">
-                                        <span className={`inline-flex text-xs font-medium px-2.5 py-1 rounded-full ${riskDecisionBadge(result.decisionReco)}`} data-testid="text-risk-tier">
-                                          {result.decisionReco === "Accept" ? "Baixo"
-                                           : result.decisionReco === "Review" ? "Medio"
-                                           : "Alto"}
-                                        </span>
-                                      </td>
-                                      <td className="px-4 py-3">
-                                        <div className="flex flex-wrap gap-1">
-                                          {detail.hasUnreturnedEquipment && (
-                                            <span className="text-xs px-2 py-0.5 rounded border bg-amber-50 text-amber-700 border-amber-300">
-                                              Eqp
-                                            </span>
-                                          )}
-                                          {result.isOwnCustomer && (
-                                            <Badge className="text-xs bg-blue-50 text-blue-700 border-blue-200 border">Proprio</Badge>
-                                          )}
-                                        </div>
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        </Card>
-                      );
-                    })()}
-
-                    {/* Score details toggle */}
-                    <Card className="overflow-hidden shadow-sm rounded-xl">
-                      <button
-                        className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-slate-50 transition-colors"
-                        onClick={() => setShowScoreDetails(!showScoreDetails)}
-                        data-testid="button-toggle-score-details"
-                      >
-                        <div className="flex items-center gap-2">
-                          <Target className="w-4 h-4 text-blue-600" />
-                          <span className="text-sm font-semibold">Composicao do Score ISP</span>
-                          <span className="text-sm text-slate-500">— Score base: 100</span>
-                        </div>
-                        {showScoreDetails ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-                      </button>
-                      {showScoreDetails && (
-                        <div className="px-5 pb-5 border-t pt-4 space-y-3">
-                          {result.penalties.length > 0 && (
-                            <div className="space-y-1">
-                              <p className="text-xs font-semibold text-red-600 uppercase">Penalidades</p>
-                              {result.penalties.map((p, i) => (
-                                <div key={i} className="flex items-center justify-between text-sm p-2 bg-red-50 rounded-lg">
-                                  <div className="flex items-center gap-2"><Minus className="w-3 h-3 text-red-500" /><span className="text-slate-700">{p.reason}</span></div>
-                                  <span className="font-semibold text-red-600">{p.points}</span>
+                          {/* Pontos de Atenção */}
+                          <div>
+                            <h5 className="text-sm font-semibold text-amber-700 mb-2 flex items-center gap-1.5">
+                              <AlertTriangle className="w-4 h-4 text-amber-500" />
+                              Pontos de Atencao
+                            </h5>
+                            <div className="space-y-1.5">
+                              {result.penalties.length > 0 ? result.penalties.map((p, i) => (
+                                <div key={i} className="flex items-start gap-2 text-sm">
+                                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500 mt-0.5 flex-shrink-0" />
+                                  <span className="text-slate-700">{p.reason}</span>
                                 </div>
-                              ))}
+                              )) : (
+                                <p className="text-xs text-slate-400 italic">Nenhum ponto de atencao identificado.</p>
+                              )}
                             </div>
-                          )}
-                          {result.bonuses.length > 0 && (
-                            <div className="space-y-1">
-                              <p className="text-xs font-semibold text-emerald-600 uppercase">Bonus</p>
-                              {result.bonuses.map((b, i) => (
-                                <div key={i} className="flex items-center justify-between text-sm p-2 bg-emerald-50 rounded-lg">
-                                  <div className="flex items-center gap-2"><Plus className="w-3 h-3 text-emerald-500" /><span className="text-slate-700">{b.reason}</span></div>
-                                  <span className="font-semibold text-emerald-600">+{b.points}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          <div className="pt-3 border-t flex items-center justify-between">
-                            <span className="font-semibold">Score Final:</span>
-                            <span className="text-lg font-bold">{result.score}/100</span>
                           </div>
                         </div>
-                      )}
+                      </div>
                     </Card>
 
-                    {/* Equipamentos não devolvidos - para próprio provedor */}
-                    {result.providerDetails.some(d => d.isSameProvider && d.hasUnreturnedEquipment && d.equipmentDetails?.length) && (
-                      result.providerDetails.filter(d => d.isSameProvider && d.hasUnreturnedEquipment).map((detail, i) => (
-                        <Card key={i} className="overflow-hidden shadow-sm rounded-xl">
-                          <div className="flex items-center justify-between px-5 py-3.5 border-b-2 border-red-200 bg-white">
-                            <h4 className="font-semibold text-red-900 flex items-center gap-2">
-                              <Router className="w-4 h-4" />
-                              Equipamentos Nao Devolvidos
-                            </h4>
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-800 border border-red-300 font-medium">
-                              {detail.unreturnedEquipmentCount} item(s)
-                            </span>
-                          </div>
-                          <div className="p-4 space-y-2">
-                            {detail.equipmentDetails?.map((eq, j) => (
-                              <div key={j} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100">
-                                <div className="flex items-center gap-3">
-                                  <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
-                                    <Router className="w-4 h-4 text-red-600" />
-                                  </div>
-                                  <span className="text-sm font-medium">{eq.type} {eq.brand} {eq.model}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xl font-bold text-red-700">R$ {parseFloat(eq.value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</span>
-                                  {eq.inRecoveryProcess && <Badge variant="secondary" className="text-xs">Em recuperacao</Badge>}
-                                </div>
-                              </div>
-                            ))}
-                            <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between text-sm">
-                              <span className="font-semibold text-red-900">Total em equipamentos</span>
-                              <span className="font-bold text-red-700">
-                                R$ {detail.equipmentDetails?.reduce((s, e) => s + parseFloat(e.value), 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                              </span>
-                            </div>
-                          </div>
-                        </Card>
-                      ))
-                    )}
-
-                    {/* Alertas anti-fraude */}
-                    {result.alerts.length > 0 && (
-                      <Card className="p-5 bg-amber-50 border border-amber-200 shadow-sm rounded-xl">
-                        <h4 className="text-sm font-semibold mb-3 flex items-center gap-2 text-amber-800">
-                          <AlertTriangle className="w-4 h-4 text-amber-600" />
-                          Fatores de Risco
-                        </h4>
-                        <div className="space-y-2">
-                          {result.alerts.map((alert, i) => (
-                            <div key={i} className="flex items-start gap-2 text-sm" data-testid={`alert-${i}`}>
-                              <div className="w-2 h-2 rounded-full bg-amber-500 mt-1.5 flex-shrink-0" />
-                              <span className="text-amber-800">{alert}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </Card>
-                    )}
-
-                    {/* Ações recomendadas */}
+                    {/* Análise e Próximo Passo */}
                     {result.recommendedActions.length > 0 && (
-                      <Card className="p-5 bg-blue-50 border border-blue-200 shadow-sm rounded-xl">
-                        <h4 className="text-sm font-semibold mb-3 flex items-center gap-2 text-blue-800">
-                          <Lightbulb className="w-4 h-4" />
-                          Acoes Recomendadas
-                        </h4>
-                        <div className="space-y-2">
-                          {result.recommendedActions.map((action, i) => (
-                            <div key={i} className="flex items-start gap-2 text-sm" data-testid={`action-${i}`}>
-                              <span className="text-blue-600 font-semibold min-w-[20px]">{i + 1}.</span>
-                              <span className="text-blue-800">{action}</span>
-                            </div>
-                          ))}
+                      <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+                        <div className="flex items-center gap-2 mb-3">
+                          <ArrowRight className="w-4 h-4 text-blue-600" />
+                          <h4 className="text-sm font-semibold text-blue-700">Analise e Proximo Passo</h4>
                         </div>
-                      </Card>
+                        <p className="text-base font-bold text-slate-900 mb-1.5" data-testid="text-decision-summary">
+                          {result.decisionReco === "Accept"
+                            ? "Aprovacao recomendada — perfil de baixo risco."
+                            : result.decisionReco === "Review"
+                            ? "Aprovacao nao recomendada; considerar fatores de risco severos."
+                            : "Aprovacao nao recomendada devido a riscos elevados."}
+                        </p>
+                        <p className="text-sm text-slate-600">
+                          <span className="font-semibold">Sugestao:</span>{" "}
+                          {result.recommendedActions[0]}
+                        </p>
+                      </div>
                     )}
+
+                    {/* Botões de ação */}
+                    <div className="flex flex-wrap gap-3">
+                      <Button className="bg-blue-600 hover:bg-blue-700 text-white gap-2" data-testid="button-gerar-relatorio">
+                        <Download className="w-4 h-4" />
+                        Gerar Relatorio
+                      </Button>
+                      <Button variant="outline" className="gap-2" data-testid="button-salvar-consulta">
+                        <Save className="w-4 h-4" />
+                        Salvar Consulta
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="gap-2"
+                        onClick={() => setActiveTab("historico")}
+                        data-testid="button-ver-historico"
+                      >
+                        <Clock className="w-4 h-4" />
+                        Ver Historico
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="gap-2"
+                        onClick={() => { setQuery(""); setResult(null); }}
+                        data-testid="button-nova-consulta"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                        Nova Consulta
+                      </Button>
+                    </div>
+
                   </div>
                 )}
               </div>
