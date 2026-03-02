@@ -842,7 +842,7 @@ export default function ConsultaISPPage() {
                 ].map(t => (
                   <div
                     key={t.label}
-                    className="border border-slate-200 rounded-xl p-5 bg-white"
+                    className="bg-white/70 backdrop-blur rounded-xl shadow-sm p-5"
                     data-testid={`card-type-${t.label.toLowerCase()}`}
                   >
                     <div className="flex items-center gap-3 mb-3">
