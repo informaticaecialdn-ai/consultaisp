@@ -129,6 +129,8 @@ export interface IStorage {
   getProviderWebhookToken(providerId: number): Promise<string>;
   regenerateWebhookToken(providerId: number): Promise<string>;
   getProviderByWebhookToken(token: string): Promise<Provider | undefined>;
+  getN8nConfig(providerId: number): Promise<{ n8nWebhookUrl: string | null; n8nAuthToken: string | null; n8nEnabled: boolean }>;
+  saveN8nConfig(providerId: number, data: { n8nWebhookUrl?: string; n8nAuthToken?: string; n8nEnabled?: boolean }): Promise<void>;
   syncErpCustomers(providerId: number, erpSource: string, customersData: any[]): Promise<{ upserted: number; errors: number }>;
 
   getErpIntegrations(providerId: number): Promise<ErpIntegration[]>;
@@ -968,6 +970,23 @@ export class DatabaseStorage implements IStorage {
   async getProviderByWebhookToken(token: string): Promise<Provider | undefined> {
     const [provider] = await db.select().from(providers).where(sql`${providers.webhookToken} = ${token}`);
     return provider;
+  }
+
+  async getN8nConfig(providerId: number): Promise<{ n8nWebhookUrl: string | null; n8nAuthToken: string | null; n8nEnabled: boolean }> {
+    const [row] = await db.select({
+      n8nWebhookUrl: providers.n8nWebhookUrl,
+      n8nAuthToken: providers.n8nAuthToken,
+      n8nEnabled: providers.n8nEnabled,
+    }).from(providers).where(eq(providers.id, providerId));
+    return {
+      n8nWebhookUrl: row?.n8nWebhookUrl ?? null,
+      n8nAuthToken: row?.n8nAuthToken ?? null,
+      n8nEnabled: row?.n8nEnabled ?? false,
+    };
+  }
+
+  async saveN8nConfig(providerId: number, data: { n8nWebhookUrl?: string; n8nAuthToken?: string; n8nEnabled?: boolean }): Promise<void> {
+    await db.update(providers).set(data as any).where(eq(providers.id, providerId));
   }
 
   async getErpIntegrations(providerId: number): Promise<ErpIntegration[]> {

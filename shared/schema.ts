@@ -28,6 +28,9 @@ export const providers = pgTable("providers", {
   addressCity: text("address_city"),
   addressState: text("address_state"),
   webhookToken: text("webhook_token"),
+  n8nWebhookUrl: text("n8n_webhook_url"),
+  n8nAuthToken: text("n8n_auth_token"),
+  n8nEnabled: boolean("n8n_enabled").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
