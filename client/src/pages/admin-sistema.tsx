@@ -18,7 +18,7 @@ import {
   ArrowUpDown, Clock, User, Crown, Star, FileText, DollarSign,
   TrendingDown, AlertCircle, CalendarCheck, Printer, Eye, Ban,
   ChevronDown, Zap, Link2, QrCode, Wallet, ScanLine, RotateCcw,
-  ExternalLink, Copy
+  ExternalLink, Copy, CheckCircle2, EyeOff, Terminal, Save, AlertTriangle
 } from "lucide-react";
 
 const PLAN_LABELS: Record<string, { label: string; color: string }> = {
@@ -413,6 +413,62 @@ export default function AdminSistemaPage() {
   });
   const isSuperAdmin = user?.role === "superadmin";
   const [, navigate] = useLocation();
+
+  const [expandedN8n, setExpandedN8n] = useState<number | null>(null);
+  const [n8nForms, setN8nForms] = useState<Record<number, { url: string; token: string; showToken: boolean }>>({});
+  const [n8nTestResults, setN8nTestResults] = useState<Record<number, { ok: boolean; msg: string } | null>>({});
+  const [n8nPending, setN8nPending] = useState<Record<number, { saving?: boolean; testing?: boolean }>>({});
+
+  const getN8nForm = (p: any) => n8nForms[p.id] ?? { url: p.n8nWebhookUrl ?? "", token: p.n8nAuthToken ?? "", showToken: false };
+
+  const saveN8nForProvider = async (providerId: number, form: { url: string; token: string }) => {
+    setN8nPending(prev => ({ ...prev, [providerId]: { ...prev[providerId], saving: true } }));
+    try {
+      await fetch(`/api/admin/providers/${providerId}/n8n-config`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ n8nWebhookUrl: form.url, n8nAuthToken: form.token }),
+        credentials: "include",
+      });
+      toast({ title: "N8N salvo", description: "Configuracao N8N atualizada com sucesso." });
+      qc.invalidateQueries({ queryKey: ["/api/admin/providers"] });
+    } catch {
+      toast({ title: "Erro", description: "Nao foi possivel salvar.", variant: "destructive" });
+    } finally {
+      setN8nPending(prev => ({ ...prev, [providerId]: { ...prev[providerId], saving: false } }));
+    }
+  };
+
+  const testN8nForProvider = async (providerId: number) => {
+    setN8nPending(prev => ({ ...prev, [providerId]: { ...prev[providerId], testing: true } }));
+    setN8nTestResults(prev => ({ ...prev, [providerId]: null }));
+    try {
+      const r = await fetch(`/api/admin/providers/${providerId}/n8n-config/test`, { method: "POST", credentials: "include" });
+      const d = await r.json();
+      setN8nTestResults(prev => ({ ...prev, [providerId]: { ok: d.ok, msg: d.message } }));
+    } catch {
+      setN8nTestResults(prev => ({ ...prev, [providerId]: { ok: false, msg: "Erro de conexao" } }));
+    } finally {
+      setN8nPending(prev => ({ ...prev, [providerId]: { ...prev[providerId], testing: false } }));
+    }
+  };
+
+  const toggleN8nForProvider = async (p: any) => {
+    setN8nPending(prev => ({ ...prev, [p.id]: { ...prev[p.id], saving: true } }));
+    try {
+      await fetch(`/api/admin/providers/${p.id}/n8n-config`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ n8nEnabled: !p.n8nEnabled }),
+        credentials: "include",
+      });
+      qc.invalidateQueries({ queryKey: ["/api/admin/providers"] });
+    } catch {
+      toast({ title: "Erro", description: "Nao foi possivel atualizar.", variant: "destructive" });
+    } finally {
+      setN8nPending(prev => ({ ...prev, [p.id]: { ...prev[p.id], saving: false } }));
+    }
+  };
 
   const { data: stats } = useQuery<any>({
     queryKey: ["/api/admin/stats"],
@@ -862,14 +918,14 @@ export default function AdminSistemaPage() {
             <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 flex gap-3">
               <Zap className="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5" />
               <div className="text-sm text-orange-800">
-                <p className="font-semibold">Integracoes por Provedor</p>
-                <p className="text-xs mt-0.5 text-orange-700">Status das integracoes N8N e ERP de cada provedor. Cada provedor configura sua propria integracao em Meu Provedor → Integracao.</p>
+                <p className="font-semibold">Configuracao de Integracoes N8N</p>
+                <p className="text-xs mt-0.5 text-orange-700">Configure a integracao N8N para cada provedor. Quando ativa, as consultas ISP sao processadas via API N8N em tempo real. O provedor apenas ve o status (ativo/inativo).</p>
               </div>
             </div>
 
             <Card className="overflow-hidden">
               <div className="px-5 py-3 border-b bg-slate-50/50 flex items-center justify-between">
-                <p className="text-sm font-semibold">Status de Integracoes</p>
+                <p className="text-sm font-semibold">Provedores — Integracao N8N</p>
                 <Badge variant="secondary">{allProviders.length} provedor(es)</Badge>
               </div>
               {providersLoading ? (
@@ -881,41 +937,113 @@ export default function AdminSistemaPage() {
                   {allProviders.map((p: any) => {
                     const n8nActive = p.n8nEnabled && p.n8nWebhookUrl;
                     const n8nConfigured = !!p.n8nWebhookUrl;
+                    const isOpen = expandedN8n === p.id;
+                    const form = getN8nForm(p);
+                    const testResult = n8nTestResults[p.id];
+                    const isPending = n8nPending[p.id];
                     return (
-                      <div key={p.id} className="flex items-center gap-4 px-5 py-3.5" data-testid={`integracoes-row-${p.id}`}>
-                        <div className="w-9 h-9 rounded-lg bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-sm font-bold text-blue-700 dark:text-blue-300 flex-shrink-0">
-                          {p.name?.charAt(0)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{p.name}</p>
-                          <p className="text-xs text-muted-foreground truncate">{p.subdomain ? `${p.subdomain}.consultaisp.com.br` : "sem subdominio"}</p>
-                        </div>
-                        <div className="flex items-center gap-3 flex-shrink-0 flex-wrap justify-end">
-                          <div className="flex items-center gap-1.5">
-                            <Zap className="w-3.5 h-3.5 text-orange-500" />
+                      <div key={p.id} data-testid={`integracoes-row-${p.id}`}>
+                        {/* Provider row */}
+                        <div
+                          className="flex items-center gap-4 px-5 py-3.5 cursor-pointer hover:bg-slate-50 transition-colors"
+                          onClick={() => setExpandedN8n(isOpen ? null : p.id)}
+                        >
+                          <div className="w-9 h-9 rounded-lg bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-sm font-bold text-blue-700 dark:text-blue-300 flex-shrink-0">
+                            {p.name?.charAt(0)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{p.name}</p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {n8nConfigured ? p.n8nWebhookUrl?.slice(0, 50) + (p.n8nWebhookUrl?.length > 50 ? "..." : "") : "Webhook nao configurado"}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
                             <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                               n8nActive ? "bg-emerald-100 text-emerald-700" :
                               n8nConfigured ? "bg-amber-100 text-amber-700" :
                               "bg-slate-100 text-slate-500"
                             }`}>
-                              {n8nActive ? "N8N Ativo" : n8nConfigured ? "N8N Inativo" : "N8N Nao config."}
+                              {n8nActive ? "Ativo" : n8nConfigured ? "Inativo" : "Nao config."}
                             </span>
+                            <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`} />
                           </div>
-                          {n8nConfigured && (
-                            <span className="text-xs text-muted-foreground hidden md:block max-w-[180px] truncate">
-                              {p.n8nWebhookUrl}
-                            </span>
-                          )}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-xs gap-1"
-                            onClick={() => setSelectedProvider(p)}
-                            data-testid={`button-integracoes-detail-${p.id}`}
-                          >
-                            Ver Detalhes
-                          </Button>
                         </div>
+
+                        {/* Expanded config form */}
+                        {isOpen && (
+                          <div className="px-5 pb-5 pt-1 bg-slate-50/70 border-t space-y-3">
+                            <div className="space-y-1.5">
+                              <label className="text-xs font-medium text-slate-600">URL do Webhook N8N</label>
+                              <Input
+                                placeholder="https://n8n-seu-servidor.com/webhook/isp-consult"
+                                value={form.url}
+                                onChange={e => setN8nForms(prev => ({ ...prev, [p.id]: { ...form, url: e.target.value } }))}
+                                className="h-9 text-sm"
+                                data-testid={`input-n8n-url-${p.id}`}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <label className="text-xs font-medium text-slate-600">Token Basic Auth</label>
+                              <div className="relative">
+                                <Input
+                                  type={form.showToken ? "text" : "password"}
+                                  placeholder="Token Base64 de autenticacao"
+                                  value={form.token}
+                                  onChange={e => setN8nForms(prev => ({ ...prev, [p.id]: { ...form, token: e.target.value } }))}
+                                  className="h-9 text-sm pr-9"
+                                  data-testid={`input-n8n-token-${p.id}`}
+                                />
+                                <button
+                                  type="button"
+                                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                  onClick={() => setN8nForms(prev => ({ ...prev, [p.id]: { ...form, showToken: !form.showToken } }))}
+                                >
+                                  {form.showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                </button>
+                              </div>
+                              <p className="text-xs text-muted-foreground">Header enviado: <code className="bg-slate-100 px-1 rounded">Authorization: Basic &lt;token&gt;</code></p>
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Button
+                                size="sm"
+                                className="h-8 text-xs gap-1.5 bg-orange-500 hover:bg-orange-600 text-white"
+                                onClick={() => saveN8nForProvider(p.id, form)}
+                                disabled={isPending?.saving || !form.url}
+                                data-testid={`button-n8n-save-${p.id}`}
+                              >
+                                <Save className="w-3.5 h-3.5" />
+                                {isPending?.saving ? "Salvando..." : "Salvar"}
+                              </Button>
+                              <Button
+                                variant="outline" size="sm" className="h-8 text-xs gap-1.5"
+                                onClick={() => testN8nForProvider(p.id)}
+                                disabled={isPending?.testing || !n8nConfigured}
+                                data-testid={`button-n8n-test-${p.id}`}
+                              >
+                                <Terminal className="w-3.5 h-3.5" />
+                                {isPending?.testing ? "Testando..." : "Testar Conexao"}
+                              </Button>
+                              {n8nConfigured && (
+                                <Button
+                                  variant="ghost" size="sm"
+                                  className={`h-8 text-xs gap-1.5 ${n8nActive ? "text-emerald-600" : "text-slate-500"}`}
+                                  onClick={() => toggleN8nForProvider(p)}
+                                  disabled={isPending?.saving}
+                                  data-testid={`button-n8n-toggle-${p.id}`}
+                                >
+                                  <Zap className="w-3.5 h-3.5" />
+                                  {n8nActive ? "Desativar" : "Ativar"}
+                                </Button>
+                              )}
+                            </div>
+                            {testResult && (
+                              <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${testResult.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-700 border border-red-200"}`}>
+                                {testResult.ok ? <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />}
+                                {testResult.msg}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     );
                   })}

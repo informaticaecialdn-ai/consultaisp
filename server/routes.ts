@@ -1972,6 +1972,56 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/providers/:id/n8n-config", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const config = await storage.getN8nConfig(id);
+      return res.json(config);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/providers/:id/n8n-config", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { n8nWebhookUrl, n8nAuthToken, n8nEnabled } = req.body;
+      await storage.saveN8nConfig(id, { n8nWebhookUrl, n8nAuthToken, n8nEnabled });
+      return res.json({ ok: true });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/providers/:id/n8n-config/test", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const config = await storage.getN8nConfig(id);
+      if (!config.n8nWebhookUrl) {
+        return res.json({ ok: false, message: "URL do webhook nao configurada" });
+      }
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (config.n8nAuthToken) {
+        headers["Authorization"] = `Basic ${config.n8nAuthToken}`;
+      }
+      try {
+        const response = await fetch(config.n8nWebhookUrl, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ searchType: "document", document: "00000000000", providerId: String(id), test: true }),
+          signal: AbortSignal.timeout(10000),
+        });
+        if (response.status === 401) return res.json({ ok: false, message: "Erro 401: Token Basic Auth invalido" });
+        if (response.ok || response.status === 404) return res.json({ ok: true, message: `Conexao estabelecida (HTTP ${response.status})` });
+        return res.json({ ok: false, message: `Erro HTTP ${response.status}` });
+      } catch (fetchErr: any) {
+        return res.json({ ok: false, message: `Falha na conexao: ${fetchErr.message}` });
+      }
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/users", requireSuperAdmin, async (_req, res) => {
     try {
       const allUsers = await storage.getAllUsers();
