@@ -21,6 +21,17 @@ import {
   ExternalLink, Copy, CheckCircle2, EyeOff, Terminal, Save, AlertTriangle
 } from "lucide-react";
 
+const ERP_OPTIONS = [
+  { key: "ixc",      name: "iXC Soft",    desc: "iXC Provedor",   grad: "from-blue-500 to-blue-600" },
+  { key: "sgp",      name: "SGP",          desc: "Solucao Gestao", grad: "from-purple-500 to-purple-600" },
+  { key: "mk",       name: "MK Solutions", desc: "MK-AUTH/ERP",    grad: "from-green-500 to-green-600" },
+  { key: "tiacos",   name: "Tiacos",       desc: "Tiacos ISP",     grad: "from-orange-500 to-orange-600" },
+  { key: "hubsoft",  name: "Hubsoft",      desc: "Hubsoft ERP",    grad: "from-indigo-500 to-indigo-600" },
+  { key: "flyspeed", name: "Fly Speed",    desc: "Fly Speed ISP",  grad: "from-cyan-500 to-cyan-600" },
+  { key: "netflash", name: "Netflash",     desc: "Netflash ISP",   grad: "from-rose-500 to-pink-600" },
+];
+const ERP_MAP: Record<string, string> = Object.fromEntries(ERP_OPTIONS.map(e => [e.key, e.name]));
+
 const PLAN_LABELS: Record<string, { label: string; color: string }> = {
   free:       { label: "Gratuito",     color: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" },
   basic:      { label: "Basico",       color: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" },
@@ -415,19 +426,19 @@ export default function AdminSistemaPage() {
   const [, navigate] = useLocation();
 
   const [expandedN8n, setExpandedN8n] = useState<number | null>(null);
-  const [n8nForms, setN8nForms] = useState<Record<number, { url: string; token: string; showToken: boolean }>>({});
+  const [n8nForms, setN8nForms] = useState<Record<number, { url: string; token: string; showToken: boolean; erpProvider: string }>>({});
   const [n8nTestResults, setN8nTestResults] = useState<Record<number, { ok: boolean; msg: string } | null>>({});
   const [n8nPending, setN8nPending] = useState<Record<number, { saving?: boolean; testing?: boolean }>>({});
 
-  const getN8nForm = (p: any) => n8nForms[p.id] ?? { url: p.n8nWebhookUrl ?? "", token: p.n8nAuthToken ?? "", showToken: false };
+  const getN8nForm = (p: any) => n8nForms[p.id] ?? { url: p.n8nWebhookUrl ?? "", token: p.n8nAuthToken ?? "", showToken: false, erpProvider: p.n8nErpProvider ?? "" };
 
-  const saveN8nForProvider = async (providerId: number, form: { url: string; token: string }) => {
+  const saveN8nForProvider = async (providerId: number, form: { url: string; token: string; erpProvider?: string }) => {
     setN8nPending(prev => ({ ...prev, [providerId]: { ...prev[providerId], saving: true } }));
     try {
       await fetch(`/api/admin/providers/${providerId}/n8n-config`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ n8nWebhookUrl: form.url, n8nAuthToken: form.token }),
+        body: JSON.stringify({ n8nWebhookUrl: form.url, n8nAuthToken: form.token, n8nErpProvider: form.erpProvider || null }),
         credentials: "include",
       });
       toast({ title: "N8N salvo", description: "Configuracao N8N atualizada com sucesso." });
@@ -941,6 +952,8 @@ export default function AdminSistemaPage() {
                     const form = getN8nForm(p);
                     const testResult = n8nTestResults[p.id];
                     const isPending = n8nPending[p.id];
+                    const erpName = p.n8nErpProvider ? ERP_MAP[p.n8nErpProvider] ?? p.n8nErpProvider : null;
+                    const adminSelectedErp = n8nForms[p.id]?.erpProvider ?? p.n8nErpProvider ?? "";
                     return (
                       <div key={p.id} data-testid={`integracoes-row-${p.id}`}>
                         {/* Provider row */}
@@ -952,7 +965,14 @@ export default function AdminSistemaPage() {
                             {p.name?.charAt(0)}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{p.name}</p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-medium">{p.name}</p>
+                              {erpName && (
+                                <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 flex-shrink-0">
+                                  {erpName}
+                                </span>
+                              )}
+                            </div>
                             <p className="text-xs text-muted-foreground truncate">
                               {n8nConfigured ? p.n8nWebhookUrl?.slice(0, 50) + (p.n8nWebhookUrl?.length > 50 ? "..." : "") : "Webhook nao configurado"}
                             </p>
@@ -971,7 +991,41 @@ export default function AdminSistemaPage() {
 
                         {/* Expanded config form */}
                         {isOpen && (
-                          <div className="px-5 pb-5 pt-1 bg-slate-50/70 border-t space-y-3">
+                          <div className="px-5 pb-5 pt-3 bg-slate-50/70 border-t space-y-3">
+                            {/* ERP selector */}
+                            <div className="space-y-1.5">
+                              <label className="text-xs font-medium text-slate-600">ERP do Provedor</label>
+                              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-1.5">
+                                {ERP_OPTIONS.map(erp => {
+                                  const isSelected = adminSelectedErp === erp.key;
+                                  return (
+                                    <button
+                                      key={erp.key}
+                                      type="button"
+                                      onClick={() => setN8nForms(prev => ({ ...prev, [p.id]: { ...getN8nForm(p), erpProvider: erp.key } }))}
+                                      data-testid={`admin-erp-option-${p.id}-${erp.key}`}
+                                      className={`flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all text-center ${
+                                        isSelected ? "border-violet-500 bg-violet-50" : "border-transparent bg-white hover:bg-slate-100 hover:border-slate-200"
+                                      }`}
+                                    >
+                                      <div className={`w-6 h-6 rounded-md bg-gradient-to-br ${erp.grad} flex items-center justify-center flex-shrink-0`}>
+                                        <Zap className="w-3 h-3 text-white" />
+                                      </div>
+                                      <p className={`text-xs font-semibold leading-tight ${isSelected ? "text-violet-700" : "text-slate-600"}`}>{erp.name}</p>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              {adminSelectedErp && (
+                                <button
+                                  type="button"
+                                  className="text-xs text-slate-400 hover:text-slate-600"
+                                  onClick={() => setN8nForms(prev => ({ ...prev, [p.id]: { ...getN8nForm(p), erpProvider: "" } }))}
+                                >
+                                  Limpar selecao
+                                </button>
+                              )}
+                            </div>
                             <div className="space-y-1.5">
                               <label className="text-xs font-medium text-slate-600">URL do Webhook N8N</label>
                               <Input

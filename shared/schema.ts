@@ -31,6 +31,7 @@ export const providers = pgTable("providers", {
   n8nWebhookUrl: text("n8n_webhook_url"),
   n8nAuthToken: text("n8n_auth_token"),
   n8nEnabled: boolean("n8n_enabled").default(false),
+  n8nErpProvider: text("n8n_erp_provider"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

@@ -1339,8 +1339,8 @@ export async function registerRoutes(
 
   app.patch("/api/provider/n8n-config", requireAuth, async (req, res) => {
     try {
-      const { n8nWebhookUrl, n8nAuthToken, n8nEnabled } = req.body;
-      await storage.saveN8nConfig(req.session.providerId!, { n8nWebhookUrl, n8nAuthToken, n8nEnabled });
+      const { n8nWebhookUrl, n8nAuthToken, n8nEnabled, n8nErpProvider } = req.body;
+      await storage.saveN8nConfig(req.session.providerId!, { n8nWebhookUrl, n8nAuthToken, n8nEnabled, n8nErpProvider });
       return res.json({ ok: true });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
@@ -1985,8 +1985,8 @@ export async function registerRoutes(
   app.patch("/api/admin/providers/:id/n8n-config", requireSuperAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const { n8nWebhookUrl, n8nAuthToken, n8nEnabled } = req.body;
-      await storage.saveN8nConfig(id, { n8nWebhookUrl, n8nAuthToken, n8nEnabled });
+      const { n8nWebhookUrl, n8nAuthToken, n8nEnabled, n8nErpProvider } = req.body;
+      await storage.saveN8nConfig(id, { n8nWebhookUrl, n8nAuthToken, n8nEnabled, n8nErpProvider });
       return res.json({ ok: true });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });

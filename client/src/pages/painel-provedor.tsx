@@ -149,6 +149,8 @@ export default function PainelProvedorPage() {
   const [n8nForm, setN8nForm] = useState({ webhookUrl: "", authToken: "", showToken: false });
   const [n8nTestResult, setN8nTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [n8nPending, setN8nPending] = useState({ saving: false, testing: false });
+  const [erpLocalSelection, setErpLocalSelection] = useState<string | null>(null);
+  const [erpChanging, setErpChanging] = useState(false);
 
   const { data: n8nConfig, refetch: refetchN8n } = useQuery<any>({
     queryKey: ["/api/provider/n8n-config"],
@@ -1565,150 +1567,114 @@ export default function PainelProvedorPage() {
                   );
                 })()}
 
-                {/* ERP Connection Cards */}
-                <div className="space-y-3">
-                  {ERP_LIST.map(erp => {
-                    const intg = getIntg(erp.key);
-                    const enabled = intg?.isEnabled ?? false;
-                    const form = getErpForm(erp.key);
-                    const isExpanded = expandedErp === erp.key;
-                    const hasCredentials = !!(intg?.apiUrl && intg?.apiToken);
-                    const status = intg?.lastSyncStatus ?? "idle";
-                    const statusBadge = status === "success" ? "bg-emerald-100 text-emerald-700"
-                      : status === "error" ? "bg-red-100 text-red-700"
-                      : status === "partial" ? "bg-amber-100 text-amber-700"
-                      : "bg-gray-100 text-gray-500";
-                    return (
-                      <Card key={erp.key} className={`overflow-hidden transition-all ${enabled ? "border-violet-200" : ""}`} data-testid={`card-erp-${erp.key}`}>
-                        {/* Card header row */}
-                        <div className="flex items-center gap-3 px-4 py-3">
-                          <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${erp.grad} flex items-center justify-center flex-shrink-0`}>
-                            <Wifi className="w-4 h-4 text-white" />
+                {/* ERP Selection / Integrado */}
+                {(() => {
+                  const savedErp = n8nConfig?.n8nErpProvider ?? null;
+                  const selectedErpData = savedErp ? ERP_LIST.find(e => e.key === savedErp) : null;
+                  const showSelection = !savedErp || erpChanging;
+                  const currentSelection = erpLocalSelection ?? savedErp;
+
+                  const confirmErp = async () => {
+                    if (!currentSelection) return;
+                    await fetch("/api/provider/n8n-config", {
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ n8nErpProvider: currentSelection }),
+                      credentials: "include",
+                    });
+                    refetchN8n();
+                    setErpChanging(false);
+                    setErpLocalSelection(null);
+                    toast({ title: "ERP salvo", description: "Seu ERP foi identificado com sucesso." });
+                  };
+
+                  return (
+                    <Card className="overflow-hidden" data-testid="card-erp-selection">
+                      <div className="px-4 py-3 border-b bg-slate-50/60 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Database className="w-4 h-4 text-violet-500" />
+                          <p className="text-sm font-semibold">Seu ERP</p>
+                        </div>
+                        {savedErp && !erpChanging && (
+                          <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => { setErpLocalSelection(savedErp); setErpChanging(true); }} data-testid="button-change-erp">
+                            <Settings2 className="w-3.5 h-3.5" />Alterar ERP
+                          </Button>
+                        )}
+                      </div>
+
+                      {showSelection ? (
+                        <div className="p-4 space-y-3">
+                          <p className="text-xs text-muted-foreground">Selecione o ERP que sua empresa utiliza. Isso facilita a identificacao da integracao via N8N.</p>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                            {ERP_LIST.map(erp => {
+                              const isSelected = currentSelection === erp.key;
+                              return (
+                                <button
+                                  key={erp.key}
+                                  onClick={() => setErpLocalSelection(erp.key)}
+                                  data-testid={`erp-option-${erp.key}`}
+                                  className={`flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all ${
+                                    isSelected
+                                      ? "border-violet-500 bg-violet-50 shadow-sm"
+                                      : "border-transparent bg-slate-50 hover:bg-slate-100 hover:border-slate-200"
+                                  }`}
+                                >
+                                  <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${erp.grad} flex items-center justify-center`}>
+                                    <Wifi className="w-4 h-4 text-white" />
+                                  </div>
+                                  <div className="text-center">
+                                    <p className={`text-xs font-bold leading-tight ${isSelected ? "text-violet-700" : "text-slate-700"}`}>{erp.name}</p>
+                                    <p className="text-xs text-muted-foreground leading-tight">{erp.desc}</p>
+                                  </div>
+                                  {isSelected && (
+                                    <span className="w-4 h-4 rounded-full bg-violet-500 flex items-center justify-center">
+                                      <CheckCircle className="w-3 h-3 text-white" />
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })}
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-sm font-bold">{erp.name}</p>
-                              <span className="text-xs text-muted-foreground">{erp.desc}</span>
-                              {hasCredentials && <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${statusBadge}`}>{status === "success" ? "Sucesso" : status === "error" ? "Erro" : status === "partial" ? "Parcial" : "Aguardando"}</span>}
-                            </div>
-                            {intg?.lastSyncAt && (
-                              <p className="text-xs text-muted-foreground">Ultima sync: {relDate(intg.lastSyncAt)} · {(intg.totalSynced ?? 0).toLocaleString("pt-BR")} registros</p>
-                            )}
-                            {!hasCredentials && <p className="text-xs text-amber-600">Credenciais nao configuradas</p>}
-                          </div>
-                          <div className="flex items-center gap-2 flex-shrink-0">
+                          <div className="flex gap-2 pt-1">
                             <Button
-                              variant="ghost" size="sm" className="h-7 text-xs gap-1"
-                              onClick={() => setExpandedErp(isExpanded ? null : erp.key)}
-                              data-testid={`button-config-${erp.key}`}
+                              size="sm" className="h-8 text-xs gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
+                              onClick={confirmErp}
+                              disabled={!currentSelection}
+                              data-testid="button-confirm-erp"
                             >
-                              <Settings2 className="w-3.5 h-3.5" />{isExpanded ? "Fechar" : "Configurar"}
+                              <CheckCircle className="w-3.5 h-3.5" />Confirmar ERP
                             </Button>
-                            <button
-                              onClick={() => toggleErpMutation.mutate({ source: erp.key, isEnabled: !enabled })}
-                              disabled={toggleErpMutation.isPending}
-                              data-testid={`toggle-erp-${erp.key}`}
-                              className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 focus:outline-none ${enabled ? "bg-violet-500" : "bg-gray-300 dark:bg-gray-600"}`}
-                            >
-                              <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200 m-0.5 ${enabled ? "translate-x-4" : "translate-x-0"}`} />
-                            </button>
+                            {erpChanging && (
+                              <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setErpChanging(false); setErpLocalSelection(null); }}>
+                                Cancelar
+                              </Button>
+                            )}
                           </div>
                         </div>
-                        {/* Expandable form */}
-                        {isExpanded && (
-                          <div className="border-t px-4 py-4 bg-muted/20 space-y-3">
-                            <p className="text-xs text-muted-foreground">{erp.authHint}</p>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                              <div className="space-y-1 md:col-span-2">
-                                <label className="text-xs font-medium">URL da API do ERP</label>
-                                <Input
-                                  value={form.apiUrl}
-                                  onChange={e => setErpForms(f => ({ ...f, [erp.key]: { ...getErpForm(erp.key), apiUrl: e.target.value } }))}
-                                  placeholder={erp.key === "ixc" ? "https://ixc.seudominio.com.br" : "https://erp.seudominio.com.br"}
-                                  className="h-8 text-xs font-mono"
-                                  data-testid={`input-api-url-${erp.key}`}
-                                />
-                              </div>
-                              {erp.authType === "basic" && (
-                                <div className="space-y-1">
-                                  <label className="text-xs font-medium">Usuario</label>
-                                  <Input
-                                    value={form.apiUser}
-                                    onChange={e => setErpForms(f => ({ ...f, [erp.key]: { ...getErpForm(erp.key), apiUser: e.target.value } }))}
-                                    placeholder="usuario_api"
-                                    className="h-8 text-xs"
-                                    data-testid={`input-api-user-${erp.key}`}
-                                  />
-                                </div>
-                              )}
-                              <div className={`space-y-1 ${erp.authType === "basic" ? "" : "md:col-span-2"}`}>
-                                <label className="text-xs font-medium">Token / Chave de API</label>
-                                <div className="relative">
-                                  <Input
-                                    type={form.showToken ? "text" : "password"}
-                                    value={form.apiToken}
-                                    onChange={e => setErpForms(f => ({ ...f, [erp.key]: { ...getErpForm(erp.key), apiToken: e.target.value } }))}
-                                    placeholder="Token de autenticacao"
-                                    className="h-8 text-xs pr-8"
-                                    data-testid={`input-api-token-${erp.key}`}
-                                  />
-                                  <button
-                                    type="button"
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                                    onClick={() => setErpForms(f => ({ ...f, [erp.key]: { ...getErpForm(erp.key), showToken: !form.showToken } }))}
-                                  >
-                                    {form.showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex flex-wrap gap-2 pt-1">
-                              <Button
-                                size="sm" className="h-7 text-xs gap-1.5"
-                                onClick={() => saveErpConfigMutation.mutate({ source: erp.key, data: { apiUrl: form.apiUrl, apiUser: form.apiUser, apiToken: form.apiToken } })}
-                                disabled={saveErpConfigMutation.isPending || !form.apiUrl || !form.apiToken}
-                                data-testid={`button-save-config-${erp.key}`}
-                              >
-                                {saveErpConfigMutation.isPending ? <RefreshCw className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
-                                Salvar Credenciais
-                              </Button>
-                              <Button
-                                size="sm" variant="outline" className="h-7 text-xs gap-1.5"
-                                onClick={() => testConnection(erp.key)}
-                                disabled={erpPending[erp.key]?.testing || !hasCredentials}
-                                data-testid={`button-test-connection-${erp.key}`}
-                              >
-                                {erpPending[erp.key]?.testing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
-                                Testar Conexao
-                              </Button>
-                              <Button
-                                size="sm" variant="outline" className="h-7 text-xs gap-1.5"
-                                onClick={() => syncNow(erp.key)}
-                                disabled={erpPending[erp.key]?.syncing || !hasCredentials || !enabled}
-                                data-testid={`button-sync-now-${erp.key}`}
-                              >
-                                {erpPending[erp.key]?.syncing ? <RefreshCw className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                                Sincronizar Agora
-                              </Button>
-                            </div>
-                            {erpTestResults[erp.key] && (
-                              <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium ${erpTestResults[erp.key]!.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-700 border border-red-200"}`} data-testid={`result-test-${erp.key}`}>
-                                {erpTestResults[erp.key]!.ok ? <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />}
-                                {erpTestResults[erp.key]!.msg}
-                              </div>
-                            )}
-                            {erpSyncResults[erp.key] && (
-                              <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium ${erpSyncResults[erp.key]!.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-700 border border-red-200"}`} data-testid={`result-sync-${erp.key}`}>
-                                {erpSyncResults[erp.key]!.ok ? <Database className="w-3.5 h-3.5 flex-shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />}
-                                {erpSyncResults[erp.key]!.msg}
-                              </div>
-                            )}
+                      ) : (
+                        <div className="flex items-center gap-4 px-4 py-4" data-testid="erp-selected-display">
+                          <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${selectedErpData?.grad ?? "from-slate-400 to-slate-500"} flex items-center justify-center flex-shrink-0 shadow-sm`}>
+                            <Wifi className="w-5 h-5 text-white" />
                           </div>
-                        )}
-                      </Card>
-                    );
-                  })}
-                </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-bold">{selectedErpData?.name ?? savedErp}</p>
+                              <span className="text-xs text-muted-foreground">{selectedErpData?.desc}</span>
+                              {n8nConfig?.n8nEnabled && (
+                                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Integrado via N8N</span>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {n8nConfig?.n8nEnabled
+                                ? "As consultas ISP utilizam este ERP atraves da integracao N8N"
+                                : "ERP identificado. A integracao N8N esta inativa no momento."}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </Card>
+                  );
+                })()}
 
                 {/* Sync Logs */}
                 <Card className="overflow-hidden">
