@@ -478,6 +478,134 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Provedor nao encontrado" });
       }
 
+      // ── N8N INTEGRATION ──────────────────────────────────────────────
+      // If provider has N8N configured and enabled, query N8N instead of local DB
+      const n8nCfg = await storage.getN8nConfig(providerId);
+      if (n8nCfg.n8nEnabled && n8nCfg.n8nWebhookUrl) {
+        try {
+          const headers: Record<string, string> = { "Content-Type": "application/json" };
+          if (n8nCfg.n8nAuthToken) {
+            headers["Authorization"] = `Basic ${n8nCfg.n8nAuthToken}`;
+          }
+          const n8nPayload = {
+            searchType: "document",
+            document: cleaned,
+            providerId: String(providerId),
+          };
+
+          const n8nRes = await fetch(n8nCfg.n8nWebhookUrl, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(n8nPayload),
+            signal: AbortSignal.timeout(15000),
+          });
+
+          if (n8nRes.status === 401) {
+            return res.status(502).json({ message: "Erro de autenticacao com a API N8N (401). Verifique o token Basic Auth nas configuracoes de integracao." });
+          }
+
+          const n8nData: any = await n8nRes.json();
+
+          if (!n8nRes.ok || n8nData.success === false) {
+            return res.status(502).json({ message: n8nData.error || n8nData.message || `Erro N8N HTTP ${n8nRes.status}` });
+          }
+
+          const customers: any[] = Array.isArray(n8nData.customers) ? n8nData.customers : [];
+          const notFound = customers.length === 0;
+          const isOwnCustomer = customers.some((c: any) => c.isOwnProvider === true);
+
+          // Derive score: use lowest ispScore if multiple customers, 100 if not found
+          const scores = customers.map((c: any) => typeof c.ispScore === "number" ? c.ispScore : 100);
+          const finalScore = notFound ? 100 : Math.min(...scores);
+
+          const risk = getRiskTier(finalScore);
+          const decisionReco = getDecisionReco(finalScore);
+          const recommendedActions = getRecommendedActions(finalScore, customers.some((c: any) => Array.isArray(c.notReturnedEquipment) && c.notReturnedEquipment.length > 0));
+
+          // Map N8N customers to providerDetails format
+          const providerDetails = customers.map((c: any) => {
+            const serviceAgeDays = typeof c.serviceAge === "number" ? c.serviceAge * 30 : 0;
+            const paymentStatusMap: Record<string, string> = {
+              "Current": "Em dia",
+              "Overdue": "Inadimplente",
+              "Cancelled": "Cancelado",
+              "Suspended": "Suspenso",
+            };
+            return {
+              providerName: c.providerName || "Provedor desconhecido",
+              isSameProvider: !!c.isOwnProvider,
+              customerName: c.customerName || "Desconhecido",
+              status: paymentStatusMap[c.paymentStatus] || c.paymentStatus || "Em dia",
+              daysOverdue: 0,
+              overdueAmount: c.isOwnProvider ? 0 : undefined,
+              overdueAmountRange: c.isOwnProvider ? undefined : "N/A",
+              overdueInvoicesCount: 0,
+              contractStartDate: new Date(Date.now() - serviceAgeDays * 86400000).toISOString(),
+              contractAgeDays: serviceAgeDays,
+              hasUnreturnedEquipment: Array.isArray(c.notReturnedEquipment) && c.notReturnedEquipment.length > 0,
+              unreturnedEquipmentCount: Array.isArray(c.notReturnedEquipment) ? c.notReturnedEquipment.length : 0,
+              equipmentDetails: c.isOwnProvider && Array.isArray(c.notReturnedEquipment) ? c.notReturnedEquipment : undefined,
+              planName: c.planName,
+              monthlyRevenue: c.monthlyRevenue,
+              appliedRules: c.appliedRules,
+            };
+          });
+
+          const alerts: string[] = [];
+          for (const c of customers) {
+            if (Array.isArray(c.riskFactors)) {
+              alerts.push(...c.riskFactors);
+            }
+          }
+
+          const cost = customers.reduce((sum: number, c: any) => sum + (typeof c.cost === "number" ? c.cost : 0), 0);
+
+          const result = {
+            cpfCnpj: cleaned,
+            searchType,
+            notFound,
+            score: finalScore,
+            riskTier: risk.tier,
+            riskLabel: risk.label,
+            recommendation: risk.recommendation,
+            decisionReco,
+            providersFound: new Set(customers.map((c: any) => c.providerName)).size,
+            providerDetails,
+            penalties: [],
+            bonuses: [],
+            alerts,
+            recommendedActions,
+            creditsCost: cost,
+            isOwnCustomer,
+            source: "n8n",
+          };
+
+          const consultation = await storage.createIspConsultation({
+            providerId,
+            userId: req.session.userId!,
+            cpfCnpj: cleaned,
+            searchType,
+            result,
+            score: finalScore,
+            decisionReco,
+            cost,
+            approved: finalScore >= 50,
+          });
+
+          if (cost > 0) {
+            await storage.updateProviderCredits(provider.id, provider.ispCredits - cost, provider.spcCredits);
+          }
+
+          return res.json({ consultation, result });
+        } catch (n8nErr: any) {
+          if (n8nErr.name === "AbortError" || n8nErr.name === "TimeoutError") {
+            return res.status(504).json({ message: "Timeout ao conectar com a API N8N (15s). Verifique a URL e o status do servidor N8N." });
+          }
+          return res.status(502).json({ message: `Erro ao chamar API N8N: ${n8nErr.message}` });
+        }
+      }
+      // ── FIM N8N INTEGRATION ──────────────────────────────────────────
+
       const allCustomerRecords = await storage.getCustomerByCpfCnpj(cleaned);
 
       const isOwnCustomer = allCustomerRecords.some(c => c.providerId === providerId);
