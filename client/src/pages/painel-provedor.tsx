@@ -13,7 +13,7 @@ import { useLocation } from "wouter";
 import {
   Building2, Globe, Users, CreditCard, Settings, Copy, CheckCircle,
   ExternalLink, Plus, Trash2, Shield, User, Mail, Phone, Link2,
-  BarChart3, Search, AlertTriangle, Wifi, Save, RefreshCw, Crown,
+  BarChart3, Search, AlertTriangle, Save, RefreshCw, Crown,
   Lock, Star, FileText, Upload, Download, Eye, MapPin, Calendar,
   Briefcase, X, Pencil, ClipboardList, UserCheck, Wand2, Info,
   EyeOff, Key, Zap, Terminal, ArrowRight, Database, CheckCheck, Clock, Settings2
@@ -1599,9 +1599,9 @@ export default function PainelProvedorPage() {
                                       : "border-transparent bg-slate-50 hover:bg-slate-100 hover:border-slate-200"
                                   }`}
                                 >
-                                  <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${erp.grad} flex items-center justify-center overflow-hidden flex-shrink-0`}>
+                                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0 ${erp.logoBase64 ? "bg-white border border-slate-200" : `bg-gradient-to-br ${erp.grad}`}`}>
                                     {erp.logoBase64 ? (
-                                      <img src={erp.logoBase64} alt={erp.name} className="w-full h-full object-contain p-1.5 bg-white/10" />
+                                      <img src={erp.logoBase64} alt={erp.name} className="w-full h-full object-contain p-1.5" />
                                     ) : (
                                       <span className="text-white text-sm font-bold">{erp.name[0]}</span>
                                     )}
@@ -1637,8 +1637,12 @@ export default function PainelProvedorPage() {
                         </div>
                       ) : (
                         <div className="flex items-center gap-4 px-4 py-4" data-testid="erp-selected-display">
-                          <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${selectedErpData?.grad ?? "from-slate-400 to-slate-500"} flex items-center justify-center flex-shrink-0 shadow-sm`}>
-                            <Wifi className="w-5 h-5 text-white" />
+                          <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm overflow-hidden ${selectedErpData?.logoBase64 ? "bg-white border border-slate-200" : `bg-gradient-to-br ${selectedErpData?.grad ?? "from-slate-400 to-slate-500"}`}`}>
+                            {selectedErpData?.logoBase64 ? (
+                              <img src={selectedErpData.logoBase64} alt={selectedErpData.name} className="w-full h-full object-contain p-1.5" />
+                            ) : (
+                              <span className="text-white text-lg font-bold">{selectedErpData?.name?.[0] ?? "?"}</span>
+                            )}
                           </div>
                           <div className="flex-1">
                             <div className="flex items-center gap-2 flex-wrap">

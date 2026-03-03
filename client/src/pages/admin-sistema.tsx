@@ -1083,6 +1083,7 @@ export default function AdminSistemaPage() {
                           { label: "Ambar", v: "from-amber-500 to-amber-600" },
                           { label: "Vermelho", v: "from-red-500 to-red-600" },
                           { label: "Cinza", v: "from-slate-500 to-slate-600" },
+                          { label: "Branco", v: "from-white to-slate-100" },
                         ].map(g => <option key={g.v} value={g.v}>{g.label}</option>)}
                       </select>
                     </div>
@@ -1139,9 +1140,9 @@ export default function AdminSistemaPage() {
                     <div className={`h-1.5 bg-gradient-to-r ${erp.gradient}`} />
                     <div className="p-4">
                       <div className="flex items-start justify-between mb-3">
-                        <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${erp.gradient} flex items-center justify-center flex-shrink-0 overflow-hidden`}>
+                        <div className={`w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden ${erp.logoBase64 ? "bg-white border border-slate-200" : `bg-gradient-to-br ${erp.gradient}`}`}>
                           {erp.logoBase64 ? (
-                            <img src={erp.logoBase64} alt={erp.name} className="w-full h-full object-contain p-1.5 bg-white/10" data-testid={`img-erp-logo-${erp.id}`} />
+                            <img src={erp.logoBase64} alt={erp.name} className="w-full h-full object-contain p-1.5" data-testid={`img-erp-logo-${erp.id}`} />
                           ) : (
                             <span className="text-white text-xl font-bold">{erp.name[0].toUpperCase()}</span>
                           )}
@@ -1266,9 +1267,9 @@ export default function AdminSistemaPage() {
                                         isSelected ? "border-violet-500 bg-violet-50" : "border-transparent bg-white hover:bg-slate-100 hover:border-slate-200"
                                       }`}
                                     >
-                                      <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${grad} flex items-center justify-center flex-shrink-0 overflow-hidden`}>
+                                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden ${erp.logoBase64 ? "bg-white border border-slate-200" : `bg-gradient-to-br ${grad}`}`}>
                                         {erp.logoBase64 ? (
-                                          <img src={erp.logoBase64} alt={erp.name} className="w-full h-full object-contain p-0.5 bg-white/10" />
+                                          <img src={erp.logoBase64} alt={erp.name} className="w-full h-full object-contain p-0.5" />
                                         ) : (
                                           <span className="text-white text-xs font-bold">{erp.name[0]}</span>
                                         )}
