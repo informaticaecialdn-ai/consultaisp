@@ -170,7 +170,7 @@ function LeafletHeatMap({
             points.reduce((s, p) => s + p.lng, 0) / points.length,
           ]
         : BRAZIL_CENTER);
-      const zoom = defaultCenter ? 12 : (points.length > 0 ? 7 : 5);
+      const zoom = defaultCenter ? 13 : (points.length > 0 ? 7 : 5);
 
       mapRef.current = L.map(containerRef.current, { zoomControl: true, scrollWheelZoom: false, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false }).setView(center, zoom);
 
@@ -186,35 +186,16 @@ function LeafletHeatMap({
     }
 
     if (points.length > 0 && (L as any).heatLayer) {
-      const densityMap = new Map<string, { lat: number; lng: number; weight: number; count: number }>();
-      const precision = 4;
-      for (const p of points) {
-        const key = `${p.lat.toFixed(precision)},${p.lng.toFixed(precision)}`;
-        const existing = densityMap.get(key);
-        if (existing) {
-          existing.weight += p.weight;
-          existing.count += 1;
-        } else {
-          densityMap.set(key, { lat: p.lat, lng: p.lng, weight: p.weight, count: 1 });
-        }
-      }
-
-      const densityPoints = Array.from(densityMap.values());
-      const maxWeight = Math.max(...densityPoints.map(d => d.weight), 1);
-
-      const heatData = densityPoints.map(d => [
-        d.lat,
-        d.lng,
-        (d.weight / maxWeight) * 0.6 + (d.count / Math.max(...densityPoints.map(x => x.count), 1)) * 0.4,
-      ]);
+      const maxW = Math.max(...points.map(p => p.weight), 1);
+      const heatData = points.map(p => [p.lat, p.lng, p.weight / maxW]);
 
       const gradient = mode === "provider"
-        ? { 0.0: "rgba(34,197,94,0)", 0.15: "#86efac", 0.35: "#fde047", 0.55: "#fb923c", 0.75: "#ef4444", 1.0: "#991b1b" }
-        : { 0.0: "rgba(59,130,246,0)", 0.15: "#93c5fd", 0.35: "#a78bfa", 0.55: "#e879f9", 0.75: "#f43f5e", 1.0: "#881337" };
+        ? { 0.0: "rgba(34,197,94,0)", 0.2: "#86efac", 0.4: "#fde047", 0.6: "#fb923c", 0.8: "#ef4444", 1.0: "#991b1b" }
+        : { 0.0: "rgba(59,130,246,0)", 0.2: "#93c5fd", 0.4: "#a78bfa", 0.6: "#e879f9", 0.8: "#f43f5e", 1.0: "#881337" };
 
       heatRef.current = (L as any).heatLayer(
         heatData,
-        { radius: 50, blur: 35, maxZoom: 16, gradient, minOpacity: 0.25, max: 1.0 }
+        { radius: 18, blur: 15, maxZoom: 17, gradient, minOpacity: 0.35, max: 1.0 }
       ).addTo(mapRef.current);
     }
 
