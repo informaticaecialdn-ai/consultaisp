@@ -714,7 +714,7 @@ export default function AdminProvedorPage() {
         </TabsContent>
 
         {/* TAB: INTEGRACAO ERP */}
-        <IntegracaoTab providerId={parseInt(id!)} />
+        <IntegracaoTab providerId={parseInt(id!)} n8nErpProvider={provider.n8nErpProvider} n8nEnabled={provider.n8nEnabled} />
 
       </Tabs>
 
@@ -951,7 +951,7 @@ function relDateAdmin(d: string | null): string {
   return `${Math.floor(diff / 1440)}d atras`;
 }
 
-function IntegracaoTab({ providerId }: { providerId: number }) {
+function IntegracaoTab({ providerId, n8nErpProvider, n8nEnabled }: { providerId: number; n8nErpProvider: string | null; n8nEnabled: boolean }) {
   const { data, isLoading } = useQuery<{
     token: string;
     integrations: Array<{
@@ -981,12 +981,20 @@ function IntegracaoTab({ providerId }: { providerId: number }) {
 
   const getIntg = (key: string) => integrations.find(i => i.erpSource === key);
 
+  const integrationsWithCreds = integrations.filter(i => i.apiUrl && i.apiToken);
+  const activeErpKeys = new Set<string>([
+    ...integrationsWithCreds.map(i => i.erpSource),
+    ...(n8nErpProvider ? [n8nErpProvider] : []),
+  ]);
+  const displayErps = ADMIN_ERP_LIST.filter(e => activeErpKeys.has(e.key));
+  const hasAnyErp = displayErps.length > 0;
+
   return (
     <TabsContent value="integracao" className="space-y-4" data-testid="tab-content-integracao">
       {/* Header stats */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: "ERPs Ativos", value: integrations.filter(i => i.isEnabled).length, color: "text-emerald-600" },
+          { label: "ERPs Ativos", value: n8nEnabled && n8nErpProvider ? 1 : integrations.filter(i => i.isEnabled).length, color: "text-emerald-600" },
           { label: "Total Sincronizados", value: integrations.reduce((s, i) => s + (i.totalSynced || 0), 0).toLocaleString("pt-BR"), color: "text-blue-600" },
           { label: "Total de Erros", value: integrations.reduce((s, i) => s + (i.totalErrors || 0), 0).toLocaleString("pt-BR"), color: "text-rose-500" },
         ].map(s => (
@@ -997,54 +1005,63 @@ function IntegracaoTab({ providerId }: { providerId: number }) {
         ))}
       </div>
 
-      {/* ERP Cards grid */}
+      {/* ERP Card — somente o integrado */}
       <Card className="overflow-hidden">
         <div className="px-5 py-3 border-b bg-muted/20">
-          <h3 className="font-semibold flex items-center gap-2"><Wifi className="w-4 h-4 text-violet-500" />Integracoes ERP</h3>
-          <p className="text-xs text-muted-foreground">Status de cada integracao ERP do provedor (somente leitura)</p>
+          <h3 className="font-semibold flex items-center gap-2"><Wifi className="w-4 h-4 text-violet-500" />Integracao ERP</h3>
+          <p className="text-xs text-muted-foreground">ERP integrado ao provedor (somente leitura)</p>
         </div>
-        <div className="divide-y">
-          {ADMIN_ERP_LIST.map(erp => {
-            const intg = getIntg(erp.key);
-            const hasCredentials = !!(intg?.apiUrl && intg?.apiToken);
-            const isEnabled = intg?.isEnabled ?? false;
-            const status = intg?.lastSyncStatus ?? null;
-            return (
-              <div key={erp.key} className="px-5 py-3 flex items-center gap-3" data-testid={`row-erp-${erp.key}`}>
-                <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${erp.grad} flex items-center justify-center flex-shrink-0`}>
-                  <Wifi className="w-4 h-4 text-white" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-semibold">{erp.name}</p>
-                    {hasCredentials && status && (
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-                        status === "success" ? "bg-emerald-100 text-emerald-700" :
-                        status === "error" ? "bg-red-100 text-red-700" :
-                        "bg-amber-100 text-amber-700"
-                      }`}>{status === "success" ? "Sucesso" : status === "error" ? "Erro" : "Parcial"}</span>
-                    )}
+        {!hasAnyErp ? (
+          <div className="px-5 py-8 flex flex-col items-center gap-2 text-center text-muted-foreground" data-testid="erp-empty-state">
+            <Wifi className="w-8 h-8 text-muted-foreground/40" />
+            <p className="text-sm font-medium">Nenhuma integracao ERP configurada</p>
+            <p className="text-xs">O provedor ainda nao possui um ERP integrado ao sistema.</p>
+          </div>
+        ) : (
+          <div className="divide-y">
+            {displayErps.map(erp => {
+              const intg = getIntg(erp.key);
+              const isN8n = n8nErpProvider === erp.key;
+              const hasCredentials = !!(intg?.apiUrl && intg?.apiToken);
+              const isEnabled = isN8n ? n8nEnabled : (intg?.isEnabled ?? false);
+              const status = intg?.lastSyncStatus ?? null;
+              return (
+                <div key={erp.key} className="px-5 py-4 flex items-center gap-3" data-testid={`row-erp-${erp.key}`}>
+                  <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${erp.grad} flex items-center justify-center flex-shrink-0`}>
+                    <Wifi className="w-5 h-5 text-white" />
                   </div>
-                  {hasCredentials ? (
-                    <p className="text-xs text-muted-foreground">
-                      {intg!.apiUrl?.replace(/https?:\/\//, "").slice(0, 40)} ·{" "}
-                      {(intg!.totalSynced || 0).toLocaleString("pt-BR")} registros · {relDateAdmin(intg!.lastSyncAt)}
-                      {(intg!.totalErrors || 0) > 0 && <span className="text-rose-500 ml-1">· {intg!.totalErrors} erros</span>}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-amber-600">Credenciais nao configuradas pelo provedor</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {!hasCredentials && <AlertTriangle className="w-4 h-4 text-amber-400" />}
-                  <Badge className={`border-0 text-xs ${isEnabled ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"}`}>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-semibold">{erp.name}</p>
+                      {isN8n && (
+                        <span className="text-xs bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded-full font-medium">Via N8N</span>
+                      )}
+                      {hasCredentials && status && (
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                          status === "success" ? "bg-emerald-100 text-emerald-700" :
+                          status === "error" ? "bg-red-100 text-red-700" :
+                          "bg-amber-100 text-amber-700"
+                        }`}>{status === "success" ? "Sucesso" : status === "error" ? "Erro" : "Parcial"}</span>
+                      )}
+                    </div>
+                    {hasCredentials ? (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {intg!.apiUrl?.replace(/https?:\/\//, "").slice(0, 50)} ·{" "}
+                        {(intg!.totalSynced || 0).toLocaleString("pt-BR")} registros · {relDateAdmin(intg!.lastSyncAt)}
+                        {(intg!.totalErrors || 0) > 0 && <span className="text-rose-500 ml-1">· {intg!.totalErrors} erros</span>}
+                      </p>
+                    ) : isN8n ? (
+                      <p className="text-xs text-muted-foreground mt-0.5">Configurado pelo administrador do sistema</p>
+                    ) : null}
+                  </div>
+                  <Badge className={`border-0 text-xs flex-shrink-0 ${isEnabled ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"}`} data-testid={`badge-erp-status-${erp.key}`}>
                     {isEnabled ? "Ativo" : "Inativo"}
                   </Badge>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </Card>
 
       {/* Sync Logs */}
