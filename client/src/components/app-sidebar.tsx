@@ -72,7 +72,6 @@ const financeMenu = [
 
 const toolsMenu = [
   { title: "Importacao", url: "/importacao", icon: Upload },
-  { title: "Integracoes ERP", url: "/painel-provedor?tab=integracao", icon: Zap },
 ];
 
 const ADMIN_GROUPS = [
