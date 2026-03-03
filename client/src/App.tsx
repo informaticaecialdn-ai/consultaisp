@@ -65,8 +65,22 @@ function AuthenticatedApp() {
     return <VerificarEmailPage />;
   }
 
-  if (location === "/landingpage") {
-    return <LandingPage />;
+  if (location === "/login") {
+    if (isLoading) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-background">
+          <div className="space-y-4 w-64">
+            <Skeleton className="h-8 w-48 mx-auto" />
+            <Skeleton className="h-4 w-32 mx-auto" />
+            <Skeleton className="h-2 w-full" />
+          </div>
+        </div>
+      );
+    }
+    if (user) {
+      return <Redirect to="/" />;
+    }
+    return <LoginPage />;
   }
 
   if (isLoading) {
@@ -82,7 +96,7 @@ function AuthenticatedApp() {
   }
 
   if (!user) {
-    return <LoginPage />;
+    return <LandingPage />;
   }
 
   if (user.role === "superadmin" && PROVIDER_ONLY_PATHS.includes(location)) {

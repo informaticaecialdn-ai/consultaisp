@@ -90,19 +90,19 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-3">
             <Button
-              variant="ghost"
+              variant="outline"
               className="text-sm"
               onClick={() => setLocation("/login")}
               data-testid="button-landing-login"
             >
-              Entrar
+              Login
             </Button>
             <Button
               className="bg-blue-600 hover:bg-blue-700 text-white text-sm gap-1.5"
               onClick={() => setLocation("/login")}
               data-testid="button-landing-cadastro"
             >
-              Cadastrar Provedor
+              Criar Conta Gratis
               <ArrowRight className="w-3.5 h-3.5" />
             </Button>
           </div>
@@ -131,7 +131,7 @@ export default function LandingPage() {
                 onClick={() => setLocation("/login")}
                 data-testid="button-hero-cta"
               >
-                Comecar Agora
+                Criar Conta Gratis
                 <ArrowRight className="w-4 h-4" />
               </Button>
               <Button
@@ -382,7 +382,7 @@ export default function LandingPage() {
               onClick={() => setLocation("/login")}
               data-testid="button-cta-bottom"
             >
-              Cadastrar Meu Provedor
+              Criar Conta Gratis
               <ArrowRight className="w-4 h-4" />
             </Button>
             <Button
@@ -392,7 +392,7 @@ export default function LandingPage() {
               onClick={() => setLocation("/login")}
               data-testid="button-login-bottom"
             >
-              Ja tenho conta — Entrar
+              Ja tenho conta — Login
             </Button>
           </div>
         </div>
