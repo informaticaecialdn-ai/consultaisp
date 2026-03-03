@@ -25,6 +25,7 @@ import AdminProvedorPage from "@/pages/admin-provedor";
 import InvoiceViewPage from "@/pages/invoice-view";
 import AdminFinanceiroPage from "@/pages/admin-financeiro";
 import AdminCreditosPage from "@/pages/admin-creditos";
+import LandingPage from "@/pages/landingpage";
 import { Skeleton } from "@/components/ui/skeleton";
 
 function Router() {
@@ -62,6 +63,10 @@ function AuthenticatedApp() {
 
   if (location === "/verificar-email") {
     return <VerificarEmailPage />;
+  }
+
+  if (location === "/landingpage") {
+    return <LandingPage />;
   }
 
   if (isLoading) {
