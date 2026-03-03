@@ -142,20 +142,17 @@ type HeatPoint = { lat: number; lng: number; weight: number };
 function LeafletHeatMap({
   points,
   mode,
-  clusterPoints,
   defaultCenter,
   height = 480,
 }: {
   points: HeatPoint[];
   mode: "provider" | "regional";
-  clusterPoints?: RegionalCluster[];
   defaultCenter?: [number, number] | null;
   height?: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const heatRef = useRef<any>(null);
-  const markersRef = useRef<L.LayerGroup | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -173,7 +170,7 @@ function LeafletHeatMap({
             points.reduce((s, p) => s + p.lng, 0) / points.length,
           ]
         : BRAZIL_CENTER);
-      const zoom = defaultCenter ? 11 : (points.length > 0 ? 7 : 5);
+      const zoom = defaultCenter ? 12 : (points.length > 0 ? 7 : 5);
 
       mapRef.current = L.map(containerRef.current, { zoomControl: true, scrollWheelZoom: false, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false }).setView(center, zoom);
 
@@ -181,72 +178,51 @@ function LeafletHeatMap({
         attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>',
         maxZoom: 18,
       }).addTo(mapRef.current);
-
-      markersRef.current = L.layerGroup().addTo(mapRef.current);
     }
 
     if (heatRef.current) {
       mapRef.current.removeLayer(heatRef.current);
       heatRef.current = null;
     }
-    if (markersRef.current) markersRef.current.clearLayers();
 
     if (points.length > 0 && (L as any).heatLayer) {
+      const densityMap = new Map<string, { lat: number; lng: number; weight: number; count: number }>();
+      const precision = 4;
+      for (const p of points) {
+        const key = `${p.lat.toFixed(precision)},${p.lng.toFixed(precision)}`;
+        const existing = densityMap.get(key);
+        if (existing) {
+          existing.weight += p.weight;
+          existing.count += 1;
+        } else {
+          densityMap.set(key, { lat: p.lat, lng: p.lng, weight: p.weight, count: 1 });
+        }
+      }
+
+      const densityPoints = Array.from(densityMap.values());
+      const maxWeight = Math.max(...densityPoints.map(d => d.weight), 1);
+
+      const heatData = densityPoints.map(d => [
+        d.lat,
+        d.lng,
+        (d.weight / maxWeight) * 0.6 + (d.count / Math.max(...densityPoints.map(x => x.count), 1)) * 0.4,
+      ]);
+
       const gradient = mode === "provider"
-        ? { 0.2: "#22c55e", 0.5: "#facc15", 0.75: "#f97316", 1.0: "#ef4444" }
-        : { 0.1: "#3b82f6", 0.4: "#8b5cf6", 0.7: "#ec4899", 1.0: "#ef4444" };
+        ? { 0.0: "rgba(34,197,94,0)", 0.15: "#86efac", 0.35: "#fde047", 0.55: "#fb923c", 0.75: "#ef4444", 1.0: "#991b1b" }
+        : { 0.0: "rgba(59,130,246,0)", 0.15: "#93c5fd", 0.35: "#a78bfa", 0.55: "#e879f9", 0.75: "#f43f5e", 1.0: "#881337" };
 
       heatRef.current = (L as any).heatLayer(
-        points.map(p => [p.lat, p.lng, p.weight]),
-        { radius: 35, blur: 20, maxZoom: 14, gradient, minOpacity: 0.4 }
+        heatData,
+        { radius: 50, blur: 35, maxZoom: 16, gradient, minOpacity: 0.25, max: 1.0 }
       ).addTo(mapRef.current);
-    }
-
-    if (mode === "regional" && clusterPoints && markersRef.current) {
-      const maxCount = Math.max(...(clusterPoints.map(c => c.count)), 1);
-      for (const c of clusterPoints) {
-        if (c.count < 1) continue;
-        const color = c.count / maxCount >= 0.75 ? "#ef4444" : c.count / maxCount >= 0.45 ? "#f97316" : c.count / maxCount >= 0.2 ? "#eab308" : "#3b82f6";
-        const size = 20 + Math.min(c.count * 4, 30);
-        const icon = L.divIcon({
-          className: "",
-          html: `<div style="width:${size}px;height:${size}px;background:${color};border:2px solid #fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.35)">${c.count}</div>`,
-          iconSize: [size, size],
-          iconAnchor: [size / 2, size / 2],
-        });
-        const marker = L.marker([c.lat, c.lng], { icon });
-        if (c.city) {
-          marker.bindPopup(`<b>${c.city}</b><br>${c.count} inadimplentes<br>${formatCurrency(c.totalOverdue)} em aberto`, { closeButton: false });
-        }
-        markersRef.current.addLayer(marker);
-      }
-    }
-
-    if (mode === "provider" && clusterPoints && markersRef.current) {
-      for (const c of clusterPoints) {
-        const lat = parseFloat(String(c.lat));
-        const lng = parseFloat(String(c.lng));
-        if (isNaN(lat) || isNaN(lng)) continue;
-        const icon = L.divIcon({
-          className: "",
-          html: `<div style="width:10px;height:10px;background:#ef4444;border:2px solid #fff;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
-          iconSize: [10, 10],
-          iconAnchor: [5, 5],
-        });
-        const marker = L.marker([lat, lng], { icon });
-        const p = c as any;
-        if (p.name) {
-          marker.bindPopup(`<b>${p.name}</b><br>${p.city || ""}<br>${formatCurrency(p.totalOverdueAmount)} em aberto<br>${p.maxDaysOverdue || 0} dias de atraso`, { closeButton: false });
-        }
-        markersRef.current.addLayer(marker);
-      }
     }
 
     if (points.length > 1 && !defaultCenter) {
       const group = L.featureGroup(points.map(p => L.circleMarker([p.lat, p.lng], { radius: 0 })));
       mapRef.current.fitBounds(group.getBounds().pad(0.15));
     }
-  }, [points, mode, clusterPoints, defaultCenter, ready]);
+  }, [points, mode, defaultCenter, ready]);
 
   useEffect(() => {
     initMap();
@@ -271,7 +247,6 @@ function LeafletHeatMap({
         } catch {}
         mapRef.current = null;
         heatRef.current = null;
-        markersRef.current = null;
       }
     };
   }, []);
@@ -423,7 +398,6 @@ export default function MapaCalorPage() {
                   key={`provider-${providerPoints.length}-${providerCenter?.[0]}`}
                   points={providerPoints}
                   mode="provider"
-                  clusterPoints={providerData as any}
                   defaultCenter={providerCenter}
                 />
               )}
@@ -508,13 +482,12 @@ export default function MapaCalorPage() {
                     key={`regional-${regionalPoints.length}-${providerCenter?.[0]}`}
                     points={regionalPoints}
                     mode="regional"
-                    clusterPoints={regionalData}
                     defaultCenter={providerCenter}
                   />
                 )}
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Info className="w-3 h-3" />
-                  Circulos numerados = clusters de inadimplencia por area · clique para detalhes
+                  Manchas de calor indicam concentracao de inadimplencia por area
                 </div>
               </Card>
             )}
