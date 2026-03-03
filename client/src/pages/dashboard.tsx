@@ -10,7 +10,6 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import {
   AlertTriangle,
-  Search,
   RefreshCw,
   CreditCard,
   MapPin,
@@ -216,12 +215,6 @@ export default function DashboardPage() {
             <CreditCard className="w-3.5 h-3.5" />
             SPC {stats?.spcCredits ?? "..."}
           </Badge>
-          <Link href="/consulta-isp">
-            <Button size="sm" className="gap-1.5 h-8 text-xs" data-testid="button-consultar">
-              <Search className="w-3.5 h-3.5" />
-              Consultar CPF/CNPJ
-            </Button>
-          </Link>
         </div>
       </div>
 
