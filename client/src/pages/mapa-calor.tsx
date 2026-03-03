@@ -161,7 +161,7 @@ function LeafletHeatMap({
         : BRAZIL_CENTER);
       const zoom = defaultCenter ? 11 : (points.length > 0 ? 7 : 5);
 
-      mapRef.current = L.map(containerRef.current, { zoomControl: true, scrollWheelZoom: false }).setView(center, zoom);
+      mapRef.current = L.map(containerRef.current, { zoomControl: true, scrollWheelZoom: false, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false }).setView(center, zoom);
 
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>',
@@ -243,10 +243,13 @@ function LeafletHeatMap({
       if (mapRef.current) {
         try {
           const m = mapRef.current as any;
-          const pane = m._mapPane as HTMLElement | undefined;
-          if (pane) { pane.style.transition = "none"; void pane.offsetWidth; }
           m._onZoomTransitionEnd = () => {};
           m._onZoomAnim = () => {};
+          m._animatingZoom = false;
+          if (m._panes) {
+            const pane = m._panes.mapPane as HTMLElement | undefined;
+            if (pane) { pane.style.transition = "none"; void pane.offsetWidth; }
+          }
           m.off();
           m.stop();
           m.remove();
