@@ -65,11 +65,11 @@ const STATUS_CONFIG: Record<string, { label: string; badge: string }> = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const fmt = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2 });
-const maskCpf = (v: string) => {
+const formatCpfCnpj = (v: string) => {
   if (!v) return "—";
   const d = v.replace(/\D/g, "");
-  if (d.length === 11) return `${d.slice(0, 3)}.***.***-${d.slice(9)}`;
-  if (d.length === 14) return `${d.slice(0, 2)}.***.***/****-${d.slice(12)}`;
+  if (d.length === 11) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+  if (d.length === 14) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
   return v;
 };
 const relativeDate = (d: string | null) => {
@@ -377,7 +377,7 @@ export default function InadimplentesPage() {
                         </div>
                         <div className="min-w-0">
                           <p className="text-sm font-semibold truncate max-w-[160px]" data-testid={`text-name-${d.id}`}>{d.name}</p>
-                          <p className="text-xs text-muted-foreground font-mono">{maskCpf(d.cpfCnpj)}</p>
+                          <p className="text-xs text-muted-foreground font-mono">{formatCpfCnpj(d.cpfCnpj)}</p>
                         </div>
                       </div>
                     </TableCell>
