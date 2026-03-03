@@ -209,11 +209,11 @@ export default function DashboardPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <Badge variant="outline" className="gap-1.5 px-3 py-1.5 text-xs font-semibold border-blue-300 text-blue-700 dark:text-blue-400">
             <CreditCard className="w-3.5 h-3.5" />
-            ISP {stats?.ispCredits ?? "..."}
+            Creditos ISP {stats?.ispCredits ?? "..."}
           </Badge>
           <Badge variant="outline" className="gap-1.5 px-3 py-1.5 text-xs font-semibold border-pink-300 text-pink-700 dark:text-pink-400">
             <CreditCard className="w-3.5 h-3.5" />
-            SPC {stats?.spcCredits ?? "..."}
+            Creditos SPC {stats?.spcCredits ?? "..."}
           </Badge>
         </div>
       </div>
