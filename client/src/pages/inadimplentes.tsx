@@ -122,8 +122,6 @@ export default function InadimplentesPage() {
   const { data: stats } = useQuery<any>({ queryKey: ["/api/dashboard/stats"] });
   const { data: list = [], isLoading, refetch, isFetching } = useQuery<any[]>({
     queryKey: ["/api/inadimplentes"],
-    staleTime: 0,
-    refetchOnMount: true,
   });
 
   const filtered = useMemo(() => {
