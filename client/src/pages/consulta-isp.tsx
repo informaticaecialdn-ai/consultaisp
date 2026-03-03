@@ -566,23 +566,24 @@ export default function ConsultaISPPage() {
                                     )}
                                   </div>
                                 </div>
+                                <Button
+                                  size="sm"
+                                  className="flex-shrink-0 bg-blue-600 hover:bg-blue-700 text-white gap-1.5 text-xs h-8"
+                                  onClick={() => { setShowFullResult(true); setSelectedProviderIdx(i); }}
+                                  data-testid={`button-ver-informacoes-${i}`}
+                                >
+                                  <Info className="w-3.5 h-3.5" />
+                                  Ver Informacoes
+                                </Button>
                               </div>
                             );
                           })}
                         </div>
 
-                        <div className="mt-5 flex flex-col sm:flex-row items-center gap-3">
-                          <Button
-                            className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white gap-2"
-                            onClick={() => { setShowFullResult(true); setSelectedProviderIdx(0); }}
-                            data-testid="button-ver-informacoes"
-                          >
-                            <Info className="w-4 h-4" />
-                            Ver Informacoes
-                          </Button>
+                        <div className="mt-5 flex justify-center">
                           <Button
                             variant="outline"
-                            className="w-full sm:w-auto gap-2"
+                            className="gap-2"
                             onClick={() => { setQuery(""); setResult(null); }}
                             data-testid="button-nova-consulta"
                           >
