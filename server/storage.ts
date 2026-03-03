@@ -625,13 +625,22 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async getAllSupportThreads(): Promise<(SupportThread & { providerName: string; unreadCount: number })[]> {
+  async getAllSupportThreads(): Promise<(SupportThread & { providerName: string; unreadCount: number; lastMessage: string | null; lastMessageFrom: string | null })[]> {
     const threads = await db.select().from(supportThreads).orderBy(desc(supportThreads.lastMessageAt));
     const result = await Promise.all(threads.map(async (thread) => {
       const [provider] = await db.select({ name: providers.name }).from(providers).where(eq(providers.id, thread.providerId));
       const [{ count: unread }] = await db.select({ count: count() }).from(supportMessages)
         .where(and(eq(supportMessages.threadId, thread.id), eq(supportMessages.isFromAdmin, false), eq(supportMessages.isRead, false)));
-      return { ...thread, providerName: provider?.name || "Desconhecido", unreadCount: Number(unread) };
+      const [lastMsg] = await db.select({ content: supportMessages.content, isFromAdmin: supportMessages.isFromAdmin })
+        .from(supportMessages).where(eq(supportMessages.threadId, thread.id))
+        .orderBy(desc(supportMessages.createdAt)).limit(1);
+      return {
+        ...thread,
+        providerName: provider?.name || "Desconhecido",
+        unreadCount: Number(unread),
+        lastMessage: lastMsg?.content || null,
+        lastMessageFrom: lastMsg ? (lastMsg.isFromAdmin ? "admin" : "provider") : null,
+      };
     }));
     return result;
   }

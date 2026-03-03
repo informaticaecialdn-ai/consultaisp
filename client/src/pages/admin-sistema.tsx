@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -41,16 +41,60 @@ const PLAN_LABELS: Record<string, { label: string; color: string }> = {
   enterprise: { label: "Enterprise",   color: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" },
 };
 
+const QUICK_REPLIES = [
+  "Olá! Como posso ajudar?",
+  "Obrigado pelo contato. Vamos verificar isso para você.",
+  "Seu pedido foi registrado e será processado em breve.",
+  "Para resolver isso, precisamos de mais informações. Poderia detalhar melhor?",
+  "O problema foi identificado e está sendo resolvido.",
+  "Sua conta foi atualizada com sucesso!",
+  "Por favor, acesse o painel e verifique se o problema persiste.",
+];
+
+function chatRelTime(d: string): string {
+  const diff = Date.now() - new Date(d).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "agora";
+  if (m < 60) return `${m}min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  return new Date(d).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
+
+function chatFullTime(d: string): string {
+  return new Date(d).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function chatDayLabel(d: string): string {
+  const date = new Date(d);
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (date.toDateString() === today.toDateString()) return "Hoje";
+  if (date.toDateString() === yesterday.toDateString()) return "Ontem";
+  return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+}
+
+function providerInitials(name: string): string {
+  return name.split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase();
+}
+
 function ChatPanel({ threads }: { threads: any[] }) {
   const [activeThread, setActiveThread] = useState<any>(null);
   const [message, setMessage] = useState("");
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<"all" | "open" | "closed">("all");
+  const [showQuickReplies, setShowQuickReplies] = useState(false);
   const { toast } = useToast();
   const qc = useQueryClient();
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [, navigate] = useLocation();
 
   const { data: msgs = [], isLoading: msgsLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/chat/threads", activeThread?.id, "messages"],
     enabled: !!activeThread,
-    refetchInterval: 5000,
+    refetchInterval: 4000,
   });
 
   const sendMutation = useMutation({
@@ -63,6 +107,8 @@ function ChatPanel({ threads }: { threads: any[] }) {
       qc.invalidateQueries({ queryKey: ["/api/admin/chat/threads", activeThread?.id, "messages"] });
       qc.invalidateQueries({ queryKey: ["/api/admin/chat/threads"] });
       setMessage("");
+      setShowQuickReplies(false);
+      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
     },
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
@@ -72,48 +118,124 @@ function ChatPanel({ threads }: { threads: any[] }) {
       const res = await apiRequest("PATCH", `/api/admin/chat/threads/${id}/status`, { status });
       return res.json();
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/admin/chat/threads"] }),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/chat/threads"] });
+      setActiveThread((prev: any) => prev ? { ...prev, status: vars.status } : prev);
+    },
   });
 
-  const handleSend = (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    if (msgs.length > 0) {
+      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+    }
+  }, [msgs.length, activeThread?.id]);
+
+  const handleSend = () => {
     if (!message.trim() || !activeThread) return;
-    sendMutation.mutate(message);
+    sendMutation.mutate(message.trim());
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  const filteredThreads = threads.filter(t => {
+    const matchSearch = t.providerName.toLowerCase().includes(search.toLowerCase());
+    const matchFilter = filter === "all" || t.status === filter;
+    return matchSearch && matchFilter;
+  });
+
+  const totalUnread = threads.reduce((s, t) => s + t.unreadCount, 0);
+
+  const groupedMsgs = msgs.reduce<{ day: string; messages: any[] }[]>((groups, m) => {
+    const day = chatDayLabel(m.createdAt);
+    const last = groups[groups.length - 1];
+    if (last && last.day === day) { last.messages.push(m); }
+    else { groups.push({ day, messages: [m] }); }
+    return groups;
+  }, []);
+
   return (
-    <div className="flex gap-4 h-[600px]">
-      <div className="w-72 flex-shrink-0 border rounded-xl overflow-hidden flex flex-col">
-        <div className="px-3 py-2.5 border-b bg-muted/30">
-          <p className="text-sm font-semibold">Conversas de Suporte</p>
-          <p className="text-xs text-muted-foreground">{threads.length} provedor(es)</p>
+    <div className="flex gap-4" style={{ height: "calc(100vh - 220px)", minHeight: "560px" }}>
+      {/* Thread list */}
+      <div className="w-80 flex-shrink-0 border rounded-xl overflow-hidden flex flex-col bg-background">
+        <div className="px-4 py-3 border-b bg-muted/20">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <p className="text-sm font-bold">Central de Suporte</p>
+              <p className="text-xs text-muted-foreground">
+                {totalUnread > 0 ? <span className="text-blue-600 font-medium">{totalUnread} nao lida(s)</span> : `${threads.length} conversa(s)`}
+              </p>
+            </div>
+            {totalUnread > 0 && (
+              <span className="w-6 h-6 bg-blue-600 text-white text-xs rounded-full flex items-center justify-center font-bold" data-testid="badge-total-unread">{totalUnread}</span>
+            )}
+          </div>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <input
+              className="w-full pl-8 pr-3 py-1.5 text-xs border rounded-lg bg-background focus:outline-none focus:ring-1 focus:ring-blue-500"
+              placeholder="Buscar provedor..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              data-testid="input-chat-search"
+            />
+          </div>
+          <div className="flex gap-1 mt-2">
+            {(["all", "open", "closed"] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`flex-1 text-[11px] py-1 rounded-md font-medium transition-colors ${filter === f ? "bg-blue-600 text-white" : "bg-muted text-muted-foreground hover:bg-muted/70"}`}
+                data-testid={`filter-chat-${f}`}
+              >
+                {f === "all" ? "Todos" : f === "open" ? "Abertos" : "Fechados"}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto divide-y">
-          {threads.length === 0 ? (
-            <div className="flex items-center justify-center h-full text-sm text-muted-foreground p-4 text-center">
-              Nenhuma conversa ainda
+          {filteredThreads.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground p-4 text-center">
+              <MessageSquare className="w-8 h-8 opacity-20" />
+              <p className="text-xs">{search ? "Nenhum resultado" : "Nenhuma conversa ainda"}</p>
             </div>
-          ) : threads.map((t: any) => (
+          ) : filteredThreads.map((t: any) => (
             <button
               key={t.id}
-              className={`w-full text-left px-3 py-3 hover:bg-muted/50 transition-colors ${activeThread?.id === t.id ? "bg-blue-50 dark:bg-blue-950/30" : ""}`}
+              className={`w-full text-left px-4 py-3 hover:bg-muted/40 transition-colors ${activeThread?.id === t.id ? "bg-blue-50 border-l-2 border-l-blue-600" : ""}`}
               onClick={() => setActiveThread(t)}
               data-testid={`chat-thread-${t.id}`}
             >
-              <div className="flex items-start justify-between gap-1">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">{t.providerName}</p>
-                  <p className="text-xs text-muted-foreground truncate">{t.subject}</p>
+              <div className="flex items-start gap-3">
+                <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold text-white ${t.status === "open" ? "bg-gradient-to-br from-blue-500 to-indigo-600" : "bg-gradient-to-br from-gray-400 to-gray-500"}`}>
+                  {providerInitials(t.providerName)}
                 </div>
-                <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                  {t.unreadCount > 0 && (
-                    <span className="w-5 h-5 bg-blue-600 text-white text-[10px] rounded-full flex items-center justify-center font-bold">
-                      {t.unreadCount}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-1">
+                    <p className={`text-sm truncate ${t.unreadCount > 0 ? "font-bold" : "font-medium"}`}>{t.providerName}</p>
+                    <span className="text-[10px] text-muted-foreground flex-shrink-0">{t.lastMessageAt ? chatRelTime(t.lastMessageAt) : ""}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">
+                    {t.lastMessage ? (
+                      <span>{t.lastMessageFrom === "admin" ? "Você: " : ""}{t.lastMessage.slice(0, 50)}{t.lastMessage.length > 50 ? "…" : ""}</span>
+                    ) : (
+                      <span className="italic">Sem mensagens</span>
+                    )}
+                  </p>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${t.status === "open" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-600"}`}>
+                      {t.status === "open" ? "Aberto" : "Fechado"}
                     </span>
-                  )}
-                  <Badge className={`text-[10px] px-1.5 ${t.status === "open" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-600"}`}>
-                    {t.status === "open" ? "Aberto" : "Fechado"}
-                  </Badge>
+                    {t.unreadCount > 0 && (
+                      <span className="w-5 h-5 bg-blue-600 text-white text-[10px] rounded-full flex items-center justify-center font-bold" data-testid={`unread-badge-${t.id}`}>
+                        {t.unreadCount}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             </button>
@@ -121,82 +243,185 @@ function ChatPanel({ threads }: { threads: any[] }) {
         </div>
       </div>
 
-      <div className="flex-1 border rounded-xl flex flex-col overflow-hidden">
+      {/* Chat window */}
+      <div className="flex-1 border rounded-xl flex flex-col overflow-hidden bg-background">
         {!activeThread ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-3">
-            <MessageSquare className="w-12 h-12 opacity-20" />
-            <p className="text-sm">Selecione uma conversa para responder</p>
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-4">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500/10 to-indigo-500/10 flex items-center justify-center">
+              <MessageSquare className="w-8 h-8 text-blue-400 opacity-60" />
+            </div>
+            <div className="text-center">
+              <p className="text-sm font-medium">Selecione uma conversa</p>
+              <p className="text-xs text-muted-foreground mt-1">Escolha um provedor ao lado para responder</p>
+            </div>
           </div>
         ) : (
           <>
-            <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/20">
-              <div>
-                <p className="font-semibold text-sm">{activeThread.providerName}</p>
-                <p className="text-xs text-muted-foreground">{activeThread.subject}</p>
+            {/* Chat header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b bg-muted/10">
+              <div className="flex items-center gap-3">
+                <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 ${activeThread.status === "open" ? "bg-gradient-to-br from-blue-500 to-indigo-600" : "bg-gradient-to-br from-gray-400 to-gray-500"}`}>
+                  {providerInitials(activeThread.providerName)}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="font-semibold text-sm">{activeThread.providerName}</p>
+                    <span className={`w-2 h-2 rounded-full ${activeThread.status === "open" ? "bg-emerald-500" : "bg-gray-400"}`} />
+                  </div>
+                  <p className="text-xs text-muted-foreground">{activeThread.subject}</p>
+                </div>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-xs gap-1.5"
-                onClick={() => statusMutation.mutate({
-                  id: activeThread.id,
-                  status: activeThread.status === "open" ? "closed" : "open",
-                })}
-                data-testid="button-toggle-thread-status"
-              >
-                {activeThread.status === "open" ? (
-                  <><XCircle className="w-3.5 h-3.5" />Fechar</>
-                ) : (
-                  <><CheckCircle className="w-3.5 h-3.5" />Reabrir</>
-                )}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs gap-1.5 h-8"
+                  onClick={() => navigate(`/admin/provedor/${activeThread.providerId}`)}
+                  data-testid="button-goto-provider-panel"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />Painel
+                </Button>
+                <Button
+                  variant={activeThread.status === "open" ? "outline" : "default"}
+                  size="sm"
+                  className="text-xs gap-1.5 h-8"
+                  onClick={() => statusMutation.mutate({
+                    id: activeThread.id,
+                    status: activeThread.status === "open" ? "closed" : "open",
+                  })}
+                  data-testid="button-toggle-thread-status"
+                >
+                  {activeThread.status === "open" ? (
+                    <><XCircle className="w-3.5 h-3.5" />Fechar</>
+                  ) : (
+                    <><CheckCircle className="w-3.5 h-3.5" />Reabrir</>
+                  )}
+                </Button>
+              </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 bg-slate-50/30">
               {msgsLoading ? (
                 <div className="flex items-center justify-center h-full">
                   <RefreshCw className="w-4 h-4 animate-spin text-muted-foreground" />
                 </div>
               ) : msgs.length === 0 ? (
-                <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-                  Nenhuma mensagem ainda
+                <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
+                  <MessageSquare className="w-10 h-10 opacity-20" />
+                  <p className="text-sm">Nenhuma mensagem ainda. Inicie a conversa!</p>
                 </div>
-              ) : msgs.map((m: any) => (
-                <div key={m.id} className={`flex ${m.isFromAdmin ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[75%] rounded-2xl px-3 py-2 ${m.isFromAdmin
-                    ? "bg-blue-600 text-white rounded-br-sm"
-                    : "bg-muted rounded-bl-sm"
-                  }`}>
-                    {!m.isFromAdmin && (
-                      <p className="text-[10px] font-semibold mb-0.5 text-muted-foreground">{m.senderName}</p>
-                    )}
-                    <p className="text-sm">{m.content}</p>
-                    <p className={`text-[10px] mt-1 ${m.isFromAdmin ? "text-blue-200" : "text-muted-foreground"}`}>
-                      {new Date(m.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
-                    </p>
+              ) : groupedMsgs.map(group => (
+                <div key={group.day} className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-px bg-border" />
+                    <span className="text-[11px] text-muted-foreground font-medium px-2 py-0.5 bg-muted rounded-full">{group.day}</span>
+                    <div className="flex-1 h-px bg-border" />
                   </div>
+                  {group.messages.map((m: any) => (
+                    <div key={m.id} className={`flex items-end gap-2 ${m.isFromAdmin ? "justify-end" : "justify-start"}`}>
+                      {!m.isFromAdmin && (
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-slate-400 to-slate-500 flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0">
+                          {(m.senderName || "?").charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <div className={`max-w-[72%] ${m.isFromAdmin ? "items-end" : "items-start"} flex flex-col gap-0.5`}>
+                        {!m.isFromAdmin && (
+                          <p className="text-[10px] font-semibold text-muted-foreground ml-1">{m.senderName}</p>
+                        )}
+                        <div className={`rounded-2xl px-3.5 py-2.5 ${m.isFromAdmin
+                          ? "bg-blue-600 text-white rounded-br-sm"
+                          : "bg-white border rounded-bl-sm shadow-sm"
+                        }`}>
+                          <p className="text-sm whitespace-pre-wrap leading-relaxed">{m.content}</p>
+                        </div>
+                        <div className={`flex items-center gap-1 px-1 ${m.isFromAdmin ? "flex-row-reverse" : ""}`}>
+                          <span className={`text-[10px] ${m.isFromAdmin ? "text-muted-foreground" : "text-muted-foreground"}`}>{chatFullTime(m.createdAt)}</span>
+                          {m.isFromAdmin && (
+                            <CheckCircle2 className={`w-3 h-3 ${m.isRead ? "text-blue-500" : "text-muted-foreground/40"}`} />
+                          )}
+                        </div>
+                      </div>
+                      {m.isFromAdmin && (
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0">
+                          A
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               ))}
+              <div ref={messagesEndRef} />
             </div>
 
-            <form onSubmit={handleSend} className="flex gap-2 p-3 border-t">
-              <Input
-                placeholder="Digite sua resposta..."
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                disabled={activeThread.status !== "open"}
-                data-testid="input-admin-chat-message"
-              />
-              <Button
-                type="submit"
-                size="sm"
-                disabled={!message.trim() || sendMutation.isPending || activeThread.status !== "open"}
-                className="gap-1.5"
-                data-testid="button-admin-chat-send"
-              >
-                {sendMutation.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              </Button>
-            </form>
+            {/* Quick replies */}
+            {showQuickReplies && (
+              <div className="border-t bg-muted/20 px-4 py-2">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Respostas rapidas</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {QUICK_REPLIES.map((r, i) => (
+                    <button
+                      key={i}
+                      onClick={() => { setMessage(r); setShowQuickReplies(false); textareaRef.current?.focus(); }}
+                      className="text-xs bg-white border rounded-full px-3 py-1 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition-colors text-left max-w-[280px] truncate"
+                      data-testid={`quick-reply-${i}`}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Input area */}
+            <div className="border-t bg-background">
+              {activeThread.status !== "open" ? (
+                <div className="px-5 py-3 text-center text-sm text-muted-foreground bg-muted/30">
+                  Esta conversa esta fechada. Reabra para responder.
+                </div>
+              ) : (
+                <div className="px-4 py-3 space-y-2">
+                  <div className="flex gap-2 items-end">
+                    <div className="flex-1 relative">
+                      <Textarea
+                        ref={textareaRef}
+                        placeholder="Digite sua resposta... (Enter para enviar, Shift+Enter para nova linha)"
+                        value={message}
+                        onChange={e => setMessage(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        rows={2}
+                        className="resize-none text-sm pr-2 min-h-[60px] max-h-[120px]"
+                        data-testid="input-admin-chat-message"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5 flex-shrink-0">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-8 p-0"
+                        onClick={() => setShowQuickReplies(v => !v)}
+                        title="Respostas rapidas"
+                        data-testid="button-quick-replies"
+                      >
+                        <Zap className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 w-8 p-0 bg-blue-600 hover:bg-blue-700"
+                        disabled={!message.trim() || sendMutation.isPending}
+                        onClick={handleSend}
+                        data-testid="button-admin-chat-send"
+                      >
+                        {sendMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground text-right">{message.length > 0 ? `${message.length} caracteres` : "Enter para enviar · Shift+Enter para nova linha"}</p>
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>
