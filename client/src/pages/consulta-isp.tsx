@@ -187,7 +187,12 @@ export default function ConsultaISPPage() {
       setSelectedProviderIdx(0);
       queryClient.invalidateQueries({ queryKey: ["/api/isp-consultations"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
-      toast({ title: "Consulta realizada", description: "Consulta ISP processada com sucesso" });
+      const ownCount = (data.result?.providerDetails || []).filter((d: any) => d.isSameProvider).length;
+      const otherCount = (data.result?.providerDetails || []).filter((d: any) => !d.isSameProvider).length;
+      const costDesc = otherCount > 0
+        ? `${ownCount} gratuita(s), ${otherCount} x 1 credito`
+        : data.result?.notFound ? "Nada consta — Gratuita" : "Gratuita";
+      toast({ title: "Consulta realizada", description: costDesc });
     },
     onError: (err: any) => {
       toast({ title: "Erro", description: err.message, variant: "destructive" });
@@ -566,15 +571,20 @@ export default function ConsultaISPPage() {
                                     )}
                                   </div>
                                 </div>
-                                <Button
-                                  size="sm"
-                                  className="flex-shrink-0 bg-blue-600 hover:bg-blue-700 text-white gap-1.5 text-xs h-8"
-                                  onClick={() => { setShowFullResult(true); setSelectedProviderIdx(i); }}
-                                  data-testid={`button-ver-informacoes-${i}`}
-                                >
-                                  <Info className="w-3.5 h-3.5" />
-                                  Ver Informacoes
-                                </Button>
+                                <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isOwn ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`} data-testid={`cost-badge-${i}`}>
+                                    {isOwn ? "Gratuita" : "1 Credito"}
+                                  </span>
+                                  <Button
+                                    size="sm"
+                                    className="bg-blue-600 hover:bg-blue-700 text-white gap-1.5 text-xs h-8"
+                                    onClick={() => { setShowFullResult(true); setSelectedProviderIdx(i); }}
+                                    data-testid={`button-ver-informacoes-${i}`}
+                                  >
+                                    <Info className="w-3.5 h-3.5" />
+                                    Ver Informacoes
+                                  </Button>
+                                </div>
                               </div>
                             );
                           })}
@@ -607,9 +617,12 @@ export default function ConsultaISPPage() {
                       Voltar para a lista
                     </button>
 
-                    {/* ── HERO: Score + Decisão + Cliente ── */}
+                    {/* ── HERO: Score + Decisão + Provedor selecionado ── */}
                     {(() => {
-                      const heroName = result.providerDetails.find(d => d.isSameProvider)?.customerName || null;
+                      const selectedDetail = result.providerDetails[selectedProviderIdx ?? 0];
+                      const isOwnSelected = selectedDetail?.isSameProvider ?? false;
+                      const heroName = isOwnSelected ? selectedDetail?.customerName : null;
+                      const detailCost = isOwnSelected ? 0 : 1;
                       const dc = result.decisionReco;
                       const heroBg = dc === "Accept" ? "from-emerald-50 to-white border-emerald-200"
                         : dc === "Review" ? "from-amber-50 to-white border-amber-200"
@@ -640,7 +653,7 @@ export default function ConsultaISPPage() {
                                 <span className="text-[10px] text-slate-400 font-medium uppercase tracking-wide">Score ISP</span>
                               </div>
 
-                              {/* Cliente info */}
+                              {/* Provedor info */}
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2.5 mb-2">
                                   <div className="w-9 h-9 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center flex-shrink-0">
@@ -653,32 +666,29 @@ export default function ConsultaISPPage() {
                                     <p className="font-bold text-slate-900 text-base leading-tight" data-testid="text-customer-name">
                                       {heroName || "Dados restritos"}
                                     </p>
-                                    <p className="text-xs text-slate-500">{formatCpfCnpj(result.cpfCnpj)}</p>
+                                    <p className="text-xs text-slate-500">{formatCpfCnpj(result.cpfCnpj)} — {selectedDetail?.providerName}</p>
                                   </div>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-2">
+                                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isOwnSelected ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
+                                    {isOwnSelected ? "SEU PROVEDOR" : "OUTRO PROVEDOR"}
+                                  </span>
                                   <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${riskCls}`} data-testid="text-risk-tier">
                                     {result.riskLabel}
                                   </span>
-                                  {result.providerDetails.length > 0 && (
-                                    <span className="text-xs text-slate-500">
-                                      {result.providerDetails.length} cadastro(s) na rede ISP
-                                    </span>
-                                  )}
                                   <span className="text-xs text-slate-400">{dataConsulta}</span>
                                 </div>
                               </div>
 
-                              {/* Decisão */}
+                              {/* Decisão + Custo */}
                               <div className="flex-shrink-0 flex flex-col items-center gap-1.5">
                                 <div className={`${decisionBg} text-white px-6 py-3 rounded-xl text-center min-w-[7rem]`} data-testid="badge-decision">
                                   <p className="text-[10px] font-semibold opacity-80 uppercase tracking-widest">Decisao</p>
                                   <p className="text-xl font-black tracking-wide">{decisionLabel}</p>
                                 </div>
-                                {result.creditsCost > 0
-                                  ? <span className="text-xs text-slate-400">{result.creditsCost} credito(s)</span>
-                                  : <span className="text-xs text-emerald-600 font-medium">Gratuita</span>
-                                }
+                                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${detailCost === 0 ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`} data-testid="detail-cost-badge">
+                                  {detailCost === 0 ? "Gratuita" : "1 Credito"}
+                                </span>
                               </div>
 
                             </div>
@@ -687,220 +697,154 @@ export default function ConsultaISPPage() {
                       );
                     })()}
 
-                    {/* ── PROVEDORES ── */}
-                    {result.providerDetails.length > 0 && (
-                      <div>
-                        <div className="flex items-center gap-2 mb-3">
-                          <Building2 className="w-4 h-4 text-slate-500" />
-                          <h3 className="text-sm font-semibold text-slate-700">
-                            Historico em Provedores ({result.providerDetails.length})
-                          </h3>
-                          {result.providerDetails.length > 1 && (
-                            <span className="text-xs text-slate-400 hidden sm:inline">— clique para ver detalhes</span>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          {result.providerDetails.map((detail, i) => {
-                            const isSelected = selectedProviderIdx === i;
-                            const isOwn = detail.isSameProvider;
-                            const hasOverdue = (detail.overdueAmount || 0) > 0 || !!detail.overdueAmountRange;
-                            const contractMonths = Math.max(1, Math.round(detail.contractAgeDays / 30));
-                            const statusContrato = detail.cancelledDate ? "Cancelado" : "Ativo";
-                            const totalEqp = detail.equipmentDetails?.reduce((s, e) => s + parseFloat(e.value || "0"), 0) || 0;
-                            const statusCls = detail.daysOverdue === 0
-                              ? "bg-emerald-100 text-emerald-700"
-                              : detail.daysOverdue <= 30 ? "bg-orange-100 text-orange-700"
-                              : "bg-red-100 text-red-700";
-                            return (
-                              <div key={i}>
-                                {/* Card resumo clicável */}
-                                <button
-                                  className={`w-full text-left rounded-xl border transition-all duration-200 overflow-hidden bg-white ${
-                                    isSelected
-                                      ? "border-blue-400 shadow-md ring-2 ring-blue-100 rounded-b-none border-b-0"
-                                      : "border-slate-200 hover:border-slate-300 hover:shadow-sm"
-                                  }`}
-                                  onClick={() => setSelectedProviderIdx(isSelected && result.providerDetails.length > 1 ? null : i)}
-                                  data-testid={`provider-card-${i}`}
-                                >
-                                  <div className="flex items-center gap-3 p-4">
-                                    <div className={`w-1.5 self-stretch rounded-full flex-shrink-0 ${isOwn ? "bg-blue-500" : "bg-slate-300"}`} />
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isOwn ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
-                                          {isOwn ? "SEU PROVEDOR" : "OUTRO PROVEDOR"}
-                                        </span>
-                                        <span className="text-sm font-semibold text-slate-800 truncate">{detail.providerName}</span>
-                                      </div>
-                                      <div className="flex items-center gap-2 flex-wrap">
-                                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusCls}`}>
-                                          {detail.daysOverdue === 0 ? "Em dia" : `${detail.daysOverdue} dias em atraso`}
-                                        </span>
-                                        {detail.hasUnreturnedEquipment && (
-                                          <span className="text-xs text-amber-600 flex items-center gap-1">
-                                            <Router className="w-3 h-3" />
-                                            {detail.unreturnedEquipmentCount} equip. pendente(s)
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-                                    <div className="flex items-center gap-3 flex-shrink-0">
-                                      {hasOverdue ? (
-                                        <div className="text-right">
-                                          <p className="text-[10px] text-slate-400 uppercase tracking-wide">Em aberto</p>
-                                          <p className="text-sm font-bold text-red-600">
-                                            {detail.overdueAmount
-                                              ? `R$ ${detail.overdueAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
-                                              : detail.overdueAmountRange}
-                                          </p>
-                                        </div>
-                                      ) : (
-                                        <div className="text-right">
-                                          <p className="text-[10px] text-slate-400 uppercase tracking-wide">Situacao</p>
-                                          <p className="text-sm font-bold text-emerald-600">Adimplente</p>
-                                        </div>
-                                      )}
-                                      {isSelected
-                                        ? <ChevronUp className="w-4 h-4 text-blue-500 flex-shrink-0" />
-                                        : <ChevronDown className="w-4 h-4 text-slate-400 flex-shrink-0" />
-                                      }
-                                    </div>
+                    {/* ── DETALHES DO PROVEDOR SELECIONADO ── */}
+                    {(() => {
+                      const detail = result.providerDetails[selectedProviderIdx ?? 0];
+                      if (!detail) return null;
+                      const isOwn = detail.isSameProvider;
+                      const hasOverdue = (detail.overdueAmount || 0) > 0 || !!detail.overdueAmountRange;
+                      const contractMonths = Math.max(1, Math.round(detail.contractAgeDays / 30));
+                      const statusContrato = detail.cancelledDate ? "Cancelado" : "Ativo";
+                      const totalEqp = detail.equipmentDetails?.reduce((s: number, e: any) => s + parseFloat(e.value || "0"), 0) || 0;
+                      const statusCls = detail.daysOverdue === 0
+                        ? "bg-emerald-100 text-emerald-700"
+                        : detail.daysOverdue <= 30 ? "bg-orange-100 text-orange-700"
+                        : "bg-red-100 text-red-700";
+                      return (
+                        <div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <Building2 className="w-4 h-4 text-slate-500" />
+                            <h3 className="text-sm font-semibold text-slate-700">
+                              Detalhes — {detail.providerName}
+                            </h3>
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isOwn ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
+                              {isOwn ? "SEU PROVEDOR" : "OUTRO PROVEDOR"}
+                            </span>
+                          </div>
+                          <div
+                            className="border border-slate-200 rounded-xl bg-white shadow-sm overflow-hidden"
+                            data-testid={`provider-detail-${selectedProviderIdx ?? 0}`}
+                          >
+                            <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
+
+                              <div className="p-4">
+                                <div className="flex items-center gap-1.5 mb-3">
+                                  <CreditCard className="w-3.5 h-3.5 text-slate-400" />
+                                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Financeiro</span>
+                                </div>
+                                <div className="space-y-2.5">
+                                  <div>
+                                    <p className="text-[10px] text-slate-400 mb-0.5">Status de pagamento</p>
+                                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusCls}`}>
+                                      {detail.status}
+                                    </span>
                                   </div>
-                                </button>
-
-                                {/* Painel expandido */}
-                                {isSelected && (
-                                  <div
-                                    className="border border-blue-300 border-t-0 rounded-b-xl bg-white shadow-sm overflow-hidden"
-                                    data-testid={`provider-detail-${i}`}
-                                  >
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
-
-                                      {/* Financeiro */}
-                                      <div className="p-4">
-                                        <div className="flex items-center gap-1.5 mb-3">
-                                          <CreditCard className="w-3.5 h-3.5 text-slate-400" />
-                                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Financeiro</span>
-                                        </div>
-                                        <div className="space-y-2.5">
-                                          <div>
-                                            <p className="text-[10px] text-slate-400 mb-0.5">Status de pagamento</p>
-                                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusCls}`}>
-                                              {detail.status}
-                                            </span>
-                                          </div>
-                                          {detail.daysOverdue > 0 && (
-                                            <div>
-                                              <p className="text-[10px] text-slate-400">Dias em atraso</p>
-                                              <p className="text-sm font-bold text-red-600">{detail.daysOverdue} dias</p>
-                                            </div>
-                                          )}
-                                          {isOwn && (detail.overdueAmount || 0) > 0 && (
-                                            <div>
-                                              <p className="text-[10px] text-slate-400">Valor em aberto</p>
-                                              <p className="text-base font-black text-red-600">
-                                                R$ {(detail.overdueAmount || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                                              </p>
-                                            </div>
-                                          )}
-                                          {!isOwn && detail.overdueAmountRange && (
-                                            <div>
-                                              <p className="text-[10px] text-slate-400">Faixa de valor</p>
-                                              <p className="text-sm text-slate-700">{detail.overdueAmountRange}</p>
-                                            </div>
-                                          )}
-                                          {detail.overdueInvoicesCount > 0 && (
-                                            <div>
-                                              <p className="text-[10px] text-slate-400">Faturas em atraso</p>
-                                              <p className="text-sm font-semibold text-slate-700">{detail.overdueInvoicesCount} fatura(s)</p>
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-
-                                      {/* Contrato */}
-                                      <div className="p-4">
-                                        <div className="flex items-center gap-1.5 mb-3">
-                                          <Clock className="w-3.5 h-3.5 text-slate-400" />
-                                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Contrato</span>
-                                        </div>
-                                        <div className="space-y-2.5">
-                                          <div>
-                                            <p className="text-[10px] text-slate-400">Tempo de servico</p>
-                                            <p className="text-sm font-semibold text-slate-800">{contractMonths} {contractMonths === 1 ? "mes" : "meses"}</p>
-                                          </div>
-                                          <div>
-                                            <p className="text-[10px] text-slate-400">Status do contrato</p>
-                                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusContrato === "Ativo" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
-                                              {statusContrato}
-                                            </span>
-                                          </div>
-                                          <div>
-                                            <p className="text-[10px] text-slate-400">Cliente</p>
-                                            {isOwn
-                                              ? <p className="text-sm font-semibold text-slate-800">{detail.customerName}</p>
-                                              : <span className="flex items-center gap-1 text-xs text-slate-400"><Lock className="w-3 h-3" /> Dado restrito</span>
-                                            }
-                                          </div>
-                                          {detail.cancelledDate && (
-                                            <div>
-                                              <p className="text-[10px] text-slate-400">Data cancelamento</p>
-                                              <p className="text-xs text-slate-600">{new Date(detail.cancelledDate).toLocaleDateString("pt-BR")}</p>
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-
-                                      {/* Equipamentos */}
-                                      <div className={`p-4 ${detail.hasUnreturnedEquipment ? "bg-amber-50/60" : ""}`}>
-                                        <div className="flex items-center gap-1.5 mb-3">
-                                          <Router className={`w-3.5 h-3.5 ${detail.hasUnreturnedEquipment ? "text-amber-500" : "text-slate-400"}`} />
-                                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Equipamentos</span>
-                                        </div>
-                                        {detail.hasUnreturnedEquipment ? (
-                                          <div className="space-y-2">
-                                            <div className="flex items-center gap-1">
-                                              <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-                                              <p className="text-xs font-bold text-amber-700">{detail.unreturnedEquipmentCount} nao devolvido(s)</p>
-                                            </div>
-                                            {detail.equipmentDetails ? (
-                                              <div className="space-y-1.5 mt-2">
-                                                {detail.equipmentDetails.map((eq, j) => (
-                                                  <div key={j} className="flex items-center justify-between gap-2">
-                                                    <span className="text-xs text-slate-700 flex-1 truncate">{eq.type} {eq.brand} {eq.model}</span>
-                                                    <span className="text-xs font-semibold text-slate-800 flex-shrink-0">
-                                                      R$ {parseFloat(eq.value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                                                    </span>
-                                                  </div>
-                                                ))}
-                                                <div className="pt-1.5 border-t border-amber-200 flex justify-between">
-                                                  <span className="text-xs font-bold text-amber-700">Total</span>
-                                                  <span className="text-xs font-black text-amber-700">
-                                                    R$ {totalEqp.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                                                  </span>
-                                                </div>
-                                              </div>
-                                            ) : (
-                                              <p className="text-xs text-slate-600">{detail.equipmentPendingSummary}</p>
-                                            )}
-                                          </div>
-                                        ) : (
-                                          <div className="flex items-center gap-1.5">
-                                            <CheckCircle className="w-4 h-4 text-emerald-500" />
-                                            <span className="text-sm text-emerald-700 font-medium">Todos devolvidos</span>
-                                          </div>
-                                        )}
-                                      </div>
-
+                                  {detail.daysOverdue > 0 && (
+                                    <div>
+                                      <p className="text-[10px] text-slate-400">Dias em atraso</p>
+                                      <p className="text-sm font-bold text-red-600">{detail.daysOverdue} dias</p>
                                     </div>
+                                  )}
+                                  {isOwn && (detail.overdueAmount || 0) > 0 && (
+                                    <div>
+                                      <p className="text-[10px] text-slate-400">Valor em aberto</p>
+                                      <p className="text-base font-black text-red-600">
+                                        R$ {(detail.overdueAmount || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                                      </p>
+                                    </div>
+                                  )}
+                                  {!isOwn && detail.overdueAmountRange && (
+                                    <div>
+                                      <p className="text-[10px] text-slate-400">Faixa de valor</p>
+                                      <p className="text-sm text-slate-700">{detail.overdueAmountRange}</p>
+                                    </div>
+                                  )}
+                                  {detail.overdueInvoicesCount > 0 && (
+                                    <div>
+                                      <p className="text-[10px] text-slate-400">Faturas em atraso</p>
+                                      <p className="text-sm font-semibold text-slate-700">{detail.overdueInvoicesCount} fatura(s)</p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="p-4">
+                                <div className="flex items-center gap-1.5 mb-3">
+                                  <Clock className="w-3.5 h-3.5 text-slate-400" />
+                                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Contrato</span>
+                                </div>
+                                <div className="space-y-2.5">
+                                  <div>
+                                    <p className="text-[10px] text-slate-400">Tempo de servico</p>
+                                    <p className="text-sm font-semibold text-slate-800">{contractMonths} {contractMonths === 1 ? "mes" : "meses"}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[10px] text-slate-400">Status do contrato</p>
+                                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusContrato === "Ativo" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+                                      {statusContrato}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <p className="text-[10px] text-slate-400">Cliente</p>
+                                    {isOwn
+                                      ? <p className="text-sm font-semibold text-slate-800">{detail.customerName}</p>
+                                      : <span className="flex items-center gap-1 text-xs text-slate-400"><Lock className="w-3 h-3" /> Dado restrito</span>
+                                    }
+                                  </div>
+                                  {detail.cancelledDate && (
+                                    <div>
+                                      <p className="text-[10px] text-slate-400">Data cancelamento</p>
+                                      <p className="text-xs text-slate-600">{new Date(detail.cancelledDate).toLocaleDateString("pt-BR")}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className={`p-4 ${detail.hasUnreturnedEquipment ? "bg-amber-50/60" : ""}`}>
+                                <div className="flex items-center gap-1.5 mb-3">
+                                  <Router className={`w-3.5 h-3.5 ${detail.hasUnreturnedEquipment ? "text-amber-500" : "text-slate-400"}`} />
+                                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Equipamentos</span>
+                                </div>
+                                {detail.hasUnreturnedEquipment ? (
+                                  <div className="space-y-2">
+                                    <div className="flex items-center gap-1">
+                                      <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                                      <p className="text-xs font-bold text-amber-700">{detail.unreturnedEquipmentCount} nao devolvido(s)</p>
+                                    </div>
+                                    {detail.equipmentDetails ? (
+                                      <div className="space-y-1.5 mt-2">
+                                        {detail.equipmentDetails.map((eq: any, j: number) => (
+                                          <div key={j} className="flex items-center justify-between gap-2">
+                                            <span className="text-xs text-slate-700 flex-1 truncate">{eq.type} {eq.brand} {eq.model}</span>
+                                            <span className="text-xs font-semibold text-slate-800 flex-shrink-0">
+                                              R$ {parseFloat(eq.value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                                            </span>
+                                          </div>
+                                        ))}
+                                        <div className="pt-1.5 border-t border-amber-200 flex justify-between">
+                                          <span className="text-xs font-bold text-amber-700">Total</span>
+                                          <span className="text-xs font-black text-amber-700">
+                                            R$ {totalEqp.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <p className="text-xs text-slate-600">{detail.equipmentPendingSummary}</p>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1.5">
+                                    <CheckCircle className="w-4 h-4 text-emerald-500" />
+                                    <span className="text-sm text-emerald-700 font-medium">Todos devolvidos</span>
                                   </div>
                                 )}
                               </div>
-                            );
-                          })}
+
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
 
                     {/* ── COMPOSIÇÃO DO SCORE ── */}
                     {(result.penalties.length > 0 || result.bonuses.length > 0) && (
