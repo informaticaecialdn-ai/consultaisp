@@ -204,9 +204,21 @@ function ChatPanel({ threads }: { threads: any[] }) {
   );
 }
 
+function generateSubdomainSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 30);
+}
+
 function NewProviderForm({ onSuccess }: { onSuccess: () => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const [subdomainEdited, setSubdomainEdited] = useState(false);
   const [form, setForm] = useState({
     name: "", cnpj: "", subdomain: "", plan: "basic",
     adminName: "", adminEmail: "", adminPassword: "",
@@ -230,23 +242,40 @@ function NewProviderForm({ onSuccess }: { onSuccess: () => void }) {
   const f = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm(p => ({ ...p, [k]: e.target.value }));
 
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const name = e.target.value;
+    setForm(p => ({
+      ...p,
+      name,
+      subdomain: subdomainEdited ? p.subdomain : generateSubdomainSlug(name),
+    }));
+  };
+
+  const handleSubdomainChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSubdomainEdited(true);
+    setForm(p => ({ ...p, subdomain: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 30) }));
+  };
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="text-xs font-medium mb-1 block">Nome do Provedor</label>
-          <Input placeholder="NsLink Telecom" value={form.name} onChange={f("name")} data-testid="input-new-provider-name" />
+          <Input placeholder="NsLink Telecom" value={form.name} onChange={handleNameChange} data-testid="input-new-provider-name" />
         </div>
         <div>
           <label className="text-xs font-medium mb-1 block">CNPJ</label>
           <Input placeholder="00.000.000/0000-00" value={form.cnpj} onChange={f("cnpj")} data-testid="input-new-provider-cnpj" />
         </div>
         <div>
-          <label className="text-xs font-medium mb-1 block">Subdominio</label>
+          <label className="text-xs font-medium mb-1 block">Subdominio <span className="text-muted-foreground font-normal">(gerado automaticamente)</span></label>
           <div className="flex items-center gap-1">
-            <Input placeholder="nslink" value={form.subdomain} onChange={f("subdomain")} className="flex-1" data-testid="input-new-provider-subdomain" />
+            <Input placeholder="nslink" value={form.subdomain} onChange={handleSubdomainChange} className="flex-1 font-mono text-sm" data-testid="input-new-provider-subdomain" />
             <span className="text-xs text-muted-foreground whitespace-nowrap">.consultaisp.com.br</span>
           </div>
+          {form.subdomain && (
+            <p className="text-[10px] text-muted-foreground mt-0.5">URL: <span className="font-mono">{form.subdomain}.consultaisp.com.br</span></p>
+          )}
         </div>
         <div>
           <label className="text-xs font-medium mb-1 block">Plano Inicial</label>

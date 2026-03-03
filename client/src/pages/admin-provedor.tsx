@@ -428,6 +428,68 @@ export default function AdminProvedorPage() {
                 </div>
               </Card>
 
+              {provider.subdomain && (
+                <Card className="p-5 space-y-4 md:col-span-2 border-blue-200 bg-blue-50/30" data-testid="card-dns-config">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Globe className="w-4 h-4 text-blue-600" />
+                      <h3 className="font-semibold text-sm text-blue-800">Configuracao DNS do Subdominio</h3>
+                    </div>
+                    <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-xs font-medium" data-testid="badge-dns-status">
+                      Configurar manualmente
+                    </Badge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Configure o registro abaixo no painel DNS do dominio <span className="font-semibold">consultaisp.com.br</span> para ativar o subdominio deste provedor.
+                  </p>
+                  <div className="bg-white rounded-lg border border-blue-200 overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-blue-100/60 border-b border-blue-200">
+                          <th className="text-left px-4 py-2 text-xs font-semibold text-blue-700">Nome / Host</th>
+                          <th className="text-left px-4 py-2 text-xs font-semibold text-blue-700">Tipo</th>
+                          <th className="text-left px-4 py-2 text-xs font-semibold text-blue-700">Destino / Valor</th>
+                          <th className="text-left px-4 py-2 text-xs font-semibold text-blue-700">TTL</th>
+                          <th className="px-4 py-2" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td className="px-4 py-3 font-mono text-sm font-medium" data-testid="dns-host">{provider.subdomain}</td>
+                          <td className="px-4 py-3">
+                            <Badge className="bg-violet-100 text-violet-700 border-violet-200 text-xs font-mono">CNAME</Badge>
+                          </td>
+                          <td className="px-4 py-3 font-mono text-sm text-blue-700" data-testid="dns-destination">consultaisp-isp.replit.app</td>
+                          <td className="px-4 py-3 text-sm text-muted-foreground">3600</td>
+                          <td className="px-4 py-3">
+                            <button
+                              onClick={() => { navigator.clipboard.writeText(`${provider.subdomain}\tCNAME\tconsultaisp-isp.replit.app`); }}
+                              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium"
+                              data-testid="button-copy-dns-record"
+                            >
+                              <Copy className="w-3 h-3" />Copiar
+                            </button>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="flex items-center gap-4 flex-wrap">
+                    <div className="flex items-center gap-2 bg-white rounded-lg border border-blue-200 px-3 py-2 flex-1 min-w-0">
+                      <Globe className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+                      <span className="text-xs font-mono text-slate-700 truncate" data-testid="text-full-subdomain-url">{provider.subdomain}.consultaisp.com.br</span>
+                      <button
+                        onClick={() => { navigator.clipboard.writeText(`${provider.subdomain}.consultaisp.com.br`); }}
+                        className="ml-auto flex-shrink-0 text-blue-500 hover:text-blue-700"
+                        data-testid="button-copy-subdomain-url"
+                      >
+                        <Copy className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                </Card>
+              )}
+
               <Card className="p-5 space-y-3 md:col-span-2">
                 <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Resumo Financeiro</h3>
                 <div className="grid grid-cols-3 gap-4">
