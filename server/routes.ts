@@ -7,6 +7,7 @@ import { hashPassword, verifyPassword } from "./password";
 import { sendVerificationEmail } from "./email";
 import { slugifySubdomain, buildSubdomainUrl } from "./tenant";
 import crypto from "crypto";
+import { streamConsultationAnalysis, streamAntiFraudAnalysis } from "./ai-analysis";
 
 function calculateIspScore(params: {
   maxDaysOverdue: number;
@@ -2705,6 +2706,52 @@ export async function registerRoutes(
       return res.json({ success: true });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/ai/analyze-consultation", requireAuth, async (req, res) => {
+    try {
+      const { result } = req.body;
+      if (!result) return res.status(400).json({ message: "Dados de consulta ausentes" });
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.flushHeaders();
+
+      await streamConsultationAnalysis(result, (text: string) => {
+        res.write(`data: ${JSON.stringify({ text })}\n\n`);
+      });
+
+      res.write("data: [DONE]\n\n");
+      res.end();
+    } catch (error: any) {
+      console.error("AI consultation analysis error:", error);
+      res.write(`data: ${JSON.stringify({ error: error.message || "Erro na analise" })}\n\n`);
+      res.end();
+    }
+  });
+
+  app.post("/api/ai/analyze-antifraud", requireAuth, async (req, res) => {
+    try {
+      const { alerts, customers } = req.body;
+      if (!alerts || !customers) return res.status(400).json({ message: "Dados ausentes" });
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+      res.flushHeaders();
+
+      await streamAntiFraudAnalysis(alerts, customers, (text: string) => {
+        res.write(`data: ${JSON.stringify({ text })}\n\n`);
+      });
+
+      res.write("data: [DONE]\n\n");
+      res.end();
+    } catch (error: any) {
+      console.error("AI antifraud analysis error:", error);
+      res.write(`data: ${JSON.stringify({ error: error.message || "Erro na analise" })}\n\n`);
+      res.end();
     }
   });
 

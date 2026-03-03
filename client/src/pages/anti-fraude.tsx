@@ -601,8 +601,36 @@ function PadroesTab({ alerts }: { alerts: AntiFraudAlert[] }) {
   );
 }
 
+function renderAIText(text: string) {
+  const lines = text.split("\n");
+  return lines.map((line, i) => {
+    const trimmed = line.trim();
+    if (!trimmed) return <div key={i} className="h-2" />;
+    const isHeader = /^[A-ZÁÉÍÓÚÂÊÔÀÃÕ\s]{4,}$/.test(trimmed) && trimmed === trimmed.toUpperCase() && trimmed.length > 3;
+    if (isHeader) {
+      return (
+        <p key={i} className="font-bold text-slate-800 mt-4 mb-1 text-sm uppercase tracking-wide border-b border-indigo-200 pb-1">
+          {trimmed}
+        </p>
+      );
+    }
+    if (trimmed.startsWith("- ") || trimmed.startsWith("• ")) {
+      return (
+        <p key={i} className="text-sm text-slate-700 pl-3 flex gap-2">
+          <span className="text-indigo-400 mt-0.5">•</span>
+          <span>{trimmed.replace(/^[-•]\s+/, "")}</span>
+        </p>
+      );
+    }
+    return <p key={i} className="text-sm text-slate-700">{trimmed}</p>;
+  });
+}
+
 function AnaliseIATab({ alerts, customerRisk }: { alerts: AntiFraudAlert[]; customerRisk: CustomerRisk[] }) {
-  const [analyzed, setAnalyzed] = useState(false);
+  const [aiText, setAiText] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiDone, setAiDone] = useState(false);
+  const [aiError, setAiError] = useState("");
 
   const activeAlerts = alerts.filter(a => a.status === "new");
   const criticalAlerts = activeAlerts.filter(a => a.riskLevel === "critical");
@@ -615,139 +643,177 @@ function AnaliseIATab({ alerts, customerRisk }: { alerts: AntiFraudAlert[]; cust
   const equipmentAtRisk = activeAlerts.filter(a => (a.equipmentNotReturned || 0) > 0);
   const totalEquipmentValue = equipmentAtRisk.reduce((sum, a) => sum + parseFloat(a.equipmentValue || "0"), 0);
   const equipmentCustomers = new Set(equipmentAtRisk.map(a => a.customerName)).size;
-
   const overdueAlerts = activeAlerts.filter(a => (a.daysOverdue || 0) > 60);
   const totalOverdueValue = overdueAlerts.reduce((sum, a) => sum + parseFloat(a.overdueAmount || "0"), 0);
 
-  const highRiskCustomers = customerRisk.filter(c => c.riskScore >= 50);
+  const runAIAnalysis = async () => {
+    setAiText("");
+    setAiLoading(true);
+    setAiDone(false);
+    setAiError("");
+    try {
+      const res = await fetch("/api/ai/analyze-antifraud", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alerts, customers: customerRisk }),
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Erro na analise");
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const payload = line.slice(6).trim();
+            if (payload === "[DONE]") { setAiDone(true); break; }
+            try {
+              const parsed = JSON.parse(payload);
+              if (parsed.error) { setAiError(parsed.error); break; }
+              if (parsed.text) setAiText(prev => prev + parsed.text);
+            } catch {}
+          }
+        }
+      }
+    } catch (err: any) {
+      setAiError(err.message || "Erro desconhecido");
+    } finally {
+      setAiLoading(false);
+      setAiDone(true);
+    }
+  };
 
   return (
     <div className="space-y-4">
-      {!analyzed ? (
-        <Card className="p-6">
-          <div className="text-center py-12">
-            <BrainCircuit className="w-16 h-16 mx-auto mb-4 text-indigo-400" />
-            <h3 className="text-lg font-semibold mb-2">Analise de Fraude com IA</h3>
-            <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto">
-              Execute a analise automatizada para identificar padroes de fraude, riscos e obter recomendacoes de acoes.
-            </p>
-            <Button
-              className="gap-2"
-              onClick={() => setAnalyzed(true)}
-              data-testid="button-run-ai-analysis"
-            >
-              <Search className="w-4 h-4" />
-              Executar Analise de Fraude
-            </Button>
+      <Card className="p-5">
+        <h3 className="font-semibold mb-4 flex items-center gap-2">
+          <BarChart3 className="w-4 h-4" />
+          Resumo de Risco
+        </h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <p className="text-sm text-muted-foreground">Score Geral</p>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-2xl font-bold">{avgRiskScore}/100</span>
+              <RiskLevelBadge level={riskLevel} />
+            </div>
           </div>
-        </Card>
-      ) : (
-        <>
-          <Card className="p-5">
-            <h3 className="font-semibold mb-4 flex items-center gap-2">
-              <BarChart3 className="w-4 h-4" />
-              Resumo de Risco
-            </h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div>
-                <p className="text-sm text-muted-foreground">Score Geral</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-2xl font-bold">{avgRiskScore}/100</span>
-                  <RiskLevelBadge level={riskLevel} />
-                </div>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Tendencia</p>
-                <p className="text-lg font-semibold mt-1 flex items-center gap-1">
-                  <TrendingUp className="w-4 h-4 text-orange-500" />
-                  {activeAlerts.length > 3 ? "Piorando" : activeAlerts.length > 0 ? "Estavel" : "Controlada"}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Casos Criticos</p>
-                <p className="text-2xl font-bold mt-1">{criticalAlerts.length}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Valor Total em Risco</p>
-                <p className="text-lg font-bold mt-1">{formatCurrency(totalRiskValue)}</p>
-              </div>
-            </div>
-          </Card>
+          <div>
+            <p className="text-sm text-muted-foreground">Tendencia</p>
+            <p className="text-lg font-semibold mt-1 flex items-center gap-1">
+              <TrendingUp className="w-4 h-4 text-orange-500" />
+              {activeAlerts.length > 3 ? "Piorando" : activeAlerts.length > 0 ? "Estavel" : "Controlada"}
+            </p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Casos Criticos</p>
+            <p className="text-2xl font-bold mt-1">{criticalAlerts.length}</p>
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">Valor Total em Risco</p>
+            <p className="text-lg font-bold mt-1">{formatCurrency(totalRiskValue)}</p>
+          </div>
+        </div>
+      </Card>
 
-          <Card className="p-5">
-            <h3 className="font-semibold mb-4 flex items-center gap-2">
-              <Target className="w-4 h-4" />
-              Padroes Detectados
-            </h3>
-            <div className="space-y-3">
-              <div className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
-                <span className="text-sm font-bold text-muted-foreground">1.</span>
-                <div>
-                  <p className="font-medium">Concentracao de inadimplencia</p>
-                  <p className="text-sm text-muted-foreground mt-0.5">
-                    {highRiskCustomers.length} clientes com score de risco acima de 50
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
-                <span className="text-sm font-bold text-muted-foreground">2.</span>
-                <div>
-                  <p className="font-medium">Equipamentos em risco</p>
-                  <p className="text-sm text-muted-foreground mt-0.5">
-                    {equipmentCustomers} cliente(s) com {equipmentAtRisk.length} equipamento(s) nao devolvido(s) ({formatCurrency(totalEquipmentValue)})
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
-                <span className="text-sm font-bold text-muted-foreground">3.</span>
-                <div>
-                  <p className="font-medium">Perfil de risco</p>
-                  <p className="text-sm text-muted-foreground mt-0.5">
-                    {overdueAlerts.length} caso(s) com atraso superior a 60 dias totalizando {formatCurrency(totalOverdueValue)}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </Card>
+      <Card className="p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold flex items-center gap-2">
+            <BrainCircuit className="w-4 h-4 text-indigo-600" />
+            Analise de Fraude com IA
+            {aiLoading && (
+              <span className="text-xs text-indigo-500 flex items-center gap-1 font-normal">
+                <div className="w-3 h-3 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />
+                Analisando...
+              </span>
+            )}
+            {aiDone && !aiError && (
+              <span className="text-xs text-emerald-600 flex items-center gap-1 font-normal">
+                <CheckCircle className="w-3 h-3" />
+                Concluido
+              </span>
+            )}
+          </h3>
+          <Button
+            size="sm"
+            variant={aiText ? "outline" : "default"}
+            className={aiText ? "gap-1.5" : "gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"}
+            onClick={runAIAnalysis}
+            disabled={aiLoading}
+            data-testid="button-run-ai-analysis"
+          >
+            <BrainCircuit className="w-3.5 h-3.5" />
+            {aiLoading ? "Analisando..." : aiText ? "Nova Analise" : "Executar Analise de Fraude"}
+          </Button>
+        </div>
 
-          <Card className="p-5">
-            <h3 className="font-semibold mb-4 flex items-center gap-2">
-              <Zap className="w-4 h-4" />
-              Acoes Recomendadas
-            </h3>
-            <div className="space-y-3">
-              {equipmentCustomers > 0 && (
-                <div className="flex items-start gap-3 p-3 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/20">
-                  <RiskDot level="critical" />
-                  <div className="flex-1">
-                    <p className="font-medium text-sm">URGENTE: Recuperar equipamentos de {equipmentCustomers} cliente(s)</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Valor total: {formatCurrency(totalEquipmentValue)}</p>
-                  </div>
-                  <Button size="sm" variant="outline" className="text-xs flex-shrink-0">Agendar Retiradas</Button>
-                </div>
-              )}
-              {overdueAlerts.length > 0 && (
-                <div className="flex items-start gap-3 p-3 rounded-lg border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/20">
-                  <RiskDot level="high" />
-                  <div className="flex-1">
-                    <p className="font-medium text-sm">IMPORTANTE: Intensificar cobranca em {overdueAlerts.length} caso(s)</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">Total em aberto: {formatCurrency(totalOverdueValue)}</p>
-                  </div>
-                  <Button size="sm" variant="outline" className="text-xs flex-shrink-0">Enviar Notificacoes</Button>
-                </div>
-              )}
-              <div className="flex items-start gap-3 p-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20">
-                <RiskDot level="medium" />
-                <div className="flex-1">
-                  <p className="font-medium text-sm">PREVENTIVO: Revisar politica de credito</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">Exigir caucao para contratos novos em areas de risco</p>
-                </div>
-                <Button size="sm" variant="outline" className="text-xs flex-shrink-0">Ver Sugestoes</Button>
+        {!aiText && !aiLoading && !aiError && (
+          <div className="text-center py-8 text-muted-foreground">
+            <BrainCircuit className="w-12 h-12 mx-auto mb-3 text-indigo-300" />
+            <p className="text-sm">
+              Clique em "Executar Analise de Fraude" para obter insights estrategicos
+              sobre os padroes de risco da sua base de clientes.
+            </p>
+          </div>
+        )}
+
+        {aiError && (
+          <div className="p-3 rounded-lg bg-red-50 border border-red-200">
+            <p className="text-sm text-red-600">{aiError}</p>
+          </div>
+        )}
+
+        {aiText && (
+          <div className="space-y-1">
+            {renderAIText(aiText)}
+            {aiLoading && (
+              <span className="inline-block w-1.5 h-4 bg-indigo-500 animate-pulse ml-0.5 rounded-sm" />
+            )}
+          </div>
+        )}
+      </Card>
+
+      <Card className="p-5">
+        <h3 className="font-semibold mb-4 flex items-center gap-2">
+          <Zap className="w-4 h-4" />
+          Acoes Imediatas
+        </h3>
+        <div className="space-y-3">
+          {equipmentCustomers > 0 && (
+            <div className="flex items-start gap-3 p-3 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/20">
+              <RiskDot level="critical" />
+              <div className="flex-1">
+                <p className="font-medium text-sm">URGENTE: Recuperar equipamentos de {equipmentCustomers} cliente(s)</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Valor total: {formatCurrency(totalEquipmentValue)}</p>
               </div>
+              <Button size="sm" variant="outline" className="text-xs flex-shrink-0">Agendar Retiradas</Button>
             </div>
-          </Card>
-        </>
-      )}
+          )}
+          {overdueAlerts.length > 0 && (
+            <div className="flex items-start gap-3 p-3 rounded-lg border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/20">
+              <RiskDot level="high" />
+              <div className="flex-1">
+                <p className="font-medium text-sm">IMPORTANTE: Intensificar cobranca em {overdueAlerts.length} caso(s)</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Total em aberto: {formatCurrency(totalOverdueValue)}</p>
+              </div>
+              <Button size="sm" variant="outline" className="text-xs flex-shrink-0">Enviar Notificacoes</Button>
+            </div>
+          )}
+          <div className="flex items-start gap-3 p-3 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20">
+            <RiskDot level="medium" />
+            <div className="flex-1">
+              <p className="font-medium text-sm">PREVENTIVO: Revisar politica de credito</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Exigir caucao para contratos novos em areas de risco</p>
+            </div>
+            <Button size="sm" variant="outline" className="text-xs flex-shrink-0">Ver Sugestoes</Button>
+          </div>
+        </div>
+      </Card>
     </div>
   );
 }

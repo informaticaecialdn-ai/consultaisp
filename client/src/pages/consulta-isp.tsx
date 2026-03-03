@@ -130,12 +130,41 @@ function LoadingCard() {
   );
 }
 
+function renderAIText(text: string) {
+  const lines = text.split("\n");
+  return lines.map((line, i) => {
+    const trimmed = line.trim();
+    if (!trimmed) return <div key={i} className="h-2" />;
+    const isHeader = /^[A-ZÁÉÍÓÚÂÊÔÀÃÕ\s]{4,}$/.test(trimmed) && trimmed === trimmed.toUpperCase() && trimmed.length > 3;
+    if (isHeader) {
+      return (
+        <p key={i} className="font-bold text-slate-800 mt-4 mb-1 text-sm uppercase tracking-wide border-b border-slate-200 pb-1">
+          {trimmed}
+        </p>
+      );
+    }
+    if (trimmed.startsWith("- ") || trimmed.startsWith("• ")) {
+      return (
+        <p key={i} className="text-sm text-slate-700 pl-3 flex gap-2">
+          <span className="text-indigo-400 mt-0.5">•</span>
+          <span>{trimmed.replace(/^[-•]\s+/, "")}</span>
+        </p>
+      );
+    }
+    return <p key={i} className="text-sm text-slate-700">{trimmed}</p>;
+  });
+}
+
 export default function ConsultaISPPage() {
   const { toast } = useToast();
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<ConsultaResult | null>(null);
   const [showScoreDetails, setShowScoreDetails] = useState(false);
   const [activeTab, setActiveTab] = useState<"nova" | "historico" | "relatorios" | "info">("nova");
+  const [aiText, setAiText] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiDone, setAiDone] = useState(false);
+  const [aiError, setAiError] = useState("");
 
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/isp-consultations"],
@@ -149,6 +178,9 @@ export default function ConsultaISPPage() {
     onSuccess: (data) => {
       setResult(data.result);
       setShowScoreDetails(false);
+      setAiText("");
+      setAiDone(false);
+      setAiError("");
       queryClient.invalidateQueries({ queryKey: ["/api/isp-consultations"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Consulta realizada", description: "Consulta ISP processada com sucesso" });
@@ -157,6 +189,48 @@ export default function ConsultaISPPage() {
       toast({ title: "Erro", description: err.message, variant: "destructive" });
     },
   });
+
+  const runAIAnalysis = async (consultaResult: ConsultaResult) => {
+    setAiText("");
+    setAiLoading(true);
+    setAiDone(false);
+    setAiError("");
+    try {
+      const res = await fetch("/api/ai/analyze-consultation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ result: consultaResult }),
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Erro na analise");
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const payload = line.slice(6).trim();
+            if (payload === "[DONE]") { setAiDone(true); break; }
+            try {
+              const parsed = JSON.parse(payload);
+              if (parsed.error) { setAiError(parsed.error); break; }
+              if (parsed.text) setAiText(prev => prev + parsed.text);
+            } catch {}
+          }
+        }
+      }
+    } catch (err: any) {
+      setAiError(err.message || "Erro desconhecido");
+    } finally {
+      setAiLoading(false);
+      setAiDone(true);
+    }
+  };
 
   const handleSearch = () => {
     if (!query.trim()) return;
@@ -749,6 +823,56 @@ export default function ConsultaISPPage() {
                         </p>
                       </div>
                     )}
+
+                    {/* Painel de Analise com IA */}
+                    <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5" data-testid="panel-ai-analysis">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="w-4 h-4 text-indigo-600" />
+                          <h4 className="text-sm font-semibold text-indigo-700">Analise Inteligente</h4>
+                          {aiLoading && (
+                            <span className="text-xs text-indigo-500 flex items-center gap-1">
+                              <div className="w-3 h-3 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />
+                              Analisando...
+                            </span>
+                          )}
+                          {aiDone && !aiError && (
+                            <span className="text-xs text-emerald-600 flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3" />
+                              Concluido
+                            </span>
+                          )}
+                        </div>
+                        {!aiLoading && (
+                          <Button
+                            size="sm"
+                            variant={aiText ? "outline" : "default"}
+                            className={aiText ? "text-xs h-7 gap-1" : "text-xs h-7 gap-1 bg-indigo-600 hover:bg-indigo-700 text-white"}
+                            onClick={() => runAIAnalysis(result)}
+                            data-testid="button-run-ai-consultation"
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            {aiText ? "Nova Analise" : "Analisar com IA"}
+                          </Button>
+                        )}
+                      </div>
+                      {!aiText && !aiLoading && !aiError && (
+                        <p className="text-sm text-indigo-600/70">
+                          Clique em "Analisar com IA" para obter uma interpretacao especializada deste resultado.
+                        </p>
+                      )}
+                      {aiError && (
+                        <p className="text-sm text-red-600">{aiError}</p>
+                      )}
+                      {aiText && (
+                        <div className="space-y-1 mt-2">
+                          {renderAIText(aiText)}
+                          {aiLoading && (
+                            <span className="inline-block w-1.5 h-4 bg-indigo-500 animate-pulse ml-0.5 rounded-sm" />
+                          )}
+                        </div>
+                      )}
+                    </div>
 
                     {/* Botões de ação */}
                     <div className="flex flex-wrap gap-3">
