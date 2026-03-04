@@ -281,7 +281,7 @@ export default function LandingPage() {
             {[
               { icon: Search, title: "Consulta ISP", desc: "Consulte CPF/CNPJ na base compartilhada de provedores. Historico de pagamentos, equipamentos e restricoes.", color: "bg-blue-600" },
               { icon: BarChart3, title: "Score de Credito", desc: "Score de 0 a 100 baseado em atrasos, valores, equipamentos e historico em multiplos provedores.", color: "bg-green-600" },
-              { icon: Shield, title: "Anti-Fraude", desc: "Alertas em tempo real quando seus inadimplentes sao consultados por outros provedores.", color: "bg-red-600" },
+              { icon: Shield, title: "Anti-Fraude", desc: "Quando um inadimplente do seu provedor e consultado, voce recebe um alerta se ele ainda estiver ativo na sua base.", color: "bg-red-600" },
               { icon: Flame, title: "Mapa de Calor", desc: "Visualizacao geografica das areas com maior concentracao de inadimplencia na sua regiao.", color: "bg-orange-600" },
               { icon: Bot, title: "Analise com IA", desc: "Inteligencia artificial gera recomendacoes personalizadas para cada consulta realizada.", color: "bg-indigo-600" },
               { icon: CreditCard, title: "Consulta SPC", desc: "Dados do SPC Brasil direto na plataforma. Score, restricoes financeiras e protestos.", color: "bg-teal-600" },
