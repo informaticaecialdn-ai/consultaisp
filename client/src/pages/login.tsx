@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Shield, Users, Search, BarChart3, CheckCircle, Lock, Mail, Zap, Eye, EyeOff, MailCheck, RefreshCw, Globe, Building2, X } from "lucide-react";
+import { Shield, Users, Search, BarChart3, CheckCircle, Lock, Mail, Zap, Eye, EyeOff, MailCheck, RefreshCw, Globe, Building2, X, ArrowLeft } from "lucide-react";
+import { useLocation } from "wouter";
 
 function slugifySubdomain(name: string): string {
   return name
@@ -33,6 +34,7 @@ type PageState = "login" | "register" | "check-email";
 export default function LoginPage() {
   const { login, register } = useAuth();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const [pageState, setPageState] = useState<PageState>(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get("mode") === "register" ? "register" : "login";
@@ -228,6 +230,14 @@ export default function LoginPage() {
 
       <div className="flex-1 flex items-center justify-center p-8 bg-background">
         <div className="w-full max-w-md">
+          <button
+            onClick={() => setLocation("/")}
+            className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-blue-600 transition-colors mb-6"
+            data-testid="button-back-to-site"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Voltar ao site
+          </button>
           <div className="lg:hidden flex items-center gap-3 mb-8 justify-center">
             <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center">
               <Shield className="w-6 h-6 text-white" />
