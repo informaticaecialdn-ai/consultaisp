@@ -167,7 +167,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex" data-testid="login-page">
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 relative flex-col justify-between p-12 text-white">
+      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-blue-600 to-violet-700 relative flex-col justify-between p-12 text-white">
         <div>
           <div className="flex items-center gap-3 mb-16">
             <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
@@ -178,7 +178,7 @@ export default function LoginPage() {
           <h1 className="text-4xl font-bold leading-tight mb-4">
             Base de Inadimplentes<br />Compartilhada
           </h1>
-          <p className="text-blue-100 text-lg mb-12 max-w-md">
+          <p className="text-violet-100 text-lg mb-12 max-w-md">
             Analise de credito baseada em base de dados colaborativa de clientes inadimplentes de provedores. Consulte o historico antes de liberar novos contratos!
           </p>
         </div>
@@ -189,28 +189,28 @@ export default function LoginPage() {
               <Users className="w-5 h-5 text-yellow-300" />
               <span className="font-semibold text-lg">100+</span>
             </div>
-            <span className="text-blue-200 text-sm">Provedores Ativos</span>
+            <span className="text-violet-200 text-sm">Provedores Ativos</span>
           </div>
           <div className="bg-white/10 backdrop-blur-sm rounded-xl p-5">
             <div className="flex items-center gap-2 mb-2">
-              <Search className="w-5 h-5 text-purple-300" />
+              <Search className="w-5 h-5 text-violet-300" />
               <span className="font-semibold text-lg">Multi</span>
             </div>
-            <span className="text-blue-200 text-sm">Base Colaborativa</span>
+            <span className="text-violet-200 text-sm">Base Colaborativa</span>
           </div>
           <div className="bg-white/10 backdrop-blur-sm rounded-xl p-5">
             <div className="flex items-center gap-2 mb-2">
               <Zap className="w-5 h-5 text-green-300" />
               <span className="font-semibold text-lg">99.9%</span>
             </div>
-            <span className="text-blue-200 text-sm">Uptime Garantido</span>
+            <span className="text-violet-200 text-sm">Uptime Garantido</span>
           </div>
           <div className="bg-white/10 backdrop-blur-sm rounded-xl p-5">
             <div className="flex items-center gap-2 mb-2">
               <BarChart3 className="w-5 h-5 text-orange-300" />
               <span className="font-semibold text-lg">#1</span>
             </div>
-            <span className="text-blue-200 text-sm">Melhor do Mercado</span>
+            <span className="text-violet-200 text-sm">Melhor do Mercado</span>
           </div>
         </div>
 
@@ -218,12 +218,12 @@ export default function LoginPage() {
           {features.map((feature) => (
             <div key={feature} className="flex items-center gap-3">
               <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0" />
-              <span className="text-blue-100 text-sm">{feature}</span>
+              <span className="text-violet-100 text-sm">{feature}</span>
             </div>
           ))}
         </div>
 
-        <p className="text-blue-300 text-xs mt-8">
+        <p className="text-violet-300 text-xs mt-8">
           2025 ISP Analizze - Plataforma de Analise de Credito para Provedores de Internet
         </p>
       </div>
@@ -232,14 +232,14 @@ export default function LoginPage() {
         <div className="w-full max-w-md">
           <button
             onClick={() => setLocation("/")}
-            className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-blue-600 transition-colors mb-6"
+            className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-violet-600 transition-colors mb-6"
             data-testid="button-back-to-site"
           >
             <ArrowLeft className="w-4 h-4" />
             Voltar ao site
           </button>
           <div className="lg:hidden flex items-center gap-3 mb-8 justify-center">
-            <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-violet-600 flex items-center justify-center">
               <Shield className="w-6 h-6 text-white" />
             </div>
             <span className="text-xl font-bold">Consulta ISP</span>
@@ -248,8 +248,8 @@ export default function LoginPage() {
           {pageState === "check-email" ? (
             <Card className="p-8" data-testid="check-email-card">
               <div className="text-center mb-6">
-                <div className="w-16 h-16 rounded-full bg-blue-50 dark:bg-blue-950 flex items-center justify-center mx-auto mb-4">
-                  <MailCheck className="w-8 h-8 text-blue-600" />
+                <div className="w-16 h-16 rounded-full bg-violet-50 dark:bg-violet-950 flex items-center justify-center mx-auto mb-4">
+                  <MailCheck className="w-8 h-8 text-violet-600" />
                 </div>
                 <h2 className="text-2xl font-bold mb-2" data-testid="text-check-email-title">
                   Verifique seu email
@@ -260,14 +260,14 @@ export default function LoginPage() {
                 <p className="font-semibold mt-1" data-testid="text-pending-email">{pendingEmail}</p>
               </div>
 
-              <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-4 mb-6 space-y-2">
+              <div className="bg-violet-50 dark:bg-violet-950/30 rounded-lg p-4 mb-6 space-y-2">
                 {[
                   "Abra seu email e procure a mensagem do Consulta ISP",
                   "Clique no botao \"Confirmar Email\"",
                   "Voce sera redirecionado automaticamente para o sistema",
                 ].map((step, i) => (
                   <div key={i} className="flex items-start gap-3">
-                    <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5 font-semibold">
+                    <span className="w-5 h-5 rounded-full bg-violet-600 text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5 font-semibold">
                       {i + 1}
                     </span>
                     <span className="text-sm text-muted-foreground">{step}</span>
@@ -289,7 +289,7 @@ export default function LoginPage() {
                 </Button>
                 <button
                   type="button"
-                  className="text-sm text-blue-600 font-medium"
+                  className="text-sm text-violet-600 font-medium"
                   onClick={() => setPageState("login")}
                   data-testid="button-back-to-login"
                 >
@@ -300,8 +300,8 @@ export default function LoginPage() {
           ) : (
             <Card className="p-8">
               <div className="text-center mb-8">
-                <div className="w-14 h-14 rounded-full bg-blue-50 dark:bg-blue-950 flex items-center justify-center mx-auto mb-4">
-                  <Shield className="w-7 h-7 text-blue-600" />
+                <div className="w-14 h-14 rounded-full bg-violet-50 dark:bg-violet-950 flex items-center justify-center mx-auto mb-4">
+                  <Shield className="w-7 h-7 text-violet-600" />
                 </div>
                 <h2 className="text-2xl font-bold" data-testid="text-login-title">
                   {pageState === "register" ? "Cadastre-se" : "Bem-vindo!"}
@@ -465,7 +465,7 @@ export default function LoginPage() {
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="text-sm font-medium">Senha</label>
                     {pageState === "login" && (
-                      <button type="button" className="text-xs text-blue-600">
+                      <button type="button" className="text-xs text-violet-600">
                         Esqueceu a senha?
                       </button>
                     )}
@@ -494,7 +494,7 @@ export default function LoginPage() {
 
                 <Button
                   type="submit"
-                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-600"
+                  className="w-full bg-violet-600 hover:bg-violet-700"
                   disabled={isLoading}
                   data-testid="button-submit-login"
                 >
@@ -508,7 +508,7 @@ export default function LoginPage() {
                   {pageState === "register" ? "Ja tem uma conta?" : "Ainda nao tem uma conta?"}{" "}
                   <button
                     type="button"
-                    className="text-blue-600 font-medium"
+                    className="text-violet-600 font-medium"
                     onClick={() => setPageState(pageState === "register" ? "login" : "register")}
                     data-testid="button-toggle-register"
                   >
