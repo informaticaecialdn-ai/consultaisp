@@ -249,7 +249,7 @@ export default function LandingPage() {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-0 md:gap-0">
             {[
-              { n: "1", title: "Cadastre e importe", desc: "Crie sua conta gratuitamente, conecte seu ERP (IXC, SGP, MK Solutions) e importe sua base de inadimplentes automaticamente.", icon: Building2, color: "bg-blue-600" },
+              { n: "1", title: "Cadastre e conecte", desc: "Crie sua conta gratuitamente e conecte seu ERP (IXC, SGP, MK Solutions). O sistema consulta a base de dados do seu provedor em tempo real.", icon: Building2, color: "bg-blue-600" },
               { n: "2", title: "Consulte o CPF/CNPJ", desc: "Antes de ativar um novo cliente, consulte na base compartilhada. Receba score, alertas de fraude e sugestao de decisao em segundos.", icon: Search, color: "bg-blue-700" },
               { n: "3", title: "Reduza perdas", desc: "Tome decisoes baseadas em dados reais de toda a rede. Reduza inadimplencia, recupere equipamentos e proteja sua receita.", icon: TrendingUp, color: "bg-green-600" },
             ].map((step, i) => (
