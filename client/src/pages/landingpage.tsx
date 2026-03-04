@@ -88,7 +88,7 @@ export default function LandingPage() {
                 que protege seu provedor
               </h1>
               <p className="text-lg text-slate-500 mt-6 leading-relaxed max-w-lg">
-                Provedores de internet compartilham dados de inadimplentes de forma anonimizada. Consulte CPF/CNPJ antes de ativar e reduza perdas com calotes e equipamentos nao devolvidos.
+                Provedores de internet compartilham dados de inadimplentes de forma <strong className="text-slate-700 font-semibold">anonimizada</strong>. Consulte CPF/CNPJ antes de ativar e reduza perdas com calotes e equipamentos nao devolvidos.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 mt-8">
                 <Button size="lg" className="bg-blue-600 hover:bg-blue-700 text-white px-8 gap-2 h-12 text-base font-bold" onClick={goRegister} data-testid="button-hero-cta">
