@@ -95,19 +95,6 @@ function RiskBarCell({ value, max }: { value: number; max: number }) {
   );
 }
 
-// Patch Leaflet's getPosition to be null-safe — prevents crash when map
-// unmounts while a zoom animation is still in progress (_onZoomTransitionEnd
-// fires asynchronously after the DOM element is gone).
-(function patchLeafletGetPosition() {
-  const DU = L.DomUtil as any;
-  if (DU.__getPositionPatched) return;
-  const orig = DU.getPosition;
-  DU.getPosition = function (el: any) {
-    if (!el) return (L as any).point(0, 0);
-    return orig.call(this, el);
-  };
-  DU.__getPositionPatched = true;
-})();
 
 let heatScriptLoaded = false;
 
