@@ -31,6 +31,7 @@ export default function LandingPage() {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
   const goLogin = () => setLocation("/login");
+  const goRegister = () => setLocation("/login?mode=register");
 
   return (
     <div className="min-h-screen bg-white overflow-x-hidden" data-testid="landing-page">
@@ -50,10 +51,10 @@ export default function LandingPage() {
             <button onClick={() => document.getElementById("faq")?.scrollIntoView({ behavior: "smooth" })} className="hover:text-blue-600 transition-colors" data-testid="nav-faq">FAQ</button>
           </div>
           <div className="flex items-center gap-2.5">
-            <Button variant="ghost" className="text-slate-600 text-sm h-9" onClick={goLogin} data-testid="button-landing-login">
+            <Button variant="outline" className="border-blue-600 text-blue-600 text-sm h-9 font-semibold" onClick={goLogin} data-testid="button-landing-login">
               Login
             </Button>
-            <Button className="bg-blue-600 hover:bg-blue-700 text-white text-sm h-9 gap-1.5" onClick={goLogin} data-testid="button-landing-cadastro">
+            <Button className="bg-blue-600 hover:bg-blue-700 text-white text-sm h-9 gap-1.5" onClick={goRegister} data-testid="button-landing-cadastro">
               Criar Conta Gratis
             </Button>
           </div>
@@ -82,7 +83,7 @@ export default function LandingPage() {
                 Provedores de internet compartilham dados de inadimplentes de forma anonimizada. Consulte CPF/CNPJ antes de ativar e reduza perdas com calotes e equipamentos nao devolvidos.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 mt-8">
-                <Button size="lg" className="bg-blue-600 hover:bg-blue-700 text-white px-8 gap-2 h-12 text-base font-bold" onClick={goLogin} data-testid="button-hero-cta">
+                <Button size="lg" className="bg-blue-600 hover:bg-blue-700 text-white px-8 gap-2 h-12 text-base font-bold" onClick={goRegister} data-testid="button-hero-cta">
                   Criar Conta Gratis
                   <ArrowRight className="w-4 h-4" />
                 </Button>
@@ -386,7 +387,7 @@ export default function LandingPage() {
                 </ul>
                 <Button
                   className={`w-full h-11 font-bold ${plan.popular ? "bg-blue-600 hover:bg-blue-700 text-white" : "bg-slate-100 hover:bg-slate-200 text-slate-900"}`}
-                  onClick={goLogin}
+                  onClick={goRegister}
                   data-testid={`button-plan-${i}`}
                 >
                   {plan.cta}
@@ -460,7 +461,7 @@ export default function LandingPage() {
             Junte-se a rede de provedores que ja reduzem perdas com inadimplencia usando dados colaborativos e inteligencia artificial.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Button size="lg" className="bg-white text-blue-700 hover:bg-blue-50 px-10 gap-2 h-12 text-base font-bold" onClick={goLogin} data-testid="button-cta-bottom">
+            <Button size="lg" className="bg-white text-blue-700 hover:bg-blue-50 px-10 gap-2 h-12 text-base font-bold" onClick={goRegister} data-testid="button-cta-bottom">
               Criar Conta Gratis
               <ArrowRight className="w-4 h-4" />
             </Button>

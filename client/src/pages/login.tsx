@@ -33,7 +33,10 @@ type PageState = "login" | "register" | "check-email";
 export default function LoginPage() {
   const { login, register } = useAuth();
   const { toast } = useToast();
-  const [pageState, setPageState] = useState<PageState>("login");
+  const [pageState, setPageState] = useState<PageState>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("mode") === "register" ? "register" : "login";
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
