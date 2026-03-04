@@ -2453,9 +2453,16 @@ export async function registerRoutes(
     try {
       if (!req.session.providerId) return res.status(403).json({ message: "Somente provedores" });
       const { packageId, billingType } = req.body;
-      const { CREDIT_PACKAGES } = await import("@shared/schema");
-      const pkg = CREDIT_PACKAGES.find(p => p.id === packageId);
+      const { ISP_CREDIT_PACKAGES, SPC_CREDIT_PACKAGES } = await import("@shared/schema");
+
+      const ispPkg = ISP_CREDIT_PACKAGES.find(p => p.id === packageId);
+      const spcPkg = SPC_CREDIT_PACKAGES.find(p => p.id === packageId);
+      const pkg = ispPkg || spcPkg;
       if (!pkg) return res.status(400).json({ message: "Pacote invalido" });
+
+      const creditType = ispPkg ? "isp" : "spc";
+      const ispCredits = ispPkg ? pkg.credits : 0;
+      const spcCredits = spcPkg ? pkg.credits : 0;
 
       const provider = await storage.getProvider(req.session.providerId);
       if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
@@ -2464,8 +2471,9 @@ export async function registerRoutes(
       const orderNumber = await storage.getNextOrderNumber();
       const order = await storage.createCreditOrder({
         orderNumber, providerId: provider.id, providerName: provider.name,
-        packageName: pkg.name, ispCredits: pkg.ispCredits, spcCredits: pkg.spcCredits,
+        packageName: pkg.name, ispCredits, spcCredits,
         amount: (pkg.price / 100).toFixed(2), status: "pending",
+        creditType,
         createdById: req.session.userId!, createdByName: me?.name || "Provedor",
       });
 
@@ -2479,7 +2487,7 @@ export async function registerRoutes(
             billingType: billingType || "UNDEFINED",
             value: pkg.price / 100,
             dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-            description: `Pacote de Creditos ${pkg.name} - ${pkg.ispCredits} ISP + ${pkg.spcCredits} SPC`,
+            description: `${pkg.name} — ${pkg.credits} creditos ${creditType.toUpperCase()}`,
             externalReference: `credit_order_${order.id}`,
           });
           await storage.updateCreditOrder(order.id, {
@@ -2528,28 +2536,36 @@ export async function registerRoutes(
 
   app.post("/api/admin/credit-orders", requireSuperAdmin, async (req, res) => {
     try {
-      const { providerId, packageId, customIsp, customSpc, customAmount, notes, billingType } = req.body;
-      const { CREDIT_PACKAGES } = await import("@shared/schema");
+      const { providerId, packageId, creditType: reqCreditType, customCredits, customAmount, notes, billingType } = req.body;
+      const { ISP_CREDIT_PACKAGES, SPC_CREDIT_PACKAGES } = await import("@shared/schema");
       const provider = await storage.getProvider(parseInt(providerId));
       if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
       const me = await storage.getUser(req.session.userId!);
 
-      let ispCredits: number, spcCredits: number, amount: string, packageName: string;
+      let ispCredits: number, spcCredits: number, amount: string, packageName: string, creditType: string;
       if (packageId && packageId !== "custom") {
-        const pkg = CREDIT_PACKAGES.find(p => p.id === packageId);
+        const ispPkg = ISP_CREDIT_PACKAGES.find(p => p.id === packageId);
+        const spcPkg = SPC_CREDIT_PACKAGES.find(p => p.id === packageId);
+        const pkg = ispPkg || spcPkg;
         if (!pkg) return res.status(400).json({ message: "Pacote invalido" });
-        ispCredits = pkg.ispCredits; spcCredits = pkg.spcCredits;
+        creditType = ispPkg ? "isp" : "spc";
+        ispCredits = ispPkg ? pkg.credits : 0;
+        spcCredits = spcPkg ? pkg.credits : 0;
         amount = (pkg.price / 100).toFixed(2); packageName = pkg.name;
       } else {
-        ispCredits = parseInt(customIsp) || 0; spcCredits = parseInt(customSpc) || 0;
-        amount = parseFloat(customAmount || "0").toFixed(2); packageName = "Personalizado";
+        creditType = reqCreditType || "isp";
+        const credits = parseInt(customCredits) || 0;
+        ispCredits = creditType === "isp" ? credits : 0;
+        spcCredits = creditType === "spc" ? credits : 0;
+        amount = parseFloat(customAmount || "0").toFixed(2);
+        packageName = `Personalizado ${creditType.toUpperCase()}`;
       }
 
       const orderNumber = await storage.getNextOrderNumber();
       const order = await storage.createCreditOrder({
         orderNumber, providerId: provider.id, providerName: provider.name,
         packageName, ispCredits, spcCredits, amount, status: "pending",
-        notes, createdById: req.session.userId!, createdByName: me?.name || "Admin",
+        creditType, notes, createdById: req.session.userId!, createdByName: me?.name || "Admin",
       });
 
       let chargeData: any = null;
@@ -2557,12 +2573,13 @@ export async function registerRoutes(
         try {
           const { isAsaasConfigured, findOrCreateCustomer, createCharge } = await import("./asaas");
           if (isAsaasConfigured()) {
+            const credits = ispCredits || spcCredits;
             const customer = await findOrCreateCustomer({ name: provider.name, cnpj: provider.cnpj, email: provider.contactEmail || "" });
             const charge = await createCharge({
               customer: customer.id, billingType,
               value: parseFloat(amount),
               dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-              description: `Creditos ${packageName}: ${ispCredits} ISP + ${spcCredits} SPC`,
+              description: `${packageName} — ${credits} creditos ${creditType.toUpperCase()}`,
               externalReference: `credit_order_${order.id}`,
             });
             await storage.updateCreditOrder(order.id, {

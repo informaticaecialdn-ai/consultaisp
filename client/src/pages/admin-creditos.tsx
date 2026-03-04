@@ -11,15 +11,27 @@ import { useAuth } from "@/lib/auth";
 import {
   CreditCard, Plus, RefreshCw, CheckCircle, XCircle, Clock,
   Wallet, QrCode, Copy, ExternalLink, RotateCcw, CheckCheck,
-  Package, Zap, Crown, ScanLine, ArrowUpRight, History,
+  ScanLine, ArrowUpRight, History, Search, Shield,
   Filter, Users, DollarSign, TrendingUp, ShoppingCart,
 } from "lucide-react";
 
-const CREDIT_PACKAGES = [
-  { id: "basico",       name: "Basico",      ispCredits: 50,  spcCredits: 20,  price: "49.90" },
-  { id: "profissional", name: "Profissional", ispCredits: 200, spcCredits: 100, price: "149.90" },
-  { id: "enterprise",   name: "Enterprise",   ispCredits: 500, spcCredits: 300, price: "299.90" },
-  { id: "custom",       name: "Personalizado", ispCredits: 0, spcCredits: 0,   price: "0" },
+const ISP_PACKAGES = [
+  { id: "isp-50",  name: "50 ISP",  credits: 50,   price: "49.90" },
+  { id: "isp-100", name: "100 ISP", credits: 100,  price: "89.90" },
+  { id: "isp-250", name: "250 ISP", credits: 250,  price: "199.90" },
+  { id: "isp-500", name: "500 ISP", credits: 500,  price: "349.90" },
+];
+
+const SPC_PACKAGES = [
+  { id: "spc-10",  name: "10 SPC",  credits: 10,   price: "49.90" },
+  { id: "spc-30",  name: "30 SPC",  credits: 30,   price: "129.90" },
+  { id: "spc-50",  name: "50 SPC",  credits: 50,   price: "199.90" },
+  { id: "spc-100", name: "100 SPC", credits: 100,  price: "349.90" },
+];
+
+const ALL_PACKAGES = [
+  ...ISP_PACKAGES.map(p => ({ ...p, creditType: "isp" })),
+  ...SPC_PACKAGES.map(p => ({ ...p, creditType: "spc" })),
 ];
 
 const STATUS_STYLES: Record<string, { badge: string; label: string; icon: any }> = {
@@ -42,11 +54,12 @@ export default function AdminCreditosPage() {
   const [showNewOrder, setShowNewOrder] = useState(false);
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterProvider, setFilterProvider] = useState("all");
+  const [filterType, setFilterType] = useState("all");
   const [asaasChargeModal, setAsaasChargeModal] = useState<{ orderId: number; orderNumber: string; amount: string } | null>(null);
   const [pixModal, setPixModal] = useState<{ pixData: any } | null>(null);
   const [form, setForm] = useState({
-    providerId: "", packageId: "profissional",
-    customIsp: "100", customSpc: "50", customAmount: "99.90",
+    providerId: "", packageId: "isp-100",
+    creditType: "isp", customCredits: "100", customAmount: "99.90",
     notes: "", billingType: "",
   });
 
@@ -76,7 +89,7 @@ export default function AdminCreditosPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/admin/credit-orders"] });
       setShowNewOrder(false);
-      setForm({ providerId: "", packageId: "profissional", customIsp: "100", customSpc: "50", customAmount: "99.90", notes: "", billingType: "" });
+      setForm({ providerId: "", packageId: "isp-100", creditType: "isp", customCredits: "100", customAmount: "99.90", notes: "", billingType: "" });
       toast({ title: "Pedido criado com sucesso" });
     },
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
@@ -152,6 +165,7 @@ export default function AdminCreditosPage() {
   const filteredOrders = orders.filter(o => {
     if (filterStatus !== "all" && o.status !== filterStatus) return false;
     if (filterProvider !== "all" && o.providerId.toString() !== filterProvider) return false;
+    if (filterType !== "all" && o.creditType !== filterType) return false;
     return true;
   });
 
@@ -160,11 +174,10 @@ export default function AdminCreditosPage() {
   const totalIspReleased = orders.filter(o => o.status === "paid").reduce((s: number, o: any) => s + o.ispCredits, 0);
   const totalSpcReleased = orders.filter(o => o.status === "paid").reduce((s: number, o: any) => s + o.spcCredits, 0);
 
-  const selectedPkg = CREDIT_PACKAGES.find(p => p.id === form.packageId);
+  const selectedPkg = ALL_PACKAGES.find(p => p.id === form.packageId);
 
   return (
     <div className="p-5 pb-10 space-y-5 max-w-[1200px] mx-auto">
-      {/* Asaas Charge Modal */}
       {asaasChargeModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setAsaasChargeModal(null)}>
           <div className="bg-background rounded-xl shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
@@ -191,7 +204,6 @@ export default function AdminCreditosPage() {
         </div>
       )}
 
-      {/* PIX Modal */}
       {pixModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setPixModal(null)}>
           <div className="bg-background rounded-xl shadow-xl p-6 w-full max-w-sm text-center" onClick={e => e.stopPropagation()}>
@@ -216,13 +228,12 @@ export default function AdminCreditosPage() {
         </div>
       )}
 
-      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold flex items-center gap-2">
             <CreditCard className="w-5 h-5 text-emerald-500" />Pedidos de Creditos
           </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">Gerencie compras de creditos dos provedores</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Gerencie compras de creditos ISP e SPC dos provedores</p>
         </div>
         <div className="flex items-center gap-2">
           {asaasStatus?.configured && (
@@ -241,13 +252,13 @@ export default function AdminCreditosPage() {
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {[
           { label: "Total de Pedidos", value: orders.length.toString(), icon: ShoppingCart, color: "from-blue-500 to-blue-600" },
           { label: "Pendentes", value: totalPending.toString(), icon: Clock, color: "from-amber-500 to-amber-600" },
           { label: "Receita Gerada", value: `R$ ${fmt(totalRevenue)}`, icon: DollarSign, color: "from-emerald-500 to-emerald-600" },
-          { label: "Creditos ISP Liberados", value: totalIspReleased.toLocaleString("pt-BR"), icon: TrendingUp, color: "from-indigo-500 to-indigo-600" },
+          { label: "ISP Liberados", value: totalIspReleased.toLocaleString("pt-BR"), icon: Search, color: "from-blue-500 to-blue-600" },
+          { label: "SPC Liberados", value: totalSpcReleased.toLocaleString("pt-BR"), icon: Shield, color: "from-purple-500 to-purple-600" },
         ].map(card => (
           <Card key={card.label} className="overflow-hidden">
             <div className={`h-1 bg-gradient-to-r ${card.color}`} />
@@ -264,7 +275,6 @@ export default function AdminCreditosPage() {
         ))}
       </div>
 
-      {/* New Order Form */}
       {showNewOrder && (
         <Card className="p-5 border-blue-200 bg-blue-50/30">
           <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
@@ -287,11 +297,11 @@ export default function AdminCreditosPage() {
             <div>
               <label className="text-xs font-medium mb-1 block">Pacote *</label>
               <Select value={form.packageId} onValueChange={v => {
-                const pkg = CREDIT_PACKAGES.find(p => p.id === v);
+                const pkg = ALL_PACKAGES.find(p => p.id === v);
                 setForm(f => ({
                   ...f, packageId: v,
-                  customIsp: pkg ? pkg.ispCredits.toString() : f.customIsp,
-                  customSpc: pkg ? pkg.spcCredits.toString() : f.customSpc,
+                  creditType: pkg ? pkg.creditType : f.creditType,
+                  customCredits: pkg ? pkg.credits.toString() : f.customCredits,
                   customAmount: pkg ? pkg.price : f.customAmount,
                 }));
               }}>
@@ -299,9 +309,14 @@ export default function AdminCreditosPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="basico">Basico — 50 ISP + 20 SPC — R$ 49,90</SelectItem>
-                  <SelectItem value="profissional">Profissional — 200 ISP + 100 SPC — R$ 149,90</SelectItem>
-                  <SelectItem value="enterprise">Enterprise — 500 ISP + 300 SPC — R$ 299,90</SelectItem>
+                  <SelectItem value="__label_isp" disabled>-- Consulta ISP --</SelectItem>
+                  {ISP_PACKAGES.map(p => (
+                    <SelectItem key={p.id} value={p.id}>{p.name} — R$ {p.price}</SelectItem>
+                  ))}
+                  <SelectItem value="__label_spc" disabled>-- Consulta SPC --</SelectItem>
+                  {SPC_PACKAGES.map(p => (
+                    <SelectItem key={p.id} value={p.id}>{p.name} — R$ {p.price}</SelectItem>
+                  ))}
                   <SelectItem value="custom">Personalizado</SelectItem>
                 </SelectContent>
               </Select>
@@ -323,12 +338,20 @@ export default function AdminCreditosPage() {
             {form.packageId === "custom" && (
               <>
                 <div>
-                  <label className="text-xs font-medium mb-1 block">Creditos ISP</label>
-                  <Input className="h-8 text-xs mt-1" type="number" value={form.customIsp} onChange={e => setForm(f => ({ ...f, customIsp: e.target.value }))} data-testid="input-custom-isp" />
+                  <label className="text-xs font-medium mb-1 block">Tipo de Credito</label>
+                  <Select value={form.creditType} onValueChange={v => setForm(f => ({ ...f, creditType: v }))}>
+                    <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-custom-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="isp">Consulta ISP</SelectItem>
+                      <SelectItem value="spc">Consulta SPC</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium mb-1 block">Creditos SPC</label>
-                  <Input className="h-8 text-xs mt-1" type="number" value={form.customSpc} onChange={e => setForm(f => ({ ...f, customSpc: e.target.value }))} data-testid="input-custom-spc" />
+                  <label className="text-xs font-medium mb-1 block">Quantidade de Creditos</label>
+                  <Input className="h-8 text-xs mt-1" type="number" value={form.customCredits} onChange={e => setForm(f => ({ ...f, customCredits: e.target.value }))} data-testid="input-custom-credits" />
                 </div>
                 <div>
                   <label className="text-xs font-medium mb-1 block">Valor (R$)</label>
@@ -349,7 +372,11 @@ export default function AdminCreditosPage() {
               </div>
               <div>
                 <span className="text-muted-foreground">Creditos: </span>
-                <strong>{form.packageId === "custom" ? `${form.customIsp} ISP + ${form.customSpc} SPC` : `${selectedPkg?.ispCredits} ISP + ${selectedPkg?.spcCredits} SPC`}</strong>
+                <strong>
+                  {form.packageId === "custom"
+                    ? `${form.customCredits} ${form.creditType.toUpperCase()}`
+                    : `${selectedPkg?.credits} ${selectedPkg?.creditType.toUpperCase()}`}
+                </strong>
               </div>
               <div>
                 <span className="text-muted-foreground">Valor: </span>
@@ -360,9 +387,13 @@ export default function AdminCreditosPage() {
           <div className="flex gap-2 mt-4">
             <Button size="sm" className="gap-1.5 text-xs" disabled={!form.providerId || createOrderMutation.isPending}
               onClick={() => createOrderMutation.mutate({
-                providerId: form.providerId, packageId: form.packageId === "custom" ? undefined : form.packageId,
-                customIsp: form.customIsp, customSpc: form.customSpc, customAmount: form.customAmount,
-                notes: form.notes, billingType: (form.billingType && form.billingType !== "none") ? form.billingType : undefined,
+                providerId: form.providerId,
+                packageId: (form.packageId === "custom" || form.packageId.startsWith("__")) ? undefined : form.packageId,
+                creditType: form.creditType,
+                customCredits: form.customCredits,
+                customAmount: form.customAmount,
+                notes: form.notes,
+                billingType: (form.billingType && form.billingType !== "none") ? form.billingType : undefined,
               })}
               data-testid="button-submit-order">
               {createOrderMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
@@ -373,7 +404,6 @@ export default function AdminCreditosPage() {
         </Card>
       )}
 
-      {/* Filters */}
       <Card className="overflow-hidden">
         <div className="p-4 border-b flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2 flex-wrap">
@@ -391,8 +421,18 @@ export default function AdminCreditosPage() {
               </Button>
             ))}
           </div>
-          <div className="ml-auto flex items-center gap-2">
-            <Users className="w-3.5 h-3.5 text-muted-foreground" />
+          <div className="flex items-center gap-2 ml-auto">
+            <Select value={filterType} onValueChange={setFilterType}>
+              <SelectTrigger className="h-7 text-xs w-28">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos tipos</SelectItem>
+                <SelectItem value="isp">ISP</SelectItem>
+                <SelectItem value="spc">SPC</SelectItem>
+                <SelectItem value="mixed">Misto</SelectItem>
+              </SelectContent>
+            </Select>
             <Select value={filterProvider} onValueChange={setFilterProvider}>
               <SelectTrigger className="h-7 text-xs w-44">
                 <SelectValue placeholder="Todos os provedores" />
@@ -423,7 +463,7 @@ export default function AdminCreditosPage() {
                 <tr className="border-b bg-muted/20">
                   <th className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground">Pedido</th>
                   <th className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground">Provedor</th>
-                  <th className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground">Pacote</th>
+                  <th className="text-center py-3 px-4 text-xs font-semibold text-muted-foreground">Tipo</th>
                   <th className="text-center py-3 px-4 text-xs font-semibold text-muted-foreground">Creditos</th>
                   <th className="text-right py-3 px-4 text-xs font-semibold text-muted-foreground">Valor</th>
                   <th className="text-center py-3 px-4 text-xs font-semibold text-muted-foreground">Status</th>
@@ -434,86 +474,86 @@ export default function AdminCreditosPage() {
               <tbody className="divide-y">
                 {filteredOrders.map((order: any) => {
                   const st = STATUS_STYLES[order.status] || STATUS_STYLES.pending;
+                  const ct = order.creditType || "mixed";
+                  const isIsp = ct === "isp";
+                  const isSpc = ct === "spc";
+                  const creditLabel = isIsp
+                    ? `${order.ispCredits} ISP`
+                    : isSpc
+                      ? `${order.spcCredits} SPC`
+                      : `${order.ispCredits} ISP + ${order.spcCredits} SPC`;
+                  const typeBadge = isIsp
+                    ? "bg-blue-100 text-blue-700"
+                    : isSpc
+                      ? "bg-purple-100 text-purple-700"
+                      : "bg-gray-100 text-gray-600";
+                  const typeLabel = isIsp ? "ISP" : isSpc ? "SPC" : "Misto";
                   return (
                     <tr key={order.id} className="hover:bg-muted/10 transition-colors" data-testid={`order-row-${order.id}`}>
                       <td className="py-3 px-4">
                         <span className="font-mono text-xs font-semibold text-blue-700">{order.orderNumber}</span>
+                        {order.notes && <p className="text-[10px] text-muted-foreground mt-0.5 truncate max-w-[120px]">{order.notes}</p>}
                       </td>
                       <td className="py-3 px-4">
                         <span className="text-xs font-medium">{order.providerName}</span>
                       </td>
-                      <td className="py-3 px-4">
-                        <span className="text-xs">{order.packageName}</span>
-                      </td>
-                      <td className="py-3 px-4 text-center text-xs">
-                        <div className="flex flex-col items-center gap-0.5">
-                          <span className="font-semibold text-blue-700">{order.ispCredits} ISP</span>
-                          <span className="text-purple-600">{order.spcCredits} SPC</span>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-right font-semibold text-xs">
-                        R$ {fmt(parseFloat(order.amount))}
-                      </td>
                       <td className="py-3 px-4 text-center">
-                        <div className="flex flex-col items-center gap-0.5">
-                          <span className={`text-[11px] px-2 py-0.5 rounded font-medium ${st.badge}`}>{st.label}</span>
-                          {order.asaasChargeId && (
-                            <span className="text-[9px] text-blue-500 font-medium flex items-center gap-0.5">
-                              <Wallet className="w-2.5 h-2.5" />Asaas
-                            </span>
-                          )}
-                        </div>
+                        <span className={`text-[10px] px-2 py-0.5 rounded font-semibold ${typeBadge}`}>
+                          {isIsp ? <Search className="w-3 h-3 inline mr-0.5" /> : isSpc ? <Shield className="w-3 h-3 inline mr-0.5" /> : null}
+                          {typeLabel}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-center text-xs font-semibold">{creditLabel}</td>
+                      <td className="py-3 px-4 text-right text-xs font-bold">R$ {parseFloat(order.amount).toFixed(2).replace(".", ",")}</td>
+                      <td className="py-3 px-4 text-center">
+                        <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${st.badge}`}>{st.label}</span>
+                        {order.asaasChargeId && <Wallet className="w-3 h-3 text-blue-400 inline ml-1" title="Asaas" />}
                       </td>
                       <td className="py-3 px-4 text-xs text-muted-foreground">
-                        {order.createdAt ? new Date(order.createdAt).toLocaleDateString("pt-BR") : "—"}
-                        {order.creditedAt && (
-                          <p className="text-[10px] text-emerald-600">Lib: {new Date(order.creditedAt).toLocaleDateString("pt-BR")}</p>
-                        )}
+                        {order.createdAt && new Date(order.createdAt).toLocaleDateString("pt-BR")}
                       </td>
                       <td className="py-3 px-4">
-                        <div className="flex items-center justify-center gap-1 flex-wrap">
+                        <div className="flex items-center justify-center gap-1">
                           {order.status === "pending" && (
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-emerald-600 hover:bg-emerald-50"
-                              onClick={() => { if (confirm(`Liberar creditos para ${order.providerName}?`)) releaseMutation.mutate(order.id); }}
-                              disabled={releaseMutation.isPending}
-                              title="Liberar creditos" data-testid={`button-release-${order.id}`}>
-                              <CheckCircle className="w-3.5 h-3.5" />
-                            </Button>
-                          )}
-                          {order.status === "pending" && !order.asaasChargeId && asaasStatus?.configured && (
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50"
-                              onClick={() => setAsaasChargeModal({ orderId: order.id, orderNumber: order.orderNumber, amount: order.amount })}
-                              title="Cobrar via Asaas" data-testid={`button-asaas-${order.id}`}>
-                              <Wallet className="w-3.5 h-3.5" />
-                            </Button>
+                            <>
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-emerald-600"
+                                title="Liberar creditos" onClick={() => releaseMutation.mutate(order.id)}
+                                disabled={releaseMutation.isPending} data-testid={`button-release-${order.id}`}>
+                                <CheckCircle className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500"
+                                title="Cancelar pedido" onClick={() => cancelMutation.mutate(order.id)}
+                                disabled={cancelMutation.isPending} data-testid={`button-cancel-${order.id}`}>
+                                <XCircle className="w-3.5 h-3.5" />
+                              </Button>
+                              {!order.asaasChargeId && (
+                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-500"
+                                  title="Cobrar via Asaas" onClick={() => setAsaasChargeModal({ orderId: order.id, orderNumber: order.orderNumber, amount: order.amount })}
+                                  data-testid={`button-charge-${order.id}`}>
+                                  <ArrowUpRight className="w-3.5 h-3.5" />
+                                </Button>
+                              )}
+                            </>
                           )}
                           {order.asaasChargeId && (
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-indigo-500 hover:bg-indigo-50"
-                              onClick={() => syncMutation.mutate(order.id)} disabled={syncMutation.isPending}
-                              title="Sincronizar Asaas" data-testid={`button-sync-${order.id}`}>
-                              {syncMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
-                            </Button>
-                          )}
-                          {order.asaasChargeId && (
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-500 hover:bg-blue-50"
-                              onClick={() => pixMutation.mutate(order.id)} disabled={pixMutation.isPending}
-                              title="QR Code PIX" data-testid={`button-pix-${order.id}`}>
-                              <QrCode className="w-3.5 h-3.5" />
-                            </Button>
+                            <>
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-indigo-500"
+                                title="Sincronizar Asaas" onClick={() => syncMutation.mutate(order.id)}
+                                disabled={syncMutation.isPending} data-testid={`button-sync-${order.id}`}>
+                                <RotateCcw className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-500"
+                                title="QR Code PIX" onClick={() => pixMutation.mutate(order.id)}
+                                disabled={pixMutation.isPending} data-testid={`button-pix-${order.id}`}>
+                                <QrCode className="w-3.5 h-3.5" />
+                              </Button>
+                            </>
                           )}
                           {order.asaasInvoiceUrl && (
                             <a href={order.asaasInvoiceUrl} target="_blank" rel="noopener noreferrer"
-                              className="h-7 w-7 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                              title="Link de pagamento" data-testid={`link-payment-${order.id}`}>
+                              className="h-7 w-7 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-blue-600">
                               <ExternalLink className="w-3.5 h-3.5" />
                             </a>
-                          )}
-                          {order.status === "pending" && (
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-rose-500 hover:bg-rose-50"
-                              onClick={() => { if (confirm("Cancelar este pedido?")) cancelMutation.mutate(order.id); }}
-                              title="Cancelar" data-testid={`button-cancel-${order.id}`}>
-                              <XCircle className="w-3.5 h-3.5" />
-                            </Button>
                           )}
                         </div>
                       </td>
@@ -522,16 +562,6 @@ export default function AdminCreditosPage() {
                 })}
               </tbody>
             </table>
-          </div>
-        )}
-
-        {/* Summary footer */}
-        {filteredOrders.length > 0 && (
-          <div className="px-4 py-3 border-t bg-muted/10 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-            <span>{filteredOrders.length} pedido(s)</span>
-            <span>ISP liberados: <strong className="text-blue-700">{filteredOrders.filter((o: any) => o.status === "paid").reduce((s: number, o: any) => s + o.ispCredits, 0)}</strong></span>
-            <span>SPC liberados: <strong className="text-purple-700">{filteredOrders.filter((o: any) => o.status === "paid").reduce((s: number, o: any) => s + o.spcCredits, 0)}</strong></span>
-            <span className="ml-auto">Receita filtrada: <strong className="text-foreground">R$ {fmt(filteredOrders.filter((o: any) => o.status === "paid").reduce((s: number, o: any) => s + parseFloat(o.amount), 0))}</strong></span>
           </div>
         )}
       </Card>

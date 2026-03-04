@@ -301,6 +301,7 @@ export const creditOrders = pgTable("credit_orders", {
   asaasBankSlipUrl: text("asaas_bank_slip_url"),
   asaasPixKey: text("asaas_pix_key"),
   asaasBillingType: text("asaas_billing_type"),
+  creditType: text("credit_type").notNull().default("mixed"),
   creditedAt: timestamp("credited_at"),
   notes: text("notes"),
   createdById: integer("created_by_id").references(() => users.id),
@@ -381,11 +382,21 @@ export type InsertProviderPartner = z.infer<typeof insertProviderPartnerSchema>;
 export type ProviderDocument = typeof providerDocuments.$inferSelect;
 export type InsertProviderDocument = z.infer<typeof insertProviderDocumentSchema>;
 
-export const CREDIT_PACKAGES = [
-  { id: "basico",       name: "Basico",       ispCredits: 50,  spcCredits: 20,  price: 4990,  priceLabel: "R$ 49,90" },
-  { id: "profissional", name: "Profissional",  ispCredits: 200, spcCredits: 100, price: 14990, priceLabel: "R$ 149,90", popular: true },
-  { id: "enterprise",   name: "Enterprise",    ispCredits: 500, spcCredits: 300, price: 29990, priceLabel: "R$ 299,90" },
+export const ISP_CREDIT_PACKAGES = [
+  { id: "isp-50",   name: "50 Consultas ISP",   credits: 50,   price: 4990,  priceLabel: "R$ 49,90",  perUnit: "R$ 1,00/consulta" },
+  { id: "isp-100",  name: "100 Consultas ISP",  credits: 100,  price: 8990,  priceLabel: "R$ 89,90",  perUnit: "R$ 0,90/consulta", popular: true },
+  { id: "isp-250",  name: "250 Consultas ISP",  credits: 250,  price: 19990, priceLabel: "R$ 199,90", perUnit: "R$ 0,80/consulta" },
+  { id: "isp-500",  name: "500 Consultas ISP",  credits: 500,  price: 34990, priceLabel: "R$ 349,90", perUnit: "R$ 0,70/consulta" },
 ];
+
+export const SPC_CREDIT_PACKAGES = [
+  { id: "spc-10",   name: "10 Consultas SPC",   credits: 10,   price: 4990,  priceLabel: "R$ 49,90",  perUnit: "R$ 4,99/consulta" },
+  { id: "spc-30",   name: "30 Consultas SPC",   credits: 30,   price: 12990, priceLabel: "R$ 129,90", perUnit: "R$ 4,33/consulta", popular: true },
+  { id: "spc-50",   name: "50 Consultas SPC",   credits: 50,   price: 19990, priceLabel: "R$ 199,90", perUnit: "R$ 4,00/consulta" },
+  { id: "spc-100",  name: "100 Consultas SPC",  credits: 100,  price: 34990, priceLabel: "R$ 349,90", perUnit: "R$ 3,50/consulta" },
+];
+
+export const CREDIT_PACKAGES = [...ISP_CREDIT_PACKAGES.map(p => ({ ...p, creditType: "isp" as const })), ...SPC_CREDIT_PACKAGES.map(p => ({ ...p, creditType: "spc" as const }))];
 
 export const PLAN_PRICES: Record<string, number> = {
   free: 0,
