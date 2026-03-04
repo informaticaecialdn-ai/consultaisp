@@ -166,8 +166,8 @@ export default function LoginPage() {
   ];
 
   return (
-    <div className="min-h-screen flex" data-testid="login-page">
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-blue-600 to-violet-700 relative flex-col justify-between p-12 text-white">
+    <div className="min-h-screen flex bg-gradient-to-br from-blue-600 to-violet-700" data-testid="login-page">
+      <div className="hidden lg:flex lg:w-1/2 relative flex-col justify-between p-12 text-white">
         <div>
           <div className="flex items-center gap-3 mb-16">
             <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
@@ -228,25 +228,25 @@ export default function LoginPage() {
         </p>
       </div>
 
-      <div className="flex-1 flex items-center justify-center p-8 bg-background">
+      <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-md">
           <button
             onClick={() => setLocation("/")}
-            className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-violet-600 transition-colors mb-6"
+            className="flex items-center gap-1.5 text-sm text-white/70 hover:text-white transition-colors mb-6"
             data-testid="button-back-to-site"
           >
             <ArrowLeft className="w-4 h-4" />
             Voltar ao site
           </button>
           <div className="lg:hidden flex items-center gap-3 mb-8 justify-center">
-            <div className="w-10 h-10 rounded-xl bg-violet-600 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
               <Shield className="w-6 h-6 text-white" />
             </div>
-            <span className="text-xl font-bold">Consulta ISP</span>
+            <span className="text-xl font-bold text-white">Consulta ISP</span>
           </div>
 
           {pageState === "check-email" ? (
-            <Card className="p-8" data-testid="check-email-card">
+            <Card className="p-8 shadow-2xl" data-testid="check-email-card">
               <div className="text-center mb-6">
                 <div className="w-16 h-16 rounded-full bg-violet-50 dark:bg-violet-950 flex items-center justify-center mx-auto mb-4">
                   <MailCheck className="w-8 h-8 text-violet-600" />
@@ -298,7 +298,7 @@ export default function LoginPage() {
               </div>
             </Card>
           ) : (
-            <Card className="p-8">
+            <Card className="p-8 shadow-2xl">
               <div className="text-center mb-8">
                 <div className="w-14 h-14 rounded-full bg-violet-50 dark:bg-violet-950 flex items-center justify-center mx-auto mb-4">
                   <Shield className="w-7 h-7 text-violet-600" />
@@ -526,7 +526,7 @@ export default function LoginPage() {
             </Card>
           )}
 
-          <p className="text-center text-xs text-muted-foreground mt-4">
+          <p className="text-center text-xs text-white/50 mt-4">
             ISP Analizze v2.0 - Sistema de Analise de Credito
           </p>
         </div>
