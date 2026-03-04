@@ -1,78 +1,21 @@
 import { useState, useEffect, useRef } from "react";
-import { MessageCircle, X, Send } from "lucide-react";
+import { MessageCircle, X, Send, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-type Message = {
+type ChatMessage = {
   id: number;
-  from: "bot" | "user";
-  text: string;
+  content: string;
+  isFromAdmin: boolean;
+  senderName: string;
+  createdAt: string;
 };
 
-const FLOW: Record<string, { text: string; options?: string[] }> = {
-  start: {
-    text: "Oi! Sou o assistente da Consulta ISP. Como posso te ajudar hoje?",
-    options: [
-      "Quero conhecer a plataforma",
-      "Como funciona a base compartilhada?",
-      "Quais sao os planos e precos?",
-      "Preciso falar com um consultor",
-    ],
-  },
-  "Quero conhecer a plataforma": {
-    text: "A Consulta ISP e uma plataforma colaborativa onde provedores de internet compartilham dados de inadimplentes. Antes de ativar um novo cliente, voce consulta o CPF/CNPJ e recebe score de credito, alertas de fraude e sugestao de decisao em segundos.",
-    options: [
-      "Como funciona a base compartilhada?",
-      "Quais sao os planos e precos?",
-      "Quero criar minha conta",
-    ],
-  },
-  "Como funciona a base compartilhada?": {
-    text: "Cada provedor conecta seu ERP (IXC, SGP, MK Solutions) e o sistema consulta a base em tempo real. Quando voce pesquisa um CPF, o sistema verifica se ele aparece como inadimplente em qualquer provedor da rede. Os dados sao anonimizados — voce ve o risco, mas nunca dados pessoais de outros provedores.",
-    options: [
-      "E seguro compartilhar dados?",
-      "Quais sao os planos e precos?",
-      "Quero criar minha conta",
-    ],
-  },
-  "E seguro compartilhar dados?": {
-    text: "Sim! Dados pessoais ficam restritos ao provedor de origem. Outros provedores veem apenas indicadores de risco: dias de atraso, faixa de valor e equipamentos pendentes. Toda comunicacao usa criptografia e segue as melhores praticas de seguranca.",
-    options: [
-      "Quais sao os planos e precos?",
-      "Quero criar minha conta",
-      "Preciso falar com um consultor",
-    ],
-  },
-  "Quais sao os planos e precos?": {
-    text: "Temos 3 planos:\n\nGratis (R$ 0/mes) — consultas do proprio provedor gratuitas, 10 creditos/mes.\n\nProfissional (R$ 99/mes) — consultas ilimitadas, anti-fraude, mapa de calor, IA, integracao ERP, 100 creditos ISP/mes.\n\nEnterprise (sob consulta) — usuarios ilimitados, API dedicada, SLA e suporte prioritario.",
-    options: [
-      "Quero criar minha conta",
-      "Quero o plano Profissional",
-      "Preciso falar com um consultor",
-    ],
-  },
-  "Quero criar minha conta": {
-    text: "Otimo! Voce pode criar sua conta gratuitamente agora mesmo. Clique no botao abaixo para comecar:",
-    options: ["Criar minha conta gratis", "Voltar ao inicio"],
-  },
-  "Quero o plano Profissional": {
-    text: "Excelente escolha! O plano Profissional e o mais popular. Crie sua conta e faca upgrade direto na plataforma. Quer comecar agora?",
-    options: ["Criar minha conta gratis", "Preciso falar com um consultor"],
-  },
-  "Preciso falar com um consultor": {
-    text: "Claro! Deixe seus dados que nossa equipe comercial entra em contato rapidamente.",
-    options: ["__form_contact"],
-  },
-  "Voltar ao inicio": {
-    text: "Sem problemas! Em que posso te ajudar?",
-    options: [
-      "Quero conhecer a plataforma",
-      "Como funciona a base compartilhada?",
-      "Quais sao os planos e precos?",
-      "Preciso falar com um consultor",
-    ],
-  },
-};
+const STORAGE_KEY = "visitor_chat_token";
+
+function chatTimeLabel(d: string): string {
+  return new Date(d).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
 
 function TypingIndicator() {
   return (
@@ -91,17 +34,23 @@ function TypingIndicator() {
   );
 }
 
-export default function LandingChatbot({ onNavigate }: { onNavigate: (path: string) => void }) {
+export default function LandingChat() {
   const [isOpen, setIsOpen] = useState(false);
   const [showBubbleHint, setShowBubbleHint] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [typing, setTyping] = useState(false);
-  const [currentOptions, setCurrentOptions] = useState<string[]>([]);
-  const [showContactForm, setShowContactForm] = useState(false);
-  const [contactForm, setContactForm] = useState({ name: "", email: "", phone: "", provider: "" });
-  const [contactSent, setContactSent] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatStatus, setChatStatus] = useState("open");
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  const [contactForm, setContactForm] = useState({ name: "", email: "", phone: "" });
+  const [starting, setStarting] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const msgId = useRef(0);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) setToken(saved);
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => setShowBubbleHint(true), 3000);
@@ -112,71 +61,81 @@ export default function LandingChatbot({ onNavigate }: { onNavigate: (path: stri
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, typing, showContactForm]);
+  }, [messages]);
 
-  const addBotMessage = (text: string, options?: string[]) => {
-    setTyping(true);
-    setTimeout(() => {
-      setTyping(false);
-      msgId.current++;
-      setMessages(prev => [...prev, { id: msgId.current, from: "bot", text }]);
-      if (options) {
-        if (options[0] === "__form_contact") {
-          setShowContactForm(true);
-          setCurrentOptions([]);
-        } else {
-          setCurrentOptions(options);
+  useEffect(() => {
+    if (!token || !isOpen) return;
+    const fetchMessages = async () => {
+      try {
+        const res = await fetch("/api/public/visitor-chat/messages", {
+          headers: { "x-visitor-token": token },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setMessages(data.messages || []);
+          setChatStatus(data.chat?.status || "open");
         }
-      } else {
-        setCurrentOptions([]);
-      }
-    }, 800 + Math.random() * 600);
-  };
+      } catch {}
+    };
+    fetchMessages();
+    const interval = setInterval(fetchMessages, 4000);
+    return () => clearInterval(interval);
+  }, [token, isOpen]);
 
   const handleOpen = () => {
     setIsOpen(true);
     setShowBubbleHint(false);
-    if (messages.length === 0) {
-      const start = FLOW.start;
-      addBotMessage(start.text, start.options);
-    }
+    setTimeout(() => textareaRef.current?.focus(), 150);
   };
 
-  const handleOptionClick = (option: string) => {
-    if (option === "Criar minha conta gratis") {
-      msgId.current++;
-      setMessages(prev => [...prev, { id: msgId.current, from: "user", text: option }]);
-      setCurrentOptions([]);
-      addBotMessage("Redirecionando voce para o cadastro...");
-      setTimeout(() => onNavigate("/login?mode=register"), 1500);
-      return;
-    }
-
-    msgId.current++;
-    setMessages(prev => [...prev, { id: msgId.current, from: "user", text: option }]);
-    setCurrentOptions([]);
-
-    const flow = FLOW[option];
-    if (flow) {
-      addBotMessage(flow.text, flow.options);
-    } else {
-      addBotMessage("Desculpe, nao entendi. Como posso te ajudar?", FLOW.start.options);
-    }
-  };
-
-  const handleContactSubmit = (e: React.FormEvent) => {
+  const handleStartChat = async (e: React.FormEvent) => {
     e.preventDefault();
-    setShowContactForm(false);
-    setContactSent(true);
-    msgId.current++;
-    setMessages(prev => [
-      ...prev,
-      { id: msgId.current, from: "user", text: `Nome: ${contactForm.name}\nEmail: ${contactForm.email}\nTelefone: ${contactForm.phone}${contactForm.provider ? `\nProvedor: ${contactForm.provider}` : ""}` },
-    ]);
-    addBotMessage(
-      `Obrigado, ${contactForm.name.split(" ")[0]}! Seus dados foram registrados. Nossa equipe comercial entrara em contato em breve pelo email ${contactForm.email} ou telefone ${contactForm.phone}.`,
-      ["Quero conhecer a plataforma", "Quais sao os planos e precos?", "Voltar ao inicio"]
-    );
+    if (!contactForm.name.trim() || !contactForm.email.trim()) return;
+    setStarting(true);
+    try {
+      const res = await fetch("/api/public/visitor-chat/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(contactForm),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        localStorage.setItem(STORAGE_KEY, data.token);
+        setToken(data.token);
+      }
+    } catch {}
+    setStarting(false);
+  };
+
+  const handleSend = async () => {
+    if (!message.trim() || !token || sending) return;
+    setSending(true);
+    try {
+      const res = await fetch("/api/public/visitor-chat/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-visitor-token": token },
+        body: JSON.stringify({ content: message.trim() }),
+      });
+      if (res.ok) {
+        setMessage("");
+        const msgRes = await fetch("/api/public/visitor-chat/messages", {
+          headers: { "x-visitor-token": token },
+        });
+        if (msgRes.ok) {
+          const data = await msgRes.json();
+          setMessages(data.messages || []);
+        }
+      }
+    } catch {}
+    setSending(false);
+    setTimeout(() => textareaRef.current?.focus(), 50);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
   };
 
   return (
@@ -187,9 +146,9 @@ export default function LandingChatbot({ onNavigate }: { onNavigate: (path: stri
             <button onClick={() => setShowBubbleHint(false)} className="absolute top-2 right-2 text-slate-400 hover:text-slate-600" data-testid="button-close-hint">
               <X className="w-3.5 h-3.5" />
             </button>
-            <p className="text-sm text-slate-700 font-medium pr-4">Ola! Posso te ajudar a conhecer a plataforma?</p>
+            <p className="text-sm text-slate-700 font-medium pr-4">Precisa de ajuda? Fale com nossa equipe!</p>
             <button onClick={handleOpen} className="text-xs text-blue-600 font-semibold mt-2 hover:underline" data-testid="button-hint-open">
-              Falar agora
+              Iniciar conversa
             </button>
           </div>
         </div>
@@ -202,12 +161,11 @@ export default function LandingChatbot({ onNavigate }: { onNavigate: (path: stri
           data-testid="button-chat-open"
         >
           <MessageCircle className="w-6 h-6 text-white" />
-          <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white" />
         </button>
       )}
 
       {isOpen && (
-        <div className="fixed bottom-6 right-6 z-50 w-[380px] max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-3rem)] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200" data-testid="chatbot-panel">
+        <div className="fixed bottom-6 right-6 z-50 w-[380px] max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-3rem)] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200" data-testid="chat-widget-panel">
           <div className="bg-blue-600 px-5 py-4 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center">
@@ -217,100 +175,126 @@ export default function LandingChatbot({ onNavigate }: { onNavigate: (path: stri
                 <p className="text-white font-semibold text-sm">Consulta ISP</p>
                 <div className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-green-400" />
-                  <span className="text-blue-100 text-xs">Online agora</span>
+                  <span className="text-blue-100 text-xs">Atendimento comercial</span>
                 </div>
               </div>
             </div>
-            <button onClick={() => setIsOpen(false)} className="text-white/70 hover:text-white transition-colors" data-testid="button-chatbot-close">
+            <button onClick={() => setIsOpen(false)} className="text-white/70 hover:text-white transition-colors" data-testid="button-chat-close">
               <X className="w-5 h-5" />
             </button>
           </div>
 
-          <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-1 bg-slate-50/50">
-            {messages.map(msg => (
-              <div key={msg.id} className={`flex ${msg.from === "user" ? "justify-end" : "items-end gap-2"} mb-3`}>
-                {msg.from === "bot" && (
-                  <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
-                    <MessageCircle className="w-3.5 h-3.5 text-white" />
+          {!token ? (
+            <div className="flex-1 flex flex-col justify-center p-6">
+              <div className="text-center mb-6">
+                <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mx-auto mb-3">
+                  <MessageCircle className="w-7 h-7 text-blue-400" />
+                </div>
+                <p className="text-sm font-semibold text-slate-800">Fale com nossa equipe</p>
+                <p className="text-xs text-slate-500 mt-1">Preencha seus dados para iniciar o atendimento</p>
+              </div>
+              <form onSubmit={handleStartChat} className="space-y-3">
+                <Input
+                  placeholder="Seu nome"
+                  value={contactForm.name}
+                  onChange={e => setContactForm(f => ({ ...f, name: e.target.value }))}
+                  required
+                  className="h-10 text-sm"
+                  data-testid="input-visitor-name"
+                />
+                <Input
+                  placeholder="Email"
+                  type="email"
+                  value={contactForm.email}
+                  onChange={e => setContactForm(f => ({ ...f, email: e.target.value }))}
+                  required
+                  className="h-10 text-sm"
+                  data-testid="input-visitor-email"
+                />
+                <Input
+                  placeholder="Telefone / WhatsApp (opcional)"
+                  value={contactForm.phone}
+                  onChange={e => setContactForm(f => ({ ...f, phone: e.target.value }))}
+                  className="h-10 text-sm"
+                  data-testid="input-visitor-phone"
+                />
+                <Button type="submit" className="w-full h-10 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold" disabled={starting} data-testid="button-start-chat">
+                  {starting ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
+                  Iniciar conversa
+                </Button>
+              </form>
+              <div className="mt-4 bg-blue-50 rounded-xl px-4 py-3 text-xs text-blue-700">
+                <p className="font-semibold mb-1">Horario de atendimento</p>
+                <p>Seg-Sex: 08h-18h | Sab: 08h-12h</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-1 bg-slate-50/50">
+                {messages.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-4">
+                    <TypingIndicator />
+                    <p className="text-xs text-slate-500">Aguardando atendente... Envie sua mensagem!</p>
+                  </div>
+                ) : (
+                  messages.map(msg => (
+                    <div key={msg.id} className={`flex ${msg.isFromAdmin ? "items-end gap-2" : "justify-end"} mb-3`}>
+                      {msg.isFromAdmin && (
+                        <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
+                          <MessageCircle className="w-3.5 h-3.5 text-white" />
+                        </div>
+                      )}
+                      <div className={`max-w-[80%] flex flex-col gap-0.5 ${msg.isFromAdmin ? "items-start" : "items-end"}`}>
+                        {msg.isFromAdmin && (
+                          <p className="text-[10px] font-semibold text-slate-500 ml-0.5">{msg.senderName}</p>
+                        )}
+                        <div className={`px-4 py-2.5 text-sm leading-relaxed whitespace-pre-line ${
+                          msg.isFromAdmin
+                            ? "bg-white text-slate-700 rounded-2xl rounded-bl-md border border-slate-200 shadow-sm"
+                            : "bg-blue-600 text-white rounded-2xl rounded-br-md"
+                        }`}>
+                          {msg.content}
+                        </div>
+                        <p className="text-[10px] text-slate-400 px-1">{chatTimeLabel(msg.createdAt)}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="border-t border-slate-200 bg-white flex-shrink-0">
+                {chatStatus === "closed" ? (
+                  <div className="px-4 py-3 text-center text-xs text-slate-500">
+                    Esta conversa foi encerrada pelo atendente.
+                  </div>
+                ) : (
+                  <div className="px-3 py-3 flex gap-2 items-end">
+                    <textarea
+                      ref={textareaRef}
+                      placeholder="Digite sua mensagem..."
+                      value={message}
+                      onChange={e => setMessage(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      rows={2}
+                      className="flex-1 text-sm border rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[52px] max-h-[100px]"
+                      data-testid="input-visitor-message"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-9 w-9 p-0 rounded-xl bg-blue-600 hover:bg-blue-700 flex-shrink-0"
+                      disabled={!message.trim() || sending}
+                      onClick={handleSend}
+                      data-testid="button-visitor-send"
+                    >
+                      {sending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                    </Button>
                   </div>
                 )}
-                <div className={`max-w-[80%] px-4 py-2.5 text-sm leading-relaxed whitespace-pre-line ${
-                  msg.from === "user"
-                    ? "bg-blue-600 text-white rounded-2xl rounded-br-md"
-                    : "bg-white text-slate-700 rounded-2xl rounded-bl-md border border-slate-200 shadow-sm"
-                }`}>
-                  {msg.text}
-                </div>
+                <p className="text-[10px] text-slate-400 text-center pb-2">Consulta ISP — Atendimento comercial</p>
               </div>
-            ))}
-
-            {typing && <TypingIndicator />}
-
-            {showContactForm && !contactSent && (
-              <div className="flex items-end gap-2 mb-3">
-                <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
-                  <MessageCircle className="w-3.5 h-3.5 text-white" />
-                </div>
-                <form onSubmit={handleContactSubmit} className="bg-white rounded-2xl rounded-bl-md border border-slate-200 shadow-sm p-4 space-y-2.5 max-w-[85%]">
-                  <Input
-                    placeholder="Seu nome"
-                    value={contactForm.name}
-                    onChange={e => setContactForm(f => ({ ...f, name: e.target.value }))}
-                    required
-                    className="h-9 text-sm"
-                    data-testid="input-chatbot-name"
-                  />
-                  <Input
-                    placeholder="Email"
-                    type="email"
-                    value={contactForm.email}
-                    onChange={e => setContactForm(f => ({ ...f, email: e.target.value }))}
-                    required
-                    className="h-9 text-sm"
-                    data-testid="input-chatbot-email"
-                  />
-                  <Input
-                    placeholder="Telefone / WhatsApp"
-                    value={contactForm.phone}
-                    onChange={e => setContactForm(f => ({ ...f, phone: e.target.value }))}
-                    required
-                    className="h-9 text-sm"
-                    data-testid="input-chatbot-phone"
-                  />
-                  <Input
-                    placeholder="Nome do provedor (opcional)"
-                    value={contactForm.provider}
-                    onChange={e => setContactForm(f => ({ ...f, provider: e.target.value }))}
-                    className="h-9 text-sm"
-                    data-testid="input-chatbot-provider"
-                  />
-                  <Button type="submit" className="w-full h-9 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold" data-testid="button-chatbot-submit">
-                    <Send className="w-3.5 h-3.5 mr-1.5" />
-                    Enviar dados
-                  </Button>
-                </form>
-              </div>
-            )}
-
-            {currentOptions.length > 0 && !typing && (
-              <div className="flex flex-wrap gap-2 mt-2 pl-9">
-                {currentOptions.map((opt, i) => (
-                  <button
-                    key={i}
-                    onClick={() => handleOptionClick(opt)}
-                    className="text-sm bg-white border border-blue-200 text-blue-700 px-3.5 py-2 rounded-xl hover:bg-blue-50 hover:border-blue-300 transition-colors text-left font-medium"
-                    data-testid={`button-chatbot-option-${i}`}
-                  >
-                    {opt}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="border-t border-slate-200 px-4 py-3 bg-white flex-shrink-0">
-            <p className="text-[10px] text-slate-400 text-center">Consulta ISP — Atendimento comercial</p>
-          </div>
+            </>
+          )}
         </div>
       )}
     </>

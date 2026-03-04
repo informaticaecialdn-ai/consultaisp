@@ -2765,5 +2765,103 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/public/visitor-chat/start", async (req, res) => {
+    try {
+      const { name, email, phone } = req.body;
+      if (!name || !email) return res.status(400).json({ message: "Nome e email sao obrigatorios" });
+      const chat = await storage.createVisitorChat(name, email, phone || null);
+      return res.status(201).json({ token: chat.token, chatId: chat.id });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/public/visitor-chat/messages", async (req, res) => {
+    try {
+      const token = req.headers["x-visitor-token"] as string;
+      if (!token) return res.status(401).json({ message: "Token necessario" });
+      const chat = await storage.getVisitorChatByToken(token);
+      if (!chat) return res.status(404).json({ message: "Chat nao encontrado" });
+      await storage.markVisitorMessagesRead(chat.id, true);
+      const messages = await storage.getVisitorChatMessages(chat.id);
+      return res.json({ chat, messages });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/public/visitor-chat/messages", async (req, res) => {
+    try {
+      const token = req.headers["x-visitor-token"] as string;
+      if (!token) return res.status(401).json({ message: "Token necessario" });
+      const chat = await storage.getVisitorChatByToken(token);
+      if (!chat) return res.status(404).json({ message: "Chat nao encontrado" });
+      if (chat.status === "closed") return res.status(400).json({ message: "Chat encerrado" });
+      const { content } = req.body;
+      if (!content?.trim()) return res.status(400).json({ message: "Mensagem vazia" });
+      const msg = await storage.createVisitorChatMessage(chat.id, content.trim(), false, chat.visitorName);
+      return res.status(201).json(msg);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/public/visitor-chat/unread", async (req, res) => {
+    try {
+      const token = req.headers["x-visitor-token"] as string;
+      if (!token) return res.json({ count: 0 });
+      const chat = await storage.getVisitorChatByToken(token);
+      if (!chat) return res.json({ count: 0 });
+      const cnt = await storage.getVisitorUnreadCount(chat.id);
+      return res.json({ count: cnt });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/visitor-chats", requireSuperAdmin, async (_req, res) => {
+    try {
+      const chats = await storage.getAllVisitorChats();
+      return res.json(chats);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/admin/visitor-chats/:id/messages", requireSuperAdmin, async (req, res) => {
+    try {
+      const chatId = parseInt(req.params.id);
+      await storage.markVisitorMessagesRead(chatId, false);
+      const messages = await storage.getVisitorChatMessages(chatId);
+      return res.json(messages);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/visitor-chats/:id/messages", requireSuperAdmin, async (req, res) => {
+    try {
+      const chatId = parseInt(req.params.id);
+      const { content } = req.body;
+      if (!content?.trim()) return res.status(400).json({ message: "Mensagem vazia" });
+      const user = req.user as any;
+      const msg = await storage.createVisitorChatMessage(chatId, content.trim(), true, user.name || "Atendente");
+      return res.status(201).json(msg);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/visitor-chats/:id/status", requireSuperAdmin, async (req, res) => {
+    try {
+      const chatId = parseInt(req.params.id);
+      const { status } = req.body;
+      await storage.updateVisitorChatStatus(chatId, status);
+      return res.json({ success: true });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
   return httpServer;
 }

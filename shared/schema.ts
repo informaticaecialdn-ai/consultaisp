@@ -411,6 +411,30 @@ export const insertErpCatalogSchema = createInsertSchema(erpCatalog).omit({ id: 
 export type InsertErpCatalog = z.infer<typeof insertErpCatalogSchema>;
 export type ErpCatalog = typeof erpCatalog.$inferSelect;
 
+export const visitorChats = pgTable("visitor_chats", {
+  id: serial("id").primaryKey(),
+  visitorName: text("visitor_name").notNull(),
+  visitorEmail: text("visitor_email").notNull(),
+  visitorPhone: text("visitor_phone"),
+  token: text("token").notNull().unique(),
+  status: text("status").notNull().default("open"),
+  lastMessageAt: timestamp("last_message_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const visitorChatMessages = pgTable("visitor_chat_messages", {
+  id: serial("id").primaryKey(),
+  chatId: integer("chat_id").notNull().references(() => visitorChats.id),
+  content: text("content").notNull(),
+  isFromAdmin: boolean("is_from_admin").notNull().default(false),
+  senderName: text("sender_name").notNull(),
+  isRead: boolean("is_read").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type VisitorChat = typeof visitorChats.$inferSelect;
+export type VisitorChatMessage = typeof visitorChatMessages.$inferSelect;
+
 export const PLAN_CREDITS: Record<string, { isp: number; spc: number }> = {
   free: { isp: 50, spc: 0 },
   basic: { isp: 200, spc: 50 },

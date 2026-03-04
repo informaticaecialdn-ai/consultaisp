@@ -5,6 +5,7 @@ import {
   ispConsultations, spcConsultations, antiFraudAlerts,
   supportThreads, supportMessages, planChanges, providerInvoices, creditOrders,
   providerPartners, providerDocuments, erpIntegrations, erpSyncLogs, erpCatalog,
+  visitorChats, visitorChatMessages,
   type Provider, type InsertProvider,
   type User, type InsertUser,
   type Customer, type InsertCustomer,
@@ -23,6 +24,7 @@ import {
   type ProviderDocument, type InsertProviderDocument,
   type ErpIntegration, type ErpSyncLog,
   type ErpCatalog, type InsertErpCatalog,
+  type VisitorChat, type VisitorChatMessage,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -146,6 +148,15 @@ export interface IStorage {
   createErpCatalogItem(data: InsertErpCatalog): Promise<ErpCatalog>;
   updateErpCatalogItem(id: number, data: Partial<InsertErpCatalog>): Promise<ErpCatalog>;
   deleteErpCatalogItem(id: number): Promise<void>;
+
+  createVisitorChat(name: string, email: string, phone: string | null): Promise<VisitorChat>;
+  getVisitorChatByToken(token: string): Promise<VisitorChat | undefined>;
+  getVisitorChatMessages(chatId: number): Promise<VisitorChatMessage[]>;
+  createVisitorChatMessage(chatId: number, content: string, isFromAdmin: boolean, senderName: string): Promise<VisitorChatMessage>;
+  getAllVisitorChats(): Promise<(VisitorChat & { unreadCount: number; lastMessage: string | null })[]>;
+  markVisitorMessagesRead(chatId: number, isFromAdmin: boolean): Promise<void>;
+  updateVisitorChatStatus(chatId: number, status: string): Promise<void>;
+  getVisitorUnreadCount(chatId: number): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1199,6 +1210,54 @@ export class DatabaseStorage implements IStorage {
 
   async deleteErpCatalogItem(id: number): Promise<void> {
     await db.delete(erpCatalog).where(eq(erpCatalog.id, id));
+  }
+
+  async createVisitorChat(name: string, email: string, phone: string | null): Promise<VisitorChat> {
+    const crypto = await import("crypto");
+    const token = crypto.randomBytes(32).toString("hex");
+    const [chat] = await db.insert(visitorChats).values({ visitorName: name, visitorEmail: email, visitorPhone: phone, token }).returning();
+    return chat;
+  }
+
+  async getVisitorChatByToken(token: string): Promise<VisitorChat | undefined> {
+    const [chat] = await db.select().from(visitorChats).where(eq(visitorChats.token, token));
+    return chat;
+  }
+
+  async getVisitorChatMessages(chatId: number): Promise<VisitorChatMessage[]> {
+    return db.select().from(visitorChatMessages).where(eq(visitorChatMessages.chatId, chatId)).orderBy(visitorChatMessages.createdAt);
+  }
+
+  async createVisitorChatMessage(chatId: number, content: string, isFromAdmin: boolean, senderName: string): Promise<VisitorChatMessage> {
+    const [msg] = await db.insert(visitorChatMessages).values({ chatId, content, isFromAdmin, senderName }).returning();
+    await db.update(visitorChats).set({ lastMessageAt: new Date() }).where(eq(visitorChats.id, chatId));
+    return msg;
+  }
+
+  async getAllVisitorChats(): Promise<(VisitorChat & { unreadCount: number; lastMessage: string | null })[]> {
+    const chats = await db.select().from(visitorChats).orderBy(desc(visitorChats.lastMessageAt));
+    return Promise.all(chats.map(async (chat) => {
+      const [{ count: unread }] = await db.select({ count: count() }).from(visitorChatMessages)
+        .where(and(eq(visitorChatMessages.chatId, chat.id), eq(visitorChatMessages.isFromAdmin, false), eq(visitorChatMessages.isRead, false)));
+      const [lastMsg] = await db.select({ content: visitorChatMessages.content }).from(visitorChatMessages)
+        .where(eq(visitorChatMessages.chatId, chat.id)).orderBy(desc(visitorChatMessages.createdAt)).limit(1);
+      return { ...chat, unreadCount: Number(unread), lastMessage: lastMsg?.content || null };
+    }));
+  }
+
+  async markVisitorMessagesRead(chatId: number, isFromAdmin: boolean): Promise<void> {
+    await db.update(visitorChatMessages).set({ isRead: true })
+      .where(and(eq(visitorChatMessages.chatId, chatId), eq(visitorChatMessages.isFromAdmin, isFromAdmin)));
+  }
+
+  async updateVisitorChatStatus(chatId: number, status: string): Promise<void> {
+    await db.update(visitorChats).set({ status }).where(eq(visitorChats.id, chatId));
+  }
+
+  async getVisitorUnreadCount(chatId: number): Promise<number> {
+    const [{ count: unread }] = await db.select({ count: count() }).from(visitorChatMessages)
+      .where(and(eq(visitorChatMessages.chatId, chatId), eq(visitorChatMessages.isFromAdmin, true), eq(visitorChatMessages.isRead, false)));
+    return Number(unread);
   }
 }
 
