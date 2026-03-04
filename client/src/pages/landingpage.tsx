@@ -9,7 +9,6 @@ import {
   Users,
   Zap,
   Lock,
-  CheckCircle,
   ArrowRight,
   Flame,
   AlertTriangle,
@@ -24,7 +23,6 @@ import {
   Globe,
   Router,
   Play,
-  Star,
 } from "lucide-react";
 
 type ErpItem = { key: string; name: string; description: string | null; logoBase64: string | null; gradient: string };
@@ -58,7 +56,6 @@ export default function LandingPage() {
           <div className="hidden md:flex items-center gap-8 text-sm text-slate-500">
             <button onClick={() => document.getElementById("como-funciona")?.scrollIntoView({ behavior: "smooth" })} className="hover:text-blue-600 transition-colors" data-testid="nav-como-funciona">Como funciona</button>
             <button onClick={() => document.getElementById("funcionalidades")?.scrollIntoView({ behavior: "smooth" })} className="hover:text-blue-600 transition-colors" data-testid="nav-funcionalidades">Funcionalidades</button>
-            <button onClick={() => document.getElementById("planos")?.scrollIntoView({ behavior: "smooth" })} className="hover:text-blue-600 transition-colors" data-testid="nav-planos">Planos</button>
             <button onClick={() => document.getElementById("faq")?.scrollIntoView({ behavior: "smooth" })} className="hover:text-blue-600 transition-colors" data-testid="nav-faq">FAQ</button>
           </div>
           <div className="flex items-center gap-2.5">
@@ -337,102 +334,6 @@ export default function LandingPage() {
           </div>
         </section>
       )}
-
-      <section id="planos" className="py-20 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-14">
-            <h2 className="text-3xl sm:text-4xl font-black text-slate-900">Planos simples e transparentes</h2>
-            <p className="text-slate-500 mt-3">Comece gratis. Escale conforme seu provedor cresce.</p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-            {[
-              {
-                name: "Gratis",
-                price: "R$ 0",
-                period: "/mes",
-                desc: "Para provedores iniciando",
-                cta: "Comecar Gratis",
-                popular: false,
-                features: [
-                  "Consultas do proprio provedor gratuitas",
-                  "Score de credito basico",
-                  "Base de dados compartilhada",
-                  "1 usuario",
-                  "10 creditos/mes para consultas externas",
-                ],
-              },
-              {
-                name: "Profissional",
-                price: "R$ 99",
-                period: "/mes",
-                desc: "Para provedores em crescimento",
-                cta: "Comecar Agora",
-                popular: true,
-                features: [
-                  "Tudo do plano Gratis",
-                  "Consultas ilimitadas na base compartilhada",
-                  "Anti-fraude com alertas em tempo real",
-                  "Mapa de calor geografico",
-                  "Analise com IA",
-                  "Integracao com ERP",
-                  "5 usuarios",
-                  "100 creditos ISP/mes",
-                ],
-              },
-              {
-                name: "Enterprise",
-                price: "Sob consulta",
-                period: "",
-                desc: "Para grandes operacoes",
-                cta: "Falar com Vendas",
-                popular: false,
-                features: [
-                  "Tudo do plano Profissional",
-                  "Usuarios ilimitados",
-                  "API dedicada",
-                  "SLA garantido",
-                  "Suporte prioritario",
-                  "Relatorios personalizados",
-                  "Onboarding dedicado",
-                ],
-              },
-            ].map((plan, i) => (
-              <div key={i} className={`relative rounded-2xl border-2 p-6 ${plan.popular ? "border-blue-600 bg-blue-50/50 shadow-xl shadow-blue-500/10" : "border-slate-200 bg-white"}`} data-testid={`plan-${i}`}>
-                {plan.popular && (
-                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-                    <span className="bg-blue-600 text-white text-xs font-bold px-4 py-1 rounded-full shadow-lg flex items-center gap-1">
-                      <Star className="w-3 h-3" /> Mais popular
-                    </span>
-                  </div>
-                )}
-                <div className="text-center mb-6 pt-2">
-                  <h3 className="text-lg font-bold text-slate-900">{plan.name}</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">{plan.desc}</p>
-                  <div className="mt-4">
-                    <span className="text-4xl font-black text-slate-900">{plan.price}</span>
-                    <span className="text-sm text-slate-500">{plan.period}</span>
-                  </div>
-                </div>
-                <ul className="space-y-2.5 mb-6">
-                  {plan.features.map((f, j) => (
-                    <li key={j} className="flex items-start gap-2 text-sm text-slate-700">
-                      <CheckCircle className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-                <Button
-                  className={`w-full h-11 font-bold ${plan.popular ? "bg-blue-600 hover:bg-blue-700 text-white" : "bg-slate-100 hover:bg-slate-200 text-slate-900"}`}
-                  onClick={goRegister}
-                  data-testid={`button-plan-${i}`}
-                >
-                  {plan.cta}
-                </Button>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
 
       <section className="py-16 bg-slate-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
