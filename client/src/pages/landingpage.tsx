@@ -355,7 +355,6 @@ export default function LandingPage() {
                   "API dedicada",
                   "SLA garantido",
                   "Suporte prioritario",
-                  "Creditos SPC ilimitados",
                   "Relatorios personalizados",
                   "Onboarding dedicado",
                 ],
