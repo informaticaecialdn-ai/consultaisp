@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import LandingChatbot from "@/components/landing-chatbot";
@@ -27,9 +27,19 @@ import {
   Star,
 } from "lucide-react";
 
+type ErpItem = { key: string; name: string; description: string | null; logoBase64: string | null; gradient: string };
+
 export default function LandingPage() {
   const [, setLocation] = useLocation();
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [erps, setErps] = useState<ErpItem[]>([]);
+
+  useEffect(() => {
+    fetch("/api/public/erp-catalog")
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setErps(data); })
+      .catch(() => {});
+  }, []);
 
   const goLogin = () => setLocation("/login");
   const goRegister = () => setLocation("/login?mode=register");
@@ -301,6 +311,33 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+
+      {erps.length > 0 && (
+        <section className="py-16 bg-white border-t border-slate-100">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center mb-10">
+              <span className="inline-block bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1 rounded-full mb-3">Integracoes</span>
+              <h2 className="text-3xl sm:text-4xl font-black text-slate-900">ERPs Integrados</h2>
+              <p className="text-slate-500 mt-3">Conecte seu sistema de gestao e comece a usar em minutos</p>
+            </div>
+            <div className="flex flex-wrap justify-center gap-6">
+              {erps.map(erp => (
+                <div key={erp.key} className="flex flex-col items-center gap-3 bg-slate-50 border border-slate-200 rounded-2xl px-8 py-6 min-w-[160px] hover:shadow-md hover:border-blue-200 transition-all group" data-testid={`erp-card-${erp.key}`}>
+                  {erp.logoBase64 ? (
+                    <img src={erp.logoBase64} alt={erp.name} className="w-14 h-14 object-contain rounded-xl group-hover:scale-110 transition-transform" />
+                  ) : (
+                    <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${erp.gradient} flex items-center justify-center group-hover:scale-110 transition-transform`}>
+                      <Globe className="w-7 h-7 text-white" />
+                    </div>
+                  )}
+                  <span className="text-sm font-bold text-slate-800">{erp.name}</span>
+                  {erp.description && <span className="text-xs text-slate-500 text-center max-w-[140px] leading-relaxed">{erp.description}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       <section id="planos" className="py-20 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

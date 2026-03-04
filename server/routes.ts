@@ -2669,6 +2669,16 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/public/erp-catalog", async (_req, res) => {
+    try {
+      const items = await storage.getAllErpCatalog();
+      const publicItems = items.filter(i => i.active).map(i => ({ key: i.key, name: i.name, description: i.description, logoBase64: i.logoBase64, gradient: i.gradient }));
+      return res.json(publicItems);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/erp-catalog", requireAuth, async (_req, res) => {
     try {
       const items = await storage.getAllErpCatalog();
