@@ -320,18 +320,17 @@ export default function LandingPage() {
               <h2 className="text-3xl sm:text-4xl font-black text-slate-900">ERPs Integrados</h2>
               <p className="text-slate-500 mt-3">Conecte seu sistema de gestao e comece a usar em minutos</p>
             </div>
-            <div className="flex flex-wrap justify-center gap-6">
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-4 max-w-3xl mx-auto">
               {erps.map(erp => (
-                <div key={erp.key} className="flex flex-col items-center gap-3 bg-slate-50 border border-slate-200 rounded-2xl px-8 py-6 min-w-[160px] hover:shadow-md hover:border-blue-200 transition-all group" data-testid={`erp-card-${erp.key}`}>
+                <div key={erp.key} className="flex flex-col items-center gap-2 py-3 hover:scale-105 transition-transform" data-testid={`erp-card-${erp.key}`}>
                   {erp.logoBase64 ? (
-                    <img src={erp.logoBase64} alt={erp.name} className="w-14 h-14 object-contain rounded-xl group-hover:scale-110 transition-transform" />
+                    <img src={erp.logoBase64} alt={erp.name} className="w-10 h-10 object-contain rounded-lg" />
                   ) : (
-                    <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${erp.gradient} flex items-center justify-center group-hover:scale-110 transition-transform`}>
-                      <Globe className="w-7 h-7 text-white" />
+                    <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${erp.gradient} flex items-center justify-center`}>
+                      <Globe className="w-5 h-5 text-white" />
                     </div>
                   )}
-                  <span className="text-sm font-bold text-slate-800">{erp.name}</span>
-                  {erp.description && <span className="text-xs text-slate-500 text-center max-w-[140px] leading-relaxed">{erp.description}</span>}
+                  <span className="text-xs font-semibold text-slate-700">{erp.name}</span>
                 </div>
               ))}
             </div>
