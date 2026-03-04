@@ -188,25 +188,33 @@ export default function LoginPage() {
         <div className="w-full max-w-5xl flex flex-col lg:flex-row items-center gap-12 lg:gap-16">
 
           <div className="flex-1 text-white text-center lg:text-left max-w-lg">
+            <div className="inline-flex items-center gap-2 bg-white/15 backdrop-blur-sm rounded-full px-4 py-1.5 mb-6">
+              <Shield className="w-4 h-4 text-yellow-300" />
+              <span className="text-sm font-medium text-yellow-100">Plataforma Colaborativa de Credito</span>
+            </div>
+
             <h1 className="text-3xl lg:text-4xl font-bold leading-tight mb-4">
-              Base de Inadimplentes<br />Compartilhada
+              Proteja seu provedor,{" "}
+              <span className="text-yellow-300">consulte antes</span>
+              <br />de liberar contratos
             </h1>
-            <p className="text-white/80 text-base lg:text-lg mb-8 leading-relaxed">
-              Analise de credito baseada em base de dados colaborativa de clientes inadimplentes de provedores. Consulte o historico antes de liberar novos contratos!
+            <p className="text-blue-100 text-base lg:text-lg mb-8 leading-relaxed">
+              Base de dados <span className="text-yellow-200 font-medium">colaborativa</span> de clientes inadimplentes entre provedores. Consulte o historico e <span className="text-green-300 font-medium">reduza riscos</span> na sua operacao.
             </p>
 
+            <p className="text-xs font-semibold tracking-widest text-blue-200 uppercase mb-3">Numeros da plataforma</p>
             <div className="grid grid-cols-3 gap-3 mb-8">
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 text-center">
-                <span className="font-bold text-xl block">100+</span>
-                <span className="text-white/70 text-xs">Provedores</span>
+              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 text-center border border-white/10">
+                <span className="font-bold text-xl block text-yellow-300">100+</span>
+                <span className="text-blue-200 text-xs">Provedores</span>
               </div>
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 text-center">
-                <span className="font-bold text-xl block">Multi</span>
-                <span className="text-white/70 text-xs">Base Colaborativa</span>
+              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 text-center border border-white/10">
+                <span className="font-bold text-xl block text-green-300">Multi</span>
+                <span className="text-blue-200 text-xs">Base Colaborativa</span>
               </div>
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 text-center">
-                <span className="font-bold text-xl block">99.9%</span>
-                <span className="text-white/70 text-xs">Uptime</span>
+              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 text-center border border-white/10">
+                <span className="font-bold text-xl block text-amber-300">99.9%</span>
+                <span className="text-blue-200 text-xs">Uptime</span>
               </div>
             </div>
 
@@ -214,7 +222,7 @@ export default function LoginPage() {
               {features.map((feature) => (
                 <div key={feature} className="flex items-center gap-2.5 justify-center lg:justify-start">
                   <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0" />
-                  <span className="text-white/80 text-sm">{feature}</span>
+                  <span className="text-blue-100 text-sm">{feature}</span>
                 </div>
               ))}
             </div>
