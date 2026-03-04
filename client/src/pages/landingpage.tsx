@@ -100,18 +100,7 @@ export default function LandingPage() {
                   Como funciona
                 </Button>
               </div>
-              <div className="mt-8 bg-green-50 border border-green-200 rounded-2xl p-5 flex items-start gap-4" data-testid="hero-security-callout">
-                <div className="w-11 h-11 rounded-xl bg-green-600 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <Lock className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-green-800">Anonimizado e seguro</p>
-                  <p className="text-sm text-green-700 leading-relaxed mt-1">
-                    Dados pessoais ficam restritos ao provedor de origem. Outros provedores veem apenas status de inadimplencia, faixa de valor e dias de atraso — <span className="font-semibold">nunca dados identificaveis</span>.
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-6 mt-8 pt-8 border-t border-slate-200">
+              <div className="flex items-center gap-6 mt-10 pt-8 border-t border-slate-200">
                 {[
                   { v: "100+", l: "Provedores" },
                   { v: "50K+", l: "Consultas" },
