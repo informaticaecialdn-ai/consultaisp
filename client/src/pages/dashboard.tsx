@@ -68,6 +68,7 @@ function MiniHeatMap({ points, providerPoints, defaultCenter }: { points: HeatPo
       mapRef.current = L.map(containerRef.current, {
         zoomControl: false, scrollWheelZoom: false, dragging: false,
         doubleClickZoom: false, boxZoom: false, keyboard: false, attributionControl: false,
+        zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false,
       }).setView(center, zoom);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(mapRef.current);
       markersRef.current = L.layerGroup().addTo(mapRef.current);
@@ -92,7 +93,7 @@ function MiniHeatMap({ points, providerPoints, defaultCenter }: { points: HeatPo
     }
     if (points.length > 1 && !defaultCenter) {
       const group = L.featureGroup(points.map(p => L.circleMarker([p.lat, p.lng], { radius: 0 })));
-      mapRef.current?.fitBounds(group.getBounds().pad(0.2));
+      mapRef.current?.fitBounds(group.getBounds().pad(0.2), { animate: false });
     }
   }, [points, providerPoints, defaultCenter, ready]);
 

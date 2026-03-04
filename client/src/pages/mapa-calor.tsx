@@ -188,7 +188,7 @@ function LeafletHeatMap({
 
     if (points.length > 1 && !defaultCenter) {
       const group = L.featureGroup(points.map(p => L.circleMarker([p.lat, p.lng], { radius: 0 })));
-      mapRef.current.fitBounds(group.getBounds().pad(0.15));
+      mapRef.current.fitBounds(group.getBounds().pad(0.15), { animate: false });
     }
   }, [points, mode, defaultCenter, ready]);
 
