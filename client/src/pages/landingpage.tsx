@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
+import LandingChatbot from "@/components/landing-chatbot";
 import {
   Shield,
   Search,
@@ -493,6 +494,8 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+
+      <LandingChatbot onNavigate={setLocation} />
     </div>
   );
 }
