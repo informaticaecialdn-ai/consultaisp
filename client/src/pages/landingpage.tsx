@@ -339,7 +339,7 @@ export default function LandingPage() {
                   "Analise com IA",
                   "Integracao com ERP",
                   "5 usuarios",
-                  "100 creditos SPC/mes",
+                  "100 creditos ISP/mes",
                 ],
               },
               {
