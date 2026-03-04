@@ -30,12 +30,20 @@ type ErpItem = { key: string; name: string; description: string | null; logoBase
 export default function LandingPage() {
   const [, setLocation] = useLocation();
   const [openFaq, setOpenFaq] = useState<number | null>(null);
-  const [erps, setErps] = useState<ErpItem[]>([]);
+  const fallbackErps: ErpItem[] = [
+    { key: "ixc", name: "IXC Soft", description: null, logoBase64: null, gradient: "from-blue-500 to-blue-700" },
+    { key: "sgp", name: "SGP", description: null, logoBase64: null, gradient: "from-green-500 to-green-700" },
+    { key: "mk", name: "MK Solutions", description: null, logoBase64: null, gradient: "from-purple-500 to-purple-700" },
+    { key: "hubsoft", name: "Hubsoft", description: null, logoBase64: null, gradient: "from-orange-500 to-orange-700" },
+    { key: "voalle", name: "Voalle", description: null, logoBase64: null, gradient: "from-slate-500 to-slate-700" },
+    { key: "rbx", name: "RBX ISP", description: null, logoBase64: null, gradient: "from-red-500 to-red-700" },
+  ];
+  const [erps, setErps] = useState<ErpItem[]>(fallbackErps);
 
   useEffect(() => {
     fetch("/api/public/erp-catalog")
       .then(r => r.json())
-      .then(data => { if (Array.isArray(data)) setErps(data); })
+      .then(data => { if (Array.isArray(data) && data.length > 0) setErps(data); })
       .catch(() => {});
   }, []);
 
