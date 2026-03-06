@@ -29,6 +29,8 @@ import AdminCreditosPage from "@/pages/admin-creditos";
 import LandingPage from "@/pages/landingpage";
 import { Skeleton } from "@/components/ui/skeleton";
 
+import { getSubdomain } from "@/lib/subdomain";
+
 function Router() {
   return (
     <Switch>
@@ -107,6 +109,10 @@ function AuthenticatedApp() {
   }
 
   if (!user) {
+    const subdomain = getSubdomain();
+    if (subdomain) {
+      return <LoginPage />;
+    }
     return <LandingPage />;
   }
 

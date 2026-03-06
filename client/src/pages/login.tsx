@@ -7,6 +7,8 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Shield, CheckCircle, Lock, Eye, EyeOff, MailCheck, RefreshCw, Globe, Building2, X, ArrowLeft } from "lucide-react";
 import { useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
+import { getSubdomain } from "@/lib/subdomain";
 
 function slugifySubdomain(name: string): string {
   return name
@@ -35,7 +37,21 @@ export default function LoginPage() {
   const { login, register } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const currentSubdomain = getSubdomain();
+  const isSubdomainMode = !!currentSubdomain;
+
+  const { data: tenantInfo } = useQuery<{ id: number; name: string; subdomain: string }>({
+    queryKey: ["/api/tenant/resolve", currentSubdomain],
+    queryFn: async () => {
+      const res = await fetch(`/api/tenant/resolve?subdomain=${encodeURIComponent(currentSubdomain!)}`);
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: isSubdomainMode,
+  });
+
   const [pageState, setPageState] = useState<PageState>(() => {
+    if (isSubdomainMode) return "login";
     const params = new URLSearchParams(window.location.search);
     return params.get("mode") === "register" ? "register" : "login";
   });
@@ -288,10 +304,19 @@ export default function LoginPage() {
                     <Shield className="w-6 h-6 text-violet-600" />
                   </div>
                   <h2 className="text-xl font-bold" data-testid="text-login-title">
-                    {pageState === "register" ? "Cadastre-se" : "Bem-vindo de volta"}
+                    {isSubdomainMode
+                      ? "Bem-vindo de volta"
+                      : pageState === "register" ? "Cadastre-se" : "Bem-vindo de volta"}
                   </h2>
+                  {isSubdomainMode && tenantInfo?.name && (
+                    <p className="text-base font-semibold text-violet-600 mt-1" data-testid="text-provider-name">
+                      {tenantInfo.name}
+                    </p>
+                  )}
                   <p className="text-muted-foreground text-sm mt-1">
-                    {pageState === "register" ? "Crie sua conta para acessar o sistema" : "Faca login para acessar o painel"}
+                    {isSubdomainMode
+                      ? "Faca login para acessar o painel"
+                      : pageState === "register" ? "Crie sua conta para acessar o sistema" : "Faca login para acessar o painel"}
                   </p>
                 </div>
 
@@ -482,17 +507,19 @@ export default function LoginPage() {
                   </Button>
                 </form>
 
-                <p className="mt-5 text-center text-sm text-muted-foreground">
-                  {pageState === "register" ? "Ja tem uma conta? " : "Ainda nao tem uma conta? "}
-                  <button
-                    type="button"
-                    className="text-violet-600 font-semibold hover:text-violet-700"
-                    onClick={() => setPageState(pageState === "register" ? "login" : "register")}
-                    data-testid="button-toggle-register"
-                  >
-                    {pageState === "register" ? "Faca login" : "Cadastre-se"}
-                  </button>
-                </p>
+                {!isSubdomainMode && (
+                  <p className="mt-5 text-center text-sm text-muted-foreground">
+                    {pageState === "register" ? "Ja tem uma conta? " : "Ainda nao tem uma conta? "}
+                    <button
+                      type="button"
+                      className="text-violet-600 font-semibold hover:text-violet-700"
+                      onClick={() => setPageState(pageState === "register" ? "login" : "register")}
+                      data-testid="button-toggle-register"
+                    >
+                      {pageState === "register" ? "Faca login" : "Cadastre-se"}
+                    </button>
+                  </p>
+                )}
 
                 <div className="mt-4 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
                   <Lock className="w-3 h-3" />
