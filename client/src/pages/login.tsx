@@ -190,14 +190,16 @@ export default function LoginPage() {
           </div>
           <span className="text-lg font-bold text-white">Consulta ISP</span>
         </div>
-        <button
-          onClick={() => setLocation("/")}
-          className="flex items-center gap-1.5 text-sm text-white/70 hover:text-white transition-colors"
-          data-testid="button-back-to-site"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Voltar ao site
-        </button>
+        {!isSubdomainMode && (
+          <button
+            onClick={() => setLocation("/")}
+            className="flex items-center gap-1.5 text-sm text-white/70 hover:text-white transition-colors"
+            data-testid="button-back-to-site"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Voltar ao site
+          </button>
+        )}
       </header>
 
       <div className="flex-1 flex items-center justify-center px-6 py-8">
