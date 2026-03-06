@@ -312,7 +312,7 @@ export default function LoginPage() {
                   </h2>
                   {isSubdomainMode && tenantInfo?.name && (
                     <p className="text-base font-semibold text-violet-600 mt-1" data-testid="text-provider-name">
-                      {tenantInfo.name}
+                      {tenantInfo.name.split(" ").slice(0, 2).join(" ")}
                     </p>
                   )}
                   <p className="text-muted-foreground text-sm mt-1">
