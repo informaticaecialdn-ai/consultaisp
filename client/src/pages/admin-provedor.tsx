@@ -100,7 +100,7 @@ export default function AdminProvedorPage() {
   const { data, isLoading, error } = useQuery<any>({
     queryKey: ["/api/admin/providers", providerId, "detail"],
     queryFn: async () => {
-      const res = await fetch(`/api/admin/providers/${providerId}/detail`);
+      const res = await fetch(`/api/admin/providers/${providerId}/detail`, { credentials: "include" });
       if (!res.ok) throw new Error((await res.json()).message);
       return res.json();
     },
@@ -1034,7 +1034,7 @@ function IntegracaoTab({ providerId, n8nErpProvider, n8nEnabled }: { providerId:
   }>({
     queryKey: ["/api/admin/providers", providerId, "integration"],
     queryFn: async () => {
-      const res = await fetch(`/api/admin/providers/${providerId}/integration`);
+      const res = await fetch(`/api/admin/providers/${providerId}/integration`, { credentials: "include" });
       if (!res.ok) throw new Error("Erro ao carregar integracao");
       return res.json();
     },
