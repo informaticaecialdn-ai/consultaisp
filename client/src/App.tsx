@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Switch, Route, useLocation, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -59,14 +60,27 @@ const PROVIDER_ONLY_PATHS = [
 
 function AuthenticatedApp() {
   const { user, isLoading } = useAuth();
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
+
+  useEffect(() => {
+    if (isLoading) return;
+
+    if (user && location === "/login") {
+      navigate(user.role === "superadmin" ? "/admin-sistema" : "/", { replace: true });
+      return;
+    }
+
+    if (user && user.role === "superadmin" && PROVIDER_ONLY_PATHS.includes(location)) {
+      navigate("/admin-sistema", { replace: true });
+    }
+  }, [user, isLoading, location, navigate]);
 
   if (location === "/verificar-email") {
     return <VerificarEmailPage />;
   }
 
   if (location === "/login") {
-    if (isLoading) {
+    if (isLoading || user) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-background">
           <div className="space-y-4 w-64">
@@ -76,9 +90,6 @@ function AuthenticatedApp() {
           </div>
         </div>
       );
-    }
-    if (user) {
-      return <Redirect to="/" />;
     }
     return <LoginPage />;
   }
@@ -100,7 +111,15 @@ function AuthenticatedApp() {
   }
 
   if (user.role === "superadmin" && PROVIDER_ONLY_PATHS.includes(location)) {
-    return <Redirect to="/admin-sistema" />;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="space-y-4 w-64">
+          <Skeleton className="h-8 w-48 mx-auto" />
+          <Skeleton className="h-4 w-32 mx-auto" />
+          <Skeleton className="h-2 w-full" />
+        </div>
+      </div>
+    );
   }
 
   const style = {
