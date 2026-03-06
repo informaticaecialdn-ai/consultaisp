@@ -92,6 +92,8 @@ export default function AdminProvedorPage() {
   const [planForm, setPlanForm] = useState({ plan: "", notes: "" });
   const [creditsForm, setCreditsForm] = useState({ ispCredits: "", spcCredits: "", notes: "" });
   const [invoiceForm, setInvoiceForm] = useState({ period: "", amount: "", planAtTime: "basic", ispCreditsIncluded: "", spcCreditsIncluded: "", dueDate: "", notes: "" });
+  const [editingEmailUser, setEditingEmailUser] = useState<{ id: number; name: string; email: string } | null>(null);
+  const [newEmail, setNewEmail] = useState("");
 
   const isSuperAdmin = user?.role === "superadmin";
 
@@ -185,6 +187,21 @@ export default function AdminProvedorPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "detail"] });
       toast({ title: "Fatura atualizada" });
+    },
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  const updateEmailMutation = useMutation({
+    mutationFn: async ({ id, email }: { id: number; email: string }) => {
+      const res = await apiRequest("PATCH", `/api/admin/users/${id}/email`, { email });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "detail"] });
+      toast({ title: "Email atualizado", description: "O email de login foi alterado com sucesso." });
+      setEditingEmailUser(null);
+      setNewEmail("");
     },
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
@@ -585,6 +602,49 @@ export default function AdminProvedorPage() {
               <h3 className="font-semibold">Usuarios do Provedor</h3>
               <p className="text-xs text-muted-foreground">{users.length} usuario(s) cadastrado(s)</p>
             </div>
+
+            {editingEmailUser && (
+              <div className="mx-5 my-3 p-4 border-2 border-blue-200 dark:border-blue-900 rounded-lg bg-blue-50/50 dark:bg-blue-950/30">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-semibold flex items-center gap-2">
+                    <Edit2 className="w-4 h-4 text-blue-600" />
+                    Alterar email de login
+                  </h4>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => { setEditingEmailUser(null); setNewEmail(""); }} data-testid="button-cancel-edit-email">
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Usuario: <span className="font-medium text-foreground">{editingEmailUser.name}</span> — Email atual: <span className="font-medium text-foreground">{editingEmailUser.email}</span>
+                </p>
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder="Novo email de login"
+                    type="email"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    className="flex-1 max-w-sm"
+                    data-testid="input-new-email"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newEmail.includes("@")) {
+                        updateEmailMutation.mutate({ id: editingEmailUser.id, email: newEmail });
+                      }
+                    }}
+                  />
+                  <Button
+                    size="sm"
+                    className="gap-1.5"
+                    disabled={!newEmail.includes("@") || updateEmailMutation.isPending}
+                    onClick={() => updateEmailMutation.mutate({ id: editingEmailUser.id, email: newEmail })}
+                    data-testid="button-save-email"
+                  >
+                    {updateEmailMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                    Salvar
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {users.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground text-sm">Nenhum usuario encontrado</div>
             ) : (
@@ -609,6 +669,16 @@ export default function AdminProvedorPage() {
                       ) : (
                         <XCircle className="w-4 h-4 text-gray-400" title="Email nao verificado" />
                       )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
+                        onClick={() => { setEditingEmailUser({ id: u.id, name: u.name, email: u.email }); setNewEmail(""); }}
+                        title="Alterar email"
+                        data-testid={`button-edit-email-${u.id}`}
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </Button>
                       <span className="text-xs text-muted-foreground">{fmtDate(u.createdAt)}</span>
                     </div>
                   </div>
