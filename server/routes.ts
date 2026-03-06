@@ -266,12 +266,17 @@ export async function registerRoutes(
 
       const existing = await storage.getUserByEmail(email);
       if (existing) {
-        return res.status(409).json({ message: "Email ja cadastrado" });
+        return res.status(409).json({ message: "Este email ja esta cadastrado. Utilize outro email ou faca login." });
+      }
+
+      const existingPhone = await storage.getUserByPhone(phone);
+      if (existingPhone) {
+        return res.status(409).json({ message: "Este telefone ja esta cadastrado no sistema. Utilize outro numero." });
       }
 
       const existingProvider = await storage.getProviderByCnpj(cnpj);
       if (existingProvider) {
-        return res.status(409).json({ message: "CNPJ ja cadastrado" });
+        return res.status(409).json({ message: "Este CNPJ ja esta cadastrado no sistema." });
       }
 
       const existingSubdomain = await storage.getProviderBySubdomain(subdomain);

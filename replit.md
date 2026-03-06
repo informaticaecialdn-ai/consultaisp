@@ -19,7 +19,7 @@ The application is built with a modern web stack. The frontend utilizes **React,
 - A Superadmin panel (`/admin-sistema`) uses hash-based navigation and a collapsible sidebar, offering system-wide KPIs, provider and user management, financial oversight, and a support chat interface.
 
 **Technical Implementations & Feature Specifications:**
-- **Authentication:** Email verification is implemented using Resend, ensuring user legitimacy.
+- **Authentication:** Email verification is implemented using Resend, ensuring user legitimacy. Registration blocks duplicate email, phone, and CNPJ with user-friendly Portuguese error messages. The `users` table has a `phone` (text, nullable) column.
 - **Subdomain Management:** Providers receive auto-generated subdomains with real-time availability checks during registration.
 - **Consulta ISP (Collaborative Defaulter Database):** Features a comprehensive score engine (0-100) based on penalties (e.g., overdue days, unreturned equipment, multiple queries, multi-provider debt) and bonuses (e.g., long-term clients, never late). It includes risk tiers (Low, Medium, High, Critical) and privacy-focused data sharing (name, status, overdue range, equipment status, provider name). Anti-fraud alerts are auto-generated based on specific triggers.
 - **Consulta SPC (Bureau Simulation):** Provides a simulated credit bureau report with a score (0-1000) and five risk levels. It includes cadastral data, categorized restrictions (PEFIN, REFIN, CCF, Protesto, etc.), previous consultations by segment, and special alerts. Mock data generation is based on document hash seeds.

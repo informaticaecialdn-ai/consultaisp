@@ -30,6 +30,7 @@ import {
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
+  getUserByPhone(phone: string): Promise<User | undefined>;
   getUserByVerificationToken(token: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   setEmailVerified(userId: number): Promise<void>;
@@ -170,6 +171,13 @@ export class DatabaseStorage implements IStorage {
   async getUserByEmail(email: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.email, email));
     return user;
+  }
+
+  async getUserByPhone(phone: string): Promise<User | undefined> {
+    const digits = phone.replace(/\D/g, "");
+    if (!digits) return undefined;
+    const allUsers = await db.select().from(users);
+    return allUsers.find(u => u.phone && u.phone.replace(/\D/g, "") === digits);
   }
 
   async getUserByVerificationToken(token: string): Promise<User | undefined> {
