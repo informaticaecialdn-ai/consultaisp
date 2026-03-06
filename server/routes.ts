@@ -262,7 +262,7 @@ export async function registerRoutes(
       if (!parsed.success) {
         return res.status(400).json({ message: "Dados invalidos: " + parsed.error.errors.map(e => e.message).join(", ") });
       }
-      const { email, password, name, providerName, cnpj, subdomain } = parsed.data;
+      const { email, password, name, phone, providerName, cnpj, subdomain } = parsed.data;
 
       const existing = await storage.getUserByEmail(email);
       if (existing) {
@@ -284,6 +284,7 @@ export async function registerRoutes(
         email,
         password: await hashPassword(password),
         name,
+        phone,
         role: "admin",
         providerId: provider.id,
         emailVerified: false,

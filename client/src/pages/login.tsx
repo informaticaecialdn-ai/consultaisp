@@ -31,6 +31,14 @@ function formatCnpj(value: string): string {
   return `${digits.slice(0,2)}.${digits.slice(2,5)}.${digits.slice(5,8)}/${digits.slice(8,12)}-${digits.slice(12)}`;
 }
 
+function formatPhone(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+  if (digits.length <= 2) return digits.length ? `(${digits}` : "";
+  if (digits.length <= 6) return `(${digits.slice(0,2)}) ${digits.slice(2)}`;
+  if (digits.length <= 10) return `(${digits.slice(0,2)}) ${digits.slice(2,6)}-${digits.slice(6)}`;
+  return `(${digits.slice(0,2)}) ${digits.slice(2,7)}-${digits.slice(7)}`;
+}
+
 type PageState = "login" | "register" | "check-email";
 
 export default function LoginPage() {
@@ -58,6 +66,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [pendingEmail, setPendingEmail] = useState("");
   const [subdomainEdited, setSubdomainEdited] = useState(false);
   const [subdomainStatus, setSubdomainStatus] = useState<"idle" | "checking" | "available" | "taken">("idle");
@@ -66,8 +75,11 @@ export default function LoginPage() {
   const [providerNameEdited, setProviderNameEdited] = useState(false);
   const [form, setForm] = useState({
     email: "",
+    confirmEmail: "",
     password: "",
+    confirmPassword: "",
     name: "",
+    phone: "",
     providerName: "",
     cnpj: "",
     subdomain: "",
@@ -127,6 +139,16 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (pageState === "register") {
+      if (form.email !== form.confirmEmail) {
+        toast({ title: "Emails nao conferem", description: "O email e a confirmacao de email devem ser identicos.", variant: "destructive" });
+        return;
+      }
+      if (form.password !== form.confirmPassword) {
+        toast({ title: "Senhas nao conferem", description: "A senha e a confirmacao de senha devem ser identicas.", variant: "destructive" });
+        return;
+      }
+    }
     setIsLoading(true);
     try {
       if (pageState === "register") {
@@ -336,6 +358,17 @@ export default function LoginPage() {
                         />
                       </div>
                       <div>
+                        <label className="text-sm font-medium mb-1.5 block">Telefone</label>
+                        <Input
+                          data-testid="input-phone"
+                          type="tel"
+                          placeholder="(00) 00000-0000"
+                          value={form.phone}
+                          onChange={(e) => setForm({ ...form, phone: formatPhone(e.target.value) })}
+                          required
+                        />
+                      </div>
+                      <div>
                         <label className="text-sm font-medium mb-1.5 block flex items-center gap-1.5">
                           <Building2 className="w-3.5 h-3.5" />CNPJ da Empresa
                         </label>
@@ -468,6 +501,27 @@ export default function LoginPage() {
                     />
                   </div>
 
+                  {pageState === "register" && (
+                    <div>
+                      <label className="text-sm font-medium mb-1.5 block">Confirmar Email</label>
+                      <Input
+                        data-testid="input-confirm-email"
+                        type="email"
+                        placeholder="Repita seu email"
+                        value={form.confirmEmail}
+                        onChange={(e) => setForm({ ...form, confirmEmail: e.target.value })}
+                        className={form.confirmEmail && form.confirmEmail !== form.email ? "border-red-400" : form.confirmEmail && form.confirmEmail === form.email ? "border-emerald-500" : ""}
+                        required
+                      />
+                      {form.confirmEmail && form.confirmEmail !== form.email && (
+                        <p className="text-xs text-red-500 mt-1">Os emails nao conferem</p>
+                      )}
+                      {form.confirmEmail && form.confirmEmail === form.email && (
+                        <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><CheckCircle className="w-3 h-3" />Emails conferem</p>
+                      )}
+                    </div>
+                  )}
+
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="text-sm font-medium">Senha</label>
@@ -497,6 +551,37 @@ export default function LoginPage() {
                       </button>
                     </div>
                   </div>
+
+                  {pageState === "register" && (
+                    <div>
+                      <label className="text-sm font-medium mb-1.5 block">Confirmar Senha</label>
+                      <div className="relative">
+                        <Input
+                          data-testid="input-confirm-password"
+                          type={showConfirmPassword ? "text" : "password"}
+                          placeholder="Repita sua senha"
+                          className={`pr-10 ${form.confirmPassword && form.confirmPassword !== form.password ? "border-red-400" : form.confirmPassword && form.confirmPassword === form.password ? "border-emerald-500" : ""}`}
+                          value={form.confirmPassword}
+                          onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
+                          required
+                        />
+                        <button
+                          type="button"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          data-testid="button-toggle-confirm-password"
+                        >
+                          {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      {form.confirmPassword && form.confirmPassword !== form.password && (
+                        <p className="text-xs text-red-500 mt-1">As senhas nao conferem</p>
+                      )}
+                      {form.confirmPassword && form.confirmPassword === form.password && (
+                        <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><CheckCircle className="w-3 h-3" />Senhas conferem</p>
+                      )}
+                    </div>
+                  )}
 
                   <Button
                     type="submit"

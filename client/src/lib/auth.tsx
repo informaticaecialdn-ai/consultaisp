@@ -49,7 +49,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setProvider(data.provider);
   };
 
-  const register = async (data: { email: string; password: string; name: string; providerName: string; cnpj: string; subdomain: string }) => {
+  const register = async (data: { email: string; password: string; name: string; phone: string; providerName: string; cnpj: string; subdomain: string }) => {
     const res = await apiRequest("POST", "/api/auth/register", data);
     const d = await res.json();
     if (!res.ok) {
