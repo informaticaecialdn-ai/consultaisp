@@ -46,3 +46,6 @@ integrations = ["javascript_openai_ai_integrations:2.0.0"]
 
 [userenv.shared]
 EMAIL_FROM = "noreply@consultaisp.com.br"
+
+[userenv.production]
+APP_URL = "https://consultaisp.com.br"
