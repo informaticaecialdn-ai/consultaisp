@@ -37,10 +37,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [checkAuth]);
 
   const login = async (email: string, password: string) => {
-    const res = await apiRequest("POST", "/api/auth/login", { email, password });
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+      credentials: "include",
+    });
     const data = await res.json();
     if (!res.ok) {
-      const err = new Error(data.message || "Erro ao fazer login") as any;
+      const err = new Error(data.message || "Email ou senha incorretos") as any;
       err.code = data.code;
       err.email = data.email;
       throw err;
@@ -50,10 +55,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const register = async (data: { email: string; password: string; name: string; phone: string; providerName: string; cnpj: string; subdomain: string }) => {
-    const res = await apiRequest("POST", "/api/auth/register", data);
+    const res = await fetch("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+      credentials: "include",
+    });
     const d = await res.json();
     if (!res.ok) {
-      throw new Error(d.message || "Erro ao cadastrar");
+      throw new Error(d.message || "Nao foi possivel concluir o cadastro. Tente novamente.");
     }
     return { needsVerification: d.needsVerification as boolean, email: d.email as string };
   };

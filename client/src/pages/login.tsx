@@ -166,9 +166,10 @@ export default function LoginPage() {
         setPageState("check-email");
         return;
       }
+      const isRegister = pageState === "register";
       toast({
-        title: "Erro",
-        description: err.message || "Erro ao fazer login",
+        title: isRegister ? "Nao foi possivel criar sua conta" : "Nao foi possivel entrar",
+        description: err.message || (isRegister ? "Verifique os dados e tente novamente." : "Verifique seu email e senha e tente novamente."),
         variant: "destructive",
       });
     } finally {
