@@ -16,7 +16,9 @@ const APP_URL = getAppUrl();
 export async function sendVerificationEmail(to: string, name: string, token: string): Promise<void> {
   const verifyUrl = `${APP_URL}/verificar-email?token=${token}`;
 
-  await resend.emails.send({
+  console.log(`[email] Enviando email de verificacao para ${to} via ${FROM_EMAIL}`);
+
+  const { data, error } = await resend.emails.send({
     from: FROM_EMAIL,
     to,
     subject: "Confirme seu cadastro no Consulta ISP",
@@ -85,4 +87,11 @@ export async function sendVerificationEmail(to: string, name: string, token: str
 </html>
     `.trim(),
   });
+
+  if (error) {
+    console.error(`[email] Erro ao enviar para ${to}:`, JSON.stringify(error));
+    throw new Error(`Falha ao enviar email: ${error.message || JSON.stringify(error)}`);
+  }
+
+  console.log(`[email] Email enviado com sucesso para ${to}, id: ${data?.id}`);
 }
