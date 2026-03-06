@@ -250,6 +250,7 @@ export class DatabaseStorage implements IStorage {
     await db.delete(contracts).where(eq(contracts.providerId, id));
     await db.delete(antiFraudAlerts).where(eq(antiFraudAlerts.providerId, id));
     await db.delete(equipment).where(eq(equipment.providerId, id));
+    await db.delete(customers).where(eq(customers.providerId, id));
     await db.delete(ispConsultations).where(eq(ispConsultations.providerId, id));
     await db.delete(spcConsultations).where(eq(spcConsultations.providerId, id));
     await db.delete(erpSyncLogs).where(eq(erpSyncLogs.providerId, id));
