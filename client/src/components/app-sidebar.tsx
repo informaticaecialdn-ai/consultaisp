@@ -43,6 +43,7 @@ import {
   ShoppingCart,
   Zap,
   Database,
+  ClipboardList,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -88,6 +89,7 @@ const ADMIN_GROUPS = [
     key: "gestao",
     collapsible: true,
     items: [
+      { title: "Cadastros", hash: "cadastros", icon: ClipboardList, testId: "link-admin-cadastros" },
       { title: "Provedores", hash: "provedores", icon: Building2, testId: "link-admin-provedores" },
       { title: "Usuarios", hash: "usuarios", icon: UserCog, testId: "link-admin-usuarios" },
       { title: "ERPs Cadastrados", hash: "erps", icon: Database, testId: "link-admin-erps" },
