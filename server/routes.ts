@@ -1812,7 +1812,12 @@ export async function registerRoutes(
       const allProviders = await storage.getAllProviders();
       const withStats = await Promise.all(allProviders.map(async (p) => {
         const provUsers = await storage.getUsersByProvider(p.id);
-        return { ...p, userCount: provUsers.length };
+        const adminUser = provUsers.find(u => u.role === "admin");
+        return {
+          ...p,
+          userCount: provUsers.length,
+          adminEmailVerified: adminUser ? adminUser.emailVerified : false,
+        };
       }));
       return res.json(withStats);
     } catch (error: any) {

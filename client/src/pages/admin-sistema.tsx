@@ -1287,9 +1287,11 @@ export default function AdminSistemaPage() {
     );
   }
 
-  const filteredProviders = allProviders.filter(p =>
-    p.name.toLowerCase().includes(providerSearch.toLowerCase()) ||
-    (p.subdomain || "").toLowerCase().includes(providerSearch.toLowerCase())
+  const filteredProviders = allProviders.filter((p: any) =>
+    p.adminEmailVerified === true && (
+      p.name.toLowerCase().includes(providerSearch.toLowerCase()) ||
+      (p.subdomain || "").toLowerCase().includes(providerSearch.toLowerCase())
+    )
   );
 
   const filteredCadastros = allProviders
@@ -1501,14 +1503,13 @@ export default function AdminSistemaPage() {
                             <Badge className={`text-xs gap-1 ${vs.color}`} data-testid={`badge-status-${p.id}`}>
                               <VsIcon className="w-3 h-3" />{vs.label}
                             </Badge>
-                            {adminUser && !adminUser.emailVerified && (
-                              <Badge className="text-xs bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300 gap-1">
-                                <AlertCircle className="w-3 h-3" />Email nao verificado
-                              </Badge>
-                            )}
-                            {adminUser && adminUser.emailVerified && (
-                              <Badge className="text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 gap-1">
+                            {p.adminEmailVerified ? (
+                              <Badge className="text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300 gap-1" data-testid={`badge-email-verified-${p.id}`}>
                                 <CheckCircle className="w-3 h-3" />Email verificado
+                              </Badge>
+                            ) : (
+                              <Badge className="text-xs bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300 gap-1" data-testid={`badge-email-unverified-${p.id}`}>
+                                <AlertCircle className="w-3 h-3" />Email nao verificado
                               </Badge>
                             )}
                           </div>
@@ -1644,6 +1645,11 @@ export default function AdminSistemaPage() {
             <Button onClick={() => setShowNewProvider(!showNewProvider)} className="gap-1.5" data-testid="button-new-provider">
               <Plus className="w-4 h-4" />Novo Provedor
             </Button>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
+            <CheckCircle className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+            Exibindo apenas provedores com email verificado. Cadastros pendentes ficam visiveis na aba <button className="font-medium text-violet-600 hover:underline" onClick={() => setActiveTab("cadastros")}>Cadastros</button>.
+            <span className="ml-auto text-xs font-medium">{filteredProviders.length} provedor(es)</span>
           </div>
 
           {showNewProvider && (
