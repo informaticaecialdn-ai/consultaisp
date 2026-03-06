@@ -366,7 +366,7 @@ export default function LoginPage() {
                           </div>
                         )}
                         {cnpjLookup === "error" && (
-                          <p className="text-xs text-red-500 mt-1">CNPJ nao encontrado na Receita Federal. Verifique e tente novamente.</p>
+                          <p className="text-xs text-amber-600 mt-1">CNPJ nao encontrado na Receita Federal. Voce pode continuar o cadastro normalmente.</p>
                         )}
                       </div>
                       <div>

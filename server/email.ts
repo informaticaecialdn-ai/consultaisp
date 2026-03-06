@@ -3,7 +3,15 @@ import { Resend } from "resend";
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 const FROM_EMAIL = process.env.EMAIL_FROM || "onboarding@resend.dev";
-const APP_URL = process.env.APP_URL || `http://localhost:5000`;
+
+function getAppUrl(): string {
+  if (process.env.APP_URL) return process.env.APP_URL;
+  if (process.env.REPLIT_DEPLOYMENT_URL) return `https://${process.env.REPLIT_DEPLOYMENT_URL}`;
+  if (process.env.REPLIT_DEV_DOMAIN) return `https://${process.env.REPLIT_DEV_DOMAIN}`;
+  return `http://localhost:5000`;
+}
+
+const APP_URL = getAppUrl();
 
 export async function sendVerificationEmail(to: string, name: string, token: string): Promise<void> {
   const verifyUrl = `${APP_URL}/verificar-email?token=${token}`;
