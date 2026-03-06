@@ -1860,6 +1860,25 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/admin/providers/:id/resend-verification", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const provider = await storage.getProvider(id);
+      if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
+      const users = await storage.getUsersByProvider(id);
+      const adminUser = users.find(u => u.role === "admin");
+      if (!adminUser) return res.status(404).json({ message: "Usuario administrador do provedor nao encontrado" });
+      if (adminUser.emailVerified) return res.json({ message: "Email ja verificado." });
+      const token = crypto.randomBytes(32).toString("hex");
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      await storage.setVerificationToken(adminUser.id, token, expiresAt);
+      await sendVerificationEmail(adminUser.email, adminUser.name, token);
+      return res.json({ message: "Email de verificacao reenviado com sucesso." });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
   app.post("/api/admin/providers/:id/plan", requireSuperAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);

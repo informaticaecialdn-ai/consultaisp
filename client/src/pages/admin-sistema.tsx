@@ -1043,6 +1043,18 @@ export default function AdminSistemaPage() {
     onError: (e: any) => toast({ title: "Erro ao atualizar status", description: e.message, variant: "destructive" }),
   });
 
+  const resendVerificationMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/admin/providers/${id}/resend-verification`, {});
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({ title: "Email enviado", description: data.message || "Email de verificacao reenviado com sucesso." });
+    },
+    onError: (e: any) => toast({ title: "Erro ao reenviar email", description: e.message, variant: "destructive" }),
+  });
+
+
   const [editingEmailUser, setEditingEmailUser] = useState<{ id: number; name: string; email: string } | null>(null);
   const [newEmail, setNewEmail] = useState("");
 
@@ -1609,6 +1621,18 @@ export default function AdminSistemaPage() {
                               data-testid={`button-set-pending-${p.id}`}
                             >
                               <Clock className="w-3.5 h-3.5" />Pendente
+                            </Button>
+                          )}
+                          {!p.adminEmailVerified && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1.5 text-xs h-8 text-blue-600 border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                              onClick={() => resendVerificationMutation.mutate(p.id)}
+                              disabled={resendVerificationMutation.isPending}
+                              data-testid={`button-resend-email-${p.id}`}
+                            >
+                              <RefreshCw className="w-3.5 h-3.5" />Reenviar Email
                             </Button>
                           )}
                           <Button
