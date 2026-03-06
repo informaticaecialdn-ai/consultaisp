@@ -1054,6 +1054,18 @@ export default function AdminSistemaPage() {
     onError: (e: any) => toast({ title: "Erro ao reenviar email", description: e.message, variant: "destructive" }),
   });
 
+  const deleteProviderMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("DELETE", `/api/admin/providers/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/providers"] });
+      toast({ title: "Provedor excluido", description: "O cadastro e todos os dados associados foram removidos." });
+    },
+    onError: (e: any) => toast({ title: "Erro ao excluir", description: e.message, variant: "destructive" }),
+  });
+
 
   const [editingEmailUser, setEditingEmailUser] = useState<{ id: number; name: string; email: string } | null>(null);
   const [newEmail, setNewEmail] = useState("");
@@ -1635,6 +1647,19 @@ export default function AdminSistemaPage() {
                               <RefreshCw className="w-3.5 h-3.5" />Reenviar Email
                             </Button>
                           )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1.5 text-xs h-8 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                            onClick={() => {
+                              if (confirm(`Excluir permanentemente o cadastro de "${p.name}"?\n\nTodos os dados associados (usuarios, clientes, consultas, faturas etc.) serao removidos. Esta acao nao pode ser desfeita.`))
+                                deleteProviderMutation.mutate(p.id);
+                            }}
+                            disabled={deleteProviderMutation.isPending}
+                            data-testid={`button-delete-cadastro-${p.id}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />Excluir
+                          </Button>
                           <Button
                             variant="default"
                             size="sm"

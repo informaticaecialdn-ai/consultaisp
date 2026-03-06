@@ -1860,6 +1860,18 @@ export async function registerRoutes(
     }
   });
 
+  app.delete("/api/admin/providers/:id", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const provider = await storage.getProvider(id);
+      if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
+      await storage.deleteProvider(id);
+      return res.json({ message: "Provedor excluido com sucesso" });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
   app.post("/api/admin/providers/:id/resend-verification", requireSuperAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);

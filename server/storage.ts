@@ -45,6 +45,7 @@ export interface IStorage {
   updateProvider(id: number, data: Partial<Pick<Provider, "name" | "contactEmail" | "contactPhone" | "website">>): Promise<Provider>;
   getAllProviders(): Promise<Provider[]>;
   updateProviderCredits(id: number, ispCredits: number, spcCredits: number): Promise<void>;
+  deleteProvider(id: number): Promise<void>;
 
   getCustomersByProvider(providerId: number): Promise<Customer[]>;
   getCustomerByCpfCnpj(cpfCnpj: string): Promise<Customer[]>;
@@ -236,6 +237,30 @@ export class DatabaseStorage implements IStorage {
 
   async updateProviderCredits(id: number, ispCredits: number, spcCredits: number): Promise<void> {
     await db.update(providers).set({ ispCredits, spcCredits }).where(eq(providers.id, id));
+  }
+
+  async deleteProvider(id: number): Promise<void> {
+    const threads = await db.select({ id: supportThreads.id }).from(supportThreads).where(eq(supportThreads.providerId, id));
+    if (threads.length > 0) {
+      const threadIds = threads.map(t => t.id);
+      await db.delete(supportMessages).where(inArray(supportMessages.threadId, threadIds));
+    }
+    await db.delete(supportThreads).where(eq(supportThreads.providerId, id));
+    await db.delete(invoices).where(eq(invoices.providerId, id));
+    await db.delete(contracts).where(eq(contracts.providerId, id));
+    await db.delete(antiFraudAlerts).where(eq(antiFraudAlerts.providerId, id));
+    await db.delete(equipment).where(eq(equipment.providerId, id));
+    await db.delete(ispConsultations).where(eq(ispConsultations.providerId, id));
+    await db.delete(spcConsultations).where(eq(spcConsultations.providerId, id));
+    await db.delete(erpSyncLogs).where(eq(erpSyncLogs.providerId, id));
+    await db.delete(erpIntegrations).where(eq(erpIntegrations.providerId, id));
+    await db.delete(planChanges).where(eq(planChanges.providerId, id));
+    await db.delete(providerInvoices).where(eq(providerInvoices.providerId, id));
+    await db.delete(creditOrders).where(eq(creditOrders.providerId, id));
+    await db.delete(providerDocuments).where(eq(providerDocuments.providerId, id));
+    await db.delete(providerPartners).where(eq(providerPartners.providerId, id));
+    await db.delete(users).where(eq(users.providerId, id));
+    await db.delete(providers).where(eq(providers.id, id));
   }
 
   async getCustomersByProvider(providerId: number): Promise<Customer[]> {
