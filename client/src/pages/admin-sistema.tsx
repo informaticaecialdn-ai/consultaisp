@@ -1043,6 +1043,9 @@ export default function AdminSistemaPage() {
     onError: (e: any) => toast({ title: "Erro ao atualizar status", description: e.message, variant: "destructive" }),
   });
 
+  const [editingEmailUser, setEditingEmailUser] = useState<{ id: number; name: string; email: string } | null>(null);
+  const [newEmail, setNewEmail] = useState("");
+
   const deleteUserMutation = useMutation({
     mutationFn: async (id: number) => {
       const res = await apiRequest("DELETE", `/api/admin/users/${id}`, undefined);
@@ -1052,6 +1055,21 @@ export default function AdminSistemaPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
       toast({ title: "Usuario removido" });
+    },
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  const updateEmailMutation = useMutation({
+    mutationFn: async ({ id, email }: { id: number; email: string }) => {
+      const res = await apiRequest("PATCH", `/api/admin/users/${id}/email`, { email });
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast({ title: "Email atualizado", description: "O email de login foi alterado com sucesso." });
+      setEditingEmailUser(null);
+      setNewEmail("");
     },
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
@@ -1706,6 +1724,49 @@ export default function AdminSistemaPage() {
             </div>
             <Badge variant="secondary">{filteredUsers.length} usuario(s)</Badge>
           </div>
+
+          {editingEmailUser && (
+            <Card className="p-4 border-2 border-blue-200 dark:border-blue-900">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold flex items-center gap-2">
+                  <Pencil className="w-4 h-4 text-blue-600" />
+                  Alterar email de login
+                </h3>
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => { setEditingEmailUser(null); setNewEmail(""); }} data-testid="button-cancel-edit-email">
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground mb-3">
+                Usuario: <span className="font-medium text-foreground">{editingEmailUser.name}</span> — Email atual: <span className="font-medium text-foreground">{editingEmailUser.email}</span>
+              </p>
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder="Novo email de login"
+                  type="email"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  className="flex-1 max-w-sm"
+                  data-testid="input-new-email"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newEmail.includes("@")) {
+                      updateEmailMutation.mutate({ id: editingEmailUser.id, email: newEmail });
+                    }
+                  }}
+                />
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={!newEmail.includes("@") || updateEmailMutation.isPending}
+                  onClick={() => updateEmailMutation.mutate({ id: editingEmailUser.id, email: newEmail })}
+                  data-testid="button-save-email"
+                >
+                  {updateEmailMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  Salvar
+                </Button>
+              </div>
+            </Card>
+          )}
+
           <Card className="overflow-hidden">
             {usersLoading ? (
               <div className="flex items-center justify-center py-12">
@@ -1735,6 +1796,16 @@ export default function AdminSistemaPage() {
                       ) : (
                         <XCircle className="w-4 h-4 text-amber-500" />
                       )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
+                        onClick={() => { setEditingEmailUser({ id: u.id, name: u.name, email: u.email }); setNewEmail(""); }}
+                        title="Alterar email"
+                        data-testid={`button-edit-email-${u.id}`}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
                       {u.role !== "superadmin" && (
                         <Button
                           variant="ghost"

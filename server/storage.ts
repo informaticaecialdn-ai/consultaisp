@@ -36,6 +36,7 @@ export interface IStorage {
   setVerificationToken(userId: number, token: string, expiresAt: Date): Promise<void>;
   getUsersByProvider(providerId: number): Promise<User[]>;
   deleteUser(id: number): Promise<void>;
+  updateUserEmail(id: number, email: string): Promise<void>;
 
   getProvider(id: number): Promise<Provider | undefined>;
   getProviderByCnpj(cnpj: string): Promise<Provider | undefined>;
@@ -198,6 +199,10 @@ export class DatabaseStorage implements IStorage {
 
   async deleteUser(id: number): Promise<void> {
     await db.delete(users).where(eq(users.id, id));
+  }
+
+  async updateUserEmail(id: number, email: string): Promise<void> {
+    await db.update(users).set({ email }).where(eq(users.id, id));
   }
 
   async getProvider(id: number): Promise<Provider | undefined> {

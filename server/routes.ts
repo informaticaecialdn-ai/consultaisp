@@ -2046,6 +2046,28 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/admin/users/:id/email", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { email } = req.body;
+      if (!email || typeof email !== "string" || !email.includes("@")) {
+        return res.status(400).json({ message: "Email invalido" });
+      }
+      const targetUser = await storage.getUser(id);
+      if (!targetUser) {
+        return res.status(404).json({ message: "Usuario nao encontrado" });
+      }
+      const existing = await storage.getUserByEmail(email.trim().toLowerCase());
+      if (existing && existing.id !== id) {
+        return res.status(409).json({ message: "Este email ja esta em uso por outro usuario" });
+      }
+      await storage.updateUserEmail(id, email.trim().toLowerCase());
+      return res.json({ message: "Email atualizado com sucesso" });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/plan-history", requireSuperAdmin, async (req, res) => {
     try {
       const providerId = req.query.providerId ? parseInt(req.query.providerId as string) : undefined;
