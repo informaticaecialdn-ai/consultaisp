@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Shield, CheckCircle, Lock, Eye, EyeOff, MailCheck, RefreshCw, Globe, Building2, X, ArrowLeft } from "lucide-react";
+import { CheckCircle, Lock, Eye, EyeOff, MailCheck, RefreshCw, Globe, Building2, X, ArrowLeft } from "lucide-react";
+import logoImg from "@assets/consulta-isp-icon-128x128_1773154852856.png";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { getSubdomain } from "@/lib/subdomain";
@@ -208,8 +209,8 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-600 to-violet-700 flex flex-col" data-testid="login-page">
       <header className="flex items-center justify-between px-8 py-5">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center">
-            <Shield className="w-5 h-5 text-white" />
+          <div className="w-9 h-9 rounded-lg bg-slate-900/60 flex items-center justify-center overflow-hidden">
+            <img src={logoImg} alt="Consulta ISP" className="w-full h-full object-contain" />
           </div>
           <span className="text-lg font-bold text-white">Consulta ISP</span>
         </div>

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Printer, ArrowLeft, Download } from "lucide-react";
 import { useLocation } from "wouter";
+import logoImg from "@assets/consulta-isp-icon-128x128_1773154852856.png";
 
 const PLAN_LABELS: Record<string, string> = {
   free: "Gratuito",
@@ -104,8 +105,8 @@ export default function InvoiceViewPage() {
           <div className="flex items-start justify-between mb-8">
             <div>
               <div className="flex items-center gap-3 mb-1">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center">
-                  <span className="text-white font-bold text-sm">CI</span>
+                <div className="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center overflow-hidden">
+                  <img src={logoImg} alt="Consulta ISP" className="w-full h-full object-contain" />
                 </div>
                 <div>
                   <h1 className="text-lg font-bold leading-tight">Consulta ISP</h1>
