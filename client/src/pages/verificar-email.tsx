@@ -3,8 +3,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, XCircle, Loader2, RefreshCw } from "lucide-react";
-import logoImg from "@assets/consulta-isp-icon-128x128_1773154852856.png";
+import { Shield, CheckCircle, XCircle, Loader2, RefreshCw } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
 type Status = "verifying" | "success" | "error" | "expired";
@@ -73,8 +72,8 @@ export default function VerificarEmailPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-gray-900 dark:to-gray-800 p-6" data-testid="verificar-email-page">
       <div className="w-full max-w-md">
         <div className="flex items-center justify-center gap-3 mb-8">
-          <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center overflow-hidden">
-            <img src={logoImg} alt="Consulta ISP" className="w-full h-full object-contain" />
+          <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center">
+            <Shield className="w-6 h-6 text-white" />
           </div>
           <span className="text-xl font-bold">Consulta ISP</span>
         </div>

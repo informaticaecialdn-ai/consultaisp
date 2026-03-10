@@ -1,5 +1,4 @@
 import { useLocation, useSearch, Link } from "wouter";
-import logoImg from "@assets/consulta-isp-icon-128x128_1773154852856.png";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
 import {
@@ -223,8 +222,8 @@ export function AppSidebar() {
         <SidebarHeader className="p-4 pb-3">
           <button onClick={() => handleAdminNavigate("painel")} className="w-full text-left">
             <div className="flex items-center gap-3 cursor-pointer">
-              <div className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0 bg-white">
-                <img src={logoImg} alt="Consulta ISP" className="w-full h-full object-contain" />
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-600 to-rose-700 flex items-center justify-center flex-shrink-0">
+                <Shield className="w-5 h-5 text-white" />
               </div>
               <div className="flex flex-col">
                 <span className="text-sm font-bold leading-tight">Consulta ISP</span>
@@ -269,8 +268,8 @@ export function AppSidebar() {
       <SidebarHeader className="p-4">
         <Link href="/">
           <div className="flex items-center gap-3 cursor-pointer">
-            <div className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0 bg-white">
-              <img src={logoImg} alt="Consulta ISP" className="w-full h-full object-contain" />
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center">
+              <Shield className="w-5 h-5 text-white" />
             </div>
             <div className="flex flex-col">
               <span className="text-sm font-bold leading-tight">Consulta ISP</span>
