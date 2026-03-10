@@ -105,7 +105,7 @@ export default function InvoiceViewPage() {
           <div className="flex items-start justify-between mb-8">
             <div>
               <div className="flex items-center gap-3 mb-1">
-                <div className="w-10 h-10 rounded-xl bg-slate-900 flex items-center justify-center overflow-hidden">
+                <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center overflow-hidden">
                   <img src={logoImg} alt="Consulta ISP" className="w-full h-full object-contain" />
                 </div>
                 <div>

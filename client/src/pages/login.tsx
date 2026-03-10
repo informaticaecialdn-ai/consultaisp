@@ -209,7 +209,7 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-600 to-violet-700 flex flex-col" data-testid="login-page">
       <header className="flex items-center justify-between px-8 py-5">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-slate-900/60 flex items-center justify-center overflow-hidden">
+          <div className="w-9 h-9 rounded-lg bg-white flex items-center justify-center overflow-hidden">
             <img src={logoImg} alt="Consulta ISP" className="w-full h-full object-contain" />
           </div>
           <span className="text-lg font-bold text-white">Consulta ISP</span>

@@ -223,7 +223,7 @@ export function AppSidebar() {
         <SidebarHeader className="p-4 pb-3">
           <button onClick={() => handleAdminNavigate("painel")} className="w-full text-left">
             <div className="flex items-center gap-3 cursor-pointer">
-              <div className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0 bg-slate-900">
+              <div className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0 bg-white">
                 <img src={logoImg} alt="Consulta ISP" className="w-full h-full object-contain" />
               </div>
               <div className="flex flex-col">
@@ -269,7 +269,7 @@ export function AppSidebar() {
       <SidebarHeader className="p-4">
         <Link href="/">
           <div className="flex items-center gap-3 cursor-pointer">
-            <div className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0 bg-slate-900">
+            <div className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0 bg-white">
               <img src={logoImg} alt="Consulta ISP" className="w-full h-full object-contain" />
             </div>
             <div className="flex flex-col">
