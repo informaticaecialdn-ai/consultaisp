@@ -213,23 +213,22 @@ export default function ConsultaISPPage() {
       const otherCount = (data.result?.providerDetails || []).filter((d: any) => !d.isSameProvider).length;
 
       if (data.result?.notFound) {
-        toast({ title: "Nada Consta", description: "Documento sem restricoes na rede ISP colaborativa. Consulta gratuita." });
+        toast({ title: "Nada consta", description: "Nenhum registro encontrado. Sem custo." });
       } else if (ownCount > 0 && otherCount > 0) {
-        // Two separate toasts: one free, one paid
         toast({
-          title: "Consulta Gratuita",
-          description: `${ownCount} registro(s) do seu provedor encontrado(s). Sem custo.`,
+          title: "Consulta gratuita",
+          description: `${ownCount} registro${ownCount > 1 ? "s" : ""} do seu provedor. Sem custo.`,
         });
         setTimeout(() => {
           toast({
-            title: "Consulta Paga",
-            description: `${otherCount} registro(s) de outro(s) provedor(es). ${otherCount} credito(s) ISP debitado(s).`,
+            title: "Consulta paga",
+            description: `${otherCount} registro${otherCount > 1 ? "s" : ""} de outros provedores. ${otherCount} credito${otherCount > 1 ? "s" : ""} debitado${otherCount > 1 ? "s" : ""}.`,
           });
         }, 3500);
       } else if (ownCount > 0) {
-        toast({ title: "Consulta Gratuita", description: `${ownCount} registro(s) do seu provedor encontrado(s). Sem custo.` });
+        toast({ title: "Consulta gratuita", description: `${ownCount} registro${ownCount > 1 ? "s" : ""} do seu provedor. Sem custo.` });
       } else if (otherCount > 0) {
-        toast({ title: "Consulta Paga", description: `${otherCount} registro(s) de outro(s) provedor(es). ${otherCount} credito(s) ISP debitado(s).` });
+        toast({ title: "Consulta paga", description: `${otherCount} registro${otherCount > 1 ? "s" : ""} de outros provedores. ${otherCount} credito${otherCount > 1 ? "s" : ""} debitado${otherCount > 1 ? "s" : ""}.` });
       }
     },
     onError: (err: any) => {
