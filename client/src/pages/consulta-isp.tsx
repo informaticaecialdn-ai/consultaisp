@@ -65,6 +65,7 @@ interface ConsultaResult {
   creditsCost: number;
   isOwnCustomer: boolean;
   addressMatches?: AddressMatch[];
+  consultorIp?: string;
 }
 
 function formatCpfCnpj(value: string): string {
@@ -297,6 +298,8 @@ export default function ConsultaISPPage() {
       `<li>${m.isSameProvider ? m.customerName : "Dados restritos"} — ${m.address}, ${m.city}${m.state ? `/${m.state}` : ""} — ${m.daysOverdue} dias atraso</li>`
     ).join("");
 
+    const ipStr = doc.consultorIp || "desconhecido";
+
     const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"/>
 <title>Relatorio de Consulta ISP — ${docFormatted}</title>
 <style>
@@ -325,7 +328,10 @@ export default function ConsultaISPPage() {
     <h1>Consulta ISP — Relatorio de Credito</h1>
     <p style="font-size:11px;color:#64748b;margin-top:4px">Documento: <strong>${docFormatted}</strong> &nbsp;|&nbsp; Tipo: ${doc.searchType.toUpperCase()}</p>
   </div>
-  <div class="meta"><div><strong>Emitido em</strong></div><div>${now}</div></div>
+  <div class="meta">
+    <div><strong>Emitido em</strong></div><div>${now}</div>
+    <div style="margin-top:4px"><strong>IP do Consultor</strong></div><div style="font-family:monospace">${ipStr}</div>
+  </div>
 </div>
 
 <div class="score-block">
@@ -368,7 +374,7 @@ ${addrRows ? `<section>
   <ul>${addrRows}</ul>
 </section>` : ""}
 
-<div class="footer">Relatorio gerado por Consulta ISP &nbsp;|&nbsp; ${now} &nbsp;|&nbsp; Documento: ${docFormatted}</div>
+<div class="footer">Relatorio gerado por Consulta ISP &nbsp;|&nbsp; ${now} &nbsp;|&nbsp; Documento: ${docFormatted} &nbsp;|&nbsp; IP: ${ipStr}</div>
 </body></html>`;
 
     const w = window.open("", "_blank", "width=900,height=700");

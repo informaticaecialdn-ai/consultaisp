@@ -1139,6 +1139,10 @@ export async function registerRoutes(
       }
       // ── FIM CRUZAMENTO DE ENDEREÇO ──────────────────────────────────────
 
+      const consultorIp = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim()
+        || req.socket.remoteAddress
+        || "desconhecido";
+
       const result = {
         cpfCnpj: cleaned,
         searchType,
@@ -1157,6 +1161,7 @@ export async function registerRoutes(
         creditsCost: cost,
         isOwnCustomer,
         addressMatches,
+        consultorIp,
       };
 
       const customerIdForLog = allCustomerRecords.length > 0 ? allCustomerRecords[0].id : null;
