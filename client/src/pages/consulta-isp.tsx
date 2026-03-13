@@ -225,7 +225,7 @@ export default function ConsultaISPPage() {
             title: "Consulta Paga",
             description: `${otherCount} registro(s) de outro(s) provedor(es). ${otherCount} credito(s) ISP debitado(s).`,
           });
-        }, 600);
+        }, 3500);
       } else if (ownCount > 0) {
         toast({ title: "Consulta Gratuita", description: `${ownCount} registro(s) do seu provedor encontrado(s). Sem custo.` });
       } else if (otherCount > 0) {
