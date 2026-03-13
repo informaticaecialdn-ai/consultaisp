@@ -805,12 +805,12 @@ export async function registerRoutes(
       const hasOtherProviderRecords = allCustomerRecords.some(c => c.providerId !== providerId);
       const notFound = allCustomerRecords.length === 0;
 
-      let cost = 0;
-      if (!isOwnCustomer && !notFound) {
-        cost = 1;
-        if (provider.ispCredits <= 0) {
-          return res.status(400).json({ message: "Creditos ISP insuficientes" });
-        }
+      const otherProviderIds = new Set(
+        allCustomerRecords.filter(c => c.providerId !== providerId).map(c => c.providerId)
+      );
+      const cost = otherProviderIds.size; // 1 credit per unique other provider found
+      if (cost > 0 && provider.ispCredits < cost) {
+        return res.status(400).json({ message: "Creditos ISP insuficientes" });
       }
 
       const recentConsultations = await storage.getRecentConsultationsForDocument(cleaned, 30);
