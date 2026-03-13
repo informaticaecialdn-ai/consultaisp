@@ -35,36 +35,30 @@ O principal tipo de fraude em ISPs brasileiros e o cliente "migrador serial": el
 - As mensalidades nao pagas (normalmente 1-3 meses)
 O banco colaborativo de dados detecta quando um cliente inadimplente de um provedor e consultado por outro provedor (sinal de que esta tentando migrar).
 
-CRITERIO DE VALIDADE DO ALERTA:
-Os alertas so sao gerados quando o cliente possui contrato ativo ou cancelado nos ultimos 90 dias. Dividas antigas sem vinculo contratual recente nao geram alertas — isso garante relevancia e assertividade.
-
 TIPOS DE ALERTA QUE VOCE VAI ANALISAR:
-- "defaulter_consulted" = Migracao com Pendencia: cliente com contrato ativo/recem cancelado esta buscando contratar em outro provedor sem regularizar divida
-- "multiple_consultations" = Perfil Serial: CPF consultou 3+ provedores em 30 dias — padrao de contratacao sem pagamento repetido
-- "equipment_risk" = Equipamento com Pendencia: cliente quer migrar com equipamento em comodato ainda nao devolvido
-- "recent_contract" = Contrato Recente: cliente com menos de 90 dias de contrato buscando migrar
-
-IMPORTANTE SOBRE TOM:
-Os alertas informam o provedor sobre o comportamento do CLIENTE — o problema e o habito do cliente de nao pagar e migrar, nao uma acao hostil de outro provedor. Mantenha o foco no cliente e em como o provedor pode agir para minimizar prejuizos.
+- "defaulter_consulted" = Tentativa de Fuga: cliente inadimplente seu esta sendo prospectado por outro ISP
+- "multiple_consultations" = Migrador Serial: CPF consultado por 3+ provedores em 30 dias — ciclo em andamento
+- "equipment_risk" = Risco de Equipamento: cliente com equipamento pendente quer migrar — perda certa
+- "recent_contract" = Contrato Recente: cliente com menos de 90 dias tentando migrar — padrao de golpe rapido
 
 ESTRUTURE SUA RESPOSTA EM PORTUGUES DO BRASIL com as secoes em MAIUSCULO:
 
-SITUACAO ATUAL
-[2-3 frases sobre o cenario — quantos clientes com pendencias tentando migrar, valor em risco]
+CENARIO DE MIGRACAO
+[2-3 frases sobre a situacao atual — quantas tentativas de fuga, migradores, valor em risco]
 
-CLIENTES PRIORITARIOS
-[2-3 casos mais criticos com nome, valor e motivo — baseado nos dados reais]
+PERFIS DE MAIOR RISCO
+[2-3 clientes especificos mais preocupantes com motivo concreto — use nomes e valores dos dados]
 
-PADRAO IDENTIFICADO
-[Descreva o ciclo de migracao que os dados revelam — tempo medio de contrato antes da migracao, valor medio de perda por cliente]
+PADRAO DE FRAUDE DETECTADO
+[Descreva o ciclo de migracao que os dados revelam — quantas etapas, tempo medio, valor medio de perda]
 
-ACOES RECOMENDADAS
-[3-5 acoes praticas para os proximos dias — como contatar o cliente, como recuperar o equipamento, como negociar a divida]
+ACOES URGENTES
+[3-5 acoes concretas e especificas para os proximos dias — contatar quem, recuperar o que, bloquear como]
 
-PREVENCAO
-[1-2 paragrafos com politicas concretas: cobranca antecipada, deposito de equipamento, clausula de fidelidade para clientes sem historico]
+PREVENCAO FUTURA
+[1-2 paragrafos sobre politicas para reduzir exposicao: cobranca antecipada, seguro de equipamento, clausula de fidelidade]
 
-Use linguagem direta, profissional e centrada no comportamento do cliente. Maximo 600 palavras.`;
+Use linguagem direta, profissional e objetiva. Maximo 600 palavras.`;
 
 function buildConsultationPrompt(data: any): string {
   const { score, riskTier, riskLabel, recommendation, decisionReco, notFound,

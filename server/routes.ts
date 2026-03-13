@@ -938,20 +938,13 @@ export async function registerRoutes(
           const riskLevel = riskScore >= 75 ? "critical" : riskScore >= 50 ? "high" : riskScore >= 25 ? "medium" : "low";
           const severity = riskLevel;
 
-          const cancelledDate = relevantContract?.endDate ? new Date(relevantContract.endDate) : null;
-          const daysSinceCancellation = cancelledDate ? Math.floor((Date.now() - cancelledDate.getTime()) / (1000 * 60 * 60 * 24)) : null;
-          const isContractActive = contractStatus === "active";
-          const isRecentlyCancelled = contractStatus === "cancelled" && daysSinceCancellation !== null && daysSinceCancellation <= 90;
-          const hasRelevantContract = isContractActive || isRecentlyCancelled;
-          const contractStatusLabel = isContractActive ? "contrato ativo" : `contrato cancelado ha ${daysSinceCancellation} dia(s)`;
-
-          if (hasRelevantContract && (maxDays >= 1 || unreturnedCount > 0)) {
-            const alertType = maxDays >= 1 && unreturnedCount > 0 ? "equipment_risk" : maxDays >= 1 ? "defaulter_consulted" : "equipment_risk";
-            const alertMessage = maxDays >= 1 && unreturnedCount > 0
-              ? `Seu cliente ${customer.name} (${contractStatusLabel}) esta buscando contratar outro provedor com R$ ${totalOverdue.toFixed(2)} em atraso ha ${maxDays} dias e ${unreturnedCount} equipamento(s) nao devolvido(s) no valor de R$ ${equipmentValue.toFixed(2)}.`
-              : maxDays >= 1
-              ? `Seu cliente ${customer.name} (${contractStatusLabel}) esta buscando contratar outro provedor. Ele possui R$ ${totalOverdue.toFixed(2)} em atraso ha ${maxDays} dias.`
-              : `Seu cliente ${customer.name} (${contractStatusLabel}) esta buscando contratar outro provedor com ${unreturnedCount} equipamento(s) pendente(s) no valor de R$ ${equipmentValue.toFixed(2)}.`;
+          if (maxDays >= 1 || unreturnedCount > 0 || contractAgeDays < 90) {
+            const alertType = maxDays >= 1 ? "defaulter_consulted" : unreturnedCount > 0 ? "equipment_risk" : "recent_contract";
+            const alertMessage = maxDays >= 1
+              ? `Seu cliente ${customer.name} foi consultado por ${provider.name}. O cliente possui R$ ${totalOverdue.toFixed(2)} em atraso ha ${maxDays} dias.`
+              : unreturnedCount > 0
+              ? `Seu cliente ${customer.name} possui ${unreturnedCount} equipamento(s) nao devolvido(s) (R$ ${equipmentValue.toFixed(2)}) e foi consultado por ${provider.name}.`
+              : `Seu cliente ${customer.name} (contrato recente: ${contractAgeDays} dias) foi consultado por ${provider.name}.`;
 
             await storage.createAlert({
               providerId: customer.providerId,
@@ -982,9 +975,6 @@ export async function registerRoutes(
         alerts.push(`Consultado por ${recentConsultationsCount + 1} provedores nos ultimos 30 dias`);
         for (const customer of allCustomerRecords) {
           if (customer.providerId !== providerId) {
-            const overdueVal = parseFloat(customer.totalOverdueAmount || "0");
-            const overdueDays = customer.maxDaysOverdue || 0;
-            const overdueDesc = overdueVal > 0 ? ` com R$ ${overdueVal.toFixed(2)} em atraso ha ${overdueDays} dias` : "";
             await storage.createAlert({
               providerId: customer.providerId,
               customerId: customer.id,
@@ -994,11 +984,11 @@ export async function registerRoutes(
               customerCpfCnpj: customer.cpfCnpj,
               type: "multiple_consultations",
               severity: "high",
-              message: `Seu cliente ${customer.name}${overdueDesc} consultou ${recentConsultationsCount + 1} provedores em 30 dias. Este perfil indica habito de migracao sem regularizacao de pendencias.`,
+              message: `Seu cliente ${customer.name} foi consultado por ${recentConsultationsCount + 1} provedores nos ultimos 30 dias. Possivel padrao de fraude.`,
               riskScore: 80,
               riskLevel: "high",
-              riskFactors: [`CPF consultou ${recentConsultationsCount + 1} provedores em 30 dias`, "Perfil de migracao serial", ...(overdueVal > 0 ? [`R$ ${overdueVal.toFixed(2)} em atraso ha ${overdueDays} dias`] : [])],
-              daysOverdue: overdueDays,
+              riskFactors: [`Consultado por ${recentConsultationsCount + 1} provedores nos ultimos 30 dias`, "Possivel padrao de fraude"],
+              daysOverdue: customer.maxDaysOverdue || 0,
               overdueAmount: customer.totalOverdueAmount || "0",
               equipmentNotReturned: 0,
               equipmentValue: "0",
