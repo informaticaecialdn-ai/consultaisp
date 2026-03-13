@@ -26,27 +26,39 @@ CONDICOES RECOMENDADAS
 
 ${'' /* Max 400 palavras total */}`;
 
-const ANTIFRAUD_SYSTEM_PROMPT = `Voce e um especialista em prevencao de fraudes para provedores de internet (ISPs) brasileiros.
-Analise os dados de risco e fraude fornecidos e apresente insights estrategicos em Portugues do Brasil.
-Use linguagem profissional e objetiva. Foque em acoes praticas e imediatas.
-Estruture sua resposta com as seguintes secoes exatas (use os titulos em MAIUSCULO):
+const ANTIFRAUD_SYSTEM_PROMPT = `Voce e um especialista em prevencao de fraudes por migracao serial em provedores de internet (ISPs) brasileiros.
 
-CENARIO ATUAL DE RISCO
-[2-3 frases descrevendo o nivel geral de risco da base do provedor]
+CONTEXTO DO PROBLEMA QUE VOCE ANALISA:
+O principal tipo de fraude em ISPs brasileiros e o cliente "migrador serial": ele contrata o servico, nao paga a 1a, 2a ou 3a mensalidade e migra para outro provedor antes de ser cobrado efetivamente. O ciclo se repete em varios provedores. Cada ISP perde:
+- O custo da instalacao (mao de obra + materiais)
+- O equipamento em comodato (ONU/roteador, normalmente R$200-800)
+- As mensalidades nao pagas (normalmente 1-3 meses)
+O banco colaborativo de dados detecta quando um cliente inadimplente de um provedor e consultado por outro provedor (sinal de que esta tentando migrar).
 
-PADROES DE FRAUDE IDENTIFICADOS
-[Liste de 2-4 padroes detectados nos dados com detalhes especificos]
+TIPOS DE ALERTA QUE VOCE VAI ANALISAR:
+- "defaulter_consulted" = Tentativa de Fuga: cliente inadimplente seu esta sendo prospectado por outro ISP
+- "multiple_consultations" = Migrador Serial: CPF consultado por 3+ provedores em 30 dias — ciclo em andamento
+- "equipment_risk" = Risco de Equipamento: cliente com equipamento pendente quer migrar — perda certa
+- "recent_contract" = Contrato Recente: cliente com menos de 90 dias tentando migrar — padrao de golpe rapido
 
-CLIENTES PRIORITARIOS
-[Liste os 2-3 casos mais urgentes com justificativa]
+ESTRUTURE SUA RESPOSTA EM PORTUGUES DO BRASIL com as secoes em MAIUSCULO:
 
-ACOES IMEDIATAS RECOMENDADAS
-[Liste de 3-5 acoes especificas com prazo sugerido (imediato/proxima semana/proximo mes)]
+CENARIO DE MIGRACAO
+[2-3 frases sobre a situacao atual — quantas tentativas de fuga, migradores, valor em risco]
 
-MEDIDAS PREVENTIVAS
-[1-2 paragrafos com politicas preventivas para evitar novos casos]
+PERFIS DE MAIOR RISCO
+[2-3 clientes especificos mais preocupantes com motivo concreto — use nomes e valores dos dados]
 
-${'' /* Max 500 palavras total */}`;
+PADRAO DE FRAUDE DETECTADO
+[Descreva o ciclo de migracao que os dados revelam — quantas etapas, tempo medio, valor medio de perda]
+
+ACOES URGENTES
+[3-5 acoes concretas e especificas para os proximos dias — contatar quem, recuperar o que, bloquear como]
+
+PREVENCAO FUTURA
+[1-2 paragrafos sobre politicas para reduzir exposicao: cobranca antecipada, seguro de equipamento, clausula de fidelidade]
+
+Use linguagem direta, profissional e objetiva. Maximo 600 palavras.`;
 
 function buildConsultationPrompt(data: any): string {
   const { score, riskTier, riskLabel, recommendation, decisionReco, notFound,
@@ -112,38 +124,51 @@ Analise estes dados e forneca sua avaliacao especializada.`;
 }
 
 function buildAntiFraudPrompt(alerts: any[], customers: any[]): string {
-  const highRisk = customers.filter(c => c.riskScore >= 50);
+  const activeAlerts = alerts.filter(a => a.status === "new");
+  const fugaAlerts = activeAlerts.filter(a => a.type === "defaulter_consulted");
+  const serialAlerts = activeAlerts.filter(a => a.type === "multiple_consultations");
+  const equipmentAlerts = activeAlerts.filter(a => a.type === "equipment_risk");
   const criticalCustomers = customers.filter(c => c.riskScore >= 70);
-
-  const customersText = customers.slice(0, 8).map(c => {
-    return `  - ${c.name} | Score: ${c.riskScore}/100 | Nivel: ${c.riskLevel} | Atraso: ${c.daysOverdue} dias | Divida: R$ ${c.overdueAmount?.toFixed(2) || "0.00"} | Equipamentos nao devolvidos: ${c.equipmentNotReturned} | Fatores: ${c.riskFactors?.join(", ") || "Nenhum"}`;
-  }).join("\n");
-
-  const alertsText = alerts.slice(0, 5).map(a => {
-    return `  - [${a.severity?.toUpperCase()}] ${a.customerName || "?"} | Tipo: ${a.type} | Score: ${a.riskScore} | Mensagem: ${a.message}`;
-  }).join("\n");
 
   const totalOverdue = customers.reduce((s, c) => s + (c.overdueAmount || 0), 0);
   const totalEquipmentValue = customers.reduce((s, c) => s + (c.equipmentValue || 0), 0);
+  const totalPrejuizoEmRisco = fugaAlerts.reduce((s, a) => s + parseFloat(a.overdueAmount || "0") + parseFloat(a.equipmentValue || "0"), 0);
 
-  return `DADOS DE RISCO E FRAUDE DO PROVEDOR
+  const customersText = criticalCustomers.slice(0, 6).map(c => {
+    const prejudizoTotal = (c.overdueAmount || 0) + (c.equipmentValue || 0);
+    return `  - ${c.name} | Score: ${c.riskScore}/100 (${c.riskLevel.toUpperCase()}) | Atraso: ${c.daysOverdue} dias | Divida: R$ ${(c.overdueAmount || 0).toFixed(2)} | Equipamentos nao devolvidos: ${c.equipmentNotReturned} (R$ ${(c.equipmentValue || 0).toFixed(2)}) | Prejuizo potencial: R$ ${prejudizoTotal.toFixed(2)}`;
+  }).join("\n");
 
-RESUMO GERAL:
-- Total de clientes na base: ${customers.length}
-- Clientes alto risco (score >= 50): ${highRisk.length}
-- Clientes criticos (score >= 70): ${criticalCustomers.length}
-- Total em divida ativa: R$ ${totalOverdue.toFixed(2)}
-- Valor de equipamentos em risco: R$ ${totalEquipmentValue.toFixed(2)}
-- Alertas ativos: ${alerts.filter(a => a.status === "new").length}
-- Alertas totais: ${alerts.length}
+  const fugaText = fugaAlerts.slice(0, 5).map(a => {
+    const prejuizo = parseFloat(a.overdueAmount || "0") + parseFloat(a.equipmentValue || "0");
+    return `  - TENTATIVA DE FUGA: ${a.customerName} | ${a.daysOverdue} dias sem pagar | Divida: R$ ${a.overdueAmount} | Equipamentos: ${a.equipmentNotReturned || 0} item(ns) (R$ ${a.equipmentValue || "0"}) | Consultando: ${a.consultingProviderName} | Prejuizo em risco: R$ ${prejuizo.toFixed(2)}`;
+  }).join("\n");
 
-CLIENTES COM MAIOR RISCO:
-${customersText || "Nenhum cliente de alto risco"}
+  const serialText = serialAlerts.slice(0, 3).map(a => {
+    return `  - MIGRADOR SERIAL: ${a.customerName} | Consultado por ${a.recentConsultations} provedores em 30 dias | ${a.daysOverdue} dias sem pagar em algum provedor`;
+  }).join("\n");
 
-ALERTAS RECENTES:
-${alertsText || "Nenhum alerta recente"}
+  return `DADOS DE FRAUDE POR MIGRACAO — PROVEDOR ISP
 
-Analise este cenario e forneca recomendacoes estrategicas para o provedor.`;
+SITUACAO ATUAL:
+- Tentativas de fuga detectadas (clientes inadimplentes consultando outros ISPs): ${fugaAlerts.length}
+- Migradores seriais (consultado por 3+ ISPs em 30 dias): ${serialAlerts.length}
+- Clientes com equipamento em risco de perda: ${equipmentAlerts.length}
+- Clientes com risco critico (score >= 70): ${criticalCustomers.length}
+- Total de divida ativa na base: R$ ${totalOverdue.toFixed(2)}
+- Valor total de equipamentos em risco: R$ ${totalEquipmentValue.toFixed(2)}
+- Prejuizo imediato em risco (fuga iminente): R$ ${totalPrejuizoEmRisco.toFixed(2)}
+
+TENTATIVAS DE FUGA ATIVAS (cliente inadimplente sendo consultado por outro ISP):
+${fugaText || "Nenhuma tentativa de fuga ativa"}
+
+MIGRADORES SERIAIS DETECTADOS:
+${serialText || "Nenhum migrador serial identificado"}
+
+CLIENTES COM RISCO CRITICO DE PERDA:
+${customersText || "Nenhum cliente de risco critico"}
+
+Analise estes dados com foco no ciclo de migracao serial e forneca recomendacoes praticas.`;
 }
 
 export async function streamConsultationAnalysis(
