@@ -92,33 +92,33 @@ function getAlertTypeConfig(type: string, severity: string) {
   switch (type) {
     case "defaulter_consulted":
       return {
-        tag: "TENTATIVA DE FUGA",
+        tag: "MIGRACAO COM PENDENCIA",
         tagColor: "bg-red-100 text-red-800",
         borderColor: "border-red-300",
         bgColor: "bg-red-50",
         icon: WifiOff,
         iconBg: "bg-red-500",
-        description: "Seu cliente inadimplente esta sendo consultado por outro provedor",
+        description: "Cliente com contrato ativo ou recem cancelado esta buscando contratar em outro provedor sem regularizar pendencias",
       };
     case "multiple_consultations":
       return {
-        tag: "MIGRADOR SERIAL",
+        tag: "PERFIL DE MIGRACAO SERIAL",
         tagColor: "bg-purple-100 text-purple-800",
         borderColor: "border-purple-300",
         bgColor: "bg-purple-50",
         icon: Users,
         iconBg: "bg-purple-500",
-        description: "Este cliente consultou multiplos provedores — padrao de migracao em serie",
+        description: "Este cliente consultou varios provedores em curto periodo — padrao recorrente de contratacao sem pagamento",
       };
     case "equipment_risk":
       return {
-        tag: "RISCO DE EQUIPAMENTO",
+        tag: "EQUIPAMENTO COM PENDENCIA",
         tagColor: "bg-amber-100 text-amber-800",
         borderColor: "border-amber-300",
         bgColor: "bg-amber-50",
         icon: Package,
         iconBg: "bg-amber-500",
-        description: "Cliente com equipamento nao devolvido esta buscando novo provedor",
+        description: "Cliente com equipamento em comodato ainda nao devolvido esta tentando contratar em outro provedor",
       };
     case "recent_contract":
       return {
@@ -128,7 +128,7 @@ function getAlertTypeConfig(type: string, severity: string) {
         bgColor: "bg-blue-50",
         icon: Clock,
         iconBg: "bg-blue-500",
-        description: "Cliente com contrato recente esta sendo prospectado por outro provedor",
+        description: "Cliente com contrato recente (menos de 90 dias) esta buscando contratar em outro provedor",
       };
     default:
       return {
@@ -221,11 +221,8 @@ function AlertaMigracaoCard({ alert, onResolve, onDismiss }: {
 
             {alert.consultingProviderName && (
               <div className="flex items-center gap-1.5 mt-1.5 text-xs">
-                <Building2 className="w-3 h-3 text-slate-400" />
-                <span className="text-slate-500">Consultado por:</span>
-                <span className="font-semibold text-slate-800">{alert.consultingProviderName}</span>
-                <ArrowRight className="w-3 h-3 text-slate-400" />
-                <span className="text-slate-500 italic">destino provavel da migracao</span>
+                <Wifi className="w-3 h-3 text-slate-400" />
+                <span className="text-slate-500">Cliente consultou outro provedor para nova contratacao</span>
               </div>
             )}
           </div>
@@ -385,7 +382,7 @@ function AlertasTab({ alerts, onResolve, onDismiss }: {
               onClick={() => setTypeFilter(typeFilter === "defaulter_consulted" ? "all" : "defaulter_consulted")}
               className={`px-2.5 py-1.5 text-xs font-bold rounded-lg border transition-all ${typeFilter === "defaulter_consulted" ? "bg-red-600 text-white border-red-600" : "bg-red-50 text-red-700 border-red-200 hover:bg-red-100"}`}
             >
-              Tentativas de Fuga ({fugaCount})
+              Migracao com Pendencia ({fugaCount})
             </button>
           )}
           {serialCount > 0 && (
@@ -393,7 +390,7 @@ function AlertasTab({ alerts, onResolve, onDismiss }: {
               onClick={() => setTypeFilter(typeFilter === "multiple_consultations" ? "all" : "multiple_consultations")}
               className={`px-2.5 py-1.5 text-xs font-bold rounded-lg border transition-all ${typeFilter === "multiple_consultations" ? "bg-purple-600 text-white border-purple-600" : "bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100"}`}
             >
-              Migradores Seriais ({serialCount})
+              Perfil Serial ({serialCount})
             </button>
           )}
           {eqpCount > 0 && (
@@ -427,7 +424,7 @@ function AlertasTab({ alerts, onResolve, onDismiss }: {
               {search || typeFilter !== "all" ? "Nenhum alerta corresponde ao filtro" : statusFilter === "new" ? "Nenhuma tentativa de migracao ativa" : "Nenhum alerta"}
             </h3>
             <p className="text-sm text-slate-400">
-              {!search && typeFilter === "all" && statusFilter === "new" && "Os alertas aparecem automaticamente quando um cliente inadimplente seu e consultado por outro provedor."}
+              {!search && typeFilter === "all" && statusFilter === "new" && "Os alertas aparecem automaticamente quando um cliente com contrato ativo ou recem cancelado e com pendencias busca contratar em outro provedor."}
             </p>
           </div>
         </Card>
@@ -891,8 +888,8 @@ function AnaliseIATab({ alerts, customerRisk }: { alerts: AntiFraudAlert[]; cust
                 <WifiOff className="w-4 h-4 text-white" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-red-800">{fugaAlerts.length} cliente{fugaAlerts.length > 1 ? "s" : ""} tentando migrar — agir antes que saiam</p>
-                <p className="text-xs text-red-600 mt-0.5">Contatar agora pode evitar perda de equipamentos e zerar a divida</p>
+                <p className="text-sm font-bold text-red-800">{fugaAlerts.length} cliente{fugaAlerts.length > 1 ? "s" : ""} com contrato ativo buscando novo provedor sem regularizar pendencias</p>
+                <p className="text-xs text-red-600 mt-0.5">Entre em contato para negociar a divida antes que o equipamento seja perdido</p>
               </div>
               <Button size="sm" variant="outline" className="text-xs flex-shrink-0 border-red-300 text-red-700 hover:bg-red-100">Contatar</Button>
             </div>
@@ -903,8 +900,8 @@ function AnaliseIATab({ alerts, customerRisk }: { alerts: AntiFraudAlert[]; cust
                 <UserX className="w-4 h-4 text-white" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-purple-800">{serialAlerts.length} migrador{serialAlerts.length > 1 ? "es" : ""} serial detectado{serialAlerts.length > 1 ? "s" : ""}</p>
-                <p className="text-xs text-purple-600 mt-0.5">Registre no banco colaborativo para alertar outros provedores da rede</p>
+                <p className="text-sm font-bold text-purple-800">{serialAlerts.length} cliente{serialAlerts.length > 1 ? "s" : ""} com perfil de migracao recorrente sem pagamento</p>
+                <p className="text-xs text-purple-600 mt-0.5">Esses clientes estao registrados na base colaborativa e podem ser identificados por outros provedores na hora da consulta</p>
               </div>
               <Button size="sm" variant="outline" className="text-xs flex-shrink-0 border-purple-300 text-purple-700 hover:bg-purple-100">Ver Perfis</Button>
             </div>
@@ -1199,12 +1196,12 @@ export default function AntiFraudePage() {
         <div className="flex items-center gap-2">
           {fugaAttempts.length > 0 && (
             <span className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-red-100 text-red-700 border border-red-200 animate-pulse" data-testid="badge-fuga-count">
-              <WifiOff className="w-3.5 h-3.5" /> {fugaAttempts.length} Tentativa{fugaAttempts.length > 1 ? "s" : ""} de Fuga
+              <WifiOff className="w-3.5 h-3.5" /> {fugaAttempts.length} com Pendencia Ativa
             </span>
           )}
           {serialMigrators.length > 0 && (
             <span className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-purple-100 text-purple-700 border border-purple-200" data-testid="badge-serial-count">
-              <Users className="w-3.5 h-3.5" /> {serialMigrators.length} Migrador{serialMigrators.length > 1 ? "es" : ""} Serial
+              <Users className="w-3.5 h-3.5" /> {serialMigrators.length} Perfil Serial
             </span>
           )}
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { queryClient.invalidateQueries({ queryKey: ["/api/anti-fraud/alerts"] }); queryClient.invalidateQueries({ queryKey: ["/api/anti-fraud/customer-risk"] }); }} data-testid="button-refresh">
@@ -1216,17 +1213,17 @@ export default function AntiFraudePage() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <PrejuizoCard
-          label="Tentativas de Fuga"
+          label="Migracao com Pendencia"
           value={fugaAttempts.length}
-          sub="clientes tentando migrar"
+          sub="clientes buscando migrar com divida ativa"
           icon={WifiOff}
           color="bg-red-500"
           alert={fugaAttempts.length > 0}
         />
         <PrejuizoCard
-          label="Migradores Seriais"
+          label="Perfil Serial Detectado"
           value={serialMigrators.length}
-          sub="consultados por 3+ provedores"
+          sub="clientes que consultaram 3+ provedores"
           icon={UserX}
           color="bg-purple-500"
         />
