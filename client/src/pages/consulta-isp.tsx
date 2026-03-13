@@ -213,33 +213,39 @@ export default function ConsultaISPPage() {
       const otherCount = (data.result?.providerDetails || []).filter((d: any) => !d.isSameProvider).length;
 
       if (data.result?.notFound) {
-        toast({ title: "Nada consta", description: "Nenhum registro encontrado. Gratuita." });
+        toast({
+          title: "Nada consta",
+          description: (
+            <span>Nenhum registro encontrado. <span className="font-bold text-emerald-600">Gratuita.</span></span>
+          ),
+        });
       } else if (ownCount > 0 && otherCount > 0) {
         toast({
           title: "Consulta gratuita",
-          description: `${ownCount} registro${ownCount > 1 ? "s" : ""} do seu provedor. Gratuita.`,
+          description: (
+            <span>{ownCount} registro{ownCount > 1 ? "s" : ""} do seu provedor. <span className="font-bold text-emerald-600">Gratuita.</span></span>
+          ),
         });
         setTimeout(() => {
           toast({
             title: "Consulta paga",
             description: (
-              <span>
-                {otherCount} registro{otherCount > 1 ? "s" : ""} de outros provedores.<br />
-                Custo: {otherCount} credito{otherCount > 1 ? "s" : ""}.
-              </span>
+              <span>{otherCount} Em outros provedores: <span className="font-bold text-red-600">{otherCount} Credito{otherCount > 1 ? "s" : ""}.</span></span>
             ),
           });
         }, 3500);
       } else if (ownCount > 0) {
-        toast({ title: "Consulta gratuita", description: `${ownCount} registro${ownCount > 1 ? "s" : ""} do seu provedor. Gratuita.` });
+        toast({
+          title: "Consulta gratuita",
+          description: (
+            <span>{ownCount} registro{ownCount > 1 ? "s" : ""} do seu provedor. <span className="font-bold text-emerald-600">Gratuita.</span></span>
+          ),
+        });
       } else if (otherCount > 0) {
         toast({
           title: "Consulta paga",
           description: (
-            <span>
-              {otherCount} registro{otherCount > 1 ? "s" : ""} de outros provedores.<br />
-              Custo: {otherCount} credito{otherCount > 1 ? "s" : ""}.
-            </span>
+            <span>{otherCount} Em outros provedores: <span className="font-bold text-red-600">{otherCount} Credito{otherCount > 1 ? "s" : ""}.</span></span>
           ),
         });
       }
