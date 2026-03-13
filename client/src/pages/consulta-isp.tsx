@@ -32,6 +32,20 @@ interface ProviderDetail {
   cancelledDate?: string;
 }
 
+interface AddressMatch {
+  customerName: string;
+  cpfCnpj: string;
+  address: string;
+  city: string;
+  state?: string;
+  providerName: string;
+  isSameProvider: boolean;
+  status: string;
+  daysOverdue: number;
+  totalOverdue?: number;
+  hasDebt: boolean;
+}
+
 interface ConsultaResult {
   cpfCnpj: string;
   searchType: string;
@@ -49,6 +63,7 @@ interface ConsultaResult {
   recommendedActions: string[];
   creditsCost: number;
   isOwnCustomer: boolean;
+  addressMatches?: AddressMatch[];
 }
 
 function formatCpfCnpj(value: string): string {
@@ -1022,6 +1037,97 @@ export default function ConsultaISPPage() {
                   </div>
                 )}
               </div>
+            )}
+
+            {/* ── CRUZAMENTO DE ENDEREÇO ── */}
+            {!result.notFound && result.addressMatches && result.addressMatches.length > 0 && (
+              <Card className="overflow-hidden shadow-lg rounded-2xl border-2 border-orange-200" data-testid="card-address-matches">
+                <div className="bg-orange-50 px-6 py-4 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-orange-500 flex items-center justify-center flex-shrink-0">
+                    <MapPin className="w-4 h-4 text-white" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-base font-semibold text-slate-900">Alerta de Cruzamento por Endereco</h3>
+                    <p className="text-sm text-orange-700">
+                      {result.addressMatches.filter(m => m.hasDebt).length > 0
+                        ? `${result.addressMatches.filter(m => m.hasDebt).length} pessoa(s) com divida no mesmo endereco`
+                        : `${result.addressMatches.length} cadastro(s) localizado(s) no mesmo endereco`
+                      }
+                    </p>
+                  </div>
+                  <Badge className="bg-orange-100 text-orange-800 border-orange-300 border">
+                    {result.addressMatches.length} cadastro(s)
+                  </Badge>
+                </div>
+
+                <div className="p-5">
+                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4 flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-orange-600 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-orange-800">
+                      Foram encontrados outros cadastros com o mesmo endereco exato. Esse padrao pode indicar uso de diferentes documentos de membros da mesma familia para contratar servicos apos inadimplencia anterior.
+                    </p>
+                  </div>
+
+                  <div className="space-y-3">
+                    {result.addressMatches.map((match, i) => (
+                      <div
+                        key={i}
+                        className={`flex items-center gap-4 p-4 rounded-xl border bg-white ${
+                          match.hasDebt ? "border-red-200" : "border-slate-200"
+                        }`}
+                        data-testid={`address-match-${i}`}
+                      >
+                        <div className={`w-1.5 self-stretch rounded-full flex-shrink-0 ${
+                          match.hasDebt ? "bg-red-400" : "bg-slate-300"
+                        }`} />
+
+                        <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
+                          <User className="w-5 h-5 text-orange-600" />
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-slate-900" data-testid={`address-match-name-${i}`}>
+                              {match.customerName}
+                            </span>
+                            {match.isSameProvider && (
+                              <Badge className="bg-blue-100 text-blue-700 border-0 text-xs">Seu cliente</Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            Doc: {match.cpfCnpj} &nbsp;•&nbsp; {match.providerName}
+                          </p>
+                          <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                            <MapPin className="w-3 h-3" />
+                            {match.address}{match.city ? `, ${match.city}` : ""}{match.state ? `/${match.state}` : ""}
+                          </p>
+                        </div>
+
+                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                            match.daysOverdue === 0
+                              ? "bg-emerald-100 text-emerald-700"
+                              : match.daysOverdue <= 30
+                              ? "bg-orange-100 text-orange-700"
+                              : "bg-red-100 text-red-700"
+                          }`}>
+                            {match.status}
+                          </span>
+                          {match.isSameProvider && match.totalOverdue !== undefined && match.totalOverdue > 0 && (
+                            <span className="text-xs text-red-600 font-medium">
+                              R$ {match.totalOverdue.toFixed(2)} em aberto
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <p className="text-xs text-slate-400 mt-4 text-center">
+                    Dados parcialmente anonimizados para clientes de outros provedores conforme politica de privacidade da rede.
+                  </p>
+                </div>
+              </Card>
             )}
           </div>
         )}

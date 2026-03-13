@@ -1050,6 +1050,78 @@ export async function registerRoutes(
       const decisionReco = getDecisionReco(finalScore);
       const recommendedActions = getRecommendedActions(finalScore, hasUnreturnedEquipmentGlobal);
 
+      // ── CRUZAMENTO DE ENDEREÇO ──────────────────────────────────────────
+      const addressMatches: any[] = [];
+      const seenAddressCpfCnpj = new Set<string>();
+
+      const addressKeys = new Set<string>();
+      for (const customer of allCustomerRecords) {
+        if (customer.address && customer.city) {
+          const key = `${customer.address.trim().toLowerCase()}|${customer.city.trim().toLowerCase()}`;
+          addressKeys.add(key);
+        }
+      }
+
+      for (const key of addressKeys) {
+        const [addr, city] = key.split("|");
+        const matched = await storage.getCustomersByExactAddress(addr, city, cleaned);
+        for (const mc of matched) {
+          const cpfKey = mc.cpfCnpj.replace(/\D/g, "");
+          if (seenAddressCpfCnpj.has(cpfKey)) continue;
+          seenAddressCpfCnpj.add(cpfKey);
+
+          const mcProvider = await storage.getProvider(mc.providerId);
+          const mcInvoices = await storage.getInvoicesByCustomer(mc.id);
+          const overdueInvoices = mcInvoices.filter(i => i.status === "overdue");
+          const totalOverdue = overdueInvoices.reduce((s, i) => s + parseFloat(i.value || "0"), 0);
+          let maxDays = 0;
+          for (const inv of overdueInvoices) {
+            const days = Math.floor((Date.now() - new Date(inv.dueDate).getTime()) / 86400000);
+            if (days > maxDays) maxDays = days;
+          }
+
+          const isSameProvider = mc.providerId === providerId;
+
+          const nameParts = mc.name.trim().split(/\s+/);
+          const maskedName = isSameProvider
+            ? mc.name
+            : nameParts.length > 1
+              ? `${nameParts[0]} ${nameParts.slice(1).map(p => p[0] + ".").join(" ")}`
+              : mc.name;
+
+          const rawCpf = mc.cpfCnpj.replace(/\D/g, "");
+          const maskedDoc = isSameProvider
+            ? mc.cpfCnpj
+            : rawCpf.length === 14
+              ? `${rawCpf.substring(0, 2)}.***.***/${rawCpf.substring(8, 12)}-**`
+              : `${rawCpf.substring(0, 3)}.***.***-**`;
+
+          addressMatches.push({
+            customerName: maskedName,
+            cpfCnpj: maskedDoc,
+            address: mc.address,
+            city: mc.city,
+            state: mc.state,
+            providerName: isSameProvider ? (mcProvider?.name || "Seu provedor") : "Outro provedor da rede",
+            isSameProvider,
+            status: maxDays === 0 ? "Em dia" : `Inadimplente (${maxDays}d)`,
+            daysOverdue: maxDays,
+            totalOverdue: isSameProvider ? totalOverdue : undefined,
+            hasDebt: maxDays > 0 || totalOverdue > 0,
+          });
+        }
+      }
+
+      if (addressMatches.length > 0) {
+        const debtAtAddress = addressMatches.filter(m => m.hasDebt).length;
+        if (debtAtAddress > 0) {
+          alerts.push(`Alerta de Endereco: ${debtAtAddress} pessoa(s) no mesmo endereco com historico de inadimplencia`);
+        } else {
+          alerts.push(`Cruzamento de Endereco: ${addressMatches.length} cadastro(s) localizado(s) no mesmo endereco`);
+        }
+      }
+      // ── FIM CRUZAMENTO DE ENDEREÇO ──────────────────────────────────────
+
       const result = {
         cpfCnpj: cleaned,
         searchType,
@@ -1067,6 +1139,7 @@ export async function registerRoutes(
         recommendedActions,
         creditsCost: cost,
         isOwnCustomer,
+        addressMatches,
       };
 
       const customerIdForLog = allCustomerRecords.length > 0 ? allCustomerRecords[0].id : null;

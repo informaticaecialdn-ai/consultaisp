@@ -50,6 +50,7 @@ export interface IStorage {
 
   getCustomersByProvider(providerId: number): Promise<Customer[]>;
   getCustomerByCpfCnpj(cpfCnpj: string): Promise<Customer[]>;
+  getCustomersByExactAddress(address: string, city: string, excludeCpfCnpj: string): Promise<Customer[]>;
   createCustomer(customer: InsertCustomer): Promise<Customer>;
 
   getContractsByCustomer(customerId: number): Promise<Contract[]>;
@@ -278,6 +279,19 @@ export class DatabaseStorage implements IStorage {
 
   async getCustomerByCpfCnpj(cpfCnpj: string): Promise<Customer[]> {
     return db.select().from(customers).where(eq(customers.cpfCnpj, cpfCnpj));
+  }
+
+  async getCustomersByExactAddress(address: string, city: string, excludeCpfCnpj: string): Promise<Customer[]> {
+    if (!address || !city) return [];
+    const normalAddr = address.trim().toLowerCase();
+    const normalCity = city.trim().toLowerCase();
+    const all = await db.select().from(customers);
+    return all.filter(c =>
+      c.address && c.city &&
+      c.address.trim().toLowerCase() === normalAddr &&
+      c.city.trim().toLowerCase() === normalCity &&
+      c.cpfCnpj.replace(/\D/g, "") !== excludeCpfCnpj
+    );
   }
 
   async createCustomer(customer: InsertCustomer): Promise<Customer> {
