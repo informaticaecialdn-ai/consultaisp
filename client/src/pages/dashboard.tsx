@@ -279,8 +279,8 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Alertas de Anti-Fraude */}
-      <Card className="overflow-hidden" data-testid="card-antifraud-alerts">
+      {/* Alertas de Anti-Fraude — só exibe se houver alertas ativos */}
+      {activeAlerts.length > 0 && (<Card className="overflow-hidden" data-testid="card-antifraud-alerts">
         <div className="flex items-center justify-between p-4 border-b">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center flex-shrink-0">
@@ -369,7 +369,7 @@ export default function DashboardPage() {
             )}
           </div>
         )}
-      </Card>
+      </Card>)}
 
       {/* Mapa de Calor */}
       <Card className="overflow-hidden" data-testid="card-heatmap">
