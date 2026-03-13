@@ -19,6 +19,9 @@ import {
   Wifi,
   Users,
   Package,
+  ShieldAlert,
+  ChevronRight,
+  CircleDot,
 } from "lucide-react";
 
 type HeatPoint = { lat: number; lng: number; weight: number };
@@ -130,12 +133,43 @@ function MiniHeatMap({ points, providerPoints, defaultCenter }: { points: HeatPo
 
 const fmt = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+const ALERT_TYPE_LABELS: Record<string, string> = {
+  defaulter_consulted: "PENDENCIA ATIVA",
+  multiple_consultations: "PERFIL SERIAL",
+  equipment_risk: "EQUIPAMENTO COM PENDENCIA",
+  recent_contract: "CONTRATO RECENTE",
+};
+
+const SEVERITY_CONFIG: Record<string, { dot: string; badge: string; label: string }> = {
+  critical: { dot: "bg-red-500",    badge: "bg-red-100 text-red-700 border-red-200",       label: "Critico" },
+  high:     { dot: "bg-orange-500", badge: "bg-orange-100 text-orange-700 border-orange-200", label: "Alto" },
+  medium:   { dot: "bg-yellow-400", badge: "bg-yellow-100 text-yellow-700 border-yellow-200", label: "Medio" },
+  low:      { dot: "bg-blue-400",   badge: "bg-blue-100 text-blue-700 border-blue-200",      label: "Baixo" },
+};
+
+function timeAgo(date: string) {
+  const d = new Date(date);
+  const diff = (Date.now() - d.getTime()) / 1000;
+  if (diff < 60)   return "agora";
+  if (diff < 3600) return `${Math.floor(diff / 60)}min atrás`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h atrás`;
+  return `${Math.floor(diff / 86400)}d atrás`;
+}
+
 export default function DashboardPage() {
   const { provider } = useAuth();
   const [providerCenter, setProviderCenter] = useState<[number, number] | null>(null);
 
   const { data: stats, isLoading } = useQuery<any>({ queryKey: ["/api/dashboard/stats"] });
   const { data: heatmapData = [] } = useQuery<any[]>({ queryKey: ["/api/heatmap/provider"] });
+  const { data: allAlerts = [] } = useQuery<any[]>({ queryKey: ["/api/anti-fraud/alerts"] });
+
+  const activeAlerts = allAlerts.filter(a => !a.resolved && a.status !== "resolved");
+  const criticalCount = activeAlerts.filter(a => a.severity === "critical").length;
+  const highCount = activeAlerts.filter(a => a.severity === "high").length;
+  const recentAlerts = [...activeAlerts]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 5);
 
   useEffect(() => {
     const city = provider?.addressCity || "";
@@ -244,6 +278,98 @@ export default function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      {/* Alertas de Anti-Fraude */}
+      <Card className="overflow-hidden" data-testid="card-antifraud-alerts">
+        <div className="flex items-center justify-between p-4 border-b">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center flex-shrink-0">
+              <ShieldAlert className="w-4 h-4 text-red-600" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-sm">Alertas de Anti-Fraude</span>
+                {activeAlerts.length > 0 && (
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold" data-testid="badge-alert-count">
+                    {activeAlerts.length > 99 ? "99+" : activeAlerts.length}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {activeAlerts.length === 0
+                  ? "Nenhum alerta ativo no momento"
+                  : `${activeAlerts.length} alerta${activeAlerts.length > 1 ? "s" : ""} ativo${activeAlerts.length > 1 ? "s" : ""}${criticalCount > 0 ? ` · ${criticalCount} critico${criticalCount > 1 ? "s" : ""}` : ""}${highCount > 0 ? ` · ${highCount} alto${highCount > 1 ? "s" : ""}` : ""}`}
+              </p>
+            </div>
+          </div>
+          <Link href="/anti-fraude">
+            <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" data-testid="button-view-alerts">
+              <ExternalLink className="w-3.5 h-3.5" />
+              Ver todos
+            </Button>
+          </Link>
+        </div>
+
+        {activeAlerts.length === 0 ? (
+          <div className="p-6 flex items-center gap-3 text-muted-foreground">
+            <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+              <ShieldAlert className="w-4 h-4 text-green-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-green-700">Sem alertas ativos</p>
+              <p className="text-xs text-muted-foreground">Nenhuma movimentacao suspeita detectada no momento.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="divide-y" data-testid="list-alerts">
+            {recentAlerts.map((alert) => {
+              const sev = SEVERITY_CONFIG[alert.severity] ?? SEVERITY_CONFIG.medium;
+              const typeLabel = ALERT_TYPE_LABELS[alert.type] ?? alert.type;
+              return (
+                <div key={alert.id} className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 transition-colors" data-testid={`row-alert-${alert.id}`}>
+                  <div className="flex-shrink-0 mt-1.5">
+                    <span className={`inline-block w-2.5 h-2.5 rounded-full ${sev.dot}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wide border ${sev.badge}`}>
+                        {typeLabel}
+                      </span>
+                      {alert.customerName && (
+                        <span className="text-xs font-semibold text-slate-800 truncate" data-testid={`text-alert-customer-${alert.id}`}>
+                          {alert.customerName}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{alert.message}</p>
+                    {(alert.overdueAmount > 0 || alert.daysOverdue > 0) && (
+                      <div className="flex items-center gap-3 mt-1">
+                        {Number(alert.overdueAmount) > 0 && (
+                          <span className="text-[10px] text-slate-500">R$ {fmt(Number(alert.overdueAmount))} em aberto</span>
+                        )}
+                        {Number(alert.daysOverdue) > 0 && (
+                          <span className="text-[10px] text-slate-500">{alert.daysOverdue}d de atraso</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-shrink-0 text-right">
+                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">{timeAgo(alert.createdAt)}</span>
+                  </div>
+                </div>
+              );
+            })}
+            {activeAlerts.length > 5 && (
+              <Link href="/anti-fraude">
+                <div className="px-4 py-2.5 flex items-center justify-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/20 cursor-pointer transition-colors" data-testid="button-more-alerts">
+                  <span>Ver mais {activeAlerts.length - 5} alerta{activeAlerts.length - 5 > 1 ? "s" : ""}</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </div>
+              </Link>
+            )}
+          </div>
+        )}
+      </Card>
 
       {/* Mapa de Calor */}
       <Card className="overflow-hidden" data-testid="card-heatmap">
