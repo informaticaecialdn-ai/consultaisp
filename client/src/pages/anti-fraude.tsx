@@ -11,11 +11,11 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
 import {
-  ShieldAlert, Bell, BarChart3, BrainCircuit, BookOpen,
+  ShieldAlert, Bell, BrainCircuit, BookOpen,
   Settings, CheckCircle, RefreshCw, AlertTriangle, DollarSign,
   Calendar, Package, Phone, XCircle, ChevronDown, ChevronUp,
   Search, Users, Zap, Shield, Target,
-  AlertCircle, Flame, ArrowRight, TrendingUp,
+  AlertCircle, Flame, ArrowRight,
   Building2, UserX, Wifi, WifiOff, Clock,
 } from "lucide-react";
 
@@ -588,147 +588,6 @@ function MigradoresTab({ alerts, customerRisk }: { alerts: AntiFraudAlert[]; cus
   );
 }
 
-function ScoreRiscoTab({ customerRisk, isLoading }: { customerRisk: CustomerRisk[]; isLoading: boolean }) {
-  const [sortBy, setSortBy] = useState<"score" | "overdue" | "equipment">("score");
-
-  const sorted = [...customerRisk].sort((a, b) => {
-    if (sortBy === "overdue") return b.overdueAmount - a.overdueAmount;
-    if (sortBy === "equipment") return b.equipmentValue - a.equipmentValue;
-    return b.riskScore - a.riskScore;
-  });
-
-  const criticalCount = customerRisk.filter(c => c.riskLevel === "critical").length;
-  const highCount = customerRisk.filter(c => c.riskLevel === "high").length;
-  const totalOverdue = customerRisk.reduce((s, c) => s + c.overdueAmount, 0);
-  const totalEquipment = customerRisk.reduce((s, c) => s + c.equipmentValue, 0);
-
-  if (isLoading) {
-    return (
-      <Card className="p-8">
-        <div className="text-center py-8 text-slate-400">
-          <RefreshCw className="w-8 h-8 mx-auto mb-3 animate-spin opacity-50" />
-          <p className="text-sm">Calculando risco de migracao...</p>
-        </div>
-      </Card>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card className="p-3">
-          <div className="flex items-center gap-2 mb-1">
-            <Flame className="w-4 h-4 text-red-500" />
-            <span className="text-xs font-semibold text-slate-600">Risco Critico</span>
-          </div>
-          <p className="text-2xl font-black text-red-600">{criticalCount}</p>
-          <p className="text-xs text-slate-400">clientes monitorados</p>
-        </Card>
-        <Card className="p-3">
-          <div className="flex items-center gap-2 mb-1">
-            <AlertTriangle className="w-4 h-4 text-orange-500" />
-            <span className="text-xs font-semibold text-slate-600">Risco Alto</span>
-          </div>
-          <p className="text-2xl font-black text-orange-600">{highCount}</p>
-          <p className="text-xs text-slate-400">clientes monitorados</p>
-        </Card>
-        <Card className="p-3">
-          <div className="flex items-center gap-2 mb-1">
-            <DollarSign className="w-4 h-4 text-red-500" />
-            <span className="text-xs font-semibold text-slate-600">Total em Aberto</span>
-          </div>
-          <p className="text-sm font-black text-red-600">{formatCurrency(totalOverdue)}</p>
-          <p className="text-xs text-slate-400">mensalidades nao pagas</p>
-        </Card>
-        <Card className="p-3">
-          <div className="flex items-center gap-2 mb-1">
-            <Package className="w-4 h-4 text-amber-500" />
-            <span className="text-xs font-semibold text-slate-600">Equipamentos</span>
-          </div>
-          <p className="text-sm font-black text-amber-600">{formatCurrency(totalEquipment)}</p>
-          <p className="text-xs text-slate-400">em risco de perda</p>
-        </Card>
-      </div>
-
-      <Card className="overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-          <div>
-            <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-              <Target className="w-4 h-4 text-slate-400" />
-              Clientes com Maior Risco de Migracao
-            </h3>
-            <p className="text-xs text-slate-400">Monitorados continuamente — score baseado em atraso, divida, equipamentos e padrao de consultas</p>
-          </div>
-          <div className="flex items-center gap-1">
-            {(["score", "overdue", "equipment"] as const).map(opt => (
-              <button
-                key={opt}
-                onClick={() => setSortBy(opt)}
-                className={`px-2 py-1 text-xs rounded font-medium transition-all ${sortBy === opt ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-              >
-                {opt === "score" ? "Score" : opt === "overdue" ? "Divida" : "Equip."}
-              </button>
-            ))}
-          </div>
-        </div>
-        {customerRisk.length === 0 ? (
-          <div className="p-8 text-center text-slate-400 text-sm">
-            <Shield className="w-10 h-10 mx-auto mb-3 opacity-30" />
-            Nenhum cliente com risco identificado.
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-50">
-            {sorted.slice(0, 20).map((customer, idx) => {
-              const cfg = getRiskLevelConfig(customer.riskLevel);
-              const totalRisco = customer.overdueAmount + customer.equipmentValue;
-              return (
-                <div key={customer.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors" data-testid={`risk-customer-${customer.id}`}>
-                  <span className="text-sm font-black text-slate-300 w-6 flex-shrink-0 text-right">#{idx + 1}</span>
-                  <div className={`w-1.5 h-10 rounded-full flex-shrink-0 ${cfg.color}`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-sm text-slate-900 truncate">{customer.name}</p>
-                    <p className="text-xs text-slate-400">{formatCpfCnpj(customer.cpfCnpj)}</p>
-                    <div className="flex items-center gap-1 mt-1">
-                      <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${customer.riskLevel === "critical" ? "bg-red-500" : customer.riskLevel === "high" ? "bg-orange-500" : customer.riskLevel === "medium" ? "bg-amber-500" : "bg-emerald-500"}`}
-                          style={{ width: `${customer.riskScore}%` }}
-                        />
-                      </div>
-                      <span className={`text-xs font-bold ${customer.riskLevel === "critical" ? "text-red-600" : customer.riskLevel === "high" ? "text-orange-600" : "text-amber-600"}`}>{customer.riskScore}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 flex-shrink-0 text-right">
-                    {customer.daysOverdue > 0 && (
-                      <div className="hidden sm:block">
-                        <p className="text-xs font-bold text-red-600">{customer.daysOverdue}d atraso</p>
-                        <p className="text-[10px] text-slate-400">{formatCurrency(customer.overdueAmount)}</p>
-                      </div>
-                    )}
-                    {customer.equipmentNotReturned > 0 && (
-                      <div className="hidden sm:block">
-                        <p className="text-xs font-bold text-amber-600">{customer.equipmentNotReturned} equip.</p>
-                        <p className="text-[10px] text-slate-400">{formatCurrency(customer.equipmentValue)}</p>
-                      </div>
-                    )}
-                    {totalRisco > 0 && (
-                      <div>
-                        <p className="text-xs font-black text-red-700">{formatCurrency(totalRisco)}</p>
-                        <p className="text-[10px] text-slate-400">em risco</p>
-                      </div>
-                    )}
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${cfg.badge}`}>{cfg.label}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Card>
-    </div>
-  );
-}
-
 function renderAIText(text: string) {
   return text.split("\n").map((line, i) => {
     const t = line.trim();
@@ -1280,10 +1139,6 @@ export default function AntiFraudePage() {
               <span className="ml-1 h-5 min-w-5 text-xs px-1.5 bg-purple-500 text-white rounded-full flex items-center justify-center font-bold">{serialMigrators.length}</span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="score" className="gap-1.5 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm" data-testid="tab-score">
-            <BarChart3 className="w-3.5 h-3.5" />
-            Score de Risco
-          </TabsTrigger>
           <TabsTrigger value="ia" className="gap-1.5 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm" data-testid="tab-ia">
             <BrainCircuit className="w-3.5 h-3.5" />
             Analise IA
@@ -1313,10 +1168,6 @@ export default function AntiFraudePage() {
 
         <TabsContent value="migradores">
           <MigradoresTab alerts={alerts} customerRisk={customerRisk} />
-        </TabsContent>
-
-        <TabsContent value="score">
-          <ScoreRiscoTab customerRisk={customerRisk} isLoading={riskLoading} />
         </TabsContent>
 
         <TabsContent value="ia">
