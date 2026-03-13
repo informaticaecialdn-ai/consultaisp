@@ -773,15 +773,7 @@ ${addrRows ? `<section>
                                   <Button
                                     size="sm"
                                     className="bg-blue-600 hover:bg-blue-700 text-white gap-1.5 text-xs h-8"
-                                    onClick={() => {
-                                      if (isOwn) {
-                                        setSelectedFreeDetail(detail);
-                                        setFreeDialogOpen(true);
-                                      } else {
-                                        setSelectedPaidDetail(detail);
-                                        setPaidDialogOpen(true);
-                                      }
-                                    }}
+                                    onClick={() => { setShowFullResult(true); setSelectedProviderIdx(i); }}
                                     data-testid={`button-ver-informacoes-${i}`}
                                   >
                                     <Info className="w-3.5 h-3.5" />
