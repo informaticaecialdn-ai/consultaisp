@@ -11,7 +11,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
 import {
-  ShieldAlert, Bell, BrainCircuit, BookOpen,
+  ShieldAlert, Bell, BookOpen,
   Settings, CheckCircle, RefreshCw, AlertTriangle, DollarSign,
   Calendar, Package, Phone, XCircle, ChevronDown, ChevronUp,
   Search, Users, Zap, Shield, Target,
@@ -588,202 +588,6 @@ function MigradoresTab({ alerts, customerRisk }: { alerts: AntiFraudAlert[]; cus
   );
 }
 
-function renderAIText(text: string) {
-  return text.split("\n").map((line, i) => {
-    const t = line.trim();
-    if (!t) return <div key={i} className="h-2" />;
-    const isHeader = /^[A-ZÁÉÍÓÚÂÊÔÀÃÕ\s]{4,}$/.test(t) && t === t.toUpperCase() && t.length > 3;
-    if (isHeader) return <p key={i} className="font-bold text-slate-800 mt-4 mb-1 text-sm uppercase tracking-wide border-b border-indigo-100 pb-1">{t}</p>;
-    if (t.startsWith("- ") || t.startsWith("• ")) return (
-      <p key={i} className="text-sm text-slate-700 pl-3 flex gap-2">
-        <span className="text-indigo-400 mt-0.5 flex-shrink-0">•</span>
-        <span>{t.replace(/^[-•]\s+/, "")}</span>
-      </p>
-    );
-    return <p key={i} className="text-sm text-slate-700 leading-relaxed">{t}</p>;
-  });
-}
-
-function AnaliseIATab({ alerts, customerRisk }: { alerts: AntiFraudAlert[]; customerRisk: CustomerRisk[] }) {
-  const [aiText, setAiText] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiDone, setAiDone] = useState(false);
-  const [aiError, setAiError] = useState("");
-
-  const activeAlerts = alerts.filter(a => a.status === "new");
-  const fugaAlerts = activeAlerts.filter(a => a.type === "defaulter_consulted");
-  const serialAlerts = activeAlerts.filter(a => a.type === "multiple_consultations");
-  const totalPrejuizo = activeAlerts.reduce((sum, a) => sum + parseFloat(a.overdueAmount || "0") + parseFloat(a.equipmentValue || "0"), 0);
-  const criticalCount = activeAlerts.filter(a => a.riskLevel === "critical").length;
-
-  const runAIAnalysis = async () => {
-    setAiText(""); setAiLoading(true); setAiDone(false); setAiError("");
-    try {
-      const res = await fetch("/api/ai/analyze-antifraud", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ alerts, customers: customerRisk }),
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Erro na analise");
-      const reader = res.body!.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const payload = line.slice(6).trim();
-            if (payload === "[DONE]") { setAiDone(true); break; }
-            try {
-              const parsed = JSON.parse(payload);
-              if (parsed.error) { setAiError(parsed.error); break; }
-              if (parsed.text) setAiText(prev => prev + parsed.text);
-            } catch {}
-          }
-        }
-      }
-    } catch (err: any) {
-      setAiError(err.message || "Erro desconhecido");
-    } finally {
-      setAiLoading(false); setAiDone(true);
-    }
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <WifiOff className="w-4 h-4 text-red-500 mb-2" />
-          <p className="text-2xl font-black text-red-700">{fugaAlerts.length}</p>
-          <p className="text-xs text-slate-500 mt-0.5">Tentativas de fuga ativas</p>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <Users className="w-4 h-4 text-purple-500 mb-2" />
-          <p className="text-2xl font-black text-purple-700">{serialAlerts.length}</p>
-          <p className="text-xs text-slate-500 mt-0.5">Migradores seriais detectados</p>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <DollarSign className="w-4 h-4 text-red-500 mb-2" />
-          <p className="text-lg font-black text-red-700">{formatCurrency(totalPrejuizo)}</p>
-          <p className="text-xs text-slate-500 mt-0.5">Prejuizo total em risco</p>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <Flame className="w-4 h-4 text-orange-500 mb-2" />
-          <p className="text-2xl font-black text-orange-700">{criticalCount}</p>
-          <p className="text-xs text-slate-500 mt-0.5">Casos criticos ativos</p>
-        </div>
-      </div>
-
-      <Card className="p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
-              <BrainCircuit className="w-4 h-4 text-indigo-600" />
-            </div>
-            <div>
-              <h3 className="font-bold text-slate-900 text-sm">Analise com IA — Padrao de Fraude por Migracao</h3>
-              <p className="text-xs text-slate-400">Identificacao de perfis, ciclos e recomendacoes para reducao de prejuizos</p>
-            </div>
-            {aiLoading && (
-              <span className="text-xs text-indigo-500 flex items-center gap-1 font-medium ml-2">
-                <div className="w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
-                Analisando...
-              </span>
-            )}
-            {aiDone && !aiError && (
-              <span className="text-xs text-emerald-600 flex items-center gap-1 font-medium ml-2">
-                <CheckCircle className="w-3 h-3" /> Concluido
-              </span>
-            )}
-          </div>
-          <Button
-            size="sm"
-            className={aiText ? "gap-1.5" : "gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"}
-            variant={aiText ? "outline" : "default"}
-            onClick={runAIAnalysis}
-            disabled={aiLoading}
-            data-testid="button-run-ai-analysis"
-          >
-            <BrainCircuit className="w-3.5 h-3.5" />
-            {aiLoading ? "Analisando..." : aiText ? "Nova Analise" : "Analisar Padroes de Fraude"}
-          </Button>
-        </div>
-
-        {!aiText && !aiLoading && !aiError && (
-          <div className="text-center py-10 border-2 border-dashed border-indigo-100 rounded-xl bg-indigo-50/30">
-            <BrainCircuit className="w-12 h-12 mx-auto mb-3 text-indigo-200" />
-            <p className="text-sm text-slate-600 font-medium">Analise de Padrao de Fraude por Migracao</p>
-            <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-              A IA analisa o comportamento dos seus clientes inadimplentes, identifica migradores seriais
-              e recomenda acoes para reduzir prejuizos com equipamentos e mensalidades nao pagas.
-            </p>
-          </div>
-        )}
-        {aiError && (
-          <div className="p-3 rounded-lg bg-red-50 border border-red-200 flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-red-600">{aiError}</p>
-          </div>
-        )}
-        {aiText && (
-          <div className="space-y-1 bg-slate-50 rounded-xl p-4 border border-slate-100">
-            {renderAIText(aiText)}
-            {aiLoading && <span className="inline-block w-1.5 h-4 bg-indigo-500 animate-pulse ml-0.5 rounded-sm" />}
-          </div>
-        )}
-      </Card>
-
-      <Card className="p-5">
-        <h3 className="font-semibold text-sm flex items-center gap-2 mb-3">
-          <Zap className="w-4 h-4 text-amber-500" />
-          Acoes Prioritarias para Reducao de Prejuizo
-        </h3>
-        <div className="space-y-2.5">
-          {fugaAlerts.length > 0 && (
-            <div className="flex items-center gap-3 p-3 rounded-xl border border-red-200 bg-red-50">
-              <div className="w-8 h-8 rounded-lg bg-red-500 flex items-center justify-center flex-shrink-0">
-                <WifiOff className="w-4 h-4 text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-red-800">{fugaAlerts.length} cliente{fugaAlerts.length > 1 ? "s" : ""} tentando migrar — agir antes que saiam</p>
-                <p className="text-xs text-red-600 mt-0.5">Contatar agora pode evitar perda de equipamentos e zerar a divida</p>
-              </div>
-              <Button size="sm" variant="outline" className="text-xs flex-shrink-0 border-red-300 text-red-700 hover:bg-red-100">Contatar</Button>
-            </div>
-          )}
-          {serialAlerts.length > 0 && (
-            <div className="flex items-center gap-3 p-3 rounded-xl border border-purple-200 bg-purple-50">
-              <div className="w-8 h-8 rounded-lg bg-purple-500 flex items-center justify-center flex-shrink-0">
-                <UserX className="w-4 h-4 text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-purple-800">{serialAlerts.length} migrador{serialAlerts.length > 1 ? "es" : ""} serial detectado{serialAlerts.length > 1 ? "s" : ""}</p>
-                <p className="text-xs text-purple-600 mt-0.5">Registre no banco colaborativo para alertar outros provedores da rede</p>
-              </div>
-              <Button size="sm" variant="outline" className="text-xs flex-shrink-0 border-purple-300 text-purple-700 hover:bg-purple-100">Ver Perfis</Button>
-            </div>
-          )}
-          <div className="flex items-center gap-3 p-3 rounded-xl border border-amber-200 bg-amber-50">
-            <div className="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center flex-shrink-0">
-              <Package className="w-4 h-4 text-white" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-amber-800">Iniciar processo de recuperacao de equipamentos</p>
-              <p className="text-xs text-amber-600 mt-0.5">Clientes em processo de migracao raramente devolvem equipamentos voluntariamente</p>
-            </div>
-            <Button size="sm" variant="outline" className="text-xs flex-shrink-0 border-amber-300 text-amber-700 hover:bg-amber-100">Agendar</Button>
-          </div>
-        </div>
-      </Card>
-    </div>
-  );
-}
-
 function RegrasTab() {
   const [rules, setRules] = useState([
     {
@@ -1019,7 +823,7 @@ export default function AntiFraudePage() {
     queryKey: ["/api/anti-fraud/alerts"],
   });
 
-  const { data: customerRisk = [], isLoading: riskLoading } = useQuery<CustomerRisk[]>({
+  const { data: customerRisk = [] } = useQuery<CustomerRisk[]>({
     queryKey: ["/api/anti-fraud/customer-risk"],
   });
 
@@ -1139,10 +943,6 @@ export default function AntiFraudePage() {
               <span className="ml-1 h-5 min-w-5 text-xs px-1.5 bg-purple-500 text-white rounded-full flex items-center justify-center font-bold">{serialMigrators.length}</span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="ia" className="gap-1.5 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm" data-testid="tab-ia">
-            <BrainCircuit className="w-3.5 h-3.5" />
-            Analise IA
-          </TabsTrigger>
           <TabsTrigger value="regras" className="gap-1.5 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm" data-testid="tab-regras">
             <BookOpen className="w-3.5 h-3.5" />
             Regras
@@ -1170,9 +970,6 @@ export default function AntiFraudePage() {
           <MigradoresTab alerts={alerts} customerRisk={customerRisk} />
         </TabsContent>
 
-        <TabsContent value="ia">
-          <AnaliseIATab alerts={alerts} customerRisk={customerRisk} />
-        </TabsContent>
 
         <TabsContent value="regras">
           <RegrasTab />
