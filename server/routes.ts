@@ -946,7 +946,6 @@ export async function registerRoutes(
               ? `Seu cliente ${customer.name} possui ${unreturnedCount} equipamento(s) nao devolvido(s) (R$ ${equipmentValue.toFixed(2)}) e foi consultado por ${provider.name}.`
               : `Seu cliente ${customer.name} (contrato recente: ${contractAgeDays} dias) foi consultado por ${provider.name}.`;
 
-            alerts.push(alertMessage);
             await storage.createAlert({
               providerId: customer.providerId,
               customerId: customer.id,
