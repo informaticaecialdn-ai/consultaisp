@@ -528,17 +528,21 @@ function ConfigTab() {
   const [alertSerial, setAlertSerial] = useState(true);
   const [alertEqp, setAlertEqp] = useState(true);
   const [minDays, setMinDays] = useState("1");
-  const [maxConsu, setMaxConsu] = useState("3");
+  const [minDebt, setMinDebt] = useState("50");
+  const [contractNewDays, setContractNewDays] = useState("90");
+  const [cancelWindow, setCancelWindow] = useState("90");
+  const [serialCount, setSerialCount] = useState("3");
+  const [serialWindow, setSerialWindow] = useState("30");
   const [minEqp, setMinEqp] = useState("100");
   const [emails, setEmails] = useState([""]);
   const [showRules, setShowRules] = useState(false);
   const { toast } = useToast();
 
   const rules = [
-    { id: 1, name: "Pendencia Ativa — Contrato Ativo ou Recem Cancelado", active: true, condition: "contrato_ativo_ou_cancelado_90d AND inadimplente", action: "criar_alerta(PENDENCIA_ATIVA)", desc: "Dispara apenas quando o cliente tem contrato ativo ou cancelado nos ultimos 90 dias, garantindo assertividade." },
-    { id: 2, name: "Perfil Serial — Multiplas Consultas em 30 dias", active: true, condition: "consultas_30d >= 3", action: "criar_alerta(PERFIL_SERIAL, score=80)", desc: "CPF que consultou 3+ provedores em 30 dias — padrao de migracao sem pagamento." },
-    { id: 3, name: "Equipamento Pendente", active: true, condition: "equipamento_nao_devolvido AND buscando_migrar", action: "criar_alerta(EQUIPAMENTO)", desc: "Cliente com equipamento em comodato buscando novo provedor — risco elevado de perda." },
-    { id: 4, name: "Score Critico — Bloqueio de Aprovacao", active: false, condition: "score_migracao >= 75 AND sem_pagamento_3_faturas", action: "bloquear_aprovacao_automatica", desc: "Exige revisao manual para clientes com historico critico de migracao." },
+    { id: 1, name: "Pendencia Ativa — Contrato Ativo ou Recem Cancelado", active: true, condition: `atraso >= ${minDays}d AND divida >= R$${minDebt} AND (contrato_ativo OR cancelado_a_menos_de_${cancelWindow}d)`, action: "criar_alerta(PENDENCIA_ATIVA)", desc: `Dispara quando o cliente tem divida de pelo menos R$ ${minDebt} com ${minDays}+ dias de atraso e contrato ativo ou cancelado ha menos de ${cancelWindow} dias.` },
+    { id: 2, name: "Perfil Serial — Multiplas Consultas", active: true, condition: `consultas_${serialWindow}d >= ${serialCount}_provedores_distintos`, action: "criar_alerta(PERFIL_SERIAL, score=80)", desc: `CPF consultado em ${serialCount}+ provedores distintos nos ultimos ${serialWindow} dias — padrao de migracao serial sem pagamento.` },
+    { id: 3, name: "Equipamento Pendente", active: true, condition: `equipamento_nao_devolvido AND valor >= R$${minEqp} AND buscando_migrar`, action: "criar_alerta(EQUIPAMENTO)", desc: `Cliente com equipamento de comodato acima de R$ ${minEqp} nao devolvido buscando novo provedor — risco direto de perda.` },
+    { id: 4, name: "Contrato Recente — Fuga Rapida", active: true, condition: `duracao_contrato <= ${contractNewDays}d AND buscando_migrar AND inadimplente`, action: "criar_alerta(CONTRATO_RECENTE)", desc: `Contratos com menos de ${contractNewDays} dias que ja tentam migrar inadimplentes — padrao de golpe rapido.` },
   ];
 
   return (
@@ -569,20 +573,116 @@ function ConfigTab() {
         </div>
       </Card>
 
-      <Card className="p-4 space-y-3">
-        <h3 className="text-sm font-bold text-slate-900">Limites de Deteccao</h3>
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: "Dias minimos de atraso", v: minDays, set: setMinDays, id: "days", hint: "para gerar alerta" },
-            { label: "Consultas em 30 dias", v: maxConsu, set: setMaxConsu, id: "consu", hint: "para perfil serial" },
-            { label: "Valor minimo equipamento (R$)", v: minEqp, set: setMinEqp, id: "eqpval", hint: "para alerta de perda" },
-          ].map(f => (
-            <div key={f.id} className="space-y-1">
-              <Label className="text-xs font-semibold text-slate-700">{f.label}</Label>
-              <Input type="number" value={f.v} onChange={e => f.set(e.target.value)} className="h-8 text-sm" data-testid={`input-${f.id}`} />
-              <p className="text-[10px] text-slate-400">{f.hint}</p>
+      <Card className="p-4 space-y-5">
+        <div>
+          <h3 className="text-sm font-bold text-slate-900">Limites de Deteccao</h3>
+          <p className="text-xs text-slate-400 mt-0.5">Refine quando e como cada tipo de fraude e detectado</p>
+        </div>
+
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-5 h-5 rounded-md bg-red-100 flex items-center justify-center flex-shrink-0">
+              <AlertCircle className="w-3 h-3 text-red-500" />
             </div>
-          ))}
+            <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">Divida e Inadimplencia</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 pl-7">
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold text-slate-600">Atraso minimo para alertar</Label>
+              <div className="flex items-center gap-1.5">
+                <Input type="number" min="1" value={minDays} onChange={e => setMinDays(e.target.value)} className="h-8 text-sm" data-testid="input-days" />
+                <span className="text-xs text-slate-400 flex-shrink-0">dias</span>
+              </div>
+              <p className="text-[10px] text-slate-400">Dividas com menos dias nao geram alerta. Recomendado: 1 dia.</p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold text-slate-600">Valor minimo da divida</Label>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-slate-400 flex-shrink-0">R$</span>
+                <Input type="number" min="0" value={minDebt} onChange={e => setMinDebt(e.target.value)} className="h-8 text-sm" data-testid="input-debt" />
+              </div>
+              <p className="text-[10px] text-slate-400">Ignore valores abaixo deste limite. Recomendado: R$ 50.</p>
+            </div>
+          </div>
+        </div>
+
+        <Separator />
+
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-5 h-5 rounded-md bg-orange-100 flex items-center justify-center flex-shrink-0">
+              <Clock className="w-3 h-3 text-orange-500" />
+            </div>
+            <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">Janela de Contrato</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 pl-7">
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold text-slate-600">Contrato recente — flag de risco</Label>
+              <div className="flex items-center gap-1.5">
+                <Input type="number" min="1" value={contractNewDays} onChange={e => setContractNewDays(e.target.value)} className="h-8 text-sm" data-testid="input-contract-new" />
+                <span className="text-xs text-slate-400 flex-shrink-0">dias</span>
+              </div>
+              <p className="text-[10px] text-slate-400">Contratos mais curtos que isso sao marcados como suspeitos. Padrao: 90 dias.</p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold text-slate-600">Monitorar apos cancelamento</Label>
+              <div className="flex items-center gap-1.5">
+                <Input type="number" min="1" value={cancelWindow} onChange={e => setCancelWindow(e.target.value)} className="h-8 text-sm" data-testid="input-cancel-window" />
+                <span className="text-xs text-slate-400 flex-shrink-0">dias</span>
+              </div>
+              <p className="text-[10px] text-slate-400">Periodo de vigilancia apos rescisao. Recomendado: 90 dias.</p>
+            </div>
+          </div>
+        </div>
+
+        <Separator />
+
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-5 h-5 rounded-md bg-purple-100 flex items-center justify-center flex-shrink-0">
+              <Users className="w-3 h-3 text-purple-500" />
+            </div>
+            <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">Perfil Serial</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 pl-7">
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold text-slate-600">Provedores para classificar como serial</Label>
+              <div className="flex items-center gap-1.5">
+                <Input type="number" min="2" value={serialCount} onChange={e => setSerialCount(e.target.value)} className="h-8 text-sm" data-testid="input-serial-count" />
+                <span className="text-xs text-slate-400 flex-shrink-0">provedores</span>
+              </div>
+              <p className="text-[10px] text-slate-400">CPF consultado em N+ provedores distintos vira perfil serial. Padrao: 3.</p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold text-slate-600">Janela de analise das consultas</Label>
+              <div className="flex items-center gap-1.5">
+                <Input type="number" min="7" value={serialWindow} onChange={e => setSerialWindow(e.target.value)} className="h-8 text-sm" data-testid="input-serial-window" />
+                <span className="text-xs text-slate-400 flex-shrink-0">dias</span>
+              </div>
+              <p className="text-[10px] text-slate-400">Periodo para contar as consultas multiplas. Padrao: 30 dias.</p>
+            </div>
+          </div>
+        </div>
+
+        <Separator />
+
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-5 h-5 rounded-md bg-amber-100 flex items-center justify-center flex-shrink-0">
+              <Package className="w-3 h-3 text-amber-500" />
+            </div>
+            <p className="text-xs font-bold text-slate-700 uppercase tracking-wide">Equipamento</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 pl-7">
+            <div className="space-y-1">
+              <Label className="text-xs font-semibold text-slate-600">Valor minimo do equipamento</Label>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-slate-400 flex-shrink-0">R$</span>
+                <Input type="number" min="0" value={minEqp} onChange={e => setMinEqp(e.target.value)} className="h-8 text-sm" data-testid="input-eqpval" />
+              </div>
+              <p className="text-[10px] text-slate-400">Alertar apenas se o equipamento tiver valor acima disso. Padrao: R$ 100.</p>
+            </div>
+          </div>
         </div>
       </Card>
 
