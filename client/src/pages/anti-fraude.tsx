@@ -430,15 +430,17 @@ function MonitoramentoTab({ alerts, customerRisk, onResolve, onDismiss, isLoadin
         </div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-12">
-          <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-3">
-            <Shield className="w-6 h-6 text-emerald-500" />
+          <div className="w-14 h-14 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center mx-auto mb-4">
+            <Shield className="w-7 h-7 text-emerald-500" />
           </div>
-          <p className="text-sm font-semibold text-slate-700" data-testid="text-empty">
-            {status === "new" ? "Nenhuma pendencia ativa" : "Nenhum alerta encontrado"}
+          <p className="text-base font-bold text-slate-800" data-testid="text-empty">
+            {status === "new" ? "Nenhum alerta no momento" : "Nenhum alerta encontrado"}
           </p>
-          <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">
-            {status === "new" && "Alertas aparecem quando um cliente com contrato ativo busca contratar em outro provedor sem regularizar pendencias."}
-          </p>
+          {status === "new" && (
+            <p className="text-sm text-slate-400 mt-2 max-w-sm mx-auto leading-relaxed">
+              Quando um cliente com contrato ativo tiver pendencias e buscar um novo provedor, o alerta aparece aqui automaticamente.
+            </p>
+          )}
         </div>
       ) : (
         <div className="space-y-2.5">
