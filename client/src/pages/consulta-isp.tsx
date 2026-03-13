@@ -562,6 +562,18 @@ export default function ConsultaISPPage() {
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <span className="text-xs text-slate-500">{detail.providerName}</span>
                                     <span className="text-slate-300">|</span>
+                                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                                      detail.contractStatus === "active" ? "bg-emerald-100 text-emerald-700" :
+                                      detail.contractStatus === "cancelled" ? "bg-red-100 text-red-700" :
+                                      detail.contractStatus === "suspended" ? "bg-yellow-100 text-yellow-700" :
+                                      "bg-slate-100 text-slate-500"
+                                    }`} data-testid={`contract-status-${i}`}>
+                                      {detail.contractStatus === "active" ? "Contrato Ativo" :
+                                       detail.contractStatus === "cancelled" ? "Contrato Cancelado" :
+                                       detail.contractStatus === "suspended" ? "Contrato Suspenso" :
+                                       "Sem Contrato"}
+                                    </span>
+                                    <span className="text-slate-300">|</span>
                                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusCls}`}>
                                       {detail.daysOverdue === 0 ? "Em dia" : `${detail.daysOverdue} dias atraso`}
                                     </span>

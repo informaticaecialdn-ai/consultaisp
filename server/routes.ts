@@ -863,6 +863,13 @@ export async function registerRoutes(
 
         const isSameProvider = customer.providerId === providerId;
 
+        const activeContract = customerContracts.find(ct => ct.status === "active");
+        const latestContract = customerContracts.length > 0
+          ? [...customerContracts].sort((a, b) => b.id - a.id)[0]
+          : null;
+        const relevantContract = activeContract || latestContract;
+        const contractStatus = relevantContract?.status || "sem_contrato";
+
         const detail: any = {
           providerName: customerProvider?.name || "Provedor desconhecido",
           isSameProvider,
@@ -874,6 +881,7 @@ export async function registerRoutes(
           overdueInvoicesCount: overdueCount,
           contractStartDate: oldestContract.toISOString(),
           contractAgeDays,
+          contractStatus,
           hasUnreturnedEquipment: unreturnedCount > 0,
           unreturnedEquipmentCount: unreturnedCount,
         };
