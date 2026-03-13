@@ -50,7 +50,7 @@ export interface IStorage {
 
   getCustomersByProvider(providerId: number): Promise<Customer[]>;
   getCustomerByCpfCnpj(cpfCnpj: string): Promise<Customer[]>;
-  getCustomersByExactAddress(address: string, city: string, excludeCpfCnpj: string): Promise<Customer[]>;
+  getCustomersByExactAddress(address: string, city: string, state: string | null, cep: string | null, excludeCpfCnpj: string): Promise<Customer[]>;
   createCustomer(customer: InsertCustomer): Promise<Customer>;
 
   getContractsByCustomer(customerId: number): Promise<Contract[]>;
@@ -281,17 +281,25 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(customers).where(eq(customers.cpfCnpj, cpfCnpj));
   }
 
-  async getCustomersByExactAddress(address: string, city: string, excludeCpfCnpj: string): Promise<Customer[]> {
+  async getCustomersByExactAddress(address: string, city: string, state: string | null, cep: string | null, excludeCpfCnpj: string): Promise<Customer[]> {
     if (!address || !city) return [];
-    const normalAddr = address.trim().toLowerCase();
-    const normalCity = city.trim().toLowerCase();
+    const n = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+    const normalAddr = n(address);
+    const normalCity = n(city);
+    const normalState = state ? n(state) : null;
+    const normalCep = cep ? cep.replace(/\D/g, "") : null;
     const all = await db.select().from(customers);
-    return all.filter(c =>
-      c.address && c.city &&
-      c.address.trim().toLowerCase() === normalAddr &&
-      c.city.trim().toLowerCase() === normalCity &&
-      c.cpfCnpj.replace(/\D/g, "") !== excludeCpfCnpj
-    );
+    return all.filter(c => {
+      if (!c.address || !c.city) return false;
+      if (n(c.address) !== normalAddr) return false;
+      if (n(c.city) !== normalCity) return false;
+      if (normalState && c.state && n(c.state) !== normalState) return false;
+      if (normalCep && c.cep) {
+        if (c.cep.replace(/\D/g, "") !== normalCep) return false;
+      }
+      if (c.cpfCnpj.replace(/\D/g, "") === excludeCpfCnpj) return false;
+      return true;
+    });
   }
 
   async createCustomer(customer: InsertCustomer): Promise<Customer> {

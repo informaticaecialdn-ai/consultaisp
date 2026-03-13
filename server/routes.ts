@@ -1054,17 +1054,27 @@ export async function registerRoutes(
       const addressMatches: any[] = [];
       const seenAddressCpfCnpj = new Set<string>();
 
-      const addressKeys = new Set<string>();
+      const addressKeys = new Map<string, { address: string; city: string; state: string | null; cep: string | null }>();
       for (const customer of allCustomerRecords) {
         if (customer.address && customer.city) {
-          const key = `${customer.address.trim().toLowerCase()}|${customer.city.trim().toLowerCase()}`;
-          addressKeys.add(key);
+          const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+          const key = [
+            norm(customer.address),
+            norm(customer.city),
+            customer.state ? norm(customer.state) : "",
+            customer.cep ? customer.cep.replace(/\D/g, "") : "",
+          ].join("|");
+          addressKeys.set(key, {
+            address: customer.address,
+            city: customer.city,
+            state: customer.state || null,
+            cep: customer.cep || null,
+          });
         }
       }
 
-      for (const key of addressKeys) {
-        const [addr, city] = key.split("|");
-        const matched = await storage.getCustomersByExactAddress(addr, city, cleaned);
+      for (const [, addrData] of addressKeys) {
+        const matched = await storage.getCustomersByExactAddress(addrData.address, addrData.city, addrData.state, addrData.cep, cleaned);
         for (const mc of matched) {
           const cpfKey = mc.cpfCnpj.replace(/\D/g, "");
           if (seenAddressCpfCnpj.has(cpfKey)) continue;
