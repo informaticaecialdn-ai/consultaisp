@@ -1040,7 +1040,7 @@ export default function ConsultaISPPage() {
             )}
 
             {/* ── CRUZAMENTO DE ENDEREÇO ── */}
-            {!result.notFound && result.addressMatches && result.addressMatches.length > 0 && (
+            {result && !result.notFound && result.addressMatches && result.addressMatches.length > 0 && (
               <Card className="overflow-hidden shadow-lg rounded-2xl border-2 border-orange-200" data-testid="card-address-matches">
                 <div className="bg-orange-50 px-6 py-4 flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-orange-500 flex items-center justify-center flex-shrink-0">
