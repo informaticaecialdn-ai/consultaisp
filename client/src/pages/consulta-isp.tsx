@@ -211,10 +211,26 @@ export default function ConsultaISPPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       const ownCount = (data.result?.providerDetails || []).filter((d: any) => d.isSameProvider).length;
       const otherCount = (data.result?.providerDetails || []).filter((d: any) => !d.isSameProvider).length;
-      const costDesc = otherCount > 0
-        ? `${ownCount} gratuita(s), ${otherCount} x 1 credito`
-        : data.result?.notFound ? "Nada consta — Gratuita" : "Gratuita";
-      toast({ title: "Consulta realizada", description: costDesc });
+
+      if (data.result?.notFound) {
+        toast({ title: "Nada Consta", description: "Documento sem restricoes na rede ISP colaborativa. Consulta gratuita." });
+      } else if (ownCount > 0 && otherCount > 0) {
+        // Two separate toasts: one free, one paid
+        toast({
+          title: "Consulta Gratuita",
+          description: `${ownCount} registro(s) do seu provedor encontrado(s). Sem custo.`,
+        });
+        setTimeout(() => {
+          toast({
+            title: "Consulta Paga",
+            description: `${otherCount} registro(s) de outro(s) provedor(es). ${otherCount} credito(s) ISP debitado(s).`,
+          });
+        }, 600);
+      } else if (ownCount > 0) {
+        toast({ title: "Consulta Gratuita", description: `${ownCount} registro(s) do seu provedor encontrado(s). Sem custo.` });
+      } else if (otherCount > 0) {
+        toast({ title: "Consulta Paga", description: `${otherCount} registro(s) de outro(s) provedor(es). ${otherCount} credito(s) ISP debitado(s).` });
+      }
     },
     onError: (err: any) => {
       toast({ title: "Erro", description: err.message, variant: "destructive" });
