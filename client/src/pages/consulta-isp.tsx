@@ -213,22 +213,35 @@ export default function ConsultaISPPage() {
       const otherCount = (data.result?.providerDetails || []).filter((d: any) => !d.isSameProvider).length;
 
       if (data.result?.notFound) {
-        toast({ title: "Nada consta", description: "Nenhum registro encontrado. Sem custo." });
+        toast({ title: "Nada consta", description: "Nenhum registro encontrado. Gratuita." });
       } else if (ownCount > 0 && otherCount > 0) {
         toast({
           title: "Consulta gratuita",
-          description: `${ownCount} registro${ownCount > 1 ? "s" : ""} do seu provedor. Sem custo.`,
+          description: `${ownCount} registro${ownCount > 1 ? "s" : ""} do seu provedor. Gratuita.`,
         });
         setTimeout(() => {
           toast({
             title: "Consulta paga",
-            description: `${otherCount} registro${otherCount > 1 ? "s" : ""} de outros provedores. ${otherCount} credito${otherCount > 1 ? "s" : ""} debitado${otherCount > 1 ? "s" : ""}.`,
+            description: (
+              <span>
+                {otherCount} registro{otherCount > 1 ? "s" : ""} de outros provedores.<br />
+                Custo: {otherCount} credito{otherCount > 1 ? "s" : ""}.
+              </span>
+            ),
           });
         }, 3500);
       } else if (ownCount > 0) {
-        toast({ title: "Consulta gratuita", description: `${ownCount} registro${ownCount > 1 ? "s" : ""} do seu provedor. Sem custo.` });
+        toast({ title: "Consulta gratuita", description: `${ownCount} registro${ownCount > 1 ? "s" : ""} do seu provedor. Gratuita.` });
       } else if (otherCount > 0) {
-        toast({ title: "Consulta paga", description: `${otherCount} registro${otherCount > 1 ? "s" : ""} de outros provedores. ${otherCount} credito${otherCount > 1 ? "s" : ""} debitado${otherCount > 1 ? "s" : ""}.` });
+        toast({
+          title: "Consulta paga",
+          description: (
+            <span>
+              {otherCount} registro{otherCount > 1 ? "s" : ""} de outros provedores.<br />
+              Custo: {otherCount} credito{otherCount > 1 ? "s" : ""}.
+            </span>
+          ),
+        });
       }
     },
     onError: (err: any) => {
