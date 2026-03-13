@@ -11,12 +11,12 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
 import {
-  ShieldAlert, Bell, BarChart3, BrainCircuit, BookOpen,
-  Settings, CheckCircle, RefreshCw, AlertTriangle, DollarSign,
-  Calendar, Package, Phone, XCircle, ChevronDown, ChevronUp,
-  Search, Users, Zap, Shield, Target,
-  AlertCircle, Flame, ArrowRight, TrendingUp,
-  Building2, UserX, Wifi, WifiOff, Clock,
+  ShieldAlert, Bell, BarChart3, BrainCircuit, Settings,
+  CheckCircle, RefreshCw, AlertTriangle, DollarSign,
+  Package, Phone, XCircle, ChevronDown, ChevronUp,
+  Search, Users, Shield, AlertCircle, Flame,
+  ArrowRight, Building2, UserX, Wifi, WifiOff, Clock,
+  Zap, BookOpen, TrendingUp,
 } from "lucide-react";
 
 type AntiFraudAlert = {
@@ -58,704 +58,228 @@ type CustomerRisk = {
   alertCount: number;
 };
 
-function formatCpfCnpj(doc: string): string {
-  const digits = doc.replace(/\D/g, "");
-  if (digits.length === 11) return digits.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
-  if (digits.length === 14) return digits.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
+function fmt(doc: string): string {
+  const d = doc.replace(/\D/g, "");
+  if (d.length === 11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, "$1.$2.$3-$4");
+  if (d.length === 14) return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, "$1.$2.$3/$4-$5");
   return doc;
 }
 
-function formatCurrency(value: number | string | null | undefined): string {
-  const num = typeof value === "string" ? parseFloat(value) : (value || 0);
-  return `R$ ${num.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function money(v: number | string | null | undefined): string {
+  const n = typeof v === "string" ? parseFloat(v) : (v || 0);
+  return `R$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function formatDateTime(dateStr: string | null): string {
-  if (!dateStr) return "";
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("pt-BR") + " " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-}
-
-function timeAgo(dateStr: string | null): string {
+function ago(dateStr: string | null): string {
   if (!dateStr) return "";
   const diff = Date.now() - new Date(dateStr).getTime();
-  const hours = Math.floor(diff / 3600000);
-  const days = Math.floor(diff / 86400000);
-  if (days > 0) return `ha ${days} dia${days > 1 ? "s" : ""}`;
-  if (hours > 0) return `ha ${hours}h`;
-  const mins = Math.floor(diff / 60000);
-  if (mins > 0) return `ha ${mins}min`;
-  return "agora pouco";
+  const d = Math.floor(diff / 86400000);
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor(diff / 60000);
+  if (d > 0) return `${d}d atras`;
+  if (h > 0) return `${h}h atras`;
+  if (m > 0) return `${m}min`;
+  return "agora";
 }
 
-function getAlertTypeConfig(type: string, severity: string) {
+function alertConfig(type: string) {
   switch (type) {
-    case "defaulter_consulted":
-      return {
-        tag: "MIGRACAO COM PENDENCIA",
-        tagColor: "bg-red-100 text-red-800",
-        borderColor: "border-red-300",
-        bgColor: "bg-red-50",
-        icon: WifiOff,
-        iconBg: "bg-red-500",
-        description: "Cliente com contrato ativo ou recem cancelado esta buscando contratar em outro provedor sem regularizar pendencias",
-      };
-    case "multiple_consultations":
-      return {
-        tag: "PERFIL DE MIGRACAO SERIAL",
-        tagColor: "bg-purple-100 text-purple-800",
-        borderColor: "border-purple-300",
-        bgColor: "bg-purple-50",
-        icon: Users,
-        iconBg: "bg-purple-500",
-        description: "Este cliente consultou varios provedores em curto periodo — padrao recorrente de contratacao sem pagamento",
-      };
-    case "equipment_risk":
-      return {
-        tag: "EQUIPAMENTO COM PENDENCIA",
-        tagColor: "bg-amber-100 text-amber-800",
-        borderColor: "border-amber-300",
-        bgColor: "bg-amber-50",
-        icon: Package,
-        iconBg: "bg-amber-500",
-        description: "Cliente com equipamento em comodato ainda nao devolvido esta tentando contratar em outro provedor",
-      };
-    case "recent_contract":
-      return {
-        tag: "CONTRATO RECENTE",
-        tagColor: "bg-blue-100 text-blue-800",
-        borderColor: "border-blue-300",
-        bgColor: "bg-blue-50",
-        icon: Clock,
-        iconBg: "bg-blue-500",
-        description: "Cliente com contrato recente (menos de 90 dias) esta buscando contratar em outro provedor",
-      };
-    default:
-      return {
-        tag: "ALERTA",
-        tagColor: "bg-slate-100 text-slate-700",
-        borderColor: "border-slate-200",
-        bgColor: "bg-white",
-        icon: AlertCircle,
-        iconBg: "bg-slate-500",
-        description: "",
-      };
+    case "defaulter_consulted": return {
+      tag: "PENDENCIA ATIVA", color: "red",
+      border: "border-l-red-400", bg: "bg-red-50/40",
+      badge: "bg-red-100 text-red-700",
+      icon: WifiOff, iconBg: "bg-red-500",
+      desc: "Cliente com contrato ativo buscando novo provedor sem regularizar pendencias",
+    };
+    case "multiple_consultations": return {
+      tag: "PERFIL SERIAL", color: "purple",
+      border: "border-l-purple-400", bg: "bg-purple-50/30",
+      badge: "bg-purple-100 text-purple-700",
+      icon: Users, iconBg: "bg-purple-500",
+      desc: "Consultou varios provedores em curto periodo — padrao recorrente sem pagamento",
+    };
+    case "equipment_risk": return {
+      tag: "EQUIPAMENTO", color: "amber",
+      border: "border-l-amber-400", bg: "bg-amber-50/30",
+      badge: "bg-amber-100 text-amber-700",
+      icon: Package, iconBg: "bg-amber-500",
+      desc: "Equipamento em comodato pendente — risco de perda se o cliente migrar",
+    };
+    default: return {
+      tag: "ALERTA", color: "slate",
+      border: "border-l-slate-300", bg: "bg-white",
+      badge: "bg-slate-100 text-slate-600",
+      icon: AlertCircle, iconBg: "bg-slate-400",
+      desc: "",
+    };
   }
 }
 
-function getRiskLevelConfig(level: string) {
+function riskCfg(level: string) {
   switch (level) {
-    case "critical": return { label: "Critico", color: "bg-red-500", badge: "bg-red-100 text-red-800" };
-    case "high":     return { label: "Alto",    color: "bg-orange-500", badge: "bg-orange-100 text-orange-800" };
-    case "medium":   return { label: "Medio",   color: "bg-amber-500", badge: "bg-amber-100 text-amber-800" };
-    default:         return { label: "Baixo",   color: "bg-emerald-500", badge: "bg-emerald-100 text-emerald-800" };
+    case "critical": return { label: "Critico", bar: "bg-red-500", text: "text-red-600", badge: "bg-red-100 text-red-700" };
+    case "high":     return { label: "Alto",    bar: "bg-orange-500", text: "text-orange-600", badge: "bg-orange-100 text-orange-700" };
+    case "medium":   return { label: "Medio",   bar: "bg-amber-500", text: "text-amber-600", badge: "bg-amber-100 text-amber-700" };
+    default:         return { label: "Baixo",   bar: "bg-emerald-500", text: "text-emerald-600", badge: "bg-emerald-100 text-emerald-700" };
   }
 }
 
-function PrejuizoCard({ label, value, sub, icon: Icon, color, alert }: {
-  label: string; value: string | number; sub?: string; icon: any; color: string; alert?: boolean;
-}) {
-  return (
-    <Card className={`p-4 ${alert ? "border-red-200 bg-red-50/30" : "border-slate-200"}`}>
-      <div className="flex items-start justify-between mb-3">
-        <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${color}`}>
-          <Icon className="w-4 h-4 text-white" />
-        </div>
-        {alert && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse mt-1" />}
-      </div>
-      <p className="text-2xl font-black text-slate-900" data-testid={`kpi-${label}`}>{value}</p>
-      <p className="text-xs font-semibold text-slate-600 mt-0.5">{label}</p>
-      {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
-    </Card>
-  );
-}
-
-function AlertaMigracaoCard({ alert, onResolve, onDismiss }: {
+function AlertCard({ alert, onResolve, onDismiss }: {
   alert: AntiFraudAlert;
   onResolve: (id: number) => void;
   onDismiss: (id: number) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const typeConfig = getAlertTypeConfig(alert.type, alert.severity);
-  const riskConfig = getRiskLevelConfig(alert.riskLevel || "low");
-  const TypeIcon = typeConfig.icon;
-
+  const cfg = alertConfig(alert.type);
+  const risk = riskCfg(alert.riskLevel || "low");
+  const Icon = cfg.icon;
   const overdueVal = parseFloat(alert.overdueAmount || "0");
   const eqpVal = parseFloat(alert.equipmentValue || "0");
-  const totalPrejuizo = overdueVal + eqpVal;
+  const total = overdueVal + eqpVal;
+  const isResolved = alert.status !== "new";
 
   return (
-    <Card className={`overflow-hidden border ${alert.status !== "new" ? "border-slate-200 opacity-70" : typeConfig.borderColor}`} data-testid={`alert-card-${alert.id}`}>
-      <div className={`${alert.status === "new" ? typeConfig.bgColor : "bg-white"} p-4`}>
+    <div
+      className={`border-l-4 ${cfg.border} rounded-r-xl border border-l-4 border-slate-100 ${cfg.bg} ${isResolved ? "opacity-60" : ""}`}
+      data-testid={`alert-card-${alert.id}`}
+    >
+      <div className="p-4">
         <div className="flex items-start gap-3">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${typeConfig.iconBg}`}>
-            <TypeIcon className="w-5 h-5 text-white" />
+          <div className={`w-9 h-9 rounded-xl ${cfg.iconBg} flex items-center justify-center flex-shrink-0`}>
+            <Icon className="w-4 h-4 text-white" />
           </div>
+
           <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
+            <div className="flex items-start justify-between gap-2 mb-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${typeConfig.tagColor}`}>
-                  {typeConfig.tag}
-                </span>
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${riskConfig.badge}`}>
-                  {riskConfig.label}{alert.riskScore ? ` · ${alert.riskScore}` : ""}
-                </span>
-                {alert.status === "resolved" && (
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">RESOLVIDO</span>
-                )}
-                {alert.status === "dismissed" && (
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">IGNORADO</span>
-                )}
+                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${cfg.badge}`}>{cfg.tag}</span>
+                <span className={`text-[10px] font-semibold ${risk.text}`}>{risk.label}{alert.riskScore ? ` · ${alert.riskScore}` : ""}</span>
+                {isResolved && <span className="text-[10px] text-slate-400">{alert.status === "resolved" ? "RESOLVIDO" : "IGNORADO"}</span>}
               </div>
-              <span className="text-xs text-slate-400 flex-shrink-0">{timeAgo(alert.createdAt)}</span>
+              <span className="text-[10px] text-slate-400 flex-shrink-0">{ago(alert.createdAt)}</span>
             </div>
 
-            <p className="font-bold text-slate-900 text-sm" data-testid={`alert-customer-${alert.id}`}>
-              {alert.customerName || "Cliente desconhecido"}
+            <p className="font-bold text-slate-900 text-sm leading-tight" data-testid={`alert-customer-${alert.id}`}>
+              {alert.customerName}
             </p>
             {alert.customerCpfCnpj && (
-              <p className="text-xs text-slate-500">{formatCpfCnpj(alert.customerCpfCnpj)}</p>
+              <p className="text-xs text-slate-400">{fmt(alert.customerCpfCnpj)}</p>
             )}
-
-            <p className="text-xs text-slate-600 mt-1">{typeConfig.description}</p>
+            <p className="text-xs text-slate-500 mt-1 leading-relaxed">{cfg.desc}</p>
 
             {alert.consultingProviderName && (
-              <div className="flex items-center gap-1.5 mt-1.5 text-xs">
-                <Wifi className="w-3 h-3 text-slate-400" />
-                <span className="text-slate-500">Cliente consultou outro provedor para nova contratacao</span>
-              </div>
+              <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
+                <Wifi className="w-3 h-3" />
+                Cliente consultou outro provedor para nova contratacao
+              </p>
             )}
           </div>
         </div>
 
-        {(overdueVal > 0 || eqpVal > 0 || (alert.daysOverdue || 0) > 0 || (alert.recentConsultations || 0) > 1) && (
-          <div className="mt-3 ml-13 grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {overdueVal > 0 && (
-              <div className="bg-white rounded-lg border border-slate-200 px-3 py-2">
-                <p className="text-[10px] text-slate-400">Mensalidades em atraso</p>
-                <p className="text-sm font-black text-red-600">{formatCurrency(overdueVal)}</p>
+        {(overdueVal > 0 || eqpVal > 0 || (alert.daysOverdue || 0) > 0) && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(alert.daysOverdue || 0) > 0 && (
+              <div className="text-xs px-2.5 py-1.5 rounded-lg bg-white border border-slate-200">
+                <span className="text-slate-400">Atraso: </span>
+                <span className="font-bold text-red-600">{alert.daysOverdue} dias</span>
               </div>
             )}
-            {(alert.daysOverdue || 0) > 0 && (
-              <div className="bg-white rounded-lg border border-slate-200 px-3 py-2">
-                <p className="text-[10px] text-slate-400">Dias sem pagar</p>
-                <p className="text-sm font-black text-orange-600">{alert.daysOverdue} dias</p>
+            {overdueVal > 0 && (
+              <div className="text-xs px-2.5 py-1.5 rounded-lg bg-white border border-slate-200">
+                <span className="text-slate-400">Em aberto: </span>
+                <span className="font-bold text-red-600">{money(overdueVal)}</span>
               </div>
             )}
             {eqpVal > 0 && (
-              <div className="bg-white rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2">
-                <p className="text-[10px] text-amber-600">Equipamento em risco</p>
-                <p className="text-sm font-black text-amber-700">{formatCurrency(eqpVal)}</p>
-                <p className="text-[10px] text-amber-500">{alert.equipmentNotReturned} item(ns)</p>
+              <div className="text-xs px-2.5 py-1.5 rounded-lg bg-white border border-amber-200">
+                <span className="text-amber-600">Equipamento: </span>
+                <span className="font-bold text-amber-700">{money(eqpVal)}</span>
               </div>
             )}
             {(alert.recentConsultations || 0) > 1 && (
-              <div className="bg-white rounded-lg border border-purple-200 bg-purple-50/50 px-3 py-2">
-                <p className="text-[10px] text-purple-600">Provedores consultados</p>
-                <p className="text-sm font-black text-purple-700">{alert.recentConsultations} provedores</p>
-                <p className="text-[10px] text-purple-500">nos ultimos 30 dias</p>
+              <div className="text-xs px-2.5 py-1.5 rounded-lg bg-white border border-purple-200">
+                <span className="text-purple-600">{alert.recentConsultations} provedores</span>
               </div>
             )}
-          </div>
-        )}
-
-        {totalPrejuizo > 0 && (
-          <div className="mt-3 ml-13 p-2.5 rounded-lg border border-red-200 bg-red-50 flex items-center justify-between">
-            <div>
-              <p className="text-[10px] text-red-600 font-semibold uppercase tracking-wide">Prejuizo estimado se o cliente migrar</p>
-              <p className="text-base font-black text-red-700">{formatCurrency(totalPrejuizo)}</p>
-            </div>
-            <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
+            {total > 0 && (
+              <div className="text-xs px-2.5 py-1.5 rounded-lg bg-red-50 border border-red-200 ml-auto">
+                <span className="text-red-500">Prejuizo em risco: </span>
+                <span className="font-black text-red-700">{money(total)}</span>
+              </div>
+            )}
           </div>
         )}
 
         {alert.riskFactors && alert.riskFactors.length > 0 && (
-          <div className="mt-3 ml-13">
-            <button
-              onClick={() => setExpanded(!expanded)}
-              className="flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
-              data-testid={`button-toggle-factors-${alert.id}`}
-            >
-              {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-              {alert.riskFactors.length} indicador{alert.riskFactors.length > 1 ? "es" : ""} de risco
-            </button>
-            {expanded && (
-              <ul className="mt-2 space-y-1">
-                {alert.riskFactors.map((factor, idx) => (
-                  <li key={idx} className="flex items-start gap-2 text-xs text-slate-600">
-                    <span className={`w-1.5 h-1.5 rounded-full ${riskConfig.color} flex-shrink-0 mt-1`} />
-                    {factor}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="mt-2 flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 transition-colors"
+            data-testid={`button-factors-${alert.id}`}
+          >
+            {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            {alert.riskFactors.length} indicadores de risco
+          </button>
+        )}
+        {expanded && alert.riskFactors && (
+          <ul className="mt-2 space-y-0.5 pl-1">
+            {alert.riskFactors.map((f, i) => (
+              <li key={i} className="text-xs text-slate-500 flex items-center gap-1.5">
+                <span className={`w-1 h-1 rounded-full flex-shrink-0 ${risk.bar}`} />
+                {f}
+              </li>
+            ))}
+          </ul>
         )}
 
-        {alert.status === "new" && (
-          <div className="flex items-center gap-2 mt-4 pt-3 border-t border-white/50 ml-13">
-            <Button
-              size="sm"
-              className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white h-7 text-xs"
-              onClick={() => onResolve(alert.id)}
-              data-testid={`button-resolve-${alert.id}`}
-            >
-              <CheckCircle className="w-3.5 h-3.5" />
-              Resolvido
+        {!isResolved && (
+          <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/60">
+            <Button size="sm" className="gap-1 bg-emerald-600 hover:bg-emerald-700 text-white h-7 text-xs px-3" onClick={() => onResolve(alert.id)} data-testid={`button-resolve-${alert.id}`}>
+              <CheckCircle className="w-3 h-3" /> Resolvido
             </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1.5 h-7 text-xs bg-white"
-              onClick={() => onDismiss(alert.id)}
-              data-testid={`button-dismiss-${alert.id}`}
-            >
-              <XCircle className="w-3.5 h-3.5" />
-              Ignorar
+            <Button size="sm" variant="outline" className="gap-1 h-7 text-xs px-3 bg-white" onClick={() => onDismiss(alert.id)} data-testid={`button-dismiss-${alert.id}`}>
+              <XCircle className="w-3 h-3" /> Ignorar
             </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="gap-1.5 h-7 text-xs ml-auto"
-              data-testid={`button-contact-${alert.id}`}
-            >
-              <Phone className="w-3.5 h-3.5" />
-              Contatar
+            <Button size="sm" variant="ghost" className="gap-1 h-7 text-xs ml-auto text-slate-500" data-testid={`button-contact-${alert.id}`}>
+              <Phone className="w-3 h-3" /> Contatar
             </Button>
           </div>
         )}
       </div>
-    </Card>
+    </div>
   );
 }
 
-function AlertasTab({ alerts, onResolve, onDismiss }: {
+function MonitoramentoTab({ alerts, customerRisk, onResolve, onDismiss, isLoading }: {
   alerts: AntiFraudAlert[];
+  customerRisk: CustomerRisk[];
   onResolve: (id: number) => void;
   onDismiss: (id: number) => void;
+  isLoading: boolean;
 }) {
-  const [statusFilter, setStatusFilter] = useState<"all" | "new" | "resolved" | "dismissed">("new");
-  const [typeFilter, setTypeFilter] = useState<"all" | "defaulter_consulted" | "multiple_consultations" | "equipment_risk">("all");
+  const [status, setStatus] = useState<"new" | "all" | "resolved">("new");
   const [search, setSearch] = useState("");
-
-  const filtered = alerts.filter(a => {
-    if (statusFilter !== "all" && a.status !== statusFilter) return false;
-    if (typeFilter !== "all" && a.type !== typeFilter) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      return (a.customerName?.toLowerCase().includes(q) || a.customerCpfCnpj?.includes(q) || a.consultingProviderName?.toLowerCase().includes(q));
-    }
-    return true;
-  });
-
-  const newCount = alerts.filter(a => a.status === "new").length;
-  const fugaCount = alerts.filter(a => a.type === "defaulter_consulted" && a.status === "new").length;
-  const serialCount = alerts.filter(a => a.type === "multiple_consultations" && a.status === "new").length;
-  const eqpCount = alerts.filter(a => a.type === "equipment_risk" && a.status === "new").length;
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs text-slate-400 font-medium">Status:</span>
-          {([["all", `Todos (${alerts.length})`], ["new", `Ativos (${newCount})`], ["resolved", "Resolvidos"], ["dismissed", "Ignorados"]] as const).map(([f, label]) => (
-            <button
-              key={f}
-              onClick={() => setStatusFilter(f)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all ${statusFilter === f ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"}`}
-              data-testid={`filter-${f}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs text-slate-400 font-medium">Tipo:</span>
-          <button
-            onClick={() => setTypeFilter("all")}
-            className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-all ${typeFilter === "all" ? "bg-slate-900 text-white border-slate-900" : "bg-white text-slate-600 border-slate-200"}`}
-          >
-            Todos
-          </button>
-          {fugaCount > 0 && (
-            <button
-              onClick={() => setTypeFilter(typeFilter === "defaulter_consulted" ? "all" : "defaulter_consulted")}
-              className={`px-2.5 py-1.5 text-xs font-bold rounded-lg border transition-all ${typeFilter === "defaulter_consulted" ? "bg-red-600 text-white border-red-600" : "bg-red-50 text-red-700 border-red-200 hover:bg-red-100"}`}
-            >
-              Migracao com Pendencia ({fugaCount})
-            </button>
-          )}
-          {serialCount > 0 && (
-            <button
-              onClick={() => setTypeFilter(typeFilter === "multiple_consultations" ? "all" : "multiple_consultations")}
-              className={`px-2.5 py-1.5 text-xs font-bold rounded-lg border transition-all ${typeFilter === "multiple_consultations" ? "bg-purple-600 text-white border-purple-600" : "bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100"}`}
-            >
-              Perfil Serial ({serialCount})
-            </button>
-          )}
-          {eqpCount > 0 && (
-            <button
-              onClick={() => setTypeFilter(typeFilter === "equipment_risk" ? "all" : "equipment_risk")}
-              className={`px-2.5 py-1.5 text-xs font-bold rounded-lg border transition-all ${typeFilter === "equipment_risk" ? "bg-amber-600 text-white border-amber-600" : "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100"}`}
-            >
-              Risco Equipamento ({eqpCount})
-            </button>
-          )}
-          <div className="relative ml-auto">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-            <Input
-              placeholder="Buscar cliente..."
-              className="pl-8 h-8 text-xs w-44"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              data-testid="input-search-alerts"
-            />
-          </div>
-        </div>
-      </div>
-
-      {filtered.length === 0 ? (
-        <Card className="p-8">
-          <div className="text-center">
-            <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-3">
-              <Shield className="w-7 h-7 text-emerald-600" />
-            </div>
-            <h3 className="text-base font-semibold text-slate-800 mb-1" data-testid="text-tudo-certo">
-              {search || typeFilter !== "all" ? "Nenhum alerta corresponde ao filtro" : statusFilter === "new" ? "Nenhuma tentativa de migracao ativa" : "Nenhum alerta"}
-            </h3>
-            <p className="text-sm text-slate-400">
-              {!search && typeFilter === "all" && statusFilter === "new" && "Os alertas aparecem automaticamente quando um cliente com contrato ativo ou recem cancelado e com pendencias busca contratar em outro provedor."}
-            </p>
-          </div>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {filtered.map((alert) => (
-            <AlertaMigracaoCard key={alert.id} alert={alert} onResolve={onResolve} onDismiss={onDismiss} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MigradoresTab({ alerts, customerRisk }: { alerts: AntiFraudAlert[]; customerRisk: CustomerRisk[] }) {
-  const customerMap = new Map<string, { name: string; cpf: string; alerts: AntiFraudAlert[]; providers: Set<string> }>();
-
-  for (const alert of alerts) {
-    const key = alert.customerCpfCnpj || String(alert.customerId);
-    if (!customerMap.has(key)) {
-      customerMap.set(key, { name: alert.customerName || "Desconhecido", cpf: key, alerts: [], providers: new Set() });
-    }
-    const entry = customerMap.get(key)!;
-    entry.alerts.push(alert);
-    if (alert.consultingProviderName) entry.providers.add(alert.consultingProviderName);
-  }
-
-  const migradores = Array.from(customerMap.values())
-    .filter(m => m.providers.size >= 2 || m.alerts.filter(a => a.type === "multiple_consultations").length > 0)
-    .sort((a, b) => b.providers.size - a.providers.size);
-
-  const recidivas = Array.from(customerMap.values())
-    .filter(m => m.alerts.length >= 2 && m.providers.size < 2)
-    .sort((a, b) => b.alerts.length - a.alerts.length);
-
-  return (
-    <div className="space-y-5">
-      <div>
-        <h3 className="font-bold text-slate-900 mb-1 flex items-center gap-2">
-          <Users className="w-4 h-4 text-purple-500" />
-          Migradores Seriais Identificados
-        </h3>
-        <p className="text-xs text-slate-500 mb-3">
-          Clientes que foram consultados por multiplos provedores enquanto inadimplentes — perfil classico de migracao em serie.
-        </p>
-
-        {migradores.length === 0 ? (
-          <Card className="p-6 text-center">
-            <Shield className="w-10 h-10 mx-auto mb-2 text-emerald-300" />
-            <p className="text-sm text-slate-500">Nenhum migrador serial detectado ainda.</p>
-            <p className="text-xs text-slate-400 mt-1">Padrao surge conforme mais consultas sao realizadas na rede.</p>
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            {migradores.map((m, idx) => {
-              const latestAlert = m.alerts.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())[0];
-              const maxOverdue = Math.max(...m.alerts.map(a => parseFloat(a.overdueAmount || "0")));
-              const maxEqp = Math.max(...m.alerts.map(a => parseFloat(a.equipmentValue || "0")));
-              const totalPrejuizo = maxOverdue + maxEqp;
-              const riskScore = m.providers.size >= 4 ? "critical" : m.providers.size >= 3 ? "high" : "medium";
-              return (
-                <Card key={idx} className="overflow-hidden border border-purple-200 bg-purple-50/20" data-testid={`migrador-${idx}`}>
-                  <div className="p-4">
-                    <div className="flex items-start justify-between gap-3 mb-3">
-                      <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-purple-500 flex items-center justify-center flex-shrink-0">
-                          <UserX className="w-5 h-5 text-white" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2 mb-0.5">
-                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-100 text-purple-800">MIGRADOR SERIAL</span>
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${riskScore === "critical" ? "bg-red-100 text-red-800" : riskScore === "high" ? "bg-orange-100 text-orange-800" : "bg-amber-100 text-amber-800"}`}>
-                              {riskScore === "critical" ? "CRITICO" : riskScore === "high" ? "ALTO" : "MEDIO"}
-                            </span>
-                          </div>
-                          <p className="font-bold text-slate-900">{m.name}</p>
-                          <p className="text-xs text-slate-500">{formatCpfCnpj(m.cpf)}</p>
-                        </div>
-                      </div>
-                      <div className="text-right flex-shrink-0">
-                        <p className="text-xl font-black text-purple-700">{m.providers.size}</p>
-                        <p className="text-[10px] text-purple-500">provedores consultados</p>
-                      </div>
-                    </div>
-
-                    <div className="mb-3 p-3 rounded-lg border border-purple-200 bg-white">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">Ciclo de Migracao Detectado</p>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        {Array.from(m.providers).map((prov, i, arr) => (
-                          <div key={i} className="flex items-center gap-1.5">
-                            <span className="text-xs px-2 py-1 rounded-lg bg-slate-100 border border-slate-200 text-slate-700 font-medium">{prov}</span>
-                            {i < arr.length - 1 && <ArrowRight className="w-3 h-3 text-purple-400" />}
-                          </div>
-                        ))}
-                        <ArrowRight className="w-3 h-3 text-purple-300" />
-                        <span className="text-xs px-2 py-1 rounded-lg border border-dashed border-purple-300 text-purple-500 font-medium">proximo?</span>
-                      </div>
-                    </div>
-
-                    {totalPrejuizo > 0 && (
-                      <div className="p-2.5 rounded-lg border border-red-200 bg-red-50 flex items-center justify-between">
-                        <div>
-                          <p className="text-[10px] text-red-600 font-semibold uppercase">Prejuizo acumulado estimado</p>
-                          <p className="text-base font-black text-red-700">{formatCurrency(totalPrejuizo)}</p>
-                        </div>
-                        <div className="text-right text-xs text-red-500">
-                          {maxOverdue > 0 && <p>Mensalidades: {formatCurrency(maxOverdue)}</p>}
-                          {maxEqp > 0 && <p>Equipamentos: {formatCurrency(maxEqp)}</p>}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex items-center gap-2 mt-3 text-xs text-slate-400">
-                      <Clock className="w-3 h-3" />
-                      Ultimo alerta: {formatDateTime(latestAlert?.createdAt)} · {m.alerts.length} ocorrencia{m.alerts.length > 1 ? "s" : ""}
-                    </div>
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {recidivas.length > 0 && (
-        <div>
-          <h3 className="font-bold text-slate-900 mb-1 flex items-center gap-2">
-            <RefreshCw className="w-4 h-4 text-orange-500" />
-            Reincidentes
-          </h3>
-          <p className="text-xs text-slate-500 mb-3">
-            Clientes com multiplas ocorrencias de inadimplencia no historico.
-          </p>
-          <div className="space-y-2.5">
-            {recidivas.slice(0, 10).map((m, idx) => {
-              const totalValue = Math.max(...m.alerts.map(a => parseFloat(a.overdueAmount || "0")));
-              return (
-                <Card key={idx} className="p-3 border border-orange-200 bg-orange-50/20" data-testid={`reincidente-${idx}`}>
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-orange-500 flex items-center justify-center flex-shrink-0">
-                      <AlertTriangle className="w-4 h-4 text-white" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-slate-900 text-sm">{m.name}</p>
-                      <p className="text-xs text-slate-500">{formatCpfCnpj(m.cpf)} · {m.alerts.length} registros de inadimplencia</p>
-                    </div>
-                    {totalValue > 0 && (
-                      <p className="text-sm font-black text-red-600 flex-shrink-0">{formatCurrency(totalValue)}</p>
-                    )}
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ScoreRiscoTab({ customerRisk, isLoading }: { customerRisk: CustomerRisk[]; isLoading: boolean }) {
-  const [sortBy, setSortBy] = useState<"score" | "overdue" | "equipment">("score");
-
-  const sorted = [...customerRisk].sort((a, b) => {
-    if (sortBy === "overdue") return b.overdueAmount - a.overdueAmount;
-    if (sortBy === "equipment") return b.equipmentValue - a.equipmentValue;
-    return b.riskScore - a.riskScore;
-  });
-
-  const criticalCount = customerRisk.filter(c => c.riskLevel === "critical").length;
-  const highCount = customerRisk.filter(c => c.riskLevel === "high").length;
-  const totalOverdue = customerRisk.reduce((s, c) => s + c.overdueAmount, 0);
-  const totalEquipment = customerRisk.reduce((s, c) => s + c.equipmentValue, 0);
-
-  if (isLoading) {
-    return (
-      <Card className="p-8">
-        <div className="text-center py-8 text-slate-400">
-          <RefreshCw className="w-8 h-8 mx-auto mb-3 animate-spin opacity-50" />
-          <p className="text-sm">Calculando risco de migracao...</p>
-        </div>
-      </Card>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Card className="p-3">
-          <div className="flex items-center gap-2 mb-1">
-            <Flame className="w-4 h-4 text-red-500" />
-            <span className="text-xs font-semibold text-slate-600">Risco Critico</span>
-          </div>
-          <p className="text-2xl font-black text-red-600">{criticalCount}</p>
-          <p className="text-xs text-slate-400">clientes monitorados</p>
-        </Card>
-        <Card className="p-3">
-          <div className="flex items-center gap-2 mb-1">
-            <AlertTriangle className="w-4 h-4 text-orange-500" />
-            <span className="text-xs font-semibold text-slate-600">Risco Alto</span>
-          </div>
-          <p className="text-2xl font-black text-orange-600">{highCount}</p>
-          <p className="text-xs text-slate-400">clientes monitorados</p>
-        </Card>
-        <Card className="p-3">
-          <div className="flex items-center gap-2 mb-1">
-            <DollarSign className="w-4 h-4 text-red-500" />
-            <span className="text-xs font-semibold text-slate-600">Total em Aberto</span>
-          </div>
-          <p className="text-sm font-black text-red-600">{formatCurrency(totalOverdue)}</p>
-          <p className="text-xs text-slate-400">mensalidades nao pagas</p>
-        </Card>
-        <Card className="p-3">
-          <div className="flex items-center gap-2 mb-1">
-            <Package className="w-4 h-4 text-amber-500" />
-            <span className="text-xs font-semibold text-slate-600">Equipamentos</span>
-          </div>
-          <p className="text-sm font-black text-amber-600">{formatCurrency(totalEquipment)}</p>
-          <p className="text-xs text-slate-400">em risco de perda</p>
-        </Card>
-      </div>
-
-      <Card className="overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-          <div>
-            <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-              <Target className="w-4 h-4 text-slate-400" />
-              Clientes com Maior Risco de Migracao
-            </h3>
-            <p className="text-xs text-slate-400">Monitorados continuamente — score baseado em atraso, divida, equipamentos e padrao de consultas</p>
-          </div>
-          <div className="flex items-center gap-1">
-            {(["score", "overdue", "equipment"] as const).map(opt => (
-              <button
-                key={opt}
-                onClick={() => setSortBy(opt)}
-                className={`px-2 py-1 text-xs rounded font-medium transition-all ${sortBy === opt ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-              >
-                {opt === "score" ? "Score" : opt === "overdue" ? "Divida" : "Equip."}
-              </button>
-            ))}
-          </div>
-        </div>
-        {customerRisk.length === 0 ? (
-          <div className="p-8 text-center text-slate-400 text-sm">
-            <Shield className="w-10 h-10 mx-auto mb-3 opacity-30" />
-            Nenhum cliente com risco identificado.
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-50">
-            {sorted.slice(0, 20).map((customer, idx) => {
-              const cfg = getRiskLevelConfig(customer.riskLevel);
-              const totalRisco = customer.overdueAmount + customer.equipmentValue;
-              return (
-                <div key={customer.id} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors" data-testid={`risk-customer-${customer.id}`}>
-                  <span className="text-sm font-black text-slate-300 w-6 flex-shrink-0 text-right">#{idx + 1}</span>
-                  <div className={`w-1.5 h-10 rounded-full flex-shrink-0 ${cfg.color}`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-sm text-slate-900 truncate">{customer.name}</p>
-                    <p className="text-xs text-slate-400">{formatCpfCnpj(customer.cpfCnpj)}</p>
-                    <div className="flex items-center gap-1 mt-1">
-                      <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${customer.riskLevel === "critical" ? "bg-red-500" : customer.riskLevel === "high" ? "bg-orange-500" : customer.riskLevel === "medium" ? "bg-amber-500" : "bg-emerald-500"}`}
-                          style={{ width: `${customer.riskScore}%` }}
-                        />
-                      </div>
-                      <span className={`text-xs font-bold ${customer.riskLevel === "critical" ? "text-red-600" : customer.riskLevel === "high" ? "text-orange-600" : "text-amber-600"}`}>{customer.riskScore}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 flex-shrink-0 text-right">
-                    {customer.daysOverdue > 0 && (
-                      <div className="hidden sm:block">
-                        <p className="text-xs font-bold text-red-600">{customer.daysOverdue}d atraso</p>
-                        <p className="text-[10px] text-slate-400">{formatCurrency(customer.overdueAmount)}</p>
-                      </div>
-                    )}
-                    {customer.equipmentNotReturned > 0 && (
-                      <div className="hidden sm:block">
-                        <p className="text-xs font-bold text-amber-600">{customer.equipmentNotReturned} equip.</p>
-                        <p className="text-[10px] text-slate-400">{formatCurrency(customer.equipmentValue)}</p>
-                      </div>
-                    )}
-                    {totalRisco > 0 && (
-                      <div>
-                        <p className="text-xs font-black text-red-700">{formatCurrency(totalRisco)}</p>
-                        <p className="text-[10px] text-slate-400">em risco</p>
-                      </div>
-                    )}
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${cfg.badge}`}>{cfg.label}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Card>
-    </div>
-  );
-}
-
-function renderAIText(text: string) {
-  return text.split("\n").map((line, i) => {
-    const t = line.trim();
-    if (!t) return <div key={i} className="h-2" />;
-    const isHeader = /^[A-ZÁÉÍÓÚÂÊÔÀÃÕ\s]{4,}$/.test(t) && t === t.toUpperCase() && t.length > 3;
-    if (isHeader) return <p key={i} className="font-bold text-slate-800 mt-4 mb-1 text-sm uppercase tracking-wide border-b border-indigo-100 pb-1">{t}</p>;
-    if (t.startsWith("- ") || t.startsWith("• ")) return (
-      <p key={i} className="text-sm text-slate-700 pl-3 flex gap-2">
-        <span className="text-indigo-400 mt-0.5 flex-shrink-0">•</span>
-        <span>{t.replace(/^[-•]\s+/, "")}</span>
-      </p>
-    );
-    return <p key={i} className="text-sm text-slate-700 leading-relaxed">{t}</p>;
-  });
-}
-
-function AnaliseIATab({ alerts, customerRisk }: { alerts: AntiFraudAlert[]; customerRisk: CustomerRisk[] }) {
+  const [showRisk, setShowRisk] = useState(false);
   const [aiText, setAiText] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiDone, setAiDone] = useState(false);
   const [aiError, setAiError] = useState("");
+  const [showAI, setShowAI] = useState(false);
 
-  const activeAlerts = alerts.filter(a => a.status === "new");
-  const fugaAlerts = activeAlerts.filter(a => a.type === "defaulter_consulted");
-  const serialAlerts = activeAlerts.filter(a => a.type === "multiple_consultations");
-  const totalPrejuizo = activeAlerts.reduce((sum, a) => sum + parseFloat(a.overdueAmount || "0") + parseFloat(a.equipmentValue || "0"), 0);
-  const criticalCount = activeAlerts.filter(a => a.riskLevel === "critical").length;
+  const filtered = alerts.filter(a => {
+    if (status === "new" && a.status !== "new") return false;
+    if (status === "resolved" && a.status === "new") return false;
+    if (search) {
+      const q = search.toLowerCase();
+      return (a.customerName?.toLowerCase().includes(q) || a.customerCpfCnpj?.includes(q));
+    }
+    return true;
+  });
 
-  const runAIAnalysis = async () => {
-    setAiText(""); setAiLoading(true); setAiDone(false); setAiError("");
+  const active = alerts.filter(a => a.status === "new");
+  const resolved = alerts.filter(a => a.status !== "new");
+
+  const runAI = async () => {
+    setAiText(""); setAiLoading(true); setAiDone(false); setAiError(""); setShowAI(true);
     try {
       const res = await fetch("/api/ai/analyze-antifraud", {
         method: "POST",
@@ -778,373 +302,386 @@ function AnaliseIATab({ alerts, customerRisk }: { alerts: AntiFraudAlert[]; cust
             const payload = line.slice(6).trim();
             if (payload === "[DONE]") { setAiDone(true); break; }
             try {
-              const parsed = JSON.parse(payload);
-              if (parsed.error) { setAiError(parsed.error); break; }
-              if (parsed.text) setAiText(prev => prev + parsed.text);
+              const p = JSON.parse(payload);
+              if (p.error) { setAiError(p.error); break; }
+              if (p.text) setAiText(prev => prev + p.text);
             } catch {}
           }
         }
       }
-    } catch (err: any) {
-      setAiError(err.message || "Erro desconhecido");
-    } finally {
-      setAiLoading(false); setAiDone(true);
-    }
+    } catch (e: any) { setAiError(e.message); }
+    finally { setAiLoading(false); setAiDone(true); }
   };
 
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <WifiOff className="w-4 h-4 text-red-500 mb-2" />
-          <p className="text-2xl font-black text-red-700">{fugaAlerts.length}</p>
-          <p className="text-xs text-slate-500 mt-0.5">Tentativas de fuga ativas</p>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <Users className="w-4 h-4 text-purple-500 mb-2" />
-          <p className="text-2xl font-black text-purple-700">{serialAlerts.length}</p>
-          <p className="text-xs text-slate-500 mt-0.5">Migradores seriais detectados</p>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <DollarSign className="w-4 h-4 text-red-500 mb-2" />
-          <p className="text-lg font-black text-red-700">{formatCurrency(totalPrejuizo)}</p>
-          <p className="text-xs text-slate-500 mt-0.5">Prejuizo total em risco</p>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <Flame className="w-4 h-4 text-orange-500 mb-2" />
-          <p className="text-2xl font-black text-orange-700">{criticalCount}</p>
-          <p className="text-xs text-slate-500 mt-0.5">Casos criticos ativos</p>
-        </div>
-      </div>
-
-      <Card className="p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
-              <BrainCircuit className="w-4 h-4 text-indigo-600" />
-            </div>
-            <div>
-              <h3 className="font-bold text-slate-900 text-sm">Analise com IA — Padrao de Fraude por Migracao</h3>
-              <p className="text-xs text-slate-400">Identificacao de perfis, ciclos e recomendacoes para reducao de prejuizos</p>
-            </div>
-            {aiLoading && (
-              <span className="text-xs text-indigo-500 flex items-center gap-1 font-medium ml-2">
-                <div className="w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
-                Analisando...
-              </span>
-            )}
-            {aiDone && !aiError && (
-              <span className="text-xs text-emerald-600 flex items-center gap-1 font-medium ml-2">
-                <CheckCircle className="w-3 h-3" /> Concluido
-              </span>
-            )}
-          </div>
-          <Button
-            size="sm"
-            className={aiText ? "gap-1.5" : "gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"}
-            variant={aiText ? "outline" : "default"}
-            onClick={runAIAnalysis}
-            disabled={aiLoading}
-            data-testid="button-run-ai-analysis"
-          >
-            <BrainCircuit className="w-3.5 h-3.5" />
-            {aiLoading ? "Analisando..." : aiText ? "Nova Analise" : "Analisar Padroes de Fraude"}
-          </Button>
-        </div>
-
-        {!aiText && !aiLoading && !aiError && (
-          <div className="text-center py-10 border-2 border-dashed border-indigo-100 rounded-xl bg-indigo-50/30">
-            <BrainCircuit className="w-12 h-12 mx-auto mb-3 text-indigo-200" />
-            <p className="text-sm text-slate-600 font-medium">Analise de Padrao de Fraude por Migracao</p>
-            <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-              A IA analisa o comportamento dos seus clientes inadimplentes, identifica migradores seriais
-              e recomenda acoes para reduzir prejuizos com equipamentos e mensalidades nao pagas.
-            </p>
-          </div>
-        )}
-        {aiError && (
-          <div className="p-3 rounded-lg bg-red-50 border border-red-200 flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-red-600">{aiError}</p>
-          </div>
-        )}
-        {aiText && (
-          <div className="space-y-1 bg-slate-50 rounded-xl p-4 border border-slate-100">
-            {renderAIText(aiText)}
-            {aiLoading && <span className="inline-block w-1.5 h-4 bg-indigo-500 animate-pulse ml-0.5 rounded-sm" />}
-          </div>
-        )}
-      </Card>
-
-      <Card className="p-5">
-        <h3 className="font-semibold text-sm flex items-center gap-2 mb-3">
-          <Zap className="w-4 h-4 text-amber-500" />
-          Acoes Prioritarias para Reducao de Prejuizo
-        </h3>
-        <div className="space-y-2.5">
-          {fugaAlerts.length > 0 && (
-            <div className="flex items-center gap-3 p-3 rounded-xl border border-red-200 bg-red-50">
-              <div className="w-8 h-8 rounded-lg bg-red-500 flex items-center justify-center flex-shrink-0">
-                <WifiOff className="w-4 h-4 text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-red-800">{fugaAlerts.length} cliente{fugaAlerts.length > 1 ? "s" : ""} com contrato ativo buscando novo provedor sem regularizar pendencias</p>
-                <p className="text-xs text-red-600 mt-0.5">Entre em contato para negociar a divida antes que o equipamento seja perdido</p>
-              </div>
-              <Button size="sm" variant="outline" className="text-xs flex-shrink-0 border-red-300 text-red-700 hover:bg-red-100">Contatar</Button>
-            </div>
-          )}
-          {serialAlerts.length > 0 && (
-            <div className="flex items-center gap-3 p-3 rounded-xl border border-purple-200 bg-purple-50">
-              <div className="w-8 h-8 rounded-lg bg-purple-500 flex items-center justify-center flex-shrink-0">
-                <UserX className="w-4 h-4 text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-purple-800">{serialAlerts.length} cliente{serialAlerts.length > 1 ? "s" : ""} com perfil de migracao recorrente sem pagamento</p>
-                <p className="text-xs text-purple-600 mt-0.5">Esses clientes estao registrados na base colaborativa e podem ser identificados por outros provedores na hora da consulta</p>
-              </div>
-              <Button size="sm" variant="outline" className="text-xs flex-shrink-0 border-purple-300 text-purple-700 hover:bg-purple-100">Ver Perfis</Button>
-            </div>
-          )}
-          <div className="flex items-center gap-3 p-3 rounded-xl border border-amber-200 bg-amber-50">
-            <div className="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center flex-shrink-0">
-              <Package className="w-4 h-4 text-white" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-amber-800">Iniciar processo de recuperacao de equipamentos</p>
-              <p className="text-xs text-amber-600 mt-0.5">Clientes em processo de migracao raramente devolvem equipamentos voluntariamente</p>
-            </div>
-            <Button size="sm" variant="outline" className="text-xs flex-shrink-0 border-amber-300 text-amber-700 hover:bg-amber-100">Agendar</Button>
-          </div>
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-function RegrasTab() {
-  const [rules, setRules] = useState([
-    {
-      id: 1, name: "Fuga Detectada — Inadimplente Consultado", priority: 1, active: true,
-      condition: "cliente_inadimplente AND consultado_por_outro_provedor",
-      action: "criar_alerta(TENTATIVA_DE_FUGA, risco_calculado), notificar_provedor",
-      desc: "Dispara alerta imediato quando um cliente seu com divida em aberto e consultado por outro provedor — indicativo de que esta planejando migrar.",
-    },
-    {
-      id: 2, name: "Migrador Serial — Multiplas Consultas", priority: 2, active: true,
-      condition: "consultas_em_30_dias >= 3",
-      action: "criar_alerta(MIGRADOR_SERIAL, risco=80), notificar_todos_provedores",
-      desc: "Identifica CPF consultado por 3 ou mais provedores em 30 dias — padrao classico de cliente rodando entre operadoras.",
-    },
-    {
-      id: 3, name: "Equipamento em Risco de Perda", priority: 3, active: true,
-      condition: "equipamento_nao_devolvido AND consultado_por_outro_provedor",
-      action: "criar_alerta(RISCO_EQUIPAMENTO, urgente), iniciar_processo_recuperacao",
-      desc: "Quando cliente com equipamento pendente e consultado por outro provedor, o risco de perda definitiva do equipamento e elevado.",
-    },
-    {
-      id: 4, name: "Contrato Recente com Consulta Externa", priority: 4, active: true,
-      condition: "contrato_age < 90_dias AND consultado_por_outro_provedor",
-      action: "criar_alerta(CONTRATO_RECENTE), revisar_credito",
-      desc: "Cliente com menos de 90 dias de contrato sendo consultado por outros — pode indicar intencao de migracao rapida apos instalacao.",
-    },
-    {
-      id: 5, name: "Score de Migracao Critico", priority: 5, active: false,
-      condition: "risco_migracao >= 75 AND nao_pagou_ultimas_3_faturas",
-      action: "bloquear_aprovacao_automatica, exigir_revisao_manual",
-      desc: "Bloqueia aprovacao automatica de clientes com historico critico de migracao e tres ou mais faturas em atraso.",
-    },
-  ]);
-
-  const toggleRule = (id: number) => setRules(rules.map(r => r.id === id ? { ...r, active: !r.active } : r));
+  const criticalRisk = customerRisk.filter(c => c.riskLevel === "critical" || c.riskLevel === "high");
 
   return (
     <div className="space-y-4">
-      <div className="p-4 rounded-xl border border-blue-200 bg-blue-50">
-        <div className="flex items-start gap-3">
-          <AlertCircle className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-semibold text-blue-900">Como as regras funcionam</p>
-            <p className="text-xs text-blue-700 mt-1">
-              As regras sao avaliadas automaticamente a cada consulta ISP realizada na plataforma.
-              Quando um provedor consulta um CPF, o sistema verifica se esse CPF pertence a clientes
-              inadimplentes de outros provedores e dispara os alertas configurados.
-            </p>
-          </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center bg-slate-100 rounded-lg p-0.5 gap-0.5">
+          {([["new", `Ativos (${active.length})`], ["all", `Todos (${alerts.length})`], ["resolved", `Historico (${resolved.length})`]] as const).map(([v, label]) => (
+            <button
+              key={v}
+              onClick={() => setStatus(v)}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${status === v ? "bg-white shadow-sm text-slate-900" : "text-slate-500 hover:text-slate-800"}`}
+              data-testid={`filter-${v}`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-      </div>
-
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="font-bold text-slate-900">Regras de Deteccao de Fraude</h3>
-          <p className="text-xs text-slate-400 mt-0.5">{rules.filter(r => r.active).length} de {rules.length} regras ativas</p>
+        <div className="relative ml-auto">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+          <Input placeholder="Buscar cliente..." className="pl-8 h-8 text-xs w-40 bg-white" value={search} onChange={e => setSearch(e.target.value)} data-testid="input-search" />
         </div>
-        <Button className="gap-2 text-xs" size="sm" data-testid="button-new-rule">
-          <Zap className="w-3.5 h-3.5" />
-          Nova Regra
+        <Button size="sm" variant="outline" className={`gap-1.5 h-8 text-xs ${showRisk ? "bg-slate-900 text-white border-slate-900" : "bg-white"}`} onClick={() => setShowRisk(!showRisk)} data-testid="button-toggle-risk">
+          <BarChart3 className="w-3.5 h-3.5" />
+          Score de Risco
+        </Button>
+        <Button size="sm" variant="outline" className={`gap-1.5 h-8 text-xs ${showAI ? "bg-indigo-600 text-white border-indigo-600" : "bg-white"}`} onClick={!aiText ? runAI : () => setShowAI(!showAI)} disabled={aiLoading} data-testid="button-ai">
+          <BrainCircuit className="w-3.5 h-3.5" />
+          {aiLoading ? "Analisando..." : "Analise IA"}
         </Button>
       </div>
 
-      <div className="space-y-2.5">
-        {rules.map((rule) => (
-          <Card key={rule.id} className={`overflow-hidden border ${rule.active ? "border-slate-200" : "border-slate-100 opacity-60"}`} data-testid={`rule-card-${rule.id}`}>
-            <div className="flex">
-              <div className={`w-1 flex-shrink-0 ${rule.active ? "bg-emerald-500" : "bg-slate-300"}`} />
-              <div className="flex-1 p-4">
-                <div className="flex items-start justify-between gap-3 mb-2">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className={`w-2 h-2 rounded-full ${rule.active ? "bg-emerald-500" : "bg-slate-300"}`} />
-                      <span className="font-bold text-slate-900 text-sm">{rule.name}</span>
-                      <span className="text-[10px] text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded font-medium">P{rule.priority}</span>
-                    </div>
-                    <p className="text-xs text-slate-500 leading-relaxed">{rule.desc}</p>
-                  </div>
-                  <Switch checked={rule.active} onCheckedChange={() => toggleRule(rule.id)} data-testid={`switch-rule-${rule.id}`} />
-                </div>
-                <div className="bg-slate-50 rounded-lg p-3 font-mono text-xs space-y-1 border border-slate-100 mt-2">
-                  <p><span className="text-blue-600 font-bold">SE:</span> <span className="text-slate-700">{rule.condition}</span></p>
-                  <p><span className="text-emerald-600 font-bold">ENTAO:</span> <span className="text-slate-700">{rule.action}</span></p>
-                </div>
-                <div className="flex items-center gap-1.5 mt-3">
-                  <Button size="sm" variant="outline" className="text-xs h-7">Editar</Button>
-                  <Button size="sm" variant="ghost" className="text-xs h-7 text-slate-500">Testar</Button>
-                  <Button size="sm" variant="ghost" className="text-xs h-7 text-red-500 ml-auto">Excluir</Button>
-                </div>
-              </div>
+      {showAI && (
+        <Card className="p-4 border-indigo-100 bg-indigo-50/30">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <BrainCircuit className="w-4 h-4 text-indigo-500" />
+              <span className="text-sm font-semibold text-slate-800">Analise de Padrao de Fraude</span>
+              {aiLoading && <span className="text-xs text-indigo-500 flex items-center gap-1"><div className="w-3 h-3 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" /> Analisando...</span>}
+              {aiDone && !aiError && <span className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle className="w-3 h-3" /> Pronto</span>}
             </div>
-          </Card>
-        ))}
-      </div>
+            <div className="flex gap-1">
+              <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={runAI} disabled={aiLoading}>Nova analise</Button>
+              <Button size="sm" variant="ghost" className="h-6 px-2" onClick={() => setShowAI(false)}><XCircle className="w-3.5 h-3.5 text-slate-400" /></Button>
+            </div>
+          </div>
+          {aiError && <p className="text-sm text-red-600 p-2 bg-red-50 rounded-lg">{aiError}</p>}
+          {!aiText && !aiLoading && !aiError && <p className="text-sm text-slate-400 text-center py-4">Clique em "Nova analise" para gerar insights sobre os padroes de fraude</p>}
+          {aiText && (
+            <div className="text-sm text-slate-700 space-y-1 leading-relaxed">
+              {aiText.split("\n").map((line, i) => {
+                const t = line.trim();
+                if (!t) return <div key={i} className="h-1" />;
+                const isH = /^[A-ZÁÉÍÓÚÂÊÔÀÃÕ\s]{4,}$/.test(t) && t === t.toUpperCase();
+                if (isH) return <p key={i} className="font-bold text-slate-900 mt-3 mb-1 text-xs uppercase tracking-wide">{t}</p>;
+                if (t.startsWith("- ") || t.startsWith("• ")) return (
+                  <p key={i} className="flex gap-2 text-slate-600">
+                    <span className="text-indigo-400 flex-shrink-0">•</span>
+                    {t.replace(/^[-•]\s+/, "")}
+                  </p>
+                );
+                return <p key={i}>{t}</p>;
+              })}
+              {aiLoading && <span className="inline-block w-1 h-4 bg-indigo-500 animate-pulse ml-0.5 rounded-sm" />}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {showRisk && (
+        <Card className="overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-slate-400" />
+              Clientes com Maior Risco de Migracao
+            </h3>
+            <button onClick={() => setShowRisk(false)} className="text-slate-400 hover:text-slate-600"><XCircle className="w-4 h-4" /></button>
+          </div>
+          {criticalRisk.length === 0 ? (
+            <p className="text-sm text-slate-400 p-4 text-center">Nenhum cliente com risco alto identificado</p>
+          ) : (
+            <div className="divide-y divide-slate-50 max-h-72 overflow-y-auto">
+              {criticalRisk.slice(0, 10).map((c, i) => {
+                const cfg = riskCfg(c.riskLevel);
+                return (
+                  <div key={c.id} className="flex items-center gap-3 px-4 py-2.5" data-testid={`risk-${c.id}`}>
+                    <span className="text-xs text-slate-300 w-5 text-right font-bold">#{i + 1}</span>
+                    <div className={`w-1 h-8 rounded-full flex-shrink-0 ${cfg.bar}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-900 truncate">{c.name}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <div className="flex-1 h-1 bg-slate-100 rounded-full overflow-hidden">
+                          <div className={`h-full ${cfg.bar}`} style={{ width: `${c.riskScore}%` }} />
+                        </div>
+                        <span className={`text-xs font-bold ${cfg.text}`}>{c.riskScore}</span>
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      {(c.overdueAmount + c.equipmentValue) > 0 && (
+                        <p className="text-xs font-bold text-red-600">{money(c.overdueAmount + c.equipmentValue)}</p>
+                      )}
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${cfg.badge}`}>{cfg.label}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12 text-slate-400">
+          <RefreshCw className="w-5 h-5 animate-spin mr-2" />
+          <span className="text-sm">Carregando alertas...</span>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-12">
+          <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-3">
+            <Shield className="w-6 h-6 text-emerald-500" />
+          </div>
+          <p className="text-sm font-semibold text-slate-700" data-testid="text-empty">
+            {status === "new" ? "Nenhuma pendencia ativa" : "Nenhum alerta encontrado"}
+          </p>
+          <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">
+            {status === "new" && "Alertas aparecem quando um cliente com contrato ativo busca contratar em outro provedor sem regularizar pendencias."}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {filtered.map(alert => (
+            <AlertCard key={alert.id} alert={alert} onResolve={onResolve} onDismiss={onDismiss} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function ConfiguracoesTab() {
-  const [enabled, setEnabled] = useState(true);
-  const [alertDefaulter, setAlertDefaulter] = useState(true);
-  const [alertSerial, setAlertSerial] = useState(true);
-  const [alertEquipment, setAlertEquipment] = useState(true);
-  const [minOverdueDays, setMinOverdueDays] = useState("1");
-  const [maxConsultations, setMaxConsultations] = useState("3");
-  const [minEquipmentValue, setMinEquipmentValue] = useState("100");
-  const [notifyCritical, setNotifyCritical] = useState(true);
-  const [notifyHigh, setNotifyHigh] = useState(true);
-  const [emails, setEmails] = useState<string[]>([""]);
-  const { toast } = useToast();
+function MigradoresTab({ alerts }: { alerts: AntiFraudAlert[] }) {
+  const map = new Map<string, { name: string; cpf: string; alerts: AntiFraudAlert[]; isps: Set<string> }>();
+  for (const a of alerts) {
+    const k = a.customerCpfCnpj || String(a.customerId);
+    if (!map.has(k)) map.set(k, { name: a.customerName || "?", cpf: k, alerts: [], isps: new Set() });
+    const e = map.get(k)!;
+    e.alerts.push(a);
+    if (a.consultingProviderName) e.isps.add(a.consultingProviderName);
+  }
+
+  const serial = [...map.values()].filter(m => m.isps.size >= 2 || m.alerts.some(a => a.type === "multiple_consultations")).sort((a, b) => b.isps.size - a.isps.size);
+  const reaped = [...map.values()].filter(m => m.alerts.length >= 2 && m.isps.size < 2).sort((a, b) => b.alerts.length - a.alerts.length);
 
   return (
-    <div className="space-y-4">
-      <Card className="p-5 space-y-4">
-        <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-          <Settings className="w-4 h-4 text-slate-400" />
-          Configuracoes Gerais
-        </h3>
-        <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100">
+    <div className="space-y-5">
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <UserX className="w-4 h-4 text-purple-500" />
           <div>
-            <Label htmlFor="toggle-enabled" className="font-semibold text-slate-900 cursor-pointer">Protecao Anti-Fraude por Migracao</Label>
-            <p className="text-xs text-slate-400 mt-0.5">Monitora automaticamente clientes inadimplentes a cada consulta ISP na rede</p>
-          </div>
-          <Switch id="toggle-enabled" checked={enabled} onCheckedChange={setEnabled} data-testid="switch-enabled" />
-        </div>
-      </Card>
-
-      <Card className="p-5 space-y-4">
-        <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-          <Bell className="w-4 h-4 text-slate-400" />
-          Tipos de Alerta
-        </h3>
-        <div className="space-y-3">
-          <div className="flex items-center justify-between p-3 rounded-xl bg-red-50 border border-red-100">
-            <div>
-              <Label className="font-semibold text-red-900 cursor-pointer">Tentativa de Fuga</Label>
-              <p className="text-xs text-red-600 mt-0.5">Alertar quando cliente inadimplente e consultado por outro provedor</p>
-            </div>
-            <Switch checked={alertDefaulter} onCheckedChange={setAlertDefaulter} data-testid="switch-alert-defaulter" />
-          </div>
-          <div className="flex items-center justify-between p-3 rounded-xl bg-purple-50 border border-purple-100">
-            <div>
-              <Label className="font-semibold text-purple-900 cursor-pointer">Migrador Serial</Label>
-              <p className="text-xs text-purple-600 mt-0.5">Alertar quando CPF e consultado por multiplos provedores</p>
-            </div>
-            <Switch checked={alertSerial} onCheckedChange={setAlertSerial} data-testid="switch-alert-serial" />
-          </div>
-          <div className="flex items-center justify-between p-3 rounded-xl bg-amber-50 border border-amber-100">
-            <div>
-              <Label className="font-semibold text-amber-900 cursor-pointer">Risco de Equipamento</Label>
-              <p className="text-xs text-amber-600 mt-0.5">Alertar quando cliente com equipamento pendente tenta migrar</p>
-            </div>
-            <Switch checked={alertEquipment} onCheckedChange={setAlertEquipment} data-testid="switch-alert-equipment" />
+            <h3 className="text-sm font-bold text-slate-900">Migradores Seriais</h3>
+            <p className="text-xs text-slate-400">CPF consultou varios provedores enquanto inadimplente</p>
           </div>
         </div>
-      </Card>
+        {serial.length === 0 ? (
+          <Card className="p-6 text-center border-dashed">
+            <p className="text-sm text-slate-400">Nenhum migrador serial identificado ainda</p>
+            <p className="text-xs text-slate-300 mt-1">Padrao surge conforme mais provedores utilizam a plataforma</p>
+          </Card>
+        ) : (
+          <div className="space-y-2.5">
+            {serial.map((m, i) => {
+              const last = m.alerts.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())[0];
+              const div = Math.max(...m.alerts.map(a => parseFloat(a.overdueAmount || "0")));
+              const eqp = Math.max(...m.alerts.map(a => parseFloat(a.equipmentValue || "0")));
+              const total = div + eqp;
+              return (
+                <Card key={i} className="p-4 border border-purple-100 bg-purple-50/20" data-testid={`migrador-${i}`}>
+                  <div className="flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-purple-500 flex items-center justify-center flex-shrink-0">
+                      <UserX className="w-4 h-4 text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-100 text-purple-800">PERFIL SERIAL</span>
+                          </div>
+                          <p className="font-bold text-slate-900 text-sm">{m.name}</p>
+                          <p className="text-xs text-slate-400">{fmt(m.cpf)}</p>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-xl font-black text-purple-700">{m.isps.size > 0 ? m.isps.size : m.alerts.length}</p>
+                          <p className="text-[10px] text-purple-400">{m.isps.size > 0 ? "provedores" : "ocorrencias"}</p>
+                        </div>
+                      </div>
 
-      <Card className="p-5 space-y-4">
-        <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-          <Target className="w-4 h-4 text-slate-400" />
-          Limites de Deteccao
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-slate-700">Dias minimos de atraso</Label>
-            <Input type="number" value={minOverdueDays} onChange={(e) => setMinOverdueDays(e.target.value)} className="h-9" data-testid="input-min-overdue-days" />
-            <p className="text-[10px] text-slate-400">para gerar alerta de fuga</p>
+                      {m.isps.size > 0 && (
+                        <div className="flex items-center gap-1 mt-2 flex-wrap">
+                          {[...m.isps].map((isp, j, arr) => (
+                            <div key={j} className="flex items-center gap-1">
+                              <span className="text-xs px-2 py-0.5 bg-slate-100 border border-slate-200 rounded-lg text-slate-600 font-medium">{isp}</span>
+                              {j < arr.length - 1 && <ArrowRight className="w-3 h-3 text-purple-300" />}
+                            </div>
+                          ))}
+                          <ArrowRight className="w-3 h-3 text-purple-200" />
+                          <span className="text-xs px-2 py-0.5 border border-dashed border-purple-300 rounded-lg text-purple-400">proximo?</span>
+                        </div>
+                      )}
+
+                      {total > 0 && (
+                        <div className="mt-2 text-xs">
+                          <span className="text-red-500">Prejuizo estimado: </span>
+                          <span className="font-black text-red-700">{money(total)}</span>
+                          <span className="text-slate-400 ml-2">· {ago(last?.createdAt)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-slate-700">Consultas em 30 dias</Label>
-            <Input type="number" value={maxConsultations} onChange={(e) => setMaxConsultations(e.target.value)} className="h-9" data-testid="input-max-consultations" />
-            <p className="text-[10px] text-slate-400">para classificar como migrador serial</p>
+        )}
+      </div>
+
+      {reaped.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle className="w-4 h-4 text-orange-500" />
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">Reincidentes</h3>
+              <p className="text-xs text-slate-400">Multiplas ocorrencias de inadimplencia no historico</p>
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-slate-700">Valor minimo equipamento (R$)</Label>
-            <Input type="number" value={minEquipmentValue} onChange={(e) => setMinEquipmentValue(e.target.value)} className="h-9" data-testid="input-min-equipment-value" />
-            <p className="text-[10px] text-slate-400">para gerar alerta de risco de perda</p>
+          <div className="space-y-2">
+            {reaped.slice(0, 8).map((m, i) => {
+              const val = Math.max(...m.alerts.map(a => parseFloat(a.overdueAmount || "0")));
+              return (
+                <div key={i} className="flex items-center gap-3 p-3 rounded-xl border border-orange-100 bg-orange-50/20" data-testid={`reincidente-${i}`}>
+                  <div className="w-7 h-7 rounded-lg bg-orange-400 flex items-center justify-center flex-shrink-0">
+                    <AlertTriangle className="w-3.5 h-3.5 text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-slate-900">{m.name}</p>
+                    <p className="text-xs text-slate-400">{fmt(m.cpf)} · {m.alerts.length} registros</p>
+                  </div>
+                  {val > 0 && <p className="text-sm font-black text-red-600 flex-shrink-0">{money(val)}</p>}
+                </div>
+              );
+            })}
           </div>
         </div>
-      </Card>
+      )}
+    </div>
+  );
+}
 
-      <Card className="p-5 space-y-4">
-        <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-          <Bell className="w-4 h-4 text-slate-400" />
-          Notificacoes por Email
-        </h3>
-        <div className="space-y-2">
-          {emails.map((email, idx) => (
-            <div key={idx} className="flex items-center gap-2">
-              <Input type="email" placeholder="email@provedor.com.br" value={email} onChange={(e) => { const n = [...emails]; n[idx] = e.target.value; setEmails(n); }} className="h-9" data-testid={`input-email-${idx}`} />
-              {emails.length > 1 && (
-                <Button size="sm" variant="ghost" onClick={() => setEmails(emails.filter((_, i) => i !== idx))}>
-                  <XCircle className="w-4 h-4 text-red-400" />
-                </Button>
-              )}
-            </div>
-          ))}
-          <Button size="sm" variant="outline" onClick={() => setEmails([...emails, ""])} className="text-xs" data-testid="button-add-email">
-            + Adicionar email
-          </Button>
+function ConfigTab() {
+  const [enabled, setEnabled] = useState(true);
+  const [alertDebt, setAlertDebt] = useState(true);
+  const [alertSerial, setAlertSerial] = useState(true);
+  const [alertEqp, setAlertEqp] = useState(true);
+  const [minDays, setMinDays] = useState("1");
+  const [maxConsu, setMaxConsu] = useState("3");
+  const [minEqp, setMinEqp] = useState("100");
+  const [emails, setEmails] = useState([""]);
+  const [showRules, setShowRules] = useState(false);
+  const { toast } = useToast();
+
+  const rules = [
+    { id: 1, name: "Pendencia Ativa — Contrato Ativo ou Recem Cancelado", active: true, condition: "contrato_ativo_ou_cancelado_90d AND inadimplente", action: "criar_alerta(PENDENCIA_ATIVA)", desc: "Dispara apenas quando o cliente tem contrato ativo ou cancelado nos ultimos 90 dias, garantindo assertividade." },
+    { id: 2, name: "Perfil Serial — Multiplas Consultas em 30 dias", active: true, condition: "consultas_30d >= 3", action: "criar_alerta(PERFIL_SERIAL, score=80)", desc: "CPF que consultou 3+ provedores em 30 dias — padrao de migracao sem pagamento." },
+    { id: 3, name: "Equipamento Pendente", active: true, condition: "equipamento_nao_devolvido AND buscando_migrar", action: "criar_alerta(EQUIPAMENTO)", desc: "Cliente com equipamento em comodato buscando novo provedor — risco elevado de perda." },
+    { id: 4, name: "Score Critico — Bloqueio de Aprovacao", active: false, condition: "score_migracao >= 75 AND sem_pagamento_3_faturas", action: "bloquear_aprovacao_automatica", desc: "Exige revisao manual para clientes com historico critico de migracao." },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <Card className="p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Protecao Ativa</h3>
+            <p className="text-xs text-slate-400 mt-0.5">Monitora clientes inadimplentes a cada consulta ISP realizada na rede</p>
+          </div>
+          <Switch checked={enabled} onCheckedChange={setEnabled} data-testid="switch-enabled" />
         </div>
         <Separator />
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <Label className="font-semibold text-slate-900">Notificar tentativas de fuga (CRITICO)</Label>
-              <p className="text-xs text-slate-400">Email imediato quando cliente inadimplente e consultado</p>
+          {[
+            { label: "Migracao com Pendencia", desc: "Alerta quando cliente com contrato ativo busca novo provedor", v: alertDebt, set: setAlertDebt, id: "debt", color: "red" },
+            { label: "Perfil Serial", desc: "Alerta quando CPF consulta 3+ provedores em 30 dias", v: alertSerial, set: setAlertSerial, id: "serial", color: "purple" },
+            { label: "Equipamento com Pendencia", desc: "Alerta quando cliente com equipamento pendente tenta migrar", v: alertEqp, set: setAlertEqp, id: "eqp", color: "amber" },
+          ].map(item => (
+            <div key={item.id} className="flex items-center justify-between">
+              <div>
+                <Label className="text-sm font-semibold text-slate-900">{item.label}</Label>
+                <p className="text-xs text-slate-400 mt-0.5">{item.desc}</p>
+              </div>
+              <Switch checked={item.v} onCheckedChange={item.set} data-testid={`switch-${item.id}`} />
             </div>
-            <Switch checked={notifyCritical} onCheckedChange={setNotifyCritical} data-testid="switch-notify-critical" />
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <Label className="font-semibold text-slate-900">Notificar risco de equipamento (ALTO)</Label>
-              <p className="text-xs text-slate-400">Email quando risco de perda de equipamento e detectado</p>
-            </div>
-            <Switch checked={notifyHigh} onCheckedChange={setNotifyHigh} data-testid="switch-notify-high" />
-          </div>
+          ))}
         </div>
       </Card>
 
-      <Button className="w-full gap-2" onClick={() => toast({ title: "Configuracoes salvas" })} data-testid="button-save-config">
-        <CheckCircle className="w-4 h-4" />
-        Salvar Configuracoes
+      <Card className="p-4 space-y-3">
+        <h3 className="text-sm font-bold text-slate-900">Limites de Deteccao</h3>
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { label: "Dias minimos de atraso", v: minDays, set: setMinDays, id: "days", hint: "para gerar alerta" },
+            { label: "Consultas em 30 dias", v: maxConsu, set: setMaxConsu, id: "consu", hint: "para perfil serial" },
+            { label: "Valor minimo equipamento (R$)", v: minEqp, set: setMinEqp, id: "eqpval", hint: "para alerta de perda" },
+          ].map(f => (
+            <div key={f.id} className="space-y-1">
+              <Label className="text-xs font-semibold text-slate-700">{f.label}</Label>
+              <Input type="number" value={f.v} onChange={e => f.set(e.target.value)} className="h-8 text-sm" data-testid={`input-${f.id}`} />
+              <p className="text-[10px] text-slate-400">{f.hint}</p>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card className="p-4 space-y-3">
+        <h3 className="text-sm font-bold text-slate-900">Notificacoes por Email</h3>
+        <div className="space-y-2">
+          {emails.map((e, i) => (
+            <div key={i} className="flex gap-2">
+              <Input type="email" placeholder="email@provedor.com.br" value={e} onChange={ev => { const n = [...emails]; n[i] = ev.target.value; setEmails(n); }} className="h-8 text-sm flex-1" data-testid={`email-${i}`} />
+              {emails.length > 1 && <Button size="sm" variant="ghost" onClick={() => setEmails(emails.filter((_, j) => j !== i))} className="h-8 px-2"><XCircle className="w-4 h-4 text-slate-300" /></Button>}
+            </div>
+          ))}
+          <Button size="sm" variant="outline" className="text-xs h-7 w-full" onClick={() => setEmails([...emails, ""])} data-testid="add-email">+ Adicionar email</Button>
+        </div>
+      </Card>
+
+      <div>
+        <button
+          onClick={() => setShowRules(!showRules)}
+          className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-3 hover:text-slate-900 transition-colors"
+          data-testid="toggle-rules"
+        >
+          <BookOpen className="w-4 h-4 text-slate-400" />
+          Regras de Deteccao
+          {showRules ? <ChevronUp className="w-3.5 h-3.5 text-slate-400" /> : <ChevronDown className="w-3.5 h-3.5 text-slate-400" />}
+        </button>
+        {showRules && (
+          <div className="space-y-2">
+            {rules.map(rule => (
+              <Card key={rule.id} className={`overflow-hidden border ${rule.active ? "border-slate-200" : "border-slate-100 opacity-60"}`} data-testid={`rule-${rule.id}`}>
+                <div className="flex">
+                  <div className={`w-1 flex-shrink-0 ${rule.active ? "bg-emerald-500" : "bg-slate-200"}`} />
+                  <div className="flex-1 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-900 leading-tight">{rule.name}</p>
+                        <p className="text-xs text-slate-500 mt-1">{rule.desc}</p>
+                        <div className="font-mono text-[10px] mt-2 space-y-0.5 bg-slate-50 rounded p-2 border border-slate-100">
+                          <p><span className="text-blue-500">SE:</span> <span className="text-slate-600">{rule.condition}</span></p>
+                          <p><span className="text-emerald-500">ENTAO:</span> <span className="text-slate-600">{rule.action}</span></p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <Button className="w-full h-9" onClick={() => toast({ title: "Configuracoes salvas" })} data-testid="save-config">
+        <CheckCircle className="w-4 h-4 mr-2" /> Salvar Configuracoes
       </Button>
     </div>
   );
@@ -1153,182 +690,101 @@ function ConfiguracoesTab() {
 export default function AntiFraudePage() {
   const { toast } = useToast();
 
-  const { data: alerts = [], isLoading: alertsLoading } = useQuery<AntiFraudAlert[]>({
-    queryKey: ["/api/anti-fraud/alerts"],
+  const { data: alerts = [], isLoading } = useQuery<AntiFraudAlert[]>({ queryKey: ["/api/anti-fraud/alerts"] });
+  const { data: customerRisk = [] } = useQuery<CustomerRisk[]>({ queryKey: ["/api/anti-fraud/customer-risk"] });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) => apiRequest("PATCH", `/api/anti-fraud/alerts/${id}/status`, { status }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/anti-fraud/alerts"] }),
   });
 
-  const { data: customerRisk = [], isLoading: riskLoading } = useQuery<CustomerRisk[]>({
-    queryKey: ["/api/anti-fraud/customer-risk"],
-  });
+  const onResolve = (id: number) => updateMutation.mutate({ id, status: "resolved" }, { onSuccess: () => toast({ title: "Resolvido" }) });
+  const onDismiss = (id: number) => updateMutation.mutate({ id, status: "dismissed" }, { onSuccess: () => toast({ title: "Ignorado" }) });
 
-  const updateStatusMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: number; status: string }) => {
-      await apiRequest("PATCH", `/api/anti-fraud/alerts/${id}/status`, { status });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/anti-fraud/alerts"] });
-    },
-  });
-
-  const handleResolve = (id: number) => updateStatusMutation.mutate({ id, status: "resolved" }, { onSuccess: () => toast({ title: "Alerta resolvido" }) });
-  const handleDismiss = (id: number) => updateStatusMutation.mutate({ id, status: "dismissed" }, { onSuccess: () => toast({ title: "Alerta ignorado" }) });
-
-  const activeAlerts = alerts.filter(a => a.status === "new");
-  const fugaAttempts = activeAlerts.filter(a => a.type === "defaulter_consulted");
-  const serialMigrators = activeAlerts.filter(a => a.type === "multiple_consultations");
-  const totalPrejuizo = activeAlerts.reduce((s, a) => s + parseFloat(a.overdueAmount || "0") + parseFloat(a.equipmentValue || "0"), 0);
-  const equipmentAtRisk = activeAlerts.filter(a => (a.equipmentNotReturned || 0) > 0);
-  const totalEquipmentValue = equipmentAtRisk.reduce((s, a) => s + parseFloat(a.equipmentValue || "0"), 0);
+  const active = alerts.filter(a => a.status === "new");
+  const fugaAtivos = active.filter(a => a.type === "defaulter_consulted");
+  const serialAtivos = active.filter(a => a.type === "multiple_consultations");
+  const totalPrejuizo = active.reduce((s, a) => s + parseFloat(a.overdueAmount || "0") + parseFloat(a.equipmentValue || "0"), 0);
 
   return (
-    <div className="p-6 space-y-5 max-w-5xl mx-auto" data-testid="anti-fraude-page">
+    <div className="p-6 max-w-4xl mx-auto space-y-5" data-testid="anti-fraude-page">
 
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-rose-600 to-rose-800 flex items-center justify-center shadow-md">
-            <ShieldAlert className="w-6 h-6 text-white" />
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500 to-rose-700 flex items-center justify-center shadow-sm">
+            <ShieldAlert className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-2xl font-black text-slate-900" data-testid="text-anti-fraude-title">Anti-Fraude — Migracao Serial</h1>
-            <p className="text-sm text-slate-500">Protege seu provedor contra clientes que migram sem pagar e sem devolver equipamentos</p>
+            <h1 className="text-xl font-black text-slate-900" data-testid="page-title">Anti-Fraude</h1>
+            <p className="text-xs text-slate-400">Migracao serial — protecao contra clientes que migram sem pagar</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {fugaAttempts.length > 0 && (
-            <span className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-red-100 text-red-700 border border-red-200 animate-pulse" data-testid="badge-fuga-count">
-              <WifiOff className="w-3.5 h-3.5" /> {fugaAttempts.length} com Pendencia Ativa
-            </span>
-          )}
-          {serialMigrators.length > 0 && (
-            <span className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-purple-100 text-purple-700 border border-purple-200" data-testid="badge-serial-count">
-              <Users className="w-3.5 h-3.5" /> {serialMigrators.length} Perfil Serial
-            </span>
-          )}
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { queryClient.invalidateQueries({ queryKey: ["/api/anti-fraud/alerts"] }); queryClient.invalidateQueries({ queryKey: ["/api/anti-fraud/customer-risk"] }); }} data-testid="button-refresh">
-            <RefreshCw className="w-3.5 h-3.5" />
-            Atualizar
+
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4 text-sm">
+            <div className="text-right">
+              <p className="text-2xl font-black text-slate-900 leading-none" data-testid="kpi-ativos">{active.length}</p>
+              <p className="text-[10px] text-slate-400">alertas ativos</p>
+            </div>
+            <div className="w-px h-8 bg-slate-200" />
+            <div className="text-right">
+              <p className={`text-lg font-black leading-none ${totalPrejuizo > 0 ? "text-red-600" : "text-slate-300"}`} data-testid="kpi-prejuizo">
+                {totalPrejuizo > 0 ? money(totalPrejuizo) : "—"}
+              </p>
+              <p className="text-[10px] text-slate-400">prejuizo em risco</p>
+            </div>
+            {fugaAtivos.length > 0 && (
+              <>
+                <div className="w-px h-8 bg-slate-200" />
+                <div className="text-right">
+                  <p className="text-lg font-black text-orange-600 leading-none animate-pulse">{fugaAtivos.length}</p>
+                  <p className="text-[10px] text-slate-400">com pendencia ativa</p>
+                </div>
+              </>
+            )}
+          </div>
+          <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" onClick={() => { queryClient.invalidateQueries({ queryKey: ["/api/anti-fraud/alerts"] }); queryClient.invalidateQueries({ queryKey: ["/api/anti-fraud/customer-risk"] }); }} data-testid="button-refresh">
+            <RefreshCw className="w-3.5 h-3.5" /> Atualizar
           </Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <PrejuizoCard
-          label="Migracao com Pendencia"
-          value={fugaAttempts.length}
-          sub="clientes buscando migrar com divida ativa"
-          icon={WifiOff}
-          color="bg-red-500"
-          alert={fugaAttempts.length > 0}
-        />
-        <PrejuizoCard
-          label="Perfil Serial Detectado"
-          value={serialMigrators.length}
-          sub="clientes que consultaram 3+ provedores"
-          icon={UserX}
-          color="bg-purple-500"
-        />
-        <PrejuizoCard
-          label="Prejuizo em Risco"
-          value={formatCurrency(totalPrejuizo)}
-          sub="dividas + equipamentos"
-          icon={DollarSign}
-          color="bg-rose-600"
-          alert={totalPrejuizo > 0}
-        />
-        <PrejuizoCard
-          label="Equipamentos Ameacados"
-          value={equipmentAtRisk.length > 0 ? formatCurrency(totalEquipmentValue) : equipmentAtRisk.length}
-          sub={equipmentAtRisk.length > 0 ? `${equipmentAtRisk.length} item(ns) em risco` : "nenhum em risco"}
-          icon={Package}
-          color="bg-amber-500"
-        />
-      </div>
-
-      {activeAlerts.length === 0 && !alertsLoading && (
-        <Card className="p-5 border-emerald-200 bg-emerald-50/30">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center flex-shrink-0">
-              <Shield className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <p className="font-bold text-emerald-900">Nenhuma tentativa de migracao ativa</p>
-              <p className="text-sm text-emerald-700">
-                Os alertas aparecem automaticamente quando um cliente seu com divida e consultado por outro provedor.
-                Quanto mais provedores utilizarem a plataforma, mais eficaz e a protecao da rede colaborativa.
-              </p>
-            </div>
-          </div>
-        </Card>
-      )}
-
       <Tabs defaultValue="alertas" className="space-y-4">
-        <TabsList className="flex-wrap h-auto gap-1 bg-slate-100/80 p-1 rounded-xl">
-          <TabsTrigger value="alertas" className="gap-1.5 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm" data-testid="tab-alertas">
+        <TabsList className="grid w-full grid-cols-3 bg-slate-100 p-1 rounded-xl h-auto">
+          <TabsTrigger value="alertas" className="rounded-lg text-xs font-semibold data-[state=active]:bg-white data-[state=active]:shadow-sm gap-1.5" data-testid="tab-alertas">
             <Bell className="w-3.5 h-3.5" />
             Alertas
-            {activeAlerts.length > 0 && (
-              <span className="ml-1 h-5 min-w-5 text-xs px-1.5 bg-red-500 text-white rounded-full flex items-center justify-center font-bold">{activeAlerts.length}</span>
-            )}
+            {active.length > 0 && <span className="h-4 min-w-4 text-[10px] px-1 bg-red-500 text-white rounded-full flex items-center justify-center font-bold">{active.length}</span>}
           </TabsTrigger>
-          <TabsTrigger value="migradores" className="gap-1.5 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm" data-testid="tab-migradores">
+          <TabsTrigger value="migradores" className="rounded-lg text-xs font-semibold data-[state=active]:bg-white data-[state=active]:shadow-sm gap-1.5" data-testid="tab-migradores">
             <UserX className="w-3.5 h-3.5" />
             Migradores
-            {serialMigrators.length > 0 && (
-              <span className="ml-1 h-5 min-w-5 text-xs px-1.5 bg-purple-500 text-white rounded-full flex items-center justify-center font-bold">{serialMigrators.length}</span>
-            )}
+            {serialAtivos.length > 0 && <span className="h-4 min-w-4 text-[10px] px-1 bg-purple-500 text-white rounded-full flex items-center justify-center font-bold">{serialAtivos.length}</span>}
           </TabsTrigger>
-          <TabsTrigger value="score" className="gap-1.5 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm" data-testid="tab-score">
-            <BarChart3 className="w-3.5 h-3.5" />
-            Score de Risco
-          </TabsTrigger>
-          <TabsTrigger value="ia" className="gap-1.5 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm" data-testid="tab-ia">
-            <BrainCircuit className="w-3.5 h-3.5" />
-            Analise IA
-          </TabsTrigger>
-          <TabsTrigger value="regras" className="gap-1.5 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm" data-testid="tab-regras">
-            <BookOpen className="w-3.5 h-3.5" />
-            Regras
-          </TabsTrigger>
-          <TabsTrigger value="config" className="gap-1.5 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm" data-testid="tab-config">
+          <TabsTrigger value="config" className="rounded-lg text-xs font-semibold data-[state=active]:bg-white data-[state=active]:shadow-sm gap-1.5" data-testid="tab-config">
             <Settings className="w-3.5 h-3.5" />
             Configuracoes
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="alertas">
-          {alertsLoading ? (
-            <Card className="p-8">
-              <div className="text-center py-8 text-slate-400">
-                <RefreshCw className="w-8 h-8 mx-auto mb-3 animate-spin opacity-50" />
-                <p className="text-sm">Carregando alertas...</p>
-              </div>
-            </Card>
-          ) : (
-            <AlertasTab alerts={alerts} onResolve={handleResolve} onDismiss={handleDismiss} />
-          )}
+          <MonitoramentoTab
+            alerts={alerts}
+            customerRisk={customerRisk}
+            onResolve={onResolve}
+            onDismiss={onDismiss}
+            isLoading={isLoading}
+          />
         </TabsContent>
 
         <TabsContent value="migradores">
-          <MigradoresTab alerts={alerts} customerRisk={customerRisk} />
-        </TabsContent>
-
-        <TabsContent value="score">
-          <ScoreRiscoTab customerRisk={customerRisk} isLoading={riskLoading} />
-        </TabsContent>
-
-        <TabsContent value="ia">
-          <AnaliseIATab alerts={alerts} customerRisk={customerRisk} />
-        </TabsContent>
-
-        <TabsContent value="regras">
-          <RegrasTab />
+          <MigradoresTab alerts={alerts} />
         </TabsContent>
 
         <TabsContent value="config">
-          <ConfiguracoesTab />
+          <ConfigTab />
         </TabsContent>
       </Tabs>
     </div>
   );
 }
-
