@@ -671,200 +671,181 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Provedor nao encontrado" });
       }
 
-      // ── EXTERNAL ISP API ──────────────────────────────────────────────
-      // Primary consultation: query ALL providers with configured ERP credentials
-      const EXTERNAL_ISP_URL = "https://n8n.aluisiocunha.com.br/webhook/isp-consult";
-      const EXTERNAL_ISP_AUTH = "Basic aXNwX2FuYWxpenplOmlzcGFuYWxpenplMTIzMTIz";
+      // ── N8N MULTI-PROVIDER QUERY ─────────────────────────────────────
+      // Query ALL providers that have N8N enabled with a webhook URL configured.
+      // Each provider's N8N handles querying their own ERP and returns customers.
+      const n8nProviders = await storage.getAllProvidersWithN8n();
 
-      const allEnabledErpIntegrations = await storage.getAllEnabledErpIntegrationsWithCredentials();
-
-      if (allEnabledErpIntegrations.length > 0) {
-        try {
-          const integrations = allEnabledErpIntegrations.map(erp => ({
-            provider_id: String(erp.providerId),
-            provider_name: erp.providerName,
-            erp: erp.erpSource,
-            api_url: erp.apiUrl || "",
-            api_key: erp.apiToken || "",
-          }));
-
-          const extPayload = {
-            document: cleaned,
-            searchType: "document",
-            addressQuery: null,
-            integrations,
-          };
-
-          const extRes = await fetch(EXTERNAL_ISP_URL, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": EXTERNAL_ISP_AUTH,
-            },
-            body: JSON.stringify(extPayload),
-            signal: AbortSignal.timeout(25000),
-          });
-
-          let extRaw: any;
-          if (!extRes.ok) {
-            let errBody = "";
-            try { errBody = await extRes.text(); } catch {}
-            console.error(`[ISP-EXT] HTTP ${extRes.status} | Payload: ${JSON.stringify(extPayload)} | Resposta: ${errBody}`);
-
-            // N8N "No item to return was found" means workflow ran but returned no results → treat as notFound, fall through to local DB
-            let errJson: any = null;
-            try { errJson = JSON.parse(errBody); } catch {}
-            const isNoItems = errJson?.message === "No item to return was found" || errJson?.code === 0;
-            if (isNoItems) {
-              // Fall through to local DB lookup
-              console.log("[ISP-EXT] N8N retornou sem itens — usando base local como fallback");
-            } else {
-              return res.status(502).json({ message: `Erro na API ISP: HTTP ${extRes.status}`, detail: errBody });
+      if (n8nProviders.length > 0) {
+        // Query each provider's N8N in parallel
+        const n8nResults = await Promise.allSettled(
+          n8nProviders.map(async (prov) => {
+            const headers: Record<string, string> = { "Content-Type": "application/json" };
+            if (prov.n8nAuthToken) {
+              headers["Authorization"] = `Basic ${prov.n8nAuthToken}`;
             }
-          } else {
-            extRaw = await extRes.json();
-          }
-
-          // Response can be [{data:{customers:[...]}}] or {data:{customers:[...]}} or {customers:[...]}
-          const responseObj = Array.isArray(extRaw) ? extRaw[0] : extRaw;
-          const customers: any[] = responseObj?.data?.customers
-            || responseObj?.customers
-            || [];
-
-          const notFound = customers.length === 0;
-
-          const computeScore = (c: any): number => {
-            const ps = (c.payment_status || "").toLowerCase();
-            if (ps === "current") return 90;
-            if (ps === "cancelled") return 40;
-            if (ps === "suspended") return 35;
-            const days = c.payment_summary?.max_days_overdue || 0;
-            if (days > 90) return 15;
-            if (days > 60) return 30;
-            if (days > 30) return 50;
-            if (days > 0) return 65;
-            return 75;
-          };
-
-          const scores = customers.map(computeScore);
-          const finalScore = notFound ? 100 : Math.min(...scores);
-          const risk = getRiskTier(finalScore);
-          const decisionReco = getDecisionReco(finalScore);
-          const recommendedActions = getRecommendedActions(finalScore, false);
-
-          const paymentStatusMap: Record<string, string> = {
-            "current": "Em dia",
-            "overdue": "Inadimplente",
-            "cancelled": "Cancelado",
-            "suspended": "Suspenso",
-          };
-
-          const providerDetails = customers.map((c: any) => {
-            const ps = (c.payment_status || "").toLowerCase();
-            const ps2 = c.payment_status || "";
-            const overdueAmount = Number(c.payment_summary?.open_overdue_amount || 0);
-            const maxDays = Number(c.payment_summary?.max_days_overdue || 0);
-            const overdueCount = Number(c.payment_summary?.open_overdue_count || 0);
-            const serviceAgeMonths = Number(c.service_age_months || 0);
-
-            // Determine which provider this customer belongs to.
-            // N8N returns provider_id/provider_name per customer when multiple providers are sent.
-            const customerProviderId = c.provider_id ? Number(c.provider_id) : null;
-            const customerProviderName = c.provider_name || c.providerName || provider.name;
-            const isSame = customerProviderId !== null
-              ? customerProviderId === providerId
-              : true;
-
-            return {
-              providerName: customerProviderName,
-              isSameProvider: isSame,
-              customerName: isSame ? (c.full_name || "Desconhecido") : "***",
-              status: paymentStatusMap[ps] || ps2 || "Em dia",
-              daysOverdue: maxDays,
-              overdueAmount: isSame ? overdueAmount : undefined,
-              overdueAmountRange: isSame ? undefined : (overdueAmount > 0 ? `R$ ${Math.floor(overdueAmount / 100) * 100} - R$ ${(Math.floor(overdueAmount / 100) + 1) * 100}` : undefined),
-              overdueInvoicesCount: overdueCount,
-              contractStartDate: serviceAgeMonths > 0
-                ? new Date(Date.now() - serviceAgeMonths * 30 * 86400000).toISOString()
-                : new Date().toISOString(),
-              contractAgeDays: serviceAgeMonths * 30,
-              hasUnreturnedEquipment: false,
-              unreturnedEquipmentCount: 0,
-              planName: isSame ? c.plan_name : undefined,
-              phone: isSame ? c.phone : undefined,
-              email: isSame ? c.email : undefined,
-              address: isSame ? [c.address, c.neighborhood, c.city, c.state].filter(Boolean).join(", ") : undefined,
-              lastPaymentDate: isSame ? c.payment_summary?.last_payment_date : undefined,
-              lastPaymentValue: isSame ? c.payment_summary?.last_payment_value : undefined,
-              openAmountTotal: isSame ? c.payment_summary?.open_amount_total : undefined,
-              openItems: isSame ? (c.payment_summary?.open_items || []) : [],
+            const payload = {
+              searchType: "document",
+              document: cleaned,
+              providerId: String(prov.id),
             };
-          });
+            const resp = await fetch(prov.n8nWebhookUrl, {
+              method: "POST",
+              headers,
+              body: JSON.stringify(payload),
+              signal: AbortSignal.timeout(20000),
+            });
 
-          const alerts: string[] = [];
-          for (const c of customers) {
-            const ps = (c.payment_status || "").toLowerCase();
+            if (resp.status === 401) {
+              console.warn(`[ISP-N8N] Provedor ${prov.name} (${prov.id}): autenticacao falhou (401)`);
+              return { providerInfo: prov, customers: [] as any[] };
+            }
+
+            let raw: any;
+            try { raw = await resp.json(); } catch { raw = null; }
+
+            // Handle N8N "No item to return was found" as empty result
+            if (!resp.ok) {
+              const isNoItems = raw?.message === "No item to return was found" || raw?.code === 0;
+              if (!isNoItems) {
+                console.warn(`[ISP-N8N] Provedor ${prov.name} HTTP ${resp.status}:`, raw);
+              }
+              return { providerInfo: prov, customers: [] as any[] };
+            }
+
+            // Support response shapes: [{data:{customers:[...]}}] or {data:{customers:[...]}} or {customers:[...]}
+            const obj = Array.isArray(raw) ? raw[0] : raw;
+            const customers: any[] = obj?.data?.customers || obj?.customers || [];
+            return { providerInfo: prov, customers };
+          })
+        );
+
+        // Flatten all customers, tagging each with which provider returned them
+        const allCustomers: Array<{ c: any; providerInfo: (typeof n8nProviders)[0] }> = [];
+        for (const settled of n8nResults) {
+          if (settled.status === "fulfilled") {
+            for (const c of settled.value.customers) {
+              allCustomers.push({ c, providerInfo: settled.value.providerInfo });
+            }
+          }
+        }
+
+        const notFound = allCustomers.length === 0;
+
+        const computeScore = (c: any): number => {
+          const ps = (c.payment_status || "").toLowerCase();
+          if (ps === "current") return 90;
+          if (ps === "cancelled") return 40;
+          if (ps === "suspended") return 35;
+          const days = c.payment_summary?.max_days_overdue || 0;
+          if (days > 90) return 15;
+          if (days > 60) return 30;
+          if (days > 30) return 50;
+          if (days > 0) return 65;
+          return 75;
+        };
+
+        const scores = allCustomers.map(({ c }) => computeScore(c));
+        const finalScore = notFound ? 100 : Math.min(...scores);
+        const risk = getRiskTier(finalScore);
+        const decisionReco = getDecisionReco(finalScore);
+        const recommendedActions = getRecommendedActions(finalScore, false);
+
+        const paymentStatusMap: Record<string, string> = {
+          "current": "Em dia",
+          "overdue": "Inadimplente",
+          "cancelled": "Cancelado",
+          "suspended": "Suspenso",
+        };
+
+        const providerDetails = allCustomers.map(({ c, providerInfo }) => {
+          const ps = (c.payment_status || "").toLowerCase();
+          const ps2 = c.payment_status || "";
+          const overdueAmount = Number(c.payment_summary?.open_overdue_amount || 0);
+          const maxDays = Number(c.payment_summary?.max_days_overdue || 0);
+          const overdueCount = Number(c.payment_summary?.open_overdue_count || 0);
+          const serviceAgeMonths = Number(c.service_age_months || 0);
+
+          const isSame = providerInfo.id === providerId;
+
+          return {
+            providerName: providerInfo.name,
+            isSameProvider: isSame,
+            customerName: isSame ? (c.full_name || "Desconhecido") : "***",
+            status: paymentStatusMap[ps] || ps2 || "Em dia",
+            daysOverdue: maxDays,
+            overdueAmount: isSame ? overdueAmount : undefined,
+            overdueAmountRange: isSame ? undefined : (overdueAmount > 0
+              ? `R$ ${Math.floor(overdueAmount / 100) * 100} - R$ ${(Math.floor(overdueAmount / 100) + 1) * 100}`
+              : undefined),
+            overdueInvoicesCount: overdueCount,
+            contractStartDate: serviceAgeMonths > 0
+              ? new Date(Date.now() - serviceAgeMonths * 30 * 86400000).toISOString()
+              : new Date().toISOString(),
+            contractAgeDays: serviceAgeMonths * 30,
+            hasUnreturnedEquipment: false,
+            unreturnedEquipmentCount: 0,
+            planName: isSame ? c.plan_name : undefined,
+            phone: isSame ? c.phone : undefined,
+            email: isSame ? c.email : undefined,
+            address: isSame ? [c.address, c.neighborhood, c.city, c.state].filter(Boolean).join(", ") : undefined,
+            lastPaymentDate: isSame ? c.payment_summary?.last_payment_date : undefined,
+            lastPaymentValue: isSame ? c.payment_summary?.last_payment_value : undefined,
+            openAmountTotal: isSame ? c.payment_summary?.open_amount_total : undefined,
+            openItems: isSame ? (c.payment_summary?.open_items || []) : [],
+          };
+        });
+
+        const alerts: string[] = [];
+        for (const { c, providerInfo } of allCustomers) {
+          const ps = (c.payment_status || "").toLowerCase();
+          if (ps === "overdue" || ps === "inadimplente") {
             const days = c.payment_summary?.max_days_overdue || 0;
             const amount = c.payment_summary?.open_overdue_amount || 0;
-            if (ps === "overdue" || ps === "inadimplente") {
-              const cProviderId = c.provider_id ? Number(c.provider_id) : null;
-              const cProviderName = c.provider_name || c.providerName || provider.name;
-              alerts.push(`[${cProviderName}] Cliente inadimplente: ${days} dias em atraso, R$ ${Number(amount).toFixed(2)} em aberto`);
-            }
+            alerts.push(`[${providerInfo.name}] Cliente inadimplente: ${days} dias em atraso, R$ ${Number(amount).toFixed(2)} em aberto`);
           }
-
-          const uniqueProviderIds = new Set(
-            customers.map((c: any) => c.provider_id || "unknown").filter(Boolean)
-          );
-
-          const isOwnCustomer = customers.some((c: any) =>
-            c.provider_id ? Number(c.provider_id) === providerId : true
-          );
-
-          const result = {
-            cpfCnpj: cleaned,
-            searchType,
-            notFound,
-            score: finalScore,
-            riskTier: risk.tier,
-            riskLabel: risk.label,
-            recommendation: risk.recommendation,
-            decisionReco,
-            providersFound: notFound ? 0 : (uniqueProviderIds.size > 0 ? uniqueProviderIds.size : customers.length > 0 ? 1 : 0),
-            providerDetails,
-            penalties: [],
-            bonuses: [],
-            alerts,
-            recommendedActions,
-            creditsCost: 0,
-            isOwnCustomer,
-            source: "external_isp",
-          };
-
-          const consultation = await storage.createIspConsultation({
-            providerId,
-            userId: req.session.userId!,
-            cpfCnpj: cleaned,
-            searchType,
-            result,
-            score: finalScore,
-            decisionReco,
-            cost: 0,
-            approved: finalScore >= 50,
-          });
-
-          return res.json({ consultation, result });
-        } catch (extErr: any) {
-          if (extErr.name === "AbortError" || extErr.name === "TimeoutError") {
-            return res.status(504).json({ message: "Timeout ao conectar com a API ISP (25s). Verifique sua conexao." });
-          }
-          return res.status(502).json({ message: `Erro ao chamar API ISP: ${extErr.message}` });
         }
-      }
-      // ── FIM EXTERNAL ISP API ──────────────────────────────────────────
 
-      // ── N8N INTEGRATION ──────────────────────────────────────────────
-      // If provider has N8N configured and enabled, query N8N instead of local DB
+        const uniqueProviderIds = new Set(allCustomers.map(({ providerInfo }) => providerInfo.id));
+        const isOwnCustomer = allCustomers.some(({ providerInfo }) => providerInfo.id === providerId);
+
+        const result = {
+          cpfCnpj: cleaned,
+          searchType,
+          notFound,
+          score: finalScore,
+          riskTier: risk.tier,
+          riskLabel: risk.label,
+          recommendation: risk.recommendation,
+          decisionReco,
+          providersFound: uniqueProviderIds.size,
+          providerDetails,
+          penalties: [],
+          bonuses: [],
+          alerts,
+          recommendedActions,
+          creditsCost: 0,
+          isOwnCustomer,
+          source: "n8n_multi",
+        };
+
+        const consultation = await storage.createIspConsultation({
+          providerId,
+          userId: req.session.userId!,
+          cpfCnpj: cleaned,
+          searchType,
+          result,
+          score: finalScore,
+          decisionReco,
+          cost: 0,
+          approved: finalScore >= 50,
+        });
+
+        return res.json({ consultation, result });
+      }
+      // ── FIM N8N MULTI-PROVIDER ────────────────────────────────────────
+
+      // ── N8N INTEGRATION (LEGACY — fallback for current provider only) ─
       const n8nCfg = await storage.getN8nConfig(providerId);
       if (n8nCfg.n8nEnabled && n8nCfg.n8nWebhookUrl) {
         try {

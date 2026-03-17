@@ -45,6 +45,7 @@ export interface IStorage {
   createProvider(provider: InsertProvider): Promise<Provider>;
   updateProvider(id: number, data: Partial<Pick<Provider, "name" | "contactEmail" | "contactPhone" | "website">>): Promise<Provider>;
   getAllProviders(): Promise<Provider[]>;
+  getAllProvidersWithN8n(): Promise<Array<{ id: number; name: string; n8nWebhookUrl: string; n8nAuthToken: string | null; n8nEnabled: boolean }>>;
   updateProviderCredits(id: number, ispCredits: number, spcCredits: number): Promise<void>;
   deleteProvider(id: number): Promise<void>;
 
@@ -243,6 +244,31 @@ export class DatabaseStorage implements IStorage {
 
   async getAllProviders(): Promise<Provider[]> {
     return db.select().from(providers);
+  }
+
+  async getAllProvidersWithN8n(): Promise<Array<{ id: number; name: string; n8nWebhookUrl: string; n8nAuthToken: string | null; n8nEnabled: boolean }>> {
+    const rows = await db
+      .select({
+        id: providers.id,
+        name: providers.name,
+        n8nWebhookUrl: providers.n8nWebhookUrl,
+        n8nAuthToken: providers.n8nAuthToken,
+        n8nEnabled: providers.n8nEnabled,
+      })
+      .from(providers)
+      .where(
+        and(
+          eq(providers.n8nEnabled, true),
+          sql`${providers.n8nWebhookUrl} IS NOT NULL AND ${providers.n8nWebhookUrl} != ''`,
+        )
+      );
+    return rows.map(r => ({
+      id: r.id,
+      name: r.name,
+      n8nWebhookUrl: r.n8nWebhookUrl as string,
+      n8nAuthToken: r.n8nAuthToken ?? null,
+      n8nEnabled: r.n8nEnabled ?? false,
+    }));
   }
 
   async updateProviderCredits(id: number, ispCredits: number, spcCredits: number): Promise<void> {
