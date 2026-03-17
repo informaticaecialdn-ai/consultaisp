@@ -677,8 +677,7 @@ export async function registerRoutes(
       const EXTERNAL_ISP_AUTH = "Basic aXNwX2FuYWxpenplOmlzcGFuYWxpenplMTIzMTIz";
 
       const erpIntegrationsList = await storage.getErpIntegrations(providerId);
-      // Only include integrations that have api_url configured; ignore purely enabled-but-unconfigured ones
-      const enabledIntegrations = erpIntegrationsList.filter(e => e.isEnabled && e.apiUrl && e.apiUrl.trim() !== "");
+      const enabledIntegrations = erpIntegrationsList.filter(e => e.isEnabled);
 
       if (enabledIntegrations.length > 0) {
         try {
@@ -707,16 +706,25 @@ export async function registerRoutes(
             signal: AbortSignal.timeout(25000),
           });
 
+          let extRaw: any;
           if (!extRes.ok) {
             let errBody = "";
             try { errBody = await extRes.text(); } catch {}
-            console.error(`[ISP-EXT] HTTP ${extRes.status} ao chamar ${EXTERNAL_ISP_URL}`);
-            console.error(`[ISP-EXT] Payload enviado:`, JSON.stringify(extPayload));
-            console.error(`[ISP-EXT] Resposta:`, errBody);
-            return res.status(502).json({ message: `Erro na API ISP externa: HTTP ${extRes.status}`, detail: errBody });
-          }
+            console.error(`[ISP-EXT] HTTP ${extRes.status} | Payload: ${JSON.stringify(extPayload)} | Resposta: ${errBody}`);
 
-          const extRaw: any = await extRes.json();
+            // N8N "No item to return was found" means workflow ran but returned no results → treat as notFound, fall through to local DB
+            let errJson: any = null;
+            try { errJson = JSON.parse(errBody); } catch {}
+            const isNoItems = errJson?.message === "No item to return was found" || errJson?.code === 0;
+            if (isNoItems) {
+              // Fall through to local DB lookup
+              console.log("[ISP-EXT] N8N retornou sem itens — usando base local como fallback");
+            } else {
+              return res.status(502).json({ message: `Erro na API ISP: HTTP ${extRes.status}`, detail: errBody });
+            }
+          } else {
+            extRaw = await extRes.json();
+          }
 
           // Response can be [{data:{customers:[...]}}] or {data:{customers:[...]}} or {customers:[...]}
           const responseObj = Array.isArray(extRaw) ? extRaw[0] : extRaw;
