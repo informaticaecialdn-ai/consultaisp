@@ -757,6 +757,34 @@ export async function registerRoutes(
         // Build a quick lookup: provider_id → provider info
         const providerMap = new Map(n8nProviders.map(p => [String(p.id), p]));
 
+        // ── VIACEP CITY LOOKUP ───────────────────────────────────────────
+        // IXC ERP returns internal numeric IDs in city/state fields (e.g. "4101", "3").
+        // We use the zipcode (CEP) to resolve readable city/state via ViaCEP API.
+        // Results are cached in-request to avoid duplicate calls.
+        const zipCityCache = new Map<string, { city: string; state: string }>();
+        {
+          const uniqueZips = [...new Set(
+            customers
+              .map((c: any) => ((c.zipcode || c.zip_code || c.cep || "")).replace(/\D/g, ""))
+              .filter((z: string) => z.length === 8),
+          )];
+          await Promise.all(uniqueZips.map(async (zip: string) => {
+            try {
+              const r = await fetch(`https://viacep.com.br/ws/${zip}/json/`, {
+                signal: AbortSignal.timeout(4000),
+              });
+              if (r.ok) {
+                const d = await r.json();
+                if (d.localidade && d.uf && !d.erro) {
+                  zipCityCache.set(zip, { city: d.localidade, state: d.uf });
+                }
+              }
+            } catch {
+              // ViaCEP unavailable — continue without city data
+            }
+          }));
+        }
+
         // ── ADDRESS CROSS-REFERENCE (document search only) ──────────────
         // For each unique address found in document search, do a secondary
         // N8N address query to find other customers at the same location.
@@ -871,69 +899,71 @@ export async function registerRoutes(
           // Never default to true — unknown origin = external provider.
           const isSame = customerProviderId !== null && customerProviderId === providerId;
 
-          // Build masked address fields before return
-          // 1. CEP: try c.cep first; fallback to regex extraction from combined address string
-          const cepFromAddr = !c.cep && c.address
-            ? ((c.address.match(/\b(\d{5})-?(\d{3})\b/) || [])[0] || "").replace(/\D/g, "")
+          // ── ADDRESS FIELDS ───────────────────────────────────────────────
+          // N8N returns separate fields: address (street), address_number, address_complement,
+          // neighborhood, zipcode (CEP), city/state (may be ERP internal IDs on IXC).
+
+          // 1. CEP: prefer zipcode field; fallback to zip_code, then cep, then regex from address
+          const rawCepBase = (
+            c.zipcode || c.zip_code || c.cep || ""
+          ).replace(/\D/g, "");
+          // Fallback: try to find CEP pattern in any address-like field
+          const cepFallback = !rawCepBase
+            ? ((c.address || "").match(/\b(\d{5})-?(\d{3})\b/) || [])[0] || ""
             : "";
-          const rawCep = ((c.cep || cepFromAddr || "")).replace(/\D/g, "");
+          const rawCep = rawCepBase || cepFallback.replace(/\D/g, "");
           const maskedCep = rawCep.length >= 5
             ? rawCep.replace(/^(\d{5})(\d*)$/, "$1-***")
             : null;
+          const fullCep = rawCep.length === 8
+            ? `${rawCep.slice(0, 5)}-${rawCep.slice(5)}`
+            : (rawCep || null);
 
-          // 2. City/State from ERP direct fields:
-          //    IXC and some ERPs return internal numeric IDs in city/state (e.g. "4101", "3").
-          //    Only use them when they have alphabetic characters (readable names).
-          const cityFromField = c.city && /[a-zA-ZÀ-ÿ]/.test(c.city) ? (c.city as string).trim() : null;
-          const stateFromField = c.state && /^[A-Z]{2}$/i.test((c.state as string).trim())
-            ? (c.state as string).trim().toUpperCase()
-            : null;
+          // 2. City/State: prefer ViaCEP lookup (resolves IXC numeric IDs via zipcode),
+          //    fallback to ERP fields if alphabetic, fallback to address string parsing.
+          const viaCepResult = rawCep.length === 8 ? zipCityCache.get(rawCep) : null;
 
-          // Fallback: try to extract "City - ST" or "City, ST" from combined address string.
-          // Example: "Rua das Flores, 123, São Paulo - SP" → city="São Paulo", state="SP"
+          const cityFromViaCep = viaCepResult?.city || null;
+          const stateFromViaCep = viaCepResult?.state || null;
+
+          const cityFromField = !cityFromViaCep && c.city && /[a-zA-ZÀ-ÿ]/.test(c.city)
+            ? (c.city as string).trim() : null;
+          const stateFromField = !stateFromViaCep && c.state && /^[A-Z]{2}$/i.test((c.state as string).trim())
+            ? (c.state as string).trim().toUpperCase() : null;
+
           let cityFromAddr: string | null = null;
           let stateFromAddr: string | null = null;
-          if ((!cityFromField || !stateFromField) && c.address) {
-            // Pattern: "Cidade - UF" at or near end of address
+          if (!cityFromViaCep && !cityFromField && c.address) {
             const m1 = (c.address as string).match(/,\s*([^,\d][^,]+?)\s*[-–]\s*([A-Z]{2})\s*(?:,.*)?$/i);
             if (m1) { cityFromAddr = m1[1].trim(); stateFromAddr = m1[2].toUpperCase(); }
-            // Pattern: last segment is "UF" (2 letters) and second-to-last is the city
-            if (!cityFromAddr) {
-              const parts = (c.address as string).split(",").map(s => s.trim());
-              const lastPart = parts[parts.length - 1];
-              const secLast = parts[parts.length - 2];
-              if (/^[A-Z]{2}$/i.test(lastPart) && secLast && /[a-zA-ZÀ-ÿ]/.test(secLast)) {
-                stateFromAddr = lastPart.toUpperCase();
-                cityFromAddr = secLast;
-              }
-            }
           }
 
-          const cityReadable = cityFromField || cityFromAddr;
-          const stateReadable = stateFromField || stateFromAddr;
+          const cityReadable = cityFromViaCep || cityFromField || cityFromAddr;
+          const stateReadable = stateFromViaCep || stateFromField || stateFromAddr;
 
-          // 3. Street name only: stop at the first digit run (removes house number & complement)
-          const streetOnly = c.address
-            ? (c.address as string).replace(/[,\s]*\d.*$/, "").trim()
-            : null;
+          // 3. Street name: N8N may return street only in `address`; number in `address_number`
+          const streetBase = (c.address as string | undefined)?.replace(/[,\s]*\d.*$/, "").trim() || null;
 
-          // Full address for own provider: use N8N combined address as-is; append
-          // readable neighborhood/city/state if they aren't already embedded.
-          const addrFullParts = [c.address];
-          const addrLower = (c.address || "").toLowerCase();
-          if (c.neighborhood && /[a-zA-ZÀ-ÿ]/.test(c.neighborhood) && !addrLower.includes(c.neighborhood.toLowerCase())) {
-            addrFullParts.push(c.neighborhood);
+          // Full address for own provider: street + number + complement + neighborhood + city + state
+          const addrFullParts: string[] = [];
+          if (streetBase) {
+            const streetWithNum = [streetBase, c.address_number, c.address_complement]
+              .filter(Boolean).join(", ");
+            addrFullParts.push(streetWithNum);
           }
-          if (cityReadable && !addrLower.includes(cityReadable.toLowerCase())) addrFullParts.push(cityReadable);
-          if (stateReadable && !addrLower.includes(stateReadable.toLowerCase())) addrFullParts.push(stateReadable);
+          if (c.neighborhood && /[a-zA-ZÀ-ÿ]/.test(c.neighborhood)) addrFullParts.push(c.neighborhood);
+          if (cityReadable) addrFullParts.push(cityReadable);
+          if (stateReadable) addrFullParts.push(stateReadable);
+          if (fullCep) addrFullParts.push(fullCep);
           const addrFull = addrFullParts.filter(Boolean).join(", ");
 
-          // Restricted: "Rua das Flores, *** — Londrina/PR" (city/state only when readable)
+          // Restricted: "Rua das Flores, *** — Londrina/PR"
+          // Shows street name + hidden number, and city/state from ViaCEP
           const cityStateDisplay = cityReadable && stateReadable
             ? `${cityReadable}/${stateReadable}`
             : cityReadable || null;
           const addrRestricted = [
-            streetOnly ? `${streetOnly}, ***` : null,
+            streetBase ? `${streetBase}, ***` : null,
             cityStateDisplay,
           ].filter(Boolean).join(" — ") || undefined;
 
