@@ -654,20 +654,30 @@ ${addrRows ? `<section>
                     <div className="bg-green-50 px-6 py-4 flex items-center gap-3">
                       <CheckCircle className="w-6 h-6 text-green-600" />
                       <div>
-                        <h3 className="text-lg font-semibold text-slate-900">Nada Consta</h3>
-                        <p className="text-sm text-slate-600">Documento: {formatCpfCnpj(result.cpfCnpj)}</p>
+                        <h3 className="text-lg font-semibold text-slate-900">
+                          {result.searchType === "cep" ? "Nenhum Resultado para este CEP" : "Nada Consta"}
+                        </h3>
+                        <p className="text-sm text-slate-600">
+                          {result.searchType === "cep"
+                            ? `CEP: ${result.cpfCnpj.replace(/^(\d{5})(\d{3})$/, "$1-$2")}`
+                            : `Documento: ${formatCpfCnpj(result.cpfCnpj)}`}
+                        </p>
                       </div>
                     </div>
                     <div className="p-6">
                       <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
                         <Shield className="w-5 h-5 text-green-600 flex-shrink-0" />
                         <p className="text-sm text-green-800">
-                          Nenhum cliente encontrado na base de dados. Documento sem restricoes na rede ISP colaborativa.
+                          {result.searchType === "cep"
+                            ? "Nenhum cliente encontrado nesse CEP na rede ISP colaborativa."
+                            : "Nenhum cliente encontrado na base de dados. Documento sem restricoes na rede ISP colaborativa."}
                         </p>
                       </div>
-                      <p className="text-xs text-slate-500 mt-3 text-center">
-                        Sugestao de Decisao: Aprovar — Prosseguir para Consulta SPC para verificacao completa
-                      </p>
+                      {result.searchType !== "cep" && (
+                        <p className="text-xs text-slate-500 mt-3 text-center">
+                          Sugestao de Decisao: Aprovar — Prosseguir para Consulta SPC para verificacao completa
+                        </p>
+                      )}
                     </div>
                   </Card>
                 ) : !showFullResult ? (
