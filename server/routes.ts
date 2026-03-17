@@ -671,66 +671,80 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Provedor nao encontrado" });
       }
 
-      // ── N8N MULTI-PROVIDER QUERY ─────────────────────────────────────
-      // Query ALL providers that have N8N enabled with a webhook URL configured.
-      // Each provider's N8N handles querying their own ERP and returns customers.
+      // ── N8N CENTRAL QUERY ────────────────────────────────────────────
+      // Builds integrations array from all N8N-enabled providers and calls the
+      // single central N8N endpoint which orchestrates ERP queries internally.
       const n8nProviders = await storage.getAllProvidersWithN8n();
 
       if (n8nProviders.length > 0) {
-        // Query each provider's N8N in parallel
-        const n8nResults = await Promise.allSettled(
-          n8nProviders.map(async (prov) => {
-            const headers: Record<string, string> = { "Content-Type": "application/json" };
-            if (prov.n8nAuthToken) {
-              headers["Authorization"] = `Basic ${prov.n8nAuthToken}`;
+        // Build integrations array for the central N8N endpoint.
+        // Each provider contributes their ERP credentials stored in the N8N config fields:
+        //   n8nWebhookUrl → api_url (strip protocol prefix)
+        //   n8nAuthToken  → api_key
+        //   n8nErpProvider → erp
+        const integrations = n8nProviders.map(prov => ({
+          provider_id: String(prov.id),
+          provider_name: prov.name,
+          erp: prov.n8nErpProvider || "ixc",
+          api_url: (prov.n8nWebhookUrl || "").replace(/^https?:\/\//, ""),
+          api_key: prov.n8nAuthToken || "",
+        }));
+
+        const CENTRAL_N8N_URL = "https://n8n.aluisiocunha.com.br/webhook/isp-consult";
+        const CENTRAL_N8N_AUTH = "Basic aXNwX2FuYWxpenplOmlzcGFuYWxpenplMTIzMTIz";
+
+        const extPayload = {
+          document: cleaned,
+          searchType: "document",
+          addressQuery: null,
+          integrations,
+        };
+
+        console.log(`[ISP-N8N] Chamando N8N central com ${integrations.length} integracoes:`, JSON.stringify(extPayload, null, 2));
+
+        let extRaw: any;
+        try {
+          const extRes = await fetch(CENTRAL_N8N_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": CENTRAL_N8N_AUTH,
+            },
+            body: JSON.stringify(extPayload),
+            signal: AbortSignal.timeout(25000),
+          });
+
+          let errBody = "";
+          if (!extRes.ok) {
+            try { errBody = await extRes.text(); } catch {}
+            let errJson: any = null;
+            try { errJson = JSON.parse(errBody); } catch {}
+            const isNoItems = errJson?.message === "No item to return was found" || errJson?.code === 0;
+            if (isNoItems) {
+              console.log("[ISP-N8N] N8N retornou sem itens — resultado: nao encontrado");
+              extRaw = null;
+            } else {
+              console.error(`[ISP-N8N] HTTP ${extRes.status}:`, errBody);
+              return res.status(502).json({ message: `Erro na API ISP: HTTP ${extRes.status}`, detail: errBody });
             }
-            const payload = {
-              searchType: "document",
-              document: cleaned,
-              providerId: String(prov.id),
-            };
-            const resp = await fetch(prov.n8nWebhookUrl, {
-              method: "POST",
-              headers,
-              body: JSON.stringify(payload),
-              signal: AbortSignal.timeout(20000),
-            });
-
-            if (resp.status === 401) {
-              console.warn(`[ISP-N8N] Provedor ${prov.name} (${prov.id}): autenticacao falhou (401)`);
-              return { providerInfo: prov, customers: [] as any[] };
-            }
-
-            let raw: any;
-            try { raw = await resp.json(); } catch { raw = null; }
-
-            // Handle N8N "No item to return was found" as empty result
-            if (!resp.ok) {
-              const isNoItems = raw?.message === "No item to return was found" || raw?.code === 0;
-              if (!isNoItems) {
-                console.warn(`[ISP-N8N] Provedor ${prov.name} HTTP ${resp.status}:`, raw);
-              }
-              return { providerInfo: prov, customers: [] as any[] };
-            }
-
-            // Support response shapes: [{data:{customers:[...]}}] or {data:{customers:[...]}} or {customers:[...]}
-            const obj = Array.isArray(raw) ? raw[0] : raw;
-            const customers: any[] = obj?.data?.customers || obj?.customers || [];
-            return { providerInfo: prov, customers };
-          })
-        );
-
-        // Flatten all customers, tagging each with which provider returned them
-        const allCustomers: Array<{ c: any; providerInfo: (typeof n8nProviders)[0] }> = [];
-        for (const settled of n8nResults) {
-          if (settled.status === "fulfilled") {
-            for (const c of settled.value.customers) {
-              allCustomers.push({ c, providerInfo: settled.value.providerInfo });
-            }
+          } else {
+            extRaw = await extRes.json();
           }
+        } catch (extErr: any) {
+          if (extErr.name === "AbortError" || extErr.name === "TimeoutError") {
+            return res.status(504).json({ message: "Timeout ao conectar com a API ISP (25s). Verifique sua conexao." });
+          }
+          return res.status(502).json({ message: `Erro ao chamar API ISP: ${extErr.message}` });
         }
 
-        const notFound = allCustomers.length === 0;
+        // Response can be [{data:{customers:[...]}}] or {data:{customers:[...]}} or {customers:[...]}
+        const responseObj = Array.isArray(extRaw) ? extRaw[0] : extRaw;
+        const customers: any[] = responseObj?.data?.customers || responseObj?.customers || [];
+
+        // Build a quick lookup: provider_id → provider info
+        const providerMap = new Map(n8nProviders.map(p => [String(p.id), p]));
+
+        const notFound = customers.length === 0;
 
         const computeScore = (c: any): number => {
           const ps = (c.payment_status || "").toLowerCase();
@@ -745,7 +759,7 @@ export async function registerRoutes(
           return 75;
         };
 
-        const scores = allCustomers.map(({ c }) => computeScore(c));
+        const scores = customers.map(computeScore);
         const finalScore = notFound ? 100 : Math.min(...scores);
         const risk = getRiskTier(finalScore);
         const decisionReco = getDecisionReco(finalScore);
@@ -758,7 +772,7 @@ export async function registerRoutes(
           "suspended": "Suspenso",
         };
 
-        const providerDetails = allCustomers.map(({ c, providerInfo }) => {
+        const providerDetails = customers.map((c: any) => {
           const ps = (c.payment_status || "").toLowerCase();
           const ps2 = c.payment_status || "";
           const overdueAmount = Number(c.payment_summary?.open_overdue_amount || 0);
@@ -766,10 +780,16 @@ export async function registerRoutes(
           const overdueCount = Number(c.payment_summary?.open_overdue_count || 0);
           const serviceAgeMonths = Number(c.service_age_months || 0);
 
-          const isSame = providerInfo.id === providerId;
+          const customerProviderId = c.provider_id ? Number(c.provider_id) : null;
+          const customerProviderName = c.provider_name
+            || (customerProviderId ? providerMap.get(String(customerProviderId))?.name : null)
+            || provider.name;
+          const isSame = customerProviderId !== null
+            ? customerProviderId === providerId
+            : true;
 
           return {
-            providerName: providerInfo.name,
+            providerName: customerProviderName,
             isSameProvider: isSame,
             customerName: isSame ? (c.full_name || "Desconhecido") : "***",
             status: paymentStatusMap[ps] || ps2 || "Em dia",
@@ -797,17 +817,18 @@ export async function registerRoutes(
         });
 
         const alerts: string[] = [];
-        for (const { c, providerInfo } of allCustomers) {
+        for (const c of customers) {
           const ps = (c.payment_status || "").toLowerCase();
           if (ps === "overdue" || ps === "inadimplente") {
             const days = c.payment_summary?.max_days_overdue || 0;
             const amount = c.payment_summary?.open_overdue_amount || 0;
-            alerts.push(`[${providerInfo.name}] Cliente inadimplente: ${days} dias em atraso, R$ ${Number(amount).toFixed(2)} em aberto`);
+            const cProviderName = c.provider_name || provider.name;
+            alerts.push(`[${cProviderName}] Cliente inadimplente: ${days} dias em atraso, R$ ${Number(amount).toFixed(2)} em aberto`);
           }
         }
 
-        const uniqueProviderIds = new Set(allCustomers.map(({ providerInfo }) => providerInfo.id));
-        const isOwnCustomer = allCustomers.some(({ providerInfo }) => providerInfo.id === providerId);
+        const uniqueProviderIds = new Set(customers.map((c: any) => c.provider_id || "unknown").filter(Boolean));
+        const isOwnCustomer = customers.some((c: any) => c.provider_id ? Number(c.provider_id) === providerId : true);
 
         const result = {
           cpfCnpj: cleaned,
@@ -818,7 +839,7 @@ export async function registerRoutes(
           riskLabel: risk.label,
           recommendation: risk.recommendation,
           decisionReco,
-          providersFound: uniqueProviderIds.size,
+          providersFound: uniqueProviderIds.size > 0 ? uniqueProviderIds.size : (customers.length > 0 ? 1 : 0),
           providerDetails,
           penalties: [],
           bonuses: [],
@@ -826,7 +847,7 @@ export async function registerRoutes(
           recommendedActions,
           creditsCost: 0,
           isOwnCustomer,
-          source: "n8n_multi",
+          source: "n8n_central",
         };
 
         const consultation = await storage.createIspConsultation({
@@ -843,7 +864,7 @@ export async function registerRoutes(
 
         return res.json({ consultation, result });
       }
-      // ── FIM N8N MULTI-PROVIDER ────────────────────────────────────────
+      // ── FIM N8N CENTRAL ───────────────────────────────────────────────
 
       // ── N8N INTEGRATION (LEGACY — fallback for current provider only) ─
       const n8nCfg = await storage.getN8nConfig(providerId);

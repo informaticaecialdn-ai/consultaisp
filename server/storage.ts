@@ -45,7 +45,7 @@ export interface IStorage {
   createProvider(provider: InsertProvider): Promise<Provider>;
   updateProvider(id: number, data: Partial<Pick<Provider, "name" | "contactEmail" | "contactPhone" | "website">>): Promise<Provider>;
   getAllProviders(): Promise<Provider[]>;
-  getAllProvidersWithN8n(): Promise<Array<{ id: number; name: string; n8nWebhookUrl: string; n8nAuthToken: string | null; n8nEnabled: boolean }>>;
+  getAllProvidersWithN8n(): Promise<Array<{ id: number; name: string; n8nWebhookUrl: string; n8nAuthToken: string | null; n8nEnabled: boolean; n8nErpProvider: string | null }>>;
   updateProviderCredits(id: number, ispCredits: number, spcCredits: number): Promise<void>;
   deleteProvider(id: number): Promise<void>;
 
@@ -246,7 +246,7 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(providers);
   }
 
-  async getAllProvidersWithN8n(): Promise<Array<{ id: number; name: string; n8nWebhookUrl: string; n8nAuthToken: string | null; n8nEnabled: boolean }>> {
+  async getAllProvidersWithN8n(): Promise<Array<{ id: number; name: string; n8nWebhookUrl: string; n8nAuthToken: string | null; n8nEnabled: boolean; n8nErpProvider: string | null }>> {
     const rows = await db
       .select({
         id: providers.id,
@@ -254,6 +254,7 @@ export class DatabaseStorage implements IStorage {
         n8nWebhookUrl: providers.n8nWebhookUrl,
         n8nAuthToken: providers.n8nAuthToken,
         n8nEnabled: providers.n8nEnabled,
+        n8nErpProvider: providers.n8nErpProvider,
       })
       .from(providers)
       .where(
@@ -268,6 +269,7 @@ export class DatabaseStorage implements IStorage {
       n8nWebhookUrl: r.n8nWebhookUrl as string,
       n8nAuthToken: r.n8nAuthToken ?? null,
       n8nEnabled: r.n8nEnabled ?? false,
+      n8nErpProvider: r.n8nErpProvider ?? null,
     }));
   }
 
