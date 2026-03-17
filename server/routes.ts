@@ -835,7 +835,7 @@ export async function registerRoutes(
                   );
                   if (!alreadyFound) {
                     const acProviderId = ac.provider_id ? Number(ac.provider_id) : null;
-                    const acIsSame = acProviderId !== null && acProviderId === providerId;
+                    const acIsSame = !!(ac.provider_name && ac.provider_name === provider.name);
                     const acFullName = (ac.full_name || "Desconhecido").trim();
                     const acNameParts = acFullName.split(/\s+/);
                     const acMaskedName = acIsSame
@@ -900,12 +900,14 @@ export async function registerRoutes(
           const serviceAgeMonths = Number(c.service_age_months || 0);
 
           const customerProviderId = c.provider_id ? Number(c.provider_id) : null;
+          // N8N echoes back the provider_name we sent in the integrations array.
+          // IXC uses its own internal numeric provider_id (e.g. 21600) which differs
+          // from our database provider ID. So match by provider_name instead of provider_id.
           const customerProviderName = c.provider_name
             || (customerProviderId ? providerMap.get(String(customerProviderId))?.name : null)
             || "Outro provedor";
-          // Only treat as same provider when provider_id explicitly matches.
-          // Never default to true — unknown origin = external provider.
-          const isSame = customerProviderId !== null && customerProviderId === providerId;
+          // isSame: use provider_name match (provider_id from IXC is its internal ID, not our DB ID)
+          const isSame = !!(c.provider_name && c.provider_name === provider.name);
 
           // ── ADDRESS FIELDS ───────────────────────────────────────────────
           // N8N returns separate fields: address (street), address_number, address_complement,
@@ -1022,16 +1024,17 @@ export async function registerRoutes(
           }
         }
 
-        // Only count providers that are explicitly identified via provider_id
+        // Count providers by provider_name (N8N echoes back our sent provider_name).
+        // Do NOT use provider_id — IXC returns its own internal numeric ID, not our DB ID.
         const externalProviderIds = new Set(
           customers
-            .filter((c: any) => c.provider_id && Number(c.provider_id) !== providerId)
-            .map((c: any) => String(c.provider_id))
+            .filter((c: any) => c.provider_name && c.provider_name !== provider.name)
+            .map((c: any) => c.provider_name)
         );
         const ownProviderIds = new Set(
           customers
-            .filter((c: any) => c.provider_id && Number(c.provider_id) === providerId)
-            .map((c: any) => String(c.provider_id))
+            .filter((c: any) => c.provider_name && c.provider_name === provider.name)
+            .map((_: any) => provider.name)
         );
         const uniqueProviderIds = new Set([...externalProviderIds, ...ownProviderIds]);
         const isOwnCustomer = ownProviderIds.size > 0;
