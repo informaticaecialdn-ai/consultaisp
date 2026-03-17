@@ -2538,6 +2538,27 @@ export async function registerRoutes(
     }
   });
 
+  app.put("/api/admin/providers/:id/erp/:source", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const source = req.params.source;
+      const ALLOWED = ["ixc", "sgp", "mk", "tiacos", "hubsoft", "flyspeed", "netflash"];
+      if (!ALLOWED.includes(source)) return res.status(400).json({ message: "ERP invalido" });
+      const provider = await storage.getProvider(id);
+      if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
+      const { apiUrl, apiToken, apiUser, isEnabled } = req.body;
+      const integration = await storage.upsertErpIntegration(id, source, {
+        apiUrl: apiUrl ?? null,
+        apiToken: apiToken ?? null,
+        apiUser: apiUser ?? null,
+        isEnabled: isEnabled ?? true,
+      });
+      return res.json(integration);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
   app.get("/api/admin/users", requireSuperAdmin, async (_req, res) => {
     try {
       const allUsers = await storage.getAllUsers();
