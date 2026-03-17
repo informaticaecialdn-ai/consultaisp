@@ -324,7 +324,7 @@ export default function ConsultaISPPage() {
         ? `R$ ${d.overdueAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
         : d.overdueAmountRange || "—";
       return `<tr>
-        <td>${d.isSameProvider ? d.customerName : "Dados restritos"}</td>
+        <td>${d.customerName}</td>
         <td>${d.providerName}</td>
         <td style="color:${d.contractStatus === "active" ? "#16a34a" : d.contractStatus === "cancelled" ? "#dc2626" : "#92400e"}">${cStatus}</td>
         <td style="color:${d.daysOverdue === 0 ? "#16a34a" : "#dc2626"}">${pStatus}</td>
@@ -338,7 +338,7 @@ export default function ConsultaISPPage() {
     const alertRows = doc.alerts.length > 0 ? doc.alerts.map(a => `<li>${a}</li>`).join("") : "<li>Nenhum alerta</li>";
     const actionRows = doc.recommendedActions.length > 0 ? doc.recommendedActions.map(a => `<li>${a}</li>`).join("") : "<li>Nenhuma acao especifica recomendada</li>";
     const addrRows = (doc.addressMatches || []).filter(m => m.hasDebt).map(m =>
-      `<li>${m.isSameProvider ? m.customerName : "Dados restritos"} — ${m.address}, ${m.city}${m.state ? `/${m.state}` : ""} — ${m.daysOverdue} dias atraso</li>`
+      `<li>${m.customerName} — ${m.address}, ${m.city}${m.state ? `/${m.state}` : ""} — ${m.daysOverdue} dias atraso</li>`
     ).join("");
 
     const ipStr = doc.consultorIp || "desconhecido";
@@ -719,15 +719,12 @@ ${addrRows ? `<section>
                               >
                                 <div className={`w-1.5 self-stretch rounded-full flex-shrink-0 ${isOwn ? "bg-blue-500" : "bg-slate-300"}`} />
                                 <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
-                                  {isOwn
-                                    ? <span className="text-xs font-bold text-slate-700">{getInitials(detail.customerName)}</span>
-                                    : <Lock className="w-4 h-4 text-slate-400" />
-                                  }
+                                  <span className={`text-xs font-bold ${isOwn ? "text-slate-700" : "text-slate-400"}`}>{getInitials(detail.customerName)}</span>
                                 </div>
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                                     <p className="text-sm font-semibold text-slate-900 truncate">
-                                      {isOwn ? detail.customerName : "Dados restritos"}
+                                      {detail.customerName}
                                     </p>
                                     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isOwn ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
                                       {isOwn ? "SEU PROVEDOR" : "OUTRO PROVEDOR"}
@@ -838,7 +835,7 @@ ${addrRows ? `<section>
                     {(() => {
                       const selectedDetail = result.providerDetails[selectedProviderIdx ?? 0];
                       const isOwnSelected = selectedDetail?.isSameProvider ?? false;
-                      const heroName = isOwnSelected ? selectedDetail?.customerName : null;
+                      const heroName = selectedDetail?.customerName ?? null;
                       const detailCost = isOwnSelected ? 0 : 1;
                       const dc = result.decisionReco;
                       const heroBg = dc === "Accept" ? "from-emerald-50 to-white border-emerald-200"
@@ -874,14 +871,11 @@ ${addrRows ? `<section>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2.5 mb-2">
                                   <div className="w-9 h-9 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center flex-shrink-0">
-                                    {heroName
-                                      ? <span className="text-xs font-bold text-slate-700">{getInitials(heroName)}</span>
-                                      : <Lock className="w-4 h-4 text-slate-400" />
-                                    }
+                                    <span className={`text-xs font-bold ${isOwnSelected ? "text-slate-700" : "text-slate-400"}`}>{heroName ? getInitials(heroName) : "?"}</span>
                                   </div>
                                   <div>
                                     <p className="font-bold text-slate-900 text-base leading-tight" data-testid="text-customer-name">
-                                      {heroName || "Dados restritos"}
+                                      {heroName || "Desconhecido"}
                                     </p>
                                     <p className="text-xs text-slate-500">{formatCpfCnpj(result.cpfCnpj)} — {selectedDetail?.providerName}</p>
                                   </div>
