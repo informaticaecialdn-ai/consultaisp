@@ -71,6 +71,8 @@ interface ConsultaResult {
   isOwnCustomer: boolean;
   addressMatches?: AddressMatch[];
   consultorIp?: string;
+  isHistoryResult?: boolean;
+  source?: string;
 }
 
 function formatCpfCnpj(value: string): string {
@@ -712,6 +714,14 @@ ${addrRows ? `<section>
                             : `${result.providerDetails.length} cadastro(s) localizado(s) na base de dados colaborativa.`
                           }
                         </p>
+                        {result.isHistoryResult && (
+                          <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 flex items-center gap-2 mb-4">
+                            <Clock className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                            <p className="text-xs text-amber-800">
+                              Resultados obtidos do historico de consultas da rede. Dados podem nao refletir a situacao atual.
+                            </p>
+                          </div>
+                        )}
 
                         <div className="space-y-3">
                           {result.providerDetails.map((detail, i) => {

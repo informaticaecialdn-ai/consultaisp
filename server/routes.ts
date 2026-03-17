@@ -748,8 +748,11 @@ export async function registerRoutes(
         const responseObj = Array.isArray(extRaw) ? extRaw[0] : extRaw;
         const customers: any[] = responseObj?.data?.customers || responseObj?.customers || [];
 
-        // Debug: log full first customer object to understand ERP field mapping
-        if (customers.length > 0) {
+        // Debug: log full N8N response for CEP searches (always) and first customer for document searches
+        if (isCepSearch) {
+          console.log(`[ISP-N8N-CEP] CEP ${cleaned} → raw N8N response:`, JSON.stringify(extRaw));
+          console.log(`[ISP-N8N-CEP] Clientes encontrados: ${customers.length}`);
+        } else if (customers.length > 0) {
           console.log("[ISP-N8N] Full sample customer (keys):", Object.keys(customers[0]).join(", "));
           console.log("[ISP-N8N] Full sample customer:", JSON.stringify(customers[0]));
         }
@@ -998,7 +1001,7 @@ export async function registerRoutes(
             phone: isSame ? c.phone : undefined,
             email: isSame ? c.email : undefined,
             address: isSame ? addrFull : addrRestricted,
-            cep: isSame ? (c.cep || null) : maskedCep,
+            cep: isSame ? fullCep : maskedCep,
             addressCity: c.city || undefined,
             addressState: c.state || undefined,
             lastPaymentDate: isSame ? c.payment_summary?.last_payment_date : undefined,
@@ -1055,17 +1058,70 @@ export async function registerRoutes(
           );
         }
 
+        // ── CEP FALLBACK: busca histórico de consultas por prefixo de CEP ──
+        // Se N8N address search retornar vazio, buscar no histórico de consultas
+        // armazenadas que tenham clientes com aquele CEP (5 primeiros dígitos).
+        let cepFallbackDetails: any[] = [];
+        if (isCepSearch && customers.length === 0) {
+          const cepPrefix = cleaned.replace(/^(\d{5})(\d{3})$/, "$1-"); // "86671-"
+          console.log(`[ISP-CEP-FALLBACK] Buscando histórico por prefixo "${cepPrefix}"`);
+          const historicConsultations = await storage.getConsultationsByCepPrefix(cepPrefix, 90);
+          console.log(`[ISP-CEP-FALLBACK] Encontrou ${historicConsultations.length} consultas no histórico`);
+          for (const hist of historicConsultations) {
+            const histResult = hist.result as any;
+            const histDetails: any[] = histResult?.providerDetails || [];
+            for (const hd of histDetails) {
+              // Only include details where the cep matches the prefix
+              if (!hd.cep || !String(hd.cep).startsWith(cepPrefix)) continue;
+              // Re-apply isSameProvider based on current provider name
+              const hdIsSame = hd.providerName === provider.name;
+              cepFallbackDetails.push({
+                ...hd,
+                isSameProvider: hdIsSame,
+                // Re-mask name if needed
+                customerName: hdIsSame
+                  ? hd.customerName
+                  : (() => {
+                    const name = (hd.customerName || "").replace(/ \*\*\*$/, "").split(/\s+/);
+                    return name.length > 1 ? `${name[0]} ***` : name[0] || "***";
+                  })(),
+                // Re-mask address / cep for non-own provider
+                address: hdIsSame ? (hd.address || hd.addressRestricted || undefined) : (hd.address || undefined),
+                cep: hdIsSame ? hd.cep : (hd.cep ? String(hd.cep).replace(/^(\d{5}|[0-9]{5}).*/, "$1-***") : undefined),
+                // Don't show financial details for external providers
+                overdueAmount: hdIsSame ? hd.overdueAmount : undefined,
+                overdueAmountRange: hdIsSame ? undefined : (hd.overdueAmount != null && hd.overdueAmount > 0
+                  ? `R$ ${Math.floor(hd.overdueAmount / 100) * 100} - R$ ${(Math.floor(hd.overdueAmount / 100) + 1) * 100}`
+                  : hd.overdueAmountRange),
+                isFromHistory: true,
+              });
+            }
+          }
+          // De-duplicate by customerName+cep
+          const seenKey = new Set<string>();
+          cepFallbackDetails = cepFallbackDetails.filter(d => {
+            const k = `${d.customerName}|${d.providerName}|${d.cep}`;
+            if (seenKey.has(k)) return false;
+            seenKey.add(k);
+            return true;
+          });
+          console.log(`[ISP-CEP-FALLBACK] Detalhes encontrados no histórico: ${cepFallbackDetails.length}`);
+        }
+
+        const finalProviderDetails = providerDetails.length > 0 ? providerDetails : cepFallbackDetails;
+        const finalNotFound = finalProviderDetails.length === 0;
+
         const result = {
           cpfCnpj: cleaned,
           searchType,
-          notFound,
+          notFound: finalNotFound,
           score: finalScore,
           riskTier: risk.tier,
           riskLabel: risk.label,
           recommendation: risk.recommendation,
           decisionReco,
           providersFound: uniqueProviderIds.size,
-          providerDetails,
+          providerDetails: finalProviderDetails,
           penalties: [],
           bonuses: [],
           alerts,
@@ -1073,7 +1129,8 @@ export async function registerRoutes(
           creditsCost,
           isOwnCustomer,
           addressMatches: n8nAddressMatches,
-          source: "n8n_central",
+          source: providerDetails.length > 0 ? "n8n_central" : (cepFallbackDetails.length > 0 ? "history_fallback" : "n8n_central"),
+          isHistoryResult: cepFallbackDetails.length > 0 && providerDetails.length === 0,
         };
 
         const consultation = await storage.createIspConsultation({

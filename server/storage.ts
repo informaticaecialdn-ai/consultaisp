@@ -72,6 +72,7 @@ export interface IStorage {
   getIspConsultationCountToday(providerId: number): Promise<number>;
   getIspConsultationCountMonth(providerId: number): Promise<number>;
   getRecentConsultationsForDocument(cpfCnpj: string, days: number): Promise<IspConsultation[]>;
+  getConsultationsByCepPrefix(cepPrefix: string, limitDays?: number): Promise<IspConsultation[]>;
 
   getSpcConsultationsByProvider(providerId: number): Promise<SpcConsultation[]>;
   createSpcConsultation(consultation: InsertSpcConsultation): Promise<SpcConsultation>;
@@ -417,6 +418,30 @@ export class DatabaseStorage implements IStorage {
     since.setDate(since.getDate() - days);
     return db.select().from(ispConsultations)
       .where(and(eq(ispConsultations.cpfCnpj, cpfCnpj), gte(ispConsultations.createdAt, since)));
+  }
+
+  async getConsultationsByCepPrefix(cepPrefix: string, limitDays = 90): Promise<IspConsultation[]> {
+    // cepPrefix = "86671-" (first 5 digits + dash)
+    // Searches stored consultation results where any providerDetail has a cep starting with this prefix.
+    // Uses PostgreSQL text search on the JSON column (works for both full and masked CEPs).
+    const since = new Date();
+    since.setDate(since.getDate() - limitDays);
+    const pattern = `%"cep":"${cepPrefix}%`;
+    const rows = await db.select().from(ispConsultations)
+      .where(and(
+        sql`${ispConsultations.result}::text LIKE ${pattern}`,
+        gte(ispConsultations.createdAt, since),
+        // Exclude past CEP searches to avoid recursion
+        sql`${ispConsultations.searchType} != 'cep'`,
+      ))
+      .orderBy(desc(ispConsultations.createdAt));
+    // De-duplicate: keep only most recent consultation per cpfCnpj
+    const seen = new Set<string>();
+    return rows.filter(r => {
+      if (seen.has(r.cpfCnpj)) return false;
+      seen.add(r.cpfCnpj);
+      return true;
+    });
   }
 
   async getSpcConsultationsByProvider(providerId: number): Promise<SpcConsultation[]> {
