@@ -33,6 +33,7 @@ interface ProviderDetail {
   cancelledDate?: string;
   contractStatus?: string;
   address?: string;
+  cep?: string;
   addressCity?: string;
   addressState?: string;
 }
@@ -770,16 +771,20 @@ ${addrRows ? `<section>
                                       </>
                                     )}
                                   </div>
-                                  {detail.address && (
-                                    <div className="flex items-center gap-1 mt-1">
+                                  {(detail.address || detail.cep) && (
+                                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                                       <MapPin className="w-3 h-3 text-slate-400 flex-shrink-0" />
-                                      {isOwn
-                                        ? <span className="text-xs text-slate-600 truncate">{detail.address}</span>
-                                        : <span className="text-xs text-slate-400 flex items-center gap-1">
-                                            <Lock className="w-2.5 h-2.5" />
-                                            {detail.address}
-                                          </span>
-                                      }
+                                      {detail.cep && (
+                                        <span className="text-xs font-mono text-slate-500 bg-slate-100 px-1 rounded">{detail.cep}</span>
+                                      )}
+                                      {detail.address && (
+                                        isOwn
+                                          ? <span className="text-xs text-slate-600 truncate">{detail.address}</span>
+                                          : <span className="text-xs text-slate-500 flex items-center gap-0.5">
+                                              <Lock className="w-2.5 h-2.5 text-slate-400 flex-shrink-0" />
+                                              {detail.address}
+                                            </span>
+                                      )}
                                     </div>
                                   )}
                                 </div>
@@ -1003,17 +1008,35 @@ ${addrRows ? `<section>
                                       : <span className="flex items-center gap-1 text-xs text-slate-400"><Lock className="w-3 h-3" /> Dado restrito</span>
                                     }
                                   </div>
-                                  {detail.address && (
+                                  {(detail.address || detail.cep) && (
                                     <div>
                                       <p className="text-[10px] text-slate-400">Endereço</p>
-                                      {isOwn
-                                        ? <p className="text-xs text-slate-700 break-words">{detail.address}</p>
-                                        : <span className="flex items-center gap-1 text-xs text-slate-500">
-                                            <MapPin className="w-3 h-3 flex-shrink-0" />
-                                            {detail.address}
-                                            <span className="text-[9px] text-slate-400 italic">(restrito)</span>
-                                          </span>
-                                      }
+                                      {isOwn ? (
+                                        <div className="space-y-0.5">
+                                          {detail.cep && (
+                                            <p className="text-[10px] font-mono text-slate-500">CEP {detail.cep}</p>
+                                          )}
+                                          <p className="text-xs text-slate-700 break-words">{detail.address}</p>
+                                        </div>
+                                      ) : (
+                                        <div className="space-y-1">
+                                          {detail.cep && (
+                                            <div className="flex items-center gap-1">
+                                              <span className="text-[9px] text-slate-400 uppercase tracking-wide">CEP</span>
+                                              <span className="text-xs font-mono text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">{detail.cep}</span>
+                                            </div>
+                                          )}
+                                          {detail.address && (
+                                            <span className="flex items-start gap-1 text-xs text-slate-600">
+                                              <MapPin className="w-3 h-3 text-slate-400 mt-0.5 flex-shrink-0" />
+                                              <span>
+                                                {detail.address}
+                                                <span className="text-[9px] text-slate-400 ml-1 italic">dados restritos</span>
+                                              </span>
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
                                     </div>
                                   )}
                                   {detail.cancelledDate && (

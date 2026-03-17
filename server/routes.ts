@@ -865,6 +865,21 @@ export async function registerRoutes(
           // Never default to true — unknown origin = external provider.
           const isSame = customerProviderId !== null && customerProviderId === providerId;
 
+          // Build masked address fields before return
+          const rawCep = (c.cep || "").replace(/\D/g, "");
+          const maskedCep = rawCep.length >= 5
+            ? rawCep.replace(/^(\d{5})(\d*)$/, "$1-***")
+            : rawCep || null;
+          // Street name only: cut at first digit sequence or comma (removes number/complement)
+          const streetOnly = c.address
+            ? c.address.replace(/[,\s]*\d.*$/, "").trim()
+            : null;
+          const addrFull = [c.address, c.neighborhood, c.city, c.state].filter(Boolean).join(", ");
+          const addrRestricted = [
+            streetOnly ? `${streetOnly}, ***` : null,
+            c.city && c.state ? `${c.city}/${c.state}` : c.city || null,
+          ].filter(Boolean).join(" — ") || undefined;
+
           return {
             providerName: customerProviderName,
             isSameProvider: isSame,
@@ -885,10 +900,8 @@ export async function registerRoutes(
             planName: isSame ? c.plan_name : undefined,
             phone: isSame ? c.phone : undefined,
             email: isSame ? c.email : undefined,
-            // Own provider: full address. External: city/state only (masked)
-            address: isSame
-              ? [c.address, c.neighborhood, c.city, c.state].filter(Boolean).join(", ")
-              : [c.city, c.state].filter(Boolean).join("/") || undefined,
+            address: isSame ? addrFull : addrRestricted,
+            cep: isSame ? (c.cep || null) : maskedCep,
             addressCity: c.city || undefined,
             addressState: c.state || undefined,
             lastPaymentDate: isSame ? c.payment_summary?.last_payment_date : undefined,
