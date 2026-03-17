@@ -783,10 +783,10 @@ export async function registerRoutes(
           const customerProviderId = c.provider_id ? Number(c.provider_id) : null;
           const customerProviderName = c.provider_name
             || (customerProviderId ? providerMap.get(String(customerProviderId))?.name : null)
-            || provider.name;
-          const isSame = customerProviderId !== null
-            ? customerProviderId === providerId
-            : true;
+            || "Outro provedor";
+          // Only treat as same provider when provider_id explicitly matches.
+          // Never default to true — unknown origin = external provider.
+          const isSame = customerProviderId !== null && customerProviderId === providerId;
 
           return {
             providerName: customerProviderName,
@@ -827,8 +827,41 @@ export async function registerRoutes(
           }
         }
 
-        const uniqueProviderIds = new Set(customers.map((c: any) => c.provider_id || "unknown").filter(Boolean));
-        const isOwnCustomer = customers.some((c: any) => c.provider_id ? Number(c.provider_id) === providerId : true);
+        // Only count providers that are explicitly identified via provider_id
+        const externalProviderIds = new Set(
+          customers
+            .filter((c: any) => c.provider_id && Number(c.provider_id) !== providerId)
+            .map((c: any) => String(c.provider_id))
+        );
+        const ownProviderIds = new Set(
+          customers
+            .filter((c: any) => c.provider_id && Number(c.provider_id) === providerId)
+            .map((c: any) => String(c.provider_id))
+        );
+        const uniqueProviderIds = new Set([...externalProviderIds, ...ownProviderIds]);
+        const isOwnCustomer = ownProviderIds.size > 0;
+
+        // Charge 1 ISP credit per external provider found
+        const externalProvidersFound = externalProviderIds.size;
+        const creditsCost = externalProvidersFound;
+
+        // Refresh provider for latest credit balance
+        const freshProvider = await storage.getProvider(providerId);
+        if (!freshProvider) {
+          return res.status(400).json({ message: "Provedor nao encontrado" });
+        }
+        if (creditsCost > 0 && freshProvider.ispCredits < creditsCost) {
+          return res.status(402).json({
+            message: `Creditos insuficientes. Esta consulta requer ${creditsCost} credito(s) ISP. Voce tem ${freshProvider.ispCredits}.`,
+          });
+        }
+        if (creditsCost > 0) {
+          await storage.updateProviderCredits(
+            providerId,
+            freshProvider.ispCredits - creditsCost,
+            freshProvider.spcCredits,
+          );
+        }
 
         const result = {
           cpfCnpj: cleaned,
@@ -839,13 +872,13 @@ export async function registerRoutes(
           riskLabel: risk.label,
           recommendation: risk.recommendation,
           decisionReco,
-          providersFound: uniqueProviderIds.size > 0 ? uniqueProviderIds.size : (customers.length > 0 ? 1 : 0),
+          providersFound: uniqueProviderIds.size,
           providerDetails,
           penalties: [],
           bonuses: [],
           alerts,
           recommendedActions,
-          creditsCost: 0,
+          creditsCost,
           isOwnCustomer,
           source: "n8n_central",
         };
@@ -858,7 +891,7 @@ export async function registerRoutes(
           result,
           score: finalScore,
           decisionReco,
-          cost: 0,
+          cost: creditsCost,
           approved: finalScore >= 50,
         });
 
