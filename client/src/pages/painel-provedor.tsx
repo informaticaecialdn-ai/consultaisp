@@ -14,10 +14,10 @@ import {
   Building2, Globe, Users, CreditCard, Settings, Copy, CheckCircle,
   ExternalLink, Plus, Trash2, Shield, User, Mail, Phone, Link2,
   BarChart3, Search, AlertTriangle, Save, RefreshCw, Crown,
-  Lock, Star, FileText, Upload, Download, Eye, MapPin, Calendar,
+  Lock, Star, FileText, Upload, Download, MapPin, Calendar,
   Briefcase, X, Pencil, ClipboardList, UserCheck, Wand2, Info,
-  EyeOff, Key, Zap, Terminal, ArrowRight, Database, CheckCheck, Clock, Settings2,
-  Loader2, KeyRound
+  Key, Zap, Terminal, ArrowRight, Database, CheckCheck, Clock, Settings2,
+  Loader2
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
@@ -133,21 +133,10 @@ export default function PainelProvedorPage() {
     onError: () => toast({ title: "Erro", description: "Nao foi possivel atualizar a integracao.", variant: "destructive" }),
   });
 
-  const saveErpConfigMutation = useMutation({
-    mutationFn: ({ source, data }: { source: string; data: any }) =>
-      apiRequest("PATCH", `/api/provider/erp-integrations/${source}`, data),
-    onSuccess: () => {
-      refetchErpList();
-      toast({ title: "Configuracao salva", description: "Credenciais atualizadas com sucesso." });
-    },
-    onError: () => toast({ title: "Erro", description: "Nao foi possivel salvar as credenciais.", variant: "destructive" }),
-  });
-
   const [erpTestResults, setErpTestResults] = useState<Record<string, { ok: boolean; msg: string } | null>>({});
   const [erpSyncResults, setErpSyncResults] = useState<Record<string, { ok: boolean; msg: string } | null>>({});
-  const [erpPending, setErpPending] = useState<Record<string, { testing?: boolean; syncing?: boolean; saving?: boolean }>>({});
+  const [erpPending, setErpPending] = useState<Record<string, { testing?: boolean; syncing?: boolean }>>({});
   const [expandedErp, setExpandedErp] = useState<string | null>(null);
-  const [erpForms, setErpForms] = useState<Record<string, { apiUrl: string; apiUser: string; apiToken: string; showToken: boolean }>>({});
   const [n8nForm, setN8nForm] = useState({ webhookUrl: "", authToken: "", showToken: false });
   const [n8nTestResult, setN8nTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
   const [n8nPending, setN8nPending] = useState({ saving: false, testing: false });
@@ -179,12 +168,6 @@ export default function PainelProvedorPage() {
     onSuccess: () => { refetchN8n(); toast({ title: "Configuracao salva", description: "Integracao atualizada com sucesso." }); },
     onError: () => toast({ title: "Erro", description: "Nao foi possivel salvar a configuracao.", variant: "destructive" }),
   });
-
-  const getErpForm = (key: string) => {
-    if (erpForms[key]) return erpForms[key];
-    const intg = getIntg(key);
-    return { apiUrl: intg?.apiUrl || "", apiUser: intg?.apiUser || "", apiToken: intg?.apiToken || "", showToken: false };
-  };
 
   const testConnection = async (source: string) => {
     setErpPending(p => ({ ...p, [source]: { ...p[source], testing: true } }));
@@ -1678,19 +1661,18 @@ export default function PainelProvedorPage() {
                   );
                 })()}
 
-                {/* ERP API Credentials */}
+                {/* ERP Integrations */}
                 {erpIntegrationsList.length > 0 && (
                   <Card className="overflow-hidden">
                     <div className="px-4 py-3 border-b bg-slate-50/60">
                       <div className="flex items-center gap-2">
-                        <KeyRound className="w-4 h-4 text-violet-500" />
-                        <p className="text-sm font-semibold">Credenciais de API</p>
+                        <Database className="w-4 h-4 text-violet-500" />
+                        <p className="text-sm font-semibold">Integracoes ERP</p>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">Configure a URL e o token de cada ERP para que as consultas funcionem corretamente.</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Ative ou desative cada ERP e sincronize os dados de inadimplentes.</p>
                     </div>
                     <div className="divide-y">
                       {erpIntegrationsList.map((intg: any) => {
-                        const form = getErpForm(intg.erpSource);
                         const erpMeta = activeErpList.find((e: any) => e.key === intg.erpSource);
                         const pending = erpPending[intg.erpSource] ?? {};
                         const testResult = erpTestResults[intg.erpSource];
@@ -1717,61 +1699,12 @@ export default function PainelProvedorPage() {
                                 data-testid={`switch-erp-${intg.erpSource}`}
                               />
                             </div>
-                            <div className="grid gap-2">
-                              <div>
-                                <label className="text-xs font-medium text-muted-foreground">URL da API</label>
-                                <Input
-                                  className="mt-1 text-sm h-8"
-                                  placeholder={`Ex: ${intg.erpSource}.suaempresa.com.br`}
-                                  value={form.apiUrl}
-                                  onChange={e => setErpForms((f: any) => ({ ...f, [intg.erpSource]: { ...getErpForm(intg.erpSource), apiUrl: e.target.value } }))}
-                                  data-testid={`input-erp-url-${intg.erpSource}`}
-                                />
-                              </div>
-                              <div>
-                                <label className="text-xs font-medium text-muted-foreground">Token / Chave de API</label>
-                                <div className="relative mt-1">
-                                  <Input
-                                    className="text-sm h-8 pr-8"
-                                    type={form.showToken ? "text" : "password"}
-                                    placeholder="ID:token ou chave de acesso"
-                                    value={form.apiToken}
-                                    onChange={e => setErpForms((f: any) => ({ ...f, [intg.erpSource]: { ...getErpForm(intg.erpSource), apiToken: e.target.value } }))}
-                                    data-testid={`input-erp-token-${intg.erpSource}`}
-                                  />
-                                  <button
-                                    type="button"
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                                    onClick={() => setErpForms((f: any) => ({ ...f, [intg.erpSource]: { ...form, showToken: !form.showToken } }))}
-                                  >
-                                    {form.showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
                             <div className="flex items-center gap-2 flex-wrap">
-                              <Button
-                                size="sm"
-                                className="h-7 text-xs gap-1"
-                                disabled={pending.saving}
-                                onClick={async () => {
-                                  setErpPending((p: any) => ({ ...p, [intg.erpSource]: { ...p[intg.erpSource], saving: true } }));
-                                  try {
-                                    await saveErpConfigMutation.mutateAsync({ source: intg.erpSource, data: { apiUrl: form.apiUrl, apiToken: form.apiToken } });
-                                  } finally {
-                                    setErpPending((p: any) => ({ ...p, [intg.erpSource]: { ...p[intg.erpSource], saving: false } }));
-                                  }
-                                }}
-                                data-testid={`button-save-erp-${intg.erpSource}`}
-                              >
-                                {pending.saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                                Salvar
-                              </Button>
                               <Button
                                 variant="outline"
                                 size="sm"
                                 className="h-7 text-xs gap-1"
-                                disabled={pending.testing || !form.apiUrl || !form.apiToken}
+                                disabled={pending.testing || !intg.apiUrl || !intg.apiToken}
                                 onClick={() => testConnection(intg.erpSource)}
                                 data-testid={`button-test-erp-${intg.erpSource}`}
                               >
