@@ -16,8 +16,10 @@ import {
   BarChart3, Search, AlertTriangle, Save, RefreshCw, Crown,
   Lock, Star, FileText, Upload, Download, Eye, MapPin, Calendar,
   Briefcase, X, Pencil, ClipboardList, UserCheck, Wand2, Info,
-  EyeOff, Key, Zap, Terminal, ArrowRight, Database, CheckCheck, Clock, Settings2
+  EyeOff, Key, Zap, Terminal, ArrowRight, Database, CheckCheck, Clock, Settings2,
+  Loader2, KeyRound
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 
 const MAIN_DOMAIN = "consultaisp.com.br";
 
@@ -1675,6 +1677,135 @@ export default function PainelProvedorPage() {
                     </Card>
                   );
                 })()}
+
+                {/* ERP API Credentials */}
+                {erpIntegrationsList.length > 0 && (
+                  <Card className="overflow-hidden">
+                    <div className="px-4 py-3 border-b bg-slate-50/60">
+                      <div className="flex items-center gap-2">
+                        <KeyRound className="w-4 h-4 text-violet-500" />
+                        <p className="text-sm font-semibold">Credenciais de API</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">Configure a URL e o token de cada ERP para que as consultas funcionem corretamente.</p>
+                    </div>
+                    <div className="divide-y">
+                      {erpIntegrationsList.map((intg: any) => {
+                        const form = getErpForm(intg.erpSource);
+                        const erpMeta = activeErpList.find((e: any) => e.key === intg.erpSource);
+                        const pending = erpPending[intg.erpSource] ?? {};
+                        const testResult = erpTestResults[intg.erpSource];
+                        const syncResult = erpSyncResults[intg.erpSource];
+                        return (
+                          <div key={intg.erpSource} className="px-4 py-4 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                {erpMeta?.logoBase64 ? (
+                                  <img src={erpMeta.logoBase64} alt={erpMeta.name} className="w-7 h-7 object-contain rounded" />
+                                ) : (
+                                  <div className={`w-7 h-7 rounded-md bg-gradient-to-br ${erpMeta?.grad ?? "from-slate-400 to-slate-500"} flex items-center justify-center`}>
+                                    <span className="text-white text-xs font-bold">{(erpMeta?.name ?? intg.erpSource)[0].toUpperCase()}</span>
+                                  </div>
+                                )}
+                                <div>
+                                  <p className="text-sm font-semibold leading-tight">{erpMeta?.name ?? intg.erpSource.toUpperCase()}</p>
+                                  <p className="text-[11px] text-muted-foreground leading-tight">{intg.isEnabled ? "Habilitado" : "Desabilitado"}</p>
+                                </div>
+                              </div>
+                              <Switch
+                                checked={!!intg.isEnabled}
+                                onCheckedChange={(checked) => toggleErpMutation.mutate({ source: intg.erpSource, isEnabled: checked })}
+                                data-testid={`switch-erp-${intg.erpSource}`}
+                              />
+                            </div>
+                            <div className="grid gap-2">
+                              <div>
+                                <label className="text-xs font-medium text-muted-foreground">URL da API</label>
+                                <Input
+                                  className="mt-1 text-sm h-8"
+                                  placeholder={`Ex: ${intg.erpSource}.suaempresa.com.br`}
+                                  value={form.apiUrl}
+                                  onChange={e => setErpForms((f: any) => ({ ...f, [intg.erpSource]: { ...getErpForm(intg.erpSource), apiUrl: e.target.value } }))}
+                                  data-testid={`input-erp-url-${intg.erpSource}`}
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs font-medium text-muted-foreground">Token / Chave de API</label>
+                                <div className="relative mt-1">
+                                  <Input
+                                    className="text-sm h-8 pr-8"
+                                    type={form.showToken ? "text" : "password"}
+                                    placeholder="ID:token ou chave de acesso"
+                                    value={form.apiToken}
+                                    onChange={e => setErpForms((f: any) => ({ ...f, [intg.erpSource]: { ...getErpForm(intg.erpSource), apiToken: e.target.value } }))}
+                                    data-testid={`input-erp-token-${intg.erpSource}`}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                    onClick={() => setErpForms((f: any) => ({ ...f, [intg.erpSource]: { ...form, showToken: !form.showToken } }))}
+                                  >
+                                    {form.showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs gap-1"
+                                disabled={pending.saving}
+                                onClick={async () => {
+                                  setErpPending((p: any) => ({ ...p, [intg.erpSource]: { ...p[intg.erpSource], saving: true } }));
+                                  try {
+                                    await saveErpConfigMutation.mutateAsync({ source: intg.erpSource, data: { apiUrl: form.apiUrl, apiToken: form.apiToken } });
+                                  } finally {
+                                    setErpPending((p: any) => ({ ...p, [intg.erpSource]: { ...p[intg.erpSource], saving: false } }));
+                                  }
+                                }}
+                                data-testid={`button-save-erp-${intg.erpSource}`}
+                              >
+                                {pending.saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                                Salvar
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs gap-1"
+                                disabled={pending.testing || !form.apiUrl || !form.apiToken}
+                                onClick={() => testConnection(intg.erpSource)}
+                                data-testid={`button-test-erp-${intg.erpSource}`}
+                              >
+                                {pending.testing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                                Testar
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs gap-1"
+                                disabled={pending.syncing || !intg.apiUrl || !intg.apiToken}
+                                onClick={() => syncNow(intg.erpSource)}
+                                data-testid={`button-sync-erp-${intg.erpSource}`}
+                              >
+                                {pending.syncing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                                Sincronizar
+                              </Button>
+                              {testResult && (
+                                <span className={`text-xs font-medium ${testResult.ok ? "text-emerald-600" : "text-rose-500"}`}>
+                                  {testResult.ok ? "Conexao OK" : testResult.msg}
+                                </span>
+                              )}
+                              {syncResult && (
+                                <span className={`text-xs font-medium ${syncResult.ok ? "text-emerald-600" : "text-rose-500"}`}>
+                                  {syncResult.msg}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </Card>
+                )}
 
                 {/* Sync Logs */}
                 <Card className="overflow-hidden">
