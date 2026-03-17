@@ -677,7 +677,8 @@ export async function registerRoutes(
       const EXTERNAL_ISP_AUTH = "Basic aXNwX2FuYWxpenplOmlzcGFuYWxpenplMTIzMTIz";
 
       const erpIntegrationsList = await storage.getErpIntegrations(providerId);
-      const enabledIntegrations = erpIntegrationsList.filter(e => e.isEnabled);
+      // Only include integrations that have api_url configured; ignore purely enabled-but-unconfigured ones
+      const enabledIntegrations = erpIntegrationsList.filter(e => e.isEnabled && e.apiUrl && e.apiUrl.trim() !== "");
 
       if (enabledIntegrations.length > 0) {
         try {
@@ -707,7 +708,12 @@ export async function registerRoutes(
           });
 
           if (!extRes.ok) {
-            return res.status(502).json({ message: `Erro na API ISP externa: HTTP ${extRes.status}` });
+            let errBody = "";
+            try { errBody = await extRes.text(); } catch {}
+            console.error(`[ISP-EXT] HTTP ${extRes.status} ao chamar ${EXTERNAL_ISP_URL}`);
+            console.error(`[ISP-EXT] Payload enviado:`, JSON.stringify(extPayload));
+            console.error(`[ISP-EXT] Resposta:`, errBody);
+            return res.status(502).json({ message: `Erro na API ISP externa: HTTP ${extRes.status}`, detail: errBody });
           }
 
           const extRaw: any = await extRes.json();
