@@ -671,6 +671,167 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Provedor nao encontrado" });
       }
 
+      // ── EXTERNAL ISP API ──────────────────────────────────────────────
+      // Primary consultation: fixed external endpoint + tenant ERP integrations
+      const EXTERNAL_ISP_URL = "https://n8n.aluisiocunha.com.br/webhook/isp-consult";
+      const EXTERNAL_ISP_AUTH = "Basic aXNwX2FuYWxpenplOmlzcGFuYWxpenplMTIzMTIz";
+
+      const erpIntegrationsList = await storage.getErpIntegrations(providerId);
+      const enabledIntegrations = erpIntegrationsList.filter(e => e.isEnabled);
+
+      if (enabledIntegrations.length > 0) {
+        try {
+          const integrations = enabledIntegrations.map(erp => ({
+            provider_id: String(providerId),
+            provider_name: provider.name,
+            erp: erp.erpSource,
+            api_url: erp.apiUrl || "",
+            api_key: erp.apiToken || "",
+          }));
+
+          const extPayload = {
+            document: cleaned,
+            searchType: "document",
+            addressQuery: null,
+            integrations,
+          };
+
+          const extRes = await fetch(EXTERNAL_ISP_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": EXTERNAL_ISP_AUTH,
+            },
+            body: JSON.stringify(extPayload),
+            signal: AbortSignal.timeout(25000),
+          });
+
+          if (!extRes.ok) {
+            return res.status(502).json({ message: `Erro na API ISP externa: HTTP ${extRes.status}` });
+          }
+
+          const extRaw: any = await extRes.json();
+
+          // Response can be [{data:{customers:[...]}}] or {data:{customers:[...]}} or {customers:[...]}
+          const responseObj = Array.isArray(extRaw) ? extRaw[0] : extRaw;
+          const customers: any[] = responseObj?.data?.customers
+            || responseObj?.customers
+            || [];
+
+          const notFound = customers.length === 0;
+
+          const computeScore = (c: any): number => {
+            const ps = (c.payment_status || "").toLowerCase();
+            if (ps === "current") return 90;
+            if (ps === "cancelled") return 40;
+            if (ps === "suspended") return 35;
+            const days = c.payment_summary?.max_days_overdue || 0;
+            if (days > 90) return 15;
+            if (days > 60) return 30;
+            if (days > 30) return 50;
+            if (days > 0) return 65;
+            return 75;
+          };
+
+          const scores = customers.map(computeScore);
+          const finalScore = notFound ? 100 : Math.min(...scores);
+          const risk = getRiskTier(finalScore);
+          const decisionReco = getDecisionReco(finalScore);
+          const recommendedActions = getRecommendedActions(finalScore, false);
+
+          const paymentStatusMap: Record<string, string> = {
+            "current": "Em dia",
+            "overdue": "Inadimplente",
+            "cancelled": "Cancelado",
+            "suspended": "Suspenso",
+          };
+
+          const providerDetails = customers.map((c: any) => {
+            const ps = (c.payment_status || "").toLowerCase();
+            const ps2 = c.payment_status || "";
+            const overdueAmount = Number(c.payment_summary?.open_overdue_amount || 0);
+            const maxDays = Number(c.payment_summary?.max_days_overdue || 0);
+            const overdueCount = Number(c.payment_summary?.open_overdue_count || 0);
+            const serviceAgeMonths = Number(c.service_age_months || 0);
+
+            return {
+              providerName: provider.name,
+              isSameProvider: true,
+              customerName: c.full_name || "Desconhecido",
+              status: paymentStatusMap[ps] || ps2 || "Em dia",
+              daysOverdue: maxDays,
+              overdueAmount,
+              overdueAmountRange: undefined,
+              overdueInvoicesCount: overdueCount,
+              contractStartDate: serviceAgeMonths > 0
+                ? new Date(Date.now() - serviceAgeMonths * 30 * 86400000).toISOString()
+                : new Date().toISOString(),
+              contractAgeDays: serviceAgeMonths * 30,
+              hasUnreturnedEquipment: false,
+              unreturnedEquipmentCount: 0,
+              planName: c.plan_name,
+              phone: c.phone,
+              email: c.email,
+              address: [c.address, c.neighborhood, c.city, c.state].filter(Boolean).join(", "),
+              lastPaymentDate: c.payment_summary?.last_payment_date,
+              lastPaymentValue: c.payment_summary?.last_payment_value,
+              openAmountTotal: c.payment_summary?.open_amount_total,
+              openItems: c.payment_summary?.open_items || [],
+            };
+          });
+
+          const alerts: string[] = [];
+          for (const c of customers) {
+            const ps = (c.payment_status || "").toLowerCase();
+            const days = c.payment_summary?.max_days_overdue || 0;
+            const amount = c.payment_summary?.open_overdue_amount || 0;
+            if (ps === "overdue" || ps === "inadimplente") {
+              alerts.push(`Cliente inadimplente: ${days} dias em atraso, R$ ${Number(amount).toFixed(2)} em aberto`);
+            }
+          }
+
+          const result = {
+            cpfCnpj: cleaned,
+            searchType,
+            notFound,
+            score: finalScore,
+            riskTier: risk.tier,
+            riskLabel: risk.label,
+            recommendation: risk.recommendation,
+            decisionReco,
+            providersFound: notFound ? 0 : 1,
+            providerDetails,
+            penalties: [],
+            bonuses: [],
+            alerts,
+            recommendedActions,
+            creditsCost: 0,
+            isOwnCustomer: !notFound,
+            source: "external_isp",
+          };
+
+          const consultation = await storage.createIspConsultation({
+            providerId,
+            userId: req.session.userId!,
+            cpfCnpj: cleaned,
+            searchType,
+            result,
+            score: finalScore,
+            decisionReco,
+            cost: 0,
+            approved: finalScore >= 50,
+          });
+
+          return res.json({ consultation, result });
+        } catch (extErr: any) {
+          if (extErr.name === "AbortError" || extErr.name === "TimeoutError") {
+            return res.status(504).json({ message: "Timeout ao conectar com a API ISP (25s). Verifique sua conexao." });
+          }
+          return res.status(502).json({ message: `Erro ao chamar API ISP: ${extErr.message}` });
+        }
+      }
+      // ── FIM EXTERNAL ISP API ──────────────────────────────────────────
+
       // ── N8N INTEGRATION ──────────────────────────────────────────────
       // If provider has N8N configured and enabled, query N8N instead of local DB
       const n8nCfg = await storage.getN8nConfig(providerId);
