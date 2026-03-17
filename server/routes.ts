@@ -693,7 +693,14 @@ export async function registerRoutes(
         const CENTRAL_N8N_URL = "https://n8n.aluisiocunha.com.br/webhook/isp-consult";
         const CENTRAL_N8N_AUTH = "Basic aXNwX2FuYWxpenplOmlzcGFuYWxpenplMTIzMTIz";
 
-        const extPayload = {
+        // When searching by CEP (8 digits) use N8N address search mode
+        const isCepSearch = searchType === "cep";
+        const extPayload = isCepSearch ? {
+          document: null,
+          searchType: "address",
+          addressQuery: { zipcode: cleaned },
+          integrations,
+        } : {
           document: cleaned,
           searchType: "document",
           addressQuery: null,
@@ -743,6 +750,76 @@ export async function registerRoutes(
 
         // Build a quick lookup: provider_id → provider info
         const providerMap = new Map(n8nProviders.map(p => [String(p.id), p]));
+
+        // ── ADDRESS CROSS-REFERENCE (document search only) ──────────────
+        // For each unique address found in document search, do a secondary
+        // N8N address query to find other customers at the same location.
+        let n8nAddressMatches: any[] = [];
+        if (!isCepSearch && customers.length > 0) {
+          const seenAddrKeys = new Set<string>();
+          const addressQueries: any[] = [];
+          for (const c of customers) {
+            if (!c.city) continue;
+            const key = [c.cep || "", c.city, c.address || ""].join("|");
+            if (seenAddrKeys.has(key)) continue;
+            seenAddrKeys.add(key);
+            const addrQ: any = {};
+            if (c.address) addrQ.street = c.address;
+            if (c.cep) addrQ.zipcode = c.cep.replace(/\D/g, "");
+            if (c.city) addrQ.city = c.city;
+            if (c.state) addrQ.state = c.state;
+            if (c.neighborhood) addrQ.neighborhood = c.neighborhood;
+            addressQueries.push(addrQ);
+          }
+          for (const addrQ of addressQueries.slice(0, 3)) {
+            try {
+              const addrRes = await fetch(CENTRAL_N8N_URL, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": CENTRAL_N8N_AUTH,
+                },
+                body: JSON.stringify({
+                  document: null,
+                  searchType: "address",
+                  addressQuery: addrQ,
+                  integrations,
+                }),
+                signal: AbortSignal.timeout(10000),
+              });
+              if (addrRes.ok) {
+                const addrRaw = await addrRes.json();
+                const addrObj = Array.isArray(addrRaw) ? addrRaw[0] : addrRaw;
+                const addrCustomers: any[] = addrObj?.data?.customers || addrObj?.customers || [];
+                for (const ac of addrCustomers) {
+                  // Skip anyone already in main results (same document or same provider record)
+                  const alreadyFound = customers.find(
+                    (c: any) => c.document && ac.document && c.document === ac.document,
+                  );
+                  if (!alreadyFound) {
+                    const acProviderId = ac.provider_id ? Number(ac.provider_id) : null;
+                    const acIsSame = acProviderId !== null && acProviderId === providerId;
+                    n8nAddressMatches.push({
+                      customerName: acIsSame ? (ac.full_name || "Desconhecido") : "***",
+                      cpfCnpj: acIsSame ? (ac.document || "") : "***",
+                      address: [addrQ.street, addrQ.city, addrQ.state].filter(Boolean).join(", "),
+                      city: addrQ.city || "",
+                      state: addrQ.state || "",
+                      providerName: ac.provider_name || (acProviderId ? providerMap.get(String(acProviderId))?.name : null) || "Outro provedor",
+                      isSameProvider: acIsSame,
+                      status: ac.payment_status || "unknown",
+                      daysOverdue: Number(ac.payment_summary?.max_days_overdue || 0),
+                      totalOverdue: acIsSame ? Number(ac.payment_summary?.open_overdue_amount || 0) : undefined,
+                      hasDebt: Number(ac.payment_summary?.max_days_overdue || 0) > 0,
+                    });
+                  }
+                }
+              }
+            } catch (addrErr: any) {
+              console.warn("[ISP-N8N] Address cross-ref failed:", addrErr.message);
+            }
+          }
+        }
 
         const notFound = customers.length === 0;
 
@@ -808,7 +885,12 @@ export async function registerRoutes(
             planName: isSame ? c.plan_name : undefined,
             phone: isSame ? c.phone : undefined,
             email: isSame ? c.email : undefined,
-            address: isSame ? [c.address, c.neighborhood, c.city, c.state].filter(Boolean).join(", ") : undefined,
+            // Own provider: full address. External: city/state only (masked)
+            address: isSame
+              ? [c.address, c.neighborhood, c.city, c.state].filter(Boolean).join(", ")
+              : [c.city, c.state].filter(Boolean).join("/") || undefined,
+            addressCity: c.city || undefined,
+            addressState: c.state || undefined,
             lastPaymentDate: isSame ? c.payment_summary?.last_payment_date : undefined,
             lastPaymentValue: isSame ? c.payment_summary?.last_payment_value : undefined,
             openAmountTotal: isSame ? c.payment_summary?.open_amount_total : undefined,
@@ -880,6 +962,7 @@ export async function registerRoutes(
           recommendedActions,
           creditsCost,
           isOwnCustomer,
+          addressMatches: n8nAddressMatches,
           source: "n8n_central",
         };
 

@@ -32,6 +32,9 @@ interface ProviderDetail {
   equipmentPendingSummary?: string;
   cancelledDate?: string;
   contractStatus?: string;
+  address?: string;
+  addressCity?: string;
+  addressState?: string;
 }
 
 interface AddressMatch {
@@ -680,7 +683,9 @@ ${addrRows ? `<section>
                               Resultado da Consulta
                             </h3>
                             <p className="text-xs text-slate-500">
-                              Documento: {formatCpfCnpj(result.cpfCnpj)}
+                              {result.searchType === "cep"
+                                ? `CEP: ${result.cpfCnpj.replace(/^(\d{5})(\d{3})$/, "$1-$2")}`
+                                : `Documento: ${formatCpfCnpj(result.cpfCnpj)}`}
                             </p>
                           </div>
                         </div>
@@ -765,6 +770,18 @@ ${addrRows ? `<section>
                                       </>
                                     )}
                                   </div>
+                                  {detail.address && (
+                                    <div className="flex items-center gap-1 mt-1">
+                                      <MapPin className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                                      {isOwn
+                                        ? <span className="text-xs text-slate-600 truncate">{detail.address}</span>
+                                        : <span className="text-xs text-slate-400 flex items-center gap-1">
+                                            <Lock className="w-2.5 h-2.5" />
+                                            {detail.address}
+                                          </span>
+                                      }
+                                    </div>
+                                  )}
                                 </div>
                                 <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isOwn ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`} data-testid={`cost-badge-${i}`}>
@@ -986,6 +1003,19 @@ ${addrRows ? `<section>
                                       : <span className="flex items-center gap-1 text-xs text-slate-400"><Lock className="w-3 h-3" /> Dado restrito</span>
                                     }
                                   </div>
+                                  {detail.address && (
+                                    <div>
+                                      <p className="text-[10px] text-slate-400">Endereço</p>
+                                      {isOwn
+                                        ? <p className="text-xs text-slate-700 break-words">{detail.address}</p>
+                                        : <span className="flex items-center gap-1 text-xs text-slate-500">
+                                            <MapPin className="w-3 h-3 flex-shrink-0" />
+                                            {detail.address}
+                                            <span className="text-[9px] text-slate-400 italic">(restrito)</span>
+                                          </span>
+                                      }
+                                    </div>
+                                  )}
                                   {detail.cancelledDate && (
                                     <div>
                                       <p className="text-[10px] text-slate-400">Data cancelamento</p>
