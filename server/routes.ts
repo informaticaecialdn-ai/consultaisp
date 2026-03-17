@@ -833,8 +833,13 @@ export async function registerRoutes(
                   if (!alreadyFound) {
                     const acProviderId = ac.provider_id ? Number(ac.provider_id) : null;
                     const acIsSame = acProviderId !== null && acProviderId === providerId;
+                    const acFullName = (ac.full_name || "Desconhecido").trim();
+                    const acNameParts = acFullName.split(/\s+/);
+                    const acMaskedName = acIsSame
+                      ? acFullName
+                      : acNameParts.length > 1 ? `${acNameParts[0]} ***` : acFullName;
                     n8nAddressMatches.push({
-                      customerName: acIsSame ? (ac.full_name || "Desconhecido") : "***",
+                      customerName: acMaskedName,
                       cpfCnpj: acIsSame ? (ac.document || "") : "***",
                       address: [addrQ.street, addrQ.city, addrQ.state].filter(Boolean).join(", "),
                       city: addrQ.city || "",
@@ -970,7 +975,12 @@ export async function registerRoutes(
           return {
             providerName: customerProviderName,
             isSameProvider: isSame,
-            customerName: isSame ? (c.full_name || "Desconhecido") : "***",
+            customerName: (() => {
+              const fn = (c.full_name || "Desconhecido").trim();
+              if (isSame) return fn;
+              const parts = fn.split(/\s+/);
+              return parts.length > 1 ? `${parts[0]} ***` : fn;
+            })(),
             status: paymentStatusMap[ps] || ps2 || "Em dia",
             daysOverdue: maxDays,
             overdueAmount: isSame ? overdueAmount : undefined,
@@ -1512,9 +1522,7 @@ export async function registerRoutes(
           const nameParts = mc.name.trim().split(/\s+/);
           const maskedName = isSameProvider
             ? mc.name
-            : nameParts.length > 1
-              ? `${nameParts[0]} ${nameParts.slice(1).map(p => p[0] + ".").join(" ")}`
-              : mc.name;
+            : nameParts.length > 1 ? `${nameParts[0]} ***` : mc.name;
 
           const rawCpf = mc.cpfCnpj.replace(/\D/g, "");
           const maskedDoc = isSameProvider
