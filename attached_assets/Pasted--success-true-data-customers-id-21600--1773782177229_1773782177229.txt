@@ -1,0 +1,83 @@
+[
+  {
+    "success": true,
+    "data": {
+      "customers": [
+        {
+          "id": "21600",
+          "provider_id": null,
+          "provider_name": "NsLink Provedor",
+          "full_name": "PAULA SETSUKO NAKAHARA COSTA",
+          "document": "11998473996",
+          "email": null,
+          "phone": "43988739394",
+          "address": "Rua Izidio Frederico Brito",
+          "address_number": "467",
+          "address_complement": null,
+          "billing_address_complement": null,
+          "neighborhood": "Conjunto Habitacional Maria Cecília Serrano de Oli",
+          "city": "4101",
+          "state": "3",
+          "zipcode": "86085010",
+          "payment_status": "90+",
+          "monthly_revenue": null,
+          "plan_name": "DECOLA_150MB_300MB",
+          "contract_start_date": "2024-10-10",
+          "contract_status": null,
+          "payment_summary": {
+            "open_amount_total": 2745.23,
+            "open_overdue_amount": 2745.23,
+            "open_overdue_count": 4,
+            "max_days_overdue": 512,
+            "last_payment_date": null,
+            "last_payment_value": null,
+            "open_items": [
+              {
+                "id": "1521084",
+                "due_date": "2024-12-10",
+                "amount_open": 800,
+                "days_overdue": 462,
+                "note": "REF A EQUIPAMENTOS NÃO DEVOLVIDOS/NÃO RETIRADOS "
+              },
+              {
+                "id": "1521083",
+                "due_date": "2024-12-10",
+                "amount_open": 882.53,
+                "days_overdue": 462,
+                "note": "ref a uma mensalidade R$115,87+ multa contratual 11m R$766,66"
+              },
+              {
+                "id": "1365813",
+                "due_date": "2024-10-21",
+                "amount_open": 262.7,
+                "days_overdue": 512,
+                "note": "Ref. Valores descritos no atendimento"
+              },
+              {
+                "id": "1365812",
+                "due_date": "2024-10-21",
+                "amount_open": 800,
+                "days_overdue": 512,
+                "note": "Ref. Valor de equipamento não devolvido"
+              }
+            ]
+          },
+          "not_returned_equipment": [],
+          "has_multiple_customers_at_address": false,
+          "customers_at_same_address_count": null,
+          "isp_score": null,
+          "risk_level": null,
+          "decision": null,
+          "applied_rules": [],
+          "risk_factors": [],
+          "service_age_months": 17,
+          "is_own_provider": false,
+          "cost": 1
+        }
+      ],
+      "search_type": "document",
+      "consultation_date": "2026-03-17T16:32:03",
+      "total_found": 1
+    }
+  }
+]

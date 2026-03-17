@@ -748,6 +748,12 @@ export async function registerRoutes(
         const responseObj = Array.isArray(extRaw) ? extRaw[0] : extRaw;
         const customers: any[] = responseObj?.data?.customers || responseObj?.customers || [];
 
+        // Debug: log full first customer object to understand ERP field mapping
+        if (customers.length > 0) {
+          console.log("[ISP-N8N] Full sample customer (keys):", Object.keys(customers[0]).join(", "));
+          console.log("[ISP-N8N] Full sample customer:", JSON.stringify(customers[0]));
+        }
+
         // Build a quick lookup: provider_id → provider info
         const providerMap = new Map(n8nProviders.map(p => [String(p.id), p]));
 
@@ -866,18 +872,69 @@ export async function registerRoutes(
           const isSame = customerProviderId !== null && customerProviderId === providerId;
 
           // Build masked address fields before return
-          const rawCep = (c.cep || "").replace(/\D/g, "");
+          // 1. CEP: try c.cep first; fallback to regex extraction from combined address string
+          const cepFromAddr = !c.cep && c.address
+            ? ((c.address.match(/\b(\d{5})-?(\d{3})\b/) || [])[0] || "").replace(/\D/g, "")
+            : "";
+          const rawCep = ((c.cep || cepFromAddr || "")).replace(/\D/g, "");
           const maskedCep = rawCep.length >= 5
             ? rawCep.replace(/^(\d{5})(\d*)$/, "$1-***")
-            : rawCep || null;
-          // Street name only: cut at first digit sequence or comma (removes number/complement)
-          const streetOnly = c.address
-            ? c.address.replace(/[,\s]*\d.*$/, "").trim()
             : null;
-          const addrFull = [c.address, c.neighborhood, c.city, c.state].filter(Boolean).join(", ");
+
+          // 2. City/State from ERP direct fields:
+          //    IXC and some ERPs return internal numeric IDs in city/state (e.g. "4101", "3").
+          //    Only use them when they have alphabetic characters (readable names).
+          const cityFromField = c.city && /[a-zA-ZÀ-ÿ]/.test(c.city) ? (c.city as string).trim() : null;
+          const stateFromField = c.state && /^[A-Z]{2}$/i.test((c.state as string).trim())
+            ? (c.state as string).trim().toUpperCase()
+            : null;
+
+          // Fallback: try to extract "City - ST" or "City, ST" from combined address string.
+          // Example: "Rua das Flores, 123, São Paulo - SP" → city="São Paulo", state="SP"
+          let cityFromAddr: string | null = null;
+          let stateFromAddr: string | null = null;
+          if ((!cityFromField || !stateFromField) && c.address) {
+            // Pattern: "Cidade - UF" at or near end of address
+            const m1 = (c.address as string).match(/,\s*([^,\d][^,]+?)\s*[-–]\s*([A-Z]{2})\s*(?:,.*)?$/i);
+            if (m1) { cityFromAddr = m1[1].trim(); stateFromAddr = m1[2].toUpperCase(); }
+            // Pattern: last segment is "UF" (2 letters) and second-to-last is the city
+            if (!cityFromAddr) {
+              const parts = (c.address as string).split(",").map(s => s.trim());
+              const lastPart = parts[parts.length - 1];
+              const secLast = parts[parts.length - 2];
+              if (/^[A-Z]{2}$/i.test(lastPart) && secLast && /[a-zA-ZÀ-ÿ]/.test(secLast)) {
+                stateFromAddr = lastPart.toUpperCase();
+                cityFromAddr = secLast;
+              }
+            }
+          }
+
+          const cityReadable = cityFromField || cityFromAddr;
+          const stateReadable = stateFromField || stateFromAddr;
+
+          // 3. Street name only: stop at the first digit run (removes house number & complement)
+          const streetOnly = c.address
+            ? (c.address as string).replace(/[,\s]*\d.*$/, "").trim()
+            : null;
+
+          // Full address for own provider: use N8N combined address as-is; append
+          // readable neighborhood/city/state if they aren't already embedded.
+          const addrFullParts = [c.address];
+          const addrLower = (c.address || "").toLowerCase();
+          if (c.neighborhood && /[a-zA-ZÀ-ÿ]/.test(c.neighborhood) && !addrLower.includes(c.neighborhood.toLowerCase())) {
+            addrFullParts.push(c.neighborhood);
+          }
+          if (cityReadable && !addrLower.includes(cityReadable.toLowerCase())) addrFullParts.push(cityReadable);
+          if (stateReadable && !addrLower.includes(stateReadable.toLowerCase())) addrFullParts.push(stateReadable);
+          const addrFull = addrFullParts.filter(Boolean).join(", ");
+
+          // Restricted: "Rua das Flores, *** — Londrina/PR" (city/state only when readable)
+          const cityStateDisplay = cityReadable && stateReadable
+            ? `${cityReadable}/${stateReadable}`
+            : cityReadable || null;
           const addrRestricted = [
             streetOnly ? `${streetOnly}, ***` : null,
-            c.city && c.state ? `${c.city}/${c.state}` : c.city || null,
+            cityStateDisplay,
           ].filter(Boolean).join(" — ") || undefined;
 
           return {
