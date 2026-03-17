@@ -141,6 +141,7 @@ export interface IStorage {
   syncErpCustomers(providerId: number, erpSource: string, customersData: any[]): Promise<{ upserted: number; errors: number }>;
 
   getErpIntegrations(providerId: number): Promise<ErpIntegration[]>;
+  getAllEnabledErpIntegrationsWithCredentials(): Promise<Array<ErpIntegration & { providerName: string }>>;
   upsertErpIntegration(providerId: number, erpSource: string, data: Partial<ErpIntegration>): Promise<ErpIntegration>;
   incrementErpIntegrationCounters(providerId: number, erpSource: string, upserted: number, errors: number): Promise<void>;
   getErpSyncLogs(providerId: number, erpSource?: string, limit?: number): Promise<ErpSyncLog[]>;
@@ -1083,6 +1084,22 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(erpIntegrations)
       .where(eq(erpIntegrations.providerId, providerId))
       .orderBy(erpIntegrations.erpSource);
+  }
+
+  async getAllEnabledErpIntegrationsWithCredentials(): Promise<Array<ErpIntegration & { providerName: string }>> {
+    const rows = await db
+      .select({ ...erpIntegrations, providerName: providers.name })
+      .from(erpIntegrations)
+      .innerJoin(providers, eq(erpIntegrations.providerId, providers.id))
+      .where(
+        and(
+          eq(erpIntegrations.isEnabled, true),
+          sql`${erpIntegrations.apiUrl} IS NOT NULL AND ${erpIntegrations.apiUrl} != ''`,
+          sql`${erpIntegrations.apiToken} IS NOT NULL AND ${erpIntegrations.apiToken} != ''`,
+        )
+      )
+      .orderBy(erpIntegrations.providerId, erpIntegrations.erpSource);
+    return rows;
   }
 
   async upsertErpIntegration(providerId: number, erpSource: string, data: Partial<ErpIntegration>): Promise<ErpIntegration> {

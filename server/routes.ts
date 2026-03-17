@@ -672,18 +672,17 @@ export async function registerRoutes(
       }
 
       // ── EXTERNAL ISP API ──────────────────────────────────────────────
-      // Primary consultation: fixed external endpoint + tenant ERP integrations
+      // Primary consultation: query ALL providers with configured ERP credentials
       const EXTERNAL_ISP_URL = "https://n8n.aluisiocunha.com.br/webhook/isp-consult";
       const EXTERNAL_ISP_AUTH = "Basic aXNwX2FuYWxpenplOmlzcGFuYWxpenplMTIzMTIz";
 
-      const erpIntegrationsList = await storage.getErpIntegrations(providerId);
-      const enabledIntegrations = erpIntegrationsList.filter(e => e.isEnabled);
+      const allEnabledErpIntegrations = await storage.getAllEnabledErpIntegrationsWithCredentials();
 
-      if (enabledIntegrations.length > 0) {
+      if (allEnabledErpIntegrations.length > 0) {
         try {
-          const integrations = enabledIntegrations.map(erp => ({
-            provider_id: String(providerId),
-            provider_name: provider.name,
+          const integrations = allEnabledErpIntegrations.map(erp => ({
+            provider_id: String(erp.providerId),
+            provider_name: erp.providerName,
             erp: erp.erpSource,
             api_url: erp.apiUrl || "",
             api_key: erp.apiToken || "",
@@ -768,14 +767,22 @@ export async function registerRoutes(
             const overdueCount = Number(c.payment_summary?.open_overdue_count || 0);
             const serviceAgeMonths = Number(c.service_age_months || 0);
 
+            // Determine which provider this customer belongs to.
+            // N8N returns provider_id/provider_name per customer when multiple providers are sent.
+            const customerProviderId = c.provider_id ? Number(c.provider_id) : null;
+            const customerProviderName = c.provider_name || c.providerName || provider.name;
+            const isSame = customerProviderId !== null
+              ? customerProviderId === providerId
+              : true;
+
             return {
-              providerName: provider.name,
-              isSameProvider: true,
-              customerName: c.full_name || "Desconhecido",
+              providerName: customerProviderName,
+              isSameProvider: isSame,
+              customerName: isSame ? (c.full_name || "Desconhecido") : "***",
               status: paymentStatusMap[ps] || ps2 || "Em dia",
               daysOverdue: maxDays,
-              overdueAmount,
-              overdueAmountRange: undefined,
+              overdueAmount: isSame ? overdueAmount : undefined,
+              overdueAmountRange: isSame ? undefined : (overdueAmount > 0 ? `R$ ${Math.floor(overdueAmount / 100) * 100} - R$ ${(Math.floor(overdueAmount / 100) + 1) * 100}` : undefined),
               overdueInvoicesCount: overdueCount,
               contractStartDate: serviceAgeMonths > 0
                 ? new Date(Date.now() - serviceAgeMonths * 30 * 86400000).toISOString()
@@ -783,14 +790,14 @@ export async function registerRoutes(
               contractAgeDays: serviceAgeMonths * 30,
               hasUnreturnedEquipment: false,
               unreturnedEquipmentCount: 0,
-              planName: c.plan_name,
-              phone: c.phone,
-              email: c.email,
-              address: [c.address, c.neighborhood, c.city, c.state].filter(Boolean).join(", "),
-              lastPaymentDate: c.payment_summary?.last_payment_date,
-              lastPaymentValue: c.payment_summary?.last_payment_value,
-              openAmountTotal: c.payment_summary?.open_amount_total,
-              openItems: c.payment_summary?.open_items || [],
+              planName: isSame ? c.plan_name : undefined,
+              phone: isSame ? c.phone : undefined,
+              email: isSame ? c.email : undefined,
+              address: isSame ? [c.address, c.neighborhood, c.city, c.state].filter(Boolean).join(", ") : undefined,
+              lastPaymentDate: isSame ? c.payment_summary?.last_payment_date : undefined,
+              lastPaymentValue: isSame ? c.payment_summary?.last_payment_value : undefined,
+              openAmountTotal: isSame ? c.payment_summary?.open_amount_total : undefined,
+              openItems: isSame ? (c.payment_summary?.open_items || []) : [],
             };
           });
 
@@ -800,9 +807,19 @@ export async function registerRoutes(
             const days = c.payment_summary?.max_days_overdue || 0;
             const amount = c.payment_summary?.open_overdue_amount || 0;
             if (ps === "overdue" || ps === "inadimplente") {
-              alerts.push(`Cliente inadimplente: ${days} dias em atraso, R$ ${Number(amount).toFixed(2)} em aberto`);
+              const cProviderId = c.provider_id ? Number(c.provider_id) : null;
+              const cProviderName = c.provider_name || c.providerName || provider.name;
+              alerts.push(`[${cProviderName}] Cliente inadimplente: ${days} dias em atraso, R$ ${Number(amount).toFixed(2)} em aberto`);
             }
           }
+
+          const uniqueProviderIds = new Set(
+            customers.map((c: any) => c.provider_id || "unknown").filter(Boolean)
+          );
+
+          const isOwnCustomer = customers.some((c: any) =>
+            c.provider_id ? Number(c.provider_id) === providerId : true
+          );
 
           const result = {
             cpfCnpj: cleaned,
@@ -813,14 +830,14 @@ export async function registerRoutes(
             riskLabel: risk.label,
             recommendation: risk.recommendation,
             decisionReco,
-            providersFound: notFound ? 0 : 1,
+            providersFound: notFound ? 0 : (uniqueProviderIds.size > 0 ? uniqueProviderIds.size : customers.length > 0 ? 1 : 0),
             providerDetails,
             penalties: [],
             bonuses: [],
             alerts,
             recommendedActions,
             creditsCost: 0,
-            isOwnCustomer: !notFound,
+            isOwnCustomer,
             source: "external_isp",
           };
 
