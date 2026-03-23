@@ -758,77 +758,177 @@ ${addrRows ? `<section>
                     </div>
                   </Card>
                 ) : !showFullResult ? (
-                  /* ── LISTA DE CLIENTES ENCONTRADOS ── */
-                  <div className="space-y-4">
-                    <Card className="overflow-hidden rounded-2xl border border-slate-200 shadow-md">
-                      <div className="bg-slate-50 px-5 py-4 flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                            <Search className="w-5 h-5 text-blue-600" />
+                  /* ── RESULTADO ESTILO CARD MOCKUP ── */
+                  (() => {
+                    const dc = result.decisionReco;
+                    const riskBadgeCls = result.riskTier === "low"
+                      ? "bg-emerald-600 text-white"
+                      : result.riskTier === "medium"
+                      ? "bg-amber-500 text-white"
+                      : result.riskTier === "high"
+                      ? "bg-orange-500 text-white"
+                      : "bg-red-600 text-white";
+                    const scorePct = Math.max(0, Math.min(100, result.score));
+                    const scoreBarColor = result.score >= 75 ? "bg-emerald-500"
+                      : result.score >= 50 ? "bg-yellow-500"
+                      : result.score >= 25 ? "bg-orange-500"
+                      : "bg-red-600";
+                    const totalEquipPending = result.providerDetails.reduce((s, d) => s + (d.hasUnreturnedEquipment ? d.unreturnedEquipmentCount : 0), 0);
+                    const totalEquipValue = result.providerDetails.reduce((s, d) => {
+                      if (!d.hasUnreturnedEquipment) return s;
+                      const count = d.unreturnedEquipmentCount || 0;
+                      return s + count * 290;
+                    }, 0);
+                    const externalProviders = result.providerDetails.filter(d => !d.isSameProvider);
+                    const now = new Date();
+                    const consultedAt = now.toLocaleDateString("pt-BR") + " " + now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+                    return (
+                      <div className="space-y-3" data-testid="consultation-result-cards">
+
+                        {/* ── HEADER: CPF + Risk + Score bar ── */}
+                        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                          {/* top bar */}
+                          <div className="bg-slate-900 px-5 py-3 flex items-center gap-2">
+                            <div className="flex gap-1.5">
+                              <span className="w-3 h-3 rounded-full bg-red-500" />
+                              <span className="w-3 h-3 rounded-full bg-yellow-500" />
+                              <span className="w-3 h-3 rounded-full bg-green-500" />
+                            </div>
+                            <span className="text-slate-400 text-xs ml-2 font-mono">Consulta ISP — Resultado detalhado</span>
                           </div>
-                          <div>
-                            <h3 className="text-base font-semibold text-slate-900" data-testid="text-resultado-titulo">
-                              Resultado da Consulta
-                            </h3>
-                            <p className="text-xs text-slate-500">
-                              {result.searchType === "cep"
-                                ? `CEP: ${result.cpfCnpj.replace(/^(\d{5})(\d{3})$/, "$1-$2")}`
-                                : `Documento: ${formatCpfCnpj(result.cpfCnpj)}`}
-                            </p>
+
+                          <div className="p-5">
+                            {/* CPF + risk */}
+                            <div className="flex items-start justify-between mb-4">
+                              <div>
+                                <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide mb-0.5">
+                                  {result.searchType === "cep" ? "CEP consultado" : result.searchType === "cnpj" ? "CNPJ consultado" : "CPF consultado"}
+                                </p>
+                                <p className="text-lg font-black text-slate-900 font-mono" data-testid="text-consulted-doc">
+                                  {result.searchType === "cep"
+                                    ? result.cpfCnpj.replace(/^(\d{5})(\d{3})$/, "$1-$2")
+                                    : formatCpfCnpj(result.cpfCnpj)}
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <span className={`text-xs font-black px-3 py-1.5 rounded-lg uppercase tracking-wide ${riskBadgeCls}`} data-testid="text-risk-badge">
+                                  {result.riskLabel}
+                                </span>
+                                <p className="text-[10px] text-slate-400 mt-1.5">Consultado em {consultedAt}</p>
+                              </div>
+                            </div>
+
+                            {/* Score bar */}
+                            <div className="mb-2">
+                              <div className="flex justify-between items-center mb-1">
+                                <p className="text-xs font-semibold text-slate-600">Score de crédito</p>
+                                <p className="text-sm font-black text-slate-900" data-testid="text-score-value">{result.score} / 100</p>
+                              </div>
+                              <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all duration-700 ${scoreBarColor}`}
+                                  style={{ width: `${scorePct}%` }}
+                                />
+                              </div>
+                              <div className="flex justify-between mt-1">
+                                {["Crítico", "Baixo", "Médio", "Bom", "Excelente"].map((label) => (
+                                  <span key={label} className="text-[9px] text-slate-400">{label}</span>
+                                ))}
+                              </div>
+                            </div>
+
+                            {result.isHistoryResult && (
+                              <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-center gap-2">
+                                <Clock className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+                                <p className="text-xs text-amber-800">Dados do histórico — podem não refletir a situação atual.</p>
+                              </div>
+                            )}
                           </div>
                         </div>
-                        <span className="text-xs text-slate-400">
-                          {new Date().toLocaleDateString("pt-BR")}
-                        </span>
-                      </div>
 
-                      <div className="p-5">
-                        <p className="text-sm text-slate-600 mb-4">
-                          {result.providerDetails.length === 1
-                            ? "1 cliente localizado na base de dados colaborativa."
-                            : `${result.providerDetails.length} cadastro(s) localizado(s) na base de dados colaborativa.`
-                          }
-                        </p>
-                        {result.isHistoryResult && (
-                          <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 flex items-center gap-2 mb-4">
-                            <Clock className="w-4 h-4 text-amber-600 flex-shrink-0" />
-                            <p className="text-xs text-amber-800">
-                              Resultados obtidos do historico de consultas da rede. Dados podem nao refletir a situacao atual.
-                            </p>
-                          </div>
-                        )}
-
-                        <div className="space-y-3">
+                        {/* ── PROVIDER CARDS GRID ── */}
+                        <div className={`grid gap-3 ${result.providerDetails.length > 1 ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
                           {result.providerDetails.map((detail, i) => {
                             const isOwn = detail.isSameProvider;
-                            const hasOverdue = (detail.overdueAmount || 0) > 0 || !!detail.overdueAmountRange;
-                            const statusCls = detail.daysOverdue === 0
-                              ? "bg-emerald-100 text-emerald-700"
-                              : detail.daysOverdue <= 30 ? "bg-orange-100 text-orange-700"
-                              : "bg-red-100 text-red-700";
+                            const debtStr = isOwn && detail.overdueAmount != null
+                              ? `R$ ${detail.overdueAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+                              : detail.overdueAmountRange || null;
+                            const maskedName = !isOwn
+                              ? (() => {
+                                  const parts = detail.customerName.split(" ");
+                                  return parts[0] + (parts[1] ? " " + parts[1][0] + "." : "") + (parts.length > 2 ? " " + parts[parts.length - 1][0] + "***" : "***");
+                                })()
+                              : detail.customerName;
+                            const locationStr = isOwn
+                              ? detail.address || (detail.addressCity ? `${detail.addressCity}${detail.addressState ? "/" + detail.addressState : ""}` : null)
+                              : detail.addressCity ? `${detail.addressCity}${detail.addressState ? "/" + detail.addressState : ""}` : null;
+
                             return (
                               <div
                                 key={i}
-                                className="flex items-center gap-4 p-4 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors"
-                                data-testid={`customer-found-${i}`}
+                                className={`rounded-2xl border-2 p-4 ${isOwn ? "border-emerald-200 bg-emerald-50/40" : "border-slate-200 bg-slate-50/40"}`}
+                                data-testid={`provider-card-${i}`}
                               >
-                                <div className={`w-1.5 self-stretch rounded-full flex-shrink-0 ${isOwn ? "bg-blue-500" : "bg-slate-300"}`} />
-                                <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
-                                  <span className={`text-xs font-bold ${isOwn ? "text-slate-700" : "text-slate-400"}`}>{getInitials(detail.customerName)}</span>
+                                {/* card header */}
+                                <div className="flex items-center justify-between mb-3">
+                                  <div className="flex items-center gap-2">
+                                    <span className={`text-[10px] font-black uppercase tracking-wide px-2 py-0.5 rounded-md ${isOwn ? "bg-emerald-200 text-emerald-800" : "bg-slate-200 text-slate-600"}`}>
+                                      {isOwn ? "Seu provedor" : "Outro provedor"}
+                                    </span>
+                                    {!isOwn && (
+                                      <Lock className="w-3 h-3 text-slate-400" />
+                                    )}
+                                  </div>
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${isOwn ? "bg-white border-emerald-300 text-emerald-700" : "bg-white border-blue-200 text-blue-600"}`} data-testid={`cost-badge-${i}`}>
+                                    {isOwn ? "Grátis" : "1 crédito"}
+                                  </span>
                                 </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                    <p className="text-sm font-semibold text-slate-900 truncate">
-                                      {detail.customerName}
-                                    </p>
-                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isOwn ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
-                                      {isOwn ? "SEU PROVEDOR" : "OUTRO PROVEDOR"}
+
+                                {/* name + location */}
+                                <p className="text-base font-black text-slate-900 mb-0.5 truncate" data-testid={`customer-name-${i}`}>
+                                  {maskedName}
+                                </p>
+                                {locationStr && (
+                                  <p className="text-xs text-slate-500 mb-3 flex items-center gap-1">
+                                    <MapPin className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                                    {locationStr}
+                                    {!isOwn && <Lock className="w-2.5 h-2.5 text-slate-300 ml-0.5" />}
+                                  </p>
+                                )}
+
+                                {/* data rows */}
+                                <div className="space-y-2 text-xs">
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-slate-500">Atraso</span>
+                                    <span className={`font-bold ${detail.daysOverdue > 0 ? "text-red-600" : "text-emerald-600"}`} data-testid={`days-overdue-${i}`}>
+                                      {detail.daysOverdue > 0 ? `${detail.daysOverdue} dias` : "Em dia"}
                                     </span>
                                   </div>
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="text-xs text-slate-500">{detail.providerName}</span>
-                                    <span className="text-slate-300">|</span>
-                                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                                  {debtStr && (
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-slate-500">{isOwn ? "Valor" : "Faixa"}</span>
+                                      <span className="font-bold text-red-600" data-testid={`debt-value-${i}`}>{debtStr}</span>
+                                    </div>
+                                  )}
+                                  {detail.overdueInvoicesCount > 0 && (
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-slate-500">Faturas</span>
+                                      <span className="font-bold text-red-600">{detail.overdueInvoicesCount} em atraso</span>
+                                    </div>
+                                  )}
+                                  {detail.hasUnreturnedEquipment && (
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-slate-500">Equip.</span>
+                                      <span className="font-bold text-amber-600 flex items-center gap-1">
+                                        <Router className="w-3 h-3" />
+                                        {detail.unreturnedEquipmentCount} retidos
+                                      </span>
+                                    </div>
+                                  )}
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-slate-500">Situação</span>
+                                    <span className={`font-semibold px-1.5 py-0.5 rounded text-[10px] ${
                                       detail.contractStatus === "active" ? "bg-emerald-100 text-emerald-700" :
                                       detail.contractStatus === "cancelled" ? "bg-red-100 text-red-700" :
                                       detail.contractStatus === "suspended" ? "bg-yellow-100 text-yellow-700" :
@@ -839,67 +939,66 @@ ${addrRows ? `<section>
                                        detail.contractStatus === "suspended" ? "Contrato Suspenso" :
                                        "Sem Contrato"}
                                     </span>
-                                    <span className="text-slate-300">|</span>
-                                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusCls}`}>
-                                      {detail.daysOverdue === 0 ? "Em dia" : `${detail.daysOverdue} dias atraso`}
-                                    </span>
-                                    {hasOverdue && (
-                                      <>
-                                        <span className="text-slate-300">|</span>
-                                        <span className="text-xs font-semibold text-red-600">
-                                          {detail.overdueAmount
-                                            ? `R$ ${detail.overdueAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
-                                            : detail.overdueAmountRange}
-                                        </span>
-                                      </>
-                                    )}
-                                    {detail.hasUnreturnedEquipment && (
-                                      <>
-                                        <span className="text-slate-300">|</span>
-                                        <span className="text-xs text-amber-600 flex items-center gap-1">
-                                          <Router className="w-3 h-3" />
-                                          {detail.unreturnedEquipmentCount} equip.
-                                        </span>
-                                      </>
-                                    )}
                                   </div>
-                                  {(detail.address || detail.cep) && (
-                                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                      <MapPin className="w-3 h-3 text-slate-400 flex-shrink-0" />
-                                      {detail.cep && (
-                                        <span className="text-xs font-mono text-slate-500 bg-slate-100 px-1 rounded">{detail.cep}</span>
-                                      )}
-                                      {detail.address && (
-                                        isOwn
-                                          ? <span className="text-xs text-slate-600 truncate">{detail.address}</span>
-                                          : <span className="text-xs text-slate-500 flex items-center gap-0.5">
-                                              <Lock className="w-2.5 h-2.5 text-slate-400 flex-shrink-0" />
-                                              {detail.address}
-                                            </span>
-                                      )}
-                                    </div>
-                                  )}
                                 </div>
-                                <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isOwn ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`} data-testid={`cost-badge-${i}`}>
-                                    {isOwn ? "Gratuita" : "1 Credito"}
-                                  </span>
-                                  <Button
-                                    size="sm"
-                                    className="bg-blue-600 hover:bg-blue-700 text-white gap-1.5 text-xs h-8"
-                                    onClick={() => { setShowFullResult(true); setSelectedProviderIdx(i); }}
-                                    data-testid={`button-ver-informacoes-${i}`}
-                                  >
-                                    <Info className="w-3.5 h-3.5" />
-                                    Ver Informacoes
-                                  </Button>
-                                </div>
+
+                                {/* see full details */}
+                                <button
+                                  className="mt-3 w-full text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center justify-center gap-1 py-1.5 rounded-lg hover:bg-blue-50 transition-colors border border-transparent hover:border-blue-100"
+                                  onClick={() => { setShowFullResult(true); setSelectedProviderIdx(i); }}
+                                  data-testid={`button-ver-informacoes-${i}`}
+                                >
+                                  <Info className="w-3.5 h-3.5" />
+                                  Ver detalhes completos
+                                </button>
                               </div>
                             );
                           })}
                         </div>
 
-                        <div className="mt-5 flex justify-center">
+                        {/* ── AI SUGGESTION BANNER ── */}
+                        {dc !== "Accept" && (
+                          <div className={`rounded-2xl p-4 flex items-center gap-4 ${dc === "Reject" ? "bg-red-600" : "bg-amber-500"}`} data-testid="ai-suggestion-banner">
+                            <div className="flex-shrink-0 text-center">
+                              <p className="text-[9px] font-bold text-white/80 uppercase tracking-widest">Sugestão IA</p>
+                              <p className="text-base font-black text-white leading-none mt-0.5">
+                                {dc === "Reject" ? "REJEITAR" : "ANALISAR"}
+                              </p>
+                            </div>
+                            <div className="w-px self-stretch bg-white/30" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-white" data-testid="text-ai-recommendation">
+                                {totalEquipPending > 0
+                                  ? `${totalEquipPending} equipamento${totalEquipPending > 1 ? "s" : ""} não devolvido${totalEquipPending > 1 ? "s" : ""}`
+                                  : result.recommendation}
+                              </p>
+                              <p className="text-xs text-white/80 mt-0.5">
+                                {totalEquipPending > 0
+                                  ? `Valor em risco: R$ ${totalEquipValue.toLocaleString("pt-BR")} · ${externalProviders.length > 0 ? externalProviders.length + " provedor(es) na rede" : "histórico próprio"}`
+                                  : result.riskLabel}
+                              </p>
+                            </div>
+                            {dc === "Reject" && <XCircle className="w-8 h-8 text-white/80 flex-shrink-0" />}
+                            {dc === "Review" && <AlertCircle className="w-8 h-8 text-white/80 flex-shrink-0" />}
+                          </div>
+                        )}
+                        {dc === "Accept" && (
+                          <div className="rounded-2xl p-4 flex items-center gap-4 bg-emerald-600" data-testid="ai-suggestion-banner">
+                            <div className="flex-shrink-0 text-center">
+                              <p className="text-[9px] font-bold text-white/80 uppercase tracking-widest">Sugestão IA</p>
+                              <p className="text-base font-black text-white leading-none mt-0.5">APROVAR</p>
+                            </div>
+                            <div className="w-px self-stretch bg-white/30" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-white">{result.recommendation}</p>
+                              <p className="text-xs text-white/80 mt-0.5">{result.riskLabel}</p>
+                            </div>
+                            <CheckCircle className="w-8 h-8 text-white/80 flex-shrink-0" />
+                          </div>
+                        )}
+
+                        {/* ── ACTIONS ── */}
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
                           <Button
                             variant="outline"
                             className="gap-2"
@@ -909,10 +1008,20 @@ ${addrRows ? `<section>
                             <RotateCcw className="w-4 h-4" />
                             Nova Consulta
                           </Button>
+                          <div className="flex gap-2">
+                            <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={handleSaveConsulta} data-testid="button-save-consulta">
+                              <Save className="w-3.5 h-3.5" />
+                              Salvar no histórico
+                            </Button>
+                            <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={generatePDF} data-testid="button-generate-pdf">
+                              <Download className="w-3.5 h-3.5" />
+                              Gerar PDF
+                            </Button>
+                          </div>
                         </div>
                       </div>
-                    </Card>
-                  </div>
+                    );
+                  })()
                 ) : (
                   <div className="space-y-5">
 
