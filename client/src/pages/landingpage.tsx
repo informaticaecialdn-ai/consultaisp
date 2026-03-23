@@ -100,12 +100,13 @@ export default function LandingPage() {
                 Rede colaborativa entre provedores
               </div>
               <h1 className="text-4xl sm:text-5xl font-black leading-[1.1] tracking-tight mb-6" data-testid="text-hero-title">
-                Saiba o histórico do cliente<br />
-                <span className="text-blue-200">antes de instalar.</span>
+                Você está instalando ONU<br />
+                <span className="text-blue-200">em quem já deve em outro provedor.</span>
               </h1>
               <p className="text-blue-100 text-lg leading-relaxed mb-8 max-w-lg">
-                Provedores compartilham dados de inadimplência em uma base colaborativa.
-                Consulte CPF/CNPJ em menos de 2 segundos e proteja seu provedor de calotes e equipamentos não devolvidos.
+                A Resolução Anatel 765 dá 75 dias ao cliente antes de você poder cancelar.
+                Ele sabe disso — e usa esse tempo para migrar sem pagar.
+                Com o Consulta ISP, você consulta o histórico em 2 segundos <strong className="text-white">antes de instalar</strong>.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 mb-10">
                 <Button size="lg" className="bg-white text-blue-700 hover:bg-blue-50 px-8 gap-2 h-12 text-base font-bold shadow-lg" onClick={goRegister} data-testid="button-hero-cta">
@@ -199,6 +200,90 @@ export default function LandingPage() {
                 <p className={`text-3xl sm:text-4xl font-black ${item.color} mb-1`}>{item.stat}</p>
                 <p className="text-sm font-semibold text-white mb-0.5">{item.desc}</p>
                 <p className="text-xs text-slate-400">{item.sub}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* 5 DORES — Mapeamento problema → solução */}
+      <section className="py-16 bg-white border-b border-slate-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <div className="inline-flex items-center gap-2 text-red-600 text-xs font-bold uppercase tracking-widest mb-3">
+              <AlertTriangle className="w-4 h-4" />
+              As 5 dores que mais custam ao provedor
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-black text-slate-900">Você reconhece alguma dessas situações?</h2>
+            <p className="text-slate-500 mt-3 max-w-2xl mx-auto">
+              Mapeamos as principais dores de provedores regionais e construímos uma plataforma para resolver cada uma delas.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[
+              {
+                pain: "Instalo sem saber o histórico do CPF",
+                context: "O cliente veio educado, pareceu confiável. Mas devia em dois provedores antes de você e nunca devolveu a ONU.",
+                solution: "Consulta ISP na rede colaborativa",
+                solutionDesc: "Score de risco + histórico em menos de 2 segundos antes de ativar qualquer cliente.",
+                icon: Search, painColor: "text-red-600", bg: "border-red-100 hover:border-red-300",
+                badge: "bg-red-100 text-red-700", badgeText: "Alto impacto",
+              },
+              {
+                pain: "Não sei quando meu inadimplente tenta migrar",
+                context: "Ele sabe que a Anatel te obriga a notificar em D+15 e aguardar até D+60 antes de cancelar. Usa esse tempo para sair com sua ONU.",
+                solution: "Anti-Fraude em tempo real",
+                solutionDesc: "Alerta via WhatsApp/e-mail em menos de 5 segundos quando o CPF é consultado por outro provedor.",
+                icon: Bell, painColor: "text-orange-600", bg: "border-orange-100 hover:border-orange-300",
+                badge: "bg-orange-100 text-orange-700", badgeText: "Alto impacto",
+              },
+              {
+                pain: "ONU foi embora sem registro nem cobrança",
+                context: "Cancelou o contrato, ninguém buscou o equipamento. Técnico estava em instalação nova. Meses depois: cliente mudou, ONU perdida, R$ 280 no lixo.",
+                solution: "Controle de equipamentos",
+                solutionDesc: "Rastreie cada ONU e roteador com modelo, serial, cliente e status de recuperação em comodato.",
+                icon: Router, painColor: "text-amber-600", bg: "border-amber-100 hover:border-amber-300",
+                badge: "bg-amber-100 text-amber-700", badgeText: "Médio-Alto impacto",
+              },
+              {
+                pain: "Não consigo negativar no SPC/Serasa",
+                context: "Exige contrato direto, CNPJ com histórico, volume mínimo. Para ISP pequeno é caro e burocrático. O inadimplente circula limpo e contrata em outro lugar.",
+                solution: "Consulta SPC integrada",
+                solutionDesc: "Acesso à negativação via plataforma sem contrato direto com SPC — disponível no plano Básico.",
+                icon: FileText, painColor: "text-purple-600", bg: "border-purple-100 hover:border-purple-300",
+                badge: "bg-purple-100 text-purple-700", badgeText: "Médio impacto",
+              },
+              {
+                pain: "Tenho medo de violar a LGPD ao trocar dados com outro provedor",
+                context: "Quer compartilhar info do inadimplente com o provedor da cidade ao lado mas tem receio de estar infringindo a lei. Na dúvida, não faz nada.",
+                solution: "Compartilhamento 100% LGPD",
+                solutionDesc: "A base compartilha apenas indicadores anonimizados — sem CPF, nome ou endereço visíveis para outros provedores.",
+                icon: Lock, painColor: "text-blue-600", bg: "border-blue-100 hover:border-blue-300",
+                badge: "bg-blue-100 text-blue-700", badgeText: "Regulatório",
+              },
+              {
+                pain: "Bloqueio tarde: 45 dias de receita perdida",
+                context: "A equipe estava ocupada com chamados técnicos. Quando alguém bloqueou, já haviam se passado quase 2 meses — e o cliente já estava procurando outro provedor.",
+                solution: "Integração com ERP + alerta automático",
+                solutionDesc: "A base é atualizada automaticamente via IXC/SGP. Identifique risco antes de instalar e evite acumular inadimplentes.",
+                icon: Clock, painColor: "text-red-700", bg: "border-red-100 hover:border-red-300",
+                badge: "bg-red-100 text-red-800", badgeText: "Alto impacto",
+              },
+            ].map((item, i) => (
+              <div key={i} className={`border-2 ${item.bg} rounded-2xl p-5 transition-all hover:shadow-md`} data-testid={`pain-${i}`}>
+                <div className="flex items-start justify-between mb-3">
+                  <div className={`w-10 h-10 rounded-xl ${item.badge.replace("text-", "bg-").split(" ")[0].replace("bg-", "bg-")} bg-opacity-20 flex items-center justify-center`}>
+                    <item.icon className={`w-5 h-5 ${item.painColor}`} />
+                  </div>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${item.badge}`}>{item.badgeText}</span>
+                </div>
+                <p className={`text-sm font-black ${item.painColor} mb-1.5`}>"{item.pain}"</p>
+                <p className="text-xs text-slate-500 leading-relaxed mb-3">{item.context}</p>
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Como resolvemos</p>
+                  <p className="text-xs font-bold text-slate-900 mb-1">{item.solution}</p>
+                  <p className="text-xs text-slate-500 leading-relaxed">{item.solutionDesc}</p>
+                </div>
               </div>
             ))}
           </div>
@@ -299,8 +384,14 @@ export default function LandingPage() {
               <span className="text-red-400">Você fica sabendo agora.</span>
             </h2>
             <p className="text-slate-400 mt-4 max-w-2xl mx-auto">
-              70% dos churns são por mudança de endereço. Sem o anti-fraude, você só descobre quando o cliente já foi embora — com sua ONU.
+              A Resolução Anatel 765 obriga notificação em D+15 e aguardar até D+60 antes de cancelar.
+              O inadimplente <strong className="text-slate-300">sabe disso</strong> — e usa esses 75 dias para migrar sem pagar.
+              Com o anti-fraude, você recebe o alerta enquanto ele ainda está tentando.
             </p>
+            <div className="inline-flex items-center gap-2 mt-4 bg-red-900/40 border border-red-700/40 text-red-300 text-xs font-semibold px-4 py-2 rounded-full">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Resolução Anatel 765: 75 dias antes do cancelamento. O cliente usa cada um deles.
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3 max-w-5xl mx-auto mb-14">
@@ -836,6 +927,8 @@ export default function LandingPage() {
               { q: "Quais ERPs são compatíveis?", a: "A plataforma integra nativamente com IXC Provedor, SGP e MK Solutions. Quem não usa ERP pode importar via planilha CSV em qualquer formato." },
               { q: "Como funciona o anti-fraude?", a: "Quando um cliente seu inadimplente é consultado por outro provedor da rede, você recebe um alerta em tempo real via WhatsApp ou e-mail. Isso indica que ele pode estar tentando contratar internet em outro lugar sem quitar a dívida com você." },
               { q: "Funciona para provedor pequeno com menos de 200 clientes?", a: "Sim, especialmente para pequenos. Para um provedor com 150 clientes, o custo de uma única ONU perdida (R$ 280) representa muito mais proporcionalmente. O plano Gratuito já é suficiente para começar — consultas na sua própria base são sempre gratuitas, sem limite." },
+              { q: "Compartilhar dados de inadimplentes viola a LGPD?", a: "Não, quando feito corretamente. O Consulta ISP foi desenhado em conformidade com a LGPD: outros provedores jamais veem o nome completo, CPF, endereço ou dados pessoais identificáveis do seu cliente. A base compartilhada expõe apenas indicadores anonimizados — dias de atraso, faixa de valor e quantidade de equipamentos pendentes. Isso é equiparável ao compartilhamento de dados de risco de crédito feito por bureaus como SPC e Serasa, previsto no art. 7º, IX da LGPD (interesse legítimo)." },
+              { q: "E a Resolução Anatel 765 — como ela afeta meu provedor?", a: "A Resolução 765 obriga você a notificar o cliente com antecedência antes de suspender (D+15) e aguardar até D+60 para cancelar definitivamente. São 75 dias em que o cliente inadimplente sabe que pode continuar usando — ou migrar sem pagar. O anti-fraude do Consulta ISP alerta você em tempo real quando o CPF do seu inadimplente é consultado por outro provedor, permitindo agir (cobrar, negociar, recuperar o equipamento) enquanto ele ainda está na sua rede e antes de virar um prejuízo definitivo." },
             ].map((faq, i) => (
               <div key={i} className="px-6">
                 <button className="w-full text-left py-5 flex items-center justify-between gap-4" onClick={() => setOpenFaq(openFaq === i ? null : i)} data-testid={`faq-${i}`}>
