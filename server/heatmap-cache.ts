@@ -74,54 +74,83 @@ async function fetchIxcDelinquents(apiUrl: string, apiUser: string, apiToken: st
 }[]> {
   const basicAuth = Buffer.from(`${apiUser}:${apiToken}`).toString("base64");
   const base = apiUrl.startsWith("http") ? apiUrl : `https://${apiUrl}`;
-
-  const body = {
-    qtype: "fn_areceber.status",
-    query: "A",
-    oper: "=",
-    page: "1",
-    rp: "2000",
-    sortname: "fn_areceber.id",
-    sortorder: "asc",
+  const endpoint = `${base}/webservice/v1/fn_areceber`;
+  const headers = {
+    Authorization: `Basic ${basicAuth}`,
+    "Content-Type": "application/json",
+    ixcsoft: "listar",
   };
-
-  const res = await fetch(`${base}/webservice/v1/fn_areceber`, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${basicAuth}`,
-      "Content-Type": "application/json",
-      ixcsoft: "listar",
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(30000),
-  });
-
-  if (!res.ok) throw new Error(`IXC retornou ${res.status}`);
-  const data = await res.json();
-  const rows: any[] = data.registros || data.rows || (Array.isArray(data) ? data : []);
 
   const byClient = new Map<string, { name: string; city: string; state: string; cep: string; amount: number; daysOverdue: number }>();
   const today = new Date();
-  for (const r of rows) {
-    const cpf = (r.cpf_cnpj || r.cnpj || r.id_cliente || "").toString().replace(/\D/g, "");
-    if (!cpf) continue;
-    const amount = parseFloat(r.valor || r.valor_original || "0") || 0;
-    const due = r.vencimento || r.data_vencimento;
-    const daysOverdue = due ? Math.max(0, Math.floor((today.getTime() - new Date(due).getTime()) / 86400000)) : 0;
-    const existing = byClient.get(cpf);
-    if (existing) {
-      existing.amount += amount;
-      if (daysOverdue > existing.daysOverdue) existing.daysOverdue = daysOverdue;
-    } else {
-      byClient.set(cpf, {
-        name: r.razao || r.nome || r.name || cpf,
-        city: r.cidade || r.city || "",
-        state: r.uf || r.state || "",
-        cep: (r.cep || "").replace(/\D/g, ""),
-        amount,
-        daysOverdue,
-      });
+  const PAGE_SIZE = 500;
+  let page = 1;
+  let totalFetched = 0;
+
+  while (true) {
+    const body = {
+      qtype: "fn_areceber.status",
+      query: "A",
+      oper: "=",
+      page: String(page),
+      rp: String(PAGE_SIZE),
+      sortname: "fn_areceber.id",
+      sortorder: "asc",
+    };
+
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30000),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      if (text.includes("IP") && text.includes("liberado")) {
+        throw new Error(`IP não liberado no IXC — libere o IP do servidor de produção nas configurações do IXC`);
+      }
+      throw new Error(`IXC retornou ${res.status}: ${text.slice(0, 200)}`);
     }
+
+    const data = await res.json();
+
+    if (data.type === "error" || (typeof data.message === "string" && data.message.includes("IP"))) {
+      throw new Error(`IP não liberado no IXC — libere o IP do servidor de produção nas configurações do IXC`);
+    }
+
+    const rows: any[] = data.registros || data.rows || (Array.isArray(data) ? data : []);
+    if (rows.length === 0) break;
+
+    for (const r of rows) {
+      const cpf = (r.cpf_cnpj || r.cnpj || r.id_cliente || "").toString().replace(/\D/g, "");
+      if (!cpf) continue;
+      const amount = parseFloat(r.valor || r.valor_original || "0") || 0;
+      const due = r.vencimento || r.data_vencimento;
+      const daysOverdue = due ? Math.max(0, Math.floor((today.getTime() - new Date(due).getTime()) / 86400000)) : 0;
+      const existing = byClient.get(cpf);
+      if (existing) {
+        existing.amount += amount;
+        if (daysOverdue > existing.daysOverdue) existing.daysOverdue = daysOverdue;
+      } else {
+        byClient.set(cpf, {
+          name: r.razao || r.nome || r.name || cpf,
+          city: r.cidade || r.city || "",
+          state: r.uf || r.state || "",
+          cep: (r.cep || "").replace(/\D/g, ""),
+          amount,
+          daysOverdue,
+        });
+      }
+    }
+
+    totalFetched += rows.length;
+
+    const total = parseInt(data.total || data.count || "0", 10);
+    if (total > 0 && totalFetched >= total) break;
+    if (rows.length < PAGE_SIZE) break;
+
+    page++;
   }
 
   return Array.from(byClient.entries()).map(([cpf, v]) => ({
@@ -197,9 +226,30 @@ export async function refreshProviderCache(
 export async function refreshAllProviders(): Promise<void> {
   if (_refreshing) return;
   _refreshing = true;
+  const processed = new Set<number>();
   try {
+    // 1. Provedores com credenciais IXC diretas (n8n_enabled = true, n8nWebhookUrl = IXC host)
+    const n8nProviders = await storage.getAllProvidersWithN8n();
+    for (const prov of n8nProviders) {
+      if (!prov.n8nWebhookUrl || !prov.n8nAuthToken) continue;
+      const parts = prov.n8nAuthToken.split(":");
+      const apiUser = parts[0] || "";
+      const apiPass = parts.slice(1).join(":") || "";
+      await refreshProviderCache(
+        prov.id,
+        prov.name,
+        prov.n8nErpProvider || "ixc",
+        prov.n8nWebhookUrl,
+        apiUser,
+        apiPass,
+      );
+      processed.add(prov.id);
+    }
+
+    // 2. Integrações ERP locais cadastradas (erp_integrations table) — evita duplicar
     const integrations = await storage.getAllEnabledErpIntegrationsWithCredentials();
     for (const intg of integrations) {
+      if (processed.has(intg.providerId)) continue;
       if (!intg.apiUrl || !intg.apiToken) continue;
       await refreshProviderCache(
         intg.providerId,
@@ -209,6 +259,7 @@ export async function refreshAllProviders(): Promise<void> {
         intg.apiUser || "",
         intg.apiToken,
       );
+      processed.add(intg.providerId);
     }
   } finally {
     _refreshing = false;
