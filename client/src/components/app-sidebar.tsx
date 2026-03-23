@@ -45,6 +45,7 @@ import {
   Database,
   ClipboardList,
   Package,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -96,6 +97,7 @@ const ADMIN_GROUPS = [
       { title: "Usuarios", hash: "usuarios", icon: UserCog, testId: "link-admin-usuarios" },
       { title: "ERPs Cadastrados", hash: "erps", icon: Database, testId: "link-admin-erps" },
       { title: "Integracoes", hash: "integracoes", icon: Zap, testId: "link-admin-integracoes" },
+      { title: "Sincronizacao Auto", hash: "sincronizacao", icon: RefreshCw, testId: "link-admin-sincronizacao" },
     ],
   },
   {

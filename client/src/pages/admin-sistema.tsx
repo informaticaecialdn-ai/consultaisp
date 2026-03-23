@@ -19,7 +19,8 @@ import {
   TrendingDown, AlertCircle, CalendarCheck, Printer, Eye, Ban,
   ChevronDown, Zap, Link2, QrCode, Wallet, ScanLine, RotateCcw,
   ExternalLink, Copy, CheckCircle2, EyeOff, Terminal, Save, AlertTriangle,
-  Database, Upload, X, Pencil, ImagePlus, ToggleLeft, ToggleRight
+  Database, Upload, X, Pencil, ImagePlus, ToggleLeft, ToggleRight,
+  Play, Pause, CalendarClock, ServerCog, Wifi, WifiOff, Timer
 } from "lucide-react";
 import type { ErpCatalog } from "@shared/schema";
 
@@ -885,7 +886,7 @@ export default function AdminSistemaPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const VALID_TABS = ["painel", "cadastros", "provedores", "usuarios", "erps", "financeiro", "suporte", "integracoes"];
+  const VALID_TABS = ["painel", "cadastros", "provedores", "usuarios", "erps", "financeiro", "suporte", "integracoes", "sincronizacao"];
 
   const getInitialTab = () => {
     const hash = window.location.hash.replace("#", "");
@@ -1162,6 +1163,38 @@ export default function AdminSistemaPage() {
     staleTime: 60000,
   });
 
+  const { data: autoSyncStatus, isLoading: syncStatusLoading, refetch: refetchSyncStatus } = useQuery<any>({
+    queryKey: ["/api/admin/auto-sync/status"],
+    enabled: isSuperAdmin && activeTab === "sincronizacao",
+    refetchInterval: activeTab === "sincronizacao" ? 30000 : false,
+  });
+
+  const runSyncMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/auto-sync/run", {});
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Sincronizacao iniciada", description: "Os provedores serao sincronizados em background" });
+      setTimeout(() => refetchSyncStatus(), 3000);
+    },
+    onError: (e: any) => toast({ title: "Erro ao iniciar sync", description: e.message, variant: "destructive" }),
+  });
+
+  const changeIntervalMutation = useMutation({
+    mutationFn: async (data: { providerId: number; erpSource: string; syncIntervalHours: number }) => {
+      const res = await apiRequest("PATCH", "/api/admin/auto-sync/interval", data);
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Intervalo atualizado" });
+      refetchSyncStatus();
+    },
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
   const { data: erpCatalogList = [], isLoading: erpCatalogLoading, refetch: refetchErpCatalog } = useQuery<ErpCatalog[]>({
     queryKey: ["/api/erp-catalog"],
     enabled: isSuperAdmin,
@@ -1365,7 +1398,8 @@ export default function AdminSistemaPage() {
     erps:         { title: "ERPs Cadastrados",    desc: "Gerencie os sistemas ERP suportados",         icon: Database,     color: "from-teal-600 to-emerald-700" },
     financeiro:   { title: "Faturas e Cobrancas", desc: "Receita, faturas e pagamentos",               icon: DollarSign,   color: "from-emerald-600 to-teal-700" },
     suporte:      { title: "Suporte",             desc: "Chat direto com provedores",                  icon: MessageSquare,color: "from-orange-500 to-amber-600" },
-    integracoes:  { title: "Integracoes",         desc: "Status de integracao N8N e ERP por provedor", icon: Zap,          color: "from-orange-500 to-red-600" },
+    integracoes:      { title: "Integracoes",          desc: "Status de integracao N8N e ERP por provedor",     icon: Zap,          color: "from-orange-500 to-red-600" },
+    sincronizacao:    { title: "Sincronizacao Automatica", desc: "Agendamento e monitoramento do auto-sync de ERPs", icon: RefreshCw,    color: "from-cyan-600 to-teal-700" },
   };
   const meta = PAGE_META[activeTab] || PAGE_META.painel;
   const MetaIcon = meta.icon;
@@ -2842,6 +2876,191 @@ export default function AdminSistemaPage() {
             </Card>
           </div>
         </div>)}
+
+        {activeTab === "sincronizacao" && (
+          <div className="space-y-5">
+            {/* Scheduler Status Card */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card className="p-5 border-l-4 border-l-cyan-500">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center">
+                    <ServerCog className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Status do Scheduler</p>
+                    {autoSyncStatus?.scheduler?.running ? (
+                      <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300 gap-1">
+                        <RefreshCw className="w-3 h-3 animate-spin" />Executando
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300 gap-1">
+                        <CheckCircle className="w-3 h-3" />Aguardando
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              </Card>
+              <Card className="p-5 border-l-4 border-l-blue-500">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+                    <Timer className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Ultima execucao global</p>
+                    <p className="text-sm font-semibold">
+                      {autoSyncStatus?.scheduler?.lastRun
+                        ? new Date(autoSyncStatus.scheduler.lastRun).toLocaleString("pt-BR")
+                        : "Nunca executado"}
+                    </p>
+                  </div>
+                </div>
+              </Card>
+              <Card className="p-5 border-l-4 border-l-violet-500">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
+                    <CalendarClock className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Total de ciclos</p>
+                    <p className="text-2xl font-bold">{autoSyncStatus?.scheduler?.totalRuns ?? 0}</p>
+                  </div>
+                </div>
+              </Card>
+            </div>
+
+            {/* Run Now Button */}
+            <Card className="p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-semibold text-sm flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-amber-500" />
+                    Execucao Manual
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Dispara a sincronizacao imediatamente para todos os provedores com integracao ativa e intervalo vencido.
+                    O scheduler normal roda automaticamente a cada 30 minutos.
+                  </p>
+                </div>
+                <Button
+                  onClick={() => runSyncMutation.mutate()}
+                  disabled={runSyncMutation.isPending || autoSyncStatus?.scheduler?.running}
+                  className="gap-2 bg-cyan-600 hover:bg-cyan-700 text-white flex-shrink-0"
+                  data-testid="button-run-sync"
+                >
+                  {runSyncMutation.isPending ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4" />
+                  )}
+                  Sincronizar Agora
+                </Button>
+              </div>
+            </Card>
+
+            {/* Integrations table */}
+            <Card className="p-0 overflow-hidden">
+              <div className="p-4 border-b flex items-center justify-between">
+                <h3 className="font-semibold text-sm flex items-center gap-2">
+                  <Wifi className="w-4 h-4 text-cyan-500" />
+                  Integracoes Ativas ({autoSyncStatus?.integrations?.length ?? 0} provedores)
+                </h3>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => refetchSyncStatus()}
+                  disabled={syncStatusLoading}
+                  data-testid="button-refresh-sync-status"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${syncStatusLoading ? "animate-spin" : ""}`} />
+                </Button>
+              </div>
+              {syncStatusLoading ? (
+                <div className="p-8 text-center text-muted-foreground text-sm">Carregando...</div>
+              ) : !autoSyncStatus?.integrations?.length ? (
+                <div className="p-8 text-center">
+                  <WifiOff className="w-10 h-10 mx-auto text-muted-foreground/30 mb-2" />
+                  <p className="text-sm text-muted-foreground">Nenhuma integracao ativa com credenciais configuradas</p>
+                  <p className="text-xs text-muted-foreground/70 mt-1">Provedores precisam habilitar o ERP no painel e informar URL + Token</p>
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {autoSyncStatus.integrations.map((intg: any) => {
+                    const statusColors: Record<string, string> = {
+                      success: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300",
+                      error: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300",
+                      partial: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
+                    };
+                    const statusColor = statusColors[intg.lastSyncStatus] || "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400";
+                    return (
+                      <div key={`${intg.providerId}-${intg.erpSource}`} className="p-4 flex items-center gap-4" data-testid={`sync-row-${intg.providerId}`}>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium truncate">{intg.providerName}</span>
+                            <Badge variant="outline" className="text-[10px] uppercase font-mono">{intg.erpSource}</Badge>
+                            {intg.lastSyncStatus && (
+                              <Badge className={`text-[10px] ${statusColor}`}>{intg.lastSyncStatus}</Badge>
+                            )}
+                            {intg.isDue && (
+                              <Badge className="text-[10px] bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">Vencido</Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-4 mt-1 text-[11px] text-muted-foreground flex-wrap">
+                            <span>
+                              {intg.lastSyncAt
+                                ? `Ultima sync: ${new Date(intg.lastSyncAt).toLocaleString("pt-BR")}`
+                                : "Nunca sincronizado"}
+                            </span>
+                            <span>Proximo: {new Date(intg.nextDueAt).toLocaleString("pt-BR")}</span>
+                            <span className="text-emerald-600">{intg.totalSynced} sincronizados</span>
+                            {intg.totalErrors > 0 && <span className="text-red-500">{intg.totalErrors} erros</span>}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className="text-[11px] text-muted-foreground">Intervalo:</span>
+                          <Select
+                            value={String(intg.syncIntervalHours)}
+                            onValueChange={(val) =>
+                              changeIntervalMutation.mutate({
+                                providerId: intg.providerId,
+                                erpSource: intg.erpSource,
+                                syncIntervalHours: parseInt(val),
+                              })
+                            }
+                          >
+                            <SelectTrigger className="h-7 w-28 text-xs" data-testid={`select-interval-${intg.providerId}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="6">A cada 6h</SelectItem>
+                              <SelectItem value="12">A cada 12h</SelectItem>
+                              <SelectItem value="24">A cada 24h</SelectItem>
+                              <SelectItem value="48">A cada 48h</SelectItem>
+                              <SelectItem value="168">Semanal</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+
+            {/* Info box */}
+            <Card className="p-4 bg-cyan-50 dark:bg-cyan-950/30 border-cyan-200 dark:border-cyan-800">
+              <h4 className="text-sm font-semibold text-cyan-800 dark:text-cyan-200 flex items-center gap-2 mb-2">
+                <AlertCircle className="w-4 h-4" />Como funciona o Auto-Sync
+              </h4>
+              <ul className="text-xs text-cyan-700 dark:text-cyan-300 space-y-1">
+                <li>• O scheduler verifica a cada <strong>30 minutos</strong> se alguma integracao esta vencida.</li>
+                <li>• Cada provedor pode configurar seu proprio intervalo (6h, 12h, 24h, 48h ou semanal).</li>
+                <li>• Apenas integracoes com <strong>status ativo e credenciais preenchidas</strong> sao sincronizadas.</li>
+                <li>• Os dados sincronizados alimentam automaticamente o <strong>Benchmarking Regional</strong> do Mapa de Calor.</li>
+                <li>• O provedor pode ajustar o intervalo a qualquer momento; a proxima execucao sera recalculada.</li>
+              </ul>
+            </Card>
+          </div>
+        )}
 
         {activeTab === "suporte" && (<div>
           <div className="flex gap-2 mb-4">

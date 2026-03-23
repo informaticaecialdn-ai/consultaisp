@@ -253,6 +253,11 @@ export default function MapaCalorPage() {
     queryKey: ["/api/heatmap/city-ranking"],
   });
 
+  const { data: syncInfo } = useQuery<{ lastSyncAt: string | null; totalIntegrations: number }>({
+    queryKey: ["/api/heatmap/sync-info"],
+    staleTime: 60000,
+  });
+
   useEffect(() => {
     const city = provider?.addressCity || "";
     const state = provider?.addressState || "";
@@ -412,6 +417,18 @@ export default function MapaCalorPage() {
 
         {/* ======================== BENCHMARKING REGIONAL ======================== */}
         <TabsContent value="regional" className="space-y-4">
+          {/* Sync info banner */}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
+            <RefreshCw className="w-3.5 h-3.5 flex-shrink-0 text-cyan-500" />
+            <span>
+              Dados atualizados automaticamente via sincronização programada ·{" "}
+              {syncInfo?.totalIntegrations ?? 0} integração{syncInfo?.totalIntegrations !== 1 ? "ões" : ""} ativa{syncInfo?.totalIntegrations !== 1 ? "s" : ""} ·{" "}
+              {syncInfo?.lastSyncAt
+                ? `Última sync: ${new Date(syncInfo.lastSyncAt).toLocaleString("pt-BR")}`
+                : "Aguardando primeira sincronização automática"}
+            </span>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {regionalLoading ? (
               <Card className="lg:col-span-2 p-6 flex items-center justify-center py-20">

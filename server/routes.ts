@@ -8,6 +8,7 @@ import { sendVerificationEmail } from "./email";
 import { slugifySubdomain, buildSubdomainUrl } from "./tenant";
 import crypto from "crypto";
 import { streamConsultationAnalysis, streamAntiFraudAnalysis } from "./ai-analysis";
+import { startScheduler, getSchedulerStatus, runAutoSync } from "./scheduler";
 
 function calculateIspScore(params: {
   maxDaysOverdue: number;
@@ -3917,6 +3918,79 @@ export async function registerRoutes(
       return res.status(500).json({ message: error.message });
     }
   });
+
+  app.get("/api/admin/auto-sync/status", requireSuperAdmin, async (_req, res) => {
+    try {
+      const scheduler = getSchedulerStatus();
+      const integrations = await storage.getAllEnabledErpIntegrationsWithCredentials();
+      const now = new Date();
+      const list = integrations.map((intg) => {
+        const intervalMs = (intg.syncIntervalHours || 24) * 60 * 60 * 1000;
+        const nextDue = intg.lastSyncAt ? new Date(intg.lastSyncAt.getTime() + intervalMs) : new Date(0);
+        return {
+          providerId: intg.providerId,
+          providerName: intg.providerName,
+          erpSource: intg.erpSource,
+          syncIntervalHours: intg.syncIntervalHours,
+          lastSyncAt: intg.lastSyncAt,
+          lastSyncStatus: intg.lastSyncStatus,
+          nextDueAt: nextDue,
+          isDue: now >= nextDue,
+          totalSynced: intg.totalSynced,
+          totalErrors: intg.totalErrors,
+        };
+      });
+      return res.json({ scheduler, integrations: list });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/admin/auto-sync/run", requireSuperAdmin, async (_req, res) => {
+    try {
+      const status = getSchedulerStatus();
+      if (status.running) {
+        return res.status(409).json({ message: "Sincronização já está em execução" });
+      }
+      runAutoSync();
+      return res.json({ ok: true, message: "Sincronização iniciada em background" });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/admin/auto-sync/interval", requireSuperAdmin, async (req, res) => {
+    try {
+      const { providerId, erpSource, syncIntervalHours } = req.body;
+      if (!providerId || !erpSource || !syncIntervalHours) {
+        return res.status(400).json({ message: "providerId, erpSource e syncIntervalHours são obrigatórios" });
+      }
+      const hours = parseInt(syncIntervalHours);
+      if (![6, 12, 24, 48, 168].includes(hours)) {
+        return res.status(400).json({ message: "Intervalo inválido. Use: 6, 12, 24, 48 ou 168 horas" });
+      }
+      const updated = await storage.upsertErpIntegration(providerId, erpSource, { syncIntervalHours: hours });
+      return res.json({ ok: true, integration: updated });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/heatmap/sync-info", requireAuth, async (_req, res) => {
+    try {
+      const integrations = await storage.getAllEnabledErpIntegrationsWithCredentials();
+      const autoSynced = integrations.filter((i) => i.lastSyncStatus && i.lastSyncAt);
+      const lastSyncAt = autoSynced.length > 0
+        ? autoSynced.reduce((a, b) => (a.lastSyncAt! > b.lastSyncAt! ? a : b)).lastSyncAt
+        : null;
+      const totalIntegrations = integrations.length;
+      return res.json({ lastSyncAt, totalIntegrations });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  startScheduler();
 
   return httpServer;
 }
