@@ -15,7 +15,7 @@ import {
   Settings, CheckCircle, RefreshCw, AlertTriangle, DollarSign,
   Calendar, Package, Phone, XCircle, ChevronDown, ChevronUp,
   Search, Users, Zap, Shield, Target,
-  AlertCircle, Flame, ArrowRight,
+  AlertCircle, Flame, ArrowRight, TrendingUp,
   Building2, UserX, Wifi, WifiOff, Clock,
   MessageSquare, Smartphone, Mail, Loader2,
 } from "lucide-react";
@@ -297,35 +297,52 @@ function AlertaMigracaoCard({ alert, onResolve, onDismiss }: {
         )}
 
         {alert.status === "new" && (
-          <div className="flex items-center gap-2 mt-4 pt-3 border-t border-white/50 ml-13">
-            <Button
-              size="sm"
-              className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white h-7 text-xs"
-              onClick={() => onResolve(alert.id)}
-              data-testid={`button-resolve-${alert.id}`}
-            >
-              <CheckCircle className="w-3.5 h-3.5" />
-              Resolvido
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1.5 h-7 text-xs bg-white"
-              onClick={() => onDismiss(alert.id)}
-              data-testid={`button-dismiss-${alert.id}`}
-            >
-              <XCircle className="w-3.5 h-3.5" />
-              Ignorar
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="gap-1.5 h-7 text-xs ml-auto"
-              data-testid={`button-contact-${alert.id}`}
-            >
-              <Phone className="w-3.5 h-3.5" />
-              Contatar
-            </Button>
+          <div className="space-y-2 mt-4 pt-3 border-t border-white/50 ml-13">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 flex items-center justify-between gap-2" data-testid={`retention-cta-${alert.id}`}>
+              <div className="flex items-center gap-1.5">
+                <TrendingUp className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+                <span className="text-xs font-medium text-blue-800">Ofereça renegociação antes que ele migre</span>
+              </div>
+              <Button
+                size="sm"
+                className="h-6 text-[11px] px-2.5 bg-blue-600 hover:bg-blue-700 text-white gap-1 flex-shrink-0"
+                data-testid={`button-retention-${alert.id}`}
+                onClick={() => window.open(`tel:`, "_self")}
+              >
+                <Phone className="w-3 h-3" />
+                Reter cliente
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white h-7 text-xs"
+                onClick={() => onResolve(alert.id)}
+                data-testid={`button-resolve-${alert.id}`}
+              >
+                <CheckCircle className="w-3.5 h-3.5" />
+                Resolvido
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 h-7 text-xs bg-white"
+                onClick={() => onDismiss(alert.id)}
+                data-testid={`button-dismiss-${alert.id}`}
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                Ignorar
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="gap-1.5 h-7 text-xs ml-auto"
+                data-testid={`button-contact-${alert.id}`}
+              >
+                <Phone className="w-3.5 h-3.5" />
+                Contatar
+              </Button>
+            </div>
           </div>
         )}
       </div>

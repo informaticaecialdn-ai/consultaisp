@@ -2,11 +2,13 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { sessionMiddleware, requireAuth, requireAdmin, requireSuperAdmin } from "./auth";
-import { loginSchema, registerSchema } from "@shared/schema";
+import { loginSchema, registerSchema, consultationLogs } from "@shared/schema";
 import { hashPassword, verifyPassword } from "./password";
 import { sendVerificationEmail } from "./email";
 import { slugifySubdomain, buildSubdomainUrl } from "./tenant";
 import crypto from "crypto";
+import { db } from "./db";
+import { sql as drizzleSql, count, countDistinct } from "drizzle-orm";
 import { streamConsultationAnalysis, streamAntiFraudAnalysis } from "./ai-analysis";
 import { startScheduler, getSchedulerStatus, runAutoSync } from "./scheduler";
 import {
@@ -1234,6 +1236,23 @@ export async function registerRoutes(
           approved: finalScore >= 50,
         });
 
+        // GAP 3 — Log consultation and fetch historico
+        try {
+          await db.insert(consultationLogs).values({ cpfCnpj: cleaned, providerId, tipo: searchType });
+          const histRows = await db.execute(drizzleSql`
+            SELECT COUNT(*)::int as total, COUNT(DISTINCT provider_id)::int as provedores
+            FROM consultation_logs
+            WHERE cpf_cnpj = ${cleaned} AND provider_id != ${providerId}
+            AND created_at >= NOW() - INTERVAL '30 days'
+          `);
+          const hist: any = histRows.rows[0] || {};
+          result.historico_consultas = {
+            ultimos_30_dias: Number(hist.total || 0),
+            provedores_distintos: Number(hist.provedores || 0),
+            alerta: Number(hist.total || 0) >= 3,
+          };
+        } catch (_logErr) { /* non-blocking */ }
+
         return res.json({ consultation, result });
       }
       // ── FIM N8N CENTRAL ───────────────────────────────────────────────
@@ -1758,6 +1777,23 @@ export async function registerRoutes(
           provider.spcCredits,
         );
       }
+
+      // GAP 3 — Log consultation and fetch historico from network
+      try {
+        await db.insert(consultationLogs).values({ cpfCnpj: cleaned, providerId, tipo: searchType });
+        const histRows = await db.execute(drizzleSql`
+          SELECT COUNT(*)::int as total, COUNT(DISTINCT provider_id)::int as provedores
+          FROM consultation_logs
+          WHERE cpf_cnpj = ${cleaned} AND provider_id != ${providerId}
+          AND created_at >= NOW() - INTERVAL '30 days'
+        `);
+        const hist: any = histRows.rows[0] || {};
+        result.historico_consultas = {
+          ultimos_30_dias: Number(hist.total || 0),
+          provedores_distintos: Number(hist.provedores || 0),
+          alerta: Number(hist.total || 0) >= 3,
+        };
+      } catch (_logErr) { /* non-blocking */ }
 
       return res.json({ consultation, result });
     } catch (error: any) {
@@ -4129,6 +4165,178 @@ export async function registerRoutes(
   app.get("/api/heatmap/cache-status", requireAuth, async (_req, res) => {
     try {
       return res.json({ refreshing: isRefreshing(), providers: getCacheStatus() });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ── GAP 2: LGPD public info endpoint ─────────────────────────────────
+  app.get("/api/public/lgpd-info", async (_req, res) => {
+    return res.json({
+      empresa: "Consulta ISP",
+      cnpj: "00.000.000/0001-00",
+      encarregado: "dpo@consultaisp.com.br",
+      finalidade: "Consulta de adimplência/inadimplência de clientes para ISPs participantes da rede colaborativa.",
+      base_legal: "Legítimo interesse (art. 7º, IX, LGPD) e proteção ao crédito (art. 7º, X, LGPD).",
+      direitos: ["Acesso", "Correção", "Eliminação", "Portabilidade", "Oposição"],
+      prazo_resposta_dias: 15,
+      canal_solicitacao: "privacidade@consultaisp.com.br",
+      tempo_retencao: "5 anos após liquidação ou extinção do contrato",
+      autoridade: "ANPD — Autoridade Nacional de Proteção de Dados",
+    });
+  });
+
+  // ── GAP 4: Historico na rede (outros provedores) ─────────────────────
+  app.get("/api/inadimplentes/:cpfCnpj/historico-rede", requireAuth, async (req, res) => {
+    try {
+      const providerId = req.session.providerId!;
+      const { cpfCnpj } = req.params;
+      const cleaned = cpfCnpj.replace(/\D/g, "");
+      if (!cleaned || (cleaned.length !== 11 && cleaned.length !== 14)) {
+        return res.status(400).json({ message: "CPF/CNPJ inválido" });
+      }
+      const customers = await storage.getCustomerByCpfCnpj(cleaned);
+      const externos = customers.filter((c: any) => c.providerId !== providerId);
+      const consultas = await db.execute(drizzleSql`
+        SELECT COUNT(*)::int as total, COUNT(DISTINCT provider_id)::int as provedores,
+               MAX(created_at) as ultima_consulta
+        FROM consultation_logs
+        WHERE cpf_cnpj = ${cleaned} AND provider_id != ${providerId}
+        AND created_at >= NOW() - INTERVAL '90 days'
+      `);
+      const cRows: any = consultas.rows[0] || {};
+      return res.json({
+        cpf_cnpj: cleaned,
+        registros_externos: externos.length,
+        provedores_distintos: externos.map((c: any) => c.providerId).filter((v: any, i: any, a: any) => a.indexOf(v) === i).length,
+        consultas_90d: Number(cRows.total || 0),
+        provedores_consultantes: Number(cRows.provedores || 0),
+        ultima_consulta: cRows.ultima_consulta || null,
+        alerta_alta_frequencia: Number(cRows.total || 0) >= 5,
+      });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ── GAP 5: ERP webhook endpoint ───────────────────────────────────────
+  app.post("/api/webhooks/erp-inadimplente", async (req, res) => {
+    try {
+      const secret = req.headers["x-webhook-secret"] as string;
+      if (!secret) return res.status(401).json({ message: "x-webhook-secret header obrigatório" });
+      const provider = await storage.getProviderByWebhookToken(secret);
+      if (!provider || !(provider as any).webhookAtivo) return res.status(403).json({ message: "Token inválido ou webhook inativo" });
+      const { cpf_cnpj, nome_cliente, valor_devido, tipo_servico, data_vencimento, status_contrato } = req.body;
+      if (!cpf_cnpj || !nome_cliente) return res.status(400).json({ message: "cpf_cnpj e nome_cliente são obrigatórios" });
+      const cleaned = cpf_cnpj.replace(/\D/g, "");
+      const existing = await storage.getCustomerByCpfCnpj(cleaned);
+      const providerCustomers = existing.filter((c: any) => c.providerId === provider.id);
+      if (providerCustomers.length > 0) {
+        return res.json({ ok: true, action: "already_exists", id: providerCustomers[0].id });
+      }
+      const newCustomer = await storage.createCustomer({
+        providerId: provider.id,
+        cpfCnpj: cleaned,
+        nomeCliente: nome_cliente,
+        valorDevido: valor_devido ? String(valor_devido) : "0",
+        tipoServico: tipo_servico || "internet",
+        dataVencimento: data_vencimento || new Date().toISOString().split("T")[0],
+        statusContrato: status_contrato || "inadimplente",
+      });
+      return res.json({ ok: true, action: "created", id: newCustomer.id });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ── GAP 5: Webhook config endpoints ──────────────────────────────────
+  app.get("/api/provider/webhook-info", requireAuth, async (req, res) => {
+    try {
+      const providerId = req.session.providerId!;
+      const token = await storage.getProviderWebhookToken(providerId);
+      const provider = await storage.getProvider(providerId);
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      return res.json({
+        token,
+        webhookUrl: `${baseUrl}/api/webhooks/erp-inadimplente`,
+        webhookAtivo: (provider as any).webhookAtivo ?? false,
+      });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/provider/webhook-config", requireAuth, async (req, res) => {
+    try {
+      if (req.session.role !== "admin") return res.status(403).json({ message: "Apenas admins" });
+      const providerId = req.session.providerId!;
+      const { webhookAtivo, regenerate } = req.body;
+      if (regenerate) {
+        const token = await storage.regenerateWebhookToken(providerId);
+        return res.json({ token, regenerated: true });
+      }
+      if (typeof webhookAtivo === "boolean") {
+        await db.execute(drizzleSql`UPDATE providers SET webhook_ativo = ${webhookAtivo} WHERE id = ${providerId}`);
+      }
+      return res.json({ ok: true });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ── GAP 8: Trial status endpoint ──────────────────────────────────────
+  app.get("/api/provider/trial-status", requireAuth, async (req, res) => {
+    try {
+      const provider = await storage.getProvider(req.session.providerId!);
+      if (!provider) return res.status(404).json({ message: "Provedor não encontrado" });
+      const trialDays = 14;
+      const trialInicio: Date | null = (provider as any).trialInicio || null;
+      let trialAtivo = false;
+      let diasRestantes = 0;
+      let diasUsados = 0;
+      if (trialInicio) {
+        const elapsed = Date.now() - new Date(trialInicio).getTime();
+        diasUsados = Math.floor(elapsed / 86400000);
+        diasRestantes = Math.max(0, trialDays - diasUsados);
+        trialAtivo = diasRestantes > 0;
+      }
+      return res.json({
+        trial_ativo: trialAtivo,
+        dias_restantes: diasRestantes,
+        dias_usados: diasUsados,
+        trial_inicio: trialInicio,
+        trial_duracao_dias: trialDays,
+        plano: (provider as any).planoAtual || "trial",
+      });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ── GAP 1: LGPD notification endpoint ────────────────────────────────
+  app.post("/api/inadimplentes/:id/notificar-lgpd", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const providerId = req.session.providerId!;
+      const customer = await storage.getCustomer(id, providerId);
+      if (!customer) return res.status(404).json({ message: "Registro não encontrado" });
+      const notifData: any = (customer as any).notificacaoData;
+      if (notifData) {
+        const diff = Date.now() - new Date(notifData).getTime();
+        const dias = Math.floor(diff / 86400000);
+        if (dias < 10) {
+          return res.status(409).json({
+            message: `Notificação já enviada há ${dias} dia(s). Aguarde ${10 - dias} dia(s) para reenviar.`,
+            dias_restantes: 10 - dias,
+          });
+        }
+      }
+      await storage.updateCustomer(id, providerId, {
+        notificacaoEnviada: true,
+        notificacaoData: new Date().toISOString(),
+        notificacaoCanal: req.body.canal || "whatsapp",
+      } as any);
+      return res.json({ ok: true, message: "Notificação registrada com sucesso" });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
     }

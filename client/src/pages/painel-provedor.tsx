@@ -17,7 +17,7 @@ import {
   Lock, Star, FileText, Upload, Download, MapPin, Calendar,
   Briefcase, X, Pencil, ClipboardList, UserCheck, Wand2, Info,
   Key, Zap, Terminal, ArrowRight, Database, CheckCheck, Clock, Settings2,
-  Loader2
+  Loader2, Eye
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 
@@ -90,6 +90,70 @@ function formatFileSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function WebhookSection({ toast }: { toast: ReturnType<typeof useToast>["toast"] }) {
+  const webhookQuery = useQuery<any>({ queryKey: ["/api/provider/webhook-info"] });
+  const wData = webhookQuery.data;
+  const [showToken, setShowToken] = useState(false);
+  const [webhookAtivoPending, setWebhookAtivoPending] = useState(false);
+  const handleToggleAtivo = async (v: boolean) => {
+    setWebhookAtivoPending(true);
+    try {
+      await fetch("/api/provider/webhook-config", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ webhookAtivo: v }), credentials: "include" });
+      webhookQuery.refetch();
+    } finally { setWebhookAtivoPending(false); }
+  };
+  const handleRegen = async () => {
+    if (!confirm("Gerar novo token? O token atual deixará de funcionar imediatamente.")) return;
+    await fetch("/api/provider/webhook-config", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ regenerate: true }), credentials: "include" });
+    webhookQuery.refetch();
+    toast({ title: "Token regenerado com sucesso" });
+  };
+  return (
+    <Card className="overflow-hidden" data-testid="card-webhook-erp">
+      <div className="p-4 border-b flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
+            <Zap className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-sm leading-tight">Webhook ERP Direto</h3>
+            <p className="text-xs text-muted-foreground">Envie inadimplentes via HTTP de qualquer sistema</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">{wData?.webhookAtivo ? "Ativo" : "Inativo"}</span>
+          <Switch checked={wData?.webhookAtivo ?? false} disabled={webhookAtivoPending} onCheckedChange={handleToggleAtivo} data-testid="switch-webhook-ativo" />
+        </div>
+      </div>
+      <div className="p-4 space-y-3">
+        <div>
+          <p className="text-xs font-medium text-muted-foreground mb-1.5">URL do Webhook</p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 text-xs bg-slate-50 border rounded-lg px-3 py-2 font-mono truncate" data-testid="text-webhook-url">{wData?.webhookUrl ?? "Carregando..."}</code>
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onClick={() => { navigator.clipboard.writeText(wData?.webhookUrl ?? ""); toast({ title: "URL copiada" }); }} data-testid="button-copy-webhook-url"><Copy className="w-3.5 h-3.5" /></Button>
+          </div>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-muted-foreground mb-1.5">Token de Autenticação (x-webhook-secret)</p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 text-xs bg-slate-50 border rounded-lg px-3 py-2 font-mono truncate" data-testid="text-webhook-token">{showToken ? (wData?.token ?? "...") : "••••••••••••••••••••"}</code>
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onClick={() => setShowToken(!showToken)} data-testid="button-toggle-token"><Eye className="w-3.5 h-3.5" /></Button>
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 flex-shrink-0" onClick={() => { navigator.clipboard.writeText(wData?.token ?? ""); toast({ title: "Token copiado" }); }} data-testid="button-copy-token"><Copy className="w-3.5 h-3.5" /></Button>
+          </div>
+        </div>
+        <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-600 font-mono leading-relaxed whitespace-pre-wrap">
+          {`// Exemplo cURL\ncurl -X POST ${wData?.webhookUrl ?? "<URL>"} \\\n  -H "x-webhook-secret: ${showToken ? (wData?.token ?? "<TOKEN>") : "<SEU_TOKEN>"}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"cpf_cnpj":"12345678901","nome_cliente":"João Silva","valor_devido":350.00}'`}
+        </div>
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5 text-rose-600 border-rose-200 hover:bg-rose-50" onClick={handleRegen} data-testid="button-regen-token">
+            <RefreshCw className="w-3 h-3" />Regenerar token
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
 }
 
 export default function PainelProvedorPage() {
@@ -1797,6 +1861,10 @@ export default function PainelProvedorPage() {
                     </div>
                   )}
                 </Card>
+
+                {/* Webhook ERP direto */}
+                <WebhookSection toast={toast} />
+
           </>
         </TabsContent>
       </Tabs>

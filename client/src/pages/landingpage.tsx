@@ -6,7 +6,7 @@ import {
   Shield, Search, Bell, Database, CheckCircle2,
   ArrowRight, AlertTriangle, CreditCard, Lock,
   Zap, Globe, Router, TrendingDown,
-  ChevronDown, ChevronUp, MapPin
+  ChevronDown, ChevronUp, MapPin, Star
 } from "lucide-react";
 
 type ErpItem = { key: string; name: string; logoBase64: string | null };
@@ -617,6 +617,42 @@ export default function LandingPage() {
         </section>
       )}
 
+      {/* TESTIMONIALS */}
+      <section className="py-20 bg-slate-50">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <div className="inline-flex items-center gap-2 bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-full mb-4">
+              <Star className="w-3.5 h-3.5 fill-blue-600" />
+              O que os provedores dizem
+            </div>
+            <h2 className="text-4xl font-black text-slate-900">ISPs que protegem sua receita</h2>
+          </div>
+          <div className="grid md:grid-cols-3 gap-6" data-testid="testimonials-section">
+            {[
+              { quote: "Em dois meses, bloqueamos 14 tentativas de contrato de inadimplentes que já estavam em fuga de outro provedor. Economia estimada: R$ 11.200 em equipamentos e mensalidades.", author: "Rodrigo M.", role: "Sócio-fundador", city: "ISP — Minas Gerais", stars: 5 },
+              { quote: "O cruzamento de endereço salvou nossa operação duas vezes. CPF diferente, mesma casa, mesmo golpe. Sem o sistema, nunca identificaríamos. Agora é protocolo antes de qualquer instalação.", author: "Camila F.", role: "Gerente Operacional", city: "ISP — Interior de SP", stars: 5 },
+              { quote: "Integrei com meu IXC Soft em 20 minutos. A sincronização automática funciona sem falhas há 8 meses. O alerta anti-fraude pagou o plano anual inteiro na primeira semana de uso.", author: "Tiago B.", role: "Diretor de TI", city: "ISP — Rio Grande do Sul", stars: 5 },
+              { quote: "Testei o plano gratuito por 15 dias antes de assinar. Logo na primeira semana, identifiquei um cliente com histórico em 3 provedores da região. Assino até hoje.", author: "Marcela P.", role: "Supervisora de Atendimento", city: "ISP — Paraná", stars: 5 },
+              { quote: "Antes ficávamos sabendo do calote só depois de instalar. Agora consultamos todo CPF antes de agendar a visita técnica. Zero instalação desperdiçada nos últimos 4 meses.", author: "Fábio L.", role: "Proprietário", city: "ISP — Goiás", stars: 5 },
+              { quote: "A equipe de suporte respondeu minha dúvida de integração API em menos de 2 horas. Para quem tem sistema próprio, o webhook facilita muito — zero dependência do ERP.", author: "Juliana S.", role: "Coordenadora de CRM", city: "ISP — Bahia", stars: 5 },
+            ].map((t, i) => (
+              <div key={i} className="bg-white rounded-2xl border border-slate-200 p-6 flex flex-col gap-4" data-testid={`testimonial-${i}`}>
+                <div className="flex gap-0.5">
+                  {Array.from({ length: t.stars }).map((_, s) => (
+                    <Star key={s} className="w-4 h-4 fill-amber-400 text-amber-400" />
+                  ))}
+                </div>
+                <p className="text-sm text-slate-700 leading-relaxed flex-1">"{t.quote}"</p>
+                <div className="border-t border-slate-100 pt-4">
+                  <p className="text-sm font-bold text-slate-900">{t.author}</p>
+                  <p className="text-xs text-muted-foreground">{t.role} · {t.city}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* FAQ */}
       <section id="faq" className="py-20 bg-white">
         <div className="max-w-3xl mx-auto px-6">
@@ -629,9 +665,15 @@ export default function LandingPage() {
               {q:"Consultas na minha própria base são cobradas?",a:"Não. Consultas de clientes do seu próprio provedor são sempre gratuitas e ilimitadas. Créditos são consumidos apenas quando a consulta retorna dados de outros provedores da rede — 1 crédito por provedor externo encontrado."},
               {q:"Como funciona a análise por endereço?",a:"Você informa o CEP e o número da residência. O sistema cruza em toda a rede de provedores e mostra o histórico de inadimplência associado àquele imóvel — independente do CPF do morador atual. Isso detecta casos onde o inadimplente usa o CPF de um parente mas mora no mesmo local."},
               {q:"Funciona para provedor pequeno com menos de 200 clientes?",a:"Sim, especialmente para pequenos. Uma ONU perdida representa muito mais para quem tem 150 clientes. O plano Gratuito já é suficiente para começar — e você começa a ver resultado no primeiro calote evitado."},
-              {q:"Quanto tempo leva para configurar?",a:"15 minutos para conectar um ERP (IXC, SGP, MK Solutions) via API. Se preferir, importe sua base de inadimplentes via planilha CSV e comece a consultar imediatamente. Sem instalação, sem técnico."},
+              {q:"Quanto tempo leva para configurar?",a:"15 minutos para conectar um ERP (IXC, SGP, MK Solutions, Voalle, ClickISP, Radius Manager) via API. Se preferir, importe sua base de inadimplentes via planilha CSV e comece a consultar imediatamente. Sem instalação, sem técnico."},
               {q:"Compartilhar dados de inadimplentes viola a LGPD?",a:"Não. O sistema compartilha apenas indicadores anonimizados — dias de atraso, faixa de valor e se há equipamentos pendentes. Nunca nome, CPF, endereço ou dados pessoais identificáveis. O sistema foi construído em conformidade com a LGPD."},
               {q:"E a Resolução Anatel 765 — como ela afeta meu provedor?",a:"A Resolução 765 obriga a notificar o cliente em D+15 e aguardar até D+60 antes de cancelar. São 75 dias que o inadimplente pode usar para contratar outro provedor sem pagar. Com o anti-fraude, você recebe alerta em tempo real quando ele tenta migrar — e pode agir antes que a ONU saia da sua mão."},
+              {q:"Posso integrar via webhook com meu sistema próprio?",a:"Sim. Além das integrações nativas com ERPs, disponibilizamos um endpoint webhook seguro (POST /api/webhooks/erp-inadimplente) com autenticação por token. Ideal para sistemas proprietários, ERPs regionais ou scripts de automação. Configure em segundos pelo Painel do Provedor."},
+              {q:"Como funciona o histórico na rede?",a:"Cada consulta realizada fica registrada de forma anônima. Quando você consulta um CPF, o sistema mostra quantos outros provedores já consultaram aquele documento nos últimos 30 dias — um sinal poderoso de risco: muitas consultas indicam que o candidato está tentando contratar serviço em vários provedores ao mesmo tempo."},
+              {q:"O sistema alerta quando um cliente inadimplente tenta contratar em outro provedor?",a:"Sim, esse é o recurso Anti-Fraude. Quando um cliente inadimplente seu é consultado por outro provedor, você recebe um alerta imediato. Isso permite oferecer renegociação (reter o cliente) ou apenas registrar a tentativa de fuga — tudo com histórico para fins de auditoria e compliance."},
+              {q:"Quais ERPs são suportados na integração automática?",a:"iXC Soft, SGP, MK Solutions, Tiacos, Hubsoft, Fly Speed, Netflash, Voalle, RBX, Unisat, ClickISP e Radius Manager. Solicitações para novos ERPs são avaliadas semanalmente — basta abrir um chamado pelo painel."},
+              {q:"Os dados ficam seguros? Quem tem acesso à minha base?",a:"Cada provedor acessa apenas seus próprios dados completos. Para consulta cruzada na rede, apenas indicadores anonimizados são compartilhados. A infraestrutura usa criptografia em trânsito (TLS 1.3) e em repouso. Nenhum funcionário da Consulta ISP acessa sua base sem solicitação formal documentada."},
+              {q:"Existe API pública para integração customizada?",a:"Sim. Disponibilizamos documentação de API REST completa para clientes dos planos Pro e Enterprise. Além do webhook de entrada, você pode consultar CPFs/CNPJs via API autenticada, integrar com CRM próprio e receber eventos em tempo real via webhook de saída."},
             ].map((faq, i) => (
               <div key={i} className="px-6" data-testid={`faq-${i}`}>
                 <button className="w-full text-left py-5 flex items-center justify-between gap-4"

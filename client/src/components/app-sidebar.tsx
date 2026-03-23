@@ -49,6 +49,23 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useQuery } from "@tanstack/react-query";
+
+function TrialBanner() {
+  const { data } = useQuery<any>({ queryKey: ["/api/provider/trial-status"], staleTime: 5 * 60 * 1000 });
+  if (!data?.trial_ativo) return null;
+  return (
+    <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-2.5 text-xs" data-testid="trial-banner">
+      <div className="flex items-center gap-1.5 font-semibold text-amber-700 dark:text-amber-400 mb-0.5">
+        <Crown className="w-3 h-3" />
+        Trial — {data.dias_restantes} dia{data.dias_restantes !== 1 ? "s" : ""} restante{data.dias_restantes !== 1 ? "s" : ""}
+      </div>
+      <p className="text-amber-600 dark:text-amber-500 leading-relaxed">
+        Aproveite todos os recursos. Assine para continuar após o período de avaliação.
+      </p>
+    </div>
+  );
+}
 
 const PLAN_LABELS: Record<string, string> = {
   free: "Gratuito",
@@ -378,6 +395,7 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4 space-y-3">
+        <TrialBanner />
 
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-sm font-bold text-blue-700 dark:text-blue-300">
@@ -392,6 +410,9 @@ export function AppSidebar() {
           <LogOut className="w-4 h-4" />
           Sair
         </Button>
+        <a href="/lgpd" className="block text-center text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors" data-testid="link-lgpd">
+          Política de Privacidade · LGPD
+        </a>
       </SidebarFooter>
     </Sidebar>
   );

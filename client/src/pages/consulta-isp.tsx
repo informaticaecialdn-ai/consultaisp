@@ -1884,6 +1884,43 @@ ${addrRows ? `<section>
                 </div>
               </Card>
             )}
+
+            {/* ── HISTORICO NA REDE (GAP 3) ── */}
+            {result && result.historico_consultas && (
+              <div className={`rounded-2xl border px-5 py-4 flex items-start gap-4 shadow-sm ${
+                result.historico_consultas.alerta ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white"
+              }`} data-testid="card-historico-consultas">
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                  result.historico_consultas.alerta ? "bg-amber-100" : "bg-slate-100"
+                }`}>
+                  <BarChart3 className={`w-4 h-4 ${result.historico_consultas.alerta ? "text-amber-600" : "text-slate-500"}`} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="text-sm font-semibold text-slate-900">Histórico na Rede Colaborativa</span>
+                    {result.historico_consultas.alerta && (
+                      <span className="text-[10px] font-bold bg-amber-200 text-amber-800 px-1.5 py-0.5 rounded-full" data-testid="badge-historico-alerta">ALTA FREQUÊNCIA</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-6 text-xs text-slate-600">
+                    <div>
+                      <span className="text-slate-400">Consultas (30d):</span>{" "}
+                      <span className={`font-bold ${result.historico_consultas.alerta ? "text-amber-700" : "text-slate-800"}`} data-testid="text-consultas-30d">{result.historico_consultas.ultimos_30_dias}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400">Provedores distintos:</span>{" "}
+                      <span className="font-bold text-slate-800" data-testid="text-provedores-distintos">{result.historico_consultas.provedores_distintos}</span>
+                    </div>
+                  </div>
+                  {result.historico_consultas.alerta && (
+                    <p className="text-xs text-amber-700 mt-1.5 leading-relaxed">
+                      Este CPF foi consultado por múltiplos provedores recentemente — possível tentativa de contratação simultânea. Proceda com cautela.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
           </div>
         )}
 

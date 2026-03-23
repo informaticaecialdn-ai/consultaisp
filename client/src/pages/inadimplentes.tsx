@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { useState, useMemo } from "react";
 import {
   Users,
@@ -35,18 +43,29 @@ import {
   Filter,
   MapPin,
   Database,
+  Bell,
+  Network,
+  CheckCircle,
+  AlertCircle,
 } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 // ─── ERP config ──────────────────────────────────────────────────────────────
 const ERP_CONFIG: Record<string, { label: string; color: string; dot: string }> = {
-  ixc:      { label: "iXC Soft",      color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",      dot: "bg-blue-500" },
-  sgp:      { label: "SGP",           color: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300", dot: "bg-purple-500" },
-  mk:       { label: "MK Solutions",  color: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",   dot: "bg-green-500" },
-  tiacos:   { label: "Tiacos",        color: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300", dot: "bg-orange-500" },
-  hubsoft:  { label: "Hubsoft",       color: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300", dot: "bg-indigo-500" },
-  flyspeed: { label: "Fly Speed",     color: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",       dot: "bg-cyan-500" },
-  netflash: { label: "Netflash",      color: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300",       dot: "bg-teal-500" },
-  manual:   { label: "Manual",        color: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",          dot: "bg-gray-400" },
+  ixc:            { label: "iXC Soft",        color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",        dot: "bg-blue-500" },
+  sgp:            { label: "SGP",             color: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300", dot: "bg-purple-500" },
+  mk:             { label: "MK Solutions",    color: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",     dot: "bg-green-500" },
+  tiacos:         { label: "Tiacos",          color: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300", dot: "bg-orange-500" },
+  hubsoft:        { label: "Hubsoft",         color: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300", dot: "bg-indigo-500" },
+  flyspeed:       { label: "Fly Speed",       color: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",         dot: "bg-cyan-500" },
+  netflash:       { label: "Netflash",        color: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300",         dot: "bg-teal-500" },
+  voalle:         { label: "Voalle",          color: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300", dot: "bg-violet-500" },
+  rbx:            { label: "RBX",             color: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300",         dot: "bg-rose-500" },
+  unisat:         { label: "Unisat",          color: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",     dot: "bg-amber-500" },
+  clickisp:       { label: "ClickISP",        color: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",             dot: "bg-sky-500" },
+  radius_manager: { label: "Radius Manager",  color: "bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300",         dot: "bg-lime-500" },
+  manual:         { label: "Manual",          color: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",            dot: "bg-gray-400" },
 };
 
 const RISK_CONFIG: Record<string, { label: string; badge: string }> = {
@@ -115,14 +134,52 @@ function DaysBadge({ days }: { days: number }) {
 // ─── Page ────────────────────────────────────────────────────────────────────
 export default function InadimplentesPage() {
   const { provider } = useAuth();
+  const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [filterErp, setFilterErp] = useState("all");
   const [filterRisk, setFilterRisk] = useState("all");
+
+  const [lgpdTarget, setLgpdTarget] = useState<any | null>(null);
+  const [redeTarget, setRedeTarget] = useState<any | null>(null);
+  const [redeData, setRedeData] = useState<any | null>(null);
+  const [redeLoading, setRedeLoading] = useState(false);
 
   const { data: stats } = useQuery<any>({ queryKey: ["/api/dashboard/stats"] });
   const { data: list = [], isLoading, refetch, isFetching } = useQuery<any[]>({
     queryKey: ["/api/inadimplentes"],
   });
+
+  const lgpdMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/inadimplentes/${id}/notificar-lgpd`, { canal: "whatsapp" });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Notificação registrada", description: "O contato LGPD/CDC foi registrado com sucesso." });
+      setLgpdTarget(null);
+    },
+    onError: async (err: any) => {
+      let msg = "Erro ao registrar notificação";
+      try { const d = await err.json?.(); msg = d?.message ?? msg; } catch {}
+      toast({ title: "Atenção", description: msg, variant: "destructive" });
+      setLgpdTarget(null);
+    },
+  });
+
+  const handleVerRede = async (customer: any) => {
+    setRedeTarget(customer);
+    setRedeData(null);
+    setRedeLoading(true);
+    try {
+      const res = await apiRequest("GET", `/api/inadimplentes/${customer.cpfCnpj}/historico-rede`);
+      const data = await res.json();
+      setRedeData(data);
+    } catch {
+      setRedeData(null);
+    } finally {
+      setRedeLoading(false);
+    }
+  };
 
   const filtered = useMemo(() => {
     const term = search.toLowerCase();
@@ -467,6 +524,26 @@ export default function InadimplentesPage() {
                             <MessageSquare className="w-3.5 h-3.5" />
                           </Button>
                         )}
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20"
+                          title="Notificar LGPD/CDC"
+                          data-testid={`btn-lgpd-${d.id}`}
+                          onClick={() => setLgpdTarget(d)}
+                        >
+                          <Bell className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                          title="Ver histórico na rede"
+                          data-testid={`btn-rede-${d.id}`}
+                          onClick={() => handleVerRede(d)}
+                        >
+                          <Network className="w-3.5 h-3.5" />
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -496,6 +573,113 @@ export default function InadimplentesPage() {
           </div>
         </Card>
       )}
+
+      {/* ── LGPD Notification Modal (GAP 1) ── */}
+      <Dialog open={!!lgpdTarget} onOpenChange={(o) => { if (!o) setLgpdTarget(null); }}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-lgpd">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bell className="w-4 h-4 text-amber-600" />
+              Registrar Notificação LGPD/CDC
+            </DialogTitle>
+            <DialogDescription>
+              Registra que este cliente foi notificado sobre a negativação conforme exigido pela LGPD e Código de Defesa do Consumidor. Pode ser reenviada após 10 dias.
+            </DialogDescription>
+          </DialogHeader>
+          {lgpdTarget && (
+            <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-3 text-sm">
+              <p className="font-semibold">{lgpdTarget.name}</p>
+              <p className="text-muted-foreground text-xs mt-0.5">{lgpdTarget.cpfCnpj}</p>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" size="sm" onClick={() => setLgpdTarget(null)} data-testid="btn-lgpd-cancel">Cancelar</Button>
+            <Button
+              size="sm"
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+              onClick={() => lgpdTarget && lgpdMutation.mutate(lgpdTarget.id)}
+              disabled={lgpdMutation.isPending}
+              data-testid="btn-lgpd-confirm"
+            >
+              {lgpdMutation.isPending ? "Registrando..." : "Confirmar Notificação"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Historico Rede Modal (GAP 4) ── */}
+      <Dialog open={!!redeTarget} onOpenChange={(o) => { if (!o) { setRedeTarget(null); setRedeData(null); } }}>
+        <DialogContent className="sm:max-w-lg" data-testid="dialog-rede">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Network className="w-4 h-4 text-blue-600" />
+              Histórico na Rede Colaborativa
+            </DialogTitle>
+            <DialogDescription>
+              Dados de consultas e registros deste CPF/CNPJ nos últimos 90 dias entre todos os provedores da rede.
+            </DialogDescription>
+          </DialogHeader>
+          {redeTarget && (
+            <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-3 text-sm mb-2">
+              <p className="font-semibold">{redeTarget.name}</p>
+              <p className="text-muted-foreground text-xs mt-0.5 font-mono">{redeTarget.cpfCnpj}</p>
+            </div>
+          )}
+          {redeLoading && (
+            <div className="space-y-2 py-2">
+              <div className="h-4 bg-muted rounded animate-pulse" />
+              <div className="h-4 bg-muted rounded animate-pulse w-3/4" />
+            </div>
+          )}
+          {!redeLoading && redeData && (
+            <div className="space-y-3" data-testid="rede-data">
+              {redeData.alerta_alta_frequencia && (
+                <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+                  <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">
+                    Alta frequência de consultas — possível tentativa de contratação simultânea em múltiplos provedores.
+                  </p>
+                </div>
+              )}
+              {!redeData.alerta_alta_frequencia && (
+                <div className="flex items-start gap-2 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg p-3">
+                  <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-emerald-700 dark:text-emerald-400">Sem alertas de alta frequência nos últimos 90 dias.</p>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-white dark:bg-slate-800 border rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-slate-800 dark:text-slate-200" data-testid="text-rede-registros">{redeData.registros_externos}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Registros externos</p>
+                </div>
+                <div className="bg-white dark:bg-slate-800 border rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-slate-800 dark:text-slate-200" data-testid="text-rede-consultas">{redeData.consultas_90d}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Consultas (90d)</p>
+                </div>
+                <div className="bg-white dark:bg-slate-800 border rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-slate-800 dark:text-slate-200">{redeData.provedores_distintos}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Provedores registradores</p>
+                </div>
+                <div className="bg-white dark:bg-slate-800 border rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-slate-800 dark:text-slate-200">{redeData.provedores_consultantes}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Provedores consultantes</p>
+                </div>
+              </div>
+              {redeData.ultima_consulta && (
+                <p className="text-xs text-muted-foreground text-center">
+                  Última consulta: {new Date(redeData.ultima_consulta).toLocaleString("pt-BR")}
+                </p>
+              )}
+            </div>
+          )}
+          {!redeLoading && !redeData && (
+            <p className="text-sm text-muted-foreground text-center py-4">Não foi possível carregar os dados da rede.</p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => { setRedeTarget(null); setRedeData(null); }} data-testid="btn-rede-fechar">Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
