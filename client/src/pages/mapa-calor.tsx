@@ -102,9 +102,15 @@ function loadHeatPlugin(): Promise<void> {
   return new Promise((resolve) => {
     if (heatScriptLoaded || (L as any).heatLayer) { heatScriptLoaded = true; resolve(); return; }
     const s = document.createElement("script");
-    s.src = "https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js";
+    s.src = "/leaflet-heat.js";
     s.onload = () => { heatScriptLoaded = true; resolve(); };
-    s.onerror = () => resolve();
+    s.onerror = () => {
+      const s2 = document.createElement("script");
+      s2.src = "https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js";
+      s2.onload = () => { heatScriptLoaded = true; resolve(); };
+      s2.onerror = () => resolve();
+      document.head.appendChild(s2);
+    };
     document.head.appendChild(s);
   });
 }
@@ -182,7 +188,7 @@ function LeafletHeatMap({
 
       heatRef.current = (L as any).heatLayer(
         heatData,
-        { radius: 18, blur: 15, maxZoom: 17, gradient, minOpacity: 0.35, max: 1.0 }
+        { radius: 35, blur: 25, maxZoom: 17, gradient, minOpacity: 0.45, max: 1.0 }
       ).addTo(mapRef.current);
     }
 
@@ -464,10 +470,9 @@ export default function MapaCalorPage() {
                   </div>
                 ) : (
                   <LeafletHeatMap
-                    key={`regional-${regionalPoints.length}-${providerCenter?.[0]}`}
+                    key={`regional-${regionalPoints.length}`}
                     points={regionalPoints}
                     mode="regional"
-                    defaultCenter={providerCenter}
                   />
                 )}
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
