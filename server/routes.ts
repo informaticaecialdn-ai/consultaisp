@@ -655,7 +655,7 @@ export async function registerRoutes(
 
   app.post("/api/isp-consultations", requireAuth, async (req, res) => {
     try {
-      const { cpfCnpj } = req.body;
+      const { cpfCnpj, addressNumber, addressComplement, addressStreet, addressCity, addressState } = req.body;
       if (!cpfCnpj) {
         return res.status(400).json({ message: "CPF/CNPJ obrigatorio" });
       }
@@ -695,10 +695,21 @@ export async function registerRoutes(
 
         // When searching by CEP (8 digits) use N8N address search mode
         const isCepSearch = searchType === "cep";
+        // Build full address string when number is provided
+        const fullStreet = isCepSearch && addressStreet && addressNumber
+          ? `${addressStreet}, ${addressNumber}${addressComplement ? ` ${addressComplement}` : ""}`
+          : null;
         const extPayload = isCepSearch ? {
           document: null,
           searchType: "address",
-          addressQuery: { zipcode: cleaned },
+          addressQuery: {
+            zipcode: cleaned,
+            ...(fullStreet ? { street: fullStreet } : {}),
+            ...(addressCity ? { city: addressCity } : {}),
+            ...(addressState ? { state: addressState } : {}),
+            ...(addressNumber ? { number: addressNumber } : {}),
+            ...(addressComplement ? { complement: addressComplement } : {}),
+          },
           integrations,
         } : {
           document: cleaned,

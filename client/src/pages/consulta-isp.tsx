@@ -227,6 +227,14 @@ function renderAIText(text: string) {
   });
 }
 
+interface CepData {
+  logradouro: string;
+  bairro: string;
+  localidade: string;
+  uf: string;
+  erro?: boolean;
+}
+
 export default function ConsultaISPPage() {
   const { toast } = useToast();
   const [query, setQuery] = useState("");
@@ -248,13 +256,45 @@ export default function ConsultaISPPage() {
   const [selectedFreeDetail, setSelectedFreeDetail] = useState<ProviderDetail | null>(null);
   const [selectedPaidDetail, setSelectedPaidDetail] = useState<ProviderDetail | null>(null);
 
+  // CEP address expansion
+  const [cepData, setCepData] = useState<CepData | null>(null);
+  const [cepLoading, setCepLoading] = useState(false);
+  const [cepError, setCepError] = useState("");
+  const [addressNumber, setAddressNumber] = useState("");
+  const [addressComplement, setAddressComplement] = useState("");
+
+  useEffect(() => {
+    const digits = query.replace(/\D/g, "");
+    if (digits.length === 8) {
+      setCepData(null);
+      setCepError("");
+      setCepLoading(true);
+      fetch(`https://viacep.com.br/ws/${digits}/json/`)
+        .then(r => r.json())
+        .then((d: CepData) => {
+          if (d.erro) {
+            setCepError("CEP não encontrado. Verifique o número.");
+          } else {
+            setCepData(d);
+          }
+        })
+        .catch(() => setCepError("Erro ao buscar CEP. Tente novamente."))
+        .finally(() => setCepLoading(false));
+    } else {
+      setCepData(null);
+      setCepError("");
+      setAddressNumber("");
+      setAddressComplement("");
+    }
+  }, [query]);
+
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/isp-consultations"],
   });
 
   const mutation = useMutation({
-    mutationFn: async (cpfCnpj: string) => {
-      const res = await apiRequest("POST", "/api/isp-consultations", { cpfCnpj });
+    mutationFn: async (payload: { cpfCnpj: string; addressNumber?: string; addressComplement?: string; addressStreet?: string; addressCity?: string; addressState?: string }) => {
+      const res = await apiRequest("POST", "/api/isp-consultations", payload);
       return res.json();
     },
     onSuccess: (data) => {
@@ -484,7 +524,20 @@ ${addrRows ? `<section>
 
   const handleSearch = () => {
     if (!query.trim()) return;
-    mutation.mutate(query);
+    const digits = query.replace(/\D/g, "");
+    const isCep = digits.length === 8;
+    if (isCep && cepData && !addressNumber.trim()) {
+      toast({ title: "Número obrigatório", description: "Informe o número do endereço para buscar por endereço.", variant: "destructive" });
+      return;
+    }
+    mutation.mutate({
+      cpfCnpj: query,
+      addressNumber: isCep ? addressNumber.trim() : undefined,
+      addressComplement: isCep ? addressComplement.trim() : undefined,
+      addressStreet: isCep && cepData ? cepData.logradouro : undefined,
+      addressCity: isCep && cepData ? cepData.localidade : undefined,
+      addressState: isCep && cepData ? cepData.uf : undefined,
+    });
   };
 
   const getDetectedType = (val: string) => {
@@ -637,62 +690,160 @@ ${addrRows ? `<section>
                 <h2 className="text-lg font-semibold text-slate-900">Realizar Consulta ISP</h2>
               </div>
               <div className="p-6 space-y-4">
-                <div className="flex gap-3 items-center">
-                  <div className="relative flex-1">
-                    <Input
-                      data-testid="input-isp-search"
-                      placeholder="Digite CPF, CNPJ ou CEP"
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                      className="h-12 text-base pr-10 rounded-lg border-slate-200"
-                    />
-                    {detectedType && (
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                        {detectedType === "CEP" && <MapPin className="w-4 h-4 text-blue-600" />}
-                        {detectedType === "CPF" && <FileText className="w-4 h-4 text-green-600" />}
-                        {detectedType === "CNPJ" && <Building2 className="w-4 h-4 text-purple-600" />}
-                      </div>
+
+                {/* ── Campo principal ── */}
+                <div className="flex gap-3 items-start flex-wrap">
+                  <div className="flex-1 min-w-[220px]">
+                    <div className="relative">
+                      <Input
+                        data-testid="input-isp-search"
+                        placeholder="CPF, CNPJ ou CEP (apenas números)"
+                        value={query}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setQuery(detectedType === "CEP" || v.replace(/\D/g, "").length <= 8 ? v : v);
+                          if (result) { setResult(null); setShowFullResult(false); }
+                        }}
+                        onKeyDown={(e) => e.key === "Enter" && !cepData ? handleSearch() : undefined}
+                        className="h-12 text-base pr-10 rounded-lg border-slate-200"
+                      />
+                      {cepLoading && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />
+                      )}
+                      {!cepLoading && detectedType && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                          {detectedType === "CEP" && <MapPin className="w-4 h-4 text-blue-600" />}
+                          {detectedType === "CPF" && <FileText className="w-4 h-4 text-green-600" />}
+                          {detectedType === "CNPJ" && <Building2 className="w-4 h-4 text-purple-600" />}
+                        </div>
+                      )}
+                    </div>
+                    {detectedType && !cepData && !cepLoading && (
+                      <p className={`text-xs mt-1 font-medium ${
+                        detectedType === "CEP" ? "text-blue-600"
+                        : detectedType === "CPF" ? "text-green-600"
+                        : "text-purple-600"
+                      }`} data-testid="text-detected-type">
+                        {detectedType === "CEP" ? "Buscando CEP..." : `${detectedType} detectado`}
+                      </p>
                     )}
+                    {cepError && <p className="text-xs mt-1 text-red-600 font-medium">{cepError}</p>}
                   </div>
-                  <Button
-                    variant="outline"
-                    className="h-12 px-6 rounded-lg"
-                    onClick={() => { setQuery(""); setResult(null); }}
-                    data-testid="button-clear-isp"
-                  >
-                    Limpar
-                  </Button>
-                  <Button
-                    onClick={handleSearch}
-                    disabled={!query.trim() || mutation.isPending}
-                    className="h-12 px-8 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium"
-                    data-testid="button-consultar-isp"
-                  >
-                    {mutation.isPending ? "Consultando..." : "Consultar"}
-                  </Button>
+
+                  {/* Show clear + search only when CEP is not expanded */}
+                  {!cepData && (
+                    <>
+                      <Button
+                        variant="outline"
+                        className="h-12 px-5 rounded-lg"
+                        onClick={() => { setQuery(""); setResult(null); setCepData(null); setAddressNumber(""); setAddressComplement(""); }}
+                        data-testid="button-clear-isp"
+                      >
+                        Limpar
+                      </Button>
+                      <Button
+                        onClick={handleSearch}
+                        disabled={!query.trim() || mutation.isPending || cepLoading}
+                        className="h-12 px-8 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium"
+                        data-testid="button-consultar-isp"
+                      >
+                        {mutation.isPending ? "Consultando..." : "Consultar"}
+                      </Button>
+                    </>
+                  )}
                 </div>
 
-                {detectedType && (
-                  <div className="flex items-center gap-2" data-testid="text-detected-type">
-                    {detectedType === "CEP" && <MapPin className="w-4 h-4 text-blue-600" />}
-                    {detectedType === "CPF" && <FileText className="w-4 h-4 text-green-600" />}
-                    {detectedType === "CNPJ" && <Building2 className="w-4 h-4 text-purple-600" />}
-                    <span className={`text-sm font-medium ${
-                      detectedType === "CEP" ? "text-blue-600"
-                      : detectedType === "CPF" ? "text-green-600"
-                      : "text-purple-600"
-                    }`}>{detectedType} detectado</span>
+                {/* ── CEP EXPANDIDO: endereço resolvido + número + complemento ── */}
+                {cepData && (
+                  <div className="border-2 border-blue-200 bg-blue-50 rounded-2xl p-4 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200" data-testid="cep-expanded-panel">
+                    {/* Endereço resolvido */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] text-blue-500 font-bold uppercase tracking-wide mb-0.5">Endereço localizado</p>
+                        <p className="text-base font-black text-slate-900">{cepData.logradouro}</p>
+                        <p className="text-sm text-slate-600">{cepData.bairro} · {cepData.localidade}/{cepData.uf}</p>
+                      </div>
+                      <div className="bg-blue-600 text-white text-[10px] font-bold px-2 py-1 rounded-lg whitespace-nowrap">
+                        CEP confirmado
+                      </div>
+                    </div>
+
+                    {/* Número + complemento */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-semibold text-slate-700 mb-1 block">
+                          Número <span className="text-red-500">*</span>
+                        </label>
+                        <Input
+                          data-testid="input-address-number"
+                          placeholder="Ex: 142"
+                          value={addressNumber}
+                          onChange={(e) => setAddressNumber(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                          className="h-10 rounded-lg border-blue-200 bg-white"
+                          autoFocus
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-slate-700 mb-1 block">
+                          Complemento <span className="text-slate-400 font-normal">(opcional)</span>
+                        </label>
+                        <Input
+                          data-testid="input-address-complement"
+                          placeholder="Apto 12, Bloco B..."
+                          value={addressComplement}
+                          onChange={(e) => setAddressComplement(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                          className="h-10 rounded-lg border-blue-200 bg-white"
+                        />
+                      </div>
+                    </div>
+
+                    {/* CTA + clear */}
+                    <div className="flex gap-2 pt-1">
+                      <Button
+                        variant="outline"
+                        className="h-10 px-4 rounded-lg text-sm"
+                        onClick={() => { setQuery(""); setResult(null); setCepData(null); setAddressNumber(""); setAddressComplement(""); }}
+                        data-testid="button-clear-isp"
+                      >
+                        Cancelar
+                      </Button>
+                      <Button
+                        onClick={handleSearch}
+                        disabled={!addressNumber.trim() || mutation.isPending}
+                        className="h-10 flex-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold gap-2"
+                        data-testid="button-consultar-isp"
+                      >
+                        <MapPin className="w-4 h-4" />
+                        {mutation.isPending ? "Buscando endereço..." : "Buscar risco por endereço"}
+                      </Button>
+                    </div>
+
+                    <div className="flex items-start gap-2 bg-blue-100 border border-blue-200 rounded-xl p-3">
+                      <Info className="w-3.5 h-3.5 text-blue-600 flex-shrink-0 mt-0.5" />
+                      <p className="text-xs text-blue-800">
+                        <span className="font-semibold">Busca por endereço:</span> Cruzamos esse endereço com todos os provedores parceiros.
+                        CPF limpo não significa bom pagador — o inadimplente troca de CPF, mas o endereço fica.
+                      </p>
+                    </div>
                   </div>
                 )}
 
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
-                  <Info className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-blue-800">
-                    <span className="font-semibold">Busca Inteligente:</span> Digite CPF (11 digitos), CNPJ (14 digitos) ou CEP (8 digitos).
-                    O sistema busca na rede colaborativa e retorna score, restricoes e alertas.
-                  </p>
-                </div>
+                {/* Dica padrão (não CEP) */}
+                {!cepData && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-start gap-3">
+                    <Info className="w-4 h-4 text-slate-500 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm text-slate-700">
+                        <span className="font-semibold">Busca inteligente:</span> Digite CPF (11 dígitos), CNPJ (14 dígitos) ou CEP (8 dígitos) para consulta por endereço.
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        CEP → resolve o logradouro automaticamente → informe o número → busca cruzada em todos os provedores.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {detectedType && detectedType !== "CEP" && (
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-center justify-between gap-3" data-testid="banner-custo-estimado">

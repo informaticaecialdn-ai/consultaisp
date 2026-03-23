@@ -451,6 +451,120 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* RISCO POR ENDEREÇO */}
+      <section className="py-16 bg-slate-900">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+
+            {/* Left: texto */}
+            <div>
+              <div className="inline-flex items-center gap-2 bg-blue-500/20 text-blue-300 text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-full mb-6">
+                <MapPin className="w-3.5 h-3.5" />
+                Nova funcionalidade — Consulta por Endereço
+              </div>
+              <h2 className="text-3xl sm:text-4xl font-black text-white mb-4">
+                CPF limpo<br />
+                <span className="text-red-400">não é sinônimo de bom pagador.</span>
+              </h2>
+              <p className="text-slate-400 text-lg leading-relaxed mb-6">
+                O inadimplente reincidente sabe o jogo: ele usa o CPF de um familiar, apresenta um documento "limpo"
+                e você instala normalmente. Semanas depois, a conta não é paga.
+              </p>
+              <p className="text-slate-300 text-base leading-relaxed mb-8">
+                <strong className="text-white">O endereço não mente.</strong> Mesmo com CPF diferente, o cliente mora no mesmo lugar.
+                A Consulta ISP cruza o CEP + número da residência em todos os provedores parceiros e mostra o histórico de risco do endereço.
+              </p>
+
+              <div className="space-y-3">
+                {[
+                  { icon: MapPin, text: "Digite o CEP → o logradouro é preenchido automaticamente" },
+                  { icon: Search, text: "Informe o número e complemento → busca em toda a rede colaborativa" },
+                  { icon: AlertTriangle, text: "Descubra se houve calotes naquele endereço — independente do CPF" },
+                  { icon: Shield, text: "Funciona mesmo quando o cliente usa o CPF de parentes" },
+                ].map((item, i) => (
+                  <div key={i} className="flex items-start gap-3">
+                    <div className="w-7 h-7 rounded-lg bg-blue-600/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <item.icon className="w-3.5 h-3.5 text-blue-400" />
+                    </div>
+                    <p className="text-slate-300 text-sm">{item.text}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Right: mockup do painel CEP expandido */}
+            <div className="bg-slate-800 border border-slate-700 rounded-2xl overflow-hidden shadow-2xl">
+              {/* window chrome */}
+              <div className="bg-slate-950 px-4 py-2.5 flex items-center gap-2">
+                <div className="flex gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-green-500" />
+                </div>
+                <span className="text-slate-500 text-[11px] ml-2 font-mono">Consulta ISP — Busca por Endereço</span>
+              </div>
+
+              <div className="p-5 space-y-4">
+                {/* input CEP */}
+                <div>
+                  <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide mb-1.5">Documento ou CEP</p>
+                  <div className="bg-slate-700 border border-blue-500 rounded-xl px-4 py-3 flex items-center gap-3">
+                    <span className="text-white font-mono text-sm">86671-200</span>
+                    <div className="ml-auto flex items-center gap-1.5 text-blue-400">
+                      <MapPin className="w-3.5 h-3.5" />
+                      <span className="text-xs font-semibold">CEP</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* endereço resolvido */}
+                <div className="border-2 border-blue-500/40 bg-blue-900/20 rounded-xl p-4 space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-[10px] text-blue-400 font-bold uppercase tracking-wide mb-0.5">Endereço localizado</p>
+                      <p className="text-sm font-black text-white">Rua das Palmeiras</p>
+                      <p className="text-xs text-slate-400">Vila Nova · Londrina/PR</p>
+                    </div>
+                    <span className="bg-blue-600 text-white text-[10px] font-bold px-2 py-1 rounded-lg">CEP confirmado</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <p className="text-[10px] text-slate-400 mb-1">Número *</p>
+                      <div className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2">
+                        <span className="text-white text-sm font-mono">142</span>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-slate-400 mb-1">Complemento</p>
+                      <div className="bg-slate-700 border border-slate-600 rounded-lg px-3 py-2">
+                        <span className="text-slate-500 text-sm">Apto 12</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <div className="flex-1 bg-blue-600 text-white text-xs font-bold py-2.5 rounded-xl flex items-center justify-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5" />
+                      Buscar risco por endereço
+                    </div>
+                  </div>
+                </div>
+
+                {/* resultado fictício */}
+                <div className="bg-red-900/30 border border-red-700/40 rounded-xl p-3 flex items-center gap-3">
+                  <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
+                  <div>
+                    <p className="text-xs font-bold text-red-300">2 registros de inadimplência neste endereço</p>
+                    <p className="text-[10px] text-red-400/80">CPFs diferentes — histórico de reincidência detectado</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* COMO FUNCIONA */}
       <section id="como-funciona" className="py-16 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
