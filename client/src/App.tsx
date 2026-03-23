@@ -19,6 +19,7 @@ import InadimplentesPage from "@/pages/inadimplentes";
 import MapaCalorPage from "@/pages/mapa-calor";
 import CreditosPage from "@/pages/creditos";
 import ImportacaoPage from "@/pages/importacao";
+import ImportacaoEquipamentosPage from "@/pages/importacao-equipamentos";
 import AdministracaoPage from "@/pages/administracao";
 import PainelProvedorPage from "@/pages/painel-provedor";
 import AdminSistemaPage from "@/pages/admin-sistema";
@@ -42,6 +43,7 @@ function Router() {
       <Route path="/mapa-calor" component={MapaCalorPage} />
       <Route path="/creditos" component={CreditosPage} />
       <Route path="/importacao" component={ImportacaoPage} />
+      <Route path="/importacao-equipamentos" component={ImportacaoEquipamentosPage} />
       <Route path="/administracao" component={AdministracaoPage} />
       <Route path="/painel-provedor" component={PainelProvedorPage} />
       <Route path="/admin-sistema" component={AdminSistemaPage} />
@@ -57,7 +59,7 @@ function Router() {
 const PROVIDER_ONLY_PATHS = [
   "/", "/consulta-isp", "/consulta-spc", "/anti-fraude",
   "/inadimplentes", "/mapa-calor", "/creditos", "/importacao",
-  "/administracao", "/painel-provedor",
+  "/importacao-equipamentos", "/administracao", "/painel-provedor",
 ];
 
 function AuthenticatedApp() {

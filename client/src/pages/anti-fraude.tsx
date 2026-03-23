@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   ShieldAlert, Bell, BookOpen,
   Settings, CheckCircle, RefreshCw, AlertTriangle, DollarSign,
@@ -17,6 +17,7 @@ import {
   Search, Users, Zap, Shield, Target,
   AlertCircle, Flame, ArrowRight,
   Building2, UserX, Wifi, WifiOff, Clock,
+  MessageSquare, Smartphone, Mail, Loader2,
 } from "lucide-react";
 
 type AntiFraudAlert = {
@@ -687,6 +688,7 @@ function RegrasTab() {
 }
 
 function ConfiguracoesTab() {
+  const { toast } = useToast();
   const [enabled, setEnabled] = useState(true);
   const [alertDefaulter, setAlertDefaulter] = useState(true);
   const [alertSerial, setAlertSerial] = useState(true);
@@ -697,7 +699,39 @@ function ConfiguracoesTab() {
   const [notifyCritical, setNotifyCritical] = useState(true);
   const [notifyHigh, setNotifyHigh] = useState(true);
   const [emails, setEmails] = useState<string[]>([""]);
-  const { toast } = useToast();
+
+  const [notifWhatsapp, setNotifWhatsapp] = useState(false);
+  const [notifEmail, setNotifEmail] = useState(true);
+  const [notifPush, setNotifPush] = useState(false);
+  const [notifSms, setNotifSms] = useState(false);
+  const [notifWhatsappNumber, setNotifWhatsappNumber] = useState("");
+  const [notifDailySummary, setNotifDailySummary] = useState(true);
+
+  const { data: notifSettings, isLoading: notifFetching } = useQuery<any>({
+    queryKey: ["/api/provider/notification-settings"],
+  });
+
+  useEffect(() => {
+    if (notifSettings && !notifFetching) {
+      setNotifWhatsapp(notifSettings.notifWhatsapp ?? false);
+      setNotifEmail(notifSettings.notifEmail ?? true);
+      setNotifPush(notifSettings.notifPush ?? false);
+      setNotifSms(notifSettings.notifSms ?? false);
+      setNotifWhatsappNumber(notifSettings.notifWhatsappNumber ?? "");
+      setNotifDailySummary(notifSettings.notifDailySummary ?? true);
+    }
+  }, [notifSettings, notifFetching]);
+
+  const saveNotifMutation = useMutation({
+    mutationFn: () => apiRequest("PATCH", "/api/provider/notification-settings", {
+      notifWhatsapp, notifEmail, notifPush, notifSms, notifWhatsappNumber, notifDailySummary,
+    }).then(r => r.json()),
+    onSuccess: () => {
+      toast({ title: "Configuracoes de notificacao salvas" });
+      queryClient.invalidateQueries({ queryKey: ["/api/provider/notification-settings"] });
+    },
+    onError: (e: any) => toast({ title: "Erro ao salvar", description: e.message, variant: "destructive" }),
+  });
 
   return (
     <div className="space-y-4">
@@ -769,10 +803,98 @@ function ConfiguracoesTab() {
         </div>
       </Card>
 
+      <Card className="p-5 space-y-5">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+            <Bell className="w-4 h-4 text-slate-400" />
+            Canais de Notificacao
+          </h3>
+          {notifFetching && <Loader2 className="w-4 h-4 animate-spin text-slate-400" />}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className={`flex items-center justify-between p-4 rounded-xl border-2 transition-colors ${notifWhatsapp ? "bg-emerald-50 border-emerald-300" : "bg-slate-50 border-slate-200"}`}>
+            <div className="flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${notifWhatsapp ? "bg-emerald-500" : "bg-slate-200"}`}>
+                <MessageSquare className={`w-4 h-4 ${notifWhatsapp ? "text-white" : "text-slate-400"}`} />
+              </div>
+              <div>
+                <Label className={`font-semibold cursor-pointer ${notifWhatsapp ? "text-emerald-900" : "text-slate-700"}`}>WhatsApp</Label>
+                <p className="text-xs text-slate-500">Alertas via WhatsApp Business</p>
+              </div>
+            </div>
+            <Switch checked={notifWhatsapp} onCheckedChange={setNotifWhatsapp} data-testid="switch-notif-whatsapp" />
+          </div>
+
+          <div className={`flex items-center justify-between p-4 rounded-xl border-2 transition-colors ${notifEmail ? "bg-blue-50 border-blue-300" : "bg-slate-50 border-slate-200"}`}>
+            <div className="flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${notifEmail ? "bg-blue-500" : "bg-slate-200"}`}>
+                <Mail className={`w-4 h-4 ${notifEmail ? "text-white" : "text-slate-400"}`} />
+              </div>
+              <div>
+                <Label className={`font-semibold cursor-pointer ${notifEmail ? "text-blue-900" : "text-slate-700"}`}>Email</Label>
+                <p className="text-xs text-slate-500">Alertas por email</p>
+              </div>
+            </div>
+            <Switch checked={notifEmail} onCheckedChange={setNotifEmail} data-testid="switch-notif-email" />
+          </div>
+
+          <div className={`flex items-center justify-between p-4 rounded-xl border-2 transition-colors ${notifPush ? "bg-violet-50 border-violet-300" : "bg-slate-50 border-slate-200"}`}>
+            <div className="flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${notifPush ? "bg-violet-500" : "bg-slate-200"}`}>
+                <Smartphone className={`w-4 h-4 ${notifPush ? "text-white" : "text-slate-400"}`} />
+              </div>
+              <div>
+                <Label className={`font-semibold cursor-pointer ${notifPush ? "text-violet-900" : "text-slate-700"}`}>Push (App)</Label>
+                <p className="text-xs text-slate-500">Notificacoes no aplicativo</p>
+              </div>
+            </div>
+            <Switch checked={notifPush} onCheckedChange={setNotifPush} data-testid="switch-notif-push" />
+          </div>
+
+          <div className={`flex items-center justify-between p-4 rounded-xl border-2 transition-colors ${notifSms ? "bg-orange-50 border-orange-300" : "bg-slate-50 border-slate-200"}`}>
+            <div className="flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${notifSms ? "bg-orange-500" : "bg-slate-200"}`}>
+                <Phone className={`w-4 h-4 ${notifSms ? "text-white" : "text-slate-400"}`} />
+              </div>
+              <div>
+                <Label className={`font-semibold cursor-pointer ${notifSms ? "text-orange-900" : "text-slate-700"}`}>SMS</Label>
+                <p className="text-xs text-slate-500">Mensagem de texto</p>
+              </div>
+            </div>
+            <Switch checked={notifSms} onCheckedChange={setNotifSms} data-testid="switch-notif-sms" />
+          </div>
+        </div>
+
+        {notifWhatsapp && (
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-slate-700">Numero WhatsApp para alertas</Label>
+            <Input
+              value={notifWhatsappNumber}
+              onChange={(e) => setNotifWhatsappNumber(e.target.value)}
+              placeholder="+55 11 99999-9999"
+              className="h-9"
+              data-testid="input-whatsapp-number"
+            />
+            <p className="text-[10px] text-slate-400">Formato internacional com DDI e DDD</p>
+          </div>
+        )}
+
+        <Separator />
+
+        <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100">
+          <div>
+            <Label className="font-semibold text-slate-900">Resumo diario de alertas</Label>
+            <p className="text-xs text-slate-400 mt-0.5">Receba um sumario consolidado dos alertas do dia (8h da manha)</p>
+          </div>
+          <Switch checked={notifDailySummary} onCheckedChange={setNotifDailySummary} data-testid="switch-notif-daily-summary" />
+        </div>
+      </Card>
+
       <Card className="p-5 space-y-4">
         <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-          <Bell className="w-4 h-4 text-slate-400" />
-          Notificacoes por Email
+          <Mail className="w-4 h-4 text-slate-400" />
+          Emails de Destinatarios
         </h3>
         <div className="space-y-2">
           {emails.map((email, idx) => (
@@ -808,8 +930,13 @@ function ConfiguracoesTab() {
         </div>
       </Card>
 
-      <Button className="w-full gap-2" onClick={() => toast({ title: "Configuracoes salvas" })} data-testid="button-save-config">
-        <CheckCircle className="w-4 h-4" />
+      <Button
+        className="w-full gap-2"
+        onClick={() => saveNotifMutation.mutate()}
+        disabled={saveNotifMutation.isPending}
+        data-testid="button-save-config"
+      >
+        {saveNotifMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
         Salvar Configuracoes
       </Button>
     </div>

@@ -1,0 +1,408 @@
+# PROMPT REPLIT AGENT — CONSULTA ISP
+# Cole este prompt diretamente no chat do Replit Agent
+
+---
+
+Preciso que você implemente 3 conjuntos de melhorias no sistema existente. O projeto usa React + TypeScript + Wouter + TanStack React Query + Tailwind CSS + shadcn/ui no frontend, e Express + SQLite (better-sqlite3) no backend.
+
+Implemente tudo de uma vez, sem perguntar confirmação entre as partes.
+
+---
+
+## PARTE 1 — MELHORIAS NA CONSULTA ISP (`/consulta-isp`)
+
+### 1.1 — Loading com etapas nomeadas
+
+No componente de loading da consulta ISP, substitua o spinner simples por um loading com 4 etapas sequenciais animadas:
+
+```
+Etapa 1: "Verificando base de dados interna" (0% → 25%)
+Etapa 2: "Consultando rede colaborativa ISP" (25% → 55%)
+Etapa 3: "Cruzando dados de equipamentos retidos" (55% → 80%)
+Etapa 4: "Calculando score de risco" (80% → 100%)
+```
+
+Cada etapa deve mostrar:
+- Ícone de spinner quando ativa
+- Checkmark verde quando completa
+- Ponto cinza quando pendente
+- Texto da etapa em destaque quando ativa
+
+### 1.2 — Banner de custo estimado ANTES de consultar
+
+Logo abaixo do campo de busca, após o usuário digitar algo mas antes de clicar Consultar, mostrar um banner amarelo/âmbar informativo:
+
+- Se for CEP (8 dígitos): `"💳 Consulta de CEP — Gratuita. Mostra inadimplentes registrados nesta área."`
+- Se for CPF/CNPJ: `"💳 Custo estimado: 0 créditos (base própria) + 1 crédito por registro encontrado em outros provedores. Você tem {N} créditos ISP disponíveis."`
+
+O banner só aparece quando há texto digitado e ainda não houve resultado. Some quando o resultado aparecer.
+
+### 1.3 — Busca ampliada por Nome e Telefone
+
+O campo de busca já aceita CPF/CNPJ/CEP. Adicione suporte a:
+
+- **Nome parcial**: Se o texto tiver 5+ letras e começar com letra, detectar como "Nome" e fazer busca LIKE no campo `nome` da tabela `inadimplentes`
+- **Telefone**: Se tiver 10-11 dígitos numéricos, detectar como "Telefone" e buscar no campo `telefone`
+
+No backend, adicionar lógica de detecção no endpoint `POST /api/isp-consultations`:
+```typescript
+// Detectar tipo do documento recebido
+const docLimpo = documento.replace(/\D/g, '')
+if (docLimpo.length === 11) tipo = 'CPF'
+else if (docLimpo.length === 14) tipo = 'CNPJ'  
+else if (docLimpo.length === 8) tipo = 'CEP'
+else if (docLimpo.length >= 10 && docLimpo.length <= 11) tipo = 'TELEFONE'
+else if (documento.length >= 5 && /^[a-zA-ZÀ-ÿ]/.test(documento)) tipo = 'NOME'
+```
+
+Para busca por nome/telefone, retornar resultados sem cobrar créditos (busca gratuita na base interna).
+
+### 1.4 — Nova aba "Consulta em Lote" na página `/consulta-isp`
+
+Adicionar uma 4ª aba chamada **"Consulta em Lote 🆕"** entre "Histórico" e "Informações".
+
+O conteúdo da aba deve ter:
+1. Card de instrução com badge "NOVO"
+2. Info box explicando: "Faça upload de CSV com coluna `cpf_cnpj`. O sistema consulta todos e retorna arquivo com score e resultado."
+3. Área de drag-and-drop para arquivo CSV (use o componente de upload já existente na página de Importação como referência)
+4. Botão "Baixar Modelo CSV" que gera e faz download de um arquivo com as colunas: `cpf_cnpj, nome_cliente`
+5. 3 cards de estatísticas: "500 CPFs máx.", "20% desconto em lote", "~2min processamento"
+
+No backend, criar endpoint `POST /api/isp-consultations/lote` que:
+- Recebe array de `{ cpf_cnpj: string, nome_cliente?: string }`
+- Processa cada um (mesma lógica do endpoint individual)
+- Retorna array de resultados
+- Cobra créditos em lote com 20% de desconto (0.8 crédito por consulta externa, arredondar para cima)
+
+---
+
+## PARTE 2 — MELHORIAS NO ANTI-FRAUDE (`/anti-fraude`)
+
+### 2.1 — Preencher aba "Migradores" (estava vazia)
+
+A aba "Migradores" deve mostrar a lista de CPFs que foram consultados por 2 ou mais provedores diferentes.
+
+**Backend** — Criar endpoint `GET /api/anti-fraud/migradores`:
+```sql
+SELECT 
+  cpf_cnpj,
+  nome_cliente,
+  COUNT(DISTINCT provedor_consultou) as num_provedores,
+  SUM(valor_em_aberto) as valor_total,
+  GROUP_CONCAT(DISTINCT provedor_consultou) as provedores,
+  MAX(created_at) as ultimo_alerta
+FROM anti_fraud_alerts 
+WHERE provider_id = ?
+GROUP BY cpf_cnpj
+HAVING COUNT(DISTINCT provedor_consultou) >= 2
+ORDER BY num_provedores DESC, valor_total DESC
+```
+
+**Frontend** — Na aba Migradores, mostrar cards com:
+- Avatar com inicial do nome
+- Nome e CPF (mascarado: `xxx.xxx.***-**`)
+- Badge vermelho: "X provedores consultados"
+- Valor total em risco
+- Linha visual mostrando trajetória: `ProvA → ProvB → ProvC (atual - em vermelho)`
+- Botões: "🚫 Bloquear Novo Contrato", "📋 Ver Histórico", "📣 Alertar Rede"
+
+### 2.2 — Preencher aba "Regras" (estava vazia)
+
+A aba "Regras" deve permitir configurar quando o sistema gera alertas anti-fraude.
+
+**Backend** — Criar tabela `anti_fraud_rules` e endpoint `GET/PATCH /api/anti-fraud/rules`:
+```sql
+CREATE TABLE IF NOT EXISTS anti_fraud_rules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider_id INTEGER NOT NULL,
+  tipo TEXT NOT NULL,
+  label TEXT NOT NULL,
+  ativo INTEGER DEFAULT 1,
+  valor_minimo REAL,
+  dias_minimo INTEGER,
+  FOREIGN KEY (provider_id) REFERENCES providers(id)
+);
+```
+
+Seed com 5 regras padrão:
+1. `{ tipo: 'tentativa_fuga', label: 'Alertar quando inadimplente é consultado por outro provedor', ativo: 1 }`
+2. `{ tipo: 'migrador_serial', label: 'Identificar migradores seriais (consultado por 2+ provedores)', ativo: 1 }`
+3. `{ tipo: 'valor_minimo', label: 'Alertar apenas se valor em aberto > R$ 200', ativo: 1, valor_minimo: 200 }`
+4. `{ tipo: 'dias_minimo', label: 'Alertar apenas se atraso > 30 dias', ativo: 0, dias_minimo: 30 }`
+5. `{ tipo: 'equipamento', label: 'Alertar quando equipamento retido é registrado no CEP consultado', ativo: 1 }`
+
+**Frontend** — Lista de cards com toggle on/off para cada regra. Slider para ajustar o "Score mínimo para considerar crítico" (0-100, padrão: 40).
+
+### 2.3 — Preencher aba "Configurações" com Notificações (estava vazia)
+
+Renomear internamente para "Notificações" e mostrar:
+
+**Frontend**:
+1. Lista de canais: WhatsApp Business, Email, Push Web, SMS — cada um com toggle on/off
+2. Campo para número WhatsApp do responsável
+3. Botão "📲 Testar WhatsApp agora"
+4. Toggle "Receber resumo diário às 8h" (ligado por padrão)
+
+**Backend** — Criar endpoint `GET/PATCH /api/provider/notification-settings` que salva as configurações na tabela `providers` (adicionar colunas `notif_whatsapp INTEGER DEFAULT 1`, `notif_email INTEGER DEFAULT 1`, `notif_push INTEGER DEFAULT 0`, `notif_sms INTEGER DEFAULT 0`, `notif_whatsapp_number TEXT`, `notif_daily_summary INTEGER DEFAULT 1`).
+
+### 2.4 — Melhorar cards de alertas com mini-dashboard por alerta
+
+Cada card de alerta na aba "Alertas" deve ter, além do que já existe, um mini-grid de 3 métricas visuais:
+```
+[ X dias de atraso ]  [ R$ X em aberto ]  [ X equip. / Devolvidos ]
+   (fundo vermelho)     (fundo laranja)      (fundo âmbar ou verde)
+```
+
+E botões de ação:
+- "✓ Marcar Resolvido" — chama `PATCH /api/anti-fraud/alerts/:id` com `{ status: 'resolvido' }`
+- "📋 Ver Perfil Completo" — abre modal ou navega para detalhe do CPF no Consulta ISP
+- "💬 Contatar Provedor" — abre modal com info de contato do provedor que fez a consulta
+- "Dispensar" — chama `PATCH` com `{ status: 'ignorado' }`
+
+---
+
+## PARTE 3 — NOVA FUNCIONALIDADE: IMPORTAR EQUIPAMENTOS PERDIDOS
+
+### Por que esta funcionalidade é necessária
+
+A maioria dos provedores não registra equipamentos perdidos no ERP. Isso significa que quando outro provedor consulta um CPF no Consulta ISP, o sistema não sabe que aquele cliente tem ONU ou roteador retido — e não alerta corretamente. Esta ferramenta permite registrar equipamentos via planilha, sem precisar de ERP.
+
+### 3.1 — Nova entrada no menu lateral
+
+Adicionar no sidebar, na seção "GESTÃO", um novo link:
+- Ícone: 📦 (ou `Package` do lucide-react)
+- Label: "Importar Equip."
+- Rota: `/importacao-equipamentos`
+
+### 3.2 — Backend: tabela e endpoints de equipamentos
+
+**Verificar se a tabela `equipamentos` já existe** no banco. Se não existir, criar:
+```sql
+CREATE TABLE IF NOT EXISTS equipamentos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider_id INTEGER NOT NULL,
+  inadimplente_id INTEGER,
+  cpf_cnpj TEXT NOT NULL,
+  nome_cliente TEXT,
+  tipo TEXT DEFAULT 'ONU',
+  marca TEXT,
+  modelo TEXT,
+  numero_serie TEXT,
+  valor REAL DEFAULT 0,
+  data_perda TEXT,
+  observacao TEXT,
+  status TEXT DEFAULT 'retido',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (provider_id) REFERENCES providers(id)
+);
+```
+
+**Criar arquivo `server/routes/equipamentos.ts`** (ou `.js`) com:
+
+```typescript
+// GET /api/equipamentos — listar equipamentos do provedor
+router.get('/', auth, (req, res) => {
+  const db = getDb()
+  const items = db.prepare(`
+    SELECT e.*, i.nome as nome_inadimplente 
+    FROM equipamentos e 
+    LEFT JOIN inadimplentes i ON e.cpf_cnpj = i.cpf_cnpj AND i.provider_id = e.provider_id
+    WHERE e.provider_id = ? 
+    ORDER BY e.created_at DESC
+  `).all(req.user.provider_id)
+  
+  const stats = {
+    total: items.length,
+    retidos: items.filter(e => e.status === 'retido').length,
+    recuperados: items.filter(e => e.status === 'recuperado').length,
+    valor_risco: items.filter(e => e.status === 'retido').reduce((s, e) => s + (e.valor || 0), 0)
+  }
+  
+  res.json({ items, stats })
+})
+
+// POST /api/equipamentos — cadastrar um equipamento
+router.post('/', auth, (req, res) => {
+  const { cpf_cnpj, nome_cliente, tipo, marca, modelo, numero_serie, valor, data_perda, observacao } = req.body
+  if (!cpf_cnpj) return res.status(400).json({ message: 'CPF/CNPJ obrigatório' })
+  
+  const db = getDb()
+  const r = db.prepare(`
+    INSERT INTO equipamentos 
+    (provider_id, cpf_cnpj, nome_cliente, tipo, marca, modelo, numero_serie, valor, data_perda, observacao)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(req.user.provider_id, cpf_cnpj, nome_cliente, tipo || 'ONU', marca, modelo, numero_serie, valor || 0, data_perda, observacao)
+  
+  res.json({ id: r.lastInsertRowid, message: 'Equipamento cadastrado' })
+})
+
+// POST /api/equipamentos/import — importar múltiplos via array (CSV parsed)
+router.post('/import', auth, (req, res) => {
+  const { rows } = req.body
+  if (!rows?.length) return res.status(400).json({ message: 'Dados obrigatórios' })
+  
+  const db = getDb()
+  let ok = 0
+  const erros: Array<{ linha: number; erro: string }> = []
+  
+  const ins = db.prepare(`
+    INSERT INTO equipamentos (provider_id, cpf_cnpj, nome_cliente, tipo, marca, modelo, numero_serie, valor, data_perda, observacao)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+  
+  rows.forEach((row: any, i: number) => {
+    if (!row.cpf_cnpj) {
+      erros.push({ linha: i + 2, erro: 'CPF/CNPJ ausente' })
+      return
+    }
+    try {
+      ins.run(
+        req.user.provider_id, 
+        row.cpf_cnpj, 
+        row.nome_cliente || null, 
+        row.tipo_equipamento || 'ONU',
+        row.marca || null, 
+        row.modelo || null, 
+        row.numero_serie || null,
+        parseFloat(row.valor_equipamento) || 0,
+        row.data_perda || null,
+        row.observacao || null
+      )
+      ok++
+    } catch (e: any) {
+      erros.push({ linha: i + 2, erro: e.message })
+    }
+  })
+  
+  res.json({ importados: ok, erros })
+})
+
+// PATCH /api/equipamentos/:id — atualizar status
+router.patch('/:id', auth, (req, res) => {
+  const db = getDb()
+  db.prepare('UPDATE equipamentos SET status = ? WHERE id = ? AND provider_id = ?')
+    .run(req.body.status || 'retido', req.params.id, req.user.provider_id)
+  res.json({ message: 'Atualizado' })
+})
+
+// DELETE /api/equipamentos/:id
+router.delete('/:id', auth, (req, res) => {
+  const db = getDb()
+  db.prepare('DELETE FROM equipamentos WHERE id = ? AND provider_id = ?')
+    .run(req.params.id, req.user.provider_id)
+  res.json({ message: 'Removido' })
+})
+```
+
+Registrar a rota no `server.ts`/`index.ts` principal:
+```typescript
+import equipamentosRoutes from './routes/equipamentos'
+app.use('/api/equipamentos', equipamentosRoutes)
+```
+
+### 3.3 — Frontend: página `/importacao-equipamentos`
+
+Criar arquivo `client/src/pages/importacao-equipamentos.tsx`.
+
+A página deve ter 3 abas:
+
+#### Aba 1: "📁 Upload Planilha"
+
+1. **Header** com título "Importar Equipamentos Perdidos", badge "NOVO RECURSO", e botão "⬇ Baixar Modelo"
+   - O botão Baixar Modelo gera e faz download de um CSV com a linha de header: `cpf_cnpj,nome_cliente,tipo_equipamento,marca,modelo,numero_serie,valor_equipamento,data_perda,observacao`
+   - Inclui 2 linhas de exemplo
+
+2. **Caixa de alerta âmbar** explicando: "A maioria dos provedores não registra equipamentos perdidos no ERP. Sem esse registro, o sistema não consegue alertar outros provedores quando um cliente inadimplente com equipamento retido tenta contratar novo serviço."
+
+3. **Tabela de campos suportados** com 2 colunas: Campo | Descrição, marcando obrigatórios com badge azul "OBRIG":
+   - `cpf_cnpj` (obrigatório) — CPF ou CNPJ do cliente
+   - `nome_cliente` — Nome do cliente inadimplente
+   - `tipo_equipamento` (obrigatório) — ONU, Roteador, Switch, etc.
+   - `marca` — Intelbras, ZTE, TP-Link, Huawei...
+   - `modelo` — Ex: GPON 1200R, Archer C6
+   - `numero_serie` — Serial do equipamento
+   - `valor_equipamento` — Valor em R$ para cobrança
+   - `data_perda` — Data em que foi perdido (formato YYYY-MM-DD)
+   - `observacao` — Observações
+
+4. **Área drag-and-drop** com `papaparse` para parsing do CSV:
+   - Use `import Papa from 'papaparse'` (já instalado no projeto)
+   - Ao fazer upload, parsear o CSV e mostrar preview
+   - Identificar erros (linhas sem CPF)
+
+5. **Preview dos dados** (aparece após upload):
+   - Tabela com os primeiros 10 registros
+   - Cards de resumo: "X prontos para importar", "X com erro", "R$ X valor total"
+   - Botão "⬆ Importar X equipamentos" que chama `POST /api/equipamentos/import`
+   - Toast de sucesso após importação
+
+#### Aba 2: "✏️ Cadastro Manual"
+
+Formulário com os campos:
+- CPF/CNPJ (obrigatório) — com máscara e busca do nome na base ao digitar 11 dígitos
+- Nome do Cliente (preenchido automaticamente se encontrar na base)
+- Tipo de Equipamento (select: ONU/ONT, Roteador Wi-Fi, Switch, Conversor de Mídia, Access Point, Outro)
+- Marca (select: Intelbras, TP-Link, ZTE, Huawei, FiberHome, Nokia, Cisco, Outra)
+- Modelo (text)
+- Número de Série (text)
+- Valor do Equipamento (number, em R$)
+- Data da Perda (date)
+- Observações (textarea)
+
+Botão "💾 Salvar Equipamento" que chama `POST /api/equipamentos`.
+
+#### Aba 3: "📋 Equipamentos Cadastrados"
+
+- 3 cards de métricas: total retidos, recuperados, valor em risco
+- Tabela com colunas: Cliente | Tipo | Marca/Modelo | Série | Valor | Data | Status | Ações
+- Coluna Status com select inline para mudar entre: Retido, Recuperado, Em cobrança, Baixado (chama `PATCH /api/equipamentos/:id`)
+- Botões de ação: "💬 Cobrar" (placeholder), "✓" para marcar recuperado
+- Botão "⬇ Exportar CSV" e "⬆ Importar mais"
+
+### 3.4 — Integrar equipamentos na consulta ISP
+
+No endpoint `POST /api/isp-consultations`, ao buscar inadimplentes, também buscar equipamentos:
+
+```typescript
+// Para cada inadimplente encontrado, buscar equipamentos
+const equipamentos = db.prepare(`
+  SELECT tipo, marca, modelo, numero_serie, valor, status 
+  FROM equipamentos 
+  WHERE cpf_cnpj = ? AND status = 'retido'
+`).all(docLimpo)
+
+// Adicionar ao resultado de cada registro:
+registro.equip_count = equipamentos.length
+registro.equip_valor_total = equipamentos.reduce((s, e) => s + (e.valor || 0), 0)
+registro.equipamentos_lista = equipamentos.map(e => `${e.marca} ${e.modelo}`)
+```
+
+No detalhe da consulta (`/consulta-isp` — tela de detalhes), na coluna "EQUIPAMENTOS", mostrar:
+- Se `equip_count > 0`: lista dos equipamentos com marca e modelo, badge âmbar "⚠️ X equip. retido(s)", valor total
+- Se `equip_count === 0`: "✅ Todos devolvidos"
+
+---
+
+## INSTRUÇÕES GERAIS DE IMPLEMENTAÇÃO
+
+1. **Mantenha o visual existente**: Use os mesmos componentes shadcn/ui, as mesmas classes Tailwind, o mesmo estilo de cards e badges já usados no projeto.
+
+2. **Não quebre nada existente**: Teste se as páginas já existentes continuam funcionando após as mudanças.
+
+3. **TypeScript**: Adicione tipos apropriados para todas as novas interfaces.
+
+4. **Error handling**: Todos os novos endpoints devem ter try/catch e retornar mensagens de erro adequadas.
+
+5. **Autenticação**: Todos os novos endpoints devem usar o middleware de auth já existente.
+
+6. **Ordem de implementação sugerida**:
+   - Primeiro: tabela de equipamentos + endpoints backend
+   - Segundo: página de importação de equipamentos + rota no sidebar
+   - Terceiro: melhorias no loading da Consulta ISP
+   - Quarto: banner de custo estimado
+   - Quinto: abas preenchidas no Anti-Fraude (Migradores, Regras, Notificações)
+   - Sexto: melhorias nos cards de alerta
+
+7. **Dependência papaparse**: Se não estiver instalado, adicione com `npm install papaparse @types/papaparse`.
+
+Implemente tudo e teste rodando o projeto para confirmar que funciona.

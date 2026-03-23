@@ -44,6 +44,7 @@ import {
   Zap,
   Database,
   ClipboardList,
+  Package,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -73,6 +74,7 @@ const financeMenu = [
 
 const toolsMenu = [
   { title: "Importacao", url: "/importacao", icon: Upload },
+  { title: "Importar Equip.", url: "/importacao-equipamentos", icon: Package },
 ];
 
 const ADMIN_GROUPS = [

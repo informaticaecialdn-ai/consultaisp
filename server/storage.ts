@@ -5,7 +5,7 @@ import {
   ispConsultations, spcConsultations, antiFraudAlerts,
   supportThreads, supportMessages, planChanges, providerInvoices, creditOrders,
   providerPartners, providerDocuments, erpIntegrations, erpSyncLogs, erpCatalog,
-  visitorChats, visitorChatMessages,
+  visitorChats, visitorChatMessages, equipamentos, antiFraudRules,
   type Provider, type InsertProvider,
   type User, type InsertUser,
   type Customer, type InsertCustomer,
@@ -155,6 +155,21 @@ export interface IStorage {
   createErpCatalogItem(data: InsertErpCatalog): Promise<ErpCatalog>;
   updateErpCatalogItem(id: number, data: Partial<InsertErpCatalog>): Promise<ErpCatalog>;
   deleteErpCatalogItem(id: number): Promise<void>;
+
+  getEquipamentosByProvider(providerId: number): Promise<any[]>;
+  createEquipamento(data: any): Promise<any>;
+  importEquipamentos(providerId: number, rows: any[]): Promise<{ importados: number; erros: Array<{ linha: number; erro: string }> }>;
+  updateEquipamentoStatus(id: number, providerId: number, status: string): Promise<void>;
+  deleteEquipamento(id: number, providerId: number): Promise<void>;
+  getEquipamentosByCpf(cpfCnpj: string): Promise<any[]>;
+
+  getAntiFraudRules(providerId: number): Promise<any[]>;
+  upsertAntiFraudRules(providerId: number, rules: any[]): Promise<void>;
+  seedDefaultRules(providerId: number): Promise<void>;
+  toggleAntiFraudRule(id: number, providerId: number, ativo: boolean): Promise<void>;
+
+  getNotificationSettings(providerId: number): Promise<any>;
+  saveNotificationSettings(providerId: number, data: any): Promise<void>;
 
   createVisitorChat(name: string, email: string, phone: string | null): Promise<VisitorChat>;
   getVisitorChatByToken(token: string): Promise<VisitorChat | undefined>;
@@ -1389,6 +1404,123 @@ export class DatabaseStorage implements IStorage {
     const [{ count: unread }] = await db.select({ count: count() }).from(visitorChatMessages)
       .where(and(eq(visitorChatMessages.chatId, chatId), eq(visitorChatMessages.isFromAdmin, true), eq(visitorChatMessages.isRead, false)));
     return Number(unread);
+  }
+
+  async getEquipamentosByProvider(providerId: number): Promise<any[]> {
+    return db.select().from(equipamentos).where(eq(equipamentos.providerId, providerId)).orderBy(desc(equipamentos.createdAt));
+  }
+
+  async createEquipamento(data: any): Promise<any> {
+    const [item] = await db.insert(equipamentos).values(data).returning();
+    return item;
+  }
+
+  async importEquipamentos(providerId: number, rows: any[]): Promise<{ importados: number; erros: Array<{ linha: number; erro: string }> }> {
+    let importados = 0;
+    const erros: Array<{ linha: number; erro: string }> = [];
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row.cpf_cnpj) {
+        erros.push({ linha: i + 2, erro: "CPF/CNPJ ausente" });
+        continue;
+      }
+      try {
+        await db.insert(equipamentos).values({
+          providerId,
+          cpfCnpj: row.cpf_cnpj,
+          nomeCliente: row.nome_cliente || null,
+          tipo: row.tipo_equipamento || "ONU",
+          marca: row.marca || null,
+          modelo: row.modelo || null,
+          numeroSerie: row.numero_serie || null,
+          valor: row.valor_equipamento ? String(parseFloat(row.valor_equipamento)) : "0",
+          dataPerda: row.data_perda || null,
+          observacao: row.observacao || null,
+          status: "retido",
+        });
+        importados++;
+      } catch (e: any) {
+        erros.push({ linha: i + 2, erro: e.message });
+      }
+    }
+    return { importados, erros };
+  }
+
+  async updateEquipamentoStatus(id: number, providerId: number, status: string): Promise<void> {
+    await db.update(equipamentos).set({ status }).where(and(eq(equipamentos.id, id), eq(equipamentos.providerId, providerId)));
+  }
+
+  async deleteEquipamento(id: number, providerId: number): Promise<void> {
+    await db.delete(equipamentos).where(and(eq(equipamentos.id, id), eq(equipamentos.providerId, providerId)));
+  }
+
+  async getEquipamentosByCpf(cpfCnpj: string): Promise<any[]> {
+    const clean = cpfCnpj.replace(/\D/g, "");
+    return db.select().from(equipamentos).where(and(
+      sql`REPLACE(REPLACE(${equipamentos.cpfCnpj}, '.', ''), '-', '') = ${clean}`,
+      eq(equipamentos.status, "retido")
+    ));
+  }
+
+  async getAntiFraudRules(providerId: number): Promise<any[]> {
+    const rules = await db.select().from(antiFraudRules).where(eq(antiFraudRules.providerId, providerId)).orderBy(antiFraudRules.id);
+    if (rules.length === 0) {
+      await this.seedDefaultRules(providerId);
+      return db.select().from(antiFraudRules).where(eq(antiFraudRules.providerId, providerId)).orderBy(antiFraudRules.id);
+    }
+    return rules;
+  }
+
+  async seedDefaultRules(providerId: number): Promise<void> {
+    const defaults = [
+      { tipo: "tentativa_fuga", label: "Alertar quando inadimplente e consultado por outro provedor", ativo: true },
+      { tipo: "migrador_serial", label: "Identificar migradores seriais (consultado por 2+ provedores)", ativo: true },
+      { tipo: "valor_minimo", label: "Alertar apenas se valor em aberto > R$ 200", ativo: true, valorMinimo: "200" },
+      { tipo: "dias_minimo", label: "Alertar apenas se atraso > 30 dias", ativo: false, diasMinimo: 30 },
+      { tipo: "equipamento", label: "Alertar quando equipamento retido e registrado no CEP consultado", ativo: true },
+    ];
+    for (const d of defaults) {
+      await db.insert(antiFraudRules).values({ providerId, ...d } as any);
+    }
+  }
+
+  async toggleAntiFraudRule(id: number, providerId: number, ativo: boolean): Promise<void> {
+    await db.update(antiFraudRules).set({ ativo }).where(and(eq(antiFraudRules.id, id), eq(antiFraudRules.providerId, providerId)));
+  }
+
+  async upsertAntiFraudRules(providerId: number, rules: any[]): Promise<void> {
+    for (const rule of rules) {
+      if (rule.id) {
+        await db.update(antiFraudRules).set({
+          ativo: rule.ativo,
+          valorMinimo: rule.valorMinimo != null ? String(rule.valorMinimo) : null,
+          diasMinimo: rule.diasMinimo != null ? Number(rule.diasMinimo) : null,
+        }).where(and(eq(antiFraudRules.id, rule.id), eq(antiFraudRules.providerId, providerId)));
+      }
+    }
+  }
+
+  async getNotificationSettings(providerId: number): Promise<any> {
+    const [p] = await db.select({
+      notifWhatsapp: providers.notifWhatsapp,
+      notifEmail: providers.notifEmail,
+      notifPush: providers.notifPush,
+      notifSms: providers.notifSms,
+      notifWhatsappNumber: providers.notifWhatsappNumber,
+      notifDailySummary: providers.notifDailySummary,
+    }).from(providers).where(eq(providers.id, providerId));
+    return p;
+  }
+
+  async saveNotificationSettings(providerId: number, data: any): Promise<void> {
+    await db.update(providers).set({
+      notifWhatsapp: data.notifWhatsapp,
+      notifEmail: data.notifEmail,
+      notifPush: data.notifPush,
+      notifSms: data.notifSms,
+      notifWhatsappNumber: data.notifWhatsappNumber,
+      notifDailySummary: data.notifDailySummary,
+    }).where(eq(providers.id, providerId));
   }
 }
 

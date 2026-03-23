@@ -1303,6 +1303,8 @@ export async function registerRoutes(
       let globalTotalOverdue = 0;
       let providersWithDebtCount = 0;
       let hasUnreturnedEquipmentGlobal = false;
+      const manualEquipamentos = searchType !== "cep" ? await storage.getEquipamentosByCpf(cleaned) : [];
+      const manualEquipCount = manualEquipamentos.length;
 
       for (const customer of allCustomerRecords) {
         const customerProvider = await storage.getProvider(customer.providerId);
@@ -1322,7 +1324,7 @@ export async function registerRoutes(
         }
 
         const unreturnedEquipment = customerEquipment.filter(eq => eq.status === "not_returned");
-        const unreturnedCount = unreturnedEquipment.length;
+        const unreturnedCount = unreturnedEquipment.length + manualEquipCount;
 
         if (totalOverdue > 0) providersWithDebtCount++;
         if (maxDays > globalMaxDaysOverdue) globalMaxDaysOverdue = maxDays;
@@ -1367,13 +1369,21 @@ export async function registerRoutes(
         };
 
         if (isSameProvider) {
-          detail.equipmentDetails = unreturnedEquipment.map(eq => ({
+          const erpEquip = unreturnedEquipment.map(eq => ({
             type: eq.type,
             brand: eq.brand,
             model: eq.model,
             value: eq.value,
             inRecoveryProcess: eq.inRecoveryProcess,
           }));
+          const manualEquip = manualEquipamentos.map((eq: any) => ({
+            type: eq.tipo,
+            brand: eq.marca,
+            model: eq.modelo,
+            value: eq.valor,
+            inRecoveryProcess: false,
+          }));
+          detail.equipmentDetails = [...erpEquip, ...manualEquip];
           const newestContract = customerContracts.length > 0 ? customerContracts[0] : null;
           if (newestContract?.endDate) {
             detail.cancelledDate = newestContract.endDate;
@@ -1960,6 +1970,179 @@ export async function registerRoutes(
       }
       customerRisk.sort((a, b) => b.riskScore - a.riskScore);
       return res.json(customerRisk);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/anti-fraud/migradores", requireAuth, async (req, res) => {
+    try {
+      const providerId = req.session.providerId!;
+      const alerts = await storage.getAlertsByProvider(providerId);
+      const grouped: Record<string, { cpf: string; name: string; alerts: typeof alerts }> = {};
+      for (const a of alerts) {
+        if (!a.customerCpfCnpj) continue;
+        const key = a.customerCpfCnpj;
+        if (!grouped[key]) grouped[key] = { cpf: a.customerCpfCnpj, name: a.customerName || "Desconhecido", alerts: [] };
+        grouped[key].alerts.push(a);
+      }
+      const migradores = Object.values(grouped)
+        .map(m => {
+          const providers = new Set(m.alerts.map(a => a.consultingProviderName).filter(Boolean));
+          const maxOverdue = Math.max(...m.alerts.map(a => parseFloat(a.overdueAmount || "0")));
+          const maxEqp = Math.max(...m.alerts.map(a => parseFloat(a.equipmentValue || "0")));
+          return { cpf: m.cpf, name: m.name, providers, maxOverdue, maxEqp, alerts: m.alerts, count: providers.size };
+        })
+        .filter(m => m.count >= 2)
+        .sort((a, b) => b.count - a.count)
+        .map(m => ({ ...m, providers: Array.from(m.providers) }));
+      return res.json(migradores);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/anti-fraud/rules", requireAuth, async (req, res) => {
+    try {
+      const rules = await storage.getAntiFraudRules(req.session.providerId!);
+      return res.json(rules);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/anti-fraud/rules", requireAuth, async (req, res) => {
+    try {
+      const { rules } = req.body;
+      if (!Array.isArray(rules)) return res.status(400).json({ message: "rules deve ser um array" });
+      await storage.upsertAntiFraudRules(req.session.providerId!, rules);
+      return res.json({ ok: true });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/anti-fraud/rules/:id/toggle", requireAuth, async (req, res) => {
+    try {
+      const { ativo } = req.body;
+      await storage.toggleAntiFraudRule(parseInt(req.params.id), req.session.providerId!, ativo);
+      return res.json({ ok: true });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/provider/notification-settings", requireAuth, async (req, res) => {
+    try {
+      const settings = await storage.getNotificationSettings(req.session.providerId!);
+      return res.json(settings || {});
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/provider/notification-settings", requireAuth, async (req, res) => {
+    try {
+      await storage.saveNotificationSettings(req.session.providerId!, req.body);
+      return res.json({ ok: true });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/equipamentos", requireAuth, async (req, res) => {
+    try {
+      const items = await storage.getEquipamentosByProvider(req.session.providerId!);
+      const stats = {
+        total: items.length,
+        retidos: items.filter((e: any) => e.status === "retido").length,
+        recuperados: items.filter((e: any) => e.status === "recuperado").length,
+        valorRisco: items.filter((e: any) => e.status === "retido").reduce((s: number, e: any) => s + parseFloat(e.valor || "0"), 0),
+      };
+      return res.json({ items, stats });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/equipamentos", requireAuth, async (req, res) => {
+    try {
+      const { cpfCnpj, nomeCliente, tipo, marca, modelo, numeroSerie, valor, dataPerda, observacao } = req.body;
+      if (!cpfCnpj) return res.status(400).json({ message: "CPF/CNPJ obrigatorio" });
+      const item = await storage.createEquipamento({
+        providerId: req.session.providerId!,
+        cpfCnpj: cpfCnpj.replace(/\D/g, ""),
+        nomeCliente: nomeCliente || null,
+        tipo: tipo || "ONU",
+        marca: marca || null,
+        modelo: modelo || null,
+        numeroSerie: numeroSerie || null,
+        valor: valor ? String(parseFloat(valor)) : "0",
+        dataPerda: dataPerda || null,
+        observacao: observacao || null,
+        status: "retido",
+      });
+      return res.json(item);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/equipamentos/import", requireAuth, async (req, res) => {
+    try {
+      const { rows } = req.body;
+      if (!rows?.length) return res.status(400).json({ message: "Dados obrigatorios" });
+      const result = await storage.importEquipamentos(req.session.providerId!, rows);
+      return res.json(result);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/equipamentos/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.updateEquipamentoStatus(parseInt(req.params.id), req.session.providerId!, req.body.status || "retido");
+      return res.json({ ok: true });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/equipamentos/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.deleteEquipamento(parseInt(req.params.id), req.session.providerId!);
+      return res.json({ ok: true });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/isp-consultations/lote", requireAuth, async (req, res) => {
+    try {
+      const { items } = req.body;
+      if (!items?.length) return res.status(400).json({ message: "Items obrigatorio" });
+      if (items.length > 500) return res.status(400).json({ message: "Maximo 500 CPFs por lote" });
+      const providerId = req.session.providerId!;
+      const provider = await storage.getProvider(providerId);
+      if (!provider) return res.status(403).json({ message: "Provedor nao encontrado" });
+      const results = [];
+      let totalCost = 0;
+      for (const item of items) {
+        const doc = (item.cpf_cnpj || "").replace(/\D/g, "");
+        if (!doc || (doc.length !== 11 && doc.length !== 14)) {
+          results.push({ cpf_cnpj: item.cpf_cnpj, error: "Documento invalido" });
+          continue;
+        }
+        const customers = await storage.getCustomerByCpfCnpj(doc);
+        const externalCount = customers.filter(c => (c as any).providerName !== provider.name).length;
+        const cost = Math.ceil(externalCount * 0.8);
+        totalCost += cost;
+        const score = customers.length === 0 ? 100 : Math.max(0, 100 - (externalCount * 20));
+        results.push({ cpf_cnpj: item.cpf_cnpj, nome: item.nome_cliente, encontrado: customers.length > 0, provedores: customers.length, score, custo: cost });
+      }
+      const finalCost = Math.min(totalCost, provider.ispCredits || 0);
+      if (finalCost > 0) await storage.updateProviderCredits(providerId, (provider.ispCredits || 0) - finalCost, provider.spcCredits || 0);
+      return res.json({ results, totalCost: finalCost, processed: items.length });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
     }
