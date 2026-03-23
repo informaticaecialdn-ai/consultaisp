@@ -1,7 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useEffect, useRef, useCallback } from "react";
 import "leaflet/dist/leaflet.css";
@@ -244,6 +246,7 @@ function LeafletHeatMap({
 
 export default function MapaCalorPage() {
   const { provider } = useAuth();
+  const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState("provider");
   const [providerCenter, setProviderCenter] = useState<[number, number] | null>(null);
 
@@ -259,9 +262,16 @@ export default function MapaCalorPage() {
     queryKey: ["/api/heatmap/city-ranking"],
   });
 
-  const { data: syncInfo } = useQuery<{ lastSyncAt: string | null; totalIntegrations: number }>({
+  const { data: syncInfo, refetch: refetchSyncInfo } = useQuery<{
+    lastSyncAt: string | null;
+    totalIntegrations: number;
+    lastCacheRefresh: string | null;
+    totalCachePoints: number;
+    refreshing: boolean;
+  }>({
     queryKey: ["/api/heatmap/sync-info"],
-    staleTime: 60000,
+    staleTime: 30000,
+    refetchInterval: 15000,
   });
 
   useEffect(() => {
@@ -278,6 +288,18 @@ export default function MapaCalorPage() {
       if (top.lat && top.lng) setProviderCenter([top.lat, top.lng]);
     }
   }, [provider?.addressCity, provider?.addressState, cityRanking]);
+
+  const refreshMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/heatmap/refresh"),
+    onSuccess: () => {
+      setTimeout(() => {
+        qc.invalidateQueries({ queryKey: ["/api/heatmap/regional"] });
+        qc.invalidateQueries({ queryKey: ["/api/heatmap/city-ranking"] });
+        qc.invalidateQueries({ queryKey: ["/api/heatmap/provider"] });
+        qc.invalidateQueries({ queryKey: ["/api/heatmap/sync-info"] });
+      }, 3000);
+    },
+  });
 
   const providerPoints: HeatPoint[] = providerData
     .map(p => ({
@@ -423,16 +445,33 @@ export default function MapaCalorPage() {
 
         {/* ======================== BENCHMARKING REGIONAL ======================== */}
         <TabsContent value="regional" className="space-y-4">
-          {/* Sync info banner */}
-          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2">
-            <RefreshCw className="w-3.5 h-3.5 flex-shrink-0 text-cyan-500" />
-            <span>
-              Dados atualizados automaticamente via sincronização programada ·{" "}
-              {syncInfo?.totalIntegrations ?? 0} integração{syncInfo?.totalIntegrations !== 1 ? "ões" : ""} ativa{syncInfo?.totalIntegrations !== 1 ? "s" : ""} ·{" "}
-              {syncInfo?.lastSyncAt
-                ? `Última sync: ${new Date(syncInfo.lastSyncAt).toLocaleString("pt-BR")}`
-                : "Aguardando primeira sincronização automática"}
-            </span>
+          {/* Cache status banner */}
+          <div className="flex items-center justify-between gap-2 bg-muted/40 rounded-lg px-3 py-2">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <RefreshCw className={`w-3.5 h-3.5 flex-shrink-0 text-cyan-500 ${syncInfo?.refreshing ? "animate-spin" : ""}`} />
+              <span>
+                {syncInfo?.refreshing
+                  ? "Buscando inadimplentes nos ERPs dos provedores..."
+                  : syncInfo?.totalCachePoints
+                  ? `${syncInfo.totalCachePoints} inadimplentes carregados do ERP · cache atualizado a cada 24h · ${
+                      syncInfo?.lastCacheRefresh
+                        ? new Date(syncInfo.lastCacheRefresh).toLocaleString("pt-BR")
+                        : "Aguardando carga inicial"
+                    }`
+                  : `${syncInfo?.totalIntegrations ?? 0} integração${(syncInfo?.totalIntegrations ?? 0) !== 1 ? "ões" : ""} ERP configurada${(syncInfo?.totalIntegrations ?? 0) !== 1 ? "s" : ""} · aguardando carga do cache`}
+              </span>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 text-xs px-2 gap-1"
+              disabled={refreshMutation.isPending || syncInfo?.refreshing}
+              onClick={() => refreshMutation.mutate()}
+              data-testid="button-refresh-heatmap"
+            >
+              <RefreshCw className={`w-3 h-3 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
+              Atualizar
+            </Button>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

@@ -9,6 +9,15 @@ import { slugifySubdomain, buildSubdomainUrl } from "./tenant";
 import crypto from "crypto";
 import { streamConsultationAnalysis, streamAntiFraudAnalysis } from "./ai-analysis";
 import { startScheduler, getSchedulerStatus, runAutoSync } from "./scheduler";
+import {
+  getAllPoints,
+  getProviderPoints,
+  refreshAllProviders,
+  refreshProviderIfStale,
+  getCacheStatus,
+  isRefreshing,
+  startHeatmapCacheScheduler,
+} from "./heatmap-cache";
 
 const _cityGeoCache = new Map<string, [number, number] | null>();
 async function geocodeCityServer(city: string, state: string): Promise<[number, number] | null> {
@@ -2727,8 +2736,16 @@ export async function registerRoutes(
 
   app.get("/api/heatmap/provider", requireAuth, async (req, res) => {
     try {
-      const data = await storage.getHeatmapDataByProvider(req.session.providerId!);
-      return res.json(data);
+      const providerId = req.session.providerId!;
+      await refreshProviderIfStale(providerId);
+      const points = getProviderPoints(providerId);
+      return res.json(points.map(p => ({
+        latitude: String(p.lat),
+        longitude: String(p.lng),
+        city: p.city,
+        totalOverdueAmount: String(p.totalOverdueAmount),
+        maxDaysOverdue: String(p.maxDaysOverdue),
+      })));
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
     }
@@ -2736,12 +2753,10 @@ export async function registerRoutes(
 
   app.get("/api/heatmap/regional", requireAuth, async (_req, res) => {
     try {
-      const [data, networkPoints] = await Promise.all([
-        storage.getHeatmapDataAllProviders(),
-        storage.getNetworkConsultationPoints(),
-      ]);
-      const clusterMap = new Map<string, { lat: number; lng: number; city: string; count: number; totalOverdue: number }>();
+      const cachePoints = getAllPoints();
+      const networkPoints = await storage.getNetworkConsultationPoints();
 
+      const clusterMap = new Map<string, { lat: number; lng: number; city: string; count: number; totalOverdue: number }>();
       const addPoint = (lat: number, lng: number, city: string, overdue: number) => {
         if (isNaN(lat) || isNaN(lng)) return;
         const roundedLat = parseFloat(lat.toFixed(2));
@@ -2757,8 +2772,8 @@ export async function registerRoutes(
         }
       };
 
-      for (const item of data) {
-        addPoint(parseFloat(item.latitude), parseFloat(item.longitude), item.city || "", parseFloat(item.totalOverdueAmount || "0"));
+      for (const p of cachePoints) {
+        addPoint(p.lat, p.lng, p.city, p.totalOverdueAmount);
       }
 
       for (const np of networkPoints) {
@@ -2778,10 +2793,8 @@ export async function registerRoutes(
 
   app.get("/api/heatmap/city-ranking", requireAuth, async (_req, res) => {
     try {
-      const [data, networkPoints] = await Promise.all([
-        storage.getHeatmapDataAllProviders(),
-        storage.getNetworkConsultationPoints(),
-      ]);
+      const cachePoints = getAllPoints();
+      const networkPoints = await storage.getNetworkConsultationPoints();
       const cityMap = new Map<string, { city: string; lat: number; lng: number; count: number; totalOverdue: number; maxDays: number }>();
 
       const addCity = (city: string, lat: number, lng: number, overdue: number, days: number) => {
@@ -2796,8 +2809,8 @@ export async function registerRoutes(
         }
       };
 
-      for (const item of data) {
-        addCity((item.city || "").trim(), parseFloat(item.latitude), parseFloat(item.longitude), parseFloat(item.totalOverdueAmount || "0"), parseInt(item.maxDaysOverdue || "0", 10));
+      for (const p of cachePoints) {
+        addCity(p.city, p.lat, p.lng, p.totalOverdueAmount, p.maxDaysOverdue);
       }
 
       for (const np of networkPoints) {
@@ -2808,8 +2821,7 @@ export async function registerRoutes(
         addCity(loc.city, coords[0], coords[1], parseAmountRange(np.amountRange), np.daysOverdue);
       }
 
-      const results = Array.from(cityMap.values())
-        .sort((a, b) => b.count - a.count || b.totalOverdue - a.totalOverdue);
+      const results = Array.from(cityMap.values()).sort((a, b) => b.count - a.count || b.totalOverdue - a.totalOverdue);
       return res.json(results);
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
@@ -4044,13 +4056,39 @@ export async function registerRoutes(
         ? autoSynced.reduce((a, b) => (a.lastSyncAt! > b.lastSyncAt! ? a : b)).lastSyncAt
         : null;
       const totalIntegrations = integrations.length;
-      return res.json({ lastSyncAt, totalIntegrations });
+      const cacheStatus = getCacheStatus();
+      const lastCacheRefresh = cacheStatus.length > 0
+        ? cacheStatus.reduce((a, b) => (a.fetchedAt && b.fetchedAt && a.fetchedAt > b.fetchedAt ? a : b)).fetchedAt
+        : null;
+      const totalCachePoints = cacheStatus.reduce((sum, s) => sum + s.points, 0);
+      return res.json({ lastSyncAt, totalIntegrations, lastCacheRefresh, totalCachePoints, refreshing: isRefreshing() });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/heatmap/refresh", requireAuth, async (_req, res) => {
+    try {
+      if (isRefreshing()) {
+        return res.status(409).json({ message: "Atualização já está em andamento" });
+      }
+      refreshAllProviders().catch((e) => console.error("[HeatmapCache] Erro no refresh manual:", e.message));
+      return res.json({ ok: true, message: "Atualização iniciada em background" });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/heatmap/cache-status", requireAuth, async (_req, res) => {
+    try {
+      return res.json({ refreshing: isRefreshing(), providers: getCacheStatus() });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
     }
   });
 
   startScheduler();
+  startHeatmapCacheScheduler();
 
   return httpServer;
 }
