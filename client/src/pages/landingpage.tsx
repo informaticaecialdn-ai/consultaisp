@@ -2,8 +2,6 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import LandingChatbot from "@/components/landing-chatbot";
-import imgLucro from "@assets/image_1774227760707.png";
-import imgFluxo from "@assets/image_1774227783643.png";
 import {
   Shield,
   Search,
@@ -25,6 +23,13 @@ import {
   Router,
   CheckCircle,
   Bell,
+  Wifi,
+  UserX,
+  MapPin,
+  Clock,
+  Package,
+  FileText,
+  Activity,
 } from "lucide-react";
 
 type ErpItem = { key: string; name: string; description: string | null; logoBase64: string | null; gradient: string };
@@ -32,6 +37,10 @@ type ErpItem = { key: string; name: string; description: string | null; logoBase
 export default function LandingPage() {
   const [, setLocation] = useLocation();
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [calcClientes, setCalcClientes] = useState(300);
+  const [calcTaxa, setCalcTaxa] = useState(10);
+  const [calcEquip, setCalcEquip] = useState(2);
+
   const fallbackErps: ErpItem[] = [
     { key: "ixc", name: "IXC Soft", description: null, logoBase64: "/erp-logos/ixc.png", gradient: "from-white to-slate-100" },
     { key: "sgp", name: "SGP", description: null, logoBase64: "/erp-logos/sgp.png", gradient: "from-white to-slate-100" },
@@ -85,13 +94,12 @@ export default function LandingPage() {
         </div>
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-24">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
-            {/* Left */}
             <div className="text-white">
               <div className="inline-flex items-center gap-2 bg-white/15 text-white text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-full mb-6">
                 <Share2 className="w-3.5 h-3.5" />
                 Rede colaborativa entre provedores
               </div>
-              <h1 className="text-4xl sm:text-5xl lg:text-5xl font-black leading-[1.1] tracking-tight mb-6" data-testid="text-hero-title">
+              <h1 className="text-4xl sm:text-5xl font-black leading-[1.1] tracking-tight mb-6" data-testid="text-hero-title">
                 Saiba o histórico do cliente<br />
                 <span className="text-blue-200">antes de instalar.</span>
               </h1>
@@ -122,14 +130,14 @@ export default function LandingPage() {
               </div>
             </div>
 
-            {/* Right — mockup card */}
+            {/* Mockup da tela de consulta */}
             <div className="hidden lg:block">
               <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
                 <div className="bg-slate-800 px-4 py-3 flex items-center gap-2">
                   <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
                   <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
                   <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
-                  <span className="ml-2 text-xs text-slate-400 font-mono">consulta-isp.com.br</span>
+                  <span className="ml-2 text-xs text-slate-400 font-mono">Consulta ISP — Resultado</span>
                 </div>
                 <div className="p-5 space-y-3">
                   <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
@@ -177,62 +185,20 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* O PROBLEMA — seção com as imagens */}
-      <section className="py-16 bg-slate-50">
+      {/* NÚMEROS DE MERCADO */}
+      <section className="py-10 bg-slate-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
-            <div className="inline-flex items-center gap-2 text-red-600 text-xs font-bold uppercase tracking-widest mb-3">
-              <AlertTriangle className="w-4 h-4" />
-              O problema real do seu provedor
-            </div>
-            <h2 className="text-3xl sm:text-4xl font-black text-slate-900">
-              Inadimplência mata o fluxo de caixa
-            </h2>
-            <p className="text-slate-500 mt-3 max-w-2xl mx-auto">
-              ISPs regionais operam com taxas de inadimplência entre <strong>10% e 30%</strong>.
-              Cada cliente caloteiro representa <strong>R$ 690 de prejuízo</strong> entre dívida e equipamento não devolvido.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-            {/* Imagem 1 */}
-            <div className="rounded-2xl overflow-hidden shadow-lg border border-slate-200 bg-white">
-              <div className="bg-blue-600 px-5 py-3">
-                <h3 className="text-white font-bold text-sm">Lucro no papel ≠ dinheiro no caixa</h3>
-                <p className="text-blue-200 text-xs mt-0.5">Calotes criam o "lucro fantasma" — você fatura mas não recebe</p>
-              </div>
-              <img
-                src={imgLucro}
-                alt="Lucro não é caixa - impacto financeiro da inadimplência"
-                className="w-full object-cover"
-              />
-            </div>
-
-            {/* Imagem 2 */}
-            <div className="rounded-2xl overflow-hidden shadow-lg border border-slate-200 bg-white">
-              <div className="bg-blue-700 px-5 py-3">
-                <h3 className="text-white font-bold text-sm">Inadimplente = colapso do fluxo de caixa</h3>
-                <p className="text-blue-200 text-xs mt-0.5">Receitas que não entram geram pressão em todas as saídas</p>
-              </div>
-              <img
-                src={imgFluxo}
-                alt="Fluxo de caixa - monitor do negócio"
-                className="w-full object-cover"
-              />
-            </div>
-          </div>
-
-          {/* Dados chave embaixo das imagens */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-8">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 text-center">
             {[
-              { stat: "19.000+", desc: "ISPs regionais no Brasil", color: "text-blue-600" },
-              { stat: "73 mi", desc: "brasileiros negativados em 2025", color: "text-red-600" },
-              { stat: "R$ 400", desc: "custo médio de ativar um cliente FTTH", color: "text-amber-600" },
-              { stat: "R$ 690", desc: "prejuízo médio por inadimplente", color: "text-orange-600" },
+              { stat: "19.000+", desc: "ISPs regionais no Brasil", sub: "63,8% do market share de banda larga", color: "text-blue-400" },
+              { stat: "73 milhões", desc: "brasileiros negativados", sub: "Recorde histórico em 2025 (CNDL/SPC)", color: "text-red-400" },
+              { stat: "R$ 400", desc: "custo médio de ativar cliente FTTH", sub: "ONU + instalação + ativação", color: "text-amber-400" },
+              { stat: "R$ 690", desc: "prejuízo médio por inadimplente", sub: "dívida + equipamento não devolvido", color: "text-orange-400" },
             ].map((item, i) => (
-              <div key={i} className="bg-white border border-slate-200 rounded-xl p-4 text-center shadow-sm">
-                <p className={`text-3xl font-black ${item.color} mb-1`}>{item.stat}</p>
-                <p className="text-xs text-slate-500 leading-tight">{item.desc}</p>
+              <div key={i}>
+                <p className={`text-3xl sm:text-4xl font-black ${item.color} mb-1`}>{item.stat}</p>
+                <p className="text-sm font-semibold text-white mb-0.5">{item.desc}</p>
+                <p className="text-xs text-slate-400">{item.sub}</p>
               </div>
             ))}
           </div>
@@ -247,17 +213,15 @@ export default function LandingPage() {
               <Share2 className="w-4 h-4" />
               A solução: rede colaborativa
             </div>
-            <h2 className="text-3xl sm:text-4xl font-black text-slate-900">
-              Provedores que se protegem juntos
-            </h2>
+            <h2 className="text-3xl sm:text-4xl font-black text-slate-900">Provedores que se protegem juntos</h2>
             <p className="text-slate-500 mt-3 max-w-2xl mx-auto">
               Cada provedor registra seus inadimplentes. Toda a rede se beneficia.
               Quanto mais provedores participam, mais precisa e poderosa fica a proteção.
             </p>
           </div>
 
-          {/* Diagrama da rede */}
-          <div className="bg-gradient-to-br from-blue-50 to-slate-50 rounded-3xl p-8 border border-blue-100 mb-12">
+          {/* Diagrama */}
+          <div className="bg-gradient-to-br from-blue-50 to-slate-50 rounded-3xl p-8 border border-blue-100 mb-10">
             <div className="flex flex-col md:flex-row items-center justify-center gap-4 md:gap-0">
               {[
                 { label: "Provedor A", sub: "Cadastra inadimplentes", icon: Building2, color: "bg-blue-600" },
@@ -291,25 +255,19 @@ export default function LandingPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {[
               {
-                icon: Database,
-                color: "bg-blue-600",
-                bg: "bg-blue-50 border-blue-200",
+                icon: Database, color: "bg-blue-600", bg: "bg-blue-50 border-blue-200",
                 title: "Dados unificados",
-                desc: "Informações de inadimplência de centenas de provedores em uma única base. Consulte e saiba se o CPF tem histórico negativo em qualquer provedor da rede.",
+                desc: "Informações de centenas de provedores em uma única base. Consulte e saiba se o CPF tem histórico em qualquer provedor da rede.",
               },
               {
-                icon: Lock,
-                color: "bg-emerald-600",
-                bg: "bg-emerald-50 border-emerald-200",
+                icon: Lock, color: "bg-emerald-600", bg: "bg-emerald-50 border-emerald-200",
                 title: "Privacidade garantida",
-                desc: "Dados pessoais ficam restritos ao provedor de origem. Outros veem apenas indicadores: dias de atraso, faixa de valor e equipamentos pendentes — nunca nomes ou endereços.",
+                desc: "Dados pessoais restritos ao provedor de origem. Outros veem apenas status: dias de atraso, faixa de valor e equipamentos — nunca dados identificáveis.",
               },
               {
-                icon: Users,
-                color: "bg-purple-600",
-                bg: "bg-purple-50 border-purple-200",
+                icon: Users, color: "bg-purple-600", bg: "bg-purple-50 border-purple-200",
                 title: "Efeito de rede",
-                desc: "Quanto mais provedores participam, mais completa e precisa fica a base. Cada novo membro protege a todos contra inadimplentes recorrentes que migram entre provedores.",
+                desc: "Cada novo membro aumenta a proteção de todos. A base fica mais completa e precisa conforme mais provedores participam.",
               },
             ].map((item, i) => (
               <div key={i} className={`${item.bg} rounded-2xl p-6 border`} data-testid={`shared-db-${i}`}>
@@ -324,65 +282,410 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* COMO FUNCIONA */}
-      <section id="como-funciona" className="py-16 bg-slate-900">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      {/* ANTI-FRAUDE EM AÇÃO */}
+      <section className="py-20 bg-slate-900 overflow-hidden relative">
+        <div className="absolute inset-0">
+          <div className="absolute top-20 left-1/4 w-96 h-96 bg-red-900/20 rounded-full blur-3xl" />
+          <div className="absolute bottom-10 right-1/4 w-80 h-80 bg-blue-900/20 rounded-full blur-3xl" />
+        </div>
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-14">
-            <h2 className="text-3xl sm:text-4xl font-black text-white">Como funciona</h2>
-            <p className="text-slate-400 mt-3">3 passos para proteger seu provedor</p>
+            <div className="inline-flex items-center gap-2 text-red-400 text-xs font-bold uppercase tracking-widest mb-3">
+              <AlertTriangle className="w-4 h-4" />
+              Anti-Fraude em Tempo Real
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-black text-white">
+              Seu inadimplente tentou contratar<br />em outro provedor.{" "}
+              <span className="text-red-400">Você fica sabendo agora.</span>
+            </h2>
+            <p className="text-slate-400 mt-4 max-w-2xl mx-auto">
+              70% dos churns são por mudança de endereço. Sem o anti-fraude, você só descobre quando o cliente já foi embora — com sua ONU.
+            </p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 max-w-5xl mx-auto mb-14">
             {[
               {
-                n: "1",
-                title: "Configure em 15 minutos",
-                desc: "Crie sua conta gratuitamente e conecte seu ERP (IXC, SGP, MK Solutions) ou importe via planilha CSV. Sem instalação, sem técnico.",
-                icon: Building2,
-                badge: "Setup: 15 min",
-                badgeColor: "bg-blue-500/20 text-blue-300",
+                emoji: "😤",
+                title: "Cliente inadimplente",
+                desc: "R$ 850 em aberto. 95 dias de atraso. ONU não devolvida.",
+                border: "border-red-500/40 bg-red-950/40",
+                text: "text-red-400",
               },
               {
-                n: "2",
-                title: "Consulte antes de ativar",
-                desc: "Antes de instalar, consulte o CPF ou CNPJ. Em menos de 2 segundos: score de risco, histórico em outros provedores, equipamentos pendentes e sugestão de decisão.",
-                icon: Search,
-                badge: "Resultado: < 2s",
-                badgeColor: "bg-emerald-500/20 text-emerald-300",
+                emoji: "🚪",
+                title: "Tenta migrar",
+                desc: "Vai contratar internet em outro provedor da sua cidade.",
+                border: "border-amber-500/40 bg-amber-950/40",
+                text: "text-amber-400",
               },
               {
-                n: "3",
-                title: "Receba alertas anti-fraude",
-                desc: "Quando um inadimplente seu tenta contratar em outro provedor da rede, você recebe uma notificação imediata por WhatsApp ou e-mail.",
-                icon: Bell,
-                badge: "Alerta em tempo real",
-                badgeColor: "bg-amber-500/20 text-amber-300",
+                emoji: "🔍",
+                title: "Novo provedor consulta",
+                desc: "O novo provedor usa o Consulta ISP para checar o CPF.",
+                border: "border-blue-500/40 bg-blue-950/40",
+                text: "text-blue-400",
+              },
+              {
+                emoji: "🚨",
+                title: "Você recebe o alerta",
+                desc: "Notificação imediata: seu inadimplente está tentando migrar.",
+                border: "border-green-500/40 bg-green-950/40",
+                text: "text-green-400",
               },
             ].map((step, i) => (
-              <div key={i} className="bg-white/5 border border-white/10 rounded-2xl p-6" data-testid={`step-${step.n}`}>
-                <div className="flex items-center justify-between mb-5">
-                  <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg">
-                    <step.icon className="w-6 h-6 text-white" />
-                  </div>
-                  <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${step.badgeColor}`}>
-                    {step.badge}
-                  </span>
+              <div key={i} className="flex md:flex-col items-start md:items-stretch gap-2">
+                <div className={`border ${step.border} rounded-2xl p-5 text-center flex-1`}>
+                  <div className="text-4xl mb-3">{step.emoji}</div>
+                  <h3 className={`text-sm font-bold ${step.text} mb-2`}>{step.title}</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">{step.desc}</p>
                 </div>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-black flex items-center justify-center flex-shrink-0">{step.n}</span>
-                  <h3 className="text-base font-bold text-white">{step.title}</h3>
-                </div>
-                <p className="text-sm text-slate-400 leading-relaxed">{step.desc}</p>
+                {i < 3 && <div className="hidden md:block text-slate-600 text-xl text-center mt-8">→</div>}
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-3xl mx-auto">
+            {[
+              { stat: "70%", desc: "dos churns são por mudança de endereço — o cliente leva o equipamento" },
+              { stat: "< 5s", desc: "para você receber o alerta anti-fraude por WhatsApp ou e-mail" },
+              { stat: "R$ 690", desc: "prejuízo médio por inadimplente entre dívida e equipamento retido" },
+            ].map((s, i) => (
+              <div key={i} className="text-center bg-white/5 border border-white/10 rounded-2xl p-6">
+                <p className="text-4xl font-black text-white mb-2">{s.stat}</p>
+                <p className="text-sm text-slate-400 leading-relaxed">{s.desc}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* FUNCIONALIDADES */}
-      <section id="funcionalidades" className="py-16 bg-white">
+      {/* COMO FUNCIONA */}
+      <section id="como-funciona" className="py-16 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-14">
+            <h2 className="text-3xl sm:text-4xl font-black text-slate-900">Como funciona</h2>
+            <p className="text-slate-500 mt-3">3 passos para proteger seu provedor</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              {
+                n: "1", title: "Configure em 15 minutos",
+                desc: "Crie sua conta gratuitamente e conecte seu ERP (IXC, SGP, MK Solutions) ou importe via planilha CSV. Sem instalação, sem técnico.",
+                icon: Building2, badge: "Setup: 15 min", badgeColor: "bg-blue-50 text-blue-700 border border-blue-200",
+              },
+              {
+                n: "2", title: "Consulte antes de ativar",
+                desc: "Antes de instalar, consulte o CPF ou CNPJ. Em menos de 2 segundos: score de risco, histórico em outros provedores, equipamentos pendentes e sugestão de decisão.",
+                icon: Search, badge: "Resultado: < 2s", badgeColor: "bg-emerald-50 text-emerald-700 border border-emerald-200",
+              },
+              {
+                n: "3", title: "Receba alertas anti-fraude",
+                desc: "Quando um inadimplente seu tenta contratar em outro provedor da rede, você recebe notificação imediata por WhatsApp ou e-mail.",
+                icon: Bell, badge: "Alerta em tempo real", badgeColor: "bg-amber-50 text-amber-700 border border-amber-200",
+              },
+            ].map((step, i) => (
+              <div key={i} className="border border-slate-200 rounded-2xl p-6 hover:shadow-lg hover:border-blue-200 transition-all" data-testid={`step-${step.n}`}>
+                <div className="flex items-center justify-between mb-5">
+                  <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg">
+                    <step.icon className="w-6 h-6 text-white" />
+                  </div>
+                  <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${step.badgeColor}`}>{step.badge}</span>
+                </div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-black flex items-center justify-center flex-shrink-0">{step.n}</span>
+                  <h3 className="text-base font-bold text-slate-900">{step.title}</h3>
+                </div>
+                <p className="text-sm text-slate-500 leading-relaxed">{step.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* CALCULADORA DE ECONOMIA */}
+      <section id="calculadora" className="py-20 bg-slate-50 border-t border-slate-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
-            <h2 className="text-3xl sm:text-4xl font-black text-slate-900">Tudo que você precisa</h2>
+            <div className="inline-flex items-center gap-2 text-green-600 text-xs font-bold uppercase tracking-widest mb-3">
+              <TrendingUp className="w-4 h-4" />
+              Calculadora de Economia
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-black text-slate-900">Quanto você está perdendo por mês?</h2>
+            <p className="text-slate-500 mt-3 max-w-xl mx-auto">
+              Ajuste os valores do seu provedor e veja o impacto financeiro da inadimplência.
+            </p>
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            {/* Sliders */}
+            <div className="space-y-8">
+              {[
+                {
+                  label: "Clientes ativos", value: calcClientes, setValue: setCalcClientes,
+                  min: 50, max: 5000, step: 50,
+                  display: calcClientes.toLocaleString("pt-BR"),
+                  color: "accent-blue-600 text-blue-600",
+                  min_label: "50", max_label: "5.000",
+                  testid: "calc-clientes",
+                },
+                {
+                  label: "Taxa de inadimplência estimada", value: calcTaxa, setValue: setCalcTaxa,
+                  min: 2, max: 40, step: 1,
+                  display: `${calcTaxa}%`,
+                  color: "accent-red-500 text-red-500",
+                  min_label: "2% (ótimo)", max_label: "40% (crítico)",
+                  testid: "calc-taxa",
+                },
+                {
+                  label: "Equipamentos em comodato por cliente", value: calcEquip, setValue: setCalcEquip,
+                  min: 1, max: 4, step: 1,
+                  display: `${calcEquip} equip.`,
+                  color: "accent-amber-500 text-amber-600",
+                  min_label: "1 (só ONU)", max_label: "4 (ONU + roteador...)",
+                  testid: "calc-equip",
+                },
+              ].map((s, i) => (
+                <div key={i}>
+                  <div className="flex justify-between items-center mb-3">
+                    <label className="text-sm font-semibold text-slate-700">{s.label}</label>
+                    <span className={`text-2xl font-black ${s.color.split(" ")[1]}`}>{s.display}</span>
+                  </div>
+                  <input
+                    type="range" min={s.min} max={s.max} step={s.step} value={s.value}
+                    onChange={e => s.setValue(Number(e.target.value))}
+                    className={`w-full h-2 bg-slate-200 rounded-full appearance-none cursor-pointer ${s.color.split(" ")[0]}`}
+                    data-testid={s.testid}
+                  />
+                  <div className="flex justify-between text-xs text-slate-400 mt-1">
+                    <span>{s.min_label}</span><span>{s.max_label}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Resultados */}
+            <div className="space-y-4">
+              {(() => {
+                const inadimplentes = Math.round(calcClientes * (calcTaxa / 100));
+                const prejDivida = inadimplentes * 149;
+                const prejEquip = inadimplentes * calcEquip * 290;
+                const prejTotal = prejDivida + prejEquip;
+                const economia = Math.round(prejTotal * 0.70);
+                const roi = Math.round(economia / 149);
+                const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
+                return (
+                  <>
+                    <div className="bg-red-50 border border-red-200 rounded-2xl p-5">
+                      <p className="text-xs font-semibold text-red-500 uppercase tracking-wide mb-1">Inadimplentes estimados</p>
+                      <p className="text-4xl font-black text-red-600">{inadimplentes.toLocaleString("pt-BR")}<span className="text-lg font-semibold text-red-400 ml-1">clientes</span></p>
+                      <p className="text-sm text-red-400 mt-1">com {calcTaxa}% de taxa sobre {calcClientes.toLocaleString("pt-BR")} clientes</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
+                        <p className="text-xs font-semibold text-orange-500 uppercase tracking-wide mb-1">Perda em dívidas/mês</p>
+                        <p className="text-2xl font-black text-orange-600">{fmt(prejDivida)}</p>
+                      </div>
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                        <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-1">Equipamentos em risco</p>
+                        <p className="text-2xl font-black text-amber-700">{fmt(prejEquip)}</p>
+                      </div>
+                    </div>
+                    <div className="bg-slate-900 rounded-2xl p-6">
+                      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Prejuízo total estimado/mês</p>
+                      <p className="text-5xl font-black text-white">{fmt(prejTotal)}</p>
+                      <div className="border-t border-slate-700 mt-4 pt-4">
+                        <p className="text-xs font-semibold text-green-400 uppercase tracking-wide mb-1">Com Consulta ISP você evita até 70%</p>
+                        <p className="text-3xl font-black text-green-400">{fmt(economia)}<span className="text-lg font-semibold text-green-500 ml-1">/mês protegidos</span></p>
+                        <p className="text-xs text-slate-500 mt-2">ROI estimado: <strong className="text-white">{roi}x</strong> o custo do plano Básico (R$ 149/mês)</p>
+                      </div>
+                    </div>
+                    <Button size="lg" className="w-full bg-blue-600 hover:bg-blue-700 text-white gap-2 h-12 text-base font-bold" onClick={goRegister}>
+                      Proteger meu provedor agora <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* PRINTS DO SISTEMA */}
+      <section className="py-20 bg-white border-t border-slate-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-14">
+            <div className="inline-flex items-center gap-2 text-blue-600 text-xs font-bold uppercase tracking-widest mb-3">
+              <Activity className="w-4 h-4" />
+              Veja o sistema em ação
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-black text-slate-900">Interface pensada para o dia a dia do provedor</h2>
+            <p className="text-slate-500 mt-3 max-w-xl mx-auto">
+              Consulta em segundos, resultado claro, sem treinamento necessário.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Print 1: Tela de consulta completa */}
+            <div className="rounded-2xl overflow-hidden shadow-xl border border-slate-200">
+              <div className="bg-slate-800 px-4 py-2.5 flex items-center gap-2">
+                <div className="flex gap-1.5"><div className="w-3 h-3 rounded-full bg-red-400" /><div className="w-3 h-3 rounded-full bg-yellow-400" /><div className="w-3 h-3 rounded-full bg-green-400" /></div>
+                <span className="ml-1 text-xs text-slate-400 font-mono">Consulta ISP — Resultado detalhado</span>
+              </div>
+              <div className="bg-slate-100 p-4 space-y-3">
+                {/* Header da consulta */}
+                <div className="bg-white rounded-xl p-4 border border-slate-200">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-xs text-slate-400 mb-0.5">CPF consultado</p>
+                      <p className="text-sm font-bold text-slate-900">987.654.321-00</p>
+                    </div>
+                    <div className="text-right">
+                      <span className="inline-block bg-red-100 text-red-700 text-xs font-bold px-2.5 py-1 rounded-full">ALTO RISCO</span>
+                      <p className="text-xs text-slate-400 mt-1">Consultado há 2min</p>
+                    </div>
+                  </div>
+                  {/* Score bar */}
+                  <div className="mt-3">
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-slate-500">Score de crédito</span>
+                      <span className="font-bold text-red-600">15 / 100</span>
+                    </div>
+                    <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                      <div className="h-full bg-red-500 rounded-full" style={{ width: "15%" }} />
+                    </div>
+                    <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                      <span>Crítico</span><span>Baixo</span><span>Médio</span><span>Bom</span><span>Excelente</span>
+                    </div>
+                  </div>
+                </div>
+                {/* Registros */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                      <p className="text-[10px] font-bold text-emerald-700 uppercase">Seu provedor</p>
+                      <span className="ml-auto text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold">Grátis</span>
+                    </div>
+                    <p className="text-sm font-bold text-slate-900">João Pereira Lima</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Rua das Flores, 142</p>
+                    <div className="mt-2 space-y-1">
+                      <div className="flex justify-between text-xs"><span className="text-slate-400">Atraso</span><span className="text-red-600 font-semibold">98 dias</span></div>
+                      <div className="flex justify-between text-xs"><span className="text-slate-400">Valor</span><span className="text-red-600 font-semibold">R$ 449,70</span></div>
+                      <div className="flex justify-between text-xs"><span className="text-slate-400">Faturas</span><span className="font-semibold">3 em atraso</span></div>
+                    </div>
+                  </div>
+                  <div className="bg-white border border-slate-200 rounded-xl p-3">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <div className="w-2 h-2 rounded-full bg-slate-400" />
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">Outro provedor</p>
+                      <span className="ml-auto text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">1 crédito</span>
+                    </div>
+                    <p className="text-sm font-bold text-slate-700">João P. L•••</p>
+                    <p className="text-xs text-slate-400 mt-0.5">São Paulo - SP</p>
+                    <div className="mt-2 space-y-1">
+                      <div className="flex justify-between text-xs"><span className="text-slate-400">Atraso</span><span className="text-red-600 font-semibold">122 dias</span></div>
+                      <div className="flex justify-between text-xs"><span className="text-slate-400">Faixa</span><span className="font-semibold">R$ 100–500</span></div>
+                      <div className="flex justify-between text-xs"><span className="text-slate-400">Equip.</span><span className="text-amber-600 font-semibold">2 retidos</span></div>
+                    </div>
+                  </div>
+                </div>
+                {/* Sugestão IA */}
+                <div className="bg-red-600 rounded-xl p-3 flex items-center gap-3">
+                  <div className="bg-white/20 px-3 py-2 rounded-lg text-center flex-shrink-0">
+                    <p className="text-[9px] text-white/70 uppercase font-bold">Sugestão IA</p>
+                    <p className="text-white font-black">REJEITAR</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-white font-semibold">3 equipamentos não devolvidos</p>
+                    <p className="text-xs text-red-200">Valor em risco: R$ 810,00 · 2 provedores na rede</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Print 2: Painel de equipamentos + anti-fraude */}
+            <div className="space-y-4">
+              {/* Anti-fraude alert */}
+              <div className="rounded-2xl overflow-hidden shadow-xl border border-slate-200">
+                <div className="bg-slate-800 px-4 py-2.5 flex items-center gap-2">
+                  <div className="flex gap-1.5"><div className="w-3 h-3 rounded-full bg-red-400" /><div className="w-3 h-3 rounded-full bg-yellow-400" /><div className="w-3 h-3 rounded-full bg-green-400" /></div>
+                  <span className="ml-1 text-xs text-slate-400 font-mono">Anti-Fraude — Alertas</span>
+                </div>
+                <div className="bg-slate-100 p-4 space-y-2">
+                  <div className="bg-white rounded-xl p-3 border border-slate-200">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Alertas recentes</p>
+                    {[
+                      { nome: "João P. Lima", acao: "CPF consultado por provedor da rede", tempo: "há 3min", cor: "bg-red-500" },
+                      { nome: "Maria S. Costa", acao: "Tentativa de novo contrato detectada", tempo: "há 1h", cor: "bg-orange-500" },
+                      { nome: "Carlos E. Moraes", acao: "CPF consultado por provedor da rede", tempo: "há 2h", cor: "bg-red-500" },
+                    ].map((alerta, i) => (
+                      <div key={i} className="flex items-center gap-3 py-2 border-b border-slate-100 last:border-0">
+                        <div className={`w-2 h-2 rounded-full ${alerta.cor} flex-shrink-0`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-slate-900">{alerta.nome}</p>
+                          <p className="text-[10px] text-slate-500 truncate">{alerta.acao}</p>
+                        </div>
+                        <span className="text-[10px] text-slate-400 flex-shrink-0">{alerta.tempo}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Controle de equipamentos */}
+              <div className="rounded-2xl overflow-hidden shadow-xl border border-slate-200">
+                <div className="bg-slate-800 px-4 py-2.5 flex items-center gap-2">
+                  <div className="flex gap-1.5"><div className="w-3 h-3 rounded-full bg-red-400" /><div className="w-3 h-3 rounded-full bg-yellow-400" /><div className="w-3 h-3 rounded-full bg-green-400" /></div>
+                  <span className="ml-1 text-xs text-slate-400 font-mono">Equipamentos em comodato</span>
+                </div>
+                <div className="bg-slate-100 p-4">
+                  <div className="bg-white rounded-xl p-3 border border-slate-200">
+                    <div className="grid grid-cols-3 gap-3 mb-3">
+                      {[
+                        { label: "Em campo", value: "1.247", color: "text-blue-600" },
+                        { label: "Não devolvidos", value: "38", color: "text-red-600" },
+                        { label: "Valor em risco", value: "R$ 11.400", color: "text-amber-600" },
+                      ].map((stat, i) => (
+                        <div key={i} className="text-center">
+                          <p className={`text-lg font-black ${stat.color}`}>{stat.value}</p>
+                          <p className="text-[10px] text-slate-400">{stat.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="space-y-1.5">
+                      {[
+                        { equip: "ONU ZTE F601", cliente: "João P. Lima", dias: "98 dias", valor: "R$ 180,00", status: "Não devolvida" },
+                        { equip: "Roteador TP-Link", cliente: "Maria S. Costa", dias: "62 dias", valor: "R$ 290,00", status: "Pendente" },
+                      ].map((eq, i) => (
+                        <div key={i} className="flex items-center gap-2 bg-slate-50 rounded-lg p-2">
+                          <div className="w-7 h-7 bg-amber-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <Wifi className="w-3.5 h-3.5 text-amber-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-slate-900">{eq.equip}</p>
+                            <p className="text-[10px] text-slate-400">{eq.cliente} · {eq.dias}</p>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-xs font-bold text-red-600">{eq.valor}</p>
+                            <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-semibold">{eq.status}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* FUNCIONALIDADES */}
+      <section id="funcionalidades" className="py-16 bg-slate-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl sm:text-4xl font-black text-slate-900">Funcionalidades completas</h2>
             <p className="text-slate-500 mt-3 max-w-xl mx-auto">Uma plataforma completa para proteger seu provedor</p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -394,7 +697,7 @@ export default function LandingPage() {
               { icon: Router, title: "Controle de Equipamentos", desc: "Rastreie ONUs, roteadores e switches não devolvidos com valor, modelo, serial e status de recuperação.", color: "bg-amber-600" },
               { icon: Globe, title: "Integração com ERP", desc: "Conecte IXC, SGP ou MK Solutions. A base é atualizada automaticamente a cada sincronização.", color: "bg-blue-700" },
             ].map((f, i) => (
-              <div key={i} className="border border-slate-200 rounded-xl p-5 hover:shadow-md hover:border-blue-200 transition-all group" data-testid={`feature-${i}`}>
+              <div key={i} className="bg-white border border-slate-200 rounded-xl p-5 hover:shadow-md hover:border-blue-200 transition-all group" data-testid={`feature-${i}`}>
                 <div className={`w-10 h-10 rounded-lg ${f.color} flex items-center justify-center mb-3 group-hover:scale-105 transition-transform`}>
                   <f.icon className="w-5 h-5 text-white" />
                 </div>
@@ -408,7 +711,7 @@ export default function LandingPage() {
 
       {/* ERPs */}
       {erps.length > 0 && (
-        <section className="py-12 bg-slate-50 border-t border-slate-100">
+        <section className="py-12 bg-white border-t border-slate-100">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-8">
               <span className="inline-block bg-blue-100 text-blue-700 text-xs font-semibold px-3 py-1 rounded-full mb-3">Integrações</span>
@@ -437,7 +740,7 @@ export default function LandingPage() {
       )}
 
       {/* PREÇOS */}
-      <section id="precos" className="py-16 bg-white">
+      <section id="precos" className="py-16 bg-slate-50 border-t border-slate-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
             <div className="inline-flex items-center gap-2 text-blue-600 text-xs font-bold uppercase tracking-widest mb-3">
@@ -454,72 +757,30 @@ export default function LandingPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
             {[
               {
-                name: "Gratuito",
-                price: "R$ 0",
-                period: "/mês para sempre",
-                desc: "Para começar sem custo",
-                highlight: false,
-                features: [
-                  "Consultas ilimitadas na sua base",
-                  "30 créditos ISP para testar a rede",
-                  "Anti-fraude básico",
-                  "Importação via CSV",
-                  "1 usuário",
-                ],
+                name: "Gratuito", price: "R$ 0", period: "/mês para sempre",
+                desc: "Para começar sem custo", highlight: false,
+                features: ["Consultas ilimitadas na sua base", "30 créditos ISP para testar a rede", "Anti-fraude básico", "Importação via CSV", "1 usuário"],
                 notIncluded: ["Créditos mensais inclusos", "Integração automática ERP"],
                 cta: "Criar Conta Grátis",
               },
               {
-                name: "Básico",
-                price: "R$ 149",
-                period: "/mês",
-                desc: "Para provedores com até 1.000 clientes",
-                highlight: true,
-                badge: "Mais Popular",
-                features: [
-                  "Tudo do Gratuito",
-                  "200 créditos ISP/mês inclusos",
-                  "50 créditos SPC/mês inclusos",
-                  "Anti-fraude + notificação WhatsApp",
-                  "Integração com 1 ERP",
-                  "3 usuários",
-                  "Suporte por chat",
-                ],
+                name: "Básico", price: "R$ 149", period: "/mês",
+                desc: "Para provedores com até 1.000 clientes", highlight: true, badge: "Mais Popular",
+                features: ["Tudo do Gratuito", "200 créditos ISP/mês inclusos", "50 créditos SPC/mês inclusos", "Anti-fraude + notificação WhatsApp", "Integração com 1 ERP", "3 usuários", "Suporte por chat"],
                 notIncluded: ["Consulta em lote"],
                 cta: "Começar Agora",
               },
               {
-                name: "Profissional",
-                price: "R$ 349",
-                period: "/mês",
-                desc: "Para provedores com mais de 1.000 clientes",
-                highlight: false,
-                features: [
-                  "Tudo do Básico",
-                  "500 créditos ISP/mês inclusos",
-                  "150 créditos SPC/mês inclusos",
-                  "Todos os ERPs integrados",
-                  "Consulta em lote (até 500 CPFs)",
-                  "Usuários ilimitados",
-                  "Suporte prioritário",
-                ],
+                name: "Profissional", price: "R$ 349", period: "/mês",
+                desc: "Para provedores com mais de 1.000 clientes", highlight: false,
+                features: ["Tudo do Básico", "500 créditos ISP/mês inclusos", "150 créditos SPC/mês inclusos", "Todos os ERPs integrados", "Consulta em lote (até 500 CPFs)", "Usuários ilimitados", "Suporte prioritário"],
                 notIncluded: [],
                 cta: "Começar Agora",
               },
             ].map((plan, i) => (
-              <div
-                key={i}
-                className={`relative border rounded-2xl p-6 flex flex-col ${
-                  plan.highlight
-                    ? "border-blue-600 ring-2 ring-blue-600 ring-offset-2"
-                    : "border-slate-200"
-                }`}
-                data-testid={`plan-${i}`}
-              >
+              <div key={i} className={`relative border rounded-2xl p-6 flex flex-col bg-white ${plan.highlight ? "border-blue-600 ring-2 ring-blue-600 ring-offset-2" : "border-slate-200"}`} data-testid={`plan-${i}`}>
                 {plan.highlight && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-xs font-bold px-4 py-1 rounded-full">
-                    Mais Popular
-                  </div>
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-xs font-bold px-4 py-1 rounded-full">Mais Popular</div>
                 )}
                 <div className="mb-5">
                   <h3 className="font-bold text-slate-900 text-lg">{plan.name}</h3>
@@ -538,16 +799,12 @@ export default function LandingPage() {
                   ))}
                   {plan.notIncluded.map((f, fi) => (
                     <li key={fi} className="flex items-start gap-2 text-sm text-slate-400">
-                      <span className="w-4 h-4 flex-shrink-0 mt-0.5 text-center text-slate-300 font-bold">✗</span>
+                      <span className="w-4 h-4 flex-shrink-0 mt-0.5 text-center font-bold text-slate-300">✗</span>
                       {f}
                     </li>
                   ))}
                 </ul>
-                <Button
-                  onClick={goRegister}
-                  className={plan.highlight ? "w-full bg-blue-600 hover:bg-blue-700 text-white font-bold" : "w-full font-bold"}
-                  variant={plan.highlight ? "default" : "outline"}
-                >
+                <Button onClick={goRegister} className={plan.highlight ? "w-full bg-blue-600 hover:bg-blue-700 text-white font-bold" : "w-full font-bold"} variant={plan.highlight ? "default" : "outline"}>
                   {plan.cta}
                 </Button>
               </div>
@@ -566,37 +823,19 @@ export default function LandingPage() {
       </section>
 
       {/* FAQ */}
-      <section id="faq" className="py-16 bg-slate-50">
+      <section id="faq" className="py-16 bg-white">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-10">
             <h2 className="text-3xl font-black text-slate-900">Dúvidas frequentes</h2>
           </div>
           <div className="divide-y divide-slate-200 border border-slate-200 rounded-2xl overflow-hidden bg-white" data-testid="faq-section">
             {[
-              {
-                q: "O que é a base de dados compartilhada?",
-                a: "É uma base única onde todos os provedores registram seus inadimplentes. Quando você consulta um CPF, o sistema verifica se ele aparece na base de qualquer provedor da rede, retornando informações anonimizadas como dias de atraso, faixa de valor e equipamentos pendentes.",
-              },
-              {
-                q: "Quanto custa utilizar a plataforma?",
-                a: "O cadastro é gratuito. Consultas de clientes do próprio provedor são sempre gratuitas. Para ver dados de outros provedores na base compartilhada, o custo é de 1 crédito por consulta. Créditos podem ser adquiridos em pacotes acessíveis.",
-              },
-              {
-                q: "Meus dados estão seguros?",
-                a: "Sim. Dados pessoais ficam restritos ao provedor de origem. Outros provedores veem apenas indicadores de risco — dias de atraso, faixa de valor, equipamentos — sem acesso a nomes, endereços ou dados identificáveis. Toda comunicação usa criptografia.",
-              },
-              {
-                q: "Quais ERPs são compatíveis?",
-                a: "A plataforma integra nativamente com IXC Provedor, SGP e MK Solutions. Quem não usa ERP pode importar via planilha CSV em qualquer formato.",
-              },
-              {
-                q: "Como funciona o anti-fraude?",
-                a: "Quando um cliente seu inadimplente é consultado por outro provedor da rede, você recebe um alerta em tempo real via WhatsApp ou e-mail. Isso indica que ele pode estar tentando contratar internet em outro lugar sem quitar a dívida com você.",
-              },
-              {
-                q: "Funciona para provedor pequeno com menos de 200 clientes?",
-                a: "Sim, especialmente para pequenos. Para um provedor com 150 clientes, o custo de uma única ONU perdida (R$ 280) representa muito mais proporcionalmente. O plano Gratuito já é suficiente para começar — consultas na sua própria base são sempre gratuitas, sem limite.",
-              },
+              { q: "O que é a base de dados compartilhada?", a: "É uma base única onde todos os provedores registram seus inadimplentes. Quando você consulta um CPF, o sistema verifica se ele aparece na base de qualquer provedor da rede, retornando informações anonimizadas como dias de atraso, faixa de valor e equipamentos pendentes." },
+              { q: "Quanto custa utilizar a plataforma?", a: "O cadastro é gratuito. Consultas de clientes do próprio provedor são sempre gratuitas. Para ver dados de outros provedores na base compartilhada, o custo é de 1 crédito por consulta. Créditos podem ser adquiridos em pacotes acessíveis." },
+              { q: "Meus dados estão seguros?", a: "Sim. Dados pessoais ficam restritos ao provedor de origem. Outros provedores veem apenas indicadores de risco — dias de atraso, faixa de valor, equipamentos — sem acesso a nomes, endereços ou dados identificáveis. Toda comunicação usa criptografia." },
+              { q: "Quais ERPs são compatíveis?", a: "A plataforma integra nativamente com IXC Provedor, SGP e MK Solutions. Quem não usa ERP pode importar via planilha CSV em qualquer formato." },
+              { q: "Como funciona o anti-fraude?", a: "Quando um cliente seu inadimplente é consultado por outro provedor da rede, você recebe um alerta em tempo real via WhatsApp ou e-mail. Isso indica que ele pode estar tentando contratar internet em outro lugar sem quitar a dívida com você." },
+              { q: "Funciona para provedor pequeno com menos de 200 clientes?", a: "Sim, especialmente para pequenos. Para um provedor com 150 clientes, o custo de uma única ONU perdida (R$ 280) representa muito mais proporcionalmente. O plano Gratuito já é suficiente para começar — consultas na sua própria base são sempre gratuitas, sem limite." },
             ].map((faq, i) => (
               <div key={i} className="px-6">
                 <button className="w-full text-left py-5 flex items-center justify-between gap-4" onClick={() => setOpenFaq(openFaq === i ? null : i)} data-testid={`faq-${i}`}>
@@ -626,13 +865,11 @@ export default function LandingPage() {
             <span className="text-blue-200">dados de toda a rede.</span>
           </h2>
           <p className="text-lg text-blue-100 mb-8 max-w-xl mx-auto">
-            Cadastro em 2 minutos. Sem cartão de crédito.
-            30 créditos gratuitos para testar a rede colaborativa.
+            Cadastro em 2 minutos. Sem cartão de crédito. 30 créditos gratuitos para testar a rede colaborativa.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Button size="lg" className="bg-white text-blue-700 hover:bg-blue-50 px-10 gap-2 h-12 text-base font-bold shadow-xl" onClick={goRegister} data-testid="button-cta-bottom">
-              Criar Conta Grátis
-              <ArrowRight className="w-4 h-4" />
+              Criar Conta Grátis <ArrowRight className="w-4 h-4" />
             </Button>
             <Button size="lg" variant="outline" className="border-white/30 text-white hover:bg-white/10 px-8 gap-2 h-12 text-base" onClick={goLogin} data-testid="button-login-bottom">
               Já tenho conta — Login
