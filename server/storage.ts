@@ -90,6 +90,7 @@ export interface IStorage {
   getDefaultersByProvider(providerId: number): Promise<any[]>;
   getHeatmapDataByProvider(providerId: number): Promise<any[]>;
   getHeatmapDataAllProviders(): Promise<any[]>;
+  getNetworkConsultationPoints(): Promise<{ address: string; cep: string; daysOverdue: number; amountRange: string; providerName: string }[]>;
 
   getAllUsers(): Promise<User[]>;
   adminUpdateProvider(id: number, data: Partial<Provider>): Promise<Provider>;
@@ -694,6 +695,23 @@ export class DatabaseStorage implements IStorage {
       )
     );
     return result;
+  }
+
+  async getNetworkConsultationPoints(): Promise<{ address: string; cep: string; daysOverdue: number; amountRange: string; providerName: string }[]> {
+    const result = await db.execute(sql`
+      SELECT DISTINCT ON (pd->>'providerName', pd->>'customerName')
+        COALESCE(pd->>'address', '') as address,
+        COALESCE(pd->>'cep', '') as cep,
+        COALESCE((pd->>'daysOverdue')::int, 0) as "daysOverdue",
+        COALESCE(pd->>'overdueAmountRange', '') as "amountRange",
+        COALESCE(pd->>'providerName', '') as "providerName"
+      FROM isp_consultations ic,
+        jsonb_array_elements(ic.result->'providerDetails') pd
+      WHERE (pd->>'isSameProvider')::boolean = false
+        AND COALESCE((pd->>'daysOverdue')::int, 0) > 0
+        AND ic.created_at > NOW() - INTERVAL '180 days'
+    `);
+    return result.rows as any;
   }
 
   async getAllUsers(): Promise<User[]> {

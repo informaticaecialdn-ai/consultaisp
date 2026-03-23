@@ -10,6 +10,40 @@ import crypto from "crypto";
 import { streamConsultationAnalysis, streamAntiFraudAnalysis } from "./ai-analysis";
 import { startScheduler, getSchedulerStatus, runAutoSync } from "./scheduler";
 
+const _cityGeoCache = new Map<string, [number, number] | null>();
+async function geocodeCityServer(city: string, state: string): Promise<[number, number] | null> {
+  const key = `${city.toLowerCase()},${state.toLowerCase()}`;
+  if (_cityGeoCache.has(key)) return _cityGeoCache.get(key)!;
+  try {
+    const query = `${city}, ${state}, Brazil`;
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
+    const resp = await fetch(url, { headers: { "User-Agent": "ConsultaISP/1.0 contact@consultaisp.com.br" } });
+    if (resp.ok) {
+      const data: any[] = await resp.json();
+      if (data[0]) {
+        const coords: [number, number] = [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+        _cityGeoCache.set(key, coords);
+        return coords;
+      }
+    }
+  } catch {}
+  _cityGeoCache.set(key, null);
+  return null;
+}
+
+function extractCityStateFromAddress(address: string): { city: string; state: string } | null {
+  const match = address.match(/[—\-–]\s*([^,\-–/]+?)\/([A-Z]{2})\s*$/);
+  if (match) return { city: match[1].trim(), state: match[2].trim() };
+  return null;
+}
+
+function parseAmountRange(range: string): number {
+  const nums = [...range.matchAll(/[\d.]+/g)].map(m => parseFloat(m[0].replace(/\./g, "")));
+  if (nums.length >= 2) return (nums[0] + nums[1]) / 2;
+  if (nums.length === 1) return nums[0];
+  return 500;
+}
+
 function calculateIspScore(params: {
   maxDaysOverdue: number;
   totalOverdueAmount: number;
@@ -2702,27 +2736,41 @@ export async function registerRoutes(
 
   app.get("/api/heatmap/regional", requireAuth, async (_req, res) => {
     try {
-      const data = await storage.getHeatmapDataAllProviders();
+      const [data, networkPoints] = await Promise.all([
+        storage.getHeatmapDataAllProviders(),
+        storage.getNetworkConsultationPoints(),
+      ]);
       const clusterMap = new Map<string, { lat: number; lng: number; city: string; count: number; totalOverdue: number }>();
-      for (const item of data) {
-        const lat = parseFloat(item.latitude);
-        const lng = parseFloat(item.longitude);
-        if (isNaN(lat) || isNaN(lng)) continue;
+
+      const addPoint = (lat: number, lng: number, city: string, overdue: number) => {
+        if (isNaN(lat) || isNaN(lng)) return;
         const roundedLat = parseFloat(lat.toFixed(2));
         const roundedLng = parseFloat(lng.toFixed(2));
         const key = `${roundedLat},${roundedLng}`;
         const existing = clusterMap.get(key);
-        const overdue = parseFloat(item.totalOverdueAmount || "0");
         if (existing) {
           existing.count += 1;
           existing.totalOverdue += overdue;
-          if (!existing.city && item.city) existing.city = item.city;
+          if (!existing.city && city) existing.city = city;
         } else {
-          clusterMap.set(key, { lat: roundedLat, lng: roundedLng, city: item.city || "", count: 1, totalOverdue: overdue });
+          clusterMap.set(key, { lat: roundedLat, lng: roundedLng, city, count: 1, totalOverdue: overdue });
         }
+      };
+
+      for (const item of data) {
+        addPoint(parseFloat(item.latitude), parseFloat(item.longitude), item.city || "", parseFloat(item.totalOverdueAmount || "0"));
       }
-      const results = Array.from(clusterMap.values());
-      return res.json(results);
+
+      for (const np of networkPoints) {
+        const loc = extractCityStateFromAddress(np.address);
+        if (!loc) continue;
+        const coords = await geocodeCityServer(loc.city, loc.state);
+        if (!coords) continue;
+        const jitter = () => (Math.random() - 0.5) * 0.04;
+        addPoint(coords[0] + jitter(), coords[1] + jitter(), loc.city, parseAmountRange(np.amountRange));
+      }
+
+      return res.json(Array.from(clusterMap.values()));
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
     }
@@ -2730,15 +2778,14 @@ export async function registerRoutes(
 
   app.get("/api/heatmap/city-ranking", requireAuth, async (_req, res) => {
     try {
-      const data = await storage.getHeatmapDataAllProviders();
+      const [data, networkPoints] = await Promise.all([
+        storage.getHeatmapDataAllProviders(),
+        storage.getNetworkConsultationPoints(),
+      ]);
       const cityMap = new Map<string, { city: string; lat: number; lng: number; count: number; totalOverdue: number; maxDays: number }>();
-      for (const item of data) {
-        const city = (item.city || "").trim();
-        if (!city) continue;
-        const lat = parseFloat(item.latitude);
-        const lng = parseFloat(item.longitude);
-        const overdue = parseFloat(item.totalOverdueAmount || "0");
-        const days = parseInt(item.maxDaysOverdue || "0", 10);
+
+      const addCity = (city: string, lat: number, lng: number, overdue: number, days: number) => {
+        if (!city) return;
         const existing = cityMap.get(city);
         if (existing) {
           existing.count += 1;
@@ -2747,7 +2794,20 @@ export async function registerRoutes(
         } else {
           cityMap.set(city, { city, lat: isNaN(lat) ? 0 : lat, lng: isNaN(lng) ? 0 : lng, count: 1, totalOverdue: overdue, maxDays: days });
         }
+      };
+
+      for (const item of data) {
+        addCity((item.city || "").trim(), parseFloat(item.latitude), parseFloat(item.longitude), parseFloat(item.totalOverdueAmount || "0"), parseInt(item.maxDaysOverdue || "0", 10));
       }
+
+      for (const np of networkPoints) {
+        const loc = extractCityStateFromAddress(np.address);
+        if (!loc) continue;
+        const coords = await geocodeCityServer(loc.city, loc.state);
+        if (!coords) continue;
+        addCity(loc.city, coords[0], coords[1], parseAmountRange(np.amountRange), np.daysOverdue);
+      }
+
       const results = Array.from(cityMap.values())
         .sort((a, b) => b.count - a.count || b.totalOverdue - a.totalOverdue);
       return res.json(results);
