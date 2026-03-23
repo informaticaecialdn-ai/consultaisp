@@ -1,0 +1,865 @@
+# PROMPT REPLIT — REDESIGN COMPLETO DA LANDING PAGE
+# Arquivo: client/src/pages/landingpage.tsx
+# Cole COMPLETO no chat do Replit Agent
+
+---
+
+Preciso que você **substitua completamente** o conteúdo do arquivo `client/src/pages/landingpage.tsx` pela versão abaixo.
+
+Mantenha apenas:
+- Os imports existentes (adicione novos se necessário)
+- O `LandingChatbot` no final
+- A lógica de `goLogin` e `goRegister`
+- O `useEffect` que busca ERPs
+
+O problema atual: a landing tem informações confusas, muitas seções repetitivas com cores alternando (branco/cinza/azul/cinza/azul/escuro), texto corporativo sem impacto, e o visitante não entende rapidamente o valor do produto.
+
+A nova versão deve ser: **limpa, direta, com hierarquia visual clara, tema escuro no hero, números de impacto em destaque, e fluxo de leitura linear.**
+
+---
+
+## ESTRUTURA NOVA (ordem das seções):
+1. Nav
+2. Hero — dark, headline direto na dor
+3. Barra de credibilidade — logos + número de provedores
+4. Seção "O problema" — 3 cards de dor com números reais
+5. Como funciona — 3 passos simples
+6. Funcionalidade principal: Consulta ISP + resultado
+7. Funcionalidade secundária: Anti-Fraude em destaque
+8. Planos e preços
+9. FAQ enxuto (5 perguntas)
+10. CTA final
+11. Footer
+12. LandingChatbot
+
+---
+
+## CÓDIGO COMPLETO PARA SUBSTITUIR:
+
+```tsx
+import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
+import { Button } from "@/components/ui/button";
+import LandingChatbot from "@/components/landing-chatbot";
+import {
+  Shield, Search, BarChart3, Zap, Lock,
+  ArrowRight, AlertTriangle, CreditCard,
+  ChevronDown, ChevronUp, Globe, Router,
+  CheckCircle2, XCircle, Bell, Database,
+  TrendingDown, Users
+} from "lucide-react";
+
+type ErpItem = {
+  key: string;
+  name: string;
+  logoBase64: string | null;
+};
+
+export default function LandingPage() {
+  const [, setLocation] = useLocation();
+  const [openFaq, setOpenFaq] = useState<number | null>(null);
+
+  const fallbackErps: ErpItem[] = [
+    { key: "ixc", name: "IXC Soft", logoBase64: "/erp-logos/ixc.png" },
+    { key: "sgp", name: "SGP", logoBase64: "/erp-logos/sgp.png" },
+    { key: "mk", name: "MK Solutions", logoBase64: "/erp-logos/mk.png" },
+    { key: "hubsoft", name: "Hubsoft", logoBase64: "/erp-logos/hubsoft.png" },
+    { key: "voalle", name: "Voalle", logoBase64: "/erp-logos/voalle.png" },
+    { key: "rbx", name: "RBX ISP", logoBase64: "/erp-logos/rbx.png" },
+  ];
+  const [erps, setErps] = useState<ErpItem[]>(fallbackErps);
+
+  useEffect(() => {
+    fetch("/api/public/erp-catalog")
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) setErps(data);
+      })
+      .catch(() => {});
+  }, []);
+
+  const goLogin = () => setLocation("/login");
+  const goRegister = () => setLocation("/login?mode=register");
+
+  return (
+    <div className="min-h-screen bg-white overflow-x-hidden" data-testid="landing-page">
+
+      {/* ━━━ NAV ━━━ */}
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-[#0B0F1A]/95 backdrop-blur-md border-b border-white/10">
+        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center">
+              <Shield className="w-4 h-4 text-white" />
+            </div>
+            <span className="text-base font-bold text-white">Consulta ISP</span>
+          </div>
+          <div className="hidden md:flex items-center gap-7 text-sm text-white/60">
+            {[
+              ["Como funciona", "como-funciona"],
+              ["Funcionalidades", "funcionalidades"],
+              ["Preços", "precos"],
+              ["FAQ", "faq"],
+            ].map(([label, id]) => (
+              <button
+                key={id}
+                onClick={() =>
+                  document.getElementById(id)?.scrollIntoView({ behavior: "smooth" })
+                }
+                className="hover:text-white transition-colors"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              className="text-white/70 hover:text-white hover:bg-white/10 text-sm h-9"
+              onClick={goLogin}
+              data-testid="button-landing-login"
+            >
+              Login
+            </Button>
+            <Button
+              className="bg-blue-500 hover:bg-blue-400 text-white text-sm h-9 px-5 font-semibold"
+              onClick={goRegister}
+              data-testid="button-landing-cadastro"
+            >
+              Começar grátis
+            </Button>
+          </div>
+        </div>
+      </nav>
+
+      {/* ━━━ HERO ━━━ */}
+      <section className="relative bg-[#0B0F1A] pt-16 overflow-hidden min-h-[92vh] flex items-center">
+        {/* Glow de fundo */}
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[700px] h-[700px] bg-blue-600/10 rounded-full blur-[120px]" />
+          <div className="absolute top-1/3 right-1/4 w-[400px] h-[400px] bg-indigo-600/8 rounded-full blur-[100px]" />
+        </div>
+
+        <div className="relative max-w-6xl mx-auto px-6 py-20 w-full">
+          <div className="max-w-3xl">
+            {/* Tag */}
+            <div className="inline-flex items-center gap-2 border border-blue-500/30 bg-blue-500/10 text-blue-400 text-xs font-semibold px-3 py-1.5 rounded-full mb-7">
+              <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />
+              Rede colaborativa de inadimplentes para provedores de internet
+            </div>
+
+            {/* Headline */}
+            <h1
+              className="text-5xl sm:text-6xl lg:text-7xl font-black text-white leading-[1.05] tracking-tight mb-6"
+              data-testid="text-hero-title"
+            >
+              Consulte o CPF
+              <br />
+              <span className="text-blue-400">antes de instalar.</span>
+              <br />
+              <span className="text-white/50 text-3xl sm:text-4xl font-semibold">
+                Evite o calote antes que aconteça.
+              </span>
+            </h1>
+
+            <p className="text-lg text-white/60 leading-relaxed mb-10 max-w-2xl">
+              Provedores regionais compartilham dados de inadimplentes em uma base
+              colaborativa. Antes de ativar um novo cliente, você sabe o histórico
+              dele em{" "}
+              <span className="text-white/90 font-medium">qualquer provedor da rede</span>{" "}
+              — em menos de 2 segundos.
+            </p>
+
+            {/* CTAs */}
+            <div className="flex flex-col sm:flex-row gap-3 mb-14">
+              <Button
+                size="lg"
+                className="bg-blue-500 hover:bg-blue-400 text-white px-8 gap-2 h-12 text-base font-bold rounded-xl"
+                onClick={goRegister}
+                data-testid="button-hero-cta"
+              >
+                Criar conta grátis
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                className="border-white/20 text-white/70 hover:text-white hover:bg-white/10 px-8 gap-2 h-12 text-base rounded-xl"
+                onClick={() =>
+                  document.getElementById("como-funciona")?.scrollIntoView({ behavior: "smooth" })
+                }
+                data-testid="button-hero-features"
+              >
+                Ver como funciona
+              </Button>
+            </div>
+
+            {/* 4 números de impacto */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-10 border-t border-white/10">
+              {[
+                { v: "19.000+", l: "ISPs no Brasil" },
+                { v: "R$ 690", l: "prejuízo médio/inadimplente" },
+                { v: "73 mi", l: "brasileiros negativados" },
+                { v: "< 2s", l: "para ver o resultado" },
+              ].map((s) => (
+                <div key={s.l}>
+                  <p className="text-2xl font-black text-white">{s.v}</p>
+                  <p className="text-xs text-white/40 mt-0.5">{s.l}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ━━━ BARRA ERPS ━━━ */}
+      <section className="bg-[#111827] border-y border-white/10 py-5">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="flex flex-col sm:flex-row items-center gap-6 justify-between">
+            <p className="text-xs font-semibold text-white/30 uppercase tracking-widest whitespace-nowrap">
+              Integra com os principais ERPs
+            </p>
+            <div className="flex items-center gap-6 flex-wrap justify-center">
+              {erps.map((erp) => (
+                <div
+                  key={erp.key}
+                  className="flex items-center gap-2 opacity-50 hover:opacity-80 transition-opacity"
+                >
+                  {erp.logoBase64 ? (
+                    <img
+                      src={erp.logoBase64}
+                      alt={erp.name}
+                      className="h-6 object-contain brightness-0 invert"
+                    />
+                  ) : (
+                    <span className="text-white text-xs font-bold">{erp.name}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-white/30 whitespace-nowrap">
+              Ou importe via <span className="text-white/60">planilha CSV</span>
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ━━━ O PROBLEMA (3 cards de dor) ━━━ */}
+      <section className="py-24 bg-white">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-14">
+            <p className="text-xs font-bold text-blue-600 uppercase tracking-widest mb-3">
+              Por que provedores perdem dinheiro
+            </p>
+            <h2 className="text-4xl font-black text-slate-900">
+              Seu próximo cliente inadimplente
+              <br />
+              <span className="text-slate-400">está com o CPF "limpo" no seu ERP.</span>
+            </h2>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-5">
+            {[
+              {
+                icon: TrendingDown,
+                color: "text-red-500",
+                bg: "bg-red-50",
+                border: "border-red-100",
+                num: "10 – 30%",
+                title: "Taxa de inadimplência média",
+                desc: "ISPs regionais operam com taxas 6x acima do limite saudável (5%). O custo de ativação FTTH é de ~R$ 400 por cliente.",
+              },
+              {
+                icon: Router,
+                color: "text-amber-500",
+                bg: "bg-amber-50",
+                border: "border-amber-100",
+                num: "R$ 290",
+                title: "Valor médio de uma ONU",
+                desc: "Equipamento dado em comodato que o inadimplente leva quando cancela. Sem registro, você não tem como cobrar.",
+              },
+              {
+                icon: Users,
+                color: "text-purple-500",
+                bg: "bg-purple-50",
+                border: "border-purple-100",
+                num: "70%",
+                title: "Dos churns por mudança de endereço",
+                desc: "O cliente cancela, muda, e tenta contratar em outro provedor — levando a dívida e a ONU. Sem rastreamento, ele recomeça do zero.",
+              },
+            ].map((card, i) => (
+              <div
+                key={i}
+                className={`border ${card.border} rounded-2xl p-7 hover:shadow-lg transition-shadow`}
+              >
+                <div className={`w-12 h-12 ${card.bg} rounded-xl flex items-center justify-center mb-5`}>
+                  <card.icon className={`w-6 h-6 ${card.color}`} />
+                </div>
+                <p className={`text-3xl font-black ${card.color} mb-2`}>{card.num}</p>
+                <h3 className="text-base font-bold text-slate-900 mb-2">{card.title}</h3>
+                <p className="text-sm text-slate-500 leading-relaxed">{card.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ━━━ COMO FUNCIONA ━━━ */}
+      <section id="como-funciona" className="py-24 bg-slate-950 text-white">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-16">
+            <p className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-3">
+              Simples assim
+            </p>
+            <h2 className="text-4xl font-black">Como funciona em 3 passos</h2>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-8">
+            {[
+              {
+                n: "01",
+                icon: Database,
+                title: "Importe sua base",
+                desc: "Conecte seu ERP (IXC, SGP, MK) ou importe uma planilha CSV com seus inadimplentes. Pronto em 15 minutos, sem técnico.",
+                badge: "15 min",
+              },
+              {
+                n: "02",
+                icon: Search,
+                title: "Consulte antes de ativar",
+                desc: "Digite o CPF ou CNPJ do novo cliente. Em menos de 2 segundos você vê o histórico em toda a rede, score de risco e sugestão de decisão.",
+                badge: "< 2 segundos",
+              },
+              {
+                n: "03",
+                icon: Bell,
+                title: "Receba alertas automáticos",
+                desc: "Quando um inadimplente seu consulta outro provedor para migrar, você recebe alerta imediato — antes da ONU sair da sua mão.",
+                badge: "Tempo real",
+              },
+            ].map((s, i) => (
+              <div key={i} className="relative">
+                <div className="text-7xl font-black text-white/5 absolute -top-2 -left-1 select-none">
+                  {s.n}
+                </div>
+                <div className="relative">
+                  <div className="w-12 h-12 bg-blue-500/20 border border-blue-500/30 rounded-xl flex items-center justify-center mb-5">
+                    <s.icon className="w-5 h-5 text-blue-400" />
+                  </div>
+                  <div className="inline-block bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold px-3 py-1 rounded-full mb-4">
+                    {s.badge}
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-3">{s.title}</h3>
+                  <p className="text-sm text-white/50 leading-relaxed">{s.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ━━━ FUNCIONALIDADES PRINCIPAIS ━━━ */}
+      <section id="funcionalidades" className="py-24 bg-white">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-16">
+            <p className="text-xs font-bold text-blue-600 uppercase tracking-widest mb-3">
+              Tudo que você precisa
+            </p>
+            <h2 className="text-4xl font-black text-slate-900">
+              Uma plataforma. Todas as proteções.
+            </h2>
+          </div>
+
+          {/* Feature principal — Consulta ISP */}
+          <div className="grid lg:grid-cols-2 gap-12 items-center mb-16 pb-16 border-b border-slate-100">
+            <div>
+              <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 text-xs font-bold px-3 py-1.5 rounded-full mb-5">
+                <Search className="w-3.5 h-3.5" />
+                Consulta ISP
+              </div>
+              <h3 className="text-3xl font-black text-slate-900 mb-4">
+                Score em 2 segundos.
+                <br />
+                <span className="text-slate-400">Decisão em 1 clique.</span>
+              </h3>
+              <p className="text-slate-500 leading-relaxed mb-6">
+                Consulte CPF, CNPJ ou CEP e receba score de 0 a 100, histórico em
+                todos os provedores da rede, lista de equipamentos retidos e sugestão
+                automática de APROVAR ou REJEITAR.
+              </p>
+              <ul className="space-y-3">
+                {[
+                  "Histórico em toda a rede colaborativa",
+                  "Score calculado com IA",
+                  "Equipamentos retidos por provedor",
+                  "Consulta em lote via CSV",
+                ].map((f) => (
+                  <li key={f} className="flex items-center gap-2.5 text-sm text-slate-700">
+                    <CheckCircle2 className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            {/* Mockup de resultado */}
+            <div className="bg-slate-950 rounded-2xl p-5 border border-white/10">
+              <div className="flex items-center gap-1.5 mb-4">
+                {["bg-red-400","bg-yellow-400","bg-green-400"].map(c=>(
+                  <div key={c} className={`w-2.5 h-2.5 rounded-full ${c}`}/>
+                ))}
+                <span className="ml-2 text-xs text-white/30">consulta-isp.com · Resultado</span>
+              </div>
+              {/* Cabeçalho score */}
+              <div className="flex items-center justify-between mb-4 bg-white/5 rounded-xl p-4 border border-white/10">
+                <div className="flex items-center gap-3">
+                  <div className="relative w-14 h-14">
+                    <svg width="56" height="56" className="-rotate-90">
+                      <circle cx="28" cy="28" r="22" fill="none" stroke="#1e293b" strokeWidth="5"/>
+                      <circle cx="28" cy="28" r="22" fill="none" stroke="#ef4444" strokeWidth="5"
+                        strokeDasharray={138} strokeDashoffset={138*0.85} strokeLinecap="round"/>
+                    </svg>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <span className="text-sm font-black text-red-400">15</span>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-white text-sm font-bold">J*** P. Lima</p>
+                    <p className="text-white/40 text-xs">CPF: 987.***.**1-00</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] bg-white/10 text-white/60 px-2 py-0.5 rounded">OUTRO PROVEDOR</span>
+                      <span className="text-[10px] bg-red-500/20 text-red-400 font-bold px-2 py-0.5 rounded">CRÍTICO</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-red-500 text-white px-4 py-2 rounded-xl text-center">
+                  <p className="text-[9px] font-semibold opacity-70 uppercase mb-0.5">Sugestão</p>
+                  <p className="text-sm font-black">REJEITAR</p>
+                </div>
+              </div>
+              {/* Grid detalhes */}
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                {[
+                  {label:"Dias atraso", val:"95 dias", c:"text-red-400"},
+                  {label:"Faixa de valor", val:"R$400–600", c:"text-amber-400"},
+                  {label:"Equipamentos", val:"2 retidos", c:"text-orange-400"},
+                ].map(d=>(
+                  <div key={d.label} className="bg-white/5 rounded-lg p-2.5 text-center border border-white/5">
+                    <p className={`font-bold text-sm ${d.c}`}>{d.val}</p>
+                    <p className="text-white/30 text-[10px] mt-0.5">{d.label}</p>
+                  </div>
+                ))}
+              </div>
+              {/* Condições */}
+              <div className="mt-3 bg-red-500/10 border border-red-500/20 rounded-xl p-3">
+                <p className="text-red-400 text-[10px] font-bold uppercase mb-2">⚠ Condições obrigatórias</p>
+                <p className="text-white/40 text-[10px]">→ Exigir pagamento antecipado (3–6 meses)</p>
+                <p className="text-white/40 text-[10px] mt-1">→ Não fornecer equipamento em comodato</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Feature secundária — Anti-Fraude */}
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            {/* Mockup Anti-Fraude */}
+            <div className="bg-slate-950 rounded-2xl p-5 border border-white/10 order-last lg:order-first">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"/>
+                  <span className="text-xs text-white/50">Anti-Fraude — Alerta ativo</span>
+                </div>
+                <span className="text-xs text-white/30">agora mesmo</span>
+              </div>
+              {/* Alert card */}
+              <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 bg-red-500/20 rounded-lg flex items-center justify-center flex-shrink-0 text-lg">
+                    🚨
+                  </div>
+                  <div>
+                    <p className="text-white font-bold text-sm mb-1">Tentativa de Fuga Detectada</p>
+                    <p className="text-white/50 text-xs leading-relaxed">
+                      Seu cliente inadimplente <span className="text-white/80 font-semibold">VALDIRENE ***</span> foi
+                      consultado por <span className="text-white/80 font-semibold">ViaFibra Net</span>.
+                    </p>
+                    <div className="flex items-center gap-3 mt-3">
+                      <span className="text-xs bg-red-500/20 text-red-400 font-bold px-2 py-1 rounded">325 dias atraso</span>
+                      <span className="text-xs bg-orange-500/20 text-orange-400 font-bold px-2 py-1 rounded">R$ 350 em aberto</span>
+                      <span className="text-xs bg-amber-500/20 text-amber-400 font-bold px-2 py-1 rounded">2 equip. retidos</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {/* Trajetória migrador */}
+              <div className="bg-white/5 rounded-xl p-4 border border-white/5">
+                <p className="text-xs text-white/30 mb-3 uppercase font-bold tracking-wider">Trajetória do migrador</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {["NsLink Provedor","NG Telecom","ViaFibra Net ⟵"].map((p,i)=>(
+                    <div key={i} className="flex items-center gap-2">
+                      <span className={`text-xs px-2.5 py-1 rounded font-semibold ${i===2?"bg-red-500/20 text-red-400 border border-red-500/30":"bg-white/10 text-white/50"}`}>{p}</span>
+                      {i<2&&<span className="text-white/20 text-xs">→</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div className="inline-flex items-center gap-2 bg-red-50 text-red-700 text-xs font-bold px-3 py-1.5 rounded-full mb-5">
+                <Bell className="w-3.5 h-3.5" />
+                Anti-Fraude em Tempo Real
+              </div>
+              <h3 className="text-3xl font-black text-slate-900 mb-4">
+                Seu inadimplente tentou migrar.
+                <br />
+                <span className="text-slate-400">Você já sabe.</span>
+              </h3>
+              <p className="text-slate-500 leading-relaxed mb-6">
+                Quando um cliente inadimplente do seu provedor é consultado por outro
+                ISP da rede, você recebe um alerta automático — com o nome do provedor,
+                valor em aberto e equipamentos retidos.
+              </p>
+              <ul className="space-y-3">
+                {[
+                  "Alerta em tempo real via WhatsApp e email",
+                  "Identifica migradores seriais (2+ provedores)",
+                  "Histórico de trajetória do cliente",
+                  "Configure regras por valor ou dias de atraso",
+                ].map((f) => (
+                  <li key={f} className="flex items-center gap-2.5 text-sm text-slate-700">
+                    <CheckCircle2 className="w-4 h-4 text-red-500 flex-shrink-0" />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          {/* Grid features secundárias */}
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-16 pt-16 border-t border-slate-100">
+            {[
+              {
+                icon: BarChart3,
+                title: "Score de Crédito ISP",
+                desc: "Score 0–100 calculado com dados reais da rede. Quanto mais provedores, mais preciso.",
+                color: "text-green-600",
+                bg: "bg-green-50",
+              },
+              {
+                icon: Shield,
+                title: "Consulta SPC Brasil",
+                desc: "Score SPC, restrições financeiras e protestos integrados na mesma plataforma.",
+                color: "text-purple-600",
+                bg: "bg-purple-50",
+              },
+              {
+                icon: CreditCard,
+                title: "Controle de Equipamentos",
+                desc: "Importe via planilha. Rastreie ONUs e roteadores com status e valor de cobrança.",
+                color: "text-amber-600",
+                bg: "bg-amber-50",
+              },
+              {
+                icon: Zap,
+                title: "Análise com IA",
+                desc: "Recomendações personalizadas geradas por IA para cada consulta realizada.",
+                color: "text-blue-600",
+                bg: "bg-blue-50",
+              },
+            ].map((f, i) => (
+              <div
+                key={i}
+                className="border border-slate-100 rounded-xl p-5 hover:shadow-md transition-shadow"
+                data-testid={`feature-${i}`}
+              >
+                <div className={`w-10 h-10 ${f.bg} rounded-lg flex items-center justify-center mb-4`}>
+                  <f.icon className={`w-5 h-5 ${f.color}`} />
+                </div>
+                <h4 className="text-sm font-bold text-slate-900 mb-2">{f.title}</h4>
+                <p className="text-xs text-slate-500 leading-relaxed">{f.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ━━━ PREÇOS ━━━ */}
+      <section id="precos" className="py-24 bg-slate-950 text-white">
+        <div className="max-w-6xl mx-auto px-6">
+          <div className="text-center mb-14">
+            <p className="text-xs font-bold text-blue-400 uppercase tracking-widest mb-3">
+              Transparência total
+            </p>
+            <h2 className="text-4xl font-black text-white mb-3">
+              Planos para todo tamanho de provedor
+            </h2>
+            <p className="text-white/40 max-w-lg mx-auto text-sm">
+              Consultas na sua própria base são sempre gratuitas. Créditos para a
+              rede colaborativa a partir de R$ 0,90/consulta.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-5 max-w-4xl mx-auto">
+            {[
+              {
+                name: "Gratuito",
+                price: "R$ 0",
+                period: "para sempre",
+                desc: "Para conhecer a plataforma",
+                highlight: false,
+                cta: "Criar conta grátis",
+                features: [
+                  "Consultas ilimitadas na sua base",
+                  "30 créditos ISP para testar a rede",
+                  "Anti-fraude básico",
+                  "Importação via CSV",
+                ],
+                off: ["Créditos mensais inclusos", "Notificação WhatsApp"],
+              },
+              {
+                name: "Básico",
+                price: "R$ 149",
+                period: "/mês",
+                desc: "Para provedores até 1.000 clientes",
+                highlight: true,
+                cta: "Começar agora",
+                features: [
+                  "Tudo do Gratuito",
+                  "200 créditos ISP/mês inclusos",
+                  "50 créditos SPC/mês inclusos",
+                  "Anti-fraude + notificação WhatsApp",
+                  "Integração com 1 ERP",
+                  "3 usuários",
+                ],
+                off: ["Consulta em lote"],
+              },
+              {
+                name: "Profissional",
+                price: "R$ 349",
+                period: "/mês",
+                desc: "Para provedores acima de 1.000 clientes",
+                highlight: false,
+                cta: "Começar agora",
+                features: [
+                  "Tudo do Básico",
+                  "500 créditos ISP/mês inclusos",
+                  "150 créditos SPC/mês inclusos",
+                  "Todos os ERPs integrados",
+                  "Consulta em lote (até 500 CPFs)",
+                  "Usuários ilimitados",
+                ],
+                off: [],
+              },
+            ].map((plan, i) => (
+              <div
+                key={i}
+                className={`rounded-2xl p-6 flex flex-col border transition-shadow hover:shadow-xl hover:shadow-blue-500/10
+                  ${plan.highlight
+                    ? "bg-blue-600 border-blue-400"
+                    : "bg-white/5 border-white/10"
+                  }`}
+                data-testid={`plan-${i}`}
+              >
+                {plan.highlight && (
+                  <div className="text-center mb-4">
+                    <span className="bg-white text-blue-600 text-xs font-black px-4 py-1 rounded-full">
+                      MAIS POPULAR
+                    </span>
+                  </div>
+                )}
+                <h3 className={`text-lg font-bold mb-1 ${plan.highlight ? "text-white" : "text-white/80"}`}>
+                  {plan.name}
+                </h3>
+                <div className="mb-1">
+                  <span className={`text-4xl font-black ${plan.highlight ? "text-white" : "text-white"}`}>
+                    {plan.price}
+                  </span>
+                  <span className={`text-sm ml-1 ${plan.highlight ? "text-blue-100" : "text-white/30"}`}>
+                    {plan.period}
+                  </span>
+                </div>
+                <p className={`text-xs mb-6 ${plan.highlight ? "text-blue-100" : "text-white/30"}`}>
+                  {plan.desc}
+                </p>
+
+                <ul className="space-y-2.5 mb-6 flex-1">
+                  {plan.features.map((f) => (
+                    <li key={f} className="flex items-start gap-2 text-sm">
+                      <CheckCircle2 className={`w-4 h-4 flex-shrink-0 mt-0.5 ${plan.highlight ? "text-blue-100" : "text-blue-400"}`} />
+                      <span className={plan.highlight ? "text-white/90" : "text-white/60"}>{f}</span>
+                    </li>
+                  ))}
+                  {plan.off.map((f) => (
+                    <li key={f} className="flex items-start gap-2 text-sm">
+                      <XCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-white/20" />
+                      <span className="text-white/20">{f}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <Button
+                  className={`w-full font-bold h-11 rounded-xl ${
+                    plan.highlight
+                      ? "bg-white text-blue-600 hover:bg-blue-50"
+                      : "bg-white/10 text-white hover:bg-white/20 border border-white/20"
+                  }`}
+                  onClick={goRegister}
+                >
+                  {plan.cta}
+                </Button>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-center justify-center gap-6 mt-10 text-xs text-white/30">
+            <span className="flex items-center gap-1.5"><Lock className="w-3 h-3"/> Sem contrato</span>
+            <span className="flex items-center gap-1.5"><Shield className="w-3 h-3"/> Dados na LGPD</span>
+            <span className="flex items-center gap-1.5"><Zap className="w-3 h-3"/> Cancele quando quiser</span>
+          </div>
+        </div>
+      </section>
+
+      {/* ━━━ FAQ ━━━ */}
+      <section id="faq" className="py-24 bg-white">
+        <div className="max-w-3xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <h2 className="text-4xl font-black text-slate-900">Perguntas frequentes</h2>
+          </div>
+
+          <div
+            className="border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-200"
+            data-testid="faq-section"
+          >
+            {[
+              {
+                q: "O que é a base de dados compartilhada?",
+                a: "É uma base única onde todos os provedores registram seus inadimplentes. Quando você consulta um CPF, o sistema verifica em todos os provedores da rede e retorna dados anonimizados: dias de atraso, faixa de valor, equipamentos pendentes. Nunca dados pessoais identificáveis.",
+              },
+              {
+                q: "Consultas na minha própria base são cobradas?",
+                a: "Não. Consultas de clientes do seu próprio provedor são sempre gratuitas e ilimitadas. Créditos são consumidos apenas quando a consulta retorna dados de outros provedores da rede — 1 crédito por provedor externo encontrado.",
+              },
+              {
+                q: "Funciona para provedor pequeno (menos de 200 clientes)?",
+                a: "Sim, especialmente para pequenos. Uma ONU perdida representa muito mais para quem tem 150 clientes. O plano Gratuito já é suficiente para começar — e você começa a ver resultado no primeiro calote evitado.",
+              },
+              {
+                q: "Quanto tempo leva para configurar?",
+                a: "15 minutos para conectar um ERP (IXC, SGP, MK Solutions) via API. Se preferir, importe sua base de inadimplentes via planilha CSV e comece a consultar imediatamente. Sem instalação, sem técnico.",
+              },
+              {
+                q: "Meus dados de clientes ficam seguros?",
+                a: "Dados pessoais ficam restritos ao seu provedor. Outros provedores veem apenas indicadores de risco — nunca nome, endereço ou contato. Toda a plataforma segue a LGPD. Comunicação criptografada com TLS.",
+              },
+            ].map((faq, i) => (
+              <div key={i} className="px-6" data-testid={`faq-${i}`}>
+                <button
+                  className="w-full text-left py-5 flex items-center justify-between gap-4"
+                  onClick={() => setOpenFaq(openFaq === i ? null : i)}
+                >
+                  <span className="text-sm font-semibold text-slate-900">{faq.q}</span>
+                  {openFaq === i ? (
+                    <ChevronUp className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                  )}
+                </button>
+                {openFaq === i && (
+                  <p className="text-sm text-slate-600 pb-5 leading-relaxed -mt-1">{faq.a}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ━━━ CTA FINAL ━━━ */}
+      <section className="py-24 bg-[#0B0F1A] relative overflow-hidden">
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-blue-600/10 rounded-full blur-[100px]"/>
+        </div>
+        <div className="relative max-w-3xl mx-auto px-6 text-center">
+          <div className="inline-flex items-center gap-2 border border-blue-500/30 bg-blue-500/10 text-blue-400 text-xs font-semibold px-3 py-1.5 rounded-full mb-8">
+            <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse"/>
+            Começa grátis — sem cartão de crédito
+          </div>
+          <h2 className="text-4xl sm:text-5xl font-black text-white mb-5 leading-tight">
+            Cada calote evitado
+            <br />
+            <span className="text-blue-400">paga o plano inteiro.</span>
+          </h2>
+          <p className="text-white/50 mb-10 text-lg max-w-xl mx-auto leading-relaxed">
+            Cadastro em 2 minutos. 30 créditos gratuitos para testar a rede.
+            Consultas na sua base sempre gratuitas.
+          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-10">
+            <Button
+              size="lg"
+              className="bg-blue-500 hover:bg-blue-400 text-white px-10 gap-2 h-12 text-base font-bold rounded-xl shadow-xl shadow-blue-500/25"
+              onClick={goRegister}
+              data-testid="button-cta-bottom"
+            >
+              Criar conta grátis
+              <ArrowRight className="w-4 h-4" />
+            </Button>
+            <Button
+              size="lg"
+              variant="outline"
+              className="border-white/20 text-white/60 hover:text-white hover:bg-white/10 px-8 gap-2 h-12 text-base rounded-xl"
+              onClick={goLogin}
+              data-testid="button-login-bottom"
+            >
+              Já tenho conta — Login
+            </Button>
+          </div>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-5 text-sm text-white/30">
+            <span className="flex items-center gap-2"><span className="text-green-400">✓</span> Gratuito na base própria</span>
+            <span className="flex items-center gap-2"><span className="text-green-400">✓</span> Sem contrato de fidelidade</span>
+            <span className="flex items-center gap-2"><span className="text-green-400">✓</span> LGPD compliant</span>
+          </div>
+        </div>
+      </section>
+
+      {/* ━━━ FOOTER ━━━ */}
+      <footer className="bg-[#060911] py-8 border-t border-white/5">
+        <div className="max-w-6xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center">
+              <Shield className="w-3.5 h-3.5 text-white" />
+            </div>
+            <span className="text-white/80 font-bold text-sm">Consulta ISP</span>
+            <span className="text-white/20 text-xs hidden sm:inline">Base colaborativa para provedores de internet</span>
+          </div>
+          <div className="flex items-center gap-4 text-xs text-white/20">
+            <span className="flex items-center gap-1"><Lock className="w-3 h-3"/>Dados criptografados</span>
+            <span className="flex items-center gap-1"><Shield className="w-3 h-3"/>Privacidade LGPD</span>
+          </div>
+        </div>
+        <div className="max-w-6xl mx-auto px-6 mt-5 pt-5 border-t border-white/5">
+          <p className="text-xs text-white/15 text-center">
+            Consulta ISP — Plataforma colaborativa de análise de crédito para provedores de internet do Brasil
+          </p>
+        </div>
+      </footer>
+
+      <LandingChatbot onNavigate={setLocation} />
+    </div>
+  );
+}
+```
+
+---
+
+## INSTRUÇÕES FINAIS:
+
+1. **Substitua TODO o conteúdo** do arquivo `client/src/pages/landingpage.tsx` pelo código acima.
+
+2. Verifique os imports — o código usa:
+   `Shield, Search, BarChart3, Zap, Lock, ArrowRight, AlertTriangle, CreditCard, ChevronDown, ChevronUp, Globe, Router, CheckCircle2, XCircle, Bell, Database, TrendingDown, Users`
+   Se algum não estiver no pacote lucide-react, substitua por um equivalente disponível.
+
+3. Garanta que `LandingChatbot` continua importado do caminho correto: `@/components/landing-chatbot`
+
+4. Rode o projeto e verifique que compila sem erros TypeScript.
+
+5. Acesse a rota raiz `/` sem estar logado para confirmar que a landing nova aparece corretamente.
+
+6. **Não altere nenhuma outra página** — apenas `landingpage.tsx`.
