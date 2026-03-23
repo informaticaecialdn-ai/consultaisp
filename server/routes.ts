@@ -843,27 +843,48 @@ export async function registerRoutes(
           }));
         }
 
-        // ── ADDRESS CROSS-REFERENCE (document search only) ──────────────
-        // For each unique address found in document search, do a secondary
-        // N8N address query to find other customers at the same location.
+        // ── ADDRESS CROSS-REFERENCE (document search + user-provided installation address) ──
+        // Builds a list of addresses to cross-reference via N8N:
+        //   1. User-provided installation address (anti-fraud: even if CPF is clean/not found)
+        //   2. Addresses extracted from found customers (finds other docs at same location)
         let n8nAddressMatches: any[] = [];
-        if (!isCepSearch && customers.length > 0) {
+        if (!isCepSearch) {
           const seenAddrKeys = new Set<string>();
           const addressQueries: any[] = [];
-          for (const c of customers) {
-            if (!c.city) continue;
-            const key = [c.cep || "", c.city, c.address || ""].join("|");
-            if (seenAddrKeys.has(key)) continue;
-            seenAddrKeys.add(key);
-            const addrQ: any = {};
-            if (c.address) addrQ.street = c.address;
-            if (c.cep) addrQ.zipcode = c.cep.replace(/\D/g, "");
-            if (c.city) addrQ.city = c.city;
-            if (c.state) addrQ.state = c.state;
-            if (c.neighborhood) addrQ.neighborhood = c.neighborhood;
-            addressQueries.push(addrQ);
+
+          // Priority 1: installation address provided by the user in the request
+          // This is the KEY anti-fraud feature: check the installation address
+          // even when the searched document is not found anywhere.
+          if (addressStreet && addressNumber) {
+            const userStreet = `${addressStreet}, ${addressNumber}${addressComplement ? ` ${addressComplement}` : ""}`;
+            const userKey = [addressStreet, addressCity || "", addressState || ""].join("|");
+            seenAddrKeys.add(userKey);
+            const userAddrQ: any = { street: userStreet };
+            if (addressCity) userAddrQ.city = addressCity;
+            if (addressState) userAddrQ.state = addressState;
+            addressQueries.push(userAddrQ);
+            console.log(`[ISP-N8N-ADDR] Verificando endereço de instalação via N8N: ${userStreet}, ${addressCity || ""}`);
           }
-          for (const addrQ of addressQueries.slice(0, 3)) {
+
+          // Priority 2: addresses extracted from customers found via the document search
+          if (customers.length > 0) {
+            for (const c of customers) {
+              if (!c.city) continue;
+              const key = [c.cep || "", c.city, c.address || ""].join("|");
+              if (seenAddrKeys.has(key)) continue;
+              seenAddrKeys.add(key);
+              const addrQ: any = {};
+              if (c.address) addrQ.street = c.address;
+              if (c.cep) addrQ.zipcode = c.cep.replace(/\D/g, "");
+              if (c.city) addrQ.city = c.city;
+              if (c.state) addrQ.state = c.state;
+              if (c.neighborhood) addrQ.neighborhood = c.neighborhood;
+              addressQueries.push(addrQ);
+            }
+          }
+
+          // Query N8N for each address (limit to 4 to avoid timeout)
+          for (const addrQ of addressQueries.slice(0, 4)) {
             try {
               const addrRes = await fetch(CENTRAL_N8N_URL, {
                 method: "POST",
@@ -877,18 +898,22 @@ export async function registerRoutes(
                   addressQuery: addrQ,
                   integrations,
                 }),
-                signal: AbortSignal.timeout(10000),
+                signal: AbortSignal.timeout(12000),
               });
               if (addrRes.ok) {
                 const addrRaw = await addrRes.json();
                 const addrObj = Array.isArray(addrRaw) ? addrRaw[0] : addrRaw;
                 const addrCustomers: any[] = addrObj?.data?.customers || addrObj?.customers || [];
                 for (const ac of addrCustomers) {
-                  // Skip anyone already in main results (same document or same provider record)
+                  // Skip anyone already in main results (same document)
                   const alreadyFound = customers.find(
                     (c: any) => c.document && ac.document && c.document === ac.document,
                   );
-                  if (!alreadyFound) {
+                  // Also skip duplicate entries already in n8nAddressMatches
+                  const alreadyInMatches = n8nAddressMatches.find(
+                    (m: any) => m._document && ac.document && m._document === ac.document,
+                  );
+                  if (!alreadyFound && !alreadyInMatches) {
                     const acProviderId = ac.provider_id ? Number(ac.provider_id) : null;
                     const acIsSame = !!(ac.provider_name && ac.provider_name === provider.name);
                     const acFullName = (ac.full_name || "Desconhecido").trim();
@@ -896,7 +921,7 @@ export async function registerRoutes(
                     const acMaskedName = acIsSame
                       ? acFullName
                       : acNameParts.length > 1 ? `${acNameParts[0]} ***` : acFullName;
-                    n8nAddressMatches.push({
+                    const match: any = {
                       customerName: acMaskedName,
                       cpfCnpj: acIsSame ? (ac.document || "") : "***",
                       address: [addrQ.street, addrQ.city, addrQ.state].filter(Boolean).join(", "),
@@ -908,7 +933,10 @@ export async function registerRoutes(
                       daysOverdue: Number(ac.payment_summary?.max_days_overdue || 0),
                       totalOverdue: acIsSame ? Number(ac.payment_summary?.open_overdue_amount || 0) : undefined,
                       hasDebt: Number(ac.payment_summary?.max_days_overdue || 0) > 0,
-                    });
+                      isInstallationAddress: addressStreet ? addrQ.street?.startsWith(addressStreet) : false,
+                      _document: ac.document || null,
+                    };
+                    n8nAddressMatches.push(match);
                   }
                 }
               }
@@ -916,6 +944,9 @@ export async function registerRoutes(
               console.warn("[ISP-N8N] Address cross-ref failed:", addrErr.message);
             }
           }
+
+          // Remove internal _document field before sending to client
+          n8nAddressMatches = n8nAddressMatches.map(({ _document, ...rest }) => rest);
         }
 
         const notFound = customers.length === 0;

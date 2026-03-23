@@ -256,12 +256,21 @@ export default function ConsultaISPPage() {
   const [selectedFreeDetail, setSelectedFreeDetail] = useState<ProviderDetail | null>(null);
   const [selectedPaidDetail, setSelectedPaidDetail] = useState<ProviderDetail | null>(null);
 
-  // CEP address expansion
+  // CEP address expansion (CEP mode — main input)
   const [cepData, setCepData] = useState<CepData | null>(null);
   const [cepLoading, setCepLoading] = useState(false);
   const [cepError, setCepError] = useState("");
   const [addressNumber, setAddressNumber] = useState("");
   const [addressComplement, setAddressComplement] = useState("");
+
+  // Installation address (CPF/CNPJ mode — optional address cross-reference via N8N)
+  const [showInstallAddr, setShowInstallAddr] = useState(false);
+  const [installCepQuery, setInstallCepQuery] = useState("");
+  const [installCepData, setInstallCepData] = useState<CepData | null>(null);
+  const [installCepLoading, setInstallCepLoading] = useState(false);
+  const [installCepError, setInstallCepError] = useState("");
+  const [installNumber, setInstallNumber] = useState("");
+  const [installComplement, setInstallComplement] = useState("");
 
   useEffect(() => {
     const digits = query.replace(/\D/g, "");
@@ -287,6 +296,27 @@ export default function ConsultaISPPage() {
       setAddressComplement("");
     }
   }, [query]);
+
+  // Resolve installation CEP via ViaCEP
+  useEffect(() => {
+    const digits = installCepQuery.replace(/\D/g, "");
+    if (digits.length === 8) {
+      setInstallCepData(null);
+      setInstallCepError("");
+      setInstallCepLoading(true);
+      fetch(`https://viacep.com.br/ws/${digits}/json/`)
+        .then(r => r.json())
+        .then((d: CepData) => {
+          if (d.erro) setInstallCepError("CEP não encontrado.");
+          else setInstallCepData(d);
+        })
+        .catch(() => setInstallCepError("Erro ao buscar CEP."))
+        .finally(() => setInstallCepLoading(false));
+    } else {
+      setInstallCepData(null);
+      setInstallCepError("");
+    }
+  }, [installCepQuery]);
 
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/isp-consultations"],
@@ -530,13 +560,17 @@ ${addrRows ? `<section>
       toast({ title: "Número obrigatório", description: "Informe o número do endereço para buscar por endereço.", variant: "destructive" });
       return;
     }
+
+    const hasInstallAddr = !isCep && showInstallAddr && installCepData && installNumber.trim();
+
     mutation.mutate({
       cpfCnpj: query,
-      addressNumber: isCep ? addressNumber.trim() : undefined,
-      addressComplement: isCep ? addressComplement.trim() : undefined,
-      addressStreet: isCep && cepData ? cepData.logradouro : undefined,
-      addressCity: isCep && cepData ? cepData.localidade : undefined,
-      addressState: isCep && cepData ? cepData.uf : undefined,
+      // CEP mode: address of the residence being searched
+      addressNumber: isCep ? addressNumber.trim() : (hasInstallAddr ? installNumber.trim() : undefined),
+      addressComplement: isCep ? addressComplement.trim() : (hasInstallAddr && installComplement ? installComplement.trim() : undefined),
+      addressStreet: isCep && cepData ? cepData.logradouro : (hasInstallAddr && installCepData ? installCepData.logradouro : undefined),
+      addressCity: isCep && cepData ? cepData.localidade : (hasInstallAddr && installCepData ? installCepData.localidade : undefined),
+      addressState: isCep && cepData ? cepData.uf : (hasInstallAddr && installCepData ? installCepData.uf : undefined),
     });
   };
 
@@ -830,8 +864,105 @@ ${addrRows ? `<section>
                   </div>
                 )}
 
-                {/* Dica padrão (não CEP) */}
-                {!cepData && (
+                {/* ── Seção de endereço de instalação (CPF/CNPJ mode) ── */}
+                {!cepData && (detectedType === "CPF" || detectedType === "CNPJ") && (
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowInstallAddr(v => !v);
+                        if (showInstallAddr) {
+                          setInstallCepQuery("");
+                          setInstallCepData(null);
+                          setInstallNumber("");
+                          setInstallComplement("");
+                        }
+                      }}
+                      className="flex items-center gap-2 text-sm font-semibold text-blue-700 hover:text-blue-800 transition-colors"
+                      data-testid="button-toggle-install-addr"
+                    >
+                      <MapPin className="w-4 h-4" />
+                      {showInstallAddr ? "▾ Ocultar endereço de instalação" : "▸ Verificar também por endereço de instalação"}
+                      <span className="text-[10px] font-bold bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">ANTI-FRAUDE</span>
+                    </button>
+
+                    {showInstallAddr && (
+                      <div className="border-2 border-blue-200 bg-blue-50 rounded-2xl p-4 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200" data-testid="install-addr-panel">
+                        <div className="flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                          <p className="text-xs text-blue-800 font-medium">
+                            Informar o endereço de instalação permite cruzar com TODOS os provedores da rede N8N — mesmo que o CPF seja limpo, o endereço pode ter histórico de inadimplentes com outros documentos.
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="col-span-2 sm:col-span-1">
+                            <label className="text-xs font-semibold text-slate-700 mb-1 block">
+                              CEP do endereço <span className="text-red-500">*</span>
+                            </label>
+                            <div className="relative">
+                              <Input
+                                data-testid="input-install-cep"
+                                placeholder="00000-000"
+                                value={installCepQuery}
+                                onChange={e => setInstallCepQuery(e.target.value)}
+                                className="h-10 rounded-lg border-blue-200 bg-white pr-8"
+                                maxLength={9}
+                              />
+                              {installCepLoading && (
+                                <div className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />
+                              )}
+                            </div>
+                            {installCepError && <p className="text-xs text-red-600 mt-1">{installCepError}</p>}
+                            {installCepData && (
+                              <p className="text-xs text-blue-700 mt-1 font-medium">{installCepData.logradouro}, {installCepData.localidade}/{installCepData.uf}</p>
+                            )}
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 mb-1 block">
+                              Número <span className="text-red-500">*</span>
+                            </label>
+                            <Input
+                              data-testid="input-install-number"
+                              placeholder="Ex: 142"
+                              value={installNumber}
+                              onChange={e => setInstallNumber(e.target.value)}
+                              onKeyDown={e => e.key === "Enter" && handleSearch()}
+                              className="h-10 rounded-lg border-blue-200 bg-white"
+                            />
+                          </div>
+
+                          <div className="col-span-2">
+                            <label className="text-xs font-semibold text-slate-700 mb-1 block">
+                              Complemento <span className="text-slate-400 font-normal">(opcional)</span>
+                            </label>
+                            <Input
+                              data-testid="input-install-complement"
+                              placeholder="Apto 12, Bloco B..."
+                              value={installComplement}
+                              onChange={e => setInstallComplement(e.target.value)}
+                              onKeyDown={e => e.key === "Enter" && handleSearch()}
+                              className="h-10 rounded-lg border-blue-200 bg-white"
+                            />
+                          </div>
+                        </div>
+
+                        {installCepData && installNumber.trim() && (
+                          <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2">
+                            <CheckCircle className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
+                            <p className="text-xs text-green-700 font-medium">
+                              Endereço confirmado — será cruzado na rede N8N junto com o CPF/CNPJ
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Dica padrão (quando nenhum tipo detectado) */}
+                {!cepData && !detectedType && (
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex items-start gap-3">
                     <Info className="w-4 h-4 text-slate-500 mt-0.5 flex-shrink-0" />
                     <div>
@@ -1621,34 +1752,70 @@ ${addrRows ? `<section>
               </div>
             )}
 
-            {/* ── CRUZAMENTO DE ENDEREÇO ── */}
-            {result && !result.notFound && result.addressMatches && result.addressMatches.length > 0 && (
-              <Card className="overflow-hidden shadow-lg rounded-2xl border-2 border-orange-200" data-testid="card-address-matches">
-                <div className="bg-orange-50 px-6 py-4 flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-orange-500 flex items-center justify-center flex-shrink-0">
+            {/* ── CRUZAMENTO DE ENDEREÇO (N8N) ── */}
+            {result && result.addressMatches && result.addressMatches.length > 0 && (
+              <Card
+                className={`overflow-hidden shadow-lg rounded-2xl border-2 ${
+                  result.notFound && result.addressMatches.some(m => m.hasDebt)
+                    ? "border-red-400"
+                    : "border-orange-200"
+                }`}
+                data-testid="card-address-matches"
+              >
+                <div className={`px-6 py-4 flex items-center gap-3 ${
+                  result.notFound && result.addressMatches.some(m => m.hasDebt)
+                    ? "bg-red-50"
+                    : "bg-orange-50"
+                }`}>
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                    result.notFound && result.addressMatches.some(m => m.hasDebt) ? "bg-red-600" : "bg-orange-500"
+                  }`}>
                     <MapPin className="w-4 h-4 text-white" />
                   </div>
                   <div className="flex-1">
-                    <h3 className="text-base font-semibold text-slate-900">Alerta de Cruzamento por Endereco</h3>
-                    <p className="text-sm text-orange-700">
+                    <h3 className="text-base font-semibold text-slate-900">
+                      {result.notFound && result.addressMatches.some(m => m.hasDebt)
+                        ? "ALERTA CRÍTICO — CPF limpo, mas endereço comprometido"
+                        : "Alerta de Cruzamento por Endereço — Rede N8N"
+                      }
+                    </h3>
+                    <p className={`text-sm ${result.notFound && result.addressMatches.some(m => m.hasDebt) ? "text-red-700 font-semibold" : "text-orange-700"}`}>
                       {result.addressMatches.filter(m => m.hasDebt).length > 0
-                        ? `${result.addressMatches.filter(m => m.hasDebt).length} pessoa(s) com divida no mesmo endereco`
-                        : `${result.addressMatches.length} cadastro(s) localizado(s) no mesmo endereco`
+                        ? `${result.addressMatches.filter(m => m.hasDebt).length} pessoa(s) com dívida encontrada(s) no mesmo endereço`
+                        : `${result.addressMatches.length} cadastro(s) localizado(s) no mesmo endereço`
                       }
                     </p>
                   </div>
-                  <Badge className="bg-orange-100 text-orange-800 border-orange-300 border">
+                  <Badge className={`border ${
+                    result.notFound && result.addressMatches.some(m => m.hasDebt)
+                      ? "bg-red-100 text-red-800 border-red-300"
+                      : "bg-orange-100 text-orange-800 border-orange-300"
+                  }`}>
                     {result.addressMatches.length} cadastro(s)
                   </Badge>
                 </div>
 
                 <div className="p-5">
-                  <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4 flex items-start gap-2">
-                    <AlertTriangle className="w-4 h-4 text-orange-600 mt-0.5 flex-shrink-0" />
-                    <p className="text-sm text-orange-800">
-                      Foram encontrados outros cadastros com o mesmo endereco exato. Esse padrao pode indicar uso de diferentes documentos de membros da mesma familia para contratar servicos apos inadimplencia anterior.
-                    </p>
-                  </div>
+                  {result.notFound && result.addressMatches.some(m => m.hasDebt) ? (
+                    <div className="bg-red-50 border border-red-300 rounded-lg p-4 mb-4 flex items-start gap-3">
+                      <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-sm text-red-800 font-bold mb-1">
+                          Fraude de troca de documento detectada
+                        </p>
+                        <p className="text-sm text-red-700">
+                          O CPF/CNPJ consultado está limpo em todas as bases — mas o endereço de instalação tem histórico de inadimplência com outro(s) documento(s). Padrão típico de fraude: o inadimplente usa CPF de familiar ou terceiro para contratar novo serviço no mesmo imóvel.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4 flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-orange-600 mt-0.5 flex-shrink-0" />
+                      <p className="text-sm text-orange-800">
+                        Outros cadastros encontrados no mesmo endereço exato via rede N8N. Pode indicar uso de documentos diferentes de membros da mesma família após inadimplência anterior.
+                      </p>
+                    </div>
+                  )}
 
                   <div className="space-y-3">
                     {result.addressMatches.map((match, i) => (
@@ -1674,6 +1841,9 @@ ${addrRows ? `<section>
                             </span>
                             {match.isSameProvider && (
                               <Badge className="bg-blue-100 text-blue-700 border-0 text-xs">Seu cliente</Badge>
+                            )}
+                            {match.hasDebt && (
+                              <Badge className="bg-red-100 text-red-700 border-0 text-xs">Inadimplente</Badge>
                             )}
                           </div>
                           <p className="text-xs text-slate-500 mt-0.5">
@@ -1705,9 +1875,12 @@ ${addrRows ? `<section>
                     ))}
                   </div>
 
-                  <p className="text-xs text-slate-400 mt-4 text-center">
-                    Dados parcialmente anonimizados para clientes de outros provedores conforme politica de privacidade da rede.
-                  </p>
+                  <div className="flex items-center gap-2 mt-4 pt-3 border-t border-slate-100">
+                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />
+                    <p className="text-xs text-slate-400">
+                      Cruzamento realizado via rede N8N integrada — dados parcialmente anonimizados conforme política de privacidade.
+                    </p>
+                  </div>
                 </div>
               </Card>
             )}
