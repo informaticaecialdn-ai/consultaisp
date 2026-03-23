@@ -4012,7 +4012,23 @@ export async function registerRoutes(
           totalErrors: intg.totalErrors,
         };
       });
-      return res.json({ scheduler, integrations: list });
+      const n8nProviders = await storage.getAllProvidersWithN8n();
+      const cacheStatus = getCacheStatus();
+      const heatmapSources = n8nProviders.map((p) => {
+        const cs = cacheStatus.find((c) => c.providerId === p.id);
+        return {
+          providerId: p.id,
+          providerName: p.name,
+          n8nWebhookUrl: p.n8nWebhookUrl,
+          n8nEnabled: p.n8nEnabled,
+          cachePoints: cs?.points ?? 0,
+          fetchedAt: cs?.fetchedAt ?? null,
+          isStale: cs?.isStale ?? true,
+          status: cs?.status ?? "pending",
+          errorMessage: cs?.errorMessage,
+        };
+      });
+      return res.json({ scheduler, integrations: list, heatmapSources });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
     }

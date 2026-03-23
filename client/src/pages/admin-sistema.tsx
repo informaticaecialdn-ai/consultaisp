@@ -20,7 +20,7 @@ import {
   ChevronDown, Zap, Link2, QrCode, Wallet, ScanLine, RotateCcw,
   ExternalLink, Copy, CheckCircle2, EyeOff, Terminal, Save, AlertTriangle,
   Database, Upload, X, Pencil, ImagePlus, ToggleLeft, ToggleRight,
-  Play, Pause, CalendarClock, ServerCog, Wifi, WifiOff, Timer
+  Play, Pause, CalendarClock, ServerCog, Wifi, WifiOff, Timer, MapPin
 } from "lucide-react";
 import type { ErpCatalog } from "@shared/schema";
 
@@ -3046,6 +3046,56 @@ export default function AdminSistemaPage() {
               )}
             </Card>
 
+            {/* Heatmap N8N sources */}
+            {autoSyncStatus?.heatmapSources?.length > 0 && (
+              <Card className="p-0 overflow-hidden">
+                <div className="p-4 border-b flex items-center justify-between">
+                  <h3 className="font-semibold text-sm flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-orange-500" />
+                    Fontes do Mapa de Calor — N8N ({autoSyncStatus.heatmapSources.length} provedores)
+                  </h3>
+                </div>
+                <div className="divide-y">
+                  {autoSyncStatus.heatmapSources.map((src: any) => {
+                    const cacheColors: Record<string, string> = {
+                      ok: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300",
+                      error: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300",
+                      pending: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+                    };
+                    const cacheColor = cacheColors[src.status] || cacheColors.pending;
+                    return (
+                      <div key={src.providerId} className="p-4 flex items-center gap-4" data-testid={`heatmap-row-${src.providerId}`}>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium truncate">{src.providerName}</span>
+                            <Badge variant="outline" className="text-[10px] uppercase font-mono">IXC via N8N</Badge>
+                            <Badge className={`text-[10px] ${cacheColor}`}>{src.status === "ok" ? "ok" : src.status === "error" ? "erro" : "aguardando"}</Badge>
+                            {!src.n8nEnabled && (
+                              <Badge className="text-[10px] bg-gray-100 text-gray-500">N8N desativado</Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-4 mt-1 text-[11px] text-muted-foreground flex-wrap">
+                            <span>
+                              {src.fetchedAt
+                                ? `Ultimo cache: ${new Date(src.fetchedAt).toLocaleString("pt-BR")}`
+                                : "Cache ainda nao carregado"}
+                            </span>
+                            {src.cachePoints > 0 && (
+                              <span className="text-emerald-600">{src.cachePoints.toLocaleString("pt-BR")} pontos no mapa</span>
+                            )}
+                            {src.errorMessage && (
+                              <span className="text-red-500 truncate max-w-xs" title={src.errorMessage}>{src.errorMessage.slice(0, 80)}</span>
+                            )}
+                          </div>
+                          <div className="mt-1 text-[10px] text-muted-foreground/60 truncate">{src.n8nWebhookUrl}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            )}
+
             {/* Info box */}
             <Card className="p-4 bg-cyan-50 dark:bg-cyan-950/30 border-cyan-200 dark:border-cyan-800">
               <h4 className="text-sm font-semibold text-cyan-800 dark:text-cyan-200 flex items-center gap-2 mb-2">
@@ -3057,6 +3107,7 @@ export default function AdminSistemaPage() {
                 <li>• Apenas integracoes com <strong>status ativo e credenciais preenchidas</strong> sao sincronizadas.</li>
                 <li>• Os dados sincronizados alimentam automaticamente o <strong>Benchmarking Regional</strong> do Mapa de Calor.</li>
                 <li>• O provedor pode ajustar o intervalo a qualquer momento; a proxima execucao sera recalculada.</li>
+                <li>• As <strong>Fontes do Mapa de Calor</strong> (N8N) sao atualizadas automaticamente a cada 24h e buscam inadimplentes diretamente do IXC via proxy N8N.</li>
               </ul>
             </Card>
           </div>
