@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, getQueryFn } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { MessageSquare, X, Send, RefreshCw, ChevronDown, Headphones } from "lucide-react";
@@ -32,12 +32,14 @@ export function ChatWidget() {
 
   const { data: chatData, isLoading } = useQuery<{ thread: any; messages: any[] }>({
     queryKey: ["/api/chat/thread"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
     enabled: open,
     refetchInterval: open ? 4000 : false,
   });
 
   const { data: unreadData } = useQuery<{ count: number }>({
     queryKey: ["/api/chat/unread"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
     refetchInterval: 20000,
   });
 

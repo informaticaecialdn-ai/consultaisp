@@ -1,7 +1,17 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+function handleUnauthorized() {
+  if (window.location.pathname !== "/login") {
+    window.location.href = "/login";
+  }
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
+    if (res.status === 401) {
+      handleUnauthorized();
+      throw new Error("401: Sessão expirada. Redirecionando para o login...");
+    }
     const text = (await res.text()) || res.statusText;
     throw new Error(`${res.status}: ${text}`);
   }
@@ -19,6 +29,11 @@ export async function apiRequest(
     credentials: "include",
   });
 
+  if (res.status === 401) {
+    handleUnauthorized();
+    throw new Error("Sessão expirada. Faça login novamente.");
+  }
+
   await throwIfResNotOk(res);
   return res;
 }
@@ -33,8 +48,12 @@ export const getQueryFn: <T>(options: {
       credentials: "include",
     });
 
-    if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-      return null;
+    if (res.status === 401) {
+      if (unauthorizedBehavior === "returnNull") {
+        return null;
+      }
+      handleUnauthorized();
+      throw new Error("Sessão expirada. Faça login novamente.");
     }
 
     await throwIfResNotOk(res);
