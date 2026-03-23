@@ -12,10 +12,45 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Package, Upload, Plus, FileText, Download, CheckCircle, AlertTriangle,
   Trash2, RefreshCw, DollarSign, ChevronDown, Loader2, TableIcon,
+  Wifi, Router, ChevronRight, ChevronLeft, User, Settings,
+  Calendar, ScanLine, ArrowRight, Zap, Server, Network, Cpu,
 } from "lucide-react";
 import Papa from "papaparse";
 
-const TIPOS = ["ONU/ONT", "Roteador Wi-Fi", "Switch", "Conversor de Midia", "Access Point", "Outro"];
+const TIPOS_CONFIG = [
+  { id: "ONU/ONT", label: "ONU / ONT", icon: Zap, desc: "Fibra optica GPON/EPON", color: "blue" },
+  { id: "Roteador Wi-Fi", label: "Roteador Wi-Fi", icon: Router, desc: "Equipamento sem fio", color: "violet" },
+  { id: "Switch", label: "Switch", icon: Network, desc: "Comutador de rede", color: "emerald" },
+  { id: "Conversor de Midia", label: "Conversor de Midia", icon: ArrowRight, desc: "Media converter", color: "orange" },
+  { id: "Access Point", label: "Access Point", icon: Wifi, desc: "Ponto de acesso Wi-Fi", color: "cyan" },
+  { id: "Outro", label: "Outro", icon: Cpu, desc: "Outro equipamento", color: "slate" },
+];
+
+const MARCAS_POR_TIPO: Record<string, string[]> = {
+  "ONU/ONT": ["Intelbras", "ZTE", "Huawei", "FiberHome", "Nokia", "Motorola", "Datacom", "Outra"],
+  "Roteador Wi-Fi": ["Intelbras", "TP-Link", "Asus", "D-Link", "Mikrotik", "Ubiquiti", "Cisco", "Outra"],
+  "Switch": ["Intelbras", "Cisco", "D-Link", "TP-Link", "Mikrotik", "HP", "Outra"],
+  "Conversor de Midia": ["TP-Link", "Intelbras", "D-Link", "Cisco", "Outra"],
+  "Access Point": ["Ubiquiti", "Intelbras", "Cisco", "TP-Link", "Mikrotik", "Ruckus", "Outra"],
+  "Outro": ["Intelbras", "TP-Link", "ZTE", "Huawei", "Cisco", "Outra"],
+};
+
+const MODELOS_SUGERIDOS: Record<string, Record<string, string[]>> = {
+  "ONU/ONT": {
+    "Intelbras": ["WiFiber 1200R", "WiFiber 121 AC", "ONU 110", "WiFiber 300", "WiFiber AX 1800"],
+    "ZTE": ["F601", "F660", "F680", "F650"],
+    "Huawei": ["HG8310M", "HG8120C", "HG8245H", "EG8010H"],
+    "FiberHome": ["AN5506-04-F", "AN5506-04-FG", "HG220GS"],
+  },
+  "Roteador Wi-Fi": {
+    "Intelbras": ["Action RF1200", "Action RG1200", "Action A1200"],
+    "TP-Link": ["Archer C6", "Archer AX23", "TL-WR849N", "Archer AX10"],
+    "Asus": ["RT-AX55", "RT-AC750", "RT-AX3000"],
+    "Mikrotik": ["hAP ac²", "hAP ax²", "RB951Ui"],
+  },
+};
+
+const TIPOS = TIPOS_CONFIG.map(t => t.id);
 const MARCAS = ["Intelbras", "TP-Link", "ZTE", "Huawei", "FiberHome", "Nokia", "Cisco", "Outra"];
 const STATUS_LABELS: Record<string, string> = {
   retido: "Retido",
@@ -53,6 +88,8 @@ export default function ImportacaoEquipamentosPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState<"upload" | "manual" | "lista">("upload");
+  const [wizardStep, setWizardStep] = useState(1);
+  const [wizardErrors, setWizardErrors] = useState<Record<string, string>>({});
 
   const { data = { items: [], stats: {} }, isLoading } = useQuery<any>({
     queryKey: ["/api/equipamentos"],
@@ -75,7 +112,9 @@ export default function ImportacaoEquipamentosPage() {
     mutationFn: (data: any) => apiRequest("POST", "/api/equipamentos", data).then(r => r.json()),
     onSuccess: () => {
       toast({ title: "Equipamento cadastrado com sucesso" });
-      setForm({ cpfCnpj: "", nomeCliente: "", tipo: "ONU/ONT", marca: "Intelbras", modelo: "", numeroSerie: "", valor: "", dataPerda: "", observacao: "" });
+      setForm({ cpfCnpj: "", nomeCliente: "", tipo: "ONU/ONT", marca: "", modelo: "", numeroSerie: "", valor: "", dataPerda: "", observacao: "" });
+      setWizardStep(1);
+      setWizardErrors({});
       qc.invalidateQueries({ queryKey: ["/api/equipamentos"] });
       setActiveTab("lista");
     },
@@ -151,11 +190,48 @@ export default function ImportacaoEquipamentosPage() {
     }
   };
 
-  const handleSubmitManual = () => {
-    if (!form.cpfCnpj) {
-      toast({ title: "CPF/CNPJ obrigatorio", variant: "destructive" });
-      return;
+  const detectDocType = (v: string): "CPF" | "CNPJ" | null => {
+    const c = v.replace(/\D/g, "");
+    if (c.length === 11) return "CPF";
+    if (c.length === 14) return "CNPJ";
+    return null;
+  };
+
+  const formatDocAuto = (raw: string) => {
+    const c = raw.replace(/\D/g, "").slice(0, 14);
+    if (c.length <= 11) {
+      return c
+        .replace(/(\d{3})(\d)/, "$1.$2")
+        .replace(/(\d{3})(\d)/, "$1.$2")
+        .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
     }
+    return c
+      .replace(/(\d{2})(\d)/, "$1.$2")
+      .replace(/(\d{3})(\d)/, "$1.$2")
+      .replace(/(\d{3})(\d)/, "$1/$2")
+      .replace(/(\d{4})(\d{1,2})$/, "$1-$2");
+  };
+
+  const validateStep = (step: number): boolean => {
+    const errs: Record<string, string> = {};
+    if (step === 1) {
+      const c = form.cpfCnpj.replace(/\D/g, "");
+      if (!c) errs.cpfCnpj = "CPF ou CNPJ e obrigatorio";
+      else if (c.length !== 11 && c.length !== 14) errs.cpfCnpj = "CPF deve ter 11 digitos ou CNPJ 14 digitos";
+    }
+    if (step === 2) {
+      if (!form.tipo) errs.tipo = "Selecione o tipo de equipamento";
+    }
+    setWizardErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const advanceWizard = () => {
+    if (validateStep(wizardStep)) setWizardStep(s => Math.min(s + 1, 4));
+  };
+
+  const handleSubmitManual = () => {
+    if (!validateStep(wizardStep)) return;
     createMutation.mutate({
       cpfCnpj: form.cpfCnpj.replace(/\D/g, ""),
       nomeCliente: form.nomeCliente || null,
@@ -222,7 +298,10 @@ export default function ImportacaoEquipamentosPage() {
             return (
               <button
                 key={tab}
-                onClick={() => setActiveTab(tab)}
+                onClick={() => {
+                  setActiveTab(tab);
+                  if (tab === "manual") { setWizardStep(1); setWizardErrors({}); }
+                }}
                 data-testid={`tab-${tab}`}
                 className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
                   activeTab === tab ? "bg-amber-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
@@ -369,110 +448,421 @@ export default function ImportacaoEquipamentosPage() {
         )}
 
         {activeTab === "manual" && (
-          <Card className="p-6 space-y-4">
-            <h3 className="font-bold text-slate-900 flex items-center gap-2">
-              <Plus className="w-4 h-4 text-amber-600" />
-              Cadastro Manual de Equipamento
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-slate-700">CPF/CNPJ <span className="text-red-500">*</span></Label>
-                <Input
-                  value={form.cpfCnpj}
-                  onChange={(e) => setForm(f => ({ ...f, cpfCnpj: e.target.value }))}
-                  placeholder="000.000.000-00"
-                  data-testid="input-cpf-cnpj"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-slate-700">Nome do Cliente</Label>
-                <Input
-                  value={form.nomeCliente}
-                  onChange={(e) => setForm(f => ({ ...f, nomeCliente: e.target.value }))}
-                  placeholder="Nome completo"
-                  data-testid="input-nome-cliente"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-slate-700">Tipo de Equipamento <span className="text-red-500">*</span></Label>
-                <Select value={form.tipo} onValueChange={(v) => setForm(f => ({ ...f, tipo: v }))}>
-                  <SelectTrigger data-testid="select-tipo">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TIPOS.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-slate-700">Marca</Label>
-                <Select value={form.marca} onValueChange={(v) => setForm(f => ({ ...f, marca: v }))}>
-                  <SelectTrigger data-testid="select-marca">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MARCAS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-slate-700">Modelo</Label>
-                <Input
-                  value={form.modelo}
-                  onChange={(e) => setForm(f => ({ ...f, modelo: e.target.value }))}
-                  placeholder="Ex: GPON 1200R"
-                  data-testid="input-modelo"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-slate-700">Numero de Serie</Label>
-                <Input
-                  value={form.numeroSerie}
-                  onChange={(e) => setForm(f => ({ ...f, numeroSerie: e.target.value }))}
-                  placeholder="Serial do equipamento"
-                  data-testid="input-numero-serie"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-slate-700">Valor do Equipamento (R$)</Label>
-                <Input
-                  type="number"
-                  value={form.valor}
-                  onChange={(e) => setForm(f => ({ ...f, valor: e.target.value }))}
-                  placeholder="0.00"
-                  data-testid="input-valor"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-slate-700">Data da Perda</Label>
-                <Input
-                  type="date"
-                  value={form.dataPerda}
-                  onChange={(e) => setForm(f => ({ ...f, dataPerda: e.target.value }))}
-                  data-testid="input-data-perda"
-                />
-              </div>
-              <div className="space-y-1.5 md:col-span-2">
-                <Label className="text-xs font-semibold text-slate-700">Observacoes</Label>
-                <Textarea
-                  value={form.observacao}
-                  onChange={(e) => setForm(f => ({ ...f, observacao: e.target.value }))}
-                  placeholder="Ex: Nao devolvido apos cancelamento do contrato"
-                  rows={3}
-                  data-testid="input-observacao"
-                />
-              </div>
+          <div className="space-y-5">
+            {/* Stepper */}
+            <div className="flex items-center gap-0">
+              {[
+                { n: 1, label: "Cliente" },
+                { n: 2, label: "Equipamento" },
+                { n: 3, label: "Detalhes" },
+                { n: 4, label: "Revisao" },
+              ].map((step, i, arr) => (
+                <div key={step.n} className="flex items-center flex-1">
+                  <button
+                    onClick={() => { if (step.n < wizardStep) setWizardStep(step.n); }}
+                    className="flex flex-col items-center gap-1 flex-1"
+                    data-testid={`wizard-step-${step.n}`}
+                  >
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-black transition-all ${
+                      step.n < wizardStep ? "bg-emerald-500 text-white"
+                      : step.n === wizardStep ? "bg-amber-600 text-white ring-4 ring-amber-100 scale-110"
+                      : "bg-slate-100 text-slate-400"
+                    }`}>
+                      {step.n < wizardStep ? (
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : step.n}
+                    </div>
+                    <span className={`text-[11px] font-semibold ${step.n === wizardStep ? "text-amber-700" : step.n < wizardStep ? "text-emerald-600" : "text-slate-400"}`}>{step.label}</span>
+                  </button>
+                  {i < arr.length - 1 && (
+                    <div className={`h-0.5 flex-1 mx-1 mb-4 transition-colors ${step.n < wizardStep ? "bg-emerald-400" : "bg-slate-200"}`} />
+                  )}
+                </div>
+              ))}
             </div>
-            <Button
-              className="w-full gap-2 bg-amber-600 hover:bg-amber-700"
-              onClick={handleSubmitManual}
-              disabled={createMutation.isPending}
-              data-testid="button-salvar-equipamento"
-            >
-              {createMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              Salvar Equipamento
-            </Button>
-          </Card>
+
+            {/* Step 1: Identificacao */}
+            {wizardStep === 1 && (
+              <Card className="overflow-hidden shadow-lg rounded-2xl">
+                <div className="bg-amber-50 border-b border-amber-100 px-6 py-4 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center">
+                    <User className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900">Identificacao do Cliente</h3>
+                    <p className="text-xs text-slate-500">Informe o documento do cliente inadimplente</p>
+                  </div>
+                </div>
+                <div className="p-6 space-y-5">
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold text-slate-700">CPF ou CNPJ <span className="text-red-500">*</span></Label>
+                    <div className="relative">
+                      <Input
+                        value={form.cpfCnpj}
+                        onChange={(e) => {
+                          const fmt = formatDocAuto(e.target.value);
+                          setForm(f => ({ ...f, cpfCnpj: fmt }));
+                          if (wizardErrors.cpfCnpj) setWizardErrors(er => ({ ...er, cpfCnpj: "" }));
+                        }}
+                        onKeyDown={(e) => e.key === "Enter" && advanceWizard()}
+                        placeholder="Digite o CPF ou CNPJ..."
+                        className={`h-12 text-base pr-24 font-mono ${wizardErrors.cpfCnpj ? "border-red-400" : ""}`}
+                        data-testid="input-cpf-cnpj"
+                        maxLength={18}
+                      />
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                        {detectDocType(form.cpfCnpj) === "CPF" && (
+                          <Badge className="bg-green-100 text-green-700 text-xs font-bold">CPF</Badge>
+                        )}
+                        {detectDocType(form.cpfCnpj) === "CNPJ" && (
+                          <Badge className="bg-blue-100 text-blue-700 text-xs font-bold">CNPJ</Badge>
+                        )}
+                        {!detectDocType(form.cpfCnpj) && form.cpfCnpj.replace(/\D/g, "").length > 0 && (
+                          <Badge className="bg-slate-100 text-slate-500 text-xs">{form.cpfCnpj.replace(/\D/g, "").length}/11-14</Badge>
+                        )}
+                      </div>
+                    </div>
+                    {wizardErrors.cpfCnpj && <p className="text-xs text-red-500 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> {wizardErrors.cpfCnpj}</p>}
+                    {detectDocType(form.cpfCnpj) && (
+                      <p className="text-xs text-emerald-600 flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3" />
+                        {detectDocType(form.cpfCnpj)} valido detectado
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold text-slate-700">Nome do Cliente</Label>
+                    <Input
+                      value={form.nomeCliente}
+                      onChange={(e) => setForm(f => ({ ...f, nomeCliente: e.target.value }))}
+                      onKeyDown={(e) => e.key === "Enter" && advanceWizard()}
+                      placeholder="Ex: Joao da Silva"
+                      className="h-12 text-base"
+                      data-testid="input-nome-cliente"
+                    />
+                    <p className="text-xs text-slate-400">Opcional — facilita identificacao interna</p>
+                  </div>
+
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+                    <AlertTriangle className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-blue-800">
+                      <span className="font-semibold">Dica:</span> O documento sera consultado na rede ISP para cruzamento de dados.
+                      Qualquer outro provedor que consulte esse mesmo documento sera alertado sobre o equipamento retido.
+                    </p>
+                  </div>
+                </div>
+                <div className="border-t bg-slate-50 px-6 py-4 flex justify-end">
+                  <Button className="gap-2 bg-amber-600 hover:bg-amber-700" onClick={advanceWizard} data-testid="wizard-next-1">
+                    Continuar <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </Card>
+            )}
+
+            {/* Step 2: Tipo de Equipamento */}
+            {wizardStep === 2 && (
+              <Card className="overflow-hidden shadow-lg rounded-2xl">
+                <div className="bg-amber-50 border-b border-amber-100 px-6 py-4 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center">
+                    <Package className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900">Tipo de Equipamento</h3>
+                    <p className="text-xs text-slate-500">Selecione o tipo do equipamento retido</p>
+                  </div>
+                </div>
+                <div className="p-6 space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {TIPOS_CONFIG.map(tipo => {
+                      const selected = form.tipo === tipo.id;
+                      const colorMap: Record<string, string> = {
+                        blue: selected ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:border-blue-300 hover:bg-blue-50/50",
+                        violet: selected ? "border-violet-500 bg-violet-50" : "border-slate-200 hover:border-violet-300 hover:bg-violet-50/50",
+                        emerald: selected ? "border-emerald-500 bg-emerald-50" : "border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/50",
+                        orange: selected ? "border-orange-500 bg-orange-50" : "border-slate-200 hover:border-orange-300 hover:bg-orange-50/50",
+                        cyan: selected ? "border-cyan-500 bg-cyan-50" : "border-slate-200 hover:border-cyan-300 hover:bg-cyan-50/50",
+                        slate: selected ? "border-slate-500 bg-slate-100" : "border-slate-200 hover:border-slate-400",
+                      };
+                      const iconColorMap: Record<string, string> = {
+                        blue: selected ? "bg-blue-500 text-white" : "bg-blue-100 text-blue-600",
+                        violet: selected ? "bg-violet-500 text-white" : "bg-violet-100 text-violet-600",
+                        emerald: selected ? "bg-emerald-500 text-white" : "bg-emerald-100 text-emerald-600",
+                        orange: selected ? "bg-orange-500 text-white" : "bg-orange-100 text-orange-600",
+                        cyan: selected ? "bg-cyan-500 text-white" : "bg-cyan-100 text-cyan-600",
+                        slate: selected ? "bg-slate-500 text-white" : "bg-slate-100 text-slate-600",
+                      };
+                      return (
+                        <button
+                          key={tipo.id}
+                          onClick={() => {
+                            setForm(f => ({ ...f, tipo: tipo.id, marca: "", modelo: "" }));
+                            if (wizardErrors.tipo) setWizardErrors(er => ({ ...er, tipo: "" }));
+                          }}
+                          className={`p-4 rounded-xl border-2 transition-all text-left space-y-2 ${colorMap[tipo.color]}`}
+                          data-testid={`tipo-card-${tipo.id.replace(/\//g, "-").replace(/ /g, "-")}`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${iconColorMap[tipo.color]}`}>
+                              <tipo.icon className="w-4 h-4" />
+                            </div>
+                            {selected && (
+                              <div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center">
+                                <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                </svg>
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <p className="font-semibold text-slate-900 text-sm">{tipo.label}</p>
+                            <p className="text-[11px] text-slate-500">{tipo.desc}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {wizardErrors.tipo && <p className="text-xs text-red-500 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> {wizardErrors.tipo}</p>}
+                </div>
+                <div className="border-t bg-slate-50 px-6 py-4 flex justify-between">
+                  <Button variant="outline" className="gap-2" onClick={() => setWizardStep(1)} data-testid="wizard-back-2">
+                    <ChevronLeft className="w-4 h-4" /> Voltar
+                  </Button>
+                  <Button className="gap-2 bg-amber-600 hover:bg-amber-700" onClick={advanceWizard} disabled={!form.tipo} data-testid="wizard-next-2">
+                    Continuar <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </Card>
+            )}
+
+            {/* Step 3: Detalhes do Equipamento */}
+            {wizardStep === 3 && (
+              <Card className="overflow-hidden shadow-lg rounded-2xl">
+                <div className="bg-amber-50 border-b border-amber-100 px-6 py-4 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center">
+                    <Settings className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900">Detalhes do Equipamento</h3>
+                    <p className="text-xs text-slate-500">Marca, modelo, serial e valor para cobranca</p>
+                  </div>
+                </div>
+                <div className="p-6 space-y-5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-sm font-semibold text-slate-700">Marca</Label>
+                      <div className="flex flex-wrap gap-2">
+                        {(MARCAS_POR_TIPO[form.tipo] || MARCAS).map(m => (
+                          <button
+                            key={m}
+                            onClick={() => setForm(f => ({ ...f, marca: m, modelo: "" }))}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border-2 transition-colors ${
+                              form.marca === m
+                                ? "border-amber-500 bg-amber-50 text-amber-800"
+                                : "border-slate-200 text-slate-600 hover:border-amber-300"
+                            }`}
+                            data-testid={`marca-btn-${m}`}
+                          >
+                            {m}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-sm font-semibold text-slate-700">Modelo</Label>
+                      {form.marca && MODELOS_SUGERIDOS[form.tipo]?.[form.marca]?.length > 0 ? (
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap gap-2">
+                            {MODELOS_SUGERIDOS[form.tipo][form.marca].map(m => (
+                              <button
+                                key={m}
+                                onClick={() => setForm(f => ({ ...f, modelo: m }))}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                                  form.modelo === m
+                                    ? "border-amber-500 bg-amber-50 text-amber-800"
+                                    : "border-slate-200 text-slate-500 hover:border-amber-300"
+                                }`}
+                                data-testid={`modelo-btn-${m}`}
+                              >
+                                {m}
+                              </button>
+                            ))}
+                          </div>
+                          <Input
+                            value={form.modelo}
+                            onChange={(e) => setForm(f => ({ ...f, modelo: e.target.value }))}
+                            placeholder="Ou digite o modelo..."
+                            className="h-9 text-sm"
+                            data-testid="input-modelo"
+                          />
+                        </div>
+                      ) : (
+                        <Input
+                          value={form.modelo}
+                          onChange={(e) => setForm(f => ({ ...f, modelo: e.target.value }))}
+                          placeholder="Ex: GPON 1200R, Archer C6"
+                          className="h-10 text-sm"
+                          data-testid="input-modelo"
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <ScanLine className="w-3.5 h-3.5 text-slate-400" />
+                        Numero de Serie
+                      </Label>
+                      <Input
+                        value={form.numeroSerie}
+                        onChange={(e) => setForm(f => ({ ...f, numeroSerie: e.target.value }))}
+                        placeholder="SN-XXXXX ou codigo do equipamento"
+                        className="h-10 font-mono text-sm"
+                        data-testid="input-numero-serie"
+                      />
+                      <p className="text-[11px] text-slate-400">Usado para identificar o equipamento em campo</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <DollarSign className="w-3.5 h-3.5 text-slate-400" />
+                        Valor do Equipamento (R$)
+                      </Label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-500">R$</span>
+                        <Input
+                          type="number"
+                          value={form.valor}
+                          onChange={(e) => setForm(f => ({ ...f, valor: e.target.value }))}
+                          placeholder="0,00"
+                          className="h-10 pl-9 text-sm"
+                          data-testid="input-valor"
+                          step="0.01"
+                          min="0"
+                        />
+                      </div>
+                      {form.valor && parseFloat(form.valor) > 0 && (
+                        <p className="text-xs text-amber-700 font-semibold">
+                          Sera exibido como valor a cobrar do cliente
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="border-t bg-slate-50 px-6 py-4 flex justify-between">
+                  <Button variant="outline" className="gap-2" onClick={() => setWizardStep(2)} data-testid="wizard-back-3">
+                    <ChevronLeft className="w-4 h-4" /> Voltar
+                  </Button>
+                  <Button className="gap-2 bg-amber-600 hover:bg-amber-700" onClick={advanceWizard} data-testid="wizard-next-3">
+                    Continuar <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </Card>
+            )}
+
+            {/* Step 4: Data, Observacoes e Revisao */}
+            {wizardStep === 4 && (
+              <Card className="overflow-hidden shadow-lg rounded-2xl">
+                <div className="bg-amber-50 border-b border-amber-100 px-6 py-4 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center">
+                    <CheckCircle className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-900">Revisao e Confirmacao</h3>
+                    <p className="text-xs text-slate-500">Verifique os dados e finalize o cadastro</p>
+                  </div>
+                </div>
+                <div className="p-6 space-y-5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                        Data da Perda / Cancelamento
+                      </Label>
+                      <Input
+                        type="date"
+                        value={form.dataPerda}
+                        onChange={(e) => setForm(f => ({ ...f, dataPerda: e.target.value }))}
+                        className="h-10"
+                        data-testid="input-data-perda"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-sm font-semibold text-slate-700">Observacoes</Label>
+                      <Textarea
+                        value={form.observacao}
+                        onChange={(e) => setForm(f => ({ ...f, observacao: e.target.value }))}
+                        placeholder="Ex: Nao devolveu apos cancelamento em jan/25"
+                        rows={2}
+                        className="text-sm resize-none"
+                        data-testid="input-observacao"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Resumo */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+                    <p className="text-xs font-black text-slate-500 uppercase tracking-wide">Resumo do Cadastro</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { label: "Documento", value: form.cpfCnpj || "—", badge: detectDocType(form.cpfCnpj) },
+                        { label: "Cliente", value: form.nomeCliente || "Nao informado" },
+                        { label: "Tipo", value: form.tipo || "—" },
+                        { label: "Marca", value: form.marca || "Nao informada" },
+                        { label: "Modelo", value: form.modelo || "Nao informado" },
+                        { label: "Serie", value: form.numeroSerie || "Nao informado" },
+                        { label: "Valor", value: form.valor && parseFloat(form.valor) > 0 ? formatCurrency(parseFloat(form.valor)) : "Nao informado" },
+                        { label: "Data perda", value: form.dataPerda || "Nao informada" },
+                      ].map(row => (
+                        <div key={row.label} className="space-y-0.5">
+                          <p className="text-[10px] text-slate-400 font-semibold uppercase">{row.label}</p>
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-sm font-semibold text-slate-800">{row.value}</p>
+                            {row.badge && <Badge className="text-[9px] bg-emerald-100 text-emerald-700">{row.badge}</Badge>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {form.observacao && (
+                      <div className="pt-2 border-t border-slate-200">
+                        <p className="text-[10px] text-slate-400 font-semibold uppercase mb-0.5">Observacoes</p>
+                        <p className="text-sm text-slate-700">{form.observacao}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs text-amber-800">
+                      Ao salvar, este equipamento sera vinculado ao CPF/CNPJ informado.
+                      Qualquer consulta futura sobre este documento na rede Consulta ISP ira exibir o alerta de equipamento retido.
+                    </p>
+                  </div>
+                </div>
+                <div className="border-t bg-slate-50 px-6 py-4 flex justify-between">
+                  <Button variant="outline" className="gap-2" onClick={() => setWizardStep(3)} data-testid="wizard-back-4">
+                    <ChevronLeft className="w-4 h-4" /> Voltar
+                  </Button>
+                  <Button
+                    className="gap-2 bg-amber-600 hover:bg-amber-700 min-w-[160px]"
+                    onClick={handleSubmitManual}
+                    disabled={createMutation.isPending}
+                    data-testid="button-salvar-equipamento"
+                  >
+                    {createMutation.isPending ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Salvando...</>
+                    ) : (
+                      <><CheckCircle className="w-4 h-4" /> Confirmar Cadastro</>
+                    )}
+                  </Button>
+                </div>
+              </Card>
+            )}
+          </div>
         )}
 
         {activeTab === "lista" && (
