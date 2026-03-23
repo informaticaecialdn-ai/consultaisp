@@ -907,246 +907,267 @@ ${addrRows ? `<section>
                     </div>
                   </Card>
                 ) : !showFullResult ? (
-                  /* ── RESULTADO ESTILO CARD MOCKUP ── */
+                  /* ── RESULTADO — RELATÓRIO DE CRÉDITO ISP ── */
                   (() => {
                     const dc = result.decisionReco;
-                    const riskBadgeCls = result.riskTier === "low"
-                      ? "bg-emerald-600 text-white"
-                      : result.riskTier === "medium"
-                      ? "bg-amber-500 text-white"
-                      : result.riskTier === "high"
-                      ? "bg-orange-500 text-white"
-                      : "bg-red-600 text-white";
-                    const scorePct = Math.max(0, Math.min(100, result.score));
-                    const scoreBarColor = result.score >= 75 ? "bg-emerald-500"
-                      : result.score >= 50 ? "bg-yellow-500"
-                      : result.score >= 25 ? "bg-orange-500"
-                      : "bg-red-600";
+                    const score = Math.max(0, Math.min(100, result.score));
                     const totalEquipPending = result.providerDetails.reduce((s, d) => s + (d.hasUnreturnedEquipment ? d.unreturnedEquipmentCount : 0), 0);
                     const totalEquipValue = result.providerDetails.reduce((s, d) => {
                       if (!d.hasUnreturnedEquipment) return s;
-                      const count = d.unreturnedEquipmentCount || 0;
-                      return s + count * 290;
+                      return s + (d.unreturnedEquipmentCount || 0) * 290;
                     }, 0);
                     const externalProviders = result.providerDetails.filter(d => !d.isSameProvider);
                     const now = new Date();
                     const consultedAt = now.toLocaleDateString("pt-BR") + " " + now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 
+                    // Gauge SVG constants — semi-circle
+                    const R = 72;
+                    const CX = 90;
+                    const CY = 88;
+                    const arcLen = Math.PI * R; // ~226
+                    const scoreOffset = arcLen * (1 - score / 100);
+                    const gaugeColor = score >= 75 ? "#22c55e" : score >= 50 ? "#eab308" : score >= 25 ? "#f97316" : "#dc2626";
+                    const decisionCfg = dc === "Accept"
+                      ? { bg: "bg-emerald-600", border: "border-emerald-700", label: "APROVAR", icon: CheckCircle, sub: "Sem restrições na rede ISP" }
+                      : dc === "Reject"
+                      ? { bg: "bg-red-600", border: "border-red-700", label: "REJEITAR", icon: XCircle, sub: totalEquipPending > 0 ? `${totalEquipPending} equip. retido${totalEquipPending > 1 ? "s" : ""} · R$ ${totalEquipValue.toLocaleString("pt-BR")} em risco` : result.recommendation }
+                      : { bg: "bg-amber-500", border: "border-amber-600", label: "ANALISAR", icon: AlertCircle, sub: result.recommendation };
+
                     return (
                       <div className="space-y-3" data-testid="consultation-result-cards">
 
-                        {/* ── HEADER: CPF + Risk + Score bar ── */}
-                        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-                          {/* top bar */}
-                          <div className="bg-slate-900 px-5 py-3 flex items-center gap-2">
-                            <div className="flex gap-1.5">
-                              <span className="w-3 h-3 rounded-full bg-red-500" />
-                              <span className="w-3 h-3 rounded-full bg-yellow-500" />
-                              <span className="w-3 h-3 rounded-full bg-green-500" />
+                        {/* ══ HERO CARD: Gauge + Decision ══ */}
+                        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+
+                          {/* thin colored top stripe */}
+                          <div className={`h-1.5 w-full ${decisionCfg.bg}`} />
+
+                          {/* document header */}
+                          <div className="px-5 pt-4 pb-2 flex items-center justify-between">
+                            <div>
+                              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Relatório de Crédito ISP</p>
+                              <p className="text-xl font-black text-slate-900 font-mono tracking-tight mt-0.5" data-testid="text-consulted-doc">
+                                {result.searchType === "cep"
+                                  ? result.cpfCnpj.replace(/^(\d{5})(\d{3})$/, "$1-$2")
+                                  : formatCpfCnpj(result.cpfCnpj)}
+                              </p>
+                              <p className="text-[10px] text-slate-400 mt-0.5">
+                                {result.searchType === "cep" ? "CEP" : result.searchType === "cnpj" ? "CNPJ" : "CPF"} · Consultado em {consultedAt}
+                              </p>
                             </div>
-                            <span className="text-slate-400 text-xs ml-2 font-mono">Consulta ISP — Resultado detalhado</span>
+                            <div className="flex items-center gap-1.5 text-slate-400 text-[10px]">
+                              <Shield className="w-3.5 h-3.5 text-blue-500" />
+                              <span className="font-semibold text-blue-500">Rede ISP Colaborativa</span>
+                            </div>
                           </div>
 
-                          <div className="p-5">
-                            {/* CPF + risk */}
-                            <div className="flex items-start justify-between mb-4">
-                              <div>
-                                <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide mb-0.5">
-                                  {result.searchType === "cep" ? "CEP consultado" : result.searchType === "cnpj" ? "CNPJ consultado" : "CPF consultado"}
-                                </p>
-                                <p className="text-lg font-black text-slate-900 font-mono" data-testid="text-consulted-doc">
-                                  {result.searchType === "cep"
-                                    ? result.cpfCnpj.replace(/^(\d{5})(\d{3})$/, "$1-$2")
-                                    : formatCpfCnpj(result.cpfCnpj)}
-                                </p>
-                              </div>
-                              <div className="text-right">
-                                <span className={`text-xs font-black px-3 py-1.5 rounded-lg uppercase tracking-wide ${riskBadgeCls}`} data-testid="text-risk-badge">
-                                  {result.riskLabel}
-                                </span>
-                                <p className="text-[10px] text-slate-400 mt-1.5">Consultado em {consultedAt}</p>
-                              </div>
-                            </div>
+                          <div className="px-5 pb-5 grid grid-cols-[auto_1fr] gap-6 items-center">
 
-                            {/* Score bar */}
-                            <div className="mb-2">
-                              <div className="flex justify-between items-center mb-1">
-                                <p className="text-xs font-semibold text-slate-600">Score de crédito</p>
-                                <p className="text-sm font-black text-slate-900" data-testid="text-score-value">{result.score} / 100</p>
-                              </div>
-                              <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                                <div
-                                  className={`h-full rounded-full transition-all duration-700 ${scoreBarColor}`}
-                                  style={{ width: `${scorePct}%` }}
+                            {/* ── GAUGE SVG ── */}
+                            <div className="flex flex-col items-center">
+                              <svg width="180" height="100" viewBox="0 0 180 100">
+                                {/* background track */}
+                                <path
+                                  d={`M${CX - R},${CY} A${R},${R} 0 0 1 ${CX + R},${CY}`}
+                                  fill="none" stroke="#f1f5f9" strokeWidth="14" strokeLinecap="round"
                                 />
-                              </div>
-                              <div className="flex justify-between mt-1">
-                                {["Crítico", "Baixo", "Médio", "Bom", "Excelente"].map((label) => (
-                                  <span key={label} className="text-[9px] text-slate-400">{label}</span>
-                                ))}
-                              </div>
+                                {/* colored zone ticks */}
+                                {[
+                                  { from: 0, to: 25, color: "#fecaca" },
+                                  { from: 25, to: 50, color: "#fed7aa" },
+                                  { from: 50, to: 75, color: "#fef08a" },
+                                  { from: 75, to: 100, color: "#bbf7d0" },
+                                ].map((z, zi) => {
+                                  const startAngle = Math.PI * (1 - z.from / 100);
+                                  const endAngle = Math.PI * (1 - z.to / 100);
+                                  const x1 = CX - R * Math.cos(startAngle);
+                                  const y1 = CY - R * Math.sin(startAngle);
+                                  const x2 = CX - R * Math.cos(endAngle);
+                                  const y2 = CY - R * Math.sin(endAngle);
+                                  const large = z.to - z.from > 50 ? 1 : 0;
+                                  return (
+                                    <path key={zi}
+                                      d={`M${x1},${y1} A${R},${R} 0 ${large} 0 ${x2},${y2}`}
+                                      fill="none" stroke={z.color} strokeWidth="14" strokeLinecap="butt"
+                                    />
+                                  );
+                                })}
+                                {/* animated score arc */}
+                                <path
+                                  d={`M${CX - R},${CY} A${R},${R} 0 0 1 ${CX + R},${CY}`}
+                                  fill="none"
+                                  stroke={gaugeColor}
+                                  strokeWidth="14"
+                                  strokeLinecap="round"
+                                  strokeDasharray={arcLen}
+                                  strokeDashoffset={scoreOffset}
+                                  style={{ transition: "stroke-dashoffset 0.8s ease" }}
+                                />
+                                {/* center score */}
+                                <text x={CX} y={CY - 10} textAnchor="middle" fontSize="28" fontWeight="900" fill="#0f172a" fontFamily="monospace">
+                                  {score}
+                                </text>
+                                <text x={CX} y={CY + 6} textAnchor="middle" fontSize="9" fill="#94a3b8" fontWeight="700" letterSpacing="1">
+                                  DE 100
+                                </text>
+                                {/* zone labels */}
+                                <text x={CX - R - 4} y={CY + 14} textAnchor="end" fontSize="7.5" fill="#94a3b8">Crítico</text>
+                                <text x={CX + R + 4} y={CY + 14} textAnchor="start" fontSize="7.5" fill="#94a3b8">Excelente</text>
+                              </svg>
+                              <p className="text-xs font-bold mt-1 tracking-wide" style={{ color: gaugeColor }} data-testid="text-risk-badge">
+                                {result.riskLabel}
+                              </p>
                             </div>
 
-                            {result.isHistoryResult && (
-                              <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-center gap-2">
-                                <Clock className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
-                                <p className="text-xs text-amber-800">Dados do histórico — podem não refletir a situação atual.</p>
+                            {/* ── DECISION + KEY STATS ── */}
+                            <div className="space-y-3">
+                              {/* decision block */}
+                              <div className={`${decisionCfg.bg} rounded-xl px-4 py-3 flex items-center gap-3`} data-testid="ai-suggestion-banner">
+                                <decisionCfg.icon className="w-7 h-7 text-white flex-shrink-0" />
+                                <div>
+                                  <p className="text-[9px] font-bold text-white/70 uppercase tracking-widest">Sugestão IA</p>
+                                  <p className="text-lg font-black text-white leading-none" data-testid="text-ai-recommendation">{decisionCfg.label}</p>
+                                </div>
+                                <div className="ml-auto border-l border-white/25 pl-3">
+                                  <p className="text-[10px] text-white/80 leading-snug max-w-[130px]">{decisionCfg.sub}</p>
+                                </div>
                               </div>
-                            )}
+
+                              {/* stat chips row */}
+                              <div className="grid grid-cols-3 gap-2">
+                                <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-center">
+                                  <p className="text-[10px] text-slate-400 font-semibold">Provedores</p>
+                                  <p className="text-lg font-black text-slate-800">{result.providersFound || result.providerDetails.length}</p>
+                                </div>
+                                <div className={`border rounded-xl p-2.5 text-center ${totalEquipPending > 0 ? "bg-amber-50 border-amber-200" : "bg-slate-50 border-slate-200"}`}>
+                                  <p className="text-[10px] text-slate-400 font-semibold">Equip. retidos</p>
+                                  <p className={`text-lg font-black ${totalEquipPending > 0 ? "text-amber-600" : "text-slate-800"}`}>{totalEquipPending}</p>
+                                </div>
+                                <div className={`border rounded-xl p-2.5 text-center ${externalProviders.length > 0 ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200"}`}>
+                                  <p className="text-[10px] text-slate-400 font-semibold">Externos</p>
+                                  <p className={`text-lg font-black ${externalProviders.length > 0 ? "text-red-600" : "text-slate-800"}`}>{externalProviders.length}</p>
+                                </div>
+                              </div>
+                            </div>
                           </div>
                         </div>
 
-                        {/* ── PROVIDER CARDS GRID ── */}
-                        <div className={`grid gap-3 ${result.providerDetails.length > 1 ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
-                          {result.providerDetails.map((detail, i) => {
-                            const isOwn = detail.isSameProvider;
-                            const debtStr = isOwn && detail.overdueAmount != null
-                              ? `R$ ${detail.overdueAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
-                              : detail.overdueAmountRange || null;
-                            const maskedName = !isOwn
-                              ? (() => {
-                                  const parts = detail.customerName.split(" ");
-                                  return parts[0] + (parts[1] ? " " + parts[1][0] + "." : "") + (parts.length > 2 ? " " + parts[parts.length - 1][0] + "***" : "***");
-                                })()
-                              : detail.customerName;
-                            const locationStr = isOwn
-                              ? detail.address || (detail.addressCity ? `${detail.addressCity}${detail.addressState ? "/" + detail.addressState : ""}` : null)
-                              : detail.addressCity ? `${detail.addressCity}${detail.addressState ? "/" + detail.addressState : ""}` : null;
-
-                            return (
-                              <div
-                                key={i}
-                                className={`rounded-2xl border-2 p-4 ${isOwn ? "border-emerald-200 bg-emerald-50/40" : "border-slate-200 bg-slate-50/40"}`}
-                                data-testid={`provider-card-${i}`}
-                              >
-                                {/* card header */}
-                                <div className="flex items-center justify-between mb-3">
-                                  <div className="flex items-center gap-2">
-                                    <span className={`text-[10px] font-black uppercase tracking-wide px-2 py-0.5 rounded-md ${isOwn ? "bg-emerald-200 text-emerald-800" : "bg-slate-200 text-slate-600"}`}>
-                                      {isOwn ? "Seu provedor" : "Outro provedor"}
-                                    </span>
-                                    {!isOwn && (
-                                      <Lock className="w-3 h-3 text-slate-400" />
-                                    )}
-                                  </div>
-                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${isOwn ? "bg-white border-emerald-300 text-emerald-700" : "bg-white border-blue-200 text-blue-600"}`} data-testid={`cost-badge-${i}`}>
-                                    {isOwn ? "Grátis" : "1 crédito"}
-                                  </span>
-                                </div>
-
-                                {/* name + location */}
-                                <p className="text-base font-black text-slate-900 mb-0.5 truncate" data-testid={`customer-name-${i}`}>
-                                  {maskedName}
-                                </p>
-                                {locationStr && (
-                                  <p className="text-xs text-slate-500 mb-3 flex items-center gap-1">
-                                    <MapPin className="w-3 h-3 text-slate-400 flex-shrink-0" />
-                                    {locationStr}
-                                    {!isOwn && <Lock className="w-2.5 h-2.5 text-slate-300 ml-0.5" />}
-                                  </p>
-                                )}
-
-                                {/* data rows */}
-                                <div className="space-y-2 text-xs">
-                                  <div className="flex justify-between items-center">
-                                    <span className="text-slate-500">Atraso</span>
-                                    <span className={`font-bold ${detail.daysOverdue > 0 ? "text-red-600" : "text-emerald-600"}`} data-testid={`days-overdue-${i}`}>
-                                      {detail.daysOverdue > 0 ? `${detail.daysOverdue} dias` : "Em dia"}
-                                    </span>
-                                  </div>
-                                  {debtStr && (
-                                    <div className="flex justify-between items-center">
-                                      <span className="text-slate-500">{isOwn ? "Valor" : "Faixa"}</span>
-                                      <span className="font-bold text-red-600" data-testid={`debt-value-${i}`}>{debtStr}</span>
-                                    </div>
-                                  )}
-                                  {detail.overdueInvoicesCount > 0 && (
-                                    <div className="flex justify-between items-center">
-                                      <span className="text-slate-500">Faturas</span>
-                                      <span className="font-bold text-red-600">{detail.overdueInvoicesCount} em atraso</span>
-                                    </div>
-                                  )}
-                                  {detail.hasUnreturnedEquipment && (
-                                    <div className="flex justify-between items-center">
-                                      <span className="text-slate-500">Equip.</span>
-                                      <span className="font-bold text-amber-600 flex items-center gap-1">
-                                        <Router className="w-3 h-3" />
-                                        {detail.unreturnedEquipmentCount} retidos
-                                      </span>
-                                    </div>
-                                  )}
-                                  <div className="flex justify-between items-center">
-                                    <span className="text-slate-500">Situação</span>
-                                    <span className={`font-semibold px-1.5 py-0.5 rounded text-[10px] ${
-                                      detail.contractStatus === "active" ? "bg-emerald-100 text-emerald-700" :
-                                      detail.contractStatus === "cancelled" ? "bg-red-100 text-red-700" :
-                                      detail.contractStatus === "suspended" ? "bg-yellow-100 text-yellow-700" :
-                                      "bg-slate-100 text-slate-500"
-                                    }`} data-testid={`contract-status-${i}`}>
-                                      {detail.contractStatus === "active" ? "Contrato Ativo" :
-                                       detail.contractStatus === "cancelled" ? "Contrato Cancelado" :
-                                       detail.contractStatus === "suspended" ? "Contrato Suspenso" :
-                                       "Sem Contrato"}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                {/* see full details */}
-                                <button
-                                  className="mt-3 w-full text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center justify-center gap-1 py-1.5 rounded-lg hover:bg-blue-50 transition-colors border border-transparent hover:border-blue-100"
-                                  onClick={() => { setShowFullResult(true); setSelectedProviderIdx(i); }}
-                                  data-testid={`button-ver-informacoes-${i}`}
-                                >
-                                  <Info className="w-3.5 h-3.5" />
-                                  Ver detalhes completos
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-
-                        {/* ── AI SUGGESTION BANNER ── */}
-                        {dc !== "Accept" && (
-                          <div className={`rounded-2xl p-4 flex items-center gap-4 ${dc === "Reject" ? "bg-red-600" : "bg-amber-500"}`} data-testid="ai-suggestion-banner">
-                            <div className="flex-shrink-0 text-center">
-                              <p className="text-[9px] font-bold text-white/80 uppercase tracking-widest">Sugestão IA</p>
-                              <p className="text-base font-black text-white leading-none mt-0.5">
-                                {dc === "Reject" ? "REJEITAR" : "ANALISAR"}
-                              </p>
+                        {/* ══ FATORES DE RISCO (pills) ══ */}
+                        {(result.penalties?.length > 0 || result.bonuses?.length > 0) && (
+                          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Fatores analisados</p>
+                            <div className="flex flex-wrap gap-2">
+                              {result.penalties?.map((p: any, i: number) => (
+                                <span key={`p-${i}`} className="inline-flex items-center gap-1.5 bg-red-50 border border-red-200 text-red-700 text-[11px] font-semibold px-2.5 py-1 rounded-full">
+                                  <span className="w-3.5 h-3.5 bg-red-500 text-white rounded-full text-[8px] flex items-center justify-center font-black flex-shrink-0">−</span>
+                                  {p.reason}
+                                </span>
+                              ))}
+                              {result.bonuses?.map((b: any, i: number) => (
+                                <span key={`b-${i}`} className="inline-flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-semibold px-2.5 py-1 rounded-full">
+                                  <span className="w-3.5 h-3.5 bg-emerald-500 text-white rounded-full text-[8px] flex items-center justify-center font-black flex-shrink-0">+</span>
+                                  {b.reason}
+                                </span>
+                              ))}
                             </div>
-                            <div className="w-px self-stretch bg-white/30" />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-white" data-testid="text-ai-recommendation">
-                                {totalEquipPending > 0
-                                  ? `${totalEquipPending} equipamento${totalEquipPending > 1 ? "s" : ""} não devolvido${totalEquipPending > 1 ? "s" : ""}`
-                                  : result.recommendation}
-                              </p>
-                              <p className="text-xs text-white/80 mt-0.5">
-                                {totalEquipPending > 0
-                                  ? `Valor em risco: R$ ${totalEquipValue.toLocaleString("pt-BR")} · ${externalProviders.length > 0 ? externalProviders.length + " provedor(es) na rede" : "histórico próprio"}`
-                                  : result.riskLabel}
-                              </p>
-                            </div>
-                            {dc === "Reject" && <XCircle className="w-8 h-8 text-white/80 flex-shrink-0" />}
-                            {dc === "Review" && <AlertCircle className="w-8 h-8 text-white/80 flex-shrink-0" />}
-                          </div>
-                        )}
-                        {dc === "Accept" && (
-                          <div className="rounded-2xl p-4 flex items-center gap-4 bg-emerald-600" data-testid="ai-suggestion-banner">
-                            <div className="flex-shrink-0 text-center">
-                              <p className="text-[9px] font-bold text-white/80 uppercase tracking-widest">Sugestão IA</p>
-                              <p className="text-base font-black text-white leading-none mt-0.5">APROVAR</p>
-                            </div>
-                            <div className="w-px self-stretch bg-white/30" />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-white">{result.recommendation}</p>
-                              <p className="text-xs text-white/80 mt-0.5">{result.riskLabel}</p>
-                            </div>
-                            <CheckCircle className="w-8 h-8 text-white/80 flex-shrink-0" />
                           </div>
                         )}
 
-                        {/* ── ACTIONS ── */}
+                        {/* ══ HISTÓRICO DE PROVEDORES (timeline) ══ */}
+                        {result.providerDetails.length > 0 && (
+                          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                            <div className="px-5 pt-4 pb-2 border-b border-slate-100">
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Histórico na rede ISP</p>
+                            </div>
+                            <div className="divide-y divide-slate-100">
+                              {result.providerDetails.map((detail, i) => {
+                                const isOwn = detail.isSameProvider;
+                                const debtStr = isOwn && detail.overdueAmount != null
+                                  ? `R$ ${detail.overdueAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+                                  : detail.overdueAmountRange || null;
+                                const maskedName = !isOwn
+                                  ? (() => {
+                                      const parts = detail.customerName.split(" ");
+                                      return parts[0] + (parts[1] ? " " + parts[1][0] + "." : "") + (parts.length > 2 ? " " + parts[parts.length - 1][0] + "***" : "***");
+                                    })()
+                                  : detail.customerName;
+                                const locationStr = isOwn
+                                  ? detail.address || (detail.addressCity ? `${detail.addressCity}${detail.addressState ? "/" + detail.addressState : ""}` : null)
+                                  : detail.addressCity ? `${detail.addressCity}${detail.addressState ? "/" + detail.addressState : ""}` : null;
+                                const isDelinquent = detail.daysOverdue > 0;
+
+                                return (
+                                  <div key={i} className="flex items-stretch" data-testid={`provider-card-${i}`}>
+                                    {/* colored left bar */}
+                                    <div className={`w-1 flex-shrink-0 ${isOwn ? "bg-emerald-400" : isDelinquent ? "bg-red-400" : "bg-slate-300"}`} />
+
+                                    <div className="flex-1 px-4 py-3">
+                                      <div className="flex items-start justify-between gap-3">
+                                        {/* left: name + badges */}
+                                        <div className="min-w-0">
+                                          <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                                            <span className={`text-[9px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded ${isOwn ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                                              {isOwn ? "Seu provedor" : "Provedor parceiro"}
+                                            </span>
+                                            {!isOwn && <Lock className="w-3 h-3 text-slate-300" />}
+                                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${isOwn ? "bg-white border-emerald-200 text-emerald-600" : "bg-white border-blue-100 text-blue-500"}`} data-testid={`cost-badge-${i}`}>
+                                              {isOwn ? "Grátis" : "1 crédito"}
+                                            </span>
+                                          </div>
+                                          <p className="text-sm font-black text-slate-900 truncate" data-testid={`customer-name-${i}`}>{maskedName}</p>
+                                          {locationStr && (
+                                            <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+                                              <MapPin className="w-2.5 h-2.5 flex-shrink-0" />
+                                              {locationStr}
+                                              {!isOwn && <Lock className="w-2 h-2 text-slate-300" />}
+                                            </p>
+                                          )}
+                                        </div>
+
+                                        {/* right: status + debt */}
+                                        <div className="text-right flex-shrink-0 space-y-1">
+                                          <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                            isDelinquent ? "bg-red-100 text-red-700" :
+                                            detail.contractStatus === "active" ? "bg-emerald-100 text-emerald-700" :
+                                            "bg-slate-100 text-slate-500"
+                                          }`} data-testid={`contract-status-${i}`}>
+                                            {isDelinquent ? `${detail.daysOverdue} dias em atraso` :
+                                             detail.contractStatus === "active" ? "Em dia" :
+                                             detail.contractStatus === "cancelled" ? "Cancelado" :
+                                             detail.contractStatus === "suspended" ? "Suspenso" : "Sem contrato"}
+                                          </span>
+                                          {debtStr && (
+                                            <p className="text-sm font-black text-red-600" data-testid={`debt-value-${i}`}>{debtStr}</p>
+                                          )}
+                                          {detail.overdueInvoicesCount > 0 && (
+                                            <p className="text-[10px] text-red-500">{detail.overdueInvoicesCount} fatura{detail.overdueInvoicesCount > 1 ? "s" : ""} em atraso</p>
+                                          )}
+                                          {detail.hasUnreturnedEquipment && (
+                                            <p className="text-[10px] font-bold text-amber-600 flex items-center justify-end gap-1">
+                                              <Router className="w-2.5 h-2.5" />
+                                              {detail.unreturnedEquipmentCount} equip. retido{detail.unreturnedEquipmentCount > 1 ? "s" : ""}
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      <button
+                                        className="mt-2 text-[10px] font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
+                                        onClick={() => { setShowFullResult(true); setSelectedProviderIdx(i); }}
+                                        data-testid={`button-ver-informacoes-${i}`}
+                                      >
+                                        <Info className="w-3 h-3" />
+                                        Ver detalhes completos
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* ══ AÇÕES ══ */}
                         <div className="flex items-center justify-between gap-3 flex-wrap">
                           <Button
                             variant="outline"
@@ -1160,11 +1181,11 @@ ${addrRows ? `<section>
                           <div className="flex gap-2">
                             <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={handleSaveConsulta} data-testid="button-save-consulta">
                               <Save className="w-3.5 h-3.5" />
-                              Salvar no histórico
+                              Salvar
                             </Button>
                             <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={generatePDF} data-testid="button-generate-pdf">
                               <Download className="w-3.5 h-3.5" />
-                              Gerar PDF
+                              PDF
                             </Button>
                           </div>
                         </div>
