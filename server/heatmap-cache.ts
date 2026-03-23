@@ -1,5 +1,8 @@
 import { storage } from "./storage";
 
+const N8N_PROXY_URL = "https://n8n.aluisiocunha.com.br/webhook/ixc-inadimplentes";
+const N8N_PROXY_AUTH = "Basic aXNwX2FuYWxpenplOmlzcGFuYWxpenplMTIzMTIz";
+
 export type HeatPoint = {
   lat: number;
   lng: number;
@@ -63,6 +66,80 @@ async function geocodeCep(cep: string): Promise<{ city: string; state: string } 
   return null;
 }
 
+async function fetchPageFromN8nProxy(
+  apiUrlStripped: string,
+  authHeader: string,
+  page: number,
+  pageSize: number,
+): Promise<any | null> {
+  try {
+    const res = await fetch(N8N_PROXY_URL, {
+      method: "POST",
+      headers: {
+        Authorization: N8N_PROXY_AUTH,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        api_url: apiUrlStripped,
+        auth_header: authHeader,
+        page: String(page),
+        rp: String(pageSize),
+      }),
+      signal: AbortSignal.timeout(35000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data?.type === "error") return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchPageDirectFromIxc(
+  endpoint: string,
+  authHeader: string,
+  page: number,
+  pageSize: number,
+): Promise<any> {
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: authHeader,
+      "Content-Type": "application/json",
+      ixcsoft: "listar",
+    },
+    body: JSON.stringify({
+      qtype: "fn_areceber.status",
+      query: "A",
+      oper: "=",
+      page: String(page),
+      rp: String(pageSize),
+      sortname: "fn_areceber.id",
+      sortorder: "asc",
+    }),
+    signal: AbortSignal.timeout(30000),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    if (text.includes("IP") && text.includes("liberado")) {
+      throw new Error(
+        "IP não liberado no IXC — importe o workflow 'IXC Heatmap - Inadimplentes em Massa' no N8N e ative-o para contornar a restrição de IP.",
+      );
+    }
+    throw new Error(`IXC retornou ${res.status}: ${text.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+  if (data?.type === "error" && typeof data.message === "string" && data.message.includes("IP")) {
+    throw new Error(
+      "IP não liberado no IXC — importe o workflow 'IXC Heatmap - Inadimplentes em Massa' no N8N e ative-o para contornar a restrição de IP.",
+    );
+  }
+  return data;
+}
+
 async function fetchIxcDelinquents(apiUrl: string, apiUser: string, apiToken: string): Promise<{
   cpfCnpj: string;
   name: string;
@@ -72,91 +149,94 @@ async function fetchIxcDelinquents(apiUrl: string, apiUser: string, apiToken: st
   amount: number;
   daysOverdue: number;
 }[]> {
-  const basicAuth = Buffer.from(`${apiUser}:${apiToken}`).toString("base64");
+  const authHeader = `Basic ${Buffer.from(`${apiUser}:${apiToken}`).toString("base64")}`;
+  const apiUrlStripped = apiUrl.replace(/^https?:\/\//, "");
   const base = apiUrl.startsWith("http") ? apiUrl : `https://${apiUrl}`;
-  const endpoint = `${base}/webservice/v1/fn_areceber`;
-  const headers = {
-    Authorization: `Basic ${basicAuth}`,
-    "Content-Type": "application/json",
-    ixcsoft: "listar",
-  };
+  const directEndpoint = `${base}/webservice/v1/fn_areceber`;
 
   const byClient = new Map<string, { name: string; city: string; state: string; cep: string; amount: number; daysOverdue: number }>();
   const today = new Date();
   const PAGE_SIZE = 500;
   let page = 1;
   let totalFetched = 0;
+  let useN8n = true;
+
+  // Probe: test if N8N proxy responds (page 1 attempt via N8N first)
+  const probeData = await fetchPageFromN8nProxy(apiUrlStripped, authHeader, 1, PAGE_SIZE);
+  if (!probeData) {
+    useN8n = false;
+    console.log(`[HeatmapCache] N8N proxy indisponível — usando chamada direta ao IXC`);
+  } else {
+    const rows: any[] = probeData.registros || probeData.rows || (Array.isArray(probeData) ? probeData : []);
+    processRows(rows, byClient, today);
+    totalFetched = rows.length;
+    const total = parseInt(probeData.total || probeData.count || "0", 10);
+    if (total > 0 && totalFetched >= total) {
+      return finalise(byClient);
+    }
+    if (rows.length < PAGE_SIZE) return finalise(byClient);
+    page = 2;
+  }
 
   while (true) {
-    const body = {
-      qtype: "fn_areceber.status",
-      query: "A",
-      oper: "=",
-      page: String(page),
-      rp: String(PAGE_SIZE),
-      sortname: "fn_areceber.id",
-      sortorder: "asc",
-    };
-
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(30000),
-    });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      if (text.includes("IP") && text.includes("liberado")) {
-        throw new Error(`IP não liberado no IXC — libere o IP do servidor de produção nas configurações do IXC`);
+    let data: any;
+    if (useN8n) {
+      data = await fetchPageFromN8nProxy(apiUrlStripped, authHeader, page, PAGE_SIZE);
+      if (!data) {
+        useN8n = false;
+        data = await fetchPageDirectFromIxc(directEndpoint, authHeader, page, PAGE_SIZE);
       }
-      throw new Error(`IXC retornou ${res.status}: ${text.slice(0, 200)}`);
-    }
-
-    const data = await res.json();
-
-    if (data.type === "error" || (typeof data.message === "string" && data.message.includes("IP"))) {
-      throw new Error(`IP não liberado no IXC — libere o IP do servidor de produção nas configurações do IXC`);
+    } else {
+      data = await fetchPageDirectFromIxc(directEndpoint, authHeader, page, PAGE_SIZE);
     }
 
     const rows: any[] = data.registros || data.rows || (Array.isArray(data) ? data : []);
     if (rows.length === 0) break;
 
-    for (const r of rows) {
-      const cpf = (r.cpf_cnpj || r.cnpj || r.id_cliente || "").toString().replace(/\D/g, "");
-      if (!cpf) continue;
-      const amount = parseFloat(r.valor || r.valor_original || "0") || 0;
-      const due = r.vencimento || r.data_vencimento;
-      const daysOverdue = due ? Math.max(0, Math.floor((today.getTime() - new Date(due).getTime()) / 86400000)) : 0;
-      const existing = byClient.get(cpf);
-      if (existing) {
-        existing.amount += amount;
-        if (daysOverdue > existing.daysOverdue) existing.daysOverdue = daysOverdue;
-      } else {
-        byClient.set(cpf, {
-          name: r.razao || r.nome || r.name || cpf,
-          city: r.cidade || r.city || "",
-          state: r.uf || r.state || "",
-          cep: (r.cep || "").replace(/\D/g, ""),
-          amount,
-          daysOverdue,
-        });
-      }
-    }
-
+    processRows(rows, byClient, today);
     totalFetched += rows.length;
 
     const total = parseInt(data.total || data.count || "0", 10);
     if (total > 0 && totalFetched >= total) break;
     if (rows.length < PAGE_SIZE) break;
-
     page++;
   }
 
-  return Array.from(byClient.entries()).map(([cpf, v]) => ({
-    cpfCnpj: cpf,
-    ...v,
-  }));
+  return finalise(byClient);
+}
+
+function processRows(
+  rows: any[],
+  byClient: Map<string, { name: string; city: string; state: string; cep: string; amount: number; daysOverdue: number }>,
+  today: Date,
+) {
+  for (const r of rows) {
+    const cpf = (r.cpf_cnpj || r.cnpj || r.id_cliente || "").toString().replace(/\D/g, "");
+    if (!cpf) continue;
+    const amount = parseFloat(r.valor || r.valor_original || "0") || 0;
+    const due = r.vencimento || r.data_vencimento;
+    const daysOverdue = due ? Math.max(0, Math.floor((today.getTime() - new Date(due).getTime()) / 86400000)) : 0;
+    const existing = byClient.get(cpf);
+    if (existing) {
+      existing.amount += amount;
+      if (daysOverdue > existing.daysOverdue) existing.daysOverdue = daysOverdue;
+    } else {
+      byClient.set(cpf, {
+        name: r.razao || r.nome || r.name || cpf,
+        city: r.cidade || r.city || "",
+        state: r.uf || r.state || "",
+        cep: (r.cep || "").replace(/\D/g, ""),
+        amount,
+        daysOverdue,
+      });
+    }
+  }
+}
+
+function finalise(
+  byClient: Map<string, { name: string; city: string; state: string; cep: string; amount: number; daysOverdue: number }>,
+) {
+  return Array.from(byClient.entries()).map(([cpf, v]) => ({ cpfCnpj: cpf, ...v }));
 }
 
 export async function refreshProviderCache(
