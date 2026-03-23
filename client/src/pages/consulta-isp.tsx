@@ -846,23 +846,21 @@ ${addrRows ? `<section>
                 )}
 
                 {detectedType && detectedType !== "CEP" && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-center justify-between gap-3" data-testid="banner-custo-estimado">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
-                        <CreditCard className="w-4 h-4 text-amber-600" />
+                  <div className="flex items-center gap-1.5 text-xs text-slate-400" data-testid="banner-custo-estimado">
+                    <div className="relative group">
+                      <button className="flex items-center gap-1 text-amber-600 hover:text-amber-700 transition-colors" type="button">
+                        <CreditCard className="w-3.5 h-3.5" />
+                        <span className="text-xs font-medium">Custo estimado: até 2 créditos</span>
+                      </button>
+                      <div className="absolute bottom-full left-0 mb-2 w-64 bg-slate-900 text-white text-xs rounded-xl p-3 shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150 z-50">
+                        <p className="font-semibold text-amber-300 mb-1.5">Custo da consulta</p>
+                        <ul className="space-y-1 text-slate-300">
+                          <li>• Próprio provedor → <span className="text-emerald-400 font-semibold">grátis</span></li>
+                          <li>• Provedor externo encontrado → <span className="text-amber-300 font-semibold">1 crédito</span></li>
+                          <li>• Não encontrado → <span className="text-emerald-400 font-semibold">0 créditos</span></li>
+                        </ul>
+                        <div className="absolute top-full left-4 border-4 border-transparent border-t-slate-900" />
                       </div>
-                      <div>
-                        <p className="text-sm font-semibold text-amber-900">Custo Estimado da Consulta</p>
-                        <p className="text-xs text-amber-700 mt-0.5">
-                          Proprio provedor = gratis. Cada provedor externo encontrado = 1 credito.
-                          Se nao encontrado = 0 creditos.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <p className="text-xs text-amber-600 font-semibold">ATE</p>
-                      <p className="text-2xl font-black text-amber-800">~{2} cred.</p>
-                      <p className="text-[10px] text-amber-500">estimativa maxima</p>
                     </div>
                   </div>
                 )}
