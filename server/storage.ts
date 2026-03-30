@@ -1,6 +1,7 @@
 import { eq, and, desc, sql, gte, lte, count, inArray } from "drizzle-orm";
 import { db } from "./db";
 import {
+  PLAN_PRICES,
   providers, users, customers, contracts, invoices, equipment,
   ispConsultations, spcConsultations, antiFraudAlerts,
   supportThreads, supportMessages, planChanges, providerInvoices, creditOrders,
@@ -853,7 +854,6 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getSaasMetrics(): Promise<any> {
-    const PLAN_PRICES: Record<string, number> = { free: 0, basic: 199, pro: 399, enterprise: 799 };
     const PLAN_ORDER = ["free", "basic", "pro", "enterprise"];
 
     const allProviders = await db.select().from(providers);
@@ -1276,8 +1276,6 @@ export class DatabaseStorage implements IStorage {
   async getFinancialSummary(): Promise<any> {
     const allProviders = await db.select().from(providers);
     const allInvoices = await db.select().from(providerInvoices);
-
-    const PLAN_PRICES: Record<string, number> = { free: 0, basic: 199, pro: 399, enterprise: 799 };
 
     const activeProviders = allProviders.filter(p => p.status === "active");
     const mrr = activeProviders.reduce((sum, p) => sum + (PLAN_PRICES[p.plan] || 0), 0);

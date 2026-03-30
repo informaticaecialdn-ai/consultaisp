@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Printer, ArrowLeft, Download } from "lucide-react";
 import { useLocation } from "wouter";
+import { PLAN_PRICES } from "@shared/schema";
 
 const PLAN_LABELS: Record<string, string> = {
   free: "Gratuito",
@@ -19,9 +20,6 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   cancelled: { label: "Cancelado",  color: "bg-gray-100 text-gray-600" },
 };
 
-const PLAN_PRICES: Record<string, number> = {
-  free: 0, basic: 199, pro: 399, enterprise: 799,
-};
 
 const PLAN_CREDITS: Record<string, { isp: number; spc: number }> = {
   free: { isp: 50, spc: 0 },

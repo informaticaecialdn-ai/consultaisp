@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { sessionMiddleware, requireAuth, requireAdmin, requireSuperAdmin } from "./auth";
-import { loginSchema, registerSchema } from "@shared/schema";
+import { loginSchema, registerSchema, PLAN_PRICES } from "@shared/schema";
 import { hashPassword, verifyPassword } from "./password";
 import { sendVerificationEmail } from "./email";
 import { slugifySubdomain, buildSubdomainUrl } from "./tenant";
@@ -3250,7 +3250,6 @@ export async function registerRoutes(
     try {
       const { period } = req.body;
       if (!period) return res.status(400).json({ message: "Period e obrigatorio (ex: 2026-03)" });
-      const PLAN_PRICES: Record<string, number> = { free: 0, basic: 199, pro: 399, enterprise: 799 };
       const PLAN_CREDITS: Record<string, { isp: number; spc: number }> = {
         free: { isp: 50, spc: 0 }, basic: { isp: 200, spc: 50 }, pro: { isp: 500, spc: 150 }, enterprise: { isp: 1500, spc: 500 }
       };

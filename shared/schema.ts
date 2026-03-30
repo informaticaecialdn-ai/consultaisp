@@ -402,8 +402,8 @@ export const CREDIT_PACKAGES = [...ISP_CREDIT_PACKAGES.map(p => ({ ...p, creditT
 
 export const PLAN_PRICES: Record<string, number> = {
   free: 0,
-  basic: 199,
-  pro: 399,
+  basic: 149,
+  pro: 349,
   enterprise: 799,
 };
 
