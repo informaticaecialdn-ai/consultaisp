@@ -138,6 +138,9 @@ export const erpIntegrations = pgTable("erp_integrations", {
   apiToken: text("api_token"),
   apiUser: text("api_user"),
   syncIntervalHours: integer("sync_interval_hours").notNull().default(24),
+  clientId: text("client_id"),
+  clientSecret: text("client_secret"),
+  extraConfig: jsonb("extra_config"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
