@@ -3,6 +3,9 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedDatabase, seedSuperAdmin } from "./seed";
+import { validateEnv } from "./env";
+import { pool } from "./db";
+import { logger } from "./logger";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -62,6 +65,13 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  validateEnv();
+
+  // Health check endpoint — no auth required (used by Docker health checks)
+  app.get("/api/health", (_req, res) => {
+    res.json({ status: "ok", uptime: process.uptime() });
+  });
+
   await seedDatabase();
   await seedSuperAdmin();
   await registerRoutes(httpServer, app);
@@ -104,4 +114,17 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
     },
   );
+
+  const shutdown = async (signal: string) => {
+    logger.info({ signal }, "Shutdown signal received");
+    httpServer.close(() => {
+      logger.info("HTTP server closed");
+    });
+    await pool.end();
+    logger.info("Database pool closed");
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 })();
