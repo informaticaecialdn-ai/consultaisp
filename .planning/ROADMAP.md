@@ -69,13 +69,13 @@ Plans:
 <<<<<<< HEAD
 - [x] 03-01-PLAN.md -- Decompose storage.ts into 11 domain storage modules with IStorage facade
 - [x] 03-02-PLAN.md -- Extract route modules group A (auth, dashboard, import, consultas, antifraude, equipamentos, heatmap)
-- [ ] 03-03-PLAN.md -- Extract route modules group B (provider, erp, admin, financeiro, credits, chat, ai, public)
+- [x] 03-03-PLAN.md -- Extract route modules group B (provider, erp, admin, financeiro, credits, chat, ai, public)
 =======
-- [ ] 03-01-PLAN.md -- Decompose storage.ts into 11 domain storage modules with IStorage facade
-- [ ] 03-02-PLAN.md -- Extract route modules group A (auth, dashboard, import, consultas, antifraude, equipamentos, heatmap)
+- [x] 03-01-PLAN.md -- Decompose storage.ts into 11 domain storage modules with IStorage facade
+- [x] 03-02-PLAN.md -- Extract route modules group A (auth, dashboard, import, consultas, antifraude, equipamentos, heatmap)
 - [x] 03-03-PLAN.md -- Extract route modules group B (provider, erp, admin, financeiro, credits, chat, ai, public)
 >>>>>>> worktree-agent-a058ed5d
-- [ ] 03-04-PLAN.md -- Wire routes barrel, update entry point, delete monolithic files, verify build
+- [x] 03-04-PLAN.md -- Wire routes barrel, update entry point, delete monolithic files, verify build
 
 ### Phase 4: ERP Connector Engine
 **Goal**: Providers can connect directly to their ERP systems (IXC, MK, SGP, Hubsoft, Voalle, RBX) without any intermediary proxy

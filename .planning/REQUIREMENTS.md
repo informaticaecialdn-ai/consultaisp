@@ -9,7 +9,7 @@
 
 ### Backend Modularization
 - [ ] **MOD-01**: Extrair funcoes puras em modulos isolados: score engine (calculateIspScore), mascaramento LGPD, geocodificacao
-- [ ] **MOD-02**: Modularizar routes.ts (~4350 linhas) em ~14 modulos por dominio (auth, consultas, erp, admin, financeiro, antifraude, heatmap, suporte, webhooks, provider, equipamentos, creditos, importacao, public)
+- [x] **MOD-02**: Modularizar routes.ts (~4350 linhas) em ~14 modulos por dominio (auth, consultas, erp, admin, financeiro, antifraude, heatmap, suporte, webhooks, provider, equipamentos, creditos, importacao, public)
 - [x] **MOD-03**: Modularizar storage.ts (~1800 linhas) em modulos por dominio com facade mantendo interface IStorage e singleton storage
 - [x] **MOD-04**: Garantir que toda modularizacao preserva isolamento multi-tenant (84 refs a providerId em routes.ts)
 
