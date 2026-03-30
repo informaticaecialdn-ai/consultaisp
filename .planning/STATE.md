@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 04-01-PLAN.md
+stopped_at: Completed 04-02-PLAN.md
 last_updated: "2026-03-30T15:47:14.575Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 13
-  completed_plans: 10
+  completed_plans: 11
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 ## Current Position
 
 Phase: 04 (erp-connector-engine) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-03-30
 
@@ -59,6 +59,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P01 | 8min | 2 tasks | 13 files |
 | Phase 03 P04 | 6min | 2 tasks | 5 files |
 | Phase 04 P01 | 10min | 2 tasks | 6 files |
+| Phase 04 P02 | 15min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,9 @@ Recent decisions affecting current work:
 - [Phase 03]: Routes barrel uses app.use(registerXRoutes()) pattern for all 15 modules
 - [Phase 03]: storage.ts kept as thin re-export shim to preserve existing import paths
 - [Phase 04]: Circuit breaker uses manual implementation wrapping p-retry; rate limiter keyed by providerId-erpSource
+- [Phase 04]: IXC uses pagination loop (max 50 pages) with aggregateByCustomer for invoice-to-customer grouping
+- [Phase 04]: MK and SGP parse flexible response shapes (array, { data }, { clientes })
+- [Phase 04]: SGP appends app_name as query param when apiUser is configured
 
 ### Pending Todos
 
@@ -93,5 +97,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-30T15:47:14.566Z
-Stopped at: Completed 04-01-PLAN.md
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None
