@@ -4,7 +4,6 @@ import { storage } from "../storage";
 import { hashPassword } from "../password";
 import { sendVerificationEmail } from "../email";
 import crypto from "crypto";
-import { testErpConnection } from "./utils";
 
 export function registerAdminRoutes(): Router {
   const router = Router();

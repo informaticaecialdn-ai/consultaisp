@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../auth";
 import { storage } from "../storage";
-import { testErpConnection, fetchErpCustomers } from "./utils";
+import { getConnector, getSupportedSources, buildConnectorConfig } from "../erp";
 
 export function registerErpRoutes(): Router {
   const router = Router();
@@ -18,9 +18,9 @@ export function registerErpRoutes(): Router {
   router.patch("/api/provider/erp-integrations/:source", requireAuth, async (req, res) => {
     try {
       const { source } = req.params;
-      const validSources = ["ixc", "sgp", "mk", "tiacos", "hubsoft", "flyspeed", "netflash", "manual"];
+      const validSources = [...getSupportedSources(), "manual"];
       if (!validSources.includes(source)) return res.status(400).json({ message: "ERP invalido" });
-      const allowed = ["isEnabled", "notes", "apiUrl", "apiToken", "apiUser", "syncIntervalHours"];
+      const allowed = ["isEnabled", "notes", "apiUrl", "apiToken", "apiUser", "syncIntervalHours", "clientId", "clientSecret", "extraConfig"];
       const data: any = {};
       for (const k of allowed) { if (req.body[k] !== undefined) data[k] = req.body[k]; }
       const integration = await storage.upsertErpIntegration(req.session.providerId!, source, data);
@@ -34,12 +34,17 @@ export function registerErpRoutes(): Router {
     try {
       const { source } = req.params;
       const providerId = req.session.providerId!;
+      const connector = getConnector(source);
+      if (!connector) {
+        return res.status(400).json({ ok: false, message: "ERP nao suportado" });
+      }
       const integrations = await storage.getErpIntegrations(providerId);
       const intg = integrations.find(i => i.erpSource === source);
       if (!intg?.apiUrl || !intg?.apiToken) {
         return res.status(400).json({ ok: false, message: "Configure a URL e o token antes de testar" });
       }
-      const result = await testErpConnection(source, intg.apiUrl, intg.apiUser || "", intg.apiToken);
+      const config = buildConnectorConfig(intg);
+      const result = await connector.testConnection(config);
       return res.json(result);
     } catch (error: any) {
       return res.status(500).json({ ok: false, message: error.message });
@@ -50,12 +55,17 @@ export function registerErpRoutes(): Router {
     try {
       const { source } = req.params;
       const providerId = req.session.providerId!;
+      const connector = getConnector(source);
+      if (!connector) {
+        return res.status(400).json({ ok: false, message: "ERP nao suportado" });
+      }
       const integrations = await storage.getErpIntegrations(providerId);
       const intg = integrations.find(i => i.erpSource === source);
       if (!intg?.apiUrl || !intg?.apiToken) {
         return res.status(400).json({ ok: false, message: "Configure a URL e o token antes de sincronizar" });
       }
-      const fetchResult = await fetchErpCustomers(source, intg.apiUrl, intg.apiUser || "", intg.apiToken);
+      const config = buildConnectorConfig(intg);
+      const fetchResult = await connector.fetchDelinquents(config);
       if (!fetchResult.ok) {
         await storage.createErpSyncLog({
           providerId, erpSource: source,

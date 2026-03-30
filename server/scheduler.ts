@@ -1,56 +1,5 @@
 import { storage } from "./storage";
-
-async function fetchErpCustomersForScheduler(
-  source: string,
-  apiUrl: string,
-  apiUser: string,
-  apiToken: string,
-): Promise<{ ok: boolean; message: string; customers: any[] }> {
-  try {
-    const basicAuth = Buffer.from(`${apiUser}:${apiToken}`).toString("base64");
-    if (source === "ixc") {
-      const body = {
-        qtype: "fn_areceber.status",
-        query: "A",
-        oper: "=",
-        page: "1",
-        rp: "1000",
-        sortname: "fn_areceber.id",
-        sortorder: "asc",
-      };
-      const res = await fetch(`${apiUrl}/webservice/v1/fn_areceber`, {
-        method: "POST",
-        headers: {
-          Authorization: `Basic ${basicAuth}`,
-          "Content-Type": "application/json",
-          ixcsoft: "listar",
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(30000),
-      });
-      if (!res.ok) {
-        return { ok: false, message: `IXC respondeu com status ${res.status}`, customers: [] };
-      }
-      const data = await res.json();
-      const rows: any[] = data.registros || data.rows || (Array.isArray(data) ? data : []);
-      const customers = rows.map((r: any) => ({
-        cpf_cnpj: (r.cpf_cnpj || r.cnpj || "").replace(/\D/g, ""),
-        name: r.razao || r.nome || r.name || "",
-        balance: parseFloat(r.valor || r.valor_original || "0") || 0,
-        dueDate: r.vencimento || r.data_vencimento || null,
-        address: r.endereco || r.logradouro || null,
-        city: r.cidade || null,
-        state: r.uf || null,
-        cep: (r.cep || "").replace(/\D/g, ""),
-        phone: (r.fone_celular || r.telefone || "").replace(/\D/g, ""),
-      }));
-      return { ok: true, message: "ok", customers };
-    }
-    return { ok: false, message: `ERP "${source}" não suportado pelo auto-sync`, customers: [] };
-  } catch (err: any) {
-    return { ok: false, message: err.message || "Erro desconhecido", customers: [] };
-  }
-}
+import { getConnector, getProviderLimiter, buildConnectorConfig } from "./erp";
 
 let schedulerRunning = false;
 let lastGlobalRun: Date | null = null;
@@ -60,7 +9,7 @@ async function runAutoSync() {
   if (schedulerRunning) return;
   schedulerRunning = true;
   const startTime = Date.now();
-  console.log(`[AutoSync] Iniciando ciclo de sincronização automática — ${new Date().toISOString()}`);
+  console.log(`[AutoSync] Iniciando ciclo de sincronizacao automatica — ${new Date().toISOString()}`);
 
   try {
     const integrations = await storage.getAllEnabledErpIntegrationsWithCredentials();
@@ -77,14 +26,17 @@ async function runAutoSync() {
           continue;
         }
 
+        const connector = getConnector(intg.erpSource);
+        if (!connector) {
+          console.warn(`[AutoSync] ERP desconhecido: ${intg.erpSource} (provider: ${intg.providerName})`);
+          continue;
+        }
+
         console.log(`[AutoSync] Sincronizando: ${intg.providerName} / ${intg.erpSource}`);
 
-        const fetchResult = await fetchErpCustomersForScheduler(
-          intg.erpSource,
-          intg.apiUrl!,
-          intg.apiUser || "",
-          intg.apiToken!,
-        );
+        const config = buildConnectorConfig(intg);
+        const limiter = getProviderLimiter(intg.providerId, intg.erpSource);
+        const fetchResult = await limiter(() => connector.fetchDelinquents(config));
 
         if (!fetchResult.ok) {
           await storage.upsertErpIntegration(intg.providerId, intg.erpSource, {
@@ -146,7 +98,7 @@ async function runAutoSync() {
         });
 
         console.log(
-          `[AutoSync] ✓ ${intg.providerName} — ${syncResult.upserted} upserted, ${syncResult.errors} erros`,
+          `[AutoSync] ${intg.providerName} — ${syncResult.upserted} upserted, ${syncResult.errors} erros`,
         );
         synced++;
       } catch (err: any) {
@@ -158,10 +110,10 @@ async function runAutoSync() {
     totalRunCount++;
     const elapsed = Date.now() - startTime;
     console.log(
-      `[AutoSync] Ciclo concluído em ${elapsed}ms — ${synced} sincronizados, ${skipped} sem vencimento`,
+      `[AutoSync] Ciclo concluido em ${elapsed}ms — ${synced} sincronizados, ${skipped} sem vencimento`,
     );
   } catch (err: any) {
-    console.error("[AutoSync] Erro crítico no ciclo:", err.message);
+    console.error("[AutoSync] Erro critico no ciclo:", err.message);
   } finally {
     schedulerRunning = false;
   }
