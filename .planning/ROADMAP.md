@@ -47,12 +47,12 @@ Plans:
   3. The application responds to health check requests and shuts down gracefully on SIGTERM
   4. Missing required environment variables cause a clear error at startup (not a runtime crash)
   5. Application logs are structured JSON (pino) viewable via `docker logs`
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
-- [ ] 02-03: TBD
+- [ ] 02-01-PLAN.md -- Extract score engine, LGPD masking, geocoding modules + install pino structured logging
+- [ ] 02-02-PLAN.md -- Add health check endpoint, graceful shutdown, and env validation
+- [ ] 02-03-PLAN.md -- Create Dockerfile, docker-compose.yml, and deployment config
 
 ### Phase 3: Backend Modularization
 **Goal**: The monolithic routes.ts and storage.ts are decomposed into maintainable domain modules without breaking any existing functionality
