@@ -1,7 +1,7 @@
 import { storage } from "./storage";
 
-const N8N_PROXY_URL = "https://n8n.aluisiocunha.com.br/webhook/ixc-inadimplentes";
-const N8N_PROXY_AUTH = "Basic aXNwX2FuYWxpenplOmlzcGFuYWxpenplMTIzMTIz";
+const N8N_PROXY_URL = process.env.N8N_PROXY_URL || "";
+const N8N_PROXY_AUTH = process.env.N8N_PROXY_AUTH || "";
 
 export type HeatPoint = {
   lat: number;
