@@ -63,13 +63,13 @@ Plans:
   2. storage.ts is replaced by domain storage modules behind the unchanged IStorage facade -- existing code using `storage.` continues to work
   3. Every API endpoint that worked before modularization still works identically after (same request/response behavior)
   4. Multi-tenant isolation is preserved -- no endpoint returns data from a different provider's tenant
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
-- [ ] 03-03: TBD
-- [ ] 03-04: TBD
+- [ ] 03-01-PLAN.md -- Decompose storage.ts into 11 domain storage modules with IStorage facade
+- [ ] 03-02-PLAN.md -- Extract route modules group A (auth, dashboard, import, consultas, antifraude, equipamentos, heatmap)
+- [ ] 03-03-PLAN.md -- Extract route modules group B (provider, erp, admin, financeiro, credits, chat, ai, public)
+- [ ] 03-04-PLAN.md -- Wire routes barrel, update entry point, delete monolithic files, verify build
 
 ### Phase 4: ERP Connector Engine
 **Goal**: Providers can connect directly to their ERP systems (IXC, MK, SGP, Hubsoft, Voalle, RBX) without any intermediary proxy
