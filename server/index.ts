@@ -3,8 +3,9 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedDatabase, seedSuperAdmin } from "./seed";
+import { validateEnv } from "./env";
+import { pool } from "./db";
 import { logger } from "./logger";
-import pinoHttp from "pino-http";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -26,14 +27,51 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
-app.use(pinoHttp({
-  logger,
-  autoLogging: {
-    ignore: (req) => !req.url?.startsWith("/api"),
-  },
-}));
+export function log(message: string, source = "express") {
+  const formattedTime = new Date().toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+
+  console.log(`${formattedTime} [${source}] ${message}`);
+}
+
+app.use((req, res, next) => {
+  const start = Date.now();
+  const path = req.path;
+  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+
+  const originalResJson = res.json;
+  res.json = function (bodyJson, ...args) {
+    capturedJsonResponse = bodyJson;
+    return originalResJson.apply(res, [bodyJson, ...args]);
+  };
+
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    if (path.startsWith("/api")) {
+      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+      if (capturedJsonResponse) {
+        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      }
+
+      log(logLine);
+    }
+  });
+
+  next();
+});
 
 (async () => {
+  validateEnv();
+
+  // Health check endpoint — no auth required (used by Docker health checks)
+  app.get("/api/health", (_req, res) => {
+    res.json({ status: "ok", uptime: process.uptime() });
+  });
+
   await seedDatabase();
   await seedSuperAdmin();
   await registerRoutes(httpServer, app);
@@ -42,7 +80,7 @@ app.use(pinoHttp({
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
-    logger.error({ err }, "internal server error");
+    console.error("Internal Server Error:", err);
 
     if (res.headersSent) {
       return next(err);
@@ -73,7 +111,20 @@ app.use(pinoHttp({
       reusePort: true,
     },
     () => {
-      logger.info({ port }, "server started");
+      log(`serving on port ${port}`);
     },
   );
+
+  const shutdown = async (signal: string) => {
+    logger.info({ signal }, "Shutdown signal received");
+    httpServer.close(() => {
+      logger.info("HTTP server closed");
+    });
+    await pool.end();
+    logger.info("Database pool closed");
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 })();
