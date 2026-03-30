@@ -55,7 +55,7 @@
 - [ ] **DOCK-05**: Logging estruturado com pino (substituir console.log)
 
 ### Data Fixes
-- [ ] **FIX-01**: Unificar divergencia de precos entre schema (199/399/799) e landing page (0/149/349)
+- [x] **FIX-01**: Unificar divergencia de precos entre schema (199/399/799) e landing page (0/149/349)
 
 ## v2 Requirements (Deferred)
 
@@ -82,7 +82,7 @@
 | SEC-01 | Phase 1: Security & Cleanup | Complete |
 | SEC-02 | Phase 1: Security & Cleanup | Complete |
 | SEC-03 | Phase 1: Security & Cleanup | Complete |
-| FIX-01 | Phase 1: Security & Cleanup | Pending |
+| FIX-01 | Phase 1: Security & Cleanup | Complete |
 | MOD-01 | Phase 2: Foundation & Docker | Pending |
 | DOCK-01 | Phase 2: Foundation & Docker | Pending |
 | DOCK-02 | Phase 2: Foundation & Docker | Pending |

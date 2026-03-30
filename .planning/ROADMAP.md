@@ -12,7 +12,7 @@ This milestone transforms a functional-but-monolithic beta into a production-rea
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Security & Cleanup** - Remove hardcoded secrets, Replit artifacts, and unify price constants
+- [x] **Phase 1: Security & Cleanup** - Remove hardcoded secrets, Replit artifacts, and unify price constants (completed 2026-03-30)
 - [ ] **Phase 2: Foundation & Docker** - Extract pure business logic modules and containerize for VPS deployment
 - [ ] **Phase 3: Backend Modularization** - Decompose routes.ts (4350 lines) and storage.ts (1800 lines) into domain modules
 - [ ] **Phase 4: ERP Connector Engine** - Build abstract connector interface and implement 6 documented ERP connectors
@@ -34,8 +34,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md -- Remove hardcoded N8N secrets and clean all Replit artifacts
-- [ ] 01-02-PLAN.md -- Unify price constants and validate full build
+- [x] 01-01-PLAN.md -- Remove hardcoded N8N secrets and clean all Replit artifacts
+- [x] 01-02-PLAN.md -- Unify price constants and validate full build
 
 ### Phase 2: Foundation & Docker
 **Goal**: Core business logic is extracted into testable modules and the application runs in Docker on any VPS
@@ -143,7 +143,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 (and 6 in parallel with 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Security & Cleanup | 0/2 | Planning complete | - |
+| 1. Security & Cleanup | 2/2 | Complete   | 2026-03-30 |
 | 2. Foundation & Docker | 0/3 | Not started | - |
 | 3. Backend Modularization | 0/4 | Not started | - |
 | 4. ERP Connector Engine | 0/4 | Not started | - |
