@@ -77,7 +77,44 @@
 
 ## Traceability
 
-<!-- Populated by roadmapper -->
-
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
+| SEC-01 | Phase 1: Security & Cleanup | Pending |
+| SEC-02 | Phase 1: Security & Cleanup | Pending |
+| SEC-03 | Phase 1: Security & Cleanup | Pending |
+| FIX-01 | Phase 1: Security & Cleanup | Pending |
+| MOD-01 | Phase 2: Foundation & Docker | Pending |
+| DOCK-01 | Phase 2: Foundation & Docker | Pending |
+| DOCK-02 | Phase 2: Foundation & Docker | Pending |
+| DOCK-03 | Phase 2: Foundation & Docker | Pending |
+| DOCK-04 | Phase 2: Foundation & Docker | Pending |
+| DOCK-05 | Phase 2: Foundation & Docker | Pending |
+| MOD-02 | Phase 3: Backend Modularization | Pending |
+| MOD-03 | Phase 3: Backend Modularization | Pending |
+| MOD-04 | Phase 3: Backend Modularization | Pending |
+| ERP-01 | Phase 4: ERP Connector Engine | Pending |
+| ERP-02 | Phase 4: ERP Connector Engine | Pending |
+| ERP-03 | Phase 4: ERP Connector Engine | Pending |
+| ERP-04 | Phase 4: ERP Connector Engine | Pending |
+| ERP-05 | Phase 4: ERP Connector Engine | Pending |
+| ERP-06 | Phase 4: ERP Connector Engine | Pending |
+| ERP-07 | Phase 4: ERP Connector Engine | Pending |
+| ERP-12 | Phase 4: ERP Connector Engine | Pending |
+| ERP-13 | Phase 4: ERP Connector Engine | Pending |
+| ERP-14 | Phase 4: ERP Connector Engine | Pending |
+| ERPUI-01 | Phase 5: ERP UI & N8N Removal | Pending |
+| ERPUI-02 | Phase 5: ERP UI & N8N Removal | Pending |
+| ERPUI-03 | Phase 5: ERP UI & N8N Removal | Pending |
+| ERPUI-04 | Phase 5: ERP UI & N8N Removal | Pending |
+| N8N-01 | Phase 5: ERP UI & N8N Removal | Pending |
+| N8N-02 | Phase 5: ERP UI & N8N Removal | Pending |
+| N8N-03 | Phase 5: ERP UI & N8N Removal | Pending |
+| N8N-04 | Phase 5: ERP UI & N8N Removal | Pending |
+| N8N-05 | Phase 5: ERP UI & N8N Removal | Pending |
+| ERP-08 | Phase 6: Undocumented ERP Connectors | Pending |
+| ERP-09 | Phase 6: Undocumented ERP Connectors | Pending |
+| ERP-10 | Phase 6: Undocumented ERP Connectors | Pending |
+| ERP-11 | Phase 6: Undocumented ERP Connectors | Pending |
+| LGPD-01 | Phase 7: LGPD Hardening | Pending |
+| LGPD-02 | Phase 7: LGPD Hardening | Pending |
+| LGPD-03 | Phase 7: LGPD Hardening | Pending |
