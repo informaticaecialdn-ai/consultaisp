@@ -9,6 +9,7 @@ import { slugifySubdomain, buildSubdomainUrl } from "./tenant";
 import crypto from "crypto";
 import { streamConsultationAnalysis, streamAntiFraudAnalysis } from "./ai-analysis";
 import { calculateIspScore, getRiskTier, getDecisionReco } from "./score-engine";
+import { logger } from "./logger";
 
 function getOverdueAmountRange(amount: number): string {
   if (amount === 0) return "Sem debito";
@@ -213,7 +214,7 @@ export async function registerRoutes(
       try {
         await sendVerificationEmail(email, name, token);
       } catch (emailError: any) {
-        console.error("[email] Falha ao enviar email de verificacao:", emailError.message);
+        logger.error({ err: emailError.message }, "falha ao enviar email de verificacao");
       }
 
       return res.status(201).json({ needsVerification: true, email });
@@ -265,7 +266,7 @@ export async function registerRoutes(
       try {
         await sendVerificationEmail(email, user.name, token);
       } catch (emailError: any) {
-        console.error("[email] Falha ao reenviar email:", emailError.message);
+        logger.error({ err: emailError.message }, "falha ao reenviar email de verificacao");
       }
       return res.json({ message: "Novo link de verificacao enviado. Verifique sua caixa de entrada." });
     } catch (error: any) {
@@ -618,7 +619,7 @@ export async function registerRoutes(
           integrations,
         };
 
-        console.log(`[ISP-N8N] Chamando N8N central com ${integrations.length} integracoes:`, JSON.stringify(extPayload, null, 2));
+        logger.info({ integrationCount: integrations.length, payload: extPayload }, "ISP-N8N chamando N8N central");
 
         let extRaw: any;
         try {
@@ -639,10 +640,10 @@ export async function registerRoutes(
             try { errJson = JSON.parse(errBody); } catch {}
             const isNoItems = errJson?.message === "No item to return was found" || errJson?.code === 0;
             if (isNoItems) {
-              console.log("[ISP-N8N] N8N retornou sem itens — resultado: nao encontrado");
+              logger.info("ISP-N8N retornou sem itens - resultado: nao encontrado");
               extRaw = null;
             } else {
-              console.error(`[ISP-N8N] HTTP ${extRes.status}:`, errBody);
+              logger.error({ status: extRes.status, body: errBody }, "ISP-N8N HTTP error");
               return res.status(502).json({ message: `Erro na API ISP: HTTP ${extRes.status}`, detail: errBody });
             }
           } else {
