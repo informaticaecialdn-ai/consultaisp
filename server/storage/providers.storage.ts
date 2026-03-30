@@ -136,7 +136,7 @@ export class ProvidersStorage {
     };
   }
 
-  async saveN8nConfig(providerId: number, data: { n8nWebhookUrl?: string; n8nAuthToken?: string; n8nEnabled?: boolean }): Promise<void> {
+  async saveN8nConfig(providerId: number, data: { n8nWebhookUrl?: string; n8nAuthToken?: string; n8nEnabled?: boolean; n8nErpProvider?: string | null }): Promise<void> {
     await db.update(providers).set(data as any).where(eq(providers.id, providerId));
   }
 
