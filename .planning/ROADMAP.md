@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Security & Cleanup** - Remove hardcoded secrets, Replit artifacts, and unify price constants (completed 2026-03-30)
 - [ ] **Phase 2: Foundation & Docker** - Extract pure business logic modules and containerize for VPS deployment
 - [ ] **Phase 3: Backend Modularization** - Decompose routes.ts (4350 lines) and storage.ts (1800 lines) into domain modules
-- [ ] **Phase 4: ERP Connector Engine** - Build abstract connector interface and implement 6 documented ERP connectors
+- [x] **Phase 4: ERP Connector Engine** - Build abstract connector interface and implement 6 documented ERP connectors
 - [ ] **Phase 5: ERP UI & N8N Removal** - Wire ERP config UI, sync controls, and eliminate N8N dependency
 - [ ] **Phase 6: Undocumented ERP Connectors** - Research and implement TopSApp, RadiusNet, Gere, ReceitaNet connectors
 - [ ] **Phase 7: LGPD Hardening** - Systematize data masking, create centralized middleware, ensure legal compliance
@@ -86,8 +86,8 @@ Plans:
 Plans:
 - [x] 04-01-PLAN.md -- ERP types, interfaces, resilience (retry+circuit breaker), rate limiter, normalization, registry, schema migration
 - [x] 04-02-PLAN.md -- Implement IXC, MK, SGP connectors (Basic Auth, Bearer JWT, Bearer Token)
-- [ ] 04-03-PLAN.md -- Implement Hubsoft (OAuth2), Voalle (Integration User), RBX (POST-body key) connectors
-- [ ] 04-04-PLAN.md -- Wire all connectors into registry, update erp.routes.ts and scheduler.ts
+- [x] 04-03-PLAN.md -- Implement Hubsoft (OAuth2), Voalle (Integration User), RBX (POST-body key) connectors
+- [x] 04-04-PLAN.md -- Wire all connectors into registry, update erp.routes.ts and scheduler.ts
 
 ### Phase 5: ERP UI & N8N Removal
 **Goal**: Providers have a complete UI for managing ERP integrations, and the N8N proxy dependency is fully eliminated
@@ -146,7 +146,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 (and 6 in parallel with 5
 | 1. Security & Cleanup | 2/2 | Complete   | 2026-03-30 |
 | 2. Foundation & Docker | 0/3 | Not started | - |
 | 3. Backend Modularization | 0/4 | Not started | - |
-| 4. ERP Connector Engine | 0/4 | Not started | - |
+| 4. ERP Connector Engine | 4/4 | Complete | 2026-03-30 |
 | 5. ERP UI & N8N Removal | 0/3 | Not started | - |
 | 6. Undocumented ERP Connectors | 0/2 | Not started | - |
 | 7. LGPD Hardening | 0/2 | Not started | - |
