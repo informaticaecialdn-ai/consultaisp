@@ -31,11 +31,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. No Replit-specific packages remain in package.json and no Replit directories/files exist in the project
   3. Price values shown on the landing page match the constants used in backend billing logic
   4. The application builds and runs cleanly after all removals
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
+- [ ] 01-01-PLAN.md -- Remove hardcoded N8N secrets and clean all Replit artifacts
+- [ ] 01-02-PLAN.md -- Unify price constants and validate full build
 
 ### Phase 2: Foundation & Docker
 **Goal**: Core business logic is extracted into testable modules and the application runs in Docker on any VPS
@@ -143,7 +143,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 (and 6 in parallel with 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Security & Cleanup | 0/2 | Not started | - |
+| 1. Security & Cleanup | 0/2 | Planning complete | - |
 | 2. Foundation & Docker | 0/3 | Not started | - |
 | 3. Backend Modularization | 0/4 | Not started | - |
 | 4. ERP Connector Engine | 0/4 | Not started | - |
