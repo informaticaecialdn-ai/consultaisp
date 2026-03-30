@@ -1,0 +1,23 @@
+[1G[0K⠙[1G[0K⠹[1G[0K
+> rest-express@1.0.0 dev
+> NODE_ENV=development tsx server/index.ts
+
+[1G[0K⠹[1G[0K[AutoSync] Scheduler iniciado — verifica a cada 30 minutos
+[HeatmapCache] Scheduler iniciado — atualiza a cada 24 horas
+4:33:48 PM [express] serving on port 5000
+[AutoSync] Iniciando ciclo de sincronização automática — 2026-03-23T16:33:52.928Z
+[AutoSync] Ciclo concluído em 14ms — 0 sincronizados, 1 sem vencimento
+[HeatmapCache] Carga inicial do cache de mapa de calor...
+[HeatmapCache] N8N proxy indisponível — usando chamada direta ao IXC
+[HeatmapCache] Erro ao buscar NG Telecom: IP não liberado no IXC — importe o workflow 'IXC Heatmap - Inadimplentes em Massa' no N8N e ative-o para contornar a restrição de IP.
+[HeatmapCache] N8N proxy indisponível — usando chamada direta ao IXC
+[HeatmapCache] Erro ao buscar NsLink Provedor: IXC retornou 401: <html>
+<head><title>401 Authorization Required</title></head>
+<body bgcolor="white">
+<center><h1>401 Authorization Required</h1></center>
+<hr><center>nginx</center>
+</body>
+</html>
+
+[AutoSync] Iniciando ciclo de sincronização automática — 2026-03-23T17:03:47.948Z
+[AutoSync] Ciclo concluído em 11ms — 0 sincronizados, 1 sem vencimento
