@@ -66,15 +66,9 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-<<<<<<< HEAD
 - [x] 03-01-PLAN.md -- Decompose storage.ts into 11 domain storage modules with IStorage facade
 - [x] 03-02-PLAN.md -- Extract route modules group A (auth, dashboard, import, consultas, antifraude, equipamentos, heatmap)
 - [x] 03-03-PLAN.md -- Extract route modules group B (provider, erp, admin, financeiro, credits, chat, ai, public)
-=======
-- [x] 03-01-PLAN.md -- Decompose storage.ts into 11 domain storage modules with IStorage facade
-- [x] 03-02-PLAN.md -- Extract route modules group A (auth, dashboard, import, consultas, antifraude, equipamentos, heatmap)
-- [x] 03-03-PLAN.md -- Extract route modules group B (provider, erp, admin, financeiro, credits, chat, ai, public)
->>>>>>> worktree-agent-a058ed5d
 - [x] 03-04-PLAN.md -- Wire routes barrel, update entry point, delete monolithic files, verify build
 
 ### Phase 4: ERP Connector Engine
@@ -87,13 +81,13 @@ Plans:
   3. Failed ERP API calls retry with backoff and trigger circuit breaker protection after repeated failures
   4. Connectors are registered in a dynamic registry -- adding a new ERP requires only implementing the interface and registering it
   5. Rate limiting prevents any single provider from overwhelming an ERP API
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 04-01: TBD
-- [ ] 04-02: TBD
-- [ ] 04-03: TBD
-- [ ] 04-04: TBD
+- [ ] 04-01-PLAN.md -- ERP types, interfaces, resilience (retry+circuit breaker), rate limiter, normalization, registry, schema migration
+- [ ] 04-02-PLAN.md -- Implement IXC, MK, SGP connectors (Basic Auth, Bearer JWT, Bearer Token)
+- [ ] 04-03-PLAN.md -- Implement Hubsoft (OAuth2), Voalle (Integration User), RBX (POST-body key) connectors
+- [ ] 04-04-PLAN.md -- Wire all connectors into registry, update erp.routes.ts and scheduler.ts
 
 ### Phase 5: ERP UI & N8N Removal
 **Goal**: Providers have a complete UI for managing ERP integrations, and the N8N proxy dependency is fully eliminated
