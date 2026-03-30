@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 03-04-PLAN.md
-last_updated: "2026-03-30T11:40:43.160Z"
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-03-30T15:47:14.575Z"
 last_activity: 2026-03-30
 progress:
   total_phases: 7
   completed_phases: 3
-  total_plans: 9
-  completed_plans: 9
+  total_plans: 13
+  completed_plans: 10
   percent: 0
 ---
 
@@ -21,12 +21,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** Permitir que um provedor consulte CPF/CNPJ e receba em 2s um score de risco baseado no historico colaborativo de toda a rede -- evitando o calote antes que aconteca.
-**Current focus:** Phase 03 — backend-modularization
+**Current focus:** Phase 04 — erp-connector-engine
 
 ## Current Position
 
-Phase: 4
-Plan: Not started
+Phase: 04 (erp-connector-engine) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
 Last activity: 2026-03-30
 
@@ -58,6 +58,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 03 P02 | 14min | 2 tasks | 8 files |
 | Phase 03 P01 | 8min | 2 tasks | 13 files |
 | Phase 03 P04 | 6min | 2 tasks | 5 files |
+| Phase 04 P01 | 10min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,7 @@ Recent decisions affecting current work:
 - [Phase 03]: IStorage interface moved to storage/index.ts; old storage.ts becomes thin re-export shim
 - [Phase 03]: Routes barrel uses app.use(registerXRoutes()) pattern for all 15 modules
 - [Phase 03]: storage.ts kept as thin re-export shim to preserve existing import paths
+- [Phase 04]: Circuit breaker uses manual implementation wrapping p-retry; rate limiter keyed by providerId-erpSource
 
 ### Pending Todos
 
@@ -90,6 +92,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30T11:39:06.113Z
-Stopped at: Completed 03-04-PLAN.md
+Last session: 2026-03-30T15:47:14.566Z
+Stopped at: Completed 04-01-PLAN.md
 Resume file: None

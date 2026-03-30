@@ -84,7 +84,7 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 04-01-PLAN.md -- ERP types, interfaces, resilience (retry+circuit breaker), rate limiter, normalization, registry, schema migration
+- [x] 04-01-PLAN.md -- ERP types, interfaces, resilience (retry+circuit breaker), rate limiter, normalization, registry, schema migration
 - [ ] 04-02-PLAN.md -- Implement IXC, MK, SGP connectors (Basic Auth, Bearer JWT, Bearer Token)
 - [ ] 04-03-PLAN.md -- Implement Hubsoft (OAuth2), Voalle (Integration User), RBX (POST-body key) connectors
 - [ ] 04-04-PLAN.md -- Wire all connectors into registry, update erp.routes.ts and scheduler.ts

@@ -14,7 +14,7 @@
 - [x] **MOD-04**: Garantir que toda modularizacao preserva isolamento multi-tenant (84 refs a providerId em routes.ts)
 
 ### ERP Connector Engine
-- [ ] **ERP-01**: Criar server/erp-connector.ts com interface abstrata ErpConnector (testConnection, fetchDelinquents, fetchCustomers)
+- [x] **ERP-01**: Criar server/erp-connector.ts com interface abstrata ErpConnector (testConnection, fetchDelinquents, fetchCustomers)
 - [ ] **ERP-02**: Implementar conector IXC Soft (Basic Auth, POST com header ixcsoft, paginacao, fn_areceber + cliente)
 - [ ] **ERP-03**: Implementar conector MK Solutions (Bearer JWT, GET, financeiro/inadimplentes + clientes)
 - [ ] **ERP-04**: Implementar conector SGP (Token/App ou Basic Auth, GET/POST, clientes + financeiro)
@@ -25,9 +25,9 @@
 - [ ] **ERP-09**: Implementar conector RadiusNet (pesquisar API — documentacao nao publica)
 - [ ] **ERP-10**: Implementar conector Gere (pesquisar API — documentacao nao publica)
 - [ ] **ERP-11**: Implementar conector Receita Net (pesquisar API — documentacao nao publica)
-- [ ] **ERP-12**: Registry de conectores: Record<string, ErpConnector> para lookup dinamico por erpSource
-- [ ] **ERP-13**: Resiliencia: retry com backoff + circuit breaker (cockatiel) em todos os conectores
-- [ ] **ERP-14**: Rate limiting por provedor para chamadas ERP
+- [x] **ERP-12**: Registry de conectores: Record<string, ErpConnector> para lookup dinamico por erpSource
+- [x] **ERP-13**: Resiliencia: retry com backoff + circuit breaker (cockatiel) em todos os conectores
+- [x] **ERP-14**: Rate limiting por provedor para chamadas ERP
 
 ### N8N Removal
 - [ ] **N8N-01**: Atualizar scheduler.ts para usar conectores diretos em vez de fetchErpCustomersForScheduler via N8N
@@ -92,16 +92,16 @@
 | MOD-02 | Phase 3: Backend Modularization | Complete |
 | MOD-03 | Phase 3: Backend Modularization | Complete |
 | MOD-04 | Phase 3: Backend Modularization | Complete |
-| ERP-01 | Phase 4: ERP Connector Engine | Pending |
+| ERP-01 | Phase 4: ERP Connector Engine | Complete |
 | ERP-02 | Phase 4: ERP Connector Engine | Pending |
 | ERP-03 | Phase 4: ERP Connector Engine | Pending |
 | ERP-04 | Phase 4: ERP Connector Engine | Pending |
 | ERP-05 | Phase 4: ERP Connector Engine | Pending |
 | ERP-06 | Phase 4: ERP Connector Engine | Pending |
 | ERP-07 | Phase 4: ERP Connector Engine | Pending |
-| ERP-12 | Phase 4: ERP Connector Engine | Pending |
-| ERP-13 | Phase 4: ERP Connector Engine | Pending |
-| ERP-14 | Phase 4: ERP Connector Engine | Pending |
+| ERP-12 | Phase 4: ERP Connector Engine | Complete |
+| ERP-13 | Phase 4: ERP Connector Engine | Complete |
+| ERP-14 | Phase 4: ERP Connector Engine | Complete |
 | ERPUI-01 | Phase 5: ERP UI & N8N Removal | Pending |
 | ERPUI-02 | Phase 5: ERP UI & N8N Removal | Pending |
 | ERPUI-03 | Phase 5: ERP UI & N8N Removal | Pending |
