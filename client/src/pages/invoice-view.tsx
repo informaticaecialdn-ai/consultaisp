@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Printer, ArrowLeft, Download } from "lucide-react";
 import { useLocation } from "wouter";
-import { PLAN_PRICES } from "@shared/schema";
 
 const PLAN_LABELS: Record<string, string> = {
   free: "Gratuito",
