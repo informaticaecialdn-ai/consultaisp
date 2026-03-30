@@ -1,4 +1,5 @@
 import { storage } from "./storage";
+import { geocodeCity, geocodeCep } from "./geocoding";
 
 const N8N_PROXY_URL = process.env.N8N_PROXY_URL || "";
 const N8N_PROXY_AUTH = process.env.N8N_PROXY_AUTH || "";
@@ -24,47 +25,8 @@ type CacheEntry = {
 };
 
 const _cache = new Map<number, CacheEntry>();
-const _cityGeo = new Map<string, [number, number] | null>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 let _refreshing = false;
-
-async function geocodeCity(city: string, state: string): Promise<[number, number] | null> {
-  const key = `${city.toLowerCase()},${state.toLowerCase()}`;
-  if (_cityGeo.has(key)) return _cityGeo.get(key)!;
-  try {
-    const q = `${city}, ${state}, Brazil`;
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`;
-    const r = await fetch(url, {
-      headers: { "User-Agent": "ConsultaISP/1.0 heatmap@consultaisp.com.br" },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (r.ok) {
-      const data: any[] = await r.json();
-      if (data[0]) {
-        const coords: [number, number] = [parseFloat(data[0].lat), parseFloat(data[0].lon)];
-        _cityGeo.set(key, coords);
-        return coords;
-      }
-    }
-  } catch {}
-  _cityGeo.set(key, null);
-  return null;
-}
-
-async function geocodeCep(cep: string): Promise<{ city: string; state: string } | null> {
-  if (!cep || cep.length < 8) return null;
-  try {
-    const cleaned = cep.replace(/\D/g, "").padEnd(8, "0").slice(0, 8);
-    const r = await fetch(`https://viacep.com.br/ws/${cleaned}/json/`, {
-      signal: AbortSignal.timeout(5000),
-    });
-    if (r.ok) {
-      const data = await r.json();
-      if (data.localidade && data.uf) return { city: data.localidade, state: data.uf };
-    }
-  } catch {}
-  return null;
-}
 
 async function fetchPageFromN8nProxy(
   apiUrlStripped: string,
