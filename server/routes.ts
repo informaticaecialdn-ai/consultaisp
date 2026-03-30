@@ -690,8 +690,8 @@ export async function registerRoutes(
           api_key: prov.n8nAuthToken || "",
         }));
 
-        const CENTRAL_N8N_URL = "https://n8n.aluisiocunha.com.br/webhook/isp-consult";
-        const CENTRAL_N8N_AUTH = "Basic aXNwX2FuYWxpenplOmlzcGFuYWxpenplMTIzMTIz";
+        const CENTRAL_N8N_URL = process.env.CENTRAL_N8N_URL || "";
+        const CENTRAL_N8N_AUTH = process.env.CENTRAL_N8N_AUTH || "";
 
         // When searching by CEP (8 digits) use N8N address search mode
         const isCepSearch = searchType === "cep";
