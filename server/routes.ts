@@ -2,58 +2,12 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { sessionMiddleware, requireAuth, requireAdmin, requireSuperAdmin } from "./auth";
-import { loginSchema, registerSchema, consultationLogs } from "@shared/schema";
+import { loginSchema, registerSchema, PLAN_PRICES } from "@shared/schema";
 import { hashPassword, verifyPassword } from "./password";
 import { sendVerificationEmail } from "./email";
 import { slugifySubdomain, buildSubdomainUrl } from "./tenant";
 import crypto from "crypto";
-import { db } from "./db";
-import { sql as drizzleSql, count, countDistinct } from "drizzle-orm";
 import { streamConsultationAnalysis, streamAntiFraudAnalysis } from "./ai-analysis";
-import { startScheduler, getSchedulerStatus, runAutoSync } from "./scheduler";
-import {
-  getAllPoints,
-  getProviderPoints,
-  refreshAllProviders,
-  refreshProviderIfStale,
-  getCacheStatus,
-  isRefreshing,
-  startHeatmapCacheScheduler,
-} from "./heatmap-cache";
-
-const _cityGeoCache = new Map<string, [number, number] | null>();
-async function geocodeCityServer(city: string, state: string): Promise<[number, number] | null> {
-  const key = `${city.toLowerCase()},${state.toLowerCase()}`;
-  if (_cityGeoCache.has(key)) return _cityGeoCache.get(key)!;
-  try {
-    const query = `${city}, ${state}, Brazil`;
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
-    const resp = await fetch(url, { headers: { "User-Agent": "ConsultaISP/1.0 contact@consultaisp.com.br" } });
-    if (resp.ok) {
-      const data: any[] = await resp.json();
-      if (data[0]) {
-        const coords: [number, number] = [parseFloat(data[0].lat), parseFloat(data[0].lon)];
-        _cityGeoCache.set(key, coords);
-        return coords;
-      }
-    }
-  } catch {}
-  _cityGeoCache.set(key, null);
-  return null;
-}
-
-function extractCityStateFromAddress(address: string): { city: string; state: string } | null {
-  const match = address.match(/[—\-–]\s*([^,\-–/]+?)\/([A-Z]{2})\s*$/);
-  if (match) return { city: match[1].trim(), state: match[2].trim() };
-  return null;
-}
-
-function parseAmountRange(range: string): number {
-  const nums = [...range.matchAll(/[\d.]+/g)].map(m => parseFloat(m[0].replace(/\./g, "")));
-  if (nums.length >= 2) return (nums[0] + nums[1]) / 2;
-  if (nums.length === 1) return nums[0];
-  return 500;
-}
 
 function calculateIspScore(params: {
   maxDaysOverdue: number;
@@ -701,7 +655,7 @@ export async function registerRoutes(
 
   app.post("/api/isp-consultations", requireAuth, async (req, res) => {
     try {
-      const { cpfCnpj, addressNumber, addressComplement, addressStreet, addressCity, addressState } = req.body;
+      const { cpfCnpj } = req.body;
       if (!cpfCnpj) {
         return res.status(400).json({ message: "CPF/CNPJ obrigatorio" });
       }
@@ -736,26 +690,15 @@ export async function registerRoutes(
           api_key: prov.n8nAuthToken || "",
         }));
 
-        const CENTRAL_N8N_URL = process.env.CENTRAL_N8N_URL || "";
-        const CENTRAL_N8N_AUTH = process.env.CENTRAL_N8N_AUTH || "";
+        const CENTRAL_N8N_URL = "https://n8n.aluisiocunha.com.br/webhook/isp-consult";
+        const CENTRAL_N8N_AUTH = "Basic aXNwX2FuYWxpenplOmlzcGFuYWxpenplMTIzMTIz";
 
         // When searching by CEP (8 digits) use N8N address search mode
         const isCepSearch = searchType === "cep";
-        // Build full address string when number is provided
-        const fullStreet = isCepSearch && addressStreet && addressNumber
-          ? `${addressStreet}, ${addressNumber}${addressComplement ? ` ${addressComplement}` : ""}`
-          : null;
         const extPayload = isCepSearch ? {
           document: null,
           searchType: "address",
-          addressQuery: {
-            zipcode: cleaned,
-            ...(fullStreet ? { street: fullStreet } : {}),
-            ...(addressCity ? { city: addressCity } : {}),
-            ...(addressState ? { state: addressState } : {}),
-            ...(addressNumber ? { number: addressNumber } : {}),
-            ...(addressComplement ? { complement: addressComplement } : {}),
-          },
+          addressQuery: { zipcode: cleaned },
           integrations,
         } : {
           document: cleaned,
@@ -845,48 +788,27 @@ export async function registerRoutes(
           }));
         }
 
-        // ── ADDRESS CROSS-REFERENCE (document search + user-provided installation address) ──
-        // Builds a list of addresses to cross-reference via N8N:
-        //   1. User-provided installation address (anti-fraud: even if CPF is clean/not found)
-        //   2. Addresses extracted from found customers (finds other docs at same location)
+        // ── ADDRESS CROSS-REFERENCE (document search only) ──────────────
+        // For each unique address found in document search, do a secondary
+        // N8N address query to find other customers at the same location.
         let n8nAddressMatches: any[] = [];
-        if (!isCepSearch) {
+        if (!isCepSearch && customers.length > 0) {
           const seenAddrKeys = new Set<string>();
           const addressQueries: any[] = [];
-
-          // Priority 1: installation address provided by the user in the request
-          // This is the KEY anti-fraud feature: check the installation address
-          // even when the searched document is not found anywhere.
-          if (addressStreet && addressNumber) {
-            const userStreet = `${addressStreet}, ${addressNumber}${addressComplement ? ` ${addressComplement}` : ""}`;
-            const userKey = [addressStreet, addressCity || "", addressState || ""].join("|");
-            seenAddrKeys.add(userKey);
-            const userAddrQ: any = { street: userStreet };
-            if (addressCity) userAddrQ.city = addressCity;
-            if (addressState) userAddrQ.state = addressState;
-            addressQueries.push(userAddrQ);
-            console.log(`[ISP-N8N-ADDR] Verificando endereço de instalação via N8N: ${userStreet}, ${addressCity || ""}`);
+          for (const c of customers) {
+            if (!c.city) continue;
+            const key = [c.cep || "", c.city, c.address || ""].join("|");
+            if (seenAddrKeys.has(key)) continue;
+            seenAddrKeys.add(key);
+            const addrQ: any = {};
+            if (c.address) addrQ.street = c.address;
+            if (c.cep) addrQ.zipcode = c.cep.replace(/\D/g, "");
+            if (c.city) addrQ.city = c.city;
+            if (c.state) addrQ.state = c.state;
+            if (c.neighborhood) addrQ.neighborhood = c.neighborhood;
+            addressQueries.push(addrQ);
           }
-
-          // Priority 2: addresses extracted from customers found via the document search
-          if (customers.length > 0) {
-            for (const c of customers) {
-              if (!c.city) continue;
-              const key = [c.cep || "", c.city, c.address || ""].join("|");
-              if (seenAddrKeys.has(key)) continue;
-              seenAddrKeys.add(key);
-              const addrQ: any = {};
-              if (c.address) addrQ.street = c.address;
-              if (c.cep) addrQ.zipcode = c.cep.replace(/\D/g, "");
-              if (c.city) addrQ.city = c.city;
-              if (c.state) addrQ.state = c.state;
-              if (c.neighborhood) addrQ.neighborhood = c.neighborhood;
-              addressQueries.push(addrQ);
-            }
-          }
-
-          // Query N8N for each address (limit to 4 to avoid timeout)
-          for (const addrQ of addressQueries.slice(0, 4)) {
+          for (const addrQ of addressQueries.slice(0, 3)) {
             try {
               const addrRes = await fetch(CENTRAL_N8N_URL, {
                 method: "POST",
@@ -900,22 +822,18 @@ export async function registerRoutes(
                   addressQuery: addrQ,
                   integrations,
                 }),
-                signal: AbortSignal.timeout(12000),
+                signal: AbortSignal.timeout(10000),
               });
               if (addrRes.ok) {
                 const addrRaw = await addrRes.json();
                 const addrObj = Array.isArray(addrRaw) ? addrRaw[0] : addrRaw;
                 const addrCustomers: any[] = addrObj?.data?.customers || addrObj?.customers || [];
                 for (const ac of addrCustomers) {
-                  // Skip anyone already in main results (same document)
+                  // Skip anyone already in main results (same document or same provider record)
                   const alreadyFound = customers.find(
                     (c: any) => c.document && ac.document && c.document === ac.document,
                   );
-                  // Also skip duplicate entries already in n8nAddressMatches
-                  const alreadyInMatches = n8nAddressMatches.find(
-                    (m: any) => m._document && ac.document && m._document === ac.document,
-                  );
-                  if (!alreadyFound && !alreadyInMatches) {
+                  if (!alreadyFound) {
                     const acProviderId = ac.provider_id ? Number(ac.provider_id) : null;
                     const acIsSame = !!(ac.provider_name && ac.provider_name === provider.name);
                     const acFullName = (ac.full_name || "Desconhecido").trim();
@@ -923,7 +841,7 @@ export async function registerRoutes(
                     const acMaskedName = acIsSame
                       ? acFullName
                       : acNameParts.length > 1 ? `${acNameParts[0]} ***` : acFullName;
-                    const match: any = {
+                    n8nAddressMatches.push({
                       customerName: acMaskedName,
                       cpfCnpj: acIsSame ? (ac.document || "") : "***",
                       address: [addrQ.street, addrQ.city, addrQ.state].filter(Boolean).join(", "),
@@ -935,10 +853,7 @@ export async function registerRoutes(
                       daysOverdue: Number(ac.payment_summary?.max_days_overdue || 0),
                       totalOverdue: acIsSame ? Number(ac.payment_summary?.open_overdue_amount || 0) : undefined,
                       hasDebt: Number(ac.payment_summary?.max_days_overdue || 0) > 0,
-                      isInstallationAddress: addressStreet ? addrQ.street?.startsWith(addressStreet) : false,
-                      _document: ac.document || null,
-                    };
-                    n8nAddressMatches.push(match);
+                    });
                   }
                 }
               }
@@ -946,9 +861,6 @@ export async function registerRoutes(
               console.warn("[ISP-N8N] Address cross-ref failed:", addrErr.message);
             }
           }
-
-          // Remove internal _document field before sending to client
-          n8nAddressMatches = n8nAddressMatches.map(({ _document, ...rest }) => rest);
         }
 
         const notFound = customers.length === 0;
@@ -1236,23 +1148,6 @@ export async function registerRoutes(
           approved: finalScore >= 50,
         });
 
-        // GAP 3 — Log consultation and fetch historico
-        try {
-          await db.insert(consultationLogs).values({ cpfCnpj: cleaned, providerId, tipo: searchType });
-          const histRows = await db.execute(drizzleSql`
-            SELECT COUNT(*)::int as total, COUNT(DISTINCT provider_id)::int as provedores
-            FROM consultation_logs
-            WHERE cpf_cnpj = ${cleaned} AND provider_id != ${providerId}
-            AND created_at >= NOW() - INTERVAL '30 days'
-          `);
-          const hist: any = histRows.rows[0] || {};
-          result.historico_consultas = {
-            ultimos_30_dias: Number(hist.total || 0),
-            provedores_distintos: Number(hist.provedores || 0),
-            alerta: Number(hist.total || 0) >= 3,
-          };
-        } catch (_logErr) { /* non-blocking */ }
-
         return res.json({ consultation, result });
       }
       // ── FIM N8N CENTRAL ───────────────────────────────────────────────
@@ -1408,8 +1303,6 @@ export async function registerRoutes(
       let globalTotalOverdue = 0;
       let providersWithDebtCount = 0;
       let hasUnreturnedEquipmentGlobal = false;
-      const manualEquipamentos = searchType !== "cep" ? await storage.getEquipamentosByCpf(cleaned) : [];
-      const manualEquipCount = manualEquipamentos.length;
 
       for (const customer of allCustomerRecords) {
         const customerProvider = await storage.getProvider(customer.providerId);
@@ -1429,7 +1322,7 @@ export async function registerRoutes(
         }
 
         const unreturnedEquipment = customerEquipment.filter(eq => eq.status === "not_returned");
-        const unreturnedCount = unreturnedEquipment.length + manualEquipCount;
+        const unreturnedCount = unreturnedEquipment.length;
 
         if (totalOverdue > 0) providersWithDebtCount++;
         if (maxDays > globalMaxDaysOverdue) globalMaxDaysOverdue = maxDays;
@@ -1474,21 +1367,13 @@ export async function registerRoutes(
         };
 
         if (isSameProvider) {
-          const erpEquip = unreturnedEquipment.map(eq => ({
+          detail.equipmentDetails = unreturnedEquipment.map(eq => ({
             type: eq.type,
             brand: eq.brand,
             model: eq.model,
             value: eq.value,
             inRecoveryProcess: eq.inRecoveryProcess,
           }));
-          const manualEquip = manualEquipamentos.map((eq: any) => ({
-            type: eq.tipo,
-            brand: eq.marca,
-            model: eq.modelo,
-            value: eq.valor,
-            inRecoveryProcess: false,
-          }));
-          detail.equipmentDetails = [...erpEquip, ...manualEquip];
           const newestContract = customerContracts.length > 0 ? customerContracts[0] : null;
           if (newestContract?.endDate) {
             detail.cancelledDate = newestContract.endDate;
@@ -1777,23 +1662,6 @@ export async function registerRoutes(
           provider.spcCredits,
         );
       }
-
-      // GAP 3 — Log consultation and fetch historico from network
-      try {
-        await db.insert(consultationLogs).values({ cpfCnpj: cleaned, providerId, tipo: searchType });
-        const histRows = await db.execute(drizzleSql`
-          SELECT COUNT(*)::int as total, COUNT(DISTINCT provider_id)::int as provedores
-          FROM consultation_logs
-          WHERE cpf_cnpj = ${cleaned} AND provider_id != ${providerId}
-          AND created_at >= NOW() - INTERVAL '30 days'
-        `);
-        const hist: any = histRows.rows[0] || {};
-        result.historico_consultas = {
-          ultimos_30_dias: Number(hist.total || 0),
-          provedores_distintos: Number(hist.provedores || 0),
-          alerta: Number(hist.total || 0) >= 3,
-        };
-      } catch (_logErr) { /* non-blocking */ }
 
       return res.json({ consultation, result });
     } catch (error: any) {
@@ -2092,179 +1960,6 @@ export async function registerRoutes(
       }
       customerRisk.sort((a, b) => b.riskScore - a.riskScore);
       return res.json(customerRisk);
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.get("/api/anti-fraud/migradores", requireAuth, async (req, res) => {
-    try {
-      const providerId = req.session.providerId!;
-      const alerts = await storage.getAlertsByProvider(providerId);
-      const grouped: Record<string, { cpf: string; name: string; alerts: typeof alerts }> = {};
-      for (const a of alerts) {
-        if (!a.customerCpfCnpj) continue;
-        const key = a.customerCpfCnpj;
-        if (!grouped[key]) grouped[key] = { cpf: a.customerCpfCnpj, name: a.customerName || "Desconhecido", alerts: [] };
-        grouped[key].alerts.push(a);
-      }
-      const migradores = Object.values(grouped)
-        .map(m => {
-          const providers = new Set(m.alerts.map(a => a.consultingProviderName).filter(Boolean));
-          const maxOverdue = Math.max(...m.alerts.map(a => parseFloat(a.overdueAmount || "0")));
-          const maxEqp = Math.max(...m.alerts.map(a => parseFloat(a.equipmentValue || "0")));
-          return { cpf: m.cpf, name: m.name, providers, maxOverdue, maxEqp, alerts: m.alerts, count: providers.size };
-        })
-        .filter(m => m.count >= 2)
-        .sort((a, b) => b.count - a.count)
-        .map(m => ({ ...m, providers: Array.from(m.providers) }));
-      return res.json(migradores);
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.get("/api/anti-fraud/rules", requireAuth, async (req, res) => {
-    try {
-      const rules = await storage.getAntiFraudRules(req.session.providerId!);
-      return res.json(rules);
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.patch("/api/anti-fraud/rules", requireAuth, async (req, res) => {
-    try {
-      const { rules } = req.body;
-      if (!Array.isArray(rules)) return res.status(400).json({ message: "rules deve ser um array" });
-      await storage.upsertAntiFraudRules(req.session.providerId!, rules);
-      return res.json({ ok: true });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.patch("/api/anti-fraud/rules/:id/toggle", requireAuth, async (req, res) => {
-    try {
-      const { ativo } = req.body;
-      await storage.toggleAntiFraudRule(parseInt(req.params.id), req.session.providerId!, ativo);
-      return res.json({ ok: true });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.get("/api/provider/notification-settings", requireAuth, async (req, res) => {
-    try {
-      const settings = await storage.getNotificationSettings(req.session.providerId!);
-      return res.json(settings || {});
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.patch("/api/provider/notification-settings", requireAuth, async (req, res) => {
-    try {
-      await storage.saveNotificationSettings(req.session.providerId!, req.body);
-      return res.json({ ok: true });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.get("/api/equipamentos", requireAuth, async (req, res) => {
-    try {
-      const items = await storage.getEquipamentosByProvider(req.session.providerId!);
-      const stats = {
-        total: items.length,
-        retidos: items.filter((e: any) => e.status === "retido").length,
-        recuperados: items.filter((e: any) => e.status === "recuperado").length,
-        valorRisco: items.filter((e: any) => e.status === "retido").reduce((s: number, e: any) => s + parseFloat(e.valor || "0"), 0),
-      };
-      return res.json({ items, stats });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.post("/api/equipamentos", requireAuth, async (req, res) => {
-    try {
-      const { cpfCnpj, nomeCliente, tipo, marca, modelo, numeroSerie, valor, dataPerda, observacao } = req.body;
-      if (!cpfCnpj) return res.status(400).json({ message: "CPF/CNPJ obrigatorio" });
-      const item = await storage.createEquipamento({
-        providerId: req.session.providerId!,
-        cpfCnpj: cpfCnpj.replace(/\D/g, ""),
-        nomeCliente: nomeCliente || null,
-        tipo: tipo || "ONU",
-        marca: marca || null,
-        modelo: modelo || null,
-        numeroSerie: numeroSerie || null,
-        valor: valor ? String(parseFloat(valor)) : "0",
-        dataPerda: dataPerda || null,
-        observacao: observacao || null,
-        status: "retido",
-      });
-      return res.json(item);
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.post("/api/equipamentos/import", requireAuth, async (req, res) => {
-    try {
-      const { rows } = req.body;
-      if (!rows?.length) return res.status(400).json({ message: "Dados obrigatorios" });
-      const result = await storage.importEquipamentos(req.session.providerId!, rows);
-      return res.json(result);
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.patch("/api/equipamentos/:id", requireAuth, async (req, res) => {
-    try {
-      await storage.updateEquipamentoStatus(parseInt(req.params.id), req.session.providerId!, req.body.status || "retido");
-      return res.json({ ok: true });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.delete("/api/equipamentos/:id", requireAuth, async (req, res) => {
-    try {
-      await storage.deleteEquipamento(parseInt(req.params.id), req.session.providerId!);
-      return res.json({ ok: true });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.post("/api/isp-consultations/lote", requireAuth, async (req, res) => {
-    try {
-      const { items } = req.body;
-      if (!items?.length) return res.status(400).json({ message: "Items obrigatorio" });
-      if (items.length > 500) return res.status(400).json({ message: "Maximo 500 CPFs por lote" });
-      const providerId = req.session.providerId!;
-      const provider = await storage.getProvider(providerId);
-      if (!provider) return res.status(403).json({ message: "Provedor nao encontrado" });
-      const results = [];
-      let totalCost = 0;
-      for (const item of items) {
-        const doc = (item.cpf_cnpj || "").replace(/\D/g, "");
-        if (!doc || (doc.length !== 11 && doc.length !== 14)) {
-          results.push({ cpf_cnpj: item.cpf_cnpj, error: "Documento invalido" });
-          continue;
-        }
-        const customers = await storage.getCustomerByCpfCnpj(doc);
-        const externalCount = customers.filter(c => (c as any).providerName !== provider.name).length;
-        const cost = Math.ceil(externalCount * 0.8);
-        totalCost += cost;
-        const score = customers.length === 0 ? 100 : Math.max(0, 100 - (externalCount * 20));
-        results.push({ cpf_cnpj: item.cpf_cnpj, nome: item.nome_cliente, encontrado: customers.length > 0, provedores: customers.length, score, custo: cost });
-      }
-      const finalCost = Math.min(totalCost, provider.ispCredits || 0);
-      if (finalCost > 0) await storage.updateProviderCredits(providerId, (provider.ispCredits || 0) - finalCost, provider.spcCredits || 0);
-      return res.json({ results, totalCost: finalCost, processed: items.length });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
     }
@@ -2803,16 +2498,8 @@ export async function registerRoutes(
 
   app.get("/api/heatmap/provider", requireAuth, async (req, res) => {
     try {
-      const providerId = req.session.providerId!;
-      await refreshProviderIfStale(providerId);
-      const points = getProviderPoints(providerId);
-      return res.json(points.map(p => ({
-        latitude: String(p.lat),
-        longitude: String(p.lng),
-        city: p.city,
-        totalOverdueAmount: String(p.totalOverdueAmount),
-        maxDaysOverdue: String(p.maxDaysOverdue),
-      })));
+      const data = await storage.getHeatmapDataByProvider(req.session.providerId!);
+      return res.json(data);
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
     }
@@ -2820,39 +2507,27 @@ export async function registerRoutes(
 
   app.get("/api/heatmap/regional", requireAuth, async (_req, res) => {
     try {
-      const cachePoints = getAllPoints();
-      const networkPoints = await storage.getNetworkConsultationPoints();
-
+      const data = await storage.getHeatmapDataAllProviders();
       const clusterMap = new Map<string, { lat: number; lng: number; city: string; count: number; totalOverdue: number }>();
-      const addPoint = (lat: number, lng: number, city: string, overdue: number) => {
-        if (isNaN(lat) || isNaN(lng)) return;
+      for (const item of data) {
+        const lat = parseFloat(item.latitude);
+        const lng = parseFloat(item.longitude);
+        if (isNaN(lat) || isNaN(lng)) continue;
         const roundedLat = parseFloat(lat.toFixed(2));
         const roundedLng = parseFloat(lng.toFixed(2));
         const key = `${roundedLat},${roundedLng}`;
         const existing = clusterMap.get(key);
+        const overdue = parseFloat(item.totalOverdueAmount || "0");
         if (existing) {
           existing.count += 1;
           existing.totalOverdue += overdue;
-          if (!existing.city && city) existing.city = city;
+          if (!existing.city && item.city) existing.city = item.city;
         } else {
-          clusterMap.set(key, { lat: roundedLat, lng: roundedLng, city, count: 1, totalOverdue: overdue });
+          clusterMap.set(key, { lat: roundedLat, lng: roundedLng, city: item.city || "", count: 1, totalOverdue: overdue });
         }
-      };
-
-      for (const p of cachePoints) {
-        addPoint(p.lat, p.lng, p.city, p.totalOverdueAmount);
       }
-
-      for (const np of networkPoints) {
-        const loc = extractCityStateFromAddress(np.address);
-        if (!loc) continue;
-        const coords = await geocodeCityServer(loc.city, loc.state);
-        if (!coords) continue;
-        const jitter = () => (Math.random() - 0.5) * 0.04;
-        addPoint(coords[0] + jitter(), coords[1] + jitter(), loc.city, parseAmountRange(np.amountRange));
-      }
-
-      return res.json(Array.from(clusterMap.values()));
+      const results = Array.from(clusterMap.values());
+      return res.json(results);
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
     }
@@ -2860,12 +2535,15 @@ export async function registerRoutes(
 
   app.get("/api/heatmap/city-ranking", requireAuth, async (_req, res) => {
     try {
-      const cachePoints = getAllPoints();
-      const networkPoints = await storage.getNetworkConsultationPoints();
+      const data = await storage.getHeatmapDataAllProviders();
       const cityMap = new Map<string, { city: string; lat: number; lng: number; count: number; totalOverdue: number; maxDays: number }>();
-
-      const addCity = (city: string, lat: number, lng: number, overdue: number, days: number) => {
-        if (!city) return;
+      for (const item of data) {
+        const city = (item.city || "").trim();
+        if (!city) continue;
+        const lat = parseFloat(item.latitude);
+        const lng = parseFloat(item.longitude);
+        const overdue = parseFloat(item.totalOverdueAmount || "0");
+        const days = parseInt(item.maxDaysOverdue || "0", 10);
         const existing = cityMap.get(city);
         if (existing) {
           existing.count += 1;
@@ -2874,21 +2552,9 @@ export async function registerRoutes(
         } else {
           cityMap.set(city, { city, lat: isNaN(lat) ? 0 : lat, lng: isNaN(lng) ? 0 : lng, count: 1, totalOverdue: overdue, maxDays: days });
         }
-      };
-
-      for (const p of cachePoints) {
-        addCity(p.city, p.lat, p.lng, p.totalOverdueAmount, p.maxDaysOverdue);
       }
-
-      for (const np of networkPoints) {
-        const loc = extractCityStateFromAddress(np.address);
-        if (!loc) continue;
-        const coords = await geocodeCityServer(loc.city, loc.state);
-        if (!coords) continue;
-        addCity(loc.city, coords[0], coords[1], parseAmountRange(np.amountRange), np.daysOverdue);
-      }
-
-      const results = Array.from(cityMap.values()).sort((a, b) => b.count - a.count || b.totalOverdue - a.totalOverdue);
+      const results = Array.from(cityMap.values())
+        .sort((a, b) => b.count - a.count || b.totalOverdue - a.totalOverdue);
       return res.json(results);
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
@@ -3584,7 +3250,6 @@ export async function registerRoutes(
     try {
       const { period } = req.body;
       if (!period) return res.status(400).json({ message: "Period e obrigatorio (ex: 2026-03)" });
-      const PLAN_PRICES: Record<string, number> = { free: 0, basic: 199, pro: 399, enterprise: 799 };
       const PLAN_CREDITS: Record<string, { isp: number; spc: number }> = {
         free: { isp: 50, spc: 0 }, basic: { isp: 200, spc: 50 }, pro: { isp: 500, spc: 150 }, enterprise: { isp: 1500, spc: 500 }
       };
@@ -4057,293 +3722,6 @@ export async function registerRoutes(
       return res.status(500).json({ message: error.message });
     }
   });
-
-  app.get("/api/admin/auto-sync/status", requireSuperAdmin, async (_req, res) => {
-    try {
-      const scheduler = getSchedulerStatus();
-      const integrations = await storage.getAllEnabledErpIntegrationsWithCredentials();
-      const now = new Date();
-      const list = integrations.map((intg) => {
-        const intervalMs = (intg.syncIntervalHours || 24) * 60 * 60 * 1000;
-        const nextDue = intg.lastSyncAt ? new Date(intg.lastSyncAt.getTime() + intervalMs) : new Date(0);
-        return {
-          providerId: intg.providerId,
-          providerName: intg.providerName,
-          erpSource: intg.erpSource,
-          syncIntervalHours: intg.syncIntervalHours,
-          lastSyncAt: intg.lastSyncAt,
-          lastSyncStatus: intg.lastSyncStatus,
-          nextDueAt: nextDue,
-          isDue: now >= nextDue,
-          totalSynced: intg.totalSynced,
-          totalErrors: intg.totalErrors,
-        };
-      });
-      const n8nProviders = await storage.getAllProvidersWithN8n();
-      const cacheStatus = getCacheStatus();
-      const heatmapSources = n8nProviders.map((p) => {
-        const cs = cacheStatus.find((c) => c.providerId === p.id);
-        return {
-          providerId: p.id,
-          providerName: p.name,
-          n8nWebhookUrl: p.n8nWebhookUrl,
-          n8nEnabled: p.n8nEnabled,
-          cachePoints: cs?.points ?? 0,
-          fetchedAt: cs?.fetchedAt ?? null,
-          isStale: cs?.isStale ?? true,
-          status: cs?.status ?? "pending",
-          errorMessage: cs?.errorMessage,
-        };
-      });
-      return res.json({ scheduler, integrations: list, heatmapSources });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.post("/api/admin/auto-sync/run", requireSuperAdmin, async (_req, res) => {
-    try {
-      const status = getSchedulerStatus();
-      if (status.running) {
-        return res.status(409).json({ message: "Sincronização já está em execução" });
-      }
-      runAutoSync();
-      return res.json({ ok: true, message: "Sincronização iniciada em background" });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.patch("/api/admin/auto-sync/interval", requireSuperAdmin, async (req, res) => {
-    try {
-      const { providerId, erpSource, syncIntervalHours } = req.body;
-      if (!providerId || !erpSource || !syncIntervalHours) {
-        return res.status(400).json({ message: "providerId, erpSource e syncIntervalHours são obrigatórios" });
-      }
-      const hours = parseInt(syncIntervalHours);
-      if (![6, 12, 24, 48, 168].includes(hours)) {
-        return res.status(400).json({ message: "Intervalo inválido. Use: 6, 12, 24, 48 ou 168 horas" });
-      }
-      const updated = await storage.upsertErpIntegration(providerId, erpSource, { syncIntervalHours: hours });
-      return res.json({ ok: true, integration: updated });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.get("/api/heatmap/sync-info", requireAuth, async (_req, res) => {
-    try {
-      const integrations = await storage.getAllEnabledErpIntegrationsWithCredentials();
-      const autoSynced = integrations.filter((i) => i.lastSyncStatus && i.lastSyncAt);
-      const lastSyncAt = autoSynced.length > 0
-        ? autoSynced.reduce((a, b) => (a.lastSyncAt! > b.lastSyncAt! ? a : b)).lastSyncAt
-        : null;
-      const totalIntegrations = integrations.length;
-      const cacheStatus = getCacheStatus();
-      const lastCacheRefresh = cacheStatus.length > 0
-        ? cacheStatus.reduce((a, b) => (a.fetchedAt && b.fetchedAt && a.fetchedAt > b.fetchedAt ? a : b)).fetchedAt
-        : null;
-      const totalCachePoints = cacheStatus.reduce((sum, s) => sum + s.points, 0);
-      return res.json({ lastSyncAt, totalIntegrations, lastCacheRefresh, totalCachePoints, refreshing: isRefreshing() });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.post("/api/heatmap/refresh", requireAuth, async (_req, res) => {
-    try {
-      if (isRefreshing()) {
-        return res.status(409).json({ message: "Atualização já está em andamento" });
-      }
-      refreshAllProviders().catch((e) => console.error("[HeatmapCache] Erro no refresh manual:", e.message));
-      return res.json({ ok: true, message: "Atualização iniciada em background" });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.get("/api/heatmap/cache-status", requireAuth, async (_req, res) => {
-    try {
-      return res.json({ refreshing: isRefreshing(), providers: getCacheStatus() });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  // ── GAP 2: LGPD public info endpoint ─────────────────────────────────
-  app.get("/api/public/lgpd-info", async (_req, res) => {
-    return res.json({
-      empresa: "Consulta ISP",
-      cnpj: "00.000.000/0001-00",
-      encarregado: "dpo@consultaisp.com.br",
-      finalidade: "Consulta de adimplência/inadimplência de clientes para ISPs participantes da rede colaborativa.",
-      base_legal: "Legítimo interesse (art. 7º, IX, LGPD) e proteção ao crédito (art. 7º, X, LGPD).",
-      direitos: ["Acesso", "Correção", "Eliminação", "Portabilidade", "Oposição"],
-      prazo_resposta_dias: 15,
-      canal_solicitacao: "privacidade@consultaisp.com.br",
-      tempo_retencao: "5 anos após liquidação ou extinção do contrato",
-      autoridade: "ANPD — Autoridade Nacional de Proteção de Dados",
-    });
-  });
-
-  // ── GAP 4: Historico na rede (outros provedores) ─────────────────────
-  app.get("/api/inadimplentes/:cpfCnpj/historico-rede", requireAuth, async (req, res) => {
-    try {
-      const providerId = req.session.providerId!;
-      const { cpfCnpj } = req.params;
-      const cleaned = cpfCnpj.replace(/\D/g, "");
-      if (!cleaned || (cleaned.length !== 11 && cleaned.length !== 14)) {
-        return res.status(400).json({ message: "CPF/CNPJ inválido" });
-      }
-      const customers = await storage.getCustomerByCpfCnpj(cleaned);
-      const externos = customers.filter((c: any) => c.providerId !== providerId);
-      const consultas = await db.execute(drizzleSql`
-        SELECT COUNT(*)::int as total, COUNT(DISTINCT provider_id)::int as provedores,
-               MAX(created_at) as ultima_consulta
-        FROM consultation_logs
-        WHERE cpf_cnpj = ${cleaned} AND provider_id != ${providerId}
-        AND created_at >= NOW() - INTERVAL '90 days'
-      `);
-      const cRows: any = consultas.rows[0] || {};
-      return res.json({
-        cpf_cnpj: cleaned,
-        registros_externos: externos.length,
-        provedores_distintos: externos.map((c: any) => c.providerId).filter((v: any, i: any, a: any) => a.indexOf(v) === i).length,
-        consultas_90d: Number(cRows.total || 0),
-        provedores_consultantes: Number(cRows.provedores || 0),
-        ultima_consulta: cRows.ultima_consulta || null,
-        alerta_alta_frequencia: Number(cRows.total || 0) >= 5,
-      });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  // ── GAP 5: ERP webhook endpoint ───────────────────────────────────────
-  app.post("/api/webhooks/erp-inadimplente", async (req, res) => {
-    try {
-      const secret = req.headers["x-webhook-secret"] as string;
-      if (!secret) return res.status(401).json({ message: "x-webhook-secret header obrigatório" });
-      const provider = await storage.getProviderByWebhookToken(secret);
-      if (!provider || !(provider as any).webhookAtivo) return res.status(403).json({ message: "Token inválido ou webhook inativo" });
-      const { cpf_cnpj, nome_cliente, valor_devido, tipo_servico, data_vencimento, status_contrato } = req.body;
-      if (!cpf_cnpj || !nome_cliente) return res.status(400).json({ message: "cpf_cnpj e nome_cliente são obrigatórios" });
-      const cleaned = cpf_cnpj.replace(/\D/g, "");
-      const existing = await storage.getCustomerByCpfCnpj(cleaned);
-      const providerCustomers = existing.filter((c: any) => c.providerId === provider.id);
-      if (providerCustomers.length > 0) {
-        return res.json({ ok: true, action: "already_exists", id: providerCustomers[0].id });
-      }
-      const newCustomer = await storage.createCustomer({
-        providerId: provider.id,
-        cpfCnpj: cleaned,
-        nomeCliente: nome_cliente,
-        valorDevido: valor_devido ? String(valor_devido) : "0",
-        tipoServico: tipo_servico || "internet",
-        dataVencimento: data_vencimento || new Date().toISOString().split("T")[0],
-        statusContrato: status_contrato || "inadimplente",
-      });
-      return res.json({ ok: true, action: "created", id: newCustomer.id });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  // ── GAP 5: Webhook config endpoints ──────────────────────────────────
-  app.get("/api/provider/webhook-info", requireAuth, async (req, res) => {
-    try {
-      const providerId = req.session.providerId!;
-      const token = await storage.getProviderWebhookToken(providerId);
-      const provider = await storage.getProvider(providerId);
-      const baseUrl = `${req.protocol}://${req.get("host")}`;
-      return res.json({
-        token,
-        webhookUrl: `${baseUrl}/api/webhooks/erp-inadimplente`,
-        webhookAtivo: (provider as any).webhookAtivo ?? false,
-      });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  app.patch("/api/provider/webhook-config", requireAuth, async (req, res) => {
-    try {
-      if (req.session.role !== "admin") return res.status(403).json({ message: "Apenas admins" });
-      const providerId = req.session.providerId!;
-      const { webhookAtivo, regenerate } = req.body;
-      if (regenerate) {
-        const token = await storage.regenerateWebhookToken(providerId);
-        return res.json({ token, regenerated: true });
-      }
-      if (typeof webhookAtivo === "boolean") {
-        await db.execute(drizzleSql`UPDATE providers SET webhook_ativo = ${webhookAtivo} WHERE id = ${providerId}`);
-      }
-      return res.json({ ok: true });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  // ── GAP 8: Trial status endpoint ──────────────────────────────────────
-  app.get("/api/provider/trial-status", requireAuth, async (req, res) => {
-    try {
-      const provider = await storage.getProvider(req.session.providerId!);
-      if (!provider) return res.status(404).json({ message: "Provedor não encontrado" });
-      const trialDays = 14;
-      const trialInicio: Date | null = (provider as any).trialInicio || null;
-      let trialAtivo = false;
-      let diasRestantes = 0;
-      let diasUsados = 0;
-      if (trialInicio) {
-        const elapsed = Date.now() - new Date(trialInicio).getTime();
-        diasUsados = Math.floor(elapsed / 86400000);
-        diasRestantes = Math.max(0, trialDays - diasUsados);
-        trialAtivo = diasRestantes > 0;
-      }
-      return res.json({
-        trial_ativo: trialAtivo,
-        dias_restantes: diasRestantes,
-        dias_usados: diasUsados,
-        trial_inicio: trialInicio,
-        trial_duracao_dias: trialDays,
-        plano: (provider as any).planoAtual || "trial",
-      });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  // ── GAP 1: LGPD notification endpoint ────────────────────────────────
-  app.post("/api/inadimplentes/:id/notificar-lgpd", requireAuth, async (req, res) => {
-    try {
-      const id = parseInt(req.params.id);
-      const providerId = req.session.providerId!;
-      const customer = await storage.getCustomer(id, providerId);
-      if (!customer) return res.status(404).json({ message: "Registro não encontrado" });
-      const notifData: any = (customer as any).notificacaoData;
-      if (notifData) {
-        const diff = Date.now() - new Date(notifData).getTime();
-        const dias = Math.floor(diff / 86400000);
-        if (dias < 10) {
-          return res.status(409).json({
-            message: `Notificação já enviada há ${dias} dia(s). Aguarde ${10 - dias} dia(s) para reenviar.`,
-            dias_restantes: 10 - dias,
-          });
-        }
-      }
-      await storage.updateCustomer(id, providerId, {
-        notificacaoEnviada: true,
-        notificacaoData: new Date().toISOString(),
-        notificacaoCanal: req.body.canal || "whatsapp",
-      } as any);
-      return res.json({ ok: true, message: "Notificação registrada com sucesso" });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
-  });
-
-  startScheduler();
-  startHeatmapCacheScheduler();
 
   return httpServer;
 }

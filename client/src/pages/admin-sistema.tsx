@@ -22,6 +22,7 @@ import {
   Database, Upload, X, Pencil, ImagePlus, ToggleLeft, ToggleRight,
   Play, Pause, CalendarClock, ServerCog, Wifi, WifiOff, Timer, MapPin
 } from "lucide-react";
+import { PLAN_PRICES } from "@shared/schema";
 import type { ErpCatalog } from "@shared/schema";
 
 const ERP_OPTIONS = [
@@ -2549,7 +2550,6 @@ export default function AdminSistemaPage() {
                     <Label className="text-xs">Provedor</Label>
                     <Select value={invoiceForm.providerId} onValueChange={(v) => {
                       const p = allProviders.find((x: any) => x.id.toString() === v);
-                      const PLAN_PRICES: Record<string, number> = { free: 0, basic: 199, pro: 399, enterprise: 799 };
                       const PLAN_CREDITS_MAP: Record<string, { isp: number; spc: number }> = {
                         free: { isp: 50, spc: 0 }, basic: { isp: 200, spc: 50 }, pro: { isp: 500, spc: 150 }, enterprise: { isp: 1500, spc: 500 }
                       };
@@ -2583,7 +2583,6 @@ export default function AdminSistemaPage() {
                   <div>
                     <Label className="text-xs">Plano Cobrado</Label>
                     <Select value={invoiceForm.planAtTime} onValueChange={(v) => {
-                      const PLAN_PRICES: Record<string, number> = { free: 0, basic: 199, pro: 399, enterprise: 799 };
                       const PLAN_CREDITS_MAP: Record<string, { isp: number; spc: number }> = {
                         free: { isp: 50, spc: 0 }, basic: { isp: 200, spc: 50 }, pro: { isp: 500, spc: 150 }, enterprise: { isp: 1500, spc: 500 }
                       };

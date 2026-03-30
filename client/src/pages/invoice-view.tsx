@@ -19,9 +19,6 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   cancelled: { label: "Cancelado",  color: "bg-gray-100 text-gray-600" },
 };
 
-const PLAN_PRICES: Record<string, number> = {
-  free: 0, basic: 199, pro: 399, enterprise: 799,
-};
 
 const PLAN_CREDITS: Record<string, { isp: number; spc: number }> = {
   free: { isp: 50, spc: 0 },

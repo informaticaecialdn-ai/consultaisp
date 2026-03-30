@@ -17,8 +17,7 @@ import {
   Target, Activity, PieChart, Calendar, Info, ChevronRight,
   ScanLine, ArrowUp, ArrowDown, Minus
 } from "lucide-react";
-
-const PLAN_PRICES: Record<string, number> = { free: 0, basic: 199, pro: 399, enterprise: 799 };
+import { PLAN_PRICES } from "@shared/schema";
 const PLAN_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   free:       { label: "Gratuito",   color: "text-gray-600",   bg: "bg-gray-100" },
   basic:      { label: "Basico",     color: "text-blue-600",   bg: "bg-blue-100" },
