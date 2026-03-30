@@ -48,10 +48,10 @@
 - [ ] **LGPD-03**: Garantir que consultas ISP nunca exponham dados completos de clientes de outros provedores
 
 ### Docker & Deploy
-- [ ] **DOCK-01**: Criar Dockerfile multi-stage (node:20-slim, build + runtime)
-- [ ] **DOCK-02**: Criar docker-compose.yml com app + PostgreSQL + volumes persistentes
-- [ ] **DOCK-03**: Configurar health checks e graceful shutdown
-- [ ] **DOCK-04**: Validacao de variaveis de ambiente no startup
+- [x] **DOCK-01**: Criar Dockerfile multi-stage (node:20-slim, build + runtime)
+- [x] **DOCK-02**: Criar docker-compose.yml com app + PostgreSQL + volumes persistentes
+- [x] **DOCK-03**: Configurar health checks e graceful shutdown
+- [x] **DOCK-04**: Validacao de variaveis de ambiente no startup
 - [ ] **DOCK-05**: Logging estruturado com pino (substituir console.log)
 
 ### Data Fixes
@@ -84,10 +84,10 @@
 | SEC-03 | Phase 1: Security & Cleanup | Complete |
 | FIX-01 | Phase 1: Security & Cleanup | Complete |
 | MOD-01 | Phase 2: Foundation & Docker | Pending |
-| DOCK-01 | Phase 2: Foundation & Docker | Pending |
-| DOCK-02 | Phase 2: Foundation & Docker | Pending |
-| DOCK-03 | Phase 2: Foundation & Docker | Pending |
-| DOCK-04 | Phase 2: Foundation & Docker | Pending |
+| DOCK-01 | Phase 2: Foundation & Docker | Complete |
+| DOCK-02 | Phase 2: Foundation & Docker | Complete |
+| DOCK-03 | Phase 2: Foundation & Docker | Complete |
+| DOCK-04 | Phase 2: Foundation & Docker | Complete |
 | DOCK-05 | Phase 2: Foundation & Docker | Pending |
 | MOD-02 | Phase 3: Backend Modularization | Pending |
 | MOD-03 | Phase 3: Backend Modularization | Pending |

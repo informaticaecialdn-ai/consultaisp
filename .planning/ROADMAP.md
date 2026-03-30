@@ -50,8 +50,8 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 02-01-PLAN.md -- Extract score engine, LGPD masking, geocoding modules + install pino structured logging
-- [ ] 02-02-PLAN.md -- Add health check endpoint, graceful shutdown, and env validation
+- [x] 02-01-PLAN.md -- Extract score engine, LGPD masking, geocoding modules + install pino structured logging
+- [x] 02-02-PLAN.md -- Add health check endpoint, graceful shutdown, and env validation
 - [ ] 02-03-PLAN.md -- Create Dockerfile, docker-compose.yml, and deployment config
 
 ### Phase 3: Backend Modularization
