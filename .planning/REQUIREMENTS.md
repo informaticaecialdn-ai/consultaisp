@@ -18,9 +18,9 @@
 - [ ] **ERP-02**: Implementar conector IXC Soft (Basic Auth, POST com header ixcsoft, paginacao, fn_areceber + cliente)
 - [ ] **ERP-03**: Implementar conector MK Solutions (Bearer JWT, GET, financeiro/inadimplentes + clientes)
 - [ ] **ERP-04**: Implementar conector SGP (Token/App ou Basic Auth, GET/POST, clientes + financeiro)
-- [ ] **ERP-05**: Implementar conector Hubsoft (OAuth2 com client_id/secret → Bearer, token refresh)
-- [ ] **ERP-06**: Implementar conector Voalle (usuario tipo Integracao, modulo financeiro)
-- [ ] **ERP-07**: Implementar conector RBX ISP (ChaveIntegracao no body POST, filtros SQL-like)
+- [x] **ERP-05**: Implementar conector Hubsoft (OAuth2 com client_id/secret → Bearer, token refresh)
+- [x] **ERP-06**: Implementar conector Voalle (usuario tipo Integracao, modulo financeiro)
+- [x] **ERP-07**: Implementar conector RBX ISP (ChaveIntegracao no body POST, filtros SQL-like)
 - [ ] **ERP-08**: Implementar conector TopSApp (pesquisar API — documentacao nao publica)
 - [ ] **ERP-09**: Implementar conector RadiusNet (pesquisar API — documentacao nao publica)
 - [ ] **ERP-10**: Implementar conector Gere (pesquisar API — documentacao nao publica)
@@ -96,9 +96,9 @@
 | ERP-02 | Phase 4: ERP Connector Engine | Pending |
 | ERP-03 | Phase 4: ERP Connector Engine | Pending |
 | ERP-04 | Phase 4: ERP Connector Engine | Pending |
-| ERP-05 | Phase 4: ERP Connector Engine | Pending |
-| ERP-06 | Phase 4: ERP Connector Engine | Pending |
-| ERP-07 | Phase 4: ERP Connector Engine | Pending |
+| ERP-05 | Phase 4: ERP Connector Engine | Complete |
+| ERP-06 | Phase 4: ERP Connector Engine | Complete |
+| ERP-07 | Phase 4: ERP Connector Engine | Complete |
 | ERP-12 | Phase 4: ERP Connector Engine | Complete |
 | ERP-13 | Phase 4: ERP Connector Engine | Complete |
 | ERP-14 | Phase 4: ERP Connector Engine | Complete |
