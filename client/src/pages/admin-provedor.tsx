@@ -476,11 +476,11 @@ export default function AdminProvedorPage() {
                           <td className="px-4 py-3">
                             <Badge className="bg-violet-100 text-violet-700 border-violet-200 text-xs font-mono">CNAME</Badge>
                           </td>
-                          <td className="px-4 py-3 font-mono text-sm text-blue-700" data-testid="dns-destination">consultaisp-isp.replit.app</td>
+                          <td className="px-4 py-3 font-mono text-sm text-blue-700" data-testid="dns-destination">app.consultaisp.com.br</td>
                           <td className="px-4 py-3 text-sm text-muted-foreground">3600</td>
                           <td className="px-4 py-3">
                             <button
-                              onClick={() => { navigator.clipboard.writeText(`${provider.subdomain}\tCNAME\tconsultaisp-isp.replit.app`); }}
+                              onClick={() => { navigator.clipboard.writeText(`${provider.subdomain}\tCNAME\tapp.consultaisp.com.br`); }}
                               className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium"
                               data-testid="button-copy-dns-record"
                             >

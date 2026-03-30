@@ -3,9 +3,9 @@
 ## v1 Requirements
 
 ### Security & Cleanup
-- [ ] **SEC-01**: Remover credenciais N8N hardcoded do codigo-fonte (heatmap-cache.ts)
-- [ ] **SEC-02**: Limpar todas as 62 referencias a Replit (replit_integrations, plugins, dependencias dev)
-- [ ] **SEC-03**: Remover pacotes Replit do package.json (@replit/vite-plugin-cartographer, dev-banner, runtime-error-modal)
+- [x] **SEC-01**: Remover credenciais N8N hardcoded do codigo-fonte (heatmap-cache.ts)
+- [x] **SEC-02**: Limpar todas as 62 referencias a Replit (replit_integrations, plugins, dependencias dev)
+- [x] **SEC-03**: Remover pacotes Replit do package.json (@replit/vite-plugin-cartographer, dev-banner, runtime-error-modal)
 
 ### Backend Modularization
 - [ ] **MOD-01**: Extrair funcoes puras em modulos isolados: score engine (calculateIspScore), mascaramento LGPD, geocodificacao
@@ -79,9 +79,9 @@
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
-| SEC-01 | Phase 1: Security & Cleanup | Pending |
-| SEC-02 | Phase 1: Security & Cleanup | Pending |
-| SEC-03 | Phase 1: Security & Cleanup | Pending |
+| SEC-01 | Phase 1: Security & Cleanup | Complete |
+| SEC-02 | Phase 1: Security & Cleanup | Complete |
+| SEC-03 | Phase 1: Security & Cleanup | Complete |
 | FIX-01 | Phase 1: Security & Cleanup | Pending |
 | MOD-01 | Phase 2: Foundation & Docker | Pending |
 | DOCK-01 | Phase 2: Foundation & Docker | Pending |

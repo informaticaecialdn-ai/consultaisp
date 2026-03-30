@@ -6,8 +6,6 @@ const FROM_EMAIL = process.env.EMAIL_FROM || "onboarding@resend.dev";
 
 function getAppUrl(): string {
   if (process.env.APP_URL) return process.env.APP_URL;
-  if (process.env.REPLIT_DEPLOYMENT_URL) return `https://${process.env.REPLIT_DEPLOYMENT_URL}`;
-  if (process.env.REPLIT_DEV_DOMAIN) return `https://${process.env.REPLIT_DEV_DOMAIN}`;
   return `http://localhost:5000`;
 }
 
