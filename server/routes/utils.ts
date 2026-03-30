@@ -1,3 +1,6 @@
+// Re-export score-engine functions used by route modules
+export { calculateIspScore, getRiskTier, getDecisionReco } from "../score-engine";
+
 export function getOverdueAmountRange(amount: number): string {
   if (amount === 0) return "Sem debito";
   if (amount <= 100) return "Ate R$ 100";
