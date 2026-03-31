@@ -100,13 +100,12 @@ Plans:
   4. The ERP catalog page displays all available connectors with setup instructions
   5. The scheduler and heatmap use direct ERP connectors -- no N8N webhook URLs are called anywhere in the codebase
   6. The heatmap displays delinquency data from all configured ERPs, not just IXC
-**Plans**: TBD
+**Plans**: 2 plans
 **UI hint**: yes
 
 Plans:
-- [ ] 05-01: TBD
-- [ ] 05-02: TBD
-- [ ] 05-03: TBD
+- [ ] 05-01-PLAN.md -- Backend N8N elimination: rewrite heatmap for all ERPs, add connector metadata API, remove N8N routes/storage
+- [ ] 05-02-PLAN.md -- Frontend ERP config UI: dynamic forms per connector type, test/sync controls, catalog with all 6 connectors
 
 ### Phase 6: Undocumented ERP Connectors
 **Goal**: The platform supports TopSApp, RadiusNet, Gere, and ReceitaNet ERPs after researching their undocumented APIs
@@ -147,6 +146,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 (and 6 in parallel with 5
 | 2. Foundation & Docker | 0/3 | Not started | - |
 | 3. Backend Modularization | 0/4 | Not started | - |
 | 4. ERP Connector Engine | 4/4 | Complete | 2026-03-30 |
-| 5. ERP UI & N8N Removal | 0/3 | Not started | - |
+| 5. ERP UI & N8N Removal | 0/2 | Not started | - |
 | 6. Undocumented ERP Connectors | 0/2 | Not started | - |
 | 7. LGPD Hardening | 0/2 | Not started | - |
