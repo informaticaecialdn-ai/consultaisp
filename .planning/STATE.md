@@ -2,6 +2,7 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
+<<<<<<< HEAD
 status: in-progress
 stopped_at: Completed 05-01-PLAN.md
 last_updated: "2026-03-31T00:38:00Z"
@@ -12,6 +13,18 @@ progress:
   total_plans: 15
   completed_plans: 14
   percent: 93
+=======
+status: executing
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-03-31T01:11:41.604Z"
+last_activity: 2026-03-31
+progress:
+  total_phases: 7
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 1
+  percent: 100
+>>>>>>> worktree-agent-a5b7f0b5
 ---
 
 # Project State
@@ -25,12 +38,21 @@ See: .planning/PROJECT.md (updated 2026-03-29)
 
 ## Current Position
 
+<<<<<<< HEAD
 Phase: 5
 Plan: 1 of 2 complete
 Status: In progress
 Last activity: 2026-03-31
 
 Progress: [█████████░] 93%
+=======
+Phase: 05 (erp-ui-n8n-removal) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-03-31
+
+Progress: [██████████] 100%
+>>>>>>> worktree-agent-a5b7f0b5
 
 ## Performance Metrics
 
@@ -61,7 +83,11 @@ Progress: [█████████░] 93%
 | Phase 04 P01 | 10min | 2 tasks | 6 files |
 | Phase 04 P02 | 15min | 2 tasks | 3 files |
 | Phase 04 P04 | 21min | 2 tasks | 6 files |
+<<<<<<< HEAD
 | Phase 05 P01 | 15min | 2 tasks | 7 files |
+=======
+| Phase 05 P02 | 14m | 2 tasks | 1 files |
+>>>>>>> worktree-agent-a5b7f0b5
 
 ## Accumulated Context
 
@@ -87,8 +113,12 @@ Recent decisions affecting current work:
 - [Phase 04]: SGP appends app_name as query param when apiUser is configured
 - [Phase 04]: IXC/MK/SGP manually registered in barrel; Hubsoft/Voalle/RBX self-register on import
 - [Phase 04]: buildConnectorConfig extracted to server/erp/config.ts for shared use across routes and scheduler
+<<<<<<< HEAD
 - [Phase 05]: Central consultation endpoint (n8n.aluisiocunha.com.br) retained as HTTP API; credentials now sourced from erp_integrations table
 - [Phase 05]: N8N schema columns in providers table kept for migration safety; marked deprecated in plan
+=======
+- [Phase 05]: Used connector metadata from GET /api/erp-connectors as sole source of truth for ERP config field rendering
+>>>>>>> worktree-agent-a5b7f0b5
 
 ### Pending Todos
 
@@ -102,6 +132,11 @@ None yet.
 
 ## Session Continuity
 
+<<<<<<< HEAD
 Last session: 2026-03-31T00:38:00Z
 Stopped at: Completed 05-01-PLAN.md
+=======
+Last session: 2026-03-31T01:11:41.594Z
+Stopped at: Completed 05-02-PLAN.md
+>>>>>>> worktree-agent-a5b7f0b5
 Resume file: None

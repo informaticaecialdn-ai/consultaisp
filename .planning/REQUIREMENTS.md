@@ -37,9 +37,15 @@
 - [x] **N8N-05**: Expandir mapa de calor para todos os ERPs (nao apenas IXC)
 
 ### ERP Frontend
+<<<<<<< HEAD
 - [ ] **ERPUI-01**: Adaptar tela de configuracao ERP para mostrar campos especificos por tipo de ERP (Basic Auth vs OAuth vs Token)
 - [ ] **ERPUI-02**: UI de teste de conexao com feedback visual por ERP
 - [ ] **ERPUI-03**: UI de sync manual com progresso e logs
+=======
+- [x] **ERPUI-01**: Adaptar tela de configuracao ERP para mostrar campos especificos por tipo de ERP (Basic Auth vs OAuth vs Token)
+- [x] **ERPUI-02**: UI de teste de conexao com feedback visual por ERP
+- [x] **ERPUI-03**: UI de sync manual com progresso e logs
+>>>>>>> worktree-agent-a5b7f0b5
 - [ ] **ERPUI-04**: Atualizar catalogo de ERPs com todos os novos conectores
 
 ### LGPD Mascaramento
@@ -102,9 +108,15 @@
 | ERP-12 | Phase 4: ERP Connector Engine | Complete |
 | ERP-13 | Phase 4: ERP Connector Engine | Complete |
 | ERP-14 | Phase 4: ERP Connector Engine | Complete |
+<<<<<<< HEAD
 | ERPUI-01 | Phase 5: ERP UI & N8N Removal | Pending |
 | ERPUI-02 | Phase 5: ERP UI & N8N Removal | Pending |
 | ERPUI-03 | Phase 5: ERP UI & N8N Removal | Pending |
+=======
+| ERPUI-01 | Phase 5: ERP UI & N8N Removal | Complete |
+| ERPUI-02 | Phase 5: ERP UI & N8N Removal | Complete |
+| ERPUI-03 | Phase 5: ERP UI & N8N Removal | Complete |
+>>>>>>> worktree-agent-a5b7f0b5
 | ERPUI-04 | Phase 5: ERP UI & N8N Removal | Pending |
 | N8N-01 | Phase 5: ERP UI & N8N Removal | Complete |
 | N8N-02 | Phase 5: ERP UI & N8N Removal | Complete |
