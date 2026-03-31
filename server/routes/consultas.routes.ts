@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAuth } from "../auth";
 import { storage } from "../storage";
 import { calculateIspScore, getRiskTier, getDecisionReco, getOverdueAmountRange, getRecommendedActions } from "./utils";
+import { maskCrossProviderDetail, maskName, maskCpfCnpj } from "../lgpd-masking";
 
 export function registerConsultasRoutes(): Router {
   const router = Router();
@@ -197,14 +198,9 @@ export function registerConsultasRoutes(): Router {
                   if (!alreadyFound) {
                     const acProviderId = ac.provider_id ? Number(ac.provider_id) : null;
                     const acIsSame = !!(ac.provider_name && ac.provider_name === provider.name);
-                    const acFullName = (ac.full_name || "Desconhecido").trim();
-                    const acNameParts = acFullName.split(/\s+/);
-                    const acMaskedName = acIsSame
-                      ? acFullName
-                      : acNameParts.length > 1 ? `${acNameParts[0]} ***` : acFullName;
-                    erpAddressMatches.push({
-                      customerName: acMaskedName,
-                      cpfCnpj: acIsSame ? (ac.document || "") : "***",
+                    const rawMatch: Record<string, any> = {
+                      customerName: (ac.full_name || "Desconhecido").trim(),
+                      cpfCnpj: ac.document || "",
                       address: [addrQ.street, addrQ.city, addrQ.state].filter(Boolean).join(", "),
                       city: addrQ.city || "",
                       state: addrQ.state || "",
@@ -212,9 +208,10 @@ export function registerConsultasRoutes(): Router {
                       isSameProvider: acIsSame,
                       status: ac.payment_status || "unknown",
                       daysOverdue: Number(ac.payment_summary?.max_days_overdue || 0),
-                      totalOverdue: acIsSame ? Number(ac.payment_summary?.open_overdue_amount || 0) : undefined,
+                      overdueAmount: Number(ac.payment_summary?.open_overdue_amount || 0),
                       hasDebt: Number(ac.payment_summary?.max_days_overdue || 0) > 0,
-                    });
+                    };
+                    erpAddressMatches.push(maskCrossProviderDetail(rawMatch, acIsSame));
                   }
                 }
               }
@@ -283,9 +280,6 @@ export function registerConsultasRoutes(): Router {
             ? ((c.address || "").match(/\b(\d{5})-?(\d{3})\b/) || [])[0] || ""
             : "";
           const rawCep = rawCepBase || cepFallback.replace(/\D/g, "");
-          const maskedCep = rawCep.length >= 5
-            ? rawCep.replace(/^(\d{5})(\d*)$/, "$1-***")
-            : null;
           const fullCep = rawCep.length === 8
             ? `${rawCep.slice(0, 5)}-${rawCep.slice(5)}`
             : (rawCep || null);
@@ -328,31 +322,14 @@ export function registerConsultasRoutes(): Router {
           if (fullCep) addrFullParts.push(fullCep);
           const addrFull = addrFullParts.filter(Boolean).join(", ");
 
-          // Restricted: "Rua das Flores, *** — Londrina/PR"
-          // Shows street name + hidden number, and city/state from ViaCEP
-          const cityStateDisplay = cityReadable && stateReadable
-            ? `${cityReadable}/${stateReadable}`
-            : cityReadable || null;
-          const addrRestricted = [
-            streetBase ? `${streetBase}, ***` : null,
-            cityStateDisplay,
-          ].filter(Boolean).join(" — ") || undefined;
-
-          return {
+          const rawDetail: Record<string, any> = {
             providerName: customerProviderName,
             isSameProvider: isSame,
-            customerName: (() => {
-              const fn = (c.full_name || "Desconhecido").trim();
-              if (isSame) return fn;
-              const parts = fn.split(/\s+/);
-              return parts.length > 1 ? `${parts[0]} ***` : fn;
-            })(),
+            customerName: (c.full_name || "Desconhecido").trim(),
+            cpfCnpj: c.document || "",
             status: paymentStatusMap[ps] || ps2 || "Em dia",
             daysOverdue: maxDays,
-            overdueAmount: isSame ? overdueAmount : undefined,
-            overdueAmountRange: isSame ? undefined : (overdueAmount > 0
-              ? `R$ ${Math.floor(overdueAmount / 100) * 100} - R$ ${(Math.floor(overdueAmount / 100) + 1) * 100}`
-              : undefined),
+            overdueAmount: overdueAmount,
             overdueInvoicesCount: overdueCount,
             contractStartDate: serviceAgeMonths > 0
               ? new Date(Date.now() - serviceAgeMonths * 30 * 86400000).toISOString()
@@ -360,18 +337,19 @@ export function registerConsultasRoutes(): Router {
             contractAgeDays: serviceAgeMonths * 30,
             hasUnreturnedEquipment: false,
             unreturnedEquipmentCount: 0,
-            planName: isSame ? c.plan_name : undefined,
-            phone: isSame ? c.phone : undefined,
-            email: isSame ? c.email : undefined,
-            address: isSame ? addrFull : addrRestricted,
-            cep: isSame ? fullCep : maskedCep,
+            planName: c.plan_name,
+            phone: c.phone,
+            email: c.email,
+            address: addrFull,
+            cep: fullCep,
             addressCity: c.city || undefined,
             addressState: c.state || undefined,
-            lastPaymentDate: isSame ? c.payment_summary?.last_payment_date : undefined,
-            lastPaymentValue: isSame ? c.payment_summary?.last_payment_value : undefined,
-            openAmountTotal: isSame ? c.payment_summary?.open_amount_total : undefined,
-            openItems: isSame ? (c.payment_summary?.open_items || []) : [],
+            lastPaymentDate: c.payment_summary?.last_payment_date,
+            lastPaymentValue: c.payment_summary?.last_payment_value,
+            openAmountTotal: c.payment_summary?.open_amount_total,
+            openItems: c.payment_summary?.open_items || [],
           };
+          return maskCrossProviderDetail(rawDetail, isSame);
         });
 
         const alerts: string[] = [];
@@ -439,26 +417,19 @@ export function registerConsultasRoutes(): Router {
               if (!hd.cep || !String(hd.cep).startsWith(cepPrefix)) continue;
               // Re-apply isSameProvider based on current provider name
               const hdIsSame = hd.providerName === provider.name;
-              cepFallbackDetails.push({
+              // Strip existing masking artifacts to recover raw-ish data for re-masking
+              const rawName = (hd.customerName || "").replace(/ \*\*\*$/, "");
+              const rawDetail: Record<string, any> = {
                 ...hd,
                 isSameProvider: hdIsSame,
-                // Re-mask name if needed
-                customerName: hdIsSame
-                  ? hd.customerName
-                  : (() => {
-                    const name = (hd.customerName || "").replace(/ \*\*\*$/, "").split(/\s+/);
-                    return name.length > 1 ? `${name[0]} ***` : name[0] || "***";
-                  })(),
-                // Re-mask address / cep for non-own provider
-                address: hdIsSame ? (hd.address || hd.addressRestricted || undefined) : (hd.address || undefined),
-                cep: hdIsSame ? hd.cep : (hd.cep ? String(hd.cep).replace(/^(\d{5}|[0-9]{5}).*/, "$1-***") : undefined),
-                // Don't show financial details for external providers
-                overdueAmount: hdIsSame ? hd.overdueAmount : undefined,
-                overdueAmountRange: hdIsSame ? undefined : (hd.overdueAmount != null && hd.overdueAmount > 0
-                  ? `R$ ${Math.floor(hd.overdueAmount / 100) * 100} - R$ ${(Math.floor(hd.overdueAmount / 100) + 1) * 100}`
-                  : hd.overdueAmountRange),
-                isFromHistory: true,
-              });
+                customerName: rawName,
+                address: hd.address || hd.addressRestricted || undefined,
+                cep: hd.cep,
+                overdueAmount: hd.overdueAmount,
+              };
+              const maskedDetail = maskCrossProviderDetail(rawDetail, hdIsSame);
+              maskedDetail.isFromHistory = true;
+              cepFallbackDetails.push(maskedDetail);
             }
           }
           // De-duplicate by customerName+cep
