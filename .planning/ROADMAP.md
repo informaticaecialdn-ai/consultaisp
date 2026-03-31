@@ -128,11 +128,11 @@ Plans:
   1. A centralized masking function/middleware processes ALL cross-tenant query responses -- no direct data paths bypass it
   2. ISP consultations for customers of other providers show only: partial name, value range (not exact), street without number, and provider name
   3. No API endpoint returns complete personal data (full name, full CPF, exact address) of customers belonging to a different provider
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 07-01: TBD
-- [ ] 07-02: TBD
+- [ ] 07-01-PLAN.md -- Enhance lgpd-masking.ts with maskOverdueAmount, maskCrossProviderDetail aggregator, and unit tests
+- [ ] 07-02-PLAN.md -- Refactor consultas.routes.ts to use centralized masking, fix unmasked customer.name bug
 
 ## Progress
 
