@@ -86,7 +86,7 @@ export function getOverdueAmountRange(amount: number): string {
 }
 
 /** Fields that are always preserved (not masked) in cross-provider detail */
-const PRESERVED_FIELDS = new Set([
+const PRESERVED_FIELDS: string[] = [
   'providerName',
   'isSameProvider',
   'status',
@@ -98,10 +98,13 @@ const PRESERVED_FIELDS = new Set([
   'unreturnedEquipmentCount',
   'equipmentPendingSummary',
   'contractStatus',
-]);
+];
+
+const PRESERVED_SET: Record<string, boolean> = {};
+PRESERVED_FIELDS.forEach((k) => { PRESERVED_SET[k] = true; });
 
 /** Fields stripped entirely from cross-provider detail */
-const STRIPPED_FIELDS = new Set([
+const STRIPPED_FIELDS: string[] = [
   'phone',
   'email',
   'planName',
@@ -109,7 +112,10 @@ const STRIPPED_FIELDS = new Set([
   'lastPaymentValue',
   'openAmountTotal',
   'openItems',
-]);
+];
+
+const STRIPPED_SET: Record<string, boolean> = {};
+STRIPPED_FIELDS.forEach((k) => { STRIPPED_SET[k] = true; });
 
 /**
  * Masks an entire cross-provider detail object in one call.
@@ -125,11 +131,11 @@ export function maskCrossProviderDetail(
   const result: Record<string, any> = {};
 
   // Copy preserved fields
-  for (const key of PRESERVED_FIELDS) {
+  PRESERVED_FIELDS.forEach((key) => {
     if (key in detail) {
       result[key] = detail[key];
     }
-  }
+  });
 
   // Mask specific fields
   if (detail.customerName != null) {
@@ -155,20 +161,19 @@ export function maskCrossProviderDetail(
   }
 
   // Stripped fields are explicitly set to undefined (not included)
-  for (const key of STRIPPED_FIELDS) {
+  STRIPPED_FIELDS.forEach((key) => {
     result[key] = undefined;
-  }
+  });
 
   // Copy any other fields not handled above (except stripped ones)
-  for (const key of Object.keys(detail)) {
-    if (!(key in result) && !STRIPPED_FIELDS.has(key) && !PRESERVED_FIELDS.has(key)) {
-      // Unknown fields are passed through (conservative approach)
-      if (key !== 'customerName' && key !== 'cpfCnpj' && key !== 'address' &&
-          key !== 'cep' && key !== 'overdueAmount') {
-        result[key] = detail[key];
-      }
+  const maskedKeys: Record<string, boolean> = {
+    customerName: true, cpfCnpj: true, address: true, cep: true, overdueAmount: true,
+  };
+  Object.keys(detail).forEach((key) => {
+    if (!(key in result) && !STRIPPED_SET[key] && !PRESERVED_SET[key] && !maskedKeys[key]) {
+      result[key] = detail[key];
     }
-  }
+  });
 
   return result;
 }
