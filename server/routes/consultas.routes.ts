@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../auth";
 import { storage } from "../storage";
-import { calculateIspScore, getRiskTier, getDecisionReco, getOverdueAmountRange, getRecommendedActions } from "./utils";
+import { calculateIspScore, getRiskTier, getDecisionReco, getRecommendedActions } from "./utils";
 import { maskCrossProviderDetail, maskName, maskCpfCnpj } from "../lgpd-masking";
 
 export function registerConsultasRoutes(): Router {
@@ -555,14 +555,16 @@ export function registerConsultasRoutes(): Router {
         const relevantContract = activeContract || latestContract;
         const contractStatus = relevantContract?.status || "sem_contrato";
 
-        const detail: any = {
+        const rawDetail: Record<string, any> = {
           providerName: customerProvider?.name || "Provedor desconhecido",
           isSameProvider,
           customerName: customer.name,
+          cpfCnpj: customer.cpfCnpj,
+          address: customer.address || undefined,
+          cep: customer.cep || undefined,
           status: paymentStatusLabel,
           daysOverdue: maxDays,
-          overdueAmount: isSameProvider ? totalOverdue : undefined,
-          overdueAmountRange: isSameProvider ? undefined : getOverdueAmountRange(totalOverdue),
+          overdueAmount: totalOverdue,
           overdueInvoicesCount: overdueCount,
           contractStartDate: oldestContract.toISOString(),
           contractAgeDays,
@@ -570,6 +572,8 @@ export function registerConsultasRoutes(): Router {
           hasUnreturnedEquipment: unreturnedCount > 0,
           unreturnedEquipmentCount: unreturnedCount,
         };
+
+        const detail: any = maskCrossProviderDetail(rawDetail, isSameProvider);
 
         if (isSameProvider) {
           detail.equipmentDetails = unreturnedEquipment.map(eq => ({
@@ -784,31 +788,21 @@ export function registerConsultasRoutes(): Router {
 
           const isSameProvider = mc.providerId === providerId;
 
-          const nameParts = mc.name.trim().split(/\s+/);
-          const maskedName = isSameProvider
-            ? mc.name
-            : nameParts.length > 1 ? `${nameParts[0]} ***` : mc.name;
-
-          const rawCpf = mc.cpfCnpj.replace(/\D/g, "");
-          const maskedDoc = isSameProvider
-            ? mc.cpfCnpj
-            : rawCpf.length === 14
-              ? `${rawCpf.substring(0, 2)}.***.***/${rawCpf.substring(8, 12)}-**`
-              : `${rawCpf.substring(0, 3)}.***.***-**`;
-
-          addressMatches.push({
-            customerName: maskedName,
-            cpfCnpj: maskedDoc,
+          const rawMatch: Record<string, any> = {
+            customerName: mc.name,
+            cpfCnpj: mc.cpfCnpj,
             address: mc.address,
+            cep: mc.cep || undefined,
             city: mc.city,
             state: mc.state,
             providerName: isSameProvider ? (mcProvider?.name || "Seu provedor") : "Outro provedor da rede",
             isSameProvider,
             status: maxDays === 0 ? "Em dia" : `Inadimplente (${maxDays}d)`,
             daysOverdue: maxDays,
-            totalOverdue: isSameProvider ? totalOverdue : undefined,
+            overdueAmount: totalOverdue,
             hasDebt: maxDays > 0 || totalOverdue > 0,
-          });
+          };
+          addressMatches.push(maskCrossProviderDetail(rawMatch, isSameProvider));
         }
       }
 
