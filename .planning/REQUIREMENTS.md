@@ -51,7 +51,7 @@
 ### LGPD Mascaramento
 - [x] **LGPD-01**: Revisar e sistematizar mascaramento de dados entre provedores (nome parcial, faixa de valor, endereco sem numero)
 - [x] **LGPD-02**: Criar middleware/funcao centralizada de mascaramento que se aplica a todas as respostas entre tenants
-- [ ] **LGPD-03**: Garantir que consultas ISP nunca exponham dados completos de clientes de outros provedores
+- [x] **LGPD-03**: Garantir que consultas ISP nunca exponham dados completos de clientes de outros provedores
 
 ### Docker & Deploy
 - [x] **DOCK-01**: Criar Dockerfile multi-stage (node:20-slim, build + runtime)
@@ -129,4 +129,4 @@
 | ERP-11 | Phase 6: Undocumented ERP Connectors | Complete |
 | LGPD-01 | Phase 7: LGPD Hardening | Complete |
 | LGPD-02 | Phase 7: LGPD Hardening | Complete |
-| LGPD-03 | Phase 7: LGPD Hardening | Pending |
+| LGPD-03 | Phase 7: LGPD Hardening | Complete |
