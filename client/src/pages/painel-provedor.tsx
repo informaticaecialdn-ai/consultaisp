@@ -16,7 +16,7 @@ import {
   BarChart3, Search, AlertTriangle, Save, RefreshCw, Crown,
   Lock, Star, FileText, Upload, Download, MapPin, Calendar,
   Briefcase, X, Pencil, ClipboardList, UserCheck, Wand2, Info,
-  Key, Zap, Terminal, ArrowRight, Database, CheckCheck, Clock, Settings2,
+  Key, Zap, ArrowRight, Database, CheckCheck, Clock,
   Loader2
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
@@ -137,15 +137,16 @@ export default function PainelProvedorPage() {
   const [erpSyncResults, setErpSyncResults] = useState<Record<string, { ok: boolean; msg: string } | null>>({});
   const [erpPending, setErpPending] = useState<Record<string, { testing?: boolean; syncing?: boolean }>>({});
   const [expandedErp, setExpandedErp] = useState<string | null>(null);
-  const [n8nForm, setN8nForm] = useState({ webhookUrl: "", authToken: "", showToken: false });
-  const [n8nTestResult, setN8nTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
-  const [n8nPending, setN8nPending] = useState({ saving: false, testing: false });
-  const [erpLocalSelection, setErpLocalSelection] = useState<string | null>(null);
-  const [erpChanging, setErpChanging] = useState(false);
+  const [editingErp, setEditingErp] = useState<string | null>(null);
+  const [erpFormData, setErpFormData] = useState<Record<string, string>>({});
+  const [showPassFields, setShowPassFields] = useState<Record<string, boolean>>({});
 
-  const { data: n8nConfig, refetch: refetchN8n } = useQuery<any>({
-    queryKey: ["/api/provider/n8n-config"],
-    enabled: activeTab === "integracao",
+  const { data: connectorMeta = [] } = useQuery<Array<{
+    name: string; label: string;
+    configFields: Array<{ key: string; label: string; type: "text" | "password" | "url"; required: boolean; placeholder?: string }>;
+  }>>({
+    queryKey: ["/api/erp-connectors"],
+    staleTime: 10 * 60 * 1000,
   });
 
   const { data: erpCatalogData = [] } = useQuery<any[]>({
@@ -163,10 +164,11 @@ export default function PainelProvedorPage() {
     logoBase64: e.logoBase64 ?? e.logo_base64 ?? null,
   }));
 
-  const saveN8nMutation = useMutation({
-    mutationFn: (data: any) => apiRequest("PATCH", "/api/provider/n8n-config", data),
-    onSuccess: () => { refetchN8n(); toast({ title: "Configuracao salva", description: "Integracao atualizada com sucesso." }); },
-    onError: () => toast({ title: "Erro", description: "Nao foi possivel salvar a configuracao.", variant: "destructive" }),
+  const saveErpConfigMutation = useMutation({
+    mutationFn: ({ source, data }: { source: string; data: Record<string, any> }) =>
+      apiRequest("PATCH", `/api/provider/erp-integrations/${source}`, data),
+    onSuccess: () => { refetchErpList(); setEditingErp(null); toast({ title: "Configuracao salva", description: "Credenciais do ERP atualizadas com sucesso." }); },
+    onError: () => toast({ title: "Erro ao salvar", description: "Nao foi possivel salvar a configuracao.", variant: "destructive" }),
   });
 
   const testConnection = async (source: string) => {
@@ -1506,15 +1508,19 @@ export default function PainelProvedorPage() {
 
                 {/* Stats */}
                 {(() => {
-                  const erpActive = !!(n8nConfig?.n8nEnabled && n8nConfig?.n8nErpProvider);
-                  const erpName = n8nConfig?.n8nErpProvider ? (activeErpList.find(e => e.key === n8nConfig.n8nErpProvider)?.name ?? n8nConfig.n8nErpProvider) : "Nenhum";
+                  const hasActiveErp = erpTotalEnabled > 0;
+                  const enabledNames = erpIntegrationsList.filter((i: any) => i.isEnabled).map((i: any) => {
+                    const meta = connectorMeta.find(c => c.name === i.erpSource) ?? activeErpList.find((e: any) => e.key === i.erpSource);
+                    return meta?.label ?? meta?.name ?? i.erpSource;
+                  });
+                  const erpNameDisplay = enabledNames.length > 0 ? enabledNames.join(", ") : "Nenhum";
                   return (
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                       {[
-                        { label: "Status da Integracao", value: erpActive ? "Ativa" : "Inativa",      icon: CheckCheck,    accent: erpActive ? "from-emerald-500 to-green-500" : "from-slate-400 to-slate-500", bg: erpActive ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-slate-100 dark:bg-slate-800", ic: erpActive ? "text-emerald-600" : "text-slate-500" },
-                        { label: "ERP Integrado",         value: erpName,                              icon: Database,      accent: "from-violet-500 to-indigo-500", bg: "bg-violet-100 dark:bg-violet-900/30", ic: "text-violet-600" },
-                        { label: "Ultima Sincronizacao",  value: relDate(erpLastSync),                 icon: Clock,         accent: "from-sky-500 to-blue-500",      bg: "bg-sky-100 dark:bg-sky-900/30", ic: "text-sky-600" },
-                        { label: "Total de Erros",        value: erpTotalErrors.toLocaleString("pt-BR"), icon: AlertTriangle, accent: "from-rose-500 to-red-500",    bg: "bg-rose-100 dark:bg-rose-900/30", ic: "text-rose-600" },
+                        { label: "Integracoes Ativas", value: hasActiveErp ? `${erpTotalEnabled} ativa(s)` : "Nenhuma", icon: CheckCheck, accent: hasActiveErp ? "from-emerald-500 to-green-500" : "from-slate-400 to-slate-500", bg: hasActiveErp ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-slate-100 dark:bg-slate-800", ic: hasActiveErp ? "text-emerald-600" : "text-slate-500" },
+                        { label: "ERPs Integrados", value: erpNameDisplay, icon: Database, accent: "from-violet-500 to-indigo-500", bg: "bg-violet-100 dark:bg-violet-900/30", ic: "text-violet-600" },
+                        { label: "Ultima Sincronizacao", value: relDate(erpLastSync), icon: Clock, accent: "from-sky-500 to-blue-500", bg: "bg-sky-100 dark:bg-sky-900/30", ic: "text-sky-600" },
+                        { label: "Total de Erros", value: erpTotalErrors.toLocaleString("pt-BR"), icon: AlertTriangle, accent: "from-rose-500 to-red-500", bg: "bg-rose-100 dark:bg-rose-900/30", ic: "text-rose-600" },
                       ].map(s => (
                         <Card key={s.label} className="relative overflow-hidden p-3">
                           <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${s.accent}`} />
@@ -1532,213 +1538,215 @@ export default function PainelProvedorPage() {
                 })()}
 
 
-                {/* ERP Selection / Integrado */}
-                {(() => {
-                  const savedErp = n8nConfig?.n8nErpProvider ?? null;
-                  const selectedErpData = savedErp ? activeErpList.find(e => e.key === savedErp) : null;
-                  const showSelection = !savedErp || erpChanging;
-                  const currentSelection = erpLocalSelection ?? savedErp;
+                {/* ERP Connectors List — all connectors from metadata */}
+                <Card className="overflow-hidden" data-testid="card-erp-integrations">
+                  <div className="px-4 py-3 border-b bg-slate-50/60">
+                    <div className="flex items-center gap-2">
+                      <Database className="w-4 h-4 text-violet-500" />
+                      <p className="text-sm font-semibold">Integracoes ERP</p>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">Configure, teste e sincronize cada ERP. Campos variam por tipo de conector.</p>
+                  </div>
+                  <div className="divide-y">
+                    {(connectorMeta.length > 0 ? connectorMeta : []).map(connector => {
+                      const intg = getIntg(connector.name);
+                      const catalogEntry = activeErpList.find((e: any) => e.key === connector.name);
+                      const pending = erpPending[connector.name] ?? {};
+                      const testResult = erpTestResults[connector.name];
+                      const syncResult = erpSyncResults[connector.name];
+                      const isExpanded = expandedErp === connector.name;
+                      const isEditing = editingErp === connector.name;
 
-                  const confirmErp = async () => {
-                    if (!currentSelection) return;
-                    await fetch("/api/provider/n8n-config", {
-                      method: "PATCH",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ n8nErpProvider: currentSelection }),
-                      credentials: "include",
-                    });
-                    refetchN8n();
-                    setErpChanging(false);
-                    setErpLocalSelection(null);
-                    toast({ title: "ERP salvo", description: "Seu ERP foi identificado com sucesso." });
-                  };
+                      const hasCredentials = !!(intg?.apiUrl || intg?.apiToken);
+                      const statusBadge = (() => {
+                        if (intg?.lastSyncStatus === "error") return { text: "Erro", cls: "bg-red-100 text-red-700 dark:bg-red-900/20" };
+                        if (intg?.isEnabled && hasCredentials) return { text: "Configurado", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/20" };
+                        if (intg?.isEnabled && !hasCredentials) return { text: "Credenciais pendentes", cls: "bg-amber-100 text-amber-700 dark:bg-amber-900/20" };
+                        return { text: "Desativado", cls: "bg-slate-100 text-slate-600 dark:bg-slate-800" };
+                      })();
 
-                  return (
-                    <Card className="overflow-hidden" data-testid="card-erp-selection">
-                      <div className="px-4 py-3 border-b bg-slate-50/60 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Database className="w-4 h-4 text-violet-500" />
-                          <p className="text-sm font-semibold">Seu ERP</p>
-                        </div>
-                        {savedErp && !erpChanging && (
-                          <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => { setErpLocalSelection(savedErp); setErpChanging(true); }} data-testid="button-change-erp">
-                            <Settings2 className="w-3.5 h-3.5" />Alterar ERP
-                          </Button>
-                        )}
-                      </div>
+                      const ERP_SETUP_HINTS: Record<string, string> = {
+                        ixc: "Configure usuario e token da API IXC (menu Administracao > Tokens API)",
+                        mk: "Insira o token JWT do MK Solutions (Configuracoes > API)",
+                        sgp: "Token API do SGP (Configuracoes > Integracao > API)",
+                        hubsoft: "Configure Client ID, Client Secret e credenciais OAuth (Painel Hubsoft > API)",
+                        voalle: "Configure usuario de integracao Voalle (Administracao > Integracao)",
+                        rbx: "Insira a URL do RouterBox e a Chave de Integracao",
+                      };
 
-                      {showSelection ? (
-                        <div className="p-4 space-y-3">
-                          <p className="text-xs text-muted-foreground">Selecione o ERP que sua empresa utiliza para que possamos ativar a integracao automatica de inadimplentes.</p>
-                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                            {activeErpList.map(erp => {
-                              const isSelected = currentSelection === erp.key;
-                              return (
-                                <button
-                                  key={erp.key}
-                                  onClick={() => setErpLocalSelection(erp.key)}
-                                  data-testid={`erp-option-${erp.key}`}
-                                  className={`flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all ${
-                                    isSelected
-                                      ? "border-violet-500 bg-violet-50 shadow-sm"
-                                      : "border-transparent bg-slate-50 hover:bg-slate-100 hover:border-slate-200"
-                                  }`}
+                      const fieldKeyToIntgProp = (key: string, record: any): string => {
+                        if (key === "apiUrl") return record?.apiUrl ?? "";
+                        if (key === "apiToken") return record?.apiToken ?? "";
+                        if (key === "apiUser") return record?.apiUser ?? "";
+                        if (key === "extra.clientId") return record?.clientId ?? "";
+                        if (key === "extra.clientSecret") return record?.clientSecret ?? "";
+                        return "";
+                      };
+
+                      const startEditing = () => {
+                        const formData: Record<string, string> = {};
+                        connector.configFields.forEach(f => {
+                          formData[f.key] = fieldKeyToIntgProp(f.key, intg);
+                        });
+                        setErpFormData(formData);
+                        setEditingErp(connector.name);
+                        setExpandedErp(connector.name);
+                      };
+
+                      const handleSave = () => {
+                        const body: Record<string, any> = {};
+                        connector.configFields.forEach(f => {
+                          const val = erpFormData[f.key] ?? "";
+                          if (f.key === "apiUrl") body.apiUrl = val;
+                          else if (f.key === "apiToken") body.apiToken = val;
+                          else if (f.key === "apiUser") body.apiUser = val;
+                          else if (f.key === "extra.clientId") body.clientId = val;
+                          else if (f.key === "extra.clientSecret") body.clientSecret = val;
+                        });
+                        saveErpConfigMutation.mutate({ source: connector.name, data: body });
+                      };
+
+                      return (
+                        <div key={connector.name} className="px-4 py-4 space-y-3" data-testid={`erp-connector-${connector.name}`}>
+                          {/* Header Row */}
+                          <div className="flex items-center justify-between">
+                            <button className="flex items-center gap-3 flex-1 text-left" onClick={() => { setExpandedErp(isExpanded ? null : connector.name); if (!isExpanded && !isEditing) startEditing(); }}>
+                              {catalogEntry?.logoBase64 ? (
+                                <img src={catalogEntry.logoBase64} alt={connector.label} className="w-8 h-8 object-contain rounded border border-slate-200" />
+                              ) : (
+                                <div className={`w-8 h-8 rounded-md bg-gradient-to-br ${catalogEntry?.grad ?? "from-slate-400 to-slate-500"} flex items-center justify-center`}>
+                                  <span className="text-white text-xs font-bold">{connector.label[0]}</span>
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="text-sm font-semibold leading-tight">{connector.label}</p>
+                                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${statusBadge.cls}`}>{statusBadge.text}</span>
+                                </div>
+                                {!hasCredentials && (
+                                  <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">{ERP_SETUP_HINTS[connector.name] ?? "Configure as credenciais para ativar"}</p>
+                                )}
+                              </div>
+                              <ArrowRight className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                            </button>
+                            <div className="ml-3">
+                              <Switch
+                                checked={!!intg?.isEnabled}
+                                onCheckedChange={(checked) => toggleErpMutation.mutate({ source: connector.name, isEnabled: checked })}
+                                data-testid={`switch-erp-${connector.name}`}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Expanded: Config Form + Actions */}
+                          {isExpanded && (
+                            <div className="pl-11 space-y-4">
+                              {/* Dynamic Config Fields */}
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {connector.configFields.map(field => (
+                                  <div key={field.key}>
+                                    <label className="text-xs font-medium mb-1 block text-muted-foreground">{field.label}{field.required && <span className="text-rose-500 ml-0.5">*</span>}</label>
+                                    <div className="relative">
+                                      <Input
+                                        type={field.type === "password" && !showPassFields[`${connector.name}.${field.key}`] ? "password" : "text"}
+                                        placeholder={field.placeholder ?? ""}
+                                        value={isEditing ? (erpFormData[field.key] ?? "") : fieldKeyToIntgProp(field.key, intg)}
+                                        onChange={(e) => {
+                                          if (!isEditing) startEditing();
+                                          setErpFormData(prev => ({ ...prev, [field.key]: e.target.value }));
+                                        }}
+                                        className="text-sm h-9 pr-9"
+                                        data-testid={`input-${connector.name}-${field.key}`}
+                                      />
+                                      {field.type === "password" && (
+                                        <button
+                                          type="button"
+                                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                          onClick={() => setShowPassFields(prev => ({ ...prev, [`${connector.name}.${field.key}`]: !prev[`${connector.name}.${field.key}`] }))}
+                                        >
+                                          {showPassFields[`${connector.name}.${field.key}`] ? <Lock className="w-3.5 h-3.5" /> : <Key className="w-3.5 h-3.5" />}
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Action Buttons */}
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Button
+                                  size="sm"
+                                  className="h-8 text-xs gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
+                                  disabled={saveErpConfigMutation.isPending}
+                                  onClick={handleSave}
+                                  data-testid={`button-save-erp-${connector.name}`}
                                 >
-                                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden flex-shrink-0 ${erp.logoBase64 ? "bg-white border border-slate-200" : `bg-gradient-to-br ${erp.grad}`}`}>
-                                    {erp.logoBase64 ? (
-                                      <img src={erp.logoBase64} alt={erp.name} className="w-full h-full object-contain p-1.5" />
-                                    ) : (
-                                      <span className="text-white text-sm font-bold">{erp.name[0]}</span>
-                                    )}
-                                  </div>
-                                  <div className="text-center">
-                                    <p className={`text-xs font-bold leading-tight ${isSelected ? "text-violet-700" : "text-slate-700"}`}>{erp.name}</p>
-                                    <p className="text-[10px] text-muted-foreground leading-tight">{erp.desc}</p>
-                                  </div>
-                                  {isSelected && (
-                                    <span className="w-4 h-4 rounded-full bg-violet-500 flex items-center justify-center">
-                                      <CheckCircle className="w-3 h-3 text-white" />
+                                  {saveErpConfigMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                                  Salvar Configuracao
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 text-xs gap-1"
+                                  disabled={pending.testing || !hasCredentials}
+                                  onClick={() => testConnection(connector.name)}
+                                  data-testid={`button-test-erp-${connector.name}`}
+                                >
+                                  {pending.testing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                                  Testar Conexao
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 text-xs gap-1"
+                                  disabled={pending.syncing || !hasCredentials}
+                                  onClick={() => syncNow(connector.name)}
+                                  data-testid={`button-sync-erp-${connector.name}`}
+                                >
+                                  {pending.syncing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                                  Sincronizar Agora
+                                </Button>
+                              </div>
+
+                              {/* Feedback Area */}
+                              {(testResult || syncResult) && (
+                                <div className="flex items-center gap-3 flex-wrap">
+                                  {testResult && (
+                                    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md ${testResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-600"}`}>
+                                      {testResult.ok ? <CheckCircle className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                                      {testResult.ok ? "Conexao OK" : testResult.msg}
                                     </span>
                                   )}
-                                </button>
-                              );
-                            })}
-                          </div>
-                          <div className="flex gap-2 pt-1">
-                            <Button
-                              size="sm" className="h-8 text-xs gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
-                              onClick={confirmErp}
-                              disabled={!currentSelection}
-                              data-testid="button-confirm-erp"
-                            >
-                              <CheckCircle className="w-3.5 h-3.5" />Confirmar ERP
-                            </Button>
-                            {erpChanging && (
-                              <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setErpChanging(false); setErpLocalSelection(null); }}>
-                                Cancelar
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-4 px-4 py-4" data-testid="erp-selected-display">
-                          <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm overflow-hidden ${selectedErpData?.logoBase64 ? "bg-white border border-slate-200" : `bg-gradient-to-br ${selectedErpData?.grad ?? "from-slate-400 to-slate-500"}`}`}>
-                            {selectedErpData?.logoBase64 ? (
-                              <img src={selectedErpData.logoBase64} alt={selectedErpData.name} className="w-full h-full object-contain p-1.5" />
-                            ) : (
-                              <span className="text-white text-lg font-bold">{selectedErpData?.name?.[0] ?? "?"}</span>
-                            )}
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-sm font-bold">{selectedErpData?.name ?? savedErp}</p>
-                              <span className="text-xs text-muted-foreground">{selectedErpData?.desc}</span>
-                              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                                n8nConfig?.n8nEnabled
-                                  ? "bg-emerald-100 text-emerald-700"
-                                  : "bg-amber-100 text-amber-700"
-                              }`} data-testid="erp-integration-status">
-                                {n8nConfig?.n8nEnabled ? "Ativo" : "Inativo"}
-                              </span>
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                              {n8nConfig?.n8nEnabled
-                                ? "A integracao com este ERP esta ativa. Os inadimplentes sao consultados automaticamente."
-                                : "A integracao com este ERP esta inativa. Contate o administrador do sistema."}
-                            </p>
-                          </div>
-                          {n8nConfig?.n8nEnabled && (
-                            <div className="flex-shrink-0">
-                              <span className="flex items-center gap-1.5 text-xs text-emerald-600">
-                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                                Online
-                              </span>
+                                  {syncResult && (
+                                    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md ${syncResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-600"}`}>
+                                      {syncResult.ok ? <CheckCheck className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                                      {syncResult.msg}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Sync stats for configured ERPs */}
+                              {intg && (intg.totalSynced > 0 || intg.totalErrors > 0) && (
+                                <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                                  <span>Sincronizados: <strong className="text-emerald-600">{intg.totalSynced ?? 0}</strong></span>
+                                  <span>Erros: <strong className={intg.totalErrors > 0 ? "text-rose-500" : ""}>{intg.totalErrors ?? 0}</strong></span>
+                                  <span>Ultima sync: {relDate(intg.lastSyncAt)}</span>
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
-                      )}
-                    </Card>
-                  );
-                })()}
-
-                {/* ERP Integrations */}
-                {erpIntegrationsList.length > 0 && (
-                  <Card className="overflow-hidden">
-                    <div className="px-4 py-3 border-b bg-slate-50/60">
-                      <div className="flex items-center gap-2">
-                        <Database className="w-4 h-4 text-violet-500" />
-                        <p className="text-sm font-semibold">Integracoes ERP</p>
+                      );
+                    })}
+                    {connectorMeta.length === 0 && (
+                      <div className="flex flex-col items-center justify-center py-12 text-center px-6">
+                        <Database className="w-10 h-10 text-muted-foreground/30 mb-3" />
+                        <p className="text-sm text-muted-foreground">Carregando conectores disponiveis...</p>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">Ative ou desative cada ERP e sincronize os dados de inadimplentes.</p>
-                    </div>
-                    <div className="divide-y">
-                      {erpIntegrationsList.map((intg: any) => {
-                        const erpMeta = activeErpList.find((e: any) => e.key === intg.erpSource);
-                        const pending = erpPending[intg.erpSource] ?? {};
-                        const testResult = erpTestResults[intg.erpSource];
-                        const syncResult = erpSyncResults[intg.erpSource];
-                        return (
-                          <div key={intg.erpSource} className="px-4 py-4 space-y-3">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                {erpMeta?.logoBase64 ? (
-                                  <img src={erpMeta.logoBase64} alt={erpMeta.name} className="w-7 h-7 object-contain rounded" />
-                                ) : (
-                                  <div className={`w-7 h-7 rounded-md bg-gradient-to-br ${erpMeta?.grad ?? "from-slate-400 to-slate-500"} flex items-center justify-center`}>
-                                    <span className="text-white text-xs font-bold">{(erpMeta?.name ?? intg.erpSource)[0].toUpperCase()}</span>
-                                  </div>
-                                )}
-                                <div>
-                                  <p className="text-sm font-semibold leading-tight">{erpMeta?.name ?? intg.erpSource.toUpperCase()}</p>
-                                  <p className="text-[11px] text-muted-foreground leading-tight">{intg.isEnabled ? "Habilitado" : "Desabilitado"}</p>
-                                </div>
-                              </div>
-                              <Switch
-                                checked={!!intg.isEnabled}
-                                onCheckedChange={(checked) => toggleErpMutation.mutate({ source: intg.erpSource, isEnabled: checked })}
-                                data-testid={`switch-erp-${intg.erpSource}`}
-                              />
-                            </div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 text-xs gap-1"
-                                disabled={pending.testing || !intg.apiUrl || !intg.apiToken}
-                                onClick={() => testConnection(intg.erpSource)}
-                                data-testid={`button-test-erp-${intg.erpSource}`}
-                              >
-                                {pending.testing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
-                                Testar
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-7 text-xs gap-1"
-                                disabled={pending.syncing || !intg.apiUrl || !intg.apiToken}
-                                onClick={() => syncNow(intg.erpSource)}
-                                data-testid={`button-sync-erp-${intg.erpSource}`}
-                              >
-                                {pending.syncing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                                Sincronizar
-                              </Button>
-                              {testResult && (
-                                <span className={`text-xs font-medium ${testResult.ok ? "text-emerald-600" : "text-rose-500"}`}>
-                                  {testResult.ok ? "Conexao OK" : testResult.msg}
-                                </span>
-                              )}
-                              {syncResult && (
-                                <span className={`text-xs font-medium ${syncResult.ok ? "text-emerald-600" : "text-rose-500"}`}>
-                                  {syncResult.msg}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </Card>
-                )}
+                    )}
+                  </div>
+                </Card>
 
                 {/* Sync Logs */}
                 <Card className="overflow-hidden">
