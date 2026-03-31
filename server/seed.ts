@@ -1,7 +1,7 @@
 import { storage } from "./storage";
 import { db } from "./db";
-import { users, providers, customers, contracts, invoices, equipment } from "@shared/schema";
-import { count } from "drizzle-orm";
+import { users, providers, customers, contracts, invoices, equipment, erpIntegrations } from "@shared/schema";
+import { count, eq } from "drizzle-orm";
 import { hashPassword } from "./password";
 
 export async function seedDatabase() {
@@ -377,7 +377,108 @@ export async function seedDatabase() {
     status: "installed", value: "250.00",
   });
 
+  // ── Integracoes ERP modelo (uma por ERP, no provider1) ──
+  await seedErpIntegrations(provider1.id);
+
   console.log("Seed data inserted successfully");
+}
+
+/**
+ * Cria integracoes ERP modelo para demonstracao.
+ * Cada ERP com credenciais de exemplo baseadas na documentacao oficial.
+ */
+async function seedErpIntegrations(providerId: number) {
+  const [existing] = await db.select({ count: count() }).from(erpIntegrations).where(eq(erpIntegrations.providerId, providerId));
+  if (existing.count > 0) return;
+
+  // IXC Soft — Basic Auth (Base64 userId:token)
+  // Docs: https://wikiapiprovedor.ixcsoft.com.br/
+  await db.insert(erpIntegrations).values({
+    providerId,
+    erpSource: "ixc",
+    isEnabled: true,
+    status: "idle",
+    apiUrl: "https://demo.ixcsoft.com.br",
+    apiUser: "45",
+    apiToken: "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+    syncIntervalHours: 6,
+    notes: "IXC Soft — Auth: Basic Base64(userId:token), Header ixcsoft:'listar', POST /webservice/v1/fn_areceber",
+  });
+
+  // MK Solutions — Auth 2 passos: WSAutenticacao (token + contra-senha) → token_acesso
+  // Docs: https://mkloud.atlassian.net/wiki/spaces/MK30/pages/48699908/APIs+gerais
+  await db.insert(erpIntegrations).values({
+    providerId,
+    erpSource: "mk",
+    isEnabled: true,
+    status: "idle",
+    apiUrl: "http://192.168.1.100:8311",
+    apiToken: "mk_token_usuario_integracao_2026",
+    mkContraSenha: "mk_contra_senha_webservice_2026",
+    syncIntervalHours: 12,
+    notes: "MK Solutions — Auth: GET /mk/WSAutenticacao.rule?sys=MK0&token=X&password=Y&cd_servico=7 → token_acesso. Porta padrao: 8311",
+  });
+
+  // SGP — Token/App via body (x-www-form-urlencoded)
+  // Docs: https://bookstack.sgp.net.br/books/api
+  await db.insert(erpIntegrations).values({
+    providerId,
+    erpSource: "sgp",
+    isEnabled: true,
+    status: "idle",
+    apiUrl: "http://192.168.1.200",
+    apiToken: "sgp_api_token_exemplo_2026",
+    sgpApp: "consultaisp",
+    syncIntervalHours: 12,
+    notes: "SGP — Auth: POST com body token=X&app=Y (x-www-form-urlencoded). Endpoints: /api/financeiro/inadimplentes, /api/contratos",
+  });
+
+  // Hubsoft — OAuth 2.0 Resource Owner Password Credentials
+  // Docs: https://docs.hubsoft.com.br/
+  await db.insert(erpIntegrations).values({
+    providerId,
+    erpSource: "hubsoft",
+    isEnabled: true,
+    status: "idle",
+    apiUrl: "https://api.demo-hubsoft.com.br",
+    apiUser: "integracao@provedor.com.br",
+    apiToken: "senha_integracao_hubsoft_2026",
+    clientId: "hubsoft_client_id_exemplo",
+    clientSecret: "hubsoft_client_secret_exemplo",
+    syncIntervalHours: 8,
+    notes: "Hubsoft — Auth: POST /oauth/token com grant_type=password, client_id, client_secret, username, password. Token renovado automaticamente.",
+  });
+
+  // Voalle — OAuth 2.0 via /connect/token com scope=er
+  // Docs: https://wiki.grupovoalle.com.br/APIs
+  // Postman: https://documenter.getpostman.com/view/16282829/TzzBqFw1
+  await db.insert(erpIntegrations).values({
+    providerId,
+    erpSource: "voalle",
+    isEnabled: true,
+    status: "idle",
+    apiUrl: "https://erp.demo-voalle.com.br",
+    apiUser: "usuario_integracao_voalle",
+    apiToken: "senha_integracao_voalle_2026",
+    voalleClientId: "tger",
+    syncIntervalHours: 12,
+    notes: "Voalle — Auth: POST /connect/token com grant_type=password, client_id=tger, username, password, scope=er. Usuario tipo 'Integracao'.",
+  });
+
+  // RBX ISP — ChaveIntegracao no body do POST
+  // Docs: https://www.developers.rbxsoft.com/
+  await db.insert(erpIntegrations).values({
+    providerId,
+    erpSource: "rbx",
+    isEnabled: true,
+    status: "idle",
+    apiUrl: "https://erp.demo-rbxisp.com.br",
+    apiToken: "chave_integracao_rbx_exemplo_2026",
+    syncIntervalHours: 24,
+    notes: "RBX ISP — Auth: POST /routerbox/ws/rbx_server_json.php com ChaveIntegracao no body. Acao: PendenciasFinanceiras, Filtro SQL-like.",
+  });
+
+  console.log("ERP integrations modelo criadas: IXC, MK, SGP, Hubsoft, Voalle, RBX");
 }
 
 export async function seedSuperAdmin() {
