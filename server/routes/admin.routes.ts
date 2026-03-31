@@ -35,11 +35,53 @@ export function registerAdminRoutes(): Router {
     }
   });
 
+  // CNPJ lookup via BrasilAPI (public, no auth needed)
+  router.get("/api/admin/cnpj/:cnpj", requireSuperAdmin, async (req, res) => {
+    try {
+      const cnpj = req.params.cnpj.replace(/\D/g, "");
+      if (cnpj.length !== 14) return res.status(400).json({ message: "CNPJ invalido" });
+      const response = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        return res.status(response.status).json({ message: err.message || "CNPJ nao encontrado" });
+      }
+      const data = await response.json();
+      return res.json({
+        razaoSocial: data.razao_social || "",
+        nomeFantasia: data.nome_fantasia || "",
+        cnpj: data.cnpj || cnpj,
+        naturezaJuridica: data.natureza_juridica || "",
+        dataAbertura: data.data_inicio_atividade || "",
+        atividadePrincipal: data.cnae_fiscal_descricao || "",
+        telefone: data.ddd_telefone_1 ? `(${data.ddd_telefone_1.slice(0, 2)}) ${data.ddd_telefone_1.slice(2)}` : "",
+        email: data.email || "",
+        cep: data.cep || "",
+        logradouro: data.logradouro || "",
+        numero: data.numero || "",
+        complemento: data.complemento || "",
+        bairro: data.bairro || "",
+        cidade: data.municipio || "",
+        uf: data.uf || "",
+        situacao: data.descricao_situacao_cadastral || "",
+        socios: (data.qsa || []).map((s: any) => ({
+          nome: s.nome_socio || "",
+          qualificacao: s.qualificacao_socio || "",
+          cpf: s.cnpj_cpf_do_socio || "",
+        })),
+      });
+    } catch (error: any) {
+      return res.status(500).json({ message: "Erro ao consultar CNPJ: " + error.message });
+    }
+  });
+
   router.post("/api/admin/providers", requireSuperAdmin, async (req, res) => {
     try {
-      const { name, cnpj, subdomain, plan, adminName, adminEmail, adminPassword } = req.body;
+      const { name, tradeName, cnpj, subdomain, plan, adminName, adminEmail, adminPassword,
+        contactEmail, contactPhone, addressZip, addressStreet, addressNumber,
+        addressComplement, addressNeighborhood, addressCity, addressState,
+        legalType, openingDate, businessSegment } = req.body;
       if (!name || !cnpj || !subdomain || !adminName || !adminEmail || !adminPassword) {
-        return res.status(400).json({ message: "Todos os campos sao obrigatorios" });
+        return res.status(400).json({ message: "Todos os campos obrigatorios devem ser preenchidos" });
       }
       const existingCnpj = await storage.getProviderByCnpj(cnpj);
       if (existingCnpj) return res.status(409).json({ message: "CNPJ ja cadastrado" });
@@ -48,7 +90,12 @@ export function registerAdminRoutes(): Router {
       const existingEmail = await storage.getUserByEmail(adminEmail);
       if (existingEmail) return res.status(409).json({ message: "Email do admin ja cadastrado" });
 
-      const provider = await storage.createProvider({ name, cnpj, subdomain, plan: plan || "free", status: "active" });
+      const provider = await storage.createProvider({
+        name, tradeName, cnpj, subdomain, plan: plan || "free", status: "active",
+        contactEmail, contactPhone, addressZip, addressStreet, addressNumber,
+        addressComplement, addressNeighborhood, addressCity, addressState,
+        legalType, openingDate, businessSegment,
+      });
       const user = await storage.createUser({
         name: adminName, email: adminEmail,
         password: await hashPassword(adminPassword),

@@ -19,31 +19,33 @@ export function buildConnectorConfig(intg: {
   apiUser?: string | null;
   clientId?: string | null;
   clientSecret?: string | null;
-  extraConfig?: Record<string, string> | null;
+  mkContraSenha?: string | null;
+  sgpApp?: string | null;
+  voalleClientId?: string | null;
+  extraConfig?: unknown;
 }): ErpConnectionConfig {
   const extra: Record<string, string> = {};
 
   // Merge extraConfig jsonb field first (lower priority)
   if (intg.extraConfig && typeof intg.extraConfig === "object") {
-    for (const [k, v] of Object.entries(intg.extraConfig)) {
+    for (const [k, v] of Object.entries(intg.extraConfig as Record<string, unknown>)) {
       if (typeof v === "string") {
         extra[k] = v;
       }
     }
   }
 
-  // OAuth fields for Hubsoft (higher priority — overwrite extraConfig if present)
-  if (intg.clientId) {
-    extra.clientId = intg.clientId;
-  }
-  if (intg.clientSecret) {
-    extra.clientSecret = intg.clientSecret;
-  }
+  // ERP-specific fields into extra (higher priority)
+  if (intg.sgpApp) extra.sgpApp = intg.sgpApp;
+  if (intg.voalleClientId) extra.voalleClientId = intg.voalleClientId;
 
   return {
     apiUrl: intg.apiUrl || "",
     apiToken: intg.apiToken || "",
     apiUser: intg.apiUser || "",
+    clientId: intg.clientId || undefined,
+    clientSecret: intg.clientSecret || undefined,
+    mkContraSenha: intg.mkContraSenha || undefined,
     extra,
   };
 }

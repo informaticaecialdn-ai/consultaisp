@@ -1,15 +1,16 @@
 /**
- * ERP Connector — Voalle
+ * Voalle ERP — ERP Connector
  *
- * Auth: Integration User (Usuario tipo "Integracao") with Bearer token.
- * The integration user is created in Voalle's admin panel with API access.
+ * Authentication: OAuth 2.0 Resource Owner Password Credentials
+ *   POST {base}/connect/token
+ *   Body: grant_type=password&client_id={voalleClientId}&username={apiUser}&password={apiToken}&scope=er
+ *   Response: { access_token: "...", expires_in: 3600 }
  *
- * NOTE: Voalle documentation is limited. Endpoint paths are best-effort
- * guesses based on available Postman collection and wiki references.
- * If endpoints return errors, providers should report the issue.
+ * Endpoints:
+ *   - GET /api/financeiro/titulos?situacao=vencido&pagina=1&por_pagina=2000
  *
- * Docs: https://wiki.grupovoalle.com.br/APIs
- * Postman: https://documenter.getpostman.com/view/16282829/TzzBqFw1
+ * @see https://wiki.grupovoalle.com.br/APIs
+ * @see https://documenter.getpostman.com/view/16282829/TzzBqFw1
  */
 
 import type {
@@ -21,269 +22,174 @@ import type {
   NormalizedErpCustomer,
 } from "../types.js";
 import { CircuitBreaker, withResilience } from "../resilience.js";
-import {
-  cleanCpfCnpj,
-  cleanCep,
-  cleanPhone,
-  calculateDaysOverdue,
-  aggregateByCustomer,
-} from "../normalize.js";
-import { registerConnector } from "../registry.js";
+import { cleanCpfCnpj, cleanPhone, calculateDaysOverdue, aggregateByCustomer } from "../normalize.js";
 
-/** Default timeout for API calls */
-const API_TIMEOUT_MS = 8_000;
+// Token cache
+const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
-/** Data fetch timeout (larger datasets) */
-const FETCH_TIMEOUT_MS = 30_000;
-
-class VoalleConnector implements ErpConnector {
+export class VoalleConnector implements ErpConnector {
   readonly name = "voalle";
   readonly label = "Voalle";
 
   readonly configFields: ErpConfigField[] = [
-    { key: "apiUrl", label: "URL da API", type: "url", required: true, placeholder: "https://seudominio.voalle.com.br" },
-    { key: "apiUser", label: "Usuario Integracao", type: "text", required: true },
-    { key: "apiToken", label: "Token/Senha", type: "password", required: true },
+    { key: "apiUser", label: "Usuario de Integracao", type: "text", required: true },
+    { key: "apiToken", label: "Senha", type: "password", required: true },
+    { key: "extra.voalleClientId", label: "Client ID (opcional)", type: "text", required: false, placeholder: "tger" },
   ];
 
-  private circuit = new CircuitBreaker({ maxFailures: 5, resetTimeMs: 30_000 });
+  private readonly circuit = new CircuitBreaker();
 
-  /**
-   * Get auth headers. Voalle may use:
-   * 1. Direct Bearer token (apiToken is the token itself)
-   * 2. Session-based auth (POST /auth with credentials first)
-   * We try Bearer first; if that fails, attempt session auth.
-   */
-  private async getAuthHeaders(config: ErpConnectionConfig): Promise<Record<string, string>> {
-    return {
-      Authorization: `Bearer ${config.apiToken}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    };
+  private baseUrl(config: ErpConnectionConfig): string {
+    return config.apiUrl.replace(/\/+$/, "");
   }
 
-  /**
-   * Attempt session-based auth if direct Bearer fails.
-   * LOW CONFIDENCE: endpoint path may differ per Voalle version.
-   */
-  private async attemptSessionAuth(config: ErpConnectionConfig): Promise<string | null> {
-    const baseUrl = config.apiUrl.replace(/\/+$/, "");
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  /** Authenticate via /connect/token */
+  private async authenticate(config: ErpConnectionConfig): Promise<string> {
+    const base = this.baseUrl(config);
+    const cacheKey = base;
 
-    try {
-      const response = await fetch(`${baseUrl}/api/v1/auth`, {
+    const cached = tokenCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now() + 60_000) {
+      return cached.token;
+    }
+
+    const clientId = config.extra?.voalleClientId || "tger";
+    const body = `grant_type=password&client_id=${encodeURIComponent(clientId)}&username=${encodeURIComponent(config.apiUser || "")}&password=${encodeURIComponent(config.apiToken)}&scope=er`;
+
+    const response = await withResilience(
+      () => fetch(`${base}/connect/token`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: config.apiUser,
-          password: config.apiToken,
-        }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) return null;
-
-      const data = (await response.json()) as { token?: string; access_token?: string };
-      return data.token ?? data.access_token ?? null;
-    } catch {
-      return null;
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
-  /**
-   * Make an authenticated request. Tries Bearer token first,
-   * falls back to session auth on 401.
-   */
-  private async authenticatedRequest(
-    config: ErpConnectionConfig,
-    path: string,
-    timeoutMs = FETCH_TIMEOUT_MS,
-  ): Promise<unknown> {
-    const baseUrl = config.apiUrl.replace(/\/+$/, "");
-    const url = `${baseUrl}${path}`;
-
-    const doRequest = async (headers: Record<string, string>): Promise<Response> => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), timeoutMs);
-      try {
-        return await fetch(url, {
-          method: "GET",
-          headers,
-          signal: controller.signal,
-        });
-      } finally {
-        clearTimeout(timeout);
-      }
-    };
-
-    // First attempt with direct Bearer
-    let headers = await this.getAuthHeaders(config);
-    let response = await doRequest(headers);
-
-    // On 401, try session-based auth
-    if (response.status === 401) {
-      const sessionToken = await this.attemptSessionAuth(config);
-      if (sessionToken) {
-        headers = {
-          Authorization: `Bearer ${sessionToken}`,
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        };
-        response = await doRequest(headers);
-      }
-    }
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+        signal: AbortSignal.timeout(10000),
+      }),
+      { retries: 2, minTimeout: 1000, circuit: this.circuit },
+    );
 
     if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
-      const err = new Error(`Voalle API ${response.status}: ${errorText}`);
-      (err as any).status = response.status;
-      throw err;
+      throw new Error(`Autenticacao Voalle falhou: status ${response.status}`);
     }
 
-    return await response.json();
+    const json: any = await response.json();
+    const accessToken = json?.access_token;
+    const expiresIn = parseInt(json?.expires_in || "3600", 10);
+
+    if (!accessToken) {
+      throw new Error("Voalle nao retornou access_token");
+    }
+
+    tokenCache.set(cacheKey, { token: accessToken, expiresAt: Date.now() + expiresIn * 1000 });
+    return accessToken;
   }
 
   async testConnection(config: ErpConnectionConfig): Promise<ErpTestResult> {
     const start = Date.now();
     try {
-      // LOW CONFIDENCE: endpoint path may vary
-      await this.authenticatedRequest(config, "/api/v1/clientes?limit=1", API_TIMEOUT_MS);
-      return {
-        ok: true,
-        message: "Conexao com Voalle estabelecida",
-        latencyMs: Date.now() - start,
-      };
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : "Erro desconhecido";
-      return {
-        ok: false,
-        message: `Falha na conexao com Voalle: ${msg}`,
-        latencyMs: Date.now() - start,
-      };
+      const token = await this.authenticate(config);
+      const base = this.baseUrl(config);
+
+      const response = await fetch(`${base}/api/financeiro/titulos?situacao=vencido&pagina=1&por_pagina=1`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(8000),
+      });
+
+      const latencyMs = Date.now() - start;
+      if (response.ok) return { ok: true, message: "Conexao com Voalle estabelecida com sucesso", latencyMs };
+      return { ok: false, message: `Voalle respondeu com status ${response.status}`, latencyMs };
+    } catch (err: unknown) {
+      const latencyMs = Date.now() - start;
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      return { ok: false, message: `Erro: ${msg}`, latencyMs };
     }
   }
 
   async fetchDelinquents(config: ErpConnectionConfig): Promise<ErpFetchResult> {
     try {
-      // LOW CONFIDENCE: Voalle may use different endpoint paths
-      // Try primary endpoint first, fall back to titulos query
-      let data: unknown;
-      try {
-        data = await withResilience(
-          () => this.authenticatedRequest(config, "/api/v1/financeiro/inadimplentes?limit=1000"),
-          { retries: 2, minTimeout: 1000, circuit: this.circuit },
-        );
-      } catch {
-        // Fallback: query overdue titles
-        data = await withResilience(
-          () => this.authenticatedRequest(config, "/api/v1/titulos?status=vencido&limit=1000"),
-          { retries: 2, minTimeout: 1000, circuit: this.circuit },
-        );
-      }
+      const token = await this.authenticate(config);
+      const base = this.baseUrl(config);
 
-      const records = extractArray(data);
-      if (records.length === 0 && data && typeof data === "object") {
-        return {
-          ok: false,
-          message: "Voalle: formato de resposta inesperado. Verifique os endpoints da API.",
-          customers: [],
-        };
-      }
+      const response = await withResilience(
+        () => fetch(`${base}/api/financeiro/titulos?situacao=vencido&pagina=1&por_pagina=2000`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(30000),
+        }),
+        { retries: 3, minTimeout: 1000, circuit: this.circuit },
+      );
 
-      const invoices = records.map((rec: any) => ({
-        cpfCnpj: cleanCpfCnpj(String(rec.cpf_cnpj ?? rec.documento ?? rec.cpf ?? "")),
-        name: String(rec.nome ?? rec.razao_social ?? rec.cliente ?? ""),
-        email: rec.email ? String(rec.email) : undefined,
-        phone: rec.telefone ? cleanPhone(String(rec.telefone)) : (rec.celular ? cleanPhone(String(rec.celular)) : undefined),
-        address: rec.endereco ? String(rec.endereco) : undefined,
-        city: rec.cidade ? String(rec.cidade) : undefined,
-        state: rec.uf ?? rec.estado ? String(rec.uf ?? rec.estado) : undefined,
-        cep: rec.cep ? cleanCep(String(rec.cep)) : undefined,
-        amount: parseFloat(rec.valor ?? rec.valor_total ?? rec.valor_aberto ?? "0") || 0,
-        daysOverdue: calculateDaysOverdue(rec.data_vencimento ?? rec.vencimento ?? null),
-        erpSource: "voalle" as const,
-      }));
+      if (!response.ok) return { ok: false, message: `Voalle respondeu com status ${response.status}`, customers: [], totalRecords: 0 };
+
+      const json: any = await response.json();
+      const rows: any[] = Array.isArray(json) ? json : json?.items || json?.data || [];
+
+      const invoices = rows
+        .map((r: any) => {
+          const cpfCnpj = cleanCpfCnpj(r.cpf_cnpj || r.cpf || r.cnpj || r.documento || "");
+          if (!cpfCnpj) return null;
+          const dueDate = r.data_vencimento || r.vencimento || null;
+          return {
+            cpfCnpj,
+            name: r.nome || r.razao_social || r.nome_pessoa || "",
+            email: r.email || undefined,
+            phone: r.fone || r.celular || r.telefone ? cleanPhone(r.fone || r.celular || r.telefone) : undefined,
+            address: ((r.logradouro || r.endereco || "") + " " + (r.numero || "")).trim() || undefined,
+            city: r.cidade || undefined,
+            state: r.uf || r.estado || undefined,
+            cep: r.cep || undefined,
+            amount: parseFloat(r.valor || r.valor_total || "0") || 0,
+            daysOverdue: calculateDaysOverdue(dueDate),
+            erpSource: "voalle" as const,
+          };
+        })
+        .filter((c): c is NonNullable<typeof c> => c !== null && c.daysOverdue > 0);
 
       const customers = aggregateByCustomer(invoices);
 
-      return {
-        ok: true,
-        message: `${customers.length} inadimplentes obtidos do Voalle`,
-        customers,
-        totalRecords: customers.length,
-      };
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : "Erro desconhecido";
-      return { ok: false, message: `Voalle inadimplentes: ${msg}`, customers: [] };
+      return { ok: true, message: `${customers.length} inadimplentes encontrados`, customers, totalRecords: customers.length };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      return { ok: false, message: `Erro: ${msg}`, customers: [] };
     }
   }
 
   async fetchCustomers(config: ErpConnectionConfig): Promise<ErpFetchResult> {
     try {
-      // LOW CONFIDENCE: endpoint path may vary
-      const data = await withResilience(
-        () => this.authenticatedRequest(config, "/api/v1/clientes?limit=1000"),
-        { retries: 2, minTimeout: 1000, circuit: this.circuit },
+      const token = await this.authenticate(config);
+      const base = this.baseUrl(config);
+
+      const response = await withResilience(
+        () => fetch(`${base}/api/clientes?pagina=1&por_pagina=2000`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(30000),
+        }),
+        { retries: 3, minTimeout: 1000, circuit: this.circuit },
       );
 
-      const records = extractArray(data);
-      if (records.length === 0 && data && typeof data === "object") {
-        return {
-          ok: false,
-          message: "Voalle: formato de resposta inesperado para clientes.",
-          customers: [],
-        };
-      }
+      if (!response.ok) return { ok: false, message: `Voalle respondeu com status ${response.status}`, customers: [], totalRecords: 0 };
 
-      const customers: NormalizedErpCustomer[] = records.map((rec: any) => ({
-        cpfCnpj: cleanCpfCnpj(String(rec.cpf_cnpj ?? rec.documento ?? rec.cpf ?? "")),
-        name: String(rec.nome ?? rec.razao_social ?? ""),
-        email: rec.email ? String(rec.email) : undefined,
-        phone: rec.telefone ? cleanPhone(String(rec.telefone)) : (rec.celular ? cleanPhone(String(rec.celular)) : undefined),
-        address: rec.endereco ? String(rec.endereco) : undefined,
-        city: rec.cidade ? String(rec.cidade) : undefined,
-        state: rec.uf ?? rec.estado ? String(rec.uf ?? rec.estado) : undefined,
-        cep: rec.cep ? cleanCep(String(rec.cep)) : undefined,
-        totalOverdueAmount: 0,
-        maxDaysOverdue: 0,
-        erpSource: "voalle",
-      }));
+      const json: any = await response.json();
+      const rows: any[] = Array.isArray(json) ? json : json?.items || json?.data || [];
+      const customers: NormalizedErpCustomer[] = rows
+        .map((r: any) => {
+          const cpfCnpj = cleanCpfCnpj(r.cpf_cnpj || r.cpf || r.cnpj || r.documento || "");
+          if (!cpfCnpj) return null;
+          return {
+            cpfCnpj, name: r.nome || r.razao_social || r.nome_pessoa || "",
+            email: r.email || undefined,
+            phone: r.fone || r.celular ? cleanPhone(r.fone || r.celular) : undefined,
+            address: ((r.logradouro || r.endereco || "") + " " + (r.numero || "")).trim() || undefined,
+            city: r.cidade || undefined, state: r.uf || r.estado || undefined, cep: r.cep || undefined,
+            totalOverdueAmount: 0, maxDaysOverdue: 0, erpSource: "voalle",
+          };
+        })
+        .filter((c): c is NonNullable<typeof c> => c !== null);
 
-      return {
-        ok: true,
-        message: `${customers.length} clientes obtidos do Voalle`,
-        customers,
-        totalRecords: customers.length,
-      };
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : "Erro desconhecido";
-      return { ok: false, message: `Voalle clientes: ${msg}`, customers: [] };
+      return { ok: true, message: `${customers.length} clientes encontrados`, customers, totalRecords: customers.length };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      return { ok: false, message: `Erro: ${msg}`, customers: [] };
     }
   }
 }
-
-/**
- * Extract array from various response shapes.
- */
-function extractArray(data: unknown): any[] {
-  if (Array.isArray(data)) return data;
-  if (data && typeof data === "object") {
-    const obj = data as Record<string, unknown>;
-    if (Array.isArray(obj.data)) return obj.data;
-    if (Array.isArray(obj.registros)) return obj.registros;
-    if (Array.isArray(obj.results)) return obj.results;
-    if (Array.isArray(obj.items)) return obj.items;
-    if (Array.isArray(obj.rows)) return obj.rows;
-  }
-  return [];
-}
-
-// Register connector on import
-const voalleConnector = new VoalleConnector();
-registerConnector(voalleConnector);
-
-export { VoalleConnector };
-export default voalleConnector;

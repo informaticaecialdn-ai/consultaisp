@@ -1,6 +1,6 @@
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 const FROM_EMAIL = process.env.EMAIL_FROM || "onboarding@resend.dev";
 
@@ -15,6 +15,11 @@ export async function sendVerificationEmail(to: string, name: string, token: str
   const verifyUrl = `${APP_URL}/verificar-email?token=${token}`;
 
   console.log(`[email] Enviando email de verificacao para ${to} via ${FROM_EMAIL}`);
+
+  if (!resend) {
+    console.warn(`[email] RESEND_API_KEY nao configurada. Email para ${to} nao enviado.`);
+    return;
+  }
 
   const { data, error } = await resend.emails.send({
     from: FROM_EMAIL,

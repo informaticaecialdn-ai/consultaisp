@@ -1,10 +1,23 @@
 import { Router } from "express";
 import { requireAuth } from "../auth";
 import { storage } from "../storage";
-import { getConnector, getAllConnectors, getSupportedSources, buildConnectorConfig } from "../erp";
+import { getConnector, getAllConnectors, getSupportedSources, buildConnectorConfig, ERP_CONFIG_FIELDS } from "../erp";
 
 export function registerErpRoutes(): Router {
   const router = Router();
+
+  // Public routes — available ERP list and config fields
+  router.get("/api/erp/available", (_req, res) => {
+    const connectors = getAllConnectors();
+    return res.json(connectors.map(c => ({ name: c.name, label: c.label })));
+  });
+
+  router.get("/api/erp/config-fields/:source", (req, res) => {
+    const source = String(req.params.source);
+    const fields = ERP_CONFIG_FIELDS[source];
+    if (!fields) return res.status(404).json({ message: "ERP nao encontrado" });
+    return res.json(fields);
+  });
 
   router.get("/api/provider/erp-integrations", requireAuth, async (req, res) => {
     try {
@@ -17,10 +30,10 @@ export function registerErpRoutes(): Router {
 
   router.patch("/api/provider/erp-integrations/:source", requireAuth, async (req, res) => {
     try {
-      const { source } = req.params;
+      const source = String(req.params.source);
       const validSources = [...getSupportedSources(), "manual"];
       if (!validSources.includes(source)) return res.status(400).json({ message: "ERP invalido" });
-      const allowed = ["isEnabled", "notes", "apiUrl", "apiToken", "apiUser", "syncIntervalHours", "clientId", "clientSecret", "extraConfig"];
+      const allowed = ["isEnabled", "notes", "apiUrl", "apiToken", "apiUser", "syncIntervalHours", "clientId", "clientSecret", "mkContraSenha", "sgpApp", "voalleClientId", "extraConfig"];
       const data: any = {};
       for (const k of allowed) { if (req.body[k] !== undefined) data[k] = req.body[k]; }
       const integration = await storage.upsertErpIntegration(req.session.providerId!, source, data);
@@ -32,7 +45,7 @@ export function registerErpRoutes(): Router {
 
   router.post("/api/provider/erp-integrations/:source/test", requireAuth, async (req, res) => {
     try {
-      const { source } = req.params;
+      const source = String(req.params.source);
       const providerId = req.session.providerId!;
       const connector = getConnector(source);
       if (!connector) {
@@ -53,7 +66,7 @@ export function registerErpRoutes(): Router {
 
   router.post("/api/provider/erp-integrations/:source/sync", requireAuth, async (req, res) => {
     try {
-      const { source } = req.params;
+      const source = String(req.params.source);
       const providerId = req.session.providerId!;
       const connector = getConnector(source);
       if (!connector) {

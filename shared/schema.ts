@@ -140,6 +140,9 @@ export const erpIntegrations = pgTable("erp_integrations", {
   syncIntervalHours: integer("sync_interval_hours").notNull().default(24),
   clientId: text("client_id"),
   clientSecret: text("client_secret"),
+  mkContraSenha: text("mk_contra_senha"),
+  sgpApp: text("sgp_app"),
+  voalleClientId: text("voalle_client_id"),
   extraConfig: jsonb("extra_config"),
   createdAt: timestamp("created_at").defaultNow(),
 });

@@ -46,6 +46,9 @@ export type {
   ErpConfigField,
 } from "./types.js";
 
+// --- Re-export ERP_CONFIG_FIELDS for frontend dynamic forms ---
+export { ERP_CONFIG_FIELDS } from "./types.js";
+
 // --- Re-export rate limiter ---
 export { getProviderLimiter } from "./rate-limiter.js";
 
