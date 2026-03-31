@@ -104,7 +104,7 @@ Plans:
 **UI hint**: yes
 
 Plans:
-- [ ] 05-01-PLAN.md -- Backend N8N elimination: rewrite heatmap for all ERPs, add connector metadata API, remove N8N routes/storage
+- [x] 05-01-PLAN.md -- Backend N8N elimination: rewrite heatmap for all ERPs, add connector metadata API, remove N8N routes/storage
 - [ ] 05-02-PLAN.md -- Frontend ERP config UI: dynamic forms per connector type, test/sync controls, catalog with all 6 connectors
 
 ### Phase 6: Undocumented ERP Connectors
@@ -146,6 +146,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 (and 6 in parallel with 5
 | 2. Foundation & Docker | 0/3 | Not started | - |
 | 3. Backend Modularization | 0/4 | Not started | - |
 | 4. ERP Connector Engine | 4/4 | Complete | 2026-03-30 |
-| 5. ERP UI & N8N Removal | 0/2 | Not started | - |
+| 5. ERP UI & N8N Removal | 1/2 | In Progress|  |
 | 6. Undocumented ERP Connectors | 0/2 | Not started | - |
 | 7. LGPD Hardening | 0/2 | Not started | - |

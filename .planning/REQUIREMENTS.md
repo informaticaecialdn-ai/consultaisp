@@ -30,11 +30,11 @@
 - [x] **ERP-14**: Rate limiting por provedor para chamadas ERP
 
 ### N8N Removal
-- [ ] **N8N-01**: Atualizar scheduler.ts para usar conectores diretos em vez de fetchErpCustomersForScheduler via N8N
-- [ ] **N8N-02**: Atualizar heatmap-cache.ts para usar conectores diretos — remover proxy N8N (https://n8n.aluisiocunha.com.br)
-- [ ] **N8N-03**: Atualizar rotas de test/sync em routes.ts para usar conectores
-- [ ] **N8N-04**: Remover campos n8n do schema de providers (n8nWebhookUrl, n8nAuthToken, n8nEnabled, n8nErpProvider) — ou deprecar
-- [ ] **N8N-05**: Expandir mapa de calor para todos os ERPs (nao apenas IXC)
+- [x] **N8N-01**: Atualizar scheduler.ts para usar conectores diretos em vez de fetchErpCustomersForScheduler via N8N
+- [x] **N8N-02**: Atualizar heatmap-cache.ts para usar conectores diretos — remover proxy N8N (https://n8n.aluisiocunha.com.br)
+- [x] **N8N-03**: Atualizar rotas de test/sync em routes.ts para usar conectores
+- [x] **N8N-04**: Remover campos n8n do schema de providers (n8nWebhookUrl, n8nAuthToken, n8nEnabled, n8nErpProvider) — ou deprecar
+- [x] **N8N-05**: Expandir mapa de calor para todos os ERPs (nao apenas IXC)
 
 ### ERP Frontend
 - [ ] **ERPUI-01**: Adaptar tela de configuracao ERP para mostrar campos especificos por tipo de ERP (Basic Auth vs OAuth vs Token)
@@ -106,11 +106,11 @@
 | ERPUI-02 | Phase 5: ERP UI & N8N Removal | Pending |
 | ERPUI-03 | Phase 5: ERP UI & N8N Removal | Pending |
 | ERPUI-04 | Phase 5: ERP UI & N8N Removal | Pending |
-| N8N-01 | Phase 5: ERP UI & N8N Removal | Pending |
-| N8N-02 | Phase 5: ERP UI & N8N Removal | Pending |
-| N8N-03 | Phase 5: ERP UI & N8N Removal | Pending |
-| N8N-04 | Phase 5: ERP UI & N8N Removal | Pending |
-| N8N-05 | Phase 5: ERP UI & N8N Removal | Pending |
+| N8N-01 | Phase 5: ERP UI & N8N Removal | Complete |
+| N8N-02 | Phase 5: ERP UI & N8N Removal | Complete |
+| N8N-03 | Phase 5: ERP UI & N8N Removal | Complete |
+| N8N-04 | Phase 5: ERP UI & N8N Removal | Complete |
+| N8N-05 | Phase 5: ERP UI & N8N Removal | Complete |
 | ERP-08 | Phase 6: Undocumented ERP Connectors | Pending |
 | ERP-09 | Phase 6: Undocumented ERP Connectors | Pending |
 | ERP-10 | Phase 6: Undocumented ERP Connectors | Pending |
