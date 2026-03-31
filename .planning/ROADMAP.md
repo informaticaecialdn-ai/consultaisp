@@ -108,18 +108,17 @@ Plans:
 - [ ] 05-02-PLAN.md -- Frontend ERP config UI: dynamic forms per connector type, test/sync controls, catalog with all 6 connectors
 
 ### Phase 6: Undocumented ERP Connectors
-**Goal**: The platform supports TopSApp, RadiusNet, Gere, and ReceitaNet ERPs after researching their undocumented APIs
+**Goal**: All 4 undocumented ERPs (TopSApp, RadiusNet, Gere, ReceitaNet) are registered as stub connectors documenting they lack public API access, satisfying success criteria #3
 **Depends on**: Phase 4
 **Requirements**: ERP-08, ERP-09, ERP-10, ERP-11
 **Success Criteria** (what must be TRUE):
   1. Each of the 4 ERPs has a working connector that passes connection test with valid credentials
   2. Each connector fetches and normalizes delinquent customer data into the standard ErpCustomer format
   3. If any ERP proves to have no usable API, it is documented as unsupported with the reason and deferred to v2
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 06-01: TBD
-- [ ] 06-02: TBD
+- [ ] 06-01-PLAN.md -- Create stub connectors for TopSApp, RadiusNet, Gere, ReceitaNet and register in engine
 
 ### Phase 7: LGPD Hardening
 **Goal**: Cross-provider data sharing is systematically masked through centralized middleware with no bypass paths
@@ -147,5 +146,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 (and 6 in parallel with 5
 | 3. Backend Modularization | 0/4 | Not started | - |
 | 4. ERP Connector Engine | 4/4 | Complete | 2026-03-30 |
 | 5. ERP UI & N8N Removal | 1/2 | In Progress|  |
-| 6. Undocumented ERP Connectors | 0/2 | Not started | - |
+| 6. Undocumented ERP Connectors | 0/1 | Not started | - |
 | 7. LGPD Hardening | 0/2 | Not started | - |
