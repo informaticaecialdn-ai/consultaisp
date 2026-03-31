@@ -49,7 +49,6 @@ export interface IStorage {
   createProvider(provider: InsertProvider): Promise<Provider>;
   updateProvider(id: number, data: Partial<Pick<Provider, "name" | "contactEmail" | "contactPhone" | "website">>): Promise<Provider>;
   getAllProviders(): Promise<Provider[]>;
-  getAllProvidersWithN8n(): Promise<Array<{ id: number; name: string; n8nWebhookUrl: string; n8nAuthToken: string | null; n8nEnabled: boolean; n8nErpProvider: string | null }>>;
   updateProviderCredits(id: number, ispCredits: number, spcCredits: number): Promise<void>;
   deleteProvider(id: number): Promise<void>;
 
@@ -142,8 +141,6 @@ export interface IStorage {
   getProviderWebhookToken(providerId: number): Promise<string>;
   regenerateWebhookToken(providerId: number): Promise<string>;
   getProviderByWebhookToken(token: string): Promise<Provider | undefined>;
-  getN8nConfig(providerId: number): Promise<{ n8nWebhookUrl: string | null; n8nAuthToken: string | null; n8nEnabled: boolean; n8nErpProvider: string | null }>;
-  saveN8nConfig(providerId: number, data: { n8nWebhookUrl?: string; n8nAuthToken?: string; n8nEnabled?: boolean; n8nErpProvider?: string | null; }): Promise<void>;
   syncErpCustomers(providerId: number, erpSource: string, customersData: any[]): Promise<{ upserted: number; errors: number }>;
 
   getErpIntegrations(providerId: number): Promise<ErpIntegration[]>;
@@ -203,16 +200,12 @@ class DatabaseStorage implements IStorage {
   createProvider = (provider: InsertProvider) => this._providers.createProvider(provider);
   updateProvider = (id: number, data: Partial<Pick<Provider, "name" | "contactEmail" | "contactPhone" | "website">>) => this._providers.updateProvider(id, data);
   getAllProviders = () => this._providers.getAllProviders();
-  getAllProvidersWithN8n = () => this._providers.getAllProvidersWithN8n();
   updateProviderCredits = (id: number, ispCredits: number, spcCredits: number) => this._providers.updateProviderCredits(id, ispCredits, spcCredits);
   deleteProvider = (id: number) => this._providers.deleteProvider(id);
   updateProviderProfile = (id: number, data: Partial<Provider>) => this._providers.updateProviderProfile(id, data);
   getProviderWebhookToken = (providerId: number) => this._providers.getProviderWebhookToken(providerId);
   regenerateWebhookToken = (providerId: number) => this._providers.regenerateWebhookToken(providerId);
   getProviderByWebhookToken = (token: string) => this._providers.getProviderByWebhookToken(token);
-  getN8nConfig = (providerId: number) => this._providers.getN8nConfig(providerId);
-  saveN8nConfig = (providerId: number, data: { n8nWebhookUrl?: string; n8nAuthToken?: string; n8nEnabled?: boolean; n8nErpProvider?: string | null }) => this._providers.saveN8nConfig(providerId, data);
-
   // Customers
   getCustomersByProvider = (providerId: number) => this._customers.getCustomersByProvider(providerId);
   getCustomerByCpfCnpj = (cpfCnpj: string) => this._customers.getCustomerByCpfCnpj(cpfCnpj);

@@ -36,29 +36,25 @@ export function registerConsultasRoutes(): Router {
         return res.status(400).json({ message: "Provedor nao encontrado" });
       }
 
-      // ── N8N CENTRAL QUERY ────────────────────────────────────────────
-      // Builds integrations array from all N8N-enabled providers and calls the
-      // single central N8N endpoint which orchestrates ERP queries internally.
-      const n8nProviders = await storage.getAllProvidersWithN8n();
+      // ── ERP CENTRAL QUERY ──────────────────────────────────────────
+      // Builds integrations array from erp_integrations table and calls the
+      // central consultation endpoint which orchestrates ERP queries.
+      const erpIntegrations = await storage.getAllEnabledErpIntegrationsWithCredentials();
 
-      if (n8nProviders.length > 0) {
-        // Build integrations array for the central N8N endpoint.
-        // Each provider contributes their ERP credentials stored in the N8N config fields:
-        //   n8nWebhookUrl → api_url (strip protocol prefix)
-        //   n8nAuthToken  → api_key
-        //   n8nErpProvider → erp
-        const integrations = n8nProviders.map(prov => ({
-          provider_id: String(prov.id),
-          provider_name: prov.name,
-          erp: prov.n8nErpProvider || "ixc",
-          api_url: (prov.n8nWebhookUrl || "").replace(/^https?:\/\//, ""),
-          api_key: prov.n8nAuthToken || "",
+      if (erpIntegrations.length > 0) {
+        // Build integrations array from ERP integration records
+        const integrations = erpIntegrations.map(intg => ({
+          provider_id: String(intg.providerId),
+          provider_name: (intg as any).providerName || `Provider ${intg.providerId}`,
+          erp: intg.erpSource || "ixc",
+          api_url: (intg.apiUrl || "").replace(/^https?:\/\//, ""),
+          api_key: intg.apiToken || "",
         }));
 
-        const CENTRAL_N8N_URL = "https://n8n.aluisiocunha.com.br/webhook/isp-consult";
-        const CENTRAL_N8N_AUTH = "Basic aXNwX2FuYWxpenplOmlzcGFuYWxpenplMTIzMTIz";
+        const CENTRAL_QUERY_URL = "https://n8n.aluisiocunha.com.br/webhook/isp-consult";
+        const CENTRAL_QUERY_AUTH = "Basic aXNwX2FuYWxpenplOmlzcGFuYWxpenplMTIzMTIz";
 
-        // When searching by CEP (8 digits) use N8N address search mode
+        // When searching by CEP (8 digits) use address search mode
         const isCepSearch = searchType === "cep";
         const extPayload = isCepSearch ? {
           document: null,
@@ -72,15 +68,15 @@ export function registerConsultasRoutes(): Router {
           integrations,
         };
 
-        console.log(`[ISP-N8N] Chamando N8N central com ${integrations.length} integracoes:`, JSON.stringify(extPayload, null, 2));
+        console.log(`[ISP-ERP] Chamando central com ${integrations.length} integracoes:`, JSON.stringify(extPayload, null, 2));
 
         let extRaw: any;
         try {
-          const extRes = await fetch(CENTRAL_N8N_URL, {
+          const extRes = await fetch(CENTRAL_QUERY_URL, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "Authorization": CENTRAL_N8N_AUTH,
+              "Authorization": CENTRAL_QUERY_AUTH,
             },
             body: JSON.stringify(extPayload),
             signal: AbortSignal.timeout(25000),
@@ -93,10 +89,10 @@ export function registerConsultasRoutes(): Router {
             try { errJson = JSON.parse(errBody); } catch {}
             const isNoItems = errJson?.message === "No item to return was found" || errJson?.code === 0;
             if (isNoItems) {
-              console.log("[ISP-N8N] N8N retornou sem itens — resultado: nao encontrado");
+              console.log("[ISP-ERP] Central retornou sem itens — resultado: nao encontrado");
               extRaw = null;
             } else {
-              console.error(`[ISP-N8N] HTTP ${extRes.status}:`, errBody);
+              console.error(`[ISP-ERP] HTTP ${extRes.status}:`, errBody);
               return res.status(502).json({ message: `Erro na API ISP: HTTP ${extRes.status}`, detail: errBody });
             }
           } else {
@@ -113,17 +109,17 @@ export function registerConsultasRoutes(): Router {
         const responseObj = Array.isArray(extRaw) ? extRaw[0] : extRaw;
         const customers: any[] = responseObj?.data?.customers || responseObj?.customers || [];
 
-        // Debug: log full N8N response for CEP searches (always) and first customer for document searches
+        // Debug: log full ERP response for CEP searches (always) and first customer for document searches
         if (isCepSearch) {
-          console.log(`[ISP-N8N-CEP] CEP ${cleaned} → raw N8N response:`, JSON.stringify(extRaw));
-          console.log(`[ISP-N8N-CEP] Clientes encontrados: ${customers.length}`);
+          console.log(`[ISP-ERP-CEP] CEP ${cleaned} → raw ERP response:`, JSON.stringify(extRaw));
+          console.log(`[ISP-ERP-CEP] Clientes encontrados: ${customers.length}`);
         } else if (customers.length > 0) {
-          console.log("[ISP-N8N] Full sample customer (keys):", Object.keys(customers[0]).join(", "));
-          console.log("[ISP-N8N] Full sample customer:", JSON.stringify(customers[0]));
+          console.log("[ISP-ERP] Full sample customer (keys):", Object.keys(customers[0]).join(", "));
+          console.log("[ISP-ERP] Full sample customer:", JSON.stringify(customers[0]));
         }
 
         // Build a quick lookup: provider_id → provider info
-        const providerMap = new Map(n8nProviders.map(p => [String(p.id), p]));
+        const providerMap = new Map(erpIntegrations.map(p => [String(p.providerId), { id: p.providerId, name: (p as any).providerName || `Provider ${p.providerId}` }]));
 
         // ── VIACEP CITY LOOKUP ───────────────────────────────────────────
         // IXC ERP returns internal numeric IDs in city/state fields (e.g. "4101", "3").
@@ -155,8 +151,8 @@ export function registerConsultasRoutes(): Router {
 
         // ── ADDRESS CROSS-REFERENCE (document search only) ──────────────
         // For each unique address found in document search, do a secondary
-        // N8N address query to find other customers at the same location.
-        let n8nAddressMatches: any[] = [];
+        // Address query to find other customers at the same location.
+        let erpAddressMatches: any[] = [];
         if (!isCepSearch && customers.length > 0) {
           const seenAddrKeys = new Set<string>();
           const addressQueries: any[] = [];
@@ -175,11 +171,11 @@ export function registerConsultasRoutes(): Router {
           }
           for (const addrQ of addressQueries.slice(0, 3)) {
             try {
-              const addrRes = await fetch(CENTRAL_N8N_URL, {
+              const addrRes = await fetch(CENTRAL_QUERY_URL, {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
-                  "Authorization": CENTRAL_N8N_AUTH,
+                  "Authorization": CENTRAL_QUERY_AUTH,
                 },
                 body: JSON.stringify({
                   document: null,
@@ -206,7 +202,7 @@ export function registerConsultasRoutes(): Router {
                     const acMaskedName = acIsSame
                       ? acFullName
                       : acNameParts.length > 1 ? `${acNameParts[0]} ***` : acFullName;
-                    n8nAddressMatches.push({
+                    erpAddressMatches.push({
                       customerName: acMaskedName,
                       cpfCnpj: acIsSame ? (ac.document || "") : "***",
                       address: [addrQ.street, addrQ.city, addrQ.state].filter(Boolean).join(", "),
@@ -223,7 +219,7 @@ export function registerConsultasRoutes(): Router {
                 }
               }
             } catch (addrErr: any) {
-              console.warn("[ISP-N8N] Address cross-ref failed:", addrErr.message);
+              console.warn("[ISP-ERP] Address cross-ref failed:", addrErr.message);
             }
           }
         }
@@ -265,7 +261,7 @@ export function registerConsultasRoutes(): Router {
           const serviceAgeMonths = Number(c.service_age_months || 0);
 
           const customerProviderId = c.provider_id ? Number(c.provider_id) : null;
-          // N8N echoes back the provider_name we sent in the integrations array.
+          // The central endpoint echoes back the provider_name we sent in the integrations array.
           // IXC uses its own internal numeric provider_id (e.g. 21600) which differs
           // from our database provider ID. So match by provider_name instead of provider_id.
           const customerProviderName = c.provider_name
@@ -275,7 +271,7 @@ export function registerConsultasRoutes(): Router {
           const isSame = !!(c.provider_name && c.provider_name === provider.name);
 
           // ── ADDRESS FIELDS ───────────────────────────────────────────────
-          // N8N returns separate fields: address (street), address_number, address_complement,
+          // ERP returns separate fields: address (street), address_number, address_complement,
           // neighborhood, zipcode (CEP), city/state (may be ERP internal IDs on IXC).
 
           // 1. CEP: prefer zipcode field; fallback to zip_code, then cep, then regex from address
@@ -316,7 +312,7 @@ export function registerConsultasRoutes(): Router {
           const cityReadable = cityFromViaCep || cityFromField || cityFromAddr;
           const stateReadable = stateFromViaCep || stateFromField || stateFromAddr;
 
-          // 3. Street name: N8N may return street only in `address`; number in `address_number`
+          // 3. Street name: ERP may return street only in `address`; number in `address_number`
           const streetBase = (c.address as string | undefined)?.replace(/[,\s]*\d.*$/, "").trim() || null;
 
           // Full address for own provider: street + number + complement + neighborhood + city + state
@@ -389,7 +385,7 @@ export function registerConsultasRoutes(): Router {
           }
         }
 
-        // Count providers by provider_name (N8N echoes back our sent provider_name).
+        // Count providers by provider_name (central echoes back our sent provider_name).
         // Do NOT use provider_id — IXC returns its own internal numeric ID, not our DB ID.
         const externalProviderIds = new Set(
           customers
@@ -427,7 +423,7 @@ export function registerConsultasRoutes(): Router {
         }
 
         // ── CEP FALLBACK: busca histórico de consultas por prefixo de CEP ──
-        // Se N8N address search retornar vazio, buscar no histórico de consultas
+        // Se ERP address search retornar vazio, buscar no histórico de consultas
         // armazenadas que tenham clientes com aquele CEP (5 primeiros dígitos).
         let cepFallbackDetails: any[] = [];
         if (isCepSearch && customers.length === 0) {
@@ -496,8 +492,8 @@ export function registerConsultasRoutes(): Router {
           recommendedActions,
           creditsCost,
           isOwnCustomer,
-          addressMatches: n8nAddressMatches,
-          source: providerDetails.length > 0 ? "n8n_central" : (cepFallbackDetails.length > 0 ? "history_fallback" : "n8n_central"),
+          addressMatches: erpAddressMatches,
+          source: providerDetails.length > 0 ? "erp_central" : (cepFallbackDetails.length > 0 ? "history_fallback" : "erp_central"),
           isHistoryResult: cepFallbackDetails.length > 0 && providerDetails.length === 0,
         };
 
@@ -515,134 +511,7 @@ export function registerConsultasRoutes(): Router {
 
         return res.json({ consultation, result });
       }
-      // ── FIM N8N CENTRAL ───────────────────────────────────────────────
-
-      // ── N8N INTEGRATION (LEGACY — fallback for current provider only) ─
-      const n8nCfg = await storage.getN8nConfig(providerId);
-      if (n8nCfg.n8nEnabled && n8nCfg.n8nWebhookUrl) {
-        try {
-          const headers: Record<string, string> = { "Content-Type": "application/json" };
-          if (n8nCfg.n8nAuthToken) {
-            headers["Authorization"] = `Basic ${n8nCfg.n8nAuthToken}`;
-          }
-          const n8nPayload = {
-            searchType: "document",
-            document: cleaned,
-            providerId: String(providerId),
-          };
-
-          const n8nRes = await fetch(n8nCfg.n8nWebhookUrl, {
-            method: "POST",
-            headers,
-            body: JSON.stringify(n8nPayload),
-            signal: AbortSignal.timeout(15000),
-          });
-
-          if (n8nRes.status === 401) {
-            return res.status(502).json({ message: "Erro de autenticacao com a API N8N (401). Verifique o token Basic Auth nas configuracoes de integracao." });
-          }
-
-          const n8nData: any = await n8nRes.json();
-
-          if (!n8nRes.ok || n8nData.success === false) {
-            return res.status(502).json({ message: n8nData.error || n8nData.message || `Erro N8N HTTP ${n8nRes.status}` });
-          }
-
-          const customers: any[] = Array.isArray(n8nData.customers) ? n8nData.customers : [];
-          const notFound = customers.length === 0;
-          const isOwnCustomer = customers.some((c: any) => c.isOwnProvider === true);
-
-          // Derive score: use lowest ispScore if multiple customers, 100 if not found
-          const scores = customers.map((c: any) => typeof c.ispScore === "number" ? c.ispScore : 100);
-          const finalScore = notFound ? 100 : Math.min(...scores);
-
-          const risk = getRiskTier(finalScore);
-          const decisionReco = getDecisionReco(finalScore);
-          const recommendedActions = getRecommendedActions(finalScore, customers.some((c: any) => Array.isArray(c.notReturnedEquipment) && c.notReturnedEquipment.length > 0));
-
-          // Map N8N customers to providerDetails format
-          const providerDetails = customers.map((c: any) => {
-            const serviceAgeDays = typeof c.serviceAge === "number" ? c.serviceAge * 30 : 0;
-            const paymentStatusMap: Record<string, string> = {
-              "Current": "Em dia",
-              "Overdue": "Inadimplente",
-              "Cancelled": "Cancelado",
-              "Suspended": "Suspenso",
-            };
-            return {
-              providerName: c.providerName || "Provedor desconhecido",
-              isSameProvider: !!c.isOwnProvider,
-              customerName: c.customerName || "Desconhecido",
-              status: paymentStatusMap[c.paymentStatus] || c.paymentStatus || "Em dia",
-              daysOverdue: 0,
-              overdueAmount: c.isOwnProvider ? 0 : undefined,
-              overdueAmountRange: c.isOwnProvider ? undefined : "N/A",
-              overdueInvoicesCount: 0,
-              contractStartDate: new Date(Date.now() - serviceAgeDays * 86400000).toISOString(),
-              contractAgeDays: serviceAgeDays,
-              hasUnreturnedEquipment: Array.isArray(c.notReturnedEquipment) && c.notReturnedEquipment.length > 0,
-              unreturnedEquipmentCount: Array.isArray(c.notReturnedEquipment) ? c.notReturnedEquipment.length : 0,
-              equipmentDetails: c.isOwnProvider && Array.isArray(c.notReturnedEquipment) ? c.notReturnedEquipment : undefined,
-              planName: c.planName,
-              monthlyRevenue: c.monthlyRevenue,
-              appliedRules: c.appliedRules,
-            };
-          });
-
-          const alerts: string[] = [];
-          for (const c of customers) {
-            if (Array.isArray(c.riskFactors)) {
-              alerts.push(...c.riskFactors);
-            }
-          }
-
-          const cost = customers.reduce((sum: number, c: any) => sum + (typeof c.cost === "number" ? c.cost : 0), 0);
-
-          const result = {
-            cpfCnpj: cleaned,
-            searchType,
-            notFound,
-            score: finalScore,
-            riskTier: risk.tier,
-            riskLabel: risk.label,
-            recommendation: risk.recommendation,
-            decisionReco,
-            providersFound: new Set(customers.map((c: any) => c.providerName)).size,
-            providerDetails,
-            penalties: [],
-            bonuses: [],
-            alerts,
-            recommendedActions,
-            creditsCost: cost,
-            isOwnCustomer,
-            source: "n8n",
-          };
-
-          const consultation = await storage.createIspConsultation({
-            providerId,
-            userId: req.session.userId!,
-            cpfCnpj: cleaned,
-            searchType,
-            result,
-            score: finalScore,
-            decisionReco,
-            cost,
-            approved: finalScore >= 50,
-          });
-
-          if (cost > 0) {
-            await storage.updateProviderCredits(provider.id, provider.ispCredits - cost, provider.spcCredits);
-          }
-
-          return res.json({ consultation, result });
-        } catch (n8nErr: any) {
-          if (n8nErr.name === "AbortError" || n8nErr.name === "TimeoutError") {
-            return res.status(504).json({ message: "Timeout ao conectar com a API N8N (15s). Verifique a URL e o status do servidor N8N." });
-          }
-          return res.status(502).json({ message: `Erro ao chamar API N8N: ${n8nErr.message}` });
-        }
-      }
-      // ── FIM N8N INTEGRATION ──────────────────────────────────────────
+      // ── FIM ERP CENTRAL ───────────────────────────────────────────────
 
       const allCustomerRecords = await storage.getCustomerByCpfCnpj(cleaned);
 

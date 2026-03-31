@@ -1,4 +1,4 @@
-import { eq, and, sql, inArray } from "drizzle-orm";
+import { eq, sql, inArray } from "drizzle-orm";
 import { db } from "../db";
 import {
   providers, users, customers, contracts, invoices, equipment,
@@ -37,33 +37,6 @@ export class ProvidersStorage {
 
   async getAllProviders(): Promise<Provider[]> {
     return db.select().from(providers);
-  }
-
-  async getAllProvidersWithN8n(): Promise<Array<{ id: number; name: string; n8nWebhookUrl: string; n8nAuthToken: string | null; n8nEnabled: boolean; n8nErpProvider: string | null }>> {
-    const rows = await db
-      .select({
-        id: providers.id,
-        name: providers.name,
-        n8nWebhookUrl: providers.n8nWebhookUrl,
-        n8nAuthToken: providers.n8nAuthToken,
-        n8nEnabled: providers.n8nEnabled,
-        n8nErpProvider: providers.n8nErpProvider,
-      })
-      .from(providers)
-      .where(
-        and(
-          eq(providers.n8nEnabled, true),
-          sql`${providers.n8nWebhookUrl} IS NOT NULL AND ${providers.n8nWebhookUrl} != ''`,
-        )
-      );
-    return rows.map(r => ({
-      id: r.id,
-      name: r.name,
-      n8nWebhookUrl: r.n8nWebhookUrl as string,
-      n8nAuthToken: r.n8nAuthToken ?? null,
-      n8nEnabled: r.n8nEnabled ?? false,
-      n8nErpProvider: r.n8nErpProvider ?? null,
-    }));
   }
 
   async updateProviderCredits(id: number, ispCredits: number, spcCredits: number): Promise<void> {
@@ -119,25 +92,6 @@ export class ProvidersStorage {
   async getProviderByWebhookToken(token: string): Promise<Provider | undefined> {
     const [provider] = await db.select().from(providers).where(sql`${providers.webhookToken} = ${token}`);
     return provider;
-  }
-
-  async getN8nConfig(providerId: number): Promise<{ n8nWebhookUrl: string | null; n8nAuthToken: string | null; n8nEnabled: boolean; n8nErpProvider: string | null }> {
-    const [row] = await db.select({
-      n8nWebhookUrl: providers.n8nWebhookUrl,
-      n8nAuthToken: providers.n8nAuthToken,
-      n8nEnabled: providers.n8nEnabled,
-      n8nErpProvider: providers.n8nErpProvider,
-    }).from(providers).where(eq(providers.id, providerId));
-    return {
-      n8nWebhookUrl: row?.n8nWebhookUrl ?? null,
-      n8nAuthToken: row?.n8nAuthToken ?? null,
-      n8nEnabled: row?.n8nEnabled ?? false,
-      n8nErpProvider: row?.n8nErpProvider ?? null,
-    };
-  }
-
-  async saveN8nConfig(providerId: number, data: { n8nWebhookUrl?: string; n8nAuthToken?: string; n8nEnabled?: boolean; n8nErpProvider?: string | null }): Promise<void> {
-    await db.update(providers).set(data as any).where(eq(providers.id, providerId));
   }
 
 }

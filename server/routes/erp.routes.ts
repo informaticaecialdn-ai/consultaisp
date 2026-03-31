@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../auth";
 import { storage } from "../storage";
-import { getConnector, getSupportedSources, buildConnectorConfig } from "../erp";
+import { getConnector, getAllConnectors, getSupportedSources, buildConnectorConfig } from "../erp";
 
 export function registerErpRoutes(): Router {
   const router = Router();
@@ -117,49 +117,14 @@ export function registerErpRoutes(): Router {
     }
   });
 
-  router.post("/api/webhooks/erp-sync", async (req, res) => {
-    try {
-      const authHeader = req.headers.authorization;
-      if (!authHeader?.startsWith("Bearer ")) {
-        return res.status(401).json({ message: "Token de autorizacao ausente" });
-      }
-      const token = authHeader.slice(7);
-      const provider = await storage.getProviderByWebhookToken(token);
-      if (!provider) return res.status(401).json({ message: "Token invalido" });
-
-      const { erpSource, customers: customersData } = req.body;
-      if (!erpSource || !Array.isArray(customersData)) {
-        return res.status(400).json({ message: "Payload invalido. Esperado: { erpSource, customers: [] }" });
-      }
-      const validSources = ["ixc", "sgp", "mk", "tiacos", "hubsoft", "flyspeed", "netflash", "manual"];
-      if (!validSources.includes(erpSource)) {
-        return res.status(400).json({ message: `erpSource invalido. Valores aceitos: ${validSources.join(", ")}` });
-      }
-
-      const result = await storage.syncErpCustomers(provider.id, erpSource, customersData);
-      const syncStatus = result.errors > 0 && result.upserted === 0 ? "error" : result.errors > 0 ? "partial" : "success";
-
-      await storage.createErpSyncLog({
-        providerId: provider.id,
-        erpSource,
-        upserted: result.upserted,
-        errors: result.errors,
-        status: syncStatus,
-        ipAddress: (req.headers["x-forwarded-for"] as string) || req.socket.remoteAddress || null,
-        payload: { total: customersData.length },
-      });
-      await storage.upsertErpIntegration(provider.id, erpSource, {
-        isEnabled: true,
-        status: syncStatus,
-        lastSyncAt: new Date(),
-        lastSyncStatus: syncStatus,
-      });
-      await storage.incrementErpIntegrationCounters(provider.id, erpSource, result.upserted, result.errors);
-
-      return res.json({ success: true, ...result, providerId: provider.id });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message });
-    }
+  router.get("/api/erp-connectors", requireAuth, (_req, res) => {
+    const connectors = getAllConnectors();
+    const meta = connectors.map(c => ({
+      name: c.name,
+      label: c.label,
+      configFields: c.configFields,
+    }));
+    return res.json(meta);
   });
 
   return router;
