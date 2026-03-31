@@ -131,7 +131,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 07-01-PLAN.md -- Enhance lgpd-masking.ts with maskOverdueAmount, maskCrossProviderDetail aggregator, and unit tests
+- [x] 07-01-PLAN.md -- Enhance lgpd-masking.ts with maskOverdueAmount, maskCrossProviderDetail aggregator, and unit tests
 - [ ] 07-02-PLAN.md -- Refactor consultas.routes.ts to use centralized masking, fix unmasked customer.name bug
 
 ## Progress
@@ -147,4 +147,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 (and 6 in parallel with 5
 | 4. ERP Connector Engine | 4/4 | Complete | 2026-03-30 |
 | 5. ERP UI & N8N Removal | 1/2 | In Progress|  |
 | 6. Undocumented ERP Connectors | 1/1 | Complete   | 2026-03-31 |
-| 7. LGPD Hardening | 0/2 | Not started | - |
+| 7. LGPD Hardening | 1/2 | In Progress|  |
