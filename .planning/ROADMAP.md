@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 3: Backend Modularization** - Decompose routes.ts (4350 lines) and storage.ts (1800 lines) into domain modules
 - [x] **Phase 4: ERP Connector Engine** - Build abstract connector interface and implement 6 documented ERP connectors
 - [ ] **Phase 5: ERP UI & N8N Removal** - Wire ERP config UI, sync controls, and eliminate N8N dependency
-- [ ] **Phase 6: Undocumented ERP Connectors** - Research and implement TopSApp, RadiusNet, Gere, ReceitaNet connectors
+- [x] **Phase 6: Undocumented ERP Connectors** - Research and implement TopSApp, RadiusNet, Gere, ReceitaNet connectors (completed 2026-03-31)
 - [ ] **Phase 7: LGPD Hardening** - Systematize data masking, create centralized middleware, ensure legal compliance
 
 ## Phase Details
@@ -118,7 +118,7 @@ Plans:
 **Plans**: 1 plan
 
 Plans:
-- [ ] 06-01-PLAN.md -- Create stub connectors for TopSApp, RadiusNet, Gere, ReceitaNet and register in engine
+- [x] 06-01-PLAN.md -- Create stub connectors for TopSApp, RadiusNet, Gere, ReceitaNet and register in engine
 
 ### Phase 7: LGPD Hardening
 **Goal**: Cross-provider data sharing is systematically masked through centralized middleware with no bypass paths
@@ -146,5 +146,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 (and 6 in parallel with 5
 | 3. Backend Modularization | 0/4 | Not started | - |
 | 4. ERP Connector Engine | 4/4 | Complete | 2026-03-30 |
 | 5. ERP UI & N8N Removal | 1/2 | In Progress|  |
-| 6. Undocumented ERP Connectors | 0/1 | Not started | - |
+| 6. Undocumented ERP Connectors | 1/1 | Complete   | 2026-03-31 |
 | 7. LGPD Hardening | 0/2 | Not started | - |

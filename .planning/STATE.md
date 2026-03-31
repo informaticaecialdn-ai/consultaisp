@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-03-31T01:15:45.846Z"
+stopped_at: Completed 06-01-PLAN.md
+last_updated: "2026-03-31T01:49:39.272Z"
 last_activity: 2026-03-31
 progress:
   total_phases: 7
-  completed_phases: 5
-  total_plans: 15
-  completed_plans: 15
+  completed_phases: 6
+  total_plans: 18
+  completed_plans: 16
   percent: 93
 ---
 
@@ -21,33 +21,24 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-29)
 
 **Core value:** Permitir que um provedor consulte CPF/CNPJ e receba em 2s um score de risco baseado no historico colaborativo de toda a rede -- evitando o calote antes que aconteca.
-**Current focus:** Phase 05 — erp-ui-n8n-removal
+**Current focus:** Phase 06 — undocumented-erp-connectors
 
 ## Current Position
 
-<<<<<<< HEAD
-Phase: 6
-Plan: Not started
-Status: In progress
+Phase: 06 (undocumented-erp-connectors) — COMPLETE
+Plan: 1 of 1
+Status: Complete
 Last activity: 2026-03-31
 
 Progress: [█████████░] 93%
-=======
-Phase: 05 (erp-ui-n8n-removal) — EXECUTING
-Plan: 2 of 2
-Status: Ready to execute
-Last activity: 2026-03-31
-
-Progress: [██████████] 100%
->>>>>>> worktree-agent-a5b7f0b5
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: 0 hours
+- Total plans completed: 16
+- Average duration: ~10min
+- Total execution time: ~2.5 hours
 
 **By Phase:**
 
@@ -70,11 +61,9 @@ Progress: [██████████] 100%
 | Phase 04 P01 | 10min | 2 tasks | 6 files |
 | Phase 04 P02 | 15min | 2 tasks | 3 files |
 | Phase 04 P04 | 21min | 2 tasks | 6 files |
-<<<<<<< HEAD
 | Phase 05 P01 | 15min | 2 tasks | 7 files |
-=======
-| Phase 05 P02 | 14m | 2 tasks | 1 files |
->>>>>>> worktree-agent-a5b7f0b5
+| Phase 05 P02 | 14min | 2 tasks | 1 files |
+| Phase 06 P01 | 8min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -100,17 +89,10 @@ Recent decisions affecting current work:
 - [Phase 04]: SGP appends app_name as query param when apiUser is configured
 - [Phase 04]: IXC/MK/SGP manually registered in barrel; Hubsoft/Voalle/RBX self-register on import
 - [Phase 04]: buildConnectorConfig extracted to server/erp/config.ts for shared use across routes and scheduler
-
-<<<<<<< HEAD
-
 - [Phase 05]: Central consultation endpoint (n8n.aluisiocunha.com.br) retained as HTTP API; credentials now sourced from erp_integrations table
 - [Phase 05]: N8N schema columns in providers table kept for migration safety; marked deprecated in plan
-
-=======
-
 - [Phase 05]: Used connector metadata from GET /api/erp-connectors as sole source of truth for ERP config field rendering
-
->>>>>>> worktree-agent-a5b7f0b5
+- [Phase 06]: Stub connectors have empty configFields since API is unknown; testConnection returns ok:false with vendor contact message
 
 ### Pending Todos
 
@@ -124,11 +106,6 @@ None yet.
 
 ## Session Continuity
 
-<<<<<<< HEAD
-Last session: 2026-03-31T00:38:00Z
-Stopped at: Completed 05-01-PLAN.md
-=======
-Last session: 2026-03-31T01:11:41.594Z
-Stopped at: Completed 05-02-PLAN.md
->>>>>>> worktree-agent-a5b7f0b5
+Last session: 2026-03-31T01:49:39Z
+Stopped at: Completed 06-01-PLAN.md
 Resume file: None

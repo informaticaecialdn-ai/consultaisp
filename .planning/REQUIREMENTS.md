@@ -21,10 +21,10 @@
 - [x] **ERP-05**: Implementar conector Hubsoft (OAuth2 com client_id/secret → Bearer, token refresh)
 - [x] **ERP-06**: Implementar conector Voalle (usuario tipo Integracao, modulo financeiro)
 - [x] **ERP-07**: Implementar conector RBX ISP (ChaveIntegracao no body POST, filtros SQL-like)
-- [ ] **ERP-08**: Implementar conector TopSApp (pesquisar API — documentacao nao publica)
-- [ ] **ERP-09**: Implementar conector RadiusNet (pesquisar API — documentacao nao publica)
-- [ ] **ERP-10**: Implementar conector Gere (pesquisar API — documentacao nao publica)
-- [ ] **ERP-11**: Implementar conector Receita Net (pesquisar API — documentacao nao publica)
+- [x] **ERP-08**: Implementar conector TopSApp (pesquisar API — documentacao nao publica)
+- [x] **ERP-09**: Implementar conector RadiusNet (pesquisar API — documentacao nao publica)
+- [x] **ERP-10**: Implementar conector Gere (pesquisar API — documentacao nao publica)
+- [x] **ERP-11**: Implementar conector Receita Net (pesquisar API — documentacao nao publica)
 - [x] **ERP-12**: Registry de conectores: Record<string, ErpConnector> para lookup dinamico por erpSource
 - [x] **ERP-13**: Resiliencia: retry com backoff + circuit breaker (cockatiel) em todos os conectores
 - [x] **ERP-14**: Rate limiting por provedor para chamadas ERP
@@ -123,10 +123,10 @@
 | N8N-03 | Phase 5: ERP UI & N8N Removal | Complete |
 | N8N-04 | Phase 5: ERP UI & N8N Removal | Complete |
 | N8N-05 | Phase 5: ERP UI & N8N Removal | Complete |
-| ERP-08 | Phase 6: Undocumented ERP Connectors | Pending |
-| ERP-09 | Phase 6: Undocumented ERP Connectors | Pending |
-| ERP-10 | Phase 6: Undocumented ERP Connectors | Pending |
-| ERP-11 | Phase 6: Undocumented ERP Connectors | Pending |
+| ERP-08 | Phase 6: Undocumented ERP Connectors | Complete |
+| ERP-09 | Phase 6: Undocumented ERP Connectors | Complete |
+| ERP-10 | Phase 6: Undocumented ERP Connectors | Complete |
+| ERP-11 | Phase 6: Undocumented ERP Connectors | Complete |
 | LGPD-01 | Phase 7: LGPD Hardening | Pending |
 | LGPD-02 | Phase 7: LGPD Hardening | Pending |
 | LGPD-03 | Phase 7: LGPD Hardening | Pending |
