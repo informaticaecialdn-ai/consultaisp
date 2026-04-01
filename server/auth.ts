@@ -4,21 +4,23 @@ import createMemoryStore from "memorystore";
 
 const MemoryStore = createMemoryStore(session);
 
+const isProduction = process.env.NODE_ENV === "production";
+
 export const sessionMiddleware = session({
   store: new MemoryStore({
-    checkPeriod: 86400000, // prune expired entries every 24h
+    checkPeriod: 86400000,
   }),
   secret: process.env.SESSION_SECRET || "dev-secret-change-me",
-  resave: false,
-  saveUninitialized: false,
+  resave: true,
+  saveUninitialized: true,
+  name: "cid",
   cookie: {
-    secure: process.env.NODE_ENV === "production",
+    secure: false,
     maxAge: 30 * 24 * 60 * 60 * 1000,
     httpOnly: true,
     sameSite: "lax",
-    domain: process.env.COOKIE_DOMAIN || undefined,
   },
-  proxy: process.env.NODE_ENV === "production",
+  proxy: isProduction,
 });
 
 declare module "express-session" {
