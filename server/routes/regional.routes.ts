@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { requireAuth } from "../auth";
-import { getRegionalProviders, getProvidersByMesoregion } from "../services/regional.service";
+import { getRegionalProviders } from "../services/regional.service";
 import { storage } from "../storage";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 
-// Load cities data at module initialization (build-time artifact)
-const citiesPath = resolve(__dirname, "../../shared/data/cidades-brasil.json");
+// Load cities data — resolve from project root (works in both dev and production bundle)
+const citiesPath = resolve(process.cwd(), "shared/data/cidades-brasil.json");
 const citiesData: Array<{
   nome: string;
   uf: string;
