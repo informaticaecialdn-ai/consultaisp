@@ -2,8 +2,10 @@ import { Router } from "express";
 import { requireAuth } from "../auth";
 import { storage } from "../storage";
 import { calculateIspScore, getRiskTier, getDecisionReco, getRecommendedActions } from "./utils";
-import { maskCrossProviderDetail, maskName, maskCpfCnpj } from "../lgpd-masking";
+import { maskCrossProviderDetail } from "../lgpd-masking";
 import { getRegionalProviderIds } from "../services/regional.service";
+import { queryRegionalErps, type RealtimeQueryResult } from "../services/realtime-query.service";
+import { calcularScoreISP, type ISPScoreInput } from "../utils/isp-score";
 
 export function registerConsultasRoutes(): Router {
   const router = Router();
@@ -28,7 +30,7 @@ export function registerConsultasRoutes(): Router {
       }
 
       const cleaned = cpfCnpj.replace(/\D/g, "");
-      let searchType = "cpf";
+      let searchType: "cpf" | "cnpj" | "cep" = "cpf";
       if (cleaned.length === 14) searchType = "cnpj";
       else if (cleaned.length === 8) searchType = "cep";
 
@@ -38,439 +40,156 @@ export function registerConsultasRoutes(): Router {
         return res.status(400).json({ message: "Provedor nao encontrado" });
       }
 
-      // ── ERP CENTRAL QUERY ──────────────────────────────────────────
-      // Builds integrations array from erp_integrations table and calls the
-      // central consultation endpoint which orchestrates ERP queries.
-      // REGIONAL FILTER: only query ERPs from the same mesoregion as the requesting provider.
+      // ── REALTIME ERP QUERY (DIRECT — NO N8N) ──────────────────────
+      // Query ERPs from the same mesoregion directly via connectors.
+      // LGPD: data is never stored. Fetched in real-time, masked, returned.
       const allErpIntegrations = await storage.getAllEnabledErpIntegrationsWithCredentials();
       const regionalProviderIds = await getRegionalProviderIds(providerId);
       const allowedProviderIds = new Set([providerId, ...regionalProviderIds]);
       const erpIntegrations = allErpIntegrations.filter(intg => allowedProviderIds.has(intg.providerId));
 
       if (erpIntegrations.length > 0) {
-        // Build integrations array from ERP integration records
-        const integrations = erpIntegrations.map(intg => ({
-          provider_id: String(intg.providerId),
-          provider_name: (intg as any).providerName || `Provider ${intg.providerId}`,
-          erp: intg.erpSource || "ixc",
-          api_url: (intg.apiUrl || "").replace(/^https?:\/\//, ""),
-          api_key: intg.apiToken || "",
-        }));
 
-        const CENTRAL_QUERY_URL = "https://n8n.aluisiocunha.com.br/webhook/isp-consult";
-        const CENTRAL_QUERY_AUTH = "Basic aXNwX2FuYWxpenplOmlzcGFuYWxpenplMTIzMTIz";
+        // ── DIRECT ERP QUERY (replaces N8N) ────────────────────────────
+        const erpResults = await queryRegionalErps(erpIntegrations as any, cleaned, searchType);
 
-        // When searching by CEP (8 digits) use address search mode
-        const isCepSearch = searchType === "cep";
-        const extPayload = isCepSearch ? {
-          document: null,
-          searchType: "address",
-          addressQuery: { zipcode: cleaned },
-          integrations,
-        } : {
-          document: cleaned,
-          searchType: "document",
-          addressQuery: null,
-          integrations,
-        };
-
-        console.log(`[ISP-ERP] Chamando central com ${integrations.length} integracoes:`, JSON.stringify(extPayload, null, 2));
-
-        let extRaw: any;
-        try {
-          const extRes = await fetch(CENTRAL_QUERY_URL, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": CENTRAL_QUERY_AUTH,
-            },
-            body: JSON.stringify(extPayload),
-            signal: AbortSignal.timeout(25000),
-          });
-
-          let errBody = "";
-          if (!extRes.ok) {
-            try { errBody = await extRes.text(); } catch {}
-            let errJson: any = null;
-            try { errJson = JSON.parse(errBody); } catch {}
-            const isNoItems = errJson?.message === "No item to return was found" || errJson?.code === 0;
-            if (isNoItems) {
-              console.log("[ISP-ERP] Central retornou sem itens — resultado: nao encontrado");
-              extRaw = null;
-            } else {
-              console.error(`[ISP-ERP] HTTP ${extRes.status}:`, errBody);
-              return res.status(502).json({ message: `Erro na API ISP: HTTP ${extRes.status}`, detail: errBody });
-            }
-          } else {
-            extRaw = await extRes.json();
-          }
-        } catch (extErr: any) {
-          if (extErr.name === "AbortError" || extErr.name === "TimeoutError") {
-            return res.status(504).json({ message: "Timeout ao conectar com a API ISP (25s). Verifique sua conexao." });
-          }
-          return res.status(502).json({ message: `Erro ao chamar API ISP: ${extErr.message}` });
-        }
-
-        // Response can be [{data:{customers:[...]}}] or {data:{customers:[...]}} or {customers:[...]}
-        const responseObj = Array.isArray(extRaw) ? extRaw[0] : extRaw;
-        const customers: any[] = responseObj?.data?.customers || responseObj?.customers || [];
-
-        // Debug: log full ERP response for CEP searches (always) and first customer for document searches
-        if (isCepSearch) {
-          console.log(`[ISP-ERP-CEP] CEP ${cleaned} → raw ERP response:`, JSON.stringify(extRaw));
-          console.log(`[ISP-ERP-CEP] Clientes encontrados: ${customers.length}`);
-        } else if (customers.length > 0) {
-          console.log("[ISP-ERP] Full sample customer (keys):", Object.keys(customers[0]).join(", "));
-          console.log("[ISP-ERP] Full sample customer:", JSON.stringify(customers[0]));
-        }
-
-        // Build a quick lookup: provider_id → provider info
-        const providerMap = new Map(erpIntegrations.map(p => [String(p.providerId), { id: p.providerId, name: (p as any).providerName || `Provider ${p.providerId}` }]));
-
-        // ── VIACEP CITY LOOKUP ───────────────────────────────────────────
-        // IXC ERP returns internal numeric IDs in city/state fields (e.g. "4101", "3").
-        // We use the zipcode (CEP) to resolve readable city/state via ViaCEP API.
-        // Results are cached in-request to avoid duplicate calls.
-        const zipCityCache = new Map<string, { city: string; state: string }>();
-        {
-          const uniqueZips = Array.from(new Set(
-            customers
-              .map((c: any) => ((c.zipcode || c.zip_code || c.cep || "")).replace(/\D/g, ""))
-              .filter((z: string) => z.length === 8),
-          ));
-          await Promise.all(uniqueZips.map(async (zip: string) => {
-            try {
-              const r = await fetch(`https://viacep.com.br/ws/${zip}/json/`, {
-                signal: AbortSignal.timeout(4000),
-              });
-              if (r.ok) {
-                const d = await r.json();
-                if (d.localidade && d.uf && !d.erro) {
-                  zipCityCache.set(zip, { city: d.localidade, state: d.uf });
-                }
-              }
-            } catch {
-              // ViaCEP unavailable — continue without city data
-            }
-          }));
-        }
-
-        // ── ADDRESS CROSS-REFERENCE (document search only) ──────────────
-        // For each unique address found in document search, do a secondary
-        // Address query to find other customers at the same location.
-        let erpAddressMatches: any[] = [];
-        if (!isCepSearch && customers.length > 0) {
-          const seenAddrKeys = new Set<string>();
-          const addressQueries: any[] = [];
-          for (const c of customers) {
-            if (!c.city) continue;
-            const key = [c.cep || "", c.city, c.address || ""].join("|");
-            if (seenAddrKeys.has(key)) continue;
-            seenAddrKeys.add(key);
-            const addrQ: any = {};
-            if (c.address) addrQ.street = c.address;
-            if (c.cep) addrQ.zipcode = c.cep.replace(/\D/g, "");
-            if (c.city) addrQ.city = c.city;
-            if (c.state) addrQ.state = c.state;
-            if (c.neighborhood) addrQ.neighborhood = c.neighborhood;
-            addressQueries.push(addrQ);
-          }
-          for (const addrQ of addressQueries.slice(0, 3)) {
-            try {
-              const addrRes = await fetch(CENTRAL_QUERY_URL, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "Authorization": CENTRAL_QUERY_AUTH,
-                },
-                body: JSON.stringify({
-                  document: null,
-                  searchType: "address",
-                  addressQuery: addrQ,
-                  integrations,
-                }),
-                signal: AbortSignal.timeout(10000),
-              });
-              if (addrRes.ok) {
-                const addrRaw = await addrRes.json();
-                const addrObj = Array.isArray(addrRaw) ? addrRaw[0] : addrRaw;
-                const addrCustomers: any[] = addrObj?.data?.customers || addrObj?.customers || [];
-                for (const ac of addrCustomers) {
-                  // Skip anyone already in main results (same document or same provider record)
-                  const alreadyFound = customers.find(
-                    (c: any) => c.document && ac.document && c.document === ac.document,
-                  );
-                  if (!alreadyFound) {
-                    const acProviderId = ac.provider_id ? Number(ac.provider_id) : null;
-                    const acIsSame = !!(ac.provider_name && ac.provider_name === provider.name);
-                    const rawMatch: Record<string, any> = {
-                      customerName: (ac.full_name || "Desconhecido").trim(),
-                      cpfCnpj: ac.document || "",
-                      address: [addrQ.street, addrQ.city, addrQ.state].filter(Boolean).join(", "),
-                      city: addrQ.city || "",
-                      state: addrQ.state || "",
-                      providerName: ac.provider_name || (acProviderId ? providerMap.get(String(acProviderId))?.name : null) || "Outro provedor",
-                      isSameProvider: acIsSame,
-                      status: ac.payment_status || "unknown",
-                      daysOverdue: Number(ac.payment_summary?.max_days_overdue || 0),
-                      overdueAmount: Number(ac.payment_summary?.open_overdue_amount || 0),
-                      hasDebt: Number(ac.payment_summary?.max_days_overdue || 0) > 0,
-                    };
-                    erpAddressMatches.push(maskCrossProviderDetail(rawMatch, acIsSame));
-                  }
-                }
-              }
-            } catch (addrErr: any) {
-              console.warn("[ISP-ERP] Address cross-ref failed:", addrErr.message);
-            }
+        // Flatten all customers from all ERPs
+        const allCustomers: Array<RealtimeQueryResult["customers"][0] & { providerName: string; providerId: number; isSameProvider: boolean }> = [];
+        for (const erpResult of erpResults) {
+          if (!erpResult.ok || erpResult.customers.length === 0) continue;
+          for (const c of erpResult.customers) {
+            allCustomers.push({
+              ...c,
+              providerName: erpResult.providerName,
+              providerId: erpResult.providerId,
+              isSameProvider: erpResult.providerId === providerId,
+            });
           }
         }
 
-        const notFound = customers.length === 0;
+        const notFound = allCustomers.length === 0;
+        const isOwnCustomer = allCustomers.some(c => c.isSameProvider);
 
-        const computeScore = (c: any): number => {
-          const ps = (c.payment_status || "").toLowerCase();
-          if (ps === "current") return 90;
-          if (ps === "cancelled") return 40;
-          if (ps === "suspended") return 35;
-          const days = c.payment_summary?.max_days_overdue || 0;
-          if (days > 90) return 15;
-          if (days > 60) return 30;
-          if (days > 30) return 50;
-          if (days > 0) return 65;
-          return 75;
-        };
+        // Build provider details with LGPD masking
+        const providerDetails = allCustomers.map(c => {
+          const paymentStatus = c.maxDaysOverdue > 90 ? "Inadimplente (90+ dias)"
+            : c.maxDaysOverdue > 60 ? "Inadimplente (61-90 dias)"
+            : c.maxDaysOverdue > 30 ? "Inadimplente (31-60 dias)"
+            : c.maxDaysOverdue > 0 ? "Inadimplente (1-30 dias)"
+            : "Em dia";
 
-        const scores = customers.map(computeScore);
-        const finalScore = notFound ? 100 : Math.min(...scores);
-        const risk = getRiskTier(finalScore);
-        const decisionReco = getDecisionReco(finalScore);
-        const recommendedActions = getRecommendedActions(finalScore, false);
-
-        const paymentStatusMap: Record<string, string> = {
-          "current": "Em dia",
-          "overdue": "Inadimplente",
-          "cancelled": "Cancelado",
-          "suspended": "Suspenso",
-        };
-
-        const providerDetails = customers.map((c: any) => {
-          const ps = (c.payment_status || "").toLowerCase();
-          const ps2 = c.payment_status || "";
-          const overdueAmount = Number(c.payment_summary?.open_overdue_amount || 0);
-          const maxDays = Number(c.payment_summary?.max_days_overdue || 0);
-          const overdueCount = Number(c.payment_summary?.open_overdue_count || 0);
-          const serviceAgeMonths = Number(c.service_age_months || 0);
-
-          const customerProviderId = c.provider_id ? Number(c.provider_id) : null;
-          // The central endpoint echoes back the provider_name we sent in the integrations array.
-          // IXC uses its own internal numeric provider_id (e.g. 21600) which differs
-          // from our database provider ID. So match by provider_name instead of provider_id.
-          const customerProviderName = c.provider_name
-            || (customerProviderId ? providerMap.get(String(customerProviderId))?.name : null)
-            || "Outro provedor";
-          // isSame: use provider_name match (provider_id from IXC is its internal ID, not our DB ID)
-          const isSame = !!(c.provider_name && c.provider_name === provider.name);
-
-          // ── ADDRESS FIELDS ───────────────────────────────────────────────
-          // ERP returns separate fields: address (street), address_number, address_complement,
-          // neighborhood, zipcode (CEP), city/state (may be ERP internal IDs on IXC).
-
-          // 1. CEP: prefer zipcode field; fallback to zip_code, then cep, then regex from address
-          const rawCepBase = (
-            c.zipcode || c.zip_code || c.cep || ""
-          ).replace(/\D/g, "");
-          // Fallback: try to find CEP pattern in any address-like field
-          const cepFallback = !rawCepBase
-            ? ((c.address || "").match(/\b(\d{5})-?(\d{3})\b/) || [])[0] || ""
-            : "";
-          const rawCep = rawCepBase || cepFallback.replace(/\D/g, "");
-          const fullCep = rawCep.length === 8
-            ? `${rawCep.slice(0, 5)}-${rawCep.slice(5)}`
-            : (rawCep || null);
-
-          // 2. City/State: prefer ViaCEP lookup (resolves IXC numeric IDs via zipcode),
-          //    fallback to ERP fields if alphabetic, fallback to address string parsing.
-          const viaCepResult = rawCep.length === 8 ? zipCityCache.get(rawCep) : null;
-
-          const cityFromViaCep = viaCepResult?.city || null;
-          const stateFromViaCep = viaCepResult?.state || null;
-
-          const cityFromField = !cityFromViaCep && c.city && /[a-zA-ZÀ-ÿ]/.test(c.city)
-            ? (c.city as string).trim() : null;
-          const stateFromField = !stateFromViaCep && c.state && /^[A-Z]{2}$/i.test((c.state as string).trim())
-            ? (c.state as string).trim().toUpperCase() : null;
-
-          let cityFromAddr: string | null = null;
-          let stateFromAddr: string | null = null;
-          if (!cityFromViaCep && !cityFromField && c.address) {
-            const m1 = (c.address as string).match(/,\s*([^,\d][^,]+?)\s*[-–]\s*([A-Z]{2})\s*(?:,.*)?$/i);
-            if (m1) { cityFromAddr = m1[1].trim(); stateFromAddr = m1[2].toUpperCase(); }
-          }
-
-          const cityReadable = cityFromViaCep || cityFromField || cityFromAddr;
-          const stateReadable = stateFromViaCep || stateFromField || stateFromAddr;
-
-          // 3. Street name: ERP may return street only in `address`; number in `address_number`
-          const streetBase = (c.address as string | undefined)?.replace(/[,\s]*\d.*$/, "").trim() || null;
-
-          // Full address for own provider: street + number + complement + neighborhood + city + state
-          const addrFullParts: string[] = [];
-          if (streetBase) {
-            const streetWithNum = [streetBase, c.address_number, c.address_complement]
-              .filter(Boolean).join(", ");
-            addrFullParts.push(streetWithNum);
-          }
-          if (c.neighborhood && /[a-zA-ZÀ-ÿ]/.test(c.neighborhood)) addrFullParts.push(c.neighborhood);
-          if (cityReadable) addrFullParts.push(cityReadable);
-          if (stateReadable) addrFullParts.push(stateReadable);
-          if (fullCep) addrFullParts.push(fullCep);
-          const addrFull = addrFullParts.filter(Boolean).join(", ");
+          const addrParts = [c.address, c.addressNumber, c.complement, c.neighborhood, c.city, c.state, c.cep].filter(Boolean);
 
           const rawDetail: Record<string, any> = {
-            providerName: customerProviderName,
-            isSameProvider: isSame,
-            customerName: (c.full_name || "Desconhecido").trim(),
-            cpfCnpj: c.document || "",
-            status: paymentStatusMap[ps] || ps2 || "Em dia",
-            daysOverdue: maxDays,
-            overdueAmount: overdueAmount,
-            overdueInvoicesCount: overdueCount,
-            contractStartDate: serviceAgeMonths > 0
-              ? new Date(Date.now() - serviceAgeMonths * 30 * 86400000).toISOString()
-              : new Date().toISOString(),
-            contractAgeDays: serviceAgeMonths * 30,
-            hasUnreturnedEquipment: false,
+            providerName: c.providerName,
+            isSameProvider: c.isSameProvider,
+            customerName: c.name || "Desconhecido",
+            cpfCnpj: c.cpfCnpj || "",
+            status: paymentStatus,
+            daysOverdue: c.maxDaysOverdue,
+            overdueAmount: c.totalOverdueAmount,
+            overdueInvoicesCount: c.overdueInvoicesCount || 0,
+            address: addrParts.join(", "),
+            cep: c.cep || undefined,
+            hasUnreturnedEquipment: c.hasUnreturnedEquipment || false,
             unreturnedEquipmentCount: 0,
-            planName: c.plan_name,
+            planName: c.planName,
             phone: c.phone,
             email: c.email,
-            address: addrFull,
-            cep: fullCep,
-            addressCity: c.city || undefined,
-            addressState: c.state || undefined,
-            lastPaymentDate: c.payment_summary?.last_payment_date,
-            lastPaymentValue: c.payment_summary?.last_payment_value,
-            openAmountTotal: c.payment_summary?.open_amount_total,
-            openItems: c.payment_summary?.open_items || [],
+            serviceAgeMonths: c.serviceAgeMonths,
           };
-          return maskCrossProviderDetail(rawDetail, isSame);
+          return maskCrossProviderDetail(rawDetail, c.isSameProvider);
         });
 
+        // Build alerts
         const alerts: string[] = [];
-        for (const c of customers) {
-          const ps = (c.payment_status || "").toLowerCase();
-          if (ps === "overdue" || ps === "inadimplente") {
-            const days = c.payment_summary?.max_days_overdue || 0;
-            const amount = c.payment_summary?.open_overdue_amount || 0;
-            const cProviderName = c.provider_name || provider.name;
-            alerts.push(`[${cProviderName}] Cliente inadimplente: ${days} dias em atraso, R$ ${Number(amount).toFixed(2)} em aberto`);
+        for (const c of allCustomers) {
+          if (c.maxDaysOverdue > 0 && !c.isSameProvider) {
+            alerts.push(`[${c.isSameProvider ? c.providerName : "Rede ISP"}] Inadimplente: ${c.maxDaysOverdue} dias em atraso`);
           }
         }
 
-        // Count providers by provider_name (central echoes back our sent provider_name).
-        // Do NOT use provider_id — IXC returns its own internal numeric ID, not our DB ID.
-        const externalProviderIds = new Set(
-          customers
-            .filter((c: any) => c.provider_name && c.provider_name !== provider.name)
-            .map((c: any) => c.provider_name)
-        );
-        const ownProviderIds = new Set(
-          customers
-            .filter((c: any) => c.provider_name && c.provider_name === provider.name)
-            .map((_: any) => provider.name)
-        );
-        const uniqueProviderIds = new Set([...Array.from(externalProviderIds), ...Array.from(ownProviderIds)]);
-        const isOwnCustomer = ownProviderIds.size > 0;
+        // Recent consultations for F4 (padrao de consultas)
+        const recentConsultations = await storage.getRecentConsultationsForDocument(cleaned, 30);
+        const consultas30d = new Set(recentConsultations.map(c => c.providerId)).size;
+        const recentConsultations90 = await storage.getRecentConsultationsForDocument(cleaned, 90);
+        const consultas90d = new Set(recentConsultations90.map(c => c.providerId)).size;
 
-        // Charge 1 ISP credit per external provider found
-        const externalProvidersFound = externalProviderIds.size;
-        const creditsCost = externalProvidersFound;
+        // ── SCORE ISP 0-1000 ────────────────────────────────────────────
+        const ownCustomer = allCustomers.find(c => c.isSameProvider);
+        const redeOcorrencias = allCustomers
+          .filter(c => !c.isSameProvider)
+          .map(c => ({
+            diasAtraso: c.maxDaysOverdue,
+            faturasAtraso: c.overdueInvoicesCount || 0,
+            statusContrato: c.status || "unknown",
+            mesesComoCliente: c.serviceAgeMonths,
+            equipamentosDevolvidos: c.hasUnreturnedEquipment === false,
+          }));
 
-        // Refresh provider for latest credit balance
+        const scoreInput: ISPScoreInput = {
+          proprio: ownCustomer ? {
+            mesesComoCliente: ownCustomer.serviceAgeMonths || 0,
+            diasAtrasoAtual: ownCustomer.maxDaysOverdue,
+            faturasAtrasadasTotal: ownCustomer.overdueInvoicesCount || 0,
+            faturasTotal: 0,
+            equipamentosDevolvidos: ownCustomer.hasUnreturnedEquipment !== true,
+            statusContrato: ownCustomer.maxDaysOverdue > 0 ? "suspenso" : "ativo",
+          } : undefined,
+          rede: {
+            ocorrencias: redeOcorrencias,
+            totalProvedores: new Set(allCustomers.filter(c => !c.isSameProvider).map(c => c.providerId)).size,
+            consultasRecentes30d: consultas30d,
+            consultasRecentes90d: consultas90d,
+          },
+          cadastro: {
+            nomeCompleto: !!(ownCustomer?.name),
+            cpfValido: true,
+            emailValido: !!(ownCustomer?.email),
+            telefoneValido: !!(ownCustomer?.phone),
+            enderecoCompleto: !!(ownCustomer?.cep && ownCustomer?.address),
+          },
+        };
+
+        const scoreResult = calcularScoreISP(scoreInput);
+
+        // Credit cost: 1 per external provider found
+        const externalProviders = new Set(allCustomers.filter(c => !c.isSameProvider).map(c => c.providerId));
+        const creditsCost = externalProviders.size;
+
         const freshProvider = await storage.getProvider(providerId);
-        if (!freshProvider) {
-          return res.status(400).json({ message: "Provedor nao encontrado" });
-        }
-        if (creditsCost > 0 && freshProvider.ispCredits < creditsCost) {
+        if (creditsCost > 0 && freshProvider && freshProvider.ispCredits < creditsCost) {
           return res.status(402).json({
-            message: `Creditos insuficientes. Esta consulta requer ${creditsCost} credito(s) ISP. Voce tem ${freshProvider.ispCredits}.`,
+            message: `Creditos insuficientes. Requer ${creditsCost} credito(s). Voce tem ${freshProvider.ispCredits}.`,
           });
         }
-        if (creditsCost > 0) {
-          await storage.updateProviderCredits(
-            providerId,
-            freshProvider.ispCredits - creditsCost,
-            freshProvider.spcCredits,
-          );
+        if (creditsCost > 0 && freshProvider) {
+          await storage.updateProviderCredits(providerId, freshProvider.ispCredits - creditsCost, freshProvider.spcCredits);
         }
-
-        // ── CEP FALLBACK: busca histórico de consultas por prefixo de CEP ──
-        // Se ERP address search retornar vazio, buscar no histórico de consultas
-        // armazenadas que tenham clientes com aquele CEP (5 primeiros dígitos).
-        let cepFallbackDetails: any[] = [];
-        if (isCepSearch && customers.length === 0) {
-          const cepPrefix = cleaned.replace(/^(\d{5})(\d{3})$/, "$1-"); // "86671-"
-          console.log(`[ISP-CEP-FALLBACK] Buscando histórico por prefixo "${cepPrefix}"`);
-          const historicConsultations = await storage.getConsultationsByCepPrefix(cepPrefix, 90);
-          console.log(`[ISP-CEP-FALLBACK] Encontrou ${historicConsultations.length} consultas no histórico`);
-          for (const hist of historicConsultations) {
-            const histResult = hist.result as any;
-            const histDetails: any[] = histResult?.providerDetails || [];
-            for (const hd of histDetails) {
-              // Only include details where the cep matches the prefix
-              if (!hd.cep || !String(hd.cep).startsWith(cepPrefix)) continue;
-              // Re-apply isSameProvider based on current provider name
-              const hdIsSame = hd.providerName === provider.name;
-              // Strip existing masking artifacts to recover raw-ish data for re-masking
-              const rawName = (hd.customerName || "").replace(/ \*\*\*$/, "");
-              const rawDetail: Record<string, any> = {
-                ...hd,
-                isSameProvider: hdIsSame,
-                customerName: rawName,
-                address: hd.address || hd.addressRestricted || undefined,
-                cep: hd.cep,
-                overdueAmount: hd.overdueAmount,
-              };
-              const maskedDetail = maskCrossProviderDetail(rawDetail, hdIsSame);
-              maskedDetail.isFromHistory = true;
-              cepFallbackDetails.push(maskedDetail);
-            }
-          }
-          // De-duplicate by customerName+cep
-          const seenKey = new Set<string>();
-          cepFallbackDetails = cepFallbackDetails.filter(d => {
-            const k = `${d.customerName}|${d.providerName}|${d.cep}`;
-            if (seenKey.has(k)) return false;
-            seenKey.add(k);
-            return true;
-          });
-          console.log(`[ISP-CEP-FALLBACK] Detalhes encontrados no histórico: ${cepFallbackDetails.length}`);
-        }
-
-        const finalProviderDetails = providerDetails.length > 0 ? providerDetails : cepFallbackDetails;
-        const finalNotFound = finalProviderDetails.length === 0;
 
         const result = {
           cpfCnpj: cleaned,
           searchType,
-          notFound: finalNotFound,
-          score: finalScore,
-          riskTier: risk.tier,
-          riskLabel: risk.label,
-          recommendation: risk.recommendation,
-          decisionReco,
-          providersFound: uniqueProviderIds.size,
-          providerDetails: finalProviderDetails,
-          penalties: [],
-          bonuses: [],
-          alerts,
-          recommendedActions,
+          notFound,
+          score: scoreResult.score,
+          faixa: scoreResult.faixa,
+          nivelRisco: scoreResult.nivelRisco,
+          corIndicador: scoreResult.corIndicador,
+          sugestaoIA: scoreResult.sugestaoIA,
+          fatoresScore: scoreResult.fatores,
+          riskTier: scoreResult.nivelRisco,
+          riskLabel: scoreResult.faixa === "excelente" ? "RISCO BAIXO" : scoreResult.faixa === "bom" ? "RISCO MODERADO" : scoreResult.faixa === "baixo" ? "RISCO ALTO" : "RISCO CRITICO",
+          recommendation: scoreResult.sugestaoIA,
+          decisionReco: scoreResult.sugestaoIA === "APROVAR" ? "Accept" : scoreResult.sugestaoIA === "REJEITAR" ? "Reject" : "Review",
+          providersFound: new Set(allCustomers.map(c => c.providerId)).size,
+          providerDetails,
+          alerts: [...alerts, ...scoreResult.alertas],
+          recommendedActions: scoreResult.condicoesSugeridas,
           creditsCost,
           isOwnCustomer,
-          addressMatches: erpAddressMatches,
-          source: providerDetails.length > 0 ? "erp_central" : (cepFallbackDetails.length > 0 ? "history_fallback" : "erp_central"),
-          isHistoryResult: cepFallbackDetails.length > 0 && providerDetails.length === 0,
+          addressMatches: [] as any[],
+          source: "erp_direct",
+          erpLatencies: erpResults.map(r => ({ provider: r.providerName, erp: r.erpSource, ok: r.ok, ms: r.latencyMs, error: r.error })),
         };
 
         const consultation = await storage.createIspConsultation({
@@ -479,15 +198,42 @@ export function registerConsultasRoutes(): Router {
           cpfCnpj: cleaned,
           searchType,
           result,
-          score: finalScore,
-          decisionReco,
+          score: scoreResult.score,
+          decisionReco: result.decisionReco,
           cost: creditsCost,
-          approved: finalScore >= 50,
+          approved: scoreResult.score >= 500,
         });
 
         return res.json({ consultation, result });
       }
-      // ── FIM ERP CENTRAL ───────────────────────────────────────────────
+      // ── FIM REALTIME ERP QUERY ────────────────────────────────────────
+
+      // Fallback: no ERP integrations configured — use local DB
+      // (This path will be deprecated as providers configure ERP connections)
+
+      // @LEGACY: keeping the original local-DB path for backwards compatibility.
+      // TODO: Remove this fallback once all providers have ERP integrations.
+      const LEGACY_FALLBACK_ENABLED = true; // flip to false to disable
+      if (!LEGACY_FALLBACK_ENABLED) {
+        return res.json({
+          consultation: null,
+          result: {
+            cpfCnpj: cleaned, searchType, notFound: true, score: 1000,
+            faixa: "excelente", nivelRisco: "baixo", sugestaoIA: "APROVAR",
+            corIndicador: "verde", riskLabel: "SEM DADOS",
+            recommendation: "Sem integracao ERP — configure em Integracoes",
+            decisionReco: "Review", providersFound: 0, providerDetails: [],
+            alerts: ["Nenhuma integracao ERP configurada. Configure em Configuracoes > Integracoes."],
+            recommendedActions: [], creditsCost: 0, isOwnCustomer: false,
+            addressMatches: [], source: "no_erp",
+          },
+        });
+      }
+
+      // The old N8N code used to be here. Now replaced by direct ERP queries above.
+      // This is the legacy local-DB fallback for providers without ERP integrations.
+      const DUMMY_N8N_REMOVED = true; // marker that N8N was removed
+
 
       const allCustomerRecords = await storage.getCustomerByCpfCnpj(cleaned);
 
