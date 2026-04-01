@@ -1,132 +1,65 @@
-# Requirements — Consulta ISP (Milestone: Refactoring + ERP Direto)
+# Requirements — Consulta ISP (Milestone v2.0: Consulta Tempo Real Regional)
 
-## v1 Requirements
+## v2.0 Requirements
 
-### Security & Cleanup
-- [x] **SEC-01**: Remover credenciais N8N hardcoded do codigo-fonte (heatmap-cache.ts)
-- [x] **SEC-02**: Limpar todas as 62 referencias a Replit (replit_integrations, plugins, dependencias dev)
-- [x] **SEC-03**: Remover pacotes Replit do package.json (@replit/vite-plugin-cartographer, dev-banner, runtime-error-modal)
+### Regionalizacao
+- [ ] **REG-01**: Adicionar campo `cidadesAtendidas` (text array ou jsonb) na tabela providers para definir area de cobertura
+- [ ] **REG-02**: UI no admin para configurar cidades/regiao atendida por provedor (autocomplete com cidades do Brasil)
+- [ ] **REG-03**: Ao consultar CPF, identificar automaticamente todos provedores que atendem a mesma regiao do provedor consultante
 
-### Backend Modularization
-- [ ] **MOD-01**: Extrair funcoes puras em modulos isolados: score engine (calculateIspScore), mascaramento LGPD, geocodificacao
-- [x] **MOD-02**: Modularizar routes.ts (~4350 linhas) em ~14 modulos por dominio (auth, consultas, erp, admin, financeiro, antifraude, heatmap, suporte, webhooks, provider, equipamentos, creditos, importacao, public)
-- [x] **MOD-03**: Modularizar storage.ts (~1800 linhas) em modulos por dominio com facade mantendo interface IStorage e singleton storage
-- [x] **MOD-04**: Garantir que toda modularizacao preserva isolamento multi-tenant (84 refs a providerId em routes.ts)
+### Consulta Tempo Real
+- [ ] **RT-01**: Redesenhar endpoint POST /api/isp-consultations para buscar em tempo real nos ERPs regionais (paralelo)
+- [ ] **RT-02**: Para cada provedor da regiao com ERP configurado, chamar connector.fetchDelinquents() ou fetchCustomerByCpf() em paralelo
+- [ ] **RT-03**: Agregar resultados de todos os ERPs regionais em um unico score ISP (0-100)
+- [ ] **RT-04**: Implementar timeout por ERP (max 10s) — se um ERP nao responde, continuar com os demais
+- [ ] **RT-05**: Retornar resultado com mascaramento LGPD (nome parcial, faixa de valor, endereco sem numero)
 
-### ERP Connector Engine
-- [x] **ERP-01**: Criar server/erp-connector.ts com interface abstrata ErpConnector (testConnection, fetchDelinquents, fetchCustomers)
-- [x] **ERP-02**: Implementar conector IXC Soft (Basic Auth, POST com header ixcsoft, paginacao, fn_areceber + cliente)
-- [x] **ERP-03**: Implementar conector MK Solutions (Bearer JWT, GET, financeiro/inadimplentes + clientes)
-- [x] **ERP-04**: Implementar conector SGP (Token/App ou Basic Auth, GET/POST, clientes + financeiro)
-- [x] **ERP-05**: Implementar conector Hubsoft (OAuth2 com client_id/secret → Bearer, token refresh)
-- [x] **ERP-06**: Implementar conector Voalle (usuario tipo Integracao, modulo financeiro)
-- [x] **ERP-07**: Implementar conector RBX ISP (ChaveIntegracao no body POST, filtros SQL-like)
-- [x] **ERP-08**: Implementar conector TopSApp (pesquisar API — documentacao nao publica)
-- [x] **ERP-09**: Implementar conector RadiusNet (pesquisar API — documentacao nao publica)
-- [x] **ERP-10**: Implementar conector Gere (pesquisar API — documentacao nao publica)
-- [x] **ERP-11**: Implementar conector Receita Net (pesquisar API — documentacao nao publica)
-- [x] **ERP-12**: Registry de conectores: Record<string, ErpConnector> para lookup dinamico por erpSource
-- [x] **ERP-13**: Resiliencia: retry com backoff + circuit breaker (cockatiel) em todos os conectores
-- [x] **ERP-14**: Rate limiting por provedor para chamadas ERP
+### Cache
+- [ ] **CACHE-01**: Cache de resultado por CPF com TTL curto (5-10 minutos)
+- [ ] **CACHE-02**: Se CPF ja foi consultado recentemente, retornar cache sem ir aos ERPs
+- [ ] **CACHE-03**: Cache em memoria (nao persistente) — dados transitam, nao ficam no banco
 
-### N8N Removal
-- [x] **N8N-01**: Atualizar scheduler.ts para usar conectores diretos em vez de fetchErpCustomersForScheduler via N8N
-- [x] **N8N-02**: Atualizar heatmap-cache.ts para usar conectores diretos — remover proxy N8N (https://n8n.aluisiocunha.com.br)
-- [x] **N8N-03**: Atualizar rotas de test/sync em routes.ts para usar conectores
-- [x] **N8N-04**: Remover campos n8n do schema de providers (n8nWebhookUrl, n8nAuthToken, n8nEnabled, n8nErpProvider) — ou deprecar
-- [x] **N8N-05**: Expandir mapa de calor para todos os ERPs (nao apenas IXC)
+### Remocao de Sync Centralizado
+- [ ] **NOSYNC-01**: Remover scheduler de sync automatico (server/scheduler.ts) — nao e mais necessario
+- [ ] **NOSYNC-02**: Remover logica de upsert de clientes de outros provedores na tabela customers
+- [ ] **NOSYNC-03**: Tabela customers passa a conter apenas clientes do PROPRIO provedor (importados via CSV ou cadastro manual)
 
-### ERP Frontend
-<<<<<<< HEAD
-- [ ] **ERPUI-01**: Adaptar tela de configuracao ERP para mostrar campos especificos por tipo de ERP (Basic Auth vs OAuth vs Token)
-- [ ] **ERPUI-02**: UI de teste de conexao com feedback visual por ERP
-- [ ] **ERPUI-03**: UI de sync manual com progresso e logs
-=======
-- [x] **ERPUI-01**: Adaptar tela de configuracao ERP para mostrar campos especificos por tipo de ERP (Basic Auth vs OAuth vs Token)
-- [x] **ERPUI-02**: UI de teste de conexao com feedback visual por ERP
-- [x] **ERPUI-03**: UI de sync manual com progresso e logs
->>>>>>> worktree-agent-a5b7f0b5
-- [ ] **ERPUI-04**: Atualizar catalogo de ERPs com todos os novos conectores
+### Busca por Endereco
+- [ ] **ADDR-01**: Busca por CEP/logradouro em tempo real nos ERPs regionais
+- [ ] **ADDR-02**: Identificar todos os clientes no mesmo endereco (de diferentes provedores)
+- [ ] **ADDR-03**: Gerar "risco por endereco" baseado no historico de inadimplencia no local
 
-### LGPD Mascaramento
-- [x] **LGPD-01**: Revisar e sistematizar mascaramento de dados entre provedores (nome parcial, faixa de valor, endereco sem numero)
-- [x] **LGPD-02**: Criar middleware/funcao centralizada de mascaramento que se aplica a todas as respostas entre tenants
-- [x] **LGPD-03**: Garantir que consultas ISP nunca exponham dados completos de clientes de outros provedores
+### Deteccao de Migradores
+- [ ] **MIG-01**: Ao consultar CPF, verificar se existe contrato cancelado recente (< 90 dias) em algum provedor da regiao
+- [ ] **MIG-02**: Cruzar com numero de consultas do mesmo CPF por provedores diferentes (rede colaborativa)
+- [ ] **MIG-03**: Gerar alerta de migrador serial quando CPF tem divida ativa + contrato cancelado + consulta por outro provedor
 
-### Docker & Deploy
-- [x] **DOCK-01**: Criar Dockerfile multi-stage (node:20-slim, build + runtime)
-- [x] **DOCK-02**: Criar docker-compose.yml com app + PostgreSQL + volumes persistentes
-- [x] **DOCK-03**: Configurar health checks e graceful shutdown
-- [x] **DOCK-04**: Validacao de variaveis de ambiente no startup
-- [ ] **DOCK-05**: Logging estruturado com pino (substituir console.log)
+### UI de Resultado
+- [ ] **UI-01**: Manter layout de resultado da consulta igual ao Replit (score gauge, historico na rede, condicoes obrigatorias)
+- [ ] **UI-02**: Exibir detalhes por provedor com mascaramento LGPD (nome parcial, faixa de valor, CEP parcial)
+- [ ] **UI-03**: Secao "Condicoes Obrigatorias" baseada no score (pagamento antecipado, sem equipamento comodato, etc.)
+- [ ] **UI-04**: Botao "Analisar com IA" para interpretacao do resultado
 
-### Data Fixes
-- [x] **FIX-01**: Unificar divergencia de precos entre schema (199/399/799) e landing page (0/149/349)
+### Admin ERP
+- [ ] **ADM-01**: Refinar pagina de Integracoes no admin — campos dinamicos por tipo de ERP, sem mencao a N8N
+- [ ] **ADM-02**: Status de conexao em tempo real (ultimo teste, latencia, erros)
 
-## v2 Requirements (Deferred)
+## Deferred (v3.0+)
 
-- Score por endereco (inspirado TeiaH) — analise de risco baseada no endereco/imovel, nao apenas CPF
-- Metricas de reducao de churn — dashboard de retencao inspirado TeiaH
-- LGPD hardening completo — audit trail, retencao de dados 5 anos, notificacao consumidor (CDC Art. 43)
-- Registro como bureau de credito (Lei 12.414/2011) — requer consultoria juridica
-- API publica documentada para integracoes customizadas
-- Dashboard analytics avancado
-- Alertas WhatsApp em <5s (real-time como ISP Score)
+- Score por endereco (modelo TeiaH) — analise de risco baseada no imovel
+- Metricas de reducao de churn
+- LGPD hardening completo (audit trail, retencao 5 anos)
+- API publica documentada
+- Consulta em lote tempo real (batch de CPFs)
 
 ## Out of Scope
 
-- App mobile nativo — web responsivo suficiente
-- Multi-idioma — publico exclusivamente brasileiro
-- Integracoes com bureaus alem do SPC — complexidade regulatoria
-- Migracao de banco de dados — PostgreSQL permanece
-- Rewrite de frontend — apenas ajustes de UI para ERP config
+- Armazenamento centralizado de dados de clientes de outros provedores
+- Sync agendado/periodico de dados entre provedores
+- App mobile nativo
+- Multi-idioma
 
 ## Traceability
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
-| SEC-01 | Phase 1: Security & Cleanup | Complete |
-| SEC-02 | Phase 1: Security & Cleanup | Complete |
-| SEC-03 | Phase 1: Security & Cleanup | Complete |
-| FIX-01 | Phase 1: Security & Cleanup | Complete |
-| MOD-01 | Phase 2: Foundation & Docker | Pending |
-| DOCK-01 | Phase 2: Foundation & Docker | Complete |
-| DOCK-02 | Phase 2: Foundation & Docker | Complete |
-| DOCK-03 | Phase 2: Foundation & Docker | Complete |
-| DOCK-04 | Phase 2: Foundation & Docker | Complete |
-| DOCK-05 | Phase 2: Foundation & Docker | Pending |
-| MOD-02 | Phase 3: Backend Modularization | Complete |
-| MOD-03 | Phase 3: Backend Modularization | Complete |
-| MOD-04 | Phase 3: Backend Modularization | Complete |
-| ERP-01 | Phase 4: ERP Connector Engine | Complete |
-| ERP-02 | Phase 4: ERP Connector Engine | Complete |
-| ERP-03 | Phase 4: ERP Connector Engine | Complete |
-| ERP-04 | Phase 4: ERP Connector Engine | Complete |
-| ERP-05 | Phase 4: ERP Connector Engine | Complete |
-| ERP-06 | Phase 4: ERP Connector Engine | Complete |
-| ERP-07 | Phase 4: ERP Connector Engine | Complete |
-| ERP-12 | Phase 4: ERP Connector Engine | Complete |
-| ERP-13 | Phase 4: ERP Connector Engine | Complete |
-| ERP-14 | Phase 4: ERP Connector Engine | Complete |
-<<<<<<< HEAD
-| ERPUI-01 | Phase 5: ERP UI & N8N Removal | Pending |
-| ERPUI-02 | Phase 5: ERP UI & N8N Removal | Pending |
-| ERPUI-03 | Phase 5: ERP UI & N8N Removal | Pending |
-=======
-| ERPUI-01 | Phase 5: ERP UI & N8N Removal | Complete |
-| ERPUI-02 | Phase 5: ERP UI & N8N Removal | Complete |
-| ERPUI-03 | Phase 5: ERP UI & N8N Removal | Complete |
->>>>>>> worktree-agent-a5b7f0b5
-| ERPUI-04 | Phase 5: ERP UI & N8N Removal | Pending |
-| N8N-01 | Phase 5: ERP UI & N8N Removal | Complete |
-| N8N-02 | Phase 5: ERP UI & N8N Removal | Complete |
-| N8N-03 | Phase 5: ERP UI & N8N Removal | Complete |
-| N8N-04 | Phase 5: ERP UI & N8N Removal | Complete |
-| N8N-05 | Phase 5: ERP UI & N8N Removal | Complete |
-| ERP-08 | Phase 6: Undocumented ERP Connectors | Complete |
-| ERP-09 | Phase 6: Undocumented ERP Connectors | Complete |
-| ERP-10 | Phase 6: Undocumented ERP Connectors | Complete |
-| ERP-11 | Phase 6: Undocumented ERP Connectors | Complete |
-| LGPD-01 | Phase 7: LGPD Hardening | Complete |
-| LGPD-02 | Phase 7: LGPD Hardening | Complete |
-| LGPD-03 | Phase 7: LGPD Hardening | Complete |

@@ -40,19 +40,17 @@ Permitir que um provedor consulte o CPF/CNPJ de um potencial cliente e receba em
 - ✓ Subdominio por provedor — existing
 - ✓ Planos: Gratuito, Basico (R$149), Profissional (R$349) — existing
 
-### Active
+### Active (Milestone v2.0 — Consulta Tempo Real Regional)
 
-- [ ] Refatorar backend: modularizar routes.ts (4350 linhas) e storage.ts (1800+ linhas) em modulos por dominio
-- [ ] Limpar dependencias e codigo Replit (replit_integrations, plugins Replit)
-- [ ] Criar motor de integracao ERP direto (server/erp-connector.ts) substituindo N8N
-- [ ] Implementar conectores ERP: IXC Soft, MK Solutions, SGP, Hubsoft, Voalle, RBX ISP
-- [ ] Implementar conectores ERP adicionais: TopSApp, RadiusNet, Gere, Receita Net
-- [ ] Remover dependencia N8N do heatmap-cache.ts e scheduler.ts
-- [ ] Expandir mapa de calor para todos os ERPs (nao so IXC)
-- [ ] Revisar e fortalecer mascaramento LGPD — garantir conformidade legal nos dados entre provedores
-- [ ] Preparar para deploy em VPS/Docker (Dockerfile, docker-compose, env config)
-- [ ] Unificar divergencia de precos (schema vs landing page)
-- [ ] Adaptar UI de configuracao ERP para campos especificos de cada ERP
+- [ ] Redesenhar consulta ISP para busca em tempo real nos ERPs regionais
+- [ ] Adicionar campo de regiao/cidades atendidas no cadastro de provedores
+- [ ] Busca paralela em multiplos ERPs por regiao ao consultar CPF
+- [ ] Remover scheduler de sync e armazenamento centralizado de clientes
+- [ ] Implementar cache curto (5-10 min) por CPF consultado
+- [ ] Busca por endereco em tempo real (CEP/logradouro) cruzando ERPs regionais
+- [ ] Deteccao de migradores seriais em tempo real (CPF consultado + contrato cancelado)
+- [ ] Manter layout de resultado igual ao Replit (score, LGPD mask, condicoes, analise IA)
+- [ ] Refinar UI admin de integracoes ERP (remover N8N completamente)
 
 ### Out of Scope
 
@@ -90,7 +88,9 @@ Permitir que um provedor consulte o CPF/CNPJ de um potencial cliente e receba em
 | Modularizar routes.ts por dominio | 4350 linhas e inmantenivel. Modulos: auth, consultas, erp, admin, financeiro, etc. | — Pending |
 | Migrar para VPS/Docker | Replit limita controle de infra, IP fixo para ERPs, e caro em escala | — Pending |
 | Manter mascaramento LGPD no estilo bureau de credito | Mostrar score + dados parciais equilibra utilidade vs privacidade. Modelo similar ao Serasa | — Pending |
-| Cobrir todos os ERPs de ISP do mercado brasileiro | Quanto mais ERPs suportados, maior a rede colaborativa e o valor do produto | — Pending |
+| Cobrir todos os ERPs de ISP do mercado brasileiro | Quanto mais ERPs suportados, maior a rede colaborativa e o valor do produto | ✓ Good |
+| Consultas em tempo real, sem armazenamento centralizado | Provedores nao confiam em base externa. Volume inviavel. Negocio e regional | — Pending |
+| Regionalizacao por cidade/area de cobertura | Clientes migram dentro da regiao, nao nacionalmente. Busca regional e o que faz sentido | — Pending |
 
 ## Evolution
 
