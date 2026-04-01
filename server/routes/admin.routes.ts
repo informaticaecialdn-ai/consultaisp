@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth, requireSuperAdmin } from "../auth";
+import { requireSuperAdmin } from "../auth";
 import { storage } from "../storage";
 import { hashPassword } from "../password";
 import { sendVerificationEmail } from "../email";
@@ -415,11 +415,8 @@ export function registerAdminRoutes(): Router {
 
   // ---- Admin document review ----
 
-  router.patch("/api/admin/providers/:id/documents/:docId/status", requireAuth, async (req, res) => {
+  router.patch("/api/admin/providers/:id/documents/:docId/status", requireSuperAdmin, async (req, res) => {
     try {
-      if (req.session.role !== "superadmin") {
-        return res.status(403).json({ message: "Apenas superadmin pode revisar documentos" });
-      }
       const docId = parseInt(req.params.docId);
       const { status, rejectionReason } = req.body;
       if (!["approved", "rejected", "pending"].includes(status)) {
@@ -437,11 +434,8 @@ export function registerAdminRoutes(): Router {
     }
   });
 
-  router.get("/api/admin/providers/:id/documents", requireAuth, async (req, res) => {
+  router.get("/api/admin/providers/:id/documents", requireSuperAdmin, async (req, res) => {
     try {
-      if (req.session.role !== "superadmin") {
-        return res.status(403).json({ message: "Acesso negado" });
-      }
       const providerId = parseInt(req.params.id);
       const docs = await storage.getProviderDocuments(providerId);
       const docsNoData = docs.map(({ fileData, ...rest }) => rest);
@@ -451,11 +445,8 @@ export function registerAdminRoutes(): Router {
     }
   });
 
-  router.get("/api/admin/providers/:id/documents/:docId/download", requireAuth, async (req, res) => {
+  router.get("/api/admin/providers/:id/documents/:docId/download", requireSuperAdmin, async (req, res) => {
     try {
-      if (req.session.role !== "superadmin") {
-        return res.status(403).json({ message: "Acesso negado" });
-      }
       const docId = parseInt(req.params.docId);
       const doc = await storage.getProviderDocument(docId);
       if (!doc) return res.status(404).json({ message: "Documento nao encontrado" });
