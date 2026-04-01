@@ -35,40 +35,113 @@ export function registerAdminRoutes(): Router {
     }
   });
 
-  // CNPJ lookup via BrasilAPI (public, no auth needed)
+  // CNPJ lookup with 3 fallback sources
   router.get("/api/admin/cnpj/:cnpj", requireSuperAdmin, async (req, res) => {
     try {
-      const cnpj = req.params.cnpj.replace(/\D/g, "");
+      const cnpj = String(req.params.cnpj).replace(/\D/g, "");
       if (cnpj.length !== 14) return res.status(400).json({ message: "CNPJ invalido" });
-      const response = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        return res.status(response.status).json({ message: err.message || "CNPJ nao encontrado" });
+
+      // Try sources in order: ReceitaWS → BrasilAPI → CNPJ.ws
+      const sources = [
+        {
+          name: "ReceitaWS",
+          url: `https://receitaws.com.br/v1/cnpj/${cnpj}`,
+          parse: (d: any) => ({
+            razaoSocial: d.nome || "",
+            nomeFantasia: d.fantasia || "",
+            cnpj: d.cnpj?.replace(/\D/g, "") || cnpj,
+            naturezaJuridica: d.natureza_juridica || "",
+            dataAbertura: d.abertura || "",
+            atividadePrincipal: d.atividade_principal?.[0]?.text || "",
+            telefone: d.telefone || "",
+            email: d.email || "",
+            cep: d.cep?.replace(/\D/g, "") || "",
+            logradouro: d.logradouro || "",
+            numero: d.numero || "",
+            complemento: d.complemento || "",
+            bairro: d.bairro || "",
+            cidade: d.municipio || "",
+            uf: d.uf || "",
+            situacao: d.situacao || "",
+            socios: (d.qsa || []).map((s: any) => ({
+              nome: s.nome || "",
+              qualificacao: s.qual || "",
+              cpf: "",
+            })),
+          }),
+        },
+        {
+          name: "BrasilAPI",
+          url: `https://brasilapi.com.br/api/cnpj/v1/${cnpj}`,
+          parse: (d: any) => ({
+            razaoSocial: d.razao_social || "",
+            nomeFantasia: d.nome_fantasia || "",
+            cnpj: d.cnpj || cnpj,
+            naturezaJuridica: d.natureza_juridica || "",
+            dataAbertura: d.data_inicio_atividade || "",
+            atividadePrincipal: d.cnae_fiscal_descricao || "",
+            telefone: d.ddd_telefone_1 ? `(${d.ddd_telefone_1.slice(0, 2)}) ${d.ddd_telefone_1.slice(2)}` : "",
+            email: d.email || "",
+            cep: d.cep || "",
+            logradouro: d.logradouro || "",
+            numero: d.numero || "",
+            complemento: d.complemento || "",
+            bairro: d.bairro || "",
+            cidade: d.municipio || "",
+            uf: d.uf || "",
+            situacao: d.descricao_situacao_cadastral || "",
+            socios: (d.qsa || []).map((s: any) => ({
+              nome: s.nome_socio || "",
+              qualificacao: s.qualificacao_socio || "",
+              cpf: s.cnpj_cpf_do_socio || "",
+            })),
+          }),
+        },
+        {
+          name: "Publica",
+          url: `https://publica.cnpj.ws/cnpj/${cnpj}`,
+          parse: (d: any) => ({
+            razaoSocial: d.razao_social || "",
+            nomeFantasia: d.estabelecimento?.nome_fantasia || "",
+            cnpj: cnpj,
+            naturezaJuridica: d.natureza_juridica?.descricao || "",
+            dataAbertura: d.estabelecimento?.data_inicio_atividade || "",
+            atividadePrincipal: d.estabelecimento?.atividade_principal?.descricao || "",
+            telefone: d.estabelecimento?.ddd1 && d.estabelecimento?.telefone1 ? `(${d.estabelecimento.ddd1}) ${d.estabelecimento.telefone1}` : "",
+            email: d.estabelecimento?.email || "",
+            cep: d.estabelecimento?.cep || "",
+            logradouro: d.estabelecimento?.logradouro || "",
+            numero: d.estabelecimento?.numero || "",
+            complemento: d.estabelecimento?.complemento || "",
+            bairro: d.estabelecimento?.bairro || "",
+            cidade: d.estabelecimento?.cidade?.nome || "",
+            uf: d.estabelecimento?.estado?.sigla || "",
+            situacao: d.estabelecimento?.situacao_cadastral || "",
+            socios: (d.socios || []).map((s: any) => ({
+              nome: s.nome || "",
+              qualificacao: s.qualificacao?.descricao || "",
+              cpf: s.cpf_cnpj_socio || "",
+            })),
+          }),
+        },
+      ];
+
+      for (const source of sources) {
+        try {
+          const response = await fetch(source.url, { signal: AbortSignal.timeout(8000) });
+          if (!response.ok) continue;
+          const data = await response.json();
+          if (data.status === "ERROR" || data.error) continue;
+          const parsed = source.parse(data);
+          if (!parsed.razaoSocial) continue;
+          console.log(`[CNPJ] ${cnpj} found via ${source.name}`);
+          return res.json(parsed);
+        } catch {
+          continue;
+        }
       }
-      const data = await response.json();
-      return res.json({
-        razaoSocial: data.razao_social || "",
-        nomeFantasia: data.nome_fantasia || "",
-        cnpj: data.cnpj || cnpj,
-        naturezaJuridica: data.natureza_juridica || "",
-        dataAbertura: data.data_inicio_atividade || "",
-        atividadePrincipal: data.cnae_fiscal_descricao || "",
-        telefone: data.ddd_telefone_1 ? `(${data.ddd_telefone_1.slice(0, 2)}) ${data.ddd_telefone_1.slice(2)}` : "",
-        email: data.email || "",
-        cep: data.cep || "",
-        logradouro: data.logradouro || "",
-        numero: data.numero || "",
-        complemento: data.complemento || "",
-        bairro: data.bairro || "",
-        cidade: data.municipio || "",
-        uf: data.uf || "",
-        situacao: data.descricao_situacao_cadastral || "",
-        socios: (data.qsa || []).map((s: any) => ({
-          nome: s.nome_socio || "",
-          qualificacao: s.qualificacao_socio || "",
-          cpf: s.cnpj_cpf_do_socio || "",
-        })),
-      });
+
+      return res.status(404).json({ message: "CNPJ nao encontrado em nenhuma fonte" });
     } catch (error: any) {
       return res.status(500).json({ message: "Erro ao consultar CNPJ: " + error.message });
     }
