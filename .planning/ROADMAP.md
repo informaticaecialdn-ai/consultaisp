@@ -96,7 +96,9 @@ Plans:
   1. O scheduler de sync automatico (server/scheduler.ts) nao executa mais sync periodico de dados entre provedores
   2. Nenhuma logica de upsert insere clientes de outros provedores na tabela customers de um provedor
   3. A tabela customers de cada provedor contem apenas clientes importados por ele (CSV ou cadastro manual)
-**Plans**: TBD
+**Plans**: 1 plan
+Plans:
+- [ ] 03-01-PLAN.md — Remove sync endpoint and syncErpCustomers storage method
 
 ### Phase 4: Busca por Endereco e Migradores
 **Goal**: Provedores podem consultar por endereco alem de CPF e recebem alertas automaticos de migradores seriais
@@ -132,6 +134,6 @@ Phases execute in numeric order: 0 -> 1 -> 2 -> 3 -> 4 (parallel with 3) -> 5
 | 0. Admin SaaS Foundation | 0/4 | Planned | - |
 | 1. Regionalizacao | 0/2 | Planned | - |
 | 2. Motor de Consulta Tempo Real | 0/3 | Planned | - |
-| 3. Remocao do Sync Centralizado | 0/0 | Not started | - |
+| 3. Remocao do Sync Centralizado | 0/1 | Planned | - |
 | 4. Busca por Endereco e Migradores | 0/0 | Not started | - |
 | 5. UI de Resultado e Admin ERP | 0/0 | Not started | - |
