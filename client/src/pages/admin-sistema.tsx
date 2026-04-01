@@ -1163,10 +1163,10 @@ export default function AdminSistemaPage() {
   const saveN8nForProvider = async (providerId: number, form: { url: string; token: string; erpProvider?: string }) => {
     setN8nPending(prev => ({ ...prev, [providerId]: { ...prev[providerId], saving: true } }));
     try {
-      await fetch(`/api/admin/providers/${providerId}/n8n-config`, {
-        method: "PATCH",
+      await fetch(`/api/admin/providers/${providerId}/erp-config`, {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ n8nWebhookUrl: form.url, n8nAuthToken: form.token, n8nErpProvider: form.erpProvider || null }),
+        body: JSON.stringify({ erpSource: form.erpProvider || "ixc", apiUrl: form.url, apiToken: form.token }),
         credentials: "include",
       });
       toast({ title: "ERP salvo", description: "Configuracao de integracao atualizada com sucesso." });
@@ -1182,7 +1182,7 @@ export default function AdminSistemaPage() {
     setN8nPending(prev => ({ ...prev, [providerId]: { ...prev[providerId], testing: true } }));
     setN8nTestResults(prev => ({ ...prev, [providerId]: null }));
     try {
-      const r = await fetch(`/api/admin/providers/${providerId}/n8n-config/test`, { method: "POST", credentials: "include" });
+      const r = await fetch(`/api/admin/providers/${providerId}/erp-test`, { method: "POST", credentials: "include" });
       const d = await r.json();
       setN8nTestResults(prev => ({ ...prev, [providerId]: { ok: d.ok, msg: d.message } }));
     } catch {

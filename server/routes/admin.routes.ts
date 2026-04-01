@@ -3,6 +3,8 @@ import { requireAuth, requireSuperAdmin } from "../auth";
 import { storage } from "../storage";
 import { hashPassword } from "../password";
 import { sendVerificationEmail } from "../email";
+import { getConnector } from "../erp/registry";
+import "../erp/index";
 import crypto from "crypto";
 
 export function registerAdminRoutes(): Router {
@@ -488,6 +490,67 @@ export function registerAdminRoutes(): Router {
       const id = parseInt(req.params.id);
       await storage.deleteErpCatalogItem(id);
       return res.json({ success: true });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ── ERP Connection Test (replaces old N8N test) ──
+  router.post("/api/admin/providers/:id/erp-test", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(String(req.params.id));
+      const integrations = await storage.getErpIntegrations(id);
+      const erpIntg = integrations.find(i => i.isEnabled && i.apiUrl && i.apiToken);
+
+      if (!erpIntg) {
+        return res.json({ ok: false, message: "ERP nao configurado. Salve a URL e credenciais primeiro." });
+      }
+
+      const connector = getConnector(erpIntg.erpSource);
+      if (!connector) {
+        return res.json({ ok: false, message: `Conector ${erpIntg.erpSource} nao disponivel` });
+      }
+
+      const testResult = await connector.testConnection({
+        apiUrl: erpIntg.apiUrl!,
+        apiToken: erpIntg.apiToken!,
+        apiUser: erpIntg.apiUser || undefined,
+        extra: {},
+      });
+      return res.json(testResult);
+    } catch (error: any) {
+      return res.json({ ok: false, message: `Erro: ${error.message}` });
+    }
+  });
+
+  // ── ERP Config Save (per provider) ──
+  router.put("/api/admin/providers/:id/erp-config", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(String(req.params.id));
+      const { erpSource, apiUrl, apiToken } = req.body;
+
+      if (!erpSource || !apiUrl || !apiToken) {
+        return res.status(400).json({ message: "erpSource, apiUrl e apiToken sao obrigatorios" });
+      }
+
+      // Parse IXC-style "userId:token" format
+      let apiUser: string | undefined;
+      let cleanToken = apiToken;
+      if (cleanToken.includes(":")) {
+        const parts = cleanToken.split(":", 2);
+        apiUser = parts[0];
+        cleanToken = parts[1];
+      }
+
+      const url = apiUrl.startsWith("http") ? apiUrl : `https://${apiUrl}`;
+      await storage.upsertErpIntegration(id, erpSource, {
+        apiUrl: url,
+        apiToken: cleanToken,
+        apiUser: apiUser || null,
+        isEnabled: true,
+      } as any);
+
+      return res.json({ ok: true });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
     }

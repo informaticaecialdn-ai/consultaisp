@@ -1,7 +1,7 @@
 /**
  * Realtime Query Service — Consulta direta aos ERPs regionais.
  *
- * Substitui o endpoint N8N central. Cada consulta vai direto ao ERP
+ * Consulta direta aos ERPs regionais. Cada consulta vai direto ao ERP
  * do provedor, em paralelo, com timeout individual.
  *
  * LGPD: dados do ERP nunca sao armazenados. Trafegam em memoria,
