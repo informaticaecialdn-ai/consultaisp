@@ -403,6 +403,40 @@ export function registerAdminRoutes(): Router {
     }
   });
 
+  // Superadmin creates user for a specific provider (CRUD-02)
+  router.post("/api/admin/providers/:id/users", requireSuperAdmin, async (req, res) => {
+    try {
+      const providerId = parseInt(req.params.id);
+      const { name, email, password, role } = req.body;
+
+      if (!name || !email || !password) {
+        return res.status(400).json({ message: "Nome, email e senha sao obrigatorios" });
+      }
+
+      const validRoles = ["admin", "user"];
+      const userRole = validRoles.includes(role) ? role : "user";
+
+      const existing = await storage.getUserByEmail(email);
+      if (existing) {
+        return res.status(409).json({ message: "Email ja cadastrado" });
+      }
+
+      const hashedPassword = await hashPassword(password);
+      const user = await storage.createUser({
+        name,
+        email,
+        password: hashedPassword,
+        role: userRole,
+        providerId,
+      });
+
+      const { password: _, ...userWithoutPassword } = user;
+      return res.status(201).json(userWithoutPassword);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message });
+    }
+  });
+
   router.get("/api/admin/plan-history", requireSuperAdmin, async (req, res) => {
     try {
       const providerId = req.query.providerId ? parseInt(req.query.providerId as string) : undefined;
