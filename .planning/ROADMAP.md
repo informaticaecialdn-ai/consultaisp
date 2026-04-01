@@ -109,7 +109,11 @@ Plans:
   2. O sistema gera um "risco por endereco" baseado no historico de inadimplencia no local
   3. Ao consultar um CPF que tem contrato cancelado recente (< 90 dias) em outro provedor da regiao, o sistema emite alerta de migrador serial
   4. O alerta de migrador cruza divida ativa + contrato cancelado + consulta por outro provedor para detectar fraude por migracao
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 04-01-PLAN.md — Address search service with grouping and risk scoring
+- [ ] 04-02-PLAN.md — Migrator serial detection service
+- [ ] 04-03-PLAN.md — Wire address search and migrator detection into consultas route
 
 ### Phase 5: UI de Resultado e Admin ERP
 **Goal**: A interface de resultado da consulta mantem o layout validado e a pagina de integracoes ERP e refinada sem mencao a N8N
@@ -135,5 +139,5 @@ Phases execute in numeric order: 0 -> 1 -> 2 -> 3 -> 4 (parallel with 3) -> 5
 | 1. Regionalizacao | 0/2 | Planned | - |
 | 2. Motor de Consulta Tempo Real | 0/3 | Planned | - |
 | 3. Remocao do Sync Centralizado | 0/1 | Planned | - |
-| 4. Busca por Endereco e Migradores | 0/0 | Not started | - |
+| 4. Busca por Endereco e Migradores | 0/3 | Planned | - |
 | 5. UI de Resultado e Admin ERP | 0/0 | Not started | - |
