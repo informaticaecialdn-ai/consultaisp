@@ -49,7 +49,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 Plans:
 - [x] 01-01-PLAN.md — Schema cidadesAtendidas + cities JSON + regional service + API routes
-- [ ] 01-02-PLAN.md — Admin UI for city configuration with autocomplete
+- [x] 01-02-PLAN.md — Admin UI for city configuration with autocomplete
 **UI hint**: yes
 
 ### Phase 2: Motor de Consulta Tempo Real
