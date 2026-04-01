@@ -28,18 +28,11 @@ export const providers = pgTable("providers", {
   addressCity: text("address_city"),
   addressState: text("address_state"),
   webhookToken: text("webhook_token"),
-  webhookAtivo: boolean("webhook_ativo").default(false),
-  notifWhatsapp: boolean("notif_whatsapp").default(true),
-  notifEmail: boolean("notif_email").default(true),
-  notifPush: boolean("notif_push").default(false),
-  notifSms: boolean("notif_sms").default(false),
-  notifWhatsappNumber: text("notif_whatsapp_number"),
-  notifDailySummary: boolean("notif_daily_summary").default(true),
   n8nWebhookUrl: text("n8n_webhook_url"),
   n8nAuthToken: text("n8n_auth_token"),
   n8nEnabled: boolean("n8n_enabled").default(false),
   n8nErpProvider: text("n8n_erp_provider"),
-  trialInicio: timestamp("trial_inicio").defaultNow(),
+  cidadesAtendidas: text("cidades_atendidas").array().default(sql`'{}'::text[]`),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -109,17 +102,6 @@ export const customers = pgTable("customers", {
   riskTier: text("risk_tier").default("low"),
   erpSource: text("erp_source").default("manual"),
   lastSyncAt: timestamp("last_sync_at"),
-  notificacaoEnviada: boolean("notificacao_enviada").default(false),
-  notificacaoData: text("notificacao_data"),
-  notificacaoCanal: text("notificacao_canal").default("whatsapp"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const consultationLogs = pgTable("consultation_logs", {
-  id: serial("id").primaryKey(),
-  cpfCnpj: text("cpf_cnpj").notNull(),
-  providerId: integer("provider_id").notNull().references(() => providers.id),
-  tipo: text("tipo").default("isp"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -138,12 +120,6 @@ export const erpIntegrations = pgTable("erp_integrations", {
   apiToken: text("api_token"),
   apiUser: text("api_user"),
   syncIntervalHours: integer("sync_interval_hours").notNull().default(24),
-  clientId: text("client_id"),
-  clientSecret: text("client_secret"),
-  mkContraSenha: text("mk_contra_senha"),
-  sgpApp: text("sgp_app"),
-  voalleClientId: text("voalle_client_id"),
-  extraConfig: jsonb("extra_config"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -335,33 +311,6 @@ export const creditOrders = pgTable("credit_orders", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const equipamentos = pgTable("equipamentos", {
-  id: serial("id").primaryKey(),
-  providerId: integer("provider_id").notNull().references(() => providers.id),
-  cpfCnpj: text("cpf_cnpj").notNull(),
-  nomeCliente: text("nome_cliente"),
-  tipo: text("tipo").notNull().default("ONU"),
-  marca: text("marca"),
-  modelo: text("modelo"),
-  numeroSerie: text("numero_serie"),
-  valor: decimal("valor", { precision: 10, scale: 2 }).default("0"),
-  dataPerda: text("data_perda"),
-  observacao: text("observacao"),
-  status: text("status").notNull().default("retido"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const antiFraudRules = pgTable("anti_fraud_rules", {
-  id: serial("id").primaryKey(),
-  providerId: integer("provider_id").notNull().references(() => providers.id),
-  tipo: text("tipo").notNull(),
-  label: text("label").notNull(),
-  ativo: boolean("ativo").notNull().default(true),
-  valorMinimo: decimal("valor_minimo", { precision: 10, scale: 2 }),
-  diasMinimo: integer("dias_minimo"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
 export const insertProviderSchema = createInsertSchema(providers).omit({ id: true, createdAt: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true });
@@ -371,8 +320,6 @@ export const insertEquipmentSchema = createInsertSchema(equipment).omit({ id: tr
 export const insertIspConsultationSchema = createInsertSchema(ispConsultations).omit({ id: true, createdAt: true });
 export const insertSpcConsultationSchema = createInsertSchema(spcConsultations).omit({ id: true, createdAt: true });
 export const insertAntiFraudAlertSchema = createInsertSchema(antiFraudAlerts).omit({ id: true, createdAt: true });
-export const insertEquipamentosSchema = createInsertSchema(equipamentos).omit({ id: true, createdAt: true });
-export const insertAntiFraudRuleSchema = createInsertSchema(antiFraudRules).omit({ id: true, createdAt: true });
 
 export type Provider = typeof providers.$inferSelect;
 export type InsertProvider = z.infer<typeof insertProviderSchema>;
@@ -392,10 +339,6 @@ export type SpcConsultation = typeof spcConsultations.$inferSelect;
 export type InsertSpcConsultation = z.infer<typeof insertSpcConsultationSchema>;
 export type AntiFraudAlert = typeof antiFraudAlerts.$inferSelect;
 export type InsertAntiFraudAlert = z.infer<typeof insertAntiFraudAlertSchema>;
-export type Equipamento = typeof equipamentos.$inferSelect;
-export type InsertEquipamento = z.infer<typeof insertEquipamentosSchema>;
-export type AntiFraudRule = typeof antiFraudRules.$inferSelect;
-export type InsertAntiFraudRule = z.infer<typeof insertAntiFraudRuleSchema>;
 
 export const loginSchema = z.object({
   email: z.string().email(),
@@ -460,8 +403,8 @@ export const CREDIT_PACKAGES = [...ISP_CREDIT_PACKAGES.map(p => ({ ...p, creditT
 
 export const PLAN_PRICES: Record<string, number> = {
   free: 0,
-  basic: 149,
-  pro: 349,
+  basic: 199,
+  pro: 399,
   enterprise: 799,
 };
 
@@ -481,10 +424,6 @@ export const erpCatalog = pgTable("erp_catalog", {
 export const insertErpCatalogSchema = createInsertSchema(erpCatalog).omit({ id: true, createdAt: true });
 export type InsertErpCatalog = z.infer<typeof insertErpCatalogSchema>;
 export type ErpCatalog = typeof erpCatalog.$inferSelect;
-
-export const insertConsultationLogSchema = createInsertSchema(consultationLogs).omit({ id: true, createdAt: true });
-export type InsertConsultationLog = z.infer<typeof insertConsultationLogSchema>;
-export type ConsultationLog = typeof consultationLogs.$inferSelect;
 
 export const visitorChats = pgTable("visitor_chats", {
   id: serial("id").primaryKey(),
