@@ -20,9 +20,9 @@
 
 ### Consulta Tempo Real
 - [ ] **RT-01**: Redesenhar endpoint POST /api/isp-consultations para buscar em tempo real nos ERPs regionais (paralelo)
-- [ ] **RT-02**: Para cada provedor da regiao com ERP configurado, chamar connector.fetchDelinquents() ou fetchCustomerByCpf() em paralelo
+- [x] **RT-02**: Para cada provedor da regiao com ERP configurado, chamar connector.fetchDelinquents() ou fetchCustomerByCpf() em paralelo
 - [ ] **RT-03**: Agregar resultados de todos os ERPs regionais em um unico score ISP (0-100)
-- [ ] **RT-04**: Implementar timeout por ERP (max 10s) — se um ERP nao responde, continuar com os demais
+- [x] **RT-04**: Implementar timeout por ERP (max 10s) — se um ERP nao responde, continuar com os demais
 - [ ] **RT-05**: Retornar resultado com mascaramento LGPD (nome parcial, faixa de valor, endereco sem numero)
 
 ### Cache
@@ -87,9 +87,9 @@
 | REG-02 | Phase 1 | Complete |
 | REG-03 | Phase 1 | Pending |
 | RT-01 | Phase 2 | Pending |
-| RT-02 | Phase 2 | Pending |
+| RT-02 | Phase 2 | Complete |
 | RT-03 | Phase 2 | Pending |
-| RT-04 | Phase 2 | Pending |
+| RT-04 | Phase 2 | Complete |
 | RT-05 | Phase 2 | Pending |
 | CACHE-01 | Phase 2 | Pending |
 | CACHE-02 | Phase 2 | Pending |
