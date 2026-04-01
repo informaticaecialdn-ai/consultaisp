@@ -1,0 +1,42 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '.planning/**'
+      - '*.md'
+      - '.gitignore'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            cd /var/www/consulta-isp
+
+            echo "=== Pull ==="
+            git pull origin main
+
+            echo "=== Install ==="
+            npm install
+
+            echo "=== Schema ==="
+            npx drizzle-kit push --force
+
+            echo "=== Build ==="
+            npm run build
+
+            echo "=== Restart ==="
+            pm2 restart consulta-isp
+
+            echo "=== Health ==="
+            sleep 3
+            curl -sf http://localhost:5000/api/health && echo " OK" || echo " FAIL"
