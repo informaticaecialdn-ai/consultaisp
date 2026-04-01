@@ -8,6 +8,7 @@ import { sendVerificationEmail } from "./email";
 import { slugifySubdomain, buildSubdomainUrl } from "./tenant";
 import crypto from "crypto";
 import { streamConsultationAnalysis, streamAntiFraudAnalysis } from "./ai-analysis";
+import { registerRegionalRoutes } from "./routes/regional.routes";
 
 function calculateIspScore(params: {
   maxDaysOverdue: number;
@@ -223,6 +224,9 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   app.use(sessionMiddleware);
+
+  // Regional routes (cidadesAtendidas, regional providers)
+  app.use(registerRegionalRoutes());
 
   app.post("/api/auth/login", async (req, res) => {
     try {
