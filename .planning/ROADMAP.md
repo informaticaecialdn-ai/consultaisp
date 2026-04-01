@@ -82,7 +82,11 @@ Plans:
   3. O score ISP (0-100) e calculado a partir dos dados agregados de todos os ERPs regionais que responderam
   4. Resultado respeita mascaramento LGPD (nome parcial, faixa de valor, endereco sem numero)
   5. Consulta repetida do mesmo CPF dentro de 5-10 minutos retorna cache em memoria sem ir aos ERPs novamente
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 02-01-PLAN.md — In-memory TTL cache service for consultation results
+- [ ] 02-02-PLAN.md — Fix ERP timeout to 10s and add failure reporting
+- [ ] 02-03-PLAN.md — Wire cache into consultas route + score 0-100 mapping
 
 ### Phase 3: Remocao do Sync Centralizado
 **Goal**: O sistema nao armazena mais dados de clientes de outros provedores -- tabela customers contem apenas clientes proprios
@@ -127,7 +131,7 @@ Phases execute in numeric order: 0 -> 1 -> 2 -> 3 -> 4 (parallel with 3) -> 5
 |-------|----------------|--------|-----------|
 | 0. Admin SaaS Foundation | 0/4 | Planned | - |
 | 1. Regionalizacao | 0/2 | Planned | - |
-| 2. Motor de Consulta Tempo Real | 0/0 | Not started | - |
+| 2. Motor de Consulta Tempo Real | 0/3 | Planned | - |
 | 3. Remocao do Sync Centralizado | 0/0 | Not started | - |
 | 4. Busca por Endereco e Migradores | 0/0 | Not started | - |
 | 5. UI de Resultado e Admin ERP | 0/0 | Not started | - |
