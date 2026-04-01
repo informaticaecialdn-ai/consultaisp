@@ -6,6 +6,8 @@ import { getRegionalProviderIds } from "../services/regional.service";
 import { queryRegionalErps, type RealtimeQueryResult } from "../services/realtime-query.service";
 import { calcularScoreISP, type ISPScoreInput } from "../utils/isp-score";
 import { consultationCache } from "../services/consultation-cache.service";
+import { buildAddressSearchResult } from "../services/address-search.service";
+import { detectMigrator } from "../services/migrator-detection.service";
 
 export function registerConsultasRoutes(): Router {
   const router = Router();
@@ -138,6 +140,11 @@ export function registerConsultasRoutes(): Router {
             equipamentosDevolvidos: c.hasUnreturnedEquipment === false,
           }));
 
+        // ── ADDRESS SEARCH (ADDR-01, ADDR-02, ADDR-03) ──────────────
+        const addressSearchResult = searchType === "cep"
+          ? buildAddressSearchResult(cleaned, erpResults, providerId)
+          : undefined;
+
         const scoreInput: ISPScoreInput = {
           proprio: ownCustomer ? {
             mesesComoCliente: ownCustomer.serviceAgeMonths || 0,
@@ -160,12 +167,42 @@ export function registerConsultasRoutes(): Router {
             telefoneValido: !!(ownCustomer?.phone),
             enderecoCompleto: !!(ownCustomer?.cep && ownCustomer?.address),
           },
+          endereco: addressSearchResult ? {
+            cpfsDistintosInadimplentes: addressSearchResult.risk.cpfsDistintosInadimplentes,
+            totalOcorrenciasEndereco: addressSearchResult.risk.totalOcorrenciasEndereco,
+          } : undefined,
         };
 
         const scoreResult = calcularScoreISP(scoreInput);
 
         // RT-03: Map internal 0-1000 score to user-facing 0-100
         const score100 = Math.round(scoreResult.score / 10);
+
+        // ── MIGRATOR DETECTION (MIG-01, MIG-02, MIG-03) ────────────
+        let migratorAlert: { detected: true; severity: string; message: string; riskFactors: string[] } | null = null;
+        if (searchType === "cpf" || searchType === "cnpj") {
+          try {
+            const migratorResult = detectMigrator({
+              cpfCnpj: cleaned,
+              consultingProviderId: providerId,
+              consultingProviderName: provider.name,
+              erpResults,
+              recentConsultationsByDistinctProviders: consultas30d,
+            });
+            if (migratorResult) {
+              migratorAlert = {
+                detected: true,
+                severity: migratorResult.severity,
+                message: migratorResult.message,
+                riskFactors: migratorResult.riskFactors,
+              };
+              // Persist alert to DB
+              await storage.createAlert(migratorResult.alertRecord);
+            }
+          } catch (err) {
+            console.warn("[MIGRADOR] Detection error (non-blocking):", err);
+          }
+        }
 
         // Credit cost: 1 per external provider found
         const externalProviders = new Set(allCustomers.filter(c => !c.isSameProvider).map(c => c.providerId));
@@ -198,11 +235,18 @@ export function registerConsultasRoutes(): Router {
           decisionReco: scoreResult.sugestaoIA === "APROVAR" ? "Accept" : scoreResult.sugestaoIA === "REJEITAR" ? "Reject" : "Review",
           providersFound: new Set(allCustomers.map(c => c.providerId)).size,
           providerDetails,
-          alerts: [...alerts, ...scoreResult.alertas],
+          alerts: [
+            ...alerts,
+            ...scoreResult.alertas,
+            ...(addressSearchResult?.risk.alertas || []),
+            ...(migratorAlert ? [migratorAlert.message] : []),
+          ],
           recommendedActions: scoreResult.condicoesSugeridas,
           creditsCost,
           isOwnCustomer,
           addressMatches: [] as any[],
+          addressSearch: addressSearchResult || null,
+          migratorAlert,
           source: "erp_direct",
           erpLatencies: erpResults.map(r => ({ provider: r.providerName, erp: r.erpSource, ok: r.ok, ms: r.latencyMs, error: r.error })),
           erpSummary: {
