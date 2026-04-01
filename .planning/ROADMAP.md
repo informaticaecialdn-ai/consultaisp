@@ -25,11 +25,12 @@
 **Milestone Goal:** Redesenhar consultas ISP para busca em tempo real nos ERPs regionais, eliminando armazenamento centralizado de dados de outros provedores.
 
 **Phase Numbering:**
-- Integer phases (1, 2, 3): Planned milestone work
+- Integer phases (0, 1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
 Decimal phases appear between their surrounding integers in numeric order.
 
+- [ ] **Phase 0: Admin SaaS Foundation** - Fix auth, tenant isolation hardening, admin CRUD funcional, seed limpo
 - [ ] **Phase 1: Regionalizacao** - Provedores definem suas cidades atendidas e o sistema identifica vizinhos regionais
 - [ ] **Phase 2: Motor de Consulta Tempo Real** - Consulta CPF busca em paralelo nos ERPs de todos provedores da regiao com cache curto
 - [ ] **Phase 3: Remocao do Sync Centralizado** - Eliminar scheduler, upsert cruzado e armazenamento de clientes de outros provedores
@@ -37,6 +38,25 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 5: UI de Resultado e Admin ERP** - Interface de resultado da consulta e refinamento da pagina de integracoes ERP
 
 ## Phase Details
+
+### Phase 0: Admin SaaS Foundation
+**Goal**: Sistema admin funcional — login que funciona, tenant isolation auditado, CRUD provedores/usuarios/ERP operacional, seed limpo
+**Depends on**: Nothing (pre-requisito de todas as fases)
+**Requirements**: AUTH-01, AUTH-02, AUTH-03, TENANT-01, TENANT-02, CRUD-01, CRUD-02, CRUD-03, SEED-01
+**Success Criteria** (what must be TRUE):
+  1. Login com email/senha funciona para superadmin, admin e user — sessao persiste entre requests
+  2. Session store usa PostgreSQL (connect-pg-simple), nao memory store
+  3. Credenciais do superadmin vem de env vars, nao hardcoded no seed
+  4. Toda rota admin filtra por providerId da sessao — nenhum endpoint vaza dados cross-tenant
+  5. CNPJ lookup requer autenticacao
+  6. Superadmin consegue criar provedor, configurar ERP, criar usuario via interface
+  7. Seed cria apenas superadmin + estrutura minima, sem provedores fake
+**Plans**: 4 plans
+Plans:
+- [ ] 00-01-PLAN.md — Session store connect-pg-simple + requireAdmin fix
+- [ ] 00-02-PLAN.md — Seed cleanup: env-based superadmin + gated demo data
+- [ ] 00-03-PLAN.md — Admin routes middleware normalization
+- [ ] 00-04-PLAN.md — Superadmin user creation endpoint (CRUD-02)
 
 ### Phase 1: Regionalizacao
 **Goal**: Provedores tem sua area de cobertura configurada e o sistema sabe quais provedores atendem a mesma regiao
@@ -101,10 +121,11 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 (parallel with 3) -> 5
+Phases execute in numeric order: 0 -> 1 -> 2 -> 3 -> 4 (parallel with 3) -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
+| 0. Admin SaaS Foundation | 0/4 | Planned | - |
 | 1. Regionalizacao | 0/2 | Planned | - |
 | 2. Motor de Consulta Tempo Real | 0/0 | Not started | - |
 | 3. Remocao do Sync Centralizado | 0/0 | Not started | - |
