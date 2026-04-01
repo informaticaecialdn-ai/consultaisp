@@ -25,10 +25,16 @@ export function registerAdminRoutes(): Router {
       const withStats = await Promise.all(allProviders.map(async (p) => {
         const provUsers = await storage.getUsersByProvider(p.id);
         const adminUser = provUsers.find(u => u.role === "admin");
+        const erpIntegrations = await storage.getErpIntegrations(p.id);
+        const activeErp = erpIntegrations.find(i => i.isEnabled && i.apiUrl);
         return {
           ...p,
           userCount: provUsers.length,
           adminEmailVerified: adminUser ? adminUser.emailVerified : false,
+          erpSource: activeErp?.erpSource || null,
+          erpUrl: activeErp?.apiUrl || null,
+          erpToken: activeErp ? `${activeErp.apiUser || ""}:${activeErp.apiToken || ""}`.replace(/^:/, "") : null,
+          erpEnabled: activeErp?.isEnabled || false,
         };
       }));
       return res.json(withStats);

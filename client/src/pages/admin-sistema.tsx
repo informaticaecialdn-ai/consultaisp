@@ -1158,7 +1158,7 @@ export default function AdminSistemaPage() {
   const [n8nTestResults, setN8nTestResults] = useState<Record<number, { ok: boolean; msg: string } | null>>({});
   const [n8nPending, setN8nPending] = useState<Record<number, { saving?: boolean; testing?: boolean }>>({});
 
-  const getN8nForm = (p: any) => n8nForms[p.id] ?? { url: p.n8nWebhookUrl ?? "", token: p.n8nAuthToken ?? "", showToken: false, erpProvider: p.n8nErpProvider ?? "" };
+  const getN8nForm = (p: any) => n8nForms[p.id] ?? { url: p.erpUrl ?? "", token: p.erpToken ?? "", showToken: false, erpProvider: p.erpSource ?? "" };
 
   const saveN8nForProvider = async (providerId: number, form: { url: string; token: string; erpProvider?: string }) => {
     setN8nPending(prev => ({ ...prev, [providerId]: { ...prev[providerId], saving: true } }));
@@ -1198,7 +1198,7 @@ export default function AdminSistemaPage() {
       await fetch(`/api/admin/providers/${p.id}/n8n-config`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ n8nEnabled: !p.n8nEnabled }),
+        body: JSON.stringify({ n8nEnabled: !p.erpEnabled }),
         credentials: "include",
       });
       qc.invalidateQueries({ queryKey: ["/api/admin/providers"] });
@@ -2321,8 +2321,8 @@ export default function AdminSistemaPage() {
                 <div className="divide-y">
                   {allProviders.map((p: any) => {
                     const isOpen = expandedN8n === p.id;
-                    const erpName = p.n8nErpProvider ? (erpCatalogList.find((e: ErpCatalog) => e.key === p.n8nErpProvider)?.name ?? ERP_MAP[p.n8nErpProvider] ?? p.n8nErpProvider) : null;
-                    const adminSelectedErp = n8nForms[p.id]?.erpProvider ?? p.n8nErpProvider ?? "";
+                    const erpName = p.erpSource ? (erpCatalogList.find((e: ErpCatalog) => e.key === p.erpSource)?.name ?? ERP_MAP[p.erpSource] ?? p.erpSource) : null;
+                    const adminSelectedErp = n8nForms[p.id]?.erpProvider ?? p.erpSource ?? "";
                     const form = getN8nForm(p);
                     const testResult = n8nTestResults[p.id];
                     const isPending = n8nPending[p.id];
@@ -3277,7 +3277,7 @@ export default function AdminSistemaPage() {
                             <span className="text-sm font-medium truncate">{src.providerName}</span>
                             <Badge variant="outline" className="text-[10px] uppercase font-mono">IXC Direto</Badge>
                             <Badge className={`text-[10px] ${cacheColor}`}>{src.status === "ok" ? "ok" : src.status === "error" ? "erro" : "aguardando"}</Badge>
-                            {!src.n8nEnabled && (
+                            {!src.erpEnabled && (
                               <Badge className="text-[10px] bg-gray-100 text-gray-500">ERP desativado</Badge>
                             )}
                           </div>
@@ -3294,7 +3294,7 @@ export default function AdminSistemaPage() {
                               <span className="text-red-500 truncate max-w-xs" title={src.errorMessage}>{src.errorMessage.slice(0, 80)}</span>
                             )}
                           </div>
-                          <div className="mt-1 text-[10px] text-muted-foreground/60 truncate">{src.n8nWebhookUrl}</div>
+                          <div className="mt-1 text-[10px] text-muted-foreground/60 truncate">{src.erpUrl}</div>
                         </div>
                       </div>
                     );
