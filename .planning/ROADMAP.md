@@ -98,7 +98,7 @@ Plans:
   3. A tabela customers de cada provedor contem apenas clientes importados por ele (CSV ou cadastro manual)
 **Plans**: 1 plan
 Plans:
-- [ ] 03-01-PLAN.md — Remove sync endpoint and syncErpCustomers storage method
+- [x] 03-01-PLAN.md — Remove sync endpoint and syncErpCustomers storage method
 
 ### Phase 4: Busca por Endereco e Migradores
 **Goal**: Provedores podem consultar por endereco alem de CPF e recebem alertas automaticos de migradores seriais
