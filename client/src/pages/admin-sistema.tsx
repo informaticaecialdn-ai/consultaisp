@@ -1625,7 +1625,7 @@ export default function AdminSistemaPage() {
     erps:         { title: "ERPs Cadastrados",    desc: "Gerencie os sistemas ERP suportados",         icon: Database,     color: "from-teal-600 to-emerald-700" },
     financeiro:   { title: "Faturas e Cobrancas", desc: "Receita, faturas e pagamentos",               icon: DollarSign,   color: "from-emerald-600 to-teal-700" },
     suporte:      { title: "Suporte",             desc: "Chat direto com provedores",                  icon: MessageSquare,color: "from-orange-500 to-amber-600" },
-    integracoes:      { title: "Integracoes",          desc: "Status de integracao N8N e ERP por provedor",     icon: Zap,          color: "from-orange-500 to-red-600" },
+    integracoes:      { title: "Integracoes",          desc: "Configuracao ERP por provedor",                    icon: Database,     color: "from-blue-500 to-violet-600" },
     sincronizacao:    { title: "Sincronizacao Automatica", desc: "Agendamento e monitoramento do auto-sync de ERPs", icon: RefreshCw,    color: "from-cyan-600 to-teal-700" },
   };
   const meta = PAGE_META[activeTab] || PAGE_META.painel;
@@ -2300,17 +2300,17 @@ export default function AdminSistemaPage() {
 
         {activeTab === "integracoes" && (
           <div className="space-y-4">
-            <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 flex gap-3">
-              <Zap className="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5" />
-              <div className="text-sm text-orange-800">
-                <p className="font-semibold">Configuracao de Integracoes N8N</p>
-                <p className="text-xs mt-0.5 text-orange-700">Configure a integracao N8N para cada provedor. Quando ativa, as consultas ISP sao processadas via API N8N em tempo real. O provedor apenas ve o status (ativo/inativo).</p>
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3">
+              <Database className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-blue-800">
+                <p className="font-semibold">Integracoes ERP por Provedor</p>
+                <p className="text-xs mt-0.5 text-blue-700">Configure o ERP de cada provedor com conexao direta. Escolha o ERP, preencha as credenciais e o sistema sincroniza automaticamente.</p>
               </div>
             </div>
 
             <Card className="overflow-hidden">
               <div className="px-5 py-3 border-b bg-slate-50/50 flex items-center justify-between">
-                <p className="text-sm font-semibold">Provedores — Integracao N8N</p>
+                <p className="text-sm font-semibold">Provedores — Integracao ERP</p>
                 <Badge variant="secondary">{allProviders.length} provedor(es)</Badge>
               </div>
               {providersLoading ? (
@@ -2320,57 +2320,51 @@ export default function AdminSistemaPage() {
               ) : (
                 <div className="divide-y">
                   {allProviders.map((p: any) => {
-                    const n8nActive = p.n8nEnabled && p.n8nWebhookUrl;
-                    const n8nConfigured = !!p.n8nWebhookUrl;
                     const isOpen = expandedN8n === p.id;
+                    const erpName = p.n8nErpProvider ? (erpCatalogList.find((e: ErpCatalog) => e.key === p.n8nErpProvider)?.name ?? ERP_MAP[p.n8nErpProvider] ?? p.n8nErpProvider) : null;
+                    const adminSelectedErp = n8nForms[p.id]?.erpProvider ?? p.n8nErpProvider ?? "";
                     const form = getN8nForm(p);
                     const testResult = n8nTestResults[p.id];
                     const isPending = n8nPending[p.id];
-                    const erpName = p.n8nErpProvider ? (erpCatalogList.find((e: ErpCatalog) => e.key === p.n8nErpProvider)?.name ?? ERP_MAP[p.n8nErpProvider] ?? p.n8nErpProvider) : null;
-                    const adminSelectedErp = n8nForms[p.id]?.erpProvider ?? p.n8nErpProvider ?? "";
+                    const hasErpConfig = !!adminSelectedErp;
                     return (
-                      <div key={p.id} data-testid={`integracoes-row-${p.id}`}>
-                        {/* Provider row */}
+                      <div key={p.id}>
                         <div
                           className="flex items-center gap-4 px-5 py-3.5 cursor-pointer hover:bg-slate-50 transition-colors"
                           onClick={() => setExpandedN8n(isOpen ? null : p.id)}
                         >
-                          <div className="w-9 h-9 rounded-lg bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-sm font-bold text-blue-700 dark:text-blue-300 flex-shrink-0">
+                          <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center text-sm font-bold text-blue-700 flex-shrink-0">
                             {p.name?.charAt(0)}
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <p className="text-sm font-medium">{p.name}</p>
                               {erpName && (
-                                <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 flex-shrink-0">
-                                  {erpName}
-                                </span>
+                                <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700">{erpName}</span>
                               )}
                             </div>
                             <p className="text-xs text-muted-foreground truncate">
-                              {n8nConfigured ? p.n8nWebhookUrl?.slice(0, 50) + (p.n8nWebhookUrl?.length > 50 ? "..." : "") : "Webhook nao configurado"}
+                              {hasErpConfig ? `${adminSelectedErp.toUpperCase()} — ${form.url || "URL nao configurada"}` : "ERP nao configurado"}
                             </p>
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0">
                             <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                              n8nActive ? "bg-emerald-100 text-emerald-700" :
-                              n8nConfigured ? "bg-amber-100 text-amber-700" :
+                              hasErpConfig && form.url ? "bg-emerald-100 text-emerald-700" :
+                              hasErpConfig ? "bg-amber-100 text-amber-700" :
                               "bg-slate-100 text-slate-500"
                             }`}>
-                              {n8nActive ? "Ativo" : n8nConfigured ? "Inativo" : "Nao config."}
+                              {hasErpConfig && form.url ? "Configurado" : hasErpConfig ? "Incompleto" : "Nao config."}
                             </span>
                             <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`} />
                           </div>
                         </div>
 
-                        {/* Expanded config form */}
                         {isOpen && (
                           <div className="px-5 pb-5 pt-3 bg-slate-50/70 border-t space-y-3">
-                            {/* ERP selector */}
                             <div className="space-y-1.5">
                               <label className="text-xs font-medium text-slate-600">ERP do Provedor</label>
                               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-1.5">
-                                {(erpCatalogList.length > 0 ? erpCatalogList.filter(e => e.active) : ERP_OPTIONS).map((erp: any) => {
+                                {(erpCatalogList.length > 0 ? erpCatalogList.filter((e: any) => e.active) : ERP_OPTIONS).map((erp: any) => {
                                   const isSelected = adminSelectedErp === erp.key;
                                   const grad = erp.gradient ?? erp.grad ?? "from-slate-500 to-slate-600";
                                   return (
@@ -2378,7 +2372,6 @@ export default function AdminSistemaPage() {
                                       key={erp.key}
                                       type="button"
                                       onClick={() => setN8nForms(prev => ({ ...prev, [p.id]: { ...getN8nForm(p), erpProvider: erp.key } }))}
-                                      data-testid={`admin-erp-option-${p.id}-${erp.key}`}
                                       className={`flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all text-center ${
                                         isSelected ? "border-violet-500 bg-violet-50" : "border-transparent bg-white hover:bg-slate-100 hover:border-slate-200"
                                       }`}
@@ -2395,54 +2388,61 @@ export default function AdminSistemaPage() {
                                   );
                                 })}
                               </div>
-                              {adminSelectedErp && (
-                                <button
-                                  type="button"
-                                  className="text-xs text-slate-400 hover:text-slate-600"
-                                  onClick={() => setN8nForms(prev => ({ ...prev, [p.id]: { ...getN8nForm(p), erpProvider: "" } }))}
-                                >
-                                  Limpar selecao
-                                </button>
-                              )}
                             </div>
-                            <div className="space-y-1.5">
-                              <label className="text-xs font-medium text-slate-600">URL do Webhook N8N</label>
-                              <Input
-                                placeholder="https://n8n-seu-servidor.com/webhook/isp-consult"
-                                value={form.url}
-                                onChange={e => setN8nForms(prev => ({ ...prev, [p.id]: { ...form, url: e.target.value } }))}
-                                className="h-9 text-sm"
-                                data-testid={`input-n8n-url-${p.id}`}
-                              />
-                            </div>
-                            <div className="space-y-1.5">
-                              <label className="text-xs font-medium text-slate-600">Token Basic Auth</label>
-                              <div className="relative">
-                                <Input
-                                  type={form.showToken ? "text" : "password"}
-                                  placeholder="Token Base64 de autenticacao"
-                                  value={form.token}
-                                  onChange={e => setN8nForms(prev => ({ ...prev, [p.id]: { ...form, token: e.target.value } }))}
-                                  className="h-9 text-sm pr-9"
-                                  data-testid={`input-n8n-token-${p.id}`}
-                                />
-                                <button
-                                  type="button"
-                                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                                  onClick={() => setN8nForms(prev => ({ ...prev, [p.id]: { ...form, showToken: !form.showToken } }))}
-                                >
-                                  {form.showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                                </button>
-                              </div>
-                              <p className="text-xs text-muted-foreground">Header enviado: <code className="bg-slate-100 px-1 rounded">Authorization: Basic &lt;token&gt;</code></p>
-                            </div>
+
+                            {adminSelectedErp && (
+                              <>
+                                <div className="space-y-1.5">
+                                  <label className="text-xs font-medium text-slate-600">URL do Servidor {adminSelectedErp.toUpperCase()}</label>
+                                  <Input
+                                    placeholder={adminSelectedErp === "ixc" ? "https://ixc.seudominio.com.br" : adminSelectedErp === "mk" ? "http://192.168.1.100:8311" : "https://erp.seudominio.com.br"}
+                                    value={form.url}
+                                    onChange={e => setN8nForms(prev => ({ ...prev, [p.id]: { ...form, url: e.target.value } }))}
+                                    className="h-9 text-sm"
+                                  />
+                                </div>
+                                <div className="space-y-1.5">
+                                  <label className="text-xs font-medium text-slate-600">
+                                    {adminSelectedErp === "ixc" ? "Token do Usuario IXC" :
+                                     adminSelectedErp === "mk" ? "Token do Usuario MK" :
+                                     adminSelectedErp === "rbx" ? "Chave de Integracao RBX" :
+                                     "Token / Credencial de Acesso"}
+                                  </label>
+                                  <div className="relative">
+                                    <Input
+                                      type={form.showToken ? "text" : "password"}
+                                      placeholder="Credencial de acesso ao ERP"
+                                      value={form.token}
+                                      onChange={e => setN8nForms(prev => ({ ...prev, [p.id]: { ...form, token: e.target.value } }))}
+                                      className="h-9 text-sm pr-9"
+                                    />
+                                    <button
+                                      type="button"
+                                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                      onClick={() => setN8nForms(prev => ({ ...prev, [p.id]: { ...form, showToken: !form.showToken } }))}
+                                    >
+                                      {form.showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                    </button>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">
+                                    {adminSelectedErp === "ixc" ? "ID numerico:Token. Ex: 351:9b6e60f4..." :
+                                     adminSelectedErp === "mk" ? "Token + contra-senha do webservice" :
+                                     adminSelectedErp === "hubsoft" ? "OAuth2: client_id + client_secret + username + senha" :
+                                     adminSelectedErp === "voalle" ? "Usuario tipo Integracao + senha" :
+                                     adminSelectedErp === "sgp" ? "Token + nome do app (consultaisp)" :
+                                     adminSelectedErp === "rbx" ? "Empresa > Parametros > Web Services" :
+                                     "Credenciais de acesso ao ERP"}
+                                  </p>
+                                </div>
+                              </>
+                            )}
+
                             <div className="flex items-center gap-2 flex-wrap">
                               <Button
                                 size="sm"
-                                className="h-8 text-xs gap-1.5 bg-orange-500 hover:bg-orange-600 text-white"
+                                className="h-8 text-xs gap-1.5"
                                 onClick={() => saveN8nForProvider(p.id, form)}
-                                disabled={isPending?.saving || !form.url}
-                                data-testid={`button-n8n-save-${p.id}`}
+                                disabled={isPending?.saving || !form.url || !adminSelectedErp}
                               >
                                 <Save className="w-3.5 h-3.5" />
                                 {isPending?.saving ? "Salvando..." : "Salvar"}
@@ -2450,24 +2450,11 @@ export default function AdminSistemaPage() {
                               <Button
                                 variant="outline" size="sm" className="h-8 text-xs gap-1.5"
                                 onClick={() => testN8nForProvider(p.id)}
-                                disabled={isPending?.testing || !n8nConfigured}
-                                data-testid={`button-n8n-test-${p.id}`}
+                                disabled={isPending?.testing || !form.url}
                               >
                                 <Terminal className="w-3.5 h-3.5" />
                                 {isPending?.testing ? "Testando..." : "Testar Conexao"}
                               </Button>
-                              {n8nConfigured && (
-                                <Button
-                                  variant="ghost" size="sm"
-                                  className={`h-8 text-xs gap-1.5 ${n8nActive ? "text-emerald-600" : "text-slate-500"}`}
-                                  onClick={() => toggleN8nForProvider(p)}
-                                  disabled={isPending?.saving}
-                                  data-testid={`button-n8n-toggle-${p.id}`}
-                                >
-                                  <Zap className="w-3.5 h-3.5" />
-                                  {n8nActive ? "Desativar" : "Ativar"}
-                                </Button>
-                              )}
                             </div>
                             {testResult && (
                               <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${testResult.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-700 border border-red-200"}`}>
