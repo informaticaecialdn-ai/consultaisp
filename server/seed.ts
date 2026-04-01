@@ -482,14 +482,20 @@ async function seedErpIntegrations(providerId: number) {
 }
 
 export async function seedSuperAdmin() {
-  const existing = await storage.getUserByEmail("master@consultaisp.com.br");
+  const email = process.env.SUPERADMIN_EMAIL;
+  const password = process.env.SUPERADMIN_PASSWORD;
+  if (!email || !password) {
+    console.warn("[seed] SUPERADMIN_EMAIL and SUPERADMIN_PASSWORD env vars not set, skipping superadmin creation");
+    return;
+  }
+  const existing = await storage.getUserByEmail(email);
   if (existing) return;
   await storage.createUser({
     name: "Administrador do Sistema",
-    email: "master@consultaisp.com.br",
-    password: await hashPassword("Master@2024"),
+    email,
+    password: await hashPassword(password),
     role: "superadmin",
     emailVerified: true,
   });
-  console.log("SuperAdmin criado: master@consultaisp.com.br / Master@2024");
+  console.log(`[seed] SuperAdmin criado: ${email}`);
 }
