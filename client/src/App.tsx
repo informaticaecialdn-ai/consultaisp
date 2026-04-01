@@ -27,6 +27,7 @@ import InvoiceViewPage from "@/pages/invoice-view";
 import AdminFinanceiroPage from "@/pages/admin-financeiro";
 import AdminCreditosPage from "@/pages/admin-creditos";
 import LandingPage from "@/pages/landingpage";
+import ConfiguracoesRegionalizacaoPage from "@/pages/configuracoes-regionalizacao";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import { getSubdomain } from "@/lib/subdomain";
@@ -49,6 +50,7 @@ function Router() {
       <Route path="/admin/fatura/:id" component={InvoiceViewPage} />
       <Route path="/admin/financeiro" component={AdminFinanceiroPage} />
       <Route path="/admin/creditos" component={AdminCreditosPage} />
+      <Route path="/configuracoes/regionalizacao" component={ConfiguracoesRegionalizacaoPage} />
       <Route component={NotFound} />
     </Switch>
   );

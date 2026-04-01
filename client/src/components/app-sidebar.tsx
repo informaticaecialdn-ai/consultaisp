@@ -75,6 +75,10 @@ const toolsMenu = [
   { title: "Importacao", url: "/importacao", icon: Upload },
 ];
 
+const configMenu = [
+  { title: "Regionalizacao", url: "/configuracoes/regionalizacao", icon: MapPin },
+];
+
 const ADMIN_GROUPS = [
   {
     label: "Visao Geral",
@@ -371,6 +375,27 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        {(user?.role === "admin") && (
+          <SidebarGroup>
+            <SidebarGroupLabel className="text-[11px] font-semibold tracking-wider uppercase text-muted-foreground">
+              Configuracoes
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {configMenu.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild data-active={location === item.url}>
+                      <Link href={item.url}>
+                        <item.icon className="w-4 h-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       <SidebarFooter className="p-4 space-y-3">
