@@ -5,6 +5,10 @@ import { count, eq } from "drizzle-orm";
 import { hashPassword } from "./password";
 
 export async function seedDatabase() {
+  if (process.env.SEED_DEMO_DATA !== "true") {
+    console.log("[seed] SEED_DEMO_DATA not set to 'true', skipping demo data");
+    return;
+  }
   const [existingProviders] = await db.select({ count: count() }).from(providers);
   if (existingProviders.count > 0) return;
 
