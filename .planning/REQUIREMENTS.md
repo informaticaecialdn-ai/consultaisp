@@ -63,3 +63,29 @@
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
+| REG-01 | Phase 1 | Pending |
+| REG-02 | Phase 1 | Pending |
+| REG-03 | Phase 1 | Pending |
+| RT-01 | Phase 2 | Pending |
+| RT-02 | Phase 2 | Pending |
+| RT-03 | Phase 2 | Pending |
+| RT-04 | Phase 2 | Pending |
+| RT-05 | Phase 2 | Pending |
+| CACHE-01 | Phase 2 | Pending |
+| CACHE-02 | Phase 2 | Pending |
+| CACHE-03 | Phase 2 | Pending |
+| NOSYNC-01 | Phase 3 | Pending |
+| NOSYNC-02 | Phase 3 | Pending |
+| NOSYNC-03 | Phase 3 | Pending |
+| ADDR-01 | Phase 4 | Pending |
+| ADDR-02 | Phase 4 | Pending |
+| ADDR-03 | Phase 4 | Pending |
+| MIG-01 | Phase 4 | Pending |
+| MIG-02 | Phase 4 | Pending |
+| MIG-03 | Phase 4 | Pending |
+| UI-01 | Phase 5 | Pending |
+| UI-02 | Phase 5 | Pending |
+| UI-03 | Phase 5 | Pending |
+| UI-04 | Phase 5 | Pending |
+| ADM-01 | Phase 5 | Pending |
+| ADM-02 | Phase 5 | Pending |

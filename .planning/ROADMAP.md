@@ -1,10 +1,28 @@
-# Roadmap: Consulta ISP (Milestone: Refactoring + ERP Direto)
+# Roadmap: Consulta ISP
 
-## Overview
+## Milestones
 
-This milestone transforms a functional-but-monolithic beta into a production-ready, maintainable system with native ERP integrations. The work follows a strict dependency chain: secure the foundation first, extract reusable modules, decompose the monolith, build ERP connectors into the clean codebase, wire up the UI and remove N8N, tackle undocumented ERPs with research, and finally harden LGPD compliance. N8N stays alive as a fallback until connectors are proven in production.
+- ~~**v1.0 Refactoring + ERP Direto** - Phases 1-7 (shipped 2026-03-31)~~
+- **v2.0 Consulta Tempo Real Regional** - Phases 1-5 (in progress)
 
 ## Phases
+
+<details>
+<summary>v1.0 Refactoring + ERP Direto (Phases 1-7) - SHIPPED 2026-03-31</summary>
+
+- [x] **Phase 1: Security & Cleanup** - Remove hardcoded secrets, Replit artifacts, unify prices
+- [x] **Phase 2: Foundation & Docker** - Extract business logic modules, containerize
+- [x] **Phase 3: Backend Modularization** - Decompose routes.ts and storage.ts into domain modules
+- [x] **Phase 4: ERP Connector Engine** - Abstract connector interface + 6 documented ERP connectors
+- [x] **Phase 5: ERP UI & N8N Removal** - Wire ERP config UI, eliminate N8N dependency
+- [x] **Phase 6: Undocumented ERP Connectors** - Stub connectors for TopSApp, RadiusNet, Gere, ReceitaNet
+- [x] **Phase 7: LGPD Hardening** - Centralized masking middleware, no bypass paths
+
+</details>
+
+### v2.0 Consulta Tempo Real Regional
+
+**Milestone Goal:** Redesenhar consultas ISP para busca em tempo real nos ERPs regionais, eliminando armazenamento centralizado de dados de outros provedores.
 
 **Phase Numbering:**
 - Integer phases (1, 2, 3): Planned milestone work
@@ -12,139 +30,80 @@ This milestone transforms a functional-but-monolithic beta into a production-rea
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [x] **Phase 1: Security & Cleanup** - Remove hardcoded secrets, Replit artifacts, and unify price constants (completed 2026-03-30)
-- [ ] **Phase 2: Foundation & Docker** - Extract pure business logic modules and containerize for VPS deployment
-- [ ] **Phase 3: Backend Modularization** - Decompose routes.ts (4350 lines) and storage.ts (1800 lines) into domain modules
-- [x] **Phase 4: ERP Connector Engine** - Build abstract connector interface and implement 6 documented ERP connectors
-- [ ] **Phase 5: ERP UI & N8N Removal** - Wire ERP config UI, sync controls, and eliminate N8N dependency
-- [x] **Phase 6: Undocumented ERP Connectors** - Research and implement TopSApp, RadiusNet, Gere, ReceitaNet connectors (completed 2026-03-31)
-- [x] **Phase 7: LGPD Hardening** - Systematize data masking, create centralized middleware, ensure legal compliance (completed 2026-03-31)
+- [ ] **Phase 1: Regionalizacao** - Provedores definem suas cidades atendidas e o sistema identifica vizinhos regionais
+- [ ] **Phase 2: Motor de Consulta Tempo Real** - Consulta CPF busca em paralelo nos ERPs de todos provedores da regiao com cache curto
+- [ ] **Phase 3: Remocao do Sync Centralizado** - Eliminar scheduler, upsert cruzado e armazenamento de clientes de outros provedores
+- [ ] **Phase 4: Busca por Endereco e Migradores** - Consulta por CEP/logradouro e deteccao de migradores seriais em tempo real
+- [ ] **Phase 5: UI de Resultado e Admin ERP** - Interface de resultado da consulta e refinamento da pagina de integracoes ERP
 
 ## Phase Details
 
-### Phase 1: Security & Cleanup
-**Goal**: The codebase is free of hardcoded secrets, platform-specific artifacts, and data inconsistencies
-**Depends on**: Nothing (first phase)
-**Requirements**: SEC-01, SEC-02, SEC-03, FIX-01
+### Phase 1: Regionalizacao
+**Goal**: Provedores tem sua area de cobertura configurada e o sistema sabe quais provedores atendem a mesma regiao
+**Depends on**: Nothing (first phase of v2.0)
+**Requirements**: REG-01, REG-02, REG-03
 **Success Criteria** (what must be TRUE):
-  1. No hardcoded credentials exist in source code -- all secrets come from environment variables
-  2. No Replit-specific packages remain in package.json and no Replit directories/files exist in the project
-  3. Price values shown on the landing page match the constants used in backend billing logic
-  4. The application builds and runs cleanly after all removals
-**Plans**: 2 plans
-
-Plans:
-- [x] 01-01-PLAN.md -- Remove hardcoded N8N secrets and clean all Replit artifacts
-- [x] 01-02-PLAN.md -- Unify price constants and validate full build
-
-### Phase 2: Foundation & Docker
-**Goal**: Core business logic is extracted into testable modules and the application runs in Docker on any VPS
-**Depends on**: Phase 1
-**Requirements**: MOD-01, DOCK-01, DOCK-02, DOCK-03, DOCK-04, DOCK-05
-**Success Criteria** (what must be TRUE):
-  1. Score engine (calculateIspScore), LGPD masking, and geocoding functions exist as independent modules with their own imports -- not embedded in routes.ts
-  2. Running `docker-compose up` starts the full application (app + PostgreSQL) and serves the landing page
-  3. The application responds to health check requests and shuts down gracefully on SIGTERM
-  4. Missing required environment variables cause a clear error at startup (not a runtime crash)
-  5. Application logs are structured JSON (pino) viewable via `docker logs`
-**Plans**: 3 plans
-
-Plans:
-- [x] 02-01-PLAN.md -- Extract score engine, LGPD masking, geocoding modules + install pino structured logging
-- [x] 02-02-PLAN.md -- Add health check endpoint, graceful shutdown, and env validation
-- [x] 02-03-PLAN.md -- Create Dockerfile, docker-compose.yml, and deployment config
-
-### Phase 3: Backend Modularization
-**Goal**: The monolithic routes.ts and storage.ts are decomposed into maintainable domain modules without breaking any existing functionality
-**Depends on**: Phase 2
-**Requirements**: MOD-02, MOD-03, MOD-04
-**Success Criteria** (what must be TRUE):
-  1. routes.ts is replaced by ~14 domain router modules (auth, consultas, erp, admin, financeiro, etc.) each under 800 lines
-  2. storage.ts is replaced by domain storage modules behind the unchanged IStorage facade -- existing code using `storage.` continues to work
-  3. Every API endpoint that worked before modularization still works identically after (same request/response behavior)
-  4. Multi-tenant isolation is preserved -- no endpoint returns data from a different provider's tenant
-**Plans**: 4 plans
-
-Plans:
-- [x] 03-01-PLAN.md -- Decompose storage.ts into 11 domain storage modules with IStorage facade
-- [x] 03-02-PLAN.md -- Extract route modules group A (auth, dashboard, import, consultas, antifraude, equipamentos, heatmap)
-- [x] 03-03-PLAN.md -- Extract route modules group B (provider, erp, admin, financeiro, credits, chat, ai, public)
-- [x] 03-04-PLAN.md -- Wire routes barrel, update entry point, delete monolithic files, verify build
-
-### Phase 4: ERP Connector Engine
-**Goal**: Providers can connect directly to their ERP systems (IXC, MK, SGP, Hubsoft, Voalle, RBX) without any intermediary proxy
-**Depends on**: Phase 3
-**Requirements**: ERP-01, ERP-02, ERP-03, ERP-04, ERP-05, ERP-06, ERP-07, ERP-12, ERP-13, ERP-14
-**Success Criteria** (what must be TRUE):
-  1. A provider admin can configure their ERP connection (API URL, credentials) and run a successful connection test for any of the 6 supported ERPs
-  2. Each connector fetches delinquent customers and normalizes them into the shared ErpCustomer format
-  3. Failed ERP API calls retry with backoff and trigger circuit breaker protection after repeated failures
-  4. Connectors are registered in a dynamic registry -- adding a new ERP requires only implementing the interface and registering it
-  5. Rate limiting prevents any single provider from overwhelming an ERP API
-**Plans**: 4 plans
-
-Plans:
-- [x] 04-01-PLAN.md -- ERP types, interfaces, resilience (retry+circuit breaker), rate limiter, normalization, registry, schema migration
-- [x] 04-02-PLAN.md -- Implement IXC, MK, SGP connectors (Basic Auth, Bearer JWT, Bearer Token)
-- [x] 04-03-PLAN.md -- Implement Hubsoft (OAuth2), Voalle (Integration User), RBX (POST-body key) connectors
-- [x] 04-04-PLAN.md -- Wire all connectors into registry, update erp.routes.ts and scheduler.ts
-
-### Phase 5: ERP UI & N8N Removal
-**Goal**: Providers have a complete UI for managing ERP integrations, and the N8N proxy dependency is fully eliminated
-**Depends on**: Phase 4
-**Requirements**: ERPUI-01, ERPUI-02, ERPUI-03, ERPUI-04, N8N-01, N8N-02, N8N-03, N8N-04, N8N-05
-**Success Criteria** (what must be TRUE):
-  1. The ERP configuration screen shows different form fields depending on the selected ERP type (Basic Auth fields for IXC, OAuth fields for Hubsoft, etc.)
-  2. A provider can test their ERP connection and see success/failure feedback directly in the UI
-  3. A provider can trigger manual sync and see progress and sync logs in the UI
-  4. The ERP catalog page displays all available connectors with setup instructions
-  5. The scheduler and heatmap use direct ERP connectors -- no N8N webhook URLs are called anywhere in the codebase
-  6. The heatmap displays delinquency data from all configured ERPs, not just IXC
-**Plans**: 2 plans
+  1. Provedor admin pode configurar a lista de cidades atendidas no painel, com autocomplete de cidades brasileiras
+  2. Ao consultar um CPF, o sistema retorna a lista de todos provedores que atendem a mesma regiao do provedor consultante
+  3. Campo cidadesAtendidas persiste no banco e e editavel a qualquer momento pelo admin do provedor
+**Plans**: TBD
 **UI hint**: yes
 
-Plans:
-- [x] 05-01-PLAN.md -- Backend N8N elimination: rewrite heatmap for all ERPs, add connector metadata API, remove N8N routes/storage
-- [ ] 05-02-PLAN.md -- Frontend ERP config UI: dynamic forms per connector type, test/sync controls, catalog with all 6 connectors
-
-### Phase 6: Undocumented ERP Connectors
-**Goal**: All 4 undocumented ERPs (TopSApp, RadiusNet, Gere, ReceitaNet) are registered as stub connectors documenting they lack public API access, satisfying success criteria #3
-**Depends on**: Phase 4
-**Requirements**: ERP-08, ERP-09, ERP-10, ERP-11
+### Phase 2: Motor de Consulta Tempo Real
+**Goal**: Uma consulta de CPF busca em tempo real nos ERPs de todos provedores da regiao, agrega os resultados em um score unico e cacheia por curto periodo
+**Depends on**: Phase 1
+**Requirements**: RT-01, RT-02, RT-03, RT-04, RT-05, CACHE-01, CACHE-02, CACHE-03
 **Success Criteria** (what must be TRUE):
-  1. Each of the 4 ERPs has a working connector that passes connection test with valid credentials
-  2. Each connector fetches and normalizes delinquent customer data into the standard ErpCustomer format
-  3. If any ERP proves to have no usable API, it is documented as unsupported with the reason and deferred to v2
-**Plans**: 1 plan
+  1. POST /api/isp-consultations para um CPF dispara chamadas paralelas aos ERPs de todos provedores configurados na mesma regiao
+  2. Se um ERP nao responde em 10 segundos, a consulta continua com os demais e o resultado indica quais ERPs responderam
+  3. O score ISP (0-100) e calculado a partir dos dados agregados de todos os ERPs regionais que responderam
+  4. Resultado respeita mascaramento LGPD (nome parcial, faixa de valor, endereco sem numero)
+  5. Consulta repetida do mesmo CPF dentro de 5-10 minutos retorna cache em memoria sem ir aos ERPs novamente
+**Plans**: TBD
 
-Plans:
-- [x] 06-01-PLAN.md -- Create stub connectors for TopSApp, RadiusNet, Gere, ReceitaNet and register in engine
-
-### Phase 7: LGPD Hardening
-**Goal**: Cross-provider data sharing is systematically masked through centralized middleware with no bypass paths
-**Depends on**: Phase 3
-**Requirements**: LGPD-01, LGPD-02, LGPD-03
+### Phase 3: Remocao do Sync Centralizado
+**Goal**: O sistema nao armazena mais dados de clientes de outros provedores -- tabela customers contem apenas clientes proprios
+**Depends on**: Phase 2
+**Requirements**: NOSYNC-01, NOSYNC-02, NOSYNC-03
 **Success Criteria** (what must be TRUE):
-  1. A centralized masking function/middleware processes ALL cross-tenant query responses -- no direct data paths bypass it
-  2. ISP consultations for customers of other providers show only: partial name, value range (not exact), street without number, and provider name
-  3. No API endpoint returns complete personal data (full name, full CPF, exact address) of customers belonging to a different provider
-**Plans**: 2 plans
+  1. O scheduler de sync automatico (server/scheduler.ts) nao executa mais sync periodico de dados entre provedores
+  2. Nenhuma logica de upsert insere clientes de outros provedores na tabela customers de um provedor
+  3. A tabela customers de cada provedor contem apenas clientes importados por ele (CSV ou cadastro manual)
+**Plans**: TBD
 
-Plans:
-- [x] 07-01-PLAN.md -- Enhance lgpd-masking.ts with maskOverdueAmount, maskCrossProviderDetail aggregator, and unit tests
-- [x] 07-02-PLAN.md -- Refactor consultas.routes.ts to use centralized masking, fix unmasked customer.name bug
+### Phase 4: Busca por Endereco e Migradores
+**Goal**: Provedores podem consultar por endereco alem de CPF e recebem alertas automaticos de migradores seriais
+**Depends on**: Phase 2
+**Requirements**: ADDR-01, ADDR-02, ADDR-03, MIG-01, MIG-02, MIG-03
+**Success Criteria** (what must be TRUE):
+  1. Provedor pode buscar por CEP ou logradouro e receber todos os registros de inadimplencia naquele endereco, de diferentes provedores
+  2. O sistema gera um "risco por endereco" baseado no historico de inadimplencia no local
+  3. Ao consultar um CPF que tem contrato cancelado recente (< 90 dias) em outro provedor da regiao, o sistema emite alerta de migrador serial
+  4. O alerta de migrador cruza divida ativa + contrato cancelado + consulta por outro provedor para detectar fraude por migracao
+**Plans**: TBD
+
+### Phase 5: UI de Resultado e Admin ERP
+**Goal**: A interface de resultado da consulta mantem o layout validado e a pagina de integracoes ERP e refinada sem mencao a N8N
+**Depends on**: Phase 2, Phase 4
+**Requirements**: UI-01, UI-02, UI-03, UI-04, ADM-01, ADM-02
+**Success Criteria** (what must be TRUE):
+  1. Resultado da consulta exibe score gauge, historico na rede e condicoes obrigatorias no mesmo layout do Replit
+  2. Detalhes por provedor aparecem com mascaramento LGPD completo (nome parcial, faixa de valor, CEP parcial)
+  3. Secao "Condicoes Obrigatorias" mostra restricoes baseadas no score (pagamento antecipado, sem comodato, etc.)
+  4. Botao "Analisar com IA" dispara interpretacao do resultado com streaming
+  5. Pagina de Integracoes no admin exibe campos dinamicos por tipo de ERP e status de conexao em tempo real, sem mencao a N8N
+**Plans**: TBD
+**UI hint**: yes
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 (and 6 in parallel with 5) -> 7
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 (parallel with 3) -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Security & Cleanup | 2/2 | Complete   | 2026-03-30 |
-| 2. Foundation & Docker | 0/3 | Not started | - |
-| 3. Backend Modularization | 0/4 | Not started | - |
-| 4. ERP Connector Engine | 4/4 | Complete | 2026-03-30 |
-| 5. ERP UI & N8N Removal | 1/2 | In Progress|  |
-| 6. Undocumented ERP Connectors | 1/1 | Complete   | 2026-03-31 |
-| 7. LGPD Hardening | 2/2 | Complete   | 2026-03-31 |
+| 1. Regionalizacao | 0/0 | Not started | - |
+| 2. Motor de Consulta Tempo Real | 0/0 | Not started | - |
+| 3. Remocao do Sync Centralizado | 0/0 | Not started | - |
+| 4. Busca por Endereco e Migradores | 0/0 | Not started | - |
+| 5. UI de Resultado e Admin ERP | 0/0 | Not started | - |
