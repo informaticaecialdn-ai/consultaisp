@@ -5,6 +5,7 @@ import { maskCrossProviderDetail } from "../lgpd-masking";
 import { getRegionalProviderIds } from "../services/regional.service";
 import { queryRegionalErps, type RealtimeQueryResult } from "../services/realtime-query.service";
 import { calcularScoreISP, type ISPScoreInput } from "../utils/isp-score";
+import { consultationCache } from "../services/consultation-cache.service";
 
 export function registerConsultasRoutes(): Router {
   const router = Router();
@@ -37,6 +38,17 @@ export function registerConsultasRoutes(): Router {
       const provider = await storage.getProvider(providerId);
       if (!provider) {
         return res.status(400).json({ message: "Provedor nao encontrado" });
+      }
+
+      // ── CACHE CHECK (CACHE-01, CACHE-02) ─────────────────────────
+      const cached = consultationCache.getResult(cleaned, providerId, searchType);
+      if (cached) {
+        console.log(`[CONSULTA] Cache hit for ${cleaned.slice(0, 4)}*** (provider ${providerId})`);
+        return res.json({
+          ...cached,
+          source: "cache",
+          cacheAge: Math.round((Date.now() - cached.cachedAt) / 1000),
+        });
       }
 
       // ── REALTIME ERP QUERY ────────────────────────────────────────
@@ -152,6 +164,9 @@ export function registerConsultasRoutes(): Router {
 
         const scoreResult = calcularScoreISP(scoreInput);
 
+        // RT-03: Map internal 0-1000 score to user-facing 0-100
+        const score100 = Math.round(scoreResult.score / 10);
+
         // Credit cost: 1 per external provider found
         const externalProviders = new Set(allCustomers.filter(c => !c.isSameProvider).map(c => c.providerId));
         const creditsCost = externalProviders.size;
@@ -171,6 +186,7 @@ export function registerConsultasRoutes(): Router {
           searchType,
           notFound,
           score: scoreResult.score,
+          score100, // RT-03: user-facing 0-100
           faixa: scoreResult.faixa,
           nivelRisco: scoreResult.nivelRisco,
           corIndicador: scoreResult.corIndicador,
@@ -189,6 +205,12 @@ export function registerConsultasRoutes(): Router {
           addressMatches: [] as any[],
           source: "erp_direct",
           erpLatencies: erpResults.map(r => ({ provider: r.providerName, erp: r.erpSource, ok: r.ok, ms: r.latencyMs, error: r.error })),
+          erpSummary: {
+            total: erpResults.length,
+            responded: erpResults.filter(r => r.ok).length,
+            failed: erpResults.filter(r => !r.ok).length,
+            timedOut: erpResults.filter(r => r.timedOut).length,
+          },
         };
 
         const consultation = await storage.createIspConsultation({
@@ -201,6 +223,13 @@ export function registerConsultasRoutes(): Router {
           decisionReco: result.decisionReco,
           cost: creditsCost,
           approved: scoreResult.score >= 500,
+        });
+
+        // ── CACHE STORE (CACHE-01) ─────────────────────────────────
+        consultationCache.setResult(cleaned, providerId, searchType, {
+          result,
+          consultation,
+          cachedAt: Date.now(),
         });
 
         return res.json({ consultation, result });
