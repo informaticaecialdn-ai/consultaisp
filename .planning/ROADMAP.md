@@ -46,7 +46,10 @@ Decimal phases appear between their surrounding integers in numeric order.
   1. Provedor admin pode configurar a lista de cidades atendidas no painel, com autocomplete de cidades brasileiras
   2. Ao consultar um CPF, o sistema retorna a lista de todos provedores que atendem a mesma regiao do provedor consultante
   3. Campo cidadesAtendidas persiste no banco e e editavel a qualquer momento pelo admin do provedor
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 01-01-PLAN.md — Schema cidadesAtendidas + cities JSON + regional service + API routes
+- [ ] 01-02-PLAN.md — Admin UI for city configuration with autocomplete
 **UI hint**: yes
 
 ### Phase 2: Motor de Consulta Tempo Real
@@ -102,7 +105,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 (parallel with 3) -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Regionalizacao | 0/0 | Not started | - |
+| 1. Regionalizacao | 0/2 | Planned | - |
 | 2. Motor de Consulta Tempo Real | 0/0 | Not started | - |
 | 3. Remocao do Sync Centralizado | 0/0 | Not started | - |
 | 4. Busca por Endereco e Migradores | 0/0 | Not started | - |
