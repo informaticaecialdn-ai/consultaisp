@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Consulta Tempo Real Regional
 status: executing
-stopped_at: Completed 00-01-PLAN.md
-last_updated: "2026-04-01T20:05:17.035Z"
+stopped_at: Completed 00-03-PLAN.md
+last_updated: "2026-04-01T20:04:58.569Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
@@ -52,7 +52,7 @@ Progress: [█░░░░░░░░░] 8%
 - Trend: -
 
 *Updated after each plan completion*
-| Phase 00 P01 | 1min | 2 tasks | 1 files |
+| Phase 00 P03 | 83s | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -66,9 +66,7 @@ Recent decisions affecting current work:
 - [v2.0 Roadmap]: Sync removal AFTER real-time works (Phase 3) -- safe migration path
 - [v2.0 Roadmap]: Address search and migrator detection grouped (Phase 4) -- both extend the same RT engine
 - [v2.0 Roadmap]: All UI work deferred to Phase 5 -- backend must be solid before wiring frontend
-- [Phase 00]: connect-pg-simple with createTableIfMissing for zero-migration session setup
-- [Phase 00]: SESSION_SECRET throws at startup instead of fallback to insecure default
-- [Phase 00]: requireAdmin accepts both admin and superadmin roles
+- [Phase 00]: Remove requireAuth import from admin.routes.ts since all admin routes use requireSuperAdmin
 
 ### Carry-over from v1.0
 
@@ -87,6 +85,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T20:05:17.026Z
-Stopped at: Completed 00-01-PLAN.md
+Last session: 2026-04-01T20:04:58.548Z
+Stopped at: Completed 00-03-PLAN.md
 Resume file: None
