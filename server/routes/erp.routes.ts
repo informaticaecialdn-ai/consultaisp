@@ -19,44 +19,6 @@ export function registerErpRoutes(): Router {
     return res.json(fields);
   });
 
-  // Temporary diagnostic: test IXC connection from VPS IP
-  // TODO: Remove after confirming IP whitelist works
-  router.get("/api/debug/test-ixc", async (_req, res) => {
-    try {
-      const connector = getConnector("ixc");
-      if (!connector) return res.json({ ok: false, error: "IXC connector not found" });
-
-      const config = {
-        apiUrl: "https://ixc.ngtelecom.net.br",
-        apiToken: "9b6e60f4454dfffe906eaddaab94e7fcb40e5c2e4ef18a6a50f319ca7ea6c7de",
-        apiUser: "351",
-        extra: {},
-      };
-
-      const test = await connector.testConnection(config);
-
-      // If connection works, try fetching a sample
-      let sample = null;
-      if (test.ok) {
-        const delinq = await connector.fetchDelinquents(config);
-        sample = {
-          ok: delinq.ok,
-          message: delinq.message,
-          count: delinq.customers.length,
-          first: delinq.customers[0] ? {
-            cpf: delinq.customers[0].cpfCnpj?.replace(/(\d{3})\d{6}(\d{2})/, "$1******$2"),
-            name: delinq.customers[0].name?.split(" ")[0] + " ***",
-            days: delinq.customers[0].maxDaysOverdue,
-            amount: delinq.customers[0].totalOverdueAmount,
-          } : null,
-        };
-      }
-
-      return res.json({ connection: test, sample });
-    } catch (err: any) {
-      return res.json({ ok: false, error: err.message });
-    }
-  });
 
   router.get("/api/provider/erp-integrations", requireAuth, async (req, res) => {
     try {
