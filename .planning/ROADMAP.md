@@ -48,7 +48,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Campo cidadesAtendidas persiste no banco e e editavel a qualquer momento pelo admin do provedor
 **Plans**: 2 plans
 Plans:
-- [ ] 01-01-PLAN.md — Schema cidadesAtendidas + cities JSON + regional service + API routes
+- [x] 01-01-PLAN.md — Schema cidadesAtendidas + cities JSON + regional service + API routes
 - [ ] 01-02-PLAN.md — Admin UI for city configuration with autocomplete
 **UI hint**: yes
 

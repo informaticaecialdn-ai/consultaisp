@@ -3,9 +3,9 @@
 ## v2.0 Requirements
 
 ### Regionalizacao
-- [ ] **REG-01**: Adicionar campo `cidadesAtendidas` (text array ou jsonb) na tabela providers para definir area de cobertura
+- [x] **REG-01**: Adicionar campo `cidadesAtendidas` (text array ou jsonb) na tabela providers para definir area de cobertura
 - [ ] **REG-02**: UI no admin para configurar cidades/regiao atendida por provedor (autocomplete com cidades do Brasil)
-- [ ] **REG-03**: Ao consultar CPF, identificar automaticamente todos provedores que atendem a mesma regiao do provedor consultante
+- [x] **REG-03**: Ao consultar CPF, identificar automaticamente todos provedores que atendem a mesma regiao do provedor consultante
 
 ### Consulta Tempo Real
 - [ ] **RT-01**: Redesenhar endpoint POST /api/isp-consultations para buscar em tempo real nos ERPs regionais (paralelo)
