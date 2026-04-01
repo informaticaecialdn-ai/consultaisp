@@ -2,18 +2,7 @@ import { Router } from "express";
 import { requireAuth } from "../auth";
 import { getRegionalProviders } from "../services/regional.service";
 import { storage } from "../storage";
-import { readFileSync } from "fs";
-import { resolve } from "path";
-
-// Load cities data — resolve from project root (works in both dev and production bundle)
-const citiesPath = resolve(process.cwd(), "shared/data/cidades-brasil.json");
-const citiesData: Array<{
-  nome: string;
-  uf: string;
-  ibge: string;
-  mesorregiao: string;
-  mesorregiao_id: number;
-}> = JSON.parse(readFileSync(citiesPath, "utf-8"));
+import citiesData from "../../shared/data/cidades-brasil.json";
 
 // Build city-to-mesoregion lookup for fast derivation
 const cityMesoregionMap = new Map<string, string>();
