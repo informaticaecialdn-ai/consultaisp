@@ -27,6 +27,9 @@ export function registerAuthRoutes(): Router {
       req.session.providerId = user.providerId || 0;
       req.session.role = user.role;
       const provider = user.providerId ? await storage.getProvider(user.providerId) : null;
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => err ? reject(err) : resolve());
+      });
       return res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role }, provider });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
@@ -113,6 +116,9 @@ export function registerAuthRoutes(): Router {
       req.session.providerId = user.providerId || 0;
       req.session.role = user.role;
       const provider = user.providerId ? await storage.getProvider(user.providerId) : null;
+      await new Promise<void>((resolve, reject) => {
+        req.session.save((err) => err ? reject(err) : resolve());
+      });
       return res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role }, provider });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
