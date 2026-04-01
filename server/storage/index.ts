@@ -142,7 +142,6 @@ export interface IStorage {
   getProviderWebhookToken(providerId: number): Promise<string>;
   regenerateWebhookToken(providerId: number): Promise<string>;
   getProviderByWebhookToken(token: string): Promise<Provider | undefined>;
-  syncErpCustomers(providerId: number, erpSource: string, customersData: any[]): Promise<{ upserted: number; errors: number }>;
 
   getErpIntegrations(providerId: number): Promise<ErpIntegration[]>;
   getAllEnabledErpIntegrationsWithCredentials(): Promise<Array<ErpIntegration & { providerName: string }>>;
@@ -213,7 +212,6 @@ class DatabaseStorage implements IStorage {
   getCustomersByExactAddress = (address: string, city: string, state: string | null, cep: string | null, excludeCpfCnpj: string) => this._customers.getCustomersByExactAddress(address, city, state, cep, excludeCpfCnpj);
   getCustomersByAddressHash = (addressHash: string, excludeCpfCnpj?: string) => this._customers.getCustomersByAddressHash(addressHash, excludeCpfCnpj);
   createCustomer = (customer: InsertCustomer) => this._customers.createCustomer(customer);
-  syncErpCustomers = (providerId: number, erpSource: string, customersData: any[]) => this._customers.syncErpCustomers(providerId, erpSource, customersData);
 
   // Consultations
   getIspConsultationsByProvider = (providerId: number) => this._consultations.getIspConsultationsByProvider(providerId);

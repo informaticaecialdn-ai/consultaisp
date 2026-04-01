@@ -65,49 +65,6 @@ export function registerErpRoutes(): Router {
     }
   });
 
-  router.post("/api/provider/erp-integrations/:source/sync", requireAuth, async (req, res) => {
-    try {
-      const source = String(req.params.source);
-      const providerId = req.session.providerId!;
-      const connector = getConnector(source);
-      if (!connector) {
-        return res.status(400).json({ ok: false, message: "ERP nao suportado" });
-      }
-      const integrations = await storage.getErpIntegrations(providerId);
-      const intg = integrations.find(i => i.erpSource === source);
-      if (!intg?.apiUrl || !intg?.apiToken) {
-        return res.status(400).json({ ok: false, message: "Configure a URL e o token antes de sincronizar" });
-      }
-      const config = buildConnectorConfig(intg);
-      const fetchResult = await connector.fetchDelinquents(config);
-      if (!fetchResult.ok) {
-        await storage.createErpSyncLog({
-          providerId, erpSource: source,
-          upserted: 0, errors: 0, status: "error",
-          ipAddress: null, payload: { error: fetchResult.message },
-          syncType: "manual", recordsProcessed: 0, recordsFailed: 0,
-        });
-        await storage.upsertErpIntegration(providerId, source, { status: "error", lastSyncStatus: "error", lastSyncAt: new Date() });
-        return res.status(502).json({ ok: false, message: fetchResult.message });
-      }
-      const syncResult = await storage.syncErpCustomers(providerId, source, fetchResult.customers);
-      const syncStatus = syncResult.errors > 0 && syncResult.upserted === 0 ? "error" : syncResult.errors > 0 ? "partial" : "success";
-      await storage.createErpSyncLog({
-        providerId, erpSource: source,
-        upserted: syncResult.upserted, errors: syncResult.errors, status: syncStatus,
-        ipAddress: null, payload: { total: fetchResult.customers.length },
-        syncType: "manual", recordsProcessed: fetchResult.customers.length, recordsFailed: syncResult.errors,
-      });
-      await storage.upsertErpIntegration(providerId, source, {
-        status: syncStatus, lastSyncStatus: syncStatus, lastSyncAt: new Date(),
-      });
-      await storage.incrementErpIntegrationCounters(providerId, source, syncResult.upserted, syncResult.errors);
-      return res.json({ ok: true, synced: syncResult.upserted, errors: syncResult.errors, total: fetchResult.customers.length });
-    } catch (error: any) {
-      return res.status(500).json({ ok: false, message: error.message });
-    }
-  });
-
   router.get("/api/provider/erp-sync-logs", requireAuth, async (req, res) => {
     try {
       const { source, limit } = req.query;
