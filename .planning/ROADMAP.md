@@ -84,9 +84,9 @@ Plans:
   5. Consulta repetida do mesmo CPF dentro de 5-10 minutos retorna cache em memoria sem ir aos ERPs novamente
 **Plans**: 3 plans
 Plans:
-- [ ] 02-01-PLAN.md — In-memory TTL cache service for consultation results
-- [ ] 02-02-PLAN.md — Fix ERP timeout to 10s and add failure reporting
-- [ ] 02-03-PLAN.md — Wire cache into consultas route + score 0-100 mapping
+- [x] 02-01-PLAN.md — In-memory TTL cache service for consultation results
+- [x] 02-02-PLAN.md — Fix ERP timeout to 10s and add failure reporting
+- [x] 02-03-PLAN.md — Wire cache into consultas route + score 0-100 mapping
 
 ### Phase 3: Remocao do Sync Centralizado
 **Goal**: O sistema nao armazena mais dados de clientes de outros provedores -- tabela customers contem apenas clientes proprios
