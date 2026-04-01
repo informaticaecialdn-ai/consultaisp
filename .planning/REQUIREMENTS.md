@@ -2,6 +2,17 @@
 
 ## v2.0 Requirements
 
+### Admin SaaS Foundation (Phase 0 — Pre-requisito)
+- [ ] **AUTH-01**: Fix login — senha scrypt hash deve bater com seed, login/logout/sessao funcional para todos os roles
+- [ ] **AUTH-02**: Hardening de sessao — SESSION_SECRET obrigatorio via env, cookie secure condicional, session store persistente (connect-pg-simple)
+- [ ] **AUTH-03**: Credenciais superadmin via env vars (nao hardcoded no seed)
+- [ ] **TENANT-01**: Middleware de tenant isolation auditado — toda rota com dados de provedor filtra por req.session.providerId
+- [ ] **TENANT-02**: CNPJ lookup endpoint protegido com requireAuth (atualmente publico)
+- [ ] **CRUD-01**: Admin CRUD provedores funcional — criar, editar, listar, desativar provedor com validacao
+- [ ] **CRUD-02**: Admin CRUD usuarios por provedor — criar, editar, listar, remover usuario vinculado ao provedor
+- [ ] **CRUD-03**: Admin ERP config por provedor — salvar/testar credenciais ERP (campos dinamicos por tipo), sem mencao a N8N
+- [ ] **SEED-01**: Seed limpo — apenas superadmin + dados minimos de teste, sem provedores fake misturados com reais
+
 ### Regionalizacao
 - [x] **REG-01**: Adicionar campo `cidadesAtendidas` (text array ou jsonb) na tabela providers para definir area de cobertura
 - [ ] **REG-02**: UI no admin para configurar cidades/regiao atendida por provedor (autocomplete com cidades do Brasil)
@@ -63,6 +74,15 @@
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
+| AUTH-01 | Phase 0 | Pending |
+| AUTH-02 | Phase 0 | Pending |
+| AUTH-03 | Phase 0 | Pending |
+| TENANT-01 | Phase 0 | Pending |
+| TENANT-02 | Phase 0 | Pending |
+| CRUD-01 | Phase 0 | Pending |
+| CRUD-02 | Phase 0 | Pending |
+| CRUD-03 | Phase 0 | Pending |
+| SEED-01 | Phase 0 | Pending |
 | REG-01 | Phase 1 | Pending |
 | REG-02 | Phase 1 | Pending |
 | REG-03 | Phase 1 | Pending |
