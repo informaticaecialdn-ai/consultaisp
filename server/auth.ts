@@ -45,7 +45,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  if (!req.session.userId || req.session.role !== "admin") {
+  if (!req.session.userId || (req.session.role !== "admin" && req.session.role !== "superadmin")) {
     return res.status(403).json({ message: "Acesso negado" });
   }
   next();
