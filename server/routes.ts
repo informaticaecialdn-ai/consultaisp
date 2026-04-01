@@ -9,6 +9,8 @@ import { slugifySubdomain, buildSubdomainUrl } from "./tenant";
 import crypto from "crypto";
 import { streamConsultationAnalysis, streamAntiFraudAnalysis } from "./ai-analysis";
 import { registerRegionalRoutes } from "./routes/regional.routes";
+import { getConnector } from "./erp/registry";
+import "./erp/index"; // ensure all connectors are registered
 
 function calculateIspScore(params: {
   maxDaysOverdue: number;
@@ -2139,30 +2141,25 @@ export async function registerRoutes(
 
   app.post("/api/provider/n8n-config/test", requireAuth, async (req, res) => {
     try {
-      const config = await storage.getN8nConfig(req.session.providerId!);
-      const erpSource = config.n8nErpProvider || "ixc";
+      const providerId = req.session.providerId!;
+      const integrations = await storage.getErpIntegrations(providerId);
+      const erpIntg = integrations.find(i => i.isEnabled && i.apiUrl && i.apiToken);
 
-      const { getConnector } = await import("./erp/registry.js");
-      await import("./erp/index.js");
-      const connector = getConnector(erpSource);
-
-      if (connector && config.n8nWebhookUrl) {
-        let apiUser: string | undefined;
-        let apiToken = config.n8nAuthToken || "";
-        if (apiToken.includes(":")) {
-          const parts = apiToken.split(":", 2);
-          apiUser = parts[0];
-          apiToken = parts[1];
+      if (erpIntg) {
+        const connector = getConnector(erpIntg.erpSource);
+        if (connector) {
+          const testResult = await connector.testConnection({
+            apiUrl: erpIntg.apiUrl!,
+            apiToken: erpIntg.apiToken!,
+            apiUser: erpIntg.apiUser || undefined,
+            extra: {},
+          });
+          return res.json(testResult);
         }
-        const apiUrl = config.n8nWebhookUrl.startsWith("http") ? config.n8nWebhookUrl : `https://${config.n8nWebhookUrl}`;
-        const testResult = await connector.testConnection({ apiUrl, apiToken, apiUser, extra: {} });
-        return res.json(testResult);
+        return res.json({ ok: false, message: `Conector ${erpIntg.erpSource} nao disponivel` });
       }
 
-      if (!config.n8nWebhookUrl) {
-        return res.json({ ok: false, message: "URL do ERP nao configurada" });
-      }
-      return res.json({ ok: false, message: `Conector ${erpSource} nao disponivel` });
+      return res.json({ ok: false, message: "ERP nao configurado. Salve a URL e credenciais primeiro." });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
     }
@@ -2834,16 +2831,32 @@ export async function registerRoutes(
     }
   });
 
-  // Test ERP connection — uses direct connector instead of N8N webhook
+  // Test ERP connection — uses direct connector (static import, no dynamic import)
   app.post("/api/admin/providers/:id/n8n-config/test", requireSuperAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+
+      // Try erp_integrations table first (new flow), fallback to N8N fields
+      const integrations = await storage.getErpIntegrations(id);
+      const erpIntg = integrations.find(i => i.isEnabled && i.apiUrl && i.apiToken);
+
+      if (erpIntg) {
+        const connector = getConnector(erpIntg.erpSource);
+        if (connector) {
+          const testResult = await connector.testConnection({
+            apiUrl: erpIntg.apiUrl!,
+            apiToken: erpIntg.apiToken!,
+            apiUser: erpIntg.apiUser || undefined,
+            extra: {},
+          });
+          return res.json(testResult);
+        }
+        return res.json({ ok: false, message: `Conector ${erpIntg.erpSource} nao disponivel` });
+      }
+
+      // Fallback: try N8N fields on provider
       const config = await storage.getN8nConfig(id);
       const erpSource = config.n8nErpProvider || "ixc";
-
-      // Try direct connector test first
-      const { getConnector } = await import("./erp/registry.js");
-      await import("./erp/index.js"); // ensure connectors registered
       const connector = getConnector(erpSource);
 
       if (connector && config.n8nWebhookUrl) {
@@ -2859,13 +2872,9 @@ export async function registerRoutes(
         return res.json(testResult);
       }
 
-      // Fallback: no connector or no URL
-      if (!config.n8nWebhookUrl) {
-        return res.json({ ok: false, message: "URL do ERP nao configurada" });
-      }
-      return res.json({ ok: false, message: `Conector ${erpSource} nao disponivel` });
+      return res.json({ ok: false, message: "ERP nao configurado. Salve a URL e credenciais primeiro." });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.json({ ok: false, message: `Erro: ${error.message}` });
     }
   });
 
