@@ -1,26 +1,32 @@
 import { Request, Response, NextFunction } from "express";
 import session from "express-session";
-import createMemoryStore from "memorystore";
+import ConnectPgSimple from "connect-pg-simple";
+import pg from "pg";
 
-const MemoryStore = createMemoryStore(session);
+const PgSession = ConnectPgSimple(session);
+const sessionPool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 
-const isProduction = process.env.NODE_ENV === "production";
+if (!process.env.SESSION_SECRET) {
+  throw new Error("SESSION_SECRET environment variable is required");
+}
 
 export const sessionMiddleware = session({
-  store: new MemoryStore({
-    checkPeriod: 86400000,
+  store: new PgSession({
+    pool: sessionPool,
+    tableName: "session",
+    createTableIfMissing: true,
   }),
-  secret: process.env.SESSION_SECRET || "dev-secret-change-me",
-  resave: true,
-  saveUninitialized: true,
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
   name: "cid",
   cookie: {
-    secure: false,
+    secure: process.env.NODE_ENV === "production",
     maxAge: 30 * 24 * 60 * 60 * 1000,
     httpOnly: true,
     sameSite: "lax",
   },
-  proxy: isProduction,
+  proxy: process.env.NODE_ENV === "production",
 });
 
 declare module "express-session" {
@@ -39,7 +45,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  if (!req.session.userId || req.session.role !== "admin") {
+  if (!req.session.userId || (req.session.role !== "admin" && req.session.role !== "superadmin")) {
     return res.status(403).json({ message: "Acesso negado" });
   }
   next();
