@@ -54,7 +54,7 @@ export function registerRegionalRoutes(): Router {
       if (!valid) {
         return res.status(400).json({ message: "Formato invalido. Use 'Cidade - UF'" });
       }
-      const updated = await storage.updateProviderCidades(providerId, cidades);
+      const updated = await storage.updateProviderProfile(providerId, { cidadesAtendidas: cidades } as any);
       return res.json({ cidadesAtendidas: updated.cidadesAtendidas });
     } catch (err) {
       console.error("Error updating cidades:", err);
