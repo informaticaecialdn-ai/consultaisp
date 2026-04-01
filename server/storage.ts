@@ -134,6 +134,7 @@ export interface IStorage {
   deleteProviderDocument(id: number, providerId: number): Promise<void>;
   updateProviderDocumentStatus(id: number, status: string, reviewedById: number, reviewerName: string, rejectionReason?: string): Promise<ProviderDocument>;
   updateProviderProfile(id: number, data: Partial<Provider>): Promise<Provider>;
+  updateProviderCidades(id: number, cidades: string[]): Promise<Provider>;
 
   getProviderWebhookToken(providerId: number): Promise<string>;
   regenerateWebhookToken(providerId: number): Promise<string>;
@@ -1090,6 +1091,14 @@ export class DatabaseStorage implements IStorage {
 
   async updateProviderProfile(id: number, data: Partial<Provider>): Promise<Provider> {
     const [updated] = await db.update(providers).set(data as any).where(eq(providers.id, id)).returning();
+    return updated;
+  }
+
+  async updateProviderCidades(id: number, cidades: string[]): Promise<Provider> {
+    const [updated] = await db.update(providers)
+      .set({ cidadesAtendidas: cidades } as any)
+      .where(eq(providers.id, id))
+      .returning();
     return updated;
   }
 

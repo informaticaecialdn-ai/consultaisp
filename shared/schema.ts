@@ -32,6 +32,7 @@ export const providers = pgTable("providers", {
   n8nAuthToken: text("n8n_auth_token"),
   n8nEnabled: boolean("n8n_enabled").default(false),
   n8nErpProvider: text("n8n_erp_provider"),
+  cidadesAtendidas: text("cidades_atendidas").array().default(sql`'{}'::text[]`),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
