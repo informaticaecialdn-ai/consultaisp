@@ -1,21 +1,14 @@
 import { Request, Response, NextFunction } from "express";
 import session from "express-session";
-import ConnectPgSimple from "connect-pg-simple";
-import { Pool } from "pg";
+import createMemoryStore from "memorystore";
 
-const PgSession = ConnectPgSimple(session);
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
+const MemoryStore = createMemoryStore(session);
 
 export const sessionMiddleware = session({
-  store: new PgSession({
-    pool,
-    tableName: "session",
-    createTableIfMissing: true,
+  store: new MemoryStore({
+    checkPeriod: 86400000, // prune expired entries every 24h
   }),
-  secret: process.env.SESSION_SECRET!,
+  secret: process.env.SESSION_SECRET || "dev-secret-change-me",
   resave: false,
   saveUninitialized: false,
   cookie: {
