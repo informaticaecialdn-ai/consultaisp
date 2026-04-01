@@ -2109,8 +2109,28 @@ export async function registerRoutes(
 
   app.patch("/api/provider/n8n-config", requireAuth, async (req, res) => {
     try {
+      const providerId = req.session.providerId!;
       const { n8nWebhookUrl, n8nAuthToken, n8nEnabled, n8nErpProvider } = req.body;
-      await storage.saveN8nConfig(req.session.providerId!, { n8nWebhookUrl, n8nAuthToken, n8nEnabled, n8nErpProvider });
+
+      // Sync to erp_integrations for direct-connector flow
+      if (n8nErpProvider && n8nWebhookUrl) {
+        let apiUser: string | undefined;
+        let apiToken = n8nAuthToken || "";
+        if (apiToken.includes(":")) {
+          const parts = apiToken.split(":", 2);
+          apiUser = parts[0];
+          apiToken = parts[1];
+        }
+        const apiUrl = n8nWebhookUrl.startsWith("http") ? n8nWebhookUrl : `https://${n8nWebhookUrl}`;
+        await storage.upsertErpIntegration(providerId, n8nErpProvider, {
+          apiUrl,
+          apiToken,
+          apiUser: apiUser || null,
+          isEnabled: n8nEnabled !== false,
+        } as any);
+      }
+
+      await storage.saveN8nConfig(providerId, { n8nWebhookUrl, n8nAuthToken, n8nEnabled, n8nErpProvider });
       return res.json({ ok: true });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
@@ -2120,36 +2140,29 @@ export async function registerRoutes(
   app.post("/api/provider/n8n-config/test", requireAuth, async (req, res) => {
     try {
       const config = await storage.getN8nConfig(req.session.providerId!);
+      const erpSource = config.n8nErpProvider || "ixc";
+
+      const { getConnector } = await import("./erp/registry.js");
+      await import("./erp/index.js");
+      const connector = getConnector(erpSource);
+
+      if (connector && config.n8nWebhookUrl) {
+        let apiUser: string | undefined;
+        let apiToken = config.n8nAuthToken || "";
+        if (apiToken.includes(":")) {
+          const parts = apiToken.split(":", 2);
+          apiUser = parts[0];
+          apiToken = parts[1];
+        }
+        const apiUrl = config.n8nWebhookUrl.startsWith("http") ? config.n8nWebhookUrl : `https://${config.n8nWebhookUrl}`;
+        const testResult = await connector.testConnection({ apiUrl, apiToken, apiUser, extra: {} });
+        return res.json(testResult);
+      }
+
       if (!config.n8nWebhookUrl) {
-        return res.json({ ok: false, message: "URL do webhook nao configurada" });
+        return res.json({ ok: false, message: "URL do ERP nao configurada" });
       }
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (config.n8nAuthToken) {
-        headers["Authorization"] = `Basic ${config.n8nAuthToken}`;
-      }
-      const testPayload = {
-        searchType: "document",
-        document: "00000000000",
-        providerId: String(req.session.providerId),
-        test: true,
-      };
-      try {
-        const response = await fetch(config.n8nWebhookUrl, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(testPayload),
-          signal: AbortSignal.timeout(10000),
-        });
-        if (response.status === 401) {
-          return res.json({ ok: false, message: "Erro 401: Token de autenticacao invalido" });
-        }
-        if (response.ok || response.status === 404) {
-          return res.json({ ok: true, message: `Conexao estabelecida (HTTP ${response.status})` });
-        }
-        return res.json({ ok: false, message: `Erro HTTP ${response.status}` });
-      } catch (fetchErr: any) {
-        return res.json({ ok: false, message: `Falha na conexao: ${fetchErr.message}` });
-      }
+      return res.json({ ok: false, message: `Conector ${erpSource} nao disponivel` });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
     }
@@ -2788,10 +2801,32 @@ export async function registerRoutes(
     }
   });
 
+  // Save ERP config — redirects N8N fields to erp_integrations table
   app.patch("/api/admin/providers/:id/n8n-config", requireSuperAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const { n8nWebhookUrl, n8nAuthToken, n8nEnabled, n8nErpProvider } = req.body;
+
+      // Also save to erp_integrations for the new direct-connector flow
+      if (n8nErpProvider && n8nWebhookUrl) {
+        // Parse IXC-style token "userId:token" into apiUser + apiToken
+        let apiUser: string | undefined;
+        let apiToken = n8nAuthToken || "";
+        if (apiToken.includes(":")) {
+          const parts = apiToken.split(":", 2);
+          apiUser = parts[0];
+          apiToken = parts[1];
+        }
+        const apiUrl = n8nWebhookUrl.startsWith("http") ? n8nWebhookUrl : `https://${n8nWebhookUrl}`;
+        await storage.upsertErpIntegration(id, n8nErpProvider, {
+          apiUrl,
+          apiToken,
+          apiUser: apiUser || null,
+          isEnabled: n8nEnabled !== false,
+        } as any);
+      }
+
+      // Keep legacy N8N fields in sync for backwards compat
       await storage.saveN8nConfig(id, { n8nWebhookUrl, n8nAuthToken, n8nEnabled, n8nErpProvider });
       return res.json({ ok: true });
     } catch (error: any) {
@@ -2799,30 +2834,36 @@ export async function registerRoutes(
     }
   });
 
+  // Test ERP connection — uses direct connector instead of N8N webhook
   app.post("/api/admin/providers/:id/n8n-config/test", requireSuperAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const config = await storage.getN8nConfig(id);
+      const erpSource = config.n8nErpProvider || "ixc";
+
+      // Try direct connector test first
+      const { getConnector } = await import("./erp/registry.js");
+      await import("./erp/index.js"); // ensure connectors registered
+      const connector = getConnector(erpSource);
+
+      if (connector && config.n8nWebhookUrl) {
+        let apiUser: string | undefined;
+        let apiToken = config.n8nAuthToken || "";
+        if (apiToken.includes(":")) {
+          const parts = apiToken.split(":", 2);
+          apiUser = parts[0];
+          apiToken = parts[1];
+        }
+        const apiUrl = config.n8nWebhookUrl.startsWith("http") ? config.n8nWebhookUrl : `https://${config.n8nWebhookUrl}`;
+        const testResult = await connector.testConnection({ apiUrl, apiToken, apiUser, extra: {} });
+        return res.json(testResult);
+      }
+
+      // Fallback: no connector or no URL
       if (!config.n8nWebhookUrl) {
-        return res.json({ ok: false, message: "URL do webhook nao configurada" });
+        return res.json({ ok: false, message: "URL do ERP nao configurada" });
       }
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (config.n8nAuthToken) {
-        headers["Authorization"] = `Basic ${config.n8nAuthToken}`;
-      }
-      try {
-        const response = await fetch(config.n8nWebhookUrl, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ searchType: "document", document: "00000000000", providerId: String(id), test: true }),
-          signal: AbortSignal.timeout(10000),
-        });
-        if (response.status === 401) return res.json({ ok: false, message: "Erro 401: Token Basic Auth invalido" });
-        if (response.ok || response.status === 404) return res.json({ ok: true, message: `Conexao estabelecida (HTTP ${response.status})` });
-        return res.json({ ok: false, message: `Erro HTTP ${response.status}` });
-      } catch (fetchErr: any) {
-        return res.json({ ok: false, message: `Falha na conexao: ${fetchErr.message}` });
-      }
+      return res.json({ ok: false, message: `Conector ${erpSource} nao disponivel` });
     } catch (error: any) {
       return res.status(500).json({ message: error.message });
     }

@@ -1169,7 +1169,7 @@ export default function AdminSistemaPage() {
         body: JSON.stringify({ n8nWebhookUrl: form.url, n8nAuthToken: form.token, n8nErpProvider: form.erpProvider || null }),
         credentials: "include",
       });
-      toast({ title: "N8N salvo", description: "Configuracao N8N atualizada com sucesso." });
+      toast({ title: "ERP salvo", description: "Configuracao de integracao atualizada com sucesso." });
       qc.invalidateQueries({ queryKey: ["/api/admin/providers"] });
     } catch {
       toast({ title: "Erro", description: "Nao foi possivel salvar.", variant: "destructive" });
@@ -2393,7 +2393,7 @@ export default function AdminSistemaPage() {
                             {adminSelectedErp && (
                               <>
                                 <div className="space-y-1.5">
-                                  <label className="text-xs font-medium text-slate-600">URL do Servidor {adminSelectedErp.toUpperCase()}</label>
+                                  <label className="text-xs font-medium text-slate-600">URL do ERP {adminSelectedErp.toUpperCase()}</label>
                                   <Input
                                     placeholder={adminSelectedErp === "ixc" ? "https://ixc.seudominio.com.br" : adminSelectedErp === "mk" ? "http://192.168.1.100:8311" : "https://erp.seudominio.com.br"}
                                     value={form.url}
@@ -2403,7 +2403,7 @@ export default function AdminSistemaPage() {
                                 </div>
                                 <div className="space-y-1.5">
                                   <label className="text-xs font-medium text-slate-600">
-                                    {adminSelectedErp === "ixc" ? "Token do Usuario IXC" :
+                                    {adminSelectedErp === "ixc" ? "Credencial IXC (ID:Token)" :
                                      adminSelectedErp === "mk" ? "Token do Usuario MK" :
                                      adminSelectedErp === "rbx" ? "Chave de Integracao RBX" :
                                      "Token / Credencial de Acesso"}
@@ -3259,7 +3259,7 @@ export default function AdminSistemaPage() {
                 <div className="p-4 border-b flex items-center justify-between">
                   <h3 className="font-semibold text-sm flex items-center gap-2">
                     <MapPin className="w-4 h-4 text-orange-500" />
-                    Fontes do Mapa de Calor — N8N ({autoSyncStatus.heatmapSources.length} provedores)
+                    Fontes do Mapa de Calor — ERP ({autoSyncStatus.heatmapSources.length} provedores)
                   </h3>
                 </div>
                 <div className="divide-y">
@@ -3275,10 +3275,10 @@ export default function AdminSistemaPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-medium truncate">{src.providerName}</span>
-                            <Badge variant="outline" className="text-[10px] uppercase font-mono">IXC via N8N</Badge>
+                            <Badge variant="outline" className="text-[10px] uppercase font-mono">IXC Direto</Badge>
                             <Badge className={`text-[10px] ${cacheColor}`}>{src.status === "ok" ? "ok" : src.status === "error" ? "erro" : "aguardando"}</Badge>
                             {!src.n8nEnabled && (
-                              <Badge className="text-[10px] bg-gray-100 text-gray-500">N8N desativado</Badge>
+                              <Badge className="text-[10px] bg-gray-100 text-gray-500">ERP desativado</Badge>
                             )}
                           </div>
                           <div className="flex items-center gap-4 mt-1 text-[11px] text-muted-foreground flex-wrap">

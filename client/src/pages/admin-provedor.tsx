@@ -1104,7 +1104,7 @@ function IntegracaoTab({ providerId, n8nErpProvider, n8nEnabled }: { providerId:
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-sm font-semibold">{erp.name}</p>
                       {isN8n && (
-                        <span className="text-xs bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded-full font-medium">Via N8N</span>
+                        <span className="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium">Configurado</span>
                       )}
                       {hasCredentials && status && (
                         <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
