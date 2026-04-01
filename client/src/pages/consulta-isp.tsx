@@ -332,7 +332,7 @@ export default function ConsultaISPPage() {
   const [addressNumber, setAddressNumber] = useState("");
   const [addressComplement, setAddressComplement] = useState("");
 
-  // Installation address (CPF/CNPJ mode — optional address cross-reference via N8N)
+  // Installation address (CPF/CNPJ mode — optional address cross-reference via ERP)
   const [showInstallAddr, setShowInstallAddr] = useState(false);
   const [installCepQuery, setInstallCepQuery] = useState("");
   const [installCepData, setInstallCepData] = useState<CepData | null>(null);
@@ -960,7 +960,7 @@ ${addrRows ? `<section>
                         <div className="flex items-start gap-2">
                           <AlertTriangle className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
                           <p className="text-xs text-blue-800 font-medium">
-                            Informar o endereço de instalação permite cruzar com TODOS os provedores da rede N8N — mesmo que o CPF seja limpo, o endereço pode ter histórico de inadimplentes com outros documentos.
+                            Informar o endereço de instalação permite cruzar com TODOS os provedores da rede ISP — mesmo que o CPF seja limpo, o endereço pode ter histórico de inadimplentes com outros documentos.
                           </p>
                         </div>
 
@@ -1021,7 +1021,7 @@ ${addrRows ? `<section>
                           <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2">
                             <CheckCircle className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
                             <p className="text-xs text-green-700 font-medium">
-                              Endereço confirmado — será cruzado na rede N8N junto com o CPF/CNPJ
+                              Endereço confirmado — será cruzado na rede ISP junto com o CPF/CNPJ
                             </p>
                           </div>
                         )}
@@ -1826,7 +1826,7 @@ ${addrRows ? `<section>
               </div>
             )}
 
-            {/* ── CRUZAMENTO DE ENDEREÇO (N8N) ── */}
+            {/* ── CRUZAMENTO DE ENDEREÇO ── */}
             {result && result.addressMatches && result.addressMatches.length > 0 && (
               <Card
                 className={`overflow-hidden shadow-lg rounded-2xl border-2 ${
@@ -1850,7 +1850,7 @@ ${addrRows ? `<section>
                     <h3 className="text-base font-semibold text-slate-900">
                       {result.notFound && result.addressMatches.some(m => m.hasDebt)
                         ? "ALERTA CRÍTICO — CPF limpo, mas endereço comprometido"
-                        : "Alerta de Cruzamento por Endereço — Rede N8N"
+                        : "Alerta de Cruzamento por Endereco — Rede ISP"
                       }
                     </h3>
                     <p className={`text-sm ${result.notFound && result.addressMatches.some(m => m.hasDebt) ? "text-red-700 font-semibold" : "text-orange-700"}`}>
@@ -1886,7 +1886,7 @@ ${addrRows ? `<section>
                     <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4 flex items-start gap-2">
                       <AlertTriangle className="w-4 h-4 text-orange-600 mt-0.5 flex-shrink-0" />
                       <p className="text-sm text-orange-800">
-                        Outros cadastros encontrados no mesmo endereço exato via rede N8N. Pode indicar uso de documentos diferentes de membros da mesma família após inadimplência anterior.
+                        Outros cadastros encontrados no mesmo endereço exato via rede ISP. Pode indicar uso de documentos diferentes de membros da mesma família após inadimplência anterior.
                       </p>
                     </div>
                   )}
@@ -1952,7 +1952,7 @@ ${addrRows ? `<section>
                   <div className="flex items-center gap-2 mt-4 pt-3 border-t border-slate-100">
                     <div className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />
                     <p className="text-xs text-slate-400">
-                      Cruzamento realizado via rede N8N integrada — dados parcialmente anonimizados conforme política de privacidade.
+                      Cruzamento realizado via rede ISP integrada — dados parcialmente anonimizados conforme política de privacidade.
                     </p>
                   </div>
                 </div>

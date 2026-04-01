@@ -784,7 +784,7 @@ export default function AdminProvedorPage() {
         </TabsContent>
 
         {/* TAB: INTEGRACAO ERP */}
-        <IntegracaoTab providerId={parseInt(id!)} n8nErpProvider={provider.n8nErpProvider} n8nEnabled={provider.n8nEnabled} />
+        <IntegracaoTab providerId={parseInt(id!)} erpSource={provider.erpSource} erpEnabled={provider.erpEnabled} />
 
       </Tabs>
 
@@ -1021,7 +1021,7 @@ function relDateAdmin(d: string | null): string {
   return `${Math.floor(diff / 1440)}d atras`;
 }
 
-function IntegracaoTab({ providerId, n8nErpProvider, n8nEnabled }: { providerId: number; n8nErpProvider: string | null; n8nEnabled: boolean }) {
+function IntegracaoTab({ providerId, erpSource, erpEnabled }: { providerId: number; erpSource: string | null; erpEnabled: boolean }) {
   const { data, isLoading } = useQuery<{
     token: string;
     integrations: Array<{
@@ -1054,7 +1054,7 @@ function IntegracaoTab({ providerId, n8nErpProvider, n8nEnabled }: { providerId:
   const integrationsWithCreds = integrations.filter(i => i.apiUrl && i.apiToken);
   const activeErpKeys = new Set<string>([
     ...integrationsWithCreds.map(i => i.erpSource),
-    ...(n8nErpProvider ? [n8nErpProvider] : []),
+    ...(erpSource ? [erpSource] : []),
   ]);
   const displayErps = ADMIN_ERP_LIST.filter(e => activeErpKeys.has(e.key));
   const hasAnyErp = displayErps.length > 0;
@@ -1064,7 +1064,7 @@ function IntegracaoTab({ providerId, n8nErpProvider, n8nEnabled }: { providerId:
       {/* Header stats */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: "ERPs Ativos", value: n8nEnabled && n8nErpProvider ? 1 : integrations.filter(i => i.isEnabled).length, color: "text-emerald-600" },
+          { label: "ERPs Ativos", value: erpEnabled && erpSource ? 1 : integrations.filter(i => i.isEnabled).length, color: "text-emerald-600" },
           { label: "Total Sincronizados", value: integrations.reduce((s, i) => s + (i.totalSynced || 0), 0).toLocaleString("pt-BR"), color: "text-blue-600" },
           { label: "Total de Erros", value: integrations.reduce((s, i) => s + (i.totalErrors || 0), 0).toLocaleString("pt-BR"), color: "text-rose-500" },
         ].map(s => (
@@ -1091,9 +1091,9 @@ function IntegracaoTab({ providerId, n8nErpProvider, n8nEnabled }: { providerId:
           <div className="divide-y">
             {displayErps.map(erp => {
               const intg = getIntg(erp.key);
-              const isN8n = n8nErpProvider === erp.key;
+              const isActiveErp = erpSource === erp.key;
               const hasCredentials = !!(intg?.apiUrl && intg?.apiToken);
-              const isEnabled = isN8n ? n8nEnabled : (intg?.isEnabled ?? false);
+              const isEnabled = isActiveErp ? erpEnabled : (intg?.isEnabled ?? false);
               const status = intg?.lastSyncStatus ?? null;
               return (
                 <div key={erp.key} className="px-5 py-4 flex items-center gap-3" data-testid={`row-erp-${erp.key}`}>
@@ -1103,7 +1103,7 @@ function IntegracaoTab({ providerId, n8nErpProvider, n8nEnabled }: { providerId:
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-sm font-semibold">{erp.name}</p>
-                      {isN8n && (
+                      {isActiveErp && (
                         <span className="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium">Configurado</span>
                       )}
                       {hasCredentials && status && (
@@ -1120,7 +1120,7 @@ function IntegracaoTab({ providerId, n8nErpProvider, n8nEnabled }: { providerId:
                         {(intg!.totalSynced || 0).toLocaleString("pt-BR")} registros · {relDateAdmin(intg!.lastSyncAt)}
                         {(intg!.totalErrors || 0) > 0 && <span className="text-rose-500 ml-1">· {intg!.totalErrors} erros</span>}
                       </p>
-                    ) : isN8n ? (
+                    ) : isActiveErp ? (
                       <p className="text-xs text-muted-foreground mt-0.5">Configurado pelo administrador do sistema</p>
                     ) : null}
                   </div>

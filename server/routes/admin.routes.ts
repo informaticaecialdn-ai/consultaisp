@@ -501,7 +501,7 @@ export function registerAdminRoutes(): Router {
     }
   });
 
-  // ── ERP Connection Test (replaces old N8N test) ──
+  // ── ERP Connection Test ──
   router.post("/api/admin/providers/:id/erp-test", requireSuperAdmin, async (req, res) => {
     try {
       const id = parseInt(String(req.params.id));

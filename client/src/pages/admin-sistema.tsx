@@ -1153,15 +1153,15 @@ export default function AdminSistemaPage() {
   const isSuperAdmin = user?.role === "superadmin";
   const [, navigate] = useLocation();
 
-  const [expandedN8n, setExpandedN8n] = useState<number | null>(null);
-  const [n8nForms, setN8nForms] = useState<Record<number, { url: string; token: string; showToken: boolean; erpProvider: string }>>({});
-  const [n8nTestResults, setN8nTestResults] = useState<Record<number, { ok: boolean; msg: string } | null>>({});
-  const [n8nPending, setN8nPending] = useState<Record<number, { saving?: boolean; testing?: boolean }>>({});
+  const [expandedErp, setExpandedErp] = useState<number | null>(null);
+  const [erpForms, setErpForms] = useState<Record<number, { url: string; token: string; showToken: boolean; erpProvider: string }>>({});
+  const [erpTestResults, setErpTestResults] = useState<Record<number, { ok: boolean; msg: string } | null>>({});
+  const [erpPending, setErpPending] = useState<Record<number, { saving?: boolean; testing?: boolean }>>({});
 
-  const getN8nForm = (p: any) => n8nForms[p.id] ?? { url: p.erpUrl ?? "", token: p.erpToken ?? "", showToken: false, erpProvider: p.erpSource ?? "" };
+  const getErpForm = (p: any) => erpForms[p.id] ?? { url: p.erpUrl ?? "", token: p.erpToken ?? "", showToken: false, erpProvider: p.erpSource ?? "" };
 
   const saveN8nForProvider = async (providerId: number, form: { url: string; token: string; erpProvider?: string }) => {
-    setN8nPending(prev => ({ ...prev, [providerId]: { ...prev[providerId], saving: true } }));
+    setErpPending(prev => ({ ...prev, [providerId]: { ...prev[providerId], saving: true } }));
     try {
       await fetch(`/api/admin/providers/${providerId}/erp-config`, {
         method: "PUT",
@@ -1174,38 +1174,39 @@ export default function AdminSistemaPage() {
     } catch {
       toast({ title: "Erro", description: "Nao foi possivel salvar.", variant: "destructive" });
     } finally {
-      setN8nPending(prev => ({ ...prev, [providerId]: { ...prev[providerId], saving: false } }));
+      setErpPending(prev => ({ ...prev, [providerId]: { ...prev[providerId], saving: false } }));
     }
   };
 
   const testN8nForProvider = async (providerId: number) => {
-    setN8nPending(prev => ({ ...prev, [providerId]: { ...prev[providerId], testing: true } }));
-    setN8nTestResults(prev => ({ ...prev, [providerId]: null }));
+    setErpPending(prev => ({ ...prev, [providerId]: { ...prev[providerId], testing: true } }));
+    setErpTestResults(prev => ({ ...prev, [providerId]: null }));
     try {
       const r = await fetch(`/api/admin/providers/${providerId}/erp-test`, { method: "POST", credentials: "include" });
       const d = await r.json();
-      setN8nTestResults(prev => ({ ...prev, [providerId]: { ok: d.ok, msg: d.message } }));
+      setErpTestResults(prev => ({ ...prev, [providerId]: { ok: d.ok, msg: d.message } }));
     } catch {
-      setN8nTestResults(prev => ({ ...prev, [providerId]: { ok: false, msg: "Erro de conexao" } }));
+      setErpTestResults(prev => ({ ...prev, [providerId]: { ok: false, msg: "Erro de conexao" } }));
     } finally {
-      setN8nPending(prev => ({ ...prev, [providerId]: { ...prev[providerId], testing: false } }));
+      setErpPending(prev => ({ ...prev, [providerId]: { ...prev[providerId], testing: false } }));
     }
   };
 
-  const toggleN8nForProvider = async (p: any) => {
-    setN8nPending(prev => ({ ...prev, [p.id]: { ...prev[p.id], saving: true } }));
+  const toggleErpForProvider = async (p: any) => {
+    setErpPending(prev => ({ ...prev, [p.id]: { ...prev[p.id], saving: true } }));
     try {
-      await fetch(`/api/admin/providers/${p.id}/n8n-config`, {
-        method: "PATCH",
+      const form = getErpForm(p);
+      await fetch(`/api/admin/providers/${p.id}/erp-config`, {
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ n8nEnabled: !p.erpEnabled }),
+        body: JSON.stringify({ erpSource: form.erpProvider || "ixc", apiUrl: form.url, apiToken: form.token }),
         credentials: "include",
       });
       qc.invalidateQueries({ queryKey: ["/api/admin/providers"] });
     } catch {
       toast({ title: "Erro", description: "Nao foi possivel atualizar.", variant: "destructive" });
     } finally {
-      setN8nPending(prev => ({ ...prev, [p.id]: { ...prev[p.id], saving: false } }));
+      setErpPending(prev => ({ ...prev, [p.id]: { ...prev[p.id], saving: false } }));
     }
   };
 
@@ -2320,18 +2321,18 @@ export default function AdminSistemaPage() {
               ) : (
                 <div className="divide-y">
                   {allProviders.map((p: any) => {
-                    const isOpen = expandedN8n === p.id;
+                    const isOpen = expandedErp === p.id;
                     const erpName = p.erpSource ? (erpCatalogList.find((e: ErpCatalog) => e.key === p.erpSource)?.name ?? ERP_MAP[p.erpSource] ?? p.erpSource) : null;
-                    const adminSelectedErp = n8nForms[p.id]?.erpProvider ?? p.erpSource ?? "";
-                    const form = getN8nForm(p);
-                    const testResult = n8nTestResults[p.id];
-                    const isPending = n8nPending[p.id];
+                    const adminSelectedErp = erpForms[p.id]?.erpProvider ?? p.erpSource ?? "";
+                    const form = getErpForm(p);
+                    const testResult = erpTestResults[p.id];
+                    const isPending = erpPending[p.id];
                     const hasErpConfig = !!adminSelectedErp;
                     return (
                       <div key={p.id}>
                         <div
                           className="flex items-center gap-4 px-5 py-3.5 cursor-pointer hover:bg-slate-50 transition-colors"
-                          onClick={() => setExpandedN8n(isOpen ? null : p.id)}
+                          onClick={() => setExpandedErp(isOpen ? null : p.id)}
                         >
                           <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center text-sm font-bold text-blue-700 flex-shrink-0">
                             {p.name?.charAt(0)}
@@ -2371,7 +2372,7 @@ export default function AdminSistemaPage() {
                                     <button
                                       key={erp.key}
                                       type="button"
-                                      onClick={() => setN8nForms(prev => ({ ...prev, [p.id]: { ...getN8nForm(p), erpProvider: erp.key } }))}
+                                      onClick={() => setErpForms(prev => ({ ...prev, [p.id]: { ...getErpForm(p), erpProvider: erp.key } }))}
                                       className={`flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all text-center ${
                                         isSelected ? "border-violet-500 bg-violet-50" : "border-transparent bg-white hover:bg-slate-100 hover:border-slate-200"
                                       }`}
@@ -2397,7 +2398,7 @@ export default function AdminSistemaPage() {
                                   <Input
                                     placeholder={adminSelectedErp === "ixc" ? "https://ixc.seudominio.com.br" : adminSelectedErp === "mk" ? "http://192.168.1.100:8311" : "https://erp.seudominio.com.br"}
                                     value={form.url}
-                                    onChange={e => setN8nForms(prev => ({ ...prev, [p.id]: { ...form, url: e.target.value } }))}
+                                    onChange={e => setErpForms(prev => ({ ...prev, [p.id]: { ...form, url: e.target.value } }))}
                                     className="h-9 text-sm"
                                   />
                                 </div>
@@ -2413,13 +2414,13 @@ export default function AdminSistemaPage() {
                                       type={form.showToken ? "text" : "password"}
                                       placeholder="Credencial de acesso ao ERP"
                                       value={form.token}
-                                      onChange={e => setN8nForms(prev => ({ ...prev, [p.id]: { ...form, token: e.target.value } }))}
+                                      onChange={e => setErpForms(prev => ({ ...prev, [p.id]: { ...form, token: e.target.value } }))}
                                       className="h-9 text-sm pr-9"
                                     />
                                     <button
                                       type="button"
                                       className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                                      onClick={() => setN8nForms(prev => ({ ...prev, [p.id]: { ...form, showToken: !form.showToken } }))}
+                                      onClick={() => setErpForms(prev => ({ ...prev, [p.id]: { ...form, showToken: !form.showToken } }))}
                                     >
                                       {form.showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                                     </button>
@@ -3253,7 +3254,7 @@ export default function AdminSistemaPage() {
               )}
             </Card>
 
-            {/* Heatmap N8N sources */}
+            {/* Heatmap ERP sources */}
             {autoSyncStatus?.heatmapSources?.length > 0 && (
               <Card className="p-0 overflow-hidden">
                 <div className="p-4 border-b flex items-center justify-between">
@@ -3314,7 +3315,7 @@ export default function AdminSistemaPage() {
                 <li>• Apenas integracoes com <strong>status ativo e credenciais preenchidas</strong> sao sincronizadas.</li>
                 <li>• Os dados sincronizados alimentam automaticamente o <strong>Benchmarking Regional</strong> do Mapa de Calor.</li>
                 <li>• O provedor pode ajustar o intervalo a qualquer momento; a proxima execucao sera recalculada.</li>
-                <li>• As <strong>Fontes do Mapa de Calor</strong> (N8N) sao atualizadas automaticamente a cada 24h e buscam inadimplentes diretamente do IXC via proxy N8N.</li>
+                <li>• As <strong>Fontes do Mapa de Calor</strong> sao atualizadas automaticamente e buscam inadimplentes diretamente dos ERPs configurados.</li>
               </ul>
             </Card>
           </div>
