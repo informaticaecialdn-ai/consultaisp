@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Consulta Tempo Real Regional
 status: executing
-stopped_at: Completed 00-02-PLAN.md
-last_updated: "2026-04-01T20:09:27.199Z"
+stopped_at: Completed 00-04-PLAN.md
+last_updated: "2026-04-01T20:12:32.950Z"
 last_activity: 2026-04-01
 progress:
   total_phases: 6
@@ -52,7 +52,7 @@ Progress: [█░░░░░░░░░] 8%
 - Trend: -
 
 *Updated after each plan completion*
-| Phase 00 P02 | 76s | 2 tasks | 2 files |
+| Phase 00-04 P04 | 1min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -66,7 +66,7 @@ Recent decisions affecting current work:
 - [v2.0 Roadmap]: Sync removal AFTER real-time works (Phase 3) -- safe migration path
 - [v2.0 Roadmap]: Address search and migrator detection grouped (Phase 4) -- both extend the same RT engine
 - [v2.0 Roadmap]: All UI work deferred to Phase 5 -- backend must be solid before wiring frontend
-- [Phase 00]: Superadmin credentials from env vars, SEED_DEMO_DATA defaults false for production safety
+- [Phase 00-04]: Role restricted to admin/user only - superadmin creation remains seed-only for security
 
 ### Carry-over from v1.0
 
@@ -85,6 +85,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-01T20:09:27.190Z
-Stopped at: Completed 00-02-PLAN.md
+Last session: 2026-04-01T20:12:32.940Z
+Stopped at: Completed 00-04-PLAN.md
 Resume file: None
