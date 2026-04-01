@@ -1,11 +1,9 @@
 /**
  * ERP Connector Engine — Resilience Module
  *
- * Provides retry (via p-retry) and circuit breaker patterns for ERP API calls.
+ * Provides retry and circuit breaker patterns for ERP API calls.
  * Prevents cascading failures when an ERP API is down or degraded.
  */
-
-import pRetry, { AbortError } from "p-retry";
 
 type CircuitState = "closed" | "open" | "half-open";
 
@@ -110,27 +108,23 @@ export async function withResilience<T>(
 ): Promise<T> {
   const { retries = 3, minTimeout = 1000, circuit } = options ?? {};
 
-  const retriedFn = () =>
-    pRetry(
-      async () => {
-        try {
-          return await fn();
-        } catch (error: unknown) {
-          // Abort retry on client errors (4xx) — these won't resolve with retries
-          if (isHttpClientError(error)) {
-            throw new AbortError(
-              error instanceof Error ? error.message : "HTTP client error (4xx)",
-            );
-          }
-          throw error;
+  const retriedFn = async (): Promise<T> => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        return await fn();
+      } catch (error: unknown) {
+        lastError = error;
+        // Don't retry on client errors (4xx)
+        if (isHttpClientError(error)) throw error;
+        if (attempt < retries) {
+          const delay = minTimeout * Math.pow(2, attempt);
+          await new Promise(resolve => setTimeout(resolve, delay));
         }
-      },
-      {
-        retries,
-        minTimeout,
-        factor: 2,
-      },
-    );
+      }
+    }
+    throw lastError;
+  };
 
   if (circuit) {
     return circuit.execute(retriedFn);
