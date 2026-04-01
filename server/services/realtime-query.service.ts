@@ -14,7 +14,7 @@ import type { ErpConnectionConfig, ErpFetchResult } from "../erp/types.js";
 import type { ErpIntegration } from "@shared/schema";
 import { IxcConnector } from "../erp/connectors/ixc.js";
 
-const ERP_QUERY_TIMEOUT_MS = 15_000; // 15s per ERP
+const ERP_QUERY_TIMEOUT_MS = 10_000; // 10s per ERP — RT-04
 
 export interface RealtimeQueryResult {
   providerId: number;
@@ -22,6 +22,7 @@ export interface RealtimeQueryResult {
   erpSource: string;
   ok: boolean;
   error?: string;
+  timedOut?: boolean;  // true if this ERP was skipped due to timeout
   customers: Array<{
     cpfCnpj: string;
     name: string;
@@ -196,13 +197,15 @@ async function querySingleErp(
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Erro desconhecido";
+    const isTimeout = msg === "Timeout" || msg.includes("timeout");
     console.warn(`[RT-QUERY] ${intg.providerName} (${intg.erpSource}) falhou: ${msg}`);
     return {
       providerId: intg.providerId,
       providerName: intg.providerName,
       erpSource: intg.erpSource,
       ok: false,
-      error: msg,
+      error: isTimeout ? `Timeout (${ERP_QUERY_TIMEOUT_MS / 1000}s)` : msg,
+      timedOut: isTimeout,
       customers: [],
       latencyMs: Date.now() - start,
     };
@@ -242,7 +245,7 @@ export async function queryRegionalErps(
     integrations.map(intg => querySingleErp(intg, document, searchType))
   );
 
-  return results.map((r, i) => {
+  const finalResults = results.map((r, i) => {
     if (r.status === "fulfilled") return r.value;
     return {
       providerId: integrations[i].providerId,
@@ -254,4 +257,10 @@ export async function queryRegionalErps(
       latencyMs: 0,
     };
   });
+
+  const successful = finalResults.filter(r => r.ok).length;
+  const failed = finalResults.filter(r => !r.ok).length;
+  console.log(`[RT-QUERY] Concluido: ${successful} OK, ${failed} falhas de ${integrations.length} ERPs`);
+
+  return finalResults;
 }
