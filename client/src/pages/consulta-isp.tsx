@@ -52,11 +52,30 @@ interface AddressMatch {
   hasDebt: boolean;
 }
 
+interface ScoreFator {
+  pontos: number;
+  maximo: number;
+  peso: string;
+  descricao: string;
+}
+
 interface ConsultaResult {
   cpfCnpj: string;
   searchType: string;
   notFound: boolean;
   score: number;
+  faixa?: string;
+  nivelRisco?: string;
+  corIndicador?: string;
+  sugestaoIA?: string;
+  fatoresScore?: {
+    f1_historicoPagamento: ScoreFator;
+    f2_tempoSetor: ScoreFator;
+    f3_inadimplenciaAtiva: ScoreFator;
+    f4_padraoConsultas: ScoreFator;
+    f5_riscoEndereco: ScoreFator;
+    f6_consistenciaCadastral: ScoreFator;
+  };
   riskTier: string;
   riskLabel: string;
   recommendation: string;
@@ -73,6 +92,8 @@ interface ConsultaResult {
   consultorIp?: string;
   isHistoryResult?: boolean;
   source?: string;
+  erpLatencies?: { provider: string; erp: string; ok: boolean; ms: number; error?: string }[];
+  historico_consultas?: { ultimos_30_dias: number; provedores_distintos: number; alerta: boolean };
 }
 
 function formatCpfCnpj(value: string): string {
@@ -92,11 +113,11 @@ function getInitials(name: string): string {
 }
 
 function ScoreGaugeSvg({ score }: { score: number }) {
-  const pct = Math.max(0, Math.min(100, score));
+  const pct = Math.max(0, Math.min(1000, score)) / 10; // 0-1000 → 0-100%
   const r = 45;
   const circ = 2 * Math.PI * r;
   const offset = circ - (pct / 100) * circ;
-  const color = score >= 75 ? "#10b981" : score >= 50 ? "#6b7280" : "#ef4444";
+  const color = score >= 701 ? "#22c55e" : score >= 501 ? "#eab308" : score >= 301 ? "#f97316" : "#ef4444";
   return (
     <svg width="100" height="100" viewBox="0 0 120 120" className="-rotate-90">
       <circle cx="60" cy="60" r={r} fill="none" stroke="#e5e7eb" strokeWidth="10" />
@@ -107,6 +128,54 @@ function ScoreGaugeSvg({ score }: { score: number }) {
         className="transition-all duration-1000"
       />
     </svg>
+  );
+}
+
+const FATOR_LABELS: Record<string, { icon: string; label: string }> = {
+  f1_historicoPagamento: { icon: "💳", label: "Historico de Pagamento" },
+  f2_tempoSetor: { icon: "📅", label: "Tempo no Setor ISP" },
+  f3_inadimplenciaAtiva: { icon: "⚠️", label: "Inadimplencia" },
+  f4_padraoConsultas: { icon: "🔍", label: "Padrao de Consultas" },
+  f5_riscoEndereco: { icon: "📍", label: "Risco do Endereco" },
+  f6_consistenciaCadastral: { icon: "📋", label: "Dados Cadastrais" },
+};
+
+function ScoreBreakdown({ fatores }: { fatores: ConsultaResult["fatoresScore"] }) {
+  if (!fatores) return null;
+  const entries = Object.entries(fatores) as [string, ScoreFator][];
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Composicao do Score ISP</p>
+      <div className="space-y-2.5">
+        {entries.map(([key, fator]) => {
+          const meta = FATOR_LABELS[key] || { icon: "📊", label: key };
+          const pct = fator.maximo > 0 ? (fator.pontos / fator.maximo) * 100 : 0;
+          const barColor = pct >= 70 ? "bg-emerald-500" : pct >= 40 ? "bg-amber-500" : "bg-red-500";
+          return (
+            <div key={key}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-semibold text-slate-700">
+                  {meta.icon} {meta.label}
+                </span>
+                <span className="text-xs font-bold text-slate-500">
+                  {fator.pontos}/{fator.maximo} <span className="text-slate-400">({fator.peso})</span>
+                </span>
+              </div>
+              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div className={`h-full ${barColor} rounded-full transition-all duration-700`} style={{ width: `${pct}%` }} />
+              </div>
+              <p className="text-[10px] text-slate-400 mt-0.5">{fator.descricao}</p>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
+        <span className="text-xs font-bold text-slate-600">Score Total</span>
+        <span className="text-lg font-black text-slate-900 font-mono">
+          {entries.reduce((s, [, f]) => s + f.pontos, 0)}/1000
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -1022,7 +1091,7 @@ ${addrRows ? `<section>
                   /* ── RESULTADO — RELATÓRIO DE CRÉDITO ISP ── */
                   (() => {
                     const dc = result.decisionReco;
-                    const score = Math.max(0, Math.min(100, result.score));
+                    const score = Math.max(0, Math.min(1000, result.score));
                     const totalEquipPending = result.providerDetails.reduce((s, d) => s + (d.hasUnreturnedEquipment ? d.unreturnedEquipmentCount : 0), 0);
                     const totalEquipValue = result.providerDetails.reduce((s, d) => {
                       if (!d.hasUnreturnedEquipment) return s;
@@ -1037,8 +1106,8 @@ ${addrRows ? `<section>
                     const CX = 90;
                     const CY = 88;
                     const arcLen = Math.PI * R; // ~226
-                    const scoreOffset = arcLen * (1 - score / 100);
-                    const gaugeColor = score >= 75 ? "#22c55e" : score >= 50 ? "#eab308" : score >= 25 ? "#f97316" : "#dc2626";
+                    const scoreOffset = arcLen * (1 - score / 1000);
+                    const gaugeColor = score >= 701 ? "#22c55e" : score >= 501 ? "#eab308" : score >= 301 ? "#f97316" : "#dc2626";
                     const decisionCfg = dc === "Accept"
                       ? { bg: "bg-emerald-600", border: "border-emerald-700", label: "APROVAR", icon: CheckCircle, sub: "Sem restrições na rede ISP" }
                       : dc === "Reject"
@@ -1085,10 +1154,10 @@ ${addrRows ? `<section>
                                 />
                                 {/* colored zone ticks */}
                                 {[
-                                  { from: 0, to: 25, color: "#fecaca" },
-                                  { from: 25, to: 50, color: "#fed7aa" },
-                                  { from: 50, to: 75, color: "#fef08a" },
-                                  { from: 75, to: 100, color: "#bbf7d0" },
+                                  { from: 0, to: 30, color: "#fecaca" },
+                                  { from: 30, to: 50, color: "#fed7aa" },
+                                  { from: 50, to: 70, color: "#fef08a" },
+                                  { from: 70, to: 100, color: "#bbf7d0" },
                                 ].map((z, zi) => {
                                   const startAngle = Math.PI * (1 - z.from / 100);
                                   const endAngle = Math.PI * (1 - z.to / 100);
@@ -1120,10 +1189,10 @@ ${addrRows ? `<section>
                                   {score}
                                 </text>
                                 <text x={CX} y={CY + 6} textAnchor="middle" fontSize="9" fill="#94a3b8" fontWeight="700" letterSpacing="1">
-                                  DE 100
+                                  DE 1000
                                 </text>
                                 {/* zone labels */}
-                                <text x={CX - R - 4} y={CY + 14} textAnchor="end" fontSize="7.5" fill="#94a3b8">Crítico</text>
+                                <text x={CX - R - 4} y={CY + 14} textAnchor="end" fontSize="7.5" fill="#94a3b8">Muito Baixo</text>
                                 <text x={CX + R + 4} y={CY + 14} textAnchor="start" fontSize="7.5" fill="#94a3b8">Excelente</text>
                               </svg>
                               <p className="text-xs font-bold mt-1 tracking-wide" style={{ color: gaugeColor }} data-testid="text-risk-badge">
@@ -1183,6 +1252,11 @@ ${addrRows ? `<section>
                               ))}
                             </div>
                           </div>
+                        )}
+
+                        {/* ══ SCORE ISP BREAKDOWN (0-1000) ══ */}
+                        {result.fatoresScore && (
+                          <ScoreBreakdown fatores={result.fatoresScore} />
                         )}
 
                         {/* ══ HISTÓRICO DE PROVEDORES (timeline) ══ */}
@@ -1330,9 +1404,9 @@ ${addrRows ? `<section>
                       const decisionBg = dc === "Accept" ? "bg-emerald-500"
                         : dc === "Review" ? "bg-amber-500" : "bg-red-500";
                       const decisionLabel = dc === "Accept" ? "APROVAR" : dc === "Review" ? "ANALISAR" : "REJEITAR";
-                      const riskCls = result.riskTier === "low" ? "bg-emerald-100 text-emerald-700"
-                        : result.riskTier === "medium" ? "bg-amber-100 text-amber-700"
-                        : result.riskTier === "high" ? "bg-orange-100 text-orange-700"
+                      const riskCls = (result.corIndicador === "verde" || result.riskTier === "low" || result.nivelRisco === "baixo") ? "bg-emerald-100 text-emerald-700"
+                        : (result.corIndicador === "amarelo" || result.riskTier === "medium" || result.nivelRisco === "moderado") ? "bg-amber-100 text-amber-700"
+                        : (result.corIndicador === "laranja" || result.riskTier === "high" || result.nivelRisco === "alto") ? "bg-orange-100 text-orange-700"
                         : "bg-red-100 text-red-700";
                       const now = new Date();
                       const dataConsulta = now.toLocaleDateString("pt-BR") + " " + now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
