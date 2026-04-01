@@ -191,7 +191,9 @@ describe('maskCrossProviderDetail', () => {
 
   it('preserves non-sensitive fields for cross provider', () => {
     const result = maskCrossProviderDetail(sampleDetail, false);
-    expect(result.providerName).toBe('ISP Alpha');
+    // LGPD: providerName is anonymized for cross-provider display
+    expect(result.providerName).toMatch(/^Provedor Parceiro #[A-F0-9]{4}$/);
+    expect(result.providerName).not.toBe('ISP Alpha');
     expect(result.status).toBe('Inadimplente');
     expect(result.daysOverdue).toBe(45);
     expect(result.overdueInvoicesCount).toBe(3);

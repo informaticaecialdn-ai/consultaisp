@@ -6,6 +6,8 @@
  * Same-provider data passes through unmasked.
  */
 
+import { getProviderDisplayName } from './utils/provider-anonymizer';
+
 /**
  * Masks a full name for cross-provider display.
  * Cross-provider: shows only first name + ***
@@ -150,6 +152,10 @@ export function maskCrossProviderDetail(
   if (detail.cep != null) {
     result.cep = maskCep(detail.cep, false);
   }
+  // LGPD: Anonymize cross-provider name
+  if (detail.providerName != null) {
+    result.providerName = getProviderDisplayName(detail.providerName, false);
+  }
 
   // Overdue amount: hide exact, show range
   if (detail.overdueAmount != null && detail.overdueAmount > 0) {
@@ -167,7 +173,7 @@ export function maskCrossProviderDetail(
 
   // Copy any other fields not handled above (except stripped ones)
   const maskedKeys: Record<string, boolean> = {
-    customerName: true, cpfCnpj: true, address: true, cep: true, overdueAmount: true,
+    customerName: true, cpfCnpj: true, address: true, cep: true, overdueAmount: true, providerName: true,
   };
   Object.keys(detail).forEach((key) => {
     if (!(key in result) && !STRIPPED_SET[key] && !PRESERVED_SET[key] && !maskedKeys[key]) {

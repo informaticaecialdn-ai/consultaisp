@@ -3,6 +3,7 @@ import { requireAuth } from "../auth";
 import { storage } from "../storage";
 import { calculateIspScore, getRiskTier, getDecisionReco, getRecommendedActions } from "./utils";
 import { maskCrossProviderDetail, maskName, maskCpfCnpj } from "../lgpd-masking";
+import { getRegionalProviderIds } from "../services/regional.service";
 
 export function registerConsultasRoutes(): Router {
   const router = Router();
@@ -40,7 +41,11 @@ export function registerConsultasRoutes(): Router {
       // ── ERP CENTRAL QUERY ──────────────────────────────────────────
       // Builds integrations array from erp_integrations table and calls the
       // central consultation endpoint which orchestrates ERP queries.
-      const erpIntegrations = await storage.getAllEnabledErpIntegrationsWithCredentials();
+      // REGIONAL FILTER: only query ERPs from the same mesoregion as the requesting provider.
+      const allErpIntegrations = await storage.getAllEnabledErpIntegrationsWithCredentials();
+      const regionalProviderIds = await getRegionalProviderIds(providerId);
+      const allowedProviderIds = new Set([providerId, ...regionalProviderIds]);
+      const erpIntegrations = allErpIntegrations.filter(intg => allowedProviderIds.has(intg.providerId));
 
       if (erpIntegrations.length > 0) {
         // Build integrations array from ERP integration records

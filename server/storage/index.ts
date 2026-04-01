@@ -55,6 +55,7 @@ export interface IStorage {
   getCustomersByProvider(providerId: number): Promise<Customer[]>;
   getCustomerByCpfCnpj(cpfCnpj: string): Promise<Customer[]>;
   getCustomersByExactAddress(address: string, city: string, state: string | null, cep: string | null, excludeCpfCnpj: string): Promise<Customer[]>;
+  getCustomersByAddressHash(addressHash: string, excludeCpfCnpj?: string): Promise<Customer[]>;
   createCustomer(customer: InsertCustomer): Promise<Customer>;
 
   getContractsByCustomer(customerId: number): Promise<Contract[]>;
@@ -210,6 +211,7 @@ class DatabaseStorage implements IStorage {
   getCustomersByProvider = (providerId: number) => this._customers.getCustomersByProvider(providerId);
   getCustomerByCpfCnpj = (cpfCnpj: string) => this._customers.getCustomerByCpfCnpj(cpfCnpj);
   getCustomersByExactAddress = (address: string, city: string, state: string | null, cep: string | null, excludeCpfCnpj: string) => this._customers.getCustomersByExactAddress(address, city, state, cep, excludeCpfCnpj);
+  getCustomersByAddressHash = (addressHash: string, excludeCpfCnpj?: string) => this._customers.getCustomersByAddressHash(addressHash, excludeCpfCnpj);
   createCustomer = (customer: InsertCustomer) => this._customers.createCustomer(customer);
   syncErpCustomers = (providerId: number, erpSource: string, customersData: any[]) => this._customers.syncErpCustomers(providerId, erpSource, customersData);
 

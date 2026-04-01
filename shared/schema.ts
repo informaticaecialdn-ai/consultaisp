@@ -33,6 +33,7 @@ export const providers = pgTable("providers", {
   n8nEnabled: boolean("n8n_enabled").default(false),
   n8nErpProvider: text("n8n_erp_provider"),
   cidadesAtendidas: text("cidades_atendidas").array().default(sql`'{}'::text[]`),
+  mesorregioes: text("mesorregioes").array().default(sql`'{}'::text[]`),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -91,6 +92,7 @@ export const customers = pgTable("customers", {
   city: text("city"),
   state: text("state"),
   cep: text("cep"),
+  addressHash: text("address_hash"),
   latitude: decimal("latitude", { precision: 10, scale: 7 }),
   longitude: decimal("longitude", { precision: 10, scale: 7 }),
   status: text("status").notNull().default("active"),

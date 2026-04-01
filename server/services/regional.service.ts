@@ -2,8 +2,11 @@ import { db } from "../db";
 import { providers } from "@shared/schema";
 import { eq, sql, and, ne } from "drizzle-orm";
 
+/**
+ * Find providers whose cidadesAtendidas overlap with the requesting provider.
+ * Uses PostgreSQL array overlap operator (&&).
+ */
 export async function getRegionalProviders(providerId: number) {
-  // Step 1: Get the requesting provider's cidadesAtendidas
   const [provider] = await db.select({
     id: providers.id,
     cidadesAtendidas: providers.cidadesAtendidas,
@@ -11,12 +14,11 @@ export async function getRegionalProviders(providerId: number) {
 
   if (!provider?.cidadesAtendidas?.length) return [];
 
-  // Step 2: Find all other active providers whose cidadesAtendidas overlaps
-  // Uses PostgreSQL array overlap operator (&&)
   const regional = await db.select({
     id: providers.id,
     name: providers.name,
     cidadesAtendidas: providers.cidadesAtendidas,
+    mesorregioes: providers.mesorregioes,
   }).from(providers).where(
     and(
       ne(providers.id, providerId),
@@ -26,4 +28,44 @@ export async function getRegionalProviders(providerId: number) {
   );
 
   return regional;
+}
+
+/**
+ * Find all active providers that share at least one mesoregion with the given provider.
+ * This is the core function for limiting ERP queries to the same macro-region.
+ *
+ * Example: Provider in Londrina (mesoregion "Norte Central Paranaense")
+ * → returns all providers whose mesorregioes array includes "Norte Central Paranaense"
+ * → does NOT return providers from Curitiba ("Metropolitana de Curitiba")
+ */
+export async function getProvidersByMesoregion(providerId: number) {
+  const [provider] = await db.select({
+    id: providers.id,
+    mesorregioes: providers.mesorregioes,
+  }).from(providers).where(eq(providers.id, providerId));
+
+  if (!provider?.mesorregioes?.length) return [];
+
+  const regional = await db.select({
+    id: providers.id,
+    name: providers.name,
+    mesorregioes: providers.mesorregioes,
+  }).from(providers).where(
+    and(
+      ne(providers.id, providerId),
+      eq(providers.status, "active"),
+      sql`${providers.mesorregioes} && ${provider.mesorregioes}`
+    )
+  );
+
+  return regional;
+}
+
+/**
+ * Get the provider IDs that share the same mesoregion as the requesting provider.
+ * Used by the consultation route to filter which ERPs to query.
+ */
+export async function getRegionalProviderIds(providerId: number): Promise<number[]> {
+  const regional = await getProvidersByMesoregion(providerId);
+  return regional.map(r => r.id);
 }

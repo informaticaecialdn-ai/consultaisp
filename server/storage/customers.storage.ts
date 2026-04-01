@@ -4,6 +4,7 @@ import {
   customers,
   type Customer, type InsertCustomer,
 } from "@shared/schema";
+import { hashAddressForNetwork } from "../utils/address-hash";
 
 export class CustomersStorage {
   async getCustomersByProvider(providerId: number): Promise<Customer[]> {
@@ -12,6 +13,16 @@ export class CustomersStorage {
 
   async getCustomerByCpfCnpj(cpfCnpj: string): Promise<Customer[]> {
     return db.select().from(customers).where(eq(customers.cpfCnpj, cpfCnpj));
+  }
+
+  async getCustomersByAddressHash(addressHash: string, excludeCpfCnpj?: string): Promise<Customer[]> {
+    const results = await db.select().from(customers)
+      .where(eq(customers.addressHash, addressHash));
+    if (excludeCpfCnpj) {
+      const cleanExclude = excludeCpfCnpj.replace(/\D/g, "");
+      return results.filter(c => c.cpfCnpj.replace(/\D/g, "") !== cleanExclude);
+    }
+    return results;
   }
 
   async getCustomersByExactAddress(address: string, city: string, state: string | null, cep: string | null, excludeCpfCnpj: string): Promise<Customer[]> {
@@ -59,6 +70,21 @@ export class CustomersStorage {
       return "current";
     };
 
+    const computeAddressHash = (cep: string | null | undefined, address: string | null | undefined): string | null => {
+      if (!cep) return null;
+      const cleanCep = cep.replace(/\D/g, "");
+      if (cleanCep.length !== 8) return null;
+      // Extract house number from address (first number after comma or space)
+      const numero = address?.match(/,\s*(\d+[A-Za-z]?)/)?.[1]
+        || address?.match(/\s(\d+[A-Za-z]?)\s*[-,]/)?.[1];
+      if (!numero) return null;
+      try {
+        return hashAddressForNetwork(cleanCep, numero);
+      } catch {
+        return null;
+      }
+    };
+
     for (const c of customersData) {
       try {
         if (!c.cpfCnpj || !c.name) { errors++; continue; }
@@ -72,6 +98,8 @@ export class CustomersStorage {
           .where(and(eq(customers.providerId, providerId), sql`${customers.cpfCnpj} = ${cpf}`))
           .limit(1);
 
+        const addrHash = computeAddressHash(c.cep, c.address);
+
         const payload: any = {
           name: c.name,
           cpfCnpj: cpf,
@@ -81,6 +109,7 @@ export class CustomersStorage {
           state: c.state ?? null,
           address: c.address ?? null,
           cep: c.cep?.replace(/\D/g, "") ?? null,
+          addressHash: addrHash,
           totalOverdueAmount: amount,
           maxDaysOverdue: days,
           overdueInvoicesCount: invoicesCount,
