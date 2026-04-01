@@ -13,16 +13,23 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { MapPin, X, Save, Users, Loader2, Search } from "lucide-react";
+import { MapPin, X, Save, Users, Loader2, Search, Globe, ChevronDown, ChevronUp } from "lucide-react";
 
 interface CityOption {
   label: string;
   value: string;
   ibge: string;
+  mesorregiao?: string;
+}
+
+interface Mesoregion {
+  name: string;
+  cities: number;
 }
 
 interface MyCidadesResponse {
   cidadesAtendidas: string[];
+  mesorregioes?: string[];
 }
 
 interface RegionalProvider {
@@ -40,6 +47,8 @@ export default function ConfiguracoesRegionalizacaoPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [showResults, setShowResults] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [showMesoregions, setShowMesoregions] = useState(false);
+  const [loadingMeso, setLoadingMeso] = useState<string | null>(null);
   const commandRef = useRef<HTMLDivElement>(null);
 
   // Debounce search term (300ms)
@@ -131,6 +140,31 @@ export default function ConfiguracoesRegionalizacaoPage() {
 
   const handleSave = () => {
     saveMutation.mutate(selectedCities);
+  };
+
+  // Mesoregions for PR (hardcoded UF for now — could be dynamic based on provider's state)
+  const { data: mesoregions } = useQuery<Mesoregion[]>({
+    queryKey: ["/api/regional/mesorregioes", "?uf=PR"],
+  });
+
+  const addMesoregion = async (mesoName: string) => {
+    setLoadingMeso(mesoName);
+    try {
+      const res = await fetch(`/api/regional/mesorregioes/${encodeURIComponent(mesoName)}/cities?uf=PR`, { credentials: "include" });
+      const cities: string[] = await res.json();
+      const newCities = cities.filter(c => !selectedCities.includes(c));
+      if (newCities.length > 0) {
+        setSelectedCities(prev => [...prev, ...newCities]);
+        setHasChanges(true);
+        toast({ title: `${mesoName}`, description: `${newCities.length} cidades adicionadas` });
+      } else {
+        toast({ title: mesoName, description: "Todas as cidades desta regiao ja estao selecionadas" });
+      }
+    } catch {
+      toast({ title: "Erro", description: "Nao foi possivel carregar cidades da regiao", variant: "destructive" });
+    } finally {
+      setLoadingMeso(null);
+    }
   };
 
   // Find shared cities between current provider and a regional provider
@@ -233,6 +267,41 @@ export default function ConfiguracoesRegionalizacaoPage() {
           )}
         </div>
 
+        {/* Mesoregion Quick-Select */}
+        {mesoregions && mesoregions.length > 0 && (
+          <div className="space-y-2">
+            <button
+              onClick={() => setShowMesoregions(!showMesoregions)}
+              className="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors"
+            >
+              <Globe className="w-4 h-4" />
+              Adicionar por Regiao
+              {showMesoregions ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+            {showMesoregions && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {mesoregions.map((meso) => {
+                  const isLoading = loadingMeso === meso.name;
+                  return (
+                    <button
+                      key={meso.name}
+                      onClick={() => addMesoregion(meso.name)}
+                      disabled={isLoading}
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition-colors text-left text-sm"
+                    >
+                      {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500 flex-shrink-0" /> : <Globe className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />}
+                      <div className="min-w-0">
+                        <p className="font-medium text-slate-700 truncate">{meso.name.replace(" Paranaense", "")}</p>
+                        <p className="text-xs text-slate-400">{meso.cities} cidades</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Selected Cities as Badges */}
         {selectedCities.length > 0 ? (
           <div className="flex flex-wrap gap-2">
@@ -266,6 +335,22 @@ export default function ConfiguracoesRegionalizacaoPage() {
           <p className="text-sm text-amber-600 dark:text-amber-400">
             Alteracoes nao salvas. Clique em Salvar para persistir.
           </p>
+        )}
+
+        {/* Derived mesoregions info */}
+        {myCidades?.mesorregioes && myCidades.mesorregioes.length > 0 && (
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200">
+            <Globe className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-xs font-semibold text-blue-800">Mesorregioes de atuacao</p>
+              <p className="text-xs text-blue-600 mt-0.5">
+                {myCidades.mesorregioes.join(", ")}
+              </p>
+              <p className="text-[10px] text-blue-500 mt-1">
+                Consultas ISP buscarao apenas provedores destas regioes
+              </p>
+            </div>
+          </div>
         )}
       </Card>
 
