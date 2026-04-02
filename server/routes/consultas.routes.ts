@@ -140,10 +140,26 @@ export function registerConsultasRoutes(): Router {
             equipamentosDevolvidos: c.hasUnreturnedEquipment === false,
           }));
 
-        // ── ADDRESS SEARCH (ADDR-01, ADDR-02, ADDR-03) ──────────────
-        const addressSearchResult = searchType === "cep"
+        // ── ADDRESS SEARCH — automatic for CPF when ERP returns address ──
+        // CEP search: uses the CEP directly
+        // CPF search: if own customer found with address, auto-cross address in the network
+        let addressSearchResult = searchType === "cep"
           ? buildAddressSearchResult(cleaned, erpResults, providerId)
           : undefined;
+
+        // Auto address lookup for CPF: pull address from ERP result, cross in network
+        const ownCustomerHasAddress = ownCustomer?.cep && ownCustomer?.addressNumber;
+        if ((searchType === "cpf" || searchType === "cnpj") && ownCustomerHasAddress) {
+          try {
+            addressSearchResult = buildAddressSearchResult(
+              ownCustomer!.cep!.replace(/\D/g, ""),
+              erpResults,
+              providerId,
+            );
+          } catch (err) {
+            console.warn("[CONSULTA] Auto address search error (non-blocking):", err);
+          }
+        }
 
         const scoreInput: ISPScoreInput = {
           proprio: ownCustomer ? {
