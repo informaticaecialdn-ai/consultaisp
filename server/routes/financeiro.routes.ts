@@ -1,13 +1,17 @@
 import { Router } from "express";
 import { requireSuperAdmin } from "../auth";
 import { storage } from "../storage";
+import { PLAN_PRICES, PLAN_CREDITS } from "@shared/schema";
+import { logger } from "../logger";
+import { getAsaasWebhookToken } from "../env";
+import { getSafeErrorMessage } from "../utils/safe-error";
 
 export function registerFinanceiroRoutes(): Router {
   const router = Router();
 
   router.get("/api/admin/asaas/status", requireSuperAdmin, async (_req, res) => {
     try {
-      const { isAsaasConfigured, getAsaasMode, getBalance } = await import("../asaas");
+      const { isAsaasConfigured, getAsaasMode, getBalance } = await import("../services/asaas");
       const configured = isAsaasConfigured();
       const mode = getAsaasMode();
       let balance = null;
@@ -16,7 +20,7 @@ export function registerFinanceiroRoutes(): Router {
       }
       return res.json({ configured, mode, balance });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -28,7 +32,7 @@ export function registerFinanceiroRoutes(): Router {
       if (!invoice) return res.status(404).json({ message: "Fatura nao encontrada" });
       if (invoice.asaasChargeId) return res.status(409).json({ message: "Cobranca Asaas ja existe para esta fatura" });
 
-      const { findOrCreateCustomer, createCharge } = await import("../asaas");
+      const { findOrCreateCustomer, createCharge } = await import("../services/asaas");
 
       const provider = await storage.getProvider(invoice.providerId);
       if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
@@ -64,7 +68,7 @@ export function registerFinanceiroRoutes(): Router {
 
       return res.json({ invoice: updated, charge });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -75,7 +79,7 @@ export function registerFinanceiroRoutes(): Router {
       if (!invoice) return res.status(404).json({ message: "Fatura nao encontrada" });
       if (!invoice.asaasChargeId) return res.status(400).json({ message: "Fatura sem cobranca Asaas" });
 
-      const { getCharge, asaasStatusToLocal } = await import("../asaas");
+      const { getCharge, asaasStatusToLocal } = await import("../services/asaas");
       const charge = await getCharge(invoice.asaasChargeId);
       const newStatus = asaasStatusToLocal(charge.status);
 
@@ -93,7 +97,7 @@ export function registerFinanceiroRoutes(): Router {
       const updated = await storage.updateProviderInvoiceAsaas(id, updateData);
       return res.json({ invoice: updated, charge });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -104,7 +108,7 @@ export function registerFinanceiroRoutes(): Router {
       if (!invoice) return res.status(404).json({ message: "Fatura nao encontrada" });
       if (!invoice.asaasChargeId) return res.status(400).json({ message: "Fatura sem cobranca Asaas" });
 
-      const { cancelCharge } = await import("../asaas");
+      const { cancelCharge } = await import("../services/asaas");
       await cancelCharge(invoice.asaasChargeId);
       const updated = await storage.updateProviderInvoiceAsaas(id, {
         asaasChargeId: undefined,
@@ -113,7 +117,7 @@ export function registerFinanceiroRoutes(): Router {
       });
       return res.json(updated);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -123,20 +127,35 @@ export function registerFinanceiroRoutes(): Router {
       const invoice = await storage.getProviderInvoice(id);
       if (!invoice || !invoice.asaasChargeId) return res.status(404).json({ message: "Cobranca Asaas nao encontrada" });
 
-      const { getPixQrCode } = await import("../asaas");
+      const { getPixQrCode } = await import("../services/asaas");
       const pix = await getPixQrCode(invoice.asaasChargeId);
       return res.json(pix);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
   router.post("/api/asaas/webhook", async (req, res) => {
     try {
+      const expectedToken = getAsaasWebhookToken();
+      if (expectedToken) {
+        const rawToken = req.headers["asaas-access-token"];
+        const incomingToken = Array.isArray(rawToken) ? rawToken[0]?.trim() : rawToken?.trim();
+        if (!incomingToken || incomingToken !== expectedToken) {
+          logger.warn({ ip: req.ip, path: req.path }, "Webhook Asaas rejeitado: token inválido ou ausente");
+          return res.status(401).json({ ok: true });
+        }
+      } else {
+        logger.warn("ASAAS_WEBHOOK_TOKEN não configurado — webhook sem proteção");
+      }
+
       const { event, payment } = req.body;
+
+      logger.info({ event, externalReference: payment?.externalReference }, "Webhook Asaas recebido");
+
       if (!payment?.externalReference) return res.json({ ok: true });
 
-      const { asaasStatusToLocal } = await import("../asaas");
+      const { asaasStatusToLocal } = await import("../services/asaas");
 
       const creditOrderMatch = payment.externalReference.match(/^credit_order_(\d+)$/);
       if (creditOrderMatch) {
@@ -164,7 +183,7 @@ export function registerFinanceiroRoutes(): Router {
       await storage.updateProviderInvoiceAsaas(invoiceId, updateData);
       return res.json({ ok: true });
     } catch (error: any) {
-      console.error("Webhook Asaas error:", error.message);
+      logger.error({ err: error.message }, "Webhook Asaas error");
       return res.json({ ok: true });
     }
   });
@@ -176,7 +195,7 @@ export function registerFinanceiroRoutes(): Router {
       const metrics = await storage.getSaasMetrics();
       return res.json(metrics);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -185,7 +204,7 @@ export function registerFinanceiroRoutes(): Router {
       const summary = await storage.getFinancialSummary();
       return res.json(summary);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -195,7 +214,7 @@ export function registerFinanceiroRoutes(): Router {
       const invoiceList = await storage.getAllProviderInvoices(providerId);
       return res.json(invoiceList);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -205,7 +224,7 @@ export function registerFinanceiroRoutes(): Router {
       if (!invoice) return res.status(404).json({ message: "Fatura nao encontrada" });
       return res.json(invoice);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -233,7 +252,7 @@ export function registerFinanceiroRoutes(): Router {
       });
       return res.status(201).json(invoice);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -247,7 +266,7 @@ export function registerFinanceiroRoutes(): Router {
       );
       return res.json(updated);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -260,7 +279,7 @@ export function registerFinanceiroRoutes(): Router {
       await storage.updateProviderInvoiceStatus(parseInt(id), "cancelled");
       return res.json({ success: true });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -268,10 +287,7 @@ export function registerFinanceiroRoutes(): Router {
     try {
       const { period } = req.body;
       if (!period) return res.status(400).json({ message: "Period e obrigatorio (ex: 2026-03)" });
-      const PLAN_PRICES: Record<string, number> = { free: 0, basic: 199, pro: 399, enterprise: 799 };
-      const PLAN_CREDITS: Record<string, { isp: number; spc: number }> = {
-        free: { isp: 50, spc: 0 }, basic: { isp: 200, spc: 50 }, pro: { isp: 500, spc: 150 }, enterprise: { isp: 1500, spc: 500 }
-      };
+      // PLAN_PRICES and PLAN_CREDITS imported from @shared/schema
       const allProviders = await storage.getAllProviders();
       const me = await storage.getUser(req.session.userId!);
       const [year, month] = period.split("-").map(Number);
@@ -295,7 +311,7 @@ export function registerFinanceiroRoutes(): Router {
       }
       return res.json({ created, skipped, message: `${created} faturas geradas para ${period}` });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 

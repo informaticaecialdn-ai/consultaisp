@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../auth";
 import { storage } from "../storage";
+import { getSafeErrorMessage } from "../utils/safe-error";
 
 /**
  * Equipment routes extracted from routes.ts.
@@ -20,7 +21,7 @@ export function registerEquipamentosRoutes(): Router {
       const eqs = await storage.getEquipmentByProvider(req.session.providerId!);
       return res.json(eqs);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 

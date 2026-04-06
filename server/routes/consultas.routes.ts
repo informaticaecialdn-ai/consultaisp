@@ -1,16 +1,24 @@
 import { Router } from "express";
 import { requireAuth } from "../auth";
 import { storage } from "../storage";
-import { maskCrossProviderDetail } from "../lgpd-masking";
+import { maskCrossProviderDetail, maskName, maskCpfCnpj, maskOverdueAmount, maskDaysOverdue } from "../services/lgpd-masking";
+import { getProviderDisplayName } from "../utils/provider-anonymizer";
+import { hashCPFForNetwork } from "../utils/cpf-hash";
 import { getRegionalProviderIds } from "../services/regional.service";
 import { queryRegionalErps, type RealtimeQueryResult } from "../services/realtime-query.service";
 import { calcularScoreISP, type ISPScoreInput } from "../utils/isp-score";
 import { consultationCache } from "../services/consultation-cache.service";
 import { buildAddressSearchResult } from "../services/address-search.service";
 import { detectMigrator } from "../services/migrator-detection.service";
+import { getSafeErrorMessage } from "../utils/safe-error";
+import { validarCpfCnpj } from "../utils/cpf-cnpj-validator";
+import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 
 export function registerConsultasRoutes(): Router {
   const router = Router();
+
+  const ispConsultaLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 10 });
+  const spcConsultaLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 5 });
 
   router.get("/api/isp-consultations", requireAuth, async (req, res) => {
     try {
@@ -20,21 +28,22 @@ export function registerConsultasRoutes(): Router {
       const provider = await storage.getProvider(req.session.providerId!);
       return res.json({ consultations, todayCount: today, monthCount: month, credits: provider?.ispCredits || 0 });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
-  router.post("/api/isp-consultations", requireAuth, async (req, res) => {
+  router.post("/api/isp-consultations", ispConsultaLimiter, requireAuth, async (req, res) => {
     try {
       const { cpfCnpj } = req.body;
       if (!cpfCnpj) {
         return res.status(400).json({ message: "CPF/CNPJ obrigatorio" });
       }
 
-      const cleaned = cpfCnpj.replace(/\D/g, "");
-      let searchType: "cpf" | "cnpj" | "cep" = "cpf";
-      if (cleaned.length === 14) searchType = "cnpj";
-      else if (cleaned.length === 8) searchType = "cep";
+      const validacao = validarCpfCnpj(cpfCnpj);
+      if (!validacao.valid) {
+        return res.status(400).json({ message: validacao.error });
+      }
+      const { cleaned, type: searchType } = validacao;
 
       const providerId = req.session.providerId!;
       const provider = await storage.getProvider(providerId);
@@ -60,6 +69,15 @@ export function registerConsultasRoutes(): Router {
       const regionalProviderIds = await getRegionalProviderIds(providerId);
       const allowedProviderIds = new Set([providerId, ...regionalProviderIds]);
       const erpIntegrations = allErpIntegrations.filter(intg => allowedProviderIds.has(intg.providerId));
+
+      // RT-01: Real-time only guard — no local DB fallback exists.
+      // All data comes from ERP connectors for the consulting provider's region.
+      // If an integration somehow bypasses the allowedProviderIds filter, log and reject it.
+      for (const intg of erpIntegrations) {
+        if (!allowedProviderIds.has(intg.providerId)) {
+          console.warn(`[RT-01] ERP integration for provider ${intg.providerId} not in allowed set — skipping`);
+        }
+      }
 
       if (erpIntegrations.length > 0) {
 
@@ -142,22 +160,49 @@ export function registerConsultasRoutes(): Router {
 
         // ── ADDRESS SEARCH — automatic for CPF when ERP returns address ──
         // CEP search: uses the CEP directly
-        // CPF search: if own customer found with address, auto-cross address in the network
+        // CPF/CNPJ search: auto-cross using best available address from ERP results
         let addressSearchResult = searchType === "cep"
           ? buildAddressSearchResult(cleaned, erpResults, providerId)
           : undefined;
 
-        // Auto address lookup for CPF: pull address from ERP result, cross in network
-        const ownCustomerHasAddress = ownCustomer?.cep && ownCustomer?.addressNumber;
-        if ((searchType === "cpf" || searchType === "cnpj") && ownCustomerHasAddress) {
-          try {
-            addressSearchResult = buildAddressSearchResult(
-              ownCustomer!.cep!.replace(/\D/g, ""),
-              erpResults,
-              providerId,
-            );
-          } catch (err) {
-            console.warn("[CONSULTA] Auto address search error (non-blocking):", err);
+        // Metadata for API contract: source of address used for crossing
+        let addressSource: "own" | "network" | null = null;
+        let addressUsed: string | null = null;
+        let autoAddressCrossRef = false;
+
+        if (searchType === "cpf" || searchType === "cnpj") {
+          // Candidate selection: prefer ownCustomer, fallback to any network customer with valid CEP+number
+          // CEP must be exactly 8 digits after stripping non-numeric chars
+          const isValidCep = (cep: string | undefined | null): boolean => {
+            if (!cep) return false;
+            const digits = cep.replace(/\D/g, "");
+            return digits.length === 8;
+          };
+
+          let addressCandidate: typeof allCustomers[0] | undefined;
+          if (isValidCep(ownCustomer?.cep) && ownCustomer?.addressNumber) {
+            addressCandidate = ownCustomer;
+            addressSource = "own";
+          } else {
+            addressCandidate = allCustomers.find(c => isValidCep(c.cep) && c.addressNumber);
+            if (addressCandidate) {
+              addressSource = addressCandidate.isSameProvider ? "own" : "network";
+            }
+          }
+
+          if (addressCandidate) {
+            try {
+              const candidateCep = addressCandidate.cep!.replace(/\D/g, "");
+              addressSearchResult = buildAddressSearchResult(
+                candidateCep,
+                erpResults,
+                providerId,
+              );
+              addressUsed = candidateCep;
+              autoAddressCrossRef = true;
+            } catch (err) {
+              console.warn("[CONSULTA] Auto address search error (non-blocking):", err);
+            }
           }
         }
 
@@ -191,11 +236,10 @@ export function registerConsultasRoutes(): Router {
 
         const scoreResult = calcularScoreISP(scoreInput);
 
-        // RT-03: Map internal 0-1000 score to user-facing 0-100
-        const score100 = Math.round(scoreResult.score / 10);
-
         // ── MIGRATOR DETECTION (MIG-01, MIG-02, MIG-03) ────────────
+        // Alert is detected here but persisted only after successful debit (inside the same transaction)
         let migratorAlert: { detected: true; severity: string; message: string; riskFactors: string[] } | null = null;
+        let pendingAlertRecord: Parameters<typeof storage.createAlert>[0] | undefined;
         if (searchType === "cpf" || searchType === "cnpj") {
           try {
             const migratorResult = detectMigrator({
@@ -212,8 +256,8 @@ export function registerConsultasRoutes(): Router {
                 message: migratorResult.message,
                 riskFactors: migratorResult.riskFactors,
               };
-              // Persist alert to DB
-              await storage.createAlert(migratorResult.alertRecord);
+              // Store alert record to persist atomically with debit
+              pendingAlertRecord = migratorResult.alertRecord;
             }
           } catch (err) {
             console.warn("[MIGRADOR] Detection error (non-blocking):", err);
@@ -224,22 +268,15 @@ export function registerConsultasRoutes(): Router {
         const externalProviders = new Set(allCustomers.filter(c => !c.isSameProvider).map(c => c.providerId));
         const creditsCost = externalProviders.size;
 
-        const freshProvider = await storage.getProvider(providerId);
-        if (creditsCost > 0 && freshProvider && freshProvider.ispCredits < creditsCost) {
-          return res.status(402).json({
-            message: `Creditos insuficientes. Requer ${creditsCost} credito(s). Voce tem ${freshProvider.ispCredits}.`,
-          });
-        }
-        if (creditsCost > 0 && freshProvider) {
-          await storage.updateProviderCredits(providerId, freshProvider.ispCredits - creditsCost, freshProvider.spcCredits);
-        }
-
         const result = {
           cpfCnpj: cleaned,
           searchType,
           notFound,
+          baseLegal: "Legitimo Interesse (LGPD Art. 7, IX)",
+          finalidadeConsulta: "Analise de credito e protecao ao credito no ambito de servicos de telecomunicacoes",
+          controlador: provider.name,
           score: scoreResult.score,
-          score100, // RT-03: user-facing 0-100
+          score100: scoreResult.score100, // RT-03: canonical 0-100 from score engine
           faixa: scoreResult.faixa,
           nivelRisco: scoreResult.nivelRisco,
           corIndicador: scoreResult.corIndicador,
@@ -260,11 +297,42 @@ export function registerConsultasRoutes(): Router {
           recommendedActions: scoreResult.condicoesSugeridas,
           creditsCost,
           isOwnCustomer,
-          addressMatches: [] as any[],
           addressSearch: addressSearchResult || null,
+          // Backward compat: frontend consumers expect addressMatches[] for the address-crossing UI
+          // V-01 LGPD fix: mask cross-provider data in addressMatches
+          addressMatches: addressSearchResult
+            ? addressSearchResult.addressGroups.flatMap(g =>
+                g.customers.map(c => {
+                  const isSame = c.isSameProvider;
+                  return {
+                    customerName: isSame ? c.name : maskName(c.name, false),
+                    cpfCnpj: isSame ? c.cpfCnpj : maskCpfCnpj(c.cpfCnpj, false),
+                    address: `${g.cep}, nº ${g.numero}${g.complemento ? `, ${g.complemento}` : ""}`,
+                    city: "",
+                    state: undefined as string | undefined,
+                    providerName: getProviderDisplayName(c.providerName, isSame),
+                    isSameProvider: isSame,
+                    status: c.maxDaysOverdue > 90 ? "Inadimplente (90+ dias)"
+                      : c.maxDaysOverdue > 60 ? "Inadimplente (61-90 dias)"
+                      : c.maxDaysOverdue > 30 ? "Inadimplente (31-60 dias)"
+                      : c.maxDaysOverdue > 0 ? "Inadimplente (1-30 dias)"
+                      : "Em dia",
+                    daysOverdue: isSame ? c.maxDaysOverdue : undefined,
+                    daysOverdueRange: isSame ? undefined : maskDaysOverdue(c.maxDaysOverdue),
+                    totalOverdue: isSame ? c.totalOverdueAmount : undefined,
+                    totalOverdueRange: isSame ? undefined : maskOverdueAmount(c.totalOverdueAmount, false),
+                    hasDebt: c.maxDaysOverdue > 0,
+                  };
+                })
+              )
+            : [],
           migratorAlert,
+          addressSource,
+          addressUsed,
+          autoAddressCrossRef,
           source: "erp_direct",
-          erpLatencies: erpResults.map(r => ({ provider: r.providerName, erp: r.erpSource, ok: r.ok, ms: r.latencyMs, error: r.error })),
+          // V-02 LGPD fix: anonymize provider names in erpLatencies
+          erpLatencies: erpResults.map(r => ({ provider: getProviderDisplayName(r.providerName, r.providerId === providerId), erp: r.erpSource, ok: r.ok, ms: r.latencyMs, error: r.error })),
           erpSummary: {
             total: erpResults.length,
             responded: erpResults.filter(r => r.ok).length,
@@ -273,17 +341,48 @@ export function registerConsultasRoutes(): Router {
           },
         };
 
-        const consultation = await storage.createIspConsultation({
+        // V-08 LGPD: hash CPF for storage, keep original only in masked result JSONB
+        let cpfCnpjHash: string | undefined;
+        try {
+          cpfCnpjHash = hashCPFForNetwork(cleaned);
+        } catch {
+          // NETWORK_CPF_SALT not configured — store without hash (graceful degradation)
+        }
+
+        const consultationPayload = {
           providerId,
           userId: req.session.userId!,
           cpfCnpj: cleaned,
+          cpfCnpjHash,
           searchType,
           result,
           score: scoreResult.score,
           decisionReco: result.decisionReco,
           cost: creditsCost,
           approved: scoreResult.score >= 500,
-        });
+        };
+
+        let consultation;
+        if (creditsCost > 0) {
+          const txResult = await storage.debitAndCreateIspConsultation(providerId, creditsCost, consultationPayload, pendingAlertRecord);
+          if (!txResult) {
+            const currentProvider = await storage.getProvider(providerId);
+            return res.status(402).json({
+              message: `Creditos insuficientes. Requer ${creditsCost} credito(s). Voce tem ${currentProvider?.ispCredits ?? 0}.`,
+            });
+          }
+          consultation = txResult.consultation;
+        } else {
+          consultation = await storage.createIspConsultation(consultationPayload);
+          // Persist alert after consultation is created (no debit needed for free consultations)
+          if (pendingAlertRecord) {
+            try {
+              await storage.createAlert(pendingAlertRecord);
+            } catch (err) {
+              console.warn("[MIGRADOR] Alert persistence error (non-blocking):", err);
+            }
+          }
+        }
 
         // ── CACHE STORE (CACHE-01) ─────────────────────────────────
         consultationCache.setResult(cleaned, providerId, searchType, {
@@ -305,14 +404,15 @@ export function registerConsultasRoutes(): Router {
           decisionReco: "Review", providersFound: 0, providerDetails: [],
           alerts: ["Nenhuma integracao ERP encontrada na regiao. Configure em Integracoes."],
           recommendedActions: [], creditsCost: 0, isOwnCustomer: false,
-          addressMatches: [], source: "no_erp",
+          addressSource: null, addressUsed: null, autoAddressCrossRef: false,
+          source: "no_erp",
         },
       });
 
 
     } catch (error: any) {
       console.error("ISP consultation error:", error);
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -324,193 +424,28 @@ export function registerConsultasRoutes(): Router {
       const provider = await storage.getProvider(req.session.providerId!);
       return res.json({ consultations, todayCount: today, monthCount: month, credits: provider?.spcCredits || 0 });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
-  router.post("/api/spc-consultations", requireAuth, async (req, res) => {
+  router.post("/api/spc-consultations", spcConsultaLimiter, requireAuth, async (req, res) => {
     try {
       const { cpfCnpj } = req.body;
       if (!cpfCnpj) {
         return res.status(400).json({ message: "CPF/CNPJ obrigatorio" });
       }
 
-      const provider = await storage.getProvider(req.session.providerId!);
-      if (!provider || provider.spcCredits <= 0) {
-        return res.status(400).json({ message: "Creditos SPC insuficientes" });
-      }
-
-      const cleaned = cpfCnpj.replace(/\D/g, "");
-      const isCpf = cleaned.length === 11;
-
-      const hash = cleaned.split("").reduce((a: number, b: string) => a + parseInt(b), 0);
-      const seed = hash % 100;
-
-      let score: number;
-      let situacaoRf: string;
-      let obitoRegistrado = false;
-
-      if (seed < 15) {
-        score = Math.floor(Math.random() * 300) + 100;
-        situacaoRf = seed < 5 ? "Irregular" : "Regular";
-        obitoRegistrado = seed < 3;
-      } else if (seed < 40) {
-        score = Math.floor(Math.random() * 200) + 301;
-        situacaoRf = "Regular";
-      } else if (seed < 70) {
-        score = Math.floor(Math.random() * 200) + 501;
-        situacaoRf = "Regular";
-      } else {
-        score = Math.floor(Math.random() * 200) + 750;
-        situacaoRf = "Regular";
-      }
-
-      const firstNames = ["Joao", "Maria", "Pedro", "Ana", "Carlos", "Fernanda", "Lucas", "Julia", "Rafael", "Camila"];
-      const lastNames = ["Silva", "Santos", "Oliveira", "Souza", "Rodrigues", "Ferreira", "Almeida", "Pereira", "Lima", "Costa"];
-      const motherNames = ["Maria", "Ana", "Luisa", "Helena", "Teresa", "Rosa", "Carmen", "Lucia"];
-      const nameIdx = hash % firstNames.length;
-      const lastIdx = (hash + 3) % lastNames.length;
-      const motherIdx = (hash + 7) % motherNames.length;
-
-      const birthYear = 1960 + (hash % 40);
-      const birthMonth = (hash % 12) + 1;
-      const birthDay = (hash % 28) + 1;
-
-      const cadastralData = isCpf ? {
-        nome: `${firstNames[nameIdx]} ${lastNames[lastIdx]} dos Santos`.toUpperCase(),
-        cpfCnpj: cleaned,
-        dataNascimento: `${String(birthDay).padStart(2, "0")}/${String(birthMonth).padStart(2, "0")}/${birthYear}`,
-        nomeMae: `${motherNames[motherIdx]} ${lastNames[(lastIdx + 2) % lastNames.length]}`.toUpperCase(),
-        situacaoRf,
-        obitoRegistrado,
-        tipo: "PF" as const,
-      } : {
-        nome: `${firstNames[nameIdx].toUpperCase()} ${lastNames[lastIdx].toUpperCase()} TELECOMUNICACOES LTDA`,
-        cpfCnpj: cleaned,
-        dataFundacao: `${String(birthDay).padStart(2, "0")}/${String(birthMonth).padStart(2, "0")}/${birthYear + 20}`,
-        situacaoRf,
-        obitoRegistrado: false,
-        tipo: "PJ" as const,
-      };
-
-      const restrictionTypes = [
-        { type: "PEFIN", desc: "Pendencia Financeira", severity: "medium" as const },
-        { type: "REFIN", desc: "Restricao Financeira", severity: "high" as const },
-        { type: "CCF", desc: "Cheque sem Fundo", severity: "high" as const },
-        { type: "Protesto", desc: "Titulo protestado em cartorio", severity: "high" as const },
-        { type: "Acao Judicial", desc: "Processo de cobranca", severity: "critical" as const },
-        { type: "Falencia", desc: "Processo falimentar", severity: "critical" as const },
-      ];
-
-      const creditors = [
-        "Claro S.A.", "Banco Itau S.A.", "Vivo Telefonica", "Casas Bahia", "Magazine Luiza",
-        "Banco do Brasil", "Caixa Economica", "Oi S.A.", "Tim S.A.", "Bradesco S.A.",
-        "Lojas Americanas", "Santander S.A.", "Banco Pan", "Net Servicos", "Sky Brasil",
-      ];
-
-      const restrictions: any[] = [];
-      if (score < 700) {
-        const numRestrictions = score < 300 ? Math.floor(Math.random() * 3) + 3 : score < 500 ? Math.floor(Math.random() * 2) + 1 : Math.random() > 0.5 ? 1 : 0;
-        for (let i = 0; i < numRestrictions; i++) {
-          const rType = restrictionTypes[Math.floor(Math.random() * (score < 300 ? 6 : 4))];
-          const value = Math.floor(Math.random() * 5000) + 100;
-          const daysAgo = Math.floor(Math.random() * 365) + 30;
-          const date = new Date();
-          date.setDate(date.getDate() - daysAgo);
-          restrictions.push({
-            type: rType.type,
-            description: rType.desc,
-            severity: rType.severity,
-            creditor: creditors[Math.floor(Math.random() * creditors.length)],
-            value: value.toFixed(2),
-            date: date.toISOString().split("T")[0],
-            origin: i % 2 === 0 ? "SPC" : "Serasa",
-          });
-        }
-      }
-
-      const totalRestrictions = restrictions.reduce((sum, r) => sum + parseFloat(r.value), 0);
-
-      const segments = ["Telecomunicacoes", "Varejo", "Financeiras", "Servicos", "Industria"];
-      const previousConsultations: any[] = [];
-      const numPrevConsultations = Math.floor(Math.random() * 10) + 1;
-      for (let i = 0; i < numPrevConsultations; i++) {
-        const daysAgo = Math.floor(Math.random() * 90) + 1;
-        const d = new Date();
-        d.setDate(d.getDate() - daysAgo);
-        previousConsultations.push({
-          date: d.toISOString().split("T")[0],
-          segment: segments[Math.floor(Math.random() * segments.length)],
-        });
-      }
-
-      const segmentCounts: Record<string, number> = {};
-      previousConsultations.forEach(c => {
-        segmentCounts[c.segment] = (segmentCounts[c.segment] || 0) + 1;
+      // SPC integration is not yet available — single 503 response contract.
+      // TODO: When real SPC integration is delivered:
+      // 1. Gate behind SPC_API_ENABLED feature flag
+      // 2. Chamar API SPC com o CPF/CNPJ
+      // 3. Debitar créditos via storage.debitAndCreateSpcConsultation()
+      // 4. Retornar resultado da consulta
+      return res.status(503).json({
+        message: "Consulta SPC temporariamente indisponivel. Integracao em fase de implantacao.",
       });
-
-      const spcAlerts: { type: string; message: string; severity: string }[] = [];
-      if (numPrevConsultations > 5) {
-        spcAlerts.push({ type: "many_queries", message: `${numPrevConsultations} consultas nos ultimos 90 dias - possivel cliente "rodando" entre empresas`, severity: "high" });
-      }
-      if (restrictions.some(r => ["Claro S.A.", "Vivo Telefonica", "Oi S.A.", "Tim S.A.", "Net Servicos", "Sky Brasil"].includes(r.creditor))) {
-        spcAlerts.push({ type: "telecom_debt", message: "Dividas no segmento de telecomunicacoes detectadas", severity: "high" });
-      }
-      if (situacaoRf === "Irregular") {
-        spcAlerts.push({ type: "cpf_irregular", message: "CPF irregular na Receita Federal - documento com problema", severity: "critical" });
-      }
-      if (obitoRegistrado) {
-        spcAlerts.push({ type: "death_registered", message: "Obito registrado - possivel fraude de identidade", severity: "critical" });
-      }
-      if (score < 400 && restrictions.length > 0) {
-        spcAlerts.push({ type: "score_drop", message: "Score muito baixo com restricoes ativas - situacao financeira critica", severity: "medium" });
-      }
-
-      let riskLevel: string;
-      let riskLabel: string;
-      let recommendation: string;
-
-      if (score >= 901) { riskLevel = "very_low"; riskLabel = "RISCO MUITO BAIXO"; recommendation = "Aprovar"; }
-      else if (score >= 701) { riskLevel = "low"; riskLabel = "RISCO BAIXO"; recommendation = "Aprovar"; }
-      else if (score >= 501) { riskLevel = "medium"; riskLabel = "RISCO MEDIO"; recommendation = "Aprovar com cautela"; }
-      else if (score >= 301) { riskLevel = "high"; riskLabel = "RISCO ALTO"; recommendation = "Nao aprovar sem garantias"; }
-      else { riskLevel = "very_high"; riskLabel = "RISCO MUITO ALTO"; recommendation = "Rejeitar"; }
-
-      const result = {
-        cpfCnpj: cleaned,
-        cadastralData,
-        score,
-        riskLevel,
-        riskLabel,
-        recommendation,
-        status: restrictions.length === 0 ? "clean" : "restricted",
-        restrictions,
-        totalRestrictions,
-        previousConsultations: {
-          total: numPrevConsultations,
-          last90Days: numPrevConsultations,
-          bySegment: segmentCounts,
-        },
-        alerts: spcAlerts,
-      };
-
-      const consultation = await storage.createSpcConsultation({
-        providerId: req.session.providerId!,
-        userId: req.session.userId!,
-        cpfCnpj: cleaned,
-        result,
-        score,
-      });
-
-      await storage.updateProviderCredits(
-        provider.id,
-        provider.ispCredits,
-        provider.spcCredits - 1,
-      );
-
-      return res.json({ consultation, result });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireSuperAdmin } from "../auth";
 import { storage } from "../storage";
+import { getSafeErrorMessage } from "../utils/safe-error";
 
 export function registerCreditsRoutes(): Router {
   const router = Router();
@@ -13,7 +14,7 @@ export function registerCreditsRoutes(): Router {
       const orders = await storage.getAllCreditOrders(req.session.providerId);
       return res.json(orders);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -47,7 +48,7 @@ export function registerCreditsRoutes(): Router {
 
       let chargeData: any = null;
       try {
-        const { isAsaasConfigured, findOrCreateCustomer, createCharge } = await import("../asaas");
+        const { isAsaasConfigured, findOrCreateCustomer, createCharge } = await import("../services/asaas");
         if (isAsaasConfigured() && billingType) {
           const customer = await findOrCreateCustomer({ name: provider.name, cnpj: provider.cnpj, email: provider.contactEmail || me?.email || "" });
           const charge = await createCharge({
@@ -72,7 +73,7 @@ export function registerCreditsRoutes(): Router {
 
       return res.json({ order, charge: chargeData });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -82,11 +83,11 @@ export function registerCreditsRoutes(): Router {
       const order = await storage.getCreditOrder(parseInt(req.params.id));
       if (!order || order.providerId !== req.session.providerId) return res.status(404).json({ message: "Pedido nao encontrado" });
       if (!order.asaasChargeId) return res.status(400).json({ message: "Sem cobranca Asaas vinculada" });
-      const { getPixQrCode } = await import("../asaas");
+      const { getPixQrCode } = await import("../services/asaas");
       const pixData = await getPixQrCode(order.asaasChargeId);
       return res.json(pixData);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -98,7 +99,7 @@ export function registerCreditsRoutes(): Router {
       const orders = await storage.getAllCreditOrders(providerId);
       return res.json(orders);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -139,7 +140,7 @@ export function registerCreditsRoutes(): Router {
       let chargeData: any = null;
       if (billingType) {
         try {
-          const { isAsaasConfigured, findOrCreateCustomer, createCharge } = await import("../asaas");
+          const { isAsaasConfigured, findOrCreateCustomer, createCharge } = await import("../services/asaas");
           if (isAsaasConfigured()) {
             const credits = ispCredits || spcCredits;
             const customer = await findOrCreateCustomer({ name: provider.name, cnpj: provider.cnpj, email: provider.contactEmail || "" });
@@ -165,7 +166,7 @@ export function registerCreditsRoutes(): Router {
 
       return res.json({ order, charge: chargeData });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -175,7 +176,7 @@ export function registerCreditsRoutes(): Router {
       const order = await storage.releaseCreditOrder(id);
       return res.json({ order, message: `${order.ispCredits} ISP + ${order.spcCredits} SPC creditos liberados` });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -186,7 +187,7 @@ export function registerCreditsRoutes(): Router {
       const order = await storage.updateCreditOrder(id, { status, notes });
       return res.json(order);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -199,7 +200,7 @@ export function registerCreditsRoutes(): Router {
       const provider = await storage.getProvider(order.providerId);
       if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
 
-      const { findOrCreateCustomer, createCharge } = await import("../asaas");
+      const { findOrCreateCustomer, createCharge } = await import("../services/asaas");
       const customer = await findOrCreateCustomer({ name: provider.name, cnpj: provider.cnpj, email: provider.contactEmail || "" });
       const charge = await createCharge({
         customer: customer.id, billingType: billingType || "UNDEFINED",
@@ -216,7 +217,7 @@ export function registerCreditsRoutes(): Router {
       });
       return res.json({ order: updated, charge });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -225,7 +226,7 @@ export function registerCreditsRoutes(): Router {
       const id = parseInt(req.params.id);
       const order = await storage.getCreditOrder(id);
       if (!order || !order.asaasChargeId) return res.status(400).json({ message: "Sem cobranca Asaas" });
-      const { getCharge, asaasStatusToLocal } = await import("../asaas");
+      const { getCharge, asaasStatusToLocal } = await import("../services/asaas");
       const charge = await getCharge(order.asaasChargeId);
       const newStatus = asaasStatusToLocal(charge.status);
       const updates: any = { asaasStatus: charge.status, asaasInvoiceUrl: charge.invoiceUrl, asaasBankSlipUrl: charge.bankSlipUrl };
@@ -237,7 +238,7 @@ export function registerCreditsRoutes(): Router {
       const updated = await storage.updateCreditOrder(id, { ...updates, status: newStatus !== "paid" ? newStatus : order.status });
       return res.json({ order: updated });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -246,11 +247,11 @@ export function registerCreditsRoutes(): Router {
       const id = parseInt(req.params.id);
       const order = await storage.getCreditOrder(id);
       if (!order || !order.asaasChargeId) return res.status(400).json({ message: "Sem cobranca Asaas" });
-      const { getPixQrCode } = await import("../asaas");
+      const { getPixQrCode } = await import("../services/asaas");
       const pixData = await getPixQrCode(order.asaasChargeId);
       return res.json(pixData);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 

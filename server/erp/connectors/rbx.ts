@@ -136,7 +136,7 @@ class RbxConnector implements ErpConnector {
     }
   }
 
-  async fetchDelinquents(config: ErpConnectionConfig): Promise<ErpFetchResult> {
+  async fetchDelinquents(config: ErpConnectionConfig, _lastDays?: number): Promise<ErpFetchResult> {
     try {
       const data = await withResilience(
         () =>

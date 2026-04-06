@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../auth";
 import { storage } from "../storage";
+import { getSafeErrorMessage } from "../utils/safe-error";
 
 export function registerDashboardRoutes(): Router {
   const router = Router();
@@ -10,7 +11,7 @@ export function registerDashboardRoutes(): Router {
       const stats = await storage.getDashboardStats(req.session.providerId!);
       return res.json(stats);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -19,7 +20,7 @@ export function registerDashboardRoutes(): Router {
       const list = await storage.getDefaultersList(req.session.providerId!);
       return res.json(list);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -28,7 +29,7 @@ export function registerDashboardRoutes(): Router {
       const list = await storage.getInadimplentes(req.session.providerId!);
       return res.json(list);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -37,7 +38,7 @@ export function registerDashboardRoutes(): Router {
       const custs = await storage.getCustomersByProvider(req.session.providerId!);
       return res.json(custs);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -49,7 +50,7 @@ export function registerDashboardRoutes(): Router {
       });
       return res.json(customer);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -58,7 +59,7 @@ export function registerDashboardRoutes(): Router {
       const defaulters = await storage.getDefaultersByProvider(req.session.providerId!);
       return res.json(defaulters);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -67,7 +68,7 @@ export function registerDashboardRoutes(): Router {
       const invs = await storage.getInvoicesByProvider(req.session.providerId!);
       return res.json(invs);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -76,7 +77,7 @@ export function registerDashboardRoutes(): Router {
       const eqs = await storage.getEquipmentByProvider(req.session.providerId!);
       return res.json(eqs);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -85,7 +86,7 @@ export function registerDashboardRoutes(): Router {
       const ctrs = await storage.getContractsByProvider(req.session.providerId!);
       return res.json(ctrs);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 

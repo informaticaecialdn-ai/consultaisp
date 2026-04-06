@@ -104,7 +104,7 @@ export class MkConnector implements ErpConnector {
     }
   }
 
-  async fetchDelinquents(config: ErpConnectionConfig): Promise<ErpFetchResult> {
+  async fetchDelinquents(config: ErpConnectionConfig, _lastDays?: number): Promise<ErpFetchResult> {
     try {
       const tokenAcesso = await this.authenticate(config);
       const base = this.baseUrl(config);

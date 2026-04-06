@@ -5,17 +5,41 @@ import {
   type ErpIntegration, type ErpSyncLog,
   type ErpCatalog, type InsertErpCatalog,
 } from "@shared/schema";
+import { encryptField, decryptField } from "../utils/crypto";
+
+const SENSITIVE_FIELDS = ["apiToken", "apiUser", "clientSecret", "mkContraSenha"] as const;
+
+function encryptSensitiveFields(data: Partial<ErpIntegration>): Partial<ErpIntegration> {
+  const result = { ...data };
+  for (const field of SENSITIVE_FIELDS) {
+    if (field in result && typeof (result as any)[field] === "string") {
+      (result as any)[field] = encryptField((result as any)[field]);
+    }
+  }
+  return result;
+}
+
+function decryptIntegration(row: ErpIntegration): ErpIntegration {
+  const result = { ...row };
+  for (const field of SENSITIVE_FIELDS) {
+    if (typeof (result as any)[field] === "string") {
+      (result as any)[field] = decryptField((result as any)[field]);
+    }
+  }
+  return result;
+}
 
 export class ErpStorage {
   async getErpIntegrations(providerId: number): Promise<ErpIntegration[]> {
-    return db.select().from(erpIntegrations)
+    const rows = await db.select().from(erpIntegrations)
       .where(eq(erpIntegrations.providerId, providerId))
       .orderBy(erpIntegrations.erpSource);
+    return rows.map(decryptIntegration);
   }
 
   async getAllEnabledErpIntegrationsWithCredentials(): Promise<Array<ErpIntegration & { providerName: string }>> {
     const rows = await db
-      .select({ ...erpIntegrations, providerName: providers.name })
+      .select()
       .from(erpIntegrations)
       .innerJoin(providers, eq(erpIntegrations.providerId, providers.id))
       .where(
@@ -26,24 +50,25 @@ export class ErpStorage {
         )
       )
       .orderBy(erpIntegrations.providerId, erpIntegrations.erpSource);
-    return rows;
+    return rows.map(r => ({ ...decryptIntegration(r.erp_integrations), providerName: r.providers.name }));
   }
 
   async upsertErpIntegration(providerId: number, erpSource: string, data: Partial<ErpIntegration>): Promise<ErpIntegration> {
+    const encrypted = encryptSensitiveFields(data);
     const existing = await db.select().from(erpIntegrations)
       .where(and(eq(erpIntegrations.providerId, providerId), eq(erpIntegrations.erpSource, erpSource)))
       .limit(1);
     if (existing.length > 0) {
       const [updated] = await db.update(erpIntegrations)
-        .set(data as any)
+        .set(encrypted as any)
         .where(and(eq(erpIntegrations.providerId, providerId), eq(erpIntegrations.erpSource, erpSource)))
         .returning();
-      return updated;
+      return decryptIntegration(updated);
     }
     const [created] = await db.insert(erpIntegrations)
-      .values({ providerId, erpSource, ...data } as any)
+      .values({ providerId, erpSource, ...encrypted } as any)
       .returning();
-    return created;
+    return decryptIntegration(created);
   }
 
   async incrementErpIntegrationCounters(providerId: number, erpSource: string, upserted: number, errors: number): Promise<void> {

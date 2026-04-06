@@ -2,10 +2,45 @@ import { Router } from "express";
 import { requireSuperAdmin } from "../auth";
 import { storage } from "../storage";
 import { hashPassword } from "../password";
-import { sendVerificationEmail } from "../email";
-import { getConnector } from "../erp/registry";
+import { sendVerificationEmail } from "../services/email";
+import { getConnector, getSupportedSources } from "../erp/registry";
 import "../erp/index";
+import { getSafeErrorMessage } from "../utils/safe-error";
+import { sanitizeFilename } from "../utils/filename-sanitizer";
+import { db } from "../db";
+import { titularRequests } from "@shared/schema";
+import { eq, desc } from "drizzle-orm";
 import crypto from "crypto";
+import { z } from "zod";
+
+const adminUpdateProviderSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  tradeName: z.string().max(200).nullable().optional(),
+  cnpj: z.string().regex(/^\d{14}$/).optional(),
+  plan: z.enum(["free", "basic", "pro", "enterprise"]).optional(),
+  status: z.enum(["active", "suspended", "cancelled"]).optional(),
+  verificationStatus: z.enum(["pending", "approved", "rejected"]).optional(),
+  ispCredits: z.number().int().min(0).optional(),
+  spcCredits: z.number().int().min(0).optional(),
+  contactEmail: z.string().email().nullable().optional(),
+  contactPhone: z.string().max(20).nullable().optional(),
+  website: z.string().url().nullable().optional(),
+  subdomain: z.string().max(50).nullable().optional(),
+  addressZip: z.string().max(10).nullable().optional(),
+  addressStreet: z.string().max(200).nullable().optional(),
+  addressNumber: z.string().max(20).nullable().optional(),
+  addressComplement: z.string().max(100).nullable().optional(),
+  addressNeighborhood: z.string().max(100).nullable().optional(),
+  addressCity: z.string().max(100).nullable().optional(),
+  addressState: z.string().max(2).nullable().optional(),
+}).strict();
+
+const adminUpdateErpSchema = z.object({
+  apiUrl: z.string().url().max(500).nullable().optional(),
+  apiToken: z.string().max(1000).nullable().optional(),
+  apiUser: z.string().max(200).nullable().optional(),
+  isEnabled: z.boolean().optional(),
+}).strict();
 
 export function registerAdminRoutes(): Router {
   const router = Router();
@@ -15,31 +50,16 @@ export function registerAdminRoutes(): Router {
       const stats = await storage.getSystemStats();
       return res.json(stats);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
   router.get("/api/admin/providers", requireSuperAdmin, async (_req, res) => {
     try {
-      const allProviders = await storage.getAllProviders();
-      const withStats = await Promise.all(allProviders.map(async (p) => {
-        const provUsers = await storage.getUsersByProvider(p.id);
-        const adminUser = provUsers.find(u => u.role === "admin");
-        const erpIntegrations = await storage.getErpIntegrations(p.id);
-        const activeErp = erpIntegrations.find(i => i.isEnabled && i.apiUrl);
-        return {
-          ...p,
-          userCount: provUsers.length,
-          adminEmailVerified: adminUser ? adminUser.emailVerified : false,
-          erpSource: activeErp?.erpSource || null,
-          erpUrl: activeErp?.apiUrl || null,
-          erpToken: activeErp ? `${activeErp.apiUser || ""}:${activeErp.apiToken || ""}`.replace(/^:/, "") : null,
-          erpEnabled: activeErp?.isEnabled || false,
-        };
-      }));
+      const withStats = await storage.getAllProvidersWithStats();
       return res.json(withStats);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -142,7 +162,7 @@ export function registerAdminRoutes(): Router {
           if (data.status === "ERROR" || data.error) continue;
           const parsed = source.parse(data);
           if (!parsed.razaoSocial) continue;
-          console.log(`[CNPJ] ${cnpj} found via ${source.name}`);
+          console.log(`[CNPJ] ${cnpj.slice(0, 4)}*** found via ${source.name}`);
           return res.json(parsed);
         } catch {
           continue;
@@ -151,7 +171,7 @@ export function registerAdminRoutes(): Router {
 
       return res.status(404).json({ message: "CNPJ nao encontrado em nenhuma fonte" });
     } catch (error: any) {
-      return res.status(500).json({ message: "Erro ao consultar CNPJ: " + error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -184,17 +204,21 @@ export function registerAdminRoutes(): Router {
       });
       return res.status(201).json({ provider, user: { id: user.id, name: user.name, email: user.email } });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
   router.patch("/api/admin/providers/:id", requireSuperAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const updated = await storage.adminUpdateProvider(id, req.body);
+      const parsed = adminUpdateProviderSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Dados invalidos", errors: parsed.error.flatten().fieldErrors });
+      }
+      const updated = await storage.adminUpdateProvider(id, parsed.data);
       return res.json(updated);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -206,7 +230,7 @@ export function registerAdminRoutes(): Router {
       await storage.deleteProvider(id);
       return res.json({ message: "Provedor excluido com sucesso" });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -225,7 +249,7 @@ export function registerAdminRoutes(): Router {
       await sendVerificationEmail(adminUser.email, adminUser.name, token);
       return res.json({ message: "Email de verificacao reenviado com sucesso." });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -244,7 +268,7 @@ export function registerAdminRoutes(): Router {
       });
       return res.json(updated);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -265,7 +289,7 @@ export function registerAdminRoutes(): Router {
       }
       return res.json(updated);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -317,7 +341,7 @@ export function registerAdminRoutes(): Router {
         recentSpc: spcList.slice(0, 20),
       });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -333,7 +357,7 @@ export function registerAdminRoutes(): Router {
       ]);
       return res.json({ token, integrations, logs });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -341,11 +365,15 @@ export function registerAdminRoutes(): Router {
     try {
       const id = parseInt(req.params.id);
       const source = req.params.source;
-      const ALLOWED = ["ixc", "sgp", "mk", "tiacos", "hubsoft", "flyspeed", "netflash"];
+      const ALLOWED = getSupportedSources();
       if (!ALLOWED.includes(source)) return res.status(400).json({ message: "ERP invalido" });
       const provider = await storage.getProvider(id);
       if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
-      const { apiUrl, apiToken, apiUser, isEnabled } = req.body;
+      const parsed = adminUpdateErpSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Dados invalidos", errors: parsed.error.flatten().fieldErrors });
+      }
+      const { apiUrl, apiToken, apiUser, isEnabled } = parsed.data;
       const integration = await storage.upsertErpIntegration(id, source, {
         apiUrl: apiUrl ?? null,
         apiToken: apiToken ?? null,
@@ -354,7 +382,7 @@ export function registerAdminRoutes(): Router {
       });
       return res.json(integration);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -367,7 +395,7 @@ export function registerAdminRoutes(): Router {
       }));
       return res.json(safe);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -377,7 +405,7 @@ export function registerAdminRoutes(): Router {
       await storage.deleteUser(id);
       return res.json({ message: "Usuario removido" });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -399,7 +427,7 @@ export function registerAdminRoutes(): Router {
       await storage.updateUserEmail(id, email.trim().toLowerCase());
       return res.json({ message: "Email atualizado com sucesso" });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -415,6 +443,11 @@ export function registerAdminRoutes(): Router {
 
       const validRoles = ["admin", "user"];
       const userRole = validRoles.includes(role) ? role : "user";
+
+      const provider = await storage.getProvider(providerId);
+      if (!provider) {
+        return res.status(404).json({ message: "Provedor nao encontrado" });
+      }
 
       const existing = await storage.getUserByEmail(email);
       if (existing) {
@@ -433,7 +466,7 @@ export function registerAdminRoutes(): Router {
       const { password: _, ...userWithoutPassword } = user;
       return res.status(201).json(userWithoutPassword);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -443,7 +476,7 @@ export function registerAdminRoutes(): Router {
       const changes = await storage.getPlanChanges(providerId);
       return res.json(changes);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -464,7 +497,7 @@ export function registerAdminRoutes(): Router {
       );
       return res.json(updated);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -475,7 +508,7 @@ export function registerAdminRoutes(): Router {
       const docsNoData = docs.map(({ fileData, ...rest }) => rest);
       return res.json(docsNoData);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -486,10 +519,10 @@ export function registerAdminRoutes(): Router {
       if (!doc) return res.status(404).json({ message: "Documento nao encontrado" });
       const buffer = Buffer.from(doc.fileData.split(",")[1] || doc.fileData, "base64");
       res.setHeader("Content-Type", doc.documentMimeType || "application/octet-stream");
-      res.setHeader("Content-Disposition", `attachment; filename="${doc.documentName}"`);
+      res.setHeader("Content-Disposition", `attachment; filename="${sanitizeFilename(doc.documentName)}"`);
       return res.send(buffer);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -502,7 +535,7 @@ export function registerAdminRoutes(): Router {
       const item = await storage.createErpCatalogItem(data);
       return res.status(201).json(item);
     } catch (error: any) {
-      return res.status(400).json({ message: error.message });
+      return res.status(400).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -512,7 +545,7 @@ export function registerAdminRoutes(): Router {
       const item = await storage.updateErpCatalogItem(id, req.body);
       return res.json(item);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -522,7 +555,7 @@ export function registerAdminRoutes(): Router {
       await storage.deleteErpCatalogItem(id);
       return res.json({ success: true });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -550,7 +583,7 @@ export function registerAdminRoutes(): Router {
       });
       return res.json(testResult);
     } catch (error: any) {
-      return res.json({ ok: false, message: `Erro: ${error.message}` });
+      return res.json({ ok: false, message: getSafeErrorMessage(error) });
     }
   });
 
@@ -583,7 +616,71 @@ export function registerAdminRoutes(): Router {
 
       return res.json({ ok: true });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  // ── V-09 LGPD: Titular request management ──────────────────────
+  router.get("/api/admin/titular-requests", requireSuperAdmin, async (_req, res) => {
+    try {
+      const requests = await db.select().from(titularRequests).orderBy(desc(titularRequests.createdAt));
+
+      // Highlight requests approaching the 15 business day deadline
+      const now = new Date();
+      const enriched = requests.map(r => {
+        const created = r.createdAt ? new Date(r.createdAt) : now;
+        const daysSinceCreation = Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+        // Approximate business days (exclude weekends)
+        const businessDays = Math.floor(daysSinceCreation * 5 / 7);
+        const nearDeadline = businessDays >= 12 && r.status !== "concluido" && r.status !== "recusado";
+        const overdue = businessDays >= 15 && r.status !== "concluido" && r.status !== "recusado";
+        return { ...r, businessDays, nearDeadline, overdue };
+      });
+
+      return res.json(enriched);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  router.get("/api/admin/titular-requests/:id", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id as string);
+      const [request] = await db.select().from(titularRequests).where(eq(titularRequests.id, id));
+      if (!request) {
+        return res.status(404).json({ message: "Solicitacao nao encontrada" });
+      }
+      return res.json(request);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  const titularStatusSchema = z.object({
+    status: z.enum(["pendente", "em_andamento", "concluido", "recusado"]),
+  });
+
+  router.patch("/api/admin/titular-requests/:id/status", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id as string);
+      const parsed = titularStatusSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Status invalido. Valores aceitos: pendente, em_andamento, concluido, recusado" });
+      }
+
+      const [existing] = await db.select().from(titularRequests).where(eq(titularRequests.id, id));
+      if (!existing) {
+        return res.status(404).json({ message: "Solicitacao nao encontrada" });
+      }
+
+      const [updated] = await db.update(titularRequests)
+        .set({ status: parsed.data.status })
+        .where(eq(titularRequests.id, id))
+        .returning();
+
+      return res.json(updated);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 

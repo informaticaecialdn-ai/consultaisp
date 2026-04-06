@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth, requireSuperAdmin } from "../auth";
 import { storage } from "../storage";
+import { getSafeErrorMessage } from "../utils/safe-error";
 
 export function registerChatRoutes(): Router {
   const router = Router();
@@ -12,7 +13,7 @@ export function registerChatRoutes(): Router {
       const threads = await storage.getAllSupportThreads();
       return res.json(threads);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -23,7 +24,7 @@ export function registerChatRoutes(): Router {
       await storage.markMessagesRead(threadId, false);
       return res.json(messages);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -39,7 +40,7 @@ export function registerChatRoutes(): Router {
       });
       return res.json(msg);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -50,7 +51,7 @@ export function registerChatRoutes(): Router {
       await storage.updateThreadStatus(threadId, status);
       return res.json({ message: "Status atualizado" });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -63,7 +64,7 @@ export function registerChatRoutes(): Router {
       await storage.markMessagesRead(thread.id, true);
       return res.json({ thread, messages });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -79,7 +80,7 @@ export function registerChatRoutes(): Router {
       });
       return res.json(msg);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -88,7 +89,7 @@ export function registerChatRoutes(): Router {
       const count = await storage.getUnreadCountForProvider(req.session.providerId!);
       return res.json({ count });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -101,7 +102,7 @@ export function registerChatRoutes(): Router {
       const chat = await storage.createVisitorChat(name, email, phone || null);
       return res.status(201).json({ token: chat.token, chatId: chat.id });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -115,7 +116,7 @@ export function registerChatRoutes(): Router {
       const messages = await storage.getVisitorChatMessages(chat.id);
       return res.json({ chat, messages });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -131,7 +132,7 @@ export function registerChatRoutes(): Router {
       const msg = await storage.createVisitorChatMessage(chat.id, content.trim(), false, chat.visitorName);
       return res.status(201).json(msg);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -144,7 +145,7 @@ export function registerChatRoutes(): Router {
       const cnt = await storage.getVisitorUnreadCount(chat.id);
       return res.json({ count: cnt });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -155,7 +156,7 @@ export function registerChatRoutes(): Router {
       const chats = await storage.getAllVisitorChats();
       return res.json(chats);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -166,7 +167,7 @@ export function registerChatRoutes(): Router {
       const messages = await storage.getVisitorChatMessages(chatId);
       return res.json(messages);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -179,7 +180,7 @@ export function registerChatRoutes(): Router {
       const msg = await storage.createVisitorChatMessage(chatId, content.trim(), true, user.name || "Atendente");
       return res.status(201).json(msg);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -190,7 +191,7 @@ export function registerChatRoutes(): Router {
       await storage.updateVisitorChatStatus(chatId, status);
       return res.json({ success: true });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 

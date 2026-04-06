@@ -60,6 +60,12 @@ export const getQueryFn: <T>(options: {
     return await res.json();
   };
 
+/** staleTime constants by data category (ms) */
+export const STALE_DASHBOARD = 30_000;   // 30s — dashboard stats
+export const STALE_LISTS = 60_000;       // 1min — customer/consultation lists
+export const STALE_SETTINGS = 300_000;   // 5min — settings, ERP config
+export const STALE_STATIC = Infinity;    // static data (plans, ERP catalog)
+
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

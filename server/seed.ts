@@ -5,6 +5,10 @@ import { count, eq } from "drizzle-orm";
 import { hashPassword } from "./password";
 
 export async function seedDatabase() {
+  if (process.env.NODE_ENV === "production") {
+    console.warn("[seed] SEED_DEMO_DATA bloqueado em NODE_ENV=production");
+    return;
+  }
   if (process.env.SEED_DEMO_DATA !== "true") {
     console.log("[seed] SEED_DEMO_DATA not set to 'true', skipping demo data");
     return;

@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, STALE_DASHBOARD, STALE_LISTS } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import {
   Shield, Building2, Users, CreditCard, BarChart3, MessageSquare,
@@ -1213,14 +1213,17 @@ export default function AdminSistemaPage() {
   const { data: stats } = useQuery<any>({
     queryKey: ["/api/admin/stats"],
     enabled: isSuperAdmin,
+    staleTime: STALE_DASHBOARD,
   });
   const { data: allProviders = [], isLoading: providersLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/providers"],
     enabled: isSuperAdmin,
+    staleTime: STALE_LISTS,
   });
   const { data: allUsers = [], isLoading: usersLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/users"],
     enabled: isSuperAdmin,
+    staleTime: STALE_LISTS,
   });
   const { data: chatThreads = [] } = useQuery<any[]>({
     queryKey: ["/api/admin/chat/threads"],

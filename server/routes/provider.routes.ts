@@ -2,6 +2,8 @@ import { Router } from "express";
 import { requireAuth } from "../auth";
 import { storage } from "../storage";
 import { hashPassword } from "../password";
+import { getSafeErrorMessage } from "../utils/safe-error";
+import { sanitizeFilename } from "../utils/filename-sanitizer";
 import crypto from "crypto";
 
 export function registerProviderRoutes(): Router {
@@ -30,7 +32,7 @@ export function registerProviderRoutes(): Router {
       }));
       return res.json(safe);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -55,7 +57,7 @@ export function registerProviderRoutes(): Router {
       });
       return res.status(201).json({ id: newUser.id, name: newUser.name, email: newUser.email, role: newUser.role });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -75,7 +77,7 @@ export function registerProviderRoutes(): Router {
       await storage.deleteUser(userId);
       return res.json({ message: "Usuario removido com sucesso" });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -90,7 +92,7 @@ export function registerProviderRoutes(): Router {
       const updated = await storage.updateProvider(req.session.providerId!, parsed.data);
       return res.json(updated);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -102,7 +104,7 @@ export function registerProviderRoutes(): Router {
       const documents = await storage.getProviderDocuments(req.session.providerId!);
       return res.json({ ...provider, partners, documents });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -112,7 +114,7 @@ export function registerProviderRoutes(): Router {
       const baseUrl = `${req.protocol}://${req.get("host")}`;
       return res.json({ token, webhookUrl: `${baseUrl}/api/webhooks/erp-sync` });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -123,7 +125,7 @@ export function registerProviderRoutes(): Router {
       const baseUrl = `${req.protocol}://${req.get("host")}`;
       return res.json({ token, webhookUrl: `${baseUrl}/api/webhooks/erp-sync` });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -145,7 +147,7 @@ export function registerProviderRoutes(): Router {
       const updated = await storage.updateProviderProfile(req.session.providerId!, data);
       return res.json(updated);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -154,7 +156,7 @@ export function registerProviderRoutes(): Router {
       const partners = await storage.getProviderPartners(req.session.providerId!);
       return res.json(partners);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -172,7 +174,7 @@ export function registerProviderRoutes(): Router {
       });
       return res.json(partner);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -189,7 +191,7 @@ export function registerProviderRoutes(): Router {
       });
       return res.json(updated);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -202,7 +204,7 @@ export function registerProviderRoutes(): Router {
       await storage.deleteProviderPartner(id, req.session.providerId!);
       return res.json({ success: true });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -212,7 +214,7 @@ export function registerProviderRoutes(): Router {
       const docsNoData = docs.map(({ fileData, ...rest }) => rest);
       return res.json(docsNoData);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -235,7 +237,7 @@ export function registerProviderRoutes(): Router {
       const { fileData: _, ...docNoData } = doc;
       return res.json(docNoData);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -248,7 +250,7 @@ export function registerProviderRoutes(): Router {
       await storage.deleteProviderDocument(id, req.session.providerId!);
       return res.json({ success: true });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -261,10 +263,10 @@ export function registerProviderRoutes(): Router {
       }
       const buffer = Buffer.from(doc.fileData.split(",")[1] || doc.fileData, "base64");
       res.setHeader("Content-Type", doc.documentMimeType || "application/octet-stream");
-      res.setHeader("Content-Disposition", `attachment; filename="${doc.documentName}"`);
+      res.setHeader("Content-Disposition", `attachment; filename="${sanitizeFilename(doc.documentName)}"`);
       return res.send(buffer);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 

@@ -219,12 +219,18 @@ function normalizeCustomer(c: any): RealtimeQueryResult["customers"][0] {
     email: c.email || undefined,
     phone: c.phone || undefined,
     address: c.address || undefined,
+    addressNumber: c.addressNumber || c.number || undefined,
+    complement: c.complement || undefined,
+    neighborhood: c.neighborhood || undefined,
     city: c.city || undefined,
     state: c.state || undefined,
     cep: c.cep || undefined,
     totalOverdueAmount: c.totalOverdueAmount || 0,
     maxDaysOverdue: c.maxDaysOverdue || 0,
     overdueInvoicesCount: c.overdueInvoicesCount || 0,
+    serviceAgeMonths: c.serviceAgeMonths || undefined,
+    planName: c.planName || undefined,
+    hasUnreturnedEquipment: c.hasUnreturnedEquipment || false,
   };
 }
 

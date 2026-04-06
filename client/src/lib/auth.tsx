@@ -7,7 +7,7 @@ interface AuthState {
   provider: Provider | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<{ code?: string; email?: string } | void>;
-  register: (data: { email: string; password: string; name: string; providerName: string; cnpj: string; subdomain: string }) => Promise<{ needsVerification: boolean; email: string }>;
+  register: (data: { email: string; password: string; name: string; phone?: string; providerName: string; cnpj: string; subdomain: string; lgpdAccepted?: boolean }) => Promise<{ needsVerification: boolean; email: string }>;
   logout: () => Promise<void>;
 }
 
@@ -54,7 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setProvider(data.provider);
   };
 
-  const register = async (data: { email: string; password: string; name: string; phone: string; providerName: string; cnpj: string; subdomain: string }) => {
+  const register = async (data: { email: string; password: string; name: string; phone?: string; providerName: string; cnpj: string; subdomain: string; lgpdAccepted?: boolean }) => {
     const res = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

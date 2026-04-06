@@ -7,6 +7,7 @@ import { seedDatabase, seedSuperAdmin } from "./seed";
 import { validateEnv } from "./env";
 import { pool } from "./db";
 import { logger } from "./logger";
+import { getSafeErrorMessage } from "./utils/safe-error";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -20,6 +21,7 @@ declare module "http" {
 
 app.use(
   express.json({
+    limit: "10mb",
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
@@ -39,6 +41,33 @@ export function log(message: string, source = "express") {
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
+// Routes whose response bodies must never be logged (contain personal/financial data)
+const SENSITIVE_ROUTES = [
+  "/api/isp-consultations",
+  "/api/spc-consultations",
+  "/api/public/titular-request",
+];
+
+/** Redact sensitive fields from a response body before logging */
+function sanitizeForLog(body: Record<string, any>): Record<string, any> {
+  const sensitiveKeys = new Set([
+    "cpfCnpj", "customerName", "nome", "email", "phone", "telefone",
+    "address", "cep", "nomeMae", "dataNascimento", "cpf_cnpj",
+    "providerDetails", "addressMatches", "cadastralData", "restrictions",
+  ]);
+  const sanitized: Record<string, any> = {};
+  for (const key of Object.keys(body)) {
+    if (sensitiveKeys.has(key)) {
+      sanitized[key] = "[REDACTED]";
+    } else if (typeof body[key] === "object" && body[key] !== null && !Array.isArray(body[key])) {
+      sanitized[key] = sanitizeForLog(body[key]);
+    } else {
+      sanitized[key] = body[key];
+    }
+  }
+  return sanitized;
+}
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -54,8 +83,13 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+
+      // Suppress response body for sensitive consultation routes
+      const isSensitive = SENSITIVE_ROUTES.some(r => path.startsWith(r));
+      if (capturedJsonResponse && !isSensitive) {
+        logLine += ` :: ${JSON.stringify(sanitizeForLog(capturedJsonResponse))}`;
+      } else if (isSensitive && capturedJsonResponse) {
+        logLine += ` :: [BODY REDACTED - sensitive route]`;
       }
 
       log(logLine);
@@ -79,15 +113,12 @@ app.use((req, res, next) => {
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    console.error("Internal Server Error:", err);
 
     if (res.headersSent) {
       return next(err);
     }
 
-    return res.status(status).json({ message });
+    return res.status(status).json({ message: getSafeErrorMessage(err) });
   });
 
   // importantly only setup vite in development and after

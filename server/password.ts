@@ -16,7 +16,12 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
   return new Promise((resolve, reject) => {
     crypto.scrypt(password, salt, 64, (err, derivedKey) => {
       if (err) reject(err);
-      resolve(key === derivedKey.toString("hex"));
+      const storedBuf = Buffer.from(key, "hex");
+      if (storedBuf.length !== derivedKey.length) {
+        resolve(false);
+        return;
+      }
+      resolve(crypto.timingSafeEqual(storedBuf, derivedKey));
     });
   });
 }

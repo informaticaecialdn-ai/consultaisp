@@ -2,6 +2,23 @@ import { Router } from "express";
 import { requireAuth } from "../auth";
 import { storage } from "../storage";
 import { getConnector, getAllConnectors, getSupportedSources, buildConnectorConfig, ERP_CONFIG_FIELDS } from "../erp";
+import { getSafeErrorMessage } from "../utils/safe-error";
+import { z } from "zod";
+
+const erpIntegrationUpdateSchema = z.object({
+  isEnabled: z.boolean().optional(),
+  notes: z.string().max(1000).nullable().optional(),
+  apiUrl: z.string().max(500).nullable().optional(),
+  apiToken: z.string().max(1000).nullable().optional(),
+  apiUser: z.string().max(200).nullable().optional(),
+  syncIntervalHours: z.number().int().min(1).max(720).optional(),
+  clientId: z.string().max(200).nullable().optional(),
+  clientSecret: z.string().max(500).nullable().optional(),
+  mkContraSenha: z.string().max(200).nullable().optional(),
+  sgpApp: z.string().max(200).nullable().optional(),
+  voalleClientId: z.string().max(200).nullable().optional(),
+  extraConfig: z.record(z.string()).nullable().optional(),
+}).strict();
 
 export function registerErpRoutes(): Router {
   const router = Router();
@@ -25,7 +42,7 @@ export function registerErpRoutes(): Router {
       const integrations = await storage.getErpIntegrations(req.session.providerId!);
       return res.json(integrations);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -34,13 +51,14 @@ export function registerErpRoutes(): Router {
       const source = String(req.params.source);
       const validSources = [...getSupportedSources(), "manual"];
       if (!validSources.includes(source)) return res.status(400).json({ message: "ERP invalido" });
-      const allowed = ["isEnabled", "notes", "apiUrl", "apiToken", "apiUser", "syncIntervalHours", "clientId", "clientSecret", "mkContraSenha", "sgpApp", "voalleClientId", "extraConfig"];
-      const data: any = {};
-      for (const k of allowed) { if (req.body[k] !== undefined) data[k] = req.body[k]; }
-      const integration = await storage.upsertErpIntegration(req.session.providerId!, source, data);
+      const parsed = erpIntegrationUpdateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Dados invalidos", errors: parsed.error.flatten().fieldErrors });
+      }
+      const integration = await storage.upsertErpIntegration(req.session.providerId!, source, parsed.data);
       return res.json(integration);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -61,7 +79,7 @@ export function registerErpRoutes(): Router {
       const result = await connector.testConnection(config);
       return res.json(result);
     } catch (error: any) {
-      return res.status(500).json({ ok: false, message: error.message });
+      return res.status(500).json({ ok: false, message: getSafeErrorMessage(error) });
     }
   });
 
@@ -75,7 +93,7 @@ export function registerErpRoutes(): Router {
       );
       return res.json(logs);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -84,7 +102,7 @@ export function registerErpRoutes(): Router {
       const stats = await storage.getErpIntegrationStats(req.session.providerId!);
       return res.json(stats);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 

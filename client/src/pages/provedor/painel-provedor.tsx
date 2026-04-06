@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, STALE_DASHBOARD } from "@/lib/queryClient";
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
 import {
@@ -240,7 +240,7 @@ export default function PainelProvedorPage() {
   const { data: providerUsers = [], isLoading: usersLoading } = useQuery<any[]>({
     queryKey: ["/api/provider/users"],
   });
-  const { data: dashStats } = useQuery<any>({ queryKey: ["/api/dashboard/stats"] });
+  const { data: dashStats } = useQuery<any>({ queryKey: ["/api/dashboard/stats"], staleTime: STALE_DASHBOARD });
   const { data: ispConsultations = [] } = useQuery<any[]>({ queryKey: ["/api/isp-consultations"] });
   const { data: spcConsultations = [] } = useQuery<any[]>({ queryKey: ["/api/spc-consultations"] });
 

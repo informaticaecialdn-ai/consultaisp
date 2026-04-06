@@ -83,6 +83,7 @@ export default function LoginPage() {
     providerName: "",
     cnpj: "",
     subdomain: "",
+    lgpdAccepted: false,
   });
 
   useEffect(() => {
@@ -584,10 +585,31 @@ export default function LoginPage() {
                     </div>
                   )}
 
+                  {pageState === "register" && (
+                    <div className="flex items-start gap-2.5 p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                      <input
+                        type="checkbox"
+                        id="lgpd-register-accept"
+                        checked={form.lgpdAccepted}
+                        onChange={(e) => setForm({ ...form, lgpdAccepted: e.target.checked })}
+                        className="mt-0.5 w-4 h-4 rounded border-blue-300"
+                        data-testid="checkbox-lgpd-accept"
+                        required
+                      />
+                      <label htmlFor="lgpd-register-accept" className="text-xs text-blue-800 dark:text-blue-300 leading-relaxed cursor-pointer">
+                        Li e aceito os{" "}
+                        <a href="/lgpd" target="_blank" rel="noopener noreferrer" className="underline font-semibold">
+                          Termos de Uso e a Politica de Privacidade
+                        </a>
+                        {" "}conforme a LGPD (Lei n 13.709/2018).
+                      </label>
+                    </div>
+                  )}
+
                   <Button
                     type="submit"
                     className="w-full bg-violet-600 hover:bg-violet-700 h-11 text-base"
-                    disabled={isLoading}
+                    disabled={isLoading || (pageState === "register" && !form.lgpdAccepted)}
                     data-testid="button-submit-login"
                   >
                     {isLoading ? "Aguarde..." : pageState === "register" ? "Cadastrar" : "Entrar"}

@@ -64,7 +64,7 @@ export class SgpConnector implements ErpConnector {
     }
   }
 
-  async fetchDelinquents(config: ErpConnectionConfig): Promise<ErpFetchResult> {
+  async fetchDelinquents(config: ErpConnectionConfig, _lastDays?: number): Promise<ErpFetchResult> {
     const base = this.baseUrl(config);
     try {
       const response = await withResilience(

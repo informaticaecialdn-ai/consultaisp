@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { useToast } from "@/hooks/use-toast";
 import {
   Search, Activity, Calendar, CheckCircle, BarChart3, Info,
@@ -14,6 +15,7 @@ import {
   Lock, ArrowRight, Zap, Router, MapPin, XCircle, AlertCircle,
   User, Sparkles, Download, Save, RotateCcw, TrendingDown, TrendingUp,
 } from "lucide-react";
+import AddressMapMini from "@/components/consulta/AddressMapMini";
 
 interface ProviderDetail {
   providerName: string;
@@ -47,8 +49,10 @@ interface AddressMatch {
   providerName: string;
   isSameProvider: boolean;
   status: string;
-  daysOverdue: number;
+  daysOverdue?: number;
+  daysOverdueRange?: string;
   totalOverdue?: number;
+  totalOverdueRange?: string;
   hasDebt: boolean;
 }
 
@@ -89,6 +93,10 @@ interface ConsultaResult {
   creditsCost: number;
   isOwnCustomer: boolean;
   addressMatches?: AddressMatch[];
+  addressSearch?: any;
+  addressSource?: "own" | "network" | null;
+  addressUsed?: string | null;
+  autoAddressCrossRef?: boolean;
   consultorIp?: string;
   isHistoryResult?: boolean;
   source?: string;
@@ -325,6 +333,12 @@ export default function ConsultaISPPage() {
   const [selectedFreeDetail, setSelectedFreeDetail] = useState<ProviderDetail | null>(null);
   const [selectedPaidDetail, setSelectedPaidDetail] = useState<ProviderDetail | null>(null);
 
+  // V-06 LGPD disclaimer
+  const [lgpdDisclaimerOpen, setLgpdDisclaimerOpen] = useState(false);
+  const [lgpdAccepted, setLgpdAccepted] = useState(false);
+  const [lgpdSessionAccepted, setLgpdSessionAccepted] = useState(false);
+  const [pendingSearchPayload, setPendingSearchPayload] = useState<any>(null);
+
   // CEP address expansion (CEP mode — main input)
   const [cepData, setCepData] = useState<CepData | null>(null);
   const [cepLoading, setCepLoading] = useState(false);
@@ -332,7 +346,7 @@ export default function ConsultaISPPage() {
   const [addressNumber, setAddressNumber] = useState("");
   const [addressComplement, setAddressComplement] = useState("");
 
-  // Installation address (CPF/CNPJ mode — optional address cross-reference via ERP)
+  // Install address fallback (manual CEP input for CPF/CNPJ when auto cross-ref unavailable)
   const [showInstallAddr, setShowInstallAddr] = useState(false);
   const [installCepQuery, setInstallCepQuery] = useState("");
   const [installCepData, setInstallCepData] = useState<CepData | null>(null);
@@ -340,6 +354,7 @@ export default function ConsultaISPPage() {
   const [installCepError, setInstallCepError] = useState("");
   const [installNumber, setInstallNumber] = useState("");
   const [installComplement, setInstallComplement] = useState("");
+
 
   useEffect(() => {
     const digits = query.replace(/\D/g, "");
@@ -366,7 +381,7 @@ export default function ConsultaISPPage() {
     }
   }, [query]);
 
-  // Resolve installation CEP via ViaCEP
+  // Install address fallback — CEP resolution
   useEffect(() => {
     const digits = installCepQuery.replace(/\D/g, "");
     if (digits.length === 8) {
@@ -376,14 +391,19 @@ export default function ConsultaISPPage() {
       fetch(`https://viacep.com.br/ws/${digits}/json/`)
         .then(r => r.json())
         .then((d: CepData) => {
-          if (d.erro) setInstallCepError("CEP não encontrado.");
-          else setInstallCepData(d);
+          if (d.erro) {
+            setInstallCepError("CEP não encontrado. Verifique o número.");
+          } else {
+            setInstallCepData(d);
+          }
         })
-        .catch(() => setInstallCepError("Erro ao buscar CEP."))
+        .catch(() => setInstallCepError("Erro ao buscar CEP. Tente novamente."))
         .finally(() => setInstallCepLoading(false));
     } else {
       setInstallCepData(null);
       setInstallCepError("");
+      setInstallNumber("");
+      setInstallComplement("");
     }
   }, [installCepQuery]);
 
@@ -404,6 +424,13 @@ export default function ConsultaISPPage() {
       setAiDone(false);
       setAiError("");
       setSelectedProviderIdx(0);
+      // Reset install address fallback when result arrives
+      setShowInstallAddr(false);
+      setInstallCepQuery("");
+      setInstallCepData(null);
+      setInstallCepError("");
+      setInstallNumber("");
+      setInstallComplement("");
       queryClient.invalidateQueries({ queryKey: ["/api/isp-consultations"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       const ownCount = (data.result?.providerDetails || []).filter((d: any) => d.isSameProvider).length;
@@ -531,7 +558,7 @@ export default function ConsultaISPPage() {
     const alertRows = doc.alerts.length > 0 ? doc.alerts.map(a => `<li>${a}</li>`).join("") : "<li>Nenhum alerta</li>";
     const actionRows = doc.recommendedActions.length > 0 ? doc.recommendedActions.map(a => `<li>${a}</li>`).join("") : "<li>Nenhuma acao especifica recomendada</li>";
     const addrRows = (doc.addressMatches || []).filter(m => m.hasDebt).map(m =>
-      `<li>${m.customerName} — ${m.address}, ${m.city}${m.state ? `/${m.state}` : ""} — ${m.daysOverdue} dias atraso</li>`
+      `<li>${m.customerName} — ${m.address}, ${m.city}${m.state ? `/${m.state}` : ""} — ${m.daysOverdue != null ? `${m.daysOverdue} dias atraso` : m.daysOverdueRange || "Inadimplente"}</li>`
     ).join("");
 
     const ipStr = doc.consultorIp || "desconhecido";
@@ -621,6 +648,10 @@ ${addrRows ? `<section>
     setTimeout(() => { w.print(); }, 400);
   };
 
+  const executeSearch = (payload: any) => {
+    mutation.mutate(payload);
+  };
+
   const handleSearch = () => {
     if (!query.trim()) return;
     const digits = query.replace(/\D/g, "");
@@ -630,17 +661,33 @@ ${addrRows ? `<section>
       return;
     }
 
-    const hasInstallAddr = !isCep && showInstallAddr && installCepData && installNumber.trim();
-
-    mutation.mutate({
+    const payload = {
       cpfCnpj: query,
-      // CEP mode: address of the residence being searched
-      addressNumber: isCep ? addressNumber.trim() : (hasInstallAddr ? installNumber.trim() : undefined),
-      addressComplement: isCep ? addressComplement.trim() : (hasInstallAddr && installComplement ? installComplement.trim() : undefined),
-      addressStreet: isCep && cepData ? cepData.logradouro : (hasInstallAddr && installCepData ? installCepData.logradouro : undefined),
-      addressCity: isCep && cepData ? cepData.localidade : (hasInstallAddr && installCepData ? installCepData.localidade : undefined),
-      addressState: isCep && cepData ? cepData.uf : (hasInstallAddr && installCepData ? installCepData.uf : undefined),
-    });
+      addressNumber: isCep ? addressNumber.trim() : undefined,
+      addressComplement: isCep ? addressComplement.trim() : undefined,
+      addressStreet: isCep && cepData ? cepData.logradouro : undefined,
+      addressCity: isCep && cepData ? cepData.localidade : undefined,
+      addressState: isCep && cepData ? cepData.uf : undefined,
+    };
+
+    // V-06 LGPD: show disclaimer before first consultation in session
+    if (!lgpdSessionAccepted) {
+      setPendingSearchPayload(payload);
+      setLgpdAccepted(false);
+      setLgpdDisclaimerOpen(true);
+      return;
+    }
+
+    executeSearch(payload);
+  };
+
+  const handleLgpdAcceptAndSearch = () => {
+    setLgpdSessionAccepted(true);
+    setLgpdDisclaimerOpen(false);
+    if (pendingSearchPayload) {
+      executeSearch(pendingSearchPayload);
+      setPendingSearchPayload(null);
+    }
   };
 
   const getDetectedType = (val: string) => {
@@ -933,102 +980,6 @@ ${addrRows ? `<section>
                   </div>
                 )}
 
-                {/* ── Seção de endereço de instalação (CPF/CNPJ mode) ── */}
-                {!cepData && (detectedType === "CPF" || detectedType === "CNPJ") && (
-                  <div className="space-y-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowInstallAddr(v => !v);
-                        if (showInstallAddr) {
-                          setInstallCepQuery("");
-                          setInstallCepData(null);
-                          setInstallNumber("");
-                          setInstallComplement("");
-                        }
-                      }}
-                      className="flex items-center gap-2 text-sm font-semibold text-blue-700 hover:text-blue-800 transition-colors"
-                      data-testid="button-toggle-install-addr"
-                    >
-                      <MapPin className="w-4 h-4" />
-                      {showInstallAddr ? "▾ Ocultar endereço de instalação" : "▸ Verificar também por endereço de instalação"}
-                      <span className="text-[10px] font-bold bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">ANTI-FRAUDE</span>
-                    </button>
-
-                    {showInstallAddr && (
-                      <div className="border-2 border-blue-200 bg-blue-50 rounded-2xl p-4 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200" data-testid="install-addr-panel">
-                        <div className="flex items-start gap-2">
-                          <AlertTriangle className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                          <p className="text-xs text-blue-800 font-medium">
-                            Informar o endereço de instalação permite cruzar com TODOS os provedores da rede ISP — mesmo que o CPF seja limpo, o endereço pode ter histórico de inadimplentes com outros documentos.
-                          </p>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="col-span-2 sm:col-span-1">
-                            <label className="text-xs font-semibold text-slate-700 mb-1 block">
-                              CEP do endereço <span className="text-red-500">*</span>
-                            </label>
-                            <div className="relative">
-                              <Input
-                                data-testid="input-install-cep"
-                                placeholder="00000-000"
-                                value={installCepQuery}
-                                onChange={e => setInstallCepQuery(e.target.value)}
-                                className="h-10 rounded-lg border-blue-200 bg-white pr-8"
-                                maxLength={9}
-                              />
-                              {installCepLoading && (
-                                <div className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />
-                              )}
-                            </div>
-                            {installCepError && <p className="text-xs text-red-600 mt-1">{installCepError}</p>}
-                            {installCepData && (
-                              <p className="text-xs text-blue-700 mt-1 font-medium">{installCepData.logradouro}, {installCepData.localidade}/{installCepData.uf}</p>
-                            )}
-                          </div>
-
-                          <div>
-                            <label className="text-xs font-semibold text-slate-700 mb-1 block">
-                              Número <span className="text-red-500">*</span>
-                            </label>
-                            <Input
-                              data-testid="input-install-number"
-                              placeholder="Ex: 142"
-                              value={installNumber}
-                              onChange={e => setInstallNumber(e.target.value)}
-                              onKeyDown={e => e.key === "Enter" && handleSearch()}
-                              className="h-10 rounded-lg border-blue-200 bg-white"
-                            />
-                          </div>
-
-                          <div className="col-span-2">
-                            <label className="text-xs font-semibold text-slate-700 mb-1 block">
-                              Complemento <span className="text-slate-400 font-normal">(opcional)</span>
-                            </label>
-                            <Input
-                              data-testid="input-install-complement"
-                              placeholder="Apto 12, Bloco B..."
-                              value={installComplement}
-                              onChange={e => setInstallComplement(e.target.value)}
-                              onKeyDown={e => e.key === "Enter" && handleSearch()}
-                              className="h-10 rounded-lg border-blue-200 bg-white"
-                            />
-                          </div>
-                        </div>
-
-                        {installCepData && installNumber.trim() && (
-                          <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-3 py-2">
-                            <CheckCircle className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
-                            <p className="text-xs text-green-700 font-medium">
-                              Endereço confirmado — será cruzado na rede ISP junto com o CPF/CNPJ
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
 
                 {/* Dica padrão (quando nenhum tipo detectado) */}
                 {!cepData && !detectedType && (
@@ -1045,6 +996,108 @@ ${addrRows ? `<section>
                   </div>
                 )}
 
+                {/* ── Verificar também por endereço de instalação (fallback manual) ── */}
+                {(detectedType === "CPF" || detectedType === "CNPJ") && (!result || result.autoAddressCrossRef !== true) && (
+                  <div className="border border-slate-200 rounded-xl overflow-hidden">
+                    <button
+                      type="button"
+                      className="w-full flex items-center justify-between px-4 py-3 bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+                      onClick={() => setShowInstallAddr(prev => !prev)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <MapPin className="w-4 h-4 text-slate-500" />
+                        <span className="text-sm font-medium text-slate-700">Verificar também por endereço de instalação</span>
+                      </div>
+                      {showInstallAddr ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                    </button>
+
+                    {showInstallAddr && (
+                      <div className="px-4 py-3 space-y-3 border-t border-slate-200">
+                        <p className="text-xs text-slate-500">
+                          Informe o CEP de instalação para cruzar com a base ISP. Útil quando o ERP não retorna endereço automaticamente.
+                        </p>
+
+                        <div className="relative">
+                          <Input
+                            placeholder="CEP de instalação (8 dígitos)"
+                            value={installCepQuery}
+                            onChange={(e) => setInstallCepQuery(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                            className="h-10 rounded-lg border-slate-200 pr-10"
+                            data-testid="input-install-cep"
+                          />
+                          {installCepLoading && (
+                            <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />
+                          )}
+                        </div>
+                        {installCepError && <p className="text-xs text-red-600 font-medium">{installCepError}</p>}
+
+                        {installCepData && (
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+                            <div>
+                              <p className="text-[10px] text-blue-500 font-bold uppercase tracking-wide mb-0.5">Endereço localizado</p>
+                              <p className="text-sm font-semibold text-slate-900">{installCepData.logradouro}</p>
+                              <p className="text-xs text-slate-600">{installCepData.bairro} · {installCepData.localidade}/{installCepData.uf}</p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="text-xs font-semibold text-slate-700 mb-1 block">
+                                  Número <span className="text-red-500">*</span>
+                                </label>
+                                <Input
+                                  placeholder="Ex: 142"
+                                  value={installNumber}
+                                  onChange={(e) => setInstallNumber(e.target.value)}
+                                  className="h-9 rounded-lg border-blue-200 bg-white"
+                                  data-testid="input-install-number"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs font-semibold text-slate-700 mb-1 block">
+                                  Complemento <span className="text-slate-400 font-normal">(opcional)</span>
+                                </label>
+                                <Input
+                                  placeholder="Apto 12..."
+                                  value={installComplement}
+                                  onChange={(e) => setInstallComplement(e.target.value)}
+                                  className="h-9 rounded-lg border-blue-200 bg-white"
+                                  data-testid="input-install-complement"
+                                />
+                              </div>
+                            </div>
+                            <Button
+                              size="sm"
+                              className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+                              disabled={!installNumber.trim() || mutation.isPending}
+                              onClick={() => {
+                                if (!installCepData || !installNumber.trim()) return;
+                                const payload = {
+                                  cpfCnpj: query,
+                                  addressNumber: installNumber.trim(),
+                                  addressComplement: installComplement.trim() || undefined,
+                                  addressStreet: installCepData.logradouro,
+                                  addressCity: installCepData.localidade,
+                                  addressState: installCepData.uf,
+                                };
+                                if (!lgpdSessionAccepted) {
+                                  setPendingSearchPayload(payload);
+                                  setLgpdAccepted(false);
+                                  setLgpdDisclaimerOpen(true);
+                                } else {
+                                  executeSearch(payload);
+                                }
+                              }}
+                              data-testid="button-install-addr-search"
+                            >
+                              <MapPin className="w-3.5 h-3.5" />
+                              {mutation.isPending ? "Consultando..." : "Consultar com endereço"}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
               </div>
             </Card>
 
@@ -1055,41 +1108,46 @@ ${addrRows ? `<section>
             {!mutation.isPending && result && (
               <div className="space-y-4" data-testid="consultation-result">
 
-                {/* Nada Consta */}
-                {result.notFound ? (
+                {/* Nada Consta (only for CEP searches or when no address debt) */}
+                {result.notFound && result.searchType === "cep" ? (
                   <Card className="overflow-hidden border-2 border-green-200 shadow-lg rounded-2xl">
                     <div className="bg-green-50 px-6 py-4 flex items-center gap-3">
                       <CheckCircle className="w-6 h-6 text-green-600" />
                       <div>
-                        <h3 className="text-lg font-semibold text-slate-900">
-                          {result.searchType === "cep" ? "Nenhum Resultado para este CEP" : "Nada Consta"}
-                        </h3>
-                        <p className="text-sm text-slate-600">
-                          {result.searchType === "cep"
-                            ? `CEP: ${result.cpfCnpj.replace(/^(\d{5})(\d{3})$/, "$1-$2")}`
-                            : `Documento: ${formatCpfCnpj(result.cpfCnpj)}`}
-                        </p>
+                        <h3 className="text-lg font-semibold text-slate-900">Nenhum Resultado para este CEP</h3>
+                        <p className="text-sm text-slate-600">CEP: {result.cpfCnpj.replace(/^(\d{5})(\d{3})$/, "$1-$2")}</p>
                       </div>
                     </div>
                     <div className="p-6">
                       <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
                         <Shield className="w-5 h-5 text-green-600 flex-shrink-0" />
-                        <p className="text-sm text-green-800">
-                          {result.searchType === "cep"
-                            ? "Nenhum cliente encontrado nesse CEP na rede ISP colaborativa."
-                            : "Nenhum cliente encontrado na base de dados. Documento sem restricoes na rede ISP colaborativa."}
-                        </p>
+                        <p className="text-sm text-green-800">Nenhum cliente encontrado nesse CEP na rede ISP colaborativa.</p>
                       </div>
-                      {result.searchType !== "cep" && (
-                        <p className="text-xs text-slate-500 mt-3 text-center">
-                          Sugestao de Decisao: Aprovar — Prosseguir para Consulta SPC para verificacao completa
-                        </p>
-                      )}
+                    </div>
+                  </Card>
+                ) : result.notFound && !(result.addressMatches?.some(m => m.hasDebt)) ? (
+                  <Card className="overflow-hidden border-2 border-green-200 shadow-lg rounded-2xl">
+                    <div className="bg-green-50 px-6 py-4 flex items-center gap-3">
+                      <CheckCircle className="w-6 h-6 text-green-600" />
+                      <div>
+                        <h3 className="text-lg font-semibold text-slate-900">Nada Consta</h3>
+                        <p className="text-sm text-slate-600">Documento: {formatCpfCnpj(result.cpfCnpj)}</p>
+                      </div>
+                    </div>
+                    <div className="p-6">
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
+                        <Shield className="w-5 h-5 text-green-600 flex-shrink-0" />
+                        <p className="text-sm text-green-800">Nenhum cliente encontrado na base de dados. Documento sem restricoes na rede ISP colaborativa.</p>
+                      </div>
+                      <p className="text-xs text-slate-500 mt-3 text-center">
+                        Sugestao de Decisao: Aprovar — Prosseguir para Consulta SPC para verificacao completa
+                      </p>
                     </div>
                   </Card>
                 ) : !showFullResult ? (
-                  /* ── RESULTADO — RELATÓRIO DE CRÉDITO ISP ── */
+                  /* ── RESULTADO — RELATÓRIO DE CRÉDITO ISP (Two-Column Layout) ── */
                   (() => {
+                    const isNotFoundWithAddressDebt = result.notFound && result.addressMatches?.some(m => m.hasDebt);
                     const dc = result.decisionReco;
                     const score = Math.max(0, Math.min(1000, result.score));
                     const totalEquipPending = result.providerDetails.reduce((s, d) => s + (d.hasUnreturnedEquipment ? d.unreturnedEquipmentCount : 0), 0);
@@ -1098,8 +1156,18 @@ ${addrRows ? `<section>
                       return s + (d.unreturnedEquipmentCount || 0) * 290;
                     }, 0);
                     const externalProviders = result.providerDetails.filter(d => !d.isSameProvider);
+                    const ownProviders = result.providerDetails.filter(d => d.isSameProvider);
                     const now = new Date();
                     const consultedAt = now.toLocaleDateString("pt-BR") + " " + now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+                    // Address derived values
+                    const hasDebtMatches = result.addressMatches?.some(m => m.hasDebt) ?? false;
+                    const debtCount = result.addressMatches?.filter(m => m.hasDebt).length ?? 0;
+                    const cleanCross = result.autoAddressCrossRef === true && !hasDebtMatches;
+                    const unavailable = !result.autoAddressCrossRef && !hasDebtMatches;
+                    const addressOwnMatches = result.addressMatches?.filter(m => m.isSameProvider) ?? [];
+                    const addressExtMatches = result.addressMatches?.filter(m => !m.isSameProvider) ?? [];
+                    const addressExtHasDebt = addressExtMatches.some(m => m.hasDebt);
 
                     // Gauge SVG constants — semi-circle
                     const R = 72;
@@ -1114,10 +1182,156 @@ ${addrRows ? `<section>
                       ? { bg: "bg-red-600", border: "border-red-700", label: "REJEITAR", icon: XCircle, sub: totalEquipPending > 0 ? `${totalEquipPending} equip. retido${totalEquipPending > 1 ? "s" : ""} · R$ ${totalEquipValue.toLocaleString("pt-BR")} em risco` : result.recommendation }
                       : { bg: "bg-amber-500", border: "border-amber-600", label: "ANALISAR", icon: AlertCircle, sub: result.recommendation };
 
+                    // Accordion default values
+                    const docDefaultValues = ["doc-seu-provedor"];
+                    if (externalProviders.some(d => d.daysOverdue > 0)) docDefaultValues.push("doc-outros");
+                    const addrDefaultValues: string[] = [];
+                    if (addressOwnMatches.length > 0) addrDefaultValues.push("addr-seu-provedor");
+                    if (addressExtHasDebt) addrDefaultValues.push("addr-outros");
+
+                    // Reusable provider card renderer
+                    const renderProviderCard = (detail: ProviderDetail, i: number, globalIdx: number) => {
+                      const isOwn = detail.isSameProvider;
+                      const debtStr = isOwn && detail.overdueAmount != null
+                        ? `R$ ${detail.overdueAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+                        : detail.overdueAmountRange || null;
+                      const maskedName = !isOwn
+                        ? (() => {
+                            const parts = detail.customerName.split(" ");
+                            return parts[0] + (parts[1] ? " " + parts[1][0] + "." : "") + (parts.length > 2 ? " " + parts[parts.length - 1][0] + "***" : "***");
+                          })()
+                        : detail.customerName;
+                      const locationStr = isOwn
+                        ? detail.address || (detail.addressCity ? `${detail.addressCity}${detail.addressState ? "/" + detail.addressState : ""}` : null)
+                        : detail.addressCity ? `${detail.addressCity}${detail.addressState ? "/" + detail.addressState : ""}` : null;
+                      const isDelinquent = detail.daysOverdue > 0;
+
+                      return (
+                        <div key={i} className="flex items-stretch" data-testid={`provider-card-${globalIdx}`}>
+                          <div className={`w-1 flex-shrink-0 ${isOwn ? "bg-emerald-400" : isDelinquent ? "bg-red-400" : "bg-slate-300"}`} />
+                          <div className="flex-1 px-4 py-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                                  <span className={`text-[9px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded ${isOwn ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                                    {isOwn ? "Seu provedor" : "Provedor parceiro"}
+                                  </span>
+                                  {!isOwn && <Lock className="w-3 h-3 text-slate-300" />}
+                                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${isOwn ? "bg-white border-emerald-200 text-emerald-600" : "bg-white border-blue-100 text-blue-500"}`} data-testid={`cost-badge-${globalIdx}`}>
+                                    {isOwn ? "Grátis" : "1 crédito"}
+                                  </span>
+                                </div>
+                                <p className="text-sm font-black text-slate-900 truncate" data-testid={`customer-name-${globalIdx}`}>{maskedName}</p>
+                                {locationStr && (
+                                  <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+                                    <MapPin className="w-2.5 h-2.5 flex-shrink-0" />
+                                    {locationStr}
+                                    {!isOwn && <Lock className="w-2 h-2 text-slate-300" />}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="text-right flex-shrink-0 space-y-1">
+                                <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                  isDelinquent ? "bg-red-100 text-red-700" :
+                                  detail.contractStatus === "active" ? "bg-emerald-100 text-emerald-700" :
+                                  "bg-slate-100 text-slate-500"
+                                }`} data-testid={`contract-status-${globalIdx}`}>
+                                  {isDelinquent ? `${detail.daysOverdue} dias em atraso` :
+                                   detail.contractStatus === "active" ? "Em dia" :
+                                   detail.contractStatus === "cancelled" ? "Cancelado" :
+                                   detail.contractStatus === "suspended" ? "Suspenso" : "Sem contrato"}
+                                </span>
+                                {debtStr && (
+                                  <p className="text-sm font-black text-red-600" data-testid={`debt-value-${globalIdx}`}>{debtStr}</p>
+                                )}
+                                {detail.overdueInvoicesCount > 0 && (
+                                  <p className="text-[10px] text-red-500">{detail.overdueInvoicesCount} fatura{detail.overdueInvoicesCount > 1 ? "s" : ""} em atraso</p>
+                                )}
+                                {detail.hasUnreturnedEquipment && (
+                                  <p className="text-[10px] font-bold text-amber-600 flex items-center justify-end gap-1">
+                                    <Router className="w-2.5 h-2.5" />
+                                    {detail.unreturnedEquipmentCount} equip. retido{detail.unreturnedEquipmentCount > 1 ? "s" : ""}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              className="mt-2 text-[10px] font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
+                              onClick={() => { setShowFullResult(true); setSelectedProviderIdx(globalIdx); }}
+                              data-testid={`button-ver-informacoes-${globalIdx}`}
+                            >
+                              <Info className="w-3 h-3" />
+                              Ver detalhes completos
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    };
+
+                    // Reusable address match card renderer
+                    const renderAddressMatchCard = (match: AddressMatch, i: number) => (
+                      <div
+                        key={i}
+                        className={`flex items-center gap-4 p-4 rounded-xl border bg-white ${match.hasDebt ? "border-red-200" : "border-slate-200"}`}
+                        data-testid={`address-match-${i}`}
+                      >
+                        <div className={`w-1.5 self-stretch rounded-full flex-shrink-0 ${match.hasDebt ? "bg-red-400" : "bg-slate-300"}`} />
+                        <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
+                          <User className="w-5 h-5 text-orange-600" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-slate-900" data-testid={`address-match-name-${i}`}>
+                              {match.customerName}
+                            </span>
+                            {match.isSameProvider && (
+                              <Badge className="bg-blue-100 text-blue-700 border-0 text-xs">Seu cliente</Badge>
+                            )}
+                            {match.hasDebt && (
+                              <Badge className="bg-red-100 text-red-700 border-0 text-xs">Inadimplente</Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {match.isSameProvider ? (
+                              <>Doc: {match.cpfCnpj} &nbsp;•&nbsp; {match.providerName}</>
+                            ) : (
+                              <span className="flex items-center gap-1">
+                                Doc: ••••••••••• <Lock className="w-2.5 h-2.5 text-slate-300" /> &nbsp;•&nbsp; {match.providerName}
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                            <MapPin className="w-3 h-3" />
+                            {match.address}{match.city ? `, ${match.city}` : ""}{match.state ? `/${match.state}` : ""}
+                          </p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                            match.daysOverdue != null
+                              ? (match.daysOverdue === 0 ? "bg-emerald-100 text-emerald-700" : match.daysOverdue <= 30 ? "bg-orange-100 text-orange-700" : "bg-red-100 text-red-700")
+                              : match.hasDebt ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"
+                          }`}>
+                            {match.status}
+                          </span>
+                          {match.isSameProvider && match.totalOverdue !== undefined && match.totalOverdue > 0 && (
+                            <span className="text-xs text-red-600 font-medium">
+                              R$ {match.totalOverdue.toFixed(2)} em aberto
+                            </span>
+                          )}
+                          {!match.isSameProvider && match.totalOverdueRange && (
+                            <span className="text-xs text-red-600 font-medium">
+                              {match.totalOverdueRange} em aberto
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+
                     return (
                       <div className="space-y-3" data-testid="consultation-result-cards">
 
                         {/* ══ HERO CARD: Gauge + Decision ══ */}
+                        {!isNotFoundWithAddressDebt && (
                         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
 
                           {/* thin colored top stripe */}
@@ -1232,126 +1446,261 @@ ${addrRows ? `<section>
                             </div>
                           </div>
                         </div>
+                        )}
 
-                        {/* ══ FATORES DE RISCO (pills) ══ */}
-                        {(result.penalties?.length > 0 || result.bonuses?.length > 0) && (
-                          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Fatores analisados</p>
-                            <div className="flex flex-wrap gap-2">
-                              {result.penalties?.map((p: any, i: number) => (
-                                <span key={`p-${i}`} className="inline-flex items-center gap-1.5 bg-red-50 border border-red-200 text-red-700 text-[11px] font-semibold px-2.5 py-1 rounded-full">
-                                  <span className="w-3.5 h-3.5 bg-red-500 text-white rounded-full text-[8px] flex items-center justify-center font-black flex-shrink-0">−</span>
-                                  {p.reason}
-                                </span>
-                              ))}
-                              {result.bonuses?.map((b: any, i: number) => (
-                                <span key={`b-${i}`} className="inline-flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-semibold px-2.5 py-1 rounded-full">
-                                  <span className="w-3.5 h-3.5 bg-emerald-500 text-white rounded-full text-[8px] flex items-center justify-center font-black flex-shrink-0">+</span>
-                                  {b.reason}
-                                </span>
-                              ))}
+                        {/* ══ TWO-COLUMN GRID ══ */}
+                        <div className={`grid grid-cols-1 ${result.searchType !== "cep" ? "lg:grid-cols-2" : ""} gap-4`}>
+
+                          {/* ── LEFT COLUMN: Por Documento ── */}
+                          {result.searchType !== "cep" && (
+                          <div className="space-y-3">
+                            {/* Column header */}
+                            <div className="flex items-center gap-2 pb-2 border-b-2 border-blue-500">
+                              <span className="text-sm font-black text-slate-700">📄 Resultado por Documento</span>
+                              <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+                                {result.providerDetails.length} provedor{result.providerDetails.length !== 1 ? "es" : ""}
+                              </span>
                             </div>
+
+                            {isNotFoundWithAddressDebt ? (
+                              /* notFound with address debt — show Nada Consta summary instead of accordion */
+                              <div className="bg-white rounded-2xl border-2 border-green-200 shadow-sm p-4">
+                                <div className="flex items-center gap-3">
+                                  <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+                                  <div>
+                                    <p className="text-sm font-semibold text-green-800">Nada Consta por Documento</p>
+                                    <p className="text-xs text-green-600 mt-0.5">
+                                      CPF/CNPJ {formatCpfCnpj(result.cpfCnpj)} sem restrições na rede ISP colaborativa.
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                {/* Provider Accordion */}
+                                {result.providerDetails.length > 0 && (
+                                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                                    <Accordion type="multiple" defaultValue={docDefaultValues}>
+                                      {/* Seu Provedor */}
+                                      {ownProviders.length > 0 && (
+                                        <AccordionItem value="doc-seu-provedor" className="border-b-0">
+                                          <AccordionTrigger className="px-4 py-3 hover:no-underline">
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-xs font-bold text-slate-700">🏠 Seu Provedor</span>
+                                              <span className="text-[9px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">
+                                                {ownProviders[0]?.providerName}
+                                              </span>
+                                              {ownProviders.some(d => d.daysOverdue > 0) ? (
+                                                <span className="text-[9px] font-bold bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">Inadimplente</span>
+                                              ) : (
+                                                <span className="text-[9px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">Em dia</span>
+                                              )}
+                                            </div>
+                                          </AccordionTrigger>
+                                          <AccordionContent className="px-0 pb-0">
+                                            <div className="divide-y divide-slate-100">
+                                              {ownProviders.map((detail, i) => {
+                                                const globalIdx = result.providerDetails.indexOf(detail);
+                                                return renderProviderCard(detail, i, globalIdx);
+                                              })}
+                                            </div>
+                                          </AccordionContent>
+                                        </AccordionItem>
+                                      )}
+
+                                      {/* Outros Provedores */}
+                                      {externalProviders.length > 0 && (
+                                        <AccordionItem value="doc-outros" className="border-b-0">
+                                          <AccordionTrigger className="px-4 py-3 hover:no-underline">
+                                            <div className="flex items-center gap-2">
+                                              <span className="text-xs font-bold text-slate-700">🌐 Outros Provedores</span>
+                                              <span className="text-[9px] font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">
+                                                {externalProviders.length}
+                                              </span>
+                                              {externalProviders.some(d => d.daysOverdue > 0) && (
+                                                <span className="text-[9px] font-bold bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">
+                                                  Inadimplência
+                                                </span>
+                                              )}
+                                              <span className="text-[9px] font-bold bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100">
+                                                {externalProviders.length} crédito{externalProviders.length !== 1 ? "s" : ""}
+                                              </span>
+                                            </div>
+                                          </AccordionTrigger>
+                                          <AccordionContent className="px-0 pb-0">
+                                            <div className="divide-y divide-slate-100">
+                                              {externalProviders.map((detail, i) => {
+                                                const globalIdx = result.providerDetails.indexOf(detail);
+                                                return renderProviderCard(detail, i, globalIdx);
+                                              })}
+                                            </div>
+                                          </AccordionContent>
+                                        </AccordionItem>
+                                      )}
+                                    </Accordion>
+                                  </div>
+                                )}
+                              </>
+                            )}
+
+                            {/* Risk Factors pills (always visible) */}
+                            {(result.penalties?.length > 0 || result.bonuses?.length > 0) && (
+                              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Fatores analisados</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {result.penalties?.map((p: any, i: number) => (
+                                    <span key={`p-${i}`} className="inline-flex items-center gap-1.5 bg-red-50 border border-red-200 text-red-700 text-[11px] font-semibold px-2.5 py-1 rounded-full">
+                                      <span className="w-3.5 h-3.5 bg-red-500 text-white rounded-full text-[8px] flex items-center justify-center font-black flex-shrink-0">−</span>
+                                      {p.reason}
+                                    </span>
+                                  ))}
+                                  {result.bonuses?.map((b: any, i: number) => (
+                                    <span key={`b-${i}`} className="inline-flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-semibold px-2.5 py-1 rounded-full">
+                                      <span className="w-3.5 h-3.5 bg-emerald-500 text-white rounded-full text-[8px] flex items-center justify-center font-black flex-shrink-0">+</span>
+                                      {b.reason}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Score Breakdown (always visible) */}
+                            {result.fatoresScore && (
+                              <ScoreBreakdown fatores={result.fatoresScore} />
+                            )}
                           </div>
-                        )}
+                          )}
 
-                        {/* ══ SCORE ISP BREAKDOWN (0-1000) ══ */}
-                        {result.fatoresScore && (
-                          <ScoreBreakdown fatores={result.fatoresScore} />
-                        )}
-
-                        {/* ══ HISTÓRICO DE PROVEDORES (timeline) ══ */}
-                        {result.providerDetails.length > 0 && (
-                          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                            <div className="px-5 pt-4 pb-2 border-b border-slate-100">
-                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Histórico na rede ISP</p>
+                          {/* ── RIGHT COLUMN: Por Endereço ── */}
+                          <div className="space-y-3">
+                            {/* Column header */}
+                            <div className="flex items-center gap-2 pb-2 border-b-2 border-orange-500">
+                              <span className="text-sm font-black text-slate-700">📍 Resultado por Endereço</span>
+                              {debtCount > 0 ? (
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${debtCount >= 3 ? "bg-red-100 text-red-700" : debtCount >= 2 ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"}`}>
+                                  {debtCount} inadimpl.
+                                </span>
+                              ) : cleanCross ? (
+                                <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+                                  Limpo
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">
+                                  N/D
+                                </span>
+                              )}
+                              {result.autoAddressCrossRef === true && (
+                                <span className="text-[9px] font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">AUTO</span>
+                              )}
                             </div>
-                            <div className="divide-y divide-slate-100">
-                              {result.providerDetails.map((detail, i) => {
-                                const isOwn = detail.isSameProvider;
-                                const debtStr = isOwn && detail.overdueAmount != null
-                                  ? `R$ ${detail.overdueAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
-                                  : detail.overdueAmountRange || null;
-                                const maskedName = !isOwn
-                                  ? (() => {
-                                      const parts = detail.customerName.split(" ");
-                                      return parts[0] + (parts[1] ? " " + parts[1][0] + "." : "") + (parts.length > 2 ? " " + parts[parts.length - 1][0] + "***" : "***");
-                                    })()
-                                  : detail.customerName;
-                                const locationStr = isOwn
-                                  ? detail.address || (detail.addressCity ? `${detail.addressCity}${detail.addressState ? "/" + detail.addressState : ""}` : null)
-                                  : detail.addressCity ? `${detail.addressCity}${detail.addressState ? "/" + detail.addressState : ""}` : null;
-                                const isDelinquent = detail.daysOverdue > 0;
 
-                                return (
-                                  <div key={i} className="flex items-stretch" data-testid={`provider-card-${i}`}>
-                                    {/* colored left bar */}
-                                    <div className={`w-1 flex-shrink-0 ${isOwn ? "bg-emerald-400" : isDelinquent ? "bg-red-400" : "bg-slate-300"}`} />
-
-                                    <div className="flex-1 px-4 py-3">
-                                      <div className="flex items-start justify-between gap-3">
-                                        {/* left: name + badges */}
-                                        <div className="min-w-0">
-                                          <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                                            <span className={`text-[9px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded ${isOwn ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
-                                              {isOwn ? "Seu provedor" : "Provedor parceiro"}
-                                            </span>
-                                            {!isOwn && <Lock className="w-3 h-3 text-slate-300" />}
-                                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${isOwn ? "bg-white border-emerald-200 text-emerald-600" : "bg-white border-blue-100 text-blue-500"}`} data-testid={`cost-badge-${i}`}>
-                                              {isOwn ? "Grátis" : "1 crédito"}
-                                            </span>
-                                          </div>
-                                          <p className="text-sm font-black text-slate-900 truncate" data-testid={`customer-name-${i}`}>{maskedName}</p>
-                                          {locationStr && (
-                                            <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
-                                              <MapPin className="w-2.5 h-2.5 flex-shrink-0" />
-                                              {locationStr}
-                                              {!isOwn && <Lock className="w-2 h-2 text-slate-300" />}
-                                            </p>
-                                          )}
-                                        </div>
-
-                                        {/* right: status + debt */}
-                                        <div className="text-right flex-shrink-0 space-y-1">
-                                          <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                            isDelinquent ? "bg-red-100 text-red-700" :
-                                            detail.contractStatus === "active" ? "bg-emerald-100 text-emerald-700" :
-                                            "bg-slate-100 text-slate-500"
-                                          }`} data-testid={`contract-status-${i}`}>
-                                            {isDelinquent ? `${detail.daysOverdue} dias em atraso` :
-                                             detail.contractStatus === "active" ? "Em dia" :
-                                             detail.contractStatus === "cancelled" ? "Cancelado" :
-                                             detail.contractStatus === "suspended" ? "Suspenso" : "Sem contrato"}
-                                          </span>
-                                          {debtStr && (
-                                            <p className="text-sm font-black text-red-600" data-testid={`debt-value-${i}`}>{debtStr}</p>
-                                          )}
-                                          {detail.overdueInvoicesCount > 0 && (
-                                            <p className="text-[10px] text-red-500">{detail.overdueInvoicesCount} fatura{detail.overdueInvoicesCount > 1 ? "s" : ""} em atraso</p>
-                                          )}
-                                          {detail.hasUnreturnedEquipment && (
-                                            <p className="text-[10px] font-bold text-amber-600 flex items-center justify-end gap-1">
-                                              <Router className="w-2.5 h-2.5" />
-                                              {detail.unreturnedEquipmentCount} equip. retido{detail.unreturnedEquipmentCount > 1 ? "s" : ""}
-                                            </p>
-                                          )}
-                                        </div>
-                                      </div>
-
-                                      <button
-                                        className="mt-2 text-[10px] font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
-                                        onClick={() => { setShowFullResult(true); setSelectedProviderIdx(i); }}
-                                        data-testid={`button-ver-informacoes-${i}`}
-                                      >
-                                        <Info className="w-3 h-3" />
-                                        Ver detalhes completos
-                                      </button>
+                            {/* Alert panel */}
+                            {hasDebtMatches ? (
+                              <div className="bg-red-600 rounded-2xl p-4 shadow-sm border-l-[6px] border-red-800">
+                                <div className="flex items-center gap-3">
+                                  <AlertTriangle className="w-6 h-6 text-white animate-pulse flex-shrink-0" />
+                                  <div>
+                                    <p className="text-[10px] font-bold text-white/70 uppercase tracking-widest">Alerta de Endereço</p>
+                                    <div className="flex items-baseline gap-2">
+                                      <span className="text-[32px] font-black text-white leading-none">{debtCount}</span>
+                                      <span className="text-sm font-semibold text-white/90">inadimplente{debtCount !== 1 ? "s" : ""} neste endereço</span>
                                     </div>
                                   </div>
-                                );
-                              })}
+                                </div>
+                                {isNotFoundWithAddressDebt && (
+                                  <div className="mt-3 bg-white/10 rounded-lg p-3">
+                                    <p className="text-xs text-white font-semibold">
+                                      ⚠️ CPF limpo, mas endereço comprometido — possível fraude por troca de documento.
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            ) : cleanCross ? (
+                              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center gap-3 shadow-sm">
+                                <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                                <div>
+                                  <p className="text-sm font-semibold text-emerald-900">Nenhuma inadimplência neste endereço</p>
+                                  {result.addressUsed && (
+                                    <p className="text-xs text-emerald-600 mt-0.5">
+                                      CEP: {result.addressUsed}
+                                      {result.addressSource && (
+                                        <span> (fonte: {result.addressSource === "own" ? "seu cadastro" : "rede ISP"})</span>
+                                      )}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            ) : unavailable ? (
+                              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center gap-3 shadow-sm">
+                                <MapPin className="w-5 h-5 text-slate-400 opacity-50 flex-shrink-0" />
+                                <div>
+                                  <p className="text-sm font-semibold text-slate-600">Endereço não disponível no ERP</p>
+                                  <p className="text-xs text-slate-500 mt-0.5">Use a busca manual por CEP para cruzamento de endereço.</p>
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {/* Address Map */}
+                            {(result.addressUsed || ownProviders[0]?.cep) && (
+                              <AddressMapMini cep={result.addressUsed || ownProviders[0]?.cep || ""} />
+                            )}
+
+                            {/* Address Matches Accordion */}
+                            {result.addressMatches && result.addressMatches.length > 0 && (
+                              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                                <Accordion type="multiple" defaultValue={addrDefaultValues}>
+                                  {/* Seu Provedor */}
+                                  {addressOwnMatches.length > 0 && (
+                                    <AccordionItem value="addr-seu-provedor" className="border-b-0">
+                                      <AccordionTrigger className="px-4 py-3 hover:no-underline">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-xs font-bold text-slate-700">🏠 Seu Provedor</span>
+                                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700`}>
+                                            {addressOwnMatches.length}
+                                          </span>
+                                        </div>
+                                      </AccordionTrigger>
+                                      <AccordionContent className="px-4 pb-3">
+                                        <div className="space-y-3">
+                                          {addressOwnMatches.map((match, i) => renderAddressMatchCard(match, i))}
+                                        </div>
+                                      </AccordionContent>
+                                    </AccordionItem>
+                                  )}
+
+                                  {/* Outros Provedores */}
+                                  {addressExtMatches.length > 0 && (
+                                    <AccordionItem value="addr-outros" className="border-b-0">
+                                      <AccordionTrigger className="px-4 py-3 hover:no-underline">
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-xs font-bold text-slate-700">🌐 Outros Provedores</span>
+                                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                                            addressExtHasDebt ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"
+                                          }`}>
+                                            {addressExtMatches.length}
+                                          </span>
+                                        </div>
+                                      </AccordionTrigger>
+                                      <AccordionContent className="px-4 pb-3">
+                                        <div className="space-y-3">
+                                          {addressExtMatches.map((match, i) => renderAddressMatchCard(match, addressOwnMatches.length + i))}
+                                        </div>
+                                      </AccordionContent>
+                                    </AccordionItem>
+                                  )}
+                                </Accordion>
+                              </div>
+                            )}
+
+                            {/* LGPD note */}
+                            <div className="flex items-center gap-2">
+                              <div className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />
+                              <p className="text-xs text-slate-400">
+                                Dados de terceiros anonimizados conforme LGPD
+                              </p>
                             </div>
                           </div>
-                        )}
+                        </div>
 
                         {/* ══ AÇÕES ══ */}
                         <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -1826,138 +2175,7 @@ ${addrRows ? `<section>
               </div>
             )}
 
-            {/* ── CRUZAMENTO DE ENDEREÇO ── */}
-            {result && result.addressMatches && result.addressMatches.length > 0 && (
-              <Card
-                className={`overflow-hidden shadow-lg rounded-2xl border-2 ${
-                  result.notFound && result.addressMatches.some(m => m.hasDebt)
-                    ? "border-red-400"
-                    : "border-orange-200"
-                }`}
-                data-testid="card-address-matches"
-              >
-                <div className={`px-6 py-4 flex items-center gap-3 ${
-                  result.notFound && result.addressMatches.some(m => m.hasDebt)
-                    ? "bg-red-50"
-                    : "bg-orange-50"
-                }`}>
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                    result.notFound && result.addressMatches.some(m => m.hasDebt) ? "bg-red-600" : "bg-orange-500"
-                  }`}>
-                    <MapPin className="w-4 h-4 text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="text-base font-semibold text-slate-900">
-                      {result.notFound && result.addressMatches.some(m => m.hasDebt)
-                        ? "ALERTA CRÍTICO — CPF limpo, mas endereço comprometido"
-                        : "Alerta de Cruzamento por Endereco — Rede ISP"
-                      }
-                    </h3>
-                    <p className={`text-sm ${result.notFound && result.addressMatches.some(m => m.hasDebt) ? "text-red-700 font-semibold" : "text-orange-700"}`}>
-                      {result.addressMatches.filter(m => m.hasDebt).length > 0
-                        ? `${result.addressMatches.filter(m => m.hasDebt).length} pessoa(s) com dívida encontrada(s) no mesmo endereço`
-                        : `${result.addressMatches.length} cadastro(s) localizado(s) no mesmo endereço`
-                      }
-                    </p>
-                  </div>
-                  <Badge className={`border ${
-                    result.notFound && result.addressMatches.some(m => m.hasDebt)
-                      ? "bg-red-100 text-red-800 border-red-300"
-                      : "bg-orange-100 text-orange-800 border-orange-300"
-                  }`}>
-                    {result.addressMatches.length} cadastro(s)
-                  </Badge>
-                </div>
-
-                <div className="p-5">
-                  {result.notFound && result.addressMatches.some(m => m.hasDebt) ? (
-                    <div className="bg-red-50 border border-red-300 rounded-lg p-4 mb-4 flex items-start gap-3">
-                      <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
-                      <div>
-                        <p className="text-sm text-red-800 font-bold mb-1">
-                          Fraude de troca de documento detectada
-                        </p>
-                        <p className="text-sm text-red-700">
-                          O CPF/CNPJ consultado está limpo em todas as bases — mas o endereço de instalação tem histórico de inadimplência com outro(s) documento(s). Padrão típico de fraude: o inadimplente usa CPF de familiar ou terceiro para contratar novo serviço no mesmo imóvel.
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4 flex items-start gap-2">
-                      <AlertTriangle className="w-4 h-4 text-orange-600 mt-0.5 flex-shrink-0" />
-                      <p className="text-sm text-orange-800">
-                        Outros cadastros encontrados no mesmo endereço exato via rede ISP. Pode indicar uso de documentos diferentes de membros da mesma família após inadimplência anterior.
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="space-y-3">
-                    {result.addressMatches.map((match, i) => (
-                      <div
-                        key={i}
-                        className={`flex items-center gap-4 p-4 rounded-xl border bg-white ${
-                          match.hasDebt ? "border-red-200" : "border-slate-200"
-                        }`}
-                        data-testid={`address-match-${i}`}
-                      >
-                        <div className={`w-1.5 self-stretch rounded-full flex-shrink-0 ${
-                          match.hasDebt ? "bg-red-400" : "bg-slate-300"
-                        }`} />
-
-                        <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
-                          <User className="w-5 h-5 text-orange-600" />
-                        </div>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-semibold text-slate-900" data-testid={`address-match-name-${i}`}>
-                              {match.customerName}
-                            </span>
-                            {match.isSameProvider && (
-                              <Badge className="bg-blue-100 text-blue-700 border-0 text-xs">Seu cliente</Badge>
-                            )}
-                            {match.hasDebt && (
-                              <Badge className="bg-red-100 text-red-700 border-0 text-xs">Inadimplente</Badge>
-                            )}
-                          </div>
-                          <p className="text-xs text-slate-500 mt-0.5">
-                            Doc: {match.cpfCnpj} &nbsp;•&nbsp; {match.providerName}
-                          </p>
-                          <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
-                            <MapPin className="w-3 h-3" />
-                            {match.address}{match.city ? `, ${match.city}` : ""}{match.state ? `/${match.state}` : ""}
-                          </p>
-                        </div>
-
-                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                            match.daysOverdue === 0
-                              ? "bg-emerald-100 text-emerald-700"
-                              : match.daysOverdue <= 30
-                              ? "bg-orange-100 text-orange-700"
-                              : "bg-red-100 text-red-700"
-                          }`}>
-                            {match.status}
-                          </span>
-                          {match.isSameProvider && match.totalOverdue !== undefined && match.totalOverdue > 0 && (
-                            <span className="text-xs text-red-600 font-medium">
-                              R$ {match.totalOverdue.toFixed(2)} em aberto
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="flex items-center gap-2 mt-4 pt-3 border-t border-slate-100">
-                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />
-                    <p className="text-xs text-slate-400">
-                      Cruzamento realizado via rede ISP integrada — dados parcialmente anonimizados conforme política de privacidade.
-                    </p>
-                  </div>
-                </div>
-              </Card>
-            )}
+            {/* Old address section removed — now integrated into right column above */}
 
             {/* ── HISTORICO NA REDE (GAP 3) ── */}
             {result && result.historico_consultas && (
@@ -2326,6 +2544,56 @@ ${addrRows ? `<section>
             </div>
           </Card>
         )}
+
+      {/* ── V-06 LGPD DISCLAIMER MODAL ── */}
+      <Dialog open={lgpdDisclaimerOpen} onOpenChange={(open) => { if (!open) { setLgpdDisclaimerOpen(false); setPendingSearchPayload(null); } }}>
+        <DialogContent className="max-w-[520px]" data-testid="dialog-lgpd-disclaimer">
+          <div className="text-center mb-4">
+            <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center mx-auto mb-3">
+              <Lock className="w-6 h-6 text-blue-600" />
+            </div>
+            <DialogTitle className="text-lg font-bold text-slate-900">Aviso Legal — LGPD</DialogTitle>
+            <p className="text-sm text-slate-500 mt-1">Antes de prosseguir com a consulta na rede colaborativa</p>
+          </div>
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-2.5 text-sm">
+            <div className="flex gap-2"><span className="font-semibold text-slate-500 min-w-[100px]">Base Legal:</span><span className="text-slate-700">Legitimo Interesse (LGPD Art. 7, IX)</span></div>
+            <div className="flex gap-2"><span className="font-semibold text-slate-500 min-w-[100px]">Finalidade:</span><span className="text-slate-700">Analise de credito e protecao ao credito no ambito de telecomunicacoes</span></div>
+            <div className="flex gap-2"><span className="font-semibold text-slate-500 min-w-[100px]">Dados tratados:</span><span className="text-slate-700">Indicadores de adimplencia anonimizados. Dados pessoais mascarados conforme LGPD.</span></div>
+          </div>
+          <div className="flex items-start gap-2.5 mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <input
+              type="checkbox"
+              id="lgpd-accept"
+              checked={lgpdAccepted}
+              onChange={(e) => setLgpdAccepted(e.target.checked)}
+              className="mt-0.5 w-4 h-4 rounded border-blue-300"
+              data-testid="lgpd-accept-checkbox"
+            />
+            <label htmlFor="lgpd-accept" className="text-xs text-blue-800 leading-relaxed cursor-pointer">
+              Declaro que esta consulta tem finalidade legitima de analise de credito e estou ciente das obrigacoes da LGPD quanto ao tratamento dos dados obtidos.
+            </label>
+          </div>
+          <div className="flex gap-3 mt-4">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => { setLgpdDisclaimerOpen(false); setPendingSearchPayload(null); }}
+              data-testid="lgpd-cancel-btn"
+            >
+              Cancelar
+            </Button>
+            <Button
+              className="flex-1 bg-blue-600 hover:bg-blue-700"
+              disabled={!lgpdAccepted}
+              onClick={handleLgpdAcceptAndSearch}
+              data-testid="lgpd-accept-btn"
+            >
+              Prosseguir com Consulta
+            </Button>
+          </div>
+          <p className="text-center text-[11px] text-slate-400 mt-2">Lei n 13.709/2018 - LGPD - Versao 2.0</p>
+        </DialogContent>
+      </Dialog>
 
       {/* ── DIALOG CONSULTA GRATUITA (PROPRIO PROVEDOR) ── */}
       <Dialog open={freeDialogOpen} onOpenChange={setFreeDialogOpen}>

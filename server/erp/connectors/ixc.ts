@@ -167,15 +167,16 @@ export class IxcConnector implements ErpConnector {
    * Busca inadimplentes: fn_areceber com status="A" (aberto) e vencidas.
    * Agrupa por CPF/CNPJ: soma valor, conta faturas, pega max dias atraso.
    */
-  async fetchDelinquents(config: ErpConnectionConfig): Promise<ErpFetchResult> {
+  async fetchDelinquents(config: ErpConnectionConfig, lastDays = 365): Promise<ErpFetchResult> {
     try {
-      const allRows = await this.listAll(config, "fn_areceber", {
-        qtype: "fn_areceber.status",
-        query: "A",
-        oper: "=",
-        sortname: "fn_areceber.data_vencimento",
-        sortorder: "asc",
-      });
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - lastDays);
+      const cutoff = cutoffDate.toISOString().split("T")[0]; // YYYY-MM-DD
+
+      const allRows = await this.listWithFilter(config, "fn_areceber", [
+        { TB: "fn_areceber.status", OP: "=", P: "A", C: "AND", G: "" },
+        { TB: "fn_areceber.data_vencimento", OP: ">=", P: cutoff, C: "AND", G: "" },
+      ]);
 
       const now = new Date();
       const invoices = allRows

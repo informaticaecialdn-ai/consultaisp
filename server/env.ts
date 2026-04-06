@@ -10,3 +10,7 @@ export function validateEnv(): void {
   }
   logger.info("Environment validated");
 }
+
+export function getAsaasWebhookToken(): string | undefined {
+  return process.env.ASAAS_WEBHOOK_TOKEN?.trim() || undefined;
+}

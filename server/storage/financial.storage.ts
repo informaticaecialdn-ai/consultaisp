@@ -3,6 +3,7 @@ import { db } from "../db";
 import {
   providers, contracts, invoices, providerInvoices, creditOrders,
   planChanges, providerPartners, providerDocuments,
+  PLAN_PRICES,
   type Provider,
   type Contract, type InsertContract,
   type Invoice, type InsertInvoice,
@@ -105,8 +106,6 @@ export class FinancialStorage {
   async getFinancialSummary(): Promise<any> {
     const allProviders = await db.select().from(providers);
     const allInvoices = await db.select().from(providerInvoices);
-
-    const PLAN_PRICES: Record<string, number> = { free: 0, basic: 199, pro: 399, enterprise: 799 };
 
     const activeProviders = allProviders.filter(p => p.status === "active");
     const mrr = activeProviders.reduce((sum, p) => sum + (PLAN_PRICES[p.plan] || 0), 0);

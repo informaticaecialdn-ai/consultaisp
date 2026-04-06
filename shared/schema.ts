@@ -74,6 +74,7 @@ export const users = pgTable("users", {
   emailVerified: boolean("email_verified").notNull().default(false),
   verificationToken: text("verification_token"),
   verificationTokenExpiresAt: timestamp("verification_token_expires_at"),
+  lgpdAcceptedAt: timestamp("lgpd_accepted_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -181,6 +182,7 @@ export const ispConsultations = pgTable("isp_consultations", {
   providerId: integer("provider_id").notNull().references(() => providers.id),
   userId: integer("user_id").notNull().references(() => users.id),
   cpfCnpj: text("cpf_cnpj").notNull(),
+  cpfCnpjHash: text("cpf_cnpj_hash"),
   searchType: text("search_type").notNull(),
   result: jsonb("result"),
   score: integer("score"),
@@ -351,6 +353,7 @@ export const registerSchema = z.object({
   providerName: z.string().min(2),
   cnpj: z.string().min(14),
   subdomain: z.string().min(3).max(30).regex(/^[a-z0-9-]+$/, "Apenas letras minusculas, numeros e hifens"),
+  lgpdAccepted: z.boolean().refine(v => v === true, { message: "Aceite dos termos LGPD obrigatorio" }),
 });
 
 export const updateProviderSchema = z.object({
@@ -401,10 +404,11 @@ export const CREDIT_PACKAGES = [...ISP_CREDIT_PACKAGES.map(p => ({ ...p, creditT
 
 export const PLAN_PRICES: Record<string, number> = {
   free: 0,
-  basic: 199,
-  pro: 399,
+  basic: 149,
+  pro: 349,
   enterprise: 799,
 };
+
 
 export const erpCatalog = pgTable("erp_catalog", {
   id: serial("id").primaryKey(),
@@ -446,6 +450,22 @@ export const visitorChatMessages = pgTable("visitor_chat_messages", {
 
 export type VisitorChat = typeof visitorChats.$inferSelect;
 export type VisitorChatMessage = typeof visitorChatMessages.$inferSelect;
+
+export const titularRequests = pgTable("titular_requests", {
+  id: serial("id").primaryKey(),
+  cpfCnpj: text("cpf_cnpj").notNull(),
+  nome: text("nome").notNull(),
+  email: text("email").notNull(),
+  tipoSolicitacao: text("tipo_solicitacao").notNull(),
+  descricao: text("descricao"),
+  protocolo: text("protocolo").notNull().unique(),
+  status: text("status").notNull().default("pendente"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertTitularRequestSchema = createInsertSchema(titularRequests).omit({ id: true, createdAt: true });
+export type TitularRequest = typeof titularRequests.$inferSelect;
+export type InsertTitularRequest = z.infer<typeof insertTitularRequestSchema>;
 
 export const PLAN_CREDITS: Record<string, { isp: number; spc: number }> = {
   free: { isp: 50, spc: 0 },

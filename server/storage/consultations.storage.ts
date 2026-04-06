@@ -1,9 +1,11 @@
 import { eq, and, desc, sql, gte, count } from "drizzle-orm";
 import { db } from "../db";
 import {
-  ispConsultations, spcConsultations,
+  ispConsultations, spcConsultations, providers, antiFraudAlerts,
   type IspConsultation, type InsertIspConsultation,
   type SpcConsultation, type InsertSpcConsultation,
+  type InsertAntiFraudAlert, type AntiFraudAlert,
+  type Provider,
 } from "@shared/schema";
 
 export class ConsultationsStorage {
@@ -92,5 +94,47 @@ export class ConsultationsStorage {
     const result = await db.select({ count: count() }).from(spcConsultations)
       .where(and(eq(spcConsultations.providerId, providerId), gte(spcConsultations.createdAt, firstDay)));
     return result[0]?.count || 0;
+  }
+
+  async debitAndCreateSpcConsultation(
+    providerId: number,
+    cost: number,
+    consultation: InsertSpcConsultation,
+  ): Promise<{ provider: Provider; consultation: SpcConsultation } | null> {
+    return db.transaction(async (tx) => {
+      const debitResult = await tx.execute(
+        sql`UPDATE providers SET spc_credits = spc_credits - ${cost} WHERE id = ${providerId} AND spc_credits >= ${cost} RETURNING *`,
+      );
+      const rows = debitResult.rows as Provider[];
+      if (rows.length === 0) return null;
+
+      const [created] = await tx.insert(spcConsultations).values(consultation).returning();
+      return { provider: rows[0], consultation: created };
+    });
+  }
+
+  async debitAndCreateIspConsultation(
+    providerId: number,
+    cost: number,
+    consultation: InsertIspConsultation,
+    alertRecord?: InsertAntiFraudAlert,
+  ): Promise<{ provider: Provider; consultation: IspConsultation; alert?: AntiFraudAlert } | null> {
+    return db.transaction(async (tx) => {
+      const debitResult = await tx.execute(
+        sql`UPDATE providers SET isp_credits = isp_credits - ${cost} WHERE id = ${providerId} AND isp_credits >= ${cost} RETURNING *`,
+      );
+      const rows = debitResult.rows as Provider[];
+      if (rows.length === 0) return null;
+
+      const [created] = await tx.insert(ispConsultations).values(consultation).returning();
+
+      let alert: AntiFraudAlert | undefined;
+      if (alertRecord) {
+        const [createdAlert] = await tx.insert(antiFraudAlerts).values(alertRecord).returning();
+        alert = createdAlert;
+      }
+
+      return { provider: rows[0], consultation: created, alert };
+    });
   }
 }

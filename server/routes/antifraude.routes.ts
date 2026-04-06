@@ -1,16 +1,22 @@
 import { Router } from "express";
 import { requireAuth } from "../auth";
 import { storage } from "../storage";
+import { maskAlertForProvider } from "../utils/mask-alert";
+import { getSafeErrorMessage } from "../utils/safe-error";
 
 export function registerAntiFraudeRoutes(): Router {
   const router = Router();
 
   router.get("/api/anti-fraud/alerts", requireAuth, async (req, res) => {
     try {
-      const alerts = await storage.getAlertsByProvider(req.session.providerId!);
-      return res.json(alerts);
+      const currentProviderId = req.session.providerId!;
+      const alerts = await storage.getAlertsByProvider(currentProviderId);
+
+      const maskedAlerts = alerts.map((alert: any) => maskAlertForProvider(alert, currentProviderId));
+
+      return res.json(maskedAlerts);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -25,9 +31,9 @@ export function registerAntiFraudeRoutes(): Router {
       if (!updated) {
         return res.status(404).json({ message: "Alerta nao encontrado" });
       }
-      return res.json(updated);
+      return res.json(maskAlertForProvider(updated, req.session.providerId!));
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -98,7 +104,7 @@ export function registerAntiFraudeRoutes(): Router {
       customerRisk.sort((a, b) => b.riskScore - a.riskScore);
       return res.json(customerRisk);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 

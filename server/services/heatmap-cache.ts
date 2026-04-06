@@ -1,6 +1,6 @@
-import { storage } from "./storage";
+import { storage } from "../storage";
 import { geocodeCity, geocodeCep } from "./geocoding";
-import { getConnector, buildConnectorConfig, getProviderLimiter } from "./erp";
+import { getConnector, buildConnectorConfig, getProviderLimiter } from "../erp";
 
 export type HeatPoint = {
   lat: number;

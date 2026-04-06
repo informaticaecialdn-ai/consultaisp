@@ -18,9 +18,10 @@ import type {
   ErpCatalog, InsertErpCatalog,
   VisitorChat, VisitorChatMessage,
 } from "@shared/schema";
+import type { AlertWithOwnership } from "./antifraude.storage";
 
 import { UsersStorage } from "./users.storage";
-import { ProvidersStorage } from "./providers.storage";
+import { ProvidersStorage, type ProviderWithStats } from "./providers.storage";
 import { CustomersStorage } from "./customers.storage";
 import { ConsultationsStorage } from "./consultations.storage";
 import { AntifraudeStorage } from "./antifraude.storage";
@@ -30,6 +31,7 @@ import { ErpStorage } from "./erp.storage";
 import { ChatStorage } from "./chat.storage";
 import { DashboardStorage } from "./dashboard.storage";
 import { AdminStorage } from "./admin.storage";
+import { ImportStorage } from "./import.storage";
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
@@ -50,7 +52,10 @@ export interface IStorage {
   updateProvider(id: number, data: Partial<Pick<Provider, "name" | "contactEmail" | "contactPhone" | "website">>): Promise<Provider>;
   getAllProviders(): Promise<Provider[]>;
   updateProviderCredits(id: number, ispCredits: number, spcCredits: number): Promise<void>;
+  debitIspCredits(id: number, cost: number): Promise<Provider | null>;
+  debitSpcCredits(id: number, cost: number): Promise<Provider | null>;
   deleteProvider(id: number): Promise<void>;
+  getAllProvidersWithStats(): Promise<ProviderWithStats[]>;
 
   getCustomersByProvider(providerId: number): Promise<Customer[]>;
   getCustomerByCpfCnpj(cpfCnpj: string): Promise<Customer[]>;
@@ -80,12 +85,14 @@ export interface IStorage {
 
   getSpcConsultationsByProvider(providerId: number): Promise<SpcConsultation[]>;
   createSpcConsultation(consultation: InsertSpcConsultation): Promise<SpcConsultation>;
+  debitAndCreateSpcConsultation(providerId: number, cost: number, consultation: InsertSpcConsultation): Promise<{ provider: Provider; consultation: SpcConsultation } | null>;
+  debitAndCreateIspConsultation(providerId: number, cost: number, consultation: InsertIspConsultation, alertRecord?: InsertAntiFraudAlert): Promise<{ provider: Provider; consultation: IspConsultation; alert?: AntiFraudAlert } | null>;
   getSpcConsultationCountToday(providerId: number): Promise<number>;
   getSpcConsultationCountMonth(providerId: number): Promise<number>;
 
-  getAlertsByProvider(providerId: number): Promise<AntiFraudAlert[]>;
+  getAlertsByProvider(providerId: number): Promise<AlertWithOwnership[]>;
   createAlert(alert: InsertAntiFraudAlert): Promise<AntiFraudAlert>;
-  updateAlertStatus(alertId: number, providerId: number, status: string): Promise<AntiFraudAlert | undefined>;
+  updateAlertStatus(alertId: number, providerId: number, status: string): Promise<AlertWithOwnership | undefined>;
   getAlertsByCustomer(customerId: number): Promise<AntiFraudAlert[]>;
 
   getDashboardStats(providerId: number): Promise<any>;
@@ -165,6 +172,10 @@ export interface IStorage {
   markVisitorMessagesRead(chatId: number, isFromAdmin: boolean): Promise<void>;
   updateVisitorChatStatus(chatId: number, status: string): Promise<void>;
   getVisitorUnreadCount(chatId: number): Promise<number>;
+
+  bulkImportCustomers(rows: Record<string, string>[], providerId: number): Promise<{ imported: number; errors: Array<{ row: number; message: string }> }>;
+  bulkImportInvoices(rows: Record<string, string>[], providerId: number): Promise<{ imported: number; errors: Array<{ row: number; message: string }> }>;
+  bulkImportEquipment(rows: Record<string, string>[], providerId: number): Promise<{ imported: number; errors: Array<{ row: number; message: string }> }>;
 }
 
 class DatabaseStorage implements IStorage {
@@ -179,6 +190,7 @@ class DatabaseStorage implements IStorage {
   private _chat = new ChatStorage();
   private _dashboard = new DashboardStorage();
   private _admin = new AdminStorage();
+  private _import = new ImportStorage();
 
   // Users
   getUser = (id: number) => this._users.getUser(id);
@@ -201,11 +213,14 @@ class DatabaseStorage implements IStorage {
   updateProvider = (id: number, data: Partial<Pick<Provider, "name" | "contactEmail" | "contactPhone" | "website">>) => this._providers.updateProvider(id, data);
   getAllProviders = () => this._providers.getAllProviders();
   updateProviderCredits = (id: number, ispCredits: number, spcCredits: number) => this._providers.updateProviderCredits(id, ispCredits, spcCredits);
+  debitIspCredits = (id: number, cost: number) => this._providers.debitIspCredits(id, cost);
+  debitSpcCredits = (id: number, cost: number) => this._providers.debitSpcCredits(id, cost);
   deleteProvider = (id: number) => this._providers.deleteProvider(id);
   updateProviderProfile = (id: number, data: Partial<Provider>) => this._providers.updateProviderProfile(id, data);
   getProviderWebhookToken = (providerId: number) => this._providers.getProviderWebhookToken(providerId);
   regenerateWebhookToken = (providerId: number) => this._providers.regenerateWebhookToken(providerId);
   getProviderByWebhookToken = (token: string) => this._providers.getProviderByWebhookToken(token);
+  getAllProvidersWithStats = () => this._providers.getAllProvidersWithStats();
   // Customers
   getCustomersByProvider = (providerId: number) => this._customers.getCustomersByProvider(providerId);
   getCustomerByCpfCnpj = (cpfCnpj: string) => this._customers.getCustomerByCpfCnpj(cpfCnpj);
@@ -222,6 +237,8 @@ class DatabaseStorage implements IStorage {
   getConsultationsByCepPrefix = (cepPrefix: string, limitDays?: number) => this._consultations.getConsultationsByCepPrefix(cepPrefix, limitDays);
   getSpcConsultationsByProvider = (providerId: number) => this._consultations.getSpcConsultationsByProvider(providerId);
   createSpcConsultation = (consultation: InsertSpcConsultation) => this._consultations.createSpcConsultation(consultation);
+  debitAndCreateSpcConsultation = (providerId: number, cost: number, consultation: InsertSpcConsultation) => this._consultations.debitAndCreateSpcConsultation(providerId, cost, consultation);
+  debitAndCreateIspConsultation = (providerId: number, cost: number, consultation: InsertIspConsultation, alertRecord?: InsertAntiFraudAlert) => this._consultations.debitAndCreateIspConsultation(providerId, cost, consultation, alertRecord);
   getSpcConsultationCountToday = (providerId: number) => this._consultations.getSpcConsultationCountToday(providerId);
   getSpcConsultationCountMonth = (providerId: number) => this._consultations.getSpcConsultationCountMonth(providerId);
 
@@ -315,6 +332,11 @@ class DatabaseStorage implements IStorage {
   getPlanChanges = (providerId?: number) => this._admin.getPlanChanges(providerId);
   createPlanChange = (change: InsertPlanChange) => this._admin.createPlanChange(change);
   getSaasMetrics = () => this._admin.getSaasMetrics();
+
+  // Import
+  bulkImportCustomers = (rows: Record<string, string>[], providerId: number) => this._import.bulkImportCustomers(rows, providerId);
+  bulkImportInvoices = (rows: Record<string, string>[], providerId: number) => this._import.bulkImportInvoices(rows, providerId);
+  bulkImportEquipment = (rows: Record<string, string>[], providerId: number) => this._import.bulkImportEquipment(rows, providerId);
 }
 
 export const storage = new DatabaseStorage();

@@ -61,7 +61,14 @@ export interface ScoreFator {
 
 export interface ISPScoreResult {
   score: number
+  score100: number
   faixa: 'muito_baixo' | 'baixo' | 'bom' | 'excelente'
+  faixas100: {
+    excelente: number
+    bom: number
+    baixo: number
+    muito_baixo: number
+  }
   nivelRisco: 'muito_alto' | 'alto' | 'moderado' | 'baixo'
   sugestaoIA: 'REJEITAR' | 'ANALISE MANUAL' | 'APROVAR COM ATENCAO' | 'APROVAR'
   corIndicador: 'vermelho' | 'laranja' | 'amarelo' | 'verde'
@@ -247,8 +254,12 @@ export function calcularScoreISP(input: ISPScoreInput): ISPScoreResult {
     condicoesSugeridas.push('Solicitar fiador ou comprovante de renda')
   }
 
+  const score100 = Math.round(score / 10)
+
   return {
-    score, faixa, nivelRisco, sugestaoIA, corIndicador,
+    score, score100, faixa,
+    faixas100: { excelente: 71, bom: 51, baixo: 31, muito_baixo: 0 },
+    nivelRisco, sugestaoIA, corIndicador,
     fatores: {
       f1_historicoPagamento: { pontos: f1, maximo: 300, peso: '30%', descricao: f1_descricao },
       f2_tempoSetor: { pontos: f2, maximo: 200, peso: '20%', descricao: f2_descricao },

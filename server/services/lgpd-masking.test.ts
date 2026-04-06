@@ -6,6 +6,9 @@ import {
   maskAddress,
   maskOverdueAmount,
   getOverdueAmountRange,
+  maskDaysOverdue,
+  maskOverdueInvoicesCount,
+  maskServiceAge,
   maskCrossProviderDetail,
 } from './lgpd-masking';
 
@@ -115,6 +118,80 @@ describe('getOverdueAmountRange', () => {
   });
 });
 
+describe('maskDaysOverdue', () => {
+  it('returns "Em dia" for 0 days', () => {
+    expect(maskDaysOverdue(0)).toBe('Em dia');
+  });
+
+  it('returns "1-30 dias" for days within 1-30', () => {
+    expect(maskDaysOverdue(1)).toBe('1-30 dias');
+    expect(maskDaysOverdue(30)).toBe('1-30 dias');
+  });
+
+  it('returns "31-60 dias" for days within 31-60', () => {
+    expect(maskDaysOverdue(31)).toBe('31-60 dias');
+    expect(maskDaysOverdue(60)).toBe('31-60 dias');
+  });
+
+  it('returns "61-90 dias" for days within 61-90', () => {
+    expect(maskDaysOverdue(61)).toBe('61-90 dias');
+    expect(maskDaysOverdue(90)).toBe('61-90 dias');
+  });
+
+  it('returns "90+ dias" for days above 90', () => {
+    expect(maskDaysOverdue(91)).toBe('90+ dias');
+    expect(maskDaysOverdue(365)).toBe('90+ dias');
+  });
+});
+
+describe('maskOverdueInvoicesCount', () => {
+  it('returns "Nenhuma" for 0 invoices', () => {
+    expect(maskOverdueInvoicesCount(0)).toBe('Nenhuma');
+  });
+
+  it('returns "1-2 faturas" for 1-2 invoices', () => {
+    expect(maskOverdueInvoicesCount(1)).toBe('1-2 faturas');
+    expect(maskOverdueInvoicesCount(2)).toBe('1-2 faturas');
+  });
+
+  it('returns "3-5 faturas" for 3-5 invoices', () => {
+    expect(maskOverdueInvoicesCount(3)).toBe('3-5 faturas');
+    expect(maskOverdueInvoicesCount(5)).toBe('3-5 faturas');
+  });
+
+  it('returns "6+ faturas" for 6+ invoices', () => {
+    expect(maskOverdueInvoicesCount(6)).toBe('6+ faturas');
+    expect(maskOverdueInvoicesCount(20)).toBe('6+ faturas');
+  });
+});
+
+describe('maskServiceAge', () => {
+  it('returns "< 6 meses" for under 6 months', () => {
+    expect(maskServiceAge(0)).toBe('< 6 meses');
+    expect(maskServiceAge(5)).toBe('< 6 meses');
+  });
+
+  it('returns "6-12 meses" for 6-11 months', () => {
+    expect(maskServiceAge(6)).toBe('6-12 meses');
+    expect(maskServiceAge(11)).toBe('6-12 meses');
+  });
+
+  it('returns "1-2 anos" for 12-23 months', () => {
+    expect(maskServiceAge(12)).toBe('1-2 anos');
+    expect(maskServiceAge(23)).toBe('1-2 anos');
+  });
+
+  it('returns "2-3 anos" for 24-35 months', () => {
+    expect(maskServiceAge(24)).toBe('2-3 anos');
+    expect(maskServiceAge(35)).toBe('2-3 anos');
+  });
+
+  it('returns "> 3 anos" for 36+ months', () => {
+    expect(maskServiceAge(36)).toBe('> 3 anos');
+    expect(maskServiceAge(60)).toBe('> 3 anos');
+  });
+});
+
 describe('maskCrossProviderDetail', () => {
   const sampleDetail = {
     customerName: 'Maria Santos Oliveira',
@@ -195,8 +272,12 @@ describe('maskCrossProviderDetail', () => {
     expect(result.providerName).toMatch(/^Provedor Parceiro #[A-F0-9]{4}$/);
     expect(result.providerName).not.toBe('ISP Alpha');
     expect(result.status).toBe('Inadimplente');
-    expect(result.daysOverdue).toBe(45);
-    expect(result.overdueInvoicesCount).toBe(3);
+    // LGPD: exact daysOverdue is stripped for cross-provider, replaced with qualitative range
+    expect(result.daysOverdue).toBeUndefined();
+    expect(result.daysOverdueRange).toBe('31-60 dias');
+    // LGPD: exact overdueInvoicesCount is stripped for cross-provider, replaced with qualitative bracket
+    expect(result.overdueInvoicesCount).toBeUndefined();
+    expect(result.overdueInvoicesCountRange).toBe('3-5 faturas');
     expect(result.contractAgeDays).toBe(365);
     expect(result.hasUnreturnedEquipment).toBe(true);
     expect(result.unreturnedEquipmentCount).toBe(1);

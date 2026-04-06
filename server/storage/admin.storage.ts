@@ -3,6 +3,7 @@ import { db } from "../db";
 import {
   providers, users, customers, ispConsultations, spcConsultations,
   planChanges, providerInvoices,
+  PLAN_PRICES,
   type Provider,
   type PlanChange, type InsertPlanChange,
 } from "@shared/schema";
@@ -68,7 +69,6 @@ export class AdminStorage {
   }
 
   async getSaasMetrics(): Promise<any> {
-    const PLAN_PRICES: Record<string, number> = { free: 0, basic: 199, pro: 399, enterprise: 799 };
     const PLAN_ORDER = ["free", "basic", "pro", "enterprise"];
 
     const allProviders = await db.select().from(providers);

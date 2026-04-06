@@ -48,7 +48,7 @@ import {
   CheckCircle,
   AlertCircle,
 } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, STALE_DASHBOARD, STALE_LISTS } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 // ─── ERP config ──────────────────────────────────────────────────────────────
@@ -144,9 +144,10 @@ export default function InadimplentesPage() {
   const [redeData, setRedeData] = useState<any | null>(null);
   const [redeLoading, setRedeLoading] = useState(false);
 
-  const { data: stats } = useQuery<any>({ queryKey: ["/api/dashboard/stats"] });
+  const { data: stats } = useQuery<any>({ queryKey: ["/api/dashboard/stats"], staleTime: STALE_DASHBOARD });
   const { data: list = [], isLoading, refetch, isFetching } = useQuery<any[]>({
     queryKey: ["/api/inadimplentes"],
+    staleTime: STALE_LISTS,
   });
 
   const lgpdMutation = useMutation({

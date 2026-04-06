@@ -86,7 +86,9 @@ function ImportTab({ type }: { type: ImportType }) {
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [cdcAcknowledged, setCdcAcknowledged] = useState(false);
   const label = LABELS[type];
+  const requiresCdcAck = type === "customers" || type === "invoices";
 
   const mutation = useMutation({
     mutationFn: async (rows: Record<string, string>[]) => {
@@ -159,6 +161,7 @@ function ImportTab({ type }: { type: ImportType }) {
   const reset = () => {
     setPreview(null);
     setResult(null);
+    setCdcAcknowledged(false);
   };
 
   return (
@@ -214,6 +217,25 @@ function ImportTab({ type }: { type: ImportType }) {
 
       {preview && !result && (
         <div className="space-y-4">
+          {requiresCdcAck && (
+            <Alert>
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={cdcAcknowledged}
+                    onChange={(e) => setCdcAcknowledged(e.target.checked)}
+                    className="mt-1 rounded border-gray-300"
+                    data-testid={`checkbox-cdc-${type}`}
+                  />
+                  <span className="text-sm">
+                    Declaro que os titulares dos dados foram previamente notificados sobre a inclusao de suas informacoes, conforme exigido pelo CDC Art. 43, §2 (Codigo de Defesa do Consumidor).
+                  </span>
+                </label>
+              </AlertDescription>
+            </Alert>
+          )}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Eye className="w-4 h-4 text-muted-foreground" />
@@ -229,7 +251,7 @@ function ImportTab({ type }: { type: ImportType }) {
                 size="sm"
                 className="gap-2"
                 onClick={handleImport}
-                disabled={mutation.isPending}
+                disabled={mutation.isPending || (requiresCdcAck && !cdcAcknowledged)}
                 data-testid={`button-importar-${type}`}
               >
                 {mutation.isPending ? (

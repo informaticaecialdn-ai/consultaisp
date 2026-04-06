@@ -17,11 +17,14 @@ interface CacheEntry<T> {
 export class TtlCache<T> {
   private store = new Map<string, CacheEntry<T>>();
   private cleanupTimer: ReturnType<typeof setInterval>;
+  private maxSize: number;
 
   constructor(
     private ttlMs: number,
-    cleanupIntervalMs: number = 60_000
+    cleanupIntervalMs: number = 60_000,
+    maxSize: number = 10_000
   ) {
+    this.maxSize = maxSize;
     this.cleanupTimer = setInterval(() => this._cleanup(), cleanupIntervalMs);
     if (this.cleanupTimer.unref) {
       this.cleanupTimer.unref();
@@ -39,6 +42,12 @@ export class TtlCache<T> {
   }
 
   set(key: string, value: T): void {
+    if (this.store.size >= this.maxSize && !this.store.has(key)) {
+      const oldest = this.store.keys().next().value;
+      if (oldest !== undefined) {
+        this.store.delete(oldest);
+      }
+    }
     this.store.set(key, {
       value,
       expiresAt: Date.now() + this.ttlMs,

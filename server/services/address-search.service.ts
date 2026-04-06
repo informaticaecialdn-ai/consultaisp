@@ -1,6 +1,6 @@
 import type { RealtimeQueryResult } from "./realtime-query.service";
 import { hashAddressForNetwork } from "../utils/address-hash";
-import { maskCrossProviderDetail } from "../lgpd-masking";
+import { maskCrossProviderDetail } from "./lgpd-masking";
 
 export interface AddressRiskScore {
   riskScore: number;
@@ -97,14 +97,14 @@ export function calculateAddressRisk(
   let totalOcorrencias = 0;
   const alertas: string[] = [];
 
-  for (const [, group] of groups) {
+  groups.forEach((group) => {
     for (const c of group.customers) {
       if (c.maxDaysOverdue > 0) {
         delinquentCpfs.add(c.cpfCnpj.replace(/\D/g, ""));
         totalOcorrencias++;
       }
     }
-  }
+  });
 
   const count = delinquentCpfs.size;
   let riskScore: number;
@@ -145,9 +145,9 @@ export function buildAddressSearchResult(
   const risk = calculateAddressRisk(groups);
 
   const addressGroups: AddressGroupEntry[] = [];
-  for (const [, group] of groups) {
+  groups.forEach((group) => {
     // Apply LGPD masking to cross-provider customers
-    const maskedCustomers = group.customers.map(c => {
+    const maskedCustomers = group.customers.map((c: AddressGroupEntry["customers"][0]) => {
       if (!c.isSameProvider) {
         const masked = maskCrossProviderDetail({
           providerName: c.providerName,
@@ -164,7 +164,7 @@ export function buildAddressSearchResult(
       return c;
     });
     addressGroups.push({ ...group, customers: maskedCustomers });
-  }
+  });
 
   let totalCustomers = 0;
   for (const g of addressGroups) totalCustomers += g.customers.length;

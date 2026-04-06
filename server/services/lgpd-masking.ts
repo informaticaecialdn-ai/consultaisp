@@ -6,7 +6,7 @@
  * Same-provider data passes through unmasked.
  */
 
-import { getProviderDisplayName } from './utils/provider-anonymizer';
+import { getProviderDisplayName } from '../utils/provider-anonymizer';
 
 /**
  * Masks a full name for cross-provider display.
@@ -75,6 +75,18 @@ export function maskOverdueAmount(amount: number, isSameProvider: boolean): numb
 }
 
 /**
+ * Masks exact service age (months) into a coarse bracket for cross-provider display.
+ * Prevents cross-referencing exact tenure to identify customers.
+ */
+export function maskServiceAge(months: number): string {
+  if (months < 6) return '< 6 meses';
+  if (months < 12) return '6-12 meses';
+  if (months < 24) return '1-2 anos';
+  if (months < 36) return '2-3 anos';
+  return '> 3 anos';
+}
+
+/**
  * Returns a human-readable range bracket for an overdue amount.
  * Used for the local-DB code path display.
  */
@@ -87,13 +99,32 @@ export function getOverdueAmountRange(amount: number): string {
   return 'Acima de R$ 1.000';
 }
 
+/**
+ * Masks exact daysOverdue into a coarse qualitative range for cross-provider display.
+ */
+export function maskDaysOverdue(days: number): string {
+  if (days <= 0) return 'Em dia';
+  if (days <= 30) return '1-30 dias';
+  if (days <= 60) return '31-60 dias';
+  if (days <= 90) return '61-90 dias';
+  return '90+ dias';
+}
+
+/**
+ * Masks exact overdueInvoicesCount into a qualitative bracket for cross-provider display.
+ */
+export function maskOverdueInvoicesCount(count: number): string {
+  if (count <= 0) return 'Nenhuma';
+  if (count <= 2) return '1-2 faturas';
+  if (count <= 5) return '3-5 faturas';
+  return '6+ faturas';
+}
+
 /** Fields that are always preserved (not masked) in cross-provider detail */
 const PRESERVED_FIELDS: string[] = [
   'providerName',
   'isSameProvider',
   'status',
-  'daysOverdue',
-  'overdueInvoicesCount',
   'contractStartDate',
   'contractAgeDays',
   'hasUnreturnedEquipment',
@@ -114,6 +145,8 @@ const STRIPPED_FIELDS: string[] = [
   'lastPaymentValue',
   'openAmountTotal',
   'openItems',
+  'daysOverdue',
+  'overdueInvoicesCount',
 ];
 
 const STRIPPED_SET: Record<string, boolean> = {};
@@ -157,6 +190,18 @@ export function maskCrossProviderDetail(
     result.providerName = getProviderDisplayName(detail.providerName, false);
   }
 
+  // LGPD: daysOverdue — convert exact days to qualitative range, strip exact value
+  if (detail.daysOverdue != null) {
+    result.daysOverdueRange = maskDaysOverdue(detail.daysOverdue);
+  }
+  result.daysOverdue = undefined;
+
+  // LGPD: overdueInvoicesCount — convert exact count to qualitative bracket, strip exact value
+  if (detail.overdueInvoicesCount != null) {
+    result.overdueInvoicesCountRange = maskOverdueInvoicesCount(detail.overdueInvoicesCount);
+  }
+  result.overdueInvoicesCount = undefined;
+
   // Overdue amount: hide exact, show range
   if (detail.overdueAmount != null && detail.overdueAmount > 0) {
     result.overdueAmount = undefined;
@@ -166,6 +211,12 @@ export function maskCrossProviderDetail(
     result.overdueAmount = undefined;
   }
 
+  // RT-05: Service age — convert exact months to coarse bracket
+  if (detail.serviceAgeMonths != null) {
+    result.serviceAgeMonthsRange = maskServiceAge(detail.serviceAgeMonths);
+    result.serviceAgeMonths = undefined;
+  }
+
   // Stripped fields are explicitly set to undefined (not included)
   STRIPPED_FIELDS.forEach((key) => {
     result[key] = undefined;
@@ -173,7 +224,7 @@ export function maskCrossProviderDetail(
 
   // Copy any other fields not handled above (except stripped ones)
   const maskedKeys: Record<string, boolean> = {
-    customerName: true, cpfCnpj: true, address: true, cep: true, overdueAmount: true, providerName: true,
+    customerName: true, cpfCnpj: true, address: true, cep: true, overdueAmount: true, providerName: true, serviceAgeMonths: true, daysOverdue: true, overdueInvoicesCount: true,
   };
   Object.keys(detail).forEach((key) => {
     if (!(key in result) && !STRIPPED_SET[key] && !PRESERVED_SET[key] && !maskedKeys[key]) {

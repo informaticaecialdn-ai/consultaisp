@@ -114,7 +114,7 @@ export interface ErpConnector {
   testConnection(config: ErpConnectionConfig): Promise<ErpTestResult>;
 
   /** Fetch only delinquent/overdue customers */
-  fetchDelinquents(config: ErpConnectionConfig): Promise<ErpFetchResult>;
+  fetchDelinquents(config: ErpConnectionConfig, lastDays?: number): Promise<ErpFetchResult>;
 
   /** Fetch all customers (including non-delinquent) */
   fetchCustomers(config: ErpConnectionConfig): Promise<ErpFetchResult>;

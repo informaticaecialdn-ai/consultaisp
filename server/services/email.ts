@@ -14,7 +14,8 @@ const APP_URL = getAppUrl();
 export async function sendVerificationEmail(to: string, name: string, token: string): Promise<void> {
   const verifyUrl = `${APP_URL}/verificar-email?token=${token}`;
 
-  console.log(`[email] Enviando email de verificacao para ${to} via ${FROM_EMAIL}`);
+  const maskedTo = to.split("@")[0].slice(0, 3) + "***@" + to.split("@")[1];
+  console.log(`[email] Enviando email de verificacao para ${maskedTo} via ${FROM_EMAIL}`);
 
   if (!resend) {
     console.warn(`[email] RESEND_API_KEY nao configurada. Email para ${to} nao enviado.`);

@@ -1,4 +1,4 @@
-import { eq, sql, inArray } from "drizzle-orm";
+import { eq, sql, inArray, and } from "drizzle-orm";
 import { db } from "../db";
 import {
   providers, users, customers, contracts, invoices, equipment,
@@ -6,8 +6,18 @@ import {
   supportThreads, supportMessages, planChanges, providerInvoices,
   creditOrders, providerDocuments, providerPartners,
   erpIntegrations, erpSyncLogs,
-  type Provider, type InsertProvider,
+  type Provider, type InsertProvider, type ErpIntegration,
 } from "@shared/schema";
+import { decryptField } from "../utils/crypto";
+
+export interface ProviderWithStats extends Provider {
+  userCount: number;
+  adminEmailVerified: boolean;
+  erpSource: string | null;
+  erpUrl: string | null;
+  erpToken: string | null;
+  erpEnabled: boolean;
+}
 
 export class ProvidersStorage {
   async getProvider(id: number): Promise<Provider | undefined> {
@@ -92,6 +102,79 @@ export class ProvidersStorage {
   async getProviderByWebhookToken(token: string): Promise<Provider | undefined> {
     const [provider] = await db.select().from(providers).where(sql`${providers.webhookToken} = ${token}`);
     return provider;
+  }
+
+  async debitIspCredits(id: number, cost: number): Promise<Provider | null> {
+    const result = await db.execute(sql`UPDATE providers SET isp_credits = isp_credits - ${cost} WHERE id = ${id} AND isp_credits >= ${cost} RETURNING *`);
+    const rows = result.rows as Provider[];
+    return rows.length > 0 ? rows[0] : null;
+  }
+
+  async debitSpcCredits(id: number, cost: number): Promise<Provider | null> {
+    const result = await db.execute(sql`UPDATE providers SET spc_credits = spc_credits - ${cost} WHERE id = ${id} AND spc_credits >= ${cost} RETURNING *`);
+    const rows = result.rows as Provider[];
+    return rows.length > 0 ? rows[0] : null;
+  }
+
+  async getAllProvidersWithStats(): Promise<ProviderWithStats[]> {
+    const SENSITIVE_FIELDS = ["apiToken", "apiUser", "clientSecret", "mkContraSenha"] as const;
+
+    // Query 1: all providers
+    const allProviders = await db.select().from(providers);
+
+    // Query 2: user counts and admin email verification per provider
+    const userStats = await db.execute(sql`
+      SELECT
+        provider_id,
+        COUNT(*)::int AS user_count,
+        MAX(CASE WHEN role = 'admin' THEN CASE WHEN email_verified THEN 1 ELSE 0 END END) AS admin_email_verified
+      FROM users
+      WHERE provider_id IS NOT NULL
+      GROUP BY provider_id
+    `);
+    const userStatsMap = new Map<number, { userCount: number; adminEmailVerified: boolean }>();
+    for (const row of userStats.rows as any[]) {
+      userStatsMap.set(row.provider_id, {
+        userCount: row.user_count || 0,
+        adminEmailVerified: row.admin_email_verified === 1,
+      });
+    }
+
+    // Query 3: active ERP integrations per provider (first enabled with apiUrl)
+    const erpRows = await db.execute(sql`
+      SELECT DISTINCT ON (provider_id) *
+      FROM erp_integrations
+      WHERE is_enabled = true AND api_url IS NOT NULL AND api_url != ''
+      ORDER BY provider_id, id
+    `);
+    const erpMap = new Map<number, any>();
+    for (const row of erpRows.rows as any[]) {
+      // Decrypt sensitive fields
+      const decrypted = { ...row };
+      for (const field of SENSITIVE_FIELDS) {
+        const snakeField = field.replace(/([A-Z])/g, "_$1").toLowerCase();
+        const key = snakeField in decrypted ? snakeField : field;
+        if (typeof decrypted[key] === "string") {
+          decrypted[key] = decryptField(decrypted[key]);
+        }
+      }
+      erpMap.set(row.provider_id, decrypted);
+    }
+
+    // Merge results
+    return allProviders.map(p => {
+      const stats = userStatsMap.get(p.id);
+      const erp = erpMap.get(p.id);
+      return {
+        ...p,
+        userCount: stats?.userCount || 0,
+        adminEmailVerified: stats?.adminEmailVerified || false,
+        erpSource: erp?.erp_source || null,
+        erpUrl: erp?.api_url || null,
+        erpToken: erp ? `${erp.api_user || ""}:${erp.api_token || ""}`.replace(/^:/, "") : null,
+        erpEnabled: erp?.is_enabled || false,
+      };
+    });
   }
 
 }

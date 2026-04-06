@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuth } from "../auth";
-import { streamConsultationAnalysis, streamAntiFraudAnalysis } from "../ai-analysis";
+import { streamConsultationAnalysis, streamAntiFraudAnalysis } from "../services/ai-analysis";
 
 export function registerAiRoutes(): Router {
   const router = Router();

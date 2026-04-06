@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { STALE_DASHBOARD } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -134,8 +135,8 @@ export default function DashboardPage() {
   const { provider } = useAuth();
   const [providerCenter, setProviderCenter] = useState<[number, number] | null>(null);
 
-  const { data: stats, isLoading } = useQuery<any>({ queryKey: ["/api/dashboard/stats"] });
-  const { data: heatmapData = [] } = useQuery<any[]>({ queryKey: ["/api/heatmap/provider"] });
+  const { data: stats, isLoading } = useQuery<any>({ queryKey: ["/api/dashboard/stats"], staleTime: STALE_DASHBOARD });
+  const { data: heatmapData = [] } = useQuery<any[]>({ queryKey: ["/api/heatmap/provider"], staleTime: STALE_DASHBOARD });
 
   useEffect(() => {
     const city = provider?.addressCity || "";

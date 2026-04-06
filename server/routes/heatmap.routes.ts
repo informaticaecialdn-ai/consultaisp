@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../auth";
 import { storage } from "../storage";
+import { getSafeErrorMessage } from "../utils/safe-error";
 
 export function registerHeatmapRoutes(): Router {
   const router = Router();
@@ -15,13 +16,14 @@ export function registerHeatmapRoutes(): Router {
       const data = await storage.getHeatmapDataByProvider(req.session.providerId!);
       return res.json(data);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
-  router.get("/api/heatmap/regional", requireAuth, async (_req, res) => {
+  // TENANT-01: scoped to current provider's tenant
+  router.get("/api/heatmap/regional", requireAuth, async (req, res) => {
     try {
-      const data = await storage.getHeatmapDataAllProviders();
+      const data = await storage.getHeatmapDataByProvider(req.session.providerId!);
       const clusterMap = new Map<string, { lat: number; lng: number; city: string; count: number; totalOverdue: number }>();
       for (const item of data) {
         const lat = parseFloat(item.latitude);
@@ -43,13 +45,14 @@ export function registerHeatmapRoutes(): Router {
       const results = Array.from(clusterMap.values());
       return res.json(results);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
-  router.get("/api/heatmap/city-ranking", requireAuth, async (_req, res) => {
+  // TENANT-01: scoped to current provider's tenant
+  router.get("/api/heatmap/city-ranking", requireAuth, async (req, res) => {
     try {
-      const data = await storage.getHeatmapDataAllProviders();
+      const data = await storage.getHeatmapDataByProvider(req.session.providerId!);
       const cityMap = new Map<string, { city: string; lat: number; lng: number; count: number; totalOverdue: number; maxDays: number }>();
       for (const item of data) {
         const city = (item.city || "").trim();
@@ -71,7 +74,7 @@ export function registerHeatmapRoutes(): Router {
         .sort((a, b) => b.count - a.count || b.totalOverdue - a.totalOverdue);
       return res.json(results);
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 

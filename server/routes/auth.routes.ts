@@ -2,13 +2,19 @@ import { Router } from "express";
 import { storage } from "../storage";
 import { loginSchema, registerSchema } from "@shared/schema";
 import { hashPassword, verifyPassword } from "../password";
-import { sendVerificationEmail } from "../email";
+import { sendVerificationEmail } from "../services/email";
+import { createRateLimiter } from "../middleware/rate-limiter.middleware";
+import { getSafeErrorMessage } from "../utils/safe-error";
 import crypto from "crypto";
 
 export function registerAuthRoutes(): Router {
   const router = Router();
 
-  router.post("/api/auth/login", async (req, res) => {
+  const loginLimiter = createRateLimiter({ windowMs: 900_000, maxRequests: 5 });
+  const registerLimiter = createRateLimiter({ windowMs: 3_600_000, maxRequests: 3 });
+  const resendLimiter = createRateLimiter({ windowMs: 900_000, maxRequests: 3 });
+
+  router.post("/api/auth/login", loginLimiter, async (req, res) => {
     try {
       const parsed = loginSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -32,7 +38,7 @@ export function registerAuthRoutes(): Router {
       });
       return res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role }, provider });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -43,7 +49,7 @@ export function registerAuthRoutes(): Router {
     return res.json({ available: !existing });
   });
 
-  router.post("/api/auth/register", async (req, res) => {
+  router.post("/api/auth/register", registerLimiter, async (req, res) => {
     try {
       const parsed = registerSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -80,6 +86,7 @@ export function registerAuthRoutes(): Router {
         role: "admin",
         providerId: provider.id,
         emailVerified: false,
+        lgpdAcceptedAt: new Date(),
       });
 
       const token = crypto.randomBytes(32).toString("hex");
@@ -94,7 +101,7 @@ export function registerAuthRoutes(): Router {
 
       return res.status(201).json({ needsVerification: true, email });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
@@ -121,11 +128,11 @@ export function registerAuthRoutes(): Router {
       });
       return res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role }, provider });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
-  router.post("/api/auth/resend-verification", async (req, res) => {
+  router.post("/api/auth/resend-verification", resendLimiter, async (req, res) => {
     try {
       const { email } = req.body as { email?: string };
       if (!email) {
@@ -148,7 +155,7 @@ export function registerAuthRoutes(): Router {
       }
       return res.json({ message: "Novo link de verificacao enviado. Verifique sua caixa de entrada." });
     } catch (error: any) {
-      return res.status(500).json({ message: error.message });
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
