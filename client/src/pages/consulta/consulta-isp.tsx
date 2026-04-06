@@ -408,8 +408,8 @@ export default function ConsultaISPPage() {
   });
 
   const mutation = useMutation({
-    mutationFn: async (payload: { cpfCnpj: string; addressNumber?: string; addressComplement?: string; addressStreet?: string; addressCity?: string; addressState?: string }) => {
-      const res = await apiRequest("POST", "/api/isp-consultations", payload);
+    mutationFn: async (payload: { cpfCnpj: string; lgpdAccepted?: boolean; addressNumber?: string; addressComplement?: string; addressStreet?: string; addressCity?: string; addressState?: string }) => {
+      const res = await apiRequest("POST", "/api/isp-consultations", { ...payload, lgpdAccepted: true });
       return res.json();
     },
     onSuccess: (data) => {

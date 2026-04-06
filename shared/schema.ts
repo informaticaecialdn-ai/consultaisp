@@ -460,6 +460,9 @@ export const titularRequests = pgTable("titular_requests", {
   descricao: text("descricao"),
   protocolo: text("protocolo").notNull().unique(),
   status: text("status").notNull().default("pendente"),
+  updatedBy: integer("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at"),
+  executionResult: jsonb("execution_result"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

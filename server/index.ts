@@ -119,6 +119,10 @@ app.use((req, res, next) => {
   await seedSuperAdmin();
   await registerRoutes(httpServer, app);
 
+  // LGPD: Start data retention scheduler (anonymize consultations > 5 years)
+  const { startRetentionScheduler } = await import("./services/lgpd-retention");
+  startRetentionScheduler();
+
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
 

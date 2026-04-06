@@ -8,6 +8,10 @@ export function validateEnv(): void {
     logger.fatal({ missing }, "Missing required environment variables");
     process.exit(1);
   }
+  // LGPD compliance warnings
+  if (!process.env.NETWORK_CPF_SALT) {
+    logger.warn("NETWORK_CPF_SALT not set — CPF hashing disabled. Set a 32+ char salt for LGPD compliance.");
+  }
   logger.info("Environment validated");
 }
 

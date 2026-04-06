@@ -51,14 +51,36 @@ export function maskCep(rawCep: string, isSameProvider: boolean): string {
 }
 
 /**
+ * Truncates a string to show only the first few characters + ***.
+ * "Rua das Flores" → "Rua da***"
+ */
+function partialMask(value: string, visibleChars: number = 6): string {
+  if (!value || value.length <= visibleChars) return '***';
+  return value.substring(0, visibleChars) + '***';
+}
+
+/**
  * Masks address for cross-provider display.
- * Cross-provider: strips house number, replaces with ***
+ * Cross-provider: shows partial street, partial number, partial neighborhood, partial city, partial state.
  * Same-provider: returns full address unchanged.
  */
 export function maskAddress(address: string, isSameProvider: boolean): string {
   if (isSameProvider) return address;
-  // Replace the first number sequence (house number) after a comma or space with ***
-  return address.replace(/,\s*\d+/, ', ***').replace(/(\s)\d+(\s|,|$)/, '$1***$2');
+
+  const parts: string[] = [];
+
+  // Split address by comma and mask each part partially
+  const segments = address.split(',').map(s => s.trim()).filter(Boolean);
+  for (const seg of segments) {
+    // If it's a number-only segment (house number), mask partially
+    if (/^\d+$/.test(seg)) {
+      parts.push(seg.length > 2 ? seg.substring(0, 2) + '**' : '**');
+    } else {
+      parts.push(partialMask(seg, Math.min(6, Math.ceil(seg.length * 0.5))));
+    }
+  }
+
+  return parts.join(', ') || 'End. protegido';
 }
 
 /**
@@ -182,9 +204,8 @@ export function maskCrossProviderDetail(
   if (detail.address != null) {
     result.address = maskAddress(detail.address, false);
   }
-  if (detail.cep != null) {
-    result.cep = maskCep(detail.cep, false);
-  }
+  // Cross-provider: strip CEP entirely (city/state is enough)
+  result.cep = undefined;
   // LGPD: Anonymize cross-provider name
   if (detail.providerName != null) {
     result.providerName = getProviderDisplayName(detail.providerName, false);
@@ -224,7 +245,7 @@ export function maskCrossProviderDetail(
 
   // Copy any other fields not handled above (except stripped ones)
   const maskedKeys: Record<string, boolean> = {
-    customerName: true, cpfCnpj: true, address: true, cep: true, overdueAmount: true, providerName: true, serviceAgeMonths: true, daysOverdue: true, overdueInvoicesCount: true,
+    customerName: true, cpfCnpj: true, address: true, cep: true, city: true, state: true, overdueAmount: true, providerName: true, serviceAgeMonths: true, daysOverdue: true, overdueInvoicesCount: true,
   };
   Object.keys(detail).forEach((key) => {
     if (!(key in result) && !STRIPPED_SET[key] && !PRESERVED_SET[key] && !maskedKeys[key]) {

@@ -9,7 +9,7 @@ import { getSafeErrorMessage } from "../utils/safe-error";
 import { sanitizeFilename } from "../utils/filename-sanitizer";
 import { db } from "../db";
 import { titularRequests } from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { z } from "zod";
 
@@ -717,8 +717,54 @@ export function registerAdminRoutes(): Router {
         return res.status(404).json({ message: "Solicitacao nao encontrada" });
       }
 
+      let executionResult: Record<string, any> | undefined;
+
+      // LGPD Art. 18: When completing a request, execute the action automatically
+      if (parsed.data.status === "concluido") {
+        const cpf = existing.cpfCnpj;
+
+        if (existing.tipoSolicitacao === "exclusao" || existing.tipoSolicitacao === "revogacao") {
+          // Anonymize all consultation records for this CPF
+          const anonymized = await db.execute(sql`
+            UPDATE isp_consultations SET cpf_cnpj = 'ANONIMIZADO', cpf_cnpj_hash = NULL,
+            result = jsonb_build_object('anonimizado', true, 'motivo', 'LGPD Art. 18 - exclusao', 'protocolo', ${existing.protocolo})
+            WHERE cpf_cnpj = ${cpf} AND cpf_cnpj != 'ANONIMIZADO'
+          `);
+          const spcAnonymized = await db.execute(sql`
+            UPDATE spc_consultations SET cpf_cnpj = 'ANONIMIZADO',
+            result = jsonb_build_object('anonimizado', true, 'motivo', 'LGPD Art. 18 - exclusao', 'protocolo', ${existing.protocolo})
+            WHERE cpf_cnpj = ${cpf} AND cpf_cnpj != 'ANONIMIZADO'
+          `);
+          executionResult = { action: "exclusao", cpfAnonymized: cpf, ispRecords: anonymized.rowCount || 0, spcRecords: spcAnonymized.rowCount || 0 };
+        }
+
+        if (existing.tipoSolicitacao === "acesso" || existing.tipoSolicitacao === "portabilidade") {
+          // Export all consultation records for this CPF
+          const ispRecords = await db.execute(sql`
+            SELECT id, provider_id, search_type, score, decision_reco, cost, created_at
+            FROM isp_consultations WHERE cpf_cnpj = ${cpf}
+          `);
+          const spcRecords = await db.execute(sql`
+            SELECT id, provider_id, score, created_at
+            FROM spc_consultations WHERE cpf_cnpj = ${cpf}
+          `);
+          executionResult = {
+            action: existing.tipoSolicitacao,
+            cpf,
+            exportDate: new Date().toISOString(),
+            ispConsultations: ispRecords.rows || [],
+            spcConsultations: spcRecords.rows || [],
+          };
+        }
+      }
+
       const [updated] = await db.update(titularRequests)
-        .set({ status: parsed.data.status })
+        .set({
+          status: parsed.data.status,
+          updatedBy: req.session.userId!,
+          updatedAt: new Date(),
+          ...(executionResult ? { executionResult } : {}),
+        })
         .where(eq(titularRequests.id, id))
         .returning();
 

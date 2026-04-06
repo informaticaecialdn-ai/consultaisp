@@ -34,9 +34,12 @@ export function registerConsultasRoutes(): Router {
 
   router.post("/api/isp-consultations", ispConsultaLimiter, requireAuth, async (req, res) => {
     try {
-      const { cpfCnpj } = req.body;
+      const { cpfCnpj, lgpdAccepted } = req.body;
       if (!cpfCnpj) {
         return res.status(400).json({ message: "CPF/CNPJ obrigatorio" });
+      }
+      if (!lgpdAccepted) {
+        return res.status(400).json({ message: "Aceite LGPD obrigatorio para realizar consultas" });
       }
 
       const validacao = validarCpfCnpj(cpfCnpj);
@@ -346,7 +349,7 @@ export function registerConsultasRoutes(): Router {
         try {
           cpfCnpjHash = hashCPFForNetwork(cleaned);
         } catch {
-          // NETWORK_CPF_SALT not configured — store without hash (graceful degradation)
+          console.warn("[LGPD-WARNING] NETWORK_CPF_SALT not configured — CPF hash will be absent. Configure NETWORK_CPF_SALT in .env for LGPD compliance.");
         }
 
         const consultationPayload = {
@@ -355,7 +358,7 @@ export function registerConsultasRoutes(): Router {
           cpfCnpj: cleaned,
           cpfCnpjHash,
           searchType,
-          result,
+          result: { ...result, lgpdAcceptedAt: new Date().toISOString() },
           score: scoreResult.score,
           decisionReco: result.decisionReco,
           cost: creditsCost,
