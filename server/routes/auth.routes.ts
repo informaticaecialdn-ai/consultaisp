@@ -42,7 +42,9 @@ export function registerAuthRoutes(): Router {
     }
   });
 
-  router.get("/api/auth/check-subdomain", async (req, res) => {
+  const subdomainLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 10 });
+
+  router.get("/api/auth/check-subdomain", subdomainLimiter, async (req, res) => {
     const { subdomain } = req.query as { subdomain?: string };
     if (!subdomain) return res.status(400).json({ message: "Subdominio obrigatorio" });
     const existing = await storage.getProviderBySubdomain(subdomain);
@@ -59,22 +61,22 @@ export function registerAuthRoutes(): Router {
 
       const existing = await storage.getUserByEmail(email);
       if (existing) {
-        return res.status(409).json({ message: "Este email ja esta cadastrado. Utilize outro email ou faca login." });
+        return res.status(409).json({ message: "Dados ja cadastrados. Verifique email, telefone, CNPJ ou subdominio." });
       }
 
       const existingPhone = await storage.getUserByPhone(phone);
       if (existingPhone) {
-        return res.status(409).json({ message: "Este telefone ja esta cadastrado no sistema. Utilize outro numero." });
+        return res.status(409).json({ message: "Dados ja cadastrados. Verifique email, telefone, CNPJ ou subdominio." });
       }
 
       const existingProvider = await storage.getProviderByCnpj(cnpj);
       if (existingProvider) {
-        return res.status(409).json({ message: "Este CNPJ ja esta cadastrado no sistema." });
+        return res.status(409).json({ message: "Dados ja cadastrados. Verifique email, telefone, CNPJ ou subdominio." });
       }
 
       const existingSubdomain = await storage.getProviderBySubdomain(subdomain);
       if (existingSubdomain) {
-        return res.status(409).json({ message: "Subdominio ja em uso. Escolha outro." });
+        return res.status(409).json({ message: "Dados ja cadastrados. Verifique email, telefone, CNPJ ou subdominio." });
       }
 
       const provider = await storage.createProvider({ name: providerName, cnpj, subdomain, plan: "free", status: "active" });
@@ -119,14 +121,8 @@ export function registerAuthRoutes(): Router {
         return res.status(400).json({ message: "Token expirado. Solicite um novo email de verificacao.", code: "TOKEN_EXPIRED" });
       }
       await storage.setEmailVerified(user.id);
-      req.session.userId = user.id;
-      req.session.providerId = user.providerId || 0;
-      req.session.role = user.role;
-      const provider = user.providerId ? await storage.getProvider(user.providerId) : null;
-      await new Promise<void>((resolve, reject) => {
-        req.session.save((err) => err ? reject(err) : resolve());
-      });
-      return res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role }, provider });
+      // Do NOT auto-login on GET — return success and let the frontend redirect to login
+      return res.json({ verified: true, email: user.email });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }

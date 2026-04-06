@@ -385,7 +385,7 @@ export default function LandingPage() {
               <h3 className="text-3xl font-black text-slate-900 mb-4">Score em 2 segundos.<br/><span className="text-slate-400">Decisão em 1 clique.</span></h3>
               <p className="text-slate-500 leading-relaxed mb-6">Consulte CPF, CNPJ ou endereço e receba score de 0 a 100, histórico em toda a rede colaborativa, equipamentos retidos e sugestão automática de APROVAR ou REJEITAR.</p>
               <ul className="space-y-3 mb-8">
-                {["Histórico em todos os provedores da rede","Score calculado com IA","Equipamentos retidos por provedor","Consulta em lote via CSV (até 500 CPFs)","Busca por endereço — detecta CPF diferente no mesmo imóvel"].map(f => (
+                {["Histórico em todos os provedores da rede","Score calculado com IA","Equipamentos retidos por provedor","Busca por endereço — detecta CPF diferente no mesmo imóvel"].map(f => (
                   <li key={f} className="flex items-center gap-2.5 text-sm text-slate-700">
                     <CheckCircle2 className="w-4 h-4 text-blue-500 flex-shrink-0"/>{f}
                   </li>
@@ -549,9 +549,9 @@ export default function LandingPage() {
                 off:["Créditos mensais inclusos","Notificação WhatsApp"]},
               {name:"Básico",price:"R$ 149",period:"/mês",desc:"Para provedores até 1.000 clientes",highlight:true,cta:"Começar agora",
                 features:["Tudo do Gratuito","200 créditos ISP/mês inclusos","50 créditos SPC/mês inclusos","Anti-fraude + notificação WhatsApp","Integração com 1 ERP","3 usuários"],
-                off:["Consulta em lote"]},
+                off:[]},
               {name:"Profissional",price:"R$ 349",period:"/mês",desc:"Para provedores acima de 1.000 clientes",highlight:false,cta:"Começar agora",
-                features:["Tudo do Básico","500 créditos ISP/mês inclusos","150 créditos SPC/mês inclusos","Todos os ERPs integrados","Consulta em lote (500 CPFs)","Usuários ilimitados"],
+                features:["Tudo do Básico","500 créditos ISP/mês inclusos","150 créditos SPC/mês inclusos","Todos os ERPs integrados","Usuários ilimitados"],
                 off:[]},
             ].map((plan,i) => (
               <div key={i} className={`rounded-2xl p-6 flex flex-col border transition-shadow hover:shadow-lg relative ${plan.highlight?"border-blue-400 border-2":"border-slate-200"}`}

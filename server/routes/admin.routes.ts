@@ -175,15 +175,39 @@ export function registerAdminRoutes(): Router {
     }
   });
 
+  const createProviderSchema = z.object({
+    name: z.string().min(1).max(200),
+    tradeName: z.string().max(200).optional(),
+    cnpj: z.string().regex(/^\d{14}$/, "CNPJ deve ter 14 digitos"),
+    subdomain: z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, "Subdominio: apenas letras minusculas, numeros e hifens"),
+    plan: z.enum(["free", "basic", "pro", "enterprise"]).optional(),
+    adminName: z.string().min(1).max(200),
+    adminEmail: z.string().email().max(254),
+    adminPassword: z.string().min(6).max(128),
+    contactEmail: z.string().email().max(254).optional().nullable(),
+    contactPhone: z.string().max(20).optional().nullable(),
+    addressZip: z.string().max(10).optional().nullable(),
+    addressStreet: z.string().max(200).optional().nullable(),
+    addressNumber: z.string().max(20).optional().nullable(),
+    addressComplement: z.string().max(100).optional().nullable(),
+    addressNeighborhood: z.string().max(100).optional().nullable(),
+    addressCity: z.string().max(100).optional().nullable(),
+    addressState: z.string().max(2).optional().nullable(),
+    legalType: z.string().max(50).optional().nullable(),
+    openingDate: z.string().max(20).optional().nullable(),
+    businessSegment: z.string().max(100).optional().nullable(),
+  });
+
   router.post("/api/admin/providers", requireSuperAdmin, async (req, res) => {
     try {
+      const parsed = createProviderSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Dados invalidos", errors: parsed.error.flatten().fieldErrors });
+      }
       const { name, tradeName, cnpj, subdomain, plan, adminName, adminEmail, adminPassword,
         contactEmail, contactPhone, addressZip, addressStreet, addressNumber,
         addressComplement, addressNeighborhood, addressCity, addressState,
-        legalType, openingDate, businessSegment } = req.body;
-      if (!name || !cnpj || !subdomain || !adminName || !adminEmail || !adminPassword) {
-        return res.status(400).json({ message: "Todos os campos obrigatorios devem ser preenchidos" });
-      }
+        legalType, openingDate, businessSegment } = parsed.data;
       const existingCnpj = await storage.getProviderByCnpj(cnpj);
       if (existingCnpj) return res.status(409).json({ message: "CNPJ ja cadastrado" });
       const existingSubdomain = await storage.getProviderBySubdomain(subdomain);
@@ -539,10 +563,24 @@ export function registerAdminRoutes(): Router {
     }
   });
 
+  const erpCatalogUpdateSchema = z.object({
+    name: z.string().min(1).max(100).optional(),
+    slug: z.string().min(1).max(50).optional(),
+    description: z.string().max(500).optional(),
+    logoUrl: z.string().max(500).optional().nullable(),
+    website: z.string().max(500).optional().nullable(),
+    authType: z.string().max(50).optional(),
+    isActive: z.boolean().optional(),
+  }).strict();
+
   router.patch("/api/admin/erp-catalog/:id", requireSuperAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const item = await storage.updateErpCatalogItem(id, req.body);
+      const parsed = erpCatalogUpdateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Dados invalidos", errors: parsed.error.flatten().fieldErrors });
+      }
+      const item = await storage.updateErpCatalogItem(id, parsed.data);
       return res.json(item);
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
@@ -607,6 +645,12 @@ export function registerAdminRoutes(): Router {
       }
 
       const url = apiUrl.startsWith("http") ? apiUrl : `https://${apiUrl}`;
+
+      const { isAllowedErpUrl } = await import("../utils/url-validator");
+      if (!isAllowedErpUrl(url)) {
+        return res.status(400).json({ message: "URL do ERP invalida. Use HTTPS e um dominio publico." });
+      }
+
       await storage.upsertErpIntegration(id, erpSource, {
         apiUrl: url,
         apiToken: cleanToken,

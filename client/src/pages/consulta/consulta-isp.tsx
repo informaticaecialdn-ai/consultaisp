@@ -317,11 +317,7 @@ export default function ConsultaISPPage() {
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<ConsultaResult | null>(null);
   const [showScoreDetails, setShowScoreDetails] = useState(false);
-  const [activeTab, setActiveTab] = useState<"nova" | "lote" | "historico" | "relatorios" | "info">("nova");
-  const [batchText, setBatchText] = useState("");
-  const [batchResults, setBatchResults] = useState<any[]>([]);
-  const [batchLoading, setBatchLoading] = useState(false);
-  const [batchProgress, setBatchProgress] = useState(0);
+  const [activeTab, setActiveTab] = useState<"nova" | "historico" | "relatorios" | "info">("nova");
   const [aiText, setAiText] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [aiDone, setAiDone] = useState(false);
@@ -529,6 +525,8 @@ export default function ConsultaISPPage() {
     setTimeout(() => setActiveTab("historico"), 1200);
   };
 
+  const escHtml = (s: string | number | null | undefined) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
   const generatePDF = () => {
     if (!result) return;
     const doc = result;
@@ -544,8 +542,8 @@ export default function ConsultaISPPage() {
         ? `R$ ${d.overdueAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
         : d.overdueAmountRange || "—";
       return `<tr>
-        <td>${d.customerName}</td>
-        <td>${d.providerName}</td>
+        <td>${escHtml(d.customerName)}</td>
+        <td>${escHtml(d.providerName)}</td>
         <td style="color:${d.contractStatus === "active" ? "#16a34a" : d.contractStatus === "cancelled" ? "#dc2626" : "#92400e"}">${cStatus}</td>
         <td style="color:${d.daysOverdue === 0 ? "#16a34a" : "#dc2626"}">${pStatus}</td>
         <td>${debtStr}</td>
@@ -553,12 +551,12 @@ export default function ConsultaISPPage() {
       </tr>`;
     }).join("");
 
-    const penaltiesRows = doc.penalties.map(p => `<tr><td>${p.reason}</td><td style="color:#dc2626">${p.points}</td></tr>`).join("");
-    const bonusRows = doc.bonuses.map(b => `<tr><td>${b.reason}</td><td style="color:#16a34a">+${b.points}</td></tr>`).join("");
-    const alertRows = doc.alerts.length > 0 ? doc.alerts.map(a => `<li>${a}</li>`).join("") : "<li>Nenhum alerta</li>";
-    const actionRows = doc.recommendedActions.length > 0 ? doc.recommendedActions.map(a => `<li>${a}</li>`).join("") : "<li>Nenhuma acao especifica recomendada</li>";
+    const penaltiesRows = doc.penalties.map(p => `<tr><td>${escHtml(p.reason)}</td><td style="color:#dc2626">${escHtml(p.points)}</td></tr>`).join("");
+    const bonusRows = doc.bonuses.map(b => `<tr><td>${escHtml(b.reason)}</td><td style="color:#16a34a">+${escHtml(b.points)}</td></tr>`).join("");
+    const alertRows = doc.alerts.length > 0 ? doc.alerts.map(a => `<li>${escHtml(a)}</li>`).join("") : "<li>Nenhum alerta</li>";
+    const actionRows = doc.recommendedActions.length > 0 ? doc.recommendedActions.map(a => `<li>${escHtml(a)}</li>`).join("") : "<li>Nenhuma acao especifica recomendada</li>";
     const addrRows = (doc.addressMatches || []).filter(m => m.hasDebt).map(m =>
-      `<li>${m.customerName} — ${m.address}, ${m.city}${m.state ? `/${m.state}` : ""} — ${m.daysOverdue != null ? `${m.daysOverdue} dias atraso` : m.daysOverdueRange || "Inadimplente"}</li>`
+      `<li>${escHtml(m.customerName)} — ${escHtml(m.address)}, ${escHtml(m.city)}${m.state ? `/${escHtml(m.state)}` : ""} — ${m.daysOverdue != null ? `${m.daysOverdue} dias atraso` : escHtml(m.daysOverdueRange) || "Inadimplente"}</li>`
     ).join("");
 
     const ipStr = doc.consultorIp || "desconhecido";
@@ -808,10 +806,10 @@ ${addrRows ? `<section>
 
         {/* ── TABS ── */}
         <div className="flex gap-1 bg-white/70 backdrop-blur rounded-xl p-1 shadow-sm border border-slate-200 w-fit flex-wrap">
-          {(["nova", "lote", "historico", "relatorios", "info"] as const).map(tab => (
+          {(["nova", "historico", "relatorios", "info"] as const).map(tab => (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab as any)}
+              onClick={() => setActiveTab(tab)}
               data-testid={`tab-${tab}`}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 activeTab === tab
@@ -820,7 +818,6 @@ ${addrRows ? `<section>
               }`}
             >
               {tab === "nova" ? "Nova Consulta"
-               : tab === "lote" ? "Consulta em Lote"
                : tab === "historico" ? "Historico"
                : tab === "relatorios" ? "Relatorios"
                : "Informacoes"}
@@ -2213,133 +2210,6 @@ ${addrRows ? `<section>
               </div>
             )}
 
-          </div>
-        )}
-
-        {/* ── ABA: LOTE ── */}
-        {activeTab === "lote" && (
-          <div className="space-y-5">
-            <Card className="overflow-hidden shadow-lg rounded-2xl">
-              <div className="bg-slate-50 border-b px-6 py-4 flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
-                  <FileText className="w-4 h-4 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-900">Consulta em Lote</h2>
-                  <p className="text-xs text-slate-500">Consulte varios documentos de uma vez (1 por linha)</p>
-                </div>
-              </div>
-              <div className="p-6 space-y-4">
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
-                  <CreditCard className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="text-sm font-semibold text-amber-900">Custo do Lote</p>
-                    <p className="text-xs text-amber-700 mt-0.5">
-                      Cada documento consultado tem custo individual: 0 creditos se nao encontrado,
-                      1 credito por provedor externo encontrado. O proprio provedor nao cobra credito.
-                    </p>
-                    {batchText.trim() && (
-                      <p className="text-sm font-bold text-amber-800 mt-1.5">
-                        {batchText.trim().split("\n").filter(l => l.trim()).length} documentos selecionados
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-700">Documentos (1 por linha)</label>
-                  <textarea
-                    className="w-full h-40 border border-slate-200 rounded-lg p-3 text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder={"12345678901\n98765432100\n11222333000144\n..."}
-                    value={batchText}
-                    onChange={(e) => setBatchText(e.target.value)}
-                    data-testid="textarea-batch-documents"
-                  />
-                  <p className="text-xs text-slate-400">{batchText.trim() ? batchText.trim().split("\n").filter(l => l.trim()).length : 0} documentos</p>
-                </div>
-
-                <Button
-                  className="w-full h-11 gap-2 bg-blue-600 hover:bg-blue-700"
-                  disabled={!batchText.trim() || batchLoading}
-                  onClick={async () => {
-                    const docs = batchText.trim().split("\n").map(l => l.trim()).filter(Boolean);
-                    if (!docs.length) return;
-                    setBatchLoading(true);
-                    setBatchProgress(0);
-                    setBatchResults([]);
-                    try {
-                      const res = await apiRequest("POST", "/api/isp-consultations/lote", { documents: docs });
-                      const data = await res.json();
-                      setBatchResults(data.results || []);
-                      toast({ title: `${data.results?.length || 0} consultas concluidas` });
-                    } catch (e: any) {
-                      toast({ title: "Erro no lote", description: e.message, variant: "destructive" });
-                    } finally {
-                      setBatchLoading(false);
-                      setBatchProgress(100);
-                    }
-                  }}
-                  data-testid="button-consultar-lote"
-                >
-                  {batchLoading ? (
-                    <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Consultando lote...</>
-                  ) : (
-                    <><Search className="w-4 h-4" /> Consultar Lote</>
-                  )}
-                </Button>
-              </div>
-            </Card>
-
-            {batchResults.length > 0 && (
-              <Card className="overflow-hidden shadow-lg rounded-2xl">
-                <div className="bg-slate-50 border-b px-6 py-3 flex items-center justify-between">
-                  <h3 className="font-semibold text-slate-900">Resultados do Lote ({batchResults.length})</h3>
-                  <div className="flex gap-2">
-                    <Badge className="bg-emerald-100 text-emerald-800">{batchResults.filter((r: any) => r.notFound).length} sem restricoes</Badge>
-                    <Badge className="bg-red-100 text-red-800">{batchResults.filter((r: any) => !r.notFound).length} com restricoes</Badge>
-                    <Badge className="bg-blue-100 text-blue-800">{batchResults.reduce((s: number, r: any) => s + (r.creditsCost || 0), 0)} creditos gastos</Badge>
-                  </div>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-50 border-b border-slate-200">
-                      <tr>
-                        {["Documento", "Score", "Risco", "Provedores", "Debito Max", "Creditos", "Status"].map(h => (
-                          <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {batchResults.map((r: any, i: number) => (
-                        <tr key={i} className="hover:bg-slate-50" data-testid={`row-lote-${i}`}>
-                          <td className="px-4 py-2.5 font-mono text-xs text-slate-700">{formatCpfCnpj(r.cpfCnpj)}</td>
-                          <td className="px-4 py-2.5">
-                            <span className={`font-bold text-sm ${r.score >= 75 ? "text-emerald-600" : r.score >= 50 ? "text-yellow-600" : "text-red-600"}`}>
-                              {r.notFound ? "—" : r.score}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <Badge className={`text-[10px] ${r.notFound ? "bg-emerald-100 text-emerald-800" : r.riskTier === "HIGH" ? "bg-red-100 text-red-800" : "bg-yellow-100 text-yellow-800"}`}>
-                              {r.notFound ? "Limpo" : r.riskLabel || r.riskTier}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-2.5 text-slate-700">{r.providersFound ?? 0}</td>
-                          <td className="px-4 py-2.5 text-slate-700">{r.alerts?.length > 0 ? r.alerts[0].slice(0, 40) : "—"}</td>
-                          <td className="px-4 py-2.5 font-bold text-amber-700">{r.creditsCost ?? 0}</td>
-                          <td className="px-4 py-2.5">
-                            {r.notFound ? (
-                              <span className="flex items-center gap-1 text-emerald-600 text-xs font-semibold"><CheckCircle className="w-3.5 h-3.5" /> Nada Consta</span>
-                            ) : (
-                              <span className="flex items-center gap-1 text-red-600 text-xs font-semibold"><AlertTriangle className="w-3.5 h-3.5" /> Restricoes</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </Card>
-            )}
           </div>
         )}
 

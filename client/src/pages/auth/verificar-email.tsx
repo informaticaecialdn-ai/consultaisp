@@ -37,7 +37,7 @@ export default function VerificarEmailPage() {
 
       if (res.ok) {
         setStatus("success");
-        setTimeout(() => navigate("/"), 2500);
+        setTimeout(() => navigate("/login"), 2500);
       } else {
         if (data.code === "TOKEN_EXPIRED") {
           setStatus("expired");

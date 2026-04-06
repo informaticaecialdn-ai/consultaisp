@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
+import helmet from "helmet";
 import { registerRoutes } from "./routes/index";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -10,8 +11,15 @@ import { logger } from "./logger";
 import { getSafeErrorMessage } from "./utils/safe-error";
 
 const app = express();
+// trust proxy: expects exactly 1 reverse proxy (Nginx/Caddy) in front of the app.
+// If deployed without a proxy, set to false. If behind multiple proxies, adjust the number.
 app.set("trust proxy", 1);
 const httpServer = createServer(app);
+
+// Security headers — relax CSP in dev for Vite HMR; tighten in production
+app.use(helmet({
+  contentSecurityPolicy: process.env.NODE_ENV === "production" ? undefined : false,
+}));
 
 declare module "http" {
   interface IncomingMessage {
@@ -28,7 +36,7 @@ app.use(
   }),
 );
 
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "1mb", parameterLimit: 100 }));
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {

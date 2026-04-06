@@ -55,6 +55,12 @@ export function registerErpRoutes(): Router {
       if (!parsed.success) {
         return res.status(400).json({ message: "Dados invalidos", errors: parsed.error.flatten().fieldErrors });
       }
+      if (parsed.data.apiUrl) {
+        const { isAllowedErpUrl } = await import("../utils/url-validator");
+        if (!isAllowedErpUrl(parsed.data.apiUrl)) {
+          return res.status(400).json({ message: "URL do ERP invalida. Use HTTPS e um dominio publico." });
+        }
+      }
       const integration = await storage.upsertErpIntegration(req.session.providerId!, source, parsed.data);
       return res.json(integration);
     } catch (error: any) {
@@ -86,10 +92,11 @@ export function registerErpRoutes(): Router {
   router.get("/api/provider/erp-sync-logs", requireAuth, async (req, res) => {
     try {
       const { source, limit } = req.query;
+      const parsedLimit = Math.min(Math.max(parseInt(limit as string) || 30, 1), 100);
       const logs = await storage.getErpSyncLogs(
         req.session.providerId!,
         source as string | undefined,
-        limit ? parseInt(limit as string) : 30,
+        parsedLimit,
       );
       return res.json(logs);
     } catch (error: any) {

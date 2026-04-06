@@ -4,6 +4,7 @@ import { storage } from "../storage";
 import { db } from "../db";
 import { titularRequests } from "@shared/schema";
 import { getSafeErrorMessage } from "../utils/safe-error";
+import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 
 export function registerPublicRoutes(): Router {
   const router = Router();
@@ -65,7 +66,9 @@ export function registerPublicRoutes(): Router {
    * Allows end-users (data subjects) to submit requests for access,
    * correction, deletion, or portability of their personal data.
    */
-  router.post("/api/public/titular-request", async (req, res) => {
+  const titularLimiter = createRateLimiter({ windowMs: 3_600_000, maxRequests: 5 });
+
+  router.post("/api/public/titular-request", titularLimiter, async (req, res) => {
     try {
       const { cpfCnpj, nome, email, tipoSolicitacao, descricao } = req.body;
 
