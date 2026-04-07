@@ -2402,48 +2402,125 @@ export default function AdminSistemaPage() {
 
                             {adminSelectedErp && (
                               <>
+                                {/* URL */}
                                 <div className="space-y-1.5">
-                                  <label className="text-xs font-medium text-slate-600">URL do ERP {adminSelectedErp.toUpperCase()}</label>
+                                  <label className="text-xs font-semibold text-slate-700">Endereco do Servidor</label>
                                   <Input
-                                    placeholder={adminSelectedErp === "ixc" ? "https://ixc.seudominio.com.br" : adminSelectedErp === "mk" ? "http://192.168.1.100:8311" : "https://erp.seudominio.com.br"}
+                                    placeholder={
+                                      adminSelectedErp === "ixc" ? "https://ixc.seudominio.com.br" :
+                                      adminSelectedErp === "mk" ? "http://IP:PORTA/mk" :
+                                      adminSelectedErp === "hubsoft" ? "https://erp.seudominio.com.br" :
+                                      adminSelectedErp === "voalle" ? "https://erp.seudominio.com.br" :
+                                      adminSelectedErp === "sgp" ? "https://sgp.seudominio.com.br" :
+                                      adminSelectedErp === "rbx" ? "https://rb.seudominio.com.br" :
+                                      "https://erp.seudominio.com.br"
+                                    }
                                     value={form.url}
                                     onChange={e => setErpForms(prev => ({ ...prev, [p.id]: { ...form, url: e.target.value } }))}
-                                    className="h-9 text-sm"
+                                    className="h-10 text-sm font-mono"
                                   />
-                                </div>
-                                <div className="space-y-1.5">
-                                  <label className="text-xs font-medium text-slate-600">
-                                    {adminSelectedErp === "ixc" ? "Credencial IXC (ID:Token)" :
-                                     adminSelectedErp === "mk" ? "Token do Usuario MK" :
-                                     adminSelectedErp === "rbx" ? "Chave de Integracao RBX" :
-                                     "Token / Credencial de Acesso"}
-                                  </label>
-                                  <div className="relative">
-                                    <Input
-                                      type={form.showToken ? "text" : "password"}
-                                      placeholder="Credencial de acesso ao ERP"
-                                      value={form.token}
-                                      onChange={e => setErpForms(prev => ({ ...prev, [p.id]: { ...form, token: e.target.value } }))}
-                                      className="h-9 text-sm pr-9"
-                                    />
-                                    <button
-                                      type="button"
-                                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                                      onClick={() => setErpForms(prev => ({ ...prev, [p.id]: { ...form, showToken: !form.showToken } }))}
-                                    >
-                                      {form.showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                                    </button>
-                                  </div>
-                                  <p className="text-xs text-muted-foreground">
-                                    {adminSelectedErp === "ixc" ? "ID numerico:Token. Ex: 351:9b6e60f4..." :
-                                     adminSelectedErp === "mk" ? "Token + contra-senha do webservice" :
-                                     adminSelectedErp === "hubsoft" ? "OAuth2: client_id + client_secret + username + senha" :
-                                     adminSelectedErp === "voalle" ? "Usuario tipo Integracao + senha" :
-                                     adminSelectedErp === "sgp" ? "Token + nome do app (consultaisp)" :
-                                     adminSelectedErp === "rbx" ? "Empresa > Parametros > Web Services" :
-                                     "Credenciais de acesso ao ERP"}
+                                  <p className="text-[11px] text-slate-400">
+                                    {adminSelectedErp === "ixc" ? "URL completa do IXC. Ex: https://ixc.seuprovedor.com.br" :
+                                     adminSelectedErp === "mk" ? "IP e porta do MK Solutions com /mk no final. Ex: http://170.231.148.99:8080/mk" :
+                                     adminSelectedErp === "hubsoft" ? "URL base da API Hubsoft" :
+                                     adminSelectedErp === "rbx" ? "URL base do RouterBox (terminando em /routerbox/ws/rbx_server_json.php)" :
+                                     "URL base da API do ERP"}
                                   </p>
                                 </div>
+
+                                {/* Credentials — varies by ERP */}
+                                {adminSelectedErp === "ixc" ? (
+                                  <div className="space-y-1.5">
+                                    <label className="text-xs font-semibold text-slate-700">ID do Usuario : Token API</label>
+                                    <div className="relative">
+                                      <Input
+                                        type={form.showToken ? "text" : "password"}
+                                        placeholder="351:9b6e60f445e2a8d..."
+                                        value={form.token}
+                                        onChange={e => setErpForms(prev => ({ ...prev, [p.id]: { ...form, token: e.target.value } }))}
+                                        className="h-10 text-sm font-mono pr-9"
+                                      />
+                                      <button type="button" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                        onClick={() => setErpForms(prev => ({ ...prev, [p.id]: { ...form, showToken: !form.showToken } }))}>
+                                        {form.showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                      </button>
+                                    </div>
+                                    <p className="text-[11px] text-slate-400">No IXC: Sistema &gt; Webservice &gt; copie o ID e o Token. Cole separados por dois-pontos (:)</p>
+                                  </div>
+                                ) : adminSelectedErp === "mk" ? (
+                                  <div className="space-y-3">
+                                    <div className="space-y-1.5">
+                                      <label className="text-xs font-semibold text-slate-700">Token de Acesso</label>
+                                      <div className="relative">
+                                        <Input
+                                          type={form.showToken ? "text" : "password"}
+                                          placeholder="7860282795ac7cb8b92a..."
+                                          value={form.token.includes(":") ? form.token.split(":")[0] : form.token}
+                                          onChange={e => {
+                                            const contra = form.token.includes(":") ? form.token.split(":")[1] : "";
+                                            setErpForms(prev => ({ ...prev, [p.id]: { ...form, token: contra ? `${e.target.value}:${contra}` : e.target.value } }));
+                                          }}
+                                          className="h-10 text-sm font-mono pr-9"
+                                        />
+                                        <button type="button" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                          onClick={() => setErpForms(prev => ({ ...prev, [p.id]: { ...form, showToken: !form.showToken } }))}>
+                                          {form.showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                        </button>
+                                      </div>
+                                      <p className="text-[11px] text-slate-400">No MK: Webservice &gt; Configuracoes &gt; copie o Token</p>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <label className="text-xs font-semibold text-slate-700">Contra-Senha do Webservice</label>
+                                      <div className="relative">
+                                        <Input
+                                          type={form.showToken ? "text" : "password"}
+                                          placeholder="35930854dae3857..."
+                                          value={form.token.includes(":") ? form.token.split(":")[1] : ""}
+                                          onChange={e => {
+                                            const tokenPart = form.token.includes(":") ? form.token.split(":")[0] : form.token;
+                                            setErpForms(prev => ({ ...prev, [p.id]: { ...form, token: `${tokenPart}:${e.target.value}` } }));
+                                          }}
+                                          className="h-10 text-sm font-mono pr-9"
+                                        />
+                                        <button type="button" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                          onClick={() => setErpForms(prev => ({ ...prev, [p.id]: { ...form, showToken: !form.showToken } }))}>
+                                          {form.showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                        </button>
+                                      </div>
+                                      <p className="text-[11px] text-slate-400">No MK: Webservice &gt; Configuracoes &gt; copie a Contra-Senha</p>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-1.5">
+                                    <label className="text-xs font-semibold text-slate-700">
+                                      {adminSelectedErp === "rbx" ? "Chave de Integracao" :
+                                       adminSelectedErp === "hubsoft" ? "Credenciais OAuth2" :
+                                       adminSelectedErp === "sgp" ? "Token de Acesso" :
+                                       adminSelectedErp === "voalle" ? "Credenciais de Integracao" :
+                                       "Token / Credencial de Acesso"}
+                                    </label>
+                                    <div className="relative">
+                                      <Input
+                                        type={form.showToken ? "text" : "password"}
+                                        placeholder="Credencial de acesso ao ERP"
+                                        value={form.token}
+                                        onChange={e => setErpForms(prev => ({ ...prev, [p.id]: { ...form, token: e.target.value } }))}
+                                        className="h-10 text-sm font-mono pr-9"
+                                      />
+                                      <button type="button" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                        onClick={() => setErpForms(prev => ({ ...prev, [p.id]: { ...form, showToken: !form.showToken } }))}>
+                                        {form.showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                      </button>
+                                    </div>
+                                    <p className="text-[11px] text-slate-400">
+                                      {adminSelectedErp === "hubsoft" ? "Formato: client_id:client_secret:username:senha" :
+                                       adminSelectedErp === "voalle" ? "Formato: usuario:senha (tipo Integracao)" :
+                                       adminSelectedErp === "sgp" ? "Token obtido em Configuracoes > API" :
+                                       adminSelectedErp === "rbx" ? "Empresa > Parametros > Web Services > Chave Integracao" :
+                                       "Credenciais de acesso ao ERP"}
+                                    </p>
+                                  </div>
+                                )}
                               </>
                             )}
 
