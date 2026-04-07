@@ -2381,7 +2381,16 @@ export default function AdminSistemaPage() {
                                     <button
                                       key={erp.key}
                                       type="button"
-                                      onClick={() => setErpForms(prev => ({ ...prev, [p.id]: { ...getErpForm(p), erpProvider: erp.key } }))}
+                                      onClick={() => {
+                                        const currentErp = adminSelectedErp;
+                                        // Trocar de ERP limpa os campos — cada provedor usa 1 ERP so
+                                        if (currentErp && currentErp !== erp.key) {
+                                          setErpForms(prev => ({ ...prev, [p.id]: { url: "", token: "", showToken: false, erpProvider: erp.key } }));
+                                        } else {
+                                          setErpForms(prev => ({ ...prev, [p.id]: { ...getErpForm(p), erpProvider: erp.key } }));
+                                        }
+                                        setErpTestResults(prev => ({ ...prev, [p.id]: null }));
+                                      }}
                                       className={`flex flex-col items-center gap-1 p-2 rounded-lg border-2 transition-all text-center ${
                                         isSelected ? "border-violet-500 bg-violet-50" : "border-transparent bg-white hover:bg-slate-100 hover:border-slate-200"
                                       }`}
