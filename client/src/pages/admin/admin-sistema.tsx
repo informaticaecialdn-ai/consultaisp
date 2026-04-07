@@ -2402,13 +2402,40 @@ export default function AdminSistemaPage() {
 
                             {adminSelectedErp && (
                               <>
+                                {/* MK Setup Guide */}
+                                {adminSelectedErp === "mk" && (
+                                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+                                    <p className="text-xs font-bold text-blue-800">Como configurar o MK Solutions</p>
+                                    <ol className="text-[11px] text-blue-700 space-y-1 list-decimal list-inside">
+                                      <li>No MK, acesse <strong>Webservice &gt; Configuracoes</strong></li>
+                                      <li>Copie o <strong>Token</strong> e a <strong>Contra-Senha</strong></li>
+                                      <li>A URL e o endereco do servidor MK: <code className="bg-blue-100 px-1 rounded text-[10px]">http://IP:PORTA/mk</code></li>
+                                      <li>Exemplo: <code className="bg-blue-100 px-1 rounded text-[10px]">http://170.231.148.99:8080/mk</code></li>
+                                    </ol>
+                                    <p className="text-[10px] text-blue-500">A porta padrao do MK e 8080. O caminho /mk no final e obrigatorio.</p>
+                                  </div>
+                                )}
+
+                                {/* IXC Setup Guide */}
+                                {adminSelectedErp === "ixc" && (
+                                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+                                    <p className="text-xs font-bold text-blue-800">Como configurar o IXC Soft</p>
+                                    <ol className="text-[11px] text-blue-700 space-y-1 list-decimal list-inside">
+                                      <li>No IXC, acesse <strong>Sistema &gt; Webservice &gt; Token</strong></li>
+                                      <li>Copie o <strong>ID numerico</strong> do usuario e o <strong>Token</strong></li>
+                                      <li>Cole no campo abaixo separados por dois-pontos: <code className="bg-blue-100 px-1 rounded text-[10px]">ID:TOKEN</code></li>
+                                      <li><strong>Importante:</strong> libere o IP <code className="bg-blue-100 px-1 rounded text-[10px]">187.127.7.168</code> no painel IXC</li>
+                                    </ol>
+                                  </div>
+                                )}
+
                                 {/* URL */}
                                 <div className="space-y-1.5">
                                   <label className="text-xs font-semibold text-slate-700">Endereco do Servidor</label>
                                   <Input
                                     placeholder={
                                       adminSelectedErp === "ixc" ? "https://ixc.seudominio.com.br" :
-                                      adminSelectedErp === "mk" ? "http://IP:PORTA/mk" :
+                                      adminSelectedErp === "mk" ? "http://170.231.148.99:8080/mk" :
                                       adminSelectedErp === "hubsoft" ? "https://erp.seudominio.com.br" :
                                       adminSelectedErp === "voalle" ? "https://erp.seudominio.com.br" :
                                       adminSelectedErp === "sgp" ? "https://sgp.seudominio.com.br" :
