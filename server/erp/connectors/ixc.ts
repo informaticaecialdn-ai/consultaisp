@@ -53,7 +53,16 @@ export class IxcConnector implements ErpConnector {
     { key: "apiToken", label: "Token do Usuario", type: "password", required: true },
   ];
 
-  private readonly circuit = new CircuitBreaker();
+  private circuitMap = new Map<string, CircuitBreaker>();
+
+  private getCircuit(providerId: string): CircuitBreaker {
+    let circuit = this.circuitMap.get(providerId);
+    if (!circuit) {
+      circuit = new CircuitBreaker();
+      this.circuitMap.set(providerId, circuit);
+    }
+    return circuit;
+  }
 
   /** Build IXC headers (Basic Auth + ixcsoft action) */
   private buildHeaders(config: ErpConnectionConfig, action = "listar"): Record<string, string> {
@@ -94,7 +103,7 @@ export class IxcConnector implements ErpConnector {
           body: JSON.stringify(payload),
           signal: AbortSignal.timeout(30000),
         }),
-        { retries: 3, minTimeout: 1000, circuit: this.circuit },
+        { retries: 3, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
       );
 
       if (!response.ok) {
@@ -103,6 +112,12 @@ export class IxcConnector implements ErpConnector {
       }
 
       const json: any = await response.json();
+
+      // IXC returns {"type":"error","message":"..."} on auth/IP errors with HTTP 200
+      if (json?.type === "error") {
+        throw new Error(`IXC API error: ${json.message || "Erro desconhecido"}`);
+      }
+
       const registros: any[] = json?.registros || [];
       const total = parseInt(json?.total, 10) || 0;
       allRows.push(...registros);
@@ -147,7 +162,7 @@ export class IxcConnector implements ErpConnector {
           body: JSON.stringify({ qtype: "cliente.id", query: "1", oper: "=", page: "1", rp: "1" }),
           signal: AbortSignal.timeout(8000),
         }),
-        { retries: 1, minTimeout: 500, circuit: this.circuit },
+        { retries: 1, minTimeout: 500, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
       );
 
       const latencyMs = Date.now() - start;
@@ -454,51 +469,205 @@ export class IxcConnector implements ErpConnector {
   }
 
   /**
-   * Busca cliente por CPF/CNPJ.
-   * Retorna dados completos do cadastro.
+   * Busca cliente por CPF/CNPJ com dados de inadimplencia agregados.
+   * Retorna ErpFetchResult com 0 ou 1 clientes.
+   * Queries both cliente (customer data) and fn_areceber (overdue invoices) filtered by customer.
    */
-  async fetchCustomerByCpf(config: ErpConnectionConfig, cpfCnpj: string): Promise<{
-    ok: boolean;
-    message: string;
-    customer: any | null;
-  }> {
+  async fetchCustomerByCpf(config: ErpConnectionConfig, cpfCnpj: string): Promise<ErpFetchResult> {
     try {
       const clean = cleanCpfCnpj(cpfCnpj);
-      const rows = await this.listAll(config, "cliente", {
-        qtype: "cliente.cpf_cnpj",
+
+      // IXC may store CPF with or without formatting — try exact match first, then LIKE
+      let clienteRows = await this.listAll(config, "cliente", {
+        qtype: "cliente.cnpj_cpf",
         query: clean,
         oper: "=",
       }, 10, 1);
 
-      if (rows.length === 0) {
-        return { ok: true, message: "Cliente nao encontrado", customer: null };
+      if (clienteRows.length === 0) {
+        // Try with formatted CPF (XXX.XXX.XXX-XX) or CNPJ
+        const formatted = clean.length === 11
+          ? `${clean.slice(0,3)}.${clean.slice(3,6)}.${clean.slice(6,9)}-${clean.slice(9)}`
+          : clean.length === 14
+          ? `${clean.slice(0,2)}.${clean.slice(2,5)}.${clean.slice(5,8)}/${clean.slice(8,12)}-${clean.slice(12)}`
+          : clean;
+        clienteRows = await this.listAll(config, "cliente", {
+          qtype: "cliente.cnpj_cpf",
+          query: formatted,
+          oper: "=",
+        }, 10, 1);
       }
 
-      const r = rows[0];
+      if (clienteRows.length === 0) {
+        // Last resort: LIKE search
+        clienteRows = await this.listAll(config, "cliente", {
+          qtype: "cliente.cnpj_cpf",
+          query: `%${clean}%`,
+          oper: "L",
+        }, 10, 1);
+      }
+
+      if (clienteRows.length === 0) {
+        return { ok: true, message: "Cliente nao encontrado", customers: [], totalRecords: 0 };
+      }
+
+      const r = clienteRows[0];
+      const customerId = String(r.id || "");
+
+      // Fetch overdue invoices for this specific customer
+      let totalOverdueAmount = 0;
+      let maxDaysOverdue = 0;
+      let overdueInvoicesCount = 0;
+
+      if (customerId) {
+        const now = new Date();
+        const invoiceRows = await this.listWithFilter(config, "fn_areceber", [
+          { TB: "fn_areceber.id_cliente", OP: "=", P: customerId, C: "AND", G: "" },
+          { TB: "fn_areceber.status", OP: "=", P: "A", C: "AND", G: "" },
+        ], 200, 5);
+
+        for (const inv of invoiceRows) {
+          const dueDate = inv.data_vencimento;
+          if (dueDate && new Date(dueDate) < now) {
+            const amount = parseFloat(inv.valor || inv.valor_original || "0") || 0;
+            const days = calculateDaysOverdue(dueDate);
+            totalOverdueAmount += amount;
+            if (days > maxDaysOverdue) maxDaysOverdue = days;
+            overdueInvoicesCount++;
+          }
+        }
+      }
+
+      const customer: NormalizedErpCustomer = {
+        cpfCnpj: clean,
+        name: r.razao || r.nome || "",
+        email: r.email || undefined,
+        phone: r.fone || r.celular ? cleanPhone(r.fone || r.celular) : undefined,
+        address: r.endereco || undefined,
+        city: r.cidade || undefined,
+        state: r.uf || r.estado || undefined,
+        cep: r.cep ? cleanCep(r.cep) : undefined,
+        totalOverdueAmount,
+        maxDaysOverdue,
+        overdueInvoicesCount,
+        erpSource: "ixc",
+      };
+
       return {
         ok: true,
-        message: "Cliente encontrado",
-        customer: {
-          id: String(r.id || ""),
-          cpfCnpj: cleanCpfCnpj(r.cpf_cnpj || r.documento || ""),
-          name: r.razao || r.nome || "",
-          email: r.email || "",
-          phone: r.fone || r.celular || "",
-          address: r.endereco || "",
-          number: r.numero || "",
-          complement: r.complemento || "",
-          neighborhood: r.bairro || "",
-          city: r.cidade || "",
-          state: r.uf || r.estado || "",
-          cep: r.cep || "",
-          status: r.status || "",
-          registrationDate: r.data_cadastro || "",
-          personType: r.tipo_pessoa || "",
-        },
+        message: overdueInvoicesCount > 0
+          ? `Cliente encontrado com ${overdueInvoicesCount} fatura(s) vencida(s)`
+          : "Cliente encontrado sem inadimplencia",
+        customers: [customer],
+        totalRecords: 1,
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
-      return { ok: false, message: `Erro: ${msg}`, customer: null };
+      return { ok: false, message: `Erro: ${msg}`, customers: [] };
+    }
+  }
+
+  /**
+   * Busca clientes por prefixo de CEP com dados de inadimplencia agregados.
+   * Filtra clientes na API do IXC pelo CEP (LIKE prefix 5 digitos),
+   * depois busca faturas vencidas para cada cliente encontrado.
+   * Retorna ErpFetchResult compativel com a interface ErpConnector.
+   */
+  async fetchCustomersByCep(config: ErpConnectionConfig, cep: string): Promise<ErpFetchResult> {
+    try {
+      const cepPrefix = cleanCep(cep).slice(0, 5);
+      if (cepPrefix.length < 5) {
+        return { ok: false, message: "CEP deve ter pelo menos 5 digitos", customers: [] };
+      }
+
+      // Busca clientes cujo CEP comeca com o prefixo
+      const clienteRows = await this.listWithFilter(config, "cliente", [
+        { TB: "cliente.cep", OP: "L", P: `${cepPrefix}%`, C: "AND", G: "" },
+      ]);
+
+      if (clienteRows.length === 0) {
+        return { ok: true, message: "Nenhum cliente encontrado para este CEP", customers: [], totalRecords: 0 };
+      }
+
+      // Busca faturas vencidas em aberto apenas para os clientes encontrados por CEP
+      const customerIds = clienteRows.map((r: any) => String(r.id)).filter(Boolean);
+      const customerIdSet = new Set(customerIds);
+      const now = new Date();
+
+      // Batch customer IDs to avoid overly large filters — query invoices per batch
+      const BATCH_SIZE = 50;
+      const overdueByCustomer = new Map<string, { totalAmount: number; maxDays: number; count: number }>();
+
+      for (let i = 0; i < customerIds.length; i += BATCH_SIZE) {
+        const batch = customerIds.slice(i, i + BATCH_SIZE);
+
+        // Build OR-grouped filters for each customer ID in the batch
+        const filters: IxcFilter[] = [];
+        for (let j = 0; j < batch.length; j++) {
+          filters.push({
+            TB: "fn_areceber.id_cliente",
+            OP: "=",
+            P: batch[j],
+            C: j === 0 ? "AND" : "OR",
+            G: "invoiceCustomers",
+          });
+        }
+        filters.push({ TB: "fn_areceber.status", OP: "=", P: "A", C: "AND", G: "" });
+
+        const invoiceRows = await this.listWithFilter(config, "fn_areceber", filters, 200, 10);
+
+        for (const inv of invoiceRows) {
+          const dueDate = inv.data_vencimento;
+          if (!dueDate || new Date(dueDate) >= now) continue;
+          const custId = String(inv.id_cliente || "");
+          if (!custId || !customerIdSet.has(custId)) continue;
+
+          const amount = parseFloat(inv.valor || inv.valor_original || "0") || 0;
+          const days = calculateDaysOverdue(dueDate);
+          const existing = overdueByCustomer.get(custId);
+          if (existing) {
+            existing.totalAmount += amount;
+            if (days > existing.maxDays) existing.maxDays = days;
+            existing.count++;
+          } else {
+            overdueByCustomer.set(custId, { totalAmount: amount, maxDays: days, count: 1 });
+          }
+        }
+      }
+
+      // Monta resultado normalizado
+      const customers: NormalizedErpCustomer[] = clienteRows
+        .map((r: any) => {
+          const cpfCnpj = cleanCpfCnpj(r.cpf_cnpj || r.documento || "");
+          if (!cpfCnpj) return null;
+          const custId = String(r.id || "");
+          const overdue = overdueByCustomer.get(custId);
+          return {
+            cpfCnpj,
+            name: r.razao || r.nome || "",
+            email: r.email || undefined,
+            phone: r.fone || r.celular ? cleanPhone(r.fone || r.celular) : undefined,
+            address: r.endereco || undefined,
+            city: r.cidade || undefined,
+            state: r.uf || r.estado || undefined,
+            cep: r.cep ? cleanCep(r.cep) : undefined,
+            totalOverdueAmount: overdue?.totalAmount ?? 0,
+            maxDaysOverdue: overdue?.maxDays ?? 0,
+            overdueInvoicesCount: overdue?.count ?? 0,
+            erpSource: "ixc" as const,
+          };
+        })
+        .filter((c): c is NonNullable<typeof c> => c !== null);
+
+      return {
+        ok: true,
+        message: `${customers.length} clientes encontrados no CEP ${cepPrefix}xxx`,
+        customers,
+        totalRecords: customers.length,
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      return { ok: false, message: `Erro: ${msg}`, customers: [] };
     }
   }
 
