@@ -1,10 +1,9 @@
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
 import { pool } from "./db";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MIGRATIONS_DIR = path.resolve(__dirname, "../migrations");
+// CJS-compatible __dirname (esbuild bundles to CJS, so import.meta.url is undefined)
+const MIGRATIONS_DIR = path.resolve(process.cwd(), "migrations");
 
 function log(message: string) {
   const time = new Date().toLocaleTimeString("en-US", {
