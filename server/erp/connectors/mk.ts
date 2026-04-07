@@ -161,8 +161,8 @@ export class MkConnector implements ErpConnector {
         : consultaJson?.registros?.[0] || consultaJson?.data?.[0] || consultaJson;
 
       // Check if customer was found
-      const cdCliente = customerData?.cd_cliente || customerData?.codigo || customerData?.id;
-      const nome = customerData?.nome || customerData?.razao_social || customerData?.name || "";
+      const cdCliente = customerData?.CodigoPessoa || customerData?.cd_cliente || customerData?.codigo || customerData?.id;
+      const nome = customerData?.Nome || customerData?.nome || customerData?.razao_social || customerData?.name || "";
 
       if (!cdCliente && !nome) {
         console.log(`[MK] Cliente nao encontrado para CPF ${cleanDoc}`);
@@ -366,7 +366,7 @@ export class MkConnector implements ErpConnector {
 
         const batchResults = await Promise.all(
           batch.map(async (cliente: any) => {
-            const cdCliente = cliente.cd_cliente || cliente.codigo || cliente.id;
+            const cdCliente = cliente.CodigoPessoa || cliente.cd_cliente || cliente.codigo || cliente.id;
             if (!cdCliente) return [];
 
             try {
@@ -380,7 +380,7 @@ export class MkConnector implements ErpConnector {
                 ? faturasJson
                 : faturasJson?.registros || faturasJson?.data || [];
 
-              const cpfCnpj = cleanCpfCnpj(cliente.doc || cliente.cpf || cliente.cnpj || cliente.cpf_cnpj || "");
+              const cpfCnpj = cleanCpfCnpj(cliente.Doc || cliente.doc || cliente.cpf || cliente.cnpj || cliente.cpf_cnpj || "");
               if (!cpfCnpj) return [];
 
               return faturas
@@ -391,7 +391,7 @@ export class MkConnector implements ErpConnector {
 
                   return {
                     cpfCnpj,
-                    name: cliente.nome || cliente.razao_social || "",
+                    name: cliente.Nome || cliente.nome || cliente.razao_social || "",
                     email: cliente.email || undefined,
                     phone: cliente.fone || cliente.celular || cliente.telefone
                       ? cleanPhone(cliente.fone || cliente.celular || cliente.telefone)
@@ -400,7 +400,7 @@ export class MkConnector implements ErpConnector {
                     city: cliente.cidade || undefined,
                     state: cliente.uf || cliente.estado || undefined,
                     cep: cliente.cep || undefined,
-                    amount: parseFloat(f.valor || f.vl_total || "0") || 0,
+                    amount: parseFloat(f.valor_total || f.valor || f.vl_total || "0") || 0,
                     daysOverdue: days,
                     erpSource: "mk" as const,
                   };
@@ -526,14 +526,14 @@ export class MkConnector implements ErpConnector {
 
         const batchResults = await Promise.all(
           batch.map(async (cliente: any) => {
-            const cpfCnpj = cleanCpfCnpj(cliente.doc || cliente.cpf || cliente.cnpj || cliente.cpf_cnpj || "");
+            const cpfCnpj = cleanCpfCnpj(cliente.Doc || cliente.doc || cliente.cpf || cliente.cnpj || cliente.cpf_cnpj || "");
             if (!cpfCnpj) return null;
 
             let totalOverdueAmount = 0;
             let maxDaysOverdue = 0;
             let overdueInvoicesCount = 0;
 
-            const cdCliente = cliente.cd_cliente || cliente.codigo || cliente.id;
+            const cdCliente = cliente.CodigoPessoa || cliente.cd_cliente || cliente.codigo || cliente.id;
             if (cdCliente) {
               try {
                 const faturasUrl = `${base}/mk/WSMKFaturasPendentes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdCliente)}`;
@@ -546,7 +546,7 @@ export class MkConnector implements ErpConnector {
                     : faturasJson?.registros || faturasJson?.data || [];
 
                   for (const f of faturas) {
-                    const valor = parseFloat(f.valor || f.vl_total || "0") || 0;
+                    const valor = parseFloat(f.valor_total || f.valor || f.vl_total || "0") || 0;
                     const dueDate = f.dt_vencimento || f.data_vencimento || f.vencimento || null;
                     const days = calculateDaysOverdue(dueDate);
 
@@ -564,7 +564,7 @@ export class MkConnector implements ErpConnector {
 
             return {
               cpfCnpj,
-              name: cliente.nome || cliente.razao_social || "",
+              name: cliente.Nome || cliente.nome || cliente.razao_social || "",
               email: cliente.email || undefined,
               phone: cliente.fone || cliente.celular || cliente.telefone
                 ? cleanPhone(cliente.fone || cliente.celular || cliente.telefone)
