@@ -54,7 +54,7 @@ export async function getProvidersByMesoregion(providerId: number) {
     and(
       ne(providers.id, providerId),
       eq(providers.status, "active"),
-      sql`${providers.mesorregioes} && ${provider.mesorregioes}`
+      sql`${providers.mesorregioes} && ARRAY[${sql.join(provider.mesorregioes.map(m => sql`${m}`), sql`, `)}]::text[]`
     )
   );
 

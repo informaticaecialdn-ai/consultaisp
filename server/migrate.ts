@@ -2,19 +2,8 @@ import fs from "fs";
 import path from "path";
 import { pool } from "./db";
 
-// CJS-compatible __dirname (esbuild bundles to CJS, so import.meta.url is undefined)
-function findMigrationsDir(): string {
-  const candidates = [
-    path.resolve(process.cwd(), "migrations"),
-    path.resolve(__dirname, "..", "migrations"),
-    path.resolve(__dirname, "migrations"),
-  ];
-  for (const dir of candidates) {
-    if (fs.existsSync(dir)) return dir;
-  }
-  return candidates[0]; // fallback, existsSync check later will skip
-}
-const MIGRATIONS_DIR = findMigrationsDir();
+// Use process.cwd() — works in both ESM (dev) and CJS (production bundle)
+const MIGRATIONS_DIR = path.resolve(process.cwd(), "migrations");
 
 function log(message: string) {
   const time = new Date().toLocaleTimeString("en-US", {

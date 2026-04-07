@@ -50,7 +50,8 @@ export class MkConnector implements ErpConnector {
   }
 
   private baseUrl(config: ErpConnectionConfig): string {
-    return config.apiUrl.replace(/\/+$/, "");
+    // Strip trailing slashes and /mk suffix (endpoints add /mk/ themselves)
+    return config.apiUrl.replace(/\/+$/, "").replace(/\/mk$/i, "");
   }
 
   /** Step 1: Authenticate via WSAutenticacao to get session token */
@@ -64,7 +65,8 @@ export class MkConnector implements ErpConnector {
       return cached.token;
     }
 
-    const mkContraSenha = config.mkContraSenha || config.extra?.mkContraSenha || "";
+    // MK uses apiUser field to store the contra-senha (webservice password)
+    const mkContraSenha = config.mkContraSenha || config.apiUser || config.extra?.mkContraSenha || "";
     const url = `${base}/mk/WSAutenticacao.rule?sys=MK0&token=${encodeURIComponent(config.apiToken)}&password=${encodeURIComponent(mkContraSenha)}&cd_servico=9999`;
 
     console.log(`[MK] Autenticando em ${base}/mk/WSAutenticacao.rule (cd_servico=9999)`);
