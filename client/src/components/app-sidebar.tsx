@@ -46,6 +46,7 @@ import {
   ClipboardList,
   Package,
   RefreshCw,
+  Bell,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -98,6 +99,7 @@ const toolsMenu = [
 
 const configMenu = [
   { title: "Regionalizacao", url: "/configuracoes/regionalizacao", icon: MapPin },
+  { title: "Alertas", url: "/configuracoes-alertas", icon: Bell },
 ];
 
 const ADMIN_GROUPS = [

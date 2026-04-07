@@ -17,6 +17,7 @@ import type {
   ErpIntegration, ErpSyncLog,
   ErpCatalog, InsertErpCatalog,
   VisitorChat, VisitorChatMessage,
+  ProactiveAlert, InsertProactiveAlert,
 } from "@shared/schema";
 import type { AlertWithOwnership } from "./antifraude.storage";
 
@@ -181,6 +182,12 @@ export interface IStorage {
   bulkImportCustomers(rows: Record<string, string>[], providerId: number): Promise<{ imported: number; errors: Array<{ row: number; message: string }> }>;
   bulkImportInvoices(rows: Record<string, string>[], providerId: number): Promise<{ imported: number; errors: Array<{ row: number; message: string }> }>;
   bulkImportEquipment(rows: Record<string, string>[], providerId: number): Promise<{ imported: number; errors: Array<{ row: number; message: string }> }>;
+
+  // Proactive alerts
+  getLastProactiveAlert(cpfCnpj: string, providerId: number): Promise<{ sentAt: Date } | undefined>;
+  createProactiveAlert(data: InsertProactiveAlert): Promise<ProactiveAlert>;
+  getProactiveAlertsByProvider(providerId: number, limit?: number): Promise<ProactiveAlert[]>;
+  acknowledgeProactiveAlert(alertId: number, providerId: number): Promise<ProactiveAlert | undefined>;
 }
 
 class DatabaseStorage implements IStorage {
@@ -342,6 +349,12 @@ class DatabaseStorage implements IStorage {
   getPlanChanges = (providerId?: number) => this._admin.getPlanChanges(providerId);
   createPlanChange = (change: InsertPlanChange) => this._admin.createPlanChange(change);
   getSaasMetrics = () => this._admin.getSaasMetrics();
+
+  // Proactive alerts
+  getLastProactiveAlert = (cpfCnpj: string, providerId: number) => this._consultations.getLastProactiveAlert(cpfCnpj, providerId);
+  createProactiveAlert = (data: InsertProactiveAlert) => this._consultations.createProactiveAlert(data);
+  getProactiveAlertsByProvider = (providerId: number, limit?: number) => this._consultations.getProactiveAlertsByProvider(providerId, limit);
+  acknowledgeProactiveAlert = (alertId: number, providerId: number) => this._consultations.acknowledgeProactiveAlert(alertId, providerId);
 
   // Import
   bulkImportCustomers = (rows: Record<string, string>[], providerId: number) => this._import.bulkImportCustomers(rows, providerId);

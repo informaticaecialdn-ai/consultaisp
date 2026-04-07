@@ -1,11 +1,12 @@
 import { eq, and, desc, sql, gte, count, inArray } from "drizzle-orm";
 import { db } from "../db";
 import {
-  ispConsultations, spcConsultations, providers, antiFraudAlerts,
+  ispConsultations, spcConsultations, providers, antiFraudAlerts, proactiveAlerts,
   type IspConsultation, type InsertIspConsultation,
   type SpcConsultation, type InsertSpcConsultation,
   type InsertAntiFraudAlert, type AntiFraudAlert,
   type Provider,
+  type ProactiveAlert, type InsertProactiveAlert,
 } from "@shared/schema";
 
 export class ConsultationsStorage {
@@ -228,5 +229,40 @@ export class ConsultationsStorage {
 
       return { provider: rows[0], consultation: created, alert };
     });
+  }
+
+  async getLastProactiveAlert(cpfCnpj: string, providerId: number): Promise<{ sentAt: Date } | undefined> {
+    const since = new Date();
+    since.setDate(since.getDate() - 1); // 24h throttle
+    const [row] = await db.select({ sentAt: proactiveAlerts.sentAt })
+      .from(proactiveAlerts)
+      .where(and(
+        eq(proactiveAlerts.cpfCnpj, cpfCnpj),
+        eq(proactiveAlerts.providerId, providerId),
+        gte(proactiveAlerts.sentAt, since),
+      ))
+      .orderBy(desc(proactiveAlerts.sentAt))
+      .limit(1);
+    return row ? { sentAt: row.sentAt! } : undefined;
+  }
+
+  async createProactiveAlert(data: InsertProactiveAlert): Promise<ProactiveAlert> {
+    const [created] = await db.insert(proactiveAlerts).values(data).returning();
+    return created;
+  }
+
+  async getProactiveAlertsByProvider(providerId: number, limit: number = 50): Promise<ProactiveAlert[]> {
+    return db.select().from(proactiveAlerts)
+      .where(eq(proactiveAlerts.providerId, providerId))
+      .orderBy(desc(proactiveAlerts.sentAt))
+      .limit(limit);
+  }
+
+  async acknowledgeProactiveAlert(alertId: number, providerId: number): Promise<ProactiveAlert | undefined> {
+    const [updated] = await db.update(proactiveAlerts)
+      .set({ acknowledged: true, acknowledgedAt: new Date() })
+      .where(and(eq(proactiveAlerts.id, alertId), eq(proactiveAlerts.providerId, providerId)))
+      .returning();
+    return updated;
   }
 }

@@ -40,6 +40,7 @@ const PainelProvedorPage = lazy(() => import("@/pages/provedor/painel-provedor")
 const AdministracaoPage = lazy(() => import("@/pages/provedor/administracao"));
 const CreditosPage = lazy(() => import("@/pages/provedor/creditos"));
 const ConfiguracoesRegionalizacaoPage = lazy(() => import("@/pages/provedor/configuracoes-regionalizacao"));
+const ConfiguracoesAlertasPage = lazy(() => import("@/pages/provedor/configuracoes-alertas"));
 const BenchmarkRegionalPage = lazy(() => import("@/pages/provedor/benchmark-regional"));
 
 // Public
@@ -84,6 +85,7 @@ function Router() {
         <Route path="/admin/lgpd" component={AdminLgpdPage} />
         <Route path="/lgpd" component={LgpdPage} />
         <Route path="/configuracoes/regionalizacao" component={ConfiguracoesRegionalizacaoPage} />
+        <Route path="/configuracoes-alertas" component={ConfiguracoesAlertasPage} />
         <Route path="/benchmark-regional" component={BenchmarkRegionalPage} />
         <Route component={NotFound} />
       </Switch>
@@ -95,7 +97,7 @@ const PROVIDER_ONLY_PATHS = [
   "/", "/consulta-isp", "/consulta-spc", "/anti-fraude",
   "/inadimplentes", "/mapa-calor", "/creditos", "/importacao",
   "/importacao-equipamentos", "/administracao", "/painel-provedor",
-  "/benchmark-regional",
+  "/benchmark-regional", "/configuracoes-alertas",
 ];
 
 function AuthenticatedApp() {

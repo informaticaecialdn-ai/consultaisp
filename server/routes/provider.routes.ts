@@ -4,6 +4,7 @@ import { storage } from "../storage";
 import { hashPassword } from "../password";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { sanitizeFilename } from "../utils/filename-sanitizer";
+import { logger } from "../logger";
 import crypto from "crypto";
 
 export function registerProviderRoutes(): Router {
@@ -265,6 +266,83 @@ export function registerProviderRoutes(): Router {
       res.setHeader("Content-Type", doc.documentMimeType || "application/octet-stream");
       res.setHeader("Content-Disposition", `attachment; filename="${sanitizeFilename(doc.documentName)}"`);
       return res.send(buffer);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  // ── Proactive Alert Settings ──────────────────────────────
+  router.get("/api/providers/alert-settings", requireAuth, async (req, res) => {
+    try {
+      const provider = await storage.getProvider(req.session.providerId!);
+      if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
+      return res.json({
+        proactiveAlertsEnabled: provider.proactiveAlertsEnabled ?? true,
+        webhookUrl: provider.proactiveAlertWebhookUrl || "",
+      });
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  router.put("/api/providers/alert-settings", requireAuth, async (req, res) => {
+    try {
+      const { proactiveAlertsEnabled, webhookUrl } = req.body;
+      await storage.updateProviderProfile(req.session.providerId!, {
+        proactiveAlertsEnabled: proactiveAlertsEnabled === true,
+        proactiveAlertWebhookUrl: webhookUrl || null,
+      });
+      return res.json({ success: true });
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  router.post("/api/providers/alert-settings/test-webhook", requireAuth, async (req, res) => {
+    try {
+      const { webhookUrl } = req.body;
+      if (!webhookUrl) return res.status(400).json({ message: "URL do webhook obrigatoria" });
+
+      const testPayload = {
+        event: "test",
+        provider: "Teste",
+        maskedCpf: "123.***.***.45",
+        maskedCustomerName: "Joao S***",
+        message: "Este e um teste de webhook do Consulta ISP",
+        timestamp: new Date().toISOString(),
+      };
+
+      const response = await fetch(webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(testPayload),
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      return res.json({ success: response.ok, status: response.status });
+    } catch (error: any) {
+      logger.error({ err: error }, "Webhook test failed");
+      return res.status(500).json({ message: "Falha ao testar webhook", error: error.message });
+    }
+  });
+
+  // ── Proactive Alerts List ──────────────────────────────
+  router.get("/api/providers/proactive-alerts", requireAuth, async (req, res) => {
+    try {
+      const limit = Math.min(100, parseInt(req.query.limit as string) || 50);
+      const alerts = await storage.getProactiveAlertsByProvider(req.session.providerId!, limit);
+      return res.json(alerts);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  router.patch("/api/providers/proactive-alerts/:id/acknowledge", requireAuth, async (req, res) => {
+    try {
+      const alertId = parseInt(req.params.id);
+      const updated = await storage.acknowledgeProactiveAlert(alertId, req.session.providerId!);
+      if (!updated) return res.status(404).json({ message: "Alerta nao encontrado" });
+      return res.json(updated);
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }

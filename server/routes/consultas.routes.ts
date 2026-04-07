@@ -15,6 +15,7 @@ import { validarCpfCnpj } from "../utils/cpf-cnpj-validator";
 import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { logger } from "../logger";
 import { isSpcConfigured, consultarSpc } from "../services/spc.service";
+import { notifyOwnerProviders } from "../services/proactive-alert.service";
 
 export function registerConsultasRoutes(): Router {
   const router = Router();
@@ -475,6 +476,16 @@ export function registerConsultasRoutes(): Router {
           consultation,
           cachedAt: Date.now(),
         });
+
+        // ── PROACTIVE ALERT (NM3) ──────────────────────────────────
+        // Notify owner providers asynchronously — never block the response
+        if (allCustomers.length > 0) {
+          setImmediate(() => {
+            notifyOwnerProviders(cleaned, allCustomers, providerId).catch(err =>
+              logger.error({ err }, "Proactive alert failed"),
+            );
+          });
+        }
 
         const response: Record<string, any> = { consultation, result };
         if (deprecationWarnings.length > 0) {

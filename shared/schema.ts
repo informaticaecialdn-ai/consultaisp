@@ -28,6 +28,8 @@ export const providers = pgTable("providers", {
   addressCity: text("address_city"),
   addressState: text("address_state"),
   webhookToken: text("webhook_token"),
+  proactiveAlertsEnabled: boolean("proactive_alerts_enabled").default(true),
+  proactiveAlertWebhookUrl: text("proactive_alert_webhook_url"),
   cidadesAtendidas: text("cidades_atendidas").array().default(sql`'{}'::text[]`),
   mesorregioes: text("mesorregioes").array().default(sql`'{}'::text[]`),
   createdAt: timestamp("created_at").defaultNow(),
@@ -470,6 +472,21 @@ export const titularRequests = pgTable("titular_requests", {
 export const insertTitularRequestSchema = createInsertSchema(titularRequests).omit({ id: true, createdAt: true });
 export type TitularRequest = typeof titularRequests.$inferSelect;
 export type InsertTitularRequest = z.infer<typeof insertTitularRequestSchema>;
+
+export const proactiveAlerts = pgTable("proactive_alerts", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  cpfCnpj: varchar("cpf_cnpj", { length: 20 }).notNull(),
+  consultingProviderId: integer("consulting_provider_id").references(() => providers.id),
+  channel: varchar("channel", { length: 20 }).notNull(),
+  sentAt: timestamp("sent_at").defaultNow(),
+  acknowledged: boolean("acknowledged").default(false),
+  acknowledgedAt: timestamp("acknowledged_at"),
+});
+
+export const insertProactiveAlertSchema = createInsertSchema(proactiveAlerts).omit({ id: true, sentAt: true });
+export type ProactiveAlert = typeof proactiveAlerts.$inferSelect;
+export type InsertProactiveAlert = z.infer<typeof insertProactiveAlertSchema>;
 
 export const PLAN_CREDITS: Record<string, { isp: number; spc: number }> = {
   free: { isp: 50, spc: 0 },
