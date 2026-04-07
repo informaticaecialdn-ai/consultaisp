@@ -636,13 +636,20 @@ export function registerAdminRoutes(): Router {
         return res.status(400).json({ message: "erpSource, apiUrl e apiToken sao obrigatorios" });
       }
 
-      // Parse IXC-style "userId:token" format
+      // Parse credential format based on ERP type
       let apiUser: string | undefined;
       let cleanToken = apiToken;
       if (cleanToken.includes(":")) {
         const parts = cleanToken.split(":", 2);
-        apiUser = parts[0];
-        cleanToken = parts[1];
+        if (erpSource === "mk") {
+          // MK: "token:contrasenha" → apiToken=token, apiUser=contrasenha
+          cleanToken = parts[0];
+          apiUser = parts[1];
+        } else {
+          // IXC/others: "userId:token" → apiUser=userId, apiToken=token
+          apiUser = parts[0];
+          cleanToken = parts[1];
+        }
       }
 
       const url = apiUrl.startsWith("http") ? apiUrl : `https://${apiUrl}`;
