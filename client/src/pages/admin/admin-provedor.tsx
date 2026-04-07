@@ -1001,6 +1001,8 @@ export default function AdminProvedorPage() {
 const ERP_NAMES: Record<string, string> = {
   ixc: "iXC Soft", sgp: "SGP", mk: "MK Solutions",
   tiacos: "Tiacos", hubsoft: "Hubsoft", flyspeed: "Fly Speed", netflash: "Netflash",
+  voalle: "Voalle", rbx: "RBX ISP",
+  topsapp: "TopSApp", radiusnet: "RadiusNet", gere: "Gere", receitanet: "ReceitaNet",
 };
 
 const ADMIN_ERP_LIST = [

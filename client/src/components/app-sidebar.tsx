@@ -79,6 +79,7 @@ const mainMenu = [
   { title: "Consulta ISP", url: "/consulta-isp", icon: Search },
   { title: "Consulta SPC", url: "/consulta-spc", icon: BarChart3 },
   { title: "Anti-Fraude", url: "/anti-fraude", icon: ShieldAlert },
+  { title: "Benchmark Regional", url: "/benchmark-regional", icon: TrendingUp },
 ];
 
 const defaulterMenu = [
@@ -129,6 +130,14 @@ const ADMIN_GROUPS = [
       { title: "Dashboard SaaS", hash: "financeiro-dash", icon: TrendingUp, testId: "link-admin-financeiro-dash", url: "/admin/financeiro" },
       { title: "Faturas e Cobrancas", hash: "financeiro", icon: FileText, testId: "link-admin-financeiro" },
       { title: "Pedidos de Creditos", hash: "creditos-dash", icon: ShoppingCart, testId: "link-admin-creditos", url: "/admin/creditos" },
+    ],
+  },
+  {
+    label: "Compliance",
+    key: "compliance",
+    collapsible: false,
+    items: [
+      { title: "LGPD / Titulares", hash: "lgpd-titulares", icon: Shield, testId: "link-admin-lgpd", url: "/admin/lgpd" },
     ],
   },
   {

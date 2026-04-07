@@ -56,9 +56,10 @@ export function registerErpRoutes(): Router {
         return res.status(400).json({ message: "Dados invalidos", errors: parsed.error.flatten().fieldErrors });
       }
       if (parsed.data.apiUrl) {
-        const { isAllowedErpUrl } = await import("../utils/url-validator");
-        if (!isAllowedErpUrl(parsed.data.apiUrl)) {
-          return res.status(400).json({ message: "URL do ERP invalida. Use HTTPS e um dominio publico." });
+        const { validateErpUrl } = await import("../utils/url-validator");
+        const urlCheck = validateErpUrl(parsed.data.apiUrl);
+        if (!urlCheck.valid) {
+          return res.status(400).json({ message: urlCheck.reason });
         }
       }
       const integration = await storage.upsertErpIntegration(req.session.providerId!, source, parsed.data);

@@ -77,11 +77,16 @@ export interface IStorage {
   createEquipment(equipment: InsertEquipment): Promise<Equipment>;
 
   getIspConsultationsByProvider(providerId: number): Promise<IspConsultation[]>;
+  getIspConsultationsByProviderPaginated(providerId: number, page: number, limit: number): Promise<{ rows: IspConsultation[]; total: number }>;
   createIspConsultation(consultation: InsertIspConsultation): Promise<IspConsultation>;
   getIspConsultationCountToday(providerId: number): Promise<number>;
   getIspConsultationCountMonth(providerId: number): Promise<number>;
   getRecentConsultationsForDocument(cpfCnpj: string, days: number): Promise<IspConsultation[]>;
   getConsultationsByCepPrefix(cepPrefix: string, limitDays?: number): Promise<IspConsultation[]>;
+  getConsultationTimeline(cpfCnpj: string, providerIds: number[], limit?: number): Promise<IspConsultation[]>;
+  getRegionalScoreStats(providerIds: number[], days: number): Promise<{ avgScore: number; totalConsultations: number; belowThresholdCount: number }>;
+  getRegionalAlertCount(providerIds: number[], days: number): Promise<number>;
+  getTopRiskCeps(providerIds: number[], days: number, limit?: number): Promise<Array<{ cep: string; avgScore: number; count: number }>>;
 
   getSpcConsultationsByProvider(providerId: number): Promise<SpcConsultation[]>;
   createSpcConsultation(consultation: InsertSpcConsultation): Promise<SpcConsultation>;
@@ -230,11 +235,16 @@ class DatabaseStorage implements IStorage {
 
   // Consultations
   getIspConsultationsByProvider = (providerId: number) => this._consultations.getIspConsultationsByProvider(providerId);
+  getIspConsultationsByProviderPaginated = (providerId: number, page: number, limit: number) => this._consultations.getIspConsultationsByProviderPaginated(providerId, page, limit);
   createIspConsultation = (consultation: InsertIspConsultation) => this._consultations.createIspConsultation(consultation);
   getIspConsultationCountToday = (providerId: number) => this._consultations.getIspConsultationCountToday(providerId);
   getIspConsultationCountMonth = (providerId: number) => this._consultations.getIspConsultationCountMonth(providerId);
   getRecentConsultationsForDocument = (cpfCnpj: string, days: number) => this._consultations.getRecentConsultationsForDocument(cpfCnpj, days);
   getConsultationsByCepPrefix = (cepPrefix: string, limitDays?: number) => this._consultations.getConsultationsByCepPrefix(cepPrefix, limitDays);
+  getConsultationTimeline = (cpfCnpj: string, providerIds: number[], limit?: number) => this._consultations.getConsultationTimeline(cpfCnpj, providerIds, limit);
+  getRegionalScoreStats = (providerIds: number[], days: number) => this._consultations.getRegionalScoreStats(providerIds, days);
+  getRegionalAlertCount = (providerIds: number[], days: number) => this._consultations.getRegionalAlertCount(providerIds, days);
+  getTopRiskCeps = (providerIds: number[], days: number, limit?: number) => this._consultations.getTopRiskCeps(providerIds, days, limit);
   getSpcConsultationsByProvider = (providerId: number) => this._consultations.getSpcConsultationsByProvider(providerId);
   createSpcConsultation = (consultation: InsertSpcConsultation) => this._consultations.createSpcConsultation(consultation);
   debitAndCreateSpcConsultation = (providerId: number, cost: number, consultation: InsertSpcConsultation) => this._consultations.debitAndCreateSpcConsultation(providerId, cost, consultation);

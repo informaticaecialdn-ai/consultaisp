@@ -27,13 +27,19 @@ import { PLAN_PRICES } from "@shared/schema";
 import type { ErpCatalog } from "@shared/schema";
 
 const ERP_OPTIONS = [
-  { key: "ixc",      name: "iXC Soft",    desc: "iXC Provedor",   grad: "from-blue-500 to-blue-600" },
-  { key: "sgp",      name: "SGP",          desc: "Solucao Gestao", grad: "from-purple-500 to-purple-600" },
-  { key: "mk",       name: "MK Solutions", desc: "MK-AUTH/ERP",    grad: "from-green-500 to-green-600" },
-  { key: "tiacos",   name: "Tiacos",       desc: "Tiacos ISP",     grad: "from-orange-500 to-orange-600" },
-  { key: "hubsoft",  name: "Hubsoft",      desc: "Hubsoft ERP",    grad: "from-indigo-500 to-indigo-600" },
-  { key: "flyspeed", name: "Fly Speed",    desc: "Fly Speed ISP",  grad: "from-cyan-500 to-cyan-600" },
-  { key: "netflash", name: "Netflash",     desc: "Netflash ISP",   grad: "from-rose-500 to-pink-600" },
+  { key: "ixc",        name: "iXC Soft",    desc: "iXC Provedor",   grad: "from-blue-500 to-blue-600" },
+  { key: "sgp",        name: "SGP",          desc: "Solucao Gestao", grad: "from-purple-500 to-purple-600" },
+  { key: "mk",         name: "MK Solutions", desc: "MK-AUTH/ERP",    grad: "from-green-500 to-green-600" },
+  { key: "tiacos",     name: "Tiacos",       desc: "Tiacos ISP",     grad: "from-orange-500 to-orange-600" },
+  { key: "hubsoft",    name: "Hubsoft",      desc: "Hubsoft ERP",    grad: "from-indigo-500 to-indigo-600" },
+  { key: "flyspeed",   name: "Fly Speed",    desc: "Fly Speed ISP",  grad: "from-cyan-500 to-cyan-600" },
+  { key: "netflash",   name: "Netflash",     desc: "Netflash ISP",   grad: "from-rose-500 to-pink-600" },
+  { key: "voalle",     name: "Voalle",       desc: "Voalle ERP",     grad: "from-amber-500 to-yellow-600" },
+  { key: "rbx",        name: "RBX ISP",      desc: "RBXSoft",        grad: "from-red-500 to-red-600" },
+  { key: "topsapp",    name: "TopSApp",      desc: "TopSApp ERP",    grad: "from-emerald-500 to-teal-600" },
+  { key: "radiusnet",  name: "RadiusNet",    desc: "RadiusNet ERP",  grad: "from-sky-500 to-blue-600" },
+  { key: "gere",       name: "Gere",         desc: "Gere ERP",       grad: "from-lime-500 to-green-600" },
+  { key: "receitanet", name: "ReceitaNet",   desc: "ReceitaNet ERP", grad: "from-fuchsia-500 to-purple-600" },
 ];
 const ERP_MAP: Record<string, string> = Object.fromEntries(ERP_OPTIONS.map(e => [e.key, e.name]));
 

@@ -9,6 +9,7 @@ import { validateEnv } from "./env";
 import { pool } from "./db";
 import { logger } from "./logger";
 import { getSafeErrorMessage } from "./utils/safe-error";
+import { runMigrations, verifySchema } from "./migrate";
 
 const app = express();
 // trust proxy: expects exactly 1 reverse proxy (Nginx/Caddy) in front of the app.
@@ -115,6 +116,14 @@ app.use((req, res, next) => {
     res.json({ status: "ok", uptime: process.uptime() });
   });
 
+  try {
+    await runMigrations();
+    await verifySchema();
+  } catch (err) {
+    logger.fatal({ err }, "Migration/schema bootstrap failed — cannot serve traffic safely");
+    process.exit(1);
+  }
+
   await seedDatabase();
   await seedSuperAdmin();
   await registerRoutes(httpServer, app);
@@ -122,6 +131,10 @@ app.use((req, res, next) => {
   // LGPD: Start data retention scheduler (anonymize consultations > 5 years)
   const { startRetentionScheduler } = await import("./services/lgpd-retention");
   startRetentionScheduler();
+
+  // LGPD: Start titular request processor (auto-process acesso/exclusao/portabilidade every 1h)
+  const { startTitularProcessor } = await import("./services/lgpd-titular.service");
+  startTitularProcessor();
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

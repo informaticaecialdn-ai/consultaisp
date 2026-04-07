@@ -36,17 +36,43 @@ function loadHeatPlugin(): Promise<void> {
   });
 }
 
-async function geocodeCity(city: string, state?: string): Promise<[number, number] | null> {
-  if (!city) return null;
-  try {
-    const q = encodeURIComponent([city, state, "Brasil"].filter(Boolean).join(", "));
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&countrycodes=br`, {
-      headers: { "Accept-Language": "pt-BR" },
-    });
-    const data = await res.json();
-    if (data?.[0]?.lat && data?.[0]?.lon) return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
-  } catch {}
-  return null;
+// Nominatim rate limiting: max 1 request per 1.1 seconds (policy: max 1 req/s)
+const geocodeQueue: Array<{ resolve: (v: [number, number] | null) => void; city: string; state?: string }> = [];
+let geocodeProcessing = false;
+
+async function processGeocodeQueue(): Promise<void> {
+  if (geocodeProcessing || geocodeQueue.length === 0) return;
+  geocodeProcessing = true;
+  while (geocodeQueue.length > 0) {
+    const item = geocodeQueue.shift()!;
+    try {
+      const q = encodeURIComponent([item.city, item.state, "Brasil"].filter(Boolean).join(", "));
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&countrycodes=br`, {
+        headers: { "Accept-Language": "pt-BR" },
+      });
+      const data = await res.json();
+      if (data?.[0]?.lat && data?.[0]?.lon) {
+        item.resolve([parseFloat(data[0].lat), parseFloat(data[0].lon)]);
+      } else {
+        item.resolve(null);
+      }
+    } catch {
+      item.resolve(null);
+    }
+    // Enforce minimum 1100ms between requests
+    if (geocodeQueue.length > 0) {
+      await new Promise(r => setTimeout(r, 1100));
+    }
+  }
+  geocodeProcessing = false;
+}
+
+function geocodeCity(city: string, state?: string): Promise<[number, number] | null> {
+  if (!city) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    geocodeQueue.push({ resolve, city, state });
+    processGeocodeQueue();
+  });
 }
 
 function MiniHeatMap({ points, providerPoints, defaultCenter }: { points: HeatPoint[]; providerPoints: any[]; defaultCenter?: [number, number] | null }) {

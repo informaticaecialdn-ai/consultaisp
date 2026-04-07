@@ -12,6 +12,7 @@ import { titularRequests } from "@shared/schema";
 import { eq, desc, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { z } from "zod";
+import { sendCompletionEmail } from "../services/lgpd-email.service";
 
 const adminUpdateProviderSchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -646,9 +647,10 @@ export function registerAdminRoutes(): Router {
 
       const url = apiUrl.startsWith("http") ? apiUrl : `https://${apiUrl}`;
 
-      const { isAllowedErpUrl } = await import("../utils/url-validator");
-      if (!isAllowedErpUrl(url)) {
-        return res.status(400).json({ message: "URL do ERP invalida. Use HTTPS e um dominio publico." });
+      const { validateErpUrl } = await import("../utils/url-validator");
+      const urlCheck = validateErpUrl(url);
+      if (!urlCheck.valid) {
+        return res.status(400).json({ message: urlCheck.reason });
       }
 
       await storage.upsertErpIntegration(id, erpSource, {
@@ -659,6 +661,34 @@ export function registerAdminRoutes(): Router {
       } as any);
 
       return res.json({ ok: true });
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  // ── V-09 LGPD: Titular request stats ──────────────────────
+  router.get("/api/admin/titular-requests/stats", requireSuperAdmin, async (_req, res) => {
+    try {
+      const all = await db.select().from(titularRequests);
+      const now = new Date();
+
+      let pendente = 0, em_andamento = 0, concluido = 0, recusado = 0, slaRisco = 0;
+
+      for (const r of all) {
+        if (r.status === "pendente") pendente++;
+        else if (r.status === "em_andamento") em_andamento++;
+        else if (r.status === "concluido") concluido++;
+        else if (r.status === "recusado") recusado++;
+
+        if (r.status === "pendente" || r.status === "em_andamento") {
+          const created = r.createdAt ? new Date(r.createdAt) : now;
+          const daysSince = Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+          const businessDays = Math.floor(daysSince * 5 / 7);
+          if (businessDays >= 12) slaRisco++;
+        }
+      }
+
+      return res.json({ pendente, em_andamento, concluido, recusado, slaRisco, total: all.length });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
@@ -767,6 +797,14 @@ export function registerAdminRoutes(): Router {
         })
         .where(eq(titularRequests.id, id))
         .returning();
+
+      // Send completion email when status changes to concluido
+      if (parsed.data.status === "concluido" && existing.email) {
+        const summary = executionResult
+          ? `Acao: ${executionResult.action || existing.tipoSolicitacao}. Processamento concluido.`
+          : "Solicitacao concluida pelo administrador.";
+        sendCompletionEmail(existing.email, existing.protocolo, existing.tipoSolicitacao, summary).catch(() => {});
+      }
 
       return res.json(updated);
     } catch (error: any) {

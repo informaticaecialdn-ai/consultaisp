@@ -61,7 +61,16 @@ class RbxConnector implements ErpConnector {
     { key: "apiToken", label: "Chave de Integracao", type: "password", required: true },
   ];
 
-  private circuit = new CircuitBreaker({ maxFailures: 5, resetTimeMs: 30_000 });
+  private circuitMap = new Map<string, CircuitBreaker>();
+
+  private getCircuit(providerId: string): CircuitBreaker {
+    let circuit = this.circuitMap.get(providerId);
+    if (!circuit) {
+      circuit = new CircuitBreaker({ maxFailures: 5, resetTimeMs: 30_000 });
+      this.circuitMap.set(providerId, circuit);
+    }
+    return circuit;
+  }
 
   /**
    * Send a POST request to the RBX single-endpoint API.
@@ -148,7 +157,7 @@ class RbxConnector implements ErpConnector {
               condicao: "status = 'vencido'",
             },
           }),
-        { retries: 2, minTimeout: 1000, circuit: this.circuit },
+        { retries: 2, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
       );
 
       const records = extractArray(data);
@@ -162,7 +171,7 @@ class RbxConnector implements ErpConnector {
                 modulo: "Financeiro",
                 acao: "pendencias_financeiras",
               }),
-            { retries: 1, minTimeout: 1000, circuit: this.circuit },
+            { retries: 1, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
           );
           const fallbackRecords = extractArray(fallbackData);
           if (fallbackRecords.length > 0) {
@@ -211,6 +220,70 @@ class RbxConnector implements ErpConnector {
     };
   }
 
+  async fetchCustomerByCpf(config: ErpConnectionConfig, cpfCnpj: string): Promise<ErpFetchResult> {
+    try {
+      const cleanDoc = cpfCnpj.replace(/\D/g, "");
+      const data = await withResilience(
+        () =>
+          this.rbxRequest(config, {
+            chave_integracao: config.apiToken,
+            modulo: "Financeiro",
+            acao: "listar_inadimplentes",
+            filtros: {
+              condicao: `cpf_cnpj = '${cleanDoc}'`,
+            },
+          }),
+        { retries: 2, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
+      );
+
+      let records = extractArray(data);
+
+      // Fallback: try Clientes module if financial returns nothing
+      if (records.length === 0) {
+        try {
+          const clientData = await withResilience(
+            () =>
+              this.rbxRequest(config, {
+                chave_integracao: config.apiToken,
+                modulo: "Clientes",
+                acao: "listar",
+                filtros: {
+                  condicao: `cpf_cnpj = '${cleanDoc}'`,
+                },
+              }),
+            { retries: 1, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
+          );
+          records = extractArray(clientData);
+          if (records.length > 0) {
+            // Client found but no delinquent records
+            const customers: NormalizedErpCustomer[] = records.map((rec: any) => ({
+              cpfCnpj: cleanDoc,
+              name: String(rec.nome ?? rec.razao_social ?? ""),
+              email: rec.email ? String(rec.email) : undefined,
+              phone: rec.telefone ? cleanPhone(String(rec.telefone)) : (rec.celular ? cleanPhone(String(rec.celular)) : undefined),
+              address: rec.endereco ? String(rec.endereco) : undefined,
+              city: rec.cidade ? String(rec.cidade) : undefined,
+              state: rec.uf ?? rec.estado ? String(rec.uf ?? rec.estado) : undefined,
+              cep: rec.cep ? cleanCep(String(rec.cep)) : undefined,
+              totalOverdueAmount: 0,
+              maxDaysOverdue: 0,
+              erpSource: "rbx",
+            }));
+            return { ok: true, message: "Cliente sem inadimplencia", customers, totalRecords: customers.length };
+          }
+        } catch {
+          // Fallback also failed
+        }
+        return { ok: true, message: "Cliente nao encontrado", customers: [], totalRecords: 0 };
+      }
+
+      return this.normalizeDelinquents(records);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Erro desconhecido";
+      return { ok: false, message: `RBX busca CPF: ${msg}`, customers: [] };
+    }
+  }
+
   async fetchCustomers(config: ErpConnectionConfig): Promise<ErpFetchResult> {
     try {
       const data = await withResilience(
@@ -220,7 +293,7 @@ class RbxConnector implements ErpConnector {
             modulo: "Clientes",
             acao: "listar",
           }),
-        { retries: 2, minTimeout: 1000, circuit: this.circuit },
+        { retries: 2, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
       );
 
       const records = extractArray(data);

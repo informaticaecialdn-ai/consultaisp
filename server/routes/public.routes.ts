@@ -5,6 +5,7 @@ import { db } from "../db";
 import { titularRequests } from "@shared/schema";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { createRateLimiter } from "../middleware/rate-limiter.middleware";
+import { sendConfirmationEmail } from "../services/lgpd-email.service";
 
 export function registerPublicRoutes(): Router {
   const router = Router();
@@ -92,6 +93,10 @@ export function registerPublicRoutes(): Router {
 
       const protocol = `LGPD-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
+      // Calculate prazo limite: ~15 business days = 21 calendar days
+      const prazoLimite = new Date();
+      prazoLimite.setDate(prazoLimite.getDate() + 21);
+
       await db.insert(titularRequests).values({
         cpfCnpj: cleaned,
         nome,
@@ -100,7 +105,11 @@ export function registerPublicRoutes(): Router {
         descricao: descricao || null,
         protocolo: protocol,
         status: "pendente",
+        prazoLimite,
       });
+
+      // Send confirmation email (non-blocking)
+      sendConfirmationEmail(email, protocol, tipoSolicitacao).catch(() => {});
 
       return res.json({
         protocolo: protocol,

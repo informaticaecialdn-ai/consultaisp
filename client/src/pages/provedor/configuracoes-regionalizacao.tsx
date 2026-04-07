@@ -1,11 +1,19 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Command,
   CommandEmpty,
@@ -14,6 +22,11 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { MapPin, X, Save, Users, Loader2, Search, Globe, ChevronDown, ChevronUp } from "lucide-react";
+
+const BRAZILIAN_UFS = [
+  "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT",
+  "PA", "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO",
+] as const;
 
 interface CityOption {
   label: string;
@@ -41,7 +54,9 @@ interface RegionalProvider {
 export default function ConfiguracoesRegionalizacaoPage() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { provider } = useAuth();
 
+  const [selectedUf, setSelectedUf] = useState<string>("");
   const [selectedCities, setSelectedCities] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -50,6 +65,13 @@ export default function ConfiguracoesRegionalizacaoPage() {
   const [showMesoregions, setShowMesoregions] = useState(false);
   const [loadingMeso, setLoadingMeso] = useState<string | null>(null);
   const commandRef = useRef<HTMLDivElement>(null);
+
+  // Auto-select UF from provider profile
+  useEffect(() => {
+    if (provider?.addressState && !selectedUf) {
+      setSelectedUf(provider.addressState.toUpperCase());
+    }
+  }, [provider?.addressState]);
 
   // Debounce search term (300ms)
   useEffect(() => {
@@ -142,15 +164,16 @@ export default function ConfiguracoesRegionalizacaoPage() {
     saveMutation.mutate(selectedCities);
   };
 
-  // Mesoregions for PR (hardcoded UF for now — could be dynamic based on provider's state)
+  // Mesoregions for selected UF
   const { data: mesoregions } = useQuery<Mesoregion[]>({
-    queryKey: ["/api/regional/mesorregioes", "?uf=PR"],
+    queryKey: ["/api/regional/mesorregioes", `?uf=${selectedUf}`],
+    enabled: selectedUf.length === 2,
   });
 
   const addMesoregion = async (mesoName: string) => {
     setLoadingMeso(mesoName);
     try {
-      const res = await fetch(`/api/regional/mesorregioes/${encodeURIComponent(mesoName)}/cities?uf=PR`, { credentials: "include" });
+      const res = await fetch(`/api/regional/mesorregioes/${encodeURIComponent(mesoName)}/cities?uf=${selectedUf}`, { credentials: "include" });
       const cities: string[] = await res.json();
       const newCities = cities.filter(c => !selectedCities.includes(c));
       if (newCities.length > 0) {
@@ -267,8 +290,23 @@ export default function ConfiguracoesRegionalizacaoPage() {
           )}
         </div>
 
+        {/* UF Selector */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-slate-700">Estado (UF)</label>
+          <Select value={selectedUf} onValueChange={(value) => { setSelectedUf(value); setShowMesoregions(false); }}>
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue placeholder="Selecione o estado" />
+            </SelectTrigger>
+            <SelectContent>
+              {BRAZILIAN_UFS.map((uf) => (
+                <SelectItem key={uf} value={uf}>{uf}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         {/* Mesoregion Quick-Select */}
-        {mesoregions && mesoregions.length > 0 && (
+        {selectedUf.length === 2 && mesoregions && mesoregions.length > 0 && (
           <div className="space-y-2">
             <button
               onClick={() => setShowMesoregions(!showMesoregions)}
@@ -291,7 +329,7 @@ export default function ConfiguracoesRegionalizacaoPage() {
                     >
                       {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500 flex-shrink-0" /> : <Globe className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />}
                       <div className="min-w-0">
-                        <p className="font-medium text-slate-700 truncate">{meso.name.replace(" Paranaense", "")}</p>
+                        <p className="font-medium text-slate-700 truncate">{meso.name}</p>
                         <p className="text-xs text-slate-400">{meso.cities} cidades</p>
                       </div>
                     </button>

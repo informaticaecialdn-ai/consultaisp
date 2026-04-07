@@ -32,6 +32,7 @@ const AdminSistemaPage = lazy(() => import("@/pages/admin/admin-sistema"));
 const AdminProvedorPage = lazy(() => import("@/pages/admin/admin-provedor"));
 const AdminFinanceiroPage = lazy(() => import("@/pages/admin/admin-financeiro"));
 const AdminCreditosPage = lazy(() => import("@/pages/admin/admin-creditos"));
+const AdminLgpdPage = lazy(() => import("@/pages/admin/admin-lgpd"));
 
 // Provedor
 const DashboardPage = lazy(() => import("@/pages/provedor/dashboard"));
@@ -39,6 +40,7 @@ const PainelProvedorPage = lazy(() => import("@/pages/provedor/painel-provedor")
 const AdministracaoPage = lazy(() => import("@/pages/provedor/administracao"));
 const CreditosPage = lazy(() => import("@/pages/provedor/creditos"));
 const ConfiguracoesRegionalizacaoPage = lazy(() => import("@/pages/provedor/configuracoes-regionalizacao"));
+const BenchmarkRegionalPage = lazy(() => import("@/pages/provedor/benchmark-regional"));
 
 // Public
 const LandingPage = lazy(() => import("@/pages/public/landingpage"));
@@ -79,8 +81,10 @@ function Router() {
         <Route path="/admin/fatura/:id" component={InvoiceViewPage} />
         <Route path="/admin/financeiro" component={AdminFinanceiroPage} />
         <Route path="/admin/creditos" component={AdminCreditosPage} />
+        <Route path="/admin/lgpd" component={AdminLgpdPage} />
         <Route path="/lgpd" component={LgpdPage} />
         <Route path="/configuracoes/regionalizacao" component={ConfiguracoesRegionalizacaoPage} />
+        <Route path="/benchmark-regional" component={BenchmarkRegionalPage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>
@@ -91,6 +95,7 @@ const PROVIDER_ONLY_PATHS = [
   "/", "/consulta-isp", "/consulta-spc", "/anti-fraude",
   "/inadimplentes", "/mapa-calor", "/creditos", "/importacao",
   "/importacao-equipamentos", "/administracao", "/painel-provedor",
+  "/benchmark-regional",
 ];
 
 function AuthenticatedApp() {

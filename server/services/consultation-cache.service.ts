@@ -3,9 +3,61 @@
  * LGPD compliant — data stays in memory only, never persisted.
  */
 
+/** Typed consultation result shape */
+export interface ConsultationResult {
+  cpfCnpj: string;
+  searchType: string;
+  notFound: boolean;
+  score: number;
+  score100?: number;
+  faixa: string;
+  nivelRisco: string;
+  corIndicador: string;
+  sugestaoIA: string;
+  fatoresScore?: unknown;
+  riskTier: string;
+  riskLabel: string;
+  recommendation: string;
+  decisionReco: string;
+  providersFound: number;
+  providerDetails: unknown[];
+  alerts: string[];
+  recommendedActions: string[];
+  creditsCost: number;
+  isOwnCustomer: boolean;
+  addressSearch?: unknown;
+  addressMatches?: unknown[];
+  migratorAlert?: unknown;
+  addressSource?: string | null;
+  addressUsed?: string | null;
+  autoAddressCrossRef?: boolean;
+  source: string;
+  erpLatencies?: unknown[];
+  erpSummary?: { total: number; responded: number; failed: number; timedOut: number };
+  baseLegal?: string;
+  finalidadeConsulta?: string;
+  controlador?: string;
+}
+
+/** Typed consultation record shape */
+export interface ConsultationRecord {
+  id: number;
+  providerId: number;
+  userId: number;
+  cpfCnpj: string;
+  cpfCnpjHash?: string | null;
+  searchType: string;
+  result: unknown;
+  score: number | null;
+  decisionReco: string | null;
+  cost: number | null;
+  approved: boolean | null;
+  createdAt?: string | Date | null;
+}
+
 export interface CachedResult {
-  result: any;
-  consultation: any;
+  result: ConsultationResult & Record<string, unknown>;
+  consultation: Partial<ConsultationRecord> & Record<string, unknown>;
   cachedAt: number;
 }
 
@@ -90,15 +142,27 @@ export class TtlCache<T> {
   }
 }
 
+/** Raw ERP result before LGPD masking — cached by region */
+export interface RawRegionalResult {
+  erpResults: unknown[];
+  cachedAt: number;
+}
+
 export class ConsultationCache {
   private cache: TtlCache<CachedResult>;
+  private regionalCache: TtlCache<RawRegionalResult>;
 
   constructor(ttlMs: number = 300_000) {
     this.cache = new TtlCache<CachedResult>(ttlMs);
+    this.regionalCache = new TtlCache<RawRegionalResult>(ttlMs);
   }
 
   buildKey(cpf: string, providerId: number, searchType: string): string {
     return `${cpf.replace(/\D/g, "")}:${providerId}:${searchType}`;
+  }
+
+  buildRegionalKey(cpf: string, mesoregiao: string, searchType: string): string {
+    return `erp_raw:${cpf.replace(/\D/g, "")}:${mesoregiao}:${searchType}`;
   }
 
   getResult(cpf: string, providerId: number, searchType: string): CachedResult | undefined {
@@ -113,8 +177,20 @@ export class ConsultationCache {
     return this.cache.has(this.buildKey(cpf, providerId, searchType));
   }
 
+  getRawResult(cpf: string, mesoregiao: string, searchType: string): RawRegionalResult | undefined {
+    return this.regionalCache.get(this.buildRegionalKey(cpf, mesoregiao, searchType));
+  }
+
+  setRawResult(cpf: string, mesoregiao: string, searchType: string, erpResults: unknown[]): void {
+    this.regionalCache.set(this.buildRegionalKey(cpf, mesoregiao, searchType), {
+      erpResults,
+      cachedAt: Date.now(),
+    });
+  }
+
   destroy(): void {
     this.cache.destroy();
+    this.regionalCache.destroy();
   }
 }
 

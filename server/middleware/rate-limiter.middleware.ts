@@ -21,12 +21,12 @@ export function createRateLimiter(options: { windowMs: number; maxRequests: numb
   cleanup.unref();
 
   return (req: Request, res: Response, next: NextFunction) => {
-    const ip = req.ip || "unknown";
+    const key = (req.session as any)?.providerId ? String((req.session as any).providerId) : (req.ip || "unknown");
     const now = Date.now();
-    const entry = store.get(ip);
+    const entry = store.get(key);
 
     if (!entry || now >= entry.resetAt) {
-      store.set(ip, { count: 1, resetAt: now + windowMs });
+      store.set(key, { count: 1, resetAt: now + windowMs });
       return next();
     }
 

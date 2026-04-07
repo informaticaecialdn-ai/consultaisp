@@ -1,4 +1,4 @@
-import { eq, and, desc, sql, gte, count } from "drizzle-orm";
+import { eq, and, desc, sql, gte, count, inArray } from "drizzle-orm";
 import { db } from "../db";
 import {
   ispConsultations, spcConsultations, providers, antiFraudAlerts,
@@ -13,6 +13,24 @@ export class ConsultationsStorage {
     return db.select().from(ispConsultations)
       .where(eq(ispConsultations.providerId, providerId))
       .orderBy(desc(ispConsultations.createdAt));
+  }
+
+  async getIspConsultationsByProviderPaginated(
+    providerId: number,
+    page: number,
+    limit: number,
+  ): Promise<{ rows: IspConsultation[]; total: number }> {
+    const offset = (page - 1) * limit;
+    const [rows, totalResult] = await Promise.all([
+      db.select().from(ispConsultations)
+        .where(eq(ispConsultations.providerId, providerId))
+        .orderBy(desc(ispConsultations.createdAt))
+        .limit(limit)
+        .offset(offset),
+      db.select({ count: count() }).from(ispConsultations)
+        .where(eq(ispConsultations.providerId, providerId)),
+    ]);
+    return { rows, total: totalResult[0]?.count || 0 };
   }
 
   async createIspConsultation(consultation: InsertIspConsultation): Promise<IspConsultation> {
@@ -58,7 +76,8 @@ export class ConsultationsStorage {
         // Exclude past CEP searches to avoid recursion
         sql`${ispConsultations.searchType} != 'cep'`,
       ))
-      .orderBy(desc(ispConsultations.createdAt));
+      .orderBy(desc(ispConsultations.createdAt))
+      .limit(200);
     // De-duplicate: keep only most recent consultation per cpfCnpj
     const seen = new Set<string>();
     return rows.filter(r => {
@@ -66,6 +85,79 @@ export class ConsultationsStorage {
       seen.add(r.cpfCnpj);
       return true;
     });
+  }
+
+  async getConsultationTimeline(
+    cpfCnpj: string,
+    providerIds: number[],
+    limit: number = 50,
+  ): Promise<IspConsultation[]> {
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+    return db.select().from(ispConsultations)
+      .where(and(
+        eq(ispConsultations.cpfCnpj, cpfCnpj),
+        inArray(ispConsultations.providerId, providerIds),
+        gte(ispConsultations.createdAt, twelveMonthsAgo),
+      ))
+      .orderBy(desc(ispConsultations.createdAt))
+      .limit(limit);
+  }
+
+  async getRegionalScoreStats(providerIds: number[], days: number): Promise<{ avgScore: number; totalConsultations: number; belowThresholdCount: number }> {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    const result = await db.select({
+      avg: sql<number>`avg(score)`,
+      count: sql<number>`count(*)`,
+      belowThreshold: sql<number>`count(*) filter (where score < 150)`,
+    }).from(ispConsultations)
+      .where(and(inArray(ispConsultations.providerId, providerIds), gte(ispConsultations.createdAt, since)));
+    const row = result[0];
+    return {
+      avgScore: Number(row?.avg) || 0,
+      totalConsultations: Number(row?.count) || 0,
+      belowThresholdCount: Number(row?.belowThreshold) || 0,
+    };
+  }
+
+  async getRegionalAlertCount(providerIds: number[], days: number): Promise<number> {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    const result = await db.select({ count: count() }).from(antiFraudAlerts)
+      .where(and(inArray(antiFraudAlerts.providerId, providerIds), gte(antiFraudAlerts.createdAt, since)));
+    return result[0]?.count || 0;
+  }
+
+  async getTopRiskCeps(providerIds: number[], days: number, limit: number = 5): Promise<Array<{ cep: string; avgScore: number; count: number }>> {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    const rows = await db.select().from(ispConsultations)
+      .where(and(inArray(ispConsultations.providerId, providerIds), gte(ispConsultations.createdAt, since)))
+      .orderBy(desc(ispConsultations.createdAt))
+      .limit(2000);
+
+    const cepMap = new Map<string, { totalScore: number; count: number }>();
+    for (const row of rows) {
+      const result = row.result as any;
+      const details = result?.providerDetails;
+      if (!Array.isArray(details)) continue;
+      for (const d of details) {
+        const cep = d?.cep;
+        if (!cep || typeof cep !== "string" || cep.length < 5) continue;
+        const prefix = cep.replace(/\D/g, "").slice(0, 5);
+        if (prefix.length < 5) continue;
+        const entry = cepMap.get(prefix) || { totalScore: 0, count: 0 };
+        entry.totalScore += row.score || 0;
+        entry.count += 1;
+        cepMap.set(prefix, entry);
+      }
+    }
+
+    return [...cepMap.entries()]
+      .map(([cep, { totalScore, count }]) => ({ cep, avgScore: totalScore / count, count }))
+      .sort((a, b) => a.avgScore - b.avgScore)
+      .slice(0, limit);
   }
 
   async getSpcConsultationsByProvider(providerId: number): Promise<SpcConsultation[]> {

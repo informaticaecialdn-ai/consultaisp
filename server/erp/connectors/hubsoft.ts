@@ -52,7 +52,16 @@ class HubsoftConnector implements ErpConnector {
   ];
 
   private tokenCache = new Map<string, TokenEntry>();
-  private circuit = new CircuitBreaker({ maxFailures: 5, resetTimeMs: 30_000 });
+  private circuitMap = new Map<string, CircuitBreaker>();
+
+  private getCircuit(providerId: string): CircuitBreaker {
+    let circuit = this.circuitMap.get(providerId);
+    if (!circuit) {
+      circuit = new CircuitBreaker({ maxFailures: 5, resetTimeMs: 30_000 });
+      this.circuitMap.set(providerId, circuit);
+    }
+    return circuit;
+  }
 
   /**
    * Get a valid OAuth2 access token, using cache when possible.
@@ -222,7 +231,7 @@ class HubsoftConnector implements ErpConnector {
     try {
       const data = await withResilience(
         () => this.authenticatedRequest(config, "/financeiro/inadimplentes"),
-        { retries: 2, minTimeout: 1000, circuit: this.circuit },
+        { retries: 2, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
       );
 
       const records = extractArray(data);
@@ -254,11 +263,53 @@ class HubsoftConnector implements ErpConnector {
     }
   }
 
+  async fetchCustomerByCpf(config: ErpConnectionConfig, cpfCnpj: string): Promise<ErpFetchResult> {
+    try {
+      const cleanDoc = cpfCnpj.replace(/\D/g, "");
+      const data = await withResilience(
+        () => this.authenticatedRequest(config, "/financeiro/inadimplentes"),
+        { retries: 2, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
+      );
+
+      const records = extractArray(data);
+      const invoices = records
+        .filter((rec: any) => {
+          const rowCpf = cleanCpfCnpj(String(rec.cpf_cnpj ?? rec.documento ?? ""));
+          return rowCpf === cleanDoc;
+        })
+        .map((rec: any) => ({
+          cpfCnpj: cleanDoc,
+          name: String(rec.nome ?? rec.razao_social ?? rec.cliente ?? ""),
+          email: rec.email ? String(rec.email) : undefined,
+          phone: rec.telefone ? cleanPhone(String(rec.telefone)) : undefined,
+          address: rec.endereco ? String(rec.endereco) : undefined,
+          city: rec.cidade ? String(rec.cidade) : undefined,
+          state: rec.uf ?? rec.estado ? String(rec.uf ?? rec.estado) : undefined,
+          cep: rec.cep ? cleanCep(String(rec.cep)) : undefined,
+          amount: parseFloat(rec.valor ?? rec.valor_total ?? rec.valor_aberto ?? "0") || 0,
+          daysOverdue: calculateDaysOverdue(rec.data_vencimento ?? rec.vencimento ?? null),
+          erpSource: "hubsoft" as const,
+        }));
+
+      const customers = aggregateByCustomer(invoices);
+
+      return {
+        ok: true,
+        message: customers.length > 0 ? `Cliente encontrado com ${invoices.length} fatura(s) vencida(s)` : "Cliente sem inadimplencia",
+        customers,
+        totalRecords: customers.length,
+      };
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Erro desconhecido";
+      return { ok: false, message: `Hubsoft busca CPF: ${msg}`, customers: [] };
+    }
+  }
+
   async fetchCustomers(config: ErpConnectionConfig): Promise<ErpFetchResult> {
     try {
       const data = await withResilience(
         () => this.authenticatedRequest(config, "/clientes"),
-        { retries: 2, minTimeout: 1000, circuit: this.circuit },
+        { retries: 2, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
       );
 
       const records = extractArray(data);

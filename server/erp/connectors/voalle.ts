@@ -37,7 +37,16 @@ export class VoalleConnector implements ErpConnector {
     { key: "extra.voalleClientId", label: "Client ID (opcional)", type: "text", required: false, placeholder: "tger" },
   ];
 
-  private readonly circuit = new CircuitBreaker();
+  private circuitMap = new Map<string, CircuitBreaker>();
+
+  private getCircuit(providerId: string): CircuitBreaker {
+    let circuit = this.circuitMap.get(providerId);
+    if (!circuit) {
+      circuit = new CircuitBreaker();
+      this.circuitMap.set(providerId, circuit);
+    }
+    return circuit;
+  }
 
   private baseUrl(config: ErpConnectionConfig): string {
     return config.apiUrl.replace(/\/+$/, "");
@@ -63,7 +72,7 @@ export class VoalleConnector implements ErpConnector {
         body,
         signal: AbortSignal.timeout(10000),
       }),
-      { retries: 2, minTimeout: 1000, circuit: this.circuit },
+      { retries: 2, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
     );
 
     if (!response.ok) {
@@ -115,7 +124,7 @@ export class VoalleConnector implements ErpConnector {
           headers: { Authorization: `Bearer ${token}` },
           signal: AbortSignal.timeout(30000),
         }),
-        { retries: 3, minTimeout: 1000, circuit: this.circuit },
+        { retries: 3, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
       );
 
       if (!response.ok) return { ok: false, message: `Voalle respondeu com status ${response.status}`, customers: [], totalRecords: 0 };
@@ -153,6 +162,63 @@ export class VoalleConnector implements ErpConnector {
     }
   }
 
+  async fetchCustomerByCpf(config: ErpConnectionConfig, cpfCnpj: string): Promise<ErpFetchResult> {
+    try {
+      const token = await this.authenticate(config);
+      const base = this.baseUrl(config);
+      const cleanDoc = cpfCnpj.replace(/\D/g, "");
+
+      const response = await withResilience(
+        () => fetch(`${base}/api/financeiro/titulos?situacao=vencido&cpf_cnpj=${encodeURIComponent(cleanDoc)}&pagina=1&por_pagina=100`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(15000),
+        }),
+        { retries: 2, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
+      );
+
+      if (!response.ok) return { ok: false, message: `Voalle respondeu com status ${response.status}`, customers: [] };
+
+      const json: any = await response.json();
+      const rows: any[] = Array.isArray(json) ? json : json?.items || json?.data || [];
+
+      const invoices = rows
+        .filter((r: any) => {
+          const rowCpf = cleanCpfCnpj(r.cpf_cnpj || r.cpf || r.cnpj || r.documento || "");
+          return rowCpf === cleanDoc;
+        })
+        .map((r: any) => {
+          const dueDate = r.data_vencimento || r.vencimento || null;
+          return {
+            cpfCnpj: cleanDoc,
+            name: r.nome || r.razao_social || r.nome_pessoa || "",
+            email: r.email || undefined,
+            phone: r.fone || r.celular || r.telefone ? cleanPhone(r.fone || r.celular || r.telefone) : undefined,
+            address: ((r.logradouro || r.endereco || "") + " " + (r.numero || "")).trim() || undefined,
+            city: r.cidade || undefined,
+            state: r.uf || r.estado || undefined,
+            cep: r.cep || undefined,
+            amount: parseFloat(r.valor || r.valor_total || "0") || 0,
+            daysOverdue: calculateDaysOverdue(dueDate),
+            erpSource: "voalle" as const,
+          };
+        })
+        .filter((c) => c.daysOverdue > 0);
+
+      const customers = aggregateByCustomer(invoices);
+
+      return {
+        ok: true,
+        message: customers.length > 0 ? `Cliente encontrado com ${invoices.length} fatura(s) vencida(s)` : "Cliente sem inadimplencia",
+        customers,
+        totalRecords: customers.length,
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      return { ok: false, message: `Erro: ${msg}`, customers: [] };
+    }
+  }
+
   async fetchCustomers(config: ErpConnectionConfig): Promise<ErpFetchResult> {
     try {
       const token = await this.authenticate(config);
@@ -164,7 +230,7 @@ export class VoalleConnector implements ErpConnector {
           headers: { Authorization: `Bearer ${token}` },
           signal: AbortSignal.timeout(30000),
         }),
-        { retries: 3, minTimeout: 1000, circuit: this.circuit },
+        { retries: 3, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
       );
 
       if (!response.ok) return { ok: false, message: `Voalle respondeu com status ${response.status}`, customers: [], totalRecords: 0 };

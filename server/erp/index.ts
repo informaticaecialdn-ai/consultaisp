@@ -14,6 +14,10 @@ import { SgpConnector } from "./connectors/sgp.js";
 import "./connectors/hubsoft.js";
 import "./connectors/voalle.js";
 import "./connectors/rbx.js";
+import "./connectors/topsapp.js";
+import "./connectors/radiusnet.js";
+import "./connectors/gere.js";
+import "./connectors/receitanet.js";
 
 // --- Register connectors ---
 import { registerConnector } from "./registry.js";

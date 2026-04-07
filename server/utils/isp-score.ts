@@ -102,26 +102,37 @@ export function calcularScoreISP(input: ISPScoreInput): ISPScoreResult {
   ]
 
   for (const oc of todasOcorrencias) {
-    if (oc.diasAtraso > 365)                         f1 -= 180
-    else if (oc.diasAtraso > 180)                    f1 -= 130
-    else if (oc.diasAtraso > 90)                     f1 -= 100
-    else if (oc.diasAtraso > 60)                     f1 -= 70
-    else if (oc.diasAtraso > 30)                     f1 -= 40
-    else if (oc.diasAtraso > 0)                      f1 -= 20
+    let ocPenalty = 0
 
-    if (oc.faturasAtraso >= 6) f1 -= 25
-    else if (oc.faturasAtraso >= 4) f1 -= 20
-    else if (oc.faturasAtraso >= 2) f1 -= 15
+    if (oc.diasAtraso > 365)                         ocPenalty -= 180
+    else if (oc.diasAtraso > 180)                    ocPenalty -= 130
+    else if (oc.diasAtraso > 90)                     ocPenalty -= 100
+    else if (oc.diasAtraso > 60)                     ocPenalty -= 70
+    else if (oc.diasAtraso > 30)                     ocPenalty -= 40
+    else if (oc.diasAtraso > 0)                      ocPenalty -= 20
+
+    if (oc.faturasAtraso >= 6) ocPenalty -= 25
+    else if (oc.faturasAtraso >= 4) ocPenalty -= 20
+    else if (oc.faturasAtraso >= 2) ocPenalty -= 15
 
     if (oc.equipamentosDevolvidos === false) {
-      f1 -= 30
+      ocPenalty -= 30
       alertas.push('Equipamentos nao devolvidos registrados na rede')
     }
+
+    // CAP: max penalty per occurrence is -120
+    f1 += Math.max(-120, ocPenalty)
   }
 
-  if (input.proprio && input.proprio.diasAtrasoAtual === 0 && input.proprio.mesesComoCliente >= 12) {
-    f1 += 20
+  if (input.proprio && input.proprio.diasAtrasoAtual === 0) {
+    if (input.proprio.mesesComoCliente >= 24) f1 += 35
+    else if (input.proprio.mesesComoCliente >= 12) f1 += 20
+    else if (input.proprio.mesesComoCliente >= 6) f1 += 10
   }
+
+  // Equipment return bonus: if ALL occurrences in the network returned equipment
+  const allEquipmentReturned = todasOcorrencias.length > 0 && todasOcorrencias.every(oc => oc.equipamentosDevolvidos !== false)
+  if (allEquipmentReturned) f1 += 15
   f1 = Math.max(0, Math.min(300, f1))
 
   const f1_descricao = f1 >= 250

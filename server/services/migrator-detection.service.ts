@@ -1,5 +1,6 @@
 import type { RealtimeQueryResult } from "./realtime-query.service";
 import type { InsertAntiFraudAlert } from "@shared/schema";
+import { logger } from "../logger.js";
 
 export interface MigratorDetectionInput {
   cpfCnpj: string;
@@ -25,6 +26,10 @@ export interface MigratorAlert {
 }
 
 const CANCELLED_STATUSES = ["cancelado", "cancelled", "desativado", "inativo", "desconectado"];
+
+/** Materiality thresholds — ignore trivial/recent overdue amounts to reduce false positives */
+const MIN_OVERDUE_AMOUNT = 50;  // R$ minimum to consider as material debt
+const MIN_OVERDUE_DAYS = 15;    // minimum days overdue to consider as intentional non-payment
 
 function isCancelledStatus(status?: string): boolean {
   if (!status) return false;
@@ -89,9 +94,14 @@ export function detectMigrator(input: MigratorDetectionInput): MigratorAlert | n
     for (const c of erp.customers) {
       if (c.cpfCnpj.replace(/\D/g, "") !== cleanCpf) continue;
 
-      // Check for active debt anywhere
-      if (c.totalOverdueAmount > 0) {
+      // Check for active debt anywhere — apply materiality threshold to avoid false positives
+      if (c.totalOverdueAmount >= MIN_OVERDUE_AMOUNT && c.maxDaysOverdue >= MIN_OVERDUE_DAYS) {
         hasActiveDebt = true;
+      } else if (c.totalOverdueAmount > 0) {
+        logger.debug(
+          { cpfCnpj: cleanCpf.slice(0, 4) + "***", amount: c.totalOverdueAmount, days: c.maxDaysOverdue },
+          "MIGRADOR filtered by materiality threshold"
+        );
       }
 
       // Check for cancelled/long-overdue contract

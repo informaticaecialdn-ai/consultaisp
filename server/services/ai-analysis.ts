@@ -60,7 +60,60 @@ PREVENCAO FUTURA
 
 Use linguagem direta, profissional e objetiva. Maximo 600 palavras.`;
 
-function buildConsultationPrompt(data: any): string {
+/** Data shape for ISP consultation analysis */
+interface ConsultationAnalysisData {
+  score: number;
+  riskTier?: string;
+  riskLabel?: string;
+  recommendation?: string;
+  decisionReco?: string;
+  notFound?: boolean;
+  penalties?: Array<{ reason: string; points: number }>;
+  bonuses?: Array<{ reason: string; points: number }>;
+  alerts?: string[];
+  providerDetails?: Array<{
+    customerName?: string;
+    providerName?: string;
+    isSameProvider?: boolean;
+    status?: string;
+    daysOverdue?: number;
+    overdueAmount?: number;
+    overdueAmountRange?: string;
+    overdueInvoicesCount?: number;
+    contractAgeDays?: number;
+    hasUnreturnedEquipment?: boolean;
+    unreturnedEquipmentCount?: number;
+    equipmentPendingSummary?: string;
+  }>;
+  recommendedActions?: string[];
+  cpfCnpj?: string;
+}
+
+/** Data shape for anti-fraud alert records */
+interface AntiFraudAlert {
+  type: string;
+  status: string;
+  customerName?: string;
+  daysOverdue?: number;
+  overdueAmount?: string;
+  equipmentValue?: string;
+  equipmentNotReturned?: number;
+  consultingProviderName?: string;
+  recentConsultations?: number;
+}
+
+/** Data shape for anti-fraud customer records */
+interface AntiFraudCustomer {
+  name?: string;
+  riskScore: number;
+  riskLevel: string;
+  daysOverdue?: number;
+  overdueAmount?: number;
+  equipmentValue?: number;
+  equipmentNotReturned?: number;
+}
+
+function buildConsultationPrompt(data: ConsultationAnalysisData): string {
   const { score, riskTier, riskLabel, recommendation, decisionReco, notFound,
     penalties, bonuses, alerts, providerDetails, recommendedActions, cpfCnpj } = data;
 
@@ -123,7 +176,7 @@ ${(recommendedActions || []).map((a: string) => `  - ${a}`).join("\n") || "Nenhu
 Analise estes dados e forneca sua avaliacao especializada.`;
 }
 
-function buildAntiFraudPrompt(alerts: any[], customers: any[]): string {
+function buildAntiFraudPrompt(alerts: AntiFraudAlert[], customers: AntiFraudCustomer[]): string {
   const activeAlerts = alerts.filter(a => a.status === "new");
   const fugaAlerts = activeAlerts.filter(a => a.type === "defaulter_consulted");
   const serialAlerts = activeAlerts.filter(a => a.type === "multiple_consultations");
@@ -172,7 +225,7 @@ Analise estes dados com foco no ciclo de migracao serial e forneca recomendacoes
 }
 
 export async function streamConsultationAnalysis(
-  consultationData: any,
+  consultationData: ConsultationAnalysisData,
   onChunk: (text: string) => void
 ): Promise<void> {
   const openai = getOpenAIClient();
@@ -195,8 +248,8 @@ export async function streamConsultationAnalysis(
 }
 
 export async function streamAntiFraudAnalysis(
-  alerts: any[],
-  customers: any[],
+  alerts: AntiFraudAlert[],
+  customers: AntiFraudCustomer[],
   onChunk: (text: string) => void
 ): Promise<void> {
   const openai = getOpenAIClient();
