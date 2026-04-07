@@ -29,7 +29,16 @@ export function cleanPhone(raw: string): string {
 export function calculateDaysOverdue(dueDate: string | Date | null): number {
   if (!dueDate) return 0;
 
-  const due = typeof dueDate === "string" ? new Date(dueDate) : dueDate;
+  let due: Date;
+  if (typeof dueDate === "string") {
+    // Handle DD/MM/YYYY format (MK Solutions and other Brazilian ERPs)
+    const brMatch = dueDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    due = brMatch
+      ? new Date(parseInt(brMatch[3]), parseInt(brMatch[2]) - 1, parseInt(brMatch[1]))
+      : new Date(dueDate);
+  } else {
+    due = dueDate;
+  }
   if (isNaN(due.getTime())) return 0;
 
   const now = new Date();

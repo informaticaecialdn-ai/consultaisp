@@ -190,13 +190,13 @@ export class MkConnector implements ErpConnector {
             const faturasJson: any = await faturasResponse.json();
             const faturas: any[] = Array.isArray(faturasJson)
               ? faturasJson
-              : faturasJson?.registros || faturasJson?.data || [];
+              : faturasJson?.FaturasPendentes || faturasJson?.registros || faturasJson?.data || [];
 
             console.log(`[MK] ${faturas.length} fatura(s) pendente(s) encontrada(s)`);
 
             for (const f of faturas) {
-              const valor = parseFloat(f.valor || f.vl_total || f.value || "0") || 0;
-              const dueDate = f.dt_vencimento || f.data_vencimento || f.vencimento || null;
+              const valor = parseFloat(f.valor_total || f.valor || f.vl_total || f.value || "0") || 0;
+              const dueDate = f.data_vencimento || f.dt_vencimento || f.vencimento || null;
               const days = calculateDaysOverdue(dueDate);
 
               if (days > 0) {
@@ -213,17 +213,30 @@ export class MkConnector implements ErpConnector {
         }
       }
 
+      // MK returns address as "Rua X, 123 - Bairro, Cidade" — extract parts
+      const rawAddr = customerData?.Endereco || customerData?.endereco || customerData?.logradouro || "";
+      const addrParts = rawAddr.split(",").map((s: string) => s.trim());
+      const streetPart = addrParts[0] || "";
+      const numberMatch = addrParts[1]?.match(/^(\d+)/);
+      const addressNumber = numberMatch ? numberMatch[1] : undefined;
+      const neighborhoodMatch = rawAddr.match(/- ([^,]+)/);
+      const neighborhood = neighborhoodMatch ? neighborhoodMatch[1].trim() : undefined;
+      // Last part after last comma is usually city
+      const cityFromAddr = addrParts.length > 2 ? addrParts[addrParts.length - 1] : undefined;
+
       const customer: NormalizedErpCustomer = {
         cpfCnpj: cleanDoc,
         name: nome,
-        email: customerData?.email || undefined,
-        phone: customerData?.fone || customerData?.celular || customerData?.telefone
-          ? cleanPhone(customerData.fone || customerData.celular || customerData.telefone)
+        email: customerData?.Email || customerData?.email || undefined,
+        phone: customerData?.Fone || customerData?.fone || customerData?.celular || customerData?.telefone
+          ? cleanPhone(customerData.Fone || customerData.fone || customerData.celular || customerData.telefone)
           : undefined,
-        address: customerData?.endereco || customerData?.logradouro || undefined,
-        city: customerData?.cidade || customerData?.municipio || undefined,
+        address: streetPart || rawAddr || undefined,
+        addressNumber,
+        neighborhood,
+        city: customerData?.cidade || customerData?.municipio || cityFromAddr || undefined,
         state: customerData?.uf || customerData?.estado || undefined,
-        cep: customerData?.cep || undefined,
+        cep: customerData?.CEP || customerData?.cep || undefined,
         totalOverdueAmount,
         maxDaysOverdue,
         overdueInvoicesCount,
