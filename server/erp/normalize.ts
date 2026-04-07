@@ -52,6 +52,7 @@ export function aggregateByCustomer(
     email?: string;
     phone?: string;
     address?: string;
+    addressNumber?: string;
     city?: string;
     state?: string;
     cep?: string;
@@ -77,6 +78,7 @@ export function aggregateByCustomer(
         email: inv.email,
         phone: inv.phone,
         address: inv.address,
+        addressNumber: inv.addressNumber,
         city: inv.city,
         state: inv.state,
         cep: inv.cep,

@@ -121,17 +121,17 @@ export default function AddressMapMini({ cep, addressNumber }: AddressMapMiniPro
 
   if (geocodeFailed) {
     return (
-      <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-2" style={{ height: "180px" }}>
-        <MapPin className="w-6 h-6 text-slate-300" />
-        <span className="text-xs text-slate-400 font-medium">Localização indisponível</span>
-        {cep && <span className="text-[10px] text-slate-300 max-w-[200px] text-center truncate">CEP {cep}{addressNumber ? `, nº ${addressNumber}` : ""}</span>}
+      <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-2" style={{ height: "220px" }}>
+        <MapPin className="w-8 h-8 text-slate-300" />
+        <span className="text-sm text-slate-400 font-medium">Localização indisponível</span>
+        {cep && <span className="text-xs text-slate-300 max-w-[200px] text-center truncate">CEP {cep}{addressNumber ? `, nº ${addressNumber}` : ""}</span>}
       </div>
     );
   }
 
   return (
     <div className="relative rounded-xl overflow-hidden border border-slate-200">
-      <div ref={containerRef} style={{ height: "180px" }} className="w-full" />
+      <div ref={containerRef} style={{ height: "220px" }} className="w-full" />
     </div>
   );
 }

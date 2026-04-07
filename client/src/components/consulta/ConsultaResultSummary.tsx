@@ -41,17 +41,17 @@ function ProviderCard({ detail, globalIdx, onShowDetail }: { detail: ProviderDet
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap mb-0.5">
-              <span className={`text-[9px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded ${isOwn ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+              <span className={`text-[11px] font-black uppercase tracking-wide px-1.5 py-0.5 rounded ${isOwn ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
                 {isOwn ? "Seu provedor" : "Provedor parceiro"}
               </span>
               {!isOwn && <Lock className="w-3 h-3 text-slate-300" />}
-              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${isOwn ? "bg-white border-emerald-200 text-emerald-600" : "bg-white border-blue-100 text-blue-500"}`} data-testid={`cost-badge-${globalIdx}`}>
+              <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded border ${isOwn ? "bg-white border-emerald-200 text-emerald-600" : "bg-white border-blue-100 text-blue-500"}`} data-testid={`cost-badge-${globalIdx}`}>
                 {isOwn ? "Grátis" : "1 crédito"}
               </span>
             </div>
-            <p className="text-sm font-black text-slate-900 truncate" data-testid={`customer-name-${globalIdx}`}>{maskedName}</p>
+            <p className="text-base font-black text-slate-900 truncate" data-testid={`customer-name-${globalIdx}`}>{maskedName}</p>
             {locationStr && (
-              <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+              <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
                 <MapPin className="w-2.5 h-2.5 flex-shrink-0" />
                 {locationStr}
                 {!isOwn && <Lock className="w-2 h-2 text-slate-300" />}
@@ -59,7 +59,7 @@ function ProviderCard({ detail, globalIdx, onShowDetail }: { detail: ProviderDet
             )}
           </div>
           <div className="text-right flex-shrink-0 space-y-1">
-            <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${
+            <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded-full ${
               isDelinquent ? "bg-red-100 text-red-700" :
               detail.contractStatus === "active" ? "bg-emerald-100 text-emerald-700" :
               "bg-slate-100 text-slate-500"
@@ -73,10 +73,10 @@ function ProviderCard({ detail, globalIdx, onShowDetail }: { detail: ProviderDet
               <p className="text-sm font-black text-red-600" data-testid={`debt-value-${globalIdx}`}>{debtStr}</p>
             )}
             {detail.overdueInvoicesCount > 0 && (
-              <p className="text-[10px] text-red-500">{detail.overdueInvoicesCount} fatura{detail.overdueInvoicesCount > 1 ? "s" : ""} em atraso</p>
+              <p className="text-xs text-red-500">{detail.overdueInvoicesCount} fatura{detail.overdueInvoicesCount > 1 ? "s" : ""} em atraso</p>
             )}
             {detail.hasUnreturnedEquipment && (
-              <p className="text-[10px] font-bold text-amber-600 flex items-center justify-end gap-1">
+              <p className="text-xs font-bold text-amber-600 flex items-center justify-end gap-1">
                 <Router className="w-2.5 h-2.5" />
                 {detail.unreturnedEquipmentCount} equip. retido{detail.unreturnedEquipmentCount > 1 ? "s" : ""}
               </p>
@@ -84,7 +84,7 @@ function ProviderCard({ detail, globalIdx, onShowDetail }: { detail: ProviderDet
           </div>
         </div>
         <button
-          className="mt-2 text-[10px] font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
+          className="mt-2 text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
           onClick={() => onShowDetail(globalIdx)}
           data-testid={`button-ver-informacoes-${globalIdx}`}
         >
@@ -108,7 +108,7 @@ function AddressMatchCard({ match, idx }: { match: AddressMatch; idx: number }) 
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-semibold text-slate-900" data-testid={`address-match-name-${idx}`}>
+          <span className="text-base font-semibold text-slate-900" data-testid={`address-match-name-${idx}`}>
             {match.customerName}
           </span>
           {match.isSameProvider && (
@@ -118,7 +118,7 @@ function AddressMatchCard({ match, idx }: { match: AddressMatch; idx: number }) 
             <Badge className="bg-red-100 text-red-700 border-0 text-xs">Inadimplente</Badge>
           )}
         </div>
-        <p className="text-xs text-slate-500 mt-0.5">
+        <p className="text-sm text-slate-500 mt-0.5">
           {match.isSameProvider ? (
             <>Doc: {match.cpfCnpj} &nbsp;•&nbsp; {match.providerName}</>
           ) : (
@@ -127,13 +127,13 @@ function AddressMatchCard({ match, idx }: { match: AddressMatch; idx: number }) 
             </span>
           )}
         </p>
-        <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+        <p className="text-sm text-slate-400 flex items-center gap-1 mt-0.5">
           <MapPin className="w-3 h-3" />
           {match.address}{match.city ? `, ${match.city}` : ""}{match.state ? `/${match.state}` : ""}
         </p>
       </div>
       <div className="flex flex-col items-end gap-1 flex-shrink-0">
-        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+        <span className={`text-sm font-medium px-2 py-0.5 rounded-full ${
           match.daysOverdue != null
             ? (match.daysOverdue === 0 ? "bg-emerald-100 text-emerald-700" : match.daysOverdue <= 30 ? "bg-orange-100 text-orange-700" : "bg-red-100 text-red-700")
             : match.hasDebt ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"
@@ -203,17 +203,17 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
         <div className={`h-1.5 w-full ${decisionCfg.bg}`} />
         <div className="px-5 pt-4 pb-2 flex items-center justify-between">
           <div>
-            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Relatório de Crédito ISP</p>
-            <p className="text-xl font-black text-slate-900 font-mono tracking-tight mt-0.5" data-testid="text-consulted-doc">
+            <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Relatório de Crédito ISP</p>
+            <p className="text-2xl font-black text-slate-900 font-mono tracking-tight mt-0.5" data-testid="text-consulted-doc">
               {result.searchType === "cep"
                 ? result.cpfCnpj.replace(/^(\d{5})(\d{3})$/, "$1-$2")
                 : formatCpfCnpj(result.cpfCnpj)}
             </p>
-            <p className="text-[10px] text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-400 mt-0.5">
               {result.searchType === "cep" ? "CEP" : result.searchType === "cnpj" ? "CNPJ" : "CPF"} · Consultado em {consultedAt}
             </p>
           </div>
-          <div className="flex items-center gap-1.5 text-slate-400 text-[10px]">
+          <div className="flex items-center gap-1.5 text-slate-400 text-xs">
             <Shield className="w-3.5 h-3.5 text-blue-500" />
             <span className="font-semibold text-blue-500">Rede ISP Colaborativa</span>
           </div>
@@ -242,12 +242,12 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
                 );
               })}
               <path d={`M${CX - R},${CY} A${R},${R} 0 0 1 ${CX + R},${CY}`} fill="none" stroke={gaugeColor} strokeWidth="14" strokeLinecap="round" strokeDasharray={arcLen} strokeDashoffset={scoreOffset} style={{ transition: "stroke-dashoffset 0.8s ease" }} />
-              <text x={CX} y={CY - 10} textAnchor="middle" fontSize="28" fontWeight="900" fill="#0f172a" fontFamily="monospace">{score}</text>
-              <text x={CX} y={CY + 6} textAnchor="middle" fontSize="9" fill="#94a3b8" fontWeight="700" letterSpacing="1">DE 1000</text>
-              <text x={CX - R - 4} y={CY + 14} textAnchor="end" fontSize="7.5" fill="#94a3b8">Muito Baixo</text>
-              <text x={CX + R + 4} y={CY + 14} textAnchor="start" fontSize="7.5" fill="#94a3b8">Excelente</text>
+              <text x={CX} y={CY - 10} textAnchor="middle" fontSize="34" fontWeight="900" fill="#0f172a" fontFamily="monospace">{score}</text>
+              <text x={CX} y={CY + 6} textAnchor="middle" fontSize="11" fill="#94a3b8" fontWeight="700" letterSpacing="1">DE 1000</text>
+              <text x={CX - R - 4} y={CY + 14} textAnchor="end" fontSize="9" fill="#94a3b8">Muito Baixo</text>
+              <text x={CX + R + 4} y={CY + 14} textAnchor="start" fontSize="9" fill="#94a3b8">Excelente</text>
             </svg>
-            <p className="text-xs font-bold mt-1 tracking-wide" style={{ color: gaugeColor }} data-testid="text-risk-badge">{result.riskLabel}</p>
+            <p className="text-sm font-bold mt-1 tracking-wide" style={{ color: gaugeColor }} data-testid="text-risk-badge">{result.riskLabel}</p>
           </div>
 
           {/* DECISION + KEY STATS */}
@@ -255,24 +255,24 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
             <div className={`${decisionCfg.bg} rounded-xl px-4 py-3 flex items-center gap-3`} data-testid="ai-suggestion-banner">
               <decisionCfg.icon className="w-7 h-7 text-white flex-shrink-0" />
               <div>
-                <p className="text-[9px] font-bold text-white/70 uppercase tracking-widest">Sugestão IA</p>
-                <p className="text-lg font-black text-white leading-none" data-testid="text-ai-recommendation">{decisionCfg.label}</p>
+                <p className="text-xs font-bold text-white/70 uppercase tracking-widest">Sugestão IA</p>
+                <p className="text-xl font-black text-white leading-none" data-testid="text-ai-recommendation">{decisionCfg.label}</p>
               </div>
               <div className="ml-auto border-l border-white/25 pl-3">
-                <p className="text-[10px] text-white/80 leading-snug max-w-[130px]">{decisionCfg.sub}</p>
+                <p className="text-xs text-white/80 leading-snug max-w-[130px]">{decisionCfg.sub}</p>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-center">
-                <p className="text-[10px] text-slate-400 font-semibold">Provedores</p>
+                <p className="text-xs text-slate-400 font-semibold">Provedores</p>
                 <p className="text-lg font-black text-slate-800">{result.providersFound || result.providerDetails.length}</p>
               </div>
               <div className={`border rounded-xl p-2.5 text-center ${totalEquipPending > 0 ? "bg-amber-50 border-amber-200" : "bg-slate-50 border-slate-200"}`}>
-                <p className="text-[10px] text-slate-400 font-semibold">Equip. retidos</p>
+                <p className="text-xs text-slate-400 font-semibold">Equip. retidos</p>
                 <p className={`text-lg font-black ${totalEquipPending > 0 ? "text-amber-600" : "text-slate-800"}`}>{totalEquipPending}</p>
               </div>
               <div className={`border rounded-xl p-2.5 text-center ${externalProviders.length > 0 ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200"}`}>
-                <p className="text-[10px] text-slate-400 font-semibold">Externos</p>
+                <p className="text-xs text-slate-400 font-semibold">Externos</p>
                 <p className={`text-lg font-black ${externalProviders.length > 0 ? "text-red-600" : "text-slate-800"}`}>{externalProviders.length}</p>
               </div>
             </div>
@@ -287,8 +287,8 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
         {result.searchType !== "cep" && (
         <div className="space-y-3">
           <div className="flex items-center gap-2 pb-2 border-b-2 border-blue-500">
-            <span className="text-sm font-black text-slate-700">📄 Resultado por Documento</span>
-            <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+            <span className="text-base font-black text-slate-700">📄 Resultado por Documento</span>
+            <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
               {result.providerDetails.length} provedor{result.providerDetails.length !== 1 ? "es" : ""}
             </span>
           </div>
@@ -315,11 +315,11 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
                         <AccordionTrigger className="px-4 py-3 hover:no-underline">
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-bold text-slate-700">🏠 Seu Provedor</span>
-                            <span className="text-[9px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">{ownProviders[0]?.providerName}</span>
+                            <span className="text-[11px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">{ownProviders[0]?.providerName}</span>
                             {ownProviders.some(d => d.daysOverdue > 0) ? (
-                              <span className="text-[9px] font-bold bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">Inadimplente</span>
+                              <span className="text-[11px] font-bold bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">Inadimplente</span>
                             ) : (
-                              <span className="text-[9px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">Em dia</span>
+                              <span className="text-[11px] font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">Em dia</span>
                             )}
                           </div>
                         </AccordionTrigger>
@@ -338,11 +338,11 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
                         <AccordionTrigger className="px-4 py-3 hover:no-underline">
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-bold text-slate-700">🌐 Outros Provedores</span>
-                            <span className="text-[9px] font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">{externalProviders.length}</span>
+                            <span className="text-[11px] font-bold bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded-full">{externalProviders.length}</span>
                             {externalProviders.some(d => d.daysOverdue > 0) && (
-                              <span className="text-[9px] font-bold bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">Inadimplência</span>
+                              <span className="text-[11px] font-bold bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">Inadimplência</span>
                             )}
-                            <span className="text-[9px] font-bold bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100">
+                            <span className="text-[11px] font-bold bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100">
                               {externalProviders.length} crédito{externalProviders.length !== 1 ? "s" : ""}
                             </span>
                           </div>
@@ -370,18 +370,18 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
         {/* RIGHT COLUMN: Por Endereço */}
         <div className="space-y-3">
           <div className="flex items-center gap-2 pb-2 border-b-2 border-orange-500">
-            <span className="text-sm font-black text-slate-700">📍 Resultado por Endereço</span>
+            <span className="text-base font-black text-slate-700">📍 Resultado por Endereço</span>
             {debtCount > 0 ? (
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${debtCount >= 3 ? "bg-red-100 text-red-700" : debtCount >= 2 ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"}`}>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${debtCount >= 3 ? "bg-red-100 text-red-700" : debtCount >= 2 ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-700"}`}>
                 {debtCount} inadimpl.
               </span>
             ) : cleanCross ? (
-              <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Limpo</span>
+              <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Limpo</span>
             ) : (
-              <span className="text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">N/D</span>
+              <span className="text-xs font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">N/D</span>
             )}
             {result.autoAddressCrossRef === true && (
-              <span className="text-[9px] font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">AUTO</span>
+              <span className="text-[11px] font-bold bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">AUTO</span>
             )}
           </div>
 
@@ -390,9 +390,9 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
               <div className="flex items-center gap-3">
                 <AlertTriangle className="w-6 h-6 text-white animate-pulse flex-shrink-0" />
                 <div>
-                  <p className="text-[10px] font-bold text-white/70 uppercase tracking-widest">Alerta de Endereço</p>
+                  <p className="text-xs font-bold text-white/70 uppercase tracking-widest">Alerta de Endereço</p>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-[32px] font-black text-white leading-none">{debtCount}</span>
+                    <span className="text-4xl font-black text-white leading-none">{debtCount}</span>
                     <span className="text-sm font-semibold text-white/90">inadimplente{debtCount !== 1 ? "s" : ""} neste endereço</span>
                   </div>
                 </div>
@@ -409,9 +409,9 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
             <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center gap-3 shadow-sm">
               <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0" />
               <div>
-                <p className="text-sm font-semibold text-emerald-900">Nenhuma inadimplência neste endereço</p>
+                <p className="text-base font-semibold text-emerald-900">Nenhuma inadimplência neste endereço</p>
                 {result.addressUsed && (
-                  <p className="text-xs text-emerald-600 mt-0.5">
+                  <p className="text-sm text-emerald-600 mt-0.5">
                     CEP: {result.addressUsed}
                     {result.addressSource && (
                       <span> (fonte: {result.addressSource === "own" ? "seu cadastro" : "rede ISP"})</span>
@@ -424,8 +424,8 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
             <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center gap-3 shadow-sm">
               <MapPin className="w-5 h-5 text-slate-400 opacity-50 flex-shrink-0" />
               <div>
-                <p className="text-sm font-semibold text-slate-600">Endereço não disponível no ERP</p>
-                <p className="text-xs text-slate-500 mt-0.5">Use a busca manual por CEP para cruzamento de endereço.</p>
+                <p className="text-base font-semibold text-slate-600">Endereço não disponível no ERP</p>
+                <p className="text-sm text-slate-500 mt-0.5">Use a busca manual por CEP para cruzamento de endereço.</p>
               </div>
             </div>
           ) : null}
@@ -442,7 +442,7 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
                     <AccordionTrigger className="px-4 py-3 hover:no-underline">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold text-slate-700">🏠 Seu Provedor</span>
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{addressOwnMatches.length}</span>
+                        <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">{addressOwnMatches.length}</span>
                       </div>
                     </AccordionTrigger>
                     <AccordionContent className="px-4 pb-3">
@@ -457,7 +457,7 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
                     <AccordionTrigger className="px-4 py-3 hover:no-underline">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold text-slate-700">🌐 Outros Provedores</span>
-                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${addressExtHasDebt ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>{addressExtMatches.length}</span>
+                        <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${addressExtHasDebt ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>{addressExtMatches.length}</span>
                       </div>
                     </AccordionTrigger>
                     <AccordionContent className="px-4 pb-3">
@@ -473,7 +473,7 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
 
           <div className="flex items-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" />
-            <p className="text-xs text-slate-400">Dados de terceiros anonimizados conforme LGPD</p>
+            <p className="text-sm text-slate-400">Dados de terceiros anonimizados conforme LGPD</p>
           </div>
         </div>
       </div>

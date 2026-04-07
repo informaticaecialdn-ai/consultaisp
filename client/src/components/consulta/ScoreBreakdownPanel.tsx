@@ -10,7 +10,7 @@ export default function ScoreBreakdownPanel({ fatores }: Props) {
   const entries = Object.entries(fatores) as [string, ScoreFator][];
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Composicao do Score ISP</p>
+      <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3">Composicao do Score ISP</p>
       <div className="space-y-2.5">
         {entries.map(([key, fator]) => {
           const meta = FATOR_LABELS[key] || { icon: "📊", label: key };
@@ -19,23 +19,23 @@ export default function ScoreBreakdownPanel({ fatores }: Props) {
           return (
             <div key={key}>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-semibold text-slate-700">
+                <span className="text-sm font-semibold text-slate-700">
                   {meta.icon} {meta.label}
                 </span>
-                <span className="text-xs font-bold text-slate-500">
+                <span className="text-sm font-bold text-slate-500">
                   {fator.pontos}/{fator.maximo} <span className="text-slate-400">({fator.peso})</span>
                 </span>
               </div>
-              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+              <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
                 <div className={`h-full ${barColor} rounded-full transition-all duration-700`} style={{ width: `${pct}%` }} />
               </div>
-              <p className="text-[10px] text-slate-400 mt-0.5">{fator.descricao}</p>
+              <p className="text-xs text-slate-400 mt-0.5">{fator.descricao}</p>
             </div>
           );
         })}
       </div>
       <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
-        <span className="text-xs font-bold text-slate-600">Score Total</span>
+        <span className="text-sm font-bold text-slate-600">Score Total</span>
         <span className="text-lg font-black text-slate-900 font-mono">
           {entries.reduce((s, [, f]) => s + f.pontos, 0)}/1000
         </span>

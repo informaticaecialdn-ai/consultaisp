@@ -263,9 +263,19 @@ export function registerConsultasRoutes(): Router {
           if (addressCandidate) {
             try {
               const candidateCep = addressCandidate.cep!.replace(/\D/g, "");
+              // Secondary query: fetch all customers at this CEP for real cross-referencing
+              let cepErpResults: RealtimeQueryResult[];
+              try {
+                const cepQueryStart = Date.now();
+                cepErpResults = await queryRegionalErps(erpIntegrations as any, candidateCep, "cep");
+                logger.info({ cep: candidateCep.slice(0, 5) + "***", results: cepErpResults.filter(r => r.ok).length, latencyMs: Date.now() - cepQueryStart }, "CONSULTA secondary CEP query completed");
+              } catch (cepErr) {
+                logger.warn({ err: cepErr }, "CONSULTA secondary CEP query failed, using CPF results as fallback");
+                cepErpResults = erpResults;
+              }
               addressSearchResult = buildAddressSearchResult(
                 candidateCep,
-                erpResults,
+                cepErpResults,
                 providerId,
               );
               addressUsed = candidateCep;
