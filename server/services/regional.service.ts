@@ -1,4 +1,4 @@
-import { db } from "../db";
+import { db, pool } from "../db";
 import { providers } from "@shared/schema";
 import { eq, sql, and, ne } from "drizzle-orm";
 
@@ -46,16 +46,12 @@ export async function getProvidersByMesoregion(providerId: number) {
 
   if (!provider?.mesorregioes?.length) return [];
 
-  const regional = await db.select({
-    id: providers.id,
-    name: providers.name,
-    mesorregioes: providers.mesorregioes,
-  }).from(providers).where(
-    and(
-      ne(providers.id, providerId),
-      eq(providers.status, "active"),
-      sql`${providers.mesorregioes} && ARRAY[${sql.join(provider.mesorregioes.map(m => sql`${m}`), sql`, `)}]::text[]`
-    )
+  // Use raw SQL with proper array parameter to avoid Drizzle type issues
+  const { rows: regional } = await pool.query(
+    `SELECT id, name, mesorregioes FROM providers
+     WHERE id != $1 AND status = 'active'
+     AND mesorregioes && $2::text[]`,
+    [providerId, provider.mesorregioes]
   );
 
   return regional;
