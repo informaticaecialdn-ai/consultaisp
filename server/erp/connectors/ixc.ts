@@ -103,7 +103,7 @@ export class IxcConnector implements ErpConnector {
           body: JSON.stringify(payload),
           signal: AbortSignal.timeout(30000),
         }),
-        { retries: 3, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
+        { retries: 1, minTimeout: 500, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
       );
 
       if (!response.ok) {
@@ -477,33 +477,26 @@ export class IxcConnector implements ErpConnector {
     try {
       const clean = cleanCpfCnpj(cpfCnpj);
 
-      // IXC may store CPF with or without formatting — try exact match first, then LIKE
+      // IXC stores CPF/CNPJ with formatting (041.179.829-40) — try formatted first, fallback to raw
+      const formatted = clean.length === 11
+        ? `${clean.slice(0,3)}.${clean.slice(3,6)}.${clean.slice(6,9)}-${clean.slice(9)}`
+        : clean.length === 14
+        ? `${clean.slice(0,2)}.${clean.slice(2,5)}.${clean.slice(5,8)}/${clean.slice(8,12)}-${clean.slice(12)}`
+        : clean;
+
+      // Single query with formatted CPF (most common IXC format)
       let clienteRows = await this.listAll(config, "cliente", {
         qtype: "cliente.cnpj_cpf",
-        query: clean,
+        query: formatted,
         oper: "=",
       }, 10, 1);
 
-      if (clienteRows.length === 0) {
-        // Try with formatted CPF (XXX.XXX.XXX-XX) or CNPJ
-        const formatted = clean.length === 11
-          ? `${clean.slice(0,3)}.${clean.slice(3,6)}.${clean.slice(6,9)}-${clean.slice(9)}`
-          : clean.length === 14
-          ? `${clean.slice(0,2)}.${clean.slice(2,5)}.${clean.slice(5,8)}/${clean.slice(8,12)}-${clean.slice(12)}`
-          : clean;
+      // Fallback: try without formatting (some IXC instances store raw digits)
+      if (clienteRows.length === 0 && formatted !== clean) {
         clienteRows = await this.listAll(config, "cliente", {
           qtype: "cliente.cnpj_cpf",
-          query: formatted,
+          query: clean,
           oper: "=",
-        }, 10, 1);
-      }
-
-      if (clienteRows.length === 0) {
-        // Last resort: LIKE search
-        clienteRows = await this.listAll(config, "cliente", {
-          qtype: "cliente.cnpj_cpf",
-          query: `%${clean}%`,
-          oper: "L",
         }, 10, 1);
       }
 

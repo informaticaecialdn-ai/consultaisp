@@ -12,9 +12,9 @@ import { getConnector } from "../erp/registry.js";
 import "../erp/index.js"; // ensure connectors are registered
 import type { ErpConnectionConfig, ErpFetchResult } from "../erp/types.js";
 import type { ErpIntegration } from "@shared/schema";
-import { IxcConnector } from "../erp/connectors/ixc.js";
+import { logger } from "../logger.js";
 
-const ERP_QUERY_TIMEOUT_MS = 10_000; // 10s per ERP — RT-04
+const ERP_QUERY_TIMEOUT_MS = 30_000; // 30s per ERP — increased for multi-format CPF search
 
 export interface RealtimeQueryResult {
   providerId: number;
@@ -48,13 +48,29 @@ export interface RealtimeQueryResult {
 }
 
 function buildErpConfig(intg: ErpIntegration): ErpConnectionConfig {
+  const apiUrl = (intg.apiUrl || "").replace(/\/+$/, "");
+  const apiToken = intg.apiToken || "";
+
+  // Step 8: Validate ERP config
+  if (!apiUrl) {
+    throw new Error(`URL do ERP nao configurada para o provedor ${intg.providerId}`);
+  }
+  try {
+    new URL(apiUrl);
+  } catch {
+    throw new Error(`URL do ERP invalida para o provedor ${intg.providerId}: ${apiUrl}`);
+  }
+  if (!apiToken) {
+    throw new Error(`Token do ERP nao configurado para o provedor ${intg.providerId}`);
+  }
+
   return {
-    apiUrl: (intg.apiUrl || "").replace(/\/+$/, ""),
-    apiToken: intg.apiToken || "",
+    apiUrl,
+    apiToken,
     apiUser: intg.apiUser || undefined,
     clientId: undefined,
     clientSecret: undefined,
-    extra: {},
+    extra: { providerId: String(intg.providerId) },
   };
 }
 
@@ -87,19 +103,44 @@ async function querySingleErp(
     let customers: RealtimeQueryResult["customers"] = [];
 
     if (searchType === "cep") {
-      // Address search — use fetchCustomersByAddress if available (IXC)
-      if (connector instanceof IxcConnector) {
+      if (typeof connector.fetchCustomersByCep === "function") {
+        // Optimized path — query filtered by CEP directly at the ERP API
         const result = await Promise.race([
-          connector.fetchCustomersByAddress(config, { cep: document }),
+          connector.fetchCustomersByCep(config, document),
           new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error("Timeout")), ERP_QUERY_TIMEOUT_MS)
           ),
         ]);
         if (result.ok) {
           customers = result.customers.map(normalizeCustomer);
+        } else {
+          // Optimized CEP path failed — fallback to fetchDelinquents + in-memory CEP filter
+          logger.warn({ providerId: intg.providerId, erpSource: intg.erpSource, error: result.message }, "RT-QUERY fetchCustomersByCep falhou, tentando fallback");
+          const fallback = await Promise.race([
+            connector.fetchDelinquents(config),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("Timeout")), ERP_QUERY_TIMEOUT_MS)
+            ),
+          ]);
+          if (fallback.ok) {
+            customers = fallback.customers
+              .filter(c => c.cep && c.cep.replace(/\D/g, "").startsWith(document.slice(0, 5)))
+              .map(normalizeCustomer);
+          } else {
+            // Both paths failed — propagate error
+            return {
+              providerId: intg.providerId,
+              providerName: intg.providerName,
+              erpSource: intg.erpSource,
+              ok: false,
+              error: `CEP query falhou: ${result.message}`,
+              customers: [],
+              latencyMs: Date.now() - start,
+            };
+          }
         }
       } else {
-        // Fallback: fetch all delinquents and filter by CEP
+        // Fallback — fetch all delinquents and filter by CEP in memory
         const result = await Promise.race([
           connector.fetchDelinquents(config),
           new Promise<never>((_, reject) =>
@@ -113,62 +154,19 @@ async function querySingleErp(
         }
       }
     } else {
-      // CPF/CNPJ search — try fetchCustomerByCpf first (IXC has it), fallback to fetchDelinquents
-      if (connector instanceof IxcConnector) {
-        // IXC: busca o cliente + faturas abertas em paralelo
-        const [clientResult, delinqResult] = await Promise.all([
-          Promise.race([
-            connector.fetchCustomerByCpf(config, document),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error("Timeout")), ERP_QUERY_TIMEOUT_MS)
-            ),
-          ]),
-          Promise.race([
-            connector.fetchDelinquents(config),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error("Timeout")), ERP_QUERY_TIMEOUT_MS)
-            ),
-          ]),
+      // CPF/CNPJ search — use fetchCustomerByCpf if available, fallback to fetchDelinquents
+      if (typeof connector.fetchCustomerByCpf === "function") {
+        const result = await Promise.race([
+          connector.fetchCustomerByCpf(config, document),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("Timeout")), ERP_QUERY_TIMEOUT_MS)
+          ),
         ]);
-
-        const cleanDoc = document.replace(/\D/g, "");
-
-        if (clientResult.ok && clientResult.customer) {
-          const c = clientResult.customer;
-          // Find matching delinquent record for overdue data
-          const delinquent = delinqResult.ok
-            ? delinqResult.customers.find(d => d.cpfCnpj.replace(/\D/g, "") === cleanDoc)
-            : null;
-
-          customers = [{
-            cpfCnpj: c.cpfCnpj,
-            name: c.name,
-            email: c.email || undefined,
-            phone: c.phone || undefined,
-            address: c.address || undefined,
-            addressNumber: c.number || undefined,
-            complement: c.complement || undefined,
-            neighborhood: c.neighborhood || undefined,
-            city: c.city || undefined,
-            state: c.state || undefined,
-            cep: c.cep || undefined,
-            status: c.status || "unknown",
-            totalOverdueAmount: delinquent?.totalOverdueAmount || 0,
-            maxDaysOverdue: delinquent?.maxDaysOverdue || 0,
-            overdueInvoicesCount: delinquent?.overdueInvoicesCount || 0,
-            registrationDate: c.registrationDate || undefined,
-          }];
-        } else if (delinqResult.ok) {
-          // Client not found by CPF, but check delinquents
-          const match = delinqResult.customers.find(
-            d => d.cpfCnpj.replace(/\D/g, "") === cleanDoc
-          );
-          if (match) {
-            customers = [normalizeCustomer(match)];
-          }
+        if (result.ok && result.customers.length > 0) {
+          customers = result.customers.map(normalizeCustomer);
         }
       } else {
-        // Other ERPs: fetch delinquents and filter by document
+        // Fallback: fetch all delinquents and filter by document
         const result = await Promise.race([
           connector.fetchDelinquents(config),
           new Promise<never>((_, reject) =>
@@ -198,7 +196,7 @@ async function querySingleErp(
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Erro desconhecido";
     const isTimeout = msg === "Timeout" || msg.includes("timeout");
-    console.warn(`[RT-QUERY] ${intg.providerName} (${intg.erpSource}) falhou: ${msg}`);
+    logger.warn({ providerId: intg.providerId, erpSource: intg.erpSource, doc: document.slice(0, 4) + "***", error: msg }, "RT-QUERY ERP falhou");
     return {
       providerId: intg.providerId,
       providerName: intg.providerName,
@@ -245,7 +243,7 @@ export async function queryRegionalErps(
 ): Promise<RealtimeQueryResult[]> {
   if (integrations.length === 0) return [];
 
-  console.log(`[RT-QUERY] Consultando ${integrations.length} ERP(s) para ${searchType} ${document.slice(0, 4)}***`);
+  logger.info({ count: integrations.length, searchType, doc: document.slice(0, 4) + "***" }, "RT-QUERY consultando ERPs");
 
   const results = await Promise.allSettled(
     integrations.map(intg => querySingleErp(intg, document, searchType))
@@ -266,7 +264,7 @@ export async function queryRegionalErps(
 
   const successful = finalResults.filter(r => r.ok).length;
   const failed = finalResults.filter(r => !r.ok).length;
-  console.log(`[RT-QUERY] Concluido: ${successful} OK, ${failed} falhas de ${integrations.length} ERPs`);
+  logger.info({ successful, failed, total: integrations.length }, "RT-QUERY concluido");
 
   return finalResults;
 }
