@@ -66,6 +66,22 @@ export const ERP_CONFIG_FIELDS: Record<string, {
     { field: "apiUrl", label: "URL do RBX ISP", type: "url", required: true, placeholder: "https://erp.seudominio.com.br" },
     { field: "apiToken", label: "Chave de Integracao", type: "password", required: true, helpText: "Empresa > Parametros > Web Services no RBX" },
   ],
+  topsapp: [
+    { field: "apiUrl", label: "URL da API TopSApp", type: "url", required: true, placeholder: "https://seudominio.topsapp.com.br" },
+    { field: "apiToken", label: "Token de Integracao", type: "password", required: true },
+  ],
+  radiusnet: [
+    { field: "apiUrl", label: "URL da API RadiusNet", type: "url", required: true, placeholder: "https://seudominio.radiusnet.com.br" },
+    { field: "apiToken", label: "Token de Integracao", type: "password", required: true },
+  ],
+  gere: [
+    { field: "apiUrl", label: "URL da API Gere", type: "url", required: true, placeholder: "https://seudominio.gere.com.br" },
+    { field: "apiToken", label: "Token de Integracao", type: "password", required: true },
+  ],
+  receitanet: [
+    { field: "apiUrl", label: "URL da API ReceitaNet", type: "url", required: true, placeholder: "https://seudominio.receitanet.com.br" },
+    { field: "apiToken", label: "Token de Integracao", type: "password", required: true },
+  ],
 };
 
 /** Result of a connection test */
@@ -82,6 +98,9 @@ export interface NormalizedErpCustomer {
   email?: string;
   phone?: string;
   address?: string;
+  addressNumber?: string;
+  complement?: string;
+  neighborhood?: string;
   city?: string;
   state?: string;
   cep?: string;
@@ -118,4 +137,10 @@ export interface ErpConnector {
 
   /** Fetch all customers (including non-delinquent) */
   fetchCustomers(config: ErpConnectionConfig): Promise<ErpFetchResult>;
+
+  /** Fetch a single customer by CPF/CNPJ with overdue data already aggregated (optional) */
+  fetchCustomerByCpf?(config: ErpConnectionConfig, cpfCnpj: string): Promise<ErpFetchResult>;
+
+  /** Fetch customers by CEP prefix with overdue data aggregated (optional) */
+  fetchCustomersByCep?(config: ErpConnectionConfig, cep: string): Promise<ErpFetchResult>;
 }
