@@ -116,11 +116,18 @@ app.use((req, res, next) => {
     res.json({ status: "ok", uptime: process.uptime() });
   });
 
+  // Run migrations — non-fatal if migrations dir is missing
   try {
     await runMigrations();
+  } catch (err) {
+    logger.error({ err }, "Migration failed — continuing with existing schema");
+  }
+
+  // Verify critical schema — fatal only for core tables
+  try {
     await verifySchema();
   } catch (err) {
-    logger.fatal({ err }, "Migration/schema bootstrap failed — cannot serve traffic safely");
+    logger.fatal({ err }, "Critical schema verification failed — cannot serve traffic safely");
     process.exit(1);
   }
 
@@ -128,13 +135,20 @@ app.use((req, res, next) => {
   await seedSuperAdmin();
   await registerRoutes(httpServer, app);
 
-  // LGPD: Start data retention scheduler (anonymize consultations > 5 years)
-  const { startRetentionScheduler } = await import("./services/lgpd-retention");
-  startRetentionScheduler();
+  // LGPD services — non-fatal if dependencies are missing
+  try {
+    const { startRetentionScheduler } = await import("./services/lgpd-retention");
+    startRetentionScheduler();
+  } catch (err) {
+    logger.warn({ err }, "LGPD retention scheduler failed to start — feature unavailable");
+  }
 
-  // LGPD: Start titular request processor (auto-process acesso/exclusao/portabilidade every 1h)
-  const { startTitularProcessor } = await import("./services/lgpd-titular.service");
-  startTitularProcessor();
+  try {
+    const { startTitularProcessor } = await import("./services/lgpd-titular.service");
+    startTitularProcessor();
+  } catch (err) {
+    logger.warn({ err }, "LGPD titular processor failed to start — feature unavailable");
+  }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

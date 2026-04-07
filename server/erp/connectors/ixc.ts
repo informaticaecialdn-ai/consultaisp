@@ -35,6 +35,20 @@ import type {
 import { CircuitBreaker, withResilience } from "../resilience.js";
 import { cleanCpfCnpj, cleanCep, cleanPhone, calculateDaysOverdue, aggregateByCustomer } from "../normalize.js";
 
+/**
+ * Extracts address number from the endereco field when numero is empty.
+ * IXC often stores full address including number in endereco (e.g., "RUA AMÉLIA WIESEL ROSE, 4101")
+ * while leaving numero empty.
+ */
+function extractNumberFromAddress(endereco: string | undefined, numero: string | undefined): string | undefined {
+  if (numero && numero.trim()) return numero.trim();
+  if (!endereco) return undefined;
+  // Match a number after comma/space near the end: "RUA X, 4101" or "AV BRASIL 1500"
+  // Skip if the last segment is very short (likely a complement like ", 3")
+  const match = endereco.match(/,?\s+(\d{2,})\s*(?:,\s*\S+)?$/);
+  return match ? match[1] : undefined;
+}
+
 /** grid_param filter entry */
 interface IxcFilter {
   TB: string;
@@ -205,6 +219,7 @@ export class IxcConnector implements ErpConnector {
           email: row.email || undefined,
           phone: row.fone || row.celular || row.fone_celular ? cleanPhone(row.fone || row.celular || row.fone_celular) : undefined,
           address: row.endereco || row.logradouro || undefined,
+          addressNumber: extractNumberFromAddress(row.endereco, row.numero),
           city: row.cidade || undefined,
           state: row.uf || row.estado || undefined,
           cep: row.cep ? cleanCep(row.cep) : undefined,
@@ -251,6 +266,7 @@ export class IxcConnector implements ErpConnector {
             email: row.email || undefined,
             phone: row.fone || row.celular ? cleanPhone(row.fone || row.celular) : undefined,
             address: row.endereco || row.logradouro || undefined,
+            addressNumber: extractNumberFromAddress(row.endereco, row.numero),
             city: row.cidade || undefined,
             state: row.uf || row.estado || undefined,
             cep: row.cep ? cleanCep(row.cep) : undefined,
@@ -537,7 +553,7 @@ export class IxcConnector implements ErpConnector {
         email: r.email || undefined,
         phone: r.fone || r.celular ? cleanPhone(r.fone || r.celular) : undefined,
         address: r.endereco || r.logradouro || undefined,
-        addressNumber: r.numero || undefined,
+        addressNumber: extractNumberFromAddress(r.endereco, r.numero),
         complement: r.complemento || undefined,
         neighborhood: r.bairro || undefined,
         city: r.cidade || undefined,
@@ -644,7 +660,7 @@ export class IxcConnector implements ErpConnector {
             email: r.email || undefined,
             phone: r.fone || r.celular ? cleanPhone(r.fone || r.celular) : undefined,
             address: r.endereco || r.logradouro || undefined,
-            addressNumber: r.numero || undefined,
+            addressNumber: extractNumberFromAddress(r.endereco, r.numero),
             complement: r.complemento || undefined,
             neighborhood: r.bairro || undefined,
             city: r.cidade || undefined,

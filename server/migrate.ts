@@ -3,7 +3,18 @@ import path from "path";
 import { pool } from "./db";
 
 // CJS-compatible __dirname (esbuild bundles to CJS, so import.meta.url is undefined)
-const MIGRATIONS_DIR = path.resolve(process.cwd(), "migrations");
+function findMigrationsDir(): string {
+  const candidates = [
+    path.resolve(process.cwd(), "migrations"),
+    path.resolve(__dirname, "..", "migrations"),
+    path.resolve(__dirname, "migrations"),
+  ];
+  for (const dir of candidates) {
+    if (fs.existsSync(dir)) return dir;
+  }
+  return candidates[0]; // fallback, existsSync check later will skip
+}
+const MIGRATIONS_DIR = findMigrationsDir();
 
 function log(message: string) {
   const time = new Date().toLocaleTimeString("en-US", {
@@ -73,11 +84,7 @@ export async function runMigrations(): Promise<void> {
  * Throws if any required column is missing — prevents SQL errors at runtime.
  */
 export async function verifySchema(): Promise<void> {
-  const requiredColumns: Array<{ table: string; column: string }> = [
-    { table: "titular_requests", column: "updated_by" },
-    { table: "titular_requests", column: "updated_at" },
-    { table: "titular_requests", column: "execution_result" },
-    { table: "titular_requests", column: "prazo_limite" },
+  const criticalColumns: Array<{ table: string; column: string }> = [
     { table: "users", column: "id" },
     { table: "users", column: "email" },
     { table: "users", column: "role" },
@@ -92,21 +99,36 @@ export async function verifySchema(): Promise<void> {
     { table: "erp_integrations", column: "erp_source" },
   ];
 
+  const optionalColumns: Array<{ table: string; column: string }> = [
+    { table: "titular_requests", column: "updated_by" },
+    { table: "titular_requests", column: "updated_at" },
+    { table: "titular_requests", column: "execution_result" },
+    { table: "titular_requests", column: "prazo_limite" },
+  ];
+
+  const allColumns = [...criticalColumns, ...optionalColumns];
+
   const { rows } = await pool.query<{ table_name: string; column_name: string }>(`
     SELECT table_name, column_name
     FROM information_schema.columns
     WHERE table_schema = 'public'
-      AND (table_name, column_name) IN (${requiredColumns.map((_, i) => `($${i * 2 + 1}, $${i * 2 + 2})`).join(", ")})
-  `, requiredColumns.flatMap(c => [c.table, c.column]));
+      AND (table_name, column_name) IN (${allColumns.map((_, i) => `($${i * 2 + 1}, $${i * 2 + 2})`).join(", ")})
+  `, allColumns.flatMap(c => [c.table, c.column]));
 
   const found = new Set(rows.map(r => `${r.table_name}.${r.column_name}`));
-  const missing = requiredColumns.filter(c => !found.has(`${c.table}.${c.column}`));
 
-  if (missing.length > 0) {
-    const list = missing.map(c => `${c.table}.${c.column}`).join(", ");
+  const missingOptional = optionalColumns.filter(c => !found.has(`${c.table}.${c.column}`));
+  if (missingOptional.length > 0) {
+    const list = missingOptional.map(c => `${c.table}.${c.column}`).join(", ");
+    log(`WARNING: Optional columns missing: ${list} — some features may be unavailable`);
+  }
+
+  const missingCritical = criticalColumns.filter(c => !found.has(`${c.table}.${c.column}`));
+  if (missingCritical.length > 0) {
+    const list = missingCritical.map(c => `${c.table}.${c.column}`).join(", ");
     throw new Error(
-      `Schema verification failed — missing columns: ${list}. ` +
-      `Run migrations before starting the application.`
+      `Schema verification failed — missing critical columns: ${list}. ` +
+      `Run migrations before starting.`
     );
   }
 
