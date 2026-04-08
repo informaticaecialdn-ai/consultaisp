@@ -9,7 +9,7 @@
   --color-surface:    #FFFFFF;
   --color-border:     #E2DDD6;
   --color-ink:        #1A1714;
-  --color-muted:      #6B6560;
+  --color-muted:      #555049;
   --color-tag-bg:     #EEE9E0;
   --color-navy:       #1A3A5C;
   --color-steel:      #2C5F8A;
@@ -196,6 +196,20 @@
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* UX Pro Max: enforce minimum readable font on touch devices */
+  @media (pointer: coarse) {
+    button, a, label, input, select, textarea {
+      min-height: 44px;
+      font-size: max(var(--tw-font-size, inherit), 12px);
+    }
+    /* Keep small labels readable but allow monospace decorative text */
+    .font-mono {
+      font-size: max(var(--tw-font-size, inherit), 10px);
+    }
   }
 }
 

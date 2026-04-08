@@ -180,8 +180,8 @@ function AuthenticatedApp() {
       <div className="flex h-screen w-full">
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0">
-          <header className="flex items-center h-10 px-2 border-b-[0.5px] border-[var(--color-border)] bg-[var(--color-surface)] sticky top-0 z-50">
-            <SidebarTrigger data-testid="button-sidebar-toggle" />
+          <header className="flex items-center h-12 px-3 border-b-[0.5px] border-[var(--color-border)] bg-[var(--color-surface)] sticky top-0 z-50">
+            <SidebarTrigger data-testid="button-sidebar-toggle" aria-label="Abrir menu lateral" />
           </header>
           <main className="flex-1 overflow-auto bg-[var(--color-bg)]">
             <Router />

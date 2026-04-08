@@ -21,10 +21,10 @@ const buttonVariants = cva(
           "bg-transparent text-[var(--color-muted)] border-transparent hover:bg-[var(--color-tag-bg)]",
       },
       size: {
-        default: "min-h-9 px-4 py-2",
-        sm: "min-h-8 px-3 text-[10px]",
-        lg: "min-h-10 px-8",
-        icon: "h-9 w-9",
+        default: "min-h-10 px-4 py-2",
+        sm: "min-h-9 px-3 text-[10px] [@media(pointer:coarse)]:min-h-11",
+        lg: "min-h-11 px-8",
+        icon: "h-10 w-10 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11",
       },
     },
     defaultVariants: {
