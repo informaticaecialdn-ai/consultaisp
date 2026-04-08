@@ -23,7 +23,10 @@ interface Props {
 /* ── Provider Row ─────────────────────────────────────────── */
 function ProviderRow({ detail, globalIdx, onShowDetail }: { detail: ProviderDetail; globalIdx: number; onShowDetail: (idx: number) => void }) {
   const isOwn = detail.isSameProvider;
-  const isDelinquent = detail.daysOverdue > 0;
+  // For external providers, daysOverdue is undefined (LGPD) — use overdueAmountRange or status as fallback
+  const isDelinquent = detail.daysOverdue > 0
+    || (!isOwn && !!detail.overdueAmountRange)
+    || (detail.status?.toLowerCase().includes("inadimplente"));
   const debtStr = isOwn && detail.overdueAmount != null
     ? `R$ ${detail.overdueAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
     : detail.overdueAmountRange || null;
@@ -81,7 +84,9 @@ function ProviderRow({ detail, globalIdx, onShowDetail }: { detail: ProviderDeta
           }}
           data-testid={`contract-status-${globalIdx}`}
         >
-          {isDelinquent ? `${detail.daysOverdue}d em atraso` : "Em dia"}
+          {isDelinquent
+            ? (detail.daysOverdue > 0 ? `${detail.daysOverdue}d em atraso` : "Inadimplente")
+            : "Em dia"}
         </span>
         {debtStr && (
           <p className="text-sm font-semibold" style={{ color: "var(--color-danger)" }} data-testid={`debt-value-${globalIdx}`}>{debtStr}</p>
