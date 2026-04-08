@@ -23,6 +23,6 @@ export function maskAlertForProvider(alert: any, currentProviderId: number) {
       : (alert.customerCpfCnpj ? maskCpfCnpj(alert.customerCpfCnpj, false) : alert.customerCpfCnpj),
     consultingProviderName: isOwnConsultation
       ? alert.consultingProviderName
-      : (alert.consultingProviderName ? anonymizeProvider(alert.consultingProviderName) : alert.consultingProviderName),
+      : (alert.consultingProviderName ? anonymizeProvider(alert.consultingProviderName, alert.consultingProviderId) : alert.consultingProviderName),
   };
 }

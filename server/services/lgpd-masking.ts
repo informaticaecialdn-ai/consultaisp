@@ -206,9 +206,9 @@ export function maskCrossProviderDetail(
   }
   // Cross-provider: strip CEP entirely (city/state is enough)
   result.cep = undefined;
-  // LGPD: Anonymize cross-provider name
+  // LGPD: Anonymize cross-provider name (use providerId for consistent ISP-XXXX code)
   if (detail.providerName != null) {
-    result.providerName = getProviderDisplayName(detail.providerName, false);
+    result.providerName = getProviderDisplayName(detail.providerName, false, detail.providerId);
   }
 
   // LGPD: daysOverdue — convert exact days to qualitative range, strip exact value

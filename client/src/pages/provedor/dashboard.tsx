@@ -223,17 +223,46 @@ export default function DashboardPage() {
           <h1 className="font-display text-lg font-semibold text-[var(--color-ink)]" data-testid="text-dashboard-title">
             central de inadimplencia
           </h1>
-          <p className="text-[12px] text-[var(--color-muted)]">{provider?.name}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-[var(--color-muted)]">{provider?.name}</p>
+            {provider?.id && (
+              <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-[var(--color-navy-bg)] text-[var(--color-navy)] font-mono" data-testid="text-partner-code">
+                ISP-{String(provider.id).padStart(4, "0")}
+              </span>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Badge variant="navy" className="gap-1.5">
-            <CreditCard className="w-3 h-3" />
-            ISP {stats?.ispCredits ?? "..."}
-          </Badge>
-          <Badge variant="gold" className="gap-1.5">
-            <CreditCard className="w-3 h-3" />
-            SPC {stats?.spcCredits ?? "..."}
-          </Badge>
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Provedores parceiros */}
+          <div className="flex items-center gap-2 border border-[var(--color-border)] rounded-md px-3 py-2 bg-[var(--color-surface)]">
+            <Users className="w-4 h-4 text-[var(--color-steel)]" />
+            <div className="text-right">
+              <p className="font-mono text-lg font-bold text-[var(--color-ink)] leading-none" data-testid="text-partner-count">
+                {stats?.partnerCount ?? "..."}
+              </p>
+              <p className="text-xs text-[var(--color-muted)] leading-tight">parceiros</p>
+            </div>
+          </div>
+          {/* ISP Credits */}
+          <div className="flex items-center gap-2 border border-[var(--color-border)] rounded-md px-3 py-2 bg-[var(--color-navy-bg)]">
+            <CreditCard className="w-4 h-4 text-[var(--color-navy)]" />
+            <div className="text-right">
+              <p className="font-mono text-lg font-bold text-[var(--color-navy)] leading-none" data-testid="text-isp-credits">
+                {stats?.ispCredits ?? "..."}
+              </p>
+              <p className="text-xs text-[var(--color-muted)] leading-tight">ISP</p>
+            </div>
+          </div>
+          {/* SPC Credits */}
+          <div className="flex items-center gap-2 border border-[var(--color-border)] rounded-md px-3 py-2 bg-[var(--color-gold-bg)]">
+            <CreditCard className="w-4 h-4 text-[var(--color-gold)]" />
+            <div className="text-right">
+              <p className="font-mono text-lg font-bold text-[var(--color-gold)] leading-none" data-testid="text-spc-credits">
+                {stats?.spcCredits ?? "..."}
+              </p>
+              <p className="text-xs text-[var(--color-muted)] leading-tight">SPC</p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -242,7 +271,7 @@ export default function DashboardPage() {
         {kpiCards.map((card) => (
           <Card key={card.testId} className="p-4" data-testid={card.testId}>
             <span
-              className="font-mono text-[10px] uppercase tracking-[0.08em]"
+              className="font-mono text-xs uppercase tracking-[0.08em]"
               style={{ color: "var(--color-muted)" }}
             >
               {card.label}
@@ -261,7 +290,7 @@ export default function DashboardPage() {
                 >
                   {card.value}
                 </p>
-                <p className="text-[11px] mt-1" style={{ color: "var(--color-muted)" }}>{card.sub}</p>
+                <p className="text-xs mt-1" style={{ color: "var(--color-muted)" }}>{card.sub}</p>
               </>
             )}
           </Card>
@@ -270,7 +299,7 @@ export default function DashboardPage() {
 
       {/* Mapa de Calor */}
       <div>
-        <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)] mb-4 pb-2 border-b-[0.5px] border-[var(--color-border)]">
+        <div className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-4 pb-2 border-b-[0.5px] border-[var(--color-border)]">
           mapa de calor
         </div>
 
@@ -280,11 +309,11 @@ export default function DashboardPage() {
               <Flame className="w-4 h-4" style={{ color: "var(--color-gold)" }} />
               <div>
                 <span className="font-display text-sm font-semibold text-[var(--color-ink)]">Distribuicao de inadimplencia</span>
-                <p className="text-[11px] text-[var(--color-muted)]">clientes em atraso por regiao</p>
+                <p className="text-xs text-[var(--color-muted)]">clientes em atraso por regiao</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <span className="font-mono text-[10px] text-[var(--color-muted)]" data-testid="text-defaulter-count">
+              <span className="font-mono text-xs text-[var(--color-muted)]" data-testid="text-defaulter-count">
                 {stats?.defaulters || 0} inadimplentes
               </span>
               <Link href="/mapa-calor">
@@ -300,8 +329,8 @@ export default function DashboardPage() {
             {heatPoints.length === 0 ? (
               <div className="rounded border-[0.5px] border-dashed border-[var(--color-border)] p-10 flex flex-col items-center justify-center text-center gap-2 bg-[var(--color-bg)]">
                 <MapPin className="w-6 h-6 text-[var(--color-muted)]" style={{ opacity: 0.4 }} />
-                <p className="text-[13px] font-body text-[var(--color-muted)]">Nenhum ponto de calor disponivel</p>
-                <p className="text-[11px] text-[var(--color-muted)]" style={{ opacity: 0.6 }}>Cadastre coordenadas nos clientes inadimplentes para visualizar o mapa.</p>
+                <p className="text-sm font-body text-[var(--color-muted)]">Nenhum ponto de calor disponivel</p>
+                <p className="text-xs text-[var(--color-muted)]" style={{ opacity: 0.6 }}>Cadastre coordenadas nos clientes inadimplentes para visualizar o mapa.</p>
               </div>
             ) : (
               <>
@@ -311,7 +340,7 @@ export default function DashboardPage() {
                   providerPoints={heatmapData}
                   defaultCenter={providerCenter}
                 />
-                <div className="mt-3 flex items-center gap-4 text-[10px] font-mono text-[var(--color-muted)] border-t-[0.5px] border-[var(--color-border)] pt-3">
+                <div className="mt-3 flex items-center gap-4 text-xs font-mono text-[var(--color-muted)] border-t-[0.5px] border-[var(--color-border)] pt-3">
                   <div className="flex items-center gap-1.5">
                     <span className="inline-flex gap-px">
                       <span className="w-3 h-1 rounded-sm" style={{ background: "var(--color-success)" }} />

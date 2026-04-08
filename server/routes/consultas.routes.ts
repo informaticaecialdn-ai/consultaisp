@@ -182,6 +182,7 @@ export function registerConsultasRoutes(): Router {
 
           const rawDetail: Record<string, any> = {
             providerName: c.providerName,
+            providerId: c.providerId,
             isSameProvider: c.isSameProvider,
             customerName: c.name || "Desconhecido",
             cpfCnpj: c.cpfCnpj || "",
@@ -398,7 +399,7 @@ export function registerConsultasRoutes(): Router {
                     address: `${g.cep}, nº ${g.numero}${g.complemento ? `, ${g.complemento}` : ""}`,
                     city: "",
                     state: undefined as string | undefined,
-                    providerName: getProviderDisplayName(c.providerName, isSame),
+                    providerName: getProviderDisplayName(c.providerName, isSame, c.providerId),
                     isSameProvider: isSame,
                     status: c.maxDaysOverdue > 90 ? "Inadimplente (90+ dias)"
                       : c.maxDaysOverdue > 60 ? "Inadimplente (61-90 dias)"
@@ -420,7 +421,7 @@ export function registerConsultasRoutes(): Router {
           autoAddressCrossRef,
           source: "erp_direct",
           // V-02 LGPD fix: anonymize provider names in erpLatencies
-          erpLatencies: erpResults.map(r => ({ provider: getProviderDisplayName(r.providerName, r.providerId === providerId), erp: r.erpSource, ok: r.ok, ms: r.latencyMs, error: r.error })),
+          erpLatencies: erpResults.map(r => ({ provider: getProviderDisplayName(r.providerName, r.providerId === providerId, r.providerId), erp: r.erpSource, ok: r.ok, ms: r.latencyMs, error: r.error })),
           erpSummary: {
             total: erpResults.length,
             responded: erpResults.filter(r => r.ok).length,
@@ -569,7 +570,7 @@ export function registerConsultasRoutes(): Router {
           score: c.score,
           decision: c.decisionReco,
           searchType: c.searchType,
-          provider: getProviderDisplayName(providerName, isSameProvider),
+          provider: getProviderDisplayName(providerName, isSameProvider, c.providerId),
           alerts,
           isSameProvider,
         };
