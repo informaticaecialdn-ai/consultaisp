@@ -135,7 +135,13 @@ export function detectMigrator(input: MigratorDetectionInput): MigratorAlert | n
     riskFactors.push("multiplas_consultas");
   }
 
-  const message = `MIGRADOR SERIAL: CPF com contrato cancelado em ${cancelledRecord.providerName}, divida ativa de R$ ${cancelledRecord.overdueAmount.toFixed(2)}, e ${recentConsultationsByDistinctProviders} consultas recentes por provedores diferentes`;
+  // LGPD: mask exact amount and provider name for cross-provider alerts
+  const isOwnProvider = cancelledRecord.providerId === input.consultingProviderId;
+  const maskedProviderName = isOwnProvider ? cancelledRecord.providerName : "provedor da rede ISP";
+  const maskedAmount = isOwnProvider
+    ? `R$ ${cancelledRecord.overdueAmount.toFixed(2)}`
+    : (() => { const floor = Math.floor(cancelledRecord.overdueAmount / 500) * 500; return `R$ ${floor} - R$ ${floor + 500}`; })();
+  const message = `MIGRADOR SERIAL: CPF com contrato cancelado em ${maskedProviderName}, divida ativa de ${maskedAmount}, e ${recentConsultationsByDistinctProviders} consultas recentes por provedores diferentes`;
 
   const alertRecord = buildMigratorAlertRecord(
     input,

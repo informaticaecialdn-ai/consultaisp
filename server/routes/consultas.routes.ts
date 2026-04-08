@@ -201,11 +201,18 @@ export function registerConsultasRoutes(): Router {
           return maskCrossProviderDetail(rawDetail, c.isSameProvider);
         });
 
-        // Build alerts
+        // Build alerts — LGPD: mask exact values for cross-provider data
         const alerts: string[] = [];
         for (const c of allCustomers) {
           if (c.maxDaysOverdue > 0 && !c.isSameProvider) {
-            alerts.push(`[${c.isSameProvider ? c.providerName : "Rede ISP"}] Inadimplente: ${c.maxDaysOverdue} dias em atraso`);
+            const maskedDays = c.maxDaysOverdue > 365 ? "mais de 1 ano"
+              : c.maxDaysOverdue > 180 ? "mais de 6 meses"
+              : c.maxDaysOverdue > 90 ? "mais de 90 dias"
+              : c.maxDaysOverdue > 30 ? "mais de 30 dias"
+              : "menos de 30 dias";
+            alerts.push(`[Rede ISP] Inadimplente: ${maskedDays} em atraso`);
+          } else if (c.maxDaysOverdue > 0 && c.isSameProvider) {
+            alerts.push(`[${c.providerName}] Inadimplente: ${c.maxDaysOverdue} dias em atraso`);
           }
         }
 
