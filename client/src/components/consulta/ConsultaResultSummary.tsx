@@ -422,9 +422,16 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
         </div>
 
         {/* Map */}
-        {(result.addressUsed || ownProviders[0]?.cep) && (
+        {(result.addressUsed || ownProviders[0]?.cep || ownProviders[0]?.address) && (
           <div className="px-4 pb-3">
-            <AddressMapMini cep={result.addressUsed || ownProviders[0]?.cep || ""} />
+            <AddressMapMini
+              cep={result.addressUsed || ownProviders[0]?.cep || ""}
+              address={ownProviders[0]?.address}
+              city={ownProviders[0]?.addressCity}
+              state={ownProviders[0]?.addressState}
+              neighborhood={ownProviders[0]?.neighborhood}
+              addressNumber={ownProviders[0]?.addressNumber}
+            />
           </div>
         )}
 

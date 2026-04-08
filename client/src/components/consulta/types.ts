@@ -16,6 +16,8 @@ export interface ProviderDetail {
   cancelledDate?: string;
   contractStatus?: string;
   address?: string;
+  addressNumber?: string;
+  neighborhood?: string;
   cep?: string;
   addressCity?: string;
   addressState?: string;

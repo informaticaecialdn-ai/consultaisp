@@ -1,17 +1,19 @@
-import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { STALE_STATIC } from "@/lib/queryClient";
 import { MapPin } from "lucide-react";
 
 interface AddressMapMiniProps {
-  cep: string;
+  /** CEP (fallback se nao tiver endereco completo) */
+  cep?: string;
   addressNumber?: string;
+  /** Endereco completo: rua, numero, bairro, cidade, estado */
+  address?: string;
+  city?: string;
+  state?: string;
+  neighborhood?: string;
 }
 
-export default function AddressMapMini({ cep, addressNumber }: AddressMapMiniProps) {
-  const [addressQuery, setAddressQuery] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-
+export default function AddressMapMini({ cep, addressNumber, address, city, state, neighborhood }: AddressMapMiniProps) {
   const { data: keyData, isLoading: keyLoading, isError: keyError } = useQuery<{ key: string }>({
     queryKey: ["/api/config/maps-key"],
     staleTime: STALE_STATIC,
@@ -21,52 +23,39 @@ export default function AddressMapMini({ cep, addressNumber }: AddressMapMiniPro
   const keyResolved = !keyLoading;
   const keyUnavailable = keyResolved && (!apiKey || keyError);
 
-  useEffect(() => {
-    if (!cep) { setFailed(true); return; }
+  // Montar query de busca: priorizar endereco completo, fallback CEP
+  let searchQuery = "";
+  if (address && city && state) {
+    // Endereco completo disponivel
+    const parts = [address];
+    if (addressNumber) parts[0] = `${address} ${addressNumber}`;
+    if (neighborhood) parts.push(neighborhood);
+    parts.push(city);
+    parts.push(state);
+    parts.push("Brasil");
+    searchQuery = parts.join(", ");
+  } else if (city && state) {
+    // Cidade + estado
+    searchQuery = `${city}, ${state}, Brasil`;
+  } else if (cep) {
+    // Fallback: buscar por CEP
+    const clean = cep.replace(/\D/g, "");
+    if (clean.length === 8) {
+      searchQuery = `CEP ${clean}, Brasil`;
+    }
+  }
 
-    const cleanCep = cep.replace(/\D/g, "");
-    if (cleanCep.length !== 8) { setFailed(true); return; }
-
-    let cancelled = false;
-    setFailed(false);
-    setAddressQuery(null);
-
-    (async () => {
-      try {
-        const res = await fetch(`https://viacep.com.br/ws/${cleanCep}/json/`);
-        const data = await res.json();
-        if (cancelled) return;
-        if (data.erro || !data.localidade) { setFailed(true); return; }
-
-        const { logradouro, localidade, uf } = data;
-        if (logradouro && addressNumber) {
-          setAddressQuery(`${logradouro} ${addressNumber}, ${localidade}, ${uf}, Brasil`);
-        } else if (logradouro) {
-          setAddressQuery(`${logradouro}, ${localidade}, ${uf}, Brasil`);
-        } else {
-          setAddressQuery(`${localidade}, ${uf}, Brasil`);
-        }
-      } catch {
-        if (!cancelled) setFailed(true);
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [cep, addressNumber]);
-
-  // Unavailable: geocode failed, CEP invalid, or API key not available
-  if (failed || keyUnavailable) {
+  if (!searchQuery || keyUnavailable) {
     return (
       <div className="relative rounded overflow-hidden border border-[var(--color-border)] bg-[var(--color-bg)] flex flex-col items-center justify-center gap-2" style={{ height: "220px" }}>
         <MapPin className="w-8 h-8 text-[var(--color-muted)]" />
-        <span className="text-sm text-[var(--color-muted)] font-medium">Localização indisponível</span>
-        {cep && <span className="text-xs text-[var(--color-muted)] max-w-[200px] text-center truncate">CEP {cep}{addressNumber ? `, nº ${addressNumber}` : ""}</span>}
+        <span className="text-sm text-[var(--color-muted)] font-medium">Localizacao indisponivel</span>
+        {cep && <span className="text-xs text-[var(--color-muted)]">CEP {cep}</span>}
       </div>
     );
   }
 
-  // Loading: ViaCEP still resolving or API key still loading
-  if (!apiKey || !addressQuery) {
+  if (!apiKey) {
     return (
       <div className="relative rounded overflow-hidden border border-[var(--color-border)] bg-[var(--color-bg)] flex items-center justify-center" style={{ height: "220px" }}>
         <div className="w-5 h-5 border-2 border-[var(--color-muted)] border-t-transparent rounded-full animate-spin" />
@@ -77,13 +66,13 @@ export default function AddressMapMini({ cep, addressNumber }: AddressMapMiniPro
   return (
     <div className="relative rounded overflow-hidden border border-[var(--color-border)]">
       <iframe
-        src={`https://www.google.com/maps/embed/v1/place?key=${apiKey}&q=${encodeURIComponent(addressQuery)}&zoom=15`}
+        src={`https://www.google.com/maps/embed/v1/place?key=${apiKey}&q=${encodeURIComponent(searchQuery)}&zoom=15`}
         width="100%"
         height="220"
         style={{ border: 0 }}
         loading="lazy"
         referrerPolicy="no-referrer-when-downgrade"
-        title="Mapa do endereço"
+        title="Mapa do endereco"
       />
     </div>
   );
