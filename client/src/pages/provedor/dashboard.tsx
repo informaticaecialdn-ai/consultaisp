@@ -229,13 +229,13 @@ export default function DashboardPage() {
         <div className="flex items-center gap-3 flex-wrap">
           {/* Codigo do Provedor */}
           {partnerCode && (
-          <div className="flex items-center gap-2 border border-[var(--color-border)] rounded-md px-3 py-2 bg-[var(--color-success-bg)]">
-            <Shield className="w-4 h-4 text-[var(--color-success)]" />
-            <div className="text-right">
-              <p className="font-mono text-lg font-bold text-[var(--color-success)] leading-none" data-testid="text-partner-code">
+          <div className="flex items-center gap-2 border border-[var(--color-success)] rounded-md px-3 py-2 bg-[var(--color-success-bg)]">
+            <Shield className="w-4 h-4 text-[var(--color-success)] flex-shrink-0" />
+            <div>
+              <p className="font-mono text-sm font-bold text-[var(--color-success)] leading-none whitespace-nowrap" data-testid="text-partner-code">
                 {partnerCode}
               </p>
-              <p className="text-xs text-[var(--color-muted)] leading-tight">seu codigo</p>
+              <p className="text-[10px] text-[var(--color-muted)] leading-tight mt-0.5">seu codigo</p>
             </div>
           </div>
           )}
