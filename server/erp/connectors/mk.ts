@@ -318,6 +318,52 @@ export class MkConnector implements ErpConnector {
             console.log(`[MK] WSMKFaturas fallback erro: ${altErr instanceof Error ? altErr.message : altErr}`);
           }
         }
+
+        // Strategy 3: Check if connection is blocked (WSMKConexoesPorCliente) — blocked = delinquent
+        if (overdueInvoicesCount === 0) {
+          try {
+            const conexoesUrl = `${base}/mk/WSMKConexoesPorCliente.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdCliente)}`;
+            console.log(`[MK] Strategy 3: verificando conexoes bloqueadas via WSMKConexoesPorCliente`);
+
+            const conexoesResponse = await withResilience(
+              () => fetch(conexoesUrl, { method: "GET", signal: AbortSignal.timeout(15000) }),
+              { retries: 1, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
+            );
+
+            if (conexoesResponse.ok) {
+              const conexoesJson: any = await conexoesResponse.json();
+              const rawConexoes = JSON.stringify(conexoesJson);
+              console.log(`[MK] WSMKConexoesPorCliente resposta (${rawConexoes.length} chars): ${rawConexoes.substring(0, 500)}`);
+
+              let conexoes: any[] = Array.isArray(conexoesJson)
+                ? conexoesJson
+                : conexoesJson?.Conexoes || conexoesJson?.conexoes || conexoesJson?.registros || conexoesJson?.data || [];
+
+              if ((!conexoes || conexoes.length === 0) && typeof conexoesJson === "object" && conexoesJson !== null && !Array.isArray(conexoesJson)) {
+                for (const val of Object.values(conexoesJson)) {
+                  if (Array.isArray(val) && val.length > 0) { conexoes = val; break; }
+                }
+              }
+
+              // Check for blocked connections — indicates financial issues
+              for (const c of conexoes) {
+                const bloqueada = c.Bloqueada || c.bloqueada || c.Bloqueado || c.bloqueado || c.blocked || "";
+                const motivoBloqueio = c.MotivoBloqueio || c.motivo_bloqueio || c.MotivoBloqueioCodigo || "";
+                console.log(`[MK] Conexao: bloqueada=${bloqueada}, motivo=${motivoBloqueio}`);
+
+                if (String(bloqueada).toUpperCase() === "S" || String(bloqueada).toUpperCase() === "SIM" || String(bloqueada) === "true" || String(bloqueada) === "1") {
+                  console.log(`[MK] Conexao BLOQUEADA detectada — marcando como inadimplente`);
+                  // Blocked connection = at least 30 days overdue (typical MK behavior: block after 30d)
+                  maxDaysOverdue = Math.max(maxDaysOverdue, 30);
+                  overdueInvoicesCount = Math.max(overdueInvoicesCount, 1);
+                  break;
+                }
+              }
+            }
+          } catch (conErr) {
+            console.log(`[MK] WSMKConexoesPorCliente erro: ${conErr instanceof Error ? conErr.message : conErr}`);
+          }
+        }
       }
 
       // MK returns address as "Rua X, 123 - Bairro, Cidade" — extract parts
