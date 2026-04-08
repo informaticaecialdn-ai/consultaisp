@@ -265,6 +265,18 @@ export function calcularScoreISP(input: ISPScoreInput): ISPScoreResult {
     condicoesSugeridas.push('Solicitar fiador ou comprovante de renda')
   }
 
+  // Override: if there are ANY active delinquencies in the network (even mild),
+  // downgrade from APROVAR to APROVAR COM ATENCAO to flag the risk
+  const hasAnyDelinquency = todasOcorrencias.some(oc => oc.diasAtraso > 0)
+  if (hasAnyDelinquency && sugestaoIA === 'APROVAR') {
+    sugestaoIA = 'APROVAR COM ATENCAO'
+    corIndicador = 'amarelo'
+    nivelRisco = 'moderado'
+    if (!condicoesSugeridas.some(s => s.includes('pendencia'))) {
+      condicoesSugeridas.push('Cliente com pendencia financeira na rede ISP — monitorar')
+    }
+  }
+
   const score100 = Math.round(score / 10)
 
   return {
