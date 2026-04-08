@@ -20,6 +20,7 @@ import {
   Wifi,
   Users,
   Package,
+  Shield,
 } from "lucide-react";
 
 type HeatPoint = { lat: number; lng: number; weight: number };
@@ -223,16 +224,21 @@ export default function DashboardPage() {
           <h1 className="font-display text-lg font-semibold text-[var(--color-ink)]" data-testid="text-dashboard-title">
             central de inadimplencia
           </h1>
-          <div className="flex items-center gap-2">
-            <p className="text-sm text-[var(--color-muted)]">{provider?.name}</p>
-            {partnerCode && (
-              <span className="text-xs font-bold px-2 py-0.5 rounded bg-[var(--color-navy-bg)] text-[var(--color-navy)] font-mono tracking-wide" data-testid="text-partner-code">
-                {partnerCode}
-              </span>
-            )}
-          </div>
+          <p className="text-sm text-[var(--color-muted)]">{provider?.name}</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
+          {/* Codigo do Provedor */}
+          {partnerCode && (
+          <div className="flex items-center gap-2 border border-[var(--color-border)] rounded-md px-3 py-2 bg-[var(--color-success-bg)]">
+            <Shield className="w-4 h-4 text-[var(--color-success)]" />
+            <div className="text-right">
+              <p className="font-mono text-lg font-bold text-[var(--color-success)] leading-none" data-testid="text-partner-code">
+                {partnerCode}
+              </p>
+              <p className="text-xs text-[var(--color-muted)] leading-tight">seu codigo</p>
+            </div>
+          </div>
+          )}
           {/* Provedores parceiros */}
           <div className="flex items-center gap-2 border border-[var(--color-border)] rounded-md px-3 py-2 bg-[var(--color-surface)]">
             <Users className="w-4 h-4 text-[var(--color-steel)]" />
