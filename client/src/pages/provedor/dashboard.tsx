@@ -215,15 +215,15 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="p-6 lg:p-8 space-y-8 max-w-7xl mx-auto bg-[var(--color-bg)] min-h-screen" data-testid="dashboard-page">
+    <div className="p-4 lg:p-5 space-y-5 max-w-7xl mx-auto bg-[var(--color-bg)]" data-testid="dashboard-page">
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="font-display text-2xl font-light text-[var(--color-ink)]" data-testid="text-dashboard-title">
+          <h1 className="font-display text-lg font-semibold text-[var(--color-ink)]" data-testid="text-dashboard-title">
             central de inadimplencia
           </h1>
-          <p className="text-[13px] text-[var(--color-muted)] mt-1 font-body">{provider?.name} — monitoramento em tempo real</p>
+          <p className="text-[12px] text-[var(--color-muted)]">{provider?.name}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Badge variant="navy" className="gap-1.5">

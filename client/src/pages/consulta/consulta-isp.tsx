@@ -138,55 +138,42 @@ export default function ConsultaISPPage() {
   const handleClear = () => { setResult(null); setShowFullResult(false); };
 
   return (
-    <div className="min-h-screen bg-[var(--color-bg)] p-6" data-testid="consulta-isp-page">
-      <div className="max-w-5xl mx-auto space-y-6">
+    <div className="bg-[var(--color-bg)] p-4 lg:p-5" data-testid="consulta-isp-page">
+      <div className="max-w-6xl mx-auto space-y-4">
 
-        {/* HEADER */}
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded bg-[var(--color-navy)] flex items-center justify-center">
-              <Search className="w-5 h-5 text-white" />
+        {/* HEADER — compact */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded bg-[var(--color-navy)] flex items-center justify-center flex-shrink-0">
+              <Search className="w-4 h-4 text-white" />
             </div>
             <div>
-              <h1 className="text-4xl font-display font-light text-[var(--color-ink)] leading-tight" data-testid="text-consulta-isp-title">
+              <h1 className="text-xl font-display font-semibold text-[var(--color-ink)] leading-tight" data-testid="text-consulta-isp-title">
                 Consulta ISP
               </h1>
-              <p className="text-lg text-[var(--color-muted)]">Sistema de analise de credito para provedores</p>
+              <p className="text-[12px] text-[var(--color-muted)]">analise de credito para provedores</p>
             </div>
           </div>
-          <div className="bg-[var(--color-bg)] backdrop-blur border-[0.5px] border-[var(--color-border)] rounded px-4 py-2.5 flex items-center gap-2.5">
-            <CreditCard className="w-5 h-5 text-[var(--color-navy)]" />
-            <div>
-              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)] leading-none">Creditos ISP</p>
-              <p className={`text-xl font-mono font-semibold leading-tight ${(data?.credits ?? 1) === 0 ? "text-[var(--color-danger)]" : "text-[var(--color-ink)]"}`} data-testid="text-isp-credits">
+          <div className="flex items-center gap-4">
+            {/* Inline stats */}
+            <div className="hidden md:flex items-center gap-4 text-[var(--color-muted)]">
+              <span className="font-mono text-[11px]" data-testid="text-isp-today">hoje <strong className="text-[var(--color-ink)]">{data?.todayCount ?? 0}</strong></span>
+              <span className="font-mono text-[11px]" data-testid="text-isp-month">mes <strong className="text-[var(--color-ink)]">{data?.monthCount ?? 0}</strong></span>
+              <span className="font-mono text-[11px]" data-testid="text-isp-approval">aprovacao <strong className="text-[var(--color-ink)]">{approvalRate}%</strong></span>
+              <span className="font-mono text-[11px]" data-testid="text-isp-avg-score">score <strong className="text-[var(--color-ink)]">{avgScore}</strong></span>
+            </div>
+            {/* Credits */}
+            <div className="border-[0.5px] border-[var(--color-border)] rounded px-3 py-1.5 flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-[var(--color-navy)]" />
+              <span className={`font-mono text-sm font-semibold ${(data?.credits ?? 1) === 0 ? "text-[var(--color-danger)]" : "text-[var(--color-ink)]"}`} data-testid="text-isp-credits">
                 {data?.credits ?? "..."}
-              </p>
+              </span>
             </div>
           </div>
-        </div>
-
-        {/* STAT CARDS */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
-            { label: "Consultas Hoje", value: data?.todayCount ?? 0, icon: Activity, iconBg: "bg-[var(--color-navy-bg)]", iconColor: "text-[var(--color-navy)]", testid: "text-isp-today" },
-            { label: "Consultas Mes", value: data?.monthCount ?? 0, icon: Calendar, iconBg: "bg-[var(--color-gold-bg)]", iconColor: "text-[var(--color-gold)]", testid: "text-isp-month" },
-            { label: "Taxa Aprovacao", value: `${approvalRate}%`, icon: CheckCircle, iconBg: "bg-[var(--color-success-bg)]", iconColor: "text-[var(--color-success)]", testid: "text-isp-approval" },
-            { label: "Score Medio ISP", value: avgScore, icon: BarChart3, iconBg: "bg-[var(--color-gold-bg)]", iconColor: "text-[var(--color-gold)]", testid: "text-isp-avg-score" },
-          ].map(stat => (
-            <div key={stat.label} className="bg-[var(--color-bg)] backdrop-blur rounded border-[0.5px] border-[var(--color-border)] p-4" data-testid={stat.testid}>
-              <div className="flex items-center justify-between mb-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]">{stat.label}</p>
-                <div className={`w-9 h-9 rounded ${stat.iconBg} flex items-center justify-center`}>
-                  <stat.icon className={`w-5 h-5 ${stat.iconColor}`} />
-                </div>
-              </div>
-              <p className="text-3xl font-mono font-semibold text-[var(--color-ink)]">{isLoading ? "..." : stat.value}</p>
-            </div>
-          ))}
         </div>
 
         {/* TABS */}
-        <div className="flex gap-1 bg-[var(--color-bg)] backdrop-blur rounded border-[0.5px] border-[var(--color-border)] p-1 w-fit flex-wrap">
+        <div className="flex gap-0 border-b-[0.5px] border-[var(--color-border)] w-fit">
           {(["nova", "historico", "timeline", "relatorios", "info"] as const).map(tab => (
             <button
               key={tab}
