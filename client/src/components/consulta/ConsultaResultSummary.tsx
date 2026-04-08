@@ -1,12 +1,13 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import {
-  CheckCircle, Shield, AlertTriangle, AlertCircle, XCircle,
-  Info, Lock, MapPin, Router, User, RotateCcw, Save, Download,
-  FileText, Home, Globe,
+  CheckCircle, Shield, AlertTriangle, XCircle,
+  Lock, MapPin, Router, User, RotateCcw, Save, Download,
+  FileText, Home, Globe, ChevronDown, AlertCircle, Info,
 } from "lucide-react";
+import { useState } from "react";
 import AddressMapMini from "@/components/consulta/AddressMapMini";
+import ScoreGaugeSvg from "./ScoreGaugeSvg";
 import ScoreBreakdownPanel from "./ScoreBreakdownPanel";
 import type { ConsultaResult, ProviderDetail, AddressMatch } from "./types";
 import { formatCpfCnpj } from "./utils";
@@ -19,152 +20,204 @@ interface Props {
   onGeneratePDF: () => void;
 }
 
-function ProviderCard({ detail, globalIdx, onShowDetail }: { detail: ProviderDetail; globalIdx: number; onShowDetail: (idx: number) => void }) {
+/* ── Provider Row ─────────────────────────────────────────── */
+function ProviderRow({ detail, globalIdx, onShowDetail }: { detail: ProviderDetail; globalIdx: number; onShowDetail: (idx: number) => void }) {
   const isOwn = detail.isSameProvider;
+  const isDelinquent = detail.daysOverdue > 0;
   const debtStr = isOwn && detail.overdueAmount != null
     ? `R$ ${detail.overdueAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
     : detail.overdueAmountRange || null;
   const maskedName = !isOwn
-    ? (() => {
-        const parts = detail.customerName.split(" ");
-        return parts[0] + (parts[1] ? " " + parts[1][0] + "." : "") + (parts.length > 2 ? " " + parts[parts.length - 1][0] + "***" : "***");
-      })()
+    ? (() => { const p = detail.customerName.split(" "); return p[0] + (p[1] ? " " + p[1][0] + "." : "") + (p.length > 2 ? " " + p[p.length - 1][0] + "***" : "***"); })()
     : detail.customerName;
   const locationStr = isOwn
     ? detail.address || (detail.addressCity ? `${detail.addressCity}${detail.addressState ? "/" + detail.addressState : ""}` : null)
     : detail.addressCity ? `${detail.addressCity}${detail.addressState ? "/" + detail.addressState : ""}` : null;
-  const isDelinquent = detail.daysOverdue > 0;
 
   return (
-    <div className="flex items-stretch" data-testid={`provider-card-${globalIdx}`}>
-      <div className={`w-1 flex-shrink-0 ${isOwn ? "bg-[var(--color-success)]" : isDelinquent ? "bg-[var(--color-danger)]" : "bg-[var(--color-border)]"}`} />
-      <div className="flex-1 px-4 py-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap mb-0.5">
-              <span className={`text-[11px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-sm ${isOwn ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>
-                {isOwn ? "Seu provedor" : "Provedor parceiro"}
-              </span>
-              {!isOwn && <Lock className="w-3 h-3 text-[var(--color-muted)]" />}
-              <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-sm border ${isOwn ? "bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-success)]" : "bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-navy)]"}`} data-testid={`cost-badge-${globalIdx}`}>
-                {isOwn ? "Grátis" : "1 crédito"}
-              </span>
-            </div>
-            <p className="text-base font-semibold text-[var(--color-ink)] truncate" data-testid={`customer-name-${globalIdx}`}>{maskedName}</p>
-            {locationStr && (
-              <p className="text-xs text-[var(--color-muted)] flex items-center gap-1 mt-0.5">
-                <MapPin className="w-2.5 h-2.5 flex-shrink-0" />
-                {locationStr}
-                {!isOwn && <Lock className="w-2 h-2 text-[var(--color-muted)]" />}
-              </p>
-            )}
-          </div>
-          <div className="text-right flex-shrink-0 space-y-1">
-            <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded-sm ${
-              isDelinquent ? "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" :
-              detail.contractStatus === "active" ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" :
-              "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"
-            }`} data-testid={`contract-status-${globalIdx}`}>
-              {isDelinquent ? `${detail.daysOverdue} dias em atraso` :
-               detail.contractStatus === "active" ? "Em dia" :
-               detail.contractStatus === "cancelled" ? "Cancelado" :
-               detail.contractStatus === "suspended" ? "Suspenso" : "Sem contrato"}
+    <div
+      className="flex items-center gap-3 py-3 px-4 transition-colors hover:bg-[var(--color-tag-bg)] cursor-pointer group"
+      onClick={() => onShowDetail(globalIdx)}
+      data-testid={`provider-card-${globalIdx}`}
+    >
+      {/* Status indicator */}
+      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${isDelinquent ? "bg-[#C44040]" : "bg-[#2E8B57]"}`} />
+
+      {/* Provider info */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-semibold truncate" style={{ color: "var(--color-ink)" }} data-testid={`customer-name-${globalIdx}`}>
+            {maskedName}
+          </span>
+          {isOwn ? (
+            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-success-bg)", color: "var(--color-success)" }}>
+              Seu provedor
             </span>
-            {debtStr && (
-              <p className="text-sm font-semibold text-[var(--color-danger)]" data-testid={`debt-value-${globalIdx}`}>{debtStr}</p>
-            )}
-            {detail.overdueInvoicesCount > 0 && (
-              <p className="text-xs text-[var(--color-danger)]">{detail.overdueInvoicesCount} fatura{detail.overdueInvoicesCount > 1 ? "s" : ""} em atraso</p>
-            )}
-            {detail.hasUnreturnedEquipment && (
-              <p className="text-xs font-bold text-[var(--color-gold)] flex items-center justify-end gap-1">
-                <Router className="w-2.5 h-2.5" />
-                {detail.unreturnedEquipmentCount} equip. retido{detail.unreturnedEquipmentCount > 1 ? "s" : ""}
-              </p>
-            )}
-          </div>
+          ) : (
+            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-0.5" style={{ backgroundColor: "var(--color-tag-bg)", color: "var(--color-muted)" }}>
+              <Lock className="w-2.5 h-2.5" /> Parceiro
+            </span>
+          )}
         </div>
-        <button
-          className="mt-2 text-xs font-semibold text-[var(--color-navy)] hover:text-[var(--color-steel)] flex items-center gap-1 transition-colors"
-          onClick={() => onShowDetail(globalIdx)}
-          data-testid={`button-ver-informacoes-${globalIdx}`}
-        >
-          <Info className="w-3 h-3" />
-          Ver detalhes completos
-        </button>
+        <div className="flex items-center gap-2 mt-0.5">
+          {detail.providerName && (
+            <span className="text-xs" style={{ color: "var(--color-muted)" }}>{detail.providerName}</span>
+          )}
+          {locationStr && (
+            <span className="text-xs flex items-center gap-0.5" style={{ color: "var(--color-muted)" }}>
+              <MapPin className="w-2.5 h-2.5" /> {locationStr}
+            </span>
+          )}
+        </div>
       </div>
+
+      {/* Status + debt */}
+      <div className="text-right flex-shrink-0 space-y-0.5">
+        <span
+          className="inline-block text-xs font-bold px-2 py-0.5 rounded"
+          style={{
+            backgroundColor: isDelinquent ? "var(--color-danger-bg)" : "var(--color-success-bg)",
+            color: isDelinquent ? "var(--color-danger)" : "var(--color-success)",
+          }}
+          data-testid={`contract-status-${globalIdx}`}
+        >
+          {isDelinquent ? `${detail.daysOverdue}d em atraso` : "Em dia"}
+        </span>
+        {debtStr && (
+          <p className="text-sm font-semibold" style={{ color: "var(--color-danger)" }} data-testid={`debt-value-${globalIdx}`}>{debtStr}</p>
+        )}
+        {detail.hasUnreturnedEquipment && (
+          <p className="text-xs font-bold flex items-center justify-end gap-0.5" style={{ color: "var(--color-gold)" }}>
+            <Router className="w-2.5 h-2.5" />
+            {detail.unreturnedEquipmentCount} equip.
+          </p>
+        )}
+      </div>
+
+      {/* Cost badge */}
+      <span
+        className="text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0"
+        style={{
+          backgroundColor: isOwn ? "var(--color-success-bg)" : "var(--color-navy-bg)",
+          color: isOwn ? "var(--color-success)" : "var(--color-navy)",
+        }}
+        data-testid={`cost-badge-${globalIdx}`}
+      >
+        {isOwn ? "Gratis" : "1 cred."}
+      </span>
     </div>
   );
 }
 
-function AddressMatchCard({ match, idx }: { match: AddressMatch; idx: number }) {
+/* ── Address Match Row ────────────────────────────────────── */
+function AddressRow({ match, idx }: { match: AddressMatch; idx: number }) {
   return (
     <div
-      className={`flex items-center gap-4 p-4 rounded border bg-[var(--color-surface)] ${match.hasDebt ? "border-[var(--color-danger)]" : "border-[var(--color-border)]"}`}
+      className="flex items-center gap-3 py-2.5 px-4"
       data-testid={`address-match-${idx}`}
     >
-      <div className={`w-1.5 self-stretch rounded-full flex-shrink-0 ${match.hasDebt ? "bg-[var(--color-danger)]" : "bg-[var(--color-border)]"}`} />
-      <div className="w-10 h-10 rounded-full bg-[var(--color-gold-bg)] flex items-center justify-center flex-shrink-0">
-        <User className="w-5 h-5 text-[var(--color-gold)]" />
-      </div>
+      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${match.hasDebt ? "bg-[#C44040]" : "bg-[#2E8B57]"}`} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-base font-semibold text-[var(--color-ink)]" data-testid={`address-match-name-${idx}`}>
+          <span className="text-sm font-semibold" style={{ color: "var(--color-ink)" }} data-testid={`address-match-name-${idx}`}>
             {match.customerName}
           </span>
           {match.isSameProvider && (
-            <Badge className="bg-[var(--color-navy-bg)] text-[var(--color-navy)] border-0 text-xs">Seu cliente</Badge>
+            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-navy-bg)", color: "var(--color-navy)" }}>Seu cliente</span>
           )}
           {match.hasDebt && (
-            <Badge className="bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-0 text-xs">Inadimplente</Badge>
+            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-danger-bg)", color: "var(--color-danger)" }}>Inadimplente</span>
           )}
         </div>
-        <p className="text-sm text-[var(--color-muted)] mt-0.5">
+        <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: "var(--color-muted)" }}>
           {match.isSameProvider ? (
-            <>Doc: {match.cpfCnpj} &nbsp;•&nbsp; {match.providerName}</>
+            <>{match.cpfCnpj} · {match.providerName}</>
           ) : (
-            <span className="flex items-center gap-1">
-              Doc: ••••••••••• <Lock className="w-2.5 h-2.5 text-[var(--color-muted)]" /> &nbsp;•&nbsp; {match.providerName}
-            </span>
+            <span className="flex items-center gap-0.5">••••••••••• <Lock className="w-2.5 h-2.5" /> · {match.providerName}</span>
           )}
         </p>
-        <p className="text-sm text-[var(--color-muted)] flex items-center gap-1 mt-0.5">
-          <MapPin className="w-3 h-3" />
-          {match.address}{match.city ? `, ${match.city}` : ""}{match.state ? `/${match.state}` : ""}
-        </p>
       </div>
-      <div className="flex flex-col items-end gap-1 flex-shrink-0">
-        <span className={`text-sm font-medium px-2 py-0.5 rounded-sm ${
-          match.daysOverdue != null
-            ? (match.daysOverdue === 0 ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : match.daysOverdue <= 30 ? "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" : "bg-[var(--color-danger-bg)] text-[var(--color-danger)]")
-            : match.hasDebt ? "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" : "bg-[var(--color-success-bg)] text-[var(--color-success)]"
-        }`}>
+      <div className="text-right flex-shrink-0">
+        <span
+          className="text-xs font-bold px-2 py-0.5 rounded"
+          style={{
+            backgroundColor: match.hasDebt ? "var(--color-danger-bg)" : "var(--color-success-bg)",
+            color: match.hasDebt ? "var(--color-danger)" : "var(--color-success)",
+          }}
+        >
           {match.status}
         </span>
         {match.isSameProvider && match.totalOverdue !== undefined && match.totalOverdue > 0 && (
-          <span className="text-xs text-[var(--color-danger)] font-medium">
-            R$ {match.totalOverdue.toFixed(2)} em aberto
-          </span>
+          <p className="text-xs font-medium mt-0.5" style={{ color: "var(--color-danger)" }}>
+            R$ {match.totalOverdue.toFixed(2)}
+          </p>
         )}
         {!match.isSameProvider && match.totalOverdueRange && (
-          <span className="text-xs text-[var(--color-danger)] font-medium">
-            {match.totalOverdueRange} em aberto
-          </span>
+          <p className="text-xs font-medium mt-0.5" style={{ color: "var(--color-danger)" }}>
+            {match.totalOverdueRange}
+          </p>
         )}
       </div>
     </div>
   );
 }
 
+/* ── Section wrapper ──────────────────────────────────────── */
+function Section({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)] overflow-hidden ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+function SectionHeader({ icon: Icon, title, trailing }: { icon: React.ComponentType<any>; title: string; trailing?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--color-border)]">
+      <div className="flex items-center gap-2">
+        <Icon className="w-4 h-4" style={{ color: "var(--color-muted)" }} />
+        <span className="text-sm font-bold uppercase tracking-wider" style={{ color: "var(--color-ink)" }}>{title}</span>
+      </div>
+      {trailing}
+    </div>
+  );
+}
+
+/* ── Collapsible group ────────────────────────────────────── */
+function CollapsibleGroup({ label, icon: Icon, count, badge, defaultOpen = false, children }: {
+  label: string;
+  icon: React.ComponentType<any>;
+  count: number;
+  badge?: React.ReactNode;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div>
+      <button
+        className="w-full flex items-center gap-2 px-5 py-2.5 hover:bg-[var(--color-tag-bg)] transition-colors"
+        onClick={() => setOpen(!open)}
+      >
+        <Icon className="w-3.5 h-3.5" style={{ color: "var(--color-muted)" }} />
+        <span className="text-xs font-bold" style={{ color: "var(--color-ink)" }}>{label}</span>
+        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-tag-bg)", color: "var(--color-muted)" }}>{count}</span>
+        {badge}
+        <ChevronDown className={`w-3.5 h-3.5 ml-auto transition-transform duration-200 ${open ? "rotate-180" : ""}`} style={{ color: "var(--color-muted)" }} />
+      </button>
+      {open && <div className="divide-y divide-[var(--color-border)]">{children}</div>}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════
+   MAIN COMPONENT
+   ════════════════════════════════════════════════════════════ */
 export default function ConsultaResultSummary({ result, onShowDetail, onNewConsulta, onSave, onGeneratePDF }: Props) {
   const isNotFoundWithAddressDebt = result.notFound && result.addressMatches?.some(m => m.hasDebt);
   const dc = result.decisionReco;
   const score = Math.max(0, Math.min(1000, result.score));
   const totalEquipPending = result.providerDetails.reduce((s, d) => s + (d.hasUnreturnedEquipment ? d.unreturnedEquipmentCount : 0), 0);
-  const totalEquipValue = result.providerDetails.reduce((s, d) => {
-    if (!d.hasUnreturnedEquipment) return s;
-    return s + (d.unreturnedEquipmentCount || 0) * 290;
-  }, 0);
   const externalProviders = result.providerDetails.filter(d => !d.isSameProvider);
   const ownProviders = result.providerDetails.filter(d => d.isSameProvider);
   const now = new Date();
@@ -176,245 +229,190 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
   const unavailable = !result.autoAddressCrossRef && !hasDebtMatches;
   const addressOwnMatches = result.addressMatches?.filter(m => m.isSameProvider) ?? [];
   const addressExtMatches = result.addressMatches?.filter(m => !m.isSameProvider) ?? [];
-  const addressExtHasDebt = addressExtMatches.some(m => m.hasDebt);
 
-  const R = 72;
-  const CX = 90;
-  const CY = 88;
-  const arcLen = Math.PI * R;
-  const scoreOffset = arcLen * (1 - score / 1000);
-  const gaugeColor = score >= 701 ? "#1A4A2E" : score >= 501 ? "#B8860B" : score >= 301 ? "#C45A1A" : "#8B1A1A";
   const decisionCfg = dc === "Accept"
-    ? { bg: "bg-[var(--color-success)]", border: "border-[var(--color-success)]", label: "APROVAR", icon: CheckCircle, sub: "Sem restrições na rede ISP" }
+    ? { color: "#2E8B57", bg: "#2E8B57", label: "APROVAR", icon: CheckCircle, sub: "Sem restricoes na rede ISP" }
     : dc === "Reject"
-    ? { bg: "bg-[var(--color-danger)]", border: "border-[var(--color-danger)]", label: "REJEITAR", icon: XCircle, sub: totalEquipPending > 0 ? `${totalEquipPending} equip. retido${totalEquipPending > 1 ? "s" : ""} · R$ ${totalEquipValue.toLocaleString("pt-BR")} em risco` : result.recommendation }
-    : { bg: "bg-[var(--color-gold)]", border: "border-[var(--color-gold)]", label: "ANALISAR", icon: AlertCircle, sub: result.recommendation };
-
-  const docDefaultValues = ["doc-seu-provedor"];
-  if (externalProviders.some(d => d.daysOverdue > 0)) docDefaultValues.push("doc-outros");
-  const addrDefaultValues: string[] = [];
-  if (addressOwnMatches.length > 0) addrDefaultValues.push("addr-seu-provedor");
-  if (addressExtHasDebt) addrDefaultValues.push("addr-outros");
+    ? { color: "#C44040", bg: "#C44040", label: "REJEITAR", icon: XCircle, sub: result.recommendation }
+    : { color: "#C9A820", bg: "#C9A820", label: "ANALISAR", icon: AlertCircle, sub: result.recommendation };
 
   return (
-    <div className="space-y-3" data-testid="consultation-result-cards">
-      {/* HERO CARD */}
+    <div className="space-y-4" data-testid="consultation-result-cards">
+
+      {/* ═══ SECTION 1: SCORE HERO ═══ */}
       {!isNotFoundWithAddressDebt && (
-      <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] overflow-hidden">
-        <div className={`h-1.5 w-full ${decisionCfg.bg}`} />
-        <div className="px-5 pt-4 pb-2 flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold text-[var(--color-muted)] uppercase tracking-widest">Relatório de Crédito ISP</p>
-            <p className="text-2xl font-semibold text-[var(--color-ink)] font-mono tracking-tight mt-0.5" data-testid="text-consulted-doc">
-              {result.searchType === "cep"
-                ? result.cpfCnpj.replace(/^(\d{5})(\d{3})$/, "$1-$2")
-                : formatCpfCnpj(result.cpfCnpj)}
-            </p>
-            <p className="text-xs text-[var(--color-muted)] mt-0.5">
-              {result.searchType === "cep" ? "CEP" : result.searchType === "cnpj" ? "CNPJ" : "CPF"} · Consultado em {consultedAt}
-            </p>
-          </div>
-          <div className="flex items-center gap-1.5 text-[var(--color-muted)] text-xs">
-            <Shield className="w-3.5 h-3.5 text-[var(--color-navy)]" />
-            <span className="font-semibold text-[var(--color-navy)]">Rede ISP Colaborativa</span>
-          </div>
-        </div>
-
-        <div className="px-5 pb-5 grid grid-cols-[auto_1fr] gap-6 items-center">
-          {/* GAUGE SVG */}
-          <div className="flex flex-col items-center">
-            <svg width="180" height="100" viewBox="0 0 180 100">
-              <path d={`M${CX - R},${CY} A${R},${R} 0 0 1 ${CX + R},${CY}`} fill="none" stroke="#EEE9E0" strokeWidth="14" strokeLinecap="round" />
-              {[
-                { from: 0, to: 30, color: "#fecaca" },
-                { from: 30, to: 50, color: "#fed7aa" },
-                { from: 50, to: 70, color: "#fef08a" },
-                { from: 70, to: 100, color: "#bbf7d0" },
-              ].map((z, zi) => {
-                const startAngle = Math.PI * (1 - z.from / 100);
-                const endAngle = Math.PI * (1 - z.to / 100);
-                const x1 = CX - R * Math.cos(startAngle);
-                const y1 = CY - R * Math.sin(startAngle);
-                const x2 = CX - R * Math.cos(endAngle);
-                const y2 = CY - R * Math.sin(endAngle);
-                const large = z.to - z.from > 50 ? 1 : 0;
-                return (
-                  <path key={zi} d={`M${x1},${y1} A${R},${R} 0 ${large} 0 ${x2},${y2}`} fill="none" stroke={z.color} strokeWidth="14" strokeLinecap="butt" />
-                );
-              })}
-              <path d={`M${CX - R},${CY} A${R},${R} 0 0 1 ${CX + R},${CY}`} fill="none" stroke={gaugeColor} strokeWidth="14" strokeLinecap="round" strokeDasharray={arcLen} strokeDashoffset={scoreOffset} style={{ transition: "stroke-dashoffset 0.8s ease" }} />
-              <text x={CX} y={CY - 10} textAnchor="middle" fontSize="34" fontWeight="900" fill="#0f172a" fontFamily="monospace">{score}</text>
-              <text x={CX} y={CY + 6} textAnchor="middle" fontSize="11" fill="#94a3b8" fontWeight="700" letterSpacing="1">DE 1000</text>
-              <text x={CX - R - 4} y={CY + 14} textAnchor="end" fontSize="9" fill="#94a3b8">Muito Baixo</text>
-              <text x={CX + R + 4} y={CY + 14} textAnchor="start" fontSize="9" fill="#94a3b8">Excelente</text>
-            </svg>
-            <p className="text-sm font-bold mt-1 tracking-wide" style={{ color: gaugeColor }} data-testid="text-risk-badge">{result.riskLabel}</p>
-          </div>
-
-          {/* DECISION + KEY STATS */}
-          <div className="space-y-3">
-            <div className={`${decisionCfg.bg} rounded px-4 py-3 flex items-center gap-3`} data-testid="ai-suggestion-banner">
-              <decisionCfg.icon className="w-7 h-7 text-white flex-shrink-0" />
-              <div>
-                <p className="text-xs font-bold text-white/70 uppercase tracking-widest">Sugestão IA</p>
-                <p className="text-xl font-semibold text-white leading-none" data-testid="text-ai-recommendation">{decisionCfg.label}</p>
-              </div>
-              <div className="ml-auto border-l border-white/25 pl-3">
-                <p className="text-xs text-white/80 leading-snug max-w-[130px]">{decisionCfg.sub}</p>
-              </div>
+        <Section>
+          {/* Top bar */}
+          <div className="px-5 pt-4 pb-3 flex items-center justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--color-muted)" }}>
+                Relatorio de Credito ISP
+              </p>
+              <p className="text-xl font-bold tracking-tight mt-0.5 tabular-nums" style={{ color: "var(--color-ink)", fontFamily: "'Inter', system-ui, sans-serif" }} data-testid="text-consulted-doc">
+                {result.searchType === "cep"
+                  ? result.cpfCnpj.replace(/^(\d{5})(\d{3})$/, "$1-$2")
+                  : formatCpfCnpj(result.cpfCnpj)}
+              </p>
+              <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>
+                {result.searchType === "cep" ? "CEP" : result.searchType === "cnpj" ? "CNPJ" : "CPF"} · {consultedAt}
+              </p>
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="bg-[var(--color-bg)] border border-[var(--color-border)] rounded p-2.5 text-center">
-                <p className="text-xs text-[var(--color-muted)] font-semibold">Provedores</p>
-                <p className="text-lg font-semibold text-[var(--color-ink)]">{result.providersFound || result.providerDetails.length}</p>
-              </div>
-              <div className={`border rounded p-2.5 text-center ${totalEquipPending > 0 ? "bg-[var(--color-gold-bg)] border-[var(--color-border)]" : "bg-[var(--color-bg)] border-[var(--color-border)]"}`}>
-                <p className="text-xs text-[var(--color-muted)] font-semibold">Equip. retidos</p>
-                <p className={`text-lg font-semibold ${totalEquipPending > 0 ? "text-[var(--color-gold)]" : "text-[var(--color-ink)]"}`}>{totalEquipPending}</p>
-              </div>
-              <div className={`border rounded p-2.5 text-center ${externalProviders.length > 0 ? "bg-[var(--color-danger-bg)] border-[var(--color-border)]" : "bg-[var(--color-bg)] border-[var(--color-border)]"}`}>
-                <p className="text-xs text-[var(--color-muted)] font-semibold">Externos</p>
-                <p className={`text-lg font-semibold ${externalProviders.length > 0 ? "text-[var(--color-danger)]" : "text-[var(--color-ink)]"}`}>{externalProviders.length}</p>
-              </div>
+            <div className="flex items-center gap-1.5">
+              <Shield className="w-3.5 h-3.5" style={{ color: "var(--color-navy)" }} />
+              <span className="text-xs font-semibold" style={{ color: "var(--color-navy)" }}>Rede ISP Colaborativa</span>
             </div>
           </div>
-        </div>
-      </div>
+
+          {/* Score gauge centered */}
+          <div className="flex justify-center py-2">
+            <ScoreGaugeSvg score={score} size="lg" />
+          </div>
+
+          {/* Decision banner */}
+          <div className="mx-5 mb-4 rounded-lg px-4 py-3 flex items-center gap-3" style={{ backgroundColor: decisionCfg.bg }} data-testid="ai-suggestion-banner">
+            <decisionCfg.icon className="w-6 h-6 text-white flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-[10px] font-bold text-white/60 uppercase tracking-widest">Sugestao IA</p>
+              <p className="text-lg font-bold text-white leading-tight" data-testid="text-ai-recommendation">{decisionCfg.label}</p>
+            </div>
+            <p className="text-xs text-white/80 max-w-[160px] text-right leading-snug">{decisionCfg.sub}</p>
+          </div>
+
+          {/* Quick stats row */}
+          <div className="grid grid-cols-3 border-t border-[var(--color-border)]">
+            <div className="text-center py-3 border-r border-[var(--color-border)]">
+              <p className="text-xl font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>{result.providersFound || result.providerDetails.length}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-muted)" }}>Provedores</p>
+            </div>
+            <div className="text-center py-3 border-r border-[var(--color-border)]">
+              <p className="text-xl font-bold tabular-nums" style={{ color: totalEquipPending > 0 ? "var(--color-gold)" : "var(--color-ink)" }}>{totalEquipPending}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-muted)" }}>Equip. retidos</p>
+            </div>
+            <div className="text-center py-3">
+              <p className="text-xl font-bold tabular-nums" style={{ color: externalProviders.length > 0 ? "var(--color-danger)" : "var(--color-ink)" }}>{externalProviders.length}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-muted)" }}>Externos</p>
+            </div>
+          </div>
+        </Section>
       )}
 
-      {/* TWO-COLUMN GRID */}
-      <div className={`grid grid-cols-1 ${result.searchType !== "cep" ? "lg:grid-cols-2" : ""} gap-4`}>
-        {/* LEFT COLUMN: Por Documento */}
-        {result.searchType !== "cep" && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 pb-2 border-b-2 border-[var(--color-navy)]">
-            <FileText className="w-3.5 h-3.5 inline" />
-            <span className="text-base font-semibold text-[var(--color-ink)]">Resultado por Documento</span>
-            <span className="text-xs font-bold bg-[var(--color-success-bg)] text-[var(--color-success)] px-2 py-0.5 rounded-sm">
-              {result.providerDetails.length} provedor{result.providerDetails.length !== 1 ? "es" : ""}
-            </span>
+      {/* ═══ SECTION 2: SCORE BREAKDOWN ═══ */}
+      {result.fatoresScore && result.searchType !== "cep" && (
+        <Section>
+          <div className="p-5">
+            <ScoreBreakdownPanel fatores={result.fatoresScore} />
           </div>
+        </Section>
+      )}
+
+      {/* ═══ SECTION 3: POR DOCUMENTO ═══ */}
+      {result.searchType !== "cep" && (
+        <Section>
+          <SectionHeader
+            icon={FileText}
+            title="Resultado por Documento"
+            trailing={
+              <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ backgroundColor: "var(--color-success-bg)", color: "var(--color-success)" }}>
+                {result.providerDetails.length} provedor{result.providerDetails.length !== 1 ? "es" : ""}
+              </span>
+            }
+          />
 
           {isNotFoundWithAddressDebt ? (
-            <div className="bg-[var(--color-surface)] rounded border-2 border-[var(--color-border)] p-4">
-              <div className="flex items-center gap-3">
-                <CheckCircle className="w-5 h-5 text-[var(--color-success)] flex-shrink-0" />
-                <div>
-                  <p className="text-sm font-semibold text-[var(--color-success)]">Nada Consta por Documento</p>
-                  <p className="text-xs text-[var(--color-success)] mt-0.5">
-                    CPF/CNPJ {formatCpfCnpj(result.cpfCnpj)} sem restrições na rede ISP colaborativa.
-                  </p>
-                </div>
+            <div className="p-5 flex items-center gap-3">
+              <CheckCircle className="w-5 h-5 flex-shrink-0" style={{ color: "var(--color-success)" }} />
+              <div>
+                <p className="text-sm font-semibold" style={{ color: "var(--color-success)" }}>Nada Consta por Documento</p>
+                <p className="text-xs" style={{ color: "var(--color-success)" }}>
+                  CPF/CNPJ {formatCpfCnpj(result.cpfCnpj)} sem restricoes na rede ISP colaborativa.
+                </p>
               </div>
             </div>
-          ) : (
-            <>
-              {result.providerDetails.length > 0 && (
-                <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] overflow-hidden">
-                  <Accordion type="multiple" defaultValue={docDefaultValues}>
-                    {ownProviders.length > 0 && (
-                      <AccordionItem value="doc-seu-provedor" className="border-b-0">
-                        <AccordionTrigger className="px-4 py-3 hover:no-underline">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-[var(--color-ink)]"><Home className="w-3.5 h-3.5 inline" /> Seu Provedor</span>
-                            <span className="text-[11px] font-bold bg-[var(--color-success-bg)] text-[var(--color-success)] px-1.5 py-0.5 rounded-sm">{ownProviders[0]?.providerName}</span>
-                            {ownProviders.some(d => d.daysOverdue > 0) ? (
-                              <span className="text-[11px] font-bold bg-[var(--color-danger-bg)] text-[var(--color-danger)] px-1.5 py-0.5 rounded-sm">Inadimplente</span>
-                            ) : (
-                              <span className="text-[11px] font-bold bg-[var(--color-success-bg)] text-[var(--color-success)] px-1.5 py-0.5 rounded-sm">Em dia</span>
-                            )}
-                          </div>
-                        </AccordionTrigger>
-                        <AccordionContent className="px-0 pb-0">
-                          <div className="divide-y divide-[var(--color-border)]">
-                            {ownProviders.map((detail, i) => {
-                              const globalIdx = result.providerDetails.indexOf(detail);
-                              return <ProviderCard key={i} detail={detail} globalIdx={globalIdx} onShowDetail={onShowDetail} />;
-                            })}
-                          </div>
-                        </AccordionContent>
-                      </AccordionItem>
-                    )}
-                    {externalProviders.length > 0 && (
-                      <AccordionItem value="doc-outros" className="border-b-0">
-                        <AccordionTrigger className="px-4 py-3 hover:no-underline">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-[var(--color-ink)]"><Globe className="w-3.5 h-3.5 inline" /> Outros Provedores</span>
-                            <span className="text-[11px] font-bold bg-[var(--color-tag-bg)] text-[var(--color-muted)] px-1.5 py-0.5 rounded-sm">{externalProviders.length}</span>
-                            {externalProviders.some(d => d.daysOverdue > 0) && (
-                              <span className="text-[11px] font-bold bg-[var(--color-danger-bg)] text-[var(--color-danger)] px-1.5 py-0.5 rounded-sm">Inadimplência</span>
-                            )}
-                            <span className="text-[11px] font-bold bg-[var(--color-navy-bg)] text-[var(--color-navy)] px-1.5 py-0.5 rounded-sm border border-[var(--color-border)]">
-                              {externalProviders.length} crédito{externalProviders.length !== 1 ? "s" : ""}
-                            </span>
-                          </div>
-                        </AccordionTrigger>
-                        <AccordionContent className="px-0 pb-0">
-                          <div className="divide-y divide-[var(--color-border)]">
-                            {externalProviders.map((detail, i) => {
-                              const globalIdx = result.providerDetails.indexOf(detail);
-                              return <ProviderCard key={i} detail={detail} globalIdx={globalIdx} onShowDetail={onShowDetail} />;
-                            })}
-                          </div>
-                        </AccordionContent>
-                      </AccordionItem>
-                    )}
-                  </Accordion>
-                </div>
+          ) : result.providerDetails.length > 0 ? (
+            <div>
+              {ownProviders.length > 0 && (
+                <CollapsibleGroup label="Seu Provedor" icon={Home} count={ownProviders.length} defaultOpen={true}
+                  badge={
+                    ownProviders.some(d => d.daysOverdue > 0)
+                      ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-danger-bg)", color: "var(--color-danger)" }}>Inadimplente</span>
+                      : <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-success-bg)", color: "var(--color-success)" }}>Em dia</span>
+                  }
+                >
+                  {ownProviders.map((detail, i) => {
+                    const globalIdx = result.providerDetails.indexOf(detail);
+                    return <ProviderRow key={i} detail={detail} globalIdx={globalIdx} onShowDetail={onShowDetail} />;
+                  })}
+                </CollapsibleGroup>
               )}
-            </>
-          )}
+              {externalProviders.length > 0 && (
+                <CollapsibleGroup
+                  label="Outros Provedores"
+                  icon={Globe}
+                  count={externalProviders.length}
+                  defaultOpen={externalProviders.some(d => d.daysOverdue > 0)}
+                  badge={
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-navy-bg)", color: "var(--color-navy)" }}>
+                      {externalProviders.length} credito{externalProviders.length !== 1 ? "s" : ""}
+                    </span>
+                  }
+                >
+                  {externalProviders.map((detail, i) => {
+                    const globalIdx = result.providerDetails.indexOf(detail);
+                    return <ProviderRow key={i} detail={detail} globalIdx={globalIdx} onShowDetail={onShowDetail} />;
+                  })}
+                </CollapsibleGroup>
+              )}
+            </div>
+          ) : null}
+        </Section>
+      )}
 
-          {result.fatoresScore && <ScoreBreakdownPanel fatores={result.fatoresScore} />}
-        </div>
-        )}
+      {/* ═══ SECTION 4: POR ENDERECO ═══ */}
+      <Section>
+        <SectionHeader
+          icon={MapPin}
+          title="Verificacao por Endereco"
+          trailing={
+            <div className="flex items-center gap-1.5">
+              {debtCount > 0 ? (
+                <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ backgroundColor: "var(--color-danger-bg)", color: "var(--color-danger)" }}>
+                  {debtCount} inadimpl.
+                </span>
+              ) : cleanCross ? (
+                <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ backgroundColor: "var(--color-success-bg)", color: "var(--color-success)" }}>Limpo</span>
+              ) : (
+                <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ backgroundColor: "var(--color-tag-bg)", color: "var(--color-muted)" }}>N/D</span>
+              )}
+              {result.autoAddressCrossRef === true && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-navy-bg)", color: "var(--color-navy)" }}>AUTO</span>
+              )}
+            </div>
+          }
+        />
 
-        {/* RIGHT COLUMN: Por Endereço */}
-        <div className="space-y-3">
-          <div className="flex items-center gap-2 pb-2 border-b-2 border-[var(--color-gold)]">
-            <MapPin className="w-3.5 h-3.5 inline" />
-            <span className="text-base font-semibold text-[var(--color-ink)]">Resultado por Endereço</span>
-            {debtCount > 0 ? (
-              <span className={`text-xs font-bold px-2 py-0.5 rounded-sm ${debtCount >= 3 ? "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" : debtCount >= 2 ? "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" : "bg-[var(--color-danger-bg)] text-[var(--color-danger)]"}`}>
-                {debtCount} inadimpl.
-              </span>
-            ) : cleanCross ? (
-              <span className="text-xs font-bold bg-[var(--color-success-bg)] text-[var(--color-success)] px-2 py-0.5 rounded-sm">Limpo</span>
-            ) : (
-              <span className="text-xs font-bold bg-[var(--color-tag-bg)] text-[var(--color-muted)] px-2 py-0.5 rounded-sm">N/D</span>
-            )}
-            {result.autoAddressCrossRef === true && (
-              <span className="text-[11px] font-bold bg-[var(--color-navy-bg)] text-[var(--color-navy)] px-1.5 py-0.5 rounded-sm">AUTO</span>
-            )}
-          </div>
-
+        {/* Status alert */}
+        <div className="p-4">
           {hasDebtMatches ? (
-            <div className="bg-[var(--color-danger)] rounded p-4 border-l-[6px] border-[#5a1111]">
-              <div className="flex items-center gap-3">
-                <AlertTriangle className="w-6 h-6 text-white animate-pulse flex-shrink-0" />
-                <div>
-                  <p className="text-xs font-bold text-white/70 uppercase tracking-widest">Alerta de Endereço</p>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-3xl font-semibold text-white leading-none">{debtCount}</span>
-                    <span className="text-sm font-semibold text-white/90">inadimplente{debtCount !== 1 ? "s" : ""} neste endereço</span>
-                  </div>
-                </div>
-              </div>
-              {isNotFoundWithAddressDebt && (
-                <div className="mt-3 bg-white/10 rounded p-3">
-                  <p className="text-xs text-white font-semibold">
-                    <AlertTriangle className="w-3.5 h-3.5 inline" /> CPF limpo, mas endereço comprometido — possível fraude por troca de documento.
+            <div className="rounded-lg p-4 flex items-start gap-3" style={{ backgroundColor: "var(--color-danger-bg)" }}>
+              <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: "var(--color-danger)" }} />
+              <div>
+                <p className="text-sm font-bold" style={{ color: "var(--color-danger)" }}>
+                  {debtCount} inadimplente{debtCount !== 1 ? "s" : ""} neste endereco
+                </p>
+                {isNotFoundWithAddressDebt && (
+                  <p className="text-xs mt-1" style={{ color: "var(--color-danger)" }}>
+                    CPF limpo, mas endereco comprometido — possivel fraude por troca de documento.
                   </p>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           ) : cleanCross ? (
-            <div className="bg-[var(--color-success-bg)] border border-[var(--color-border)] rounded p-4 flex items-center gap-3">
-              <CheckCircle className="w-5 h-5 text-[var(--color-success)] flex-shrink-0" />
+            <div className="rounded-lg p-4 flex items-center gap-3" style={{ backgroundColor: "var(--color-success-bg)" }}>
+              <CheckCircle className="w-5 h-5 flex-shrink-0" style={{ color: "var(--color-success)" }} />
               <div>
-                <p className="text-base font-semibold text-[var(--color-success)]">Nenhuma inadimplência neste endereço</p>
+                <p className="text-sm font-semibold" style={{ color: "var(--color-success)" }}>Nenhuma inadimplencia neste endereco</p>
                 {result.addressUsed && (
-                  <p className="text-sm text-[var(--color-success)] mt-0.5">
+                  <p className="text-xs mt-0.5" style={{ color: "var(--color-success)" }}>
                     CEP: {result.addressUsed}
                     {result.addressSource && (
                       <span> (fonte: {result.addressSource === "own" ? "seu cadastro" : "rede ISP"})</span>
@@ -424,65 +422,48 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
               </div>
             </div>
           ) : unavailable ? (
-            <div className="bg-[var(--color-bg)] border border-[var(--color-border)] rounded p-4 flex items-center gap-3">
-              <MapPin className="w-5 h-5 text-[var(--color-muted)] opacity-50 flex-shrink-0" />
+            <div className="rounded-lg p-4 flex items-center gap-3" style={{ backgroundColor: "var(--color-tag-bg)" }}>
+              <MapPin className="w-5 h-5 flex-shrink-0" style={{ color: "var(--color-muted)" }} />
               <div>
-                <p className="text-base font-semibold text-[var(--color-muted)]">Endereço não disponível no ERP</p>
-                <p className="text-sm text-[var(--color-muted)] mt-0.5">Use a busca manual por CEP para cruzamento de endereço.</p>
+                <p className="text-sm font-semibold" style={{ color: "var(--color-muted)" }}>Endereco nao disponivel no ERP</p>
+                <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>Use a busca manual por CEP para cruzamento.</p>
               </div>
             </div>
           ) : null}
-
-          {(result.addressUsed || ownProviders[0]?.cep) && (
-            <AddressMapMini cep={result.addressUsed || ownProviders[0]?.cep || ""} />
-          )}
-
-          {result.addressMatches && result.addressMatches.length > 0 && (
-            <div className="bg-[var(--color-surface)] rounded border border-[var(--color-border)] overflow-hidden">
-              <Accordion type="multiple" defaultValue={addrDefaultValues}>
-                {addressOwnMatches.length > 0 && (
-                  <AccordionItem value="addr-seu-provedor" className="border-b-0">
-                    <AccordionTrigger className="px-4 py-3 hover:no-underline">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-[var(--color-ink)]"><Home className="w-3.5 h-3.5 inline" /> Seu Provedor</span>
-                        <span className="text-[11px] font-bold px-1.5 py-0.5 rounded-sm bg-[var(--color-success-bg)] text-[var(--color-success)]">{addressOwnMatches.length}</span>
-                      </div>
-                    </AccordionTrigger>
-                    <AccordionContent className="px-4 pb-3">
-                      <div className="space-y-3">
-                        {addressOwnMatches.map((match, i) => <AddressMatchCard key={i} match={match} idx={i} />)}
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
-                )}
-                {addressExtMatches.length > 0 && (
-                  <AccordionItem value="addr-outros" className="border-b-0">
-                    <AccordionTrigger className="px-4 py-3 hover:no-underline">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-[var(--color-ink)]"><Globe className="w-3.5 h-3.5 inline" /> Outros Provedores</span>
-                        <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded-sm ${addressExtHasDebt ? "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" : "bg-[var(--color-success-bg)] text-[var(--color-success)]"}`}>{addressExtMatches.length}</span>
-                      </div>
-                    </AccordionTrigger>
-                    <AccordionContent className="px-4 pb-3">
-                      <div className="space-y-3">
-                        {addressExtMatches.map((match, i) => <AddressMatchCard key={i} match={match} idx={addressOwnMatches.length + i} />)}
-                      </div>
-                    </AccordionContent>
-                  </AccordionItem>
-                )}
-              </Accordion>
-            </div>
-          )}
-
-          <div className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 rounded-full bg-[var(--color-navy)] flex-shrink-0" />
-            <p className="text-sm text-[var(--color-muted)]">Dados de terceiros anonimizados conforme LGPD</p>
-          </div>
         </div>
-      </div>
 
-      {/* AÇÕES */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+        {/* Map */}
+        {(result.addressUsed || ownProviders[0]?.cep) && (
+          <div className="px-4 pb-3">
+            <AddressMapMini cep={result.addressUsed || ownProviders[0]?.cep || ""} />
+          </div>
+        )}
+
+        {/* Address matches */}
+        {result.addressMatches && result.addressMatches.length > 0 && (
+          <div className="border-t border-[var(--color-border)]">
+            {addressOwnMatches.length > 0 && (
+              <CollapsibleGroup label="Seu Provedor" icon={Home} count={addressOwnMatches.length} defaultOpen={true}>
+                {addressOwnMatches.map((match, i) => <AddressRow key={i} match={match} idx={i} />)}
+              </CollapsibleGroup>
+            )}
+            {addressExtMatches.length > 0 && (
+              <CollapsibleGroup label="Outros Provedores" icon={Globe} count={addressExtMatches.length} defaultOpen={addressExtMatches.some(m => m.hasDebt)}>
+                {addressExtMatches.map((match, i) => <AddressRow key={i} match={match} idx={addressOwnMatches.length + i} />)}
+              </CollapsibleGroup>
+            )}
+          </div>
+        )}
+
+        {/* LGPD footer */}
+        <div className="px-5 py-2.5 border-t border-[var(--color-border)] flex items-center gap-2">
+          <Lock className="w-3 h-3" style={{ color: "var(--color-muted)" }} />
+          <p className="text-[10px]" style={{ color: "var(--color-muted)" }}>Dados de terceiros anonimizados conforme LGPD</p>
+        </div>
+      </Section>
+
+      {/* ═══ ACTIONS ═══ */}
+      <div className="flex items-center justify-between gap-3 flex-wrap pt-1">
         <Button variant="outline" className="gap-2" onClick={onNewConsulta} data-testid="button-nova-consulta">
           <RotateCcw className="w-4 h-4" />
           Nova Consulta
