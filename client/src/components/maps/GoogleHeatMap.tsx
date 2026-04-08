@@ -1,8 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { STALE_STATIC } from "@/lib/queryClient";
-import { Loader } from "@googlemaps/js-api-loader";
-import { RefreshCw } from "lucide-react";
+import { MapPin } from "lucide-react";
 
 export type HeatPoint = {
   lat: number;
@@ -17,6 +16,8 @@ interface GoogleHeatMapProps {
   height?: number;
   preview?: boolean;
 }
+
+const BRAZIL_CENTER = { lat: -15.8, lng: -48.0 };
 
 const PROVIDER_GRADIENT = [
   "rgba(34,197,94,0)",
@@ -36,18 +37,38 @@ const REGIONAL_GRADIENT = [
   "#881337",
 ];
 
-const BRAZIL_CENTER = { lat: -15.8, lng: -48.0 };
+// Load Google Maps via script tag (no external library needed)
+let _loadPromise: Promise<void> | null = null;
+function loadGoogleMaps(apiKey: string): Promise<void> {
+  if (window.google?.maps?.Map) return Promise.resolve();
+  if (_loadPromise) return _loadPromise;
 
-// Singleton loader to avoid re-loading Google Maps JS
-let _loaderPromise: Promise<void> | null = null;
-function ensureGoogleMaps(apiKey: string): Promise<void> {
-  if (_loaderPromise) return _loaderPromise;
-  const loader = new Loader({ apiKey, libraries: ["visualization"] });
-  _loaderPromise = Promise.all([
-    loader.importLibrary("maps"),
-    loader.importLibrary("visualization"),
-  ]).then(() => {});
-  return _loaderPromise;
+  _loadPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[src*="maps.googleapis.com"]');
+    if (existing) {
+      // Script already in DOM, wait for it
+      const check = setInterval(() => {
+        if (window.google?.maps?.Map) { clearInterval(check); resolve(); }
+      }, 100);
+      setTimeout(() => { clearInterval(check); reject(new Error("Google Maps timeout")); }, 15000);
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=visualization`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      const check = setInterval(() => {
+        if (window.google?.maps?.Map) { clearInterval(check); resolve(); }
+      }, 50);
+      setTimeout(() => { clearInterval(check); reject(new Error("Google Maps init timeout")); }, 10000);
+    };
+    script.onerror = () => reject(new Error("Failed to load Google Maps script"));
+    document.head.appendChild(script);
+  });
+
+  return _loadPromise;
 }
 
 export default function GoogleHeatMap({
@@ -60,7 +81,7 @@ export default function GoogleHeatMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
   const heatRef = useRef<google.maps.visualization.HeatmapLayer | null>(null);
-  const [mapReady, setMapReady] = useState(false);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
 
   const { data: keyData } = useQuery<{ key: string }>({
     queryKey: ["/api/config/maps-key"],
@@ -68,51 +89,52 @@ export default function GoogleHeatMap({
   });
   const apiKey = keyData?.key ?? "";
 
-  // Step 1: Load Google Maps API + create map (independent of points)
+  // Step 1: Load Google Maps + create map
   useEffect(() => {
     if (!apiKey || !containerRef.current) return;
+
     let cancelled = false;
 
-    ensureGoogleMaps(apiKey).then(() => {
-      if (cancelled || !containerRef.current) return;
+    loadGoogleMaps(apiKey)
+      .then(() => {
+        if (cancelled || !containerRef.current) return;
 
-      // Determine initial center
-      let center = BRAZIL_CENTER;
-      if (defaultCenter) {
-        center = defaultCenter;
-      }
+        const center = defaultCenter || BRAZIL_CENTER;
 
-      mapRef.current = new google.maps.Map(containerRef.current, {
-        center,
-        zoom: defaultCenter ? 13 : 5,
-        disableDefaultUI: preview,
-        zoomControl: !preview,
-        scrollwheel: false,
-        mapTypeControl: false,
-        streetViewControl: false,
-        fullscreenControl: false,
-        gestureHandling: preview ? "none" : "auto",
-        keyboardShortcuts: !preview,
+        mapRef.current = new google.maps.Map(containerRef.current, {
+          center,
+          zoom: defaultCenter ? 12 : 4,
+          disableDefaultUI: preview,
+          zoomControl: !preview,
+          scrollwheel: false,
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: !preview,
+          gestureHandling: preview ? "none" : "cooperative",
+        });
+
+        setStatus("ready");
+      })
+      .catch((err) => {
+        console.error("[GoogleHeatMap] Erro ao carregar Google Maps:", err);
+        if (!cancelled) setStatus("error");
       });
 
-      setMapReady(true);
-    });
-
     return () => { cancelled = true; };
-  }, [apiKey]); // only re-run if API key changes
+  }, [apiKey]);
 
-  // Step 2: Update center when defaultCenter changes
+  // Step 2: Update center
   useEffect(() => {
-    if (!mapReady || !mapRef.current || !defaultCenter) return;
+    if (status !== "ready" || !mapRef.current || !defaultCenter) return;
     mapRef.current.setCenter(defaultCenter);
-    mapRef.current.setZoom(13);
-  }, [mapReady, defaultCenter?.lat, defaultCenter?.lng]);
+    mapRef.current.setZoom(12);
+  }, [status, defaultCenter?.lat, defaultCenter?.lng]);
 
-  // Step 3: Update heatmap layer when points change (independent of map creation)
+  // Step 3: Update heatmap layer
   useEffect(() => {
-    if (!mapReady || !mapRef.current) return;
+    if (status !== "ready" || !mapRef.current) return;
 
-    // Clear previous layer
+    // Clear previous
     if (heatRef.current) {
       heatRef.current.setMap(null);
       heatRef.current = null;
@@ -124,7 +146,7 @@ export default function GoogleHeatMap({
     const data = points.map(p => ({
       location: new google.maps.LatLng(p.lat, p.lng),
       weight: p.weight / maxW,
-    } as google.maps.visualization.WeightedLocation));
+    }));
 
     const gradient = mode === "provider" ? PROVIDER_GRADIENT : REGIONAL_GRADIENT;
 
@@ -136,24 +158,21 @@ export default function GoogleHeatMap({
     });
     heatRef.current.set("gradient", gradient);
 
-    // Fit bounds to points
+    // Fit bounds
     if (points.length > 1) {
       const bounds = new google.maps.LatLngBounds();
       points.forEach(p => bounds.extend({ lat: p.lat, lng: p.lng }));
       mapRef.current.fitBounds(bounds, { top: 20, right: 20, bottom: 20, left: 20 });
-    } else if (points.length === 1) {
+    } else if (points.length === 1 && !defaultCenter) {
       mapRef.current.setCenter({ lat: points[0].lat, lng: points[0].lng });
       mapRef.current.setZoom(13);
     }
-  }, [mapReady, points, mode]);
+  }, [status, points, mode]);
 
   // Cleanup
   useEffect(() => {
     return () => {
-      if (heatRef.current) {
-        heatRef.current.setMap(null);
-        heatRef.current = null;
-      }
+      if (heatRef.current) { heatRef.current.setMap(null); heatRef.current = null; }
       mapRef.current = null;
     };
   }, []);
@@ -162,13 +181,21 @@ export default function GoogleHeatMap({
     <div style={{ position: "relative" }}>
       <div
         ref={containerRef}
-        style={{ height }}
-        className="w-full rounded-lg border z-0"
+        style={{ height, minHeight: 200 }}
+        className="w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)]"
         data-testid="google-heatmap-container"
       />
-      {!mapReady && apiKey && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-bg)]/60 rounded-lg">
-          <RefreshCw className="h-6 w-6 animate-spin text-[var(--color-muted)]" />
+      {status === "loading" && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--color-bg)] rounded-lg gap-2">
+          <div className="w-6 h-6 border-2 border-[var(--color-navy)] border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm text-[var(--color-muted)]">Carregando Google Maps...</span>
+        </div>
+      )}
+      {status === "error" && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--color-bg)] rounded-lg gap-2">
+          <MapPin className="w-6 h-6 text-[var(--color-danger)]" />
+          <span className="text-sm text-[var(--color-danger)]">Erro ao carregar Google Maps</span>
+          <span className="text-xs text-[var(--color-muted)]">Verifique a chave da API</span>
         </div>
       )}
     </div>
