@@ -261,9 +261,10 @@ export default function MapaCalorPage() {
           </div>
 
           {providerLoading ? (
-            <Card className="p-6 flex items-center justify-center py-20">
-              <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground mr-3" />
-              <span className="text-muted-foreground">Carregando mapa...</span>
+            <Card className="p-6 flex flex-col items-center justify-center py-20 gap-3">
+              <RefreshCw className="w-6 h-6 animate-spin text-[var(--color-navy)]" />
+              <span className="text-sm font-semibold text-[var(--color-ink)]">Buscando inadimplentes nos ERPs...</span>
+              <span className="text-xs text-[var(--color-muted)]">Geocodificando enderecos e montando mapa de calor</span>
             </Card>
           ) : (
             <Card className="p-4 space-y-4">

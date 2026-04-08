@@ -29,7 +29,7 @@ export default function DashboardPage() {
   const [providerCenter, setProviderCenter] = useState<{ lat: number; lng: number } | null>(null);
 
   const { data: stats, isLoading } = useQuery<any>({ queryKey: ["/api/dashboard/stats"], staleTime: STALE_DASHBOARD });
-  const { data: heatmapData = [] } = useQuery<any[]>({ queryKey: ["/api/heatmap/provider"], staleTime: STALE_DASHBOARD });
+  const { data: heatmapData = [], isLoading: heatmapLoading, isFetching: heatmapFetching } = useQuery<any[]>({ queryKey: ["/api/heatmap/provider"], staleTime: STALE_DASHBOARD });
 
   useEffect(() => {
     if (heatmapData.length > 0) {
@@ -196,9 +196,19 @@ export default function DashboardPage() {
               />
               {heatPoints.length === 0 && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center gap-2 bg-[var(--color-bg)]/60 rounded-lg z-10">
-                  <MapPin className="w-6 h-6 text-[var(--color-muted)]" style={{ opacity: 0.4 }} />
-                  <p className="text-sm font-body text-[var(--color-muted)]">Nenhum ponto de calor disponivel</p>
-                  <p className="text-xs text-[var(--color-muted)]" style={{ opacity: 0.6 }}>Cadastre coordenadas nos clientes inadimplentes para visualizar o mapa.</p>
+                  {heatmapLoading || heatmapFetching ? (
+                    <>
+                      <div className="w-6 h-6 border-2 border-[var(--color-navy)] border-t-transparent rounded-full animate-spin" />
+                      <p className="text-sm font-body text-[var(--color-ink)]">Buscando inadimplentes nos ERPs...</p>
+                      <p className="text-xs text-[var(--color-muted)]">Geocodificando enderecos para o mapa de calor</p>
+                    </>
+                  ) : (
+                    <>
+                      <MapPin className="w-6 h-6 text-[var(--color-muted)]" style={{ opacity: 0.4 }} />
+                      <p className="text-sm font-body text-[var(--color-muted)]">Nenhum ponto de calor disponivel</p>
+                      <p className="text-xs text-[var(--color-muted)]" style={{ opacity: 0.6 }}>Os dados serao carregados automaticamente dos ERPs configurados.</p>
+                    </>
+                  )}
                 </div>
               )}
             </div>
