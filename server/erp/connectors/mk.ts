@@ -201,12 +201,31 @@ export class MkConnector implements ErpConnector {
 
           if (faturasResponse.ok) {
             const faturasJson: any = await faturasResponse.json();
-            const faturas: any[] = Array.isArray(faturasJson)
+            // DEBUG: log raw response structure to diagnose field names
+            const rawStr = JSON.stringify(faturasJson);
+            console.log(`[MK] WSMKFaturasPendentes resposta bruta (${rawStr.length} chars): ${rawStr.substring(0, 500)}`);
+            if (typeof faturasJson === "object" && faturasJson !== null && !Array.isArray(faturasJson)) {
+              console.log(`[MK] WSMKFaturasPendentes chaves raiz: ${Object.keys(faturasJson).join(", ")}`);
+            }
+
+            let faturas: any[] = Array.isArray(faturasJson)
               ? faturasJson
               : faturasJson?.FaturasPendentes || faturasJson?.Faturas || faturasJson?.faturas || faturasJson?.registros || faturasJson?.data || faturasJson?.Itens || faturasJson?.itens || faturasJson?.resultado || faturasJson?.Resultado || [];
 
+            // Fallback: if faturas is empty but response is an object, search for any nested array
+            if ((!faturas || faturas.length === 0) && typeof faturasJson === "object" && faturasJson !== null && !Array.isArray(faturasJson)) {
+              for (const val of Object.values(faturasJson)) {
+                if (Array.isArray(val) && val.length > 0) {
+                  console.log(`[MK] Fallback: encontrou array em chave nao mapeada com ${val.length} items`);
+                  faturas = val;
+                  break;
+                }
+              }
+            }
+
             if (faturas.length > 0) {
-              console.log(`[MK] Campos da fatura:`, Object.keys(faturas[0]).join(", "));
+              console.log(`[MK] Campos da primeira fatura:`, Object.keys(faturas[0]).join(", "));
+              console.log(`[MK] Primeira fatura completa:`, JSON.stringify(faturas[0]).substring(0, 500));
             }
             console.log(`[MK] ${faturas.length} fatura(s) pendente(s) encontrada(s)`);
 
