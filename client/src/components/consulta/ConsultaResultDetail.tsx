@@ -54,15 +54,8 @@ export default function ConsultaResultDetail({ result, selectedProviderIdx, onBa
       <Card className={`overflow-hidden rounded-md border ${heroBg}`} data-testid="hero-result-card">
         <div className="p-5">
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
-            <div className="flex-shrink-0 flex flex-col items-center gap-1">
-              <div className="relative w-24 h-24">
-                <ScoreGaugeSvg score={result.score} />
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-2xl font-semibold text-[var(--color-ink)] leading-none" data-testid="text-score-value">{result.score}</span>
-                  <span className="text-[9px] text-[var(--color-muted)] font-medium">/ 100</span>
-                </div>
-              </div>
-              <span className="text-[10px] text-[var(--color-muted)] font-medium uppercase tracking-wide">Score ISP</span>
+            <div className="flex-shrink-0">
+              <ScoreGaugeSvg score={result.score} size="sm" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2.5 mb-2">
@@ -73,11 +66,22 @@ export default function ConsultaResultDetail({ result, selectedProviderIdx, onBa
                   <p className="font-bold text-[var(--color-ink)] text-base leading-tight" data-testid="text-customer-name">
                     {heroName || "Desconhecido"}
                   </p>
-                  <p className="text-xs text-[var(--color-muted)]">{formatCpfCnpj(result.cpfCnpj)} — {selectedDetail?.providerName}</p>
+                  <p className="text-xs text-[var(--color-muted)]">
+                    {isOwnSelected
+                      ? formatCpfCnpj(result.cpfCnpj)
+                      : (() => {
+                          const d = result.cpfCnpj.replace(/\D/g, "");
+                          if (d.length === 11) return `***.${d.slice(3, 6)}.${d.slice(6, 9)}-**`;
+                          if (d.length === 14) return `**.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-**`;
+                          return "***.***.***-**";
+                        })()
+                    }
+                    {" — "}{selectedDetail?.providerName}
+                  </p>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-sm ${isOwnSelected ? "bg-[var(--color-navy-bg)] text-[var(--color-navy)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>
+                <span className={`text-xs font-bold px-1.5 py-0.5 rounded-sm ${isOwnSelected ? "bg-[var(--color-navy-bg)] text-[var(--color-navy)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>
                   {isOwnSelected ? "SEU PROVEDOR" : "OUTRO PROVEDOR"}
                 </span>
                 <span className={`text-xs font-semibold px-2 py-0.5 rounded-sm ${riskCls}`} data-testid="text-risk-tier">{result.riskLabel}</span>
@@ -86,7 +90,7 @@ export default function ConsultaResultDetail({ result, selectedProviderIdx, onBa
             </div>
             <div className="flex-shrink-0 flex flex-col items-center gap-1.5">
               <div className={`${decisionBg} text-white px-6 py-3 rounded text-center min-w-[7rem]`} data-testid="badge-decision">
-                <p className="text-[10px] font-semibold opacity-80 uppercase tracking-widest">Sugestao</p>
+                <p className="text-xs font-semibold opacity-80 uppercase tracking-widest">Sugestao</p>
                 <p className="text-xl font-semibold tracking-wide">{decisionLabel}</p>
               </div>
               <span className={`text-xs font-semibold px-2 py-0.5 rounded-sm ${detailCost === 0 ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : "bg-[var(--color-navy-bg)] text-[var(--color-navy)]"}`} data-testid="detail-cost-badge">
@@ -181,20 +185,20 @@ export default function ConsultaResultDetail({ result, selectedProviderIdx, onBa
 
 function ProviderDetailSection({ detail, idx }: { detail: any; idx: number }) {
   const isOwn = detail.isSameProvider;
-  const contractMonths = Math.max(1, Math.round(detail.contractAgeDays / 30));
+  const contractMonths = detail.contractAgeDays != null && !isNaN(detail.contractAgeDays) ? Math.max(1, Math.round(detail.contractAgeDays / 30)) : null;
   const statusContrato = detail.cancelledDate ? "Cancelado" : "Ativo";
   const totalEqp = detail.equipmentDetails?.reduce((s: number, e: any) => s + parseFloat(e.value || "0"), 0) || 0;
-  const statusCls = detail.daysOverdue === 0
-    ? "bg-[var(--color-success-bg)] text-[var(--color-success)]"
-    : detail.daysOverdue <= 30 ? "bg-[var(--color-gold-bg)] text-[var(--color-gold)]"
-    : "bg-[var(--color-danger-bg)] text-[var(--color-danger)]";
+  const isDelinquent = detail.daysOverdue > 0 || !!detail.overdueAmountRange || detail.status?.toLowerCase().includes("inadimplente");
+  const statusCls = isDelinquent
+    ? "bg-[var(--color-danger-bg)] text-[var(--color-danger)]"
+    : "bg-[var(--color-success-bg)] text-[var(--color-success)]";
 
   return (
     <div>
       <div className="flex items-center gap-2 mb-3">
         <Building2 className="w-4 h-4 text-[var(--color-muted)]" />
         <h3 className="text-sm font-semibold text-[var(--color-ink)]">Detalhes — {detail.providerName}</h3>
-        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-sm ${isOwn ? "bg-[var(--color-navy-bg)] text-[var(--color-navy)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>
+        <span className={`text-xs font-bold px-1.5 py-0.5 rounded-sm ${isOwn ? "bg-[var(--color-navy-bg)] text-[var(--color-navy)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>
           {isOwn ? "SEU PROVEDOR" : "OUTRO PROVEDOR"}
         </span>
       </div>
@@ -204,22 +208,22 @@ function ProviderDetailSection({ detail, idx }: { detail: any; idx: number }) {
           <div className="p-4">
             <div className="flex items-center gap-1.5 mb-3">
               <CreditCard className="w-3.5 h-3.5 text-[var(--color-muted)]" />
-              <span className="text-[10px] font-bold text-[var(--color-muted)] uppercase tracking-wider">Financeiro</span>
+              <span className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wider">Financeiro</span>
             </div>
             <div className="space-y-2.5">
               <div>
-                <p className="text-[10px] text-[var(--color-muted)] mb-0.5">Status de pagamento</p>
+                <p className="text-xs text-[var(--color-muted)] mb-0.5">Status de pagamento</p>
                 <span className={`text-xs font-semibold px-2 py-0.5 rounded-sm ${statusCls}`}>{detail.status}</span>
               </div>
               {detail.daysOverdue > 0 && (
                 <div>
-                  <p className="text-[10px] text-[var(--color-muted)]">Dias em atraso</p>
+                  <p className="text-xs text-[var(--color-muted)]">Dias em atraso</p>
                   <p className="text-sm font-bold text-[var(--color-danger)]">{detail.daysOverdue} dias</p>
                 </div>
               )}
               {isOwn && (detail.overdueAmount || 0) > 0 && (
                 <div>
-                  <p className="text-[10px] text-[var(--color-muted)]">Valor em aberto</p>
+                  <p className="text-xs text-[var(--color-muted)]">Valor em aberto</p>
                   <p className="text-base font-semibold text-[var(--color-danger)]">
                     R$ {(detail.overdueAmount || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                   </p>
@@ -227,13 +231,13 @@ function ProviderDetailSection({ detail, idx }: { detail: any; idx: number }) {
               )}
               {!isOwn && detail.overdueAmountRange && (
                 <div>
-                  <p className="text-[10px] text-[var(--color-muted)]">Faixa de valor</p>
+                  <p className="text-xs text-[var(--color-muted)]">Faixa de valor</p>
                   <p className="text-sm text-[var(--color-ink)]">{detail.overdueAmountRange}</p>
                 </div>
               )}
               {detail.overdueInvoicesCount > 0 && (
                 <div>
-                  <p className="text-[10px] text-[var(--color-muted)]">Faturas em atraso</p>
+                  <p className="text-xs text-[var(--color-muted)]">Faturas em atraso</p>
                   <p className="text-sm font-semibold text-[var(--color-ink)]">{detail.overdueInvoicesCount} fatura(s)</p>
                 </div>
               )}
@@ -244,19 +248,21 @@ function ProviderDetailSection({ detail, idx }: { detail: any; idx: number }) {
           <div className="p-4">
             <div className="flex items-center gap-1.5 mb-3">
               <Clock className="w-3.5 h-3.5 text-[var(--color-muted)]" />
-              <span className="text-[10px] font-bold text-[var(--color-muted)] uppercase tracking-wider">Contrato</span>
+              <span className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wider">Contrato</span>
             </div>
             <div className="space-y-2.5">
               <div>
-                <p className="text-[10px] text-[var(--color-muted)]">Tempo de servico</p>
-                <p className="text-sm font-semibold text-[var(--color-ink)]">{contractMonths} {contractMonths === 1 ? "mes" : "meses"}</p>
+                <p className="text-xs text-[var(--color-muted)]">Tempo de servico</p>
+                <p className="text-sm font-semibold text-[var(--color-ink)]">
+                  {contractMonths != null ? `${contractMonths} ${contractMonths === 1 ? "mes" : "meses"}` : (isOwn ? "Sem dados" : "Dado restrito")}
+                </p>
               </div>
               <div>
-                <p className="text-[10px] text-[var(--color-muted)]">Status do contrato</p>
+                <p className="text-xs text-[var(--color-muted)]">Status do contrato</p>
                 <span className={`text-xs font-semibold px-2 py-0.5 rounded-sm ${statusContrato === "Ativo" ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>{statusContrato}</span>
               </div>
               <div>
-                <p className="text-[10px] text-[var(--color-muted)]">Cliente</p>
+                <p className="text-xs text-[var(--color-muted)]">Cliente</p>
                 {isOwn
                   ? <p className="text-sm font-semibold text-[var(--color-ink)]">{detail.customerName}</p>
                   : <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]"><Lock className="w-3 h-3" /> Dado restrito</span>
@@ -264,17 +270,17 @@ function ProviderDetailSection({ detail, idx }: { detail: any; idx: number }) {
               </div>
               {(detail.address || detail.cep) && (
                 <div>
-                  <p className="text-[10px] text-[var(--color-muted)]">Endereço</p>
+                  <p className="text-xs text-[var(--color-muted)]">Endereço</p>
                   {isOwn ? (
                     <div className="space-y-0.5">
-                      {detail.cep && <p className="text-[10px] font-mono text-[var(--color-muted)]">CEP {detail.cep}</p>}
+                      {detail.cep && <p className="text-xs font-mono text-[var(--color-muted)]">CEP {detail.cep}</p>}
                       <p className="text-xs text-[var(--color-ink)] break-words">{detail.address}</p>
                     </div>
                   ) : (
                     <div className="space-y-1">
                       {detail.cep && (
                         <div className="flex items-center gap-1">
-                          <span className="text-[9px] text-[var(--color-muted)] uppercase tracking-wide">CEP</span>
+                          <span className="text-xs text-[var(--color-muted)] uppercase tracking-wide">CEP</span>
                           <span className="text-xs font-mono text-[var(--color-muted)] bg-[var(--color-tag-bg)] px-1.5 py-0.5 rounded-sm">{detail.cep}</span>
                         </div>
                       )}
@@ -283,7 +289,7 @@ function ProviderDetailSection({ detail, idx }: { detail: any; idx: number }) {
                           <MapPin className="w-3 h-3 text-[var(--color-muted)] mt-0.5 flex-shrink-0" />
                           <span>
                             {detail.address}
-                            <span className="text-[9px] text-[var(--color-muted)] ml-1 italic">dados restritos</span>
+                            <span className="text-xs text-[var(--color-muted)] ml-1 italic">dados restritos</span>
                           </span>
                         </span>
                       )}
@@ -293,7 +299,7 @@ function ProviderDetailSection({ detail, idx }: { detail: any; idx: number }) {
               )}
               {detail.cancelledDate && (
                 <div>
-                  <p className="text-[10px] text-[var(--color-muted)]">Data cancelamento</p>
+                  <p className="text-xs text-[var(--color-muted)]">Data cancelamento</p>
                   <p className="text-xs text-[var(--color-muted)]">{new Date(detail.cancelledDate).toLocaleDateString("pt-BR")}</p>
                 </div>
               )}
@@ -304,7 +310,7 @@ function ProviderDetailSection({ detail, idx }: { detail: any; idx: number }) {
           <div className={`p-4 ${detail.hasUnreturnedEquipment ? "bg-[var(--color-gold-bg)]" : ""}`}>
             <div className="flex items-center gap-1.5 mb-3">
               <Router className={`w-3.5 h-3.5 ${detail.hasUnreturnedEquipment ? "text-[var(--color-gold)]" : "text-[var(--color-muted)]"}`} />
-              <span className="text-[10px] font-bold text-[var(--color-muted)] uppercase tracking-wider">Equipamentos</span>
+              <span className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wider">Equipamentos</span>
             </div>
             {detail.hasUnreturnedEquipment ? (
               <div className="space-y-2">
