@@ -81,15 +81,6 @@ export default {
           busy: "rgb(239 68 68)",
           offline: "rgb(156 163 175)",
         },
-      },
-      fontFamily: {
-        sans: ["var(--font-sans)"],
-        display: ["Fraunces", "serif"],
-        body: ["DM Sans", "sans-serif"],
-        serif: ["var(--font-serif)"],
-        mono: ["DM Mono", "monospace"],
-      },
-      colors: {
         navy: { DEFAULT: "#1A3A5C", light: "#2C5F8A", bg: "#EAF0F8" },
         gold: { DEFAULT: "#B8860B", bg: "#F5EDD4" },
         danger: { DEFAULT: "#8B1A1A", bg: "#F5E8E8" },
@@ -100,6 +91,13 @@ export default {
         surface: "#FFFFFF",
         canvas: "#F9F7F4",
         "tag-bg": "#EEE9E0",
+      },
+      fontFamily: {
+        sans: ["var(--font-sans)"],
+        display: ["Fraunces", "serif"],
+        body: ["DM Sans", "sans-serif"],
+        serif: ["var(--font-serif)"],
+        mono: ["DM Mono", "monospace"],
       },
       keyframes: {
         "accordion-down": {
