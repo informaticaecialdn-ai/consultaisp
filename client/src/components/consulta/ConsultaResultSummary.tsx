@@ -224,6 +224,7 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
   const score = Math.max(0, Math.min(1000, result.score));
   const totalEquipPending = result.providerDetails.reduce((s, d) => s + (d.hasUnreturnedEquipment ? d.unreturnedEquipmentCount : 0), 0);
   const externalProviders = result.providerDetails.filter(d => !d.isSameProvider);
+  const hasExternalDelinquent = externalProviders.some(d => d.daysOverdue > 0 || !!d.overdueAmountRange || d.status?.toLowerCase().includes("inadimplente"));
   const ownProviders = result.providerDetails.filter(d => d.isSameProvider);
   const now = new Date();
   const consultedAt = now.toLocaleDateString("pt-BR") + " " + now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -298,43 +299,10 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
               <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-muted)" }}>Externos</p>
             </div>
           </div>
-        </Section>
-      )}
 
-      {/* ═══ SECTION 2: SCORE BREAKDOWN ═══ */}
-      {result.fatoresScore && result.searchType !== "cep" && (
-        <Section>
-          <div className="p-5">
-            <ScoreBreakdownPanel fatores={result.fatoresScore} />
-          </div>
-        </Section>
-      )}
-
-      {/* ═══ SECTION 3: POR DOCUMENTO ═══ */}
-      {result.searchType !== "cep" && (
-        <Section>
-          <SectionHeader
-            icon={FileText}
-            title="Resultado por Documento"
-            trailing={
-              <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ backgroundColor: "var(--color-success-bg)", color: "var(--color-success)" }}>
-                {result.providerDetails.length} provedor{result.providerDetails.length !== 1 ? "es" : ""}
-              </span>
-            }
-          />
-
-          {isNotFoundWithAddressDebt ? (
-            <div className="p-5 flex items-center gap-3">
-              <CheckCircle className="w-5 h-5 flex-shrink-0" style={{ color: "var(--color-success)" }} />
-              <div>
-                <p className="text-sm font-semibold" style={{ color: "var(--color-success)" }}>Nada Consta por Documento</p>
-                <p className="text-xs" style={{ color: "var(--color-success)" }}>
-                  CPF/CNPJ {formatCpfCnpj(result.cpfCnpj)} sem restricoes na rede ISP colaborativa.
-                </p>
-              </div>
-            </div>
-          ) : result.providerDetails.length > 0 ? (
-            <div>
+          {/* ── PROVIDER RESULTS (inline, not separate section) ── */}
+          {result.searchType !== "cep" && result.providerDetails.length > 0 && !isNotFoundWithAddressDebt && (
+            <div className="border-t border-[var(--color-border)]">
               {ownProviders.length > 0 && (
                 <CollapsibleGroup label="Seu Provedor" icon={Home} count={ownProviders.length} defaultOpen={true}
                   badge={
@@ -354,11 +322,18 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
                   label="Outros Provedores"
                   icon={Globe}
                   count={externalProviders.length}
-                  defaultOpen={externalProviders.some(d => d.daysOverdue > 0)}
+                  defaultOpen={true}
                   badge={
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-navy-bg)", color: "var(--color-navy)" }}>
-                      {externalProviders.length} credito{externalProviders.length !== 1 ? "s" : ""}
-                    </span>
+                    <>
+                      {hasExternalDelinquent && (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-danger-bg)", color: "var(--color-danger)" }}>
+                          Inadimplente
+                        </span>
+                      )}
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-navy-bg)", color: "var(--color-navy)" }}>
+                        {externalProviders.length} credito{externalProviders.length !== 1 ? "s" : ""}
+                      </span>
+                    </>
                   }
                 >
                   {externalProviders.map((detail, i) => {
@@ -368,7 +343,16 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
                 </CollapsibleGroup>
               )}
             </div>
-          ) : null}
+          )}
+        </Section>
+      )}
+
+      {/* ═══ SECTION 2: SCORE BREAKDOWN ═══ */}
+      {result.fatoresScore && result.searchType !== "cep" && (
+        <Section>
+          <div className="p-5">
+            <ScoreBreakdownPanel fatores={result.fatoresScore} />
+          </div>
         </Section>
       )}
 
