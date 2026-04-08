@@ -71,19 +71,22 @@ export default function AddressMapMini({ cep, addressNumber }: AddressMapMiniPro
         const { localidade, uf, logradouro, bairro } = viaCepData;
         if (!localidade) { geocodeCache.set(cacheKey, null); if (!cancelled) setGeocodeFailed(true); return; }
 
-        // Try most specific query first, then fallback to city-only
-        const queries = [
-          logradouro && bairro ? `${logradouro}, ${bairro}, ${localidade}, ${uf}, Brasil` : null,
-          logradouro ? `${logradouro}, ${localidade}, ${uf}, Brasil` : null,
-          bairro ? `${bairro}, ${localidade}, ${uf}, Brasil` : null,
-          `${localidade}, ${uf}, Brasil`,
-        ].filter(Boolean) as string[];
+        // Use structured search params (more reliable than free-text q=)
+        // Try street+city first, then city-only fallback
+        const searches: Record<string, string>[] = [];
+        if (logradouro) {
+          searches.push({ street: logradouro, city: localidade, state: uf, country: "Brazil" });
+        }
+        if (bairro) {
+          searches.push({ street: bairro, city: localidade, state: uf, country: "Brazil" });
+        }
+        searches.push({ city: localidade, state: uf, country: "Brazil" });
 
         let nomData: any[] = [];
-        for (const query of queries) {
-          const q = encodeURIComponent(query);
-          const nomRes = await fetch(`https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&countrycodes=br`, {
-            headers: { "Accept-Language": "pt-BR" },
+        for (const params of searches) {
+          const sp = new URLSearchParams({ ...params, format: "json", limit: "1", countrycodes: "br" });
+          const nomRes = await fetch(`https://nominatim.openstreetmap.org/search?${sp}`, {
+            headers: { "Accept-Language": "pt-BR", "Referer": window.location.origin },
           });
           nomData = await nomRes.json();
           if (cancelled) return;
