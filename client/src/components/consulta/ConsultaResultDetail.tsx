@@ -58,15 +58,15 @@ export default function ConsultaResultDetail({ result, selectedProviderIdx, onBa
               <ScoreGaugeSvg score={result.score} size="sm" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2.5 mb-2">
-                <div className="w-9 h-9 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center flex-shrink-0">
-                  <span className={`text-xs font-bold ${isOwnSelected ? "text-[var(--color-ink)]" : "text-[var(--color-muted)]"}`}>{heroName ? getInitials(heroName) : "?"}</span>
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-11 h-11 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center flex-shrink-0">
+                  <span className={`text-sm font-bold ${isOwnSelected ? "text-[var(--color-ink)]" : "text-[var(--color-muted)]"}`}>{heroName ? getInitials(heroName) : "?"}</span>
                 </div>
                 <div>
-                  <p className="font-bold text-[var(--color-ink)] text-base leading-tight" data-testid="text-customer-name">
+                  <p className="font-bold text-[var(--color-ink)] text-lg leading-tight" data-testid="text-customer-name">
                     {heroName || "Desconhecido"}
                   </p>
-                  <p className="text-xs text-[var(--color-muted)]">
+                  <p className="text-sm text-[var(--color-muted)]">
                     {isOwnSelected
                       ? formatCpfCnpj(result.cpfCnpj)
                       : (() => {
@@ -81,11 +81,11 @@ export default function ConsultaResultDetail({ result, selectedProviderIdx, onBa
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <span className={`text-xs font-bold px-1.5 py-0.5 rounded-sm ${isOwnSelected ? "bg-[var(--color-navy-bg)] text-[var(--color-navy)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>
+                <span className={`text-sm font-bold px-2 py-1 rounded ${isOwnSelected ? "bg-[var(--color-navy-bg)] text-[var(--color-navy)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>
                   {isOwnSelected ? "SEU PROVEDOR" : "OUTRO PROVEDOR"}
                 </span>
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-sm ${riskCls}`} data-testid="text-risk-tier">{result.riskLabel}</span>
-                <span className="text-xs text-[var(--color-muted)]">{dataConsulta}</span>
+                <span className={`text-sm font-semibold px-2 py-1 rounded ${riskCls}`} data-testid="text-risk-tier">{result.riskLabel}</span>
+                <span className="text-sm text-[var(--color-muted)]">{dataConsulta}</span>
               </div>
             </div>
             <div className="flex-shrink-0 flex flex-col items-center gap-1.5">
@@ -106,14 +106,14 @@ export default function ConsultaResultDetail({ result, selectedProviderIdx, onBa
 
       {/* ALERTS */}
       {result.alerts.length > 0 && (
-        <div className="rounded border-l-4 border-l-[var(--color-gold)] border border-[var(--color-border)] bg-[var(--color-gold-bg)] p-4" data-testid="section-fatores-risco">
-          <div className="flex items-center gap-1.5 mb-2">
-            <AlertTriangle className="w-3.5 h-3.5 text-[var(--color-gold)]" />
-            <h4 className="text-xs font-bold text-[var(--color-gold)] uppercase tracking-wide">Alertas do Sistema</h4>
+        <div className="rounded-lg border-l-4 border-l-[var(--color-gold)] border border-[var(--color-border)] bg-[var(--color-gold-bg)] p-5" data-testid="section-fatores-risco">
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle className="w-4 h-4 text-[var(--color-gold)]" />
+            <h4 className="text-sm font-bold text-[var(--color-gold)] uppercase tracking-wide">Alertas do Sistema</h4>
           </div>
-          <ul className="space-y-1.5">
+          <ul className="space-y-2">
             {result.alerts.map((alert, i) => (
-              <li key={i} className="flex items-start gap-2 text-xs" data-testid={`alert-${i}`}>
+              <li key={i} className="flex items-start gap-2 text-sm" data-testid={`alert-${i}`}>
                 <span className="text-[var(--color-gold)] font-semibold flex-shrink-0 mt-0.5">•</span>
                 <span className="text-[var(--color-ink)]">{alert}</span>
               </li>
@@ -129,12 +129,12 @@ export default function ConsultaResultDetail({ result, selectedProviderIdx, onBa
           : result.decisionReco === "Review" ? "bg-[var(--color-gold-bg)] border-[var(--color-border)]"
           : "bg-[var(--color-danger-bg)] border-[var(--color-border)]"
         }`}>
-          <div className="flex items-center gap-1.5 mb-3">
-            <Lightbulb className={`w-4 h-4 ${
+          <div className="flex items-center gap-2 mb-3">
+            <Lightbulb className={`w-5 h-5 ${
               result.decisionReco === "Accept" ? "text-[var(--color-success)]"
               : result.decisionReco === "Review" ? "text-[var(--color-gold)]" : "text-[var(--color-danger)]"
             }`} />
-            <h4 className={`text-xs font-bold uppercase tracking-wide ${
+            <h4 className={`text-sm font-bold uppercase tracking-wide ${
               result.decisionReco === "Accept" ? "text-[var(--color-success)]"
               : result.decisionReco === "Review" ? "text-[var(--color-gold)]" : "text-[var(--color-danger)]"
             }`} data-testid="text-decision-summary">
@@ -143,14 +143,14 @@ export default function ConsultaResultDetail({ result, selectedProviderIdx, onBa
                 : "Condicoes Obrigatorias"}
             </h4>
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             {result.recommendedActions.map((action, i) => (
               <div key={i} className="flex items-start gap-2">
-                <ArrowRight className={`w-3.5 h-3.5 mt-0.5 flex-shrink-0 ${
+                <ArrowRight className={`w-4 h-4 mt-0.5 flex-shrink-0 ${
                   result.decisionReco === "Accept" ? "text-[var(--color-success)]"
                   : result.decisionReco === "Review" ? "text-[var(--color-gold)]" : "text-[var(--color-danger)]"
                 }`} />
-                <span className="text-xs text-[var(--color-ink)]">{action}</span>
+                <span className="text-sm text-[var(--color-ink)]">{action}</span>
               </div>
             ))}
           </div>
@@ -196,9 +196,9 @@ function ProviderDetailSection({ detail, idx }: { detail: any; idx: number }) {
   return (
     <div>
       <div className="flex items-center gap-2 mb-3">
-        <Building2 className="w-4 h-4 text-[var(--color-muted)]" />
-        <h3 className="text-sm font-semibold text-[var(--color-ink)]">Detalhes — {detail.providerName}</h3>
-        <span className={`text-xs font-bold px-1.5 py-0.5 rounded-sm ${isOwn ? "bg-[var(--color-navy-bg)] text-[var(--color-navy)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>
+        <Building2 className="w-5 h-5 text-[var(--color-muted)]" />
+        <h3 className="text-base font-bold text-[var(--color-ink)]">Detalhes — {detail.providerName}</h3>
+        <span className={`text-sm font-bold px-2 py-1 rounded ${isOwn ? "bg-[var(--color-navy-bg)] text-[var(--color-navy)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>
           {isOwn ? "SEU PROVEDOR" : "OUTRO PROVEDOR"}
         </span>
       </div>
@@ -207,23 +207,23 @@ function ProviderDetailSection({ detail, idx }: { detail: any; idx: number }) {
           {/* Financeiro */}
           <div className="p-4">
             <div className="flex items-center gap-1.5 mb-3">
-              <CreditCard className="w-3.5 h-3.5 text-[var(--color-muted)]" />
-              <span className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wider">Financeiro</span>
+              <CreditCard className="w-4 h-4 text-[var(--color-muted)]" />
+              <span className="text-sm font-bold text-[var(--color-muted)] uppercase tracking-wider">Financeiro</span>
             </div>
             <div className="space-y-2.5">
               <div>
-                <p className="text-xs text-[var(--color-muted)] mb-0.5">Status de pagamento</p>
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-sm ${statusCls}`}>{detail.status}</span>
+                <p className="text-sm text-[var(--color-muted)] mb-0.5">Status de pagamento</p>
+                <span className={`text-sm font-semibold px-2 py-1 rounded ${statusCls}`}>{detail.status}</span>
               </div>
               {detail.daysOverdue > 0 && (
                 <div>
-                  <p className="text-xs text-[var(--color-muted)]">Dias em atraso</p>
-                  <p className="text-sm font-bold text-[var(--color-danger)]">{detail.daysOverdue} dias</p>
+                  <p className="text-sm text-[var(--color-muted)]">Dias em atraso</p>
+                  <p className="text-base font-bold text-[var(--color-danger)]">{detail.daysOverdue} dias</p>
                 </div>
               )}
               {isOwn && (detail.overdueAmount || 0) > 0 && (
                 <div>
-                  <p className="text-xs text-[var(--color-muted)]">Valor em aberto</p>
+                  <p className="text-sm text-[var(--color-muted)]">Valor em aberto</p>
                   <p className="text-base font-semibold text-[var(--color-danger)]">
                     R$ {(detail.overdueAmount || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                   </p>
@@ -231,14 +231,14 @@ function ProviderDetailSection({ detail, idx }: { detail: any; idx: number }) {
               )}
               {!isOwn && detail.overdueAmountRange && (
                 <div>
-                  <p className="text-xs text-[var(--color-muted)]">Faixa de valor</p>
-                  <p className="text-sm text-[var(--color-ink)]">{detail.overdueAmountRange}</p>
+                  <p className="text-sm text-[var(--color-muted)]">Faixa de valor</p>
+                  <p className="text-base font-semibold text-[var(--color-danger)]">{detail.overdueAmountRange}</p>
                 </div>
               )}
               {detail.overdueInvoicesCount > 0 && (
                 <div>
-                  <p className="text-xs text-[var(--color-muted)]">Faturas em atraso</p>
-                  <p className="text-sm font-semibold text-[var(--color-ink)]">{detail.overdueInvoicesCount} fatura(s)</p>
+                  <p className="text-sm text-[var(--color-muted)]">Faturas em atraso</p>
+                  <p className="text-base font-semibold text-[var(--color-ink)]">{detail.overdueInvoicesCount} fatura(s)</p>
                 </div>
               )}
             </div>
@@ -247,30 +247,30 @@ function ProviderDetailSection({ detail, idx }: { detail: any; idx: number }) {
           {/* Contrato */}
           <div className="p-4">
             <div className="flex items-center gap-1.5 mb-3">
-              <Clock className="w-3.5 h-3.5 text-[var(--color-muted)]" />
-              <span className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wider">Contrato</span>
+              <Clock className="w-4 h-4 text-[var(--color-muted)]" />
+              <span className="text-sm font-bold text-[var(--color-muted)] uppercase tracking-wider">Contrato</span>
             </div>
             <div className="space-y-2.5">
               <div>
-                <p className="text-xs text-[var(--color-muted)]">Tempo de servico</p>
-                <p className="text-sm font-semibold text-[var(--color-ink)]">
+                <p className="text-sm text-[var(--color-muted)]">Tempo de servico</p>
+                <p className="text-base font-semibold text-[var(--color-ink)]">
                   {contractMonths != null ? `${contractMonths} ${contractMonths === 1 ? "mes" : "meses"}` : (isOwn ? "Sem dados" : "Dado restrito")}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-[var(--color-muted)]">Status do contrato</p>
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-sm ${statusContrato === "Ativo" ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>{statusContrato}</span>
+                <p className="text-sm text-[var(--color-muted)]">Status do contrato</p>
+                <span className={`text-sm font-semibold px-2 py-1 rounded ${statusContrato === "Ativo" ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>{statusContrato}</span>
               </div>
               <div>
-                <p className="text-xs text-[var(--color-muted)]">Cliente</p>
+                <p className="text-sm text-[var(--color-muted)]">Cliente</p>
                 {isOwn
-                  ? <p className="text-sm font-semibold text-[var(--color-ink)]">{detail.customerName}</p>
-                  : <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]"><Lock className="w-3 h-3" /> Dado restrito</span>
+                  ? <p className="text-base font-semibold text-[var(--color-ink)]">{detail.customerName}</p>
+                  : <span className="flex items-center gap-1 text-sm text-[var(--color-muted)]"><Lock className="w-3.5 h-3.5" /> Dado restrito</span>
                 }
               </div>
               {(detail.address || detail.cep) && (
                 <div>
-                  <p className="text-xs text-[var(--color-muted)]">Endereço</p>
+                  <p className="text-sm text-[var(--color-muted)]">Endereco</p>
                   {isOwn ? (
                     <div className="space-y-0.5">
                       {detail.cep && <p className="text-xs font-mono text-[var(--color-muted)]">CEP {detail.cep}</p>}
@@ -309,8 +309,8 @@ function ProviderDetailSection({ detail, idx }: { detail: any; idx: number }) {
           {/* Equipamentos */}
           <div className={`p-4 ${detail.hasUnreturnedEquipment ? "bg-[var(--color-gold-bg)]" : ""}`}>
             <div className="flex items-center gap-1.5 mb-3">
-              <Router className={`w-3.5 h-3.5 ${detail.hasUnreturnedEquipment ? "text-[var(--color-gold)]" : "text-[var(--color-muted)]"}`} />
-              <span className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wider">Equipamentos</span>
+              <Router className={`w-4 h-4 ${detail.hasUnreturnedEquipment ? "text-[var(--color-gold)]" : "text-[var(--color-muted)]"}`} />
+              <span className="text-sm font-bold text-[var(--color-muted)] uppercase tracking-wider">Equipamentos</span>
             </div>
             {detail.hasUnreturnedEquipment ? (
               <div className="space-y-2">
