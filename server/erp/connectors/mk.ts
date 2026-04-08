@@ -256,6 +256,68 @@ export class MkConnector implements ErpConnector {
         } catch (fatErr) {
           console.log(`[MK] Erro ao buscar faturas pendentes: ${fatErr instanceof Error ? fatErr.message : fatErr}`);
         }
+
+        // Fallback: If WSMKFaturasPendentes returned 0 invoices, try WSMKFaturas with liquidado=false
+        if (overdueInvoicesCount === 0) {
+          try {
+            const faturasAltUrl = `${base}/mk/WSMKFaturas.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&codigo_cliente=${encodeURIComponent(cdCliente)}&liquidado=false&quantidade_meses=12`;
+            console.log(`[MK] Fallback: buscando via WSMKFaturas (liquidado=false) para cd_cliente=${cdCliente}`);
+
+            const altResponse = await withResilience(
+              () => fetch(faturasAltUrl, { method: "GET", signal: AbortSignal.timeout(15000) }),
+              { retries: 1, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
+            );
+
+            if (altResponse.ok) {
+              const altJson: any = await altResponse.json();
+              const altRaw = JSON.stringify(altJson);
+              console.log(`[MK] WSMKFaturas resposta bruta (${altRaw.length} chars): ${altRaw.substring(0, 500)}`);
+
+              let altFaturas: any[] = Array.isArray(altJson)
+                ? altJson
+                : altJson?.Faturas || altJson?.faturas || altJson?.registros || altJson?.data || altJson?.Itens || altJson?.itens || altJson?.resultado || altJson?.Resultado || [];
+
+              // Fallback: find any nested array
+              if ((!altFaturas || altFaturas.length === 0) && typeof altJson === "object" && altJson !== null && !Array.isArray(altJson)) {
+                for (const val of Object.values(altJson)) {
+                  if (Array.isArray(val) && val.length > 0) {
+                    altFaturas = val;
+                    break;
+                  }
+                }
+              }
+
+              if (altFaturas.length > 0) {
+                console.log(`[MK] WSMKFaturas campos:`, Object.keys(altFaturas[0]).join(", "));
+                console.log(`[MK] WSMKFaturas primeira fatura:`, JSON.stringify(altFaturas[0]).substring(0, 500));
+              }
+              console.log(`[MK] WSMKFaturas: ${altFaturas.length} fatura(s) nao liquidada(s)`);
+
+              for (const f of altFaturas) {
+                const valor = pickAmount(f);
+                const dueDate = f.DataVencimento || f.data_vencimento || f.DtVencimento || f.dt_vencimento
+                  || f.Vencimento || f.vencimento || f.dt_vencto || f.DtVencto || f.vencto || f.Vencto
+                  || f.data_vencto || f.DataVencto || f.dtVencimento || f.dtVencto || null;
+                const days = calculateDaysOverdue(dueDate);
+
+                if (days > 0) {
+                  totalOverdueAmount += valor;
+                  maxDaysOverdue = Math.max(maxDaysOverdue, days);
+                  overdueInvoicesCount++;
+                } else if (!dueDate) {
+                  console.log(`[MK] WARN WSMKFaturas: fatura sem data. Campos: ${Object.keys(f).join(", ")}`);
+                  totalOverdueAmount += valor;
+                  maxDaysOverdue = Math.max(maxDaysOverdue, 1);
+                  overdueInvoicesCount++;
+                }
+              }
+            } else {
+              console.log(`[MK] WSMKFaturas retornou status ${altResponse.status}`);
+            }
+          } catch (altErr) {
+            console.log(`[MK] WSMKFaturas fallback erro: ${altErr instanceof Error ? altErr.message : altErr}`);
+          }
+        }
       }
 
       // MK returns address as "Rua X, 123 - Bairro, Cidade" — extract parts
