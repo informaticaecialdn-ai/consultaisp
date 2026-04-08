@@ -229,26 +229,16 @@ export default function DashboardPage() {
         <div className="flex items-center gap-3 flex-wrap">
           {/* Codigo do Provedor */}
           {partnerCode && (
-          <div className="flex items-center gap-2 border border-[var(--color-success)] rounded-md px-3 py-2 bg-[var(--color-success-bg)]">
-            <Shield className="w-4 h-4 text-[var(--color-success)] flex-shrink-0" />
+          <div className="flex items-center gap-2 border border-[var(--color-danger)] rounded-md px-3 py-2 bg-[var(--color-danger-bg)]">
+            <Shield className="w-4 h-4 text-[var(--color-danger)] flex-shrink-0" />
             <div>
-              <p className="font-mono text-sm font-bold text-[var(--color-success)] leading-none whitespace-nowrap" data-testid="text-partner-code">
+              <p className="font-mono text-sm font-bold text-[var(--color-danger)] leading-none whitespace-nowrap" data-testid="text-partner-code">
                 {partnerCode}
               </p>
               <p className="text-[10px] text-[var(--color-muted)] leading-tight mt-0.5">seu codigo</p>
             </div>
           </div>
           )}
-          {/* Provedores parceiros */}
-          <div className="flex items-center gap-2 border border-[var(--color-border)] rounded-md px-3 py-2 bg-[var(--color-surface)]">
-            <Users className="w-4 h-4 text-[var(--color-steel)]" />
-            <div className="text-right">
-              <p className="font-mono text-lg font-bold text-[var(--color-ink)] leading-none" data-testid="text-partner-count">
-                {stats?.partnerCount ?? "..."}
-              </p>
-              <p className="text-xs text-[var(--color-muted)] leading-tight">parceiros</p>
-            </div>
-          </div>
           {/* ISP Credits */}
           <div className="flex items-center gap-2 border border-[var(--color-border)] rounded-md px-3 py-2 bg-[var(--color-navy-bg)]">
             <CreditCard className="w-4 h-4 text-[var(--color-navy)]" />
