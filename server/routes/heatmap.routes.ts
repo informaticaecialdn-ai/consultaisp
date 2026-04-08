@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { requireAuth } from "../auth";
-import { storage } from "../storage";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import {
   getAllPoints,
   getCacheStatus,
+  getProviderPoints,
+  refreshProviderIfStale,
   isRefreshing,
   refreshAllProviders,
 } from "../services/heatmap-cache";
@@ -19,7 +20,21 @@ export function registerHeatmapRoutes(): Router {
 
   router.get("/api/heatmap/provider", requireAuth, async (req, res) => {
     try {
-      const data = await storage.getHeatmapDataByProvider(req.session.providerId!);
+      const providerId = req.session.providerId!;
+      await refreshProviderIfStale(providerId);
+      const points = getProviderPoints(providerId);
+      const data = points.map((p, i) => ({
+        id: i + 1,
+        name: p.customerName || `Inadimplente ${i + 1}`,
+        latitude: String(p.lat),
+        longitude: String(p.lng),
+        city: p.city,
+        totalOverdueAmount: String(p.totalOverdueAmount),
+        maxDaysOverdue: p.maxDaysOverdue,
+        overdueInvoicesCount: p.overdueCount,
+        riskTier: p.maxDaysOverdue > 90 ? "critical" : p.maxDaysOverdue > 60 ? "high" : p.maxDaysOverdue > 30 ? "medium" : "low",
+        paymentStatus: "overdue" as const,
+      }));
       return res.json(data);
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
@@ -89,17 +104,17 @@ export function registerHeatmapRoutes(): Router {
     try {
       const status = getCacheStatus();
       const allPoints = getAllPoints();
-      const lastRefresh = status.length > 0
+      const lastSuccess = status.length > 0
         ? status.reduce((latest, s) => {
-            if (!s.fetchedAt) return latest;
-            return !latest || s.fetchedAt > latest ? s.fetchedAt : latest;
+            if (!s.lastSuccessAt) return latest;
+            return !latest || s.lastSuccessAt > latest ? s.lastSuccessAt : latest;
           }, null as Date | null)
         : null;
 
       return res.json({
-        lastSyncAt: lastRefresh ? lastRefresh.toISOString() : null,
+        lastSyncAt: lastSuccess ? lastSuccess.toISOString() : null,
         totalIntegrations: status.length,
-        lastCacheRefresh: lastRefresh ? lastRefresh.toISOString() : null,
+        lastCacheRefresh: lastSuccess ? lastSuccess.toISOString() : null,
         totalCachePoints: allPoints.length,
         refreshing: isRefreshing(),
       });

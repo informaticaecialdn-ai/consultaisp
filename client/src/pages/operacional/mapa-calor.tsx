@@ -294,20 +294,21 @@ export default function MapaCalorPage() {
                 </div>
               </div>
 
-              {providerPoints.length === 0 ? (
-                <div className="bg-emerald-50 dark:bg-emerald-950/20 rounded-lg p-12 text-center border border-emerald-200 dark:border-emerald-900">
-                  <Eye className="w-10 h-10 mx-auto mb-3 text-emerald-400" />
-                  <p className="font-medium text-emerald-700 dark:text-emerald-300">Nenhum inadimplente com localizacao cadastrada</p>
-                  <p className="text-sm text-muted-foreground mt-1">Clientes sem coordenadas geograficas nao aparecem no mapa.</p>
-                </div>
-              ) : (
+              <div className="relative">
                 <GoogleHeatMap
                   key={`provider-${providerPoints.length}-${providerCenter?.lat}`}
                   points={providerPoints}
                   mode="provider"
                   defaultCenter={providerCenter}
                 />
-              )}
+                {providerPoints.length === 0 && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-center bg-emerald-50/60 dark:bg-emerald-950/40 rounded-lg z-10">
+                    <Eye className="w-10 h-10 mx-auto mb-3 text-emerald-400" />
+                    <p className="font-medium text-emerald-700 dark:text-emerald-300">Nenhum inadimplente com localizacao cadastrada</p>
+                    <p className="text-sm text-muted-foreground mt-1">Clientes sem coordenadas geograficas nao aparecem no mapa.</p>
+                  </div>
+                )}
+              </div>
             </Card>
           )}
 
@@ -359,7 +360,7 @@ export default function MapaCalorPage() {
                 {syncInfo?.refreshing
                   ? "Buscando inadimplentes nos ERPs dos provedores..."
                   : syncInfo?.totalCachePoints
-                  ? `${syncInfo.totalCachePoints} inadimplentes carregados do ERP · cache atualizado a cada 24h · ${
+                  ? `${syncInfo.totalCachePoints} inadimplentes carregados do ERP · cache atualizado a cada 7 dias · ${
                       syncInfo?.lastCacheRefresh
                         ? new Date(syncInfo.lastCacheRefresh).toLocaleString("pt-BR")
                         : "Aguardando carga inicial"
@@ -408,18 +409,19 @@ export default function MapaCalorPage() {
                     Baixo → Alto risco
                   </div>
                 </div>
-                {regionalPoints.length === 0 ? (
-                  <div className="bg-emerald-50 dark:bg-emerald-950/20 rounded-lg p-12 text-center border border-emerald-200 dark:border-emerald-900">
-                    <Eye className="w-10 h-10 mx-auto mb-3 text-emerald-400" />
-                    <p className="font-medium text-emerald-700 dark:text-emerald-300">Nenhum ponto de inadimplencia na rede</p>
-                  </div>
-                ) : (
+                <div className="relative">
                   <GoogleHeatMap
                     key={`regional-${regionalPoints.length}`}
                     points={regionalPoints}
                     mode="regional"
                   />
-                )}
+                  {regionalPoints.length === 0 && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-center bg-emerald-50/60 dark:bg-emerald-950/40 rounded-lg z-10">
+                      <Eye className="w-10 h-10 mx-auto mb-3 text-emerald-400" />
+                      <p className="font-medium text-emerald-700 dark:text-emerald-300">Nenhum ponto de inadimplencia na rede</p>
+                    </div>
+                  )}
+                </div>
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Info className="w-3 h-3" />
                   Manchas de calor indicam concentracao de inadimplencia por area

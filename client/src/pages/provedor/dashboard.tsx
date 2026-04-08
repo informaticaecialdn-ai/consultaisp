@@ -185,36 +185,35 @@ export default function DashboardPage() {
           </div>
 
           <div className="p-4">
-            {heatPoints.length === 0 ? (
-              <div className="rounded border-[0.5px] border-dashed border-[var(--color-border)] p-10 flex flex-col items-center justify-center text-center gap-2 bg-[var(--color-bg)]">
-                <MapPin className="w-6 h-6 text-[var(--color-muted)]" style={{ opacity: 0.4 }} />
-                <p className="text-sm font-body text-[var(--color-muted)]">Nenhum ponto de calor disponivel</p>
-                <p className="text-xs text-[var(--color-muted)]" style={{ opacity: 0.6 }}>Cadastre coordenadas nos clientes inadimplentes para visualizar o mapa.</p>
-              </div>
-            ) : (
-              <>
-                <GoogleHeatMap
-                  key={`dash-${heatPoints.length}-${providerCenter?.lat}`}
-                  points={heatPoints}
-                  mode="provider"
-                  defaultCenter={providerCenter}
-                  height={240}
-                  preview
-                />
-                <div className="mt-3 flex items-center gap-4 text-xs font-mono text-[var(--color-muted)] border-t-[0.5px] border-[var(--color-border)] pt-3">
-                  <div className="flex items-center gap-1.5">
-                    <span className="inline-flex gap-px">
-                      <span className="w-3 h-1 rounded-sm" style={{ background: "var(--color-success)" }} />
-                      <span className="w-3 h-1 rounded-sm" style={{ background: "var(--color-gold)" }} />
-                      <span className="w-3 h-1 rounded-sm" style={{ background: "#c45a1a" }} />
-                      <span className="w-3 h-1 rounded-sm" style={{ background: "var(--color-danger)" }} />
-                    </span>
-                    baixo → critico
-                  </div>
-                  <span>{heatPoints.length} pontos</span>
+            <div className="relative">
+              <GoogleHeatMap
+                key={`dash-${heatPoints.length}-${providerCenter?.lat}`}
+                points={heatPoints}
+                mode="provider"
+                defaultCenter={providerCenter}
+                height={240}
+                preview
+              />
+              {heatPoints.length === 0 && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center gap-2 bg-[var(--color-bg)]/60 rounded-lg z-10">
+                  <MapPin className="w-6 h-6 text-[var(--color-muted)]" style={{ opacity: 0.4 }} />
+                  <p className="text-sm font-body text-[var(--color-muted)]">Nenhum ponto de calor disponivel</p>
+                  <p className="text-xs text-[var(--color-muted)]" style={{ opacity: 0.6 }}>Cadastre coordenadas nos clientes inadimplentes para visualizar o mapa.</p>
                 </div>
-              </>
-            )}
+              )}
+            </div>
+            <div className="mt-3 flex items-center gap-4 text-xs font-mono text-[var(--color-muted)] border-t-[0.5px] border-[var(--color-border)] pt-3">
+              <div className="flex items-center gap-1.5">
+                <span className="inline-flex gap-px">
+                  <span className="w-3 h-1 rounded-sm" style={{ background: "var(--color-success)" }} />
+                  <span className="w-3 h-1 rounded-sm" style={{ background: "var(--color-gold)" }} />
+                  <span className="w-3 h-1 rounded-sm" style={{ background: "#c45a1a" }} />
+                  <span className="w-3 h-1 rounded-sm" style={{ background: "var(--color-danger)" }} />
+                </span>
+                baixo → critico
+              </div>
+              <span>{heatPoints.length} pontos</span>
+            </div>
           </div>
         </Card>
       </div>

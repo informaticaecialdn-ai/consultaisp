@@ -150,6 +150,13 @@ app.use((req, res, next) => {
     logger.warn({ err }, "LGPD titular processor failed to start — feature unavailable");
   }
 
+  try {
+    const { startHeatmapCacheScheduler } = await import("./services/heatmap-cache");
+    startHeatmapCacheScheduler();
+  } catch (err) {
+    logger.warn({ err }, "Heatmap cache scheduler failed to start — feature unavailable");
+  }
+
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
 

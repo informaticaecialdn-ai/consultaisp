@@ -81,7 +81,16 @@ export default function GoogleHeatMap({
 
   // Build the heatmap layer
   const buildHeatLayer = useCallback(() => {
-    if (!mapRef.current || points.length === 0) return;
+    if (!mapRef.current) return;
+
+    // Empty points — just clear any existing layer
+    if (points.length === 0) {
+      if (heatRef.current) {
+        heatRef.current.setMap(null);
+        heatRef.current = null;
+      }
+      return;
+    }
 
     // Remove previous layer
     if (heatRef.current) {
