@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { STALE_STATIC } from "@/lib/queryClient";
 import { Loader } from "@googlemaps/js-api-loader";
@@ -38,6 +38,18 @@ const REGIONAL_GRADIENT = [
 
 const BRAZIL_CENTER = { lat: -15.8, lng: -48.0 };
 
+// Singleton loader to avoid re-loading Google Maps JS
+let _loaderPromise: Promise<void> | null = null;
+function ensureGoogleMaps(apiKey: string): Promise<void> {
+  if (_loaderPromise) return _loaderPromise;
+  const loader = new Loader({ apiKey, libraries: ["visualization"] });
+  _loaderPromise = Promise.all([
+    loader.importLibrary("maps"),
+    loader.importLibrary("visualization"),
+  ]).then(() => {});
+  return _loaderPromise;
+}
+
 export default function GoogleHeatMap({
   points,
   mode,
@@ -48,64 +60,71 @@ export default function GoogleHeatMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
   const heatRef = useRef<google.maps.visualization.HeatmapLayer | null>(null);
-  const [ready, setReady] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
 
   const { data: keyData } = useQuery<{ key: string }>({
     queryKey: ["/api/config/maps-key"],
     staleTime: STALE_STATIC,
   });
-
   const apiKey = keyData?.key ?? "";
 
-  // Load Google Maps JS API
+  // Step 1: Load Google Maps API + create map (independent of points)
   useEffect(() => {
-    if (!apiKey) return;
+    if (!apiKey || !containerRef.current) return;
     let cancelled = false;
 
-    const loader = new Loader({
-      apiKey,
-      libraries: ["visualization"],
-    });
+    ensureGoogleMaps(apiKey).then(() => {
+      if (cancelled || !containerRef.current) return;
 
-    Promise.all([
-      loader.importLibrary("maps"),
-      loader.importLibrary("visualization"),
-    ]).then(() => {
-      if (!cancelled) setReady(true);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [apiKey]);
-
-  // Build the heatmap layer
-  const buildHeatLayer = useCallback(() => {
-    if (!mapRef.current) return;
-
-    // Empty points — just clear any existing layer
-    if (points.length === 0) {
-      if (heatRef.current) {
-        heatRef.current.setMap(null);
-        heatRef.current = null;
+      // Determine initial center
+      let center = BRAZIL_CENTER;
+      if (defaultCenter) {
+        center = defaultCenter;
       }
-      return;
-    }
 
-    // Remove previous layer
+      mapRef.current = new google.maps.Map(containerRef.current, {
+        center,
+        zoom: defaultCenter ? 13 : 5,
+        disableDefaultUI: preview,
+        zoomControl: !preview,
+        scrollwheel: false,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: false,
+        gestureHandling: preview ? "none" : "auto",
+        keyboardShortcuts: !preview,
+      });
+
+      setMapReady(true);
+    });
+
+    return () => { cancelled = true; };
+  }, [apiKey]); // only re-run if API key changes
+
+  // Step 2: Update center when defaultCenter changes
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || !defaultCenter) return;
+    mapRef.current.setCenter(defaultCenter);
+    mapRef.current.setZoom(13);
+  }, [mapReady, defaultCenter?.lat, defaultCenter?.lng]);
+
+  // Step 3: Update heatmap layer when points change (independent of map creation)
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return;
+
+    // Clear previous layer
     if (heatRef.current) {
       heatRef.current.setMap(null);
       heatRef.current = null;
     }
 
-    const maxW = Math.max(...points.map((p) => p.weight), 1);
-    const data = points.map(
-      (p) =>
-        ({
-          location: new google.maps.LatLng(p.lat, p.lng),
-          weight: p.weight / maxW,
-        }) as google.maps.visualization.WeightedLocation,
-    );
+    if (points.length === 0) return;
+
+    const maxW = Math.max(...points.map(p => p.weight), 1);
+    const data = points.map(p => ({
+      location: new google.maps.LatLng(p.lat, p.lng),
+      weight: p.weight / maxW,
+    } as google.maps.visualization.WeightedLocation));
 
     const gradient = mode === "provider" ? PROVIDER_GRADIENT : REGIONAL_GRADIENT;
 
@@ -117,59 +136,18 @@ export default function GoogleHeatMap({
     });
     heatRef.current.set("gradient", gradient);
 
-    // Fit bounds when multiple points and no explicit center
-    if (points.length > 1 && !defaultCenter) {
+    // Fit bounds to points
+    if (points.length > 1) {
       const bounds = new google.maps.LatLngBounds();
-      points.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
+      points.forEach(p => bounds.extend({ lat: p.lat, lng: p.lng }));
       mapRef.current.fitBounds(bounds, { top: 20, right: 20, bottom: 20, left: 20 });
+    } else if (points.length === 1) {
+      mapRef.current.setCenter({ lat: points[0].lat, lng: points[0].lng });
+      mapRef.current.setZoom(13);
     }
-  }, [points, mode, defaultCenter]);
+  }, [mapReady, points, mode]);
 
-  // Initialize map once ready
-  const initMap = useCallback(() => {
-    if (!ready || !containerRef.current) return;
-
-    // Calculate center
-    let center = BRAZIL_CENTER;
-    if (defaultCenter) {
-      center = defaultCenter;
-    } else if (points.length > 0) {
-      const avgLat = points.reduce((s, p) => s + p.lat, 0) / points.length;
-      const avgLng = points.reduce((s, p) => s + p.lng, 0) / points.length;
-      center = { lat: avgLat, lng: avgLng };
-    }
-
-    // Calculate zoom
-    const zoom = defaultCenter ? 13 : points.length > 0 ? 7 : 5;
-
-    mapRef.current = new google.maps.Map(containerRef.current, {
-      center,
-      zoom,
-      disableDefaultUI: preview,
-      zoomControl: !preview,
-      scrollwheel: false,
-      mapTypeControl: false,
-      streetViewControl: false,
-      fullscreenControl: false,
-      gestureHandling: preview ? "none" : "auto",
-      keyboardShortcuts: !preview,
-    });
-
-    buildHeatLayer();
-  }, [ready, points, defaultCenter, buildHeatLayer, preview]);
-
-  // Init map when ready
-  useEffect(() => {
-    initMap();
-  }, [initMap]);
-
-  // React to points/mode changes
-  useEffect(() => {
-    if (!ready || !mapRef.current) return;
-    buildHeatLayer();
-  }, [points, mode, ready, buildHeatLayer]);
-
-  // Cleanup on unmount
+  // Cleanup
   useEffect(() => {
     return () => {
       if (heatRef.current) {
@@ -180,8 +158,6 @@ export default function GoogleHeatMap({
     };
   }, []);
 
-  const isLoading = !ready || !apiKey;
-
   return (
     <div style={{ position: "relative" }}>
       <div
@@ -190,9 +166,9 @@ export default function GoogleHeatMap({
         className="w-full rounded-lg border z-0"
         data-testid="google-heatmap-container"
       />
-      {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-muted/60 rounded-lg">
-          <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+      {!mapReady && apiKey && (
+        <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-bg)]/60 rounded-lg">
+          <RefreshCw className="h-6 w-6 animate-spin text-[var(--color-muted)]" />
         </div>
       )}
     </div>
