@@ -36,11 +36,12 @@ export default function ScoreGaugeSvg({ score, size = "md" }: Props) {
 
   const zone = getZone(clamped);
 
-  // Dimensions based on size
-  const dims = size === "sm" ? { w: 160, h: 100 } : size === "lg" ? { w: 280, h: 165 } : { w: 220, h: 132 };
-  const CX = dims.w / 2;
-  const CY = dims.h - 12;
+  // Dimensions based on size — extra horizontal padding for "0" / "1000" labels
+  const pad = size === "sm" ? 30 : size === "lg" ? 44 : 36;
   const R = size === "sm" ? 60 : size === "lg" ? 110 : 82;
+  const dims = size === "sm" ? { w: R * 2 + pad * 2, h: 100 } : size === "lg" ? { w: R * 2 + pad * 2, h: 170 } : { w: R * 2 + pad * 2, h: 136 };
+  const CX = dims.w / 2;
+  const CY = dims.h - 16;
   const strokeW = size === "sm" ? 10 : size === "lg" ? 16 : 13;
 
   // Build zone arcs (semicircle from left to right, 180° = PI)
