@@ -126,6 +126,14 @@ export default function MapaCalorPage() {
     refetchInterval: 15000,
   });
 
+  const providerPoints: HeatPoint[] = providerData
+    .map(p => ({
+      lat: parseFloat(p.latitude),
+      lng: parseFloat(p.longitude),
+      weight: Math.max(0.2, ((p.maxDaysOverdue || 0) / 90) + (parseFloat(p.totalOverdueAmount || "0") / 500)),
+    }))
+    .filter(p => !isNaN(p.lat) && !isNaN(p.lng));
+
   useEffect(() => {
     const city = provider?.addressCity || "";
     const state = provider?.addressState || "";
@@ -206,14 +214,6 @@ export default function MapaCalorPage() {
       }, 3000);
     },
   });
-
-  const providerPoints: HeatPoint[] = providerData
-    .map(p => ({
-      lat: parseFloat(p.latitude),
-      lng: parseFloat(p.longitude),
-      weight: Math.max(0.2, ((p.maxDaysOverdue || 0) / 90) + (parseFloat(p.totalOverdueAmount || "0") / 500)),
-    }))
-    .filter(p => !isNaN(p.lat) && !isNaN(p.lng));
 
   const regionalPoints: HeatPoint[] = regionalData
     .map(p => ({ lat: p.lat, lng: p.lng, weight: p.count }))
