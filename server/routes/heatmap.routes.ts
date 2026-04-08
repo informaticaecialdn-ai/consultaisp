@@ -25,7 +25,7 @@ export function registerHeatmapRoutes(): Router {
       const points = getProviderPoints(providerId);
       const data = points.map((p, i) => ({
         id: i + 1,
-        name: p.customerName || `Inadimplente ${i + 1}`,
+        name: `Ponto ${i + 1}`, // LGPD: sem nome do cliente
         latitude: String(p.lat),
         longitude: String(p.lng),
         city: p.city,

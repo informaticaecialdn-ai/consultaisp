@@ -12,7 +12,7 @@ export type HeatPoint = {
   overdueCount: number;
   providerId: number;
   providerName: string;
-  customerName: string;
+  // LGPD: sem customerName, sem CPF — apenas coordenadas anonimizadas com jitter
 };
 
 type CacheEntry = {
@@ -26,7 +26,7 @@ type CacheEntry = {
 };
 
 const _cache = new Map<number, CacheEntry>();
-const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 horas — refresh diario, sem persistencia em disco
 let _refreshing = false;
 
 export async function refreshProviderCache(
@@ -112,6 +112,7 @@ export async function refreshProviderCache(
 
       if (!coords) continue;
 
+      // LGPD: jitter ±0.02° (~2km) para impedir geolocalizacao exata do cliente
       const jitter = () => (Math.random() - 0.5) * 0.02;
       points.push({
         lat: coords[0] + jitter(),
@@ -123,7 +124,6 @@ export async function refreshProviderCache(
         overdueCount: d.overdueInvoicesCount ?? 1,
         providerId,
         providerName,
-        customerName: d.name || "",
       });
     }
 
@@ -251,7 +251,7 @@ export function isRefreshing(): boolean {
 }
 
 export function startHeatmapCacheScheduler(): void {
-  console.log("[HeatmapCache] Scheduler iniciado — atualiza a cada 7 dias");
+  console.log("[HeatmapCache] Scheduler iniciado — atualiza a cada 24h (dados efemeros, sem persistencia)");
   setTimeout(async () => {
     try {
       console.log("[HeatmapCache] Carga inicial do cache de mapa de calor...");
