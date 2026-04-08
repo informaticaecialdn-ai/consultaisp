@@ -94,13 +94,17 @@ function getAlertTypeConfig(type: string, severity: string) {
   switch (type) {
     case "defaulter_consulted":
       return {
-        tag: "TENTATIVA DE FUGA",
-        tagColor: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]",
-        borderColor: "border-[var(--color-danger)]",
-        bgColor: "bg-[var(--color-danger-bg)]",
-        icon: WifiOff,
-        iconBg: "bg-[var(--color-danger)]",
-        description: "Seu cliente inadimplente esta sendo consultado por outro provedor",
+        tag: severity === "medium" ? "CLIENTE CONSULTADO" : "TENTATIVA DE FUGA",
+        tagColor: severity === "medium"
+          ? "bg-[var(--color-gold-bg)] text-[var(--color-gold)]"
+          : "bg-[var(--color-danger-bg)] text-[var(--color-danger)]",
+        borderColor: severity === "medium" ? "border-[var(--color-gold)]" : "border-[var(--color-danger)]",
+        bgColor: severity === "medium" ? "bg-[var(--color-gold-bg)]" : "bg-[var(--color-danger-bg)]",
+        icon: severity === "medium" ? AlertCircle : WifiOff,
+        iconBg: severity === "medium" ? "bg-[var(--color-gold)]" : "bg-[var(--color-danger)]",
+        description: severity === "medium"
+          ? "Seu cliente foi consultado por outro provedor — possivel interesse em migrar"
+          : "Seu cliente inadimplente esta sendo consultado por outro provedor",
       };
     case "multiple_consultations":
       return {

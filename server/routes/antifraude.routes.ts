@@ -3,6 +3,7 @@ import { requireAuth } from "../auth";
 import { storage } from "../storage";
 import { maskAlertForProvider } from "../utils/mask-alert";
 import { getSafeErrorMessage } from "../utils/safe-error";
+import { logger } from "../logger";
 
 export function registerAntiFraudeRoutes(): Router {
   const router = Router();
@@ -10,12 +11,61 @@ export function registerAntiFraudeRoutes(): Router {
   router.get("/api/anti-fraud/alerts", requireAuth, async (req, res) => {
     try {
       const currentProviderId = req.session.providerId!;
-      const alerts = await storage.getAlertsByProvider(currentProviderId);
 
-      const maskedAlerts = alerts.map((alert: any) => maskAlertForProvider(alert, currentProviderId));
+      // 1. Migrator alerts (antiFraudAlerts) — only where THIS provider had the cancelled contract
+      const migratorAlerts = await storage.getAlertsByProvider(currentProviderId);
+      const maskedMigrator = migratorAlerts.map((alert: any) => maskAlertForProvider(alert, currentProviderId));
 
-      return res.json(maskedAlerts);
+      // 2. Proactive alerts — when another provider consulted THIS provider's client
+      const proactiveRaw = await storage.getProactiveAlertsByProvider(currentProviderId, 100);
+
+      // Convert proactive alerts to same format as anti-fraud alerts for unified display
+      const consultingProviderNames = new Map<number, string>();
+      for (const pa of proactiveRaw) {
+        if (pa.consultingProviderId && !consultingProviderNames.has(pa.consultingProviderId)) {
+          try {
+            const p = await storage.getProvider(pa.consultingProviderId);
+            if (p) consultingProviderNames.set(pa.consultingProviderId, p.name);
+          } catch {}
+        }
+      }
+
+      const proactiveAsAlerts = proactiveRaw.map(pa => ({
+        id: pa.id + 1_000_000, // offset to avoid ID collision with antiFraudAlerts
+        providerId: pa.providerId,
+        customerId: null,
+        consultingProviderId: pa.consultingProviderId,
+        consultingProviderName: pa.consultingProviderId ? (consultingProviderNames.get(pa.consultingProviderId) || "Provedor da rede") : null,
+        customerName: null,
+        customerCpfCnpj: pa.cpfCnpj,
+        type: "defaulter_consulted",
+        severity: "medium",
+        message: `Seu cliente foi consultado por outro provedor da rede ISP`,
+        riskScore: 50,
+        riskLevel: "medium",
+        riskFactors: ["consulta_outro_provedor"],
+        daysOverdue: null,
+        overdueAmount: null,
+        equipmentNotReturned: null,
+        equipmentValue: null,
+        recentConsultations: 1,
+        resolved: pa.acknowledged || false,
+        status: pa.acknowledged ? "resolved" : "new",
+        createdAt: pa.sentAt,
+        _source: "proactive" as const,
+      }));
+
+      // Combine both sources, sort by date descending
+      const all = [...maskedMigrator.map((a: any) => ({ ...a, _source: "migrator" as const })), ...proactiveAsAlerts]
+        .sort((a, b) => {
+          const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const db = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return db - da;
+        });
+
+      return res.json(all);
     } catch (error: any) {
+      logger.error({ err: error }, "Anti-fraud alerts fetch error");
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
@@ -27,6 +77,19 @@ export function registerAntiFraudeRoutes(): Router {
       if (!["new", "resolved", "dismissed"].includes(status)) {
         return res.status(400).json({ message: "Status invalido" });
       }
+
+      // Proactive alerts have IDs offset by 1_000_000
+      if (alertId >= 1_000_000) {
+        const realId = alertId - 1_000_000;
+        const isAck = status === "resolved" || status === "dismissed";
+        if (isAck) {
+          const updated = await storage.acknowledgeProactiveAlert(realId, req.session.providerId!);
+          if (!updated) return res.status(404).json({ message: "Alerta nao encontrado" });
+          return res.json({ ...updated, id: alertId, status, _source: "proactive" });
+        }
+        return res.json({ id: alertId, status: "new" });
+      }
+
       const updated = await storage.updateAlertStatus(alertId, req.session.providerId!, status);
       if (!updated) {
         return res.status(404).json({ message: "Alerta nao encontrado" });
