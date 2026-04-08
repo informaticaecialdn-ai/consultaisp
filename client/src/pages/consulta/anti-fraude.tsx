@@ -42,6 +42,7 @@ type AntiFraudAlert = {
   resolved: boolean;
   status: string;
   createdAt: string | null;
+  customerStatus?: string;
 };
 
 type CustomerRisk = {
@@ -171,10 +172,11 @@ function PrejuizoCard({ label, value, sub, icon: Icon, color, alert }: {
   );
 }
 
-function AlertaMigracaoCard({ alert, onResolve, onDismiss }: {
+function AlertaMigracaoCard({ alert, onResolve, onDismiss, showActions = true }: {
   alert: AntiFraudAlert;
   onResolve: (id: number) => void;
   onDismiss: (id: number) => void;
+  showActions?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const typeConfig = getAlertTypeConfig(alert.type, alert.severity);

@@ -4,19 +4,20 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const badgeVariants = cva(
-  // Whitespace-nowrap: Badges should never wrap.
-  "whitespace-nowrap inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2" +
-  " hover-elevate " ,
+  "whitespace-nowrap inline-flex items-center rounded-sm border px-2 py-0.5 font-mono text-[10px] font-medium tracking-[0.06em] transition-colors focus:outline-none focus:ring-1 focus:ring-ring",
   {
     variants: {
       variant: {
         default:
-          "border-transparent bg-primary text-primary-foreground shadow-xs",
-        secondary: "border-transparent bg-secondary text-secondary-foreground",
+          "border-transparent bg-[var(--color-navy-bg)] text-[var(--color-navy)]",
+        secondary: "border-transparent bg-[var(--color-tag-bg)] text-[var(--color-muted)]",
         destructive:
-          "border-transparent bg-destructive text-destructive-foreground shadow-xs",
-
-        outline: " border [border-color:var(--badge-outline)] shadow-xs",
+          "border-transparent bg-[var(--color-danger-bg)] text-[var(--color-danger)]",
+        outline: "border-[0.5px] border-[var(--color-border)] text-[var(--color-muted)]",
+        navy: "border-transparent bg-[var(--color-navy-bg)] text-[var(--color-navy)]",
+        gold: "border-transparent bg-[var(--color-gold-bg)] text-[var(--color-gold)]",
+        danger: "border-transparent bg-[var(--color-danger-bg)] text-[var(--color-danger)]",
+        success: "border-transparent bg-[var(--color-success-bg)] text-[var(--color-success)]",
       },
     },
     defaultVariants: {

@@ -206,18 +206,18 @@ export default function LoginPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-600 to-violet-700 flex flex-col" data-testid="login-page">
+    <div className="min-h-screen bg-[var(--color-bg)] flex flex-col" data-testid="login-page">
       <header className="flex items-center justify-between px-8 py-5">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center">
-            <Shield className="w-5 h-5 text-white" />
+          <div className="w-9 h-9 rounded bg-[var(--color-navy)]/20 flex items-center justify-center">
+            <Shield className="w-5 h-5 text-[var(--color-navy)]" />
           </div>
-          <span className="text-lg font-bold text-white">Consulta ISP</span>
+          <span className="text-lg font-display font-semibold text-[var(--color-ink)]">Consulta ISP</span>
         </div>
         {!isSubdomainMode && (
           <button
             onClick={() => setLocation("/")}
-            className="flex items-center gap-1.5 text-sm text-white/70 hover:text-white transition-colors"
+            className="flex items-center gap-1.5 text-sm text-[var(--color-muted)] hover:text-[var(--color-ink)] transition-colors"
             data-testid="button-back-to-site"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -229,42 +229,42 @@ export default function LoginPage() {
       <div className="flex-1 flex items-center justify-center px-6 py-8">
         <div className="w-full max-w-5xl flex flex-col lg:flex-row items-center gap-12 lg:gap-16">
 
-          <div className="flex-1 text-white text-center lg:text-left max-w-lg">
-            <div className="inline-flex items-center gap-2 bg-white/15 backdrop-blur-sm rounded-full px-4 py-1.5 mb-6">
-              <Shield className="w-4 h-4 text-yellow-300" />
-              <span className="text-sm font-medium text-yellow-100">Plataforma Colaborativa de Credito</span>
+          <div className="flex-1 text-[var(--color-ink)] text-center lg:text-left max-w-lg">
+            <div className="inline-flex items-center gap-2 bg-[var(--color-navy)]/10 rounded-full px-4 py-1.5 mb-6">
+              <Shield className="w-4 h-4 text-[var(--color-gold)]" />
+              <span className="text-sm font-medium text-[var(--color-navy)]">Plataforma Colaborativa de Credito</span>
             </div>
 
-            <h1 className="text-3xl lg:text-4xl font-bold leading-tight mb-4">
+            <h1 className="font-display text-3xl lg:text-4xl font-light leading-tight mb-4">
               Proteja seu provedor,{" "}
-              <span className="text-yellow-300">consulte antes</span>
+              <span className="text-[var(--color-gold)] font-semibold">consulte antes</span>
               <br />de liberar contratos
             </h1>
-            <p className="text-blue-100 text-base lg:text-lg mb-8 leading-relaxed">
-              Base de dados <span className="text-yellow-200 font-medium">colaborativa</span> de clientes inadimplentes entre provedores. Consulte o historico e <span className="text-green-300 font-medium">reduza riscos</span> na sua operacao.
+            <p className="text-[var(--color-muted)] text-base lg:text-lg mb-8 leading-relaxed">
+              Base de dados <span className="text-[var(--color-gold)] font-medium">colaborativa</span> de clientes inadimplentes entre provedores. Consulte o historico e <span className="text-[var(--color-success)] font-medium">reduza riscos</span> na sua operacao.
             </p>
 
-            <p className="text-xs font-semibold tracking-widest text-blue-200 uppercase mb-3">Numeros da plataforma</p>
+            <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Numeros da plataforma</p>
             <div className="grid grid-cols-3 gap-3 mb-8">
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 text-center border border-white/10">
-                <span className="font-bold text-xl block text-yellow-300">100+</span>
-                <span className="text-blue-200 text-xs">Provedores</span>
+              <div className="bg-[var(--color-surface)] rounded p-4 text-center border-[0.5px] border-[var(--color-border)]">
+                <span className="font-mono font-semibold text-xl block text-[var(--color-gold)]">100+</span>
+                <span className="text-[var(--color-muted)] text-xs">Provedores</span>
               </div>
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 text-center border border-white/10">
-                <span className="font-bold text-xl block text-green-300">Multi</span>
-                <span className="text-blue-200 text-xs">Base Colaborativa</span>
+              <div className="bg-[var(--color-surface)] rounded p-4 text-center border-[0.5px] border-[var(--color-border)]">
+                <span className="font-mono font-semibold text-xl block text-[var(--color-success)]">Multi</span>
+                <span className="text-[var(--color-muted)] text-xs">Base Colaborativa</span>
               </div>
-              <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 text-center border border-white/10">
-                <span className="font-bold text-xl block text-amber-300">99.9%</span>
-                <span className="text-blue-200 text-xs">Uptime</span>
+              <div className="bg-[var(--color-surface)] rounded p-4 text-center border-[0.5px] border-[var(--color-border)]">
+                <span className="font-mono font-semibold text-xl block text-[var(--color-gold)]">99.9%</span>
+                <span className="text-[var(--color-muted)] text-xs">Uptime</span>
               </div>
             </div>
 
             <div className="space-y-2.5">
               {features.map((feature) => (
                 <div key={feature} className="flex items-center gap-2.5 justify-center lg:justify-start">
-                  <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0" />
-                  <span className="text-blue-100 text-sm">{feature}</span>
+                  <CheckCircle className="w-4 h-4 text-[var(--color-success)] flex-shrink-0" />
+                  <span className="text-[var(--color-muted)] text-sm">{feature}</span>
                 </div>
               ))}
             </div>
@@ -272,37 +272,37 @@ export default function LoginPage() {
 
           <div className="w-full max-w-md flex-shrink-0">
             {pageState === "check-email" ? (
-              <Card className="p-8 shadow-2xl border-0" data-testid="check-email-card">
+              <Card className="p-8 border-[0.5px] border-[var(--color-border)] rounded bg-[var(--color-surface)]" data-testid="check-email-card">
                 <div className="text-center mb-6">
-                  <div className="w-16 h-16 rounded-full bg-violet-50 dark:bg-violet-950 flex items-center justify-center mx-auto mb-4">
-                    <MailCheck className="w-8 h-8 text-violet-600" />
+                  <div className="w-16 h-16 rounded-full bg-[var(--color-navy)]/10 flex items-center justify-center mx-auto mb-4">
+                    <MailCheck className="w-8 h-8 text-[var(--color-navy)]" />
                   </div>
-                  <h2 className="text-2xl font-bold mb-2" data-testid="text-check-email-title">
+                  <h2 className="font-display text-2xl font-semibold mb-2" data-testid="text-check-email-title">
                     Verifique seu email
                   </h2>
-                  <p className="text-muted-foreground text-sm leading-relaxed">
+                  <p className="text-[var(--color-muted)] text-sm leading-relaxed">
                     Enviamos um link de confirmacao para
                   </p>
-                  <p className="font-semibold mt-1" data-testid="text-pending-email">{pendingEmail}</p>
+                  <p className="font-semibold mt-1 text-[var(--color-ink)]" data-testid="text-pending-email">{pendingEmail}</p>
                 </div>
 
-                <div className="bg-violet-50 dark:bg-violet-950/30 rounded-lg p-4 mb-6 space-y-2">
+                <div className="bg-[var(--color-navy)]/5 rounded p-4 mb-6 space-y-2">
                   {[
                     "Abra seu email e procure a mensagem do Consulta ISP",
                     "Clique no botao \"Confirmar Email\"",
                     "Voce sera redirecionado automaticamente para o sistema",
                   ].map((step, i) => (
                     <div key={i} className="flex items-start gap-3">
-                      <span className="w-5 h-5 rounded-full bg-violet-600 text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5 font-semibold">
+                      <span className="w-5 h-5 rounded-full bg-[var(--color-navy)] text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5 font-semibold">
                         {i + 1}
                       </span>
-                      <span className="text-sm text-muted-foreground">{step}</span>
+                      <span className="text-sm text-[var(--color-muted)]">{step}</span>
                     </div>
                   ))}
                 </div>
 
                 <div className="text-center space-y-3">
-                  <p className="text-sm text-muted-foreground">Nao recebeu o email?</p>
+                  <p className="text-sm text-[var(--color-muted)]">Nao recebeu o email?</p>
                   <Button
                     variant="outline"
                     className="w-full gap-2"
@@ -315,7 +315,7 @@ export default function LoginPage() {
                   </Button>
                   <button
                     type="button"
-                    className="text-sm text-violet-600 font-medium"
+                    className="text-sm text-[var(--color-navy)] font-medium hover:text-[var(--color-steel)]"
                     onClick={() => setPageState("login")}
                     data-testid="button-back-to-login"
                   >
@@ -324,22 +324,22 @@ export default function LoginPage() {
                 </div>
               </Card>
             ) : (
-              <Card className="p-8 shadow-2xl border-0">
+              <Card className="p-8 border-[0.5px] border-[var(--color-border)] rounded bg-[var(--color-surface)]">
                 <div className="text-center mb-6">
-                  <div className="w-12 h-12 rounded-full bg-violet-50 dark:bg-violet-950 flex items-center justify-center mx-auto mb-3">
-                    <Shield className="w-6 h-6 text-violet-600" />
+                  <div className="w-12 h-12 rounded-full bg-[var(--color-navy)]/10 flex items-center justify-center mx-auto mb-3">
+                    <Shield className="w-6 h-6 text-[var(--color-navy)]" />
                   </div>
-                  <h2 className="text-xl font-bold" data-testid="text-login-title">
+                  <h2 className="font-display text-xl font-semibold" data-testid="text-login-title">
                     {isSubdomainMode
                       ? "Bem-vindo de volta"
                       : pageState === "register" ? "Cadastre-se" : "Bem-vindo de volta"}
                   </h2>
                   {isSubdomainMode && tenantInfo?.name && (
-                    <p className="text-base font-semibold text-violet-600 mt-1" data-testid="text-provider-name">
+                    <p className="text-base font-semibold text-[var(--color-navy)] mt-1" data-testid="text-provider-name">
                       {tenantInfo.name.split(" ").slice(0, 2).join(" ")}
                     </p>
                   )}
-                  <p className="text-muted-foreground text-sm mt-1">
+                  <p className="text-[var(--color-muted)] text-sm mt-1">
                     {isSubdomainMode
                       ? "Faca login para acessar o painel"
                       : pageState === "register" ? "Crie sua conta para acessar o sistema" : "Faca login para acessar o painel"}
@@ -350,7 +350,7 @@ export default function LoginPage() {
                   {pageState === "register" && (
                     <>
                       <div>
-                        <label className="text-sm font-medium mb-1.5 block">Seu Nome Completo</label>
+                        <label className="text-sm font-medium mb-1.5 block text-[var(--color-ink)]">Seu Nome Completo</label>
                         <Input
                           data-testid="input-name"
                           placeholder="Seu nome completo"
@@ -360,7 +360,7 @@ export default function LoginPage() {
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium mb-1.5 block">Telefone</label>
+                        <label className="text-sm font-medium mb-1.5 block text-[var(--color-ink)]">Telefone</label>
                         <Input
                           data-testid="input-phone"
                           type="tel"
@@ -371,7 +371,7 @@ export default function LoginPage() {
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium mb-1.5 block flex items-center gap-1.5">
+                        <label className="text-sm font-medium mb-1.5 block flex items-center gap-1.5 text-[var(--color-ink)]">
                           <Building2 className="w-3.5 h-3.5" />CNPJ da Empresa
                         </label>
                         <div className="relative">
@@ -381,46 +381,46 @@ export default function LoginPage() {
                             value={form.cnpj}
                             onChange={(e) => setForm({ ...form, cnpj: formatCnpj(e.target.value) })}
                             className={
-                              cnpjLookup === "found" ? "border-emerald-500 pr-8" :
-                              cnpjLookup === "error" ? "border-red-400 pr-8" : "pr-8"
+                              cnpjLookup === "found" ? "border-[var(--color-success)] pr-8" :
+                              cnpjLookup === "error" ? "border-[var(--color-danger)] pr-8" : "pr-8"
                             }
                             required
                           />
                           <span className="absolute right-2.5 top-1/2 -translate-y-1/2">
-                            {cnpjLookup === "loading" && <RefreshCw className="w-4 h-4 animate-spin text-muted-foreground" />}
-                            {cnpjLookup === "found" && <CheckCircle className="w-4 h-4 text-emerald-500" />}
-                            {cnpjLookup === "error" && <X className="w-4 h-4 text-red-400" />}
+                            {cnpjLookup === "loading" && <RefreshCw className="w-4 h-4 animate-spin text-[var(--color-muted)]" />}
+                            {cnpjLookup === "found" && <CheckCircle className="w-4 h-4 text-[var(--color-success)]" />}
+                            {cnpjLookup === "error" && <X className="w-4 h-4 text-[var(--color-danger)]" />}
                           </span>
                         </div>
                         {cnpjLookup === "loading" && (
-                          <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                          <p className="text-xs text-[var(--color-muted)] mt-1 flex items-center gap-1">
                             <RefreshCw className="w-3 h-3 animate-spin" />Buscando dados da empresa...
                           </p>
                         )}
                         {cnpjLookup === "found" && cnpjData && (
-                          <div className="mt-2 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-lg p-3 space-y-1">
-                            <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                          <div className="mt-2 bg-[var(--color-success)]/5 border-[0.5px] border-[var(--color-success)]/30 rounded p-3 space-y-1">
+                            <p className="text-xs font-semibold text-[var(--color-success)] flex items-center gap-1">
                               <CheckCircle className="w-3.5 h-3.5" />Empresa encontrada
                             </p>
                             {cnpjData.razao_social && (
-                              <p className="text-xs text-emerald-800 dark:text-emerald-300">
+                              <p className="text-xs text-[var(--color-ink)]">
                                 <span className="font-medium">Razao Social:</span> {cnpjData.razao_social}
                               </p>
                             )}
                             {cnpjData.nome_fantasia && (
-                              <p className="text-xs text-emerald-800 dark:text-emerald-300">
+                              <p className="text-xs text-[var(--color-ink)]">
                                 <span className="font-medium">Nome Fantasia:</span> {cnpjData.nome_fantasia}
                               </p>
                             )}
                             {cnpjData.municipio && (
-                              <p className="text-xs text-emerald-800 dark:text-emerald-300">
+                              <p className="text-xs text-[var(--color-ink)]">
                                 <span className="font-medium">Cidade:</span> {cnpjData.municipio} / {cnpjData.uf}
                               </p>
                             )}
                             {cnpjData.situacao_cadastral && (
-                              <p className="text-xs text-emerald-800 dark:text-emerald-300">
+                              <p className="text-xs text-[var(--color-ink)]">
                                 <span className="font-medium">Situacao:</span>{" "}
-                                <span className={cnpjData.situacao_cadastral === "ATIVA" ? "text-emerald-600 font-semibold" : "text-red-600"}>
+                                <span className={cnpjData.situacao_cadastral === "ATIVA" ? "text-[var(--color-success)] font-semibold" : "text-[var(--color-danger)]"}>
                                   {cnpjData.situacao_cadastral}
                                 </span>
                               </p>
@@ -428,14 +428,14 @@ export default function LoginPage() {
                           </div>
                         )}
                         {cnpjLookup === "error" && (
-                          <p className="text-xs text-amber-600 mt-1">CNPJ nao encontrado na Receita Federal. Voce pode continuar o cadastro normalmente.</p>
+                          <p className="text-xs text-[var(--color-gold)] mt-1">CNPJ nao encontrado na Receita Federal. Voce pode continuar o cadastro normalmente.</p>
                         )}
                       </div>
                       <div>
-                        <label className="text-sm font-medium mb-1.5 block">
+                        <label className="text-sm font-medium mb-1.5 block text-[var(--color-ink)]">
                           Nome do Provedor
                           {cnpjLookup === "found" && !providerNameEdited && (
-                            <span className="ml-2 text-xs text-emerald-600 font-normal">(preenchido automaticamente)</span>
+                            <span className="ml-2 text-xs text-[var(--color-success)] font-normal">(preenchido automaticamente)</span>
                           )}
                         </label>
                         <Input
@@ -450,7 +450,7 @@ export default function LoginPage() {
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium mb-1.5 block flex items-center gap-1.5">
+                        <label className="text-sm font-medium mb-1.5 block flex items-center gap-1.5 text-[var(--color-ink)]">
                           <Globe className="w-3.5 h-3.5" />Subdominio do Painel
                         </label>
                         <div className="flex items-center gap-2">
@@ -465,26 +465,26 @@ export default function LoginPage() {
                                 setForm({ ...form, subdomain: val });
                               }}
                               className={
-                                subdomainStatus === "available" ? "border-emerald-500 pr-8" :
-                                subdomainStatus === "taken" ? "border-red-500 pr-8" : "pr-8"
+                                subdomainStatus === "available" ? "border-[var(--color-success)] pr-8" :
+                                subdomainStatus === "taken" ? "border-[var(--color-danger)] pr-8" : "pr-8"
                               }
                               required
                             />
                             <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs">
-                              {subdomainStatus === "checking" && <RefreshCw className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
-                              {subdomainStatus === "available" && <CheckCircle className="w-3.5 h-3.5 text-emerald-500" />}
-                              {subdomainStatus === "taken" && <span className="text-red-500 font-bold">!</span>}
+                              {subdomainStatus === "checking" && <RefreshCw className="w-3.5 h-3.5 animate-spin text-[var(--color-muted)]" />}
+                              {subdomainStatus === "available" && <CheckCircle className="w-3.5 h-3.5 text-[var(--color-success)]" />}
+                              {subdomainStatus === "taken" && <span className="text-[var(--color-danger)] font-semibold">!</span>}
                             </span>
                           </div>
-                          <span className="text-sm text-muted-foreground whitespace-nowrap">.consultaisp.com.br</span>
+                          <span className="text-sm text-[var(--color-muted)] whitespace-nowrap">.consultaisp.com.br</span>
                         </div>
                         {subdomainStatus === "taken" && (
-                          <p className="text-xs text-red-500 mt-1">Subdominio ja em uso. Escolha outro.</p>
+                          <p className="text-xs text-[var(--color-danger)] mt-1">Subdominio ja em uso. Escolha outro.</p>
                         )}
                         {subdomainStatus === "available" && (
-                          <p className="text-xs text-emerald-600 mt-1">Subdominio disponivel!</p>
+                          <p className="text-xs text-[var(--color-success)] mt-1">Subdominio disponivel!</p>
                         )}
-                        <p className="text-xs text-muted-foreground mt-1">
+                        <p className="text-xs text-[var(--color-muted)] mt-1">
                           Auto-gerado a partir do nome do provedor. Voce pode editar.
                         </p>
                       </div>
@@ -492,7 +492,7 @@ export default function LoginPage() {
                   )}
 
                   <div>
-                    <label className="text-sm font-medium mb-1.5 block">Email</label>
+                    <label className="text-sm font-medium mb-1.5 block text-[var(--color-ink)]">Email</label>
                     <Input
                       data-testid="input-email"
                       type="email"
@@ -505,30 +505,30 @@ export default function LoginPage() {
 
                   {pageState === "register" && (
                     <div>
-                      <label className="text-sm font-medium mb-1.5 block">Confirmar Email</label>
+                      <label className="text-sm font-medium mb-1.5 block text-[var(--color-ink)]">Confirmar Email</label>
                       <Input
                         data-testid="input-confirm-email"
                         type="email"
                         placeholder="Repita seu email"
                         value={form.confirmEmail}
                         onChange={(e) => setForm({ ...form, confirmEmail: e.target.value })}
-                        className={form.confirmEmail && form.confirmEmail !== form.email ? "border-red-400" : form.confirmEmail && form.confirmEmail === form.email ? "border-emerald-500" : ""}
+                        className={form.confirmEmail && form.confirmEmail !== form.email ? "border-[var(--color-danger)]" : form.confirmEmail && form.confirmEmail === form.email ? "border-[var(--color-success)]" : ""}
                         required
                       />
                       {form.confirmEmail && form.confirmEmail !== form.email && (
-                        <p className="text-xs text-red-500 mt-1">Os emails nao conferem</p>
+                        <p className="text-xs text-[var(--color-danger)] mt-1">Os emails nao conferem</p>
                       )}
                       {form.confirmEmail && form.confirmEmail === form.email && (
-                        <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><CheckCircle className="w-3 h-3" />Emails conferem</p>
+                        <p className="text-xs text-[var(--color-success)] mt-1 flex items-center gap-1"><CheckCircle className="w-3 h-3" />Emails conferem</p>
                       )}
                     </div>
                   )}
 
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-sm font-medium">Senha</label>
+                      <label className="text-sm font-medium text-[var(--color-ink)]">Senha</label>
                       {pageState === "login" && (
-                        <button type="button" className="text-xs text-violet-600 hover:text-violet-700">
+                        <button type="button" className="text-xs text-[var(--color-navy)] hover:text-[var(--color-steel)]">
                           Esqueceu a senha?
                         </button>
                       )}
@@ -545,7 +545,7 @@ export default function LoginPage() {
                       />
                       <button
                         type="button"
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)] hover:text-[var(--color-ink)]"
                         onClick={() => setShowPassword(!showPassword)}
                         data-testid="button-toggle-password"
                       >
@@ -556,20 +556,20 @@ export default function LoginPage() {
 
                   {pageState === "register" && (
                     <div>
-                      <label className="text-sm font-medium mb-1.5 block">Confirmar Senha</label>
+                      <label className="text-sm font-medium mb-1.5 block text-[var(--color-ink)]">Confirmar Senha</label>
                       <div className="relative">
                         <Input
                           data-testid="input-confirm-password"
                           type={showConfirmPassword ? "text" : "password"}
                           placeholder="Repita sua senha"
-                          className={`pr-10 ${form.confirmPassword && form.confirmPassword !== form.password ? "border-red-400" : form.confirmPassword && form.confirmPassword === form.password ? "border-emerald-500" : ""}`}
+                          className={`pr-10 ${form.confirmPassword && form.confirmPassword !== form.password ? "border-[var(--color-danger)]" : form.confirmPassword && form.confirmPassword === form.password ? "border-[var(--color-success)]" : ""}`}
                           value={form.confirmPassword}
                           onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
                           required
                         />
                         <button
                           type="button"
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)] hover:text-[var(--color-ink)]"
                           onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                           data-testid="button-toggle-confirm-password"
                         >
@@ -577,28 +577,28 @@ export default function LoginPage() {
                         </button>
                       </div>
                       {form.confirmPassword && form.confirmPassword !== form.password && (
-                        <p className="text-xs text-red-500 mt-1">As senhas nao conferem</p>
+                        <p className="text-xs text-[var(--color-danger)] mt-1">As senhas nao conferem</p>
                       )}
                       {form.confirmPassword && form.confirmPassword === form.password && (
-                        <p className="text-xs text-emerald-600 mt-1 flex items-center gap-1"><CheckCircle className="w-3 h-3" />Senhas conferem</p>
+                        <p className="text-xs text-[var(--color-success)] mt-1 flex items-center gap-1"><CheckCircle className="w-3 h-3" />Senhas conferem</p>
                       )}
                     </div>
                   )}
 
                   {pageState === "register" && (
-                    <div className="flex items-start gap-2.5 p-3 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <div className="flex items-start gap-2.5 p-3 bg-[var(--color-navy)]/5 border-[0.5px] border-[var(--color-navy)]/20 rounded">
                       <input
                         type="checkbox"
                         id="lgpd-register-accept"
                         checked={form.lgpdAccepted}
                         onChange={(e) => setForm({ ...form, lgpdAccepted: e.target.checked })}
-                        className="mt-0.5 w-4 h-4 rounded border-blue-300"
+                        className="mt-0.5 w-4 h-4 rounded border-[var(--color-border)]"
                         data-testid="checkbox-lgpd-accept"
                         required
                       />
-                      <label htmlFor="lgpd-register-accept" className="text-xs text-blue-800 dark:text-blue-300 leading-relaxed cursor-pointer">
+                      <label htmlFor="lgpd-register-accept" className="text-xs text-[var(--color-ink)] leading-relaxed cursor-pointer">
                         Li e aceito os{" "}
-                        <a href="/lgpd" target="_blank" rel="noopener noreferrer" className="underline font-semibold">
+                        <a href="/lgpd" target="_blank" rel="noopener noreferrer" className="underline font-semibold text-[var(--color-navy)] hover:text-[var(--color-steel)]">
                           Termos de Uso e a Politica de Privacidade
                         </a>
                         {" "}conforme a LGPD (Lei n 13.709/2018).
@@ -608,7 +608,7 @@ export default function LoginPage() {
 
                   <Button
                     type="submit"
-                    className="w-full bg-violet-600 hover:bg-violet-700 h-11 text-base"
+                    className="w-full bg-[var(--color-navy)] hover:bg-[var(--color-steel)] h-11 text-base"
                     disabled={isLoading || (pageState === "register" && !form.lgpdAccepted)}
                     data-testid="button-submit-login"
                   >
@@ -618,11 +618,11 @@ export default function LoginPage() {
                 </form>
 
                 {!isSubdomainMode && (
-                  <p className="mt-5 text-center text-sm text-muted-foreground">
+                  <p className="mt-5 text-center text-sm text-[var(--color-muted)]">
                     {pageState === "register" ? "Ja tem uma conta? " : "Ainda nao tem uma conta? "}
                     <button
                       type="button"
-                      className="text-violet-600 font-semibold hover:text-violet-700"
+                      className="text-[var(--color-navy)] font-semibold hover:text-[var(--color-steel)]"
                       onClick={() => setPageState(pageState === "register" ? "login" : "register")}
                       data-testid="button-toggle-register"
                     >
@@ -631,7 +631,7 @@ export default function LoginPage() {
                   </p>
                 )}
 
-                <div className="mt-4 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
+                <div className="mt-4 flex items-center justify-center gap-1.5 text-xs text-[var(--color-muted)]">
                   <Lock className="w-3 h-3" />
                   <span>Conexao segura e criptografada</span>
                 </div>
@@ -642,7 +642,7 @@ export default function LoginPage() {
         </div>
       </div>
 
-      <footer className="text-center py-4 text-white/40 text-xs">
+      <footer className="text-center py-4 text-[var(--color-muted)] text-xs">
         2025 Consulta ISP - Plataforma de Analise de Credito para Provedores de Internet
       </footer>
     </div>

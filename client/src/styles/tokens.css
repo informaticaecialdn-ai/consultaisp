@@ -1,0 +1,30 @@
+/* ═══════════════════════════════════════════════════════════════
+   DESIGN SYSTEM TOKENS — Consulta ISP
+   Fonte: DESIGN_SYSTEM.md v1.0
+   NÃO edite diretamente — altere o DESIGN_SYSTEM.md e replique aqui.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Fundos */
+  --color-bg:         #F9F7F4;
+  --color-surface:    #FFFFFF;
+  --color-border:     #E2DDD6;
+
+  /* Texto */
+  --color-ink:        #1A1714;
+  --color-muted:      #6B6560;
+  --color-tag-bg:     #EEE9E0;
+
+  /* Primarios semanticos */
+  --color-navy:       #1A3A5C;
+  --color-steel:      #2C5F8A;
+  --color-gold:       #B8860B;
+  --color-danger:     #8B1A1A;
+  --color-success:    #1A4A2E;
+
+  /* Fundos semanticos */
+  --color-navy-bg:    #EAF0F8;
+  --color-gold-bg:    #F5EDD4;
+  --color-danger-bg:  #F5E8E8;
+  --color-success-bg: #E4EEE8;
+}

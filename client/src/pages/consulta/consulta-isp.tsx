@@ -138,27 +138,27 @@ export default function ConsultaISPPage() {
   const handleClear = () => { setResult(null); setShowFullResult(false); };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-slate-50 to-purple-50 p-6" data-testid="consulta-isp-page">
+    <div className="min-h-screen bg-[var(--color-bg)] p-6" data-testid="consulta-isp-page">
       <div className="max-w-5xl mx-auto space-y-6">
 
         {/* HEADER */}
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-md">
+            <div className="w-10 h-10 rounded bg-[var(--color-navy)] flex items-center justify-center">
               <Search className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-purple-700 bg-clip-text text-transparent leading-tight" data-testid="text-consulta-isp-title">
+              <h1 className="text-4xl font-display font-light text-[var(--color-ink)] leading-tight" data-testid="text-consulta-isp-title">
                 Consulta ISP
               </h1>
-              <p className="text-lg text-slate-600">Sistema de analise de credito para provedores</p>
+              <p className="text-lg text-[var(--color-muted)]">Sistema de analise de credito para provedores</p>
             </div>
           </div>
-          <div className="bg-white/70 backdrop-blur border border-slate-200 rounded-xl px-4 py-2.5 shadow-sm flex items-center gap-2.5">
-            <CreditCard className="w-5 h-5 text-blue-600" />
+          <div className="bg-[var(--color-bg)] backdrop-blur border-[0.5px] border-[var(--color-border)] rounded px-4 py-2.5 flex items-center gap-2.5">
+            <CreditCard className="w-5 h-5 text-[var(--color-navy)]" />
             <div>
-              <p className="text-xs text-slate-500 leading-none">Creditos ISP</p>
-              <p className={`text-xl font-bold leading-tight ${(data?.credits ?? 1) === 0 ? "text-red-600" : "text-slate-900"}`} data-testid="text-isp-credits">
+              <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)] leading-none">Creditos ISP</p>
+              <p className={`text-xl font-mono font-semibold leading-tight ${(data?.credits ?? 1) === 0 ? "text-[var(--color-danger)]" : "text-[var(--color-ink)]"}`} data-testid="text-isp-credits">
                 {data?.credits ?? "..."}
               </p>
             </div>
@@ -168,32 +168,32 @@ export default function ConsultaISPPage() {
         {/* STAT CARDS */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { label: "Consultas Hoje", value: data?.todayCount ?? 0, icon: Activity, iconBg: "bg-blue-100", iconColor: "text-blue-600", testid: "text-isp-today" },
-            { label: "Consultas Mes", value: data?.monthCount ?? 0, icon: Calendar, iconBg: "bg-orange-100", iconColor: "text-orange-600", testid: "text-isp-month" },
-            { label: "Taxa Aprovacao", value: `${approvalRate}%`, icon: CheckCircle, iconBg: "bg-green-100", iconColor: "text-green-600", testid: "text-isp-approval" },
-            { label: "Score Medio ISP", value: avgScore, icon: BarChart3, iconBg: "bg-yellow-100", iconColor: "text-yellow-600", testid: "text-isp-avg-score" },
+            { label: "Consultas Hoje", value: data?.todayCount ?? 0, icon: Activity, iconBg: "bg-[var(--color-navy-bg)]", iconColor: "text-[var(--color-navy)]", testid: "text-isp-today" },
+            { label: "Consultas Mes", value: data?.monthCount ?? 0, icon: Calendar, iconBg: "bg-[var(--color-gold-bg)]", iconColor: "text-[var(--color-gold)]", testid: "text-isp-month" },
+            { label: "Taxa Aprovacao", value: `${approvalRate}%`, icon: CheckCircle, iconBg: "bg-[var(--color-success-bg)]", iconColor: "text-[var(--color-success)]", testid: "text-isp-approval" },
+            { label: "Score Medio ISP", value: avgScore, icon: BarChart3, iconBg: "bg-[var(--color-gold-bg)]", iconColor: "text-[var(--color-gold)]", testid: "text-isp-avg-score" },
           ].map(stat => (
-            <div key={stat.label} className="bg-white/70 backdrop-blur rounded-xl shadow-sm p-4" data-testid={stat.testid}>
+            <div key={stat.label} className="bg-[var(--color-bg)] backdrop-blur rounded border-[0.5px] border-[var(--color-border)] p-4" data-testid={stat.testid}>
               <div className="flex items-center justify-between mb-3">
-                <p className="text-sm text-slate-600">{stat.label}</p>
-                <div className={`w-9 h-9 rounded-lg ${stat.iconBg} flex items-center justify-center`}>
+                <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]">{stat.label}</p>
+                <div className={`w-9 h-9 rounded ${stat.iconBg} flex items-center justify-center`}>
                   <stat.icon className={`w-5 h-5 ${stat.iconColor}`} />
                 </div>
               </div>
-              <p className="text-3xl font-bold text-slate-900">{isLoading ? "..." : stat.value}</p>
+              <p className="text-3xl font-mono font-semibold text-[var(--color-ink)]">{isLoading ? "..." : stat.value}</p>
             </div>
           ))}
         </div>
 
         {/* TABS */}
-        <div className="flex gap-1 bg-white/70 backdrop-blur rounded-xl p-1 shadow-sm border border-slate-200 w-fit flex-wrap">
+        <div className="flex gap-1 bg-[var(--color-bg)] backdrop-blur rounded border-[0.5px] border-[var(--color-border)] p-1 w-fit flex-wrap">
           {(["nova", "historico", "timeline", "relatorios", "info"] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               data-testid={`tab-${tab}`}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                activeTab === tab ? "bg-blue-600 text-white shadow-sm" : "text-slate-600 hover:text-slate-900"
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                activeTab === tab ? "border-b-2 border-[var(--color-navy)] text-[var(--color-ink)]" : "text-[var(--color-muted)] hover:text-[var(--color-ink)]"
               }`}
             >
               {tab === "nova" ? "Nova Consulta" : tab === "historico" ? "Historico" : tab === "timeline" ? "Timeline" : tab === "relatorios" ? "Relatorios" : "Informacoes"}
@@ -218,36 +218,36 @@ export default function ConsultaISPPage() {
               <div className="space-y-4" data-testid="consultation-result">
                 {/* Nada Consta CEP */}
                 {result.notFound && result.searchType === "cep" ? (
-                  <Card className="overflow-hidden border-2 border-green-200 shadow-lg rounded-2xl">
-                    <div className="bg-green-50 px-6 py-4 flex items-center gap-3">
-                      <CheckCircle className="w-6 h-6 text-green-600" />
+                  <Card className="overflow-hidden border-[0.5px] border-[var(--color-border)] rounded">
+                    <div className="bg-[var(--color-success-bg)] px-6 py-4 flex items-center gap-3">
+                      <CheckCircle className="w-6 h-6 text-[var(--color-success)]" />
                       <div>
-                        <h3 className="text-lg font-semibold text-slate-900">Nenhum Resultado para este CEP</h3>
-                        <p className="text-sm text-slate-600">CEP: {result.cpfCnpj.replace(/^(\d{5})(\d{3})$/, "$1-$2")}</p>
+                        <h3 className="text-lg font-display font-semibold text-[var(--color-ink)]">Nenhum Resultado para este CEP</h3>
+                        <p className="text-sm text-[var(--color-muted)]">CEP: {result.cpfCnpj.replace(/^(\d{5})(\d{3})$/, "$1-$2")}</p>
                       </div>
                     </div>
                     <div className="p-6">
-                      <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
-                        <Shield className="w-5 h-5 text-green-600 flex-shrink-0" />
-                        <p className="text-sm text-green-800">Nenhum cliente encontrado nesse CEP na rede ISP colaborativa.</p>
+                      <div className="bg-[var(--color-success-bg)] border-[0.5px] border-[var(--color-border)] rounded p-4 flex items-center gap-3">
+                        <Shield className="w-5 h-5 text-[var(--color-success)] flex-shrink-0" />
+                        <p className="text-sm text-[var(--color-success)]">Nenhum cliente encontrado nesse CEP na rede ISP colaborativa.</p>
                       </div>
                     </div>
                   </Card>
                 ) : result.notFound && !(result.addressMatches?.some(m => m.hasDebt)) ? (
-                  <Card className="overflow-hidden border-2 border-green-200 shadow-lg rounded-2xl">
-                    <div className="bg-green-50 px-6 py-4 flex items-center gap-3">
-                      <CheckCircle className="w-6 h-6 text-green-600" />
+                  <Card className="overflow-hidden border-[0.5px] border-[var(--color-border)] rounded">
+                    <div className="bg-[var(--color-success-bg)] px-6 py-4 flex items-center gap-3">
+                      <CheckCircle className="w-6 h-6 text-[var(--color-success)]" />
                       <div>
-                        <h3 className="text-lg font-semibold text-slate-900">Nada Consta</h3>
-                        <p className="text-sm text-slate-600">Documento: {formatCpfCnpj(result.cpfCnpj)}</p>
+                        <h3 className="text-lg font-display font-semibold text-[var(--color-ink)]">Nada Consta</h3>
+                        <p className="text-sm text-[var(--color-muted)]">Documento: {formatCpfCnpj(result.cpfCnpj)}</p>
                       </div>
                     </div>
                     <div className="p-6">
-                      <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
-                        <Shield className="w-5 h-5 text-green-600 flex-shrink-0" />
-                        <p className="text-sm text-green-800">Nenhum cliente encontrado na base de dados. Documento sem restricoes na rede ISP colaborativa.</p>
+                      <div className="bg-[var(--color-success-bg)] border-[0.5px] border-[var(--color-border)] rounded p-4 flex items-center gap-3">
+                        <Shield className="w-5 h-5 text-[var(--color-success)] flex-shrink-0" />
+                        <p className="text-sm text-[var(--color-success)]">Nenhum cliente encontrado na base de dados. Documento sem restricoes na rede ISP colaborativa.</p>
                       </div>
-                      <p className="text-xs text-slate-500 mt-3 text-center">
+                      <p className="text-xs text-[var(--color-muted)] mt-3 text-center">
                         Sugestao de Decisao: Aprovar — Prosseguir para Consulta SPC para verificacao completa
                       </p>
                     </div>

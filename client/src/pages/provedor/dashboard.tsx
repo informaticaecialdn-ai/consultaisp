@@ -36,7 +36,6 @@ function loadHeatPlugin(): Promise<void> {
   });
 }
 
-// Nominatim rate limiting: max 1 request per 1.1 seconds (policy: max 1 req/s)
 const geocodeQueue: Array<{ resolve: (v: [number, number] | null) => void; city: string; state?: string }> = [];
 let geocodeProcessing = false;
 
@@ -59,7 +58,6 @@ async function processGeocodeQueue(): Promise<void> {
     } catch {
       item.resolve(null);
     }
-    // Enforce minimum 1100ms between requests
     if (geocodeQueue.length > 0) {
       await new Promise(r => setTimeout(r, 1100));
     }
@@ -105,14 +103,14 @@ function MiniHeatMap({ points, providerPoints, defaultCenter }: { points: HeatPo
     if (points.length > 0 && (L as any).heatLayer) {
       heatRef.current = (L as any).heatLayer(
         points.map(p => [p.lat, p.lng, p.weight]),
-        { radius: 40, blur: 22, maxZoom: 14, gradient: { 0.2: "#22c55e", 0.5: "#facc15", 0.75: "#f97316", 1.0: "#ef4444" }, minOpacity: 0.45 }
+        { radius: 40, blur: 22, maxZoom: 14, gradient: { 0.2: "#1A4A2E", 0.5: "#B8860B", 0.75: "#c45a1a", 1.0: "#8B1A1A" }, minOpacity: 0.45 }
       ).addTo(mapRef.current);
     }
     if (markersRef.current) {
       for (const p of providerPoints) {
         const lat = parseFloat(p.latitude); const lng = parseFloat(p.longitude);
         if (isNaN(lat) || isNaN(lng)) continue;
-        const icon = L.divIcon({ className: "", html: `<div style="width:8px;height:8px;background:#ef4444;border:1.5px solid #fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,.5)"></div>`, iconSize: [8, 8], iconAnchor: [4, 4] });
+        const icon = L.divIcon({ className: "", html: `<div style="width:6px;height:6px;background:#8B1A1A;border:1px solid #fff;border-radius:50%"></div>`, iconSize: [6, 6], iconAnchor: [3, 3] });
         const marker = L.marker([lat, lng], { icon });
         marker.bindTooltip(`${p.name} · ${p.city || ""}`, { permanent: false, direction: "top", offset: [0, -6] });
         markersRef.current.addLayer(marker);
@@ -130,7 +128,6 @@ function MiniHeatMap({ points, providerPoints, defaultCenter }: { points: HeatPo
     if (mapRef.current) {
       try {
         const m = mapRef.current as any;
-        // Cancel CSS transition immediately so transitionend never fires after remove()
         const pane = m._mapPane as HTMLElement | undefined;
         if (pane) { pane.style.transition = "none"; void pane.offsetWidth; }
         m._onZoomTransitionEnd = () => {};
@@ -144,11 +141,11 @@ function MiniHeatMap({ points, providerPoints, defaultCenter }: { points: HeatPo
   }, []);
 
   return (
-    <div className="relative rounded-xl overflow-hidden border border-border">
+    <div className="relative rounded overflow-hidden border-[0.5px] border-[var(--color-border)]">
       <div ref={containerRef} style={{ height: "240px" }} className="w-full" data-testid="dashboard-heatmap" />
       {!ready && (
-        <div className="absolute inset-0 flex items-center justify-center bg-muted/60">
-          <RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" />
+        <div className="absolute inset-0 flex items-center justify-center bg-[var(--color-tag-bg)]/60">
+          <RefreshCw className="w-5 h-5 animate-spin text-[var(--color-muted)]" />
         </div>
       )}
     </div>
@@ -184,64 +181,58 @@ export default function DashboardPage() {
 
   const kpiCards = [
     {
-      label: "Inadimplentes",
+      label: "inadimplentes",
       value: isLoading ? null : stats?.defaulters ?? 0,
       sub: isLoading ? null : `${stats?.overdueInvoicesCount ?? 0} faturas em atraso`,
-      icon: Users,
-      accent: "from-rose-500 to-red-600",
-      iconBg: "bg-rose-100 dark:bg-rose-900/30",
-      iconColor: "text-rose-600",
+      color: "var(--color-danger)",
+      colorBg: "var(--color-danger-bg)",
       testId: "card-defaulters",
     },
     {
-      label: "Total em Aberto",
+      label: "total em aberto",
       value: isLoading ? null : `R$ ${fmt(Number(stats?.overdueTotal ?? 0))}`,
       sub: "valor acumulado inadimplente",
-      icon: AlertTriangle,
-      accent: "from-orange-500 to-amber-500",
-      iconBg: "bg-orange-100 dark:bg-orange-900/30",
-      iconColor: "text-orange-600",
+      color: "var(--color-gold)",
+      colorBg: "var(--color-gold-bg)",
       testId: "card-overdue-total",
     },
     {
-      label: "Equipamentos Retidos",
+      label: "equipamentos retidos",
       value: isLoading ? null : stats?.unreturnedEquipmentCount ?? 0,
       sub: "nao devolvidos por inadimplentes",
-      icon: Wifi,
-      accent: "from-violet-500 to-indigo-600",
-      iconBg: "bg-violet-100 dark:bg-violet-900/30",
-      iconColor: "text-violet-600",
+      color: "var(--color-navy)",
+      colorBg: "var(--color-navy-bg)",
       testId: "card-equipment-count",
     },
     {
-      label: "Valor em Risco",
+      label: "valor em risco",
       value: isLoading ? null : `R$ ${fmt(Number(stats?.unreturnedEquipmentValue ?? 0))}`,
       sub: "valor dos equipamentos retidos",
-      icon: Package,
-      accent: "from-sky-500 to-blue-600",
-      iconBg: "bg-sky-100 dark:bg-sky-900/30",
-      iconColor: "text-sky-600",
+      color: "var(--color-navy)",
+      colorBg: "var(--color-navy-bg)",
       testId: "card-equipment-value",
     },
   ];
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto" data-testid="dashboard-page">
+    <div className="p-6 lg:p-8 space-y-8 max-w-7xl mx-auto bg-[var(--color-bg)] min-h-screen" data-testid="dashboard-page">
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold" data-testid="text-dashboard-title">Central de Inadimplencia</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{provider?.name} — monitoramento em tempo real</p>
+          <h1 className="font-display text-2xl font-light text-[var(--color-ink)]" data-testid="text-dashboard-title">
+            central de inadimplencia
+          </h1>
+          <p className="text-[13px] text-[var(--color-muted)] mt-1 font-body">{provider?.name} — monitoramento em tempo real</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Badge variant="outline" className="gap-1.5 px-3 py-1.5 text-xs font-semibold border-blue-300 text-blue-700 dark:text-blue-400">
-            <CreditCard className="w-3.5 h-3.5" />
-            Creditos ISP {stats?.ispCredits ?? "..."}
+          <Badge variant="navy" className="gap-1.5">
+            <CreditCard className="w-3 h-3" />
+            ISP {stats?.ispCredits ?? "..."}
           </Badge>
-          <Badge variant="outline" className="gap-1.5 px-3 py-1.5 text-xs font-semibold border-pink-300 text-pink-700 dark:text-pink-400">
-            <CreditCard className="w-3.5 h-3.5" />
-            Creditos SPC {stats?.spcCredits ?? "..."}
+          <Badge variant="gold" className="gap-1.5">
+            <CreditCard className="w-3 h-3" />
+            SPC {stats?.spcCredits ?? "..."}
           </Badge>
         </div>
       </div>
@@ -249,23 +240,28 @@ export default function DashboardPage() {
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {kpiCards.map((card) => (
-          <Card key={card.testId} className="relative overflow-hidden p-5" data-testid={card.testId}>
-            <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${card.accent}`} />
-            <div className="flex items-start justify-between mb-3">
-              <p className="text-sm font-medium text-muted-foreground">{card.label}</p>
-              <div className={`w-9 h-9 rounded-lg ${card.iconBg} flex items-center justify-center flex-shrink-0`}>
-                <card.icon className={`w-4.5 h-4.5 ${card.iconColor}`} style={{ width: "18px", height: "18px" }} />
-              </div>
-            </div>
+          <Card key={card.testId} className="p-4" data-testid={card.testId}>
+            <span
+              className="font-mono text-[10px] uppercase tracking-[0.08em]"
+              style={{ color: "var(--color-muted)" }}
+            >
+              {card.label}
+            </span>
             {card.value === null ? (
               <>
-                <Skeleton className="h-8 w-24 mb-1" />
+                <Skeleton className="h-7 w-24 mt-2 mb-1" />
                 <Skeleton className="h-3 w-32" />
               </>
             ) : (
               <>
-                <p className="text-2xl font-bold tracking-tight" data-testid={`value-${card.testId}`}>{card.value}</p>
-                <p className="text-xs text-muted-foreground mt-1">{card.sub}</p>
+                <p
+                  className="font-mono text-2xl font-medium mt-2"
+                  style={{ color: card.color }}
+                  data-testid={`value-${card.testId}`}
+                >
+                  {card.value}
+                </p>
+                <p className="text-[11px] mt-1" style={{ color: "var(--color-muted)" }}>{card.sub}</p>
               </>
             )}
           </Card>
@@ -273,59 +269,65 @@ export default function DashboardPage() {
       </div>
 
       {/* Mapa de Calor */}
-      <Card className="overflow-hidden" data-testid="card-heatmap">
-        <div className="flex items-center justify-between p-4 border-b">
-          <div className="flex items-center gap-2">
-            <Flame className="w-4 h-4 text-orange-500" />
-            <div>
-              <span className="font-semibold text-sm">Mapa de Calor de Inadimplencia</span>
-              <p className="text-xs text-muted-foreground">Distribuicao geografica dos clientes em atraso</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-muted-foreground" data-testid="text-defaulter-count">
-              {stats?.defaulters || 0} inadimplentes
-            </span>
-            <Link href="/mapa-calor">
-              <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs" data-testid="button-view-full-map">
-                <ExternalLink className="w-3.5 h-3.5" />
-                Ver mapa completo
-              </Button>
-            </Link>
-          </div>
+      <div>
+        <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)] mb-4 pb-2 border-b-[0.5px] border-[var(--color-border)]">
+          mapa de calor
         </div>
 
-        <div className="p-4">
-          {heatPoints.length === 0 ? (
-            <div className="rounded-xl border border-dashed p-10 flex flex-col items-center justify-center text-center gap-2 bg-muted/20">
-              <MapPin className="w-8 h-8 text-muted-foreground/40" />
-              <p className="text-sm font-medium text-muted-foreground">Nenhum ponto de calor disponivel</p>
-              <p className="text-xs text-muted-foreground/60">Cadastre coordenadas nos clientes inadimplentes para visualizar o mapa.</p>
-            </div>
-          ) : (
-            <>
-              <MiniHeatMap
-                key={`dash-${heatPoints.length}-${providerCenter?.[0]}`}
-                points={heatPoints}
-                providerPoints={heatmapData}
-                defaultCenter={providerCenter}
-              />
-              <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
-                <div className="flex items-center gap-1.5">
-                  <span className="inline-flex gap-0.5">
-                    <span className="w-3 h-2 rounded-sm bg-green-500 opacity-70" />
-                    <span className="w-3 h-2 rounded-sm bg-yellow-400" />
-                    <span className="w-3 h-2 rounded-sm bg-orange-500" />
-                    <span className="w-3 h-2 rounded-sm bg-red-600" />
-                  </span>
-                  Baixo → Critico
-                </div>
-                <span>{heatPoints.length} pontos visualizados</span>
+        <Card className="overflow-hidden" data-testid="card-heatmap">
+          <div className="flex items-center justify-between p-4 border-b-[0.5px] border-[var(--color-border)]">
+            <div className="flex items-center gap-2">
+              <Flame className="w-4 h-4" style={{ color: "var(--color-gold)" }} />
+              <div>
+                <span className="font-display text-sm font-semibold text-[var(--color-ink)]">Distribuicao de inadimplencia</span>
+                <p className="text-[11px] text-[var(--color-muted)]">clientes em atraso por regiao</p>
               </div>
-            </>
-          )}
-        </div>
-      </Card>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="font-mono text-[10px] text-[var(--color-muted)]" data-testid="text-defaulter-count">
+                {stats?.defaulters || 0} inadimplentes
+              </span>
+              <Link href="/mapa-calor">
+                <Button variant="outline" size="sm" className="gap-1.5" data-testid="button-view-full-map">
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  ver mapa completo
+                </Button>
+              </Link>
+            </div>
+          </div>
+
+          <div className="p-4">
+            {heatPoints.length === 0 ? (
+              <div className="rounded border-[0.5px] border-dashed border-[var(--color-border)] p-10 flex flex-col items-center justify-center text-center gap-2 bg-[var(--color-bg)]">
+                <MapPin className="w-6 h-6 text-[var(--color-muted)]" style={{ opacity: 0.4 }} />
+                <p className="text-[13px] font-body text-[var(--color-muted)]">Nenhum ponto de calor disponivel</p>
+                <p className="text-[11px] text-[var(--color-muted)]" style={{ opacity: 0.6 }}>Cadastre coordenadas nos clientes inadimplentes para visualizar o mapa.</p>
+              </div>
+            ) : (
+              <>
+                <MiniHeatMap
+                  key={`dash-${heatPoints.length}-${providerCenter?.[0]}`}
+                  points={heatPoints}
+                  providerPoints={heatmapData}
+                  defaultCenter={providerCenter}
+                />
+                <div className="mt-3 flex items-center gap-4 text-[10px] font-mono text-[var(--color-muted)] border-t-[0.5px] border-[var(--color-border)] pt-3">
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-flex gap-px">
+                      <span className="w-3 h-1 rounded-sm" style={{ background: "var(--color-success)" }} />
+                      <span className="w-3 h-1 rounded-sm" style={{ background: "var(--color-gold)" }} />
+                      <span className="w-3 h-1 rounded-sm" style={{ background: "#c45a1a" }} />
+                      <span className="w-3 h-1 rounded-sm" style={{ background: "var(--color-danger)" }} />
+                    </span>
+                    baixo → critico
+                  </div>
+                  <span>{heatPoints.length} pontos</span>
+                </div>
+              </>
+            )}
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }

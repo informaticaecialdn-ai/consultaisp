@@ -84,8 +84,22 @@ export default {
       },
       fontFamily: {
         sans: ["var(--font-sans)"],
+        display: ["Fraunces", "serif"],
+        body: ["DM Sans", "sans-serif"],
         serif: ["var(--font-serif)"],
-        mono: ["var(--font-mono)"],
+        mono: ["DM Mono", "monospace"],
+      },
+      colors: {
+        navy: { DEFAULT: "#1A3A5C", light: "#2C5F8A", bg: "#EAF0F8" },
+        gold: { DEFAULT: "#B8860B", bg: "#F5EDD4" },
+        danger: { DEFAULT: "#8B1A1A", bg: "#F5E8E8" },
+        success: { DEFAULT: "#1A4A2E", bg: "#E4EEE8" },
+        ink: "#1A1714",
+        "ds-muted": "#6B6560",
+        "ds-border": "#E2DDD6",
+        surface: "#FFFFFF",
+        canvas: "#F9F7F4",
+        "tag-bg": "#EEE9E0",
       },
       keyframes: {
         "accordion-down": {

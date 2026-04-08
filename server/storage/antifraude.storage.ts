@@ -5,7 +5,7 @@ import {
   type AntiFraudAlert, type InsertAntiFraudAlert,
 } from "@shared/schema";
 
-export type AlertWithOwnership = AntiFraudAlert & { customerProviderId: number | null };
+export type AlertWithOwnership = AntiFraudAlert & { customerProviderId: number | null; customerStatus: string };
 
 export class AntifraudeStorage {
   /**
@@ -18,6 +18,7 @@ export class AntifraudeStorage {
       .select({
         alert: antiFraudAlerts,
         customerProviderId: customers.providerId,
+        customerStatus: customers.status,
       })
       .from(antiFraudAlerts)
       .leftJoin(customers, eq(antiFraudAlerts.customerId, customers.id))
@@ -30,6 +31,7 @@ export class AntifraudeStorage {
     return rows.map(row => ({
       ...row.alert,
       customerProviderId: row.customerProviderId ?? row.alert.providerId,
+      customerStatus: row.customerStatus ?? "unknown",
     }));
   }
 
@@ -48,13 +50,13 @@ export class AntifraudeStorage {
 
     // Resolve authoritative customerProviderId via customers table
     if (updated.customerId) {
-      const [customer] = await db.select({ providerId: customers.providerId })
+      const [customer] = await db.select({ providerId: customers.providerId, status: customers.status })
         .from(customers)
         .where(eq(customers.id, updated.customerId))
         .limit(1);
-      return { ...updated, customerProviderId: customer?.providerId ?? updated.providerId };
+      return { ...updated, customerProviderId: customer?.providerId ?? updated.providerId, customerStatus: customer?.status ?? "unknown" };
     }
-    return { ...updated, customerProviderId: updated.providerId };
+    return { ...updated, customerProviderId: updated.providerId, customerStatus: "unknown" };
   }
 
   async getAlertsByCustomer(customerId: number): Promise<AntiFraudAlert[]> {
