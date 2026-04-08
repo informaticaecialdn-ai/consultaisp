@@ -19,7 +19,18 @@ const httpServer = createServer(app);
 
 // Security headers — relax CSP in dev for Vite HMR; tighten in production
 app.use(helmet({
-  contentSecurityPolicy: process.env.NODE_ENV === "production" ? undefined : false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://maps.googleapis.com", "https://maps.gstatic.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://maps.googleapis.com", "https://maps.gstatic.com"],
+      imgSrc: ["'self'", "data:", "blob:", "https://*.googleapis.com", "https://*.gstatic.com", "https://*.google.com", "https://*.openstreetmap.org", "https://viacep.com.br"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+      connectSrc: ["'self'", "https://maps.googleapis.com", "https://viacep.com.br", "https://nominatim.openstreetmap.org", "https://*.google.com", "wss:", "ws:"],
+      frameSrc: ["'self'", "https://www.google.com", "https://maps.google.com"],
+      workerSrc: ["'self'", "blob:"],
+    },
+  },
 }));
 
 declare module "http" {
