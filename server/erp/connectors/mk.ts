@@ -29,6 +29,19 @@ import { cleanCpfCnpj, cleanPhone, calculateDaysOverdue, aggregateByCustomer } f
 // Token cache for MK auth
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
+/** Pick the first non-null, non-undefined, non-empty-string value from an invoice row, preserving numeric 0. */
+function pickAmount(row: any): number {
+  const fields = ["Saldo", "saldo", "ValorTotal", "valor_total", "Valor", "valor", "Total", "vl_total", "value"];
+  for (const key of fields) {
+    const v = row[key];
+    if (v !== null && v !== undefined && v !== "") {
+      const n = parseFloat(v);
+      if (!isNaN(n)) return n;
+    }
+  }
+  return 0;
+}
+
 export class MkConnector implements ErpConnector {
   readonly name = "mk";
   readonly label = "MK Solutions";
@@ -190,18 +203,31 @@ export class MkConnector implements ErpConnector {
             const faturasJson: any = await faturasResponse.json();
             const faturas: any[] = Array.isArray(faturasJson)
               ? faturasJson
-              : faturasJson?.FaturasPendentes || faturasJson?.registros || faturasJson?.data || [];
+              : faturasJson?.FaturasPendentes || faturasJson?.Faturas || faturasJson?.faturas || faturasJson?.registros || faturasJson?.data || faturasJson?.Itens || faturasJson?.itens || faturasJson?.resultado || faturasJson?.Resultado || [];
 
+            if (faturas.length > 0) {
+              console.log(`[MK] Campos da fatura:`, Object.keys(faturas[0]).join(", "));
+            }
             console.log(`[MK] ${faturas.length} fatura(s) pendente(s) encontrada(s)`);
 
             for (const f of faturas) {
-              const valor = parseFloat(f.valor_total || f.valor || f.vl_total || f.value || "0") || 0;
-              const dueDate = f.data_vencimento || f.dt_vencimento || f.vencimento || null;
+              const valor = pickAmount(f);
+              // Try every known date field name from MK API variations
+              const dueDate = f.DataVencimento || f.data_vencimento || f.DtVencimento || f.dt_vencimento
+                || f.Vencimento || f.vencimento || f.dt_vencto || f.DtVencto || f.vencto || f.Vencto
+                || f.data_vencto || f.DataVencto || f.dtVencimento || f.dtVencto || null;
               const days = calculateDaysOverdue(dueDate);
 
               if (days > 0) {
                 totalOverdueAmount += valor;
                 maxDaysOverdue = Math.max(maxDaysOverdue, days);
+                overdueInvoicesCount++;
+              } else if (!dueDate) {
+                // WSMKFaturasPendentes only returns pending invoices — if date is unknown,
+                // assume at least 1 day overdue (the API already filtered for us)
+                console.log(`[MK] WARN: fatura sem data de vencimento reconhecida. Campos: ${Object.keys(f).join(", ")}. Valores: ${JSON.stringify(f).substring(0, 300)}`);
+                totalOverdueAmount += valor;
+                maxDaysOverdue = Math.max(maxDaysOverdue, 1);
                 overdueInvoicesCount++;
               }
             }
@@ -294,20 +320,23 @@ export class MkConnector implements ErpConnector {
       if (rows !== null && rows.length > 0) {
         const invoices = rows
           .map((r: any) => {
-            const cpfCnpj = cleanCpfCnpj(r.cpf || r.cnpj || r.cpf_cnpj || r.doc || "");
+            const cpfCnpj = cleanCpfCnpj(r.cpf || r.cnpj || r.cpf_cnpj || r.doc || r.Doc || r.CPF || r.CNPJ || "");
             if (!cpfCnpj) return null;
-            const dueDate = r.dt_vencimento || r.data_vencimento || r.vencimento || null;
+            const dueDate = r.DataVencimento || r.data_vencimento || r.DtVencimento || r.dt_vencimento
+              || r.Vencimento || r.vencimento || r.dt_vencto || r.DtVencto || r.vencto || r.Vencto
+              || r.data_vencto || r.DataVencto || r.dtVencimento || r.dtVencto || null;
+            const days = calculateDaysOverdue(dueDate);
             return {
               cpfCnpj,
-              name: r.nome || r.razao_social || "",
-              email: r.email || undefined,
-              phone: r.fone || r.celular || r.telefone ? cleanPhone(r.fone || r.celular || r.telefone) : undefined,
-              address: r.endereco || undefined,
-              city: r.cidade || undefined,
-              state: r.uf || r.estado || undefined,
-              cep: r.cep || undefined,
-              amount: parseFloat(r.valor || r.vl_total || "0") || 0,
-              daysOverdue: calculateDaysOverdue(dueDate),
+              name: r.Nome || r.nome || r.razao_social || "",
+              email: r.Email || r.email || undefined,
+              phone: r.Fone || r.fone || r.celular || r.telefone ? cleanPhone(r.Fone || r.fone || r.celular || r.telefone) : undefined,
+              address: r.Endereco || r.endereco || undefined,
+              city: r.Cidade || r.cidade || undefined,
+              state: r.UF || r.uf || r.estado || undefined,
+              cep: r.CEP || r.cep || undefined,
+              amount: pickAmount(r),
+              daysOverdue: days > 0 ? days : (dueDate ? 0 : 1), // no date = assume 1 day overdue
               erpSource: "mk" as const,
             };
           })
@@ -378,16 +407,23 @@ export class MkConnector implements ErpConnector {
               const faturasJson: any = await faturasResp.json();
               const faturas: any[] = Array.isArray(faturasJson)
                 ? faturasJson
-                : faturasJson?.registros || faturasJson?.data || [];
+                : faturasJson?.FaturasPendentes || faturasJson?.Faturas || faturasJson?.faturas || faturasJson?.registros || faturasJson?.data || faturasJson?.Itens || faturasJson?.itens || faturasJson?.resultado || faturasJson?.Resultado || [];
+
+              if (faturas.length > 0) {
+                console.log(`[MK] Campos da fatura:`, Object.keys(faturas[0]).join(", "));
+              }
 
               const cpfCnpj = cleanCpfCnpj(cliente.Doc || cliente.doc || cliente.cpf || cliente.cnpj || cliente.cpf_cnpj || "");
               if (!cpfCnpj) return [];
 
               return faturas
                 .map((f: any) => {
-                  const dueDate = f.dt_vencimento || f.data_vencimento || f.vencimento || null;
+                  const dueDate = f.DataVencimento || f.data_vencimento || f.DtVencimento || f.dt_vencimento
+                    || f.Vencimento || f.vencimento || f.dt_vencto || f.DtVencto || f.vencto || f.Vencto
+                    || f.data_vencto || f.DataVencto || f.dtVencimento || f.dtVencto || null;
                   const days = calculateDaysOverdue(dueDate);
-                  if (days <= 0) return null;
+                  // If WSMKFaturasPendentes returned it and date is unparseable, assume 1 day overdue
+                  if (days <= 0 && dueDate) return null;
 
                   return {
                     cpfCnpj,
@@ -400,8 +436,8 @@ export class MkConnector implements ErpConnector {
                     city: cliente.cidade || undefined,
                     state: cliente.uf || cliente.estado || undefined,
                     cep: cliente.cep || undefined,
-                    amount: parseFloat(f.valor_total || f.valor || f.vl_total || "0") || 0,
-                    daysOverdue: days,
+                    amount: pickAmount(f),
+                    daysOverdue: days > 0 ? days : 1, // pending invoice with no date = 1 day
                     erpSource: "mk" as const,
                   };
                 })
@@ -503,9 +539,9 @@ export class MkConnector implements ErpConnector {
       const json: any = await response.json();
       const rows: any[] = Array.isArray(json) ? json : json?.registros || json?.data || [];
 
-      // Step 2: Filter by CEP prefix in code
+      // Step 2: Filter by CEP prefix in code (MK may return PascalCase or lowercase)
       const matchingClientes = rows.filter((r: any) => {
-        const customerCep = (r.cep || "").replace(/\D/g, "");
+        const customerCep = (r.CEP || r.cep || "").replace(/\D/g, "");
         return customerCep.startsWith(cleanCepValue);
       });
 
@@ -543,16 +579,28 @@ export class MkConnector implements ErpConnector {
                   const faturasJson: any = await faturasResp.json();
                   const faturas: any[] = Array.isArray(faturasJson)
                     ? faturasJson
-                    : faturasJson?.registros || faturasJson?.data || [];
+                    : faturasJson?.FaturasPendentes || faturasJson?.Faturas || faturasJson?.faturas || faturasJson?.registros || faturasJson?.data || faturasJson?.Itens || faturasJson?.itens || faturasJson?.resultado || faturasJson?.Resultado || [];
+
+                  if (faturas.length > 0) {
+                    console.log(`[MK] Campos da fatura:`, Object.keys(faturas[0]).join(", "));
+                  }
 
                   for (const f of faturas) {
-                    const valor = parseFloat(f.valor_total || f.valor || f.vl_total || "0") || 0;
-                    const dueDate = f.dt_vencimento || f.data_vencimento || f.vencimento || null;
+                    const valor = pickAmount(f);
+                    const dueDate = f.DataVencimento || f.data_vencimento || f.DtVencimento || f.dt_vencimento
+                      || f.Vencimento || f.vencimento || f.dt_vencto || f.DtVencto || f.vencto || f.Vencto
+                      || f.data_vencto || f.DataVencto || f.dtVencimento || f.dtVencto || null;
                     const days = calculateDaysOverdue(dueDate);
 
                     if (days > 0) {
                       totalOverdueAmount += valor;
                       maxDaysOverdue = Math.max(maxDaysOverdue, days);
+                      overdueInvoicesCount++;
+                    } else if (!dueDate) {
+                      // Pending invoice with no recognized date field — assume overdue
+                      console.log(`[MK] WARN: fatura sem data reconhecida. Campos: ${Object.keys(f).join(", ")}`);
+                      totalOverdueAmount += valor;
+                      maxDaysOverdue = Math.max(maxDaysOverdue, 1);
                       overdueInvoicesCount++;
                     }
                   }
@@ -565,14 +613,14 @@ export class MkConnector implements ErpConnector {
             return {
               cpfCnpj,
               name: cliente.Nome || cliente.nome || cliente.razao_social || "",
-              email: cliente.email || undefined,
-              phone: cliente.fone || cliente.celular || cliente.telefone
-                ? cleanPhone(cliente.fone || cliente.celular || cliente.telefone)
+              email: cliente.Email || cliente.email || undefined,
+              phone: cliente.Fone || cliente.fone || cliente.Celular || cliente.celular || cliente.Telefone || cliente.telefone
+                ? cleanPhone(cliente.Fone || cliente.fone || cliente.Celular || cliente.celular || cliente.Telefone || cliente.telefone)
                 : undefined,
-              address: cliente.endereco || cliente.logradouro || undefined,
-              city: cliente.cidade || cliente.municipio || undefined,
-              state: cliente.uf || cliente.estado || undefined,
-              cep: cliente.cep || undefined,
+              address: cliente.Endereco || cliente.endereco || cliente.Logradouro || cliente.logradouro || undefined,
+              city: cliente.Cidade || cliente.cidade || cliente.Municipio || cliente.municipio || undefined,
+              state: cliente.UF || cliente.uf || cliente.Estado || cliente.estado || undefined,
+              cep: cliente.CEP || cliente.cep || undefined,
               totalOverdueAmount,
               maxDaysOverdue,
               overdueInvoicesCount,
