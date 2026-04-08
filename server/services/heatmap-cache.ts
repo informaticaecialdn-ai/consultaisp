@@ -86,11 +86,19 @@ export async function refreshProviderCache(
 
     const points: HeatPoint[] = [];
     const citySet = new Map<string, [number, number] | null>();
+    let skippedNoGeo = 0;
+
+    // DEBUG: log first customer to see available fields
+    if (result.customers.length > 0) {
+      const sample = result.customers[0];
+      console.log(`[HeatmapCache] Amostra cliente: city=${sample.city}, state=${sample.state}, cep=${sample.cep}, address=${sample.address?.substring(0, 50)}`);
+    }
 
     for (const d of result.customers) {
       let city = d.city || "";
       let state = d.state || "";
 
+      // Fallback 1: geocode by CEP
       if ((!city || !state) && d.cep) {
         const loc = await geocodeCep(d.cep);
         if (loc) {
@@ -99,7 +107,21 @@ export async function refreshProviderCache(
         }
       }
 
-      if (!city || !state) continue;
+      // Fallback 2: use provider's city (most ISP clients are local)
+      if (!city || !state) {
+        try {
+          const prov = await storage.getProvider(providerId);
+          if (prov?.addressCity && prov?.addressState) {
+            city = prov.addressCity;
+            state = prov.addressState;
+          }
+        } catch {}
+      }
+
+      if (!city || !state) {
+        skippedNoGeo++;
+        continue;
+      }
 
       const cityKey = `${city.toLowerCase()},${state.toLowerCase()}`;
       let coords: [number, number] | null = null;
@@ -137,7 +159,7 @@ export async function refreshProviderCache(
       status: points.length > 0 ? "ok" : "empty",
     });
     console.log(
-      `[HeatmapCache] ${providerName} (${erpSource}) — ${points.length} pontos geocodificados de ${result.customers.length} inadimplentes`,
+      `[HeatmapCache] ${providerName} (${erpSource}) — ${points.length} pontos geocodificados de ${result.customers.length} inadimplentes (${skippedNoGeo} sem cidade/CEP)`,
     );
   } catch (err: any) {
     const msg = err.message || "Erro desconhecido";
