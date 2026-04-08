@@ -1,19 +1,21 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import LandingChatbot from "@/components/landing-chatbot";
 import {
   Shield, Search, Bell, Database, CheckCircle2,
   ArrowRight, AlertTriangle, CreditCard, Lock,
   Zap, Globe, Router, TrendingDown,
-  ChevronDown, ChevronUp, MapPin, Star
+  MapPin, Star, Menu
 } from "lucide-react";
 
 type ErpItem = { key: string; name: string; logoBase64: string | null };
 
 export default function LandingPage() {
   const [, setLocation] = useLocation();
-  const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const fallbackErps: ErpItem[] = [
     { key: "ixc", name: "IXC Soft", logoBase64: null },
@@ -54,10 +56,27 @@ export default function LandingPage() {
             ))}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" className="text-[var(--color-muted)] hover:text-[var(--color-ink)] text-sm h-9"
+            <Button variant="ghost" className="hidden md:inline-flex text-[var(--color-muted)] hover:text-[var(--color-ink)] text-sm h-9"
               onClick={goLogin} data-testid="button-landing-login">Login</Button>
-            <Button className="bg-[var(--color-navy)] hover:bg-[var(--color-steel)] text-white text-sm h-9 px-5 font-semibold rounded"
+            <Button className="hidden md:inline-flex bg-[var(--color-navy)] hover:bg-[var(--color-steel)] text-white text-sm h-9 px-5 font-semibold rounded"
               onClick={goRegister} data-testid="button-landing-cadastro">Começar grátis</Button>
+            <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+              <SheetTrigger asChild>
+                <Button variant="ghost" size="sm" className="md:hidden text-[var(--color-muted)] hover:text-[var(--color-ink)]" data-testid="button-mobile-menu">
+                  <Menu className="w-5 h-5" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="right" className="w-72 bg-[var(--color-surface)] border-l border-[var(--color-border)]">
+                <nav className="flex flex-col gap-4 mt-8">
+                  {[["Como funciona","como-funciona"],["Funcionalidades","funcionalidades"],["Preços","precos"],["FAQ","faq"]].map(([l,id]) => (
+                    <button key={id} onClick={() => { setMobileMenuOpen(false); document.getElementById(id)?.scrollIntoView({behavior:"smooth"}); }}
+                      className="text-left text-sm font-medium text-[var(--color-ink)] hover:text-[var(--color-navy)] transition-colors py-2 border-b border-[var(--color-border)]">{l}</button>
+                  ))}
+                  <Button className="w-full bg-[var(--color-navy)] hover:bg-[var(--color-steel)] text-white text-sm h-10 font-semibold rounded mt-2"
+                    onClick={() => { setMobileMenuOpen(false); goLogin(); }}>Login</Button>
+                </nav>
+              </SheetContent>
+            </Sheet>
           </div>
         </div>
       </nav>
@@ -66,7 +85,7 @@ export default function LandingPage() {
       <section className="pt-16 bg-[var(--color-bg)]">
         <div className="max-w-6xl mx-auto px-6 py-16 grid lg:grid-cols-2 gap-12 items-center">
           <div>
-            <div className="inline-flex items-center gap-2 bg-blue-50 border border-blue-200 text-[var(--color-navy)] text-xs font-semibold px-3 py-1.5 rounded-sm mb-6">
+            <div className="inline-flex items-center gap-2 bg-[var(--color-navy-bg)] border border-[var(--color-border)] text-[var(--color-navy)] text-xs font-semibold px-3 py-1.5 rounded-sm mb-6">
               <div className="w-1.5 h-1.5 bg-[var(--color-navy)] rounded-full animate-pulse" />
               Rede colaborativa de inadimplentes entre provedores
             </div>
@@ -112,7 +131,7 @@ export default function LandingPage() {
                 <div className="bg-[var(--color-bg)] p-5">
                   <div className="flex items-center justify-between mb-4 pb-3 border-b border-[var(--color-border)]">
                     <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 bg-blue-100 rounded flex items-center justify-center">
+                      <div className="w-8 h-8 bg-[var(--color-navy-bg)] rounded flex items-center justify-center">
                         <Search className="w-4 h-4 text-[var(--color-navy)]"/>
                       </div>
                       <div>
@@ -137,7 +156,7 @@ export default function LandingPage() {
                       <p className="text-xs text-[var(--color-muted)] mb-1">Score ISP / 100</p>
                       <div className="flex gap-2">
                         <span className="text-xs bg-[var(--color-danger-bg)] text-[var(--color-danger)] font-semibold px-2 py-0.5 rounded">2 provedores</span>
-                        <span className="text-xs bg-orange-100 text-orange-700 font-semibold px-2 py-0.5 rounded">2 equip. retidos</span>
+                        <span className="text-xs bg-[var(--color-gold-bg)] text-[var(--color-gold)] font-semibold px-2 py-0.5 rounded">2 equip. retidos</span>
                       </div>
                     </div>
                     <div className="ml-auto bg-[var(--color-danger)] text-white px-3 py-2 rounded text-center">
@@ -156,7 +175,7 @@ export default function LandingPage() {
                       <p className="font-mono text-[9px] text-[var(--color-muted)] font-bold uppercase mb-1">Outro Provedor</p>
                       <p className="text-xs font-bold text-[var(--color-ink)]">Dados restritos</p>
                       <p className="text-[10px] text-[var(--color-danger)] mt-1">1441 dias · R$400–600</p>
-                      <span className="text-[9px] bg-blue-100 text-[var(--color-navy)] font-bold px-1.5 py-0.5 rounded mt-1 inline-block">1 crédito</span>
+                      <span className="text-[9px] bg-[var(--color-navy-bg)] text-[var(--color-navy)] font-bold px-1.5 py-0.5 rounded mt-1 inline-block">1 crédito</span>
                     </div>
                   </div>
                   <div className="bg-[var(--color-gold-bg)] border border-[var(--color-border)] rounded p-2.5 flex items-center gap-2">
@@ -209,12 +228,12 @@ export default function LandingPage() {
               {n:"03",icon:Bell,title:"Receba alertas anti-fraude",desc:"Quando seu cliente inadimplente é consultado por outro provedor para migrar, você recebe alerta imediato no WhatsApp.",badge:"Tempo real"},
             ].map((s,i) => (
               <div key={i} className="relative bg-[var(--color-surface)] border-[0.5px] border-[var(--color-border)] rounded p-6 hover:border-[var(--color-navy)] transition-all">
-                <span className="font-mono text-6xl font-black text-slate-100 absolute top-4 right-5 leading-none select-none">{s.n}</span>
+                <span className="font-mono text-6xl font-black text-[var(--color-tag-bg)] absolute top-4 right-5 leading-none select-none">{s.n}</span>
                 <div className="relative">
-                  <div className="w-12 h-12 bg-blue-50 border border-blue-100 rounded flex items-center justify-center mb-4">
+                  <div className="w-12 h-12 bg-[var(--color-navy-bg)] border border-[var(--color-border)] rounded flex items-center justify-center mb-4">
                     <s.icon className="w-5 h-5 text-[var(--color-navy)]"/>
                   </div>
-                  <span className="inline-block bg-blue-50 text-[var(--color-navy)] text-xs font-bold px-3 py-1 rounded-sm mb-3 border border-blue-100">{s.badge}</span>
+                  <span className="inline-block bg-[var(--color-navy-bg)] text-[var(--color-navy)] text-xs font-bold px-3 py-1 rounded-sm mb-3 border border-[var(--color-border)]">{s.badge}</span>
                   <h3 className="font-display font-semibold text-lg text-[var(--color-ink)] mb-2">{s.title}</h3>
                   <p className="text-sm text-[var(--color-muted)] leading-relaxed">{s.desc}</p>
                 </div>
@@ -274,14 +293,14 @@ export default function LandingPage() {
             ].map((d, i) => {
               const colors: Record<string,string> = {
                 red:"border-[var(--color-danger)] bg-[var(--color-danger-bg)]",
-                orange:"border-orange-200 bg-orange-50",
+                orange:"border-[var(--color-gold)] bg-[var(--color-gold-bg)]",
                 amber:"border-[var(--color-gold)] bg-[var(--color-gold-bg)]",
-                purple:"border-purple-200 bg-purple-50",
-                blue:"border-[var(--color-navy)] bg-blue-50",
+                purple:"border-[var(--color-navy)]/20 bg-[var(--color-navy-bg)]",
+                blue:"border-[var(--color-navy)] bg-[var(--color-navy-bg)]",
               };
               const textColors: Record<string,string> = {
-                red:"text-[var(--color-danger)]", orange:"text-orange-600",
-                amber:"text-[var(--color-gold)]", purple:"text-purple-600", blue:"text-[var(--color-navy)]",
+                red:"text-[var(--color-danger)]", orange:"text-[var(--color-gold)]",
+                amber:"text-[var(--color-gold)]", purple:"text-[var(--color-navy)]", blue:"text-[var(--color-navy)]",
               };
               return (
                 <div key={i} className="bg-[var(--color-surface)] border-[0.5px] border-[var(--color-border)] rounded p-6 flex flex-col transition-all">
@@ -361,7 +380,7 @@ export default function LandingPage() {
                       <p className="text-[10px] text-[var(--color-muted)]">São Paulo - SP</p>
                       <div className="flex justify-between mt-2">
                         <span className="text-[10px] text-[var(--color-danger)] font-semibold">122 dias</span>
-                        <span className="text-[10px] bg-blue-100 text-[var(--color-navy)] font-bold px-1.5 rounded">1 crédito</span>
+                        <span className="text-[10px] bg-[var(--color-navy-bg)] text-[var(--color-navy)] font-bold px-1.5 rounded">1 crédito</span>
                       </div>
                     </div>
                   </div>
@@ -379,7 +398,7 @@ export default function LandingPage() {
               </div>
             </div>
             <div>
-              <div className="inline-flex items-center gap-2 bg-blue-50 text-[var(--color-navy)] text-xs font-bold px-3 py-1.5 rounded-sm mb-5 border border-blue-100">
+              <div className="inline-flex items-center gap-2 bg-[var(--color-navy-bg)] text-[var(--color-navy)] text-xs font-bold px-3 py-1.5 rounded-sm mb-5 border border-[var(--color-border)]">
                 <Search className="w-3.5 h-3.5"/>Consulta ISP
               </div>
               <h3 className="font-display font-light text-3xl text-[var(--color-ink)] mb-4">Score em <span className="font-mono">2</span> segundos.<br/><span className="text-[var(--color-muted)]">Decisão em 1 clique.</span></h3>
@@ -440,7 +459,7 @@ export default function LandingPage() {
                     {name:"Jose Santos",desc:"Migrador serial — 3 provedores",dias:"130 dias",valor:"R$ 1.200",dot:"red"},
                   ].map((a,i) => (
                     <div key={i} className="flex items-center gap-3 py-2.5 border-b border-[var(--color-border)] last:border-0">
-                      <div className={`w-2 h-2 rounded-full flex-shrink-0 ${a.dot==="red"?"bg-[var(--color-danger)]":"bg-orange-500"}`}/>
+                      <div className={`w-2 h-2 rounded-full flex-shrink-0 ${a.dot==="red"?"bg-[var(--color-danger)]":"bg-[var(--color-gold)]"}`}/>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold text-[var(--color-ink)]">{a.name}</p>
                         <p className="text-[10px] text-[var(--color-muted)]">{a.desc}</p>
@@ -470,8 +489,8 @@ export default function LandingPage() {
           {/* Grid features secundárias */}
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-10 border-t border-[var(--color-border)]">
             {[
-              {icon:Database,title:"Rede Colaborativa",desc:"Dados de inadimplência de provedores em toda a rede. Quanto mais participam, mais preciso fica.",color:"bg-blue-50",ic:"text-[var(--color-navy)]"},
-              {icon:MapPin,title:"Análise por Endereço",desc:"Cruza CEP + número em toda a rede. Detecta inadimplente mesmo com CPF diferente no mesmo imóvel.",color:"bg-purple-50",ic:"text-purple-600"},
+              {icon:Database,title:"Rede Colaborativa",desc:"Dados de inadimplência de provedores em toda a rede. Quanto mais participam, mais preciso fica.",color:"bg-[var(--color-navy-bg)]",ic:"text-[var(--color-navy)]"},
+              {icon:MapPin,title:"Análise por Endereço",desc:"Cruza CEP + número em toda a rede. Detecta inadimplente mesmo com CPF diferente no mesmo imóvel.",color:"bg-[var(--color-navy-bg)]",ic:"text-[var(--color-navy)]"},
               {icon:CreditCard,title:"Consulta SPC Brasil",desc:"Score SPC, restrições financeiras e protestos integrados. Negativação sem contrato adicional.",color:"bg-[var(--color-success-bg)]",ic:"text-[var(--color-success)]"},
               {icon:Zap,title:"Análise com IA",desc:"Recomendações automáticas: APROVAR, APROVAR COM RESSALVAS, RECUSAR ou REJEITAR.",color:"bg-[var(--color-gold-bg)]",ic:"text-[var(--color-gold)]"},
             ].map((f,i) => (
@@ -499,7 +518,7 @@ export default function LandingPage() {
               <thead>
                 <tr className="border-b border-[var(--color-border)]">
                   <th className="p-4 text-left text-sm font-semibold text-[var(--color-ink)] w-1/3">Funcionalidade</th>
-                  <th className="p-4 text-center text-sm font-bold text-[var(--color-navy)] bg-blue-50">Consulta ISP</th>
+                  <th className="p-4 text-center text-sm font-bold text-[var(--color-navy)] bg-[var(--color-navy-bg)]">Consulta ISP</th>
                   <th className="p-4 text-center text-sm font-semibold text-[var(--color-muted)]">SPC/Serasa</th>
                   <th className="p-4 text-center text-sm font-semibold text-[var(--color-muted)]">TeiaH Valid</th>
                   <th className="p-4 text-center text-sm font-semibold text-[var(--color-muted)]">ISP Score</th>
@@ -518,7 +537,7 @@ export default function LandingPage() {
                 ].map((row,i) => (
                   <tr key={i} className={i%2===0?"bg-[var(--color-surface)]":"bg-[var(--color-bg)]"}>
                     <td className="p-4 text-sm text-[var(--color-ink)] font-medium border-b border-[var(--color-border)]">{row[0]}</td>
-                    <td className="p-4 text-center bg-blue-50/50 border-b border-[var(--color-border)]">
+                    <td className="p-4 text-center bg-[var(--color-navy-bg)]/50 border-b border-[var(--color-border)]">
                       <span className={`text-sm font-bold ${row[1]==="✅"?"text-[var(--color-success)]":"text-[var(--color-border)]"}`}>{row[1]}</span>
                     </td>
                     {[row[2],row[3],row[4]].map((v,j) => (
@@ -578,7 +597,7 @@ export default function LandingPage() {
                   ))}
                 </ul>
                 <Button onClick={goRegister}
-                  className={`w-full font-bold h-11 rounded ${plan.highlight?"bg-[var(--color-navy)] hover:bg-[var(--color-steel)] text-white":"bg-[var(--color-bg)] hover:bg-slate-200 text-[var(--color-ink)] border border-[var(--color-border)]"}`}>
+                  className={`w-full font-bold h-11 rounded ${plan.highlight?"bg-[var(--color-navy)] hover:bg-[var(--color-steel)] text-white":"bg-[var(--color-bg)] hover:bg-[var(--color-tag-bg)] text-[var(--color-ink)] border border-[var(--color-border)]"}`}>
                   {plan.cta}
                 </Button>
               </div>
@@ -605,7 +624,7 @@ export default function LandingPage() {
                   {erp.logoBase64 ? (
                     <img src={erp.logoBase64} alt={erp.name} className="h-8 object-contain"/>
                   ) : (
-                    <div className="w-10 h-10 bg-blue-100 rounded flex items-center justify-center">
+                    <div className="w-10 h-10 bg-[var(--color-navy-bg)] rounded flex items-center justify-center">
                       <Globe className="w-5 h-5 text-[var(--color-navy)]"/>
                     </div>
                   )}
@@ -621,7 +640,7 @@ export default function LandingPage() {
       <section className="py-20 bg-[var(--color-bg)]">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-12">
-            <div className="inline-flex items-center gap-2 bg-blue-100 text-[var(--color-navy)] text-xs font-semibold px-3 py-1.5 rounded-sm mb-4">
+            <div className="inline-flex items-center gap-2 bg-[var(--color-navy-bg)] text-[var(--color-navy)] text-xs font-semibold px-3 py-1.5 rounded-sm mb-4">
               <Star className="w-3.5 h-3.5 fill-[var(--color-navy)]" />
               O que os provedores dizem
             </div>
@@ -659,7 +678,7 @@ export default function LandingPage() {
           <div className="text-center mb-12">
             <h2 className="font-display font-light text-4xl text-[var(--color-ink)]">Perguntas frequentes</h2>
           </div>
-          <div className="border-[0.5px] border-[var(--color-border)] rounded overflow-hidden divide-y divide-[var(--color-border)]" data-testid="faq-section">
+          <Accordion type="single" collapsible className="border-[0.5px] border-[var(--color-border)] rounded overflow-hidden" data-testid="faq-section">
             {[
               {q:"O que é a base de dados compartilhada?",a:"É uma base única onde todos os provedores registram seus inadimplentes. Quando você consulta um CPF, o sistema verifica em todos os provedores da rede e retorna dados anonimizados: dias de atraso, faixa de valor, equipamentos pendentes. Nunca dados pessoais identificáveis."},
               {q:"Consultas na minha própria base são cobradas?",a:"Não. Consultas de clientes do seu próprio provedor são sempre gratuitas e ilimitadas. Créditos são consumidos apenas quando a consulta retorna dados de outros provedores da rede — 1 crédito por provedor externo encontrado."},
@@ -675,16 +694,12 @@ export default function LandingPage() {
               {q:"Os dados ficam seguros? Quem tem acesso à minha base?",a:"Cada provedor acessa apenas seus próprios dados completos. Para consulta cruzada na rede, apenas indicadores anonimizados são compartilhados. A infraestrutura usa criptografia em trânsito (TLS 1.3) e em repouso. Nenhum funcionário da Consulta ISP acessa sua base sem solicitação formal documentada."},
               {q:"Existe API pública para integração customizada?",a:"Sim. Disponibilizamos documentação de API REST completa para clientes dos planos Pro e Enterprise. Além do webhook de entrada, você pode consultar CPFs/CNPJs via API autenticada, integrar com CRM próprio e receber eventos em tempo real via webhook de saída."},
             ].map((faq, i) => (
-              <div key={i} className="px-6" data-testid={`faq-${i}`}>
-                <button className="w-full text-left py-5 flex items-center justify-between gap-4"
-                  onClick={() => setOpenFaq(openFaq === i ? null : i)}>
-                  <span className="text-sm font-semibold text-[var(--color-ink)]">{faq.q}</span>
-                  {openFaq === i ? <ChevronUp className="w-4 h-4 text-[var(--color-muted)] flex-shrink-0"/> : <ChevronDown className="w-4 h-4 text-[var(--color-muted)] flex-shrink-0"/>}
-                </button>
-                {openFaq === i && <p className="text-sm text-[var(--color-muted)] pb-5 leading-relaxed -mt-1">{faq.a}</p>}
-              </div>
+              <AccordionItem key={i} value={`faq-${i}`} className="border-b border-[var(--color-border)] last:border-0" data-testid={`faq-${i}`}>
+                <AccordionTrigger className="px-6 py-5 text-sm font-semibold text-[var(--color-ink)] hover:no-underline">{faq.q}</AccordionTrigger>
+                <AccordionContent className="px-6 pb-5 text-sm text-[var(--color-muted)] leading-relaxed">{faq.a}</AccordionContent>
+              </AccordionItem>
             ))}
-          </div>
+          </Accordion>
         </div>
       </section>
 
@@ -705,7 +720,7 @@ export default function LandingPage() {
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8">
             <Button size="lg" onClick={goRegister} data-testid="button-cta-bottom"
-              className="bg-white text-[var(--color-navy)] hover:bg-blue-50 px-10 gap-2 h-12 text-base font-black rounded">
+              className="bg-white text-[var(--color-navy)] hover:bg-[var(--color-navy-bg)] px-10 gap-2 h-12 text-base font-black rounded">
               Criar conta grátis <ArrowRight className="w-4 h-4"/>
             </Button>
             <Button size="lg" variant="outline" onClick={goLogin} data-testid="button-login-bottom"

@@ -6,9 +6,13 @@ export default {
   theme: {
     extend: {
       borderRadius: {
-        lg: ".5625rem", /* 9px */
-        md: ".375rem", /* 6px */
-        sm: ".1875rem", /* 3px */
+        lg: "6px",      /* máximo permitido DS v2.0 */
+        md: "4px",      /* cards de dados */
+        sm: "2px",      /* inputs, buttons, badges */
+        DEFAULT: "4px", /* padrão DS v2.0 */
+      },
+      borderWidth: {
+        DEFAULT: "1px", /* DS v2.0: 1px (não 0.5px) */
       },
       colors: {
         // Flat / base colors (regular buttons)

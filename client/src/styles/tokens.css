@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
    DESIGN SYSTEM TOKENS — Consulta ISP
-   Fonte: DESIGN_SYSTEM.md v1.0
+   Fonte: DESIGN_SYSTEM.md v2.0
    NÃO edite diretamente — altere o DESIGN_SYSTEM.md e replique aqui.
    ═══════════════════════════════════════════════════════════════ */
 
@@ -27,4 +27,10 @@
   --color-gold-bg:    #F5EDD4;
   --color-danger-bg:  #F5E8E8;
   --color-success-bg: #E4EEE8;
+
+  /* Score semantico — padronizar cores de score em TODO o sistema */
+  --score-high:       var(--color-success);     /* 701-1000 */
+  --score-medium:     var(--color-gold);         /* 401-700  */
+  --score-low:        #C45A1A;                   /* 201-400  */
+  --score-critical:   var(--color-danger);        /* 0-200    */
 }

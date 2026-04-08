@@ -20,6 +20,13 @@
   --color-gold-bg:    #F5EDD4;
   --color-danger-bg:  #F5E8E8;
   --color-success-bg: #E4EEE8;
+
+  /* Score semantico — padronizar cores de score em TODO o sistema */
+  --score-high:       var(--color-success);     /* 701-1000 */
+  --score-medium:     var(--color-gold);         /* 401-700  */
+  --score-low:        #C45A1A;                   /* 201-400  */
+  --score-critical:   var(--color-danger);        /* 0-200    */
+
   --button-outline: rgba(0,0,0, .10);
   --badge-outline: rgba(0,0,0, .05);
   --opaque-button-border-intensity: -8;

@@ -230,7 +230,7 @@ export default function LoginPage() {
         <div className="w-full max-w-5xl flex flex-col lg:flex-row items-center gap-12 lg:gap-16">
 
           <div className="flex-1 text-[var(--color-ink)] text-center lg:text-left max-w-lg">
-            <div className="inline-flex items-center gap-2 bg-[var(--color-navy)]/10 rounded-full px-4 py-1.5 mb-6">
+            <div className="inline-flex items-center gap-2 bg-[var(--color-navy-bg)] rounded-sm px-4 py-1.5 mb-6">
               <Shield className="w-4 h-4 text-[var(--color-gold)]" />
               <span className="text-sm font-medium text-[var(--color-navy)]">Plataforma Colaborativa de Credito</span>
             </div>
@@ -527,11 +527,6 @@ export default function LoginPage() {
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="text-sm font-medium text-[var(--color-ink)]">Senha</label>
-                      {pageState === "login" && (
-                        <button type="button" className="text-xs text-[var(--color-navy)] hover:text-[var(--color-steel)]">
-                          Esqueceu a senha?
-                        </button>
-                      )}
                     </div>
                     <div className="relative">
                       <Input
@@ -643,7 +638,7 @@ export default function LoginPage() {
       </div>
 
       <footer className="text-center py-4 text-[var(--color-muted)] text-xs">
-        2025 Consulta ISP - Plataforma de Analise de Credito para Provedores de Internet
+        2026 Consulta ISP - Plataforma de Analise de Credito para Provedores de Internet
       </footer>
     </div>
   );

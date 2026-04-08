@@ -45,7 +45,7 @@ fontFamily: {
 :root {
   --color-bg:         #F9F7F4;  /* fundo geral — quente, não branco puro */
   --color-surface:    #FFFFFF;  /* cards, modais */
-  --color-border:     #E2DDD6;  /* bordas — 0.5px solid */
+  --color-border:     #E2DDD6;  /* bordas — 1px solid */
   
   --color-ink:        #1A1714;  /* texto principal */
   --color-muted:      #6B6560;  /* texto secundário, labels */
@@ -62,6 +62,12 @@ fontFamily: {
   --color-gold-bg:    #F5EDD4;
   --color-danger-bg:  #F5E8E8;
   --color-success-bg: #E4EEE8;
+
+  /* Score semântico — padronizar cores de score em TODO o sistema */
+  --score-high:       var(--color-success);     /* 701-1000 */
+  --score-medium:     var(--color-gold);         /* 401-700  */
+  --score-low:        #C45A1A;                   /* 201-400  */
+  --score-critical:   var(--color-danger);        /* 0-200    */
 }
 ```
 
@@ -69,8 +75,9 @@ fontFamily: {
 | Situação              | Cor                          |
 |-----------------------|------------------------------|
 | Score alto (700–1000) | `--color-navy`               |
-| Score médio (400–699) | `--color-gold`               |
-| Score baixo (0–399)   | `--color-danger`             |
+| Score médio (401–700) | `--score-medium` / `--color-gold` |
+| Score baixo (201–400) | `--score-low` (#C45A1A)      |
+| Score crítico (0–200) | `--score-critical` / `--color-danger` |
 | Status: ativo         | `--color-success`            |
 | Status: inadimplente  | `--color-danger`             |
 | Status: pendente      | `--color-gold`               |
@@ -95,12 +102,16 @@ Padding de seção:        32px (2rem)
 ## 5. Bordas e Cantos
 
 ```css
-/* Cards e containers */
-border: 0.5px solid var(--color-border);
+/* Cards de dados */
+border: 1px solid var(--color-border);
 border-radius: 4px;  /* NÃO use rounded-xl (16px+) */
 
+/* Cards hero / modais */
+border: 1px solid var(--color-border);
+border-radius: 6px;  /* máximo permitido */
+
 /* Inputs */
-border: 0.5px solid var(--color-border);
+border: 1px solid var(--color-border);
 border-radius: 2px;
 
 /* Buttons */
@@ -112,6 +123,10 @@ height: 4px;
 
 /* Badges */
 border-radius: 2px;  /* NÃO use pill/rounded-full para badges de status */
+
+/* Sombras */
+/* Permitido: shadow-xs (0 1px 2px rgba(0,0,0,0.04)) apenas em cards elevados e modais */
+/* Proibido: shadow-md, shadow-lg, shadow-xl e superiores */
 ```
 
 ---
@@ -129,7 +144,7 @@ border-radius: 2px;  /* NÃO use pill/rounded-full para badges de status */
 </div>
 ```
 ```css
-.metric-card { background: var(--color-surface); border: 0.5px solid var(--color-border); border-radius: 4px; padding: 1rem 1.25rem; }
+.metric-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px; padding: 1rem 1.25rem; }
 .metric-label { font-family: 'DM Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--color-muted); }
 .metric-number { font-family: 'DM Mono', monospace; font-size: 24px; font-weight: 500; color: var(--color-navy); margin: 8px 0 4px; }
 .score-bar { height: 4px; background: var(--color-tag-bg); border-radius: 2px; overflow: hidden; }
@@ -155,7 +170,7 @@ border-radius: 2px;  /* NÃO use pill/rounded-full para badges de status */
 .btn {
   font-family: 'DM Mono', monospace; font-size: 11px;
   letter-spacing: 0.06em; padding: 8px 16px;
-  border-radius: 2px; cursor: pointer; border: 0.5px solid;
+  border-radius: 2px; cursor: pointer; border: 1px solid;
   transition: all 0.15s ease;
 }
 .btn-primary   { background: var(--color-navy);    color: #fff; border-color: var(--color-navy); }
@@ -170,9 +185,9 @@ border-radius: 2px;  /* NÃO use pill/rounded-full para badges de status */
   font-family: 'DM Mono', monospace; font-size: 10px;
   letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--color-muted); text-align: left;
-  padding: 8px 12px; border-bottom: 0.5px solid var(--color-border);
+  padding: 8px 12px; border-bottom: 1px solid var(--color-border);
 }
-.ds-table td { padding: 10px 12px; border-bottom: 0.5px solid var(--color-border); }
+.ds-table td { padding: 10px 12px; border-bottom: 1px solid var(--color-border); }
 .ds-table tr:last-child td { border-bottom: none; }
 ```
 
@@ -181,7 +196,7 @@ border-radius: 2px;  /* NÃO use pill/rounded-full para badges de status */
 .ds-input {
   font-family: 'DM Sans', sans-serif; font-size: 13px;
   padding: 8px 12px; width: 100%;
-  border: 0.5px solid var(--color-border); border-radius: 2px;
+  border: 1px solid var(--color-border); border-radius: 2px;
   background: var(--color-surface); color: var(--color-ink);
   outline: none; transition: border-color 0.15s;
 }
@@ -194,7 +209,7 @@ border-radius: 2px;  /* NÃO use pill/rounded-full para badges de status */
   font-family: 'DM Mono', monospace; font-size: 10px;
   letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--color-muted); margin-bottom: 1rem;
-  padding-bottom: 0.5rem; border-bottom: 0.5px solid var(--color-border);
+  padding-bottom: 0.5rem; border-bottom: 1px solid var(--color-border);
 }
 ```
 
@@ -231,7 +246,7 @@ module.exports = {
         lg: '6px',   /* máximo permitido */
       },
       borderWidth: {
-        DEFAULT: '0.5px',
+        DEFAULT: '1px',
       },
     },
   },
@@ -240,7 +255,7 @@ module.exports = {
 
 **Classes Tailwind proibidas:**
 - `rounded-xl`, `rounded-2xl`, `rounded-full` (exceto avatares circulares)
-- `shadow-lg`, `shadow-xl`, `drop-shadow-*`
+- `shadow-md`, `shadow-lg`, `shadow-xl`, `drop-shadow-*` (permitido apenas `shadow-xs` em cards elevados/modais)
 - `font-sans` (use `font-body`), `font-mono` do Tailwind padrão (use `font-mono` customizado)
 - Qualquer gradiente com roxo ou azul puro: `from-purple-*`, `from-blue-400`
 
@@ -261,8 +276,8 @@ CORES PROIBIDAS:
 
 BORDAS/CANTOS PROIBIDOS:
   ✗ border-radius > 6px em cards de dados
-  ✗ box-shadow com blur > 4px
-  ✗ border: 1px (use 0.5px)
+  ✗ box-shadow com blur > 4px (shadow-md+ proibido)
+  ✗ border: 0.5px (use 1px — 0.5px não renderiza consistentemente)
 
 PADRÕES DE LAYOUT PROIBIDOS:
   ✗ "Hero section" com gradiente de fundo
@@ -270,7 +285,7 @@ PADRÕES DE LAYOUT PROIBIDOS:
   ✗ Botões com gradiente
   ✗ Ícones emoji decorativos inline
   ✗ Progress bars com border-radius arredondado (pill)
-  ✗ Avatares com ring colorido (use border 0.5px simples)
+  ✗ Avatares com ring colorido (use border 1px simples)
 
 SEMÂNTICA PROIBIDA:
   ✗ Usar verde para qualquer coisa diferente de "sucesso/ativo/positivo"
@@ -308,4 +323,4 @@ Os textos da UI devem seguir:
 
 ---
 
-*Versão: 1.0 · Projeto: Consulta ISP / Produção Fácil · Londrina, PR*
+*Versão: 2.0 · Projeto: Consulta ISP / Produção Fácil · Londrina, PR*

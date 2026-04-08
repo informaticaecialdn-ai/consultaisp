@@ -432,7 +432,7 @@ export function AppSidebar() {
         <TrialBanner />
 
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-sm font-bold text-blue-700 dark:text-blue-300">
+          <div className="w-8 h-8 rounded-full bg-[var(--color-navy-bg)] flex items-center justify-center text-sm font-bold text-[var(--color-navy)]">
             {user?.name?.charAt(0)?.toUpperCase() || "U"}
           </div>
           <div className="flex flex-col min-w-0 flex-1">
