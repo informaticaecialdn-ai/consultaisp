@@ -211,6 +211,7 @@ async function querySingleErp(
 }
 
 function normalizeCustomer(c: any): RealtimeQueryResult["customers"][0] {
+  console.log(`[RT] normalizeCustomer: name=${c.name}, maxDaysOverdue=${c.maxDaysOverdue}, totalOverdueAmount=${c.totalOverdueAmount}, overdueInvoicesCount=${c.overdueInvoicesCount}`);
   return {
     cpfCnpj: c.cpfCnpj || "",
     name: c.name || "",

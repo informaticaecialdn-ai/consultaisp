@@ -377,6 +377,8 @@ export class MkConnector implements ErpConnector {
       // Last part after last comma is usually city
       const cityFromAddr = addrParts.length > 2 ? addrParts[addrParts.length - 1] : undefined;
 
+      console.log(`[MK] RESULTADO FINAL fetchCustomerByCpf: overdue=${overdueInvoicesCount}, maxDays=${maxDaysOverdue}, totalAmount=${totalOverdueAmount}`);
+
       const customer: NormalizedErpCustomer = {
         cpfCnpj: cleanDoc,
         name: nome,
