@@ -95,51 +95,51 @@ function getAlertTypeConfig(type: string, severity: string) {
     case "defaulter_consulted":
       return {
         tag: "TENTATIVA DE FUGA",
-        tagColor: "bg-red-100 text-red-800",
-        borderColor: "border-red-300",
-        bgColor: "bg-red-50",
+        tagColor: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]",
+        borderColor: "border-[var(--color-danger)]",
+        bgColor: "bg-[var(--color-danger-bg)]",
         icon: WifiOff,
-        iconBg: "bg-red-500",
+        iconBg: "bg-[var(--color-danger)]",
         description: "Seu cliente inadimplente esta sendo consultado por outro provedor",
       };
     case "multiple_consultations":
       return {
         tag: "MIGRADOR SERIAL",
-        tagColor: "bg-purple-100 text-purple-800",
-        borderColor: "border-purple-300",
-        bgColor: "bg-purple-50",
+        tagColor: "bg-[var(--color-navy-bg)] text-[var(--color-navy)]",
+        borderColor: "border-[var(--color-navy)]",
+        bgColor: "bg-[var(--color-navy-bg)]",
         icon: Users,
-        iconBg: "bg-purple-500",
+        iconBg: "bg-[var(--color-navy)]",
         description: "Este cliente consultou multiplos provedores — padrao de migracao em serie",
       };
     case "equipment_risk":
       return {
         tag: "RISCO DE EQUIPAMENTO",
-        tagColor: "bg-amber-100 text-amber-800",
-        borderColor: "border-amber-300",
-        bgColor: "bg-amber-50",
+        tagColor: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]",
+        borderColor: "border-[var(--color-gold)]",
+        bgColor: "bg-[var(--color-gold-bg)]",
         icon: Package,
-        iconBg: "bg-amber-500",
+        iconBg: "bg-[var(--color-gold)]",
         description: "Cliente com equipamento nao devolvido esta buscando novo provedor",
       };
     case "recent_contract":
       return {
         tag: "CONTRATO RECENTE",
-        tagColor: "bg-blue-100 text-blue-800",
-        borderColor: "border-blue-300",
-        bgColor: "bg-blue-50",
+        tagColor: "bg-[var(--color-navy-bg)] text-[var(--color-steel)]",
+        borderColor: "border-[var(--color-steel)]",
+        bgColor: "bg-[var(--color-navy-bg)]",
         icon: Clock,
-        iconBg: "bg-blue-500",
+        iconBg: "bg-[var(--color-steel)]",
         description: "Cliente com contrato recente esta sendo prospectado por outro provedor",
       };
     default:
       return {
         tag: "ALERTA",
-        tagColor: "bg-slate-100 text-slate-700",
-        borderColor: "border-slate-200",
-        bgColor: "bg-white",
+        tagColor: "bg-[var(--color-tag-bg)] text-[var(--color-muted)]",
+        borderColor: "border-[var(--color-border)]",
+        bgColor: "bg-[var(--color-surface)]",
         icon: AlertCircle,
-        iconBg: "bg-slate-500",
+        iconBg: "bg-[var(--color-muted)]",
         description: "",
       };
   }
@@ -147,10 +147,10 @@ function getAlertTypeConfig(type: string, severity: string) {
 
 function getRiskLevelConfig(level: string) {
   switch (level) {
-    case "critical": return { label: "Critico", color: "bg-red-500", badge: "bg-red-100 text-red-800" };
-    case "high":     return { label: "Alto",    color: "bg-orange-500", badge: "bg-orange-100 text-orange-800" };
-    case "medium":   return { label: "Medio",   color: "bg-amber-500", badge: "bg-amber-100 text-amber-800" };
-    default:         return { label: "Baixo",   color: "bg-emerald-500", badge: "bg-emerald-100 text-emerald-800" };
+    case "critical": return { label: "Critico", color: "bg-[var(--color-danger)]", badge: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" };
+    case "high":     return { label: "Alto",    color: "bg-[var(--color-gold)]", badge: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" };
+    case "medium":   return { label: "Medio",   color: "bg-[var(--color-gold)]", badge: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" };
+    default:         return { label: "Baixo",   color: "bg-[var(--color-success)]", badge: "bg-[var(--color-success-bg)] text-[var(--color-success)]" };
   }
 }
 
@@ -158,17 +158,17 @@ function PrejuizoCard({ label, value, sub, icon: Icon, color, alert }: {
   label: string; value: string | number; sub?: string; icon: any; color: string; alert?: boolean;
 }) {
   return (
-    <Card className={`p-4 ${alert ? "border-red-200 bg-red-50/30" : "border-slate-200"}`}>
-      <div className="flex items-start justify-between mb-3">
-        <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${color}`}>
+    <div className={`p-4 rounded-lg border ${alert ? "border-[var(--color-danger)] bg-[var(--color-danger-bg)]" : "border-[var(--color-border)] bg-[var(--color-surface)]"}`}>
+      <div className="flex items-start justify-between mb-2">
+        <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${color}`}>
           <Icon className="w-4 h-4 text-white" />
         </div>
-        {alert && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse mt-1" />}
+        {alert && <span className="w-2 h-2 rounded-full bg-[var(--color-danger)] animate-pulse mt-1" />}
       </div>
-      <p className="text-2xl font-black text-slate-900" data-testid={`kpi-${label}`}>{value}</p>
-      <p className="text-xs font-semibold text-slate-600 mt-0.5">{label}</p>
-      {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
-    </Card>
+      <p className="text-2xl font-extrabold text-[var(--color-ink)]" data-testid={`kpi-${label}`}>{value}</p>
+      <p className="text-sm font-semibold text-[var(--color-ink)] mt-0.5">{label}</p>
+      {sub && <p className="text-xs text-[var(--color-muted)] mt-0.5">{sub}</p>}
+    </div>
   );
 }
 
@@ -188,47 +188,47 @@ function AlertaMigracaoCard({ alert, onResolve, onDismiss, showActions = true }:
   const totalPrejuizo = overdueVal + eqpVal;
 
   return (
-    <Card className={`overflow-hidden border ${alert.status !== "new" ? "border-slate-200 opacity-70" : typeConfig.borderColor}`} data-testid={`alert-card-${alert.id}`}>
-      <div className={`${alert.status === "new" ? typeConfig.bgColor : "bg-white"} p-4`}>
+    <div className={`overflow-hidden rounded-lg border ${alert.status !== "new" ? "border-[var(--color-border)] opacity-70" : typeConfig.borderColor}`} data-testid={`alert-card-${alert.id}`}>
+      <div className={`${alert.status === "new" ? typeConfig.bgColor : "bg-[var(--color-surface)]"} p-5`}>
         <div className="flex items-start gap-3">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${typeConfig.iconBg}`}>
+          <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${typeConfig.iconBg}`}>
             <TypeIcon className="w-5 h-5 text-white" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${typeConfig.tagColor}`}>
+                <span className={`text-xs font-black px-2 py-0.5 rounded-full ${typeConfig.tagColor}`}>
                   {typeConfig.tag}
                 </span>
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${riskConfig.badge}`}>
+                <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${riskConfig.badge}`}>
                   {riskConfig.label}{alert.riskScore ? ` · ${alert.riskScore}` : ""}
                 </span>
                 {alert.status === "resolved" && (
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">RESOLVIDO</span>
+                  <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-[var(--color-success-bg)] text-[var(--color-success)]">RESOLVIDO</span>
                 )}
                 {alert.status === "dismissed" && (
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">IGNORADO</span>
+                  <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-[var(--color-tag-bg)] text-[var(--color-muted)]">IGNORADO</span>
                 )}
               </div>
-              <span className="text-xs text-slate-400 flex-shrink-0">{timeAgo(alert.createdAt)}</span>
+              <span className="text-xs text-[var(--color-muted)] flex-shrink-0">{timeAgo(alert.createdAt)}</span>
             </div>
 
-            <p className="font-bold text-slate-900 text-sm" data-testid={`alert-customer-${alert.id}`}>
+            <p className="font-bold text-[var(--color-ink)] text-base" data-testid={`alert-customer-${alert.id}`}>
               {alert.customerName || "Cliente desconhecido"}
             </p>
             {alert.customerCpfCnpj && (
-              <p className="text-xs text-slate-500">{formatCpfCnpj(alert.customerCpfCnpj)}</p>
+              <p className="text-sm text-[var(--color-muted)]">{formatCpfCnpj(alert.customerCpfCnpj)}</p>
             )}
 
-            <p className="text-xs text-slate-600 mt-1">{typeConfig.description}</p>
+            <p className="text-sm text-[var(--color-muted)] mt-1">{typeConfig.description}</p>
 
             {alert.consultingProviderName && (
-              <div className="flex items-center gap-1.5 mt-1.5 text-xs">
-                <Building2 className="w-3 h-3 text-slate-400" />
-                <span className="text-slate-500">Consultado por:</span>
-                <span className="font-semibold text-slate-800">{alert.consultingProviderName}</span>
-                <ArrowRight className="w-3 h-3 text-slate-400" />
-                <span className="text-slate-500 italic">destino provavel da migracao</span>
+              <div className="flex items-center gap-1.5 mt-2 text-sm">
+                <Building2 className="w-3.5 h-3.5 text-[var(--color-muted)]" />
+                <span className="text-[var(--color-muted)]">Consultado por:</span>
+                <span className="font-bold text-[var(--color-ink)]">{alert.consultingProviderName}</span>
+                <ArrowRight className="w-3.5 h-3.5 text-[var(--color-muted)]" />
+                <span className="text-[var(--color-muted)] italic">destino provavel da migracao</span>
               </div>
             )}
           </div>
@@ -237,41 +237,41 @@ function AlertaMigracaoCard({ alert, onResolve, onDismiss, showActions = true }:
         {(overdueVal > 0 || eqpVal > 0 || (alert.daysOverdue || 0) > 0 || (alert.recentConsultations || 0) > 1) && (
           <div className="mt-3 ml-13 grid grid-cols-2 sm:grid-cols-4 gap-2">
             {overdueVal > 0 && (
-              <div className="bg-white rounded-lg border border-slate-200 px-3 py-2">
-                <p className="text-[10px] text-slate-400">Mensalidades em atraso</p>
-                <p className="text-sm font-black text-red-600">{formatCurrency(overdueVal)}</p>
+              <div className="bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)] px-3 py-2.5">
+                <p className="text-xs text-[var(--color-muted)]">Mensalidades em atraso</p>
+                <p className="text-sm font-bold text-[var(--color-danger)]">{formatCurrency(overdueVal)}</p>
               </div>
             )}
             {(alert.daysOverdue || 0) > 0 && (
-              <div className="bg-white rounded-lg border border-slate-200 px-3 py-2">
-                <p className="text-[10px] text-slate-400">Dias sem pagar</p>
-                <p className="text-sm font-black text-orange-600">{alert.daysOverdue} dias</p>
+              <div className="bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)] px-3 py-2.5">
+                <p className="text-xs text-[var(--color-muted)]">Dias sem pagar</p>
+                <p className="text-sm font-bold text-[var(--color-gold)]">{alert.daysOverdue} dias</p>
               </div>
             )}
             {eqpVal > 0 && (
-              <div className="bg-white rounded-lg border border-amber-200 bg-amber-50/50 px-3 py-2">
-                <p className="text-[10px] text-amber-600">Equipamento em risco</p>
-                <p className="text-sm font-black text-amber-700">{formatCurrency(eqpVal)}</p>
-                <p className="text-[10px] text-amber-500">{alert.equipmentNotReturned} item(ns)</p>
+              <div className="bg-[var(--color-gold-bg)] rounded-lg border border-[var(--color-border)] px-3 py-2.5">
+                <p className="text-xs text-[var(--color-gold)]">Equipamento em risco</p>
+                <p className="text-sm font-bold text-[var(--color-gold)]">{formatCurrency(eqpVal)}</p>
+                <p className="text-xs text-[var(--color-muted)]">{alert.equipmentNotReturned} item(ns)</p>
               </div>
             )}
             {(alert.recentConsultations || 0) > 1 && (
-              <div className="bg-white rounded-lg border border-purple-200 bg-purple-50/50 px-3 py-2">
-                <p className="text-[10px] text-purple-600">Provedores consultados</p>
-                <p className="text-sm font-black text-purple-700">{alert.recentConsultations} provedores</p>
-                <p className="text-[10px] text-purple-500">nos ultimos 30 dias</p>
+              <div className="bg-[var(--color-navy-bg)] rounded-lg border border-[var(--color-border)] px-3 py-2.5">
+                <p className="text-xs text-[var(--color-navy)]">Provedores consultados</p>
+                <p className="text-sm font-bold text-[var(--color-navy)]">{alert.recentConsultations} provedores</p>
+                <p className="text-xs text-[var(--color-muted)]">nos ultimos 30 dias</p>
               </div>
             )}
           </div>
         )}
 
         {totalPrejuizo > 0 && (
-          <div className="mt-3 ml-13 p-2.5 rounded-lg border border-red-200 bg-red-50 flex items-center justify-between">
+          <div className="mt-3 ml-13 p-3 rounded-lg border border-[var(--color-danger)] bg-[var(--color-danger-bg)] flex items-center justify-between">
             <div>
-              <p className="text-[10px] text-red-600 font-semibold uppercase tracking-wide">Prejuizo estimado se o cliente migrar</p>
-              <p className="text-base font-black text-red-700">{formatCurrency(totalPrejuizo)}</p>
+              <p className="text-xs text-[var(--color-danger)] font-bold uppercase tracking-wide">Prejuizo estimado se o cliente migrar</p>
+              <p className="text-lg font-extrabold text-[var(--color-danger)]">{formatCurrency(totalPrejuizo)}</p>
             </div>
-            <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
+            <AlertTriangle className="w-5 h-5 text-[var(--color-danger)] flex-shrink-0" />
           </div>
         )}
 
@@ -279,7 +279,7 @@ function AlertaMigracaoCard({ alert, onResolve, onDismiss, showActions = true }:
           <div className="mt-3 ml-13">
             <button
               onClick={() => setExpanded(!expanded)}
-              className="flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
+              className="flex items-center gap-1 text-sm font-semibold text-[var(--color-muted)] hover:text-[var(--color-ink)] transition-colors"
               data-testid={`button-toggle-factors-${alert.id}`}
             >
               {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
@@ -288,7 +288,7 @@ function AlertaMigracaoCard({ alert, onResolve, onDismiss, showActions = true }:
             {expanded && (
               <ul className="mt-2 space-y-1">
                 {alert.riskFactors.map((factor, idx) => (
-                  <li key={idx} className="flex items-start gap-2 text-xs text-slate-600">
+                  <li key={idx} className="flex items-start gap-2 text-sm text-[var(--color-ink)]">
                     <span className={`w-1.5 h-1.5 rounded-full ${riskConfig.color} flex-shrink-0 mt-1`} />
                     {factor}
                   </li>
@@ -299,26 +299,11 @@ function AlertaMigracaoCard({ alert, onResolve, onDismiss, showActions = true }:
         )}
 
         {alert.status === "new" && (
-          <div className="space-y-2 mt-4 pt-3 border-t border-white/50 ml-13">
-            <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 flex items-center justify-between gap-2" data-testid={`retention-cta-${alert.id}`}>
-              <div className="flex items-center gap-1.5">
-                <TrendingUp className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
-                <span className="text-xs font-medium text-blue-800">Ofereça renegociação antes que ele migre</span>
-              </div>
-              <Button
-                size="sm"
-                className="h-6 text-[11px] px-2.5 bg-blue-600 hover:bg-blue-700 text-white gap-1 flex-shrink-0"
-                data-testid={`button-retention-${alert.id}`}
-                onClick={() => window.open(`tel:`, "_self")}
-              >
-                <Phone className="w-3 h-3" />
-                Reter cliente
-              </Button>
-            </div>
+          <div className="mt-4 pt-3 border-t border-[var(--color-border)] ml-13 flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2">
               <Button
                 size="sm"
-                className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white h-7 text-xs"
+                className="gap-1.5 bg-[var(--color-success)] hover:opacity-90 text-white"
                 onClick={() => onResolve(alert.id)}
                 data-testid={`button-resolve-${alert.id}`}
               >
@@ -328,27 +313,27 @@ function AlertaMigracaoCard({ alert, onResolve, onDismiss, showActions = true }:
               <Button
                 size="sm"
                 variant="outline"
-                className="gap-1.5 h-7 text-xs bg-white"
+                className="gap-1.5"
                 onClick={() => onDismiss(alert.id)}
                 data-testid={`button-dismiss-${alert.id}`}
               >
                 <XCircle className="w-3.5 h-3.5" />
                 Ignorar
               </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="gap-1.5 h-7 text-xs ml-auto"
-                data-testid={`button-contact-${alert.id}`}
-              >
-                <Phone className="w-3.5 h-3.5" />
-                Contatar
-              </Button>
             </div>
+            <Button
+              size="sm"
+              className="gap-1.5 bg-[var(--color-navy)] hover:opacity-90 text-white"
+              data-testid={`button-retention-${alert.id}`}
+              onClick={() => window.open(`tel:`, "_self")}
+            >
+              <Phone className="w-3.5 h-3.5" />
+              Reter cliente
+            </Button>
           </div>
         )}
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -513,13 +498,13 @@ function MigradoresTab({ alerts, customerRisk }: { alerts: AntiFraudAlert[]; cus
                   <div className="p-4">
                     <div className="flex items-start justify-between gap-3 mb-3">
                       <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-purple-500 flex items-center justify-center flex-shrink-0">
+                        <div className="w-10 h-10 rounded-lg bg-purple-500 flex items-center justify-center flex-shrink-0">
                           <UserX className="w-5 h-5 text-white" />
                         </div>
                         <div>
                           <div className="flex items-center gap-2 mb-0.5">
-                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-100 text-purple-800">MIGRADOR SERIAL</span>
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${riskScore === "critical" ? "bg-red-100 text-red-800" : riskScore === "high" ? "bg-orange-100 text-orange-800" : "bg-amber-100 text-amber-800"}`}>
+                            <span className="text-xs font-black px-2 py-0.5 rounded-full bg-purple-100 text-purple-800">MIGRADOR SERIAL</span>
+                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${riskScore === "critical" ? "bg-red-100 text-red-800" : riskScore === "high" ? "bg-orange-100 text-orange-800" : "bg-amber-100 text-amber-800"}`}>
                               {riskScore === "critical" ? "CRITICO" : riskScore === "high" ? "ALTO" : "MEDIO"}
                             </span>
                           </div>
@@ -529,12 +514,12 @@ function MigradoresTab({ alerts, customerRisk }: { alerts: AntiFraudAlert[]; cus
                       </div>
                       <div className="text-right flex-shrink-0">
                         <p className="text-xl font-black text-purple-700">{m.providers.size}</p>
-                        <p className="text-[10px] text-purple-500">provedores consultados</p>
+                        <p className="text-xs text-purple-500">provedores consultados</p>
                       </div>
                     </div>
 
                     <div className="mb-3 p-3 rounded-lg border border-purple-200 bg-white">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">Ciclo de Migracao Detectado</p>
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-2">Ciclo de Migracao Detectado</p>
                       <div className="flex items-center gap-1.5 flex-wrap">
                         {Array.from(m.providers).map((prov, i, arr) => (
                           <div key={i} className="flex items-center gap-1.5">
@@ -550,7 +535,7 @@ function MigradoresTab({ alerts, customerRisk }: { alerts: AntiFraudAlert[]; cus
                     {totalPrejuizo > 0 && (
                       <div className="p-2.5 rounded-lg border border-red-200 bg-red-50 flex items-center justify-between">
                         <div>
-                          <p className="text-[10px] text-red-600 font-semibold uppercase">Prejuizo acumulado estimado</p>
+                          <p className="text-xs text-red-600 font-semibold uppercase">Prejuizo acumulado estimado</p>
                           <p className="text-base font-black text-red-700">{formatCurrency(totalPrejuizo)}</p>
                         </div>
                         <div className="text-right text-xs text-red-500">
@@ -646,7 +631,7 @@ function RegrasTab() {
 
   return (
     <div className="space-y-4">
-      <div className="p-4 rounded-xl border border-blue-200 bg-blue-50">
+      <div className="p-4 rounded-lg border border-blue-200 bg-blue-50">
         <div className="flex items-start gap-3">
           <AlertCircle className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
           <div>
@@ -682,7 +667,7 @@ function RegrasTab() {
                     <div className="flex items-center gap-2 mb-0.5">
                       <span className={`w-2 h-2 rounded-full ${rule.active ? "bg-emerald-500" : "bg-slate-300"}`} />
                       <span className="font-bold text-slate-900 text-sm">{rule.name}</span>
-                      <span className="text-[10px] text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded font-medium">P{rule.priority}</span>
+                      <span className="text-xs text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded font-medium">P{rule.priority}</span>
                     </div>
                     <p className="text-xs text-slate-500 leading-relaxed">{rule.desc}</p>
                   </div>
@@ -759,7 +744,7 @@ function ConfiguracoesTab() {
           <Settings className="w-4 h-4 text-slate-400" />
           Configuracoes Gerais
         </h3>
-        <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100">
+        <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 border border-slate-100">
           <div>
             <Label htmlFor="toggle-enabled" className="font-semibold text-slate-900 cursor-pointer">Protecao Anti-Fraude por Migracao</Label>
             <p className="text-xs text-slate-400 mt-0.5">Monitora automaticamente clientes inadimplentes a cada consulta ISP na rede</p>
@@ -774,21 +759,21 @@ function ConfiguracoesTab() {
           Tipos de Alerta
         </h3>
         <div className="space-y-3">
-          <div className="flex items-center justify-between p-3 rounded-xl bg-red-50 border border-red-100">
+          <div className="flex items-center justify-between p-3 rounded-lg bg-red-50 border border-red-100">
             <div>
               <Label className="font-semibold text-red-900 cursor-pointer">Tentativa de Fuga</Label>
               <p className="text-xs text-red-600 mt-0.5">Alertar quando cliente inadimplente e consultado por outro provedor</p>
             </div>
             <Switch checked={alertDefaulter} onCheckedChange={setAlertDefaulter} data-testid="switch-alert-defaulter" />
           </div>
-          <div className="flex items-center justify-between p-3 rounded-xl bg-purple-50 border border-purple-100">
+          <div className="flex items-center justify-between p-3 rounded-lg bg-purple-50 border border-purple-100">
             <div>
               <Label className="font-semibold text-purple-900 cursor-pointer">Migrador Serial</Label>
               <p className="text-xs text-purple-600 mt-0.5">Alertar quando CPF e consultado por multiplos provedores</p>
             </div>
             <Switch checked={alertSerial} onCheckedChange={setAlertSerial} data-testid="switch-alert-serial" />
           </div>
-          <div className="flex items-center justify-between p-3 rounded-xl bg-amber-50 border border-amber-100">
+          <div className="flex items-center justify-between p-3 rounded-lg bg-amber-50 border border-amber-100">
             <div>
               <Label className="font-semibold text-amber-900 cursor-pointer">Risco de Equipamento</Label>
               <p className="text-xs text-amber-600 mt-0.5">Alertar quando cliente com equipamento pendente tenta migrar</p>
@@ -807,17 +792,17 @@ function ConfiguracoesTab() {
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-slate-700">Dias minimos de atraso</Label>
             <Input type="number" value={minOverdueDays} onChange={(e) => setMinOverdueDays(e.target.value)} className="h-9" data-testid="input-min-overdue-days" />
-            <p className="text-[10px] text-slate-400">para gerar alerta de fuga</p>
+            <p className="text-xs text-slate-400">para gerar alerta de fuga</p>
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-slate-700">Consultas em 30 dias</Label>
             <Input type="number" value={maxConsultations} onChange={(e) => setMaxConsultations(e.target.value)} className="h-9" data-testid="input-max-consultations" />
-            <p className="text-[10px] text-slate-400">para classificar como migrador serial</p>
+            <p className="text-xs text-slate-400">para classificar como migrador serial</p>
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs font-semibold text-slate-700">Valor minimo equipamento (R$)</Label>
             <Input type="number" value={minEquipmentValue} onChange={(e) => setMinEquipmentValue(e.target.value)} className="h-9" data-testid="input-min-equipment-value" />
-            <p className="text-[10px] text-slate-400">para gerar alerta de risco de perda</p>
+            <p className="text-xs text-slate-400">para gerar alerta de risco de perda</p>
           </div>
         </div>
       </Card>
@@ -832,7 +817,7 @@ function ConfiguracoesTab() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className={`flex items-center justify-between p-4 rounded-xl border-2 transition-colors ${notifWhatsapp ? "bg-emerald-50 border-emerald-300" : "bg-slate-50 border-slate-200"}`}>
+          <div className={`flex items-center justify-between p-4 rounded-lg border-2 transition-colors ${notifWhatsapp ? "bg-emerald-50 border-emerald-300" : "bg-slate-50 border-slate-200"}`}>
             <div className="flex items-center gap-3">
               <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${notifWhatsapp ? "bg-emerald-500" : "bg-slate-200"}`}>
                 <MessageSquare className={`w-4 h-4 ${notifWhatsapp ? "text-white" : "text-slate-400"}`} />
@@ -845,7 +830,7 @@ function ConfiguracoesTab() {
             <Switch checked={notifWhatsapp} onCheckedChange={setNotifWhatsapp} data-testid="switch-notif-whatsapp" />
           </div>
 
-          <div className={`flex items-center justify-between p-4 rounded-xl border-2 transition-colors ${notifEmail ? "bg-blue-50 border-blue-300" : "bg-slate-50 border-slate-200"}`}>
+          <div className={`flex items-center justify-between p-4 rounded-lg border-2 transition-colors ${notifEmail ? "bg-blue-50 border-blue-300" : "bg-slate-50 border-slate-200"}`}>
             <div className="flex items-center gap-3">
               <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${notifEmail ? "bg-blue-500" : "bg-slate-200"}`}>
                 <Mail className={`w-4 h-4 ${notifEmail ? "text-white" : "text-slate-400"}`} />
@@ -858,7 +843,7 @@ function ConfiguracoesTab() {
             <Switch checked={notifEmail} onCheckedChange={setNotifEmail} data-testid="switch-notif-email" />
           </div>
 
-          <div className={`flex items-center justify-between p-4 rounded-xl border-2 transition-colors ${notifPush ? "bg-violet-50 border-violet-300" : "bg-slate-50 border-slate-200"}`}>
+          <div className={`flex items-center justify-between p-4 rounded-lg border-2 transition-colors ${notifPush ? "bg-violet-50 border-violet-300" : "bg-slate-50 border-slate-200"}`}>
             <div className="flex items-center gap-3">
               <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${notifPush ? "bg-violet-500" : "bg-slate-200"}`}>
                 <Smartphone className={`w-4 h-4 ${notifPush ? "text-white" : "text-slate-400"}`} />
@@ -871,7 +856,7 @@ function ConfiguracoesTab() {
             <Switch checked={notifPush} onCheckedChange={setNotifPush} data-testid="switch-notif-push" />
           </div>
 
-          <div className={`flex items-center justify-between p-4 rounded-xl border-2 transition-colors ${notifSms ? "bg-orange-50 border-orange-300" : "bg-slate-50 border-slate-200"}`}>
+          <div className={`flex items-center justify-between p-4 rounded-lg border-2 transition-colors ${notifSms ? "bg-orange-50 border-orange-300" : "bg-slate-50 border-slate-200"}`}>
             <div className="flex items-center gap-3">
               <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${notifSms ? "bg-orange-500" : "bg-slate-200"}`}>
                 <Phone className={`w-4 h-4 ${notifSms ? "text-white" : "text-slate-400"}`} />
@@ -895,13 +880,13 @@ function ConfiguracoesTab() {
               className="h-9"
               data-testid="input-whatsapp-number"
             />
-            <p className="text-[10px] text-slate-400">Formato internacional com DDI e DDD</p>
+            <p className="text-xs text-slate-400">Formato internacional com DDI e DDD</p>
           </div>
         )}
 
         <Separator />
 
-        <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100">
+        <div className="flex items-center justify-between p-3 rounded-lg bg-slate-50 border border-slate-100">
           <div>
             <Label className="font-semibold text-slate-900">Resumo diario de alertas</Label>
             <p className="text-xs text-slate-400 mt-0.5">Receba um sumario consolidado dos alertas do dia (8h da manha)</p>
@@ -997,7 +982,7 @@ export default function AntiFraudePage() {
 
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-rose-600 to-rose-800 flex items-center justify-center shadow-md">
+          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-rose-600 to-rose-800 flex items-center justify-center shadow-md">
             <ShieldAlert className="w-6 h-6 text-white" />
           </div>
           <div>
@@ -1059,7 +1044,7 @@ export default function AntiFraudePage() {
       {activeAlerts.length === 0 && !alertsLoading && (
         <Card className="p-5 border-emerald-200 bg-emerald-50/30">
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center flex-shrink-0">
+            <div className="w-10 h-10 rounded-lg bg-emerald-500 flex items-center justify-center flex-shrink-0">
               <Shield className="w-5 h-5 text-white" />
             </div>
             <div>
@@ -1074,7 +1059,7 @@ export default function AntiFraudePage() {
       )}
 
       <Tabs defaultValue="alertas" className="space-y-4">
-        <TabsList className="flex-wrap h-auto gap-1 bg-slate-100/80 p-1 rounded-xl">
+        <TabsList className="flex-wrap h-auto gap-1 bg-slate-100/80 p-1 rounded-lg">
           <TabsTrigger value="alertas" className="gap-1.5 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm" data-testid="tab-alertas">
             <Bell className="w-3.5 h-3.5" />
             Alertas
