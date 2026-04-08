@@ -96,7 +96,7 @@ function ScoreBar({ score }: { score: number }) {
           style={{ width: `${pct}%` }}
         />
       </div>
-      <div className="flex justify-between text-[10px] text-muted-foreground">
+      <div className="flex justify-between text-xs text-muted-foreground">
         <span>0</span>
         <span>300</span>
         <span>500</span>
@@ -171,7 +171,7 @@ export default function ConsultaSPCPage() {
     <div className="p-6 space-y-6 max-w-5xl mx-auto" data-testid="consulta-spc-page">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center">
             <BarChart3 className="w-6 h-6 text-white" />
           </div>
           <div>
@@ -308,7 +308,7 @@ export default function ConsultaSPCPage() {
 
             {result && (
               <div className="mt-6 space-y-5" data-testid="spc-result">
-                <div className="border rounded-xl overflow-hidden">
+                <div className="border rounded-lg overflow-hidden">
                   <div className="bg-gradient-to-r from-purple-800 to-purple-900 text-white px-6 py-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
@@ -430,7 +430,7 @@ export default function ConsultaSPCPage() {
                               <div className="text-right">
                                 <p className="text-sm font-semibold">R$ {parseFloat(r.value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</p>
                                 <p className="text-xs text-muted-foreground">{new Date(r.date).toLocaleDateString("pt-BR")}</p>
-                                <Badge variant="outline" className="text-[10px] mt-0.5">{severityLabels[r.severity]}</Badge>
+                                <Badge variant="outline" className="text-xs mt-0.5">{severityLabels[r.severity]}</Badge>
                               </div>
                             </div>
                           ))}

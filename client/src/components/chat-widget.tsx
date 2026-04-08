@@ -97,12 +97,12 @@ export function ChatWidget() {
     <div className="fixed bottom-5 right-5 z-50">
       {open && (
         <div
-          className="absolute bottom-16 right-0 bg-background border rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+          className="absolute bottom-16 right-0 bg-background border rounded-lg shadow-2xl flex flex-col overflow-hidden"
           style={{ width: "380px", height: "520px" }}
           data-testid="chat-window"
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex-shrink-0">
+          <div className="flex items-center justify-between px-4 py-3 bg-[var(--color-navy)] text-white flex-shrink-0">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
                 <Headphones className="w-4 h-4 text-white" />
@@ -110,8 +110,8 @@ export function ChatWidget() {
               <div>
                 <p className="text-sm font-semibold leading-none">Suporte Consulta ISP</p>
                 <div className="flex items-center gap-1.5 mt-1">
-                  <span className={`w-1.5 h-1.5 rounded-full ${isClosed ? "bg-gray-300" : "bg-emerald-400"}`} />
-                  <span className="text-[11px] text-blue-100">{isClosed ? "Conversa encerrada" : "Suporte disponivel"}</span>
+                  <span className={`w-1.5 h-1.5 rounded-full ${isClosed ? "bg-[var(--color-border)]" : "bg-[var(--color-success)]"}`} />
+                  <span className="text-xs text-white/70">{isClosed ? "Conversa encerrada" : "Suporte disponivel"}</span>
                 </div>
               </div>
             </div>
@@ -125,15 +125,15 @@ export function ChatWidget() {
           </div>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-slate-50/50">
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 bg-[var(--color-bg)]">
             {isLoading ? (
               <div className="flex items-center justify-center h-full">
                 <RefreshCw className="w-4 h-4 animate-spin text-muted-foreground" />
               </div>
             ) : messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-4">
-                <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center">
-                  <MessageSquare className="w-7 h-7 text-blue-400" />
+                <div className="w-14 h-14 rounded-lg bg-[var(--color-navy-bg)] flex items-center justify-center">
+                  <MessageSquare className="w-7 h-7 text-[var(--color-steel)]" />
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-foreground">Como podemos ajudar?</p>
@@ -141,7 +141,7 @@ export function ChatWidget() {
                     Envie uma mensagem e nossa equipe responderá em breve durante o horario comercial.
                   </p>
                 </div>
-                <div className="bg-blue-50 rounded-xl px-4 py-3 text-xs text-blue-700 text-left w-full">
+                <div className="bg-[var(--color-navy-bg)] rounded-lg px-4 py-3 text-xs text-[var(--color-navy)] text-left w-full">
                   <p className="font-semibold mb-1">Horario de atendimento</p>
                   <p>Seg–Sex: 08h–18h</p>
                   <p>Sab: 08h–12h</p>
@@ -151,27 +151,27 @@ export function ChatWidget() {
               <div key={group.day} className="space-y-2.5">
                 <div className="flex items-center gap-2">
                   <div className="flex-1 h-px bg-border" />
-                  <span className="text-[10px] text-muted-foreground font-medium px-2">{group.day}</span>
+                  <span className="text-xs text-muted-foreground font-medium px-2">{group.day}</span>
                   <div className="flex-1 h-px bg-border" />
                 </div>
                 {group.messages.map((m: any) => (
                   <div key={m.id} className={`flex items-end gap-2 ${m.isFromAdmin ? "justify-start" : "justify-end"}`}>
                     {m.isFromAdmin && (
-                      <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0">
+                      <div className="w-6 h-6 rounded-full bg-[var(--color-steel)] flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
                         A
                       </div>
                     )}
                     <div className={`max-w-[80%] flex flex-col gap-0.5 ${m.isFromAdmin ? "items-start" : "items-end"}`}>
                       {m.isFromAdmin && (
-                        <p className="text-[10px] font-semibold text-muted-foreground ml-0.5">{m.senderName}</p>
+                        <p className="text-xs font-semibold text-muted-foreground ml-0.5">{m.senderName}</p>
                       )}
-                      <div className={`rounded-2xl px-3.5 py-2.5 ${m.isFromAdmin
-                        ? "bg-white border rounded-bl-sm shadow-sm"
-                        : "bg-blue-600 text-white rounded-br-sm"
+                      <div className={`rounded-lg px-3.5 py-2.5 ${m.isFromAdmin
+                        ? "bg-[var(--color-surface)] border rounded-bl-sm shadow-sm"
+                        : "bg-[var(--color-navy)] text-white rounded-br-sm"
                       }`}>
                         <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.content}</p>
                       </div>
-                      <p className={`text-[10px] px-1 ${m.isFromAdmin ? "text-muted-foreground" : "text-muted-foreground"}`}>
+                      <p className={`text-xs px-1 ${m.isFromAdmin ? "text-muted-foreground" : "text-muted-foreground"}`}>
                         {chatFullTime(m.createdAt)}
                       </p>
                     </div>
@@ -197,13 +197,13 @@ export function ChatWidget() {
                   onChange={e => setMessage(e.target.value)}
                   onKeyDown={handleKeyDown}
                   rows={2}
-                  className="flex-1 text-sm border rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[52px] max-h-[100px] bg-background"
+                  className="flex-1 text-sm border rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-[var(--color-steel)] min-h-[52px] max-h-[100px] bg-background"
                   data-testid="input-chat-message"
                 />
                 <Button
                   type="button"
                   size="sm"
-                  className="h-9 w-9 p-0 rounded-xl bg-blue-600 hover:bg-blue-700 flex-shrink-0"
+                  className="h-9 w-9 p-0 rounded-lg bg-[var(--color-navy)] hover:opacity-90 flex-shrink-0"
                   disabled={!message.trim() || sendMutation.isPending}
                   onClick={handleSend}
                   data-testid="button-chat-send"
@@ -215,7 +215,7 @@ export function ChatWidget() {
                 </Button>
               </div>
             )}
-            <p className="text-[10px] text-muted-foreground text-center pb-2">Shift+Enter para nova linha</p>
+            <p className="text-xs text-muted-foreground text-center pb-2">Shift+Enter para nova linha</p>
           </div>
         </div>
       )}
@@ -223,7 +223,7 @@ export function ChatWidget() {
       {/* FAB button */}
       <button
         onClick={() => setOpen(v => !v)}
-        className="relative w-13 h-13 w-[52px] h-[52px] bg-gradient-to-br from-blue-600 to-indigo-600 rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transition-all hover:scale-105 active:scale-95"
+        className="relative w-[52px] h-[52px] bg-[var(--color-navy)] rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transition-all hover:scale-105 active:scale-95"
         data-testid="button-open-chat"
       >
         {open ? (
@@ -232,7 +232,7 @@ export function ChatWidget() {
           <MessageSquare className="w-5 h-5 text-white" />
         )}
         {!open && unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center font-bold animate-pulse" data-testid="badge-unread-count">
+          <span className="absolute -top-1 -right-1 w-5 h-5 bg-[var(--color-danger)] text-white text-xs rounded-full flex items-center justify-center font-bold animate-pulse" data-testid="badge-unread-count">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}

@@ -67,7 +67,7 @@ export default function TimelineTab({ timelineData, cpfCnpj, isLoading }: Props)
               }).join(" ");
               return (
                 <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded p-4">
-                  <p className="text-[10px] font-semibold text-[var(--color-muted)] uppercase tracking-widest mb-2">Evolucao do Score</p>
+                  <p className="text-xs font-semibold text-[var(--color-muted)] uppercase tracking-widest mb-2">Evolucao do Score</p>
                   <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-20" preserveAspectRatio="none">
                     <polyline
                       points={points}
@@ -84,7 +84,7 @@ export default function TimelineTab({ timelineData, cpfCnpj, isLoading }: Props)
                       return <circle key={i} cx={x} cy={y} r="3" fill={color} />;
                     })}
                   </svg>
-                  <div className="flex justify-between text-[10px] text-[var(--color-muted)] mt-1">
+                  <div className="flex justify-between text-xs text-[var(--color-muted)] mt-1">
                     <span>{new Date(scores[0].date).toLocaleDateString("pt-BR")}</span>
                     <span>{new Date(scores[scores.length - 1].date).toLocaleDateString("pt-BR")}</span>
                   </div>
@@ -137,7 +137,7 @@ export default function TimelineTab({ timelineData, cpfCnpj, isLoading }: Props)
                             <Building2 className="w-3.5 h-3.5 text-[var(--color-muted)]" />
                             <span className="text-sm text-[var(--color-ink)]">{entry.provider}</span>
                             {entry.isSameProvider && (
-                              <Badge variant="outline" className="text-[10px] px-1.5 py-0">Seu provedor</Badge>
+                              <Badge variant="outline" className="text-xs px-1.5 py-0">Seu provedor</Badge>
                             )}
                           </div>
                           <span className="text-xs text-[var(--color-muted)] uppercase">{entry.searchType}</span>

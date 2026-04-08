@@ -184,7 +184,7 @@ function AdminCollapsibleGroup({
   if (!group.collapsible) {
     return (
       <SidebarGroup className="py-0.5">
-        <SidebarGroupLabel className="text-[10px] font-semibold tracking-wider uppercase text-[var(--color-muted)] px-2 py-1.5">
+        <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)] px-2 py-1.5">
           {group.label}
         </SidebarGroupLabel>
         <SidebarGroupContent>
@@ -200,7 +200,7 @@ function AdminCollapsibleGroup({
     <SidebarGroup className="py-0.5">
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger asChild>
-          <SidebarGroupLabel className="text-[10px] font-semibold tracking-wider uppercase text-[var(--color-muted)] px-2 py-1.5 cursor-pointer flex items-center justify-between w-full hover:text-foreground transition-colors">
+          <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)] px-2 py-1.5 cursor-pointer flex items-center justify-between w-full hover:text-foreground transition-colors">
             <span>{group.label}</span>
             <ChevronDown
               className={`w-3 h-3 transition-transform duration-200 ${open ? "rotate-0" : "-rotate-90"}`}
@@ -261,7 +261,7 @@ export function AppSidebar() {
               </div>
               <div className="flex flex-col">
                 <span className="text-sm font-bold leading-tight">Consulta ISP</span>
-                <span className="text-[11px] text-[var(--color-muted)] leading-tight">Sistema Admin</span>
+                <span className="text-xs text-[var(--color-muted)] leading-tight">Sistema Admin</span>
               </div>
             </div>
           </button>
@@ -280,7 +280,7 @@ export function AppSidebar() {
             </div>
             <div className="flex flex-col min-w-0 flex-1">
               <span className="text-sm font-medium truncate">{user?.name}</span>
-              <span className="text-[10px] text-[var(--color-danger)] font-semibold uppercase tracking-wide">Super Admin</span>
+              <span className="text-xs text-[var(--color-danger)] font-semibold uppercase tracking-wide">Super Admin</span>
             </div>
           </div>
           <Button
@@ -307,7 +307,7 @@ export function AppSidebar() {
             </div>
             <div className="flex flex-col">
               <span className="text-sm font-bold leading-tight">Consulta ISP</span>
-              <span className="text-[11px] text-[var(--color-muted)] leading-tight">Analise de Credito</span>
+              <span className="text-xs text-[var(--color-muted)] leading-tight">Analise de Credito</span>
             </div>
           </div>
         </Link>
@@ -315,7 +315,7 @@ export function AppSidebar() {
 
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel className="text-[11px] font-semibold tracking-wider uppercase text-[var(--color-muted)]">
+          <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)]">
             Principal
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -335,7 +335,7 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel className="text-[11px] font-semibold tracking-wider uppercase text-[var(--color-muted)]">
+          <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)]">
             Inadimplente
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -355,7 +355,7 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel className="text-[11px] font-semibold tracking-wider uppercase text-[var(--color-muted)]">
+          <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)]">
             Financeiro
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -375,7 +375,7 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel className="text-[11px] font-semibold tracking-wider uppercase text-[var(--color-muted)]">
+          <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)]">
             Gestao
           </SidebarGroupLabel>
           <SidebarGroupContent>
@@ -407,7 +407,7 @@ export function AppSidebar() {
         </SidebarGroup>
         {(user?.role === "admin") && (
           <SidebarGroup>
-            <SidebarGroupLabel className="text-[11px] font-semibold tracking-wider uppercase text-[var(--color-muted)]">
+            <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)]">
               Configuracoes
             </SidebarGroupLabel>
             <SidebarGroupContent>
@@ -437,14 +437,14 @@ export function AppSidebar() {
           </div>
           <div className="flex flex-col min-w-0 flex-1">
             <span className="text-sm font-medium truncate">{user?.name}</span>
-            <span className="text-[11px] text-[var(--color-muted)] truncate">{provider?.name}</span>
+            <span className="text-xs text-[var(--color-muted)] truncate">{provider?.name}</span>
           </div>
         </div>
         <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-[var(--color-muted)]" onClick={logout} data-testid="button-logout">
           <LogOut className="w-4 h-4" />
           Sair
         </Button>
-        <a href="/lgpd" className="block text-center text-[10px] text-[var(--color-muted)]/60 hover:text-[var(--color-muted)] transition-colors" data-testid="link-lgpd">
+        <a href="/lgpd" className="block text-center text-xs text-[var(--color-muted)]/60 hover:text-[var(--color-muted)] transition-colors" data-testid="link-lgpd">
           Política de Privacidade · LGPD
         </a>
       </SidebarFooter>

@@ -253,7 +253,7 @@ export default function ImportacaoEquipamentosPage() {
 
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-amber-600 flex items-center justify-center shadow-md">
+            <div className="w-10 h-10 rounded-lg bg-amber-600 flex items-center justify-center shadow-md">
               <Package className="w-5 h-5 text-white" />
             </div>
             <div>
@@ -261,7 +261,7 @@ export default function ImportacaoEquipamentosPage() {
                 <h1 className="text-3xl font-bold bg-gradient-to-r from-amber-600 to-orange-700 bg-clip-text text-transparent leading-tight">
                   Importar Equipamentos
                 </h1>
-                <Badge className="bg-amber-500 text-white text-[10px] font-black">NOVO RECURSO</Badge>
+                <Badge className="bg-amber-500 text-white text-xs font-black">NOVO RECURSO</Badge>
               </div>
               <p className="text-base text-slate-600">Registre equipamentos retidos por clientes inadimplentes</p>
             </div>
@@ -280,7 +280,7 @@ export default function ImportacaoEquipamentosPage() {
           ].map(stat => (
             <Card key={stat.label} className={`p-4 ${stat.border} ${stat.bg}`}>
               <div className="flex items-center gap-3">
-                <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${stat.color}`}>
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${stat.color}`}>
                   <stat.icon className="w-4 h-4" />
                 </div>
                 <div>
@@ -292,7 +292,7 @@ export default function ImportacaoEquipamentosPage() {
           ))}
         </div>
 
-        <div className="flex gap-1 bg-white/70 backdrop-blur border border-slate-200 rounded-xl p-1 w-fit">
+        <div className="flex gap-1 bg-white/70 backdrop-blur border border-slate-200 rounded-lg p-1 w-fit">
           {(["upload", "manual", "lista"] as const).map(tab => {
             const labels: Record<string, string> = { upload: "📁 Upload Planilha", manual: "✏️ Cadastro Manual", lista: "📋 Equipamentos" };
             return (
@@ -347,7 +347,7 @@ export default function ImportacaoEquipamentosPage() {
                 ].map(row => (
                   <div key={row.campo} className="flex items-center justify-between py-2">
                     <div className="flex items-center gap-3">
-                      {row.obrig && <Badge className="text-[10px] bg-blue-100 text-blue-800 font-bold">OBRIG</Badge>}
+                      {row.obrig && <Badge className="text-xs bg-blue-100 text-blue-800 font-bold">OBRIG</Badge>}
                       {!row.obrig && <div className="w-12" />}
                       <code className="text-xs font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{row.campo}</code>
                     </div>
@@ -474,7 +474,7 @@ export default function ImportacaoEquipamentosPage() {
                         </svg>
                       ) : step.n}
                     </div>
-                    <span className={`text-[11px] font-semibold ${step.n === wizardStep ? "text-amber-700" : step.n < wizardStep ? "text-emerald-600" : "text-slate-400"}`}>{step.label}</span>
+                    <span className={`text-xs font-semibold ${step.n === wizardStep ? "text-amber-700" : step.n < wizardStep ? "text-emerald-600" : "text-slate-400"}`}>{step.label}</span>
                   </button>
                   {i < arr.length - 1 && (
                     <div className={`h-0.5 flex-1 mx-1 mb-4 transition-colors ${step.n < wizardStep ? "bg-emerald-400" : "bg-slate-200"}`} />
@@ -485,7 +485,7 @@ export default function ImportacaoEquipamentosPage() {
 
             {/* Step 1: Identificacao */}
             {wizardStep === 1 && (
-              <Card className="overflow-hidden shadow-lg rounded-2xl">
+              <Card className="overflow-hidden shadow-lg rounded-lg">
                 <div className="bg-amber-50 border-b border-amber-100 px-6 py-4 flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center">
                     <User className="w-4 h-4 text-white" />
@@ -546,7 +546,7 @@ export default function ImportacaoEquipamentosPage() {
                     <p className="text-xs text-slate-400">Opcional — facilita identificacao interna</p>
                   </div>
 
-                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
                     <AlertTriangle className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
                     <p className="text-xs text-blue-800">
                       <span className="font-semibold">Dica:</span> O documento sera consultado na rede ISP para cruzamento de dados.
@@ -564,7 +564,7 @@ export default function ImportacaoEquipamentosPage() {
 
             {/* Step 2: Tipo de Equipamento */}
             {wizardStep === 2 && (
-              <Card className="overflow-hidden shadow-lg rounded-2xl">
+              <Card className="overflow-hidden shadow-lg rounded-lg">
                 <div className="bg-amber-50 border-b border-amber-100 px-6 py-4 flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center">
                     <Package className="w-4 h-4 text-white" />
@@ -601,7 +601,7 @@ export default function ImportacaoEquipamentosPage() {
                             setForm(f => ({ ...f, tipo: tipo.id, marca: "", modelo: "" }));
                             if (wizardErrors.tipo) setWizardErrors(er => ({ ...er, tipo: "" }));
                           }}
-                          className={`p-4 rounded-xl border-2 transition-all text-left space-y-2 ${colorMap[tipo.color]}`}
+                          className={`p-4 rounded-lg border-2 transition-all text-left space-y-2 ${colorMap[tipo.color]}`}
                           data-testid={`tipo-card-${tipo.id.replace(/\//g, "-").replace(/ /g, "-")}`}
                         >
                           <div className="flex items-center justify-between">
@@ -618,7 +618,7 @@ export default function ImportacaoEquipamentosPage() {
                           </div>
                           <div>
                             <p className="font-semibold text-slate-900 text-sm">{tipo.label}</p>
-                            <p className="text-[11px] text-slate-500">{tipo.desc}</p>
+                            <p className="text-xs text-slate-500">{tipo.desc}</p>
                           </div>
                         </button>
                       );
@@ -639,7 +639,7 @@ export default function ImportacaoEquipamentosPage() {
 
             {/* Step 3: Detalhes do Equipamento */}
             {wizardStep === 3 && (
-              <Card className="overflow-hidden shadow-lg rounded-2xl">
+              <Card className="overflow-hidden shadow-lg rounded-lg">
                 <div className="bg-amber-50 border-b border-amber-100 px-6 py-4 flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center">
                     <Settings className="w-4 h-4 text-white" />
@@ -724,7 +724,7 @@ export default function ImportacaoEquipamentosPage() {
                         className="h-10 font-mono text-sm"
                         data-testid="input-numero-serie"
                       />
-                      <p className="text-[11px] text-slate-400">Usado para identificar o equipamento em campo</p>
+                      <p className="text-xs text-slate-400">Usado para identificar o equipamento em campo</p>
                     </div>
 
                     <div className="space-y-2">
@@ -766,7 +766,7 @@ export default function ImportacaoEquipamentosPage() {
 
             {/* Step 4: Data, Observacoes e Revisao */}
             {wizardStep === 4 && (
-              <Card className="overflow-hidden shadow-lg rounded-2xl">
+              <Card className="overflow-hidden shadow-lg rounded-lg">
                 <div className="bg-amber-50 border-b border-amber-100 px-6 py-4 flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center">
                     <CheckCircle className="w-4 h-4 text-white" />
@@ -805,7 +805,7 @@ export default function ImportacaoEquipamentosPage() {
                   </div>
 
                   {/* Resumo */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-3">
                     <p className="text-xs font-black text-slate-500 uppercase tracking-wide">Resumo do Cadastro</p>
                     <div className="grid grid-cols-2 gap-3">
                       {[
@@ -819,23 +819,23 @@ export default function ImportacaoEquipamentosPage() {
                         { label: "Data perda", value: form.dataPerda || "Nao informada" },
                       ].map(row => (
                         <div key={row.label} className="space-y-0.5">
-                          <p className="text-[10px] text-slate-400 font-semibold uppercase">{row.label}</p>
+                          <p className="text-xs text-slate-400 font-semibold uppercase">{row.label}</p>
                           <div className="flex items-center gap-1.5">
                             <p className="text-sm font-semibold text-slate-800">{row.value}</p>
-                            {row.badge && <Badge className="text-[9px] bg-emerald-100 text-emerald-700">{row.badge}</Badge>}
+                            {row.badge && <Badge className="text-xs bg-emerald-100 text-emerald-700">{row.badge}</Badge>}
                           </div>
                         </div>
                       ))}
                     </div>
                     {form.observacao && (
                       <div className="pt-2 border-t border-slate-200">
-                        <p className="text-[10px] text-slate-400 font-semibold uppercase mb-0.5">Observacoes</p>
+                        <p className="text-xs text-slate-400 font-semibold uppercase mb-0.5">Observacoes</p>
                         <p className="text-sm text-slate-700">{form.observacao}</p>
                       </div>
                     )}
                   </div>
 
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
                     <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
                     <p className="text-xs text-amber-800">
                       Ao salvar, este equipamento sera vinculado ao CPF/CNPJ informado.
@@ -912,7 +912,7 @@ export default function ImportacaoEquipamentosPage() {
                             <p className="text-slate-400 font-mono">{formatCpf(item.cpfCnpj)}</p>
                           </td>
                           <td className="px-3 py-2.5">
-                            <Badge className="text-[10px] bg-slate-100 text-slate-700">{item.tipo}</Badge>
+                            <Badge className="text-xs bg-slate-100 text-slate-700">{item.tipo}</Badge>
                           </td>
                           <td className="px-3 py-2.5">
                             <p className="font-medium text-slate-700">{item.marca || "—"}</p>
@@ -930,7 +930,7 @@ export default function ImportacaoEquipamentosPage() {
                               value={item.status}
                               onValueChange={(v) => updateStatusMutation.mutate({ id: item.id, status: v })}
                             >
-                              <SelectTrigger className={`h-7 text-[11px] w-32 ${item.status === "retido" ? "border-red-200 bg-red-50" : item.status === "recuperado" ? "border-emerald-200 bg-emerald-50" : "border-slate-200"}`} data-testid={`select-status-${item.id}`}>
+                              <SelectTrigger className={`h-7 text-xs w-32 ${item.status === "retido" ? "border-red-200 bg-red-50" : item.status === "recuperado" ? "border-emerald-200 bg-emerald-50" : "border-slate-200"}`} data-testid={`select-status-${item.id}`}>
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>

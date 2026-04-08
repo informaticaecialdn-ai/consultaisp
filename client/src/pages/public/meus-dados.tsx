@@ -61,7 +61,7 @@ export default function MeusDadosPage() {
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/30 flex items-center justify-center p-4">
       <div className="w-full max-w-lg space-y-6">
         <div className="text-center space-y-2">
-          <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center mx-auto">
+          <div className="w-14 h-14 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center mx-auto">
             <Shield className="w-7 h-7 text-white" />
           </div>
           <h1 className="text-2xl font-bold">Meus Dados - LGPD</h1>

@@ -5,9 +5,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useState, useEffect, useRef, useCallback } from "react";
-import "leaflet/dist/leaflet.css";
-import L from "leaflet";
+import { useState, useEffect } from "react";
+import GoogleHeatMap, { HeatPoint } from "@/components/maps/GoogleHeatMap";
 import {
   MapPin,
   AlertTriangle,
@@ -70,7 +69,7 @@ function KpiCard({ label, value, icon: Icon, color, sub }: {
         <div className="min-w-0">
           <p className="text-lg font-bold leading-tight" data-testid={`kpi-${label.toLowerCase().replace(/\s+/g, "-")}`}>{value}</p>
           <p className="text-xs text-muted-foreground">{label}</p>
-          {sub && <p className="text-[10px] text-muted-foreground/70 mt-0.5">{sub}</p>}
+          {sub && <p className="text-xs text-muted-foreground/70 mt-0.5">{sub}</p>}
         </div>
       </div>
     </Card>
@@ -97,158 +96,11 @@ function RiskBarCell({ value, max }: { value: number; max: number }) {
   );
 }
 
-
-let heatScriptLoaded = false;
-
-function loadHeatPlugin(): Promise<void> {
-  return new Promise((resolve) => {
-    if (heatScriptLoaded || (L as any).heatLayer) { heatScriptLoaded = true; resolve(); return; }
-    const s = document.createElement("script");
-    s.src = "/leaflet-heat.js";
-    s.onload = () => { heatScriptLoaded = true; resolve(); };
-    s.onerror = () => {
-      const s2 = document.createElement("script");
-      s2.src = "https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js";
-      s2.onload = () => { heatScriptLoaded = true; resolve(); };
-      s2.onerror = () => resolve();
-      document.head.appendChild(s2);
-    };
-    document.head.appendChild(s);
-  });
-}
-
-async function geocodeCity(city: string, state?: string): Promise<[number, number] | null> {
-  if (!city) return null;
-  try {
-    const q = encodeURIComponent([city, state, "Brasil"].filter(Boolean).join(", "));
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&countrycodes=br`, {
-      headers: { "Accept-Language": "pt-BR" },
-    });
-    const data = await res.json();
-    if (data?.[0]?.lat && data?.[0]?.lon) {
-      return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
-    }
-  } catch {}
-  return null;
-}
-
-type HeatPoint = { lat: number; lng: number; weight: number };
-
-function LeafletHeatMap({
-  points,
-  mode,
-  defaultCenter,
-  height = 480,
-}: {
-  points: HeatPoint[];
-  mode: "provider" | "regional";
-  defaultCenter?: [number, number] | null;
-  height?: number;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<L.Map | null>(null);
-  const heatRef = useRef<any>(null);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    loadHeatPlugin().then(() => setReady(true));
-  }, []);
-
-  const initMap = useCallback(async () => {
-    if (!containerRef.current || !ready) return;
-
-    if (!mapRef.current) {
-      const BRAZIL_CENTER: [number, number] = [-15.8, -48.0];
-      const center: [number, number] = defaultCenter ?? (points.length > 0
-        ? [
-            points.reduce((s, p) => s + p.lat, 0) / points.length,
-            points.reduce((s, p) => s + p.lng, 0) / points.length,
-          ]
-        : BRAZIL_CENTER);
-      const zoom = defaultCenter ? 13 : (points.length > 0 ? 7 : 5);
-
-      mapRef.current = L.map(containerRef.current, { zoomControl: true, scrollWheelZoom: false, zoomAnimation: false, fadeAnimation: false, markerZoomAnimation: false }).setView(center, zoom);
-
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>',
-        maxZoom: 18,
-      }).addTo(mapRef.current);
-    }
-
-    if (heatRef.current) {
-      mapRef.current.removeLayer(heatRef.current);
-      heatRef.current = null;
-    }
-
-    if (points.length > 0 && (L as any).heatLayer) {
-      const maxW = Math.max(...points.map(p => p.weight), 1);
-      const heatData = points.map(p => [p.lat, p.lng, p.weight / maxW]);
-
-      const gradient = mode === "provider"
-        ? { 0.0: "rgba(34,197,94,0)", 0.2: "#86efac", 0.4: "#fde047", 0.6: "#fb923c", 0.8: "#ef4444", 1.0: "#991b1b" }
-        : { 0.0: "rgba(59,130,246,0)", 0.2: "#93c5fd", 0.4: "#a78bfa", 0.6: "#e879f9", 0.8: "#f43f5e", 1.0: "#881337" };
-
-      heatRef.current = (L as any).heatLayer(
-        heatData,
-        { radius: 35, blur: 25, maxZoom: 17, gradient, minOpacity: 0.45, max: 1.0 }
-      ).addTo(mapRef.current);
-    }
-
-    if (points.length > 1 && !defaultCenter) {
-      const group = L.featureGroup(points.map(p => L.circleMarker([p.lat, p.lng], { radius: 0 })));
-      mapRef.current.fitBounds(group.getBounds().pad(0.15), { animate: false });
-    }
-  }, [points, mode, defaultCenter, ready]);
-
-  useEffect(() => {
-    initMap();
-  }, [initMap]);
-
-  useEffect(() => {
-    return () => {
-      if (mapRef.current) {
-        try {
-          const m = mapRef.current as any;
-          const pane = m._mapPane as HTMLElement | undefined;
-          if (pane) {
-            pane.style.transition = "none";
-            void pane.offsetWidth;
-            L.DomEvent.off(pane as any);
-          }
-          m._animatingZoom = false;
-          m._onZoomTransitionEnd = () => {};
-          m.off();
-          m.stop();
-          m.remove();
-        } catch {}
-        mapRef.current = null;
-        heatRef.current = null;
-      }
-    };
-  }, []);
-
-  return (
-    <div className="relative">
-      <div
-        ref={containerRef}
-        style={{ height: `${height}px` }}
-        className="w-full rounded-lg border z-0"
-        data-testid="leaflet-map-container"
-      />
-      {!ready && (
-        <div className="absolute inset-0 flex items-center justify-center bg-muted/60 rounded-lg">
-          <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" />
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function MapaCalorPage() {
   const { provider } = useAuth();
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState("provider");
-  const [providerCenter, setProviderCenter] = useState<[number, number] | null>(null);
+  const [providerCenter, setProviderCenter] = useState<{ lat: number; lng: number } | null>(null);
 
   const { data: providerData = [], isLoading: providerLoading } = useQuery<ProviderHeatmapPoint[]>({
     queryKey: ["/api/heatmap/provider"],
@@ -277,17 +129,71 @@ export default function MapaCalorPage() {
   useEffect(() => {
     const city = provider?.addressCity || "";
     const state = provider?.addressState || "";
-    if (city) {
-      geocodeCity(city, state).then(coords => {
-        if (coords) setProviderCenter(coords);
-      });
+
+    if (!city) {
+      // No city — derive center from provider points or leave null for fitBounds
+      if (providerPoints.length > 0) {
+        const avgLat = providerPoints.reduce((s, p) => s + p.lat, 0) / providerPoints.length;
+        const avgLng = providerPoints.reduce((s, p) => s + p.lng, 0) / providerPoints.length;
+        setProviderCenter({ lat: avgLat, lng: avgLng });
+      } else {
+        setProviderCenter(null);
+      }
       return;
     }
-    if (cityRanking.length > 0) {
-      const top = cityRanking[0];
-      if (top.lat && top.lng) setProviderCenter([top.lat, top.lng]);
+
+    // Use Google Maps Geocoder to center on provider city/state
+    let cancelled = false;
+
+    const geocode = () => {
+      if (!window.google?.maps?.Geocoder) return;
+
+      const geocoder = new google.maps.Geocoder();
+      const query = state ? `${city}, ${state}, Brasil` : `${city}, Brasil`;
+
+      geocoder.geocode({ address: query }, (results, status) => {
+        if (cancelled) return;
+        if (status === "OK" && results && results.length > 0) {
+          const loc = results[0].geometry.location;
+          setProviderCenter({ lat: loc.lat(), lng: loc.lng() });
+        } else {
+          // Geocoding failed — fall back to center of provider points
+          if (providerPoints.length > 0) {
+            const avgLat = providerPoints.reduce((s, p) => s + p.lat, 0) / providerPoints.length;
+            const avgLng = providerPoints.reduce((s, p) => s + p.lng, 0) / providerPoints.length;
+            setProviderCenter({ lat: avgLat, lng: avgLng });
+          } else {
+            setProviderCenter(null);
+          }
+        }
+      });
+    };
+
+    // Wait for Google Maps API to be available
+    if (window.google?.maps?.Geocoder) {
+      geocode();
+    } else {
+      const interval = setInterval(() => {
+        if (window.google?.maps?.Geocoder) {
+          clearInterval(interval);
+          if (!cancelled) geocode();
+        }
+      }, 500);
+      // Stop polling after 10s
+      const timeout = setTimeout(() => {
+        clearInterval(interval);
+        if (!cancelled && providerPoints.length > 0) {
+          const avgLat = providerPoints.reduce((s, p) => s + p.lat, 0) / providerPoints.length;
+          const avgLng = providerPoints.reduce((s, p) => s + p.lng, 0) / providerPoints.length;
+          setProviderCenter({ lat: avgLat, lng: avgLng });
+        }
+      }, 10000);
+
+      return () => { cancelled = true; clearInterval(interval); clearTimeout(timeout); };
     }
-  }, [provider?.addressCity, provider?.addressState, cityRanking]);
+
+    return () => { cancelled = true; };
+  }, [provider?.addressCity, provider?.addressState, providerPoints]);
 
   const refreshMutation = useMutation({
     mutationFn: () => apiRequest("POST", "/api/heatmap/refresh"),
@@ -324,7 +230,7 @@ export default function MapaCalorPage() {
   return (
     <div className="p-6 space-y-6 max-w-5xl mx-auto" data-testid="mapa-calor-page">
       <div className="flex items-center gap-4">
-        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
+        <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
           <Flame className="w-6 h-6 text-white" />
         </div>
         <div>
@@ -395,8 +301,8 @@ export default function MapaCalorPage() {
                   <p className="text-sm text-muted-foreground mt-1">Clientes sem coordenadas geograficas nao aparecem no mapa.</p>
                 </div>
               ) : (
-                <LeafletHeatMap
-                  key={`provider-${providerPoints.length}-${providerCenter?.[0]}`}
+                <GoogleHeatMap
+                  key={`provider-${providerPoints.length}-${providerCenter?.lat}`}
                   points={providerPoints}
                   mode="provider"
                   defaultCenter={providerCenter}
@@ -508,7 +414,7 @@ export default function MapaCalorPage() {
                     <p className="font-medium text-emerald-700 dark:text-emerald-300">Nenhum ponto de inadimplencia na rede</p>
                   </div>
                 ) : (
-                  <LeafletHeatMap
+                  <GoogleHeatMap
                     key={`regional-${regionalPoints.length}`}
                     points={regionalPoints}
                     mode="regional"

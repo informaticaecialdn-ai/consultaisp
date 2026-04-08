@@ -24,7 +24,7 @@ export default function LgpdPage() {
 
         {isLoading ? (
           <div className="grid gap-4">
-            {[1, 2, 3].map(i => <div key={i} className="h-32 rounded-xl bg-slate-200 animate-pulse" />)}
+            {[1, 2, 3].map(i => <div key={i} className="h-32 rounded-lg bg-slate-200 animate-pulse" />)}
           </div>
         ) : (
           <div className="grid gap-6">

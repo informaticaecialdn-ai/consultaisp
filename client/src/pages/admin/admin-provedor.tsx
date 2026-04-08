@@ -222,9 +222,9 @@ export default function AdminProvedorPage() {
       <div className="p-6 space-y-4">
         <div className="h-8 bg-muted animate-pulse rounded w-48" />
         <div className="grid grid-cols-3 gap-4">
-          {[...Array(6)].map((_, i) => <div key={i} className="h-20 bg-muted animate-pulse rounded-xl" />)}
+          {[...Array(6)].map((_, i) => <div key={i} className="h-20 bg-muted animate-pulse rounded-lg" />)}
         </div>
-        <div className="h-64 bg-muted animate-pulse rounded-xl" />
+        <div className="h-64 bg-muted animate-pulse rounded-lg" />
       </div>
     );
   }
@@ -281,7 +281,7 @@ export default function AdminProvedorPage() {
 
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white text-xl font-bold flex-shrink-0">
+          <div className="w-14 h-14 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white text-xl font-bold flex-shrink-0">
             {provider.name?.charAt(0)?.toUpperCase()}
           </div>
           <div>
@@ -1099,7 +1099,7 @@ function IntegracaoTab({ providerId, erpSource, erpEnabled }: { providerId: numb
               const status = intg?.lastSyncStatus ?? null;
               return (
                 <div key={erp.key} className="px-5 py-4 flex items-center gap-3" data-testid={`row-erp-${erp.key}`}>
-                  <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${erp.grad} flex items-center justify-center flex-shrink-0`}>
+                  <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${erp.grad} flex items-center justify-center flex-shrink-0`}>
                     <Wifi className="w-5 h-5 text-white" />
                   </div>
                   <div className="flex-1 min-w-0">

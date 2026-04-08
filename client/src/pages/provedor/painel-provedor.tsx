@@ -503,7 +503,7 @@ export default function PainelProvedorPage() {
     <div className="p-6 space-y-6 max-w-6xl mx-auto" data-testid="painel-provedor-page">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center">
+          <div className="w-14 h-14 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center">
             <Building2 className="w-7 h-7 text-white" />
           </div>
           <div>
@@ -1003,7 +1003,7 @@ export default function PainelProvedorPage() {
             </div>
 
             {showPartnerForm && (
-              <div className="bg-muted/40 rounded-xl p-5 mb-5 border space-y-4">
+              <div className="bg-muted/40 rounded-lg p-5 mb-5 border space-y-4">
                 <h3 className="font-semibold text-sm">{editingPartner ? "Editar Socio" : "Adicionar Socio"}</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
@@ -1251,7 +1251,7 @@ export default function PainelProvedorPage() {
               </p>
               {provider?.subdomain ? (
                 <>
-                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 rounded-xl p-5 border border-blue-100 dark:border-blue-900 mb-4">
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 rounded-lg p-5 border border-blue-100 dark:border-blue-900 mb-4">
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       <div>
                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Seu URL exclusivo</p>
@@ -1465,7 +1465,7 @@ export default function PainelProvedorPage() {
                   { plan: "Profissional", price: "R$ 399/mes", isp: 1000,        spc: 200,          color: "border-purple-200 ring-2 ring-purple-300",       badge: "bg-purple-100 text-purple-700", highlight: true },
                   { plan: "Enterprise",  price: "R$ 799/mes", isp: "Ilimitado", spc: "Ilimitado",  color: "border-amber-200",                              badge: "bg-amber-100 text-amber-700" },
                 ].map((p) => (
-                  <div key={p.plan} className={`rounded-xl border p-4 relative ${p.color}`}>
+                  <div key={p.plan} className={`rounded-lg border p-4 relative ${p.color}`}>
                     {p.highlight && (
                       <Badge className="absolute -top-2 left-1/2 -translate-x-1/2 bg-purple-600 text-white text-xs">Popular</Badge>
                     )}
@@ -1493,7 +1493,7 @@ export default function PainelProvedorPage() {
                 {/* Header */}
                 <div className="flex items-center justify-between flex-wrap gap-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-sm">
+                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-sm">
                       <Zap className="w-5 h-5 text-white" />
                     </div>
                     <div>
@@ -1621,10 +1621,10 @@ export default function PainelProvedorPage() {
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <p className="text-sm font-semibold leading-tight">{connector.label}</p>
-                                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${statusBadge.cls}`}>{statusBadge.text}</span>
+                                  <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${statusBadge.cls}`}>{statusBadge.text}</span>
                                 </div>
                                 {!hasCredentials && (
-                                  <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">{ERP_SETUP_HINTS[connector.name] ?? "Configure as credenciais para ativar"}</p>
+                                  <p className="text-xs text-muted-foreground leading-tight mt-0.5">{ERP_SETUP_HINTS[connector.name] ?? "Configure as credenciais para ativar"}</p>
                                 )}
                               </div>
                               <ArrowRight className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />

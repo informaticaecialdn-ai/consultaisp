@@ -151,16 +151,16 @@ export default function ConsultaISPPage() {
               <h1 className="text-xl font-display font-semibold text-[var(--color-ink)] leading-tight" data-testid="text-consulta-isp-title">
                 Consulta ISP
               </h1>
-              <p className="text-[12px] text-[var(--color-muted)]">analise de credito para provedores</p>
+              <p className="text-xs text-[var(--color-muted)]">analise de credito para provedores</p>
             </div>
           </div>
           <div className="flex items-center gap-4">
             {/* Inline stats */}
             <div className="hidden md:flex items-center gap-4 text-[var(--color-muted)]">
-              <span className="font-mono text-[11px]" data-testid="text-isp-today">hoje <strong className="text-[var(--color-ink)]">{data?.todayCount ?? 0}</strong></span>
-              <span className="font-mono text-[11px]" data-testid="text-isp-month">mes <strong className="text-[var(--color-ink)]">{data?.monthCount ?? 0}</strong></span>
-              <span className="font-mono text-[11px]" data-testid="text-isp-approval">aprovacao <strong className="text-[var(--color-ink)]">{approvalRate}%</strong></span>
-              <span className="font-mono text-[11px]" data-testid="text-isp-avg-score">score <strong className="text-[var(--color-ink)]">{avgScore}</strong></span>
+              <span className="font-mono text-xs" data-testid="text-isp-today">hoje <strong className="text-[var(--color-ink)]">{data?.todayCount ?? 0}</strong></span>
+              <span className="font-mono text-xs" data-testid="text-isp-month">mes <strong className="text-[var(--color-ink)]">{data?.monthCount ?? 0}</strong></span>
+              <span className="font-mono text-xs" data-testid="text-isp-approval">aprovacao <strong className="text-[var(--color-ink)]">{approvalRate}%</strong></span>
+              <span className="font-mono text-xs" data-testid="text-isp-avg-score">score <strong className="text-[var(--color-ink)]">{avgScore}</strong></span>
             </div>
             {/* Credits */}
             <div className="border-[0.5px] border-[var(--color-border)] rounded px-3 py-1.5 flex items-center gap-2">

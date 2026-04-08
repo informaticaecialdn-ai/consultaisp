@@ -565,14 +565,15 @@ export function registerAdminRoutes(): Router {
   });
 
   const erpCatalogUpdateSchema = z.object({
+    key: z.string().min(1).max(50).optional(),
     name: z.string().min(1).max(100).optional(),
-    slug: z.string().min(1).max(50).optional(),
-    description: z.string().max(500).optional(),
-    logoUrl: z.string().max(500).optional().nullable(),
-    website: z.string().max(500).optional().nullable(),
+    description: z.string().max(500).optional().nullable(),
+    logoBase64: z.string().optional().nullable(),
+    gradient: z.string().max(100).optional(),
+    active: z.boolean().optional(),
     authType: z.string().max(50).optional(),
-    isActive: z.boolean().optional(),
-  }).strict();
+    authHint: z.string().max(500).optional().nullable(),
+  });
 
   router.patch("/api/admin/erp-catalog/:id", requireSuperAdmin, async (req, res) => {
     try {

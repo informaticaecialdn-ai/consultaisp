@@ -97,11 +97,11 @@ export default function InvoiceViewPage() {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg p-8 print:shadow-none print:rounded-none">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-lg p-8 print:shadow-none print:rounded-none">
           <div className="flex items-start justify-between mb-8">
             <div>
               <div className="flex items-center gap-3 mb-1">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center">
                   <span className="text-white font-bold text-sm">CI</span>
                 </div>
                 <div>

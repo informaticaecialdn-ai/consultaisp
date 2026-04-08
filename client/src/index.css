@@ -71,14 +71,14 @@
   --font-serif: "Fraunces", serif;
   --font-mono: "DM Mono", monospace;
   --radius: .5rem;
-  --shadow-2xs: 0px 2px 0px 0px hsl(220 13% 91% / 0.00);
-  --shadow-xs: 0px 2px 0px 0px hsl(220 13% 91% / 0.00);
-  --shadow-sm: 0px 2px 0px 0px hsl(220 13% 91% / 0.00), 0px 1px 2px -1px hsl(220 13% 91% / 0.00);
-  --shadow: 0px 2px 0px 0px hsl(220 13% 91% / 0.00), 0px 1px 2px -1px hsl(220 13% 91% / 0.00);
-  --shadow-md: 0px 2px 0px 0px hsl(220 13% 91% / 0.00), 0px 2px 4px -1px hsl(220 13% 91% / 0.00);
-  --shadow-lg: 0px 2px 0px 0px hsl(220 13% 91% / 0.00), 0px 4px 6px -1px hsl(220 13% 91% / 0.00);
-  --shadow-xl: 0px 2px 0px 0px hsl(220 13% 91% / 0.00), 0px 8px 10px -1px hsl(220 13% 91% / 0.00);
-  --shadow-2xl: 0px 2px 0px 0px hsl(220 13% 91% / 0.00);
+  --shadow-2xs: 0px 1px 2px 0px hsl(220 13% 91% / 0.30);
+  --shadow-xs: 0px 1px 3px 0px hsl(220 13% 91% / 0.40);
+  --shadow-sm: 0px 1px 2px 0px hsl(220 13% 91% / 0.50), 0px 1px 3px -1px hsl(220 13% 91% / 0.30);
+  --shadow: 0px 1px 3px 0px hsl(220 13% 91% / 0.50), 0px 2px 4px -1px hsl(220 13% 91% / 0.30);
+  --shadow-md: 0px 2px 4px 0px hsl(220 13% 91% / 0.50), 0px 4px 6px -1px hsl(220 13% 91% / 0.25);
+  --shadow-lg: 0px 4px 6px 0px hsl(220 13% 91% / 0.50), 0px 8px 12px -2px hsl(220 13% 91% / 0.25);
+  --shadow-xl: 0px 8px 12px 0px hsl(220 13% 91% / 0.50), 0px 16px 24px -4px hsl(220 13% 91% / 0.25);
+  --shadow-2xl: 0px 16px 32px 0px hsl(220 13% 91% / 0.60);
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 
@@ -112,6 +112,24 @@
 }
 
 .dark {
+  /* Design System Tokens — dark overrides */
+  --color-bg:         #1A1D23;
+  --color-surface:    #23272F;
+  --color-border:     #3A3F4A;
+  --color-ink:        #E8E6E3;
+  --color-muted:      #9B978F;
+  --color-tag-bg:     #2E3038;
+  --color-navy:       #4A8BC2;
+  --color-steel:      #6AA3D4;
+  --color-gold:       #D4A72C;
+  --color-danger:     #C44E4E;
+  --color-success:    #4A9B6E;
+  --color-navy-bg:    #1A2A3A;
+  --color-gold-bg:    #2A2518;
+  --color-danger-bg:  #2A1A1A;
+  --color-success-bg: #1A2A20;
+  --score-low:        #E07040;
+
   --button-outline: rgba(255,255,255, .10);
   --badge-outline: rgba(255,255,255, .05);
   --opaque-button-border-intensity: 9;
@@ -151,14 +169,14 @@
   --chart-3: 271 91% 75%;
   --chart-4: 35 91% 70%;
   --chart-5: 340 82% 62%;
-  --shadow-2xs: 0px 2px 0px 0px hsl(215 16% 20% / 0.00);
-  --shadow-xs: 0px 2px 0px 0px hsl(215 16% 20% / 0.00);
-  --shadow-sm: 0px 2px 0px 0px hsl(215 16% 20% / 0.00), 0px 1px 2px -1px hsl(215 16% 20% / 0.00);
-  --shadow: 0px 2px 0px 0px hsl(215 16% 20% / 0.00), 0px 1px 2px -1px hsl(215 16% 20% / 0.00);
-  --shadow-md: 0px 2px 0px 0px hsl(215 16% 20% / 0.00), 0px 2px 4px -1px hsl(215 16% 20% / 0.00);
-  --shadow-lg: 0px 2px 0px 0px hsl(215 16% 20% / 0.00), 0px 4px 6px -1px hsl(215 16% 20% / 0.00);
-  --shadow-xl: 0px 2px 0px 0px hsl(215 16% 20% / 0.00), 0px 8px 10px -1px hsl(215 16% 20% / 0.00);
-  --shadow-2xl: 0px 2px 0px 0px hsl(215 16% 20% / 0.00);
+  --shadow-2xs: 0px 1px 2px 0px hsl(215 16% 20% / 0.40);
+  --shadow-xs: 0px 1px 3px 0px hsl(215 16% 20% / 0.50);
+  --shadow-sm: 0px 1px 2px 0px hsl(215 16% 20% / 0.60), 0px 1px 3px -1px hsl(215 16% 20% / 0.40);
+  --shadow: 0px 1px 3px 0px hsl(215 16% 20% / 0.60), 0px 2px 4px -1px hsl(215 16% 20% / 0.40);
+  --shadow-md: 0px 2px 4px 0px hsl(215 16% 20% / 0.60), 0px 4px 6px -1px hsl(215 16% 20% / 0.35);
+  --shadow-lg: 0px 4px 6px 0px hsl(215 16% 20% / 0.60), 0px 8px 12px -2px hsl(215 16% 20% / 0.35);
+  --shadow-xl: 0px 8px 12px 0px hsl(215 16% 20% / 0.60), 0px 16px 24px -4px hsl(215 16% 20% / 0.35);
+  --shadow-2xl: 0px 16px 32px 0px hsl(215 16% 20% / 0.70);
 
 /* Fallback for older browsers */
   --sidebar-primary-border: hsl(var(--sidebar-primary));

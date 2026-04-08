@@ -89,7 +89,7 @@ export default function CreditosPage() {
         onClick={() => setSelectedPkg({ pkg, type })}
         data-testid={`package-${pkg.id}`}>
         {pkg.popular && (
-          <Badge className={`absolute top-2.5 right-2.5 ${badgeColor} border-0 text-white text-[10px]`}>Mais Popular</Badge>
+          <Badge className={`absolute top-2.5 right-2.5 ${badgeColor} border-0 text-white text-xs`}>Mais Popular</Badge>
         )}
         <div className="mb-3">
           <div className={`w-9 h-9 rounded-lg mb-2 flex items-center justify-center ${colorBg}`}>
@@ -97,7 +97,7 @@ export default function CreditosPage() {
           </div>
           <h3 className="font-bold text-sm">{pkg.credits} creditos</h3>
           <p className="text-lg font-bold mt-0.5">{pkg.priceLabel}</p>
-          <p className="text-[11px] text-muted-foreground">{pkg.perUnit}</p>
+          <p className="text-xs text-muted-foreground">{pkg.perUnit}</p>
         </div>
         <div className="space-y-1 mb-3">
           <div className="flex items-center gap-1.5 text-xs">
@@ -127,9 +127,9 @@ export default function CreditosPage() {
 
       {selectedPkg && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setSelectedPkg(null)}>
-          <div className="bg-background rounded-xl shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+          <div className="bg-background rounded-lg shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <div className="text-center mb-4">
-              <div className={`w-12 h-12 rounded-xl mx-auto mb-3 flex items-center justify-center ${selectedPkg.type === "isp" ? "bg-blue-100" : "bg-purple-100"}`}>
+              <div className={`w-12 h-12 rounded-lg mx-auto mb-3 flex items-center justify-center ${selectedPkg.type === "isp" ? "bg-blue-100" : "bg-purple-100"}`}>
                 {selectedPkg.type === "isp"
                   ? <Search className="w-6 h-6 text-blue-600" />
                   : <Shield className="w-6 h-6 text-purple-600" />}
@@ -162,9 +162,9 @@ export default function CreditosPage() {
 
       {payModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setPayModal(null)}>
-          <div className="bg-background rounded-xl shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+          <div className="bg-background rounded-lg shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <div className="text-center mb-4">
-              <div className="w-12 h-12 rounded-xl mx-auto mb-3 bg-emerald-100 flex items-center justify-center">
+              <div className="w-12 h-12 rounded-lg mx-auto mb-3 bg-emerald-100 flex items-center justify-center">
                 <CheckCircle className="w-6 h-6 text-emerald-600" />
               </div>
               <h2 className="text-base font-bold">Pedido Criado!</h2>
@@ -205,7 +205,7 @@ export default function CreditosPage() {
 
       {pixModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setPixModal(null)}>
-          <div className="bg-background rounded-xl shadow-xl p-6 w-full max-w-sm text-center" onClick={e => e.stopPropagation()}>
+          <div className="bg-background rounded-lg shadow-xl p-6 w-full max-w-sm text-center" onClick={e => e.stopPropagation()}>
             <h2 className="text-base font-bold mb-1 flex items-center gap-2 justify-center"><QrCode className="w-4 h-4 text-blue-500" />QR Code PIX</h2>
             <p className="text-xs text-muted-foreground mb-3">Escaneie com seu banco para pagar</p>
             {pixModal.pixData?.encodedImage
@@ -229,7 +229,7 @@ export default function CreditosPage() {
       )}
 
       <div className="flex items-center gap-4">
-        <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center">
+        <div className="w-11 h-11 rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center">
           <CreditCard className="w-5 h-5 text-white" />
         </div>
         <div>
@@ -262,7 +262,7 @@ export default function CreditosPage() {
           <div className="flex items-center gap-2 mb-3">
             <Clock className="w-4 h-4 text-amber-600" />
             <h3 className="font-semibold text-sm text-amber-800">Pagamentos Pendentes</h3>
-            <Badge className="bg-amber-200 text-amber-800 text-[10px]">{pendingOrders.length}</Badge>
+            <Badge className="bg-amber-200 text-amber-800 text-xs">{pendingOrders.length}</Badge>
           </div>
           <div className="space-y-2">
             {pendingOrders.map((order: any) => {
@@ -275,7 +275,7 @@ export default function CreditosPage() {
                 <div key={order.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2.5 border border-amber-100" data-testid={`pending-order-${order.id}`}>
                   <div>
                     <p className="text-xs font-semibold">{order.orderNumber}</p>
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-xs text-muted-foreground">
                       {order.packageName} · {creditCount} {typeLabel} · R$ {parseFloat(order.amount).toFixed(2).replace(".", ",")}
                     </p>
                   </div>
@@ -390,14 +390,14 @@ export default function CreditosPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-mono font-semibold text-muted-foreground">{order.orderNumber}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${st.badge}`}>{st.label}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${typeBadge}`}>{typeText}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${st.badge}`}>{st.label}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${typeBadge}`}>{typeText}</span>
                     </div>
                     <p className="text-xs mt-0.5">{order.packageName} · <strong>{creditLabel}</strong></p>
                   </div>
                   <div className="text-right flex-shrink-0">
                     <p className="text-sm font-bold">R$ {parseFloat(order.amount).toFixed(2).replace(".", ",")}</p>
-                    {order.createdAt && <p className="text-[10px] text-muted-foreground">{new Date(order.createdAt).toLocaleDateString("pt-BR")}</p>}
+                    {order.createdAt && <p className="text-xs text-muted-foreground">{new Date(order.createdAt).toLocaleDateString("pt-BR")}</p>}
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
                     {order.status === "pending" && order.asaasChargeId && (

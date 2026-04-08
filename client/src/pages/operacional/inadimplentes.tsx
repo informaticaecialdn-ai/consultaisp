@@ -69,17 +69,17 @@ const ERP_CONFIG: Record<string, { label: string; color: string; dot: string }> 
 };
 
 const RISK_CONFIG: Record<string, { label: string; badge: string }> = {
-  critical: { label: "Critico",  badge: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" },
-  high:     { label: "Alto",     badge: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" },
-  medium:   { label: "Medio",    badge: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300" },
-  low:      { label: "Baixo",    badge: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" },
+  critical: { label: "Critico",  badge: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" },
+  high:     { label: "Alto",     badge: "bg-[var(--color-gold-bg)] text-[var(--score-low)]" },
+  medium:   { label: "Medio",    badge: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" },
+  low:      { label: "Baixo",    badge: "bg-[var(--color-success-bg)] text-[var(--color-success)]" },
 };
 
 const STATUS_CONFIG: Record<string, { label: string; badge: string }> = {
-  "90+":   { label: "90+ dias",  badge: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" },
-  "60-90": { label: "60–90 dias", badge: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" },
-  "30-60": { label: "30–60 dias", badge: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300" },
-  "1-30":  { label: "1–30 dias",  badge: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
+  "90+":   { label: "90+ dias",  badge: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" },
+  "60-90": { label: "60–90 dias", badge: "bg-[var(--color-gold-bg)] text-[var(--score-low)]" },
+  "30-60": { label: "30–60 dias", badge: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" },
+  "1-30":  { label: "1–30 dias",  badge: "bg-[var(--color-navy-bg)] text-[var(--color-steel)]" },
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -225,7 +225,7 @@ export default function InadimplentesPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-rose-500 to-rose-600 flex items-center justify-center shadow-sm">
+          <div className="w-11 h-11 rounded-lg bg-gradient-to-br from-rose-500 to-rose-600 flex items-center justify-center shadow-sm">
             <Database className="w-5 h-5 text-white" />
           </div>
           <div>

@@ -72,7 +72,7 @@ export default function VerificarEmailPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-gray-900 dark:to-gray-800 p-6" data-testid="verificar-email-page">
       <div className="w-full max-w-md">
         <div className="flex items-center justify-center gap-3 mb-8">
-          <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
             <Shield className="w-6 h-6 text-white" />
           </div>
           <span className="text-xl font-bold">Consulta ISP</span>

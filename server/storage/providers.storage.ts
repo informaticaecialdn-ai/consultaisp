@@ -155,7 +155,11 @@ export class ProvidersStorage {
         const snakeField = field.replace(/([A-Z])/g, "_$1").toLowerCase();
         const key = snakeField in decrypted ? snakeField : field;
         if (typeof decrypted[key] === "string") {
-          decrypted[key] = decryptField(decrypted[key]);
+          try {
+            decrypted[key] = decryptField(decrypted[key]);
+          } catch {
+            decrypted[key] = "***";
+          }
         }
       }
       erpMap.set(row.provider_id, decrypted);

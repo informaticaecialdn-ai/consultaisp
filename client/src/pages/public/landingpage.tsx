@@ -160,27 +160,27 @@ export default function LandingPage() {
                       </div>
                     </div>
                     <div className="ml-auto bg-[var(--color-danger)] text-white px-3 py-2 rounded text-center">
-                      <p className="font-mono text-[9px] opacity-80 uppercase font-semibold">Sugestão</p>
+                      <p className="font-mono text-xs opacity-80 uppercase font-semibold">Sugestão</p>
                       <p className="text-sm font-black">REJEITAR</p>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mb-3">
                     <div className="bg-[var(--color-success-bg)] border border-[var(--color-border)] rounded p-3">
-                      <p className="font-mono text-[9px] text-[var(--color-success)] font-bold uppercase mb-1">Seu Provedor</p>
+                      <p className="font-mono text-xs text-[var(--color-success)] font-bold uppercase mb-1">Seu Provedor</p>
                       <p className="text-xs font-bold text-[var(--color-ink)]">VALDIRENE ***</p>
-                      <p className="text-[10px] text-[var(--color-danger)] mt-1">325 dias · R$ 350</p>
-                      <span className="text-[9px] bg-[var(--color-success-bg)] text-[var(--color-success)] font-bold px-1.5 py-0.5 rounded mt-1 inline-block">Grátis</span>
+                      <p className="text-xs text-[var(--color-danger)] mt-1">325 dias · R$ 350</p>
+                      <span className="text-xs bg-[var(--color-success-bg)] text-[var(--color-success)] font-bold px-1.5 py-0.5 rounded mt-1 inline-block">Grátis</span>
                     </div>
                     <div className="bg-[var(--color-bg)] border border-[var(--color-border)] rounded p-3">
-                      <p className="font-mono text-[9px] text-[var(--color-muted)] font-bold uppercase mb-1">Outro Provedor</p>
+                      <p className="font-mono text-xs text-[var(--color-muted)] font-bold uppercase mb-1">Outro Provedor</p>
                       <p className="text-xs font-bold text-[var(--color-ink)]">Dados restritos</p>
-                      <p className="text-[10px] text-[var(--color-danger)] mt-1">1441 dias · R$400–600</p>
-                      <span className="text-[9px] bg-[var(--color-navy-bg)] text-[var(--color-navy)] font-bold px-1.5 py-0.5 rounded mt-1 inline-block">1 crédito</span>
+                      <p className="text-xs text-[var(--color-danger)] mt-1">1441 dias · R$400–600</p>
+                      <span className="text-xs bg-[var(--color-navy-bg)] text-[var(--color-navy)] font-bold px-1.5 py-0.5 rounded mt-1 inline-block">1 crédito</span>
                     </div>
                   </div>
                   <div className="bg-[var(--color-gold-bg)] border border-[var(--color-border)] rounded p-2.5 flex items-center gap-2">
                     <AlertTriangle className="w-3 h-3 text-[var(--color-gold)] flex-shrink-0"/>
-                    <p className="text-[10px] text-[var(--color-gold)] font-medium">2 equipamentos não devolvidos — R$ 580 em risco</p>
+                    <p className="text-xs text-[var(--color-gold)] font-medium">2 equipamentos não devolvidos — R$ 580 em risco</p>
                   </div>
                 </div>
               </div>
@@ -198,7 +198,7 @@ export default function LandingPage() {
       {/* BARRA ERPs */}
       <section className="bg-[var(--color-bg)] border-y border-[var(--color-border)] py-4">
         <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center gap-6 justify-between">
-          <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)] whitespace-nowrap">Integra com</p>
+          <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] whitespace-nowrap">Integra com</p>
           <div className="flex items-center gap-6 flex-wrap justify-center">
             {erps.map(erp => (
               <div key={erp.key} className="flex items-center gap-2 opacity-50 hover:opacity-100 transition-opacity">
@@ -218,7 +218,7 @@ export default function LandingPage() {
       <section id="como-funciona" className="py-20 bg-[var(--color-bg)]">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-14">
-            <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Simples assim</p>
+            <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Simples assim</p>
             <h2 className="font-display font-light text-4xl text-[var(--color-ink)]">3 passos. Resultado em <span className="font-mono">2</span> segundos.</h2>
           </div>
           <div className="grid md:grid-cols-3 gap-8">
@@ -247,7 +247,7 @@ export default function LandingPage() {
       <section className="py-20 bg-[var(--color-bg)]">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-14">
-            <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-danger)] mb-3">As dores que custam mais caro</p>
+            <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-danger)] mb-3">As dores que custam mais caro</p>
             <h2 className="font-display font-light text-4xl text-[var(--color-ink)]">Você reconhece alguma dessas situações?</h2>
             <p className="text-[var(--color-muted)] mt-3 max-w-xl mx-auto">Cada uma tem solução dentro do Consulta ISP.</p>
           </div>
@@ -313,7 +313,7 @@ export default function LandingPage() {
                   <h3 className={`font-display font-semibold text-sm mb-2 ${textColors[d.color]}`}>{d.title}</h3>
                   <p className="text-sm text-[var(--color-muted)] leading-relaxed flex-1 mb-4">{d.desc}</p>
                   <div className="bg-[var(--color-bg)] border-[0.5px] border-[var(--color-border)] rounded p-3 mb-4">
-                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)] mb-1">Como resolvemos</p>
+                    <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-1">Como resolvemos</p>
                     <p className="text-xs text-[var(--color-ink)] font-medium">{d.solution}</p>
                   </div>
                   <Button onClick={goRegister} size="sm"
@@ -331,7 +331,7 @@ export default function LandingPage() {
       <section id="funcionalidades" className="py-20 bg-[var(--color-bg)]">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-14">
-            <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">O sistema em ação</p>
+            <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">O sistema em ação</p>
             <h2 className="font-display font-light text-4xl text-[var(--color-ink)]">Interface pensada para o dia a dia do provedor</h2>
             <p className="text-[var(--color-muted)] mt-3">Resultado claro, decisão rápida. Sem treinamento necessário.</p>
           </div>
@@ -366,21 +366,21 @@ export default function LandingPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-2 mb-3">
                     <div className="bg-[var(--color-success-bg)] border border-[var(--color-border)] rounded p-2.5">
-                      <p className="font-mono text-[9px] text-[var(--color-success)] font-bold uppercase">Seu Provedor</p>
+                      <p className="font-mono text-xs text-[var(--color-success)] font-bold uppercase">Seu Provedor</p>
                       <p className="text-xs font-bold mt-1">João Pereira Lima</p>
-                      <p className="text-[10px] text-[var(--color-muted)]">Rua das Flores, 142</p>
+                      <p className="text-xs text-[var(--color-muted)]">Rua das Flores, 142</p>
                       <div className="flex justify-between mt-2">
-                        <span className="text-[10px] text-[var(--color-danger)] font-semibold">98 dias</span>
-                        <span className="text-[10px] bg-[var(--color-success-bg)] text-[var(--color-success)] font-bold px-1.5 rounded">Grátis</span>
+                        <span className="text-xs text-[var(--color-danger)] font-semibold">98 dias</span>
+                        <span className="text-xs bg-[var(--color-success-bg)] text-[var(--color-success)] font-bold px-1.5 rounded">Grátis</span>
                       </div>
                     </div>
                     <div className="bg-[var(--color-bg)] border border-[var(--color-border)] rounded p-2.5">
-                      <p className="font-mono text-[9px] text-[var(--color-muted)] font-bold uppercase">Outro Provedor</p>
+                      <p className="font-mono text-xs text-[var(--color-muted)] font-bold uppercase">Outro Provedor</p>
                       <p className="text-xs font-bold mt-1">João P. L•••</p>
-                      <p className="text-[10px] text-[var(--color-muted)]">São Paulo - SP</p>
+                      <p className="text-xs text-[var(--color-muted)]">São Paulo - SP</p>
                       <div className="flex justify-between mt-2">
-                        <span className="text-[10px] text-[var(--color-danger)] font-semibold">122 dias</span>
-                        <span className="text-[10px] bg-[var(--color-navy-bg)] text-[var(--color-navy)] font-bold px-1.5 rounded">1 crédito</span>
+                        <span className="text-xs text-[var(--color-danger)] font-semibold">122 dias</span>
+                        <span className="text-xs bg-[var(--color-navy-bg)] text-[var(--color-navy)] font-bold px-1.5 rounded">1 crédito</span>
                       </div>
                     </div>
                   </div>
@@ -391,7 +391,7 @@ export default function LandingPage() {
                     </div>
                     <div>
                       <p className="text-xs font-semibold">3 equipamentos não devolvidos</p>
-                      <p className="text-[10px] opacity-80">Valor em risco: R$ 810,00</p>
+                      <p className="text-xs opacity-80">Valor em risco: R$ 810,00</p>
                     </div>
                   </div>
                 </div>
@@ -425,7 +425,7 @@ export default function LandingPage() {
               <h3 className="font-display font-light text-3xl text-[var(--color-ink)] mb-4">Seu inadimplente tentou migrar.<br/><span className="text-[var(--color-muted)]">Você fica sabendo agora.</span></h3>
               <p className="text-[var(--color-muted)] leading-relaxed mb-6">A Resolução Anatel 765 dá 75 dias ao cliente antes de você poder cancelar. Ele sabe disso — e usa esse tempo para migrar sem pagar. Com o anti-fraude, você recebe o alerta enquanto ele ainda está tentando.</p>
               <div className="bg-[var(--color-gold-bg)] border border-[var(--color-border)] rounded p-4 mb-6">
-                <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-gold)] mb-1">Resolução Anatel 765</p>
+                <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-gold)] mb-1">Resolução Anatel 765</p>
                 <p className="text-sm text-[var(--color-ink)]">75 dias antes do cancelamento. O cliente usa cada um deles.</p>
               </div>
               <ul className="space-y-3 mb-8">
@@ -450,7 +450,7 @@ export default function LandingPage() {
                 </div>
                 <div className="bg-[var(--color-bg)] p-4">
                   <div className="flex items-center justify-between mb-3">
-                    <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-ink)]">Alertas recentes</p>
+                    <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-ink)]">Alertas recentes</p>
                     <span className="text-xs bg-[var(--color-danger-bg)] text-[var(--color-danger)] font-bold px-2 py-0.5 rounded-sm">3 ativos</span>
                   </div>
                   {[
@@ -462,20 +462,20 @@ export default function LandingPage() {
                       <div className={`w-2 h-2 rounded-full flex-shrink-0 ${a.dot==="red"?"bg-[var(--color-danger)]":"bg-[var(--color-gold)]"}`}/>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold text-[var(--color-ink)]">{a.name}</p>
-                        <p className="text-[10px] text-[var(--color-muted)]">{a.desc}</p>
+                        <p className="text-xs text-[var(--color-muted)]">{a.desc}</p>
                       </div>
                       <div className="text-right flex-shrink-0">
-                        <p className="text-[10px] text-[var(--color-danger)] font-semibold">{a.dias}</p>
-                        <p className="text-[10px] text-[var(--color-muted)]">{a.valor}</p>
+                        <p className="text-xs text-[var(--color-danger)] font-semibold">{a.dias}</p>
+                        <p className="text-xs text-[var(--color-muted)]">{a.valor}</p>
                       </div>
                     </div>
                   ))}
                   <div className="mt-3 bg-[var(--color-bg)] rounded p-3">
-                    <p className="font-mono text-[9px] text-[var(--color-muted)] uppercase tracking-[0.12em] mb-2">Trajetória do migrador</p>
+                    <p className="font-mono text-xs text-[var(--color-muted)] uppercase tracking-[0.12em] mb-2">Trajetória do migrador</p>
                     <div className="flex items-center gap-2 flex-wrap">
                       {["SGP Telecom","NetFibra","ViaFibra ←"].map((p,i) => (
                         <div key={i} className="flex items-center gap-1.5">
-                          <span className={`text-[10px] px-2 py-0.5 rounded font-semibold ${i===2?"bg-[var(--color-danger-bg)] text-[var(--color-danger)]":"bg-slate-200 text-[var(--color-muted)]"}`}>{p}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded font-semibold ${i===2?"bg-[var(--color-danger-bg)] text-[var(--color-danger)]":"bg-slate-200 text-[var(--color-muted)]"}`}>{p}</span>
                           {i<2&&<span className="text-[var(--color-border)] text-xs">→</span>}
                         </div>
                       ))}
@@ -510,7 +510,7 @@ export default function LandingPage() {
       <section className="py-16 bg-[var(--color-bg)]">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-10">
-            <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Por que o Consulta ISP</p>
+            <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Por que o Consulta ISP</p>
             <h2 className="font-display font-light text-3xl text-[var(--color-ink)]">Tudo que o mercado oferece. Em uma plataforma.</h2>
           </div>
           <div className="overflow-x-auto">
@@ -557,7 +557,7 @@ export default function LandingPage() {
       <section id="precos" className="py-20 bg-[var(--color-bg)]">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-14">
-            <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Transparência total</p>
+            <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Transparência total</p>
             <h2 className="font-display font-light text-4xl text-[var(--color-ink)] mb-3">Planos para todo tamanho de provedor</h2>
             <p className="text-[var(--color-muted)] max-w-lg mx-auto text-sm">Consultas na sua própria base são sempre gratuitas. Créditos para a rede colaborativa a partir de R$ 0,90/consulta.</p>
           </div>
@@ -615,7 +615,7 @@ export default function LandingPage() {
       {erps.length > 0 && (
         <section className="py-14 bg-[var(--color-bg)] border-y border-[var(--color-border)]">
           <div className="max-w-6xl mx-auto px-6 text-center">
-            <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)] mb-2">Integrações</p>
+            <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-2">Integrações</p>
             <h3 className="font-display font-semibold text-2xl text-[var(--color-ink)] mb-2">ERPs integrados</h3>
             <p className="text-sm text-[var(--color-muted)] mb-8">Integração em <strong>15 minutos</strong>. Sem programação. Sem técnico. Não usa ERP? Importe via planilha CSV.</p>
             <div className="flex items-center justify-center gap-8 flex-wrap">

@@ -244,7 +244,7 @@ export default function LoginPage() {
               Base de dados <span className="text-[var(--color-gold)] font-medium">colaborativa</span> de clientes inadimplentes entre provedores. Consulte o historico e <span className="text-[var(--color-success)] font-medium">reduza riscos</span> na sua operacao.
             </p>
 
-            <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Numeros da plataforma</p>
+            <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Numeros da plataforma</p>
             <div className="grid grid-cols-3 gap-3 mb-8">
               <div className="bg-[var(--color-surface)] rounded p-4 text-center border-[0.5px] border-[var(--color-border)]">
                 <span className="font-mono font-semibold text-xl block text-[var(--color-gold)]">100+</span>

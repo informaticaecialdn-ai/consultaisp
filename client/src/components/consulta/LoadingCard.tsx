@@ -24,7 +24,7 @@ export default function LoadingCard() {
   }, []);
 
   return (
-    <Card className="p-8 shadow-lg rounded-2xl">
+    <Card className="p-8 shadow-lg rounded-lg">
       <div className="flex flex-col gap-6">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 rounded-full border-4 border-blue-200 border-t-blue-600 animate-spin flex-shrink-0" />
@@ -39,7 +39,7 @@ export default function LoadingCard() {
             const done = i < currentStep;
             const active = i === currentStep;
             return (
-              <div key={step.id} className={`flex items-start gap-3 p-3 rounded-xl transition-all duration-500 ${active ? "bg-blue-50 border border-blue-200" : done ? "opacity-60" : "opacity-30"}`}>
+              <div key={step.id} className={`flex items-start gap-3 p-3 rounded-lg transition-all duration-500 ${active ? "bg-blue-50 border border-blue-200" : done ? "opacity-60" : "opacity-30"}`}>
                 <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${done ? "bg-emerald-500" : active ? "bg-blue-600" : "bg-slate-200"}`}>
                   {done ? (
                     <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>

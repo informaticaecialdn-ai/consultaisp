@@ -198,7 +198,7 @@ function ChatPanel({ threads }: { threads: any[] }) {
  <button
  key={f}
  onClick={() => setFilter(f)}
- className={`flex-1 text-[11px] py-1 rounded-md font-medium transition-colors ${filter === f ? "bg-[var(--color-navy)] text-white" : "bg-muted text-[var(--color-muted)] hover:bg-muted/70"}`}
+ className={`flex-1 text-xs py-1 rounded-md font-medium transition-colors ${filter === f ? "bg-[var(--color-navy)] text-white" : "bg-muted text-[var(--color-muted)] hover:bg-muted/70"}`}
  data-testid={`filter-chat-${f}`}
  >
  {f === "all" ? "Todos" : f === "open" ? "Abertos" : "Fechados"}
@@ -226,7 +226,7 @@ function ChatPanel({ threads }: { threads: any[] }) {
  <div className="flex-1 min-w-0">
  <div className="flex items-center justify-between gap-1">
  <p className={`text-sm truncate ${t.unreadCount > 0 ? "font-bold" : "font-medium"}`}>{t.providerName}</p>
- <span className="text-[10px] text-[var(--color-muted)] flex-shrink-0">{t.lastMessageAt ? chatRelTime(t.lastMessageAt) : ""}</span>
+ <span className="text-xs text-[var(--color-muted)] flex-shrink-0">{t.lastMessageAt ? chatRelTime(t.lastMessageAt) : ""}</span>
  </div>
  <p className="text-xs text-[var(--color-muted)] truncate mt-0.5">
  {t.lastMessage ? (
@@ -236,11 +236,11 @@ function ChatPanel({ threads }: { threads: any[] }) {
  )}
  </p>
  <div className="flex items-center justify-between mt-1">
- <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${t.status === "open" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-600"}`}>
+ <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${t.status === "open" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-600"}`}>
  {t.status === "open" ? "Aberto" : "Fechado"}
  </span>
  {t.unreadCount > 0 && (
- <span className="w-5 h-5 bg-[var(--color-navy)] text-white text-[10px] rounded-full flex items-center justify-center font-bold" data-testid={`unread-badge-${t.id}`}>
+ <span className="w-5 h-5 bg-[var(--color-navy)] text-white text-xs rounded-full flex items-center justify-center font-bold" data-testid={`unread-badge-${t.id}`}>
  {t.unreadCount}
  </span>
  )}
@@ -324,19 +324,19 @@ function ChatPanel({ threads }: { threads: any[] }) {
  <div key={group.day} className="space-y-3">
  <div className="flex items-center gap-3">
  <div className="flex-1 h-px bg-border" />
- <span className="text-[11px] text-[var(--color-muted)] font-medium px-2 py-0.5 bg-muted rounded-full">{group.day}</span>
+ <span className="text-xs text-[var(--color-muted)] font-medium px-2 py-0.5 bg-muted rounded-full">{group.day}</span>
  <div className="flex-1 h-px bg-border" />
  </div>
  {group.messages.map((m: any) => (
  <div key={m.id} className={`flex items-end gap-2 ${m.isFromAdmin ? "justify-end" : "justify-start"}`}>
  {!m.isFromAdmin && (
- <div className="w-7 h-7 rounded-full from-slate-400 to-slate-500 flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0">
+ <div className="w-7 h-7 rounded-full from-slate-400 to-slate-500 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
  {(m.senderName || "?").charAt(0).toUpperCase()}
  </div>
  )}
  <div className={`max-w-[72%] ${m.isFromAdmin ? "items-end" : "items-start"} flex flex-col gap-0.5`}>
  {!m.isFromAdmin && (
- <p className="text-[10px] font-semibold text-[var(--color-muted)] ml-1">{m.senderName}</p>
+ <p className="text-xs font-semibold text-[var(--color-muted)] ml-1">{m.senderName}</p>
  )}
  <div className={`rounded px-3.5 py-2.5 ${m.isFromAdmin
  ? "bg-[var(--color-navy)] text-white rounded-br-sm"
@@ -345,14 +345,14 @@ function ChatPanel({ threads }: { threads: any[] }) {
  <p className="text-sm whitespace-pre-wrap leading-relaxed">{m.content}</p>
  </div>
  <div className={`flex items-center gap-1 px-1 ${m.isFromAdmin ? "flex-row-reverse" : ""}`}>
- <span className={`text-[10px] ${m.isFromAdmin ? "text-[var(--color-muted)]" : "text-[var(--color-muted)]"}`}>{chatFullTime(m.createdAt)}</span>
+ <span className={`text-xs ${m.isFromAdmin ? "text-[var(--color-muted)]" : "text-[var(--color-muted)]"}`}>{chatFullTime(m.createdAt)}</span>
  {m.isFromAdmin && (
  <CheckCircle2 className={`w-3 h-3 ${m.isRead ? "text-blue-500" : "text-[var(--color-muted)]/40"}`} />
  )}
  </div>
  </div>
  {m.isFromAdmin && (
- <div className="w-7 h-7 rounded-full from-blue-500 to-indigo-600 flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0">
+ <div className="w-7 h-7 rounded-full from-blue-500 to-indigo-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
  A
  </div>
  )}
@@ -366,7 +366,7 @@ function ChatPanel({ threads }: { threads: any[] }) {
  {/* Quick replies */}
  {showQuickReplies && (
  <div className="border-t bg-muted/20 px-4 py-2">
- <p className="text-[10px] font-semibold text-[var(--color-muted)] uppercase tracking-wide mb-2">Respostas rapidas</p>
+ <p className="text-xs font-semibold text-[var(--color-muted)] uppercase tracking-wide mb-2">Respostas rapidas</p>
  <div className="flex flex-wrap gap-1.5">
  {QUICK_REPLIES.map((r, i) => (
  <button
@@ -427,7 +427,7 @@ function ChatPanel({ threads }: { threads: any[] }) {
  </Button>
  </div>
  </div>
- <p className="text-[10px] text-[var(--color-muted)] text-right">{message.length > 0 ? `${message.length} caracteres` : "Enter para enviar · Shift+Enter para nova linha"}</p>
+ <p className="text-xs text-[var(--color-muted)] text-right">{message.length > 0 ? `${message.length} caracteres` : "Enter para enviar · Shift+Enter para nova linha"}</p>
  </div>
  )}
  </div>
@@ -591,7 +591,7 @@ function NewProviderWizard({ open, onOpenChange }: { open: boolean; onOpenChange
  Buscar
  </Button>
  </div>
- <p className="text-[11px] text-[var(--color-muted)] text-center">
+ <p className="text-xs text-[var(--color-muted)] text-center">
  Dados puxados da Receita Federal via BrasilAPI
  </p>
  </div>
@@ -729,7 +729,7 @@ function NewProviderWizard({ open, onOpenChange }: { open: boolean; onOpenChange
  <label className="text-xs font-medium mb-1 block">Senha</label>
  <Input type="password" value={form.adminPassword} onChange={f("adminPassword")} placeholder="Minimo 6 caracteres" />
  {form.adminPassword.length > 0 && form.adminPassword.length < 6 && (
- <p className="text-[11px] text-red-500 mt-0.5">Senha deve ter no minimo 6 caracteres</p>
+ <p className="text-xs text-red-500 mt-0.5">Senha deve ter no minimo 6 caracteres</p>
  )}
  </div>
  </div>
@@ -872,7 +872,7 @@ function VisitorChatPanel({ chats }: { chats: any[] }) {
  <button
  key={f}
  onClick={() => setFilter(f)}
- className={`flex-1 text-[11px] py-1 rounded-md font-medium transition-colors ${filter === f ? "bg-[var(--color-navy)] text-white" : "bg-muted text-[var(--color-muted)] hover:bg-muted/70"}`}
+ className={`flex-1 text-xs py-1 rounded-md font-medium transition-colors ${filter === f ? "bg-[var(--color-navy)] text-white" : "bg-muted text-[var(--color-muted)] hover:bg-muted/70"}`}
  data-testid={`filter-visitor-${f}`}
  >
  {f === "all" ? "Todos" : f === "open" ? "Abertos" : "Fechados"}
@@ -900,16 +900,16 @@ function VisitorChatPanel({ chats }: { chats: any[] }) {
  <div className="flex-1 min-w-0">
  <div className="flex items-center justify-between gap-1">
  <p className={`text-sm truncate ${c.unreadCount > 0 ? "font-bold" : "font-medium"}`}>{c.visitorName}</p>
- <span className="text-[10px] text-[var(--color-muted)] flex-shrink-0">{c.lastMessageAt ? chatRelTime(c.lastMessageAt) : ""}</span>
+ <span className="text-xs text-[var(--color-muted)] flex-shrink-0">{c.lastMessageAt ? chatRelTime(c.lastMessageAt) : ""}</span>
  </div>
- <p className="text-[10px] text-[var(--color-muted)] truncate">{c.visitorEmail}</p>
+ <p className="text-xs text-[var(--color-muted)] truncate">{c.visitorEmail}</p>
  <p className="text-xs text-[var(--color-muted)] truncate mt-0.5">{c.lastMessage ? c.lastMessage.slice(0, 50) : <span className="italic">Sem mensagens</span>}</p>
  <div className="flex items-center justify-between mt-1">
- <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${c.status === "open" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-600"}`}>
+ <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${c.status === "open" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-600"}`}>
  {c.status === "open" ? "Aberto" : "Fechado"}
  </span>
  {c.unreadCount > 0 && (
- <span className="w-5 h-5 bg-[var(--color-navy)] text-white text-[10px] rounded-full flex items-center justify-center font-bold">{c.unreadCount}</span>
+ <span className="w-5 h-5 bg-[var(--color-navy)] text-white text-xs rounded-full flex items-center justify-center font-bold">{c.unreadCount}</span>
  )}
  </div>
  </div>
@@ -965,7 +965,7 @@ function VisitorChatPanel({ chats }: { chats: any[] }) {
  ) : msgs.map((m: any) => (
  <div key={m.id} className={`flex items-end gap-2 ${m.isFromAdmin ? "justify-end" : "justify-start"}`}>
  {!m.isFromAdmin && (
- <div className="w-6 h-6 rounded-full from-green-500 to-emerald-600 flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0">
+ <div className="w-6 h-6 rounded-full from-green-500 to-emerald-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
  {activeChat.visitorName.charAt(0).toUpperCase()}
  </div>
  )}
@@ -973,7 +973,7 @@ function VisitorChatPanel({ chats }: { chats: any[] }) {
  <div className={`rounded px-3.5 py-2.5 ${m.isFromAdmin ? "bg-[var(--color-navy)] text-white rounded-br-sm" : "bg-[var(--color-surface)] border rounded-bl-sm"}`}>
  <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.content}</p>
  </div>
- <p className="text-[10px] px-1 text-[var(--color-muted)]">{chatFullTime(m.createdAt)}</p>
+ <p className="text-xs px-1 text-[var(--color-muted)]">{chatFullTime(m.createdAt)}</p>
  </div>
  </div>
  ))}
@@ -1582,10 +1582,8 @@ export default function AdminSistemaPage() {
  }
 
  const filteredProviders = allProviders.filter((p: any) =>
- p.adminEmailVerified === true && (
  p.name.toLowerCase().includes(providerSearch.toLowerCase()) ||
  (p.subdomain || "").toLowerCase().includes(providerSearch.toLowerCase())
- )
  );
 
  const filteredCadastros = allProviders
@@ -1668,7 +1666,7 @@ export default function AdminSistemaPage() {
  <div>
  <p className="text-2xl font-bold">{s.value}</p>
  <p className="text-xs text-[var(--color-muted)]">{s.label}</p>
- <p className="text-[11px] text-[var(--color-muted)]/70">{s.sub}</p>
+ <p className="text-xs text-[var(--color-muted)]/70">{s.sub}</p>
  </div>
  </div>
  </Card>
@@ -1967,8 +1965,8 @@ export default function AdminSistemaPage() {
  </Button>
  </div>
  <div className="flex items-center gap-2 text-xs text-[var(--color-muted)] bg-muted/40 rounded px-3 py-2">
- <CheckCircle className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
- Exibindo apenas provedores com email verificado. Cadastros pendentes ficam visiveis na aba <button className="font-medium text-[var(--color-navy)] hover:underline" onClick={() => setActiveTab("cadastros")}>Cadastros</button>.
+ <Users className="w-3.5 h-3.5 text-[var(--color-steel)] flex-shrink-0" />
+ Todos os provedores cadastrados
  <span className="ml-auto text-xs font-medium">{filteredProviders.length} provedor(es)</span>
  </div>
 
@@ -2172,7 +2170,7 @@ export default function AdminSistemaPage() {
  <div>
  <Label className="text-xs font-medium mb-1 block">Chave (slug) *</Label>
  <Input value={erpForm.key} onChange={e => setErpForm(f => ({ ...f, key: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") }))} placeholder="ex: ixc, sgp, mk" disabled={!!editingErp} data-testid="input-erp-key" className="h-8 text-sm" />
- <p className="text-[10px] text-[var(--color-muted)] mt-0.5">Identificador unico, sem espacos</p>
+ <p className="text-xs text-[var(--color-muted)] mt-0.5">Identificador unico, sem espacos</p>
  </div>
  <div>
  <Label className="text-xs font-medium mb-1 block">Nome do ERP *</Label>
@@ -2237,7 +2235,7 @@ export default function AdminSistemaPage() {
  {erpLogoPreview ? "Trocar logo" : "Enviar logo"}
  </div>
  </label>
- <p className="text-[10px] text-[var(--color-muted)] text-center">PNG, JPG ou SVG. Max 2MB.<br/>Sem logo: inicial do nome sobre gradiente.</p>
+ <p className="text-xs text-[var(--color-muted)] text-center">PNG, JPG ou SVG. Max 2MB.<br/>Sem logo: inicial do nome sobre gradiente.</p>
  </div>
  </div>
  <div className="flex items-center gap-2">
@@ -2283,13 +2281,13 @@ export default function AdminSistemaPage() {
  </div>
  </div>
  <h3 className="font-semibold text-sm leading-tight" data-testid={`text-erp-name-${erp.id}`}>{erp.name}</h3>
- {erp.description && <p className="text-[11px] text-[var(--color-muted)] mt-0.5 leading-tight" data-testid={`text-erp-desc-${erp.id}`}>{erp.description}</p>}
+ {erp.description && <p className="text-xs text-[var(--color-muted)] mt-0.5 leading-tight" data-testid={`text-erp-desc-${erp.id}`}>{erp.description}</p>}
  <div className="flex items-center justify-between mt-3 pt-3 border-t">
- <code className="text-[10px] bg-muted px-1.5 py-0.5 rounded font-mono" data-testid={`text-erp-key-${erp.id}`}>{erp.key}</code>
+ <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono" data-testid={`text-erp-key-${erp.id}`}>{erp.key}</code>
  <button onClick={() => toggleErpActiveMutation.mutate({ id: erp.id, active: !erp.active })} data-testid={`toggle-erp-status-${erp.id}`}>
  {erp.active
- ? <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300 text-[10px] h-5 cursor-pointer hover:opacity-80">Ativo</Badge>
- : <Badge className="bg-slate-100 text-[var(--color-muted)] dark:bg-slate-800 dark:text-[var(--color-muted)] text-[10px] h-5 cursor-pointer hover:opacity-80">Inativo</Badge>
+ ? <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300 text-xs h-5 cursor-pointer hover:opacity-80">Ativo</Badge>
+ : <Badge className="bg-slate-100 text-[var(--color-muted)] dark:bg-slate-800 dark:text-[var(--color-muted)] text-xs h-5 cursor-pointer hover:opacity-80">Inativo</Badge>
  }
  </button>
  </div>
@@ -2402,7 +2400,7 @@ export default function AdminSistemaPage() {
  <span className="text-white text-xs font-bold">{erp.name[0]}</span>
  )}
  </div>
- <p className={`text-[10px] font-semibold leading-tight ${isSelected ? "text-[var(--color-navy)]" : "text-[var(--color-muted)]"}`}>{erp.name}</p>
+ <p className={`text-xs font-semibold leading-tight ${isSelected ? "text-[var(--color-navy)]" : "text-[var(--color-muted)]"}`}>{erp.name}</p>
  </button>
  );
  })}
@@ -2415,13 +2413,13 @@ export default function AdminSistemaPage() {
  {adminSelectedErp === "mk" && (
  <div className="bg-[var(--color-navy-bg)] border border-blue-200 rounded p-3 space-y-2">
  <p className="text-xs font-bold text-[var(--color-navy)]">Como configurar o MK Solutions</p>
- <ol className="text-[11px] text-[var(--color-navy)] space-y-1 list-decimal list-inside">
+ <ol className="text-xs text-[var(--color-navy)] space-y-1 list-decimal list-inside">
  <li>No MK, acesse <strong>Webservice &gt; Configuracoes</strong></li>
  <li>Copie o <strong>Token</strong> e a <strong>Contra-Senha</strong></li>
- <li>A URL e o endereco do servidor MK: <code className="bg-[var(--color-navy-bg)] px-1 rounded text-[10px]">http://IP:PORTA/mk</code></li>
- <li>Exemplo: <code className="bg-[var(--color-navy-bg)] px-1 rounded text-[10px]">http://170.231.148.99:8080/mk</code></li>
+ <li>A URL e o endereco do servidor MK: <code className="bg-[var(--color-navy-bg)] px-1 rounded text-xs">http://IP:PORTA/mk</code></li>
+ <li>Exemplo: <code className="bg-[var(--color-navy-bg)] px-1 rounded text-xs">http://170.231.148.99:8080/mk</code></li>
  </ol>
- <p className="text-[10px] text-blue-500">A porta padrao do MK e 8080. O caminho /mk no final e obrigatorio.</p>
+ <p className="text-xs text-blue-500">A porta padrao do MK e 8080. O caminho /mk no final e obrigatorio.</p>
  </div>
  )}
 
@@ -2429,11 +2427,11 @@ export default function AdminSistemaPage() {
  {adminSelectedErp === "ixc" && (
  <div className="bg-[var(--color-navy-bg)] border border-blue-200 rounded p-3 space-y-2">
  <p className="text-xs font-bold text-[var(--color-navy)]">Como configurar o IXC Soft</p>
- <ol className="text-[11px] text-[var(--color-navy)] space-y-1 list-decimal list-inside">
+ <ol className="text-xs text-[var(--color-navy)] space-y-1 list-decimal list-inside">
  <li>No IXC, acesse <strong>Sistema &gt; Webservice &gt; Token</strong></li>
  <li>Copie o <strong>ID numerico</strong> do usuario e o <strong>Token</strong></li>
- <li>Cole no campo abaixo separados por dois-pontos: <code className="bg-[var(--color-navy-bg)] px-1 rounded text-[10px]">ID:TOKEN</code></li>
- <li><strong>Importante:</strong> libere o IP <code className="bg-[var(--color-navy-bg)] px-1 rounded text-[10px]">187.127.7.168</code> no painel IXC</li>
+ <li>Cole no campo abaixo separados por dois-pontos: <code className="bg-[var(--color-navy-bg)] px-1 rounded text-xs">ID:TOKEN</code></li>
+ <li><strong>Importante:</strong> libere o IP <code className="bg-[var(--color-navy-bg)] px-1 rounded text-xs">187.127.7.168</code> no painel IXC</li>
  </ol>
  </div>
  )}
@@ -2455,7 +2453,7 @@ export default function AdminSistemaPage() {
  onChange={e => setErpForms(prev => ({ ...prev, [p.id]: { ...form, url: e.target.value } }))}
  className="h-10 text-sm font-mono"
  />
- <p className="text-[11px] text-[var(--color-muted)]">
+ <p className="text-xs text-[var(--color-muted)]">
  {adminSelectedErp === "ixc" ? "URL completa do IXC. Ex: https://ixc.seuprovedor.com.br" :
  adminSelectedErp === "mk" ? "IP e porta do MK Solutions com /mk no final. Ex: http://170.231.148.99:8080/mk" :
  adminSelectedErp === "hubsoft" ? "URL base da API Hubsoft" :
@@ -2481,7 +2479,7 @@ export default function AdminSistemaPage() {
  {form.showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
  </button>
  </div>
- <p className="text-[11px] text-[var(--color-muted)]">No IXC: Sistema &gt; Webservice &gt; copie o ID e o Token. Cole separados por dois-pontos (:)</p>
+ <p className="text-xs text-[var(--color-muted)]">No IXC: Sistema &gt; Webservice &gt; copie o ID e o Token. Cole separados por dois-pontos (:)</p>
  </div>
  ) : adminSelectedErp === "mk" ? (
  <div className="space-y-3">
@@ -2503,7 +2501,7 @@ export default function AdminSistemaPage() {
  {form.showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
  </button>
  </div>
- <p className="text-[11px] text-[var(--color-muted)]">No MK: Webservice &gt; Configuracoes &gt; copie o Token</p>
+ <p className="text-xs text-[var(--color-muted)]">No MK: Webservice &gt; Configuracoes &gt; copie o Token</p>
  </div>
  <div className="space-y-1.5">
  <label className="text-xs font-semibold text-[var(--color-ink)]">Contra-Senha do Webservice</label>
@@ -2523,7 +2521,7 @@ export default function AdminSistemaPage() {
  {form.showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
  </button>
  </div>
- <p className="text-[11px] text-[var(--color-muted)]">No MK: Webservice &gt; Configuracoes &gt; copie a Contra-Senha</p>
+ <p className="text-xs text-[var(--color-muted)]">No MK: Webservice &gt; Configuracoes &gt; copie a Contra-Senha</p>
  </div>
  </div>
  ) : (
@@ -2548,7 +2546,7 @@ export default function AdminSistemaPage() {
  {form.showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
  </button>
  </div>
- <p className="text-[11px] text-[var(--color-muted)]">
+ <p className="text-xs text-[var(--color-muted)]">
  {adminSelectedErp === "hubsoft" ? "Formato: client_id:client_secret:username:senha" :
  adminSelectedErp === "voalle" ? "Formato: usuario:senha (tipo Integracao)" :
  adminSelectedErp === "sgp" ? "Token obtido em Configuracoes > API" :
@@ -2774,7 +2772,7 @@ export default function AdminSistemaPage() {
  className="w-full rounded-t-sm from-blue-500 to-indigo-400 transition-all"
  style={{ height: `${Math.max(pct, 4)}%` }}
  />
- <span className="text-[10px] text-[var(--color-muted)]">{label}</span>
+ <span className="text-xs text-[var(--color-muted)]">{label}</span>
  </div>
  );
  })}
@@ -3045,7 +3043,7 @@ export default function AdminSistemaPage() {
  {STATUS_LABEL[displayStatus] || displayStatus}
  </Badge>
  {inv.asaasChargeId && (
- <span className="text-[9px] text-blue-500 font-medium flex items-center gap-0.5">
+ <span className="text-xs text-blue-500 font-medium flex items-center gap-0.5">
  <Wallet className="w-2.5 h-2.5" />Asaas
  </span>
  )}
@@ -3326,15 +3324,15 @@ export default function AdminSistemaPage() {
  <div className="flex-1 min-w-0">
  <div className="flex items-center gap-2 flex-wrap">
  <span className="text-sm font-medium truncate">{intg.providerName}</span>
- <Badge variant="outline" className="text-[10px] uppercase font-mono">{intg.erpSource}</Badge>
+ <Badge variant="outline" className="text-xs uppercase font-mono">{intg.erpSource}</Badge>
  {intg.lastSyncStatus && (
- <Badge className={`text-[10px] ${statusColor}`}>{intg.lastSyncStatus}</Badge>
+ <Badge className={`text-xs ${statusColor}`}>{intg.lastSyncStatus}</Badge>
  )}
  {intg.isDue && (
- <Badge className="text-[10px] bg-[var(--color-navy-bg)] text-[var(--color-navy)] dark:bg-blue-900 dark:text-blue-300">Vencido</Badge>
+ <Badge className="text-xs bg-[var(--color-navy-bg)] text-[var(--color-navy)] dark:bg-blue-900 dark:text-blue-300">Vencido</Badge>
  )}
  </div>
- <div className="flex items-center gap-4 mt-1 text-[11px] text-[var(--color-muted)] flex-wrap">
+ <div className="flex items-center gap-4 mt-1 text-xs text-[var(--color-muted)] flex-wrap">
  <span>
  {intg.lastSyncAt
  ? `Ultima sync: ${new Date(intg.lastSyncAt).toLocaleString("pt-BR")}`
@@ -3346,7 +3344,7 @@ export default function AdminSistemaPage() {
  </div>
  </div>
  <div className="flex items-center gap-2 flex-shrink-0">
- <span className="text-[11px] text-[var(--color-muted)]">Intervalo:</span>
+ <span className="text-xs text-[var(--color-muted)]">Intervalo:</span>
  <Select
  value={String(intg.syncIntervalHours)}
  onValueChange={(val) =>
@@ -3398,13 +3396,13 @@ export default function AdminSistemaPage() {
  <div className="flex-1 min-w-0">
  <div className="flex items-center gap-2 flex-wrap">
  <span className="text-sm font-medium truncate">{src.providerName}</span>
- <Badge variant="outline" className="text-[10px] uppercase font-mono">IXC Direto</Badge>
- <Badge className={`text-[10px] ${cacheColor}`}>{src.status === "ok" ? "ok" : src.status === "error" ? "erro" : "aguardando"}</Badge>
+ <Badge variant="outline" className="text-xs uppercase font-mono">IXC Direto</Badge>
+ <Badge className={`text-xs ${cacheColor}`}>{src.status === "ok" ? "ok" : src.status === "error" ? "erro" : "aguardando"}</Badge>
  {!src.erpEnabled && (
- <Badge className="text-[10px] bg-gray-100 text-gray-500">ERP desativado</Badge>
+ <Badge className="text-xs bg-gray-100 text-gray-500">ERP desativado</Badge>
  )}
  </div>
- <div className="flex items-center gap-4 mt-1 text-[11px] text-[var(--color-muted)] flex-wrap">
+ <div className="flex items-center gap-4 mt-1 text-xs text-[var(--color-muted)] flex-wrap">
  <span>
  {src.fetchedAt
  ? `Ultimo cache: ${new Date(src.fetchedAt).toLocaleString("pt-BR")}`
@@ -3417,7 +3415,7 @@ export default function AdminSistemaPage() {
  <span className="text-red-500 truncate max-w-xs" title={src.errorMessage}>{src.errorMessage.slice(0, 80)}</span>
  )}
  </div>
- <div className="mt-1 text-[10px] text-[var(--color-muted)]/60 truncate">{src.erpUrl}</div>
+ <div className="mt-1 text-xs text-[var(--color-muted)]/60 truncate">{src.erpUrl}</div>
  </div>
  </div>
  );
@@ -3452,7 +3450,7 @@ export default function AdminSistemaPage() {
  >
  Provedores
  {chatThreads.reduce((s: number, t: any) => s + (t.unreadCount || 0), 0) > 0 && (
- <span className="ml-2 w-5 h-5 inline-flex items-center justify-center bg-[var(--color-danger-bg)]0 text-white text-[10px] rounded-full font-bold">
+ <span className="ml-2 w-5 h-5 inline-flex items-center justify-center bg-[var(--color-danger-bg)]0 text-white text-xs rounded-full font-bold">
  {chatThreads.reduce((s: number, t: any) => s + (t.unreadCount || 0), 0)}
  </span>
  )}
@@ -3464,7 +3462,7 @@ export default function AdminSistemaPage() {
  >
  Visitantes do Site
  {visitorChats.reduce((s: number, c: any) => s + (c.unreadCount || 0), 0) > 0 && (
- <span className="ml-2 w-5 h-5 inline-flex items-center justify-center bg-[var(--color-danger-bg)]0 text-white text-[10px] rounded-full font-bold">
+ <span className="ml-2 w-5 h-5 inline-flex items-center justify-center bg-[var(--color-danger-bg)]0 text-white text-xs rounded-full font-bold">
  {visitorChats.reduce((s: number, c: any) => s + (c.unreadCount || 0), 0)}
  </span>
  )}

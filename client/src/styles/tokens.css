@@ -33,4 +33,43 @@
   --score-medium:     var(--color-gold);         /* 401-700  */
   --score-low:        #C45A1A;                   /* 201-400  */
   --score-critical:   var(--color-danger);        /* 0-200    */
+
+  /* Tipografia — escala do design system (post-bump) */
+  --text-micro:  11px;   /* smallest allowed — decorative labels only */
+  --text-xs:     12px;   /* badges, table headers, timestamps, buttons */
+  --text-sm:     14px;   /* body text, inputs, descriptions */
+  --text-base:   16px;   /* headings, emphasis */
+  --text-lg:     18px;   /* section headers */
+
+  /* Elevacao — escala de sombras */
+  /* sm: cards simples | md: cards hover | lg: modais, dropdowns | xl: FAB, chat */
+}
+
+/* ── Dark mode overrides ────────────────────────────────────── */
+.dark {
+  /* Fundos */
+  --color-bg:         #1A1D23;
+  --color-surface:    #23272F;
+  --color-border:     #3A3F4A;
+
+  /* Texto */
+  --color-ink:        #E8E6E3;
+  --color-muted:      #9B978F;
+  --color-tag-bg:     #2E3038;
+
+  /* Primarios semanticos — mais claros para contraste em fundo escuro */
+  --color-navy:       #4A8BC2;
+  --color-steel:      #6AA3D4;
+  --color-gold:       #D4A72C;
+  --color-danger:     #C44E4E;
+  --color-success:    #4A9B6E;
+
+  /* Fundos semanticos — versoes escuras com opacidade */
+  --color-navy-bg:    #1A2A3A;
+  --color-gold-bg:    #2A2518;
+  --color-danger-bg:  #2A1A1A;
+  --color-success-bg: #1A2A20;
+
+  /* Score */
+  --score-low:        #E07040;
 }

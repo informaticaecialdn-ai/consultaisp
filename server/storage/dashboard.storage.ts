@@ -41,6 +41,12 @@ export class DashboardStorage {
 
     const [provider] = await db.select().from(providers).where(eq(providers.id, providerId));
 
+    const partnerProviders = await db.select({ count: count() }).from(providers)
+      .where(and(
+        eq(providers.status, "active"),
+        sql`${providers.id} != ${providerId}`,
+      ));
+
     return {
       totalCustomers: totalCustomers[0]?.count || 0,
       defaulters: defaulterCustomers[0]?.count || 0,
@@ -53,6 +59,7 @@ export class DashboardStorage {
       unreturnedEquipmentValue: unreturnedEquip[0]?.total || "0",
       ispCredits: provider?.ispCredits || 0,
       spcCredits: provider?.spcCredits || 0,
+      partnerCount: partnerProviders[0]?.count || 0,
     };
   }
 

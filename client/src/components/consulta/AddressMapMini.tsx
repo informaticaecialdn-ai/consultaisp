@@ -1,6 +1,6 @@
-import { useRef, useEffect, useState } from "react";
-import "leaflet/dist/leaflet.css";
-import L from "leaflet";
+import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { STALE_STATIC } from "@/lib/queryClient";
 import { MapPin } from "lucide-react";
 
 interface AddressMapMiniProps {
@@ -8,133 +8,54 @@ interface AddressMapMiniProps {
   addressNumber?: string;
 }
 
-const geocodeCache = new Map<string, { lat: number; lon: number } | null>();
-
 export default function AddressMapMini({ cep, addressNumber }: AddressMapMiniProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<L.Map | null>(null);
-  const [geocodeFailed, setGeocodeFailed] = useState(false);
+  const [addressQuery, setAddressQuery] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  const { data: keyData, isLoading: keyLoading, isError: keyError } = useQuery<{ key: string }>({
+    queryKey: ["/api/config/maps-key"],
+    staleTime: STALE_STATIC,
+  });
+
+  const apiKey = keyData?.key ?? "";
+  const keyResolved = !keyLoading;
+  const keyUnavailable = keyResolved && (!apiKey || keyError);
 
   useEffect(() => {
-    if (!containerRef.current || !cep) return;
+    if (!cep) { setFailed(true); return; }
 
     const cleanCep = cep.replace(/\D/g, "");
-    if (cleanCep.length !== 8) {
-      setGeocodeFailed(true);
-      return;
-    }
+    if (cleanCep.length !== 8) { setFailed(true); return; }
 
     let cancelled = false;
-
-    const map = L.map(containerRef.current, {
-      scrollWheelZoom: false,
-      dragging: false,
-      doubleClickZoom: false,
-      boxZoom: false,
-      keyboard: false,
-      zoomControl: false,
-      attributionControl: false,
-      zoomAnimation: false,
-      fadeAnimation: false,
-      markerZoomAnimation: false,
-    }).setView([-15.8, -48.0], 4);
-
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18 }).addTo(map);
-    mapRef.current = map;
+    setFailed(false);
+    setAddressQuery(null);
 
     (async () => {
       try {
-        const cacheKey = cleanCep;
-        if (geocodeCache.has(cacheKey)) {
-          const cached = geocodeCache.get(cacheKey);
-          if (cancelled) return;
-          if (cached) {
-            map.setView([cached.lat, cached.lon], 15);
-            const icon = L.divIcon({
-              className: "",
-              html: `<div style="width:12px;height:12px;background:#ef4444;border:2px solid #fff;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
-              iconSize: [12, 12],
-              iconAnchor: [6, 6],
-            });
-            const marker = L.marker([cached.lat, cached.lon], { icon }).addTo(map);
-            if (addressNumber) marker.bindPopup(`CEP ${cleanCep}, nº ${addressNumber}`);
-          } else {
-            setGeocodeFailed(true);
-          }
-          return;
-        }
+        const res = await fetch(`https://viacep.com.br/ws/${cleanCep}/json/`);
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.erro || !data.localidade) { setFailed(true); return; }
 
-        const viaCepRes = await fetch(`https://viacep.com.br/ws/${cleanCep}/json/`);
-        const viaCepData = await viaCepRes.json();
-        if (cancelled || viaCepData.erro) { geocodeCache.set(cacheKey, null); if (!cancelled) setGeocodeFailed(true); return; }
-
-        const { localidade, uf, logradouro, bairro } = viaCepData;
-        if (!localidade) { geocodeCache.set(cacheKey, null); if (!cancelled) setGeocodeFailed(true); return; }
-
-        // Use structured search params (more reliable than free-text q=)
-        // Try street+city first, then city-only fallback
-        const searches: Record<string, string>[] = [];
-        if (logradouro) {
-          searches.push({ street: logradouro, city: localidade, state: uf, country: "Brazil" });
-        }
-        if (bairro) {
-          searches.push({ street: bairro, city: localidade, state: uf, country: "Brazil" });
-        }
-        searches.push({ city: localidade, state: uf, country: "Brazil" });
-
-        let nomData: any[] = [];
-        for (const params of searches) {
-          const sp = new URLSearchParams({ ...params, format: "json", limit: "1", countrycodes: "br" });
-          const nomRes = await fetch(`https://nominatim.openstreetmap.org/search?${sp}`, {
-            headers: { "Accept-Language": "pt-BR", "Referer": window.location.origin },
-          });
-          nomData = await nomRes.json();
-          if (cancelled) return;
-          if (nomData?.[0]?.lat) break;
-        }
-
-        if (nomData?.[0]?.lat && nomData?.[0]?.lon) {
-          const lat = parseFloat(nomData[0].lat);
-          const lon = parseFloat(nomData[0].lon);
-          geocodeCache.set(cacheKey, { lat, lon });
-          map.setView([lat, lon], 15);
-
-          const icon = L.divIcon({
-            className: "",
-            html: `<div style="width:12px;height:12px;background:#ef4444;border:2px solid #fff;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
-            iconSize: [12, 12],
-            iconAnchor: [6, 6],
-          });
-          const marker = L.marker([lat, lon], { icon }).addTo(map);
-          if (addressNumber) marker.bindPopup(`CEP ${cleanCep}, nº ${addressNumber}`);
+        const { logradouro, localidade, uf } = data;
+        if (logradouro && addressNumber) {
+          setAddressQuery(`${logradouro} ${addressNumber}, ${localidade}, ${uf}, Brasil`);
+        } else if (logradouro) {
+          setAddressQuery(`${logradouro}, ${localidade}, ${uf}, Brasil`);
         } else {
-          geocodeCache.set(cacheKey, null);
-          setGeocodeFailed(true);
+          setAddressQuery(`${localidade}, ${uf}, Brasil`);
         }
       } catch {
-        if (!cancelled) setGeocodeFailed(true);
+        if (!cancelled) setFailed(true);
       }
     })();
 
-    return () => {
-      cancelled = true;
-      if (mapRef.current) {
-        try {
-          const m = mapRef.current as any;
-          const pane = m._mapPane as HTMLElement | undefined;
-          if (pane) { pane.style.transition = "none"; void pane.offsetWidth; }
-          m._onZoomTransitionEnd = () => {};
-          m._onZoomAnim = () => {};
-          m.off();
-          m.stop();
-          m.remove();
-        } catch {}
-        mapRef.current = null;
-      }
-    };
-  }, [cep]);
+    return () => { cancelled = true; };
+  }, [cep, addressNumber]);
 
-  if (geocodeFailed) {
+  // Unavailable: geocode failed, CEP invalid, or API key not available
+  if (failed || keyUnavailable) {
     return (
       <div className="relative rounded overflow-hidden border border-[var(--color-border)] bg-[var(--color-bg)] flex flex-col items-center justify-center gap-2" style={{ height: "220px" }}>
         <MapPin className="w-8 h-8 text-[var(--color-muted)]" />
@@ -144,9 +65,26 @@ export default function AddressMapMini({ cep, addressNumber }: AddressMapMiniPro
     );
   }
 
+  // Loading: ViaCEP still resolving or API key still loading
+  if (!apiKey || !addressQuery) {
+    return (
+      <div className="relative rounded overflow-hidden border border-[var(--color-border)] bg-[var(--color-bg)] flex items-center justify-center" style={{ height: "220px" }}>
+        <div className="w-5 h-5 border-2 border-[var(--color-muted)] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div className="relative rounded overflow-hidden border border-[var(--color-border)]">
-      <div ref={containerRef} style={{ height: "220px" }} className="w-full" />
+      <iframe
+        src={`https://www.google.com/maps/embed/v1/place?key=${apiKey}&q=${encodeURIComponent(addressQuery)}&zoom=15`}
+        width="100%"
+        height="220"
+        style={{ border: 0 }}
+        loading="lazy"
+        referrerPolicy="no-referrer-when-downgrade"
+        title="Mapa do endereço"
+      />
     </div>
   );
 }

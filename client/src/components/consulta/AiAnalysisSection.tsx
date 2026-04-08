@@ -57,7 +57,7 @@ export default function AiAnalysisSection({ result }: Props) {
   };
 
   return (
-    <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4" data-testid="panel-ai-analysis">
+    <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4" data-testid="panel-ai-analysis">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-indigo-600" />

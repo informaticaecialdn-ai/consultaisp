@@ -57,7 +57,7 @@ export default function LgpdDisclaimerModal({ open, accepted, onAccept, onCancel
             Prosseguir com Consulta
           </Button>
         </div>
-        <p className="text-center text-[11px] text-slate-400 mt-2">Lei n 13.709/2018 - LGPD - Versao 2.0</p>
+        <p className="text-center text-xs text-slate-400 mt-2">Lei n 13.709/2018 - LGPD - Versao 2.0</p>
       </DialogContent>
     </Dialog>
   );

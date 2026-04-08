@@ -23,7 +23,7 @@ function TypingIndicator() {
       <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
         <MessageCircle className="w-3.5 h-3.5 text-white" />
       </div>
-      <div className="bg-slate-100 rounded-2xl rounded-bl-md px-4 py-3">
+      <div className="bg-slate-100 rounded-lg rounded-bl-md px-4 py-3">
         <div className="flex gap-1">
           <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
           <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
@@ -142,7 +142,7 @@ export default function LandingChat() {
     <>
       {!isOpen && showBubbleHint && (
         <div className="fixed bottom-24 right-6 z-50 animate-in fade-in slide-in-from-bottom-2 duration-300">
-          <div className="bg-white rounded-2xl rounded-br-md shadow-xl border border-slate-200 p-4 max-w-[260px] relative">
+          <div className="bg-white rounded-lg rounded-br-md shadow-xl border border-slate-200 p-4 max-w-[260px] relative">
             <button onClick={() => setShowBubbleHint(false)} className="absolute top-2 right-2 text-slate-400 hover:text-slate-600" data-testid="button-close-hint">
               <X className="w-3.5 h-3.5" />
             </button>
@@ -165,7 +165,7 @@ export default function LandingChat() {
       )}
 
       {isOpen && (
-        <div className="fixed bottom-6 right-6 z-50 w-[380px] max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-3rem)] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200" data-testid="chat-widget-panel">
+        <div className="fixed bottom-6 right-6 z-50 w-[380px] max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-3rem)] bg-white rounded-lg shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200" data-testid="chat-widget-panel">
           <div className="bg-blue-600 px-5 py-4 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center">
@@ -187,7 +187,7 @@ export default function LandingChat() {
           {!token ? (
             <div className="flex-1 flex flex-col justify-center p-6">
               <div className="text-center mb-6">
-                <div className="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center mx-auto mb-3">
+                <div className="w-14 h-14 rounded-lg bg-blue-50 flex items-center justify-center mx-auto mb-3">
                   <MessageCircle className="w-7 h-7 text-blue-400" />
                 </div>
                 <p className="text-sm font-semibold text-slate-800">Fale com nossa equipe</p>
@@ -223,7 +223,7 @@ export default function LandingChat() {
                   Iniciar conversa
                 </Button>
               </form>
-              <div className="mt-4 bg-blue-50 rounded-xl px-4 py-3 text-xs text-blue-700">
+              <div className="mt-4 bg-blue-50 rounded-lg px-4 py-3 text-xs text-blue-700">
                 <p className="font-semibold mb-1">Horario de atendimento</p>
                 <p>Seg-Sex: 08h-18h | Sab: 08h-12h</p>
               </div>
@@ -246,16 +246,16 @@ export default function LandingChat() {
                       )}
                       <div className={`max-w-[80%] flex flex-col gap-0.5 ${msg.isFromAdmin ? "items-start" : "items-end"}`}>
                         {msg.isFromAdmin && (
-                          <p className="text-[10px] font-semibold text-slate-500 ml-0.5">{msg.senderName}</p>
+                          <p className="text-xs font-semibold text-slate-500 ml-0.5">{msg.senderName}</p>
                         )}
                         <div className={`px-4 py-2.5 text-sm leading-relaxed whitespace-pre-line ${
                           msg.isFromAdmin
-                            ? "bg-white text-slate-700 rounded-2xl rounded-bl-md border border-slate-200 shadow-sm"
-                            : "bg-blue-600 text-white rounded-2xl rounded-br-md"
+                            ? "bg-white text-slate-700 rounded-lg rounded-bl-md border border-slate-200 shadow-sm"
+                            : "bg-blue-600 text-white rounded-lg rounded-br-md"
                         }`}>
                           {msg.content}
                         </div>
-                        <p className="text-[10px] text-slate-400 px-1">{chatTimeLabel(msg.createdAt)}</p>
+                        <p className="text-xs text-slate-400 px-1">{chatTimeLabel(msg.createdAt)}</p>
                       </div>
                     </div>
                   ))
@@ -276,13 +276,13 @@ export default function LandingChat() {
                       onChange={e => setMessage(e.target.value)}
                       onKeyDown={handleKeyDown}
                       rows={2}
-                      className="flex-1 text-sm border rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[52px] max-h-[100px]"
+                      className="flex-1 text-sm border rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[52px] max-h-[100px]"
                       data-testid="input-visitor-message"
                     />
                     <Button
                       type="button"
                       size="sm"
-                      className="h-9 w-9 p-0 rounded-xl bg-blue-600 hover:bg-blue-700 flex-shrink-0"
+                      className="h-9 w-9 p-0 rounded-lg bg-blue-600 hover:bg-blue-700 flex-shrink-0"
                       disabled={!message.trim() || sending}
                       onClick={handleSend}
                       data-testid="button-visitor-send"
@@ -291,7 +291,7 @@ export default function LandingChat() {
                     </Button>
                   </div>
                 )}
-                <p className="text-[10px] text-slate-400 text-center pb-2">Consulta ISP — Atendimento comercial</p>
+                <p className="text-xs text-slate-400 text-center pb-2">Consulta ISP — Atendimento comercial</p>
               </div>
             </>
           )}

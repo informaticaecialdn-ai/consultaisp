@@ -184,7 +184,7 @@ function ImportTab({ type }: { type: ImportType }) {
 
       {!preview && !result && (
         <div
-          className={`border-2 border-dashed rounded-xl p-10 text-center transition-colors ${
+          className={`border-2 border-dashed rounded-lg p-10 text-center transition-colors ${
             isDragging ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary/50"
           }`}
           onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
@@ -344,7 +344,7 @@ export default function ImportacaoPage() {
   return (
     <div className="p-6 space-y-6 max-w-4xl mx-auto" data-testid="importacao-page">
       <div className="flex items-center gap-4">
-        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center">
+        <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center">
           <Upload className="w-6 h-6 text-white" />
         </div>
         <div>

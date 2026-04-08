@@ -73,16 +73,16 @@ function SlaIndicator({ request }: { request: TitularRequest }) {
     return <span className="text-xs text-muted-foreground">-</span>;
   }
   if (request.overdue) {
-    return <Badge variant="destructive" className="text-[10px] px-1.5">Vencido</Badge>;
+    return <Badge variant="destructive" className="text-xs px-1.5">Vencido</Badge>;
   }
   if (request.nearDeadline) {
-    return <Badge className="bg-amber-500 text-white text-[10px] px-1.5">Urgente</Badge>;
+    return <Badge className="bg-amber-500 text-white text-xs px-1.5">Urgente</Badge>;
   }
   const remaining = 15 - request.businessDays;
   if (remaining <= 5) {
-    return <Badge className="bg-yellow-500 text-white text-[10px] px-1.5">{remaining}d uteis</Badge>;
+    return <Badge className="bg-yellow-500 text-white text-xs px-1.5">{remaining}d uteis</Badge>;
   }
-  return <Badge variant="outline" className="text-green-600 border-green-300 text-[10px] px-1.5">{remaining}d uteis</Badge>;
+  return <Badge variant="outline" className="text-green-600 border-green-300 text-xs px-1.5">{remaining}d uteis</Badge>;
 }
 
 export default function AdminLgpdPage() {
@@ -252,7 +252,7 @@ export default function AdminLgpdPage() {
                         <td className="px-4 py-3 font-mono text-xs">{r.protocolo}</td>
                         <td className="px-4 py-3 font-mono text-xs">{maskCpf(r.cpfCnpj)}</td>
                         <td className="px-4 py-3">
-                          <Badge variant="outline" className="text-[10px]">{TIPO_LABELS[r.tipoSolicitacao] || r.tipoSolicitacao}</Badge>
+                          <Badge variant="outline" className="text-xs">{TIPO_LABELS[r.tipoSolicitacao] || r.tipoSolicitacao}</Badge>
                         </td>
                         <td className="px-4 py-3">
                           <Badge variant={sc.variant} className={sc.className}>{sc.label}</Badge>
@@ -337,7 +337,7 @@ export default function AdminLgpdPage() {
               {selectedRequest.executionResult && (
                 <div>
                   <p className="text-muted-foreground text-xs mb-1">Resultado da Execucao</p>
-                  <pre className="text-[11px] bg-muted/50 p-3 rounded-lg overflow-auto max-h-48">
+                  <pre className="text-xs bg-muted/50 p-3 rounded-lg overflow-auto max-h-48">
                     {JSON.stringify(selectedRequest.executionResult, null, 2)}
                   </pre>
                 </div>

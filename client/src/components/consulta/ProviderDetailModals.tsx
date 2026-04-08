@@ -29,22 +29,22 @@ function DetailGrid({ d, isOwn }: { d: ProviderDetail; isOwn: boolean }) {
         <div className="p-4">
           <div className="flex items-center gap-1.5 mb-3">
             <CreditCard className="w-3.5 h-3.5 text-[var(--color-muted)]" />
-            <span className="text-[10px] font-bold text-[var(--color-muted)] uppercase tracking-wider">Financeiro</span>
+            <span className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wider">Financeiro</span>
           </div>
           <div className="space-y-2.5">
             <div>
-              <p className="text-[10px] text-[var(--color-muted)] mb-0.5">Status de pagamento</p>
+              <p className="text-xs text-[var(--color-muted)] mb-0.5">Status de pagamento</p>
               <span className={`text-xs font-semibold px-2 py-0.5 rounded-sm ${statusCls}`}>{d.status}</span>
             </div>
             {d.daysOverdue > 0 && (
               <div>
-                <p className="text-[10px] text-[var(--color-muted)]">Dias em atraso</p>
+                <p className="text-xs text-[var(--color-muted)]">Dias em atraso</p>
                 <p className="text-sm font-bold text-[var(--color-danger)]">{d.daysOverdue} dias</p>
               </div>
             )}
             {isOwn && hasOverdue && (
               <div>
-                <p className="text-[10px] text-[var(--color-muted)]">Valor em aberto</p>
+                <p className="text-xs text-[var(--color-muted)]">Valor em aberto</p>
                 <p className="text-base font-semibold text-[var(--color-danger)]">
                   R$ {(d.overdueAmount || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                 </p>
@@ -52,13 +52,13 @@ function DetailGrid({ d, isOwn }: { d: ProviderDetail; isOwn: boolean }) {
             )}
             {!isOwn && d.overdueAmountRange && (
               <div>
-                <p className="text-[10px] text-[var(--color-muted)]">Faixa de valor</p>
+                <p className="text-xs text-[var(--color-muted)]">Faixa de valor</p>
                 <p className="text-sm text-[var(--color-ink)]">{d.overdueAmountRange}</p>
               </div>
             )}
             {d.overdueInvoicesCount > 0 && (
               <div>
-                <p className="text-[10px] text-[var(--color-muted)]">Faturas em atraso</p>
+                <p className="text-xs text-[var(--color-muted)]">Faturas em atraso</p>
                 <p className="text-sm font-semibold text-[var(--color-ink)]">{d.overdueInvoicesCount} fatura(s)</p>
               </div>
             )}
@@ -75,41 +75,41 @@ function DetailGrid({ d, isOwn }: { d: ProviderDetail; isOwn: boolean }) {
         <div className="p-4">
           <div className="flex items-center gap-1.5 mb-3">
             <Clock className="w-3.5 h-3.5 text-[var(--color-muted)]" />
-            <span className="text-[10px] font-bold text-[var(--color-muted)] uppercase tracking-wider">Contrato</span>
+            <span className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wider">Contrato</span>
           </div>
           <div className="space-y-2.5">
             <div>
-              <p className="text-[10px] text-[var(--color-muted)]">Tempo de servico</p>
+              <p className="text-xs text-[var(--color-muted)]">Tempo de servico</p>
               <p className="text-sm font-semibold text-[var(--color-ink)]">{contractMonths} {contractMonths === 1 ? "mes" : "meses"}</p>
             </div>
             {isOwn ? (
               <>
                 <div>
-                  <p className="text-[10px] text-[var(--color-muted)]">Status do contrato</p>
+                  <p className="text-xs text-[var(--color-muted)]">Status do contrato</p>
                   <span className={`text-xs font-semibold px-2 py-0.5 rounded-sm ${statusContrato === "Ativo" ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>
                     {statusContrato}
                   </span>
                 </div>
                 <div>
-                  <p className="text-[10px] text-[var(--color-muted)]">Cliente</p>
+                  <p className="text-xs text-[var(--color-muted)]">Cliente</p>
                   <p className="text-sm font-semibold text-[var(--color-ink)]">{d.customerName}</p>
                 </div>
               </>
             ) : (
               <>
                 <div>
-                  <p className="text-[10px] text-[var(--color-muted)]">Provedor</p>
+                  <p className="text-xs text-[var(--color-muted)]">Provedor</p>
                   <p className="text-sm font-semibold text-[var(--color-ink)]">{d.providerName}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-[var(--color-muted)]">Cliente</p>
+                  <p className="text-xs text-[var(--color-muted)]">Cliente</p>
                   <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]"><Lock className="w-3 h-3" /> Dado restrito</span>
                 </div>
               </>
             )}
             {d.cancelledDate && (
               <div>
-                <p className="text-[10px] text-[var(--color-muted)]">Data cancelamento</p>
+                <p className="text-xs text-[var(--color-muted)]">Data cancelamento</p>
                 <p className="text-xs text-[var(--color-muted)]">{new Date(d.cancelledDate).toLocaleDateString("pt-BR")}</p>
               </div>
             )}
@@ -120,7 +120,7 @@ function DetailGrid({ d, isOwn }: { d: ProviderDetail; isOwn: boolean }) {
         <div className={`p-4 ${d.hasUnreturnedEquipment ? "bg-[var(--color-gold-bg)]" : ""}`}>
           <div className="flex items-center gap-1.5 mb-3">
             <Router className={`w-3.5 h-3.5 ${d.hasUnreturnedEquipment ? "text-[var(--color-gold)]" : "text-[var(--color-muted)]"}`} />
-            <span className="text-[10px] font-bold text-[var(--color-muted)] uppercase tracking-wider">Equipamentos</span>
+            <span className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wider">Equipamentos</span>
           </div>
           {d.hasUnreturnedEquipment ? (
             <div className="space-y-2">
@@ -178,7 +178,7 @@ export default function ProviderDetailModals({ freeDialogOpen, paidDialogOpen, s
                 <DialogTitle className="text-base font-bold text-[var(--color-ink)]">Consulta Gratuita</DialogTitle>
                 <p className="text-xs text-[var(--color-muted)] mt-0.5">{selectedFreeDetail?.providerName} — Seu Provedor</p>
               </div>
-              <span className="ml-auto text-[11px] font-bold px-2.5 py-1 rounded-sm bg-[var(--color-success-bg)] text-[var(--color-success)]">
+              <span className="ml-auto text-xs font-bold px-2.5 py-1 rounded-sm bg-[var(--color-success-bg)] text-[var(--color-success)]">
                 Gratuita — Sem Custo
               </span>
             </div>
@@ -226,7 +226,7 @@ export default function ProviderDetailModals({ freeDialogOpen, paidDialogOpen, s
                 <DialogTitle className="text-base font-bold text-[var(--color-ink)]">Consulta Paga</DialogTitle>
                 <p className="text-xs text-[var(--color-muted)] mt-0.5">{selectedPaidDetail?.providerName} — Outro Provedor</p>
               </div>
-              <span className="ml-auto text-[11px] font-bold px-2.5 py-1 rounded-sm bg-[var(--color-navy-bg)] text-[var(--color-navy)]">
+              <span className="ml-auto text-xs font-bold px-2.5 py-1 rounded-sm bg-[var(--color-navy-bg)] text-[var(--color-navy)]">
                 1 Credito Debitado
               </span>
             </div>

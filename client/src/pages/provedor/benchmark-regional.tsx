@@ -122,7 +122,7 @@ export default function BenchmarkRegionalPage() {
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">{card.sub}</p>
                 {card.badge && (
-                  <Badge className={`mt-2 text-[10px] ${card.badge.className}`}>
+                  <Badge className={`mt-2 text-xs ${card.badge.className}`}>
                     {card.badge.text}
                   </Badge>
                 )}
@@ -147,7 +147,7 @@ export default function BenchmarkRegionalPage() {
               {[1, 2, 3].map(i => <Skeleton key={i} className="h-10 w-full" />)}
             </div>
           ) : !data?.topRiskCeps?.length ? (
-            <div className="rounded-xl border border-dashed p-10 flex flex-col items-center justify-center text-center gap-2 bg-muted/20">
+            <div className="rounded-lg border border-dashed p-10 flex flex-col items-center justify-center text-center gap-2 bg-muted/20">
               <MapPin className="w-8 h-8 text-muted-foreground/40" />
               <p className="text-sm font-medium text-muted-foreground">Nenhum dado de CEP disponivel</p>
               <p className="text-xs text-muted-foreground/60">Realize consultas para gerar dados regionais.</p>

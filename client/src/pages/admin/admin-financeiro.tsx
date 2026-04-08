@@ -69,7 +69,7 @@ function MetricCard({ label, value, sub, icon: Icon, trend, trendValue, highligh
       <div className={`h-1 bg-gradient-to-r ${gradients[color] || gradients.blue}`} />
       <div className="p-4">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-[11px] text-muted-foreground font-semibold uppercase tracking-widest">{label}</span>
+          <span className="text-xs text-muted-foreground font-semibold uppercase tracking-widest">{label}</span>
           <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${gradients[color] || gradients.blue} flex items-center justify-center`}>
             <Icon className="w-4 h-4 text-white" />
           </div>
@@ -100,14 +100,14 @@ function WaterfallBar({ label, value, type, max }: { label: string; value: numbe
   const signs = { start: "", add: "+", sub: "-", end: "" };
   return (
     <div className="flex flex-col items-center gap-1 flex-1 min-w-0">
-      <span className="text-[10px] font-semibold text-muted-foreground text-center">
+      <span className="text-xs font-semibold text-muted-foreground text-center">
         {signs[type]}R${fmtInt(Math.round(value))}
       </span>
       <div
         className={`w-full rounded-t-sm ${colors[type]} transition-all`}
         style={{ height: `${pct}%`, minHeight: 8 }}
       />
-      <span className="text-[9px] text-muted-foreground text-center leading-tight">{label}</span>
+      <span className="text-xs text-muted-foreground text-center leading-tight">{label}</span>
     </div>
   );
 }
@@ -285,11 +285,11 @@ export default function AdminFinanceiroPage() {
   };
 
   return (
-    <div className="p-5 pb-10 space-y-6 max-w-[1400px] mx-auto">
+    <div className="p-5 pb-10 space-y-6 max-w-7xl mx-auto">
       {/* Asaas Charge Modal */}
       {asaasChargeModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setAsaasChargeModal(null)}>
-          <div className="bg-background rounded-xl shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+          <div className="bg-background rounded-lg shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <h2 className="text-base font-bold mb-1 flex items-center gap-2">
               <Wallet className="w-4 h-4 text-blue-500" />Cobrar via Asaas
             </h2>
@@ -320,7 +320,7 @@ export default function AdminFinanceiroPage() {
       {/* PIX Modal */}
       {asaasPixModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setAsaasPixModal(null)}>
-          <div className="bg-background rounded-xl shadow-xl p-6 w-full max-w-sm text-center" onClick={e => e.stopPropagation()}>
+          <div className="bg-background rounded-lg shadow-xl p-6 w-full max-w-sm text-center" onClick={e => e.stopPropagation()}>
             <h2 className="text-base font-bold mb-1 flex items-center gap-2 justify-center"><QrCode className="w-4 h-4 text-blue-500" />QR Code PIX</h2>
             {asaasPixModal.pixData?.encodedImage
               ? <img src={`data:image/png;base64,${asaasPixModal.pixData.encodedImage}`} alt="QR Code PIX" className="mx-auto w-48 h-48 my-4 rounded-lg border" />
@@ -405,7 +405,7 @@ export default function AdminFinanceiroPage() {
                 <div className={`h-1 bg-gradient-to-r ${(snap.monthlyChurnRate || 0) === 0 ? "from-emerald-400 to-emerald-500" : (snap.monthlyChurnRate || 0) < 3 ? "from-amber-400 to-amber-500" : "from-rose-400 to-rose-500"}`} />
                 <div className="p-4">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-[11px] text-muted-foreground font-semibold uppercase tracking-widest">Churn Mensal</span>
+                    <span className="text-xs text-muted-foreground font-semibold uppercase tracking-widest">Churn Mensal</span>
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${(snap.monthlyChurnRate || 0) === 0 ? "bg-emerald-100" : (snap.monthlyChurnRate || 0) < 3 ? "bg-amber-100" : "bg-rose-100"}`}>
                       <TrendingDown className={`w-4 h-4 ${(snap.monthlyChurnRate || 0) === 0 ? "text-emerald-600" : (snap.monthlyChurnRate || 0) < 3 ? "text-amber-600" : "text-rose-600"}`} />
                     </div>
@@ -419,7 +419,7 @@ export default function AdminFinanceiroPage() {
                 <div className={`h-1 bg-gradient-to-r ${(snap.nrr || 100) >= 100 ? "from-emerald-400 to-emerald-500" : "from-amber-400 to-amber-500"}`} />
                 <div className="p-4">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-[11px] text-muted-foreground font-semibold uppercase tracking-widest">NRR</span>
+                    <span className="text-xs text-muted-foreground font-semibold uppercase tracking-widest">NRR</span>
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${(snap.nrr || 100) >= 100 ? "bg-emerald-100" : "bg-amber-100"}`}>
                       <Activity className={`w-4 h-4 ${(snap.nrr || 100) >= 100 ? "text-emerald-600" : "text-amber-600"}`} />
                     </div>
@@ -473,7 +473,7 @@ export default function AdminFinanceiroPage() {
                   <div key={item.label} className="flex items-center justify-between">
                     <div className="flex items-center gap-1">
                       <item.icon className={`w-3 h-3 ${item.color}`} />
-                      <span className="text-[11px] text-muted-foreground">{item.label}</span>
+                      <span className="text-xs text-muted-foreground">{item.label}</span>
                     </div>
                     <span className={`text-xs font-semibold ${item.color}`}>R$ {fmtInt(item.value)}</span>
                   </div>
@@ -493,14 +493,14 @@ export default function AdminFinanceiroPage() {
                   const isCurrent = m.period === currentPeriod;
                   return (
                     <div key={m.period} className="flex flex-col items-center flex-1 gap-1 group" title={`${periodLabel(m.period)}: R$ ${fmt(m.collectedRevenue)}`}>
-                      <span className="text-[9px] text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
+                      <span className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
                         R${fmtInt(Math.round(m.collectedRevenue))}
                       </span>
                       <div
                         className={`w-full rounded-t-sm transition-all ${isCurrent ? "bg-gradient-to-t from-blue-500 to-indigo-400" : "bg-gradient-to-t from-blue-300 to-indigo-200"}`}
                         style={{ height: `${Math.max(pct, 3)}%` }}
                       />
-                      <span className={`text-[9px] ${isCurrent ? "font-bold text-blue-600" : "text-muted-foreground"}`}>{periodLabel(m.period)}</span>
+                      <span className={`text-xs ${isCurrent ? "font-bold text-blue-600" : "text-muted-foreground"}`}>{periodLabel(m.period)}</span>
                     </div>
                   );
                 })}
@@ -567,7 +567,7 @@ export default function AdminFinanceiroPage() {
                   <div key={row.label} className={`flex items-center justify-between px-3 py-2 rounded-lg ${row.bg}`}>
                     <div>
                       <p className={`text-xs font-semibold ${row.color}`}>{row.label}</p>
-                      <p className="text-[11px] text-muted-foreground">{row.count} fatura(s)</p>
+                      <p className="text-xs text-muted-foreground">{row.count} fatura(s)</p>
                     </div>
                     {row.amount > 0 && <span className={`text-xs font-bold ${row.color}`}>R$ {fmt(row.amount)}</span>}
                   </div>
@@ -575,7 +575,7 @@ export default function AdminFinanceiroPage() {
                 {/* Aging */}
                 {invoiceHealth.totalOverdue > 0 && (
                   <div className="mt-2 pt-2 border-t">
-                    <p className="text-[11px] text-muted-foreground font-semibold mb-2 uppercase tracking-wide">Aging de inadimplencia</p>
+                    <p className="text-xs text-muted-foreground font-semibold mb-2 uppercase tracking-wide">Aging de inadimplencia</p>
                     {Object.entries(invoiceHealth.agingBuckets || {}).map(([range, val]: any) => (
                       val > 0 && (
                         <div key={range} className="flex items-center justify-between text-xs py-0.5">
@@ -597,7 +597,7 @@ export default function AdminFinanceiroPage() {
               <div className="space-y-2">
                 {waterfall.upgrades?.length > 0 && (
                   <>
-                    <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Upgrades</p>
+                    <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Upgrades</p>
                     {waterfall.upgrades.map((u: any, i: number) => (
                       <div key={i} className="flex items-center justify-between text-xs py-1.5 px-2 rounded bg-emerald-50">
                         <div>
@@ -611,7 +611,7 @@ export default function AdminFinanceiroPage() {
                 )}
                 {waterfall.downgrades?.length > 0 && (
                   <>
-                    <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider mt-2">Downgrades</p>
+                    <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mt-2">Downgrades</p>
                     {waterfall.downgrades.map((d: any, i: number) => (
                       <div key={i} className="flex items-center justify-between text-xs py-1.5 px-2 rounded bg-amber-50">
                         <div>
@@ -625,7 +625,7 @@ export default function AdminFinanceiroPage() {
                 )}
                 {waterfall.churns?.length > 0 && (
                   <>
-                    <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider mt-2">Churn</p>
+                    <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mt-2">Churn</p>
                     {waterfall.churns.map((c: any, i: number) => (
                       <div key={i} className="flex items-center justify-between text-xs py-1.5 px-2 rounded bg-rose-50">
                         <div>
@@ -676,7 +676,7 @@ export default function AdminFinanceiroPage() {
                       <tr key={p.id} className="hover:bg-muted/10 transition-colors" data-testid={`provider-health-row-${p.id}`}>
                         <td className="py-2.5 px-4 font-medium">{p.name}</td>
                         <td className="py-2.5 px-4">
-                          <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${pl?.bg} ${pl?.color}`}>{pl?.label || p.plan}</span>
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${pl?.bg} ${pl?.color}`}>{pl?.label || p.plan}</span>
                         </td>
                         <td className="py-2.5 px-4 text-right font-semibold">
                           {p.mrr > 0 ? `R$ ${fmtInt(p.mrr)}` : <span className="text-muted-foreground">Gratuito</span>}
@@ -688,15 +688,15 @@ export default function AdminFinanceiroPage() {
                             : <span className="text-muted-foreground">—</span>}
                         </td>
                         <td className="py-2.5 px-4 text-center">
-                          {p.health === "good" && <Badge className="text-[10px] bg-emerald-100 text-emerald-700">Em dia</Badge>}
-                          {p.health === "overdue" && <Badge className="text-[10px] bg-rose-100 text-rose-700">Inadimplente</Badge>}
-                          {p.health === "new" && <Badge className="text-[10px] bg-gray-100 text-gray-600">Novo</Badge>}
+                          {p.health === "good" && <Badge className="text-xs bg-emerald-100 text-emerald-700">Em dia</Badge>}
+                          {p.health === "overdue" && <Badge className="text-xs bg-rose-100 text-rose-700">Inadimplente</Badge>}
+                          {p.health === "new" && <Badge className="text-xs bg-gray-100 text-gray-600">Novo</Badge>}
                         </td>
                         <td className="py-2.5 px-4 text-center">
                           {p.hasAsaas ? <Wallet className="w-3.5 h-3.5 text-blue-500 mx-auto" title="Cobranca Asaas ativa" /> : <span className="text-muted-foreground">—</span>}
                         </td>
                         <td className="py-2.5 px-4 text-center">
-                          <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px] gap-1"
+                          <Button variant="ghost" size="sm" className="h-6 px-2 text-xs gap-1"
                             onClick={() => navigate(`/admin/provedor/${p.id}`)}
                             data-testid={`button-go-provider-${p.id}`}>
                             Ver <ChevronRight className="w-3 h-3" />
@@ -871,7 +871,7 @@ export default function AdminFinanceiroPage() {
                           </td>
                           <td className="py-3 px-4 text-xs text-muted-foreground">{inv.period}</td>
                           <td className="py-3 px-4">
-                            <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${PLAN_LABELS[inv.planAtTime]?.bg} ${PLAN_LABELS[inv.planAtTime]?.color}`}>
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${PLAN_LABELS[inv.planAtTime]?.bg} ${PLAN_LABELS[inv.planAtTime]?.color}`}>
                               {PLAN_LABELS[inv.planAtTime]?.label || inv.planAtTime}
                             </span>
                           </td>
@@ -883,11 +883,11 @@ export default function AdminFinanceiroPage() {
                           </td>
                           <td className="py-3 px-4 text-center">
                             <div className="flex flex-col items-center gap-0.5">
-                              <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${STATUS_STYLE[displayStatus] || STATUS_STYLE.pending}`}>
+                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_STYLE[displayStatus] || STATUS_STYLE.pending}`}>
                                 {STATUS_LABEL[displayStatus] || displayStatus}
                               </span>
                               {inv.asaasChargeId && (
-                                <span className="text-[9px] text-blue-500 font-medium flex items-center gap-0.5">
+                                <span className="text-xs text-blue-500 font-medium flex items-center gap-0.5">
                                   <Wallet className="w-2.5 h-2.5" />Asaas
                                 </span>
                               )}

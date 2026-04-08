@@ -384,7 +384,7 @@ export default function ConfiguracoesRegionalizacaoPage() {
               <p className="text-xs text-blue-600 mt-0.5">
                 {myCidades.mesorregioes.join(", ")}
               </p>
-              <p className="text-[10px] text-blue-500 mt-1">
+              <p className="text-xs text-blue-500 mt-1">
                 Consultas ISP buscarao apenas provedores destas regioes
               </p>
             </div>
