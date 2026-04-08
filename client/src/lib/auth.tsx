@@ -5,6 +5,7 @@ import { apiRequest } from "./queryClient";
 interface AuthState {
   user: { id: number; email: string; name: string; role: string } | null;
   provider: Provider | null;
+  partnerCode: string | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<{ code?: string; email?: string } | void>;
   register: (data: { email: string; password: string; name: string; phone?: string; providerName: string; cnpj: string; subdomain: string; lgpdAccepted?: boolean }) => Promise<{ needsVerification: boolean; email: string }>;
@@ -16,6 +17,7 @@ const AuthContext = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthState["user"]>(null);
   const [provider, setProvider] = useState<Provider | null>(null);
+  const [partnerCode, setPartnerCode] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const checkAuth = useCallback(async () => {
@@ -25,6 +27,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const data = await res.json();
         setUser(data.user);
         setProvider(data.provider);
+        setPartnerCode(data.partnerCode || null);
       }
     } catch {
     } finally {
@@ -75,7 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, provider, isLoading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, provider, partnerCode, isLoading, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

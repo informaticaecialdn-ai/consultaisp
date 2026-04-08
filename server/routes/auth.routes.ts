@@ -170,7 +170,8 @@ export function registerAuthRoutes(): Router {
       return res.status(401).json({ message: "Nao autenticado" });
     }
     const provider = user.providerId ? await storage.getProvider(user.providerId) : null;
-    return res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role }, provider });
+    const partnerCode = provider ? (await import("../utils/provider-anonymizer.js")).generatePartnerCode(provider.id, provider.tradeName || provider.name) : null;
+    return res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role }, provider, partnerCode });
   });
 
   return router;

@@ -155,7 +155,7 @@ function MiniHeatMap({ points, providerPoints, defaultCenter }: { points: HeatPo
 const fmt = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function DashboardPage() {
-  const { provider } = useAuth();
+  const { provider, partnerCode } = useAuth();
   const [providerCenter, setProviderCenter] = useState<[number, number] | null>(null);
 
   const { data: stats, isLoading } = useQuery<any>({ queryKey: ["/api/dashboard/stats"], staleTime: STALE_DASHBOARD });
@@ -224,10 +224,10 @@ export default function DashboardPage() {
             central de inadimplencia
           </h1>
           <div className="flex items-center gap-2">
-            <p className="text-xs text-[var(--color-muted)]">{provider?.name}</p>
-            {provider?.id && (
-              <span className="text-xs font-bold px-1.5 py-0.5 rounded bg-[var(--color-navy-bg)] text-[var(--color-navy)] font-mono" data-testid="text-partner-code">
-                ISP-{String(provider.id).padStart(4, "0")}
+            <p className="text-sm text-[var(--color-muted)]">{provider?.name}</p>
+            {partnerCode && (
+              <span className="text-xs font-bold px-2 py-0.5 rounded bg-[var(--color-navy-bg)] text-[var(--color-navy)] font-mono tracking-wide" data-testid="text-partner-code">
+                {partnerCode}
               </span>
             )}
           </div>

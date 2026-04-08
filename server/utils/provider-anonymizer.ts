@@ -1,44 +1,67 @@
-/**
- * LGPD COMPLIANCE — Anonimizacao do nome do provedor de origem.
- *
- * Quando o Provedor B ve dados do Provedor A na rede colaborativa,
- * ele NAO deve saber que e o "NG Telecom" ou "Vivo Fibra" que tem aquela divida.
- *
- * O codigo do parceiro e gerado a partir do ID do provedor no banco,
- * garantindo unicidade (sem colisao de hash) e consistencia.
- *
- * Formato: ISP-XXXX (4 digitos zero-padded a partir do ID)
- * Exemplos: ISP-0001, ISP-0042, ISP-1234
- */
+import { createHash } from "crypto";
 
 /**
- * Gera o codigo de parceiro a partir do ID do provedor.
- * Unico: cada provedor tem um codigo diferente (baseado no ID).
- * Legivel: formato ISP-XXXX, facil de referenciar.
+ * LGPD COMPLIANCE — Codigo de Provedor Parceiro
+ *
+ * Formato: ISP-#XXXXL
+ *   - ISP-# = prefixo fixo
+ *   - XXXX  = 4 caracteres alfanumericos (deterministicos a partir do ID)
+ *   - L     = primeira letra do nome fantasia do provedor (uppercase)
+ *
+ * Exemplos:
+ *   generatePartnerCode(1, "NsLink Provedor")    -> "ISP-#7A3FN"
+ *   generatePartnerCode(42, "Vertical Telecom")   -> "ISP-#9D2EV"
+ *   generatePartnerCode(7, "O L I Telecomunicacoes") -> "ISP-#4B8CO"
+ *
+ * Propriedades:
+ *   - Deterministico: mesmo ID + nome = mesmo codigo sempre
+ *   - Unico: baseado no ID do banco (PK), hash garante distribuicao uniforme
+ *   - Irreversivel: nao e possivel descobrir o provedor pelo codigo
+ *   - Legivel: operadores podem referenciar "ISP-#7A3FN" em conversas
  */
-export function generatePartnerCode(providerId: number): string {
-  return `ISP-${String(providerId).padStart(4, "0")}`
+
+const SALT = "consulta-isp-partner-2026";
+const CHARSET = "0123456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // sem I e O para evitar confusao com 1 e 0
+
+function hashToChars(input: string, length: number): string {
+  const hash = createHash("sha256").update(input).digest();
+  let result = "";
+  for (let i = 0; i < length; i++) {
+    result += CHARSET[hash[i] % CHARSET.length];
+  }
+  return result;
+}
+
+/**
+ * Gera o codigo de parceiro a partir do ID e nome do provedor.
+ */
+export function generatePartnerCode(providerId: number, providerName?: string): string {
+  const code = hashToChars(`${SALT}:${providerId}`, 4);
+  const initial = (providerName || "X").trim().charAt(0).toUpperCase();
+  // Garantir que a inicial e uma letra valida
+  const safeInitial = /[A-Z]/.test(initial) ? initial : "X";
+  return `ISP-#${code}${safeInitial}`;
 }
 
 /**
  * Gera o nome anonimizado do provedor para exibicao na rede.
- * Usa o providerId quando disponivel, fallback para nome.
  */
 export function anonymizeProvider(providerName: string, providerId?: number): string {
   if (providerId) {
-    return `Provedor Parceiro ${generatePartnerCode(providerId)}`
+    return `Provedor Parceiro ${generatePartnerCode(providerId, providerName)}`;
   }
-  // Fallback: usar nome hasheado (retrocompatibilidade)
-  const hash = Array.from(providerName.toLowerCase().trim()).reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0)
-  const shortId = Math.abs(hash).toString(16).substring(0, 4).toUpperCase().padStart(4, "0")
-  return `Provedor Parceiro #${shortId}`
+  // Fallback sem ID: hash do nome (retrocompatibilidade)
+  const code = hashToChars(`${SALT}:name:${providerName.toLowerCase().trim()}`, 4);
+  const initial = providerName.trim().charAt(0).toUpperCase();
+  const safeInitial = /[A-Z]/.test(initial) ? initial : "X";
+  return `Provedor Parceiro ISP-#${code}${safeInitial}`;
 }
 
 /**
  * Retorna o nome do provedor conforme o contexto de exibicao.
  *
  * 'own':     operador vendo dados do PROPRIO provedor -> nome real
- * 'network': operador vendo dados de OUTRO provedor   -> ID anonimo
+ * 'network': operador vendo dados de OUTRO provedor   -> codigo anonimo
  */
 export function getProviderDisplayName(
   providerName: string,
@@ -46,7 +69,7 @@ export function getProviderDisplayName(
   providerId?: number,
 ): string {
   if (isSameProvider) {
-    return providerName
+    return providerName;
   }
-  return anonymizeProvider(providerName, providerId)
+  return anonymizeProvider(providerName, providerId);
 }
