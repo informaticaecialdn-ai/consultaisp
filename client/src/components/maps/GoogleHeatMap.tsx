@@ -81,6 +81,7 @@ export default function GoogleHeatMap({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
   const heatRef = useRef<google.maps.visualization.HeatmapLayer | null>(null);
+  const prevPointsRef = useRef<string>("");
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
 
   const { data: keyData } = useQuery<{ key: string }>({
@@ -130,9 +131,14 @@ export default function GoogleHeatMap({
     mapRef.current.setZoom(12);
   }, [status, defaultCenter?.lat, defaultCenter?.lng]);
 
-  // Step 3: Update heatmap layer
+  // Step 3: Update heatmap layer (only when points actually change)
   useEffect(() => {
     if (status !== "ready" || !mapRef.current) return;
+
+    // Skip if points haven't actually changed (prevents flicker on re-renders)
+    const pointsKey = points.length + ":" + (points[0]?.lat ?? "") + ":" + (points[0]?.lng ?? "") + ":" + mode;
+    if (pointsKey === prevPointsRef.current && heatRef.current) return;
+    prevPointsRef.current = pointsKey;
 
     // Clear previous
     if (heatRef.current) {
@@ -158,7 +164,7 @@ export default function GoogleHeatMap({
     });
     heatRef.current.set("gradient", gradient);
 
-    // Fit bounds
+    // Fit bounds only on first render
     if (points.length > 1) {
       const bounds = new google.maps.LatLngBounds();
       points.forEach(p => bounds.extend({ lat: p.lat, lng: p.lng }));

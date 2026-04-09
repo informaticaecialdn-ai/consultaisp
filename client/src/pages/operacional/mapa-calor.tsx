@@ -102,16 +102,22 @@ export default function MapaCalorPage() {
   const [activeTab, setActiveTab] = useState("provider");
   const [providerCenter, setProviderCenter] = useState<{ lat: number; lng: number } | null>(null);
 
+  // Cache 24h no backend — frontend staleTime alto para evitar re-fetch desnecessario
+  const HEATMAP_STALE = 5 * 60 * 1000; // 5 min no frontend (backend cacheia 24h)
+
   const { data: providerData = [], isLoading: providerLoading } = useQuery<ProviderHeatmapPoint[]>({
     queryKey: ["/api/heatmap/provider"],
+    staleTime: HEATMAP_STALE,
   });
 
   const { data: regionalData = [], isLoading: regionalLoading } = useQuery<RegionalCluster[]>({
     queryKey: ["/api/heatmap/regional"],
+    staleTime: HEATMAP_STALE,
   });
 
   const { data: cityRanking = [], isLoading: cityLoading } = useQuery<CityRanking[]>({
     queryKey: ["/api/heatmap/city-ranking"],
+    staleTime: HEATMAP_STALE,
   });
 
   const { data: syncInfo, refetch: refetchSyncInfo } = useQuery<{
@@ -122,8 +128,7 @@ export default function MapaCalorPage() {
     refreshing: boolean;
   }>({
     queryKey: ["/api/heatmap/sync-info"],
-    staleTime: 30000,
-    refetchInterval: 15000,
+    staleTime: 60000, // 1 min
   });
 
   const providerPoints: HeatPoint[] = providerData
