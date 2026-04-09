@@ -12,8 +12,8 @@ export function registerHeatmapRoutes(): Router {
     return res.json({ key });
   });
 
-  router.get("/api/config/bing-maps-key", requireAuth, async (_req, res) => {
-    const key = process.env.BING_MAPS_API_KEY || "";
+  router.get("/api/config/azure-maps-key", requireAuth, async (_req, res) => {
+    const key = process.env.AZURE_MAPS_KEY || "";
     return res.json({ key });
   });
 

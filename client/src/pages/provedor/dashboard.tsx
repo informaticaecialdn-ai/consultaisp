@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { useState, useEffect } from "react";
-import BingHeatMap, { HeatPoint } from "@/components/maps/BingHeatMap";
+import AzureHeatMap, { HeatPoint } from "@/components/maps/AzureHeatMap";
 import {
   AlertTriangle,
   RefreshCw,
@@ -176,7 +176,7 @@ export default function DashboardPage() {
 
           <div className="p-4">
             <div className="relative">
-              <BingHeatMap
+              <AzureHeatMap
                 key={`dash-${heatPoints.length}-${providerCenter?.lat}`}
                 points={heatPoints}
                 mode="provider"
