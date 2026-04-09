@@ -90,15 +90,14 @@ export async function refreshProviderCache(
     let skippedNoGeo = 0;
     let skippedActive = 0;
 
-    // Mapa de calor: inadimplentes de 60 a 180 dias de atraso
-    // Faixa que indica risco real sem incluir dividas muito antigas (possivelmente prescritas)
+    // Mapa de calor: todos os inadimplentes com faturas vencidas
     const filteredCustomers = result.customers.filter(d => {
-      if (d.maxDaysOverdue >= 60 && d.maxDaysOverdue <= 180) return true;
+      if (d.maxDaysOverdue > 0 && d.totalOverdueAmount > 0) return true;
       skippedActive++;
       return false;
     });
 
-    console.log(`[HeatmapCache] ${providerName}: ${result.customers.length} total, ${filteredCustomers.length} inadimplentes 60-180d (${skippedActive} fora da faixa)`);
+    console.log(`[HeatmapCache] ${providerName}: ${result.customers.length} total, ${filteredCustomers.length} inadimplentes (${skippedActive} sem atraso)`);
 
     for (const d of filteredCustomers) {
       let city = d.city || "";
@@ -165,7 +164,7 @@ export async function refreshProviderCache(
       status: points.length > 0 ? "ok" : "empty",
     });
     console.log(
-      `[HeatmapCache] ${providerName} (${erpSource}) — ${points.length} pontos de ${filteredCustomers.length} inadimplentes 60-180d (${skippedActive} fora da faixa, ${skippedNoGeo} sem geo)`,
+      `[HeatmapCache] ${providerName} (${erpSource}) — ${points.length} pontos de ${filteredCustomers.length} inadimplentes (${skippedActive} sem atraso, ${skippedNoGeo} sem geo)`,
     );
   } catch (err: any) {
     const msg = err.message || "Erro desconhecido";
