@@ -1,14 +1,8 @@
 import { Router } from "express";
 import { requireAuth } from "../auth";
 import { getSafeErrorMessage } from "../utils/safe-error";
-import {
-  getAllPoints,
-  getCacheStatus,
-  getProviderPoints,
-  refreshProviderIfStale,
-  isRefreshing,
-  refreshAllProviders,
-} from "../services/heatmap-cache";
+import { storage } from "../storage";
+import { syncAllProviders, isSyncing } from "../services/erp-sync.service";
 
 export function registerHeatmapRoutes(): Router {
   const router = Router();
@@ -18,11 +12,11 @@ export function registerHeatmapRoutes(): Router {
     return res.json({ key });
   });
 
+  // Dados do provedor logado — query direta no banco local
   router.get("/api/heatmap/provider", requireAuth, async (req, res) => {
     try {
       const providerId = req.session.providerId!;
-      await refreshProviderIfStale(providerId);
-      const points = getProviderPoints(providerId);
+      const points = await storage.getHeatmapByProvider(providerId);
       const data = points.map((p, i) => ({
         id: i + 1,
         name: `Ponto ${i + 1}`, // LGPD: sem nome do cliente
@@ -41,54 +35,46 @@ export function registerHeatmapRoutes(): Router {
     }
   });
 
-  // Aggregated regional data from all providers (anonymized via cache)
+  // Dados regionais agregados de todos os provedores (anonimizado)
   router.get("/api/heatmap/regional", requireAuth, async (_req, res) => {
     try {
-      const allPoints = getAllPoints();
+      const allPoints = await storage.getHeatmapAll();
       const clusterMap = new Map<string, { lat: number; lng: number; city: string; count: number; totalOverdue: number }>();
       for (const item of allPoints) {
-        const lat = item.lat;
-        const lng = item.lng;
-        if (isNaN(lat) || isNaN(lng)) continue;
-        const roundedLat = parseFloat(lat.toFixed(2));
-        const roundedLng = parseFloat(lng.toFixed(2));
+        if (isNaN(item.lat) || isNaN(item.lng)) continue;
+        const roundedLat = parseFloat(item.lat.toFixed(2));
+        const roundedLng = parseFloat(item.lng.toFixed(2));
         const key = `${roundedLat},${roundedLng}`;
         const existing = clusterMap.get(key);
-        const overdue = item.totalOverdueAmount || 0;
         if (existing) {
           existing.count += 1;
-          existing.totalOverdue += overdue;
+          existing.totalOverdue += item.totalOverdueAmount;
           if (!existing.city && item.city) existing.city = item.city;
         } else {
-          clusterMap.set(key, { lat: roundedLat, lng: roundedLng, city: item.city || "", count: 1, totalOverdue: overdue });
+          clusterMap.set(key, { lat: roundedLat, lng: roundedLng, city: item.city, count: 1, totalOverdue: item.totalOverdueAmount });
         }
       }
-      const results = Array.from(clusterMap.values());
-      return res.json(results);
+      return res.json(Array.from(clusterMap.values()));
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
-  // Aggregated city ranking from all providers (anonymized)
+  // Ranking de cidades
   router.get("/api/heatmap/city-ranking", requireAuth, async (_req, res) => {
     try {
-      const allPoints = getAllPoints();
+      const allPoints = await storage.getHeatmapAll();
       const cityMap = new Map<string, { city: string; lat: number; lng: number; count: number; totalOverdue: number; maxDays: number }>();
       for (const item of allPoints) {
         const city = (item.city || "").trim();
         if (!city) continue;
-        const lat = item.lat;
-        const lng = item.lng;
-        const overdue = item.totalOverdueAmount || 0;
-        const days = item.maxDaysOverdue || 0;
         const existing = cityMap.get(city);
         if (existing) {
           existing.count += 1;
-          existing.totalOverdue += overdue;
-          if (days > existing.maxDays) existing.maxDays = days;
+          existing.totalOverdue += item.totalOverdueAmount;
+          if (item.maxDaysOverdue > existing.maxDays) existing.maxDays = item.maxDaysOverdue;
         } else {
-          cityMap.set(city, { city, lat: isNaN(lat) ? 0 : lat, lng: isNaN(lng) ? 0 : lng, count: 1, totalOverdue: overdue, maxDays: days });
+          cityMap.set(city, { city, lat: item.lat, lng: item.lng, count: 1, totalOverdue: item.totalOverdueAmount, maxDays: item.maxDaysOverdue });
         }
       }
       const results = Array.from(cityMap.values())
@@ -99,41 +85,32 @@ export function registerHeatmapRoutes(): Router {
     }
   });
 
-  // Sync info for the regional cache status banner
+  // Sync info
   router.get("/api/heatmap/sync-info", requireAuth, async (_req, res) => {
     try {
-      const status = getCacheStatus();
-      const allPoints = getAllPoints();
-      const lastSuccess = status.length > 0
-        ? status.reduce((latest, s) => {
-            if (!s.lastSuccessAt) return latest;
-            return !latest || s.lastSuccessAt > latest ? s.lastSuccessAt : latest;
-          }, null as Date | null)
-        : null;
-
+      const allPoints = await storage.getHeatmapAll();
       return res.json({
-        lastSyncAt: lastSuccess ? lastSuccess.toISOString() : null,
-        totalIntegrations: status.length,
-        lastCacheRefresh: lastSuccess ? lastSuccess.toISOString() : null,
+        lastSyncAt: null,
+        totalIntegrations: 0,
+        lastCacheRefresh: null,
         totalCachePoints: allPoints.length,
-        refreshing: isRefreshing(),
+        refreshing: isSyncing(),
       });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });
 
-  // Trigger manual refresh of all provider caches
+  // Trigger manual sync ERP → banco local
   router.post("/api/heatmap/refresh", requireAuth, async (_req, res) => {
     try {
-      if (isRefreshing()) {
-        return res.json({ message: "Atualizacao ja em andamento" });
+      if (isSyncing()) {
+        return res.json({ message: "Sincronizacao ja em andamento" });
       }
-      // Start refresh in background, don't await
-      refreshAllProviders().catch(err => {
-        console.warn("[HeatmapCache] Erro no refresh manual:", err.message);
+      syncAllProviders().catch(err => {
+        console.warn("[ERPSync] Erro no sync manual:", err.message);
       });
-      return res.json({ message: "Atualizacao iniciada" });
+      return res.json({ message: "Sincronizacao iniciada" });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }

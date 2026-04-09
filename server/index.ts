@@ -162,10 +162,10 @@ app.use((req, res, next) => {
   }
 
   try {
-    const { startHeatmapCacheScheduler } = await import("./services/heatmap-cache");
-    startHeatmapCacheScheduler();
+    const { startErpSyncScheduler } = await import("./services/erp-sync.service");
+    startErpSyncScheduler();
   } catch (err) {
-    logger.warn({ err }, "Heatmap cache scheduler failed to start — feature unavailable");
+    logger.warn({ err }, "ERP sync scheduler failed to start — feature unavailable");
   }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
