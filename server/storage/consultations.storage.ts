@@ -196,7 +196,7 @@ export class ConsultationsStorage {
   ): Promise<{ provider: Provider; consultation: SpcConsultation } | null> {
     return db.transaction(async (tx) => {
       const debitResult = await tx.execute(
-        sql`UPDATE providers SET spc_credits = spc_credits - ${cost} WHERE id = ${providerId} AND spc_credits >= ${cost} RETURNING *`,
+        sql`UPDATE providers SET isp_credits = isp_credits - ${cost} WHERE id = ${providerId} AND isp_credits >= ${cost} RETURNING *`,
       );
       const rows = debitResult.rows as Provider[];
       if (rows.length === 0) return null;

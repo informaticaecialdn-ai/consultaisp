@@ -13,18 +13,13 @@ import {
   Search, Shield,
 } from "lucide-react";
 
-const ISP_PACKAGES = [
-  { id: "isp-50",   name: "50 Consultas ISP",   credits: 50,   price: 4990,  priceLabel: "R$ 49,90",  perUnit: "R$ 1,00/consulta" },
-  { id: "isp-100",  name: "100 Consultas ISP",  credits: 100,  price: 8990,  priceLabel: "R$ 89,90",  perUnit: "R$ 0,90/consulta", popular: true },
-  { id: "isp-250",  name: "250 Consultas ISP",  credits: 250,  price: 19990, priceLabel: "R$ 199,90", perUnit: "R$ 0,80/consulta" },
-  { id: "isp-500",  name: "500 Consultas ISP",  credits: 500,  price: 34990, priceLabel: "R$ 349,90", perUnit: "R$ 0,70/consulta" },
-];
-
-const SPC_PACKAGES = [
-  { id: "spc-10",   name: "10 Consultas SPC",   credits: 10,   price: 4990,  priceLabel: "R$ 49,90",  perUnit: "R$ 4,99/consulta" },
-  { id: "spc-30",   name: "30 Consultas SPC",   credits: 30,   price: 12990, priceLabel: "R$ 129,90", perUnit: "R$ 4,33/consulta", popular: true },
-  { id: "spc-50",   name: "50 Consultas SPC",   credits: 50,   price: 19990, priceLabel: "R$ 199,90", perUnit: "R$ 4,00/consulta" },
-  { id: "spc-100",  name: "100 Consultas SPC",  credits: 100,  price: 34990, priceLabel: "R$ 349,90", perUnit: "R$ 3,50/consulta" },
+// Sistema unificado de creditos — R$1,00 por credito
+// Consulta ISP (parceiro) = 1 credito | Consulta SPC = 4 creditos
+const CREDIT_PACKAGES = [
+  { id: "credits-50",   name: "50 Creditos",   credits: 50,   price: 5000,  priceLabel: "R$ 50,00",  perUnit: "R$ 1,00/credito" },
+  { id: "credits-100",  name: "100 Creditos",  credits: 100,  price: 10000, priceLabel: "R$ 100,00", perUnit: "R$ 1,00/credito", popular: true },
+  { id: "credits-250",  name: "250 Creditos",  credits: 250,  price: 25000, priceLabel: "R$ 250,00", perUnit: "R$ 1,00/credito" },
+  { id: "credits-500",  name: "500 Creditos",  credits: 500,  price: 50000, priceLabel: "R$ 500,00", perUnit: "R$ 1,00/credito" },
 ];
 
 const STATUS_STYLES: Record<string, { badge: string; label: string; icon: any }> = {
@@ -39,10 +34,9 @@ export default function CreditosPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const [selectedPkg, setSelectedPkg] = useState<{ pkg: any; type: "isp" | "spc" } | null>(null);
+  const [selectedPkg, setSelectedPkg] = useState<{ pkg: any; type: "isp" } | null>(null);
   const [payModal, setPayModal] = useState<{ order: any; charge: any } | null>(null);
   const [pixModal, setPixModal] = useState<{ pixData: any } | null>(null);
-  const [activeTab, setActiveTab] = useState<"isp" | "spc">("isp");
 
   const { data: orders = [], isLoading: ordersLoading } = useQuery<any[]>({
     queryKey: ["/api/credits/orders"],
@@ -76,40 +70,34 @@ export default function CreditosPage() {
 
   const pendingOrders = orders.filter(o => o.status === "pending" || o.status === "overdue");
 
-  const renderPackageCard = (pkg: any, type: "isp" | "spc") => {
-    const isIsp = type === "isp";
-    const colorBg = isIsp ? "bg-blue-100" : "bg-purple-100";
-    const colorText = isIsp ? "text-blue-600" : "text-purple-600";
-    const ringColor = isIsp ? "ring-blue-500" : "ring-purple-500";
-    const badgeColor = isIsp ? "bg-blue-600" : "bg-purple-600";
-
+  const renderPackageCard = (pkg: any, type: "isp") => {
     return (
       <Card key={pkg.id}
-        className={`p-4 relative overflow-hidden cursor-pointer transition-all hover:shadow-md ${pkg.popular ? `ring-2 ${ringColor}` : "hover:ring-1 hover:ring-border"}`}
+        className={`p-4 relative overflow-hidden cursor-pointer transition-all hover:shadow-md ${pkg.popular ? "ring-2 ring-[var(--color-navy)]" : "hover:ring-1 hover:ring-[var(--color-border)]"}`}
         onClick={() => setSelectedPkg({ pkg, type })}
         data-testid={`package-${pkg.id}`}>
         {pkg.popular && (
-          <Badge className={`absolute top-2.5 right-2.5 ${badgeColor} border-0 text-white text-xs`}>Mais Popular</Badge>
+          <Badge className="absolute top-2.5 right-2.5 bg-[var(--color-navy)] border-0 text-white text-xs">Mais Popular</Badge>
         )}
         <div className="mb-3">
-          <div className={`w-9 h-9 rounded-lg mb-2 flex items-center justify-center ${colorBg}`}>
-            {isIsp ? <Search className={`w-4 h-4 ${colorText}`} /> : <Shield className={`w-4 h-4 ${colorText}`} />}
+          <div className="w-9 h-9 rounded-lg mb-2 flex items-center justify-center bg-[var(--color-navy-bg)]">
+            <CreditCard className="w-4 h-4 text-[var(--color-navy)]" />
           </div>
-          <h3 className="font-bold text-sm">{pkg.credits} creditos</h3>
-          <p className="text-lg font-bold mt-0.5">{pkg.priceLabel}</p>
-          <p className="text-xs text-muted-foreground">{pkg.perUnit}</p>
+          <h3 className="font-bold text-sm text-[var(--color-ink)]">{pkg.credits} creditos</h3>
+          <p className="text-lg font-bold mt-0.5 text-[var(--color-ink)]">{pkg.priceLabel}</p>
+          <p className="text-xs text-[var(--color-muted)]">{pkg.perUnit}</p>
         </div>
         <div className="space-y-1 mb-3">
           <div className="flex items-center gap-1.5 text-xs">
-            <CheckCircle className="w-3 h-3 text-emerald-500 flex-shrink-0" />
-            <span><strong>{pkg.credits}</strong> consultas {type.toUpperCase()}</span>
+            <CheckCircle className="w-3 h-3 text-[var(--color-success)] flex-shrink-0" />
+            <span>Ate <strong>{pkg.credits}</strong> consultas ISP</span>
           </div>
           <div className="flex items-center gap-1.5 text-xs">
-            <CheckCircle className="w-3 h-3 text-emerald-500 flex-shrink-0" />
-            <span>Liberacao imediata via PIX</span>
+            <CheckCircle className="w-3 h-3 text-[var(--color-success)] flex-shrink-0" />
+            <span>Ate <strong>{Math.floor(pkg.credits / 4)}</strong> consultas SPC</span>
           </div>
           <div className="flex items-center gap-1.5 text-xs">
-            <CheckCircle className="w-3 h-3 text-emerald-500 flex-shrink-0" />
+            <CheckCircle className="w-3 h-3 text-[var(--color-success)] flex-shrink-0" />
             <span>Creditos nao expiram</span>
           </div>
         </div>
@@ -129,14 +117,12 @@ export default function CreditosPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setSelectedPkg(null)}>
           <div className="bg-background rounded-lg shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <div className="text-center mb-4">
-              <div className={`w-12 h-12 rounded-lg mx-auto mb-3 flex items-center justify-center ${selectedPkg.type === "isp" ? "bg-blue-100" : "bg-purple-100"}`}>
-                {selectedPkg.type === "isp"
-                  ? <Search className="w-6 h-6 text-blue-600" />
-                  : <Shield className="w-6 h-6 text-purple-600" />}
+              <div className="w-12 h-12 rounded-lg mx-auto mb-3 flex items-center justify-center bg-[var(--color-navy-bg)]">
+                <CreditCard className="w-6 h-6 text-[var(--color-navy)]" />
               </div>
               <h2 className="text-base font-bold">{selectedPkg.pkg.name}</h2>
               <p className="text-2xl font-bold mt-1">{selectedPkg.pkg.priceLabel}</p>
-              <p className="text-xs text-muted-foreground mt-1">{selectedPkg.pkg.credits} creditos {selectedPkg.type.toUpperCase()}</p>
+              <p className="text-xs text-muted-foreground mt-1">{selectedPkg.pkg.credits} creditos universais</p>
             </div>
             <p className="text-sm font-medium text-center mb-3">Escolha a forma de pagamento:</p>
             <div className="space-y-2">
@@ -234,27 +220,17 @@ export default function CreditosPage() {
         </div>
         <div>
           <h1 className="text-xl font-bold" data-testid="text-creditos-title">Comprar Creditos</h1>
-          <p className="text-sm text-muted-foreground">Consultas ISP e SPC sao produtos separados com valores diferentes</p>
+          <p className="text-sm text-[var(--color-muted)]">R$ 1,00 por credito — use para Consulta ISP (1 cred.) ou SPC (4 cred.)</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <Card className="p-5 bg-gradient-to-br from-blue-50 to-blue-100/50 border-blue-200/60">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">Creditos ISP</span>
-            <Search className="w-4 h-4 text-blue-500" />
-          </div>
-          <p className="text-3xl font-bold" data-testid="text-isp-credits-balance">{provider?.ispCredits ?? 0}</p>
-          <p className="text-xs text-muted-foreground mt-1">disponiveis</p>
-        </Card>
-        <Card className="p-5 bg-gradient-to-br from-purple-50 to-purple-100/50 border-purple-200/60">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">Creditos SPC</span>
-            <Shield className="w-4 h-4 text-purple-500" />
-          </div>
-          <p className="text-3xl font-bold" data-testid="text-spc-credits-balance">{provider?.spcCredits ?? 0}</p>
-          <p className="text-xs text-muted-foreground mt-1">disponiveis</p>
-        </Card>
+      <div className="rounded-lg border border-[var(--color-navy)] bg-[var(--color-navy-bg)] p-5">
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <span className="text-sm text-[var(--color-navy)] font-semibold uppercase tracking-wide">Saldo de Creditos</span>
+          <Wallet className="w-5 h-5 text-[var(--color-navy)]" />
+        </div>
+        <p className="text-4xl font-bold text-[var(--color-navy)]" data-testid="text-credits-balance">{provider?.ispCredits ?? 0}</p>
+        <p className="text-sm text-[var(--color-muted)] mt-1">creditos disponiveis</p>
       </div>
 
       {pendingOrders.length > 0 && (
@@ -302,48 +278,39 @@ export default function CreditosPage() {
       )}
 
       <div>
-        <div className="flex items-center gap-3 mb-4">
-          <button
-            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 ${activeTab === "isp" ? "bg-blue-600 text-white" : "bg-muted text-muted-foreground hover:bg-muted/70"}`}
-            onClick={() => setActiveTab("isp")}
-            data-testid="tab-isp-packages">
-            <Search className="w-4 h-4" />Consulta ISP
-          </button>
-          <button
-            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 ${activeTab === "spc" ? "bg-purple-600 text-white" : "bg-muted text-muted-foreground hover:bg-muted/70"}`}
-            onClick={() => setActiveTab("spc")}
-            data-testid="tab-spc-packages">
-            <Shield className="w-4 h-4" />Consulta SPC
-          </button>
+        <div className="flex items-center gap-2 mb-3">
+          <CreditCard className="w-4 h-4 text-[var(--color-navy)]" />
+          <h2 className="text-base font-semibold text-[var(--color-ink)]">Pacotes de Creditos</h2>
+        </div>
+        <p className="text-sm text-[var(--color-muted)] mb-4">
+          Creditos universais — use para qualquer consulta. Cada credito custa R$ 1,00.
+        </p>
+
+        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 mb-4">
+          <p className="text-sm font-semibold text-[var(--color-ink)] mb-2">Como funciona:</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex items-center gap-2">
+              <Search className="w-4 h-4 text-[var(--color-navy)]" />
+              <div>
+                <p className="text-sm font-semibold text-[var(--color-ink)]">Consulta ISP</p>
+                <p className="text-xs text-[var(--color-muted)]">1 credito por consulta</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4 text-[var(--color-gold)]" />
+              <div>
+                <p className="text-sm font-semibold text-[var(--color-ink)]">Consulta SPC</p>
+                <p className="text-xs text-[var(--color-muted)]">4 creditos por consulta</p>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {activeTab === "isp" && (
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <Search className="w-4 h-4 text-blue-500" />
-              <h2 className="text-base font-semibold">Pacotes de Consulta ISP</h2>
-            </div>
-            <p className="text-xs text-muted-foreground mb-4">Consulte inadimplentes na base colaborativa de provedores. Identifique clientes com historico de inadimplencia em outros ISPs.</p>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {ISP_PACKAGES.map(pkg => renderPackageCard(pkg, "isp"))}
-            </div>
-          </div>
-        )}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {CREDIT_PACKAGES.map(pkg => renderPackageCard(pkg, "isp"))}
+        </div>
 
-        {activeTab === "spc" && (
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <Shield className="w-4 h-4 text-purple-500" />
-              <h2 className="text-base font-semibold">Pacotes de Consulta SPC</h2>
-            </div>
-            <p className="text-xs text-muted-foreground mb-4">Consulte CPF/CNPJ diretamente no SPC/Serasa. Obtenha score de credito, pendencias financeiras e restritivos.</p>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {SPC_PACKAGES.map(pkg => renderPackageCard(pkg, "spc"))}
-            </div>
-          </div>
-        )}
-
-        <p className="text-xs text-muted-foreground mt-3 text-center flex items-center justify-center gap-1">
+        <p className="text-xs text-[var(--color-muted)] mt-3 text-center flex items-center justify-center gap-1">
           <Info className="w-3.5 h-3.5" />
           Creditos nao expiram. Processamento via PIX em ate 5 minutos.
         </p>

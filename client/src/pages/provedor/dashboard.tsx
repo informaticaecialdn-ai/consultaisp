@@ -102,24 +102,14 @@ export default function DashboardPage() {
             </div>
           </div>
           )}
-          {/* ISP Credits */}
-          <div className="flex items-center gap-2 border border-[var(--color-border)] rounded-md px-3 py-2 bg-[var(--color-navy-bg)]">
+          {/* Creditos Unificados */}
+          <div className="flex items-center gap-2 border border-[var(--color-navy)] rounded-md px-3 py-2 bg-[var(--color-navy-bg)]">
             <CreditCard className="w-4 h-4 text-[var(--color-navy)]" />
             <div className="text-right">
-              <p className="font-mono text-lg font-bold text-[var(--color-navy)] leading-none" data-testid="text-isp-credits">
+              <p className="font-mono text-lg font-bold text-[var(--color-navy)] leading-none" data-testid="text-credits">
                 {stats?.ispCredits ?? "..."}
               </p>
-              <p className="text-xs text-[var(--color-muted)] leading-tight">ISP</p>
-            </div>
-          </div>
-          {/* SPC Credits */}
-          <div className="flex items-center gap-2 border border-[var(--color-border)] rounded-md px-3 py-2 bg-[var(--color-gold-bg)]">
-            <CreditCard className="w-4 h-4 text-[var(--color-gold)]" />
-            <div className="text-right">
-              <p className="font-mono text-lg font-bold text-[var(--color-gold)] leading-none" data-testid="text-spc-credits">
-                {stats?.spcCredits ?? "..."}
-              </p>
-              <p className="text-xs text-[var(--color-muted)] leading-tight">SPC</p>
+              <p className="text-xs text-[var(--color-muted)] leading-tight">creditos</p>
             </div>
           </div>
         </div>

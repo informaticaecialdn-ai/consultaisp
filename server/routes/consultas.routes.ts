@@ -688,9 +688,10 @@ export function registerConsultasRoutes(): Router {
       const result = await consultarSpc(cleaned);
 
       // Debit credits and save consultation atomically
+      // Sistema unificado: consulta SPC consome 4 creditos do saldo unico
       const saved = await storage.debitAndCreateSpcConsultation(
         req.session.providerId!,
-        1,
+        4,
         {
           providerId: req.session.providerId!,
           userId: req.session.userId!,

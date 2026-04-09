@@ -111,7 +111,8 @@ export class ProvidersStorage {
   }
 
   async debitSpcCredits(id: number, cost: number): Promise<Provider | null> {
-    const result = await db.execute(sql`UPDATE providers SET spc_credits = spc_credits - ${cost} WHERE id = ${id} AND spc_credits >= ${cost} RETURNING *`);
+    // Sistema unificado: SPC consome de isp_credits (4 creditos por consulta)
+    const result = await db.execute(sql`UPDATE providers SET isp_credits = isp_credits - ${cost} WHERE id = ${id} AND isp_credits >= ${cost} RETURNING *`);
     const rows = result.rows as Provider[];
     return rows.length > 0 ? rows[0] : null;
   }
