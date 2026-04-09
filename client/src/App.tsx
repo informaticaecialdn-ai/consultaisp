@@ -27,6 +27,9 @@ const MapaCalorPage = lazy(() => import("@/pages/operacional/mapa-calor"));
 const ImportacaoPage = lazy(() => import("@/pages/operacional/importacao"));
 const ImportacaoEquipamentosPage = lazy(() => import("@/pages/operacional/importacao-equipamentos"));
 
+// Financeiro
+const NfsePage = lazy(() => import("@/pages/financeiro/nfse"));
+
 // Admin
 const AdminSistemaPage = lazy(() => import("@/pages/admin/admin-sistema"));
 const AdminProvedorPage = lazy(() => import("@/pages/admin/admin-provedor"));
@@ -72,6 +75,7 @@ function Router() {
         <Route path="/inadimplentes" component={InadimplentesPage} />
         <Route path="/mapa-calor" component={MapaCalorPage} />
         <Route path="/creditos" component={CreditosPage} />
+        <Route path="/nfse" component={NfsePage} />
         <Route path="/importacao" component={ImportacaoPage} />
         <Route path="/importacao-equipamentos" component={ImportacaoEquipamentosPage} />
         <Route path="/administracao" component={AdministracaoPage} />
@@ -93,7 +97,7 @@ function Router() {
 
 const PROVIDER_ONLY_PATHS = [
   "/", "/consulta-isp", "/consulta-spc", "/anti-fraude",
-  "/inadimplentes", "/mapa-calor", "/creditos", "/importacao",
+  "/inadimplentes", "/mapa-calor", "/creditos", "/nfse", "/importacao",
   "/importacao-equipamentos", "/administracao", "/painel-provedor",
   "/benchmark-regional",
 ];

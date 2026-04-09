@@ -88,6 +88,7 @@ const defaulterMenu = [
 
 const financeMenu = [
   { title: "Comprar Creditos", url: "/creditos", icon: CreditCard },
+  { title: "Notas Fiscais", url: "/nfse", icon: FileText },
 ];
 
 const toolsMenu = [
