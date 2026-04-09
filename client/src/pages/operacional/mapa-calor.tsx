@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useEffect } from "react";
-import LeafletHeatMap, { HeatPoint } from "@/components/maps/LeafletHeatMap";
+import GoogleHeatMap, { HeatPoint } from "@/components/maps/GoogleHeatMap";
 import {
   MapPin,
   AlertTriangle,
@@ -268,7 +268,7 @@ export default function MapaCalorPage() {
               </div>
 
               <div className="relative">
-                <LeafletHeatMap
+                <GoogleHeatMap
                   key={`provider-${providerPoints.length}-${providerCenter?.lat}`}
                   points={providerPoints}
                   mode="provider"
@@ -383,7 +383,7 @@ export default function MapaCalorPage() {
                   </div>
                 </div>
                 <div className="relative">
-                  <LeafletHeatMap
+                  <GoogleHeatMap
                     key={`regional-${regionalPoints.length}`}
                     points={regionalPoints}
                     mode="regional"
