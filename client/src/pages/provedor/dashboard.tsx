@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { useState, useEffect } from "react";
-import AzureHeatMap, { HeatPoint } from "@/components/maps/AzureHeatMap";
+import LeafletHeatMap, { HeatPoint } from "@/components/maps/LeafletHeatMap";
 import {
   AlertTriangle,
   RefreshCw,
@@ -176,7 +176,7 @@ export default function DashboardPage() {
 
           <div className="p-4">
             <div className="relative">
-              <AzureHeatMap
+              <LeafletHeatMap
                 key={`dash-${heatPoints.length}-${providerCenter?.lat}`}
                 points={heatPoints}
                 mode="provider"
