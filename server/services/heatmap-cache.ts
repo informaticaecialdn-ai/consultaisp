@@ -63,7 +63,13 @@ export async function refreshProviderCache(
     const config = buildConnectorConfig(intg);
     console.log(`[HeatmapCache] Buscando ${providerName} (${erpSource}) id=${providerId} url=${intg.apiUrl}`);
     const limiter = getProviderLimiter(providerId, erpSource);
-    const result = await limiter(() => connector.fetchDelinquents(config));
+    // Mapa de calor: apenas clientes CANCELADOS com divida
+    const hasCancelled = typeof (connector as any).fetchCancelledDelinquents === "function";
+    const result = await limiter(() =>
+      hasCancelled
+        ? (connector as any).fetchCancelledDelinquents(config)
+        : connector.fetchDelinquents(config)
+    );
 
     if (!result.ok) {
       const existing = _cache.get(providerId);

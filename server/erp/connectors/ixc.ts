@@ -279,79 +279,108 @@ export class IxcConnector implements ErpConnector {
   }
 
   /**
-   * Busca clientes com contrato CANCELADO (ativo=N) e faturas em aberto nos ultimos 365 dias.
+   * Busca clientes com contrato CANCELADO e faturas em aberto.
+   * Abordagem: cliente_contrato status=C → id_cliente → fn_areceber status=A
    * Usado exclusivamente pelo mapa de calor — NAO mostra clientes ativos.
    */
   async fetchCancelledDelinquents(config: ErpConnectionConfig): Promise<ErpFetchResult> {
     try {
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - 365);
-      const cutoff = cutoffDate.toISOString().split("T")[0];
+      // 1. Buscar contratos cancelados (status="C") nos ultimos 2 anos
+      const cutoff = new Date();
+      cutoff.setFullYear(cutoff.getFullYear() - 2);
+      const cutoffStr = cutoff.toISOString().split("T")[0];
 
-      // Buscar faturas abertas de clientes inativos (cancelados) nos ultimos 365 dias
-      const allRows = await this.listWithFilter(config, "fn_areceber", [
-        { TB: "fn_areceber.status", OP: "=", P: "A", C: "AND", G: "" },
-        { TB: "fn_areceber.data_vencimento", OP: ">=", P: cutoff, C: "AND", G: "" },
-        { TB: "fn_areceber.ativo", OP: "=", P: "N", C: "AND", G: "" },
+      const cancelledContracts = await this.listWithFilter(config, "cliente_contrato", [
+        { TB: "cliente_contrato.status", OP: "=", P: "C", C: "AND", G: "" },
+        { TB: "cliente_contrato.data_final", OP: ">=", P: cutoffStr, C: "AND", G: "" },
       ]);
 
-      const now = new Date();
-      const overdueRows = allRows.filter((row: any) => {
-        const dueDate = row.data_vencimento;
-        return dueDate && new Date(dueDate) < now;
-      });
-
-      // Buscar enderecos da tabela "cliente" (fn_areceber nao retorna cidade/uf/cep)
-      const clienteIds = [...new Set(
-        overdueRows.map((r: any) => String(r.id_cliente || "")).filter(Boolean)
+      const cancelledClientIds = [...new Set(
+        cancelledContracts.map((r: any) => String(r.id_cliente || "")).filter(Boolean)
       )];
-      const clienteMap = new Map<string, { cidade: string; uf: string; cep: string; endereco: string; numero: string }>();
-      for (const cid of clienteIds) {
+
+      console.log(`[IXC] fetchCancelledDelinquents: ${cancelledContracts.length} contratos cancelados, ${cancelledClientIds.length} clientes unicos`);
+
+      if (cancelledClientIds.length === 0) {
+        return { ok: true, message: "Nenhum contrato cancelado encontrado", customers: [], totalRecords: 0 };
+      }
+
+      // 2. Buscar faturas abertas (status=A) desses clientes cancelados
+      const now = new Date();
+      const overdueByClient = new Map<string, { totalAmount: number; maxDays: number; count: number }>();
+
+      const BATCH = 50;
+      for (let i = 0; i < cancelledClientIds.length; i += BATCH) {
+        const batch = cancelledClientIds.slice(i, i + BATCH);
+        for (const cid of batch) {
+          try {
+            const invoiceRows = await this.listWithFilter(config, "fn_areceber", [
+              { TB: "fn_areceber.id_cliente", OP: "=", P: cid, C: "AND", G: "" },
+              { TB: "fn_areceber.status", OP: "=", P: "A", C: "AND", G: "" },
+            ], 200, 3);
+
+            for (const inv of invoiceRows) {
+              const dueDate = inv.data_vencimento;
+              if (!dueDate || new Date(dueDate) >= now) continue;
+              const amount = parseFloat(inv.valor || inv.valor_original || "0") || 0;
+              const days = calculateDaysOverdue(dueDate);
+              const existing = overdueByClient.get(cid);
+              if (existing) {
+                existing.totalAmount += amount;
+                if (days > existing.maxDays) existing.maxDays = days;
+                existing.count++;
+              } else {
+                overdueByClient.set(cid, { totalAmount: amount, maxDays: days, count: 1 });
+              }
+            }
+          } catch {}
+        }
+      }
+
+      // 3. Buscar dados de endereco da tabela "cliente"
+      const clientsWithDebt = [...overdueByClient.keys()];
+      const clienteMap = new Map<string, any>();
+      for (const cid of clientsWithDebt) {
         try {
           const rows = await this.listAll(config, "cliente", {
             qtype: "cliente.id",
             query: cid,
             oper: "=",
           }, 1, 1);
-          if (rows.length > 0) {
-            const c = rows[0];
-            clienteMap.set(cid, {
-              cidade: c.cidade || "",
-              uf: c.uf || c.estado || "",
-              cep: c.cep || "",
-              endereco: c.endereco || c.logradouro || "",
-              numero: c.numero || "",
-            });
-          }
+          if (rows.length > 0) clienteMap.set(cid, rows[0]);
         } catch {}
       }
 
-      console.log(`[IXC] fetchCancelledDelinquents: ${overdueRows.length} faturas canceladas vencidas, ${clienteMap.size} clientes com endereco`);
+      console.log(`[IXC] fetchCancelledDelinquents: ${clientsWithDebt.length} cancelados com divida, ${clienteMap.size} com endereco`);
 
-      const invoices = overdueRows.map((row: any) => {
-        const cid = String(row.id_cliente || "");
-        const cliente = clienteMap.get(cid);
-        return {
-          cpfCnpj: cleanCpfCnpj(row.cpf_cnpj || row.cnpj_cpf || row.documento || ""),
-          name: row.razao || row.nome || "",
-          email: row.email || undefined,
-          phone: row.fone || row.celular || row.fone_celular ? cleanPhone(row.fone || row.celular || row.fone_celular) : undefined,
-          address: cliente?.endereco || row.endereco || row.logradouro || undefined,
-          addressNumber: extractNumberFromAddress(cliente?.endereco || row.endereco, cliente?.numero || row.numero),
-          city: cliente?.cidade || row.cidade || undefined,
-          state: cliente?.uf || row.uf || row.estado || undefined,
-          cep: (cliente?.cep || row.cep) ? cleanCep(cliente?.cep || row.cep) : undefined,
-          amount: parseFloat(row.valor || row.valor_original || "0") || 0,
-          daysOverdue: calculateDaysOverdue(row.data_vencimento),
-          erpSource: "ixc" as const,
-        };
-      }).filter((inv) => inv.cpfCnpj.length > 0);
-
-      const customers = aggregateByCustomer(invoices);
+      // 4. Montar resultado normalizado
+      const customers: NormalizedErpCustomer[] = clientsWithDebt
+        .map(cid => {
+          const c = clienteMap.get(cid);
+          const overdue = overdueByClient.get(cid)!;
+          const cpfCnpj = c ? cleanCpfCnpj(c.cpf_cnpj || c.cnpj_cpf || c.documento || "") : "";
+          if (!cpfCnpj) return null;
+          return {
+            cpfCnpj,
+            name: c?.razao || c?.nome || "",
+            email: c?.email || undefined,
+            phone: c?.fone || c?.celular ? cleanPhone(c.fone || c.celular) : undefined,
+            address: c?.endereco || c?.logradouro || undefined,
+            addressNumber: extractNumberFromAddress(c?.endereco, c?.numero),
+            city: c?.cidade || undefined,
+            state: c?.uf || c?.estado || undefined,
+            cep: c?.cep ? cleanCep(c.cep) : undefined,
+            totalOverdueAmount: overdue.totalAmount,
+            maxDaysOverdue: overdue.maxDays,
+            overdueInvoicesCount: overdue.count,
+            erpSource: "ixc" as const,
+          };
+        })
+        .filter((c): c is NonNullable<typeof c> => c !== null);
 
       return {
         ok: true,
-        message: `${customers.length} cancelados com divida (${allRows.length} faturas)`,
+        message: `${customers.length} cancelados com divida`,
         customers,
         totalRecords: customers.length,
       };
