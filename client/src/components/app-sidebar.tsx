@@ -82,9 +82,7 @@ const mainMenu = [
   { title: "Benchmark Regional", url: "/benchmark-regional", icon: TrendingUp },
 ];
 
-const defaulterMenu = [
-  { title: "Mapa de Calor", url: "/mapa-calor", icon: MapPin },
-];
+const defaulterMenu: typeof consultaMenu = [];
 
 const financeMenu = [
   { title: "Comprar Creditos", url: "/creditos", icon: CreditCard },
