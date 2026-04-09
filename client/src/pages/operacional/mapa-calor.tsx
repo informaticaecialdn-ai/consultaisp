@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useState, useEffect } from "react";
-import GoogleHeatMap, { HeatPoint } from "@/components/maps/GoogleHeatMap";
+import LeafletHeatMap, { HeatPoint } from "@/components/maps/LeafletHeatMap";
 import {
   MapPin,
   AlertTriangle,
@@ -142,9 +142,9 @@ export default function MapaCalorPage() {
   useEffect(() => {
     const city = provider?.addressCity || "";
     const state = provider?.addressState || "";
+    let cancelled = false;
 
-    if (!city) {
-      // No city — derive center from provider points or leave null for fitBounds
+    const fallbackToPoints = () => {
       if (providerPoints.length > 0) {
         const avgLat = providerPoints.reduce((s, p) => s + p.lat, 0) / providerPoints.length;
         const avgLng = providerPoints.reduce((s, p) => s + p.lng, 0) / providerPoints.length;
@@ -152,58 +152,25 @@ export default function MapaCalorPage() {
       } else {
         setProviderCenter(null);
       }
-      return;
-    }
-
-    // Use Google Maps Geocoder to center on provider city/state
-    let cancelled = false;
-
-    const geocode = () => {
-      if (!window.google?.maps?.Geocoder) return;
-
-      const geocoder = new google.maps.Geocoder();
-      const query = state ? `${city}, ${state}, Brasil` : `${city}, Brasil`;
-
-      geocoder.geocode({ address: query }, (results, status) => {
-        if (cancelled) return;
-        if (status === "OK" && results && results.length > 0) {
-          const loc = results[0].geometry.location;
-          setProviderCenter({ lat: loc.lat(), lng: loc.lng() });
-        } else {
-          // Geocoding failed — fall back to center of provider points
-          if (providerPoints.length > 0) {
-            const avgLat = providerPoints.reduce((s, p) => s + p.lat, 0) / providerPoints.length;
-            const avgLng = providerPoints.reduce((s, p) => s + p.lng, 0) / providerPoints.length;
-            setProviderCenter({ lat: avgLat, lng: avgLng });
-          } else {
-            setProviderCenter(null);
-          }
-        }
-      });
     };
 
-    // Wait for Google Maps API to be available
-    if (window.google?.maps?.Geocoder) {
-      geocode();
-    } else {
-      const interval = setInterval(() => {
-        if (window.google?.maps?.Geocoder) {
-          clearInterval(interval);
-          if (!cancelled) geocode();
-        }
-      }, 500);
-      // Stop polling after 10s
-      const timeout = setTimeout(() => {
-        clearInterval(interval);
-        if (!cancelled && providerPoints.length > 0) {
-          const avgLat = providerPoints.reduce((s, p) => s + p.lat, 0) / providerPoints.length;
-          const avgLng = providerPoints.reduce((s, p) => s + p.lng, 0) / providerPoints.length;
-          setProviderCenter({ lat: avgLat, lng: avgLng });
-        }
-      }, 10000);
+    if (!city) { fallbackToPoints(); return; }
 
-      return () => { cancelled = true; clearInterval(interval); clearTimeout(timeout); };
-    }
+    // Geocode via Nominatim (OpenStreetMap) — sem dependencia do Google
+    const query = state ? `${city}, ${state}, Brasil` : `${city}, Brasil`;
+    fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=br`, {
+      headers: { "User-Agent": "ConsultaISP/1.0" },
+    })
+      .then(r => r.json())
+      .then((data: any[]) => {
+        if (cancelled) return;
+        if (data[0]) {
+          setProviderCenter({ lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) });
+        } else {
+          fallbackToPoints();
+        }
+      })
+      .catch(() => { if (!cancelled) fallbackToPoints(); });
 
     return () => { cancelled = true; };
   }, [provider?.addressCity, provider?.addressState, providerPoints]);
@@ -301,7 +268,7 @@ export default function MapaCalorPage() {
               </div>
 
               <div className="relative">
-                <GoogleHeatMap
+                <LeafletHeatMap
                   key={`provider-${providerPoints.length}-${providerCenter?.lat}`}
                   points={providerPoints}
                   mode="provider"
@@ -416,7 +383,7 @@ export default function MapaCalorPage() {
                   </div>
                 </div>
                 <div className="relative">
-                  <GoogleHeatMap
+                  <LeafletHeatMap
                     key={`regional-${regionalPoints.length}`}
                     points={regionalPoints}
                     mode="regional"
