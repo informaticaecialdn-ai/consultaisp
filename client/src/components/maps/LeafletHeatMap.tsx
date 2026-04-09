@@ -41,9 +41,9 @@ export default function LeafletHeatMap({
     const map = L.map(containerRef.current, {
       center,
       zoom: defaultCenter ? 12 : 4,
-      zoomControl: !preview,
-      scrollWheelZoom: !preview,
-      dragging: !preview,
+      zoomControl: true,
+      scrollWheelZoom: true,
+      dragging: true,
       attributionControl: true,
     });
 

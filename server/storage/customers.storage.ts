@@ -132,7 +132,7 @@ export class CustomersStorage {
     const rows = await db.select().from(customers).where(and(
       eq(customers.providerId, providerId),
       eq(customers.paymentStatus, "overdue"),
-      gte(customers.maxDaysOverdue, 30),
+      gte(customers.maxDaysOverdue, 1),
     ));
     return rows
       .filter(r => r.latitude && r.longitude)
@@ -153,7 +153,7 @@ export class CustomersStorage {
   }[]> {
     const rows = await db.select().from(customers).where(and(
       eq(customers.paymentStatus, "overdue"),
-      gte(customers.maxDaysOverdue, 30),
+      gte(customers.maxDaysOverdue, 1),
     ));
     return rows
       .filter(r => r.latitude && r.longitude)
