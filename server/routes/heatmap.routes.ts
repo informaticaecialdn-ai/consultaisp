@@ -7,6 +7,29 @@ import { syncAllProviders, isSyncing } from "../services/erp-sync.service";
 export function registerHeatmapRoutes(): Router {
   const router = Router();
 
+  // Tile proxy — evita bloqueio de Referer pelo OpenStreetMap
+  router.get("/api/tiles/:z/:x/:y.png", async (req, res) => {
+    try {
+      const { z, x, y } = req.params;
+      const url = `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": "ConsultaISP/1.0 (https://consultaisp.com.br)",
+          "Referer": "https://consultaisp.com.br",
+        },
+      });
+      if (!response.ok) {
+        return res.status(response.status).send("Tile not found");
+      }
+      res.set("Content-Type", "image/png");
+      res.set("Cache-Control", "public, max-age=86400"); // cache 24h
+      const buffer = Buffer.from(await response.arrayBuffer());
+      return res.send(buffer);
+    } catch {
+      return res.status(500).send("Tile proxy error");
+    }
+  });
+
   router.get("/api/config/maps-key", requireAuth, async (_req, res) => {
     const key = process.env.GOOGLE_MAPS_API_KEY || "";
     return res.json({ key });

@@ -47,7 +47,8 @@ export default function LeafletHeatMap({
       attributionControl: true,
     });
 
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    // Proxy tiles pelo proprio servidor pra evitar bloqueio de Referer
+    L.tileLayer("/api/tiles/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
       maxZoom: 19,
     }).addTo(map);
