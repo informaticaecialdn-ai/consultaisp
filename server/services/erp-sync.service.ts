@@ -171,10 +171,9 @@ export async function syncAllProviders(): Promise<void> {
   }
 }
 
-const SYNC_INTERVAL = 6 * 60 * 60 * 1000; // 6 horas
-
 export function startErpSyncScheduler(): void {
-  console.log("[ERPSync] Scheduler iniciado — sincroniza a cada 6h");
+  console.log("[ERPSync] Scheduler iniciado — sync inicial em 15s, depois todo dia as 03:00");
+
   // Sync inicial 15s apos boot
   setTimeout(async () => {
     try {
@@ -185,11 +184,25 @@ export function startErpSyncScheduler(): void {
     }
   }, 15000);
 
-  setInterval(async () => {
-    try {
-      await syncAllProviders();
-    } catch (err: any) {
-      console.warn("[ERPSync] Erro no sync periodico:", err.message);
-    }
-  }, SYNC_INTERVAL);
+  // Agendar proximo sync para 03:00 da madrugada
+  const scheduleNext = () => {
+    const now = new Date();
+    const next = new Date(now);
+    next.setHours(3, 0, 0, 0);
+    if (next <= now) next.setDate(next.getDate() + 1);
+    const ms = next.getTime() - now.getTime();
+    console.log(`[ERPSync] Proximo sync agendado para ${next.toLocaleString("pt-BR")} (em ${Math.round(ms / 60000)} min)`);
+
+    setTimeout(async () => {
+      try {
+        console.log("[ERPSync] Sync diario das 03:00 iniciado...");
+        await syncAllProviders();
+      } catch (err: any) {
+        console.warn("[ERPSync] Erro no sync diario:", err.message);
+      }
+      scheduleNext(); // Agendar proximo dia
+    }, ms);
+  };
+
+  scheduleNext();
 }
