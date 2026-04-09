@@ -107,8 +107,11 @@ export async function refreshProviderCache(
       let city = d.city || "";
       let state = d.state || "";
 
-      // Fallback 1: geocode by CEP
-      if ((!city || !state) && d.cep) {
+      // IXC armazena cidade como codigo IBGE (ex: "4101") — ignorar se numerico
+      if (/^\d+$/.test(city)) city = "";
+
+      // Fallback 1: geocode by CEP (preferido — resolve cidade/estado corretos)
+      if (d.cep) {
         const loc = await geocodeCep(d.cep);
         if (loc) {
           city = loc.city;
