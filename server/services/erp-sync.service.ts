@@ -38,7 +38,15 @@ export async function syncProviderToDb(
   console.log(`[ERPSync] Sincronizando ${providerName} (${erpSource}) id=${providerId}`);
 
   const limiter = getProviderLimiter(providerId, erpSource);
-  const result = await limiter(() => connector.fetchDelinquents(config));
+
+  // Buscar cancelados com divida (I/N/FA) se disponivel, senao todos os inadimplentes
+  const hasCancelled = typeof (connector as any).fetchCancelledDelinquents === "function";
+  const result = await limiter(() =>
+    hasCancelled
+      ? (connector as any).fetchCancelledDelinquents(config)
+      : connector.fetchDelinquents(config)
+  );
+  console.log(`[ERPSync] ${providerName}: usando ${hasCancelled ? "fetchCancelledDelinquents" : "fetchDelinquents"}`);
 
   if (!result.ok) {
     console.warn(`[ERPSync] Erro ao buscar ${providerName}: ${result.message}`);

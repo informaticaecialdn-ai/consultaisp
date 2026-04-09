@@ -279,33 +279,59 @@ export class IxcConnector implements ErpConnector {
   }
 
   /**
-   * Busca clientes com contrato CANCELADO e faturas em aberto.
-   * Otimizado: 2 queries bulk + cruzamento por id_cliente em memoria.
-   * Usado exclusivamente pelo mapa de calor — NAO mostra clientes ativos.
+   * Busca clientes com contrato cancelado/inativo E faturas em aberto.
+   * Status buscados: I (Inativo), N (Negativado), status_internet FA (Financeiro em atraso)
+   * Otimizado: 3 queries bulk (contratos I + N + FA) + 1 query faturas + cruzamento em memoria.
+   * Usado pelo mapa de calor e consulta ISP.
    */
   async fetchCancelledDelinquents(config: ErpConnectionConfig): Promise<ErpFetchResult> {
     try {
-      // 1. Query bulk: contratos NAO ativos (C=cancelado, I=inativo, D=desistiu, N=negativado)
-      const inactiveContracts = await this.listWithFilter(config, "cliente_contrato", [
-        { TB: "cliente_contrato.status", OP: "!=", P: "A", C: "AND", G: "" },
-      ]);
+      // 1. Buscar contratos com status I (Inativo)
+      const inativoContracts = await this.listWithFilter(config, "cliente_contrato", [
+        { TB: "cliente_contrato.status", OP: "=", P: "I", C: "AND", G: "" },
+      ]).catch(() => [] as any[]);
 
-      const cancelledClientIds = new Set(
-        inactiveContracts.map((r: any) => String(r.id_cliente || "")).filter(Boolean)
-      );
+      // 2. Buscar contratos com status N (Negativado)
+      const negativadoContracts = await this.listWithFilter(config, "cliente_contrato", [
+        { TB: "cliente_contrato.status", OP: "=", P: "N", C: "AND", G: "" },
+      ]).catch(() => [] as any[]);
 
-      // Log distribuicao de status
-      const statusCount: Record<string, number> = {};
-      for (const c of inactiveContracts) { statusCount[c.status || "?"] = (statusCount[c.status || "?"] || 0) + 1; }
-      console.log(`[IXC] fetchCancelledDelinquents: ${inactiveContracts.length} contratos nao-ativos (${JSON.stringify(statusCount)}), ${cancelledClientIds.size} clientes unicos`);
+      // 3. Buscar contratos com status_internet FA (Financeiro em atraso)
+      const faContracts = await this.listWithFilter(config, "cliente_contrato", [
+        { TB: "cliente_contrato.status_internet", OP: "=", P: "FA", C: "AND", G: "" },
+      ]).catch(() => [] as any[]);
+
+      // Mapear id_cliente → info do contrato (status, datas)
+      const contractMap = new Map<string, { status: string; statusInternet: string; plan: string; startDate: string; endDate: string; contractId: string }>();
+      const allContracts = [...inativoContracts, ...negativadoContracts, ...faContracts];
+
+      for (const c of allContracts) {
+        const cid = String(c.id_cliente || "");
+        if (!cid) continue;
+        // Manter o pior status se duplicado
+        if (!contractMap.has(cid)) {
+          contractMap.set(cid, {
+            status: c.status || "",
+            statusInternet: c.status_internet || "",
+            plan: c.contrato || c.descricao || "",
+            startDate: c.data_inicio || "",
+            endDate: c.data_final || "",
+            contractId: String(c.id || ""),
+          });
+        }
+      }
+
+      const cancelledClientIds = new Set(contractMap.keys());
+
+      console.log(`[IXC] fetchCancelledDelinquents: I=${inativoContracts.length} N=${negativadoContracts.length} FA=${faContracts.length} → ${cancelledClientIds.size} clientes unicos`);
 
       if (cancelledClientIds.size === 0) {
         return { ok: true, message: "Nenhum contrato cancelado encontrado", customers: [], totalRecords: 0 };
       }
 
-      // 2. Query bulk: TODAS as faturas abertas vencidas (mesma query do fetchDelinquents)
+      // 4. Query bulk: TODAS as faturas abertas vencidas
       const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - 365);
+      cutoffDate.setDate(cutoffDate.getDate() - 730); // 2 anos
       const cutoff = cutoffDate.toISOString().split("T")[0];
 
       const allRows = await this.listWithFilter(config, "fn_areceber", [
@@ -314,7 +340,6 @@ export class IxcConnector implements ErpConnector {
       ]);
 
       const now = new Date();
-      // 3. Filtrar: apenas faturas vencidas de clientes CANCELADOS
       const overdueRows = allRows.filter((row: any) => {
         const dueDate = row.data_vencimento;
         if (!dueDate || new Date(dueDate) >= now) return false;
@@ -322,9 +347,9 @@ export class IxcConnector implements ErpConnector {
         return cancelledClientIds.has(cid);
       });
 
-      console.log(`[IXC] fetchCancelledDelinquents: ${allRows.length} faturas abertas, ${overdueRows.length} de clientes cancelados`);
+      console.log(`[IXC] fetchCancelledDelinquents: ${allRows.length} faturas abertas, ${overdueRows.length} de cancelados/inativos`);
 
-      // 4. Buscar enderecos dos clientes cancelados com divida
+      // 5. Buscar dados cadastrais dos clientes com divida
       const clienteIds = [...new Set(overdueRows.map((r: any) => String(r.id_cliente || "")).filter(Boolean))];
       const clienteMap = new Map<string, any>();
       for (const cid of clienteIds) {
@@ -334,14 +359,16 @@ export class IxcConnector implements ErpConnector {
         } catch {}
       }
 
+      console.log(`[IXC] fetchCancelledDelinquents: ${clienteIds.length} cancelados com divida, ${clienteMap.size} com dados cadastrais`);
+
       const invoices = overdueRows.map((row: any) => {
         const cid = String(row.id_cliente || "");
         const c = clienteMap.get(cid);
         return {
-          cpfCnpj: cleanCpfCnpj(row.cpf_cnpj || row.cnpj_cpf || row.documento || ""),
-          name: row.razao || row.nome || "",
-          email: row.email || undefined,
-          phone: row.fone || row.celular || row.fone_celular ? cleanPhone(row.fone || row.celular || row.fone_celular) : undefined,
+          cpfCnpj: cleanCpfCnpj(c?.cpf_cnpj || c?.cnpj_cpf || row.cpf_cnpj || row.cnpj_cpf || row.documento || ""),
+          name: c?.razao || c?.nome || row.razao || row.nome || "",
+          email: c?.email || row.email || undefined,
+          phone: c?.fone || c?.celular ? cleanPhone(c.fone || c.celular) : undefined,
           address: c?.endereco || row.endereco || undefined,
           addressNumber: extractNumberFromAddress(c?.endereco || row.endereco, c?.numero || row.numero),
           city: c?.cidade || row.cidade || undefined,
@@ -357,7 +384,7 @@ export class IxcConnector implements ErpConnector {
 
       return {
         ok: true,
-        message: `${customers.length} cancelados com divida (de ${allRows.length} faturas)`,
+        message: `${customers.length} cancelados com divida (I=${inativoContracts.length} N=${negativadoContracts.length} FA=${faContracts.length})`,
         customers,
         totalRecords: customers.length,
       };
