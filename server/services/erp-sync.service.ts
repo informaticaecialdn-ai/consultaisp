@@ -7,7 +7,7 @@
 
 import { storage } from "../storage";
 import { getConnector, buildConnectorConfig, getProviderLimiter } from "../erp";
-import { geocodeCity, geocodeCep } from "./geocoding";
+import { geocodeCity, geocodeCep, geocodeAddress, resolveIbgeCode } from "./geocoding";
 
 let _syncing = false;
 
@@ -55,24 +55,34 @@ export async function syncProviderToDb(
 
   let upserted = 0;
   let errors = 0;
-  const cityGeoCache = new Map<string, { lat: string; lng: string } | null>();
 
   for (const customer of result.customers) {
     try {
       let city = customer.city || "";
       let state = customer.state || "";
+      let address = customer.address || "";
       let lat: string | undefined;
       let lng: string | undefined;
 
-      // IXC armazena cidade como codigo IBGE (numerico) — ignorar
-      if (/^\d+$/.test(city)) city = "";
+      // IXC armazena cidade como codigo IBGE (numerico) — resolver via API IBGE
+      if (/^\d+$/.test(city)) {
+        const ibge = await resolveIbgeCode(city);
+        if (ibge) {
+          city = ibge.city;
+          state = ibge.state;
+        } else {
+          city = "";
+        }
+      }
 
-      // Geocodificar via CEP (prioridade)
+      // Resolver CEP → cidade/estado (e tambem rua/bairro se disponivel)
       if (customer.cep) {
         const loc = await geocodeCep(customer.cep);
         if (loc) {
-          city = loc.city;
-          state = loc.state;
+          if (!city) city = loc.city;
+          if (!state) state = loc.state;
+          // Usar rua do ViaCEP se nao tem endereco do cliente
+          if (!address && loc.street) address = loc.street;
         }
       }
 
@@ -87,31 +97,25 @@ export async function syncProviderToDb(
         } catch {}
       }
 
-      // Geocodificar cidade → lat/lng
+      // Geocodificar: endereco completo (mais preciso) → fallback cidade
       if (city && state) {
-        const cacheKey = `${city.toLowerCase()},${state.toLowerCase()}`;
-        if (cityGeoCache.has(cacheKey)) {
-          const cached = cityGeoCache.get(cacheKey);
-          if (cached) { lat = cached.lat; lng = cached.lng; }
-        } else {
-          const coords = await geocodeCity(city, state);
-          if (coords) {
-            // LGPD: jitter ±0.02° (~2km)
-            const jLat = coords[0] + (Math.random() - 0.5) * 0.02;
-            const jLng = coords[1] + (Math.random() - 0.5) * 0.02;
-            lat = String(jLat);
-            lng = String(jLng);
-            cityGeoCache.set(cacheKey, { lat: String(coords[0]), lng: String(coords[1]) });
-          } else {
-            cityGeoCache.set(cacheKey, null);
+        // Tentar endereco completo primeiro (distribui pontos pelas ruas)
+        if (address) {
+          const addrCoords = await geocodeAddress(address, city, state);
+          if (addrCoords) {
+            // LGPD: jitter ±0.005° (~500m) — menor porque endereco ja e preciso
+            lat = String(addrCoords[0] + (Math.random() - 0.5) * 0.005);
+            lng = String(addrCoords[1] + (Math.random() - 0.5) * 0.005);
           }
         }
 
-        // Aplicar jitter individual se temos coordenadas base do cache
-        if (!lat && cityGeoCache.get(`${city.toLowerCase()},${state.toLowerCase()}`)) {
-          const base = cityGeoCache.get(`${city.toLowerCase()},${state.toLowerCase()}`)!;
-          lat = String(parseFloat(base.lat) + (Math.random() - 0.5) * 0.02);
-          lng = String(parseFloat(base.lng) + (Math.random() - 0.5) * 0.02);
+        // Fallback: geocodificar por cidade (jitter maior)
+        if (!lat) {
+          const cityCoords = await geocodeCity(city, state);
+          if (cityCoords) {
+            lat = String(cityCoords[0] + (Math.random() - 0.5) * 0.02);
+            lng = String(cityCoords[1] + (Math.random() - 0.5) * 0.02);
+          }
         }
       }
 
