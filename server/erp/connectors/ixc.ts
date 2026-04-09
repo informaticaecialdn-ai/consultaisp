@@ -286,20 +286,20 @@ export class IxcConnector implements ErpConnector {
    */
   async fetchCancelledDelinquents(config: ErpConnectionConfig): Promise<ErpFetchResult> {
     try {
-      // 1. Buscar contratos com status I (Inativo)
+      // 1. Buscar contratos com status I (Inativo) — sem limite de paginas
       const inativoContracts = await this.listWithFilter(config, "cliente_contrato", [
         { TB: "cliente_contrato.status", OP: "=", P: "I", C: "AND", G: "" },
-      ]).catch(() => [] as any[]);
+      ], 500, 200).catch(() => [] as any[]);
 
       // 2. Buscar contratos com status N (Negativado)
       const negativadoContracts = await this.listWithFilter(config, "cliente_contrato", [
         { TB: "cliente_contrato.status", OP: "=", P: "N", C: "AND", G: "" },
-      ]).catch(() => [] as any[]);
+      ], 500, 200).catch(() => [] as any[]);
 
       // 3. Buscar contratos com status_internet FA (Financeiro em atraso)
       const faContracts = await this.listWithFilter(config, "cliente_contrato", [
         { TB: "cliente_contrato.status_internet", OP: "=", P: "FA", C: "AND", G: "" },
-      ]).catch(() => [] as any[]);
+      ], 500, 200).catch(() => [] as any[]);
 
       // Mapear id_cliente → info do contrato (status, datas)
       const contractMap = new Map<string, { status: string; statusInternet: string; plan: string; startDate: string; endDate: string; contractId: string }>();
@@ -329,62 +329,90 @@ export class IxcConnector implements ErpConnector {
         return { ok: true, message: "Nenhum contrato cancelado encontrado", customers: [], totalRecords: 0 };
       }
 
-      // 4. Query bulk: TODAS as faturas abertas vencidas
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - 730); // 2 anos
-      const cutoff = cutoffDate.toISOString().split("T")[0];
-
-      const allRows = await this.listWithFilter(config, "fn_areceber", [
-        { TB: "fn_areceber.status", OP: "=", P: "A", C: "AND", G: "" },
-        { TB: "fn_areceber.data_vencimento", OP: ">=", P: cutoff, C: "AND", G: "" },
-      ]);
-
+      // 4. Buscar faturas abertas POR CLIENTE cancelado (em lotes)
+      // Nao busca todas as faturas do sistema — busca so dos cancelados
       const now = new Date();
-      const overdueRows = allRows.filter((row: any) => {
-        const dueDate = row.data_vencimento;
-        if (!dueDate || new Date(dueDate) >= now) return false;
-        const cid = String(row.id_cliente || "");
-        return cancelledClientIds.has(cid);
-      });
+      const overdueByClient = new Map<string, { totalAmount: number; maxDays: number; count: number }>();
+      const clienteIdArray = [...cancelledClientIds];
 
-      console.log(`[IXC] fetchCancelledDelinquents: ${allRows.length} faturas abertas, ${overdueRows.length} de cancelados/inativos`);
+      console.log(`[IXC] fetchCancelledDelinquents: buscando faturas de ${clienteIdArray.length} clientes cancelados...`);
+
+      // Buscar em lotes de 50 clientes
+      const BATCH = 50;
+      for (let i = 0; i < clienteIdArray.length; i += BATCH) {
+        const batch = clienteIdArray.slice(i, i + BATCH);
+        for (const cid of batch) {
+          try {
+            const invoices = await this.listAll(config, "fn_areceber", {
+              qtype: "fn_areceber.id_cliente",
+              query: cid,
+              oper: "=",
+            }, 200, 10);
+
+            for (const inv of invoices) {
+              if (inv.status !== "A") continue; // so abertas
+              const dueDate = inv.data_vencimento;
+              if (!dueDate || new Date(dueDate) >= now) continue; // so vencidas
+              const amount = parseFloat(inv.valor || inv.valor_original || "0") || 0;
+              const days = calculateDaysOverdue(dueDate);
+              const existing = overdueByClient.get(cid);
+              if (existing) {
+                existing.totalAmount += amount;
+                if (days > existing.maxDays) existing.maxDays = days;
+                existing.count++;
+              } else {
+                overdueByClient.set(cid, { totalAmount: amount, maxDays: days, count: 1 });
+              }
+            }
+          } catch {}
+        }
+        if (i % 500 === 0 && i > 0) {
+          console.log(`[IXC] fetchCancelledDelinquents: processados ${i}/${clienteIdArray.length} clientes, ${overdueByClient.size} com divida ate agora`);
+        }
+      }
+
+      console.log(`[IXC] fetchCancelledDelinquents: ${overdueByClient.size} cancelados com faturas vencidas de ${clienteIdArray.length} total`);
 
       // 5. Buscar dados cadastrais dos clientes com divida
-      const clienteIds = [...new Set(overdueRows.map((r: any) => String(r.id_cliente || "")).filter(Boolean))];
+      const clientsWithDebt = [...overdueByClient.keys()];
       const clienteMap = new Map<string, any>();
-      for (const cid of clienteIds) {
+      for (const cid of clientsWithDebt) {
         try {
           const rows = await this.listAll(config, "cliente", { qtype: "cliente.id", query: cid, oper: "=" }, 1, 1);
           if (rows.length > 0) clienteMap.set(cid, rows[0]);
         } catch {}
       }
 
-      console.log(`[IXC] fetchCancelledDelinquents: ${clienteIds.length} cancelados com divida, ${clienteMap.size} com dados cadastrais`);
+      console.log(`[IXC] fetchCancelledDelinquents: ${clientsWithDebt.length} cancelados com divida, ${clienteMap.size} com dados cadastrais`);
 
-      const invoices = overdueRows.map((row: any) => {
-        const cid = String(row.id_cliente || "");
-        const c = clienteMap.get(cid);
-        return {
-          cpfCnpj: cleanCpfCnpj(c?.cpf_cnpj || c?.cnpj_cpf || row.cpf_cnpj || row.cnpj_cpf || row.documento || ""),
-          name: c?.razao || c?.nome || row.razao || row.nome || "",
-          email: c?.email || row.email || undefined,
-          phone: c?.fone || c?.celular ? cleanPhone(c.fone || c.celular) : undefined,
-          address: c?.endereco || row.endereco || undefined,
-          addressNumber: extractNumberFromAddress(c?.endereco || row.endereco, c?.numero || row.numero),
-          city: c?.cidade || row.cidade || undefined,
-          state: c?.uf || row.uf || undefined,
-          cep: (c?.cep || row.cep) ? cleanCep(c?.cep || row.cep) : undefined,
-          amount: parseFloat(row.valor || row.valor_original || "0") || 0,
-          daysOverdue: calculateDaysOverdue(row.data_vencimento),
-          erpSource: "ixc" as const,
-        };
-      }).filter((inv) => inv.cpfCnpj.length > 0);
-
-      const customers = aggregateByCustomer(invoices);
+      // Montar resultado normalizado
+      const customers: NormalizedErpCustomer[] = clientsWithDebt
+        .map(cid => {
+          const c = clienteMap.get(cid);
+          const overdue = overdueByClient.get(cid)!;
+          const cpfCnpj = c ? cleanCpfCnpj(c.cpf_cnpj || c.cnpj_cpf || c.documento || "") : "";
+          if (!cpfCnpj) return null;
+          return {
+            cpfCnpj,
+            name: c?.razao || c?.nome || "",
+            email: c?.email || undefined,
+            phone: c?.fone || c?.celular ? cleanPhone(c.fone || c.celular) : undefined,
+            address: c?.endereco || c?.logradouro || undefined,
+            addressNumber: extractNumberFromAddress(c?.endereco, c?.numero),
+            city: c?.cidade || undefined,
+            state: c?.uf || c?.estado || undefined,
+            cep: c?.cep ? cleanCep(c.cep) : undefined,
+            totalOverdueAmount: overdue.totalAmount,
+            maxDaysOverdue: overdue.maxDays,
+            overdueInvoicesCount: overdue.count,
+            erpSource: "ixc" as const,
+          };
+        })
+        .filter((c): c is NonNullable<typeof c> => c !== null);
 
       return {
         ok: true,
-        message: `${customers.length} cancelados com divida (I=${inativoContracts.length} N=${negativadoContracts.length} FA=${faContracts.length})`,
+        message: `${customers.length} cancelados com divida (I=${inativoContracts.length} N=${negativadoContracts.length} FA=${faContracts.length}, ${cancelledClientIds.size} clientes)`,
         customers,
         totalRecords: customers.length,
       };
