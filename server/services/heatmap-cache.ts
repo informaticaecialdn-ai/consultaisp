@@ -63,14 +63,7 @@ export async function refreshProviderCache(
     const config = buildConnectorConfig(intg);
     console.log(`[HeatmapCache] Buscando ${providerName} (${erpSource}) id=${providerId} url=${intg.apiUrl}`);
     const limiter = getProviderLimiter(providerId, erpSource);
-    // Usar fetchCancelledDelinquents se disponivel (clientes com contrato cancelado + divida)
-    const hasCancelled = typeof (connector as any).fetchCancelledDelinquents === "function";
-    const result = await limiter(() =>
-      hasCancelled
-        ? (connector as any).fetchCancelledDelinquents(config)
-        : connector.fetchDelinquents(config)
-    );
-    console.log(`[HeatmapCache] ${providerName}: usando ${hasCancelled ? "fetchCancelledDelinquents" : "fetchDelinquents"}`);
+    const result = await limiter(() => connector.fetchDelinquents(config));
 
     if (!result.ok) {
       const existing = _cache.get(providerId);
@@ -97,14 +90,14 @@ export async function refreshProviderCache(
     let skippedNoGeo = 0;
     let skippedActive = 0;
 
-    // Mapa de calor: todos os clientes cancelados com divida (sem filtro de dias)
+    // Mapa de calor: todos os inadimplentes com valor em aberto
     const filteredCustomers = result.customers.filter(d => {
       if (d.totalOverdueAmount > 0) return true;
       skippedActive++;
       return false;
     });
 
-    console.log(`[HeatmapCache] ${providerName}: ${result.customers.length} total, ${filteredCustomers.length} cancelados com divida (${skippedActive} sem divida)`);
+    console.log(`[HeatmapCache] ${providerName}: ${result.customers.length} total, ${filteredCustomers.length} inadimplentes com divida (${skippedActive} sem valor)`);
 
     for (const d of filteredCustomers) {
       let city = d.city || "";
@@ -171,7 +164,7 @@ export async function refreshProviderCache(
       status: points.length > 0 ? "ok" : "empty",
     });
     console.log(
-      `[HeatmapCache] ${providerName} (${erpSource}) — ${points.length} pontos de ${filteredCustomers.length} cancelados com divida (${skippedActive} sem divida, ${skippedNoGeo} sem geo)`,
+      `[HeatmapCache] ${providerName} (${erpSource}) — ${points.length} pontos de ${filteredCustomers.length} inadimplentes (${skippedActive} sem valor, ${skippedNoGeo} sem geo)`,
     );
   } catch (err: any) {
     const msg = err.message || "Erro desconhecido";
