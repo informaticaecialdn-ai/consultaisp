@@ -124,7 +124,7 @@ export class CustomersStorage {
     }
   }
 
-  /** Buscar inadimplentes do banco local para mapa de calor (com lat/lng) */
+  /** Buscar inadimplentes do banco local para mapa de calor — max 365 dias */
   async getHeatmapByProvider(providerId: number): Promise<{
     lat: number; lng: number; city: string; totalOverdueAmount: number;
     maxDaysOverdue: number; overdueCount: number;
@@ -135,7 +135,7 @@ export class CustomersStorage {
       gte(customers.maxDaysOverdue, 1),
     ));
     return rows
-      .filter(r => r.latitude && r.longitude)
+      .filter(r => r.latitude && r.longitude && (r.maxDaysOverdue || 0) <= 365)
       .map(r => ({
         lat: parseFloat(r.latitude!),
         lng: parseFloat(r.longitude!),
@@ -146,7 +146,7 @@ export class CustomersStorage {
       }));
   }
 
-  /** Buscar todos os inadimplentes de todos os provedores (mapa regional) */
+  /** Buscar todos os inadimplentes de todos os provedores (mapa regional) — max 365 dias */
   async getHeatmapAll(): Promise<{
     lat: number; lng: number; city: string; totalOverdueAmount: number;
     maxDaysOverdue: number; overdueCount: number; providerId: number;
@@ -156,7 +156,7 @@ export class CustomersStorage {
       gte(customers.maxDaysOverdue, 1),
     ));
     return rows
-      .filter(r => r.latitude && r.longitude)
+      .filter(r => r.latitude && r.longitude && (r.maxDaysOverdue || 0) <= 365)
       .map(r => ({
         lat: parseFloat(r.latitude!),
         lng: parseFloat(r.longitude!),
