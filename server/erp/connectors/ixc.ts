@@ -285,16 +285,19 @@ export class IxcConnector implements ErpConnector {
    */
   async fetchCancelledDelinquents(config: ErpConnectionConfig): Promise<ErpFetchResult> {
     try {
-      // 1. Query bulk: contratos cancelados (status="C")
-      const cancelledContracts = await this.listWithFilter(config, "cliente_contrato", [
-        { TB: "cliente_contrato.status", OP: "=", P: "C", C: "AND", G: "" },
+      // 1. Query bulk: contratos NAO ativos (C=cancelado, I=inativo, D=desistiu, N=negativado)
+      const inactiveContracts = await this.listWithFilter(config, "cliente_contrato", [
+        { TB: "cliente_contrato.status", OP: "!=", P: "A", C: "AND", G: "" },
       ]);
 
       const cancelledClientIds = new Set(
-        cancelledContracts.map((r: any) => String(r.id_cliente || "")).filter(Boolean)
+        inactiveContracts.map((r: any) => String(r.id_cliente || "")).filter(Boolean)
       );
 
-      console.log(`[IXC] fetchCancelledDelinquents: ${cancelledContracts.length} contratos cancelados, ${cancelledClientIds.size} clientes unicos`);
+      // Log distribuicao de status
+      const statusCount: Record<string, number> = {};
+      for (const c of inactiveContracts) { statusCount[c.status || "?"] = (statusCount[c.status || "?"] || 0) + 1; }
+      console.log(`[IXC] fetchCancelledDelinquents: ${inactiveContracts.length} contratos nao-ativos (${JSON.stringify(statusCount)}), ${cancelledClientIds.size} clientes unicos`);
 
       if (cancelledClientIds.size === 0) {
         return { ok: true, message: "Nenhum contrato cancelado encontrado", customers: [], totalRecords: 0 };
