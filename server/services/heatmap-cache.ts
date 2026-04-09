@@ -63,13 +63,7 @@ export async function refreshProviderCache(
     const config = buildConnectorConfig(intg);
     console.log(`[HeatmapCache] Buscando ${providerName} (${erpSource}) id=${providerId} url=${intg.apiUrl}`);
     const limiter = getProviderLimiter(providerId, erpSource);
-    // Mapa de calor: apenas clientes CANCELADOS com divida
-    const hasCancelled = typeof (connector as any).fetchCancelledDelinquents === "function";
-    const result = await limiter(() =>
-      hasCancelled
-        ? (connector as any).fetchCancelledDelinquents(config)
-        : connector.fetchDelinquents(config)
-    );
+    const result = await limiter(() => connector.fetchDelinquents(config));
 
     if (!result.ok) {
       const existing = _cache.get(providerId);
@@ -96,14 +90,14 @@ export async function refreshProviderCache(
     let skippedNoGeo = 0;
     let skippedActive = 0;
 
-    // Mapa de calor: todos os inadimplentes com valor em aberto
+    // Mapa de calor: inadimplentes com 30+ dias de atraso
     const filteredCustomers = result.customers.filter(d => {
-      if (d.totalOverdueAmount > 0) return true;
+      if (d.maxDaysOverdue >= 30 && d.totalOverdueAmount > 0) return true;
       skippedActive++;
       return false;
     });
 
-    console.log(`[HeatmapCache] ${providerName}: ${result.customers.length} total, ${filteredCustomers.length} inadimplentes com divida (${skippedActive} sem valor)`);
+    console.log(`[HeatmapCache] ${providerName}: ${result.customers.length} total, ${filteredCustomers.length} inadimplentes 30d+ (${skippedActive} filtrados)`);
 
     // Log amostra de cidades/estados pra debug
     const sampleCities = filteredCustomers.slice(0, 5).map(d => `${d.city || "SEM_CIDADE"}/${d.state || "SEM_UF"} cep=${d.cep || "SEM_CEP"}`);
