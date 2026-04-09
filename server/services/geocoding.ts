@@ -9,8 +9,8 @@ export async function geocodeCity(city: string, state: string): Promise<[number,
   const key = `${city.toLowerCase()},${state.toLowerCase()}`;
   if (_cityGeo.has(key)) return _cityGeo.get(key)!;
   try {
-    const q = `${city}, ${state}, Brazil`;
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`;
+    const q = `${city}, ${state}, Brasil`;
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&countrycodes=br`;
     const r = await fetch(url, {
       headers: { "User-Agent": "ConsultaISP/1.0 heatmap@consultaisp.com.br" },
       signal: AbortSignal.timeout(8000),
@@ -18,9 +18,15 @@ export async function geocodeCity(city: string, state: string): Promise<[number,
     if (r.ok) {
       const data: any[] = await r.json();
       if (data[0]) {
-        const coords: [number, number] = [parseFloat(data[0].lat), parseFloat(data[0].lon)];
-        _cityGeo.set(key, coords);
-        return coords;
+        const lat = parseFloat(data[0].lat);
+        const lon = parseFloat(data[0].lon);
+        // Validar que coordenadas estao dentro do Brasil (-34 a 5 lat, -74 a -35 lng)
+        if (lat >= -34 && lat <= 6 && lon >= -74 && lon <= -34) {
+          const coords: [number, number] = [lat, lon];
+          _cityGeo.set(key, coords);
+          return coords;
+        }
+        console.warn(`[Geocoding] Coordenadas fora do Brasil para "${q}": ${lat},${lon} — ignorando`);
       }
     }
   } catch {
