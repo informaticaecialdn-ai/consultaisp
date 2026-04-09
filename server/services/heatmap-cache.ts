@@ -62,7 +62,12 @@ export async function refreshProviderCache(
   try {
     const config = buildConnectorConfig(intg);
     const limiter = getProviderLimiter(providerId, erpSource);
-    const result = await limiter(() => connector.fetchDelinquents(config));
+    // Mapa de calor: buscar apenas contratos CANCELADOS com inadimplencia
+    // Se o conector suporta fetchCancelledDelinquents, usar; senao fallback para fetchDelinquents
+    const fetchFn = typeof (connector as any).fetchCancelledDelinquents === "function"
+      ? (connector as any).fetchCancelledDelinquents.bind(connector)
+      : connector.fetchDelinquents.bind(connector);
+    const result = await limiter(() => fetchFn(config));
 
     if (!result.ok) {
       const existing = _cache.get(providerId);
@@ -89,18 +94,17 @@ export async function refreshProviderCache(
     let skippedNoGeo = 0;
     let skippedActive = 0;
 
-    // REGRA: mapa de calor mostra APENAS contratos cancelados com inadimplencia
-    // Contratos cancelados tipicamente tem > 90 dias de atraso
-    // Clientes ativos NAO devem aparecer no mapa (dado sensivel)
-    const cancelledCustomers = result.customers.filter(d => {
-      // Contratos cancelados: atraso entre 90 e 365 dias (ultimos 12 meses, excluindo ativos)
-      const days = d.maxDaysOverdue;
-      const isCancelled = (days >= 90 && days <= 365)
-        || (d as any).status?.toLowerCase?.()?.includes?.("cancelad")
-        || (d as any).contractStatus?.toLowerCase?.()?.includes?.("cancelad");
-      if (!isCancelled) skippedActive++;
-      return isCancelled;
-    });
+    // Se usou fetchCancelledDelinquents, dados ja vem filtrados
+    // Se usou fetchDelinquents (fallback), filtrar por status cancelado
+    const cancelledCustomers = typeof (connector as any).fetchCancelledDelinquents === "function"
+      ? result.customers // ja filtrado pelo conector
+      : result.customers.filter(d => {
+          const isCancelled = (d as any).status?.toLowerCase?.()?.includes?.("cancelad")
+            || (d as any).contractStatus?.toLowerCase?.()?.includes?.("cancelad")
+            || d.maxDaysOverdue >= 90; // fallback: >90 dias como proxy
+          if (!isCancelled) skippedActive++;
+          return isCancelled;
+        });
 
     console.log(`[HeatmapCache] ${providerName}: ${result.customers.length} total, ${cancelledCustomers.length} cancelados (${skippedActive} ativos ignorados)`);
 

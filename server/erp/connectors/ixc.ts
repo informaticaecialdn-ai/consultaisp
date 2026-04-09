@@ -244,6 +244,59 @@ export class IxcConnector implements ErpConnector {
   }
 
   /**
+   * Busca clientes com contrato CANCELADO (ativo=N) e faturas em aberto nos ultimos 365 dias.
+   * Usado exclusivamente pelo mapa de calor — NAO mostra clientes ativos.
+   */
+  async fetchCancelledDelinquents(config: ErpConnectionConfig): Promise<ErpFetchResult> {
+    try {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - 365);
+      const cutoff = cutoffDate.toISOString().split("T")[0];
+
+      // Buscar faturas abertas de clientes inativos (cancelados) nos ultimos 365 dias
+      const allRows = await this.listWithFilter(config, "fn_areceber", [
+        { TB: "fn_areceber.status", OP: "=", P: "A", C: "AND", G: "" },
+        { TB: "fn_areceber.data_vencimento", OP: ">=", P: cutoff, C: "AND", G: "" },
+        { TB: "fn_areceber.ativo", OP: "=", P: "N", C: "AND", G: "" },
+      ]);
+
+      const now = new Date();
+      const invoices = allRows
+        .filter((row: any) => {
+          const dueDate = row.data_vencimento;
+          return dueDate && new Date(dueDate) < now;
+        })
+        .map((row: any) => ({
+          cpfCnpj: cleanCpfCnpj(row.cpf_cnpj || row.cnpj_cpf || row.documento || ""),
+          name: row.razao || row.nome || "",
+          email: row.email || undefined,
+          phone: row.fone || row.celular || row.fone_celular ? cleanPhone(row.fone || row.celular || row.fone_celular) : undefined,
+          address: row.endereco || row.logradouro || undefined,
+          addressNumber: extractNumberFromAddress(row.endereco, row.numero),
+          city: row.cidade || undefined,
+          state: row.uf || row.estado || undefined,
+          cep: row.cep ? cleanCep(row.cep) : undefined,
+          amount: parseFloat(row.valor || row.valor_original || "0") || 0,
+          daysOverdue: calculateDaysOverdue(row.data_vencimento),
+          erpSource: "ixc" as const,
+        }))
+        .filter((inv) => inv.cpfCnpj.length > 0);
+
+      const customers = aggregateByCustomer(invoices);
+
+      return {
+        ok: true,
+        message: `${customers.length} cancelados com divida (${allRows.length} faturas)`,
+        customers,
+        totalRecords: customers.length,
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      return { ok: false, message: `Erro: ${msg}`, customers: [] };
+    }
+  }
+
+  /**
    * Busca todos os clientes.
    */
   async fetchCustomers(config: ErpConnectionConfig): Promise<ErpFetchResult> {
