@@ -12,6 +12,11 @@ export function registerHeatmapRoutes(): Router {
     return res.json({ key });
   });
 
+  router.get("/api/config/bing-maps-key", requireAuth, async (_req, res) => {
+    const key = process.env.BING_MAPS_API_KEY || "";
+    return res.json({ key });
+  });
+
   // Dados do provedor logado — query direta no banco local
   router.get("/api/heatmap/provider", requireAuth, async (req, res) => {
     try {
