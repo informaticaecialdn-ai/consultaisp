@@ -32,7 +32,7 @@ export function registerHeatmapRoutes(): Router {
         totalOverdueAmount: String(p.totalOverdueAmount),
         maxDaysOverdue: p.maxDaysOverdue,
         overdueInvoicesCount: p.overdueCount,
-        riskTier: p.maxDaysOverdue > 90 ? "critical" : p.maxDaysOverdue > 60 ? "high" : p.maxDaysOverdue > 30 ? "medium" : "low",
+        riskTier: p.maxDaysOverdue > 180 ? "critical" : p.maxDaysOverdue > 90 ? "high" : p.maxDaysOverdue > 60 ? "medium" : "low",
         paymentStatus: "overdue" as const,
       }));
       return res.json(data);

@@ -296,26 +296,56 @@ export class IxcConnector implements ErpConnector {
       ]);
 
       const now = new Date();
-      const invoices = allRows
-        .filter((row: any) => {
-          const dueDate = row.data_vencimento;
-          return dueDate && new Date(dueDate) < now;
-        })
-        .map((row: any) => ({
+      const overdueRows = allRows.filter((row: any) => {
+        const dueDate = row.data_vencimento;
+        return dueDate && new Date(dueDate) < now;
+      });
+
+      // Buscar enderecos da tabela "cliente" (fn_areceber nao retorna cidade/uf/cep)
+      const clienteIds = [...new Set(
+        overdueRows.map((r: any) => String(r.id_cliente || "")).filter(Boolean)
+      )];
+      const clienteMap = new Map<string, { cidade: string; uf: string; cep: string; endereco: string; numero: string }>();
+      for (const cid of clienteIds) {
+        try {
+          const rows = await this.listAll(config, "cliente", {
+            qtype: "cliente.id",
+            query: cid,
+            oper: "=",
+          }, 1, 1);
+          if (rows.length > 0) {
+            const c = rows[0];
+            clienteMap.set(cid, {
+              cidade: c.cidade || "",
+              uf: c.uf || c.estado || "",
+              cep: c.cep || "",
+              endereco: c.endereco || c.logradouro || "",
+              numero: c.numero || "",
+            });
+          }
+        } catch {}
+      }
+
+      console.log(`[IXC] fetchCancelledDelinquents: ${overdueRows.length} faturas canceladas vencidas, ${clienteMap.size} clientes com endereco`);
+
+      const invoices = overdueRows.map((row: any) => {
+        const cid = String(row.id_cliente || "");
+        const cliente = clienteMap.get(cid);
+        return {
           cpfCnpj: cleanCpfCnpj(row.cpf_cnpj || row.cnpj_cpf || row.documento || ""),
           name: row.razao || row.nome || "",
           email: row.email || undefined,
           phone: row.fone || row.celular || row.fone_celular ? cleanPhone(row.fone || row.celular || row.fone_celular) : undefined,
-          address: row.endereco || row.logradouro || undefined,
-          addressNumber: extractNumberFromAddress(row.endereco, row.numero),
-          city: row.cidade || undefined,
-          state: row.uf || row.estado || undefined,
-          cep: row.cep ? cleanCep(row.cep) : undefined,
+          address: cliente?.endereco || row.endereco || row.logradouro || undefined,
+          addressNumber: extractNumberFromAddress(cliente?.endereco || row.endereco, cliente?.numero || row.numero),
+          city: cliente?.cidade || row.cidade || undefined,
+          state: cliente?.uf || row.uf || row.estado || undefined,
+          cep: (cliente?.cep || row.cep) ? cleanCep(cliente?.cep || row.cep) : undefined,
           amount: parseFloat(row.valor || row.valor_original || "0") || 0,
           daysOverdue: calculateDaysOverdue(row.data_vencimento),
           erpSource: "ixc" as const,
-        }))
-        .filter((inv) => inv.cpfCnpj.length > 0);
+        };
+      }).filter((inv) => inv.cpfCnpj.length > 0);
 
       const customers = aggregateByCustomer(invoices);
 
