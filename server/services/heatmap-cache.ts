@@ -99,6 +99,10 @@ export async function refreshProviderCache(
 
     console.log(`[HeatmapCache] ${providerName}: ${result.customers.length} total, ${filteredCustomers.length} inadimplentes com divida (${skippedActive} sem valor)`);
 
+    // Log amostra de cidades/estados pra debug
+    const sampleCities = filteredCustomers.slice(0, 5).map(d => `${d.city || "SEM_CIDADE"}/${d.state || "SEM_UF"} cep=${d.cep || "SEM_CEP"}`);
+    console.log(`[HeatmapCache] ${providerName} amostra cidades: ${sampleCities.join(" | ")}`);
+
     for (const d of filteredCustomers) {
       let city = d.city || "";
       let state = d.state || "";
