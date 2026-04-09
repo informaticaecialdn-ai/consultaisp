@@ -90,19 +90,17 @@ export async function refreshProviderCache(
     let skippedNoGeo = 0;
     let skippedActive = 0;
 
-    // Mapa de calor: apenas contratos cancelados (>90 dias de atraso = proxy para cancelado)
-    // Provedores ISP cancelam contratos apos 60-90 dias de inadimplencia
-    const cancelledCustomers = result.customers.filter(d => {
-      if (d.maxDaysOverdue >= 90) return true;
-      if ((d as any).status?.toLowerCase?.()?.includes?.("cancelad")) return true;
-      if ((d as any).contractStatus?.toLowerCase?.()?.includes?.("cancelad")) return true;
+    // Mapa de calor: inadimplentes de 60 a 180 dias de atraso
+    // Faixa que indica risco real sem incluir dividas muito antigas (possivelmente prescritas)
+    const filteredCustomers = result.customers.filter(d => {
+      if (d.maxDaysOverdue >= 60 && d.maxDaysOverdue <= 180) return true;
       skippedActive++;
       return false;
     });
 
-    console.log(`[HeatmapCache] ${providerName}: ${result.customers.length} total, ${cancelledCustomers.length} cancelados (${skippedActive} ativos ignorados)`);
+    console.log(`[HeatmapCache] ${providerName}: ${result.customers.length} total, ${filteredCustomers.length} inadimplentes 60-180d (${skippedActive} fora da faixa)`);
 
-    for (const d of cancelledCustomers) {
+    for (const d of filteredCustomers) {
       let city = d.city || "";
       let state = d.state || "";
 
@@ -167,7 +165,7 @@ export async function refreshProviderCache(
       status: points.length > 0 ? "ok" : "empty",
     });
     console.log(
-      `[HeatmapCache] ${providerName} (${erpSource}) — ${points.length} pontos de ${cancelledCustomers.length} cancelados (${skippedActive} ativos ignorados, ${skippedNoGeo} sem geo)`,
+      `[HeatmapCache] ${providerName} (${erpSource}) — ${points.length} pontos de ${filteredCustomers.length} inadimplentes 60-180d (${skippedActive} fora da faixa, ${skippedNoGeo} sem geo)`,
     );
   } catch (err: any) {
     const msg = err.message || "Erro desconhecido";
