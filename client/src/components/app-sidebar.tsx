@@ -83,7 +83,6 @@ const mainMenu = [
 ];
 
 const defaulterMenu = [
-  { title: "Inadimplentes", url: "/inadimplentes", icon: Users },
   { title: "Mapa de Calor", url: "/mapa-calor", icon: MapPin },
 ];
 
