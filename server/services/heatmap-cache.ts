@@ -61,13 +61,9 @@ export async function refreshProviderCache(
 
   try {
     const config = buildConnectorConfig(intg);
+    console.log(`[HeatmapCache] Buscando ${providerName} (${erpSource}) id=${providerId} url=${intg.apiUrl}`);
     const limiter = getProviderLimiter(providerId, erpSource);
-    // Mapa de calor: buscar apenas contratos CANCELADOS com inadimplencia
-    // Se o conector suporta fetchCancelledDelinquents, usar; senao fallback para fetchDelinquents
-    const fetchFn = typeof (connector as any).fetchCancelledDelinquents === "function"
-      ? (connector as any).fetchCancelledDelinquents.bind(connector)
-      : connector.fetchDelinquents.bind(connector);
-    const result = await limiter(() => fetchFn(config));
+    const result = await limiter(() => connector.fetchDelinquents(config));
 
     if (!result.ok) {
       const existing = _cache.get(providerId);
@@ -94,17 +90,15 @@ export async function refreshProviderCache(
     let skippedNoGeo = 0;
     let skippedActive = 0;
 
-    // Se usou fetchCancelledDelinquents, dados ja vem filtrados
-    // Se usou fetchDelinquents (fallback), filtrar por status cancelado
-    const cancelledCustomers = typeof (connector as any).fetchCancelledDelinquents === "function"
-      ? result.customers // ja filtrado pelo conector
-      : result.customers.filter(d => {
-          const isCancelled = (d as any).status?.toLowerCase?.()?.includes?.("cancelad")
-            || (d as any).contractStatus?.toLowerCase?.()?.includes?.("cancelad")
-            || d.maxDaysOverdue >= 90; // fallback: >90 dias como proxy
-          if (!isCancelled) skippedActive++;
-          return isCancelled;
-        });
+    // Mapa de calor: apenas contratos cancelados (>90 dias de atraso = proxy para cancelado)
+    // Provedores ISP cancelam contratos apos 60-90 dias de inadimplencia
+    const cancelledCustomers = result.customers.filter(d => {
+      if (d.maxDaysOverdue >= 90) return true;
+      if ((d as any).status?.toLowerCase?.()?.includes?.("cancelad")) return true;
+      if ((d as any).contractStatus?.toLowerCase?.()?.includes?.("cancelad")) return true;
+      skippedActive++;
+      return false;
+    });
 
     console.log(`[HeatmapCache] ${providerName}: ${result.customers.length} total, ${cancelledCustomers.length} cancelados (${skippedActive} ativos ignorados)`);
 
