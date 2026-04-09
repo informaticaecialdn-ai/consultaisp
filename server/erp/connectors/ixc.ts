@@ -600,6 +600,53 @@ export class IxcConnector implements ErpConnector {
         }
       }
 
+      // Fetch equipment in comodato (unreturned)
+      let hasUnreturnedEquipment = false;
+      let unreturnedEquipmentCount = 0;
+      const equipmentDetails: NormalizedErpCustomer["equipmentDetails"] = [];
+
+      if (customerId) {
+        try {
+          // Try "comodatos" table first, then "patrimonio", then "fibra_onu"
+          const tables = ["comodatos", "patrimonio", "fibra_onu"];
+          for (const table of tables) {
+            try {
+              const eqRows = await this.listWithFilter(config, table, [
+                { TB: `${table}.id_cliente`, OP: "=", P: customerId, C: "AND", G: "" },
+              ], 50, 1);
+
+              if (eqRows.length > 0) {
+                console.log(`[IXC] Equipamentos encontrados em "${table}": ${eqRows.length}. Campos: ${Object.keys(eqRows[0]).join(", ")}`);
+
+                for (const eq of eqRows) {
+                  const status = (eq.status || eq.situacao || "").toLowerCase();
+                  // Equipamento nao devolvido: qualquer status diferente de "devolvido"
+                  const isUnreturned = status !== "devolvido" && status !== "returned" && status !== "baixa";
+
+                  if (isUnreturned) {
+                    hasUnreturnedEquipment = true;
+                    unreturnedEquipmentCount++;
+                    equipmentDetails.push({
+                      type: eq.tipo || eq.descricao || eq.nome || "Equipamento",
+                      brand: eq.marca || eq.fabricante || "",
+                      model: eq.modelo || "",
+                      serialNumber: eq.numero_serie || eq.serial || eq.mac || "",
+                      value: String(parseFloat(eq.valor || eq.valor_equipamento || "0") || 290),
+                      inRecoveryProcess: status === "em cobranca" || status === "retido" || status === "em_cobranca",
+                    });
+                  }
+                }
+                break; // Found equipment in this table, stop trying others
+              }
+            } catch {
+              // Table doesn't exist in this IXC instance, try next
+            }
+          }
+        } catch (eqErr) {
+          console.log(`[IXC] Erro ao buscar equipamentos: ${eqErr instanceof Error ? eqErr.message : eqErr}`);
+        }
+      }
+
       const customer: NormalizedErpCustomer = {
         cpfCnpj: clean,
         name: r.razao || r.nome || "",
@@ -615,6 +662,9 @@ export class IxcConnector implements ErpConnector {
         totalOverdueAmount,
         maxDaysOverdue,
         overdueInvoicesCount,
+        hasUnreturnedEquipment,
+        unreturnedEquipmentCount,
+        equipmentDetails: equipmentDetails.length > 0 ? equipmentDetails : undefined,
         erpSource: "ixc",
       };
 

@@ -107,6 +107,16 @@ export interface NormalizedErpCustomer {
   totalOverdueAmount: number;
   maxDaysOverdue: number;
   overdueInvoicesCount?: number;
+  hasUnreturnedEquipment?: boolean;
+  unreturnedEquipmentCount?: number;
+  equipmentDetails?: Array<{
+    type: string;
+    brand: string;
+    model: string;
+    serialNumber: string;
+    value: string;
+    inRecoveryProcess: boolean;
+  }>;
   erpSource: string;
 }
 
