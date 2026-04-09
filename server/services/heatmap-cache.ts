@@ -87,14 +87,22 @@ export async function refreshProviderCache(
     const points: HeatPoint[] = [];
     const citySet = new Map<string, [number, number] | null>();
     let skippedNoGeo = 0;
+    let skippedActive = 0;
 
-    // DEBUG: log first customer to see available fields
-    if (result.customers.length > 0) {
-      const sample = result.customers[0];
-      console.log(`[HeatmapCache] Amostra cliente: city=${sample.city}, state=${sample.state}, cep=${sample.cep}, address=${sample.address?.substring(0, 50)}`);
-    }
+    // REGRA: mapa de calor mostra APENAS contratos cancelados com inadimplencia
+    // Contratos cancelados tipicamente tem > 90 dias de atraso
+    // Clientes ativos NAO devem aparecer no mapa (dado sensivel)
+    const cancelledCustomers = result.customers.filter(d => {
+      const isCancelled = d.maxDaysOverdue >= 90
+        || (d as any).status?.toLowerCase?.()?.includes?.("cancelad")
+        || (d as any).contractStatus?.toLowerCase?.()?.includes?.("cancelad");
+      if (!isCancelled) skippedActive++;
+      return isCancelled;
+    });
 
-    for (const d of result.customers) {
+    console.log(`[HeatmapCache] ${providerName}: ${result.customers.length} total, ${cancelledCustomers.length} cancelados (${skippedActive} ativos ignorados)`);
+
+    for (const d of cancelledCustomers) {
       let city = d.city || "";
       let state = d.state || "";
 
@@ -159,7 +167,7 @@ export async function refreshProviderCache(
       status: points.length > 0 ? "ok" : "empty",
     });
     console.log(
-      `[HeatmapCache] ${providerName} (${erpSource}) — ${points.length} pontos geocodificados de ${result.customers.length} inadimplentes (${skippedNoGeo} sem cidade/CEP)`,
+      `[HeatmapCache] ${providerName} (${erpSource}) — ${points.length} pontos de ${cancelledCustomers.length} cancelados (${skippedActive} ativos ignorados, ${skippedNoGeo} sem geo)`,
     );
   } catch (err: any) {
     const msg = err.message || "Erro desconhecido";
