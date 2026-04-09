@@ -93,7 +93,7 @@ export async function refreshProviderCache(
     // Contratos cancelados tipicamente tem > 90 dias de atraso
     // Clientes ativos NAO devem aparecer no mapa (dado sensivel)
     const cancelledCustomers = result.customers.filter(d => {
-      const isCancelled = d.maxDaysOverdue >= 90
+      const isCancelled = d.maxDaysOverdue >= 365
         || (d as any).status?.toLowerCase?.()?.includes?.("cancelad")
         || (d as any).contractStatus?.toLowerCase?.()?.includes?.("cancelad");
       if (!isCancelled) skippedActive++;
