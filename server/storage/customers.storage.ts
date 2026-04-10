@@ -227,4 +227,106 @@ export class CustomersStorage {
     }));
   }
 
+  /** Ranking de CEPs por risco — agrega todos os provedores */
+  async getCepRanking(): Promise<{
+    cep5: string; city: string; count: number; totalOverdue: number; avgDaysOverdue: number; riskLevel: string;
+  }[]> {
+    const rows = await db.select().from(customers).where(
+      eq(customers.paymentStatus, "overdue"),
+    );
+
+    const cepMap = new Map<string, { city: string; count: number; totalOverdue: number; totalDays: number }>();
+    for (const r of rows) {
+      if (!r.cep) continue;
+      const cep5 = r.cep.replace(/\D/g, "").slice(0, 5);
+      if (cep5.length < 5) continue;
+      const existing = cepMap.get(cep5);
+      const overdue = parseFloat(r.totalOverdueAmount || "0");
+      const days = r.maxDaysOverdue || 0;
+      if (existing) {
+        existing.count++;
+        existing.totalOverdue += overdue;
+        existing.totalDays += days;
+        if (!existing.city && r.city) existing.city = r.city;
+      } else {
+        cepMap.set(cep5, { city: r.city || "", count: 1, totalOverdue: overdue, totalDays: days });
+      }
+    }
+
+    return Array.from(cepMap.entries())
+      .map(([cep5, data]) => ({
+        cep5,
+        city: data.city,
+        count: data.count,
+        totalOverdue: data.totalOverdue,
+        avgDaysOverdue: Math.round(data.totalDays / data.count),
+        riskLevel: data.count >= 11 ? "critico" : data.count >= 6 ? "alto" : data.count >= 3 ? "medio" : "baixo",
+      }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  /** Tendencia regional — inadimplentes por mes (ultimos 6 meses) */
+  async getTrend(): Promise<{ month: string; count: number; totalOverdue: number }[]> {
+    const rows = await db.select().from(customers).where(
+      eq(customers.paymentStatus, "overdue"),
+    );
+
+    const now = new Date();
+    const months: { month: string; count: number; totalOverdue: number }[] = [];
+
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const label = d.toLocaleDateString("pt-BR", { month: "short", year: "2-digit" });
+      const daysFromMonth = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
+      const count = rows.filter(r => (r.maxDaysOverdue || 0) >= daysFromMonth).length;
+      const totalOverdue = rows
+        .filter(r => (r.maxDaysOverdue || 0) >= daysFromMonth)
+        .reduce((s, r) => s + parseFloat(r.totalOverdueAmount || "0"), 0);
+
+      months.push({ month: label, count, totalOverdue });
+    }
+
+    return months;
+  }
+
+  /** Pontos para mapa de risco — agrega por CEP com lat/lng medio */
+  async getMapPoints(): Promise<{
+    lat: number; lng: number; cep5: string; city: string; count: number; totalOverdue: number; riskLevel: string;
+  }[]> {
+    const rows = await db.select().from(customers).where(
+      eq(customers.paymentStatus, "overdue"),
+    );
+
+    const cepMap = new Map<string, { lats: number[]; lngs: number[]; city: string; count: number; totalOverdue: number }>();
+    for (const r of rows) {
+      if (!r.cep || !r.latitude || !r.longitude) continue;
+      const cep5 = r.cep.replace(/\D/g, "").slice(0, 5);
+      if (cep5.length < 5) continue;
+      const lat = parseFloat(r.latitude);
+      const lng = parseFloat(r.longitude);
+      if (isNaN(lat) || isNaN(lng)) continue;
+
+      const existing = cepMap.get(cep5);
+      if (existing) {
+        existing.lats.push(lat);
+        existing.lngs.push(lng);
+        existing.count++;
+        existing.totalOverdue += parseFloat(r.totalOverdueAmount || "0");
+        if (!existing.city && r.city) existing.city = r.city;
+      } else {
+        cepMap.set(cep5, { lats: [lat], lngs: [lng], city: r.city || "", count: 1, totalOverdue: parseFloat(r.totalOverdueAmount || "0") });
+      }
+    }
+
+    return Array.from(cepMap.entries()).map(([cep5, data]) => ({
+      lat: data.lats.reduce((s, v) => s + v, 0) / data.lats.length,
+      lng: data.lngs.reduce((s, v) => s + v, 0) / data.lngs.length,
+      cep5,
+      city: data.city,
+      count: data.count,
+      totalOverdue: data.totalOverdue,
+      riskLevel: data.count >= 11 ? "critico" : data.count >= 6 ? "alto" : data.count >= 3 ? "medio" : "baixo",
+    }));
+  }
+
 }

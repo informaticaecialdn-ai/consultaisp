@@ -20,6 +20,7 @@ import { registerAiRoutes } from "./ai.routes";
 import { registerPublicRoutes } from "./public.routes";
 import { registerRegionalRoutes } from "./regional.routes";
 import { registerNfseRoutes } from "./nfse.routes";
+import { registerBenchmarkRoutes } from "./benchmark.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -46,6 +47,7 @@ export async function registerRoutes(
   app.use(registerPublicRoutes());
   app.use(registerRegionalRoutes());
   app.use(registerNfseRoutes());
+  app.use(registerBenchmarkRoutes());
 
   return httpServer;
 }
