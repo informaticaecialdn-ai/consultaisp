@@ -364,10 +364,12 @@ export function registerConsultasRoutes(): Router {
         // Alerta de risco por endereco — cruza endereco completo com inadimplentes da rede
         let addressRiskAlerts: { cpfMasked: string; overdueRange: string; maxDaysOverdue: number; status: string; matchType: string }[] = [];
         try {
-          const erpCep = addressCandidate?.cep || "";
-          const erpAddress = addressCandidate?.address || addressCandidate?.street || "";
-          const erpNumber = addressCandidate?.addressNumber || addressCandidate?.number || "";
-          const erpCity = addressCandidate?.city || "";
+          // Pegar endereco do cliente proprio ou do primeiro resultado do ERP
+          const addrSource = ownCustomer || allCustomers[0];
+          const erpCep = addrSource?.cep || "";
+          const erpAddress = addrSource?.address || "";
+          const erpNumber = addrSource?.addressNumber || "";
+          const erpCity = addrSource?.city || "";
           if (erpNumber) {
             addressRiskAlerts = await storage.getCustomersByAddressForAlert({
               cep: erpCep,
