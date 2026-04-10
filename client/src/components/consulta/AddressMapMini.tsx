@@ -18,41 +18,74 @@ export default function AddressMapMini({ cep, addressNumber, address, city, stat
   const [coords, setCoords] = useState<[number, number] | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Montar query de busca
+  // Montar query de busca — tentar do mais especifico pro mais generico
   let searchQuery = "";
-  if (address && city && state) {
-    const parts = [address];
-    if (addressNumber) parts[0] = `${address} ${addressNumber}`;
-    if (neighborhood) parts.push(neighborhood);
-    parts.push(city);
-    parts.push(state);
-    parts.push("Brasil");
-    searchQuery = parts.join(", ");
-  } else if (city && state) {
-    searchQuery = `${city}, ${state}, Brasil`;
+  if (address && addressNumber && city && state) {
+    searchQuery = `${address} ${addressNumber}, ${neighborhood ? neighborhood + ", " : ""}${city}, ${state}, Brasil`;
+  } else if (address && city && state) {
+    searchQuery = `${address}, ${city}, ${state}, Brasil`;
   } else if (cep) {
     const clean = cep.replace(/\D/g, "");
-    if (clean.length === 8) {
-      searchQuery = `CEP ${clean}, Brasil`;
+    if (clean.length >= 5) {
+      // Buscar pelo CEP formatado — Nominatim entende CEP brasileiro
+      searchQuery = `${clean}, Brasil`;
     }
+  } else if (city && state) {
+    searchQuery = `${city}, ${state}, Brasil`;
   }
 
-  // Geocodificar via Nominatim
+  // Geocodificar via Nominatim (tenta endereco completo, fallback CEP)
   useEffect(() => {
     if (!searchQuery) { setLoading(false); return; }
     setLoading(true);
 
-    fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=json&limit=1&countrycodes=br`, {
-      headers: { "User-Agent": "ConsultaISP/1.0" },
-    })
-      .then(r => r.json())
-      .then((data: any[]) => {
+    const tryGeocode = async () => {
+      // Tentar query principal
+      try {
+        const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=json&limit=1&countrycodes=br`, {
+          headers: { "User-Agent": "ConsultaISP/1.0" },
+        });
+        const data: any[] = await r.json();
         if (data[0]) {
           setCoords([parseFloat(data[0].lon), parseFloat(data[0].lat)]);
+          setLoading(false);
+          return;
         }
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+      } catch {}
+
+      // Fallback: tentar so pelo CEP se query principal falhou
+      if (cep) {
+        try {
+          const clean = cep.replace(/\D/g, "");
+          const r2 = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(clean + ", Brasil")}&format=json&limit=1&countrycodes=br`, {
+            headers: { "User-Agent": "ConsultaISP/1.0" },
+          });
+          const data2: any[] = await r2.json();
+          if (data2[0]) {
+            setCoords([parseFloat(data2[0].lon), parseFloat(data2[0].lat)]);
+            setLoading(false);
+            return;
+          }
+        } catch {}
+      }
+
+      // Fallback: tentar cidade + estado
+      if (city && state) {
+        try {
+          const r3 = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(`${city}, ${state}, Brasil`)}&format=json&limit=1&countrycodes=br`, {
+            headers: { "User-Agent": "ConsultaISP/1.0" },
+          });
+          const data3: any[] = await r3.json();
+          if (data3[0]) {
+            setCoords([parseFloat(data3[0].lon), parseFloat(data3[0].lat)]);
+          }
+        } catch {}
+      }
+
+      setLoading(false);
+    };
+
+    tryGeocode();
   }, [searchQuery]);
 
   // Criar mapa quando coords resolvem
