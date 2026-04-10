@@ -18,6 +18,8 @@ import {
   Users,
   Activity,
   ChevronRight,
+  Building2,
+  Wifi,
 } from "lucide-react";
 
 const fmt = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -26,6 +28,9 @@ export default function DashboardPage() {
   const { provider, partnerCode } = useAuth();
 
   const { data: stats, isLoading } = useQuery<any>({ queryKey: ["/api/dashboard/stats"], staleTime: STALE_DASHBOARD });
+
+  const { data: benchmarkData } = useQuery<any>({ queryKey: ["/api/isp-consultations/benchmark"], staleTime: 5 * 60 * 1000 });
+  const provedoresParceiros = benchmarkData?.providerCount ?? 0;
 
   const creditos = stats?.ispCredits ?? 0;
   const inadimplentes = stats?.defaulters ?? 0;
@@ -73,8 +78,34 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Identidade na Rede */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card className="p-5 flex items-center gap-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-200 dark:border-blue-800">
+          <div className="w-12 h-12 rounded-xl bg-blue-500 flex items-center justify-center flex-shrink-0">
+            <Wifi className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide">Seu Provedor na Rede</p>
+            <p className="font-bold text-lg text-[var(--color-ink)]">{provider?.name}</p>
+            {partnerCode && (
+              <p className="text-xs text-muted-foreground mt-0.5">Codigo: <span className="font-mono font-bold text-blue-600">{partnerCode}</span></p>
+            )}
+          </div>
+        </Card>
+        <Card className="p-5 flex items-center gap-4 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/20 dark:to-emerald-950/20 border-green-200 dark:border-green-800">
+          <div className="w-12 h-12 rounded-xl bg-green-500 flex items-center justify-center flex-shrink-0">
+            <Building2 className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide">Provedores Parceiros</p>
+            <p className="font-bold text-lg text-[var(--color-ink)]">{provedoresParceiros} provedores</p>
+            <p className="text-xs text-muted-foreground mt-0.5">compartilhando dados na sua regiao</p>
+          </div>
+        </Card>
+      </div>
+
       {/* KPIs principais */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <KpiCard
           icon={Search}
           label="Consultas Hoje"
