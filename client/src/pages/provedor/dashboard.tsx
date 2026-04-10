@@ -30,7 +30,7 @@ export default function DashboardPage() {
   const { data: stats, isLoading } = useQuery<any>({ queryKey: ["/api/dashboard/stats"], staleTime: STALE_DASHBOARD });
 
   const { data: benchmarkData } = useQuery<any>({ queryKey: ["/api/isp-consultations/benchmark"], staleTime: 5 * 60 * 1000 });
-  const provedoresParceiros = benchmarkData?.providerCount ?? 0;
+  const provedoresParceiros = benchmarkData?.providersInRegion ?? 0;
 
   const creditos = stats?.ispCredits ?? 0;
   const inadimplentes = stats?.defaulters ?? 0;
