@@ -151,16 +151,16 @@ export default function ConsultaISPPage() {
               <h1 className="text-xl font-display font-semibold text-[var(--color-ink)] leading-tight" data-testid="text-consulta-isp-title">
                 Consulta ISP
               </h1>
-              <p className="text-xs text-[var(--color-muted)]">analise de credito para provedores</p>
+              <p className="text-sm text-[var(--color-muted)]">análise de crédito para provedores</p>
             </div>
           </div>
           <div className="flex items-center gap-4">
             {/* Inline stats */}
             <div className="hidden md:flex items-center gap-4 text-[var(--color-muted)]">
-              <span className="font-mono text-xs" data-testid="text-isp-today">hoje <strong className="text-[var(--color-ink)]">{data?.todayCount ?? 0}</strong></span>
-              <span className="font-mono text-xs" data-testid="text-isp-month">mes <strong className="text-[var(--color-ink)]">{data?.monthCount ?? 0}</strong></span>
-              <span className="font-mono text-xs" data-testid="text-isp-approval">aprovacao <strong className="text-[var(--color-ink)]">{approvalRate}%</strong></span>
-              <span className="font-mono text-xs" data-testid="text-isp-avg-score">score <strong className="text-[var(--color-ink)]">{avgScore}</strong></span>
+              <span className="font-mono text-sm" data-testid="text-isp-today">hoje <strong className="text-[var(--color-ink)]">{data?.todayCount ?? 0}</strong></span>
+              <span className="font-mono text-sm" data-testid="text-isp-month">mês <strong className="text-[var(--color-ink)]">{data?.monthCount ?? 0}</strong></span>
+              <span className="font-mono text-sm" data-testid="text-isp-approval">aprovação <strong className="text-[var(--color-ink)]">{approvalRate}%</strong></span>
+              <span className="font-mono text-sm" data-testid="text-isp-avg-score">score <strong className="text-[var(--color-ink)]">{avgScore}</strong></span>
             </div>
             {/* Credits */}
             <div className="border-[0.5px] border-[var(--color-border)] rounded px-3 py-1.5 flex items-center gap-2">
@@ -183,7 +183,7 @@ export default function ConsultaISPPage() {
                 activeTab === tab ? "border-b-2 border-[var(--color-navy)] text-[var(--color-ink)]" : "text-[var(--color-muted)] hover:text-[var(--color-ink)]"
               }`}
             >
-              {tab === "nova" ? "Nova Consulta" : tab === "historico" ? "Historico" : tab === "timeline" ? "Timeline" : tab === "relatorios" ? "Relatorios" : "Informacoes"}
+              {tab === "nova" ? "Nova Consulta" : tab === "historico" ? "Histórico" : tab === "timeline" ? "Timeline" : tab === "relatorios" ? "Relatórios" : "Informações"}
             </button>
           ))}
         </div>

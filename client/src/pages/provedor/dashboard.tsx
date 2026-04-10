@@ -47,10 +47,10 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-[var(--color-ink)]" data-testid="text-dashboard-title">
+          <h1 className="text-2xl font-bold text-[var(--color-ink)]" data-testid="text-dashboard-title">
             Painel do Provedor
           </h1>
-          <p className="text-sm text-[var(--color-muted)]">{provider?.name}</p>
+          <p className="text-base text-[var(--color-muted)]">{provider?.name}</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           {partnerCode && (
@@ -60,7 +60,7 @@ export default function DashboardPage() {
                 <p className="font-mono text-sm font-bold text-[var(--color-danger)] leading-none" data-testid="text-partner-code">
                   {partnerCode}
                 </p>
-                <p className="text-[10px] text-[var(--color-muted)] leading-tight mt-0.5">seu codigo</p>
+                <p className="text-xs text-[var(--color-muted)] leading-tight mt-0.5">seu código</p>
               </div>
             </div>
           )}
@@ -71,7 +71,7 @@ export default function DashboardPage() {
                 <p className="font-mono text-lg font-bold text-[var(--color-navy)] leading-none" data-testid="text-credits">
                   {isLoading ? "..." : creditos}
                 </p>
-                <p className="text-xs text-[var(--color-muted)] leading-tight">creditos</p>
+                <p className="text-xs text-[var(--color-muted)] leading-tight">créditos</p>
               </div>
             </div>
           </Link>
@@ -83,20 +83,20 @@ export default function DashboardPage() {
         <Card className="p-4">
           <div className="flex items-center gap-2 mb-2">
             <Wifi className="w-4 h-4" style={{ color: "var(--color-navy)" }} />
-            <span className="text-xs font-medium text-[var(--color-muted)] uppercase tracking-wide">Seu Provedor na Rede</span>
+            <span className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wide">Seu Provedor na Rede</span>
           </div>
           <p className="text-lg font-bold text-[var(--color-ink)]">{provider?.name}</p>
           {partnerCode && (
-            <p className="text-xs text-[var(--color-muted)] mt-1">Codigo: <span className="font-mono font-bold" style={{ color: "var(--color-navy)" }}>{partnerCode}</span></p>
+            <p className="text-sm text-[var(--color-muted)] mt-1">Código: <span className="font-mono font-bold" style={{ color: "var(--color-navy)" }}>{partnerCode}</span></p>
           )}
         </Card>
         <Card className="p-4">
           <div className="flex items-center gap-2 mb-2">
             <Building2 className="w-4 h-4" style={{ color: "var(--color-navy)" }} />
-            <span className="text-xs font-medium text-[var(--color-muted)] uppercase tracking-wide">Provedores Parceiros</span>
+            <span className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wide">Provedores Parceiros</span>
           </div>
           <p className="text-2xl font-bold" style={{ color: "var(--color-navy)" }}>{provedoresParceiros}</p>
-          <p className="text-xs text-[var(--color-muted)] mt-1">compartilhando dados na sua regiao</p>
+          <p className="text-sm text-[var(--color-muted)] mt-1">compartilhando dados na sua região</p>
         </Card>
       </div>
 
@@ -130,7 +130,7 @@ export default function DashboardPage() {
         <Card className="p-5 space-y-3">
           <div className="flex items-center gap-2">
             <Search className="w-4 h-4 text-[var(--color-navy)]" />
-            <h2 className="font-semibold text-sm text-[var(--color-ink)]">Acoes rapidas</h2>
+            <h2 className="font-semibold text-base text-[var(--color-ink)]">Ações rápidas</h2>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Link href="/consulta-isp">
@@ -178,15 +178,15 @@ function KpiCard({ icon: Icon, label, value, sub, color, testId }: {
   return (
     <Card className="p-4" data-testid={testId}>
       <div className="flex items-center gap-2 mb-2">
-        <Icon className="w-4 h-4" style={{ color }} />
-        <span className="text-xs font-medium text-[var(--color-muted)] uppercase tracking-wide">{label}</span>
+        <Icon className="w-5 h-5" style={{ color }} />
+        <span className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wide">{label}</span>
       </div>
       {value === null ? (
-        <Skeleton className="h-7 w-20" />
+        <Skeleton className="h-8 w-20" />
       ) : (
         <>
-          <p className="font-mono text-2xl font-bold" style={{ color }} data-testid={`value-${testId}`}>{value}</p>
-          {sub && <p className="text-xs text-[var(--color-muted)] mt-1">{sub}</p>}
+          <p className="font-mono text-3xl font-bold" style={{ color }} data-testid={`value-${testId}`}>{value}</p>
+          {sub && <p className="text-sm text-[var(--color-muted)] mt-1">{sub}</p>}
         </>
       )}
     </Card>
@@ -197,13 +197,13 @@ function ActionCard({ icon: Icon, title, desc, color }: {
   icon: any; title: string; desc: string; color: string;
 }) {
   return (
-    <div className="flex items-center gap-3 p-3 rounded-lg border border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer">
-      <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${color}15` }}>
-        <Icon className="w-4 h-4" style={{ color }} />
+    <div className="flex items-center gap-3 p-4 rounded-lg border border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer">
+      <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${color}15` }}>
+        <Icon className="w-5 h-5" style={{ color }} />
       </div>
       <div>
-        <p className="text-sm font-medium text-[var(--color-ink)]">{title}</p>
-        <p className="text-xs text-[var(--color-muted)]">{desc}</p>
+        <p className="text-base font-medium text-[var(--color-ink)]">{title}</p>
+        <p className="text-sm text-[var(--color-muted)]">{desc}</p>
       </div>
       <ChevronRight className="w-4 h-4 text-[var(--color-muted)] ml-auto" />
     </div>
