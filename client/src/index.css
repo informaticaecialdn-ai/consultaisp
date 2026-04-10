@@ -218,6 +218,18 @@
     line-height: 1.6;
   }
 
+  /* Boost font sizes for readability — app pages only (not landing) */
+  :root {
+    --text-xs: 0.8125rem;   /* 13px (was 12px) */
+    --text-sm: 0.9375rem;   /* 15px (was 14px) */
+  }
+  .text-xs { font-size: var(--text-xs) !important; line-height: 1.4; }
+  .text-sm { font-size: var(--text-sm) !important; line-height: 1.5; }
+
+  /* Landing page keeps original Tailwind sizes */
+  [data-testid="landing-page"] .text-xs { font-size: 0.75rem !important; line-height: 1rem; }
+  [data-testid="landing-page"] .text-sm { font-size: 0.875rem !important; line-height: 1.25rem; }
+
   /* Enforce minimum readable font on touch devices */
   @media (pointer: coarse) {
     button, a, label, input, select, textarea {
