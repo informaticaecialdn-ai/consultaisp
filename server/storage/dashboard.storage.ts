@@ -1,7 +1,7 @@
-import { eq, and, desc, sql, count, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, count, inArray, gte } from "drizzle-orm";
 import { db } from "../db";
 import {
-  providers, customers, invoices, equipment,
+  providers, customers, invoices, equipment, ispConsultations,
 } from "@shared/schema";
 
 export class DashboardStorage {
@@ -47,6 +47,23 @@ export class DashboardStorage {
         sql`${providers.id} != ${providerId}`,
       ));
 
+    // Consultas hoje e no mes
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const monthStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), 1);
+
+    const consultationsToday = await db.select({ count: count() }).from(ispConsultations)
+      .where(and(
+        eq(ispConsultations.providerId, providerId),
+        gte(ispConsultations.createdAt, todayStart),
+      ));
+
+    const consultationsMonth = await db.select({ count: count() }).from(ispConsultations)
+      .where(and(
+        eq(ispConsultations.providerId, providerId),
+        gte(ispConsultations.createdAt, monthStart),
+      ));
+
     return {
       totalCustomers: totalCustomers[0]?.count || 0,
       defaulters: defaulterCustomers[0]?.count || 0,
@@ -60,6 +77,8 @@ export class DashboardStorage {
       ispCredits: provider?.ispCredits || 0,
       spcCredits: provider?.spcCredits || 0,
       partnerCount: partnerProviders[0]?.count || 0,
+      consultationsToday: consultationsToday[0]?.count || 0,
+      consultationsThisMonth: consultationsMonth[0]?.count || 0,
     };
   }
 
