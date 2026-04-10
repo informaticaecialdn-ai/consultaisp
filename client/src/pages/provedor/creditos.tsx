@@ -288,7 +288,7 @@ export default function CreditosPage() {
 
         <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-4 mb-4">
           <p className="text-sm font-semibold text-[var(--color-ink)] mb-2">Como funciona:</p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="flex items-center gap-2">
               <Search className="w-4 h-4 text-[var(--color-navy)]" />
               <div>

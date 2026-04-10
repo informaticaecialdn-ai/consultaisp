@@ -252,7 +252,7 @@ export default function AdminCreditosPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         {[
           { label: "Total de Pedidos", value: orders.length.toString(), icon: ShoppingCart, color: "from-blue-500 to-blue-600" },
           { label: "Pendentes", value: totalPending.toString(), icon: Clock, color: "from-amber-500 to-amber-600" },

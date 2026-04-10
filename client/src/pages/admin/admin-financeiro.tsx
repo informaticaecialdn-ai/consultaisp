@@ -381,7 +381,7 @@ export default function AdminFinanceiroPage() {
           {/* === ROW 1: PRIMARY KPIs === */}
           <div>
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Receita Recorrente</p>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <MetricCard label="MRR" value={`R$ ${fmt(snap.mrr || 0)}`}
                 sub="Receita mensal recorrente" icon={TrendingUp} color="blue"
                 testId="metric-mrr" />
@@ -400,7 +400,7 @@ export default function AdminFinanceiroPage() {
           {/* === ROW 2: HEALTH KPIs === */}
           <div>
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Saude do Negocio</p>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <Card className="overflow-hidden" data-testid="metric-churn">
                 <div className={`h-1 bg-gradient-to-r ${(snap.monthlyChurnRate || 0) === 0 ? "from-emerald-400 to-emerald-500" : (snap.monthlyChurnRate || 0) < 3 ? "from-amber-400 to-amber-500" : "from-rose-400 to-rose-500"}`} />
                 <div className="p-4">

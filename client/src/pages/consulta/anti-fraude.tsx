@@ -147,36 +147,36 @@ export default function AntiFraudePage() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="p-4 bg-red-50 dark:bg-red-950/20">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="p-4 bg-[var(--color-danger-bg)]">
           <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle className="w-4 h-4 text-red-500" />
-            <span className="text-xs font-medium text-muted-foreground uppercase">Alertas Ativos</span>
+            <AlertTriangle className="w-4 h-4 text-[var(--color-danger)]" />
+            <span className="text-sm font-medium text-[var(--color-muted)] uppercase">Alertas Ativos</span>
           </div>
-          <p className="text-2xl font-bold text-red-500">{activeAlerts.length}</p>
+          <p className="text-2xl font-bold text-[var(--color-danger)]">{activeAlerts.length}</p>
         </Card>
-        <Card className="p-4 bg-orange-50 dark:bg-orange-950/20">
+        <Card className="p-4 bg-[var(--color-gold-bg)]">
           <div className="flex items-center gap-2 mb-2">
-            <DollarSign className="w-4 h-4 text-orange-500" />
-            <span className="text-xs font-medium text-muted-foreground uppercase">Dividas em Risco</span>
+            <DollarSign className="w-4 h-4 text-[var(--color-gold)]" />
+            <span className="text-sm font-medium text-[var(--color-muted)] uppercase">Dívidas em Risco</span>
           </div>
-          <p className="text-2xl font-bold text-orange-500">{fmt(totalDivida)}</p>
+          <p className="text-2xl font-bold text-[var(--color-gold)]">{fmt(totalDivida)}</p>
         </Card>
-        <Card className="p-4 bg-amber-50 dark:bg-amber-950/20">
+        <Card className="p-4 bg-[var(--color-gold-bg)]">
           <div className="flex items-center gap-2 mb-2">
-            <Package className="w-4 h-4 text-amber-600" />
-            <span className="text-xs font-medium text-muted-foreground uppercase">Equipamentos</span>
+            <Package className="w-4 h-4 text-[var(--color-gold)]" />
+            <span className="text-sm font-medium text-[var(--color-muted)] uppercase">Equipamentos</span>
           </div>
-          <p className="text-2xl font-bold text-amber-600">{activeAlerts.length}</p>
-          <p className="text-xs text-muted-foreground">{fmt(totalEquip)} (valor estimado)</p>
+          <p className="text-2xl font-bold text-[var(--color-gold)]">{activeAlerts.length}</p>
+          <p className="text-sm text-[var(--color-muted)]">{fmt(totalEquip)} (valor estimado)</p>
         </Card>
-        <Card className="p-4 bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800">
+        <Card className="p-4 bg-[var(--color-danger-bg)] border-[var(--color-danger)]/20">
           <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle className="w-4 h-4 text-red-600" />
-            <span className="text-xs font-medium text-muted-foreground uppercase">Prejuizo Total Estimado</span>
+            <AlertTriangle className="w-4 h-4 text-[var(--color-danger)]" />
+            <span className="text-sm font-medium text-[var(--color-muted)] uppercase">Prejuízo Total Estimado</span>
           </div>
-          <p className="text-2xl font-bold text-red-600">{fmt(totalPrejuizo)}</p>
-          <p className="text-xs text-muted-foreground">divida + equip + instalacao</p>
+          <p className="text-2xl font-bold text-[var(--color-danger)]">{fmt(totalPrejuizo)}</p>
+          <p className="text-sm text-[var(--color-muted)]">dívida + equip + instalação</p>
         </Card>
       </div>
 
@@ -200,7 +200,7 @@ export default function AntiFraudePage() {
             placeholder="Buscar por nome ou CPF..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 pr-3 py-1.5 text-sm border rounded-md bg-background w-64"
+            className="pl-9 pr-3 py-1.5 text-sm border rounded-md bg-background w-full sm:w-64"
           />
         </div>
       </div>

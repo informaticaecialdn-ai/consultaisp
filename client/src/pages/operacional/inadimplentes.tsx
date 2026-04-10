@@ -259,7 +259,7 @@ export default function InadimplentesPage() {
       </div>
 
       {/* Stats cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           {
             label: "Inadimplentes",
@@ -507,6 +507,7 @@ export default function InadimplentesPage() {
                             variant="ghost"
                             className="h-7 w-7"
                             title={`Ligar: ${d.phone}`}
+                            aria-label={`Ligar para ${d.phone}`}
                             data-testid={`btn-phone-${d.id}`}
                             onClick={() => window.open(`tel:${d.phone}`)}
                           >
@@ -519,6 +520,7 @@ export default function InadimplentesPage() {
                             variant="ghost"
                             className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/20"
                             title="WhatsApp"
+                            aria-label="Enviar WhatsApp"
                             data-testid={`btn-whatsapp-${d.id}`}
                             onClick={() => window.open(`https://wa.me/55${d.phone?.replace(/\D/g, "")}`)}
                           >
@@ -530,6 +532,7 @@ export default function InadimplentesPage() {
                           variant="ghost"
                           className="h-7 w-7 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20"
                           title="Notificar LGPD/CDC"
+                          aria-label="Notificar LGPD/CDC"
                           data-testid={`btn-lgpd-${d.id}`}
                           onClick={() => setLgpdTarget(d)}
                         >
@@ -540,6 +543,7 @@ export default function InadimplentesPage() {
                           variant="ghost"
                           className="h-7 w-7 text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20"
                           title="Ver histórico na rede"
+                          aria-label="Ver histórico na rede"
                           data-testid={`btn-rede-${d.id}`}
                           onClick={() => handleVerRede(d)}
                         >

@@ -631,9 +631,9 @@ function NewProviderWizard({ open, onOpenChange }: { open: boolean; onOpenChange
 
  <div className="border-t pt-3">
  <p className="text-xs font-semibold text-[var(--color-muted)] uppercase tracking-wide mb-2 flex items-center gap-1.5">
- <MapPin className="w-3 h-3" /> Endereco
+ <MapPin className="w-3 h-3" /> Endereço
  </p>
- <div className="grid grid-cols-4 gap-3">
+ <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
  <div>
  <label className="text-xs font-medium mb-1 block">CEP</label>
  <Input value={form.addressZip} onChange={f("addressZip")} className="font-mono" />
@@ -1732,7 +1732,7 @@ export default function AdminSistemaPage() {
  </div>)}
 
  {activeTab === "cadastros" && (<div className="space-y-4">
- <div className="grid grid-cols-4 gap-3">
+ <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
  {(["all", "pending", "approved", "rejected"] as const).map((f) => {
  const labels: Record<string, { label: string; color: string; activeColor: string }> = {
  all: { label: "Todos", color: "text-gray-600", activeColor: "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900" },
@@ -2701,7 +2701,7 @@ export default function AdminSistemaPage() {
  )}
 
  {/* KPI Cards */}
- <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+ <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
  {[
  {
  label: "MRR",

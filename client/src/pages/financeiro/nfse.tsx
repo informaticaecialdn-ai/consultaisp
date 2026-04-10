@@ -274,7 +274,7 @@ export default function NfsePage() {
                     <span className="text-sm font-semibold text-[var(--color-ink)]">
                       {note.numero ? `NFS-e #${note.numero}` : note.ref}
                     </span>
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
                       note.status === "authorized" ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" :
                       note.status === "error" ? "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" :
                       "bg-[var(--color-gold-bg)] text-[var(--color-gold)]"

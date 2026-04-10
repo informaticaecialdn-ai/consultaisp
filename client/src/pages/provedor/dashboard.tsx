@@ -146,7 +146,7 @@ export default function DashboardPage() {
                 icon={Users}
                 title="Consulta SPC"
                 desc="Score de credito SPC"
-                color="#8e44ad"
+                color="var(--color-navy)"
               />
             </Link>
             <Link href="/anti-fraude">

@@ -272,7 +272,7 @@ export default function ImportacaoEquipamentosPage() {
           </Button>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {[
             { label: "Retidos", value: stats.retidos ?? 0, icon: Package, color: "bg-red-100 text-red-700", bg: "bg-red-50", border: "border-red-200" },
             { label: "Recuperados", value: stats.recuperados ?? 0, icon: CheckCircle, color: "bg-emerald-100 text-emerald-700", bg: "bg-emerald-50", border: "border-emerald-200" },
@@ -807,7 +807,7 @@ export default function ImportacaoEquipamentosPage() {
                   {/* Resumo */}
                   <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-3">
                     <p className="text-xs font-black text-slate-500 uppercase tracking-wide">Resumo do Cadastro</p>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {[
                         { label: "Documento", value: form.cpfCnpj || "—", badge: detectDocType(form.cpfCnpj) },
                         { label: "Cliente", value: form.nomeCliente || "Nao informado" },

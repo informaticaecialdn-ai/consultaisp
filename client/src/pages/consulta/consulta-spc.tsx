@@ -466,8 +466,8 @@ export default function ConsultaSPCPage() {
                     </Card>
 
                     {result.alerts.length > 0 && (
-                      <Card className="p-4 bg-amber-50 dark:bg-amber-950/20 border-amber-200">
-                        <h4 className="text-sm font-semibold mb-3 flex items-center gap-2 text-amber-800">
+                      <Card className="p-4 bg-[var(--color-gold-bg)] border-[var(--color-gold)]/20">
+                        <h4 className="text-sm font-semibold mb-3 flex items-center gap-2 text-[var(--color-gold)]">
                           <AlertTriangle className="w-4 h-4" />
                           Alertas Especiais
                         </h4>
