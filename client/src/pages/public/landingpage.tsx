@@ -307,7 +307,7 @@ export default function LandingPage() {
               </div>
               <p className="text-xs text-[var(--color-muted)] mb-6">Acesso completo para seu provedor</p>
               <ul className="space-y-2.5 mb-6 flex-1">
-                {["Acesso completo a toda a rede","Todos os ERPs integrados","Usuários ilimitados","Anti-fraude completo + WhatsApp","Consulta em lote (até 500 CPFs)","Suporte prioritário"].map(f => (
+                {["Acesso completo a toda a rede","Todos os ERPs integrados","Usuários ilimitados","Anti-fraude completo","Consulta em lote (até 500 CPFs)","Suporte prioritário"].map(f => (
                   <li key={f} className="flex items-start gap-2 text-sm text-[var(--color-ink)]">
                     <CheckCircle2 className="w-4 h-4 text-[var(--color-success)] flex-shrink-0 mt-0.5"/>{f}
                   </li>
