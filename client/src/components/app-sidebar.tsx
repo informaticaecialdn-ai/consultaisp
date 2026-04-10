@@ -113,10 +113,6 @@ const ADMIN_GROUPS = [
     items: [
       { title: "Cadastros", hash: "cadastros", icon: ClipboardList, testId: "link-admin-cadastros" },
       { title: "Provedores", hash: "provedores", icon: Building2, testId: "link-admin-provedores" },
-      { title: "Usuarios", hash: "usuarios", icon: UserCog, testId: "link-admin-usuarios" },
-      { title: "ERPs Cadastrados", hash: "erps", icon: Database, testId: "link-admin-erps" },
-      { title: "Integracoes", hash: "integracoes", icon: Zap, testId: "link-admin-integracoes" },
-      { title: "Sincronizacao Auto", hash: "sincronizacao", icon: RefreshCw, testId: "link-admin-sincronizacao" },
     ],
   },
   {
@@ -143,6 +139,14 @@ const ADMIN_GROUPS = [
     collapsible: false,
     items: [
       { title: "Chat com Provedores", hash: "suporte", icon: MessageSquare, testId: "link-admin-suporte" },
+    ],
+  },
+  {
+    label: "Configuracoes",
+    key: "configuracoes",
+    collapsible: false,
+    items: [
+      { title: "Configuracoes", hash: "configuracoes", icon: Settings, testId: "link-admin-configuracoes" },
     ],
   },
 ];
