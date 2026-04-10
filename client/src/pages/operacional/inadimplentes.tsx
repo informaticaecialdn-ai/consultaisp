@@ -220,7 +220,7 @@ export default function InadimplentesPage() {
   };
 
   return (
-    <div className="p-6 space-y-5 max-w-[1400px] mx-auto" data-testid="inadimplentes-page">
+    <div className="p-4 lg:p-6 space-y-5" data-testid="inadimplentes-page">
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">

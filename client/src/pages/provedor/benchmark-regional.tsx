@@ -83,7 +83,7 @@ export default function BenchmarkRegionalPage() {
   const totalValor = ranking.reduce((s, r) => s + r.totalOverdue, 0);
 
   return (
-    <div className="p-4 lg:p-6 space-y-6 max-w-6xl mx-auto">
+    <div className="p-4 lg:p-6 space-y-6">
       <div>
         <h1 className="text-xl font-bold">Benchmark Regional</h1>
         <p className="text-sm text-muted-foreground">

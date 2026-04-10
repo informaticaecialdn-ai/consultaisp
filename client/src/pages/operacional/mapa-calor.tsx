@@ -200,7 +200,7 @@ export default function MapaCalorPage() {
   const maxCityOverdue = cityRanking.length > 0 ? Math.max(...cityRanking.map(c => c.totalOverdue), 1) : 1;
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl mx-auto" data-testid="mapa-calor-page">
+    <div className="p-4 lg:p-6 space-y-6" data-testid="mapa-calor-page">
       <div className="flex items-center gap-4">
         <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
           <Flame className="w-6 h-6 text-white" />

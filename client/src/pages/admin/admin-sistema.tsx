@@ -1640,7 +1640,7 @@ export default function AdminSistemaPage() {
  const MetaIcon = meta.icon;
 
  return (
- <div className="p-6 space-y-5 max-w-7xl mx-auto" data-testid="admin-sistema-page">
+ <div className="p-4 lg:p-6 space-y-5" data-testid="admin-sistema-page">
  <div className="flex items-center gap-3">
  <div className={`w-10 h-10 rounded ${meta.color} flex items-center justify-center flex-shrink-0`}>
  <MetaIcon className="w-5 h-5 text-white" />

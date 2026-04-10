@@ -177,7 +177,7 @@ export default function AdminCreditosPage() {
   const selectedPkg = ALL_PACKAGES.find(p => p.id === form.packageId);
 
   return (
-    <div className="p-5 pb-10 space-y-5 max-w-7xl mx-auto">
+    <div className="p-4 lg:p-5 pb-10 space-y-5">
       {asaasChargeModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setAsaasChargeModal(null)}>
           <div className="bg-background rounded-lg shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>

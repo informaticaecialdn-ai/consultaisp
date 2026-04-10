@@ -129,7 +129,7 @@ export default function AdminLgpdPage() {
   });
 
   return (
-    <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
+    <div className="p-4 lg:p-6 space-y-6">
       <div className="flex items-center gap-3">
         <Shield className="w-6 h-6 text-blue-600" />
         <div>

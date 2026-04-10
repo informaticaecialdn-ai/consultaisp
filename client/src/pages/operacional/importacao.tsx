@@ -342,7 +342,7 @@ function ImportTab({ type }: { type: ImportType }) {
 
 export default function ImportacaoPage() {
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto" data-testid="importacao-page">
+    <div className="p-4 lg:p-6 space-y-6" data-testid="importacao-page">
       <div className="flex items-center gap-4">
         <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center">
           <Upload className="w-6 h-6 text-white" />

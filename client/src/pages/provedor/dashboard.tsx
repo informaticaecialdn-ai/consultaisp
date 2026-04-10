@@ -42,7 +42,7 @@ export default function DashboardPage() {
   const alertasAtivos = stats?.activeAlerts ?? 0;
 
   return (
-    <div className="p-4 lg:p-6 space-y-6 max-w-6xl mx-auto" data-testid="dashboard-page">
+    <div className="p-4 lg:p-6 space-y-6" data-testid="dashboard-page">
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -101,7 +101,7 @@ export default function DashboardPage() {
       </div>
 
       {/* KPIs principais */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <KpiCard
           icon={Search}
           label="Consultas Hoje"

@@ -127,7 +127,7 @@ export default function AntiFraudePage() {
     .slice(0, 20);
 
   return (
-    <div className="p-4 lg:p-6 space-y-6 max-w-6xl mx-auto">
+    <div className="p-4 lg:p-6 space-y-6">
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">

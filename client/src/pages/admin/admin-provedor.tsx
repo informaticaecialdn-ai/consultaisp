@@ -265,7 +265,7 @@ export default function AdminProvedorPage() {
   };
 
   return (
-    <div className="p-6 space-y-5 max-w-7xl mx-auto" data-testid="admin-provedor-page">
+    <div className="p-4 lg:p-6 space-y-5" data-testid="admin-provedor-page">
       {/* Header */}
       <div className="flex items-start gap-4 flex-wrap">
         <Button

@@ -111,7 +111,7 @@ export default function CreditosPage() {
   };
 
   return (
-    <div className="p-5 pb-10 space-y-6 max-w-4xl mx-auto" data-testid="creditos-page">
+    <div className="p-4 lg:p-5 pb-10 space-y-6" data-testid="creditos-page">
 
       {selectedPkg && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setSelectedPkg(null)}>

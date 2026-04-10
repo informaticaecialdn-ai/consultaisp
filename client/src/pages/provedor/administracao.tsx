@@ -34,7 +34,7 @@ export default function AdministracaoPage() {
   });
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl mx-auto" data-testid="administracao-page">
+    <div className="p-4 lg:p-6 space-y-6" data-testid="administracao-page">
       <div className="flex items-center gap-4">
         <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-gray-600 to-gray-700 flex items-center justify-center">
           <Settings className="w-6 h-6 text-white" />

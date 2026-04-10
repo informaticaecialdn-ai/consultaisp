@@ -139,7 +139,7 @@ export default function ConsultaISPPage() {
 
   return (
     <div className="bg-[var(--color-bg)] p-4 lg:p-5" data-testid="consulta-isp-page">
-      <div className="max-w-6xl mx-auto space-y-4">
+      <div className="space-y-4">
 
         {/* HEADER — compact */}
         <div className="flex items-center justify-between gap-3">

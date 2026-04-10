@@ -500,7 +500,7 @@ export default function PainelProvedorPage() {
   const getIntg = (key: string) => erpIntegrationsList.find((i: any) => i.erpSource === key);
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl mx-auto" data-testid="painel-provedor-page">
+    <div className="p-4 lg:p-6 space-y-6" data-testid="painel-provedor-page">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center">

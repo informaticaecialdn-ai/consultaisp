@@ -285,7 +285,7 @@ export default function AdminFinanceiroPage() {
   };
 
   return (
-    <div className="p-5 pb-10 space-y-6 max-w-7xl mx-auto">
+    <div className="p-4 lg:p-5 pb-10 space-y-6">
       {/* Asaas Charge Modal */}
       {asaasChargeModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setAsaasChargeModal(null)}>

@@ -128,7 +128,7 @@ export default function NfsePage() {
   };
 
   return (
-    <div className="p-5 pb-10 space-y-6 max-w-4xl mx-auto">
+    <div className="p-4 lg:p-5 pb-10 space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-lg bg-[var(--color-navy-bg)] flex items-center justify-center">

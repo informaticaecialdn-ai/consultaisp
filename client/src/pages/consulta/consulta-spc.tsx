@@ -168,7 +168,7 @@ export default function ConsultaSPCPage() {
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl mx-auto" data-testid="consulta-spc-page">
+    <div className="p-4 lg:p-6 space-y-6" data-testid="consulta-spc-page">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center">
