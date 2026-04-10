@@ -80,27 +80,23 @@ export default function DashboardPage() {
 
       {/* Identidade na Rede */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card className="p-5 flex items-center gap-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-200 dark:border-blue-800">
-          <div className="w-12 h-12 rounded-xl bg-blue-500 flex items-center justify-center flex-shrink-0">
-            <Wifi className="w-6 h-6 text-white" />
+        <Card className="p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Wifi className="w-4 h-4" style={{ color: "var(--color-navy)" }} />
+            <span className="text-xs font-medium text-[var(--color-muted)] uppercase tracking-wide">Seu Provedor na Rede</span>
           </div>
-          <div>
-            <p className="text-xs text-muted-foreground uppercase tracking-wide">Seu Provedor na Rede</p>
-            <p className="font-bold text-lg text-[var(--color-ink)]">{provider?.name}</p>
-            {partnerCode && (
-              <p className="text-xs text-muted-foreground mt-0.5">Codigo: <span className="font-mono font-bold text-blue-600">{partnerCode}</span></p>
-            )}
-          </div>
+          <p className="text-lg font-bold text-[var(--color-ink)]">{provider?.name}</p>
+          {partnerCode && (
+            <p className="text-xs text-[var(--color-muted)] mt-1">Codigo: <span className="font-mono font-bold" style={{ color: "var(--color-navy)" }}>{partnerCode}</span></p>
+          )}
         </Card>
-        <Card className="p-5 flex items-center gap-4 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/20 dark:to-emerald-950/20 border-green-200 dark:border-green-800">
-          <div className="w-12 h-12 rounded-xl bg-green-500 flex items-center justify-center flex-shrink-0">
-            <Building2 className="w-6 h-6 text-white" />
+        <Card className="p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Building2 className="w-4 h-4" style={{ color: "var(--color-navy)" }} />
+            <span className="text-xs font-medium text-[var(--color-muted)] uppercase tracking-wide">Provedores Parceiros</span>
           </div>
-          <div>
-            <p className="text-xs text-muted-foreground uppercase tracking-wide">Provedores Parceiros</p>
-            <p className="font-bold text-lg text-[var(--color-ink)]">{provedoresParceiros} provedores</p>
-            <p className="text-xs text-muted-foreground mt-0.5">compartilhando dados na sua regiao</p>
-          </div>
+          <p className="text-2xl font-bold" style={{ color: "var(--color-navy)" }}>{provedoresParceiros}</p>
+          <p className="text-xs text-[var(--color-muted)] mt-1">compartilhando dados na sua regiao</p>
         </Card>
       </div>
 
