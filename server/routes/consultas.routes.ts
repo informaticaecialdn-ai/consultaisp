@@ -361,6 +361,20 @@ export function registerConsultasRoutes(): Router {
         const externalProviders = new Set(allCustomers.filter(c => !c.isSameProvider).map(c => c.providerId));
         const creditsCost = externalProviders.size;
 
+        // Alerta de risco por endereco — cruza CEP com inadimplentes da rede
+        let addressRiskAlerts: { cpfMasked: string; overdueRange: string; maxDaysOverdue: number; status: string }[] = [];
+        try {
+          const erpCep = addressCandidate?.cep || "";
+          if (erpCep && erpCep.length >= 5) {
+            addressRiskAlerts = await storage.getCustomersByAddressForAlert(
+              erpCep.replace(/\D/g, "").slice(0, 5),
+              cleaned,
+            );
+          }
+        } catch (err) {
+          console.warn("[ConsultaISP] Erro ao buscar alerta de endereco:", err);
+        }
+
         const result = {
           cpfCnpj: cleaned,
           searchType,
@@ -391,6 +405,11 @@ export function registerConsultasRoutes(): Router {
           creditsCost,
           isOwnCustomer,
           addressSearch: addressSearchResult || null,
+          addressRiskAlerts: addressRiskAlerts.length > 0 ? {
+            type: "address_risk",
+            message: `Este endereco tem ${addressRiskAlerts.length} registro(s) de inadimplencia na rede ISP`,
+            matches: addressRiskAlerts,
+          } : null,
           // Backward compat: frontend consumers expect addressMatches[] for the address-crossing UI
           // V-01 LGPD fix: mask cross-provider data in addressMatches
           addressMatches: addressSearchResult
