@@ -39,5 +39,16 @@ export function registerBenchmarkRoutes(): Router {
     }
   });
 
+  router.get("/api/benchmark/defaulters-map", requireAuth, async (req, res) => {
+    try {
+      const providerId = req.session.providerId;
+      if (!providerId) return res.status(401).json({ message: "Nao autenticado" });
+      const data = await storage.getDefaultersMapPoints(providerId);
+      return res.json(data);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
   return router;
 }

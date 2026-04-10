@@ -397,4 +397,40 @@ export class CustomersStorage {
     }));
   }
 
+  /** Lista individual de clientes inadimplentes com coordenadas (para mapa) */
+  async getDefaultersMapPoints(providerId: number): Promise<{
+    id: number; name: string; lat: number; lng: number; cep: string | null; city: string | null;
+    totalOverdue: number; daysOverdue: number; address: string | null; riskTier: string;
+  }[]> {
+    const rows = await db.select().from(customers).where(
+      and(
+        eq(customers.providerId, providerId),
+        eq(customers.paymentStatus, "overdue"),
+      ),
+    );
+
+    return rows
+      .filter(r => r.latitude && r.longitude)
+      .map(r => {
+        const lat = parseFloat(r.latitude!);
+        const lng = parseFloat(r.longitude!);
+        if (isNaN(lat) || isNaN(lng)) return null;
+        const days = r.maxDaysOverdue || 0;
+        const riskTier = days >= 90 ? "critico" : days >= 60 ? "alto" : days >= 30 ? "medio" : "baixo";
+        return {
+          id: r.id,
+          name: r.name || "Sem nome",
+          lat,
+          lng,
+          cep: r.cep,
+          city: r.city,
+          address: r.address,
+          totalOverdue: parseFloat(r.totalOverdueAmount || "0"),
+          daysOverdue: days,
+          riskTier,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+  }
+
 }

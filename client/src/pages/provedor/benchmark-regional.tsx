@@ -46,6 +46,19 @@ type MapPoint = {
   riskLevel: string;
 };
 
+type DefaulterPoint = {
+  id: number;
+  name: string;
+  lat: number;
+  lng: number;
+  cep: string | null;
+  city: string | null;
+  address: string | null;
+  totalOverdue: number;
+  daysOverdue: number;
+  riskTier: string;
+};
+
 const fmt = (v: number) =>
   v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -69,6 +82,11 @@ export default function BenchmarkRegionalPage() {
 
   const { data: mapPoints = [] } = useQuery<MapPoint[]>({
     queryKey: ["/api/benchmark/map-points"],
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: defaulters = [] } = useQuery<DefaulterPoint[]>({
+    queryKey: ["/api/benchmark/defaulters-map"],
     staleTime: 5 * 60 * 1000,
   });
 
@@ -194,18 +212,19 @@ export default function BenchmarkRegionalPage() {
         )}
       </Card>
 
-      {/* Mapa de risco */}
+      {/* Mapa de inadimplentes individuais */}
       <Card className="p-5">
         <div className="flex items-center gap-2 mb-4">
           <MapPin className="w-5 h-5 text-[var(--color-navy)]" />
-          <h2 className="font-semibold text-base">Distribuição Geográfica dos Meus Inadimplentes</h2>
+          <h2 className="font-semibold text-base">Mapa dos Meus Inadimplentes</h2>
+          <span className="ml-auto text-sm text-muted-foreground">{defaulters.length} clientes plotados</span>
         </div>
-        <BenchmarkMap points={mapPoints} />
-        <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-green-500" /> Baixo</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-amber-500" /> Medio</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-orange-500" /> Alto</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500" /> Critico</span>
+        <DefaultersMap points={defaulters} />
+        <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-green-500" /> Até 30 dias</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-amber-500" /> 31-60 dias</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-orange-500" /> 61-90 dias</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500" /> +90 dias (crítico)</span>
         </div>
       </Card>
     </div>
@@ -310,4 +329,163 @@ function BenchmarkMap({ points }: { points: MapPoint[] }) {
   }, [points]);
 
   return <div ref={containerRef} style={{ height: 400 }} className="w-full rounded-lg border" />;
+}
+
+function DefaultersMap({ points }: { points: DefaulterPoint[] }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return;
+
+    const map = new maplibregl.Map({
+      container: containerRef.current,
+      style: {
+        version: 8,
+        sources: {
+          osm: { type: "raster", tiles: ["/api/tiles/{z}/{x}/{y}.png"], tileSize: 256, attribution: "&copy; OpenStreetMap" },
+        },
+        layers: [{ id: "osm", type: "raster", source: "osm" }],
+      },
+      center: [-51.0, -23.3],
+      zoom: 8,
+    });
+    map.addControl(new maplibregl.NavigationControl(), "top-left");
+    mapRef.current = map;
+
+    return () => { map.remove(); mapRef.current = null; };
+  }, []);
+
+  useEffect(() => {
+    if (!mapRef.current || points.length === 0) return;
+    const map = mapRef.current;
+
+    const addPoints = () => {
+      const features = points.map((p) => ({
+        type: "Feature" as const,
+        geometry: { type: "Point" as const, coordinates: [p.lng, p.lat] },
+        properties: {
+          id: p.id,
+          name: p.name,
+          cep: p.cep || "",
+          city: p.city || "",
+          address: p.address || "",
+          totalOverdue: p.totalOverdue,
+          daysOverdue: p.daysOverdue,
+          riskTier: p.riskTier,
+        },
+      }));
+
+      if (map.getSource("defaulters")) {
+        (map.getSource("defaulters") as any).setData({ type: "FeatureCollection", features });
+        return;
+      }
+
+      map.addSource("defaulters", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features },
+        cluster: true,
+        clusterMaxZoom: 14,
+        clusterRadius: 40,
+      });
+
+      map.addLayer({
+        id: "clusters",
+        type: "circle",
+        source: "defaulters",
+        filter: ["has", "point_count"],
+        paint: {
+          "circle-color": ["step", ["get", "point_count"], "#3b82f6", 10, "#f59e0b", 50, "#ef4444"],
+          "circle-radius": ["step", ["get", "point_count"], 18, 10, 24, 50, 32],
+          "circle-opacity": 0.85,
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#fff",
+        },
+      });
+
+      map.addLayer({
+        id: "cluster-count",
+        type: "symbol",
+        source: "defaulters",
+        filter: ["has", "point_count"],
+        layout: {
+          "text-field": "{point_count_abbreviated}",
+          "text-size": 14,
+        },
+        paint: {
+          "text-color": "#fff",
+        },
+      });
+
+      map.addLayer({
+        id: "defaulter-points",
+        type: "circle",
+        source: "defaulters",
+        filter: ["!", ["has", "point_count"]],
+        paint: {
+          "circle-color": [
+            "match", ["get", "riskTier"],
+            "critico", "#ef4444",
+            "alto", "#f97316",
+            "medio", "#f59e0b",
+            "baixo", "#22c55e",
+            "#6b7280",
+          ],
+          "circle-radius": 8,
+          "circle-opacity": 0.85,
+          "circle-stroke-width": 2,
+          "circle-stroke-color": "#fff",
+        },
+      });
+
+      map.on("click", "clusters", (e) => {
+        const features = map.queryRenderedFeatures(e.point, { layers: ["clusters"] });
+        const clusterId = features[0].properties!.cluster_id;
+        (map.getSource("defaulters") as any).getClusterExpansionZoom(clusterId, (err: any, zoom: number) => {
+          if (err) return;
+          map.easeTo({ center: (features[0].geometry as any).coordinates, zoom });
+        });
+      });
+
+      map.on("click", "defaulter-points", (e) => {
+        if (!e.features?.[0]) return;
+        const p = e.features[0].properties!;
+        const coords = (e.features[0].geometry as any).coordinates.slice();
+        const value = Number(p.totalOverdue).toLocaleString("pt-BR", { minimumFractionDigits: 2 });
+        new maplibregl.Popup()
+          .setLngLat(coords)
+          .setHTML(`
+            <div style="font-size: 13px; line-height: 1.5;">
+              <strong style="font-size: 14px;">${p.name}</strong><br/>
+              ${p.address ? `<span style="color: #666;">${p.address}</span><br/>` : ""}
+              ${p.cep ? `<span style="color: #666;">${p.cep} - ${p.city}</span><br/>` : ""}
+              <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid #eee;">
+                <strong style="color: #dc2626;">R$ ${value}</strong><br/>
+                <span style="color: #666;">${p.daysOverdue} dias em atraso</span>
+              </div>
+            </div>
+          `)
+          .addTo(map);
+      });
+
+      map.on("mouseenter", "clusters", () => { map.getCanvas().style.cursor = "pointer"; });
+      map.on("mouseleave", "clusters", () => { map.getCanvas().style.cursor = ""; });
+      map.on("mouseenter", "defaulter-points", () => { map.getCanvas().style.cursor = "pointer"; });
+      map.on("mouseleave", "defaulter-points", () => { map.getCanvas().style.cursor = ""; });
+
+      if (points.length > 1) {
+        const bounds = new maplibregl.LngLatBounds();
+        points.forEach((p) => bounds.extend([p.lng, p.lat]));
+        map.fitBounds(bounds, { padding: 40, maxZoom: 13 });
+      } else if (points.length === 1) {
+        map.setCenter([points[0].lng, points[0].lat]);
+        map.setZoom(14);
+      }
+    };
+
+    if (map.loaded()) addPoints();
+    else map.on("load", addPoints);
+  }, [points]);
+
+  return <div ref={containerRef} style={{ height: 500 }} className="w-full rounded-lg border" />;
 }
