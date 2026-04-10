@@ -67,6 +67,7 @@ export interface IStorage {
   getHeatmapByProvider(providerId: number): ReturnType<CustomersStorage["getHeatmapByProvider"]>;
   getHeatmapAll(): ReturnType<CustomersStorage["getHeatmapAll"]>;
   getCustomersByCepPrefix(cepPrefix: string, excludeProviderId?: number): Promise<Customer[]>;
+  getCustomersByAddressForAlert(cep5: string, excludeCpfCnpj: string): ReturnType<CustomersStorage["getCustomersByAddressForAlert"]>;
 
   getContractsByCustomer(customerId: number): Promise<Contract[]>;
   getContractsByProvider(providerId: number): Promise<Contract[]>;
@@ -247,6 +248,7 @@ class DatabaseStorage implements IStorage {
   getHeatmapByProvider = (providerId: number) => this._customers.getHeatmapByProvider(providerId);
   getHeatmapAll = () => this._customers.getHeatmapAll();
   getCustomersByCepPrefix = (cepPrefix: string, excludeProviderId?: number) => this._customers.getCustomersByCepPrefix(cepPrefix, excludeProviderId);
+  getCustomersByAddressForAlert = (cep5: string, excludeCpfCnpj: string) => this._customers.getCustomersByAddressForAlert(cep5, excludeCpfCnpj);
 
   // Consultations
   getIspConsultationsByProvider = (providerId: number) => this._consultations.getIspConsultationsByProvider(providerId);

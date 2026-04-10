@@ -182,4 +182,49 @@ export class CustomersStorage {
     });
   }
 
+  /** Buscar inadimplentes no mesmo CEP (5 digitos) para alerta de endereco */
+  async getCustomersByAddressForAlert(cep5: string, excludeCpfCnpj: string): Promise<{
+    cpfMasked: string;
+    overdueRange: string;
+    maxDaysOverdue: number;
+    status: string;
+  }[]> {
+    if (!cep5 || cep5.length < 5) return [];
+    const prefix = cep5.replace(/\D/g, "").slice(0, 5);
+    const cleanExclude = excludeCpfCnpj.replace(/\D/g, "");
+
+    const rows = await db.select().from(customers).where(
+      eq(customers.paymentStatus, "overdue"),
+    );
+
+    const matches = rows.filter(c => {
+      if (!c.cep) return false;
+      if (!c.cep.replace(/\D/g, "").startsWith(prefix)) return false;
+      if (c.cpfCnpj.replace(/\D/g, "") === cleanExclude) return false;
+      return true;
+    });
+
+    const maskCpf = (cpf: string): string => {
+      const clean = cpf.replace(/\D/g, "");
+      if (clean.length === 11) return `***.${clean.slice(3, 6)}.${clean.slice(6, 9)}-**`;
+      if (clean.length === 14) return `**.***.${clean.slice(5, 8)}/${clean.slice(8, 12)}-**`;
+      return "***";
+    };
+
+    const overdueRange = (val: number): string => {
+      if (val <= 200) return "R$ 0-200";
+      if (val <= 500) return "R$ 200-500";
+      if (val <= 1000) return "R$ 500-1.000";
+      if (val <= 2000) return "R$ 1.000-2.000";
+      return "R$ 2.000+";
+    };
+
+    return matches.map(c => ({
+      cpfMasked: maskCpf(c.cpfCnpj),
+      overdueRange: overdueRange(parseFloat(c.totalOverdueAmount || "0")),
+      maxDaysOverdue: c.maxDaysOverdue || 0,
+      status: c.status === "cancelled" ? "inativo" : "inadimplente",
+    }));
+  }
+
 }
