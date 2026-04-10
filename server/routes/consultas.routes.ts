@@ -361,15 +361,21 @@ export function registerConsultasRoutes(): Router {
         const externalProviders = new Set(allCustomers.filter(c => !c.isSameProvider).map(c => c.providerId));
         const creditsCost = externalProviders.size;
 
-        // Alerta de risco por endereco — cruza CEP com inadimplentes da rede
-        let addressRiskAlerts: { cpfMasked: string; overdueRange: string; maxDaysOverdue: number; status: string }[] = [];
+        // Alerta de risco por endereco — cruza endereco completo com inadimplentes da rede
+        let addressRiskAlerts: { cpfMasked: string; overdueRange: string; maxDaysOverdue: number; status: string; matchType: string }[] = [];
         try {
           const erpCep = addressCandidate?.cep || "";
-          if (erpCep && erpCep.length >= 5) {
-            addressRiskAlerts = await storage.getCustomersByAddressForAlert(
-              erpCep.replace(/\D/g, "").slice(0, 5),
-              cleaned,
-            );
+          const erpAddress = addressCandidate?.address || addressCandidate?.street || "";
+          const erpNumber = addressCandidate?.addressNumber || addressCandidate?.number || "";
+          const erpCity = addressCandidate?.city || "";
+          if (erpNumber) {
+            addressRiskAlerts = await storage.getCustomersByAddressForAlert({
+              cep: erpCep,
+              address: erpAddress,
+              addressNumber: erpNumber,
+              city: erpCity,
+              excludeCpfCnpj: cleaned,
+            });
           }
         } catch (err) {
           console.warn("[ConsultaISP] Erro ao buscar alerta de endereco:", err);

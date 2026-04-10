@@ -58,6 +58,9 @@ export class CustomersStorage {
     email?: string;
     phone?: string;
     address?: string;
+    addressNumber?: string;
+    complement?: string;
+    neighborhood?: string;
     city?: string;
     state?: string;
     cep?: string;
@@ -85,6 +88,9 @@ export class CustomersStorage {
           email: data.email || null,
           phone: data.phone || null,
           address: data.address || null,
+          addressNumber: data.addressNumber || null,
+          complement: data.complement || null,
+          neighborhood: data.neighborhood || null,
           city: data.city || null,
           state: data.state || null,
           cep: data.cep || null,
@@ -107,6 +113,9 @@ export class CustomersStorage {
         email: data.email || null,
         phone: data.phone || null,
         address: data.address || null,
+        addressNumber: data.addressNumber || null,
+        complement: data.complement || null,
+        neighborhood: data.neighborhood || null,
         city: data.city || null,
         state: data.state || null,
         cep: data.cep || null,
@@ -182,26 +191,71 @@ export class CustomersStorage {
     });
   }
 
-  /** Buscar inadimplentes no mesmo CEP (5 digitos) para alerta de endereco */
-  async getCustomersByAddressForAlert(cep5: string, excludeCpfCnpj: string): Promise<{
+  /**
+   * Buscar inadimplentes no mesmo endereco para alerta de risco.
+   * Match inteligente:
+   * - CEP especifico (nao termina em 000): match por CEP + numero
+   * - CEP generico (termina em 000): match por rua normalizada + numero + cidade
+   */
+  async getCustomersByAddressForAlert(params: {
+    cep?: string;
+    address?: string;
+    addressNumber?: string;
+    city?: string;
+    excludeCpfCnpj: string;
+  }): Promise<{
     cpfMasked: string;
     overdueRange: string;
     maxDaysOverdue: number;
     status: string;
+    matchType: "cep_numero" | "endereco_completo";
   }[]> {
-    if (!cep5 || cep5.length < 5) return [];
-    const prefix = cep5.replace(/\D/g, "").slice(0, 5);
+    const { cep, address, addressNumber, city, excludeCpfCnpj } = params;
+    if (!addressNumber) return []; // sem numero, nao tem como identificar imovel
+
     const cleanExclude = excludeCpfCnpj.replace(/\D/g, "");
+    const cleanCep = cep?.replace(/\D/g, "") || "";
+    const isGenericCep = cleanCep.endsWith("000") || cleanCep.length < 8;
 
     const rows = await db.select().from(customers).where(
       eq(customers.paymentStatus, "overdue"),
     );
 
+    const normalizeStreet = (s: string): string => {
+      return s
+        .toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // remove acentos
+        .replace(/\br\.?\s*/g, "rua ")
+        .replace(/\bav\.?\s*/g, "avenida ")
+        .replace(/\btv\.?\s*/g, "travessa ")
+        .replace(/\bpca?\.?\s*/g, "praca ")
+        .replace(/\bal\.?\s*/g, "alameda ")
+        .replace(/\brod\.?\s*/g, "rodovia ")
+        .replace(/\s+/g, " ")
+        .trim();
+    };
+
+    const normalNum = (n: string): string => n.replace(/\D/g, "").replace(/^0+/, "");
+    const queryNum = normalNum(addressNumber);
+    if (!queryNum) return [];
+
     const matches = rows.filter(c => {
-      if (!c.cep) return false;
-      if (!c.cep.replace(/\D/g, "").startsWith(prefix)) return false;
       if (c.cpfCnpj.replace(/\D/g, "") === cleanExclude) return false;
-      return true;
+      if (!c.addressNumber) return false;
+      if (normalNum(c.addressNumber) !== queryNum) return false;
+
+      if (!isGenericCep && cleanCep.length >= 8 && c.cep) {
+        // CEP especifico: match por CEP completo + numero
+        return c.cep.replace(/\D/g, "") === cleanCep;
+      } else {
+        // CEP generico ou sem CEP: match por rua normalizada + numero + cidade
+        if (!address || !city || !c.address || !c.city) return false;
+        const normalAddr = normalizeStreet(address);
+        const normalCAddr = normalizeStreet(c.address);
+        const normalCity = city.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+        const normalCCity = (c.city || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+        return normalAddr === normalCAddr && normalCity === normalCCity;
+      }
     });
 
     const maskCpf = (cpf: string): string => {
@@ -224,6 +278,7 @@ export class CustomersStorage {
       overdueRange: overdueRange(parseFloat(c.totalOverdueAmount || "0")),
       maxDaysOverdue: c.maxDaysOverdue || 0,
       status: c.status === "cancelled" ? "inativo" : "inadimplente",
+      matchType: (!isGenericCep && cleanCep.length >= 8) ? "cep_numero" as const : "endereco_completo" as const,
     }));
   }
 
