@@ -51,7 +51,7 @@ export default function LandingPage() {
           <div className="hidden md:flex items-center gap-7 text-sm text-[var(--color-muted)]">
             {[["Como funciona","como-funciona"],["Funcionalidades","funcionalidades"],["Preços","precos"],["FAQ","faq"]].map(([l,id]) => (
               <button key={id} onClick={() => document.getElementById(id)?.scrollIntoView({behavior:"smooth"})}
-                className="hover:text-[var(--color-navy)] transition-colors font-medium">{l}</button>
+                className="cursor-pointer hover:text-[var(--color-navy)] transition-colors font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-navy)] focus-visible:ring-offset-2 rounded-sm">{l}</button>
             ))}
           </div>
           <div className="flex items-center gap-2">
@@ -69,7 +69,7 @@ export default function LandingPage() {
                 <nav className="flex flex-col gap-4 mt-8">
                   {[["Como funciona","como-funciona"],["Funcionalidades","funcionalidades"],["Preços","precos"],["FAQ","faq"]].map(([l,id]) => (
                     <button key={id} onClick={() => { setMobileMenuOpen(false); document.getElementById(id)?.scrollIntoView({behavior:"smooth"}); }}
-                      className="text-left text-sm font-medium text-[var(--color-ink)] hover:text-[var(--color-navy)] transition-colors py-2 border-b border-[var(--color-border)]">{l}</button>
+                      className="cursor-pointer text-left text-sm font-medium text-[var(--color-ink)] hover:text-[var(--color-navy)] transition-colors py-2 border-b border-[var(--color-border)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-navy)]">{l}</button>
                   ))}
                   <Button className="w-full bg-[var(--color-navy)] hover:bg-[var(--color-steel)] text-white text-sm h-10 font-semibold rounded mt-2"
                     onClick={() => { setMobileMenuOpen(false); goLogin(); }}>Login</Button>
