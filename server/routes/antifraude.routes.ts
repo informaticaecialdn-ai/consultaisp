@@ -30,29 +30,54 @@ export function registerAntiFraudeRoutes(): Router {
         }
       }
 
-      const proactiveAsAlerts = proactiveRaw.map(pa => ({
-        id: pa.id + 1_000_000, // offset to avoid ID collision with antiFraudAlerts
-        providerId: pa.providerId,
-        customerId: null,
-        consultingProviderId: pa.consultingProviderId,
-        consultingProviderName: pa.consultingProviderId ? (consultingProviderNames.get(pa.consultingProviderId) || "Provedor da rede") : null,
-        customerName: null,
-        customerCpfCnpj: pa.cpfCnpj,
-        type: "defaulter_consulted",
-        severity: "medium",
-        message: `Seu cliente foi consultado por outro provedor da rede ISP`,
-        riskScore: 50,
-        riskLevel: "medium",
-        riskFactors: ["consulta_outro_provedor"],
-        daysOverdue: null,
-        overdueAmount: null,
-        equipmentNotReturned: null,
-        equipmentValue: null,
-        recentConsultations: 1,
-        resolved: pa.acknowledged || false,
-        status: pa.acknowledged ? "resolved" : "new",
-        createdAt: pa.sentAt,
-        _source: "proactive" as const,
+      // Enriquecer alertas proativos com dados do cliente do banco local
+      const proactiveAsAlerts = await Promise.all(proactiveRaw.map(async (pa) => {
+        // Buscar dados do cliente no banco local
+        let customerName: string | null = null;
+        let daysOverdue: number | null = null;
+        let overdueAmount: string | null = null;
+        let equipCount = 0;
+        let equipValue = "0";
+
+        if (pa.cpfCnpj) {
+          try {
+            const customers = await storage.getCustomerByCpfCnpj(pa.cpfCnpj);
+            const ownCustomer = customers.find(c => c.providerId === currentProviderId);
+            if (ownCustomer) {
+              customerName = ownCustomer.name;
+              daysOverdue = ownCustomer.maxDaysOverdue || 0;
+              overdueAmount = ownCustomer.totalOverdueAmount || "0";
+              equipCount = (ownCustomer as any).equipmentCount || 1;
+              equipValue = (ownCustomer as any).equipmentEstimatedValue || "290";
+            }
+          } catch {}
+        }
+
+        return {
+          id: pa.id + 1_000_000,
+          providerId: pa.providerId,
+          customerId: null,
+          customerProviderId: currentProviderId, // e cliente proprio
+          consultingProviderId: pa.consultingProviderId,
+          consultingProviderName: pa.consultingProviderId ? (consultingProviderNames.get(pa.consultingProviderId) || "Provedor da rede") : null,
+          customerName,
+          customerCpfCnpj: pa.cpfCnpj,
+          type: "defaulter_consulted",
+          severity: (daysOverdue || 0) > 90 ? "high" : "medium",
+          message: `Seu cliente foi consultado por outro provedor da rede ISP`,
+          riskScore: (daysOverdue || 0) > 90 ? 80 : 50,
+          riskLevel: (daysOverdue || 0) > 90 ? "high" : "medium",
+          riskFactors: ["consulta_outro_provedor"],
+          daysOverdue,
+          overdueAmount,
+          equipmentNotReturned: equipCount,
+          equipmentValue: equipValue,
+          recentConsultations: 1,
+          resolved: pa.acknowledged || false,
+          status: pa.acknowledged ? "resolved" : "new",
+          createdAt: pa.sentAt,
+          _source: "proactive" as const,
+        };
       }));
 
       // Combine both sources, sort by date descending

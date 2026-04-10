@@ -7,15 +7,16 @@ import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
 import {
   ShieldAlert, AlertTriangle, DollarSign,
-  CheckCircle, XCircle, ChevronDown,
+  CheckCircle, XCircle,
   Search, Clock, Phone, Package, Users,
-  RefreshCw,
+  RefreshCw, Wifi, FileText,
 } from "lucide-react";
 
 type AntiFraudAlert = {
   id: number;
   providerId: number;
   customerId: number | null;
+  customerProviderId?: number;
   consultingProviderId: number | null;
   consultingProviderName: string | null;
   customerName: string | null;
@@ -34,7 +35,6 @@ type AntiFraudAlert = {
   resolved: boolean;
   status: string;
   createdAt: string | null;
-  customerStatus?: string;
 };
 
 type CustomerRisk = {
@@ -57,10 +57,10 @@ const fmt = (v: number | string | null | undefined): string => {
   return `R$ ${num.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
-const maskCpf = (doc: string): string => {
+const fmtCpf = (doc: string): string => {
   const d = doc.replace(/\D/g, "");
-  if (d.length === 11) return `${d.slice(0, 3)}.***.***.${d.slice(9)}`;
-  if (d.length === 14) return `${d.slice(0, 2)}.***.***/****-${d.slice(12)}`;
+  if (d.length === 11) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+  if (d.length === 14) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
   return doc;
 };
 
@@ -75,11 +75,16 @@ function timeAgo(dateStr: string | null): string {
   return `${days}d atras`;
 }
 
+// Custo de instalacao padrao (configuravel futuramente pelo provedor)
+const CUSTO_INSTALACAO = 150;
+const CUSTO_EQUIP_ESTIMADO = 290;
+
 export default function AntiFraudePage() {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<"all" | "active" | "resolved">("active");
 
-  const { data: alerts = [], isLoading: alertsLoading, refetch: refetchAlerts } = useQuery<AntiFraudAlert[]>({
+  const { data: alerts = [], isLoading: alertsLoading, refetch } = useQuery<AntiFraudAlert[]>({
     queryKey: ["/api/anti-fraud/alerts"],
     staleTime: 30000,
   });
@@ -99,21 +104,24 @@ export default function AntiFraudePage() {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/anti-fraud/alerts"] }); toast({ title: "Alerta ignorado" }); },
   });
 
-  // Filtrar alertas ativos
   const activeAlerts = alerts.filter(a => a.status === "new" || a.status === "active");
-  const filteredAlerts = search
-    ? activeAlerts.filter(a =>
+  const resolvedAlerts = alerts.filter(a => a.status === "resolved" || a.status === "dismissed");
+  const displayAlerts = filter === "active" ? activeAlerts : filter === "resolved" ? resolvedAlerts : alerts;
+
+  const filtered = search
+    ? displayAlerts.filter(a =>
         (a.customerName || "").toLowerCase().includes(search.toLowerCase()) ||
         (a.customerCpfCnpj || "").includes(search)
       )
-    : activeAlerts;
+    : displayAlerts;
 
   // KPIs
-  const totalPrejuizo = activeAlerts.reduce((s, a) => s + parseFloat(a.overdueAmount || "0") + parseFloat(a.equipmentValue || "0"), 0);
-  const clientesEmFuga = activeAlerts.filter(a => a.type === "defaulter_consulted").length;
-  const equipRisco = activeAlerts.length; // 1 equipamento por cliente inadimplente (estimativa)
+  const totalDivida = activeAlerts.reduce((s, a) => s + parseFloat(a.overdueAmount || "0"), 0);
+  const totalEquip = activeAlerts.length * CUSTO_EQUIP_ESTIMADO;
+  const totalInstalacao = activeAlerts.length * CUSTO_INSTALACAO;
+  const totalPrejuizo = totalDivida + totalEquip + totalInstalacao;
 
-  // Top devedores — ordenar por valor + dias
+  // Top devedores
   const topDevedores = [...customerRisks]
     .sort((a, b) => b.overdueAmount - a.overdueAmount || b.daysOverdue - a.daysOverdue)
     .slice(0, 20);
@@ -129,10 +137,10 @@ export default function AntiFraudePage() {
             Protecao Anti-Fraude
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Monitore clientes inadimplentes que estao tentando migrar para outros provedores
+            Clientes inadimplentes sendo consultados por outros provedores
           </p>
         </div>
-        <Button variant="outline" size="sm" className="gap-2" onClick={() => refetchAlerts()}>
+        <Button variant="outline" size="sm" className="gap-2" onClick={() => refetch()}>
           <RefreshCw className="w-4 h-4" />
           Atualizar
         </Button>
@@ -140,79 +148,79 @@ export default function AntiFraudePage() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          icon={AlertTriangle}
-          label="Alertas Ativos"
-          value={activeAlerts.length}
-          color="text-red-500"
-          bg="bg-red-50 dark:bg-red-950/20"
-        />
-        <KpiCard
-          icon={Users}
-          label="Clientes em Fuga"
-          value={clientesEmFuga}
-          sub="consultados por outros provedores"
-          color="text-orange-500"
-          bg="bg-orange-50 dark:bg-orange-950/20"
-        />
-        <KpiCard
-          icon={DollarSign}
-          label="Prejuizo em Risco"
-          value={fmt(totalPrejuizo)}
-          sub="dividas + equipamentos"
-          color="text-red-600"
-          bg="bg-red-50 dark:bg-red-950/20"
-        />
-        <KpiCard
-          icon={Package}
-          label="Equipamentos em Risco"
-          value={equipRisco}
-          sub={`${fmt(equipRisco * 290)} (valor estimado)`}
-          color="text-amber-600"
-          bg="bg-amber-50 dark:bg-amber-950/20"
-        />
+        <Card className="p-4 bg-red-50 dark:bg-red-950/20">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="w-4 h-4 text-red-500" />
+            <span className="text-xs font-medium text-muted-foreground uppercase">Alertas Ativos</span>
+          </div>
+          <p className="text-2xl font-bold text-red-500">{activeAlerts.length}</p>
+        </Card>
+        <Card className="p-4 bg-orange-50 dark:bg-orange-950/20">
+          <div className="flex items-center gap-2 mb-2">
+            <DollarSign className="w-4 h-4 text-orange-500" />
+            <span className="text-xs font-medium text-muted-foreground uppercase">Dividas em Risco</span>
+          </div>
+          <p className="text-2xl font-bold text-orange-500">{fmt(totalDivida)}</p>
+        </Card>
+        <Card className="p-4 bg-amber-50 dark:bg-amber-950/20">
+          <div className="flex items-center gap-2 mb-2">
+            <Package className="w-4 h-4 text-amber-600" />
+            <span className="text-xs font-medium text-muted-foreground uppercase">Equipamentos</span>
+          </div>
+          <p className="text-2xl font-bold text-amber-600">{activeAlerts.length}</p>
+          <p className="text-xs text-muted-foreground">{fmt(totalEquip)} (valor estimado)</p>
+        </Card>
+        <Card className="p-4 bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="w-4 h-4 text-red-600" />
+            <span className="text-xs font-medium text-muted-foreground uppercase">Prejuizo Total Estimado</span>
+          </div>
+          <p className="text-2xl font-bold text-red-600">{fmt(totalPrejuizo)}</p>
+          <p className="text-xs text-muted-foreground">divida + equip + instalacao</p>
+        </Card>
       </div>
 
-      {/* Alertas em Tempo Real */}
-      <Card className="p-0 overflow-hidden">
-        <div className="p-4 border-b flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-red-500" />
-            <h2 className="font-semibold">Alertas — Clientes Tentando Migrar</h2>
-            {activeAlerts.length > 0 && (
-              <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">
-                {activeAlerts.length}
-              </Badge>
-            )}
-          </div>
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Buscar por nome ou CPF..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 pr-3 py-1.5 text-sm border rounded-md bg-background w-64"
-            />
-          </div>
+      {/* Filtros */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <Button variant={filter === "active" ? "default" : "outline"} size="sm" onClick={() => setFilter("active")}>
+            Ativos ({activeAlerts.length})
+          </Button>
+          <Button variant={filter === "resolved" ? "default" : "outline"} size="sm" onClick={() => setFilter("resolved")}>
+            Resolvidos ({resolvedAlerts.length})
+          </Button>
+          <Button variant={filter === "all" ? "default" : "outline"} size="sm" onClick={() => setFilter("all")}>
+            Todos ({alerts.length})
+          </Button>
         </div>
+        <div className="relative">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Buscar por nome ou CPF..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9 pr-3 py-1.5 text-sm border rounded-md bg-background w-64"
+          />
+        </div>
+      </div>
 
-        {alertsLoading ? (
-          <div className="p-8 text-center text-muted-foreground">Carregando alertas...</div>
-        ) : filteredAlerts.length === 0 ? (
-          <div className="p-8 text-center">
-            <ShieldAlert className="w-10 h-10 mx-auto mb-3 text-green-400" />
-            <p className="font-medium text-green-700 dark:text-green-300">Nenhum alerta ativo</p>
-            <p className="text-sm text-muted-foreground mt-1">Seus clientes nao estao sendo consultados por outros provedores no momento.</p>
-          </div>
-        ) : (
-          <div className="divide-y">
-            {filteredAlerts.map((alert) => (
-              <AlertCard key={alert.id} alert={alert} onResolve={resolveMutation.mutate} onDismiss={dismissMutation.mutate} />
-            ))}
-          </div>
-        )}
-      </Card>
+      {/* Cards de Alertas */}
+      {alertsLoading ? (
+        <div className="p-8 text-center text-muted-foreground">Carregando alertas...</div>
+      ) : filtered.length === 0 ? (
+        <Card className="p-8 text-center">
+          <ShieldAlert className="w-10 h-10 mx-auto mb-3 text-green-400" />
+          <p className="font-medium text-green-700 dark:text-green-300">Nenhum alerta</p>
+          <p className="text-sm text-muted-foreground mt-1">Seus clientes nao estao sendo consultados por outros provedores.</p>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {filtered.map((alert) => (
+            <AlertCard key={alert.id} alert={alert} onResolve={resolveMutation.mutate} onDismiss={dismissMutation.mutate} />
+          ))}
+        </div>
+      )}
 
       {/* Ranking dos Piores Devedores */}
       <Card className="p-0 overflow-hidden">
@@ -221,7 +229,6 @@ export default function AntiFraudePage() {
           <h2 className="font-semibold">Ranking de Risco — Seus Clientes</h2>
           <span className="ml-auto text-xs text-muted-foreground">{topDevedores.length} clientes</span>
         </div>
-
         {risksLoading ? (
           <div className="p-8 text-center text-muted-foreground">Carregando...</div>
         ) : topDevedores.length === 0 ? (
@@ -234,8 +241,7 @@ export default function AntiFraudePage() {
                   <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">#</th>
                   <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Cliente</th>
                   <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Divida</th>
-                  <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Dias Atraso</th>
-                  <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Equip.</th>
+                  <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Atraso</th>
                   <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Consultas</th>
                   <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Risco</th>
                 </tr>
@@ -246,23 +252,20 @@ export default function AntiFraudePage() {
                     <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{i + 1}</td>
                     <td className="px-4 py-3">
                       <p className="font-medium">{c.name}</p>
-                      <p className="text-xs text-muted-foreground font-mono">{maskCpf(c.cpfCnpj)}</p>
+                      <p className="text-xs text-muted-foreground font-mono">{fmtCpf(c.cpfCnpj)}</p>
                     </td>
                     <td className="px-4 py-3 font-semibold text-red-600">{fmt(c.overdueAmount)}</td>
                     <td className="px-4 py-3">
                       <span className={c.daysOverdue > 90 ? "text-red-600 font-semibold" : ""}>{c.daysOverdue}d</span>
                     </td>
-                    <td className="px-4 py-3">{c.equipmentNotReturned > 0 ? `${c.equipmentNotReturned} (${fmt(c.equipmentValue)})` : "—"}</td>
                     <td className="px-4 py-3">
                       {c.recentConsultations > 0 ? (
                         <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300 text-xs">
-                          {c.recentConsultations} consulta(s)
+                          {c.recentConsultations}x
                         </Badge>
                       ) : "—"}
                     </td>
-                    <td className="px-4 py-3">
-                      <RiskBadge level={c.riskLevel} />
-                    </td>
+                    <td className="px-4 py-3"><RiskBadge level={c.riskLevel} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -274,140 +277,136 @@ export default function AntiFraudePage() {
   );
 }
 
-function KpiCard({ icon: Icon, label, value, sub, color, bg }: {
-  icon: any; label: string; value: any; sub?: string; color: string; bg: string;
-}) {
-  return (
-    <Card className={`p-4 ${bg}`}>
-      <div className="flex items-center gap-2 mb-2">
-        <Icon className={`w-4 h-4 ${color}`} />
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{label}</span>
-      </div>
-      <p className={`text-2xl font-bold ${color}`}>{value}</p>
-      {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
-    </Card>
-  );
-}
-
 function AlertCard({ alert, onResolve, onDismiss }: {
   alert: AntiFraudAlert;
   onResolve: (id: number) => void;
   onDismiss: (id: number) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const daysOverdue = alert.daysOverdue || 0;
   const overdueAmt = parseFloat(alert.overdueAmount || "0");
-  const equipValue = parseFloat(alert.equipmentValue || "0");
-  const totalRisk = overdueAmt + equipValue;
+  const equipValue = parseFloat(alert.equipmentValue || "0") || CUSTO_EQUIP_ESTIMADO;
+  const totalPrejuizo = overdueAmt + equipValue + CUSTO_INSTALACAO;
+  const isResolved = alert.status === "resolved" || alert.status === "dismissed";
 
-  const isContratoRecente = daysOverdue <= 90 && daysOverdue > 0;
-  const isDevedorCronico = daysOverdue > 90;
+  // Score simplificado do cliente (0-100)
+  const score = Math.max(0, 100 - Math.min(daysOverdue / 3, 40) - Math.min(overdueAmt / 50, 40) - (daysOverdue < 90 ? 20 : 0));
 
   return (
-    <div className="p-4 hover:bg-muted/20 transition-colors">
-      <div className="flex items-start gap-3">
-        {/* Indicador de severidade */}
-        <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${
-          totalRisk > 1000 ? "bg-red-500" : totalRisk > 500 ? "bg-orange-500" : "bg-amber-500"
-        }`} />
+    <Card className={`overflow-hidden ${isResolved ? "opacity-60" : ""}`}>
+      {/* Header do card */}
+      <div className={`px-4 py-2 flex items-center justify-between ${
+        daysOverdue > 90 ? "bg-red-500 text-white" :
+        daysOverdue > 30 ? "bg-orange-500 text-white" :
+        "bg-amber-500 text-white"
+      }`}>
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4" />
+          <span className="font-semibold text-sm">
+            {daysOverdue <= 90 ? "CONTRATO RECENTE" : "DEVEDOR CRONICO"}
+          </span>
+        </div>
+        <span className="text-xs opacity-90">{timeAgo(alert.createdAt)}</span>
+      </div>
 
-        {/* Conteudo principal */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-sm">{alert.customerName || "Cliente"}</span>
-            <span className="font-mono text-xs text-muted-foreground">{maskCpf(alert.customerCpfCnpj || "")}</span>
+      <div className="p-4 space-y-3">
+        {/* Nome + CPF (dados completos — cliente proprio) */}
+        <div>
+          <p className="font-bold text-lg">{alert.customerName || "Cliente"}</p>
+          <p className="font-mono text-sm text-muted-foreground">{alert.customerCpfCnpj ? fmtCpf(alert.customerCpfCnpj) : ""}</p>
+        </div>
 
-            {isContratoRecente && (
-              <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300 text-xs">
-                CONTRATO RECENTE
-              </Badge>
-            )}
-            {isDevedorCronico && (
-              <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 text-xs">
-                DEVEDOR CRONICO
-              </Badge>
-            )}
-
-            <span className="text-xs text-muted-foreground ml-auto">{timeAgo(alert.createdAt)}</span>
+        {/* Info do contrato */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="bg-muted/40 rounded-lg p-3">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+              <DollarSign className="w-3 h-3" />
+              Divida
+            </div>
+            <p className="font-bold text-red-600">{fmt(overdueAmt)}</p>
           </div>
-
-          {/* Info principal */}
-          <div className="flex items-center gap-4 mt-2 flex-wrap">
-            <div className="flex items-center gap-1.5 text-sm">
-              <DollarSign className="w-3.5 h-3.5 text-red-500" />
-              <span className="font-semibold text-red-600">{fmt(overdueAmt)}</span>
-              <span className="text-muted-foreground">em aberto</span>
+          <div className="bg-muted/40 rounded-lg p-3">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+              <Clock className="w-3 h-3" />
+              Dias de Atraso
             </div>
-            <div className="flex items-center gap-1.5 text-sm">
-              <Clock className="w-3.5 h-3.5 text-orange-500" />
-              <span className={daysOverdue > 90 ? "font-semibold text-red-600" : ""}>{daysOverdue} dias</span>
-              <span className="text-muted-foreground">de atraso</span>
-            </div>
-            {(alert.equipmentNotReturned || 0) > 0 && (
-              <div className="flex items-center gap-1.5 text-sm">
-                <Package className="w-3.5 h-3.5 text-amber-500" />
-                <span>{alert.equipmentNotReturned} equip.</span>
-                <span className="text-muted-foreground">({fmt(equipValue)})</span>
-              </div>
-            )}
+            <p className={`font-bold ${daysOverdue > 90 ? "text-red-600" : "text-orange-600"}`}>{daysOverdue} dias</p>
           </div>
-
-          {/* Quem consultou */}
-          {alert.consultingProviderName && (
-            <div className="mt-2 text-sm text-muted-foreground flex items-center gap-1.5">
-              <Users className="w-3.5 h-3.5" />
-              Consultado por <span className="font-medium text-foreground">{alert.consultingProviderName}</span>
+          <div className="bg-muted/40 rounded-lg p-3">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+              <Package className="w-3 h-3" />
+              Equipamento
             </div>
-          )}
-
-          {/* Prejuizo estimado */}
-          {totalRisk > 0 && (
-            <div className="mt-2 bg-red-50 dark:bg-red-950/20 rounded px-3 py-2 flex items-center justify-between">
-              <span className="text-xs font-medium text-red-700 dark:text-red-400">PREJUIZO ESTIMADO SE MIGRAR</span>
-              <span className="font-bold text-red-600">{fmt(totalRisk)}</span>
+            <p className="font-bold">{alert.equipmentNotReturned || 1} un.</p>
+            <p className="text-xs text-muted-foreground">{fmt(equipValue)} (estimado)</p>
+          </div>
+          <div className="bg-muted/40 rounded-lg p-3">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+              <ShieldAlert className="w-3 h-3" />
+              Score
             </div>
-          )}
+            <p className={`font-bold ${score < 30 ? "text-red-600" : score < 60 ? "text-orange-600" : "text-green-600"}`}>
+              {Math.round(score)}/100
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {score < 30 ? "Critico" : score < 60 ? "Alto risco" : "Moderado"}
+            </p>
+          </div>
+        </div>
 
-          {/* Fatores de risco expandivel */}
-          {alert.riskFactors && alert.riskFactors.length > 0 && (
-            <button
-              onClick={() => setExpanded(!expanded)}
-              className="mt-2 text-xs text-muted-foreground flex items-center gap-1 hover:text-foreground"
-            >
-              <ChevronDown className={`w-3 h-3 transition-transform ${expanded ? "rotate-180" : ""}`} />
-              {alert.riskFactors.length} indicadores de risco
-            </button>
-          )}
-          {expanded && alert.riskFactors && (
-            <div className="mt-2 space-y-1">
-              {alert.riskFactors.map((f, i) => (
-                <div key={i} className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <AlertTriangle className="w-3 h-3 text-amber-500" />
-                  {f}
-                </div>
-              ))}
+        {/* Quem consultou */}
+        {alert.consultingProviderName && (
+          <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-950/20 rounded-lg px-3 py-2">
+            <Users className="w-4 h-4 text-blue-500" />
+            <span className="text-sm">Consultado por</span>
+            <span className="font-semibold text-sm">{alert.consultingProviderName}</span>
+          </div>
+        )}
+
+        {/* Prejuizo estimado */}
+        <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+          <p className="text-xs font-semibold text-red-700 dark:text-red-400 uppercase mb-2">Prejuizo Estimado se Migrar</p>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div>
+              <p className="text-xs text-muted-foreground">Divida</p>
+              <p className="font-semibold text-sm">{fmt(overdueAmt)}</p>
             </div>
-          )}
+            <div>
+              <p className="text-xs text-muted-foreground">Equipamento</p>
+              <p className="font-semibold text-sm">{fmt(equipValue)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Instalacao</p>
+              <p className="font-semibold text-sm">{fmt(CUSTO_INSTALACAO)}</p>
+            </div>
+          </div>
+          <div className="border-t border-red-200 dark:border-red-800 mt-2 pt-2 text-center">
+            <p className="text-lg font-bold text-red-600">{fmt(totalPrejuizo)}</p>
+          </div>
         </div>
 
         {/* Acoes */}
-        <div className="flex flex-col gap-2 flex-shrink-0">
-          <Button size="sm" variant="outline" className="gap-1 text-xs" onClick={() => onResolve(alert.id)}>
-            <CheckCircle className="w-3 h-3" /> Resolvido
-          </Button>
-          <Button size="sm" variant="ghost" className="gap-1 text-xs text-muted-foreground" onClick={() => onDismiss(alert.id)}>
-            <XCircle className="w-3 h-3" /> Ignorar
-          </Button>
-          {alert.customerCpfCnpj && (
-            <a href={`tel:${alert.customerCpfCnpj}`}>
-              <Button size="sm" variant="default" className="gap-1 text-xs w-full bg-green-600 hover:bg-green-700">
-                <Phone className="w-3 h-3" /> Ligar
+        {!isResolved && (
+          <div className="flex items-center gap-2 pt-1">
+            <Button size="sm" className="gap-1.5 flex-1 bg-green-600 hover:bg-green-700" onClick={() => onResolve(alert.id)}>
+              <CheckCircle className="w-3.5 h-3.5" /> Resolvido
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1.5 flex-1" onClick={() => onDismiss(alert.id)}>
+              <XCircle className="w-3.5 h-3.5" /> Ignorar
+            </Button>
+            <a href={`tel:${(alert.customerCpfCnpj || "").replace(/\D/g, "")}`} className="flex-1">
+              <Button size="sm" variant="outline" className="gap-1.5 w-full border-green-500 text-green-600 hover:bg-green-50">
+                <Phone className="w-3.5 h-3.5" /> Ligar
               </Button>
             </a>
-          )}
-        </div>
+          </div>
+        )}
+        {isResolved && (
+          <div className="text-center py-1">
+            <Badge variant="outline" className="text-xs">{alert.status === "resolved" ? "Resolvido" : "Ignorado"}</Badge>
+          </div>
+        )}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -418,12 +417,6 @@ function RiskBadge({ level }: { level: string }) {
     medium: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
     low: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
   };
-  const labels: Record<string, string> = {
-    critical: "Critico", high: "Alto", medium: "Medio", low: "Baixo",
-  };
-  return (
-    <Badge className={`text-xs ${config[level] || config.low}`}>
-      {labels[level] || level}
-    </Badge>
-  );
+  const labels: Record<string, string> = { critical: "Critico", high: "Alto", medium: "Medio", low: "Baixo" };
+  return <Badge className={`text-xs ${config[level] || config.low}`}>{labels[level] || level}</Badge>;
 }
