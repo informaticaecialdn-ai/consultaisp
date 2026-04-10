@@ -74,67 +74,33 @@ export default function DashboardPage() {
       </div>
 
       {/* KPIs principais */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <KpiCard
-          icon={AlertTriangle}
-          label="Inadimplentes"
-          value={isLoading ? null : inadimplentes}
-          color="var(--color-danger)"
-          testId="card-defaulters"
-        />
-        <KpiCard
-          icon={DollarSign}
-          label="Total em Aberto"
-          value={isLoading ? null : `R$ ${fmt(totalAberto)}`}
-          color="var(--color-gold)"
-          testId="card-overdue"
-        />
-        <KpiCard
-          icon={Package}
-          label="Equip. Retidos"
-          value={isLoading ? null : equipRetidos}
-          sub={valorEquip > 0 ? `R$ ${fmt(valorEquip)}` : undefined}
+          icon={Search}
+          label="Consultas Hoje"
+          value={isLoading ? null : consultasHoje}
           color="var(--color-navy)"
-          testId="card-equipment"
+          testId="card-today"
         />
         <KpiCard
-          icon={Activity}
-          label="Alertas Ativos"
-          value={isLoading ? null : alertasAtivos}
-          color="#e67e22"
-          testId="card-alerts"
+          icon={TrendingUp}
+          label="Consultas no Mes"
+          value={isLoading ? null : consultasMes}
+          color="var(--color-navy)"
+          testId="card-month"
+        />
+        <KpiCard
+          icon={CreditCard}
+          label="Creditos Restantes"
+          value={isLoading ? null : creditos}
+          color={creditos < 10 ? "var(--color-danger)" : "var(--color-navy)"}
+          testId="card-credits"
         />
       </div>
 
-      {/* Consultas + Acoes rapidas */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-
-        {/* Consultas do periodo */}
-        <Card className="p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-[var(--color-navy)]" />
-            <h2 className="font-semibold text-sm text-[var(--color-ink)]">Consultas</h2>
-          </div>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-[var(--color-muted)]">Hoje</span>
-              <span className="font-mono text-lg font-bold text-[var(--color-ink)]">{isLoading ? "..." : consultasHoje}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-[var(--color-muted)]">Este mes</span>
-              <span className="font-mono text-lg font-bold text-[var(--color-ink)]">{isLoading ? "..." : consultasMes}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-[var(--color-muted)]">Creditos restantes</span>
-              <span className={`font-mono text-lg font-bold ${creditos < 10 ? "text-[var(--color-danger)]" : "text-[var(--color-navy)]"}`}>
-                {isLoading ? "..." : creditos}
-              </span>
-            </div>
-          </div>
-        </Card>
-
-        {/* Acoes rapidas */}
-        <Card className="p-5 space-y-3 lg:col-span-2">
+      {/* Acoes rapidas */}
+      <div>
+        <Card className="p-5 space-y-3">
           <div className="flex items-center gap-2">
             <Search className="w-4 h-4 text-[var(--color-navy)]" />
             <h2 className="font-semibold text-sm text-[var(--color-ink)]">Acoes rapidas</h2>
@@ -175,29 +141,6 @@ export default function DashboardPage() {
           </div>
         </Card>
       </div>
-
-      {/* Resumo de risco */}
-      {inadimplentes > 0 && (
-        <Card className="p-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-[var(--color-danger)]" />
-              <h2 className="font-semibold text-sm text-[var(--color-ink)]">Resumo de Risco</h2>
-            </div>
-            <Link href="/consulta-isp">
-              <Button variant="ghost" size="sm" className="gap-1 text-xs">
-                Ver detalhes <ChevronRight className="w-3 h-3" />
-              </Button>
-            </Link>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <RiskItem label="Inadimplentes" value={inadimplentes} />
-            <RiskItem label="Valor em aberto" value={`R$ ${fmt(totalAberto)}`} />
-            <RiskItem label="Equip. retidos" value={equipRetidos} />
-            <RiskItem label="Valor equipamentos" value={`R$ ${fmt(valorEquip)}`} />
-          </div>
-        </Card>
-      )}
     </div>
   );
 }
