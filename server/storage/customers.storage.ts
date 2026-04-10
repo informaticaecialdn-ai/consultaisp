@@ -286,12 +286,15 @@ export class CustomersStorage {
     }));
   }
 
-  /** Ranking de CEPs por risco — agrega todos os provedores */
-  async getCepRanking(): Promise<{
+  /** Ranking de CEPs por risco — somente do provedor */
+  async getCepRanking(providerId: number): Promise<{
     cep5: string; city: string; count: number; totalOverdue: number; avgDaysOverdue: number; riskLevel: string;
   }[]> {
     const rows = await db.select().from(customers).where(
-      eq(customers.paymentStatus, "overdue"),
+      and(
+        eq(customers.providerId, providerId),
+        eq(customers.paymentStatus, "overdue"),
+      ),
     );
 
     const cepMap = new Map<string, { city: string; count: number; totalOverdue: number; totalDays: number }>();
@@ -324,10 +327,13 @@ export class CustomersStorage {
       .sort((a, b) => b.count - a.count);
   }
 
-  /** Tendencia regional — inadimplentes por mes (ultimos 6 meses) */
-  async getTrend(): Promise<{ month: string; count: number; totalOverdue: number }[]> {
+  /** Tendencia — inadimplentes por mes do provedor (ultimos 6 meses) */
+  async getTrend(providerId: number): Promise<{ month: string; count: number; totalOverdue: number }[]> {
     const rows = await db.select().from(customers).where(
-      eq(customers.paymentStatus, "overdue"),
+      and(
+        eq(customers.providerId, providerId),
+        eq(customers.paymentStatus, "overdue"),
+      ),
     );
 
     const now = new Date();
@@ -348,12 +354,15 @@ export class CustomersStorage {
     return months;
   }
 
-  /** Pontos para mapa de risco — agrega por CEP com lat/lng medio */
-  async getMapPoints(): Promise<{
+  /** Pontos para mapa de risco — somente do provedor */
+  async getMapPoints(providerId: number): Promise<{
     lat: number; lng: number; cep5: string; city: string; count: number; totalOverdue: number; riskLevel: string;
   }[]> {
     const rows = await db.select().from(customers).where(
-      eq(customers.paymentStatus, "overdue"),
+      and(
+        eq(customers.providerId, providerId),
+        eq(customers.paymentStatus, "overdue"),
+      ),
     );
 
     const cepMap = new Map<string, { lats: number[]; lngs: number[]; city: string; count: number; totalOverdue: number }>();

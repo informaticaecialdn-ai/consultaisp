@@ -79,7 +79,7 @@ const mainMenu = [
   { title: "Consulta ISP", url: "/consulta-isp", icon: Search },
   { title: "Consulta SPC", url: "/consulta-spc", icon: BarChart3 },
   { title: "Anti-Fraude", url: "/anti-fraude", icon: ShieldAlert },
-  { title: "Benchmark Regional", url: "/benchmark-regional", icon: TrendingUp },
+  { title: "Meus Dados", url: "/benchmark-regional", icon: TrendingUp },
 ];
 
 

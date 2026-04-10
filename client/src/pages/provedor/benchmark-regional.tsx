@@ -85,48 +85,52 @@ export default function BenchmarkRegionalPage() {
   return (
     <div className="p-4 lg:p-6 space-y-6">
       <div>
-        <h1 className="text-xl font-bold">Benchmark Regional</h1>
+        <h1 className="text-2xl font-bold">Meus Dados — Análise de Inadimplência</h1>
         <p className="text-sm text-muted-foreground">
-          Analise de inadimplencia por regiao — dados da rede de provedores
+          Visão analítica da sua base de inadimplentes: concentração geográfica, tendência e ranking por CEP
         </p>
       </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="p-4">
-          <p className="text-sm text-muted-foreground uppercase">Inadimplentes na Rede</p>
-          <p className="text-2xl font-bold mt-1">{totalInadimplentes}</p>
+        <Card className="p-5">
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Meus Inadimplentes</p>
+          <p className="text-3xl font-bold mt-2 text-[var(--color-danger)]">{totalInadimplentes}</p>
+          <p className="text-xs text-muted-foreground mt-1">clientes em atraso</p>
         </Card>
-        <Card className="p-4">
-          <p className="text-xs text-muted-foreground uppercase">Valor em Aberto</p>
-          <p className="text-2xl font-bold mt-1">R$ {fmt(totalValor)}</p>
+        <Card className="p-5">
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Valor em Aberto</p>
+          <p className="text-3xl font-bold mt-2 text-[var(--color-danger)]">R$ {fmt(totalValor)}</p>
+          <p className="text-xs text-muted-foreground mt-1">total pendente</p>
         </Card>
-        <Card className="p-4">
-          <p className="text-xs text-muted-foreground uppercase">CEPs com Risco</p>
-          <p className="text-2xl font-bold mt-1">{ranking.length}</p>
+        <Card className="p-5">
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">CEPs Afetados</p>
+          <p className="text-3xl font-bold mt-2">{ranking.length}</p>
+          <p className="text-xs text-muted-foreground mt-1">regiões com inadimplência</p>
         </Card>
-        <Card className="p-4">
-          <p className="text-xs text-muted-foreground uppercase">Tendencia</p>
-          <div className="flex items-center gap-2 mt-1">
+        <Card className="p-5">
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Tendência</p>
+          <div className="flex items-center gap-2 mt-2">
             {trendDirection === "up" ? (
-              <TrendingUp className="w-5 h-5 text-red-500" />
+              <TrendingUp className="w-7 h-7 text-[var(--color-danger)]" />
             ) : trendDirection === "down" ? (
-              <TrendingDown className="w-5 h-5 text-green-500" />
+              <TrendingDown className="w-7 h-7 text-[var(--color-success)]" />
             ) : (
-              <BarChart3 className="w-5 h-5 text-muted-foreground" />
+              <BarChart3 className="w-7 h-7 text-muted-foreground" />
             )}
             <span className="text-2xl font-bold">
-              {trendDirection === "up" ? "Subindo" : trendDirection === "down" ? "Descendo" : "Estavel"}
+              {trendDirection === "up" ? "Subindo" : trendDirection === "down" ? "Descendo" : "Estável"}
             </span>
           </div>
+          <p className="text-xs text-muted-foreground mt-1">vs mês anterior</p>
         </Card>
       </div>
 
       {/* Tendencia 6 meses */}
       <Card className="p-5">
         <div className="flex items-center gap-2 mb-4">
-          <TrendingUp className="w-4 h-4 text-muted-foreground" />
-          <h2 className="font-semibold text-sm">Tendencia Regional — Ultimos 6 Meses</h2>
+          <TrendingUp className="w-5 h-5 text-[var(--color-navy)]" />
+          <h2 className="font-semibold text-base">Minha Inadimplência — Últimos 6 Meses</h2>
         </div>
         {trendLoading ? (
           <div className="h-48 flex items-center justify-center text-muted-foreground">Carregando...</div>
@@ -148,14 +152,14 @@ export default function BenchmarkRegionalPage() {
       {/* Ranking de CEPs */}
       <Card className="p-0 overflow-hidden">
         <div className="p-4 border-b flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 text-orange-500" />
-          <h2 className="font-semibold text-sm">Ranking de CEPs por Risco</h2>
-          <span className="ml-auto text-xs text-muted-foreground">{ranking.length} CEPs</span>
+          <AlertTriangle className="w-5 h-5 text-[var(--color-gold)]" />
+          <h2 className="font-semibold text-base">Ranking de CEPs — Meus Inadimplentes</h2>
+          <span className="ml-auto text-sm text-muted-foreground">{ranking.length} CEPs</span>
         </div>
         {rankingLoading ? (
           <div className="p-8 text-center text-muted-foreground">Carregando...</div>
         ) : ranking.length === 0 ? (
-          <div className="p-8 text-center text-muted-foreground">Nenhum dado disponivel. Os dados serao carregados apos a sincronizacao com os ERPs.</div>
+          <div className="p-8 text-center text-muted-foreground">Nenhum inadimplente cadastrado ainda. Sincronize com seu ERP ou importe via CSV para começar.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -172,11 +176,11 @@ export default function BenchmarkRegionalPage() {
               <tbody className="divide-y">
                 {ranking.slice(0, 30).map((row) => (
                   <tr key={row.cep5} className="hover:bg-muted/30">
-                    <td className="px-4 py-3 font-mono">{row.cep5}-***</td>
-                    <td className="px-4 py-3">{row.city || "—"}</td>
-                    <td className="px-4 py-3 font-semibold">{row.count}</td>
-                    <td className="px-4 py-3">R$ {fmt(row.totalOverdue)}</td>
-                    <td className="px-4 py-3">{row.avgDaysOverdue}d</td>
+                    <td className="px-4 py-3 font-mono text-sm">{row.cep5}-000</td>
+                    <td className="px-4 py-3 text-sm">{row.city || "—"}</td>
+                    <td className="px-4 py-3 font-bold text-base">{row.count}</td>
+                    <td className="px-4 py-3 font-semibold text-sm">R$ {fmt(row.totalOverdue)}</td>
+                    <td className="px-4 py-3 text-sm">{row.avgDaysOverdue}d</td>
                     <td className="px-4 py-3">
                       <Badge className={`text-xs ${riskColor[row.riskLevel] || ""}`}>
                         {row.riskLevel}
@@ -191,10 +195,10 @@ export default function BenchmarkRegionalPage() {
       </Card>
 
       {/* Mapa de risco */}
-      <Card className="p-4">
+      <Card className="p-5">
         <div className="flex items-center gap-2 mb-4">
-          <MapPin className="w-4 h-4 text-muted-foreground" />
-          <h2 className="font-semibold text-sm">Mapa de Risco por Bairro</h2>
+          <MapPin className="w-5 h-5 text-[var(--color-navy)]" />
+          <h2 className="font-semibold text-base">Distribuição Geográfica dos Meus Inadimplentes</h2>
         </div>
         <BenchmarkMap points={mapPoints} />
         <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
@@ -287,7 +291,7 @@ function BenchmarkMap({ points }: { points: MapPoint[] }) {
         const p = e.features[0].properties!;
         new maplibregl.Popup()
           .setLngLat(e.lngLat)
-          .setHTML(`<strong>${p.cep5}-***</strong> ${p.city}<br/>${p.count} inadimplentes<br/>R$ ${Number(p.totalOverdue).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`)
+          .setHTML(`<strong>${p.cep5}-000</strong> ${p.city}<br/>${p.count} inadimplentes<br/>R$ ${Number(p.totalOverdue).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`)
           .addTo(map);
       });
 
