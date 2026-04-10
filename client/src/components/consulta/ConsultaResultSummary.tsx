@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import AddressMapMini from "@/components/consulta/AddressMapMini";
+import AddressRiskAlert from "./AddressRiskAlert";
 import ScoreGaugeSvg from "./ScoreGaugeSvg";
 import ScoreBreakdownPanel from "./ScoreBreakdownPanel";
 import type { ConsultaResult, ProviderDetail, AddressMatch } from "./types";
@@ -299,6 +300,11 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
               <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-muted)" }}>Externos</p>
             </div>
           </div>
+
+          {/* ── ADDRESS RISK ALERT ── */}
+          {result.addressRiskAlerts && (
+            <AddressRiskAlert data={result.addressRiskAlerts} />
+          )}
 
           {/* ── PROVIDER RESULTS (inline, not separate section) ── */}
           {result.searchType !== "cep" && result.providerDetails.length > 0 && !isNotFoundWithAddressDebt && (
