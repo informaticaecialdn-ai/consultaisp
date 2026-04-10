@@ -111,7 +111,7 @@ export default function AntiFraudePage() {
   // KPIs
   const totalPrejuizo = activeAlerts.reduce((s, a) => s + parseFloat(a.overdueAmount || "0") + parseFloat(a.equipmentValue || "0"), 0);
   const clientesEmFuga = activeAlerts.filter(a => a.type === "defaulter_consulted").length;
-  const equipRisco = activeAlerts.reduce((s, a) => s + (a.equipmentNotReturned || 0), 0);
+  const equipRisco = activeAlerts.length; // 1 equipamento por cliente inadimplente (estimativa)
 
   // Top devedores — ordenar por valor + dias
   const topDevedores = [...customerRisks]
@@ -167,6 +167,7 @@ export default function AntiFraudePage() {
           icon={Package}
           label="Equipamentos em Risco"
           value={equipRisco}
+          sub={`${fmt(equipRisco * 290)} (valor estimado)`}
           color="text-amber-600"
           bg="bg-amber-50 dark:bg-amber-950/20"
         />

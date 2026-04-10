@@ -102,6 +102,8 @@ export const customers = pgTable("customers", {
   totalOverdueAmount: decimal("total_overdue_amount", { precision: 10, scale: 2 }).default("0"),
   maxDaysOverdue: integer("max_days_overdue").default(0),
   overdueInvoicesCount: integer("overdue_invoices_count").default(0),
+  equipmentCount: integer("equipment_count").default(1),
+  equipmentEstimatedValue: decimal("equipment_estimated_value", { precision: 10, scale: 2 }).default("290"),
   ispScore: integer("isp_score").default(100),
   riskTier: text("risk_tier").default("low"),
   erpSource: text("erp_source").default("manual"),
