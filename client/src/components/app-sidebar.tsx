@@ -82,7 +82,6 @@ const mainMenu = [
   { title: "Benchmark Regional", url: "/benchmark-regional", icon: TrendingUp },
 ];
 
-const defaulterMenu: typeof consultaMenu = [];
 
 const financeMenu = [
   { title: "Comprar Creditos", url: "/creditos", icon: CreditCard },
@@ -332,25 +331,6 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)]">
-            Inadimplente
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {defaulterMenu.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild data-active={location === item.url}>
-                    <Link href={item.url}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
 
         <SidebarGroup>
           <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)]">
