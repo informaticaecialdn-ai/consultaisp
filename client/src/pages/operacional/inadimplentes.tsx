@@ -302,33 +302,33 @@ export default function InadimplentesPage() {
             testId: "stat-equip-value",
           },
         ].map(card => (
-          <Card key={card.testId} className="relative overflow-hidden p-4" data-testid={card.testId}>
-            <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${card.accent}`} />
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-medium text-muted-foreground">{card.label}</p>
-              <div className={`w-7 h-7 rounded-lg ${card.iconBg} flex items-center justify-center flex-shrink-0`}>
-                <card.icon className={`${card.iconColor}`} style={{ width: 14, height: 14 }} />
+          <Card key={card.testId} className="relative overflow-hidden p-5" data-testid={card.testId}>
+            <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${card.accent}`} />
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-medium text-muted-foreground">{card.label}</p>
+              <div className={`w-8 h-8 rounded-lg ${card.iconBg} flex items-center justify-center flex-shrink-0`}>
+                <card.icon className={`${card.iconColor}`} style={{ width: 16, height: 16 }} />
               </div>
             </div>
             {card.value === null ? (
-              <Skeleton className="h-6 w-20" />
+              <Skeleton className="h-7 w-24" />
             ) : (
-              <p className="text-lg font-bold tracking-tight" data-testid={`value-${card.testId}`}>{card.value}</p>
+              <p className="text-xl font-bold tracking-tight" data-testid={`value-${card.testId}`}>{card.value}</p>
             )}
-            <p className="text-xs text-muted-foreground mt-0.5">{card.sub}</p>
+            <p className="text-sm text-muted-foreground mt-1">{card.sub}</p>
           </Card>
         ))}
       </div>
 
       {/* Filters */}
-      <Card className="p-3">
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="relative flex-1 min-w-[180px]">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+      <Card className="p-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               data-testid="input-search"
               placeholder="Nome, CPF/CNPJ ou cidade..."
-              className="pl-8 h-8 text-sm"
+              className="pl-9 h-10 text-sm"
               value={search}
               onChange={e => setSearch(e.target.value)}
             />

@@ -509,12 +509,12 @@ export default function PainelProvedorPage() {
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-2xl font-bold" data-testid="text-painel-title">{provider?.name}</h1>
-              <Badge className={`text-xs gap-1 ${planInfo.color}`}>
-                <PlanIcon className="w-3 h-3" />
+              <Badge className={`text-xs gap-1.5 ${planInfo.color}`}>
+                <PlanIcon className="w-4 h-4" />
                 {planInfo.label}
               </Badge>
-              <Badge className={`text-xs gap-1 border ${kycConfig.color}`}>
-                <KycIcon className="w-3 h-3" />
+              <Badge className={`text-xs gap-1.5 border ${kycConfig.color}`}>
+                <KycIcon className="w-4 h-4" />
                 {kycConfig.label}
               </Badge>
             </div>
@@ -565,21 +565,21 @@ export default function PainelProvedorPage() {
 
         {/* ======================== VISAO GERAL ======================== */}
         <TabsContent value="visao-geral" className="space-y-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
             {[
               { label: "Clientes", value: dashStats?.totalCustomers ?? "-", icon: Users, color: "bg-blue-500" },
               { label: "Inadimplentes", value: dashStats?.defaulters ?? "-", icon: AlertTriangle, color: "bg-red-500" },
               { label: "Consultas ISP", value: ispConsultations.length, icon: Search, color: "bg-indigo-500" },
               { label: "Consultas SPC", value: spcConsultations.length, icon: BarChart3, color: "bg-purple-500" },
             ].map((s) => (
-              <Card key={s.label} className="p-4">
+              <Card key={s.label} className="p-5">
                 <div className="flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${s.color}`}>
-                    <s.icon className="w-4 h-4 text-white" />
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${s.color}`}>
+                    <s.icon className="w-5 h-5 text-white" />
                   </div>
                   <div>
-                    <p className="text-lg font-bold" data-testid={`stat-${s.label.toLowerCase().replace(/\s/g, "-")}`}>{s.value}</p>
-                    <p className="text-xs text-muted-foreground">{s.label}</p>
+                    <p className="text-xl font-bold" data-testid={`stat-${s.label.toLowerCase().replace(/\s/g, "-")}`}>{s.value}</p>
+                    <p className="text-sm text-muted-foreground">{s.label}</p>
                   </div>
                 </div>
               </Card>
@@ -589,7 +589,7 @@ export default function PainelProvedorPage() {
           <div className="grid md:grid-cols-2 gap-4">
             <Card className="p-5">
               <h3 className="font-semibold mb-3 flex items-center gap-2">
-                <Shield className="w-4 h-4" />Informacoes do Plano
+                <Shield className="w-5 h-5" />Informações do Plano
               </h3>
               <div className="space-y-3">
                 <div className="flex justify-between items-center py-2 border-b">

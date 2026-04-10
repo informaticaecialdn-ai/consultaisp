@@ -73,38 +73,38 @@ export default function CreditosPage() {
   const renderPackageCard = (pkg: any, type: "isp") => {
     return (
       <Card key={pkg.id}
-        className={`p-4 relative overflow-hidden cursor-pointer transition-all hover:shadow-md ${pkg.popular ? "ring-2 ring-[var(--color-navy)]" : "hover:ring-1 hover:ring-[var(--color-border)]"}`}
+        className={`p-5 relative overflow-hidden cursor-pointer transition-all hover:shadow-md ${pkg.popular ? "ring-2 ring-[var(--color-navy)]" : "hover:ring-1 hover:ring-[var(--color-border)]"}`}
         onClick={() => setSelectedPkg({ pkg, type })}
         data-testid={`package-${pkg.id}`}>
         {pkg.popular && (
-          <Badge className="absolute top-2.5 right-2.5 bg-[var(--color-navy)] border-0 text-white text-xs">Mais Popular</Badge>
+          <Badge className="absolute top-3 right-3 bg-[var(--color-navy)] border-0 text-white text-xs">Mais Popular</Badge>
         )}
-        <div className="mb-3">
-          <div className="w-9 h-9 rounded-lg mb-2 flex items-center justify-center bg-[var(--color-navy-bg)]">
-            <CreditCard className="w-4 h-4 text-[var(--color-navy)]" />
+        <div className="mb-4">
+          <div className="w-10 h-10 rounded-lg mb-3 flex items-center justify-center bg-[var(--color-navy-bg)]">
+            <CreditCard className="w-5 h-5 text-[var(--color-navy)]" />
           </div>
-          <h3 className="font-bold text-sm text-[var(--color-ink)]">{pkg.credits} creditos</h3>
-          <p className="text-lg font-bold mt-0.5 text-[var(--color-ink)]">{pkg.priceLabel}</p>
-          <p className="text-xs text-[var(--color-muted)]">{pkg.perUnit}</p>
+          <h3 className="font-bold text-base text-[var(--color-ink)]">{pkg.credits} créditos</h3>
+          <p className="text-xl font-bold mt-1 text-[var(--color-ink)]">{pkg.priceLabel}</p>
+          <p className="text-sm text-[var(--color-muted)]">{pkg.perUnit}</p>
         </div>
-        <div className="space-y-1 mb-3">
-          <div className="flex items-center gap-1.5 text-xs">
-            <CheckCircle className="w-3 h-3 text-[var(--color-success)] flex-shrink-0" />
-            <span>Ate <strong>{pkg.credits}</strong> consultas ISP</span>
+        <div className="space-y-2 mb-4">
+          <div className="flex items-center gap-2 text-sm">
+            <CheckCircle className="w-4 h-4 text-[var(--color-success)] flex-shrink-0" />
+            <span>Até <strong>{pkg.credits}</strong> consultas ISP</span>
           </div>
-          <div className="flex items-center gap-1.5 text-xs">
-            <CheckCircle className="w-3 h-3 text-[var(--color-success)] flex-shrink-0" />
-            <span>Ate <strong>{Math.floor(pkg.credits / 4)}</strong> consultas SPC</span>
+          <div className="flex items-center gap-2 text-sm">
+            <CheckCircle className="w-4 h-4 text-[var(--color-success)] flex-shrink-0" />
+            <span>Até <strong>{Math.floor(pkg.credits / 4)}</strong> consultas SPC</span>
           </div>
-          <div className="flex items-center gap-1.5 text-xs">
-            <CheckCircle className="w-3 h-3 text-[var(--color-success)] flex-shrink-0" />
-            <span>Creditos nao expiram</span>
+          <div className="flex items-center gap-2 text-sm">
+            <CheckCircle className="w-4 h-4 text-[var(--color-success)] flex-shrink-0" />
+            <span>Créditos não expiram</span>
           </div>
         </div>
-        <Button className="w-full gap-1.5 text-xs h-8" variant={pkg.popular ? "default" : "secondary"}
+        <Button className="w-full gap-2 text-sm h-10" variant={pkg.popular ? "default" : "secondary"}
           data-testid={`button-buy-${pkg.id}`}>
-          <ShoppingCart className="w-3.5 h-3.5" />Comprar
-          <ArrowRight className="w-3 h-3 ml-auto" />
+          <ShoppingCart className="w-4 h-4" />Comprar
+          <ArrowRight className="w-4 h-4 ml-auto" />
         </Button>
       </Card>
     );

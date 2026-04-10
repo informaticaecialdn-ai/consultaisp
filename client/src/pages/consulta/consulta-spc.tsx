@@ -185,24 +185,24 @@ export default function ConsultaSPCPage() {
         </Badge>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="p-4 bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20 border-purple-200/50 dark:border-purple-800/30">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <span className="text-sm text-muted-foreground">Consultas Hoje</span>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="p-5 bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20 border-purple-200/50 dark:border-purple-800/30">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <span className="text-sm font-medium text-muted-foreground">Consultas Hoje</span>
             <TrendingUp className="w-5 h-5 text-purple-500" />
           </div>
           <div className="text-2xl font-bold" data-testid="text-spc-today">{isLoading ? <Skeleton className="h-7 w-8" /> : data?.todayCount}</div>
         </Card>
-        <Card className="p-4 bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-950/30 dark:to-orange-900/20 border-orange-200/50 dark:border-orange-800/30">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <span className="text-sm text-muted-foreground">Consultas Mes</span>
+        <Card className="p-5 bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-950/30 dark:to-orange-900/20 border-orange-200/50 dark:border-orange-800/30">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <span className="text-sm font-medium text-muted-foreground">Consultas Mês</span>
             <CalendarDays className="w-5 h-5 text-orange-500" />
           </div>
           <div className="text-2xl font-bold" data-testid="text-spc-month">{isLoading ? <Skeleton className="h-7 w-8" /> : data?.monthCount}</div>
         </Card>
-        <Card className="p-4 bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/30 dark:to-emerald-900/20 border-emerald-200/50 dark:border-emerald-800/30">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <span className="text-sm text-muted-foreground">Taxa Limpo</span>
+        <Card className="p-5 bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/30 dark:to-emerald-900/20 border-emerald-200/50 dark:border-emerald-800/30">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <span className="text-sm font-medium text-muted-foreground">Taxa Limpo</span>
             <CheckCircle className="w-5 h-5 text-emerald-500" />
           </div>
           <div className="text-2xl font-bold">
@@ -213,9 +213,9 @@ export default function ConsultaSPCPage() {
             )}
           </div>
         </Card>
-        <Card className="p-4 bg-gradient-to-br from-pink-50 to-pink-100/50 dark:from-pink-950/30 dark:to-pink-900/20 border-pink-200/50 dark:border-pink-800/30">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <span className="text-sm text-muted-foreground">Score Medio</span>
+        <Card className="p-5 bg-gradient-to-br from-pink-50 to-pink-100/50 dark:from-pink-950/30 dark:to-pink-900/20 border-pink-200/50 dark:border-pink-800/30">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <span className="text-sm font-medium text-muted-foreground">Score Médio</span>
             <BarChart3 className="w-5 h-5 text-pink-500" />
           </div>
           <div className="text-2xl font-bold">
@@ -231,7 +231,7 @@ export default function ConsultaSPCPage() {
       <Tabs defaultValue="nova" className="space-y-4">
         <TabsList>
           <TabsTrigger value="nova" className="gap-1.5" data-testid="tab-spc-nova">
-            <Search className="w-3.5 h-3.5" />
+            <Search className="w-4 h-4" />
             Nova Consulta
           </TabsTrigger>
           <TabsTrigger value="historico" className="gap-1.5" data-testid="tab-spc-historico">

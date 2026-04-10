@@ -148,31 +148,31 @@ export default function AntiFraudePage() {
 
       {/* KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="p-4 bg-[var(--color-danger-bg)]">
-          <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle className="w-4 h-4 text-[var(--color-danger)]" />
+        <Card className="p-5 bg-[var(--color-danger-bg)]">
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle className="w-5 h-5 text-[var(--color-danger)]" />
             <span className="text-sm font-medium text-[var(--color-muted)] uppercase">Alertas Ativos</span>
           </div>
           <p className="text-2xl font-bold text-[var(--color-danger)]">{activeAlerts.length}</p>
         </Card>
-        <Card className="p-4 bg-[var(--color-gold-bg)]">
-          <div className="flex items-center gap-2 mb-2">
-            <DollarSign className="w-4 h-4 text-[var(--color-gold)]" />
+        <Card className="p-5 bg-[var(--color-gold-bg)]">
+          <div className="flex items-center gap-2 mb-3">
+            <DollarSign className="w-5 h-5 text-[var(--color-gold)]" />
             <span className="text-sm font-medium text-[var(--color-muted)] uppercase">Dívidas em Risco</span>
           </div>
           <p className="text-2xl font-bold text-[var(--color-gold)]">{fmt(totalDivida)}</p>
         </Card>
-        <Card className="p-4 bg-[var(--color-gold-bg)]">
-          <div className="flex items-center gap-2 mb-2">
-            <Package className="w-4 h-4 text-[var(--color-gold)]" />
+        <Card className="p-5 bg-[var(--color-gold-bg)]">
+          <div className="flex items-center gap-2 mb-3">
+            <Package className="w-5 h-5 text-[var(--color-gold)]" />
             <span className="text-sm font-medium text-[var(--color-muted)] uppercase">Equipamentos</span>
           </div>
           <p className="text-2xl font-bold text-[var(--color-gold)]">{activeAlerts.length}</p>
           <p className="text-sm text-[var(--color-muted)]">{fmt(totalEquip)} (valor estimado)</p>
         </Card>
-        <Card className="p-4 bg-[var(--color-danger-bg)] border-[var(--color-danger)]/20">
-          <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle className="w-4 h-4 text-[var(--color-danger)]" />
+        <Card className="p-5 bg-[var(--color-danger-bg)] border-[var(--color-danger)]/20">
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle className="w-5 h-5 text-[var(--color-danger)]" />
             <span className="text-sm font-medium text-[var(--color-muted)] uppercase">Prejuízo Total Estimado</span>
           </div>
           <p className="text-2xl font-bold text-[var(--color-danger)]">{fmt(totalPrejuizo)}</p>

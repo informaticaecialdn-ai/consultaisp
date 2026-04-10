@@ -55,7 +55,7 @@ export default function DashboardPage() {
         <div className="flex items-center gap-3 flex-wrap">
           {partnerCode && (
             <div className="flex items-center gap-2 border border-[var(--color-danger)] rounded-lg px-3 py-2 bg-[var(--color-danger-bg)]">
-              <Shield className="w-4 h-4 text-[var(--color-danger)]" />
+              <Shield className="w-5 h-5 text-[var(--color-danger)]" />
               <div>
                 <p className="font-mono text-sm font-bold text-[var(--color-danger)] leading-none" data-testid="text-partner-code">
                   {partnerCode}
@@ -66,7 +66,7 @@ export default function DashboardPage() {
           )}
           <Link href="/creditos">
             <div className="flex items-center gap-2 border border-[var(--color-navy)] rounded-lg px-3 py-2 bg-[var(--color-navy-bg)] cursor-pointer hover:opacity-90 transition-opacity">
-              <CreditCard className="w-4 h-4 text-[var(--color-navy)]" />
+              <CreditCard className="w-5 h-5 text-[var(--color-navy)]" />
               <div className="text-right">
                 <p className="font-mono text-lg font-bold text-[var(--color-navy)] leading-none" data-testid="text-credits">
                   {isLoading ? "..." : creditos}
@@ -80,9 +80,9 @@ export default function DashboardPage() {
 
       {/* Identidade na Rede */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card className="p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Wifi className="w-4 h-4" style={{ color: "var(--color-navy)" }} />
+        <Card className="p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Wifi className="w-5 h-5" style={{ color: "var(--color-navy)" }} />
             <span className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wide">Seu Provedor na Rede</span>
           </div>
           <p className="text-lg font-bold text-[var(--color-ink)]">{provider?.name}</p>
@@ -90,9 +90,9 @@ export default function DashboardPage() {
             <p className="text-sm text-[var(--color-muted)] mt-1">Código: <span className="font-mono font-bold" style={{ color: "var(--color-navy)" }}>{partnerCode}</span></p>
           )}
         </Card>
-        <Card className="p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Building2 className="w-4 h-4" style={{ color: "var(--color-navy)" }} />
+        <Card className="p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Building2 className="w-5 h-5" style={{ color: "var(--color-navy)" }} />
             <span className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wide">Provedores Parceiros</span>
           </div>
           <p className="text-2xl font-bold" style={{ color: "var(--color-navy)" }}>{provedoresParceiros}</p>
@@ -127,12 +127,12 @@ export default function DashboardPage() {
 
       {/* Acoes rapidas */}
       <div>
-        <Card className="p-5 space-y-3">
+        <Card className="p-6 space-y-4">
           <div className="flex items-center gap-2">
-            <Search className="w-4 h-4 text-[var(--color-navy)]" />
+            <Search className="w-5 h-5 text-[var(--color-navy)]" />
             <h2 className="font-semibold text-base text-[var(--color-ink)]">Ações rápidas</h2>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Link href="/consulta-isp">
               <ActionCard
                 icon={Search}
@@ -176,8 +176,8 @@ function KpiCard({ icon: Icon, label, value, sub, color, testId }: {
   icon: any; label: string; value: any; sub?: string; color: string; testId: string;
 }) {
   return (
-    <Card className="p-4" data-testid={testId}>
-      <div className="flex items-center gap-2 mb-2">
+    <Card className="p-5" data-testid={testId}>
+      <div className="flex items-center gap-2 mb-3">
         <Icon className="w-5 h-5" style={{ color }} />
         <span className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wide">{label}</span>
       </div>

@@ -144,11 +144,11 @@ export default function ConsultaISPPage() {
         {/* HEADER — compact */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded bg-[var(--color-navy)] flex items-center justify-center flex-shrink-0">
-              <Search className="w-4 h-4 text-white" />
+            <div className="w-10 h-10 rounded bg-[var(--color-navy)] flex items-center justify-center flex-shrink-0">
+              <Search className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-xl font-display font-semibold text-[var(--color-ink)] leading-tight" data-testid="text-consulta-isp-title">
+              <h1 className="text-2xl font-display font-semibold text-[var(--color-ink)] leading-tight" data-testid="text-consulta-isp-title">
                 Consulta ISP
               </h1>
               <p className="text-sm text-[var(--color-muted)]">análise de crédito para provedores</p>
