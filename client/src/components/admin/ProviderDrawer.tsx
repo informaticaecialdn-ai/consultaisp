@@ -146,6 +146,23 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
     },
   });
 
+  const syncErpMutation = useMutation({
+    mutationFn: async () => {
+      const source = erpForm.erpSource || "ixc";
+      const res = await apiRequest("POST", `/api/admin/providers/${providerId}/sync/${source}`, {});
+      if (!res.ok) throw new Error((await res.json()).message || "Erro ao sincronizar");
+      return res.json();
+    },
+    onSuccess: (d: any) => {
+      toast({
+        title: "Sincronizacao concluida",
+        description: `${d.upserted} clientes sincronizados, ${d.errors} erros.`,
+      });
+      qc.invalidateQueries({ queryKey: ["/api/admin/providers"] });
+    },
+    onError: (e: any) => toast({ title: "Erro ao sincronizar", description: e.message, variant: "destructive" }),
+  });
+
   const deleteUserMutation = useMutation({
     mutationFn: async (id: number) => {
       const res = await apiRequest("DELETE", `/api/admin/users/${id}`, undefined);
@@ -424,7 +441,18 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
                     data-testid="button-drawer-erp-test"
                   >
                     <Terminal className="w-3.5 h-3.5" />
-                    {testErpMutation.isPending ? "Testando..." : "Testar Conexao"}
+                    {testErpMutation.isPending ? "Testando..." : "Testar Conexão"}
+                  </Button>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    className="h-8 text-xs gap-1.5"
+                    onClick={() => syncErpMutation.mutate()}
+                    disabled={syncErpMutation.isPending || !erpForm.url}
+                    data-testid="button-drawer-erp-sync"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${syncErpMutation.isPending ? "animate-spin" : ""}`} />
+                    {syncErpMutation.isPending ? "Sincronizando..." : "Sincronizar Agora"}
                   </Button>
                 </div>
                 {erpTestResult && (

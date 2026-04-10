@@ -1,8 +1,9 @@
 import { Router } from "express";
-import { requireAuth } from "../auth";
+import { requireAuth, requireSuperAdmin } from "../auth";
 import { storage } from "../storage";
 import { getConnector, getAllConnectors, getSupportedSources, buildConnectorConfig, ERP_CONFIG_FIELDS } from "../erp";
 import { getSafeErrorMessage } from "../utils/safe-error";
+import { syncProviderToDb } from "../services/erp-sync.service";
 import { z } from "zod";
 
 const erpIntegrationUpdateSchema = z.object({
@@ -85,6 +86,54 @@ export function registerErpRoutes(): Router {
       const config = buildConnectorConfig(intg);
       const result = await connector.testConnection(config);
       return res.json(result);
+    } catch (error: any) {
+      return res.status(500).json({ ok: false, message: getSafeErrorMessage(error) });
+    }
+  });
+
+  router.post("/api/provider/erp-integrations/:source/sync", requireAuth, async (req, res) => {
+    try {
+      const source = String(req.params.source);
+      const providerId = req.session.providerId!;
+      const integrations = await storage.getErpIntegrations(providerId);
+      const intg = integrations.find(i => i.erpSource === source);
+      if (!intg?.apiUrl || !intg?.apiToken) {
+        return res.status(400).json({ ok: false, message: "Configure a URL e o token antes de sincronizar" });
+      }
+      const provider = await storage.getProvider(providerId);
+      const result = await syncProviderToDb(providerId, provider?.name || "Provedor", source, {
+        apiUrl: intg.apiUrl,
+        apiToken: intg.apiToken,
+        apiUser: intg.apiUser,
+        clientId: (intg as any).clientId ?? null,
+        clientSecret: (intg as any).clientSecret ?? null,
+        extraConfig: (intg as any).extraConfig ?? null,
+      });
+      return res.json({ ok: true, ...result });
+    } catch (error: any) {
+      return res.status(500).json({ ok: false, message: getSafeErrorMessage(error) });
+    }
+  });
+
+  router.post("/api/admin/providers/:id/sync/:source", requireSuperAdmin, async (req, res) => {
+    try {
+      const providerId = parseInt(req.params.id);
+      const source = String(req.params.source);
+      const integrations = await storage.getErpIntegrations(providerId);
+      const intg = integrations.find(i => i.erpSource === source);
+      if (!intg?.apiUrl || !intg?.apiToken) {
+        return res.status(400).json({ ok: false, message: "Provedor nao tem URL/token configurados" });
+      }
+      const provider = await storage.getProvider(providerId);
+      const result = await syncProviderToDb(providerId, provider?.name || "Provedor", source, {
+        apiUrl: intg.apiUrl,
+        apiToken: intg.apiToken,
+        apiUser: intg.apiUser,
+        clientId: (intg as any).clientId ?? null,
+        clientSecret: (intg as any).clientSecret ?? null,
+        extraConfig: (intg as any).extraConfig ?? null,
+      });
+      return res.json({ ok: true, ...result });
     } catch (error: any) {
       return res.status(500).json({ ok: false, message: getSafeErrorMessage(error) });
     }
