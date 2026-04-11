@@ -487,6 +487,7 @@ export class IxcConnector implements ErpConnector {
             phone: c?.fone || c?.celular ? cleanPhone(c.fone || c.celular) : undefined,
             address: c?.endereco || c?.logradouro || undefined,
             addressNumber: extractNumberFromAddress(c?.endereco, c?.numero),
+            neighborhood: c?.bairro || undefined,
             city: loc.city,
             state: loc.state,
             cep: c?.cep ? cleanCep(c.cep) : undefined,
