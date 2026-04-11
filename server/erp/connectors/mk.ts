@@ -166,12 +166,29 @@ export class MkConnector implements ErpConnector {
       }
 
       const consultaJson: any = await consultaResponse.json();
-      console.log(`[MK] Resposta WSMKConsultaDoc:`, JSON.stringify(consultaJson).substring(0, 300));
+      // DEBUG completo — log resposta inteira para diagnosticar problemas de endereço
+      const fullResp = JSON.stringify(consultaJson);
+      console.log(`[MK] Resposta WSMKConsultaDoc (${fullResp.length} chars):`, fullResp.substring(0, 1500));
 
       // Extract customer data — response could be object or array
-      const customerData = Array.isArray(consultaJson)
+      let customerData = Array.isArray(consultaJson)
         ? consultaJson[0]
         : consultaJson?.registros?.[0] || consultaJson?.data?.[0] || consultaJson;
+
+      // MK retorna dados principais no root e cadastros adicionais em "Outros"[]
+      // Se o root nao tem endereco mas Outros[0] tem, usar Outros[0] que geralmente
+      // é o cadastro ativo mais recente
+      if (customerData && Array.isArray(customerData.Outros) && customerData.Outros.length > 0) {
+        const rootHasAddress = customerData.Endereco || customerData.endereco || customerData.CEP || customerData.cep;
+        if (!rootHasAddress) {
+          // Preferir o primeiro "Ativo" dos Outros
+          const ativo = customerData.Outros.find((o: any) =>
+            String(o.Situacao || o.situacao || "").toLowerCase() === "ativo"
+          ) || customerData.Outros[0];
+          console.log(`[MK] Root sem endereco, usando Outros[${ativo === customerData.Outros[0] ? 0 : "ativo"}]`);
+          customerData = { ...customerData, ...ativo };
+        }
+      }
 
       // Check if customer was found
       const cdCliente = customerData?.CodigoPessoa || customerData?.cd_cliente || customerData?.codigo || customerData?.id;
