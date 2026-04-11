@@ -417,100 +417,94 @@ export class MkConnector implements ErpConnector {
       const tokenAuth = await this.authenticate(config);
       const base = this.baseUrl(config);
 
-      // Try the old endpoint first — some MK30 versions may support it
-      let rows: any[] | null = null;
+      // Strategy: WSMKFaturasAbertas.rule (release 72+) — single call returns all
+      // overdue invoices in a date range. Much faster than iterating customers.
+      // Date format: DD/MM/AAAA. Range: 2 years back to yesterday.
+      const now = new Date();
+      const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const twoYearsAgo = new Date(now.getFullYear() - 2, now.getMonth(), now.getDate());
+      const formatBR = (d: Date) =>
+        `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+      const dtInicio = formatBR(twoYearsAgo);
+      const dtFim = formatBR(yesterday);
 
-      try {
-        const oldUrl = `${base}/mk/WSFinanceiroInadimplente.rule?sys=MK0&token_acesso=${encodeURIComponent(tokenAuth)}`;
-        console.log(`[MK] Tentando WSFinanceiroInadimplente.rule (endpoint legado)`);
+      const faturasAbertasUrl = `${base}/mk/WSMKFaturasAbertas.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&dt_venc_inicio=${dtInicio}&dt_venc_fim=${dtFim}`;
+      console.log(`[MK] Buscando faturas abertas de ${dtInicio} a ${dtFim} via WSMKFaturasAbertas`);
 
-        const oldResponse = await withResilience(
-          () => fetch(oldUrl, { method: "GET", signal: AbortSignal.timeout(30000) }),
-          { retries: 1, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
-        );
-
-        if (oldResponse.ok) {
-          const oldJson: any = await oldResponse.json();
-          const parsed: any[] = Array.isArray(oldJson) ? oldJson : oldJson?.registros || oldJson?.data || [];
-
-          // Check if it's a valid response with actual data
-          if (parsed.length > 0) {
-            console.log(`[MK] WSFinanceiroInadimplente.rule retornou ${parsed.length} registro(s)`);
-            rows = parsed;
-          }
-        } else {
-          console.log(`[MK] WSFinanceiroInadimplente.rule retornou status ${oldResponse.status}, usando fallback`);
-        }
-      } catch (oldErr) {
-        console.log(`[MK] WSFinanceiroInadimplente.rule falhou: ${oldErr instanceof Error ? oldErr.message : oldErr}, usando fallback`);
-      }
-
-      // If old endpoint worked, use aggregation directly
-      if (rows !== null && rows.length > 0) {
-        const invoices = rows
-          .map((r: any) => {
-            const cpfCnpj = cleanCpfCnpj(r.cpf || r.cnpj || r.cpf_cnpj || r.doc || r.Doc || r.CPF || r.CNPJ || "");
-            if (!cpfCnpj) return null;
-            const dueDate = r.DataVencimento || r.data_vencimento || r.DtVencimento || r.dt_vencimento
-              || r.Vencimento || r.vencimento || r.dt_vencto || r.DtVencto || r.vencto || r.Vencto
-              || r.data_vencto || r.DataVencto || r.dtVencimento || r.dtVencto || null;
-            const days = calculateDaysOverdue(dueDate);
-            return {
-              cpfCnpj,
-              name: r.Nome || r.nome || r.razao_social || "",
-              email: r.Email || r.email || undefined,
-              phone: r.Fone || r.fone || r.celular || r.telefone ? cleanPhone(r.Fone || r.fone || r.celular || r.telefone) : undefined,
-              address: r.Endereco || r.endereco || undefined,
-              city: r.Cidade || r.cidade || undefined,
-              state: r.UF || r.uf || r.estado || undefined,
-              cep: r.CEP || r.cep || undefined,
-              amount: pickAmount(r),
-              daysOverdue: days > 0 ? days : (dueDate ? 0 : 1), // no date = assume 1 day overdue
-              erpSource: "mk" as const,
-            };
-          })
-          .filter((c): c is NonNullable<typeof c> => c !== null && c.daysOverdue > 0);
-
-        const customers = aggregateByCustomer(invoices);
-
-        return {
-          ok: true,
-          message: `${customers.length} inadimplentes encontrados (via WSFinanceiroInadimplente)`,
-          customers,
-          totalRecords: customers.length,
-        };
-      }
-
-      // Fallback: Use WSMKConsultaClientes + WSMKFaturasPendentes per customer
-      console.log(`[MK] Fallback: buscando clientes via WSMKConsultaClientes + faturas pendentes`);
-
-      const clientesUrl = `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}`;
-      const clientesResponse = await withResilience(
-        () => fetch(clientesUrl, { method: "GET", signal: AbortSignal.timeout(30000) }),
-        { retries: 3, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
+      const faturasResponse = await withResilience(
+        () => fetch(faturasAbertasUrl, { method: "GET", signal: AbortSignal.timeout(60000) }),
+        { retries: 2, minTimeout: 2000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
       );
 
-      if (!clientesResponse.ok) {
-        return { ok: false, message: `MK WSMKConsultaClientes respondeu com status ${clientesResponse.status}`, customers: [], totalRecords: 0 };
+      if (!faturasResponse.ok) {
+        console.log(`[MK] WSMKFaturasAbertas retornou status ${faturasResponse.status}, tentando fallback`);
+        return await this.fetchDelinquentsFallback(config, tokenAuth, base);
       }
 
-      const clientesJson: any = await clientesResponse.json();
-      const allClientes: any[] = Array.isArray(clientesJson)
-        ? clientesJson
-        : clientesJson?.registros || clientesJson?.data || [];
+      const faturasJson: any = await faturasResponse.json();
+      const rawPreview = JSON.stringify(faturasJson).substring(0, 600);
+      console.log(`[MK] WSMKFaturasAbertas resposta (preview): ${rawPreview}`);
 
-      // Limit to 200 customers to avoid overwhelming the MK server
-      const clientesToProcess = allClientes.slice(0, 200);
-      console.log(`[MK] Processando ${clientesToProcess.length} de ${allClientes.length} clientes para verificar inadimplencia`);
+      // Extract invoice array — MK may wrap in various keys
+      let faturas: any[] = Array.isArray(faturasJson)
+        ? faturasJson
+        : faturasJson?.ListaFaturasAbertas || faturasJson?.FaturasAbertas || faturasJson?.Faturas
+        || faturasJson?.faturas || faturasJson?.registros || faturasJson?.data
+        || faturasJson?.Itens || faturasJson?.itens || faturasJson?.resultado || faturasJson?.Resultado || [];
 
-      // Process in batches of 5 concurrent requests
-      const CONCURRENCY = 5;
+      // Fallback: scan any nested array in the response
+      if ((!faturas || faturas.length === 0) && typeof faturasJson === "object" && faturasJson !== null && !Array.isArray(faturasJson)) {
+        for (const val of Object.values(faturasJson)) {
+          if (Array.isArray(val) && val.length > 0) {
+            console.log(`[MK] Encontrou ${val.length} items em chave nao mapeada`);
+            faturas = val;
+            break;
+          }
+        }
+      }
+
+      if (faturas.length === 0) {
+        console.log(`[MK] WSMKFaturasAbertas nao retornou faturas, tentando fallback`);
+        return await this.fetchDelinquentsFallback(config, tokenAuth, base);
+      }
+
+      console.log(`[MK] WSMKFaturasAbertas retornou ${faturas.length} faturas. Campos da primeira: ${Object.keys(faturas[0]).join(", ")}`);
+
+      // Group invoices by cd_pessoa to minimize customer lookups
+      const invoicesByPerson = new Map<string, any[]>();
+      for (const f of faturas) {
+        const cdPessoa = String(f.cd_pessoa || f.CodigoPessoa || f.codpessoa || f.codigo_pessoa || f.cdPessoa || "");
+        if (!cdPessoa) continue;
+        const arr = invoicesByPerson.get(cdPessoa) || [];
+        arr.push(f);
+        invoicesByPerson.set(cdPessoa, arr);
+      }
+
+      console.log(`[MK] Faturas agrupadas em ${invoicesByPerson.size} clientes unicos`);
+
+      // Helper to extract customer data from an invoice row (MK often inlines customer fields)
+      const extractFromInvoice = (inv: any) => ({
+        cpfCnpj: cleanCpfCnpj(inv.documento || inv.Documento || inv.cpf || inv.cnpj || inv.cpf_cnpj || inv.doc || inv.Doc || inv.CPF || inv.CNPJ || ""),
+        name: inv.nome || inv.Nome || inv.nome_cliente || inv.razao_social || inv.cliente || inv.Cliente || "",
+        email: inv.email || inv.Email || undefined,
+        phone: inv.fone || inv.Fone || inv.celular || inv.telefone || inv.Telefone || undefined,
+        address: inv.endereco || inv.Endereco || inv.logradouro || inv.Logradouro || undefined,
+        addressNumber: inv.numero || inv.Numero || inv.numero_logradouro || undefined,
+        neighborhood: inv.bairro || inv.Bairro || undefined,
+        city: inv.cidade || inv.Cidade || inv.municipio || undefined,
+        state: inv.uf || inv.UF || inv.estado || inv.siglaestado || inv.sigla_estado || undefined,
+        cep: inv.cep || inv.CEP || undefined,
+      });
+
+      // Build invoice list for aggregation, enriching with customer lookup if needed
       const allInvoices: Array<{
         cpfCnpj: string;
         name: string;
         email?: string;
         phone?: string;
         address?: string;
+        addressNumber?: string;
+        neighborhood?: string;
         city?: string;
         state?: string;
         cep?: string;
@@ -519,82 +513,181 @@ export class MkConnector implements ErpConnector {
         erpSource: string;
       }> = [];
 
-      for (let i = 0; i < clientesToProcess.length; i += CONCURRENCY) {
-        const batch = clientesToProcess.slice(i, i + CONCURRENCY);
+      // Determine if invoices already include customer details
+      const sampleInvoice = faturas[0];
+      const hasInlineCustomerData = !!(sampleInvoice.nome || sampleInvoice.Nome || sampleInvoice.cliente || sampleInvoice.Cliente);
+      console.log(`[MK] Faturas contem dados inline do cliente: ${hasInlineCustomerData}`);
 
-        const batchResults = await Promise.all(
-          batch.map(async (cliente: any) => {
-            const cdCliente = cliente.CodigoPessoa || cliente.cd_cliente || cliente.codigo || cliente.id;
-            if (!cdCliente) return [];
+      // Customer detail cache (cd_pessoa -> details)
+      const customerCache = new Map<string, any>();
 
-            try {
-              const faturasUrl = `${base}/mk/WSMKFaturasPendentes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdCliente)}`;
-              const faturasResp = await fetch(faturasUrl, { method: "GET", signal: AbortSignal.timeout(10000) });
+      const CONCURRENCY = 8;
+      const personIds = Array.from(invoicesByPerson.keys());
 
-              if (!faturasResp.ok) return [];
+      for (let i = 0; i < personIds.length; i += CONCURRENCY) {
+        const batch = personIds.slice(i, i + CONCURRENCY);
 
-              const faturasJson: any = await faturasResp.json();
-              const faturas: any[] = Array.isArray(faturasJson)
-                ? faturasJson
-                : faturasJson?.FaturasPendentes || faturasJson?.Faturas || faturasJson?.faturas || faturasJson?.registros || faturasJson?.data || faturasJson?.Itens || faturasJson?.itens || faturasJson?.resultado || faturasJson?.Resultado || [];
+        await Promise.all(
+          batch.map(async (cdPessoa) => {
+            const personInvoices = invoicesByPerson.get(cdPessoa) || [];
+            if (personInvoices.length === 0) return;
 
-              if (faturas.length > 0) {
-                console.log(`[MK] Campos da fatura:`, Object.keys(faturas[0]).join(", "));
+            let customerData = extractFromInvoice(personInvoices[0]);
+
+            // If no CPF/name inline, enrich via customer lookup
+            if (!customerData.cpfCnpj || !customerData.name) {
+              try {
+                const clienteUrl = `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`;
+                const clienteResp = await fetch(clienteUrl, { method: "GET", signal: AbortSignal.timeout(15000) });
+                if (clienteResp.ok) {
+                  const cj: any = await clienteResp.json();
+                  const clienteRow = Array.isArray(cj) ? cj[0] : cj?.registros?.[0] || cj?.data?.[0] || cj;
+                  if (clienteRow) {
+                    customerCache.set(cdPessoa, clienteRow);
+                    const enriched = extractFromInvoice(clienteRow);
+                    customerData = {
+                      cpfCnpj: customerData.cpfCnpj || enriched.cpfCnpj,
+                      name: customerData.name || enriched.name,
+                      email: customerData.email || enriched.email,
+                      phone: customerData.phone || enriched.phone,
+                      address: customerData.address || enriched.address,
+                      addressNumber: customerData.addressNumber || enriched.addressNumber,
+                      neighborhood: customerData.neighborhood || enriched.neighborhood,
+                      city: customerData.city || enriched.city,
+                      state: customerData.state || enriched.state,
+                      cep: customerData.cep || enriched.cep,
+                    };
+                  }
+                }
+              } catch (e) {
+                console.log(`[MK] Erro ao enriquecer cliente ${cdPessoa}: ${e instanceof Error ? e.message : e}`);
               }
+            }
 
-              const cpfCnpj = cleanCpfCnpj(cliente.Doc || cliente.doc || cliente.cpf || cliente.cnpj || cliente.cpf_cnpj || "");
-              if (!cpfCnpj) return [];
+            // Skip if still no CPF (cannot identify customer)
+            if (!customerData.cpfCnpj) return;
 
-              return faturas
-                .map((f: any) => {
-                  const dueDate = f.DataVencimento || f.data_vencimento || f.DtVencimento || f.dt_vencimento
-                    || f.Vencimento || f.vencimento || f.dt_vencto || f.DtVencto || f.vencto || f.Vencto
-                    || f.data_vencto || f.DataVencto || f.dtVencimento || f.dtVencto || null;
-                  const days = calculateDaysOverdue(dueDate);
-                  // If WSMKFaturasPendentes returned it and date is unparseable, assume 1 day overdue
-                  if (days <= 0 && dueDate) return null;
+            for (const f of personInvoices) {
+              const dueDate = f.data_vencimento || f.DataVencimento || f.dt_vencimento || f.DtVencimento
+                || f.vencimento || f.Vencimento || f.dt_venc || f.dtVenc || null;
+              const days = calculateDaysOverdue(dueDate);
+              if (days <= 0 && dueDate) continue; // not overdue yet
 
-                  return {
-                    cpfCnpj,
-                    name: cliente.Nome || cliente.nome || cliente.razao_social || "",
-                    email: cliente.email || undefined,
-                    phone: cliente.fone || cliente.celular || cliente.telefone
-                      ? cleanPhone(cliente.fone || cliente.celular || cliente.telefone)
-                      : undefined,
-                    address: cliente.endereco || undefined,
-                    city: cliente.cidade || undefined,
-                    state: cliente.uf || cliente.estado || undefined,
-                    cep: cliente.cep || undefined,
-                    amount: pickAmount(f),
-                    daysOverdue: days > 0 ? days : 1, // pending invoice with no date = 1 day
-                    erpSource: "mk" as const,
-                  };
-                })
-                .filter((inv): inv is NonNullable<typeof inv> => inv !== null);
-            } catch {
-              return [];
+              allInvoices.push({
+                ...customerData,
+                phone: customerData.phone ? cleanPhone(customerData.phone) : undefined,
+                amount: pickAmount(f),
+                daysOverdue: days > 0 ? days : 1,
+                erpSource: "mk",
+              });
             }
           }),
         );
-
-        for (const result of batchResults) {
-          allInvoices.push(...result);
-        }
       }
 
       const customers = aggregateByCustomer(allInvoices);
-      console.log(`[MK] Fallback concluido: ${customers.length} inadimplentes encontrados`);
+      console.log(`[MK] WSMKFaturasAbertas: ${customers.length} inadimplentes normalizados`);
 
       return {
         ok: true,
-        message: `${customers.length} inadimplentes encontrados (via consulta individual)`,
+        message: `${customers.length} inadimplentes encontrados via WSMKFaturasAbertas`,
         customers,
         totalRecords: customers.length,
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      console.log(`[MK] fetchDelinquents erro: ${msg}`);
       return { ok: false, message: `Erro: ${msg}`, customers: [] };
     }
+  }
+
+  /** Fallback: iterate WSMKConsultaClientes + WSMKFaturasPendentes per customer. */
+  private async fetchDelinquentsFallback(config: ErpConnectionConfig, tokenAuth: string, base: string): Promise<ErpFetchResult> {
+    console.log(`[MK] Fallback: buscando via WSMKConsultaClientes com data_alteracao`);
+
+    // WSMKConsultaClientes requires at least one filter — use date from 10 years ago
+    const tenYearsAgo = new Date();
+    tenYearsAgo.setFullYear(tenYearsAgo.getFullYear() - 10);
+    const isoDate = tenYearsAgo.toISOString().split("T")[0];
+
+    const clientesUrl = `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&data_alteracao_inicio=${isoDate}`;
+    const clientesResponse = await fetch(clientesUrl, { method: "GET", signal: AbortSignal.timeout(60000) });
+
+    if (!clientesResponse.ok) {
+      return { ok: false, message: `MK WSMKConsultaClientes status ${clientesResponse.status}`, customers: [], totalRecords: 0 };
+    }
+
+    const clientesJson: any = await clientesResponse.json();
+    let allClientes: any[] = Array.isArray(clientesJson)
+      ? clientesJson
+      : clientesJson?.Clientes || clientesJson?.registros || clientesJson?.data || [];
+
+    if ((!allClientes || allClientes.length === 0) && typeof clientesJson === "object" && clientesJson !== null) {
+      for (const val of Object.values(clientesJson)) {
+        if (Array.isArray(val) && val.length > 0) { allClientes = val; break; }
+      }
+    }
+
+    console.log(`[MK] Fallback: ${allClientes.length} clientes retornados`);
+
+    const clientesToProcess = allClientes.slice(0, 500);
+    const CONCURRENCY = 8;
+    const allInvoices: any[] = [];
+
+    for (let i = 0; i < clientesToProcess.length; i += CONCURRENCY) {
+      const batch = clientesToProcess.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(
+        batch.map(async (cliente: any) => {
+          const cdCliente = cliente.CodigoPessoa || cliente.cd_cliente || cliente.codigo || cliente.id;
+          if (!cdCliente) return [];
+          try {
+            const faturasUrl = `${base}/mk/WSMKFaturasPendentes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdCliente)}`;
+            const resp = await fetch(faturasUrl, { method: "GET", signal: AbortSignal.timeout(10000) });
+            if (!resp.ok) return [];
+            const fj: any = await resp.json();
+            const faturas: any[] = Array.isArray(fj)
+              ? fj
+              : fj?.FaturasPendentes || fj?.Faturas || fj?.faturas || fj?.registros || fj?.data || [];
+
+            const cpfCnpj = cleanCpfCnpj(cliente.Doc || cliente.doc || cliente.cpf || cliente.cnpj || cliente.cpf_cnpj || cliente.documento || "");
+            if (!cpfCnpj) return [];
+
+            return faturas
+              .map((f: any) => {
+                const dueDate = f.data_vencimento || f.DataVencimento || f.vencimento || f.Vencimento || null;
+                const days = calculateDaysOverdue(dueDate);
+                if (days <= 0 && dueDate) return null;
+                return {
+                  cpfCnpj,
+                  name: cliente.Nome || cliente.nome || cliente.razao_social || "",
+                  email: cliente.Email || cliente.email || undefined,
+                  phone: cliente.Fone || cliente.fone || cliente.celular ? cleanPhone(cliente.Fone || cliente.fone || cliente.celular) : undefined,
+                  address: cliente.Endereco || cliente.endereco || undefined,
+                  city: cliente.cidade || cliente.Cidade || undefined,
+                  state: cliente.uf || cliente.UF || undefined,
+                  cep: cliente.CEP || cliente.cep || undefined,
+                  amount: pickAmount(f),
+                  daysOverdue: days > 0 ? days : 1,
+                  erpSource: "mk" as const,
+                };
+              })
+              .filter((x: any) => x !== null);
+          } catch {
+            return [];
+          }
+        }),
+      );
+      for (const r of results) allInvoices.push(...r);
+    }
+
+    const customers = aggregateByCustomer(allInvoices);
+    console.log(`[MK] Fallback concluido: ${customers.length} inadimplentes`);
+    return {
+      ok: true,
+      message: `${customers.length} inadimplentes encontrados (fallback)`,
+      customers,
+      totalRecords: customers.length,
+    };
   }
 
   async fetchCustomers(config: ErpConnectionConfig): Promise<ErpFetchResult> {
