@@ -15,6 +15,10 @@
  *   pm2 save
  */
 
+// Carrega .env e injeta nos dois processos (mesmo pattern do ecosystem antigo).
+const dotenv = require("dotenv");
+const env = dotenv.config().parsed || {};
+
 module.exports = {
   apps: [
     {
@@ -22,9 +26,7 @@ module.exports = {
       script: "dist/index.cjs",
       exec_mode: "fork",
       max_memory_restart: "512M",
-      env: {
-        NODE_ENV: "production",
-      },
+      env: { ...env, NODE_ENV: "production" },
       error_file: "/root/.pm2/logs/consulta-isp-error.log",
       out_file: "/root/.pm2/logs/consulta-isp-out.log",
       merge_logs: true,
@@ -39,9 +41,7 @@ module.exports = {
       restart_delay: 10000,
       min_uptime: "60s",
       max_restarts: 5,
-      env: {
-        NODE_ENV: "production",
-      },
+      env: { ...env, NODE_ENV: "production" },
       error_file: "/root/.pm2/logs/consulta-isp-worker-error.log",
       out_file: "/root/.pm2/logs/consulta-isp-worker-out.log",
       merge_logs: true,
