@@ -520,29 +520,41 @@ export class MkConnector implements ErpConnector {
       // This endpoint returns CPF_CNPJ + enderecos[] (logradouro, numero, bairro, cidade, cep, estado)
       // + Latitude/Longitude — everything we need to enrich the sparse faturas.
       const clientsByCodPessoa = new Map<string, any>();
-      try {
-        const clientesUrl = `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&data_alteracao_inicio=01/01/2000`;
-        console.log(`[MK] Prefetch WSMKConsultaClientes (data_alteracao_inicio=01/01/2000)`);
-        const clientesResp = await fetch(clientesUrl, { method: "GET", signal: AbortSignal.timeout(120000) });
-        if (clientesResp.ok) {
+      // Try TWO prefetches to cover both active and cancelled clients:
+      // 1) data_alteracao_inicio=01/01/2000 — returns active/recently-edited
+      // 2) cd_cliente_inicio=0&cd_cliente_fim=999999999 — range query, often bypasses status filter
+      const prefetchUrls = [
+        `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&data_alteracao_inicio=01/01/2000`,
+        `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente_inicio=0&cd_cliente_fim=999999999`,
+      ];
+      for (const [idx, url] of prefetchUrls.entries()) {
+        try {
+          console.log(`[MK] Prefetch WSMKConsultaClientes #${idx + 1}`);
+          const clientesResp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(180000) });
+          if (!clientesResp.ok) {
+            console.log(`[MK] Prefetch #${idx + 1} retornou status ${clientesResp.status}`);
+            continue;
+          }
           const cj: any = await clientesResp.json();
           const list: any[] = Array.isArray(cj) ? cj
             : cj?.Clientes || cj?.clientes || cj?.registros || cj?.data || [];
+          let added = 0;
           for (const row of list) {
             const cd = String(row.CodigoPessoa || row.codigopessoa || row.cd_pessoa || row.codpessoa || row.id || "");
-            if (cd) clientsByCodPessoa.set(cd, row);
+            if (cd && !clientsByCodPessoa.has(cd)) {
+              clientsByCodPessoa.set(cd, row);
+              added++;
+            }
           }
-          console.log(`[MK] Prefetch retornou ${clientsByCodPessoa.size} clientes com dados completos`);
-          if (list.length > 0) {
-            console.log(`[MK] Campos do primeiro cliente prefetch: ${Object.keys(list[0]).join(", ")}`);
+          console.log(`[MK] Prefetch #${idx + 1}: ${list.length} clientes retornados, ${added} novos adicionados (total acumulado: ${clientsByCodPessoa.size})`);
+          if (idx === 0 && list.length > 0) {
+            console.log(`[MK] Campos do primeiro cliente: ${Object.keys(list[0]).join(", ")}`);
             const sampleEnd = list[0].endereco ?? list[0].Endereco ?? list[0].enderecos;
-            console.log(`[MK] Sample endereco do prefetch: ${JSON.stringify(sampleEnd)?.slice(0, 400)}`);
+            console.log(`[MK] Sample endereco: ${JSON.stringify(sampleEnd)?.slice(0, 400)}`);
           }
-        } else {
-          console.log(`[MK] Prefetch WSMKConsultaClientes retornou status ${clientesResp.status} — fallback per-client`);
+        } catch (err) {
+          console.log(`[MK] Prefetch #${idx + 1} falhou: ${err instanceof Error ? err.message : err}`);
         }
-      } catch (err) {
-        console.log(`[MK] Prefetch WSMKConsultaClientes falhou: ${err instanceof Error ? err.message : err}`);
       }
 
       // Helper to extract customer data from a full WSMKConsultaClientes row.
@@ -647,6 +659,10 @@ export class MkConnector implements ErpConnector {
       // Customer detail cache (cd_pessoa -> details)
       const customerCache = new Map<string, any>();
 
+      // Diagnostic counters
+      const stats = { fromPrefetch: 0, fromFallback: 0, fallbackFailed: 0, withCep: 0, withAddress: 0 };
+      let fallbackSampleLogged = false;
+
       const CONCURRENCY = 8;
       const personIds = Array.from(invoicesByPerson.keys());
 
@@ -663,6 +679,7 @@ export class MkConnector implements ErpConnector {
             // Primary enrichment: use prefetched bulk data (has CPF + structured endereco)
             const prefetched = clientsByCodPessoa.get(cdPessoa);
             if (prefetched) {
+              stats.fromPrefetch++;
               const full = extractFromClienteFull(prefetched);
               customerData = {
                 cpfCnpj: customerData.cpfCnpj || full.cpfCnpj,
@@ -685,10 +702,15 @@ export class MkConnector implements ErpConnector {
                 const altResp = await fetch(altUrl, { method: "GET", signal: AbortSignal.timeout(10000) });
                 if (altResp.ok) {
                   const altJson: any = await altResp.json();
+                  if (!fallbackSampleLogged) {
+                    fallbackSampleLogged = true;
+                    console.log(`[MK] Sample fallback response (cd_cliente=${cdPessoa}): ${JSON.stringify(altJson)?.slice(0, 600)}`);
+                  }
                   const row = Array.isArray(altJson) ? altJson[0]
                     : altJson?.Clientes?.[0] || altJson?.registros?.[0] || altJson?.data?.[0]
                     || (typeof altJson === "object" ? altJson : null);
                   if (row) {
+                    stats.fromFallback++;
                     customerCache.set(cdPessoa, row);
                     const full = extractFromClienteFull(row);
                     customerData = {
@@ -703,9 +725,14 @@ export class MkConnector implements ErpConnector {
                       state: customerData.state || full.state,
                       cep: customerData.cep || full.cep,
                     };
+                  } else {
+                    stats.fallbackFailed++;
                   }
+                } else {
+                  stats.fallbackFailed++;
                 }
               } catch (e) {
+                stats.fallbackFailed++;
                 console.log(`[MK] Fallback enriquecer cd_pessoa=${cdPessoa} falhou: ${e instanceof Error ? e.message : e}`);
               }
             }
@@ -715,6 +742,9 @@ export class MkConnector implements ErpConnector {
               console.log(`[MK] Skipping cd_pessoa=${cdPessoa} (sem CPF) - nome=${customerData.name || "?"}`);
               return;
             }
+
+            if (customerData.cep) stats.withCep++;
+            if (customerData.address) stats.withAddress++;
 
             for (const f of personInvoices) {
               const dueDate = f.data_vencimento || f.DataVencimento || f.dt_vencimento || f.DtVencimento
@@ -735,6 +765,7 @@ export class MkConnector implements ErpConnector {
       }
 
       const customers = aggregateByCustomer(allInvoices);
+      console.log(`[MK] Enriquecimento stats: prefetch=${stats.fromPrefetch} fallback=${stats.fromFallback} fallbackFail=${stats.fallbackFailed} withCep=${stats.withCep} withAddress=${stats.withAddress}`);
       console.log(`[MK] WSMKFaturasAbertas: ${customers.length} inadimplentes normalizados`);
 
       return {
