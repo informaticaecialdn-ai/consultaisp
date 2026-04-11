@@ -2,24 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
-/* LIGHT MODE */
+/* LIGHT MODE — Claude Inspired Warm Palette */
 :root {
-  /* Design System Tokens */
-  --color-bg:         #F9F7F4;
-  --color-surface:    #FFFFFF;
-  --color-border:     #E2DDD6;
-  --color-ink:        #1A1714;
-  --color-muted:      #555049;
-  --color-tag-bg:     #EEE9E0;
-  --color-navy:       #1A3A5C;
-  --color-steel:      #2C5F8A;
-  --color-gold:       #B8860B;
-  --color-danger:     #8B1A1A;
-  --color-success:    #1A4A2E;
-  --color-navy-bg:    #EAF0F8;
-  --color-gold-bg:    #F5EDD4;
-  --color-danger-bg:  #F5E8E8;
-  --color-success-bg: #E4EEE8;
+  /* Design System Tokens — Warm Parchment Theme */
+  --color-bg:         #F5F4ED;  /* Parchment — warm cream, the soul of the palette */
+  --color-surface:    #FAF9F5;  /* Ivory — cards and elevated containers */
+  --color-border:     #F0EEE6;  /* Border Cream — barely visible warm border */
+  --color-ink:        #141413;  /* Near Black — warm olive-tinted dark */
+  --color-muted:      #5E5D59;  /* Olive Gray — warm medium text */
+  --color-tag-bg:     #E8E6DC;  /* Warm Sand — button and tag backgrounds */
+
+  /* Brand accent — Terracotta replaces navy */
+  --color-navy:       #C96442;  /* Terracotta Brand — warm, earthy CTA color */
+  --color-steel:      #D97757;  /* Coral — hover/lighter variant of terracotta */
+  --color-navy-bg:    #FBEFE8;  /* Terracotta 10% — soft accent background */
+
+  /* Semantic colors — warm-tuned */
+  --color-gold:       #B8860B;  /* Gold warning */
+  --color-gold-bg:    #F5EDD4;  /* Gold soft */
+  --color-danger:     #B53333;  /* Error Crimson — warm deep red */
+  --color-danger-bg:  #F8E7E1;  /* Danger warm background */
+  --color-success:    #4A6B3E;  /* Muted green — warm olive-tinted */
+  --color-success-bg: #EAEEDF;  /* Success warm background */
+
+  /* Ring shadows — Claude's signature */
+  --ring-warm:        #D1CFC5;
+  --ring-subtle:      #DEDCD1;
+  --ring-deep:        #C2C0B6;
 
   /* Score semantico — padronizar cores de score em TODO o sistema */
   --score-high:       var(--color-success);     /* 701-1000 */
@@ -32,35 +41,36 @@
   --opaque-button-border-intensity: -8;
   --elevate-1: rgba(0,0,0, .03);
   --elevate-2: rgba(0,0,0, .08);
-  --background: 0 0% 100%;
-  --foreground: 222 47% 11%;
-  --border: 220 13% 91%;
-  --card: 0 0% 98%;
-  --card-foreground: 222 47% 11%;
-  --card-border: 220 13% 94%;
-  --sidebar: 0 0% 100%;
-  --sidebar-foreground: 222 47% 11%;
-  --sidebar-border: 220 13% 91%;
-  --sidebar-primary: 217 91% 60%;
-  --sidebar-primary-foreground: 0 0% 98%;
-  --sidebar-accent: 220 14% 91%;
-  --sidebar-accent-foreground: 222 47% 11%;
-  --sidebar-ring: 217 91% 60%;
-  --popover: 0 0% 96%;
-  --popover-foreground: 222 47% 11%;
-  --popover-border: 220 13% 91%;
-  --primary: 217 91% 60%;
-  --primary-foreground: 0 0% 98%;
-  --secondary: 220 14% 91%;
-  --secondary-foreground: 222 47% 11%;
-  --muted: 220 13% 93%;
-  --muted-foreground: 215 16% 47%;
-  --accent: 220 13% 93%;
-  --accent-foreground: 222 47% 11%;
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 0 0% 98%;
-  --input: 220 13% 85%;
-  --ring: 217 91% 60%;
+  /* shadcn HSL tokens — Warm Claude palette */
+  --background: 52 25% 95%;            /* Parchment #F5F4ED */
+  --foreground: 60 6% 8%;               /* Near Black #141413 */
+  --border: 48 24% 92%;                 /* Border Cream #F0EEE6 */
+  --card: 54 33% 97%;                   /* Ivory #FAF9F5 */
+  --card-foreground: 60 6% 8%;
+  --card-border: 48 24% 92%;
+  --sidebar: 54 33% 97%;                /* Ivory */
+  --sidebar-foreground: 60 6% 8%;
+  --sidebar-border: 48 24% 92%;
+  --sidebar-primary: 15 53% 53%;        /* Terracotta #C96442 */
+  --sidebar-primary-foreground: 54 33% 97%;
+  --sidebar-accent: 48 22% 89%;         /* Warm Sand #E8E6DC */
+  --sidebar-accent-foreground: 60 6% 8%;
+  --sidebar-ring: 15 53% 53%;
+  --popover: 54 33% 97%;
+  --popover-foreground: 60 6% 8%;
+  --popover-border: 48 24% 92%;
+  --primary: 15 53% 53%;                /* Terracotta */
+  --primary-foreground: 54 33% 97%;     /* Ivory */
+  --secondary: 48 22% 89%;              /* Warm Sand */
+  --secondary-foreground: 60 5% 28%;    /* Charcoal Warm */
+  --muted: 48 22% 91%;                  /* Warm Sand light */
+  --muted-foreground: 45 4% 36%;        /* Olive Gray #5E5D59 */
+  --accent: 48 22% 89%;
+  --accent-foreground: 60 6% 8%;
+  --destructive: 0 55% 46%;             /* Error Crimson #B53333 */
+  --destructive-foreground: 54 33% 97%;
+  --input: 45 13% 83%;                  /* Ring Warm */
+  --ring: 210 83% 57%;                  /* Focus Blue #3898EC (only cool color) */
   --chart-1: 217 91% 60%;
   --chart-2: 142 76% 36%;
   --chart-3: 271 91% 65%;
@@ -112,22 +122,22 @@
 }
 
 .dark {
-  /* Design System Tokens — dark overrides */
-  --color-bg:         #1A1D23;
-  --color-surface:    #23272F;
-  --color-border:     #3A3F4A;
-  --color-ink:        #E8E6E3;
-  --color-muted:      #9B978F;
-  --color-tag-bg:     #2E3038;
-  --color-navy:       #4A8BC2;
-  --color-steel:      #6AA3D4;
+  /* Design System Tokens — Claude warm dark theme */
+  --color-bg:         #141413;  /* Deep Dark — warm near-black */
+  --color-surface:    #30302E;  /* Dark Surface — warm charcoal */
+  --color-border:     #30302E;
+  --color-ink:        #FAF9F5;  /* Ivory for text on dark */
+  --color-muted:      #B0AEA5;  /* Warm Silver */
+  --color-tag-bg:     #3D3D3A;
+  --color-navy:       #D97757;  /* Coral — lighter terracotta for dark */
+  --color-steel:      #C96442;
   --color-gold:       #D4A72C;
-  --color-danger:     #C44E4E;
-  --color-success:    #4A9B6E;
-  --color-navy-bg:    #1A2A3A;
+  --color-danger:     #D97777;
+  --color-success:    #7FA670;
+  --color-navy-bg:    #2B1E18;
   --color-gold-bg:    #2A2518;
-  --color-danger-bg:  #2A1A1A;
-  --color-success-bg: #1A2A20;
+  --color-danger-bg:  #2E1A1A;
+  --color-success-bg: #1E2A1A;
   --score-low:        #E07040;
 
   --button-outline: rgba(255,255,255, .10);
@@ -135,35 +145,35 @@
   --opaque-button-border-intensity: 9;
   --elevate-1: rgba(255,255,255, .04);
   --elevate-2: rgba(255,255,255, .09);
-  --background: 222 47% 11%;
-  --foreground: 0 0% 98%;
-  --border: 215 16% 20%;
-  --card: 222 47% 13%;
-  --card-foreground: 0 0% 98%;
-  --card-border: 215 16% 17%;
-  --sidebar: 222 47% 15%;
-  --sidebar-foreground: 0 0% 98%;
-  --sidebar-border: 215 16% 20%;
-  --sidebar-primary: 217 91% 60%;
-  --sidebar-primary-foreground: 0 0% 98%;
-  --sidebar-accent: 215 15% 19%;
-  --sidebar-accent-foreground: 0 0% 98%;
-  --sidebar-ring: 217 91% 60%;
-  --popover: 222 47% 17%;
-  --popover-foreground: 0 0% 98%;
-  --popover-border: 215 16% 22%;
-  --primary: 217 91% 60%;
-  --primary-foreground: 0 0% 98%;
-  --secondary: 215 15% 21%;
-  --secondary-foreground: 0 0% 98%;
-  --muted: 215 15% 19%;
-  --muted-foreground: 217 16% 72%;
-  --accent: 215 15% 19%;
-  --accent-foreground: 0 0% 98%;
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 0 0% 98%;
-  --input: 215 16% 26%;
-  --ring: 217 91% 60%;
+  --background: 60 4% 8%;              /* Deep Dark #141413 */
+  --foreground: 54 33% 97%;             /* Ivory */
+  --border: 60 3% 19%;                  /* Dark Surface #30302E */
+  --card: 60 3% 19%;
+  --card-foreground: 54 33% 97%;
+  --card-border: 60 3% 19%;
+  --sidebar: 60 4% 8%;
+  --sidebar-foreground: 54 33% 97%;
+  --sidebar-border: 60 3% 19%;
+  --sidebar-primary: 18 64% 60%;        /* Coral */
+  --sidebar-primary-foreground: 54 33% 97%;
+  --sidebar-accent: 60 3% 23%;
+  --sidebar-accent-foreground: 54 33% 97%;
+  --sidebar-ring: 18 64% 60%;
+  --popover: 60 3% 19%;
+  --popover-foreground: 54 33% 97%;
+  --popover-border: 60 3% 19%;
+  --primary: 18 64% 60%;                /* Coral on dark */
+  --primary-foreground: 54 33% 97%;
+  --secondary: 60 3% 23%;
+  --secondary-foreground: 54 33% 97%;
+  --muted: 60 3% 19%;
+  --muted-foreground: 45 8% 67%;        /* Warm Silver */
+  --accent: 60 3% 23%;
+  --accent-foreground: 54 33% 97%;
+  --destructive: 0 55% 66%;
+  --destructive-foreground: 54 33% 97%;
+  --input: 60 3% 23%;
+  --ring: 210 83% 57%;
   --chart-1: 217 91% 70%;
   --chart-2: 142 76% 56%;
   --chart-3: 271 91% 75%;
@@ -216,6 +226,26 @@
     @apply font-sans antialiased bg-background text-foreground;
     font-size: 17px;
     line-height: 1.6;
+  }
+
+  /* Claude-inspired serif headings in app shell (not landing page) */
+  :not([data-testid="landing-page"]) h1,
+  :not([data-testid="landing-page"]) h2 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: -0.005em;
+  }
+
+  /* Claude ring-shadow button style — applied to shadcn Button primary variant */
+  button[class*="bg-primary"]:not(:disabled) {
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.4), 0 1px 2px rgba(0, 0, 0, 0.04);
+    transition: box-shadow 150ms ease, transform 150ms ease;
+  }
+  button[class*="bg-primary"]:not(:disabled):hover {
+    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.5), 0 2px 4px rgba(0, 0, 0, 0.06);
+  }
+  button[class*="bg-primary"]:not(:disabled):active {
+    transform: translateY(0.5px);
   }
 
   /* Boost font sizes for readability — app pages only (not landing) */
