@@ -535,6 +535,8 @@ export class MkConnector implements ErpConnector {
           console.log(`[MK] Prefetch retornou ${clientsByCodPessoa.size} clientes com dados completos`);
           if (list.length > 0) {
             console.log(`[MK] Campos do primeiro cliente prefetch: ${Object.keys(list[0]).join(", ")}`);
+            const sampleEnd = list[0].endereco ?? list[0].Endereco ?? list[0].enderecos;
+            console.log(`[MK] Sample endereco do prefetch: ${JSON.stringify(sampleEnd)?.slice(0, 400)}`);
           }
         } else {
           console.log(`[MK] Prefetch WSMKConsultaClientes retornou status ${clientesResp.status} — fallback per-client`);
@@ -543,21 +545,54 @@ export class MkConnector implements ErpConnector {
         console.log(`[MK] Prefetch WSMKConsultaClientes falhou: ${err instanceof Error ? err.message : err}`);
       }
 
-      // Helper to extract customer data from a full WSMKConsultaClientes row (has enderecos[] array)
+      // Helper to extract customer data from a full WSMKConsultaClientes row.
+      // MK varies: `enderecos[]` array, or `endereco` object, or `endereco` flat string.
       const extractFromClienteFull = (row: any) => {
-        const enderecos = row.enderecos || row.Enderecos || [];
-        const primary = Array.isArray(enderecos) && enderecos.length > 0 ? enderecos[0] : {};
+        let address: string | undefined;
+        let addressNumber: string | undefined;
+        let neighborhood: string | undefined;
+        let city: string | undefined;
+        let state: string | undefined;
+        let cep: string | undefined;
+
+        const enderecosArr = row.enderecos || row.Enderecos;
+        const enderecoField = row.endereco ?? row.Endereco;
+
+        const pickFromObj = (p: any) => {
+          address = p.logradouro || p.Logradouro || p.endereco || p.Endereco || undefined;
+          addressNumber = p.numero != null && p.numero !== "" ? String(p.numero) : undefined;
+          neighborhood = p.bairro || p.Bairro || undefined;
+          city = p.cidade || p.Cidade || p.municipio || undefined;
+          state = p.estado || p.Estado || p.sigla_estado || p.siglaestado || p.uf || p.UF || undefined;
+          cep = p.cep || p.CEP || undefined;
+        };
+
+        if (Array.isArray(enderecosArr) && enderecosArr.length > 0) {
+          pickFromObj(enderecosArr[0]);
+        } else if (Array.isArray(enderecoField) && enderecoField.length > 0) {
+          pickFromObj(enderecoField[0]);
+        } else if (enderecoField && typeof enderecoField === "object") {
+          pickFromObj(enderecoField);
+        } else if (typeof enderecoField === "string" && enderecoField.trim()) {
+          address = enderecoField.trim();
+        }
+
+        // CEP/cidade/estado podem tambem vir na raiz do cliente
+        cep = cep || row.CEP || row.cep || undefined;
+        city = city || row.cidade || row.Cidade || row.municipio || undefined;
+        state = state || row.estado || row.Estado || row.uf || row.UF || undefined;
+
         return {
           cpfCnpj: cleanCpfCnpj(row.CPF_CNPJ || row.cpf_cnpj || row.CPF || row.cpf || row.CNPJ || row.cnpj || row.documento || ""),
           name: row.Nome || row.nome || row.nome_cliente || row.razao_social || "",
           email: row.Email || row.email || undefined,
           phone: row.Fone || row.fone || row.telefone || row.celular || undefined,
-          address: primary.logradouro || primary.Logradouro || undefined,
-          addressNumber: primary.numero != null ? String(primary.numero) : undefined,
-          neighborhood: primary.bairro || primary.Bairro || undefined,
-          city: primary.cidade || primary.Cidade || primary.municipio || undefined,
-          state: primary.estado || primary.Estado || primary.sigla_estado || primary.siglaestado || primary.uf || primary.UF || undefined,
-          cep: primary.cep || primary.CEP || undefined,
+          address,
+          addressNumber,
+          neighborhood,
+          city,
+          state,
+          cep,
         };
       };
 
