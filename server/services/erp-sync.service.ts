@@ -55,8 +55,15 @@ export async function syncProviderToDb(
 
   let upserted = 0;
   let errors = 0;
+  const total = result.customers.length;
+  const startMs = Date.now();
 
-  for (const customer of result.customers) {
+  for (let idx = 0; idx < total; idx++) {
+    const customer = result.customers[idx];
+    if (idx > 0 && idx % 100 === 0) {
+      const elapsed = Math.round((Date.now() - startMs) / 1000);
+      console.log(`[ERPSync] ${providerName}: ${idx}/${total} upserted (${elapsed}s)`);
+    }
     try {
       let city = customer.city || "";
       let state = customer.state || "";
@@ -75,13 +82,13 @@ export async function syncProviderToDb(
         }
       }
 
-      // Resolver CEP → cidade/estado (e tambem rua/bairro se disponivel)
-      if (customer.cep) {
+      // Resolver CEP → cidade/estado SOMENTE se o ERP nao forneceu.
+      // ViaCEP serializa e pode levar 5s/req × 500+ clientes = 40+min de sync travado.
+      if (customer.cep && (!city || !state)) {
         const loc = await geocodeCep(customer.cep);
         if (loc) {
           if (!city) city = loc.city;
           if (!state) state = loc.state;
-          // Usar rua do ViaCEP se nao tem endereco do cliente
           if (!address && loc.street) address = loc.street;
         }
       }
