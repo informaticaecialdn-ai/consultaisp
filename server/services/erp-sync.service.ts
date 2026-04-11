@@ -7,7 +7,7 @@
 
 import { storage } from "../storage";
 import { getConnector, buildConnectorConfig, getProviderLimiter } from "../erp";
-import { geocodeCity, geocodeCep, geocodeAddress, resolveIbgeCode } from "./geocoding";
+import { geocodeCity, geocodeCep, resolveIbgeCode } from "./geocoding";
 
 let _syncing = false;
 
@@ -97,25 +97,14 @@ export async function syncProviderToDb(
         } catch {}
       }
 
-      // Geocodificar: endereco completo (mais preciso) → fallback cidade
+      // Geocodificar por cidade (cache por cidade, ~10 cidades unicas para 500+ clientes).
+      // NAO usa geocodeAddress aqui pq Nominatim rate-limita a ~1 req/s → bulk de 500 clientes
+      // levaria 9+min. City-level com jitter ±2km e LGPD-friendly e suficiente pra heatmap.
       if (city && state) {
-        // Tentar endereco completo primeiro (distribui pontos pelas ruas)
-        if (address) {
-          const addrCoords = await geocodeAddress(address, city, state);
-          if (addrCoords) {
-            // LGPD: jitter ±0.005° (~500m) — menor porque endereco ja e preciso
-            lat = String(addrCoords[0] + (Math.random() - 0.5) * 0.005);
-            lng = String(addrCoords[1] + (Math.random() - 0.5) * 0.005);
-          }
-        }
-
-        // Fallback: geocodificar por cidade (jitter maior)
-        if (!lat) {
-          const cityCoords = await geocodeCity(city, state);
-          if (cityCoords) {
-            lat = String(cityCoords[0] + (Math.random() - 0.5) * 0.02);
-            lng = String(cityCoords[1] + (Math.random() - 0.5) * 0.02);
-          }
+        const cityCoords = await geocodeCity(city, state);
+        if (cityCoords) {
+          lat = String(cityCoords[0] + (Math.random() - 0.5) * 0.02);
+          lng = String(cityCoords[1] + (Math.random() - 0.5) * 0.02);
         }
       }
 
