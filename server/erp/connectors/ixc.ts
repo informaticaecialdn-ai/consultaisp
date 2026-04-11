@@ -329,45 +329,44 @@ export class IxcConnector implements ErpConnector {
         return { ok: true, message: "Nenhum contrato cancelado encontrado", customers: [], totalRecords: 0 };
       }
 
-      // 4. Buscar faturas abertas POR CLIENTE cancelado (em lotes)
-      // Nao busca todas as faturas do sistema — busca so dos cancelados
+      // 4. BULK FETCH: buscar todas as faturas abertas (status=A) de uma vez,
+      // filtrar localmente pelos clientes cancelados. Antes era 1 query per cliente
+      // (15326 x 0.18s = 46 min). Agora e ~10-20 paginas de 500.
       const now = new Date();
       const overdueByClient = new Map<string, { totalAmount: number; maxDays: number; count: number }>();
-      const clienteIdArray = [...cancelledClientIds];
+      const clienteIdArray = Array.from(cancelledClientIds);
 
-      console.log(`[IXC] fetchCancelledDelinquents: buscando faturas de ${clienteIdArray.length} clientes cancelados...`);
+      console.log(`[IXC] fetchCancelledDelinquents: bulk fetch de todas faturas status=A...`);
+      const bulkStart = Date.now();
+      let allInvoices: any[] = [];
+      try {
+        allInvoices = await this.listAll(config, "fn_areceber", {
+          qtype: "fn_areceber.status",
+          query: "A",
+          oper: "=",
+          sortname: "fn_areceber.id",
+          sortorder: "asc",
+        }, 500, 500);
+      } catch (e) {
+        console.log(`[IXC] Bulk fn_areceber falhou: ${e instanceof Error ? e.message : e}`);
+      }
+      console.log(`[IXC] fetchCancelledDelinquents: bulk retornou ${allInvoices.length} faturas em ${Math.round((Date.now() - bulkStart) / 1000)}s`);
 
-      // Buscar em lotes de 50 clientes
-      const BATCH = 50;
-      for (let i = 0; i < clienteIdArray.length; i += BATCH) {
-        const batch = clienteIdArray.slice(i, i + BATCH);
-        for (const cid of batch) {
-          try {
-            const invoices = await this.listAll(config, "fn_areceber", {
-              qtype: "fn_areceber.id_cliente",
-              query: cid,
-              oper: "=",
-            }, 200, 10);
-
-            for (const inv of invoices) {
-              if (inv.status !== "A") continue; // so abertas
-              const dueDate = inv.data_vencimento;
-              if (!dueDate || new Date(dueDate) >= now) continue; // so vencidas
-              const amount = parseFloat(inv.valor || inv.valor_original || "0") || 0;
-              const days = calculateDaysOverdue(dueDate);
-              const existing = overdueByClient.get(cid);
-              if (existing) {
-                existing.totalAmount += amount;
-                if (days > existing.maxDays) existing.maxDays = days;
-                existing.count++;
-              } else {
-                overdueByClient.set(cid, { totalAmount: amount, maxDays: days, count: 1 });
-              }
-            }
-          } catch {}
-        }
-        if (i % 500 === 0 && i > 0) {
-          console.log(`[IXC] fetchCancelledDelinquents: processados ${i}/${clienteIdArray.length} clientes, ${overdueByClient.size} com divida ate agora`);
+      // Filtrar faturas dos clientes cancelados e agregar
+      for (const inv of allInvoices) {
+        const cid = String(inv.id_cliente || "");
+        if (!cid || !cancelledClientIds.has(cid)) continue;
+        const dueDate = inv.data_vencimento;
+        if (!dueDate || new Date(dueDate) >= now) continue; // so vencidas
+        const amount = parseFloat(inv.valor || inv.valor_original || "0") || 0;
+        const days = calculateDaysOverdue(dueDate);
+        const existing = overdueByClient.get(cid);
+        if (existing) {
+          existing.totalAmount += amount;
+          if (days > existing.maxDays) existing.maxDays = days;
+          existing.count++;
+        } else {
+          overdueByClient.set(cid, { totalAmount: amount, maxDays: days, count: 1 });
         }
       }
 
