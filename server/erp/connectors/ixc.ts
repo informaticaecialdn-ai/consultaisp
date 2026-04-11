@@ -385,6 +385,21 @@ export class IxcConnector implements ErpConnector {
 
       console.log(`[IXC] fetchCancelledDelinquents: ${clientsWithDebt.length} cancelados com divida, ${clienteMap.size} com dados cadastrais`);
 
+      // DIAG: dump primeiros 3 clientes com TODOS os campos pra diagnosticar city/cidade
+      const diagSample = Array.from(clienteMap.values()).slice(0, 3);
+      for (const c of diagSample) {
+        console.log(`[IXC-DIAG] cliente id=${c.id} fields: ${Object.keys(c).join(",")}`);
+        console.log(`[IXC-DIAG] cliente id=${c.id} cidade="${c.cidade}" bairro="${c.bairro}" endereco="${c.endereco}" uf="${c.uf}" cep="${c.cep}"`);
+      }
+      // Contagem de valores unicos de cidade pra ver distribuicao
+      const cidadeDistrib = new Map<string, number>();
+      for (const c of Array.from(clienteMap.values())) {
+        const k = String(c.cidade || "(vazio)");
+        cidadeDistrib.set(k, (cidadeDistrib.get(k) || 0) + 1);
+      }
+      const topCidades = Array.from(cidadeDistrib.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10);
+      console.log(`[IXC-DIAG] Top 10 valores de c.cidade: ${JSON.stringify(topCidades)}`);
+
       // Montar resultado normalizado
       const customers: NormalizedErpCustomer[] = clientsWithDebt
         .map(cid => {
