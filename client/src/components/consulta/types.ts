@@ -21,6 +21,8 @@ export interface ProviderDetail {
   cep?: string;
   addressCity?: string;
   addressState?: string;
+  latitude?: string;
+  longitude?: string;
 }
 
 export interface AddressMatch {

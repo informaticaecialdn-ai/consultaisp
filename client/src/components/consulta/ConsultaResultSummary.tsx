@@ -420,15 +420,19 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
             <div className="rounded-lg p-4 flex items-center gap-3" style={{ backgroundColor: "var(--color-tag-bg)" }}>
               <MapPin className="w-5 h-5 flex-shrink-0" style={{ color: "var(--color-muted)" }} />
               <div>
-                <p className="text-sm font-semibold" style={{ color: "var(--color-muted)" }}>Endereco nao disponivel no ERP</p>
-                <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>Use a busca manual por CEP para cruzamento.</p>
+                <p className="text-sm font-semibold" style={{ color: "var(--color-muted)" }}>Cruzamento por endereco nao realizado</p>
+                <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>
+                  {ownProviders[0]?.address
+                    ? "Cliente tem endereco no ERP, mas faltam CEP/numero para buscar outras inadimplencias no mesmo imovel."
+                    : "Cliente sem endereco cadastrado no ERP. Use a busca manual por CEP."}
+                </p>
               </div>
             </div>
           ) : null}
         </div>
 
         {/* Map */}
-        {(result.addressUsed || ownProviders[0]?.cep || ownProviders[0]?.address || (ownProviders[0] as any)?.latitude) && (
+        {(result.addressUsed || ownProviders[0]?.cep || ownProviders[0]?.address || ownProviders[0]?.latitude) && (
           <div className="px-4 pb-3">
             <AddressMapMini
               cep={result.addressUsed || ownProviders[0]?.cep || ""}
@@ -437,8 +441,8 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
               state={ownProviders[0]?.addressState}
               neighborhood={ownProviders[0]?.neighborhood}
               addressNumber={ownProviders[0]?.addressNumber}
-              latitude={(ownProviders[0] as any)?.latitude}
-              longitude={(ownProviders[0] as any)?.longitude}
+              latitude={ownProviders[0]?.latitude}
+              longitude={ownProviders[0]?.longitude}
             />
           </div>
         )}
