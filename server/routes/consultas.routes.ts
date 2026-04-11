@@ -196,6 +196,8 @@ export function registerConsultasRoutes(): Router {
             addressCity: c.city || undefined,
             addressState: c.state || undefined,
             cep: c.cep || undefined,
+            latitude: (c as any).latitude || undefined,
+            longitude: (c as any).longitude || undefined,
             hasUnreturnedEquipment: c.hasUnreturnedEquipment || false,
             unreturnedEquipmentCount: 0,
             planName: c.planName,

@@ -10,13 +10,20 @@ interface AddressMapMiniProps {
   city?: string;
   state?: string;
   neighborhood?: string;
+  latitude?: string;
+  longitude?: string;
 }
 
-export default function AddressMapMini({ cep, addressNumber, address, city, state, neighborhood }: AddressMapMiniProps) {
+export default function AddressMapMini({ cep, addressNumber, address, city, state, neighborhood, latitude, longitude }: AddressMapMiniProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [coords, setCoords] = useState<[number, number] | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Se o ERP retornou lat/lng direto, usar imediatamente (sem geocoding)
+  const erpLat = latitude ? parseFloat(latitude) : NaN;
+  const erpLng = longitude ? parseFloat(longitude) : NaN;
+  const hasErpCoords = !isNaN(erpLat) && !isNaN(erpLng) && erpLat !== 0 && erpLng !== 0;
 
   // Montar query de busca — tentar do mais especifico pro mais generico
   let searchQuery = "";
@@ -36,6 +43,12 @@ export default function AddressMapMini({ cep, addressNumber, address, city, stat
 
   // Geocodificar via Nominatim (tenta endereco completo, fallback CEP)
   useEffect(() => {
+    // Se o ERP ja deu lat/lng, usar direto
+    if (hasErpCoords) {
+      setCoords([erpLng, erpLat]);
+      setLoading(false);
+      return;
+    }
     if (!searchQuery) { setLoading(false); return; }
     setLoading(true);
 
@@ -86,7 +99,7 @@ export default function AddressMapMini({ cep, addressNumber, address, city, stat
     };
 
     tryGeocode();
-  }, [searchQuery]);
+  }, [searchQuery, hasErpCoords, erpLat, erpLng]);
 
   // Criar mapa quando coords resolvem
   useEffect(() => {

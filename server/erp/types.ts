@@ -104,6 +104,10 @@ export interface NormalizedErpCustomer {
   city?: string;
   state?: string;
   cep?: string;
+  /** Latitude returned directly by ERP (if available) — e.g. MK Solutions */
+  latitude?: string;
+  /** Longitude returned directly by ERP (if available) */
+  longitude?: string;
   totalOverdueAmount: number;
   maxDaysOverdue: number;
   overdueInvoicesCount?: number;

@@ -366,18 +366,45 @@ export class MkConnector implements ErpConnector {
         }
       }
 
-      // MK returns address as "Rua X, 123 - Bairro, Cidade" — extract parts
+      // MK retorna endereco no formato: "Rua X, 123 - Bairro, Cidade"
+      // Ex: "Rua A, 0 - Centro, Jacobina" ou "RUA SENADOR SALGADO FILHO, 121 - Avenida, Santa Cruz do Sul"
       const rawAddr = customerData?.Endereco || customerData?.endereco || customerData?.logradouro || "";
-      const addrParts = rawAddr.split(",").map((s: string) => s.trim());
-      const streetPart = addrParts[0] || "";
-      const numberMatch = addrParts[1]?.match(/^(\d+)/);
-      const addressNumber = numberMatch ? numberMatch[1] : undefined;
-      const neighborhoodMatch = rawAddr.match(/- ([^,]+)/);
-      const neighborhood = neighborhoodMatch ? neighborhoodMatch[1].trim() : undefined;
-      // Last part after last comma is usually city
-      const cityFromAddr = addrParts.length > 2 ? addrParts[addrParts.length - 1] : undefined;
+      let streetPart: string | undefined;
+      let addressNumber: string | undefined;
+      let neighborhood: string | undefined;
+      let cityFromAddr: string | undefined;
 
-      console.log(`[MK] RESULTADO FINAL fetchCustomerByCpf: overdue=${overdueInvoicesCount}, maxDays=${maxDaysOverdue}, totalAmount=${totalOverdueAmount}`);
+      if (rawAddr) {
+        // Split em virgula: ["Rua X", "123 - Bairro", "Cidade"]
+        const parts = rawAddr.split(",").map((s: string) => s.trim()).filter(Boolean);
+        streetPart = parts[0] || undefined;
+
+        // Meio: "{numero} - {bairro}"
+        if (parts.length >= 2) {
+          const middle = parts[1];
+          const numBairroMatch = middle.match(/^(\d+(?:[A-Za-z]?)?)\s*-\s*(.+)$/);
+          if (numBairroMatch) {
+            addressNumber = numBairroMatch[1];
+            neighborhood = numBairroMatch[2].trim();
+          } else if (/^\d+$/.test(middle)) {
+            addressNumber = middle;
+          } else {
+            neighborhood = middle;
+          }
+        }
+
+        // Ultimo: cidade
+        if (parts.length >= 3) {
+          cityFromAddr = parts[parts.length - 1];
+        }
+      }
+
+      // MK as vezes retorna lat/lng diretamente
+      const rawLat = customerData?.Latitude || customerData?.latitude;
+      const rawLng = customerData?.Longitude || customerData?.longitude;
+      const hasValidCoords = rawLat && rawLng && String(rawLat).trim() !== "" && String(rawLng).trim() !== "";
+
+      console.log(`[MK] RESULTADO FINAL fetchCustomerByCpf: overdue=${overdueInvoicesCount}, maxDays=${maxDaysOverdue}, totalAmount=${totalOverdueAmount}, addr="${streetPart}", num=${addressNumber}, bairro=${neighborhood}, cidade=${cityFromAddr}, cep=${customerData?.CEP || customerData?.cep}, lat=${rawLat}, lng=${rawLng}`);
 
       const customer: NormalizedErpCustomer = {
         cpfCnpj: cleanDoc,
@@ -386,12 +413,14 @@ export class MkConnector implements ErpConnector {
         phone: customerData?.Fone || customerData?.fone || customerData?.celular || customerData?.telefone
           ? cleanPhone(customerData.Fone || customerData.fone || customerData.celular || customerData.telefone)
           : undefined,
-        address: streetPart || rawAddr || undefined,
+        address: streetPart || undefined,
         addressNumber,
         neighborhood,
         city: customerData?.cidade || customerData?.municipio || cityFromAddr || undefined,
         state: customerData?.uf || customerData?.estado || undefined,
         cep: customerData?.CEP || customerData?.cep || undefined,
+        latitude: hasValidCoords ? String(rawLat) : undefined,
+        longitude: hasValidCoords ? String(rawLng) : undefined,
         totalOverdueAmount,
         maxDaysOverdue,
         overdueInvoicesCount,

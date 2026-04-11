@@ -35,6 +35,8 @@ export interface RealtimeQueryResult {
     city?: string;
     state?: string;
     cep?: string;
+    latitude?: string;
+    longitude?: string;
     status?: string;
     totalOverdueAmount: number;
     maxDaysOverdue: number;
@@ -224,6 +226,8 @@ function normalizeCustomer(c: any): RealtimeQueryResult["customers"][0] {
     city: c.city || undefined,
     state: c.state || undefined,
     cep: c.cep || undefined,
+    latitude: c.latitude || undefined,
+    longitude: c.longitude || undefined,
     totalOverdueAmount: c.totalOverdueAmount || 0,
     maxDaysOverdue: c.maxDaysOverdue || 0,
     overdueInvoicesCount: c.overdueInvoicesCount || 0,
