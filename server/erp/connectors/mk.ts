@@ -201,6 +201,41 @@ export class MkConnector implements ErpConnector {
 
       console.log(`[MK] Cliente encontrado: cd_cliente=${cdCliente}, nome=${nome}`);
 
+      // Step 1.5: Enrich with structured address from WSMKConsultaClientes.
+      // WSMKConsultaDoc returns Endereco as flat string ("Rua X, 123 - Bairro, Cidade") with no CEP/UF.
+      // WSMKConsultaClientes returns endereco[] array with {cep, estado, cidade, bairro, logradouro, numero}
+      // — needed for the mini-map on Consulta ISP page.
+      let enrichedEndereco: any = null;
+      if (cdCliente) {
+        try {
+          const clientesUrl = `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdCliente)}`;
+          const clientesResp = await fetch(clientesUrl, { method: "GET", signal: AbortSignal.timeout(10000) });
+          if (clientesResp.ok) {
+            const cj: any = await clientesResp.json();
+            const row = Array.isArray(cj) ? cj[0]
+              : cj?.Clientes?.[0] || cj?.clientes?.[0] || cj?.registros?.[0] || cj?.data?.[0]
+              || (typeof cj === "object" ? cj : null);
+            if (row) {
+              const enderecos = row.enderecos || row.Enderecos || row.endereco || row.Endereco;
+              if (Array.isArray(enderecos) && enderecos.length > 0) {
+                // Preferir endereco de INSTALACAO, fallback pro primeiro
+                enrichedEndereco = enderecos.find((e: any) =>
+                  String(e.tipo || e.Tipo || "").toUpperCase() === "INSTALACAO"
+                ) || enderecos[0];
+                console.log(`[MK] Enriquecimento endereco: cep=${enrichedEndereco?.cep}, cidade=${enrichedEndereco?.cidade}, estado=${enrichedEndereco?.estado}`);
+              }
+              // Se lat/lng do row (raiz) estiver populado, usar
+              if (row.Latitude && row.Longitude && !customerData.Latitude) {
+                customerData.Latitude = row.Latitude;
+                customerData.Longitude = row.Longitude;
+              }
+            }
+          }
+        } catch (e) {
+          console.log(`[MK] Enriquecimento endereco falhou: ${e instanceof Error ? e.message : e}`);
+        }
+      }
+
       // Step 2: Get pending invoices using WSMKFaturasPendentes
       let totalOverdueAmount = 0;
       let maxDaysOverdue = 0;
@@ -430,12 +465,15 @@ export class MkConnector implements ErpConnector {
         phone: customerData?.Fone || customerData?.fone || customerData?.celular || customerData?.telefone
           ? cleanPhone(customerData.Fone || customerData.fone || customerData.celular || customerData.telefone)
           : undefined,
-        address: streetPart || undefined,
-        addressNumber,
-        neighborhood,
-        city: customerData?.cidade || customerData?.municipio || cityFromAddr || undefined,
-        state: customerData?.uf || customerData?.estado || undefined,
-        cep: customerData?.CEP || customerData?.cep || undefined,
+        // Prefer structured enriched data (WSMKConsultaClientes) over parsed flat string (WSMKConsultaDoc)
+        address: enrichedEndereco?.logradouro || streetPart || undefined,
+        addressNumber: enrichedEndereco?.numero != null && enrichedEndereco?.numero !== ""
+          ? String(enrichedEndereco.numero)
+          : addressNumber,
+        neighborhood: enrichedEndereco?.bairro || neighborhood,
+        city: enrichedEndereco?.cidade || customerData?.cidade || customerData?.municipio || cityFromAddr || undefined,
+        state: enrichedEndereco?.estado || customerData?.uf || customerData?.estado || undefined,
+        cep: enrichedEndereco?.cep || customerData?.CEP || customerData?.cep || undefined,
         latitude: hasValidCoords ? String(rawLat) : undefined,
         longitude: hasValidCoords ? String(rawLng) : undefined,
         totalOverdueAmount,
