@@ -2,6 +2,7 @@ import { eq, and, gte, sql, ne } from "drizzle-orm";
 import { db } from "../db";
 import {
   customers,
+  providers,
   type Customer, type InsertCustomer,
 } from "@shared/schema";
 
@@ -286,16 +287,22 @@ export class CustomersStorage {
     }));
   }
 
-  /** Ranking de CEPs por risco — somente do provedor */
+  /** Ranking de CEPs por risco — somente do provedor, filtrado por UF do provedor */
   async getCepRanking(providerId: number): Promise<{
     cep5: string; city: string; count: number; totalOverdue: number; avgDaysOverdue: number; riskLevel: string;
   }[]> {
-    const rows = await db.select().from(customers).where(
+    const provRows = await db.select({ state: providers.addressState }).from(providers).where(eq(providers.id, providerId)).limit(1);
+    const providerState = provRows[0]?.state?.toUpperCase() || null;
+
+    const allRows = await db.select().from(customers).where(
       and(
         eq(customers.providerId, providerId),
         eq(customers.paymentStatus, "overdue"),
       ),
     );
+    const rows = providerState
+      ? allRows.filter(r => r.state && r.state.toUpperCase() === providerState)
+      : allRows;
 
     const cepMap = new Map<string, { city: string; count: number; totalOverdue: number; totalDays: number }>();
     for (const r of rows) {
@@ -397,11 +404,16 @@ export class CustomersStorage {
     }));
   }
 
-  /** Lista individual de clientes inadimplentes com coordenadas (para mapa) */
+  /** Lista individual de clientes inadimplentes com coordenadas (para mapa).
+   * Filtra por UF do provedor para esconder cadastros outliers fora da regiao de atuacao. */
   async getDefaultersMapPoints(providerId: number): Promise<{
     id: number; name: string; lat: number; lng: number; cep: string | null; city: string | null;
     totalOverdue: number; daysOverdue: number; address: string | null; riskTier: string;
   }[]> {
+    // Descobre UF principal do provedor
+    const provRows = await db.select({ state: providers.addressState }).from(providers).where(eq(providers.id, providerId)).limit(1);
+    const providerState = provRows[0]?.state?.toUpperCase() || null;
+
     const rows = await db.select().from(customers).where(
       and(
         eq(customers.providerId, providerId),
@@ -411,6 +423,7 @@ export class CustomersStorage {
 
     return rows
       .filter(r => r.latitude && r.longitude)
+      .filter(r => !providerState || (r.state && r.state.toUpperCase() === providerState))
       .map(r => {
         const lat = parseFloat(r.latitude!);
         const lng = parseFloat(r.longitude!);
