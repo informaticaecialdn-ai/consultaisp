@@ -146,26 +146,28 @@ app.use((req, res, next) => {
   await seedSuperAdmin();
   await registerRoutes(httpServer, app);
 
-  // LGPD services — non-fatal if dependencies are missing
-  try {
-    const { startRetentionScheduler } = await import("./services/lgpd-retention");
-    startRetentionScheduler();
-  } catch (err) {
-    logger.warn({ err }, "LGPD retention scheduler failed to start — feature unavailable");
-  }
-
-  try {
-    const { startTitularProcessor } = await import("./services/lgpd-titular.service");
-    startTitularProcessor();
-  } catch (err) {
-    logger.warn({ err }, "LGPD titular processor failed to start — feature unavailable");
-  }
-
-  try {
-    const { startErpSyncScheduler } = await import("./services/erp-sync.service");
-    startErpSyncScheduler();
-  } catch (err) {
-    logger.warn({ err }, "ERP sync scheduler failed to start — feature unavailable");
+  // Background jobs (ERP sync, LGPD retention/titular) rodam em processo SEPARADO.
+  // Ver server/worker.ts + ecosystem.config.cjs. Opt-out via RUN_BG_JOBS_IN_API=true
+  // se quiser rodar tudo junto (dev local, single-process deploy).
+  if (process.env.RUN_BG_JOBS_IN_API === "true") {
+    try {
+      const { startRetentionScheduler } = await import("./services/lgpd-retention");
+      startRetentionScheduler();
+    } catch (err) {
+      logger.warn({ err }, "LGPD retention scheduler failed to start");
+    }
+    try {
+      const { startTitularProcessor } = await import("./services/lgpd-titular.service");
+      startTitularProcessor();
+    } catch (err) {
+      logger.warn({ err }, "LGPD titular processor failed to start");
+    }
+    try {
+      const { startErpSyncScheduler } = await import("./services/erp-sync.service");
+      startErpSyncScheduler();
+    } catch (err) {
+      logger.warn({ err }, "ERP sync scheduler failed to start");
+    }
   }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
