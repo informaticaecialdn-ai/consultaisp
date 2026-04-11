@@ -304,15 +304,16 @@ export class CustomersStorage {
       ? allRows.filter(r => r.state && r.state.toUpperCase() === providerState)
       : allRows;
 
-    // Agrupa por CIDADE (normalizada — uppercase + trim) em vez de CEP.
-    // CEP e capilar demais: Mandaguari concentra em 1 CEP (1767 clientes) e
-    // Londrina distribui em 30 CEPs de 100 — ranking por CEP distorce realidade.
-    const cityMap = new Map<string, { city: string; count: number; totalOverdue: number; totalDays: number; sampleCep: string }>();
+    // Agrupa por CIDADE + BAIRRO (visualizacao mais util pro provedor).
+    // Clientes sem bairro sao agrupados como "{cidade} — Sem bairro" pra nao
+    // perder contagem (total do ranking = total dos cards KPI).
+    const groupMap = new Map<string, { city: string; neighborhood: string; count: number; totalOverdue: number; totalDays: number; sampleCep: string }>();
     for (const r of rows) {
       if (!r.city) continue;
-      const cityKey = r.city.trim().toUpperCase();
-      if (!cityKey) continue;
-      const existing = cityMap.get(cityKey);
+      const cityName = r.city.trim();
+      const neighborhood = (r.neighborhood || "").trim();
+      const key = `${cityName.toUpperCase()}||${neighborhood.toUpperCase()}`;
+      const existing = groupMap.get(key);
       const overdue = parseFloat(r.totalOverdueAmount || "0");
       const days = r.maxDaysOverdue || 0;
       const cep5 = r.cep ? r.cep.replace(/\D/g, "").slice(0, 5) : "";
@@ -321,9 +322,9 @@ export class CustomersStorage {
         existing.totalOverdue += overdue;
         existing.totalDays += days;
       } else {
-        // Usa capitalizacao do primeiro registro como display
-        cityMap.set(cityKey, {
-          city: r.city.trim(),
+        groupMap.set(key, {
+          city: cityName,
+          neighborhood: neighborhood || "Sem bairro",
           count: 1,
           totalOverdue: overdue,
           totalDays: days,
@@ -332,10 +333,11 @@ export class CustomersStorage {
       }
     }
 
-    return Array.from(cityMap.values())
+    return Array.from(groupMap.values())
       .map(data => ({
+        // Campo cep5 usado pelo front como "bairro" display ate migrar o schema do tipo
         cep5: data.sampleCep,
-        city: data.city,
+        city: `${data.city} — ${data.neighborhood}`,
         count: data.count,
         totalOverdue: data.totalOverdue,
         avgDaysOverdue: Math.round(data.totalDays / data.count),
