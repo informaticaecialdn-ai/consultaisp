@@ -373,14 +373,71 @@ export class IxcConnector implements ErpConnector {
 
       console.log(`[IXC] fetchCancelledDelinquents: ${overdueByClient.size} cancelados com faturas vencidas de ${clienteIdArray.length} total`);
 
-      // 5. Buscar dados cadastrais dos clientes com divida
-      const clientsWithDebt = [...overdueByClient.keys()];
+      // 5. Buscar dados cadastrais via BULK fetch (paginacao grande em vez de N requests).
+      // Antes: 1 request per client (5977 x ~100ms = 10min). Agora: ~12 paginas de 500.
+      const clientsWithDebt = Array.from(overdueByClient.keys());
+      const clientsWithDebtSet = new Set(clientsWithDebt);
       const clienteMap = new Map<string, any>();
-      for (const cid of clientsWithDebt) {
-        try {
-          const rows = await this.listAll(config, "cliente", { qtype: "cliente.id", query: cid, oper: "=" }, 1, 1);
-          if (rows.length > 0) clienteMap.set(cid, rows[0]);
-        } catch {}
+      console.log(`[IXC] fetchCancelledDelinquents: bulk fetch de clientes...`);
+      try {
+        const allClientRows = await this.listAll(config, "cliente", {
+          qtype: "cliente.id",
+          query: "0",
+          oper: ">",
+          sortname: "cliente.id",
+          sortorder: "asc",
+        }, 500, 100);
+        for (const r of allClientRows) {
+          const id = String(r.id || "");
+          if (id && clientsWithDebtSet.has(id)) clienteMap.set(id, r);
+        }
+        console.log(`[IXC] fetchCancelledDelinquents: bulk retornou ${allClientRows.length} clientes, ${clienteMap.size} match`);
+      } catch (e) {
+        console.log(`[IXC] Bulk client fetch falhou, fallback per-client: ${e instanceof Error ? e.message : e}`);
+        for (const cid of clientsWithDebt) {
+          try {
+            const rows = await this.listAll(config, "cliente", { qtype: "cliente.id", query: cid, oper: "=" }, 1, 1);
+            if (rows.length > 0) clienteMap.set(cid, rows[0]);
+          } catch {}
+        }
+      }
+
+      // Resolver FK cidade/uf: IXC armazena cidade/uf como FK numerico (nao nome direto).
+      // Fazer bulk fetch da tabela "cidade" e montar Map<id, {nome, uf_sigla}>.
+      const cidadeMap = new Map<string, { nome: string; uf: string }>();
+      try {
+        const cidades = await this.listAll(config, "cidade", {
+          qtype: "cidade.id",
+          query: "0",
+          oper: ">",
+          sortname: "cidade.id",
+          sortorder: "asc",
+        }, 500, 50);
+        console.log(`[IXC] fetchCancelledDelinquents: cidade table retornou ${cidades.length} rows`);
+        // Tambem fetch uf pra resolver FK
+        const ufs = await this.listAll(config, "uf", {
+          qtype: "uf.id",
+          query: "0",
+          oper: ">",
+          sortname: "uf.id",
+          sortorder: "asc",
+        }, 200, 5).catch(() => [] as any[]);
+        const ufMap = new Map<string, string>();
+        for (const u of ufs) {
+          const id = String(u.id || "");
+          const sigla = String(u.uf || u.sigla || u.nome || "");
+          if (id && sigla) ufMap.set(id, sigla);
+        }
+        for (const c of cidades) {
+          const id = String(c.id || "");
+          const nome = String(c.nome || c.cidade || "");
+          const ufId = String(c.uf || c.id_uf || "");
+          const uf = ufMap.get(ufId) || ufId;
+          if (id && nome) cidadeMap.set(id, { nome, uf });
+        }
+        console.log(`[IXC] fetchCancelledDelinquents: cidadeMap size=${cidadeMap.size}, ufMap size=${ufMap.size}`);
+      } catch (e) {
+        console.log(`[IXC] Falha bulk cidade/uf: ${e instanceof Error ? e.message : e}`);
       }
 
       console.log(`[IXC] fetchCancelledDelinquents: ${clientsWithDebt.length} cancelados com divida, ${clienteMap.size} com dados cadastrais`);
@@ -400,6 +457,22 @@ export class IxcConnector implements ErpConnector {
       const topCidades = Array.from(cidadeDistrib.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10);
       console.log(`[IXC-DIAG] Top 10 valores de c.cidade: ${JSON.stringify(topCidades)}`);
 
+      // Helper: resolver FK cidade/uf via cidadeMap quando c.cidade for numerico
+      const resolveCityState = (c: any): { city?: string; state?: string } => {
+        const rawCidade = c?.cidade;
+        const rawUf = c?.uf || c?.estado;
+        // Se cidade ja e string nao-numerica, usar direto
+        if (rawCidade && !/^\d+$/.test(String(rawCidade))) {
+          return { city: String(rawCidade), state: rawUf ? String(rawUf) : undefined };
+        }
+        // cidade e FK numerica → resolver via cidadeMap
+        if (rawCidade && cidadeMap.has(String(rawCidade))) {
+          const resolved = cidadeMap.get(String(rawCidade))!;
+          return { city: resolved.nome, state: resolved.uf || (rawUf ? String(rawUf) : undefined) };
+        }
+        return { city: undefined, state: rawUf && !/^\d+$/.test(String(rawUf)) ? String(rawUf) : undefined };
+      };
+
       // Montar resultado normalizado
       const customers: NormalizedErpCustomer[] = clientsWithDebt
         .map(cid => {
@@ -407,6 +480,7 @@ export class IxcConnector implements ErpConnector {
           const overdue = overdueByClient.get(cid)!;
           const cpfCnpj = c ? cleanCpfCnpj(c.cpf_cnpj || c.cnpj_cpf || c.documento || "") : "";
           if (!cpfCnpj) return null;
+          const loc = resolveCityState(c);
           return {
             cpfCnpj,
             name: c?.razao || c?.nome || "",
@@ -414,8 +488,8 @@ export class IxcConnector implements ErpConnector {
             phone: c?.fone || c?.celular ? cleanPhone(c.fone || c.celular) : undefined,
             address: c?.endereco || c?.logradouro || undefined,
             addressNumber: extractNumberFromAddress(c?.endereco, c?.numero),
-            city: c?.cidade || undefined,
-            state: c?.uf || c?.estado || undefined,
+            city: loc.city,
+            state: loc.state,
             cep: c?.cep ? cleanCep(c.cep) : undefined,
             totalOverdueAmount: overdue.totalAmount,
             maxDaysOverdue: overdue.maxDays,
