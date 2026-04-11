@@ -516,6 +516,51 @@ export class MkConnector implements ErpConnector {
 
       console.log(`[MK] WSMKFaturasAbertas retornou ${faturas.length} faturas. Campos da primeira: ${Object.keys(faturas[0]).join(", ")}`);
 
+      // Prefetch all customers in ONE call via WSMKConsultaClientes with wide date filter.
+      // This endpoint returns CPF_CNPJ + enderecos[] (logradouro, numero, bairro, cidade, cep, estado)
+      // + Latitude/Longitude — everything we need to enrich the sparse faturas.
+      const clientsByCodPessoa = new Map<string, any>();
+      try {
+        const clientesUrl = `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&data_alteracao_inicio=01/01/2000`;
+        console.log(`[MK] Prefetch WSMKConsultaClientes (data_alteracao_inicio=01/01/2000)`);
+        const clientesResp = await fetch(clientesUrl, { method: "GET", signal: AbortSignal.timeout(120000) });
+        if (clientesResp.ok) {
+          const cj: any = await clientesResp.json();
+          const list: any[] = Array.isArray(cj) ? cj
+            : cj?.Clientes || cj?.clientes || cj?.registros || cj?.data || [];
+          for (const row of list) {
+            const cd = String(row.CodigoPessoa || row.codigopessoa || row.cd_pessoa || row.codpessoa || row.id || "");
+            if (cd) clientsByCodPessoa.set(cd, row);
+          }
+          console.log(`[MK] Prefetch retornou ${clientsByCodPessoa.size} clientes com dados completos`);
+          if (list.length > 0) {
+            console.log(`[MK] Campos do primeiro cliente prefetch: ${Object.keys(list[0]).join(", ")}`);
+          }
+        } else {
+          console.log(`[MK] Prefetch WSMKConsultaClientes retornou status ${clientesResp.status} — fallback per-client`);
+        }
+      } catch (err) {
+        console.log(`[MK] Prefetch WSMKConsultaClientes falhou: ${err instanceof Error ? err.message : err}`);
+      }
+
+      // Helper to extract customer data from a full WSMKConsultaClientes row (has enderecos[] array)
+      const extractFromClienteFull = (row: any) => {
+        const enderecos = row.enderecos || row.Enderecos || [];
+        const primary = Array.isArray(enderecos) && enderecos.length > 0 ? enderecos[0] : {};
+        return {
+          cpfCnpj: cleanCpfCnpj(row.CPF_CNPJ || row.cpf_cnpj || row.CPF || row.cpf || row.CNPJ || row.cnpj || row.documento || ""),
+          name: row.Nome || row.nome || row.nome_cliente || row.razao_social || "",
+          email: row.Email || row.email || undefined,
+          phone: row.Fone || row.fone || row.telefone || row.celular || undefined,
+          address: primary.logradouro || primary.Logradouro || undefined,
+          addressNumber: primary.numero != null ? String(primary.numero) : undefined,
+          neighborhood: primary.bairro || primary.Bairro || undefined,
+          city: primary.cidade || primary.Cidade || primary.municipio || undefined,
+          state: primary.estado || primary.Estado || primary.sigla_estado || primary.siglaestado || primary.uf || primary.UF || undefined,
+          cep: primary.cep || primary.CEP || undefined,
+        };
+      };
+
       // Group invoices by cd_pessoa to minimize customer lookups
       const invoicesByPerson = new Map<string, any[]>();
       for (const f of faturas) {
@@ -580,38 +625,61 @@ export class MkConnector implements ErpConnector {
 
             let customerData = extractFromInvoice(personInvoices[0]);
 
-            // If no CPF/name inline, enrich via customer lookup
-            if (!customerData.cpfCnpj || !customerData.name) {
+            // Primary enrichment: use prefetched bulk data (has CPF + structured endereco)
+            const prefetched = clientsByCodPessoa.get(cdPessoa);
+            if (prefetched) {
+              const full = extractFromClienteFull(prefetched);
+              customerData = {
+                cpfCnpj: customerData.cpfCnpj || full.cpfCnpj,
+                name: customerData.name || full.name,
+                email: customerData.email || full.email,
+                phone: customerData.phone || full.phone,
+                address: customerData.address || full.address,
+                addressNumber: customerData.addressNumber || full.addressNumber,
+                neighborhood: customerData.neighborhood || full.neighborhood,
+                city: customerData.city || full.city,
+                state: customerData.state || full.state,
+                cep: customerData.cep || full.cep,
+              };
+            }
+
+            // Fallback per-client: only if prefetch didn't have this cd_pessoa AND we still lack CPF
+            if (!customerData.cpfCnpj) {
               try {
-                const clienteUrl = `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`;
-                const clienteResp = await fetch(clienteUrl, { method: "GET", signal: AbortSignal.timeout(15000) });
-                if (clienteResp.ok) {
-                  const cj: any = await clienteResp.json();
-                  const clienteRow = Array.isArray(cj) ? cj[0] : cj?.registros?.[0] || cj?.data?.[0] || cj;
-                  if (clienteRow) {
-                    customerCache.set(cdPessoa, clienteRow);
-                    const enriched = extractFromInvoice(clienteRow);
+                const altUrl = `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`;
+                const altResp = await fetch(altUrl, { method: "GET", signal: AbortSignal.timeout(10000) });
+                if (altResp.ok) {
+                  const altJson: any = await altResp.json();
+                  const row = Array.isArray(altJson) ? altJson[0]
+                    : altJson?.Clientes?.[0] || altJson?.registros?.[0] || altJson?.data?.[0]
+                    || (typeof altJson === "object" ? altJson : null);
+                  if (row) {
+                    customerCache.set(cdPessoa, row);
+                    const full = extractFromClienteFull(row);
                     customerData = {
-                      cpfCnpj: customerData.cpfCnpj || enriched.cpfCnpj,
-                      name: customerData.name || enriched.name,
-                      email: customerData.email || enriched.email,
-                      phone: customerData.phone || enriched.phone,
-                      address: customerData.address || enriched.address,
-                      addressNumber: customerData.addressNumber || enriched.addressNumber,
-                      neighborhood: customerData.neighborhood || enriched.neighborhood,
-                      city: customerData.city || enriched.city,
-                      state: customerData.state || enriched.state,
-                      cep: customerData.cep || enriched.cep,
+                      cpfCnpj: customerData.cpfCnpj || full.cpfCnpj,
+                      name: customerData.name || full.name,
+                      email: customerData.email || full.email,
+                      phone: customerData.phone || full.phone,
+                      address: customerData.address || full.address,
+                      addressNumber: customerData.addressNumber || full.addressNumber,
+                      neighborhood: customerData.neighborhood || full.neighborhood,
+                      city: customerData.city || full.city,
+                      state: customerData.state || full.state,
+                      cep: customerData.cep || full.cep,
                     };
                   }
                 }
               } catch (e) {
-                console.log(`[MK] Erro ao enriquecer cliente ${cdPessoa}: ${e instanceof Error ? e.message : e}`);
+                console.log(`[MK] Fallback enriquecer cd_pessoa=${cdPessoa} falhou: ${e instanceof Error ? e.message : e}`);
               }
             }
 
-            // Skip if still no CPF (cannot identify customer)
-            if (!customerData.cpfCnpj) return;
+            // Skip if still no CPF (cannot identify customer for cross-provider lookup)
+            if (!customerData.cpfCnpj) {
+              console.log(`[MK] Skipping cd_pessoa=${cdPessoa} (sem CPF) - nome=${customerData.name || "?"}`);
+              return;
+            }
 
             for (const f of personInvoices) {
               const dueDate = f.data_vencimento || f.DataVencimento || f.dt_vencimento || f.DtVencimento
