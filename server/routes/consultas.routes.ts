@@ -170,6 +170,18 @@ export function registerConsultasRoutes(): Router {
         const notFound = allCustomers.length === 0;
         const isOwnCustomer = allCustomers.some(c => c.isSameProvider);
 
+        // DEBUG: log what we received from ERPs before mapping
+        console.log(`[CONSULTA] allCustomers (${allCustomers.length}):`,
+          allCustomers.map(c => ({
+            providerId: c.providerId,
+            isSameProvider: c.isSameProvider,
+            name: c.name,
+            address: c.address,
+            city: c.city,
+            cep: c.cep,
+          }))
+        );
+
         // Build provider details with LGPD masking
         const providerDetails = allCustomers.map(c => {
           const paymentStatus = c.maxDaysOverdue > 90 ? "Inadimplente (90+ dias)"
