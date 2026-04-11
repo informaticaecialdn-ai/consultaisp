@@ -527,7 +527,8 @@ export class MkConnector implements ErpConnector {
         `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&data_alteracao_inicio=01/01/2000`,
         `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente_inicio=0&cd_cliente_fim=999999999`,
       ];
-      for (const [idx, url] of prefetchUrls.entries()) {
+      for (let idx = 0; idx < prefetchUrls.length; idx++) {
+        const url = prefetchUrls[idx];
         try {
           console.log(`[MK] Prefetch WSMKConsultaClientes #${idx + 1}`);
           const clientesResp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(180000) });
