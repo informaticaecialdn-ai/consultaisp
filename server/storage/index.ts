@@ -68,9 +68,10 @@ export interface IStorage {
   getHeatmapAll(): ReturnType<CustomersStorage["getHeatmapAll"]>;
   getCustomersByCepPrefix(cepPrefix: string, excludeProviderId?: number): Promise<Customer[]>;
   getCustomersByAddressForAlert(params: Parameters<CustomersStorage["getCustomersByAddressForAlert"]>[0]): ReturnType<CustomersStorage["getCustomersByAddressForAlert"]>;
-  getCepRanking(): ReturnType<CustomersStorage["getCepRanking"]>;
-  getTrend(): ReturnType<CustomersStorage["getTrend"]>;
-  getMapPoints(): ReturnType<CustomersStorage["getMapPoints"]>;
+  getCepRanking(providerId: number): ReturnType<CustomersStorage["getCepRanking"]>;
+  getTrend(providerId: number): ReturnType<CustomersStorage["getTrend"]>;
+  getMapPoints(providerId: number): ReturnType<CustomersStorage["getMapPoints"]>;
+  getDefaultersMapPoints(providerId: number): ReturnType<CustomersStorage["getDefaultersMapPoints"]>;
 
   getContractsByCustomer(customerId: number): Promise<Contract[]>;
   getContractsByProvider(providerId: number): Promise<Contract[]>;
@@ -252,9 +253,10 @@ class DatabaseStorage implements IStorage {
   getHeatmapAll = () => this._customers.getHeatmapAll();
   getCustomersByCepPrefix = (cepPrefix: string, excludeProviderId?: number) => this._customers.getCustomersByCepPrefix(cepPrefix, excludeProviderId);
   getCustomersByAddressForAlert = (params: Parameters<CustomersStorage["getCustomersByAddressForAlert"]>[0]) => this._customers.getCustomersByAddressForAlert(params);
-  getCepRanking = () => this._customers.getCepRanking();
-  getTrend = () => this._customers.getTrend();
-  getMapPoints = () => this._customers.getMapPoints();
+  getCepRanking = (providerId: number) => this._customers.getCepRanking(providerId);
+  getTrend = (providerId: number) => this._customers.getTrend(providerId);
+  getMapPoints = (providerId: number) => this._customers.getMapPoints(providerId);
+  getDefaultersMapPoints = (providerId: number) => this._customers.getDefaultersMapPoints(providerId);
 
   // Consultations
   getIspConsultationsByProvider = (providerId: number) => this._consultations.getIspConsultationsByProvider(providerId);
