@@ -304,32 +304,42 @@ export class CustomersStorage {
       ? allRows.filter(r => r.state && r.state.toUpperCase() === providerState)
       : allRows;
 
-    const cepMap = new Map<string, { city: string; count: number; totalOverdue: number; totalDays: number }>();
+    // Agrupa por CIDADE (normalizada — uppercase + trim) em vez de CEP.
+    // CEP e capilar demais: Mandaguari concentra em 1 CEP (1767 clientes) e
+    // Londrina distribui em 30 CEPs de 100 — ranking por CEP distorce realidade.
+    const cityMap = new Map<string, { city: string; count: number; totalOverdue: number; totalDays: number; sampleCep: string }>();
     for (const r of rows) {
-      if (!r.cep) continue;
-      const cep5 = r.cep.replace(/\D/g, "").slice(0, 5);
-      if (cep5.length < 5) continue;
-      const existing = cepMap.get(cep5);
+      if (!r.city) continue;
+      const cityKey = r.city.trim().toUpperCase();
+      if (!cityKey) continue;
+      const existing = cityMap.get(cityKey);
       const overdue = parseFloat(r.totalOverdueAmount || "0");
       const days = r.maxDaysOverdue || 0;
+      const cep5 = r.cep ? r.cep.replace(/\D/g, "").slice(0, 5) : "";
       if (existing) {
         existing.count++;
         existing.totalOverdue += overdue;
         existing.totalDays += days;
-        if (!existing.city && r.city) existing.city = r.city;
       } else {
-        cepMap.set(cep5, { city: r.city || "", count: 1, totalOverdue: overdue, totalDays: days });
+        // Usa capitalizacao do primeiro registro como display
+        cityMap.set(cityKey, {
+          city: r.city.trim(),
+          count: 1,
+          totalOverdue: overdue,
+          totalDays: days,
+          sampleCep: cep5,
+        });
       }
     }
 
-    return Array.from(cepMap.entries())
-      .map(([cep5, data]) => ({
-        cep5,
+    return Array.from(cityMap.values())
+      .map(data => ({
+        cep5: data.sampleCep,
         city: data.city,
         count: data.count,
         totalOverdue: data.totalOverdue,
         avgDaysOverdue: Math.round(data.totalDays / data.count),
-        riskLevel: data.count >= 11 ? "critico" : data.count >= 6 ? "alto" : data.count >= 3 ? "medio" : "baixo",
+        riskLevel: data.count >= 50 ? "critico" : data.count >= 20 ? "alto" : data.count >= 5 ? "medio" : "baixo",
       }))
       .sort((a, b) => b.count - a.count);
   }
