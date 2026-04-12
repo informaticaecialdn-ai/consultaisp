@@ -196,8 +196,7 @@ export default function BenchmarkRegionalPage() {
 }
 
 function CityRankingCards({ ranking }: { ranking: CepRanking[] }) {
-  // Agrupar ranking por cidade (campo "city" vem como "Cidade — Bairro" do backend)
-  const cityGroups = new Map<string, { bairros: CepRanking[]; totalCount: number; totalOverdue: number }>();
+  const cityGroups = new Map<string, { bairros: CepRanking[]; totalCount: number; totalOverdue: number; avgDays: number }>();
 
   for (const row of ranking) {
     const parts = row.city.split(" — ");
@@ -207,63 +206,98 @@ function CityRankingCards({ ranking }: { ranking: CepRanking[] }) {
       existing.bairros.push(row);
       existing.totalCount += row.count;
       existing.totalOverdue += row.totalOverdue;
+      existing.avgDays = Math.round((existing.avgDays * (existing.bairros.length - 1) + row.avgDaysOverdue) / existing.bairros.length);
     } else {
       cityGroups.set(cityName, {
         bairros: [row],
         totalCount: row.count,
         totalOverdue: row.totalOverdue,
+        avgDays: row.avgDaysOverdue,
       });
     }
   }
 
   const sortedCities = Array.from(cityGroups.entries()).sort((a, b) => b[1].totalCount - a[1].totalCount);
+  const grandTotal = sortedCities.reduce((s, [, d]) => s + d.totalCount, 0);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div className="flex items-center gap-2">
-        <AlertTriangle className="w-5 h-5 text-[var(--color-gold)]" />
-        <h2 className="font-semibold text-base">Ranking por Cidade e Bairro</h2>
+        <MapPin className="w-5 h-5 text-[var(--color-navy)]" />
+        <h2 className="font-semibold text-lg">Inadimplencia por Cidade</h2>
         <span className="ml-auto text-sm text-muted-foreground">{sortedCities.length} cidades</span>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div className="space-y-4">
         {sortedCities.map(([cityName, data]) => {
+          const pct = grandTotal > 0 ? Math.round((data.totalCount / grandTotal) * 100) : 0;
           const cityRisk = data.totalCount >= 500 ? "critico" : data.totalCount >= 100 ? "alto" : data.totalCount >= 20 ? "medio" : "baixo";
+          const barColor = cityRisk === "critico" ? "bg-red-500" : cityRisk === "alto" ? "bg-orange-500" : cityRisk === "medio" ? "bg-amber-500" : "bg-green-500";
+
           return (
-            <Card key={cityName} className="p-0 overflow-hidden">
-              <div className="px-4 py-3 border-b bg-muted/30 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-muted-foreground" />
-                  <span className="font-semibold text-sm">{cityName}</span>
-                  <Badge className={`text-xs ${riskColor[cityRisk] || ""}`}>{cityRisk}</Badge>
+            <Card key={cityName} className="overflow-hidden">
+              {/* City header */}
+              <div className="px-5 pt-4 pb-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className={`w-3 h-3 rounded-full shrink-0 ${barColor}`} />
+                    <h3 className="font-bold text-base truncate">{cityName}</h3>
+                    <Badge className={`text-[10px] shrink-0 ${riskColor[cityRisk] || ""}`}>{cityRisk}</Badge>
+                  </div>
+                  <div className="flex items-center gap-5 shrink-0 text-right">
+                    <div>
+                      <p className="text-xl font-bold text-[var(--color-danger)]">{data.totalCount.toLocaleString("pt-BR")}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">inadimplentes</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold">R$ {fmt(data.totalOverdue)}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">em aberto</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold">{data.avgDays}d</p>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">media atraso</p>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                  <span><strong className="text-foreground">{data.totalCount}</strong> inadimplentes</span>
-                  <span><strong className="text-foreground">R$ {fmt(data.totalOverdue)}</strong></span>
+
+                {/* Progress bar */}
+                <div className="mt-3 flex items-center gap-2">
+                  <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${barColor} transition-all`} style={{ width: `${Math.max(pct, 2)}%` }} />
+                  </div>
+                  <span className="text-xs font-medium text-muted-foreground w-10 text-right">{pct}%</span>
                 </div>
               </div>
-              <div className="max-h-[280px] overflow-y-auto">
+
+              {/* Bairros table */}
+              <div className="border-t max-h-[240px] overflow-y-auto">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="border-b bg-muted/20 sticky top-0">
-                      <th className="text-left px-3 py-2 text-muted-foreground font-medium">Bairro</th>
-                      <th className="text-right px-3 py-2 text-muted-foreground font-medium">Qtd</th>
-                      <th className="text-right px-3 py-2 text-muted-foreground font-medium">Valor</th>
-                      <th className="text-right px-3 py-2 text-muted-foreground font-medium">Atraso</th>
-                      <th className="text-center px-3 py-2 text-muted-foreground font-medium">Risco</th>
+                    <tr className="bg-muted/30 sticky top-0 z-10">
+                      <th className="text-left pl-5 pr-2 py-2 text-muted-foreground font-medium">Bairro</th>
+                      <th className="text-right px-2 py-2 text-muted-foreground font-medium">Qtd</th>
+                      <th className="text-right px-2 py-2 text-muted-foreground font-medium hidden sm:table-cell">Valor</th>
+                      <th className="text-right px-2 py-2 text-muted-foreground font-medium hidden md:table-cell">Atraso</th>
+                      <th className="text-left px-2 py-2 text-muted-foreground font-medium w-24">Distribuicao</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y">
+                  <tbody className="divide-y divide-border/50">
                     {data.bairros.sort((a, b) => b.count - a.count).map((row, i) => {
                       const bairro = row.city.split(" — ")[1] || "Sem bairro";
+                      const bairroPct = data.totalCount > 0 ? Math.round((row.count / data.totalCount) * 100) : 0;
                       return (
-                        <tr key={i} className="hover:bg-muted/20">
-                          <td className="px-3 py-2 text-sm">{bairro}</td>
-                          <td className="px-3 py-2 text-right font-bold">{row.count}</td>
-                          <td className="px-3 py-2 text-right">R$ {fmt(row.totalOverdue)}</td>
-                          <td className="px-3 py-2 text-right">{row.avgDaysOverdue}d</td>
-                          <td className="px-3 py-2 text-center">
-                            <Badge className={`text-[10px] ${riskColor[row.riskLevel] || ""}`}>{row.riskLevel}</Badge>
+                        <tr key={i} className="hover:bg-muted/10 transition-colors">
+                          <td className="pl-5 pr-2 py-2 text-sm">{bairro}</td>
+                          <td className="px-2 py-2 text-right font-semibold tabular-nums">{row.count}</td>
+                          <td className="px-2 py-2 text-right text-muted-foreground hidden sm:table-cell">R$ {fmt(row.totalOverdue)}</td>
+                          <td className="px-2 py-2 text-right text-muted-foreground hidden md:table-cell">{row.avgDaysOverdue}d</td>
+                          <td className="px-2 py-2">
+                            <div className="flex items-center gap-1.5">
+                              <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
+                                <div className={`h-full rounded-full ${barColor} opacity-60`} style={{ width: `${Math.max(bairroPct, 3)}%` }} />
+                              </div>
+                              <span className="text-[10px] text-muted-foreground w-7 text-right tabular-nums">{bairroPct}%</span>
+                            </div>
                           </td>
                         </tr>
                       );
