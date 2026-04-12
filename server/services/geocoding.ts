@@ -62,6 +62,40 @@ export async function geocodeCity(city: string, state: string): Promise<[number,
   return null;
 }
 
+/** Geocodificar por CEP via Nominatim → lat/lng do bairro/regiao do CEP.
+ * Cache por CEP unico (~100 CEPs unicos pra 6000 clientes → ~100 chamadas). */
+export async function geocodeByCep(cep: string, city?: string, state?: string): Promise<[number, number] | null> {
+  if (!cep) return null;
+  const cleaned = cep.replace(/\D/g, "").padEnd(8, "0").slice(0, 8);
+  if (cleaned.length < 8) return null;
+  const key = `cep:${cleaned}`;
+  if (_geoCache.has(key)) return _geoCache.get(key)!;
+  try {
+    const q = city && state
+      ? `${cleaned}, ${city}, ${state}, Brasil`
+      : `${cleaned}, Brasil`;
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&countrycodes=br`;
+    const r = await fetch(url, {
+      headers: { "User-Agent": "ConsultaISP/1.0 heatmap@consultaisp.com.br" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (r.ok) {
+      const data: any[] = await r.json();
+      if (data[0]) {
+        const lat = parseFloat(data[0].lat);
+        const lon = parseFloat(data[0].lon);
+        if (lat >= -34 && lat <= 6 && lon >= -74 && lon <= -34) {
+          const coords: [number, number] = [lat, lon];
+          _geoCache.set(key, coords);
+          return coords;
+        }
+      }
+    }
+  } catch {}
+  _geoCache.set(key, null);
+  return null;
+}
+
 /** Resolver CEP → cidade + estado via ViaCEP */
 export async function geocodeCep(cep: string): Promise<{ city: string; state: string; street?: string; neighborhood?: string } | null> {
   if (!cep || cep.length < 8) return null;

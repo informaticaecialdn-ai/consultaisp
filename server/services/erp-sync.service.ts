@@ -7,7 +7,7 @@
 
 import { storage } from "../storage";
 import { getConnector, buildConnectorConfig, getProviderLimiter } from "../erp";
-import { geocodeCity, geocodeCep, resolveIbgeCode } from "./geocoding";
+import { geocodeCity, geocodeCep, geocodeByCep, resolveIbgeCode } from "./geocoding";
 
 let _syncing = false;
 
@@ -104,10 +104,17 @@ export async function syncProviderToDb(
         } catch {}
       }
 
-      // Geocodificar por cidade (cache por cidade, ~10 cidades unicas para 500+ clientes).
-      // NAO usa geocodeAddress aqui pq Nominatim rate-limita a ~1 req/s → bulk de 500 clientes
-      // levaria 9+min. City-level com jitter ±2km e LGPD-friendly e suficiente pra heatmap.
-      if (city && state) {
+      // Geocodificar: CEP → bairro-level coords (cache por CEP unico, ~100 CEPs = ~100 calls).
+      // Fallback: cidade → city-level com jitter.
+      // LGPD: jitter ±200m no CEP, ±2km na cidade.
+      if (customer.cep && city) {
+        const cepCoords = await geocodeByCep(customer.cep, city, state);
+        if (cepCoords) {
+          lat = String(cepCoords[0] + (Math.random() - 0.5) * 0.004);
+          lng = String(cepCoords[1] + (Math.random() - 0.5) * 0.004);
+        }
+      }
+      if (!lat && city && state) {
         const cityCoords = await geocodeCity(city, state);
         if (cityCoords) {
           lat = String(cityCoords[0] + (Math.random() - 0.5) * 0.02);
