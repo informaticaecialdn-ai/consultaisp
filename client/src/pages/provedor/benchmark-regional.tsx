@@ -105,7 +105,7 @@ export default function BenchmarkRegionalPage() {
       <div>
         <h1 className="text-2xl font-bold">Meus Dados — Análise de Inadimplência</h1>
         <p className="text-sm text-muted-foreground">
-          Visão analítica da sua base de inadimplentes: concentração geográfica, tendência e ranking por CEP
+          Visão analítica da sua base de inadimplentes: concentração geográfica, tendência e ranking por bairro
         </p>
       </div>
 
@@ -122,9 +122,9 @@ export default function BenchmarkRegionalPage() {
           <p className="text-xs text-muted-foreground mt-1">total pendente</p>
         </Card>
         <Card className="p-5">
-          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">CEPs Afetados</p>
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Bairros Afetados</p>
           <p className="text-3xl font-bold mt-2">{ranking.length}</p>
-          <p className="text-xs text-muted-foreground mt-1">regiões com inadimplência</p>
+          <p className="text-xs text-muted-foreground mt-1">bairros com inadimplência</p>
         </Card>
         <Card className="p-5">
           <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Tendência</p>
@@ -167,50 +167,14 @@ export default function BenchmarkRegionalPage() {
         )}
       </Card>
 
-      {/* Ranking de CEPs */}
-      <Card className="p-0 overflow-hidden">
-        <div className="p-4 border-b flex items-center gap-2">
-          <AlertTriangle className="w-5 h-5 text-[var(--color-gold)]" />
-          <h2 className="font-semibold text-base">Ranking de CEPs — Meus Inadimplentes</h2>
-          <span className="ml-auto text-sm text-muted-foreground">{ranking.length} CEPs</span>
-        </div>
-        {rankingLoading ? (
-          <div className="p-8 text-center text-muted-foreground">Carregando...</div>
-        ) : ranking.length === 0 ? (
-          <div className="p-8 text-center text-muted-foreground">Nenhum inadimplente cadastrado ainda. Sincronize com seu ERP ou importe via CSV para começar.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/40">
-                  <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">CEP</th>
-                  <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Cidade</th>
-                  <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Inadimplentes</th>
-                  <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Valor Total</th>
-                  <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Media Atraso</th>
-                  <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Risco</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {ranking.slice(0, 30).map((row) => (
-                  <tr key={row.cep5} className="hover:bg-muted/30">
-                    <td className="px-4 py-3 font-mono text-sm">{row.cep5}-000</td>
-                    <td className="px-4 py-3 text-sm">{row.city || "—"}</td>
-                    <td className="px-4 py-3 font-bold text-base">{row.count}</td>
-                    <td className="px-4 py-3 font-semibold text-sm">R$ {fmt(row.totalOverdue)}</td>
-                    <td className="px-4 py-3 text-sm">{row.avgDaysOverdue}d</td>
-                    <td className="px-4 py-3">
-                      <Badge className={`text-xs ${riskColor[row.riskLevel] || ""}`}>
-                        {row.riskLevel}
-                      </Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+      {/* Ranking por Cidade + Bairro */}
+      {rankingLoading ? (
+        <Card className="p-8 text-center text-muted-foreground">Carregando...</Card>
+      ) : ranking.length === 0 ? (
+        <Card className="p-8 text-center text-muted-foreground">Nenhum inadimplente cadastrado ainda. Sincronize com seu ERP ou importe via CSV para começar.</Card>
+      ) : (
+        <CityRankingCards ranking={ranking} />
+      )}
 
       {/* Mapa de inadimplentes individuais */}
       <Card className="p-5">
@@ -227,6 +191,90 @@ export default function BenchmarkRegionalPage() {
           <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-red-500" /> +90 dias (crítico)</span>
         </div>
       </Card>
+    </div>
+  );
+}
+
+function CityRankingCards({ ranking }: { ranking: CepRanking[] }) {
+  // Agrupar ranking por cidade (campo "city" vem como "Cidade — Bairro" do backend)
+  const cityGroups = new Map<string, { bairros: CepRanking[]; totalCount: number; totalOverdue: number }>();
+
+  for (const row of ranking) {
+    const parts = row.city.split(" — ");
+    const cityName = parts[0] || "Sem cidade";
+    const existing = cityGroups.get(cityName);
+    if (existing) {
+      existing.bairros.push(row);
+      existing.totalCount += row.count;
+      existing.totalOverdue += row.totalOverdue;
+    } else {
+      cityGroups.set(cityName, {
+        bairros: [row],
+        totalCount: row.count,
+        totalOverdue: row.totalOverdue,
+      });
+    }
+  }
+
+  const sortedCities = Array.from(cityGroups.entries()).sort((a, b) => b[1].totalCount - a[1].totalCount);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="w-5 h-5 text-[var(--color-gold)]" />
+        <h2 className="font-semibold text-base">Ranking por Cidade e Bairro</h2>
+        <span className="ml-auto text-sm text-muted-foreground">{sortedCities.length} cidades</span>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        {sortedCities.map(([cityName, data]) => {
+          const cityRisk = data.totalCount >= 500 ? "critico" : data.totalCount >= 100 ? "alto" : data.totalCount >= 20 ? "medio" : "baixo";
+          return (
+            <Card key={cityName} className="p-0 overflow-hidden">
+              <div className="px-4 py-3 border-b bg-muted/30 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-muted-foreground" />
+                  <span className="font-semibold text-sm">{cityName}</span>
+                  <Badge className={`text-xs ${riskColor[cityRisk] || ""}`}>{cityRisk}</Badge>
+                </div>
+                <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                  <span><strong className="text-foreground">{data.totalCount}</strong> inadimplentes</span>
+                  <span><strong className="text-foreground">R$ {fmt(data.totalOverdue)}</strong></span>
+                </div>
+              </div>
+              <div className="max-h-[280px] overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b bg-muted/20 sticky top-0">
+                      <th className="text-left px-3 py-2 text-muted-foreground font-medium">Bairro</th>
+                      <th className="text-right px-3 py-2 text-muted-foreground font-medium">Qtd</th>
+                      <th className="text-right px-3 py-2 text-muted-foreground font-medium">Valor</th>
+                      <th className="text-right px-3 py-2 text-muted-foreground font-medium">Atraso</th>
+                      <th className="text-center px-3 py-2 text-muted-foreground font-medium">Risco</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {data.bairros.sort((a, b) => b.count - a.count).map((row, i) => {
+                      const bairro = row.city.split(" — ")[1] || "Sem bairro";
+                      return (
+                        <tr key={i} className="hover:bg-muted/20">
+                          <td className="px-3 py-2 text-sm">{bairro}</td>
+                          <td className="px-3 py-2 text-right font-bold">{row.count}</td>
+                          <td className="px-3 py-2 text-right">R$ {fmt(row.totalOverdue)}</td>
+                          <td className="px-3 py-2 text-right">{row.avgDaysOverdue}d</td>
+                          <td className="px-3 py-2 text-center">
+                            <Badge className={`text-[10px] ${riskColor[row.riskLevel] || ""}`}>{row.riskLevel}</Badge>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }
