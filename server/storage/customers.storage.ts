@@ -329,7 +329,15 @@ export class CustomersStorage {
       }
     }
 
+    // Agregar por cidade pra filtrar cidades com menos de 28 clientes totais
+    const cityTotals = new Map<string, number>();
+    for (const d of Array.from(map.values())) {
+      const ck = d.city.toUpperCase();
+      cityTotals.set(ck, (cityTotals.get(ck) || 0) + d.total);
+    }
+
     return Array.from(map.values())
+      .filter(d => (cityTotals.get(d.city.toUpperCase()) || 0) >= 28)
       .map(d => ({
         city: d.city,
         neighborhood: d.neighborhood,
@@ -388,9 +396,16 @@ export class CustomersStorage {
       }
     }
 
+    // Filtrar cidades com menos de 28 clientes inadimplentes
+    const cityOverdueTotals = new Map<string, number>();
+    for (const d of Array.from(groupMap.values())) {
+      const ck = d.city.toUpperCase();
+      cityOverdueTotals.set(ck, (cityOverdueTotals.get(ck) || 0) + d.count);
+    }
+
     return Array.from(groupMap.values())
+      .filter(d => (cityOverdueTotals.get(d.city.toUpperCase()) || 0) >= 28)
       .map(data => ({
-        // Campo cep5 usado pelo front como "bairro" display ate migrar o schema do tipo
         cep5: data.sampleCep,
         city: `${data.city} — ${data.neighborhood}`,
         count: data.count,
@@ -471,15 +486,24 @@ export class CustomersStorage {
       }
     }
 
-    return Array.from(bairroMap.values()).map(data => ({
-      lat: data.lats.reduce((s, v) => s + v, 0) / data.lats.length,
-      lng: data.lngs.reduce((s, v) => s + v, 0) / data.lngs.length,
-      cep5: data.neighborhood,
-      city: data.city,
-      count: data.count,
-      totalOverdue: data.totalOverdue,
-      riskLevel: data.count >= 50 ? "critico" : data.count >= 20 ? "alto" : data.count >= 5 ? "medio" : "baixo",
-    }));
+    // Filtrar cidades com menos de 28 clientes no mapa
+    const cityMapTotals = new Map<string, number>();
+    for (const d of Array.from(bairroMap.values())) {
+      const ck = d.city.toUpperCase();
+      cityMapTotals.set(ck, (cityMapTotals.get(ck) || 0) + d.count);
+    }
+
+    return Array.from(bairroMap.values())
+      .filter(d => (cityMapTotals.get(d.city.toUpperCase()) || 0) >= 28)
+      .map(data => ({
+        lat: data.lats.reduce((s, v) => s + v, 0) / data.lats.length,
+        lng: data.lngs.reduce((s, v) => s + v, 0) / data.lngs.length,
+        cep5: data.neighborhood,
+        city: data.city,
+        count: data.count,
+        totalOverdue: data.totalOverdue,
+        riskLevel: data.count >= 50 ? "critico" : data.count >= 20 ? "alto" : data.count >= 5 ? "medio" : "baixo",
+      }));
   }
 
   /** Lista individual de clientes inadimplentes com coordenadas (para mapa).
@@ -499,9 +523,19 @@ export class CustomersStorage {
       ),
     );
 
-    return rows
+    const filtered = rows
       .filter(r => r.latitude && r.longitude)
-      .filter(r => !providerState || (r.state && r.state.toUpperCase() === providerState))
+      .filter(r => !providerState || (r.state && r.state.toUpperCase() === providerState));
+
+    // Contar por cidade pra filtrar cidades com menos de 28 clientes
+    const cityCount = new Map<string, number>();
+    for (const r of filtered) {
+      const ck = (r.city || "").trim().toUpperCase();
+      if (ck) cityCount.set(ck, (cityCount.get(ck) || 0) + 1);
+    }
+
+    return filtered
+      .filter(r => (cityCount.get((r.city || "").trim().toUpperCase()) || 0) >= 28)
       .map(r => {
         const lat = parseFloat(r.latitude!);
         const lng = parseFloat(r.longitude!);
