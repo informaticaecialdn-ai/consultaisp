@@ -72,6 +72,7 @@ export interface IStorage {
   getTrend(providerId: number): ReturnType<CustomersStorage["getTrend"]>;
   getMapPoints(providerId: number): ReturnType<CustomersStorage["getMapPoints"]>;
   getDefaultersMapPoints(providerId: number): ReturnType<CustomersStorage["getDefaultersMapPoints"]>;
+  getNeighborhoodStats(providerId: number): ReturnType<CustomersStorage["getNeighborhoodStats"]>;
 
   getContractsByCustomer(customerId: number): Promise<Contract[]>;
   getContractsByProvider(providerId: number): Promise<Contract[]>;
@@ -256,6 +257,7 @@ class DatabaseStorage implements IStorage {
   getCepRanking = (providerId: number) => this._customers.getCepRanking(providerId);
   getTrend = (providerId: number) => this._customers.getTrend(providerId);
   getMapPoints = (providerId: number) => this._customers.getMapPoints(providerId);
+  getNeighborhoodStats = (providerId: number) => this._customers.getNeighborhoodStats(providerId);
   getDefaultersMapPoints = (providerId: number) => this._customers.getDefaultersMapPoints(providerId);
 
   // Consultations

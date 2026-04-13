@@ -39,7 +39,59 @@ export async function syncProviderToDb(
 
   const limiter = getProviderLimiter(providerId, erpSource);
 
-  // Buscar cancelados com divida (I/N/FA) se disponivel, senao todos os inadimplentes
+  // 1. Buscar TODOS os clientes (ativos + inativos) pra ter total por bairro.
+  // SEM geocoding (so inadimplentes precisam de coords pro mapa). Resolve cidade FK.
+  const hasFetchCustomers = typeof connector.fetchCustomers === "function";
+  if (hasFetchCustomers) {
+    try {
+      const allResult = await limiter(() => connector.fetchCustomers!(config));
+      if (allResult.ok && allResult.customers.length > 0) {
+        console.log(`[ERPSync] ${providerName}: fetchCustomers retornou ${allResult.customers.length} clientes totais`);
+        let activeUpserted = 0;
+        for (const customer of allResult.customers) {
+          try {
+            let city = customer.city || "";
+            let state = customer.state || "";
+
+            if (/^\d+$/.test(city)) {
+              const ibge = await resolveIbgeCode(city);
+              if (ibge) { city = ibge.city; state = ibge.state; }
+              else city = "";
+            }
+            if (customer.cep && (!city || !state)) {
+              const loc = await geocodeCep(customer.cep);
+              if (loc) { if (!city) city = loc.city; if (!state) state = loc.state; }
+            }
+
+            await storage.upsertFromErp({
+              providerId,
+              cpfCnpj: customer.cpfCnpj,
+              name: customer.name,
+              email: customer.email,
+              phone: customer.phone,
+              address: customer.address,
+              addressNumber: customer.addressNumber,
+              complement: customer.complement,
+              neighborhood: customer.neighborhood,
+              city,
+              state,
+              cep: customer.cep,
+              totalOverdueAmount: 0,
+              maxDaysOverdue: 0,
+              overdueInvoicesCount: 0,
+              erpSource,
+            });
+            activeUpserted++;
+          } catch {}
+        }
+        console.log(`[ERPSync] ${providerName}: ${activeUpserted} clientes totais upserted (sem geocoding)`);
+      }
+    } catch (err: any) {
+      console.warn(`[ERPSync] ${providerName}: fetchCustomers falhou: ${err.message}`);
+    }
+  }
+
+  // 2. Buscar inadimplentes (sobrescreve os ativos com dados de divida + geocoding)
   const hasCancelled = typeof (connector as any).fetchCancelledDelinquents === "function";
   const result = await limiter(() =>
     hasCancelled

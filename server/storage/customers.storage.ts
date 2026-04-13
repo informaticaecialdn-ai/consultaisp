@@ -287,6 +287,61 @@ export class CustomersStorage {
     }));
   }
 
+  /** Stats por bairro: total clientes vs inadimplentes, com % */
+  async getNeighborhoodStats(providerId: number): Promise<{
+    city: string; neighborhood: string; total: number; overdue: number;
+    pct: number; totalOverdue: number; avgDaysOverdue: number;
+  }[]> {
+    const provRows = await db.select({ state: providers.addressState }).from(providers).where(eq(providers.id, providerId)).limit(1);
+    const providerState = provRows[0]?.state?.toUpperCase() || null;
+
+    const allRows = await db.select().from(customers).where(eq(customers.providerId, providerId));
+    const filtered = providerState
+      ? allRows.filter(r => r.state && r.state.toUpperCase() === providerState)
+      : allRows;
+
+    const map = new Map<string, { city: string; neighborhood: string; total: number; overdue: number; totalOverdue: number; totalDays: number }>();
+    for (const r of filtered) {
+      if (!r.city) continue;
+      const cityName = r.city.trim();
+      const neighborhood = (r.neighborhood || "").trim() || "Sem bairro";
+      const key = `${cityName.toUpperCase()}||${neighborhood.toUpperCase()}`;
+      const isOverdue = r.paymentStatus === "overdue" && (parseFloat(r.totalOverdueAmount || "0") > 0);
+      const existing = map.get(key);
+      const overdue = parseFloat(r.totalOverdueAmount || "0");
+      const days = r.maxDaysOverdue || 0;
+      if (existing) {
+        existing.total++;
+        if (isOverdue) {
+          existing.overdue++;
+          existing.totalOverdue += overdue;
+          existing.totalDays += days;
+        }
+      } else {
+        map.set(key, {
+          city: cityName,
+          neighborhood,
+          total: 1,
+          overdue: isOverdue ? 1 : 0,
+          totalOverdue: isOverdue ? overdue : 0,
+          totalDays: isOverdue ? days : 0,
+        });
+      }
+    }
+
+    return Array.from(map.values())
+      .map(d => ({
+        city: d.city,
+        neighborhood: d.neighborhood,
+        total: d.total,
+        overdue: d.overdue,
+        pct: d.total > 0 ? Math.round((d.overdue / d.total) * 100) : 0,
+        totalOverdue: d.totalOverdue,
+        avgDaysOverdue: d.overdue > 0 ? Math.round(d.totalDays / d.overdue) : 0,
+      }))
+      .sort((a, b) => b.overdue - a.overdue);
+  }
+
   /** Ranking de CEPs por risco — somente do provedor, filtrado por UF do provedor */
   async getCepRanking(providerId: number): Promise<{
     cep5: string; city: string; count: number; totalOverdue: number; avgDaysOverdue: number; riskLevel: string;
@@ -373,46 +428,57 @@ export class CustomersStorage {
     return months;
   }
 
-  /** Pontos para mapa de risco — somente do provedor */
+  /** Pontos para mapa de risco — agrupados por bairro+cidade, filtrado por UF do provedor.
+   * Cada ponto = 1 bairro com coordenada media e tamanho proporcional a qtd de inadimplentes. */
   async getMapPoints(providerId: number): Promise<{
     lat: number; lng: number; cep5: string; city: string; count: number; totalOverdue: number; riskLevel: string;
   }[]> {
-    const rows = await db.select().from(customers).where(
+    const provRows = await db.select({ state: providers.addressState }).from(providers).where(eq(providers.id, providerId)).limit(1);
+    const providerState = provRows[0]?.state?.toUpperCase() || null;
+
+    const allRows = await db.select().from(customers).where(
       and(
         eq(customers.providerId, providerId),
         eq(customers.paymentStatus, "overdue"),
       ),
     );
+    const rows = providerState
+      ? allRows.filter(r => r.state && r.state.toUpperCase() === providerState)
+      : allRows;
 
-    const cepMap = new Map<string, { lats: number[]; lngs: number[]; city: string; count: number; totalOverdue: number }>();
+    const bairroMap = new Map<string, { lats: number[]; lngs: number[]; city: string; neighborhood: string; count: number; totalOverdue: number; totalDays: number }>();
     for (const r of rows) {
-      if (!r.cep || !r.latitude || !r.longitude) continue;
-      const cep5 = r.cep.replace(/\D/g, "").slice(0, 5);
-      if (cep5.length < 5) continue;
+      if (!r.latitude || !r.longitude) continue;
       const lat = parseFloat(r.latitude);
       const lng = parseFloat(r.longitude);
       if (isNaN(lat) || isNaN(lng)) continue;
 
-      const existing = cepMap.get(cep5);
+      const city = (r.city || "").trim();
+      const neighborhood = (r.neighborhood || "").trim();
+      const key = `${city.toUpperCase()}||${neighborhood.toUpperCase() || "SEM_BAIRRO"}`;
+
+      const existing = bairroMap.get(key);
+      const overdue = parseFloat(r.totalOverdueAmount || "0");
+      const days = r.maxDaysOverdue || 0;
       if (existing) {
         existing.lats.push(lat);
         existing.lngs.push(lng);
         existing.count++;
-        existing.totalOverdue += parseFloat(r.totalOverdueAmount || "0");
-        if (!existing.city && r.city) existing.city = r.city;
+        existing.totalOverdue += overdue;
+        existing.totalDays += days;
       } else {
-        cepMap.set(cep5, { lats: [lat], lngs: [lng], city: r.city || "", count: 1, totalOverdue: parseFloat(r.totalOverdueAmount || "0") });
+        bairroMap.set(key, { lats: [lat], lngs: [lng], city, neighborhood: neighborhood || "Sem bairro", count: 1, totalOverdue: overdue, totalDays: days });
       }
     }
 
-    return Array.from(cepMap.entries()).map(([cep5, data]) => ({
+    return Array.from(bairroMap.values()).map(data => ({
       lat: data.lats.reduce((s, v) => s + v, 0) / data.lats.length,
       lng: data.lngs.reduce((s, v) => s + v, 0) / data.lngs.length,
-      cep5,
+      cep5: data.neighborhood,
       city: data.city,
       count: data.count,
       totalOverdue: data.totalOverdue,
-      riskLevel: data.count >= 11 ? "critico" : data.count >= 6 ? "alto" : data.count >= 3 ? "medio" : "baixo",
+      riskLevel: data.count >= 50 ? "critico" : data.count >= 20 ? "alto" : data.count >= 5 ? "medio" : "baixo",
     }));
   }
 

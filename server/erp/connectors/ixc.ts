@@ -401,76 +401,11 @@ export class IxcConnector implements ErpConnector {
         }
       }
 
-      // Resolver FK cidade/uf: IXC armazena cidade/uf como FK numerico (nao nome direto).
-      // Fazer bulk fetch da tabela "cidade" e montar Map<id, {nome, uf_sigla}>.
-      const cidadeMap = new Map<string, { nome: string; uf: string }>();
-      try {
-        const cidades = await this.listAll(config, "cidade", {
-          qtype: "cidade.id",
-          query: "0",
-          oper: ">",
-          sortname: "cidade.id",
-          sortorder: "asc",
-        }, 500, 50);
-        console.log(`[IXC] fetchCancelledDelinquents: cidade table retornou ${cidades.length} rows`);
-        // Tambem fetch uf pra resolver FK
-        const ufs = await this.listAll(config, "uf", {
-          qtype: "uf.id",
-          query: "0",
-          oper: ">",
-          sortname: "uf.id",
-          sortorder: "asc",
-        }, 200, 5).catch(() => [] as any[]);
-        const ufMap = new Map<string, string>();
-        for (const u of ufs) {
-          const id = String(u.id || "");
-          const sigla = String(u.uf || u.sigla || u.nome || "");
-          if (id && sigla) ufMap.set(id, sigla);
-        }
-        for (const c of cidades) {
-          const id = String(c.id || "");
-          const nome = String(c.nome || c.cidade || "");
-          const ufId = String(c.uf || c.id_uf || "");
-          const uf = ufMap.get(ufId) || ufId;
-          if (id && nome) cidadeMap.set(id, { nome, uf });
-        }
-        console.log(`[IXC] fetchCancelledDelinquents: cidadeMap size=${cidadeMap.size}, ufMap size=${ufMap.size}`);
-      } catch (e) {
-        console.log(`[IXC] Falha bulk cidade/uf: ${e instanceof Error ? e.message : e}`);
-      }
+      // Resolver FK cidade/uf via metodos reutilizaveis
+      const cidadeMap = await this.bulkResolveCidadeUf(config);
+      console.log(`[IXC] fetchCancelledDelinquents: cidadeMap size=${cidadeMap.size}`);
 
       console.log(`[IXC] fetchCancelledDelinquents: ${clientsWithDebt.length} cancelados com divida, ${clienteMap.size} com dados cadastrais`);
-
-      // DIAG: dump primeiros 3 clientes com TODOS os campos pra diagnosticar city/cidade
-      const diagSample = Array.from(clienteMap.values()).slice(0, 3);
-      for (const c of diagSample) {
-        console.log(`[IXC-DIAG] cliente id=${c.id} fields: ${Object.keys(c).join(",")}`);
-        console.log(`[IXC-DIAG] cliente id=${c.id} cidade="${c.cidade}" bairro="${c.bairro}" endereco="${c.endereco}" uf="${c.uf}" cep="${c.cep}"`);
-      }
-      // Contagem de valores unicos de cidade pra ver distribuicao
-      const cidadeDistrib = new Map<string, number>();
-      for (const c of Array.from(clienteMap.values())) {
-        const k = String(c.cidade || "(vazio)");
-        cidadeDistrib.set(k, (cidadeDistrib.get(k) || 0) + 1);
-      }
-      const topCidades = Array.from(cidadeDistrib.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10);
-      console.log(`[IXC-DIAG] Top 10 valores de c.cidade: ${JSON.stringify(topCidades)}`);
-
-      // Helper: resolver FK cidade/uf via cidadeMap quando c.cidade for numerico
-      const resolveCityState = (c: any): { city?: string; state?: string } => {
-        const rawCidade = c?.cidade;
-        const rawUf = c?.uf || c?.estado;
-        // Se cidade ja e string nao-numerica, usar direto
-        if (rawCidade && !/^\d+$/.test(String(rawCidade))) {
-          return { city: String(rawCidade), state: rawUf ? String(rawUf) : undefined };
-        }
-        // cidade e FK numerica → resolver via cidadeMap
-        if (rawCidade && cidadeMap.has(String(rawCidade))) {
-          const resolved = cidadeMap.get(String(rawCidade))!;
-          return { city: resolved.nome, state: resolved.uf || (rawUf ? String(rawUf) : undefined) };
-        }
-        return { city: undefined, state: rawUf && !/^\d+$/.test(String(rawUf)) ? String(rawUf) : undefined };
-      };
 
       // Montar resultado normalizado
       const customers: NormalizedErpCustomer[] = clientsWithDebt
@@ -479,7 +414,7 @@ export class IxcConnector implements ErpConnector {
           const overdue = overdueByClient.get(cid)!;
           const cpfCnpj = c ? cleanCpfCnpj(c.cpf_cnpj || c.cnpj_cpf || c.documento || "") : "";
           if (!cpfCnpj) return null;
-          const loc = resolveCityState(c);
+          const loc = this.resolveCityState(c, cidadeMap);
           return {
             cpfCnpj,
             name: c?.razao || c?.nome || "",
@@ -524,10 +459,14 @@ export class IxcConnector implements ErpConnector {
         sortorder: "asc",
       });
 
+      // Bulk resolve cidade/uf FK (mesma logica do fetchCancelledDelinquents)
+      const cidadeMap = await this.bulkResolveCidadeUf(config);
+
       const customers: NormalizedErpCustomer[] = allRows
         .map((row: any) => {
           const cpfCnpj = cleanCpfCnpj(row.cpf_cnpj || row.cnpj_cpf || row.documento || "");
           if (!cpfCnpj) return null;
+          const loc = this.resolveCityState(row, cidadeMap);
           return {
             cpfCnpj,
             name: row.razao || row.nome || "",
@@ -535,8 +474,9 @@ export class IxcConnector implements ErpConnector {
             phone: row.fone || row.celular ? cleanPhone(row.fone || row.celular) : undefined,
             address: row.endereco || row.logradouro || undefined,
             addressNumber: extractNumberFromAddress(row.endereco, row.numero),
-            city: row.cidade || undefined,
-            state: row.uf || row.estado || undefined,
+            neighborhood: row.bairro || undefined,
+            city: loc.city,
+            state: loc.state,
             cep: row.cep ? cleanCep(row.cep) : undefined,
             totalOverdueAmount: 0,
             maxDaysOverdue: 0,
@@ -545,6 +485,7 @@ export class IxcConnector implements ErpConnector {
         })
         .filter((c): c is NonNullable<typeof c> => c !== null);
 
+      console.log(`[IXC] fetchCustomers: ${customers.length} clientes totais`);
       return {
         ok: true,
         message: `${customers.length} clientes encontrados`,
@@ -555,6 +496,47 @@ export class IxcConnector implements ErpConnector {
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
       return { ok: false, message: `Erro: ${msg}`, customers: [] };
     }
+  }
+
+  /** Bulk resolve cidade/uf FK tables — reusado por fetchCustomers e fetchCancelledDelinquents */
+  private async bulkResolveCidadeUf(config: ErpConnectionConfig): Promise<Map<string, { nome: string; uf: string }>> {
+    const cidadeMap = new Map<string, { nome: string; uf: string }>();
+    try {
+      const cidades = await this.listAll(config, "cidade", {
+        qtype: "cidade.id", query: "0", oper: ">", sortname: "cidade.id", sortorder: "asc",
+      }, 500, 50);
+      const ufs = await this.listAll(config, "uf", {
+        qtype: "uf.id", query: "0", oper: ">", sortname: "uf.id", sortorder: "asc",
+      }, 200, 5).catch(() => [] as any[]);
+      const ufMap = new Map<string, string>();
+      for (const u of ufs) {
+        const id = String(u.id || "");
+        const sigla = String(u.uf || u.sigla || u.nome || "");
+        if (id && sigla) ufMap.set(id, sigla);
+      }
+      for (const c of cidades) {
+        const id = String(c.id || "");
+        const nome = String(c.nome || c.cidade || "");
+        const ufId = String(c.uf || c.id_uf || "");
+        const uf = ufMap.get(ufId) || ufId;
+        if (id && nome) cidadeMap.set(id, { nome, uf });
+      }
+    } catch {}
+    return cidadeMap;
+  }
+
+  /** Resolve FK cidade/uf de um row cliente usando cidadeMap */
+  private resolveCityState(c: any, cidadeMap: Map<string, { nome: string; uf: string }>): { city?: string; state?: string } {
+    const rawCidade = c?.cidade;
+    const rawUf = c?.uf || c?.estado;
+    if (rawCidade && !/^\d+$/.test(String(rawCidade))) {
+      return { city: String(rawCidade), state: rawUf ? String(rawUf) : undefined };
+    }
+    if (rawCidade && cidadeMap.has(String(rawCidade))) {
+      const resolved = cidadeMap.get(String(rawCidade))!;
+      return { city: resolved.nome, state: resolved.uf || (rawUf ? String(rawUf) : undefined) };
+    }
+    return { city: undefined, state: rawUf && !/^\d+$/.test(String(rawUf)) ? String(rawUf) : undefined };
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

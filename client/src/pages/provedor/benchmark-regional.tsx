@@ -59,6 +59,16 @@ type DefaulterPoint = {
   riskTier: string;
 };
 
+type NeighborhoodStat = {
+  city: string;
+  neighborhood: string;
+  total: number;
+  overdue: number;
+  pct: number;
+  totalOverdue: number;
+  avgDaysOverdue: number;
+};
+
 const fmt = (v: number) =>
   v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -87,6 +97,11 @@ export default function BenchmarkRegionalPage() {
 
   const { data: defaulters = [] } = useQuery<DefaulterPoint[]>({
     queryKey: ["/api/benchmark/defaulters-map"],
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: neighborhoodStats = [] } = useQuery<NeighborhoodStat[]>({
+    queryKey: ["/api/benchmark/neighborhood-stats"],
     staleTime: 5 * 60 * 1000,
   });
 
@@ -173,7 +188,7 @@ export default function BenchmarkRegionalPage() {
       ) : ranking.length === 0 ? (
         <Card className="p-8 text-center text-muted-foreground">Nenhum inadimplente cadastrado ainda. Sincronize com seu ERP ou importe via CSV para começar.</Card>
       ) : (
-        <CityRankingCards ranking={ranking} />
+        <CityRankingCards ranking={ranking} stats={neighborhoodStats} />
       )}
 
       {/* Mapa de inadimplentes individuais */}
@@ -195,30 +210,60 @@ export default function BenchmarkRegionalPage() {
   );
 }
 
-function CityRankingCards({ ranking }: { ranking: CepRanking[] }) {
-  const cityGroups = new Map<string, { bairros: CepRanking[]; totalCount: number; totalOverdue: number; avgDays: number }>();
+function CityRankingCards({ ranking, stats }: { ranking: CepRanking[]; stats: NeighborhoodStat[] }) {
+  // Se stats veio do novo endpoint, usa ele (tem total+overdue+pct). Senao fallback pro ranking antigo.
+  const useStats = stats.length > 0;
 
-  for (const row of ranking) {
-    const parts = row.city.split(" — ");
-    const cityName = parts[0] || "Sem cidade";
-    const existing = cityGroups.get(cityName);
-    if (existing) {
-      existing.bairros.push(row);
-      existing.totalCount += row.count;
-      existing.totalOverdue += row.totalOverdue;
-      existing.avgDays = Math.round((existing.avgDays * (existing.bairros.length - 1) + row.avgDaysOverdue) / existing.bairros.length);
-    } else {
-      cityGroups.set(cityName, {
-        bairros: [row],
-        totalCount: row.count,
-        totalOverdue: row.totalOverdue,
-        avgDays: row.avgDaysOverdue,
-      });
+  // Agrupar por cidade
+  const cityGroups = new Map<string, {
+    bairros: Array<{ name: string; total: number; overdue: number; pct: number; totalOverdue: number; avgDays: number }>;
+    totalClients: number; totalOverdue: number; totalOverdueAmount: number; avgDays: number;
+  }>();
+
+  if (useStats) {
+    for (const s of stats) {
+      const existing = cityGroups.get(s.city);
+      const bairro = { name: s.neighborhood, total: s.total, overdue: s.overdue, pct: s.pct, totalOverdue: s.totalOverdue, avgDays: s.avgDaysOverdue };
+      if (existing) {
+        existing.bairros.push(bairro);
+        existing.totalClients += s.total;
+        existing.totalOverdue += s.overdue;
+        existing.totalOverdueAmount += s.totalOverdue;
+      } else {
+        cityGroups.set(s.city, {
+          bairros: [bairro],
+          totalClients: s.total,
+          totalOverdue: s.overdue,
+          totalOverdueAmount: s.totalOverdue,
+          avgDays: s.avgDaysOverdue,
+        });
+      }
+    }
+  } else {
+    for (const row of ranking) {
+      const parts = row.city.split(" — ");
+      const cityName = parts[0] || "Sem cidade";
+      const bairroName = parts[1] || "Sem bairro";
+      const existing = cityGroups.get(cityName);
+      const bairro = { name: bairroName, total: row.count, overdue: row.count, pct: 100, totalOverdue: row.totalOverdue, avgDays: row.avgDaysOverdue };
+      if (existing) {
+        existing.bairros.push(bairro);
+        existing.totalClients += row.count;
+        existing.totalOverdue += row.count;
+        existing.totalOverdueAmount += row.totalOverdue;
+      } else {
+        cityGroups.set(cityName, {
+          bairros: [bairro],
+          totalClients: row.count,
+          totalOverdue: row.count,
+          totalOverdueAmount: row.totalOverdue,
+          avgDays: row.avgDaysOverdue,
+        });
+      }
     }
   }
 
-  const sortedCities = Array.from(cityGroups.entries()).sort((a, b) => b[1].totalCount - a[1].totalCount);
-  const grandTotal = sortedCities.reduce((s, [, d]) => s + d.totalCount, 0);
+  const sortedCities = Array.from(cityGroups.entries()).sort((a, b) => b[1].totalOverdue - a[1].totalOverdue);
 
   return (
     <div className="space-y-5">
@@ -230,73 +275,77 @@ function CityRankingCards({ ranking }: { ranking: CepRanking[] }) {
 
       <div className="space-y-4">
         {sortedCities.map(([cityName, data]) => {
-          const pct = grandTotal > 0 ? Math.round((data.totalCount / grandTotal) * 100) : 0;
-          const cityRisk = data.totalCount >= 500 ? "critico" : data.totalCount >= 100 ? "alto" : data.totalCount >= 20 ? "medio" : "baixo";
+          const cityPct = data.totalClients > 0 ? Math.round((data.totalOverdue / data.totalClients) * 100) : 0;
+          const cityRisk = cityPct >= 60 ? "critico" : cityPct >= 30 ? "alto" : cityPct >= 10 ? "medio" : "baixo";
           const barColor = cityRisk === "critico" ? "bg-red-500" : cityRisk === "alto" ? "bg-orange-500" : cityRisk === "medio" ? "bg-amber-500" : "bg-green-500";
 
           return (
             <Card key={cityName} className="overflow-hidden">
-              {/* City header */}
               <div className="px-5 pt-4 pb-3">
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div className={`w-3 h-3 rounded-full shrink-0 ${barColor}`} />
                     <h3 className="font-bold text-base truncate">{cityName}</h3>
                     <Badge className={`text-[10px] shrink-0 ${riskColor[cityRisk] || ""}`}>{cityRisk}</Badge>
                   </div>
-                  <div className="flex items-center gap-5 shrink-0 text-right">
+                  <div className="flex items-center gap-4 shrink-0 text-right flex-wrap">
+                    {useStats && (
+                      <div>
+                        <p className="text-lg font-bold">{data.totalClients.toLocaleString("pt-BR")}</p>
+                        <p className="text-[10px] text-muted-foreground uppercase tracking-wide">total clientes</p>
+                      </div>
+                    )}
                     <div>
-                      <p className="text-xl font-bold text-[var(--color-danger)]">{data.totalCount.toLocaleString("pt-BR")}</p>
+                      <p className="text-lg font-bold text-[var(--color-danger)]">{data.totalOverdue.toLocaleString("pt-BR")}</p>
                       <p className="text-[10px] text-muted-foreground uppercase tracking-wide">inadimplentes</p>
                     </div>
                     <div>
-                      <p className="text-sm font-semibold">R$ {fmt(data.totalOverdue)}</p>
-                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">em aberto</p>
+                      <p className="text-lg font-bold text-[var(--color-danger)]">{cityPct}%</p>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">inadimplencia</p>
                     </div>
                     <div>
-                      <p className="text-sm font-semibold">{data.avgDays}d</p>
-                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">media atraso</p>
+                      <p className="text-sm font-semibold">R$ {fmt(data.totalOverdueAmount)}</p>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">em aberto</p>
                     </div>
                   </div>
                 </div>
 
-                {/* Progress bar */}
                 <div className="mt-3 flex items-center gap-2">
-                  <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full ${barColor} transition-all`} style={{ width: `${Math.max(pct, 2)}%` }} />
+                  <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${barColor} transition-all`} style={{ width: `${Math.max(cityPct, 2)}%` }} />
                   </div>
-                  <span className="text-xs font-medium text-muted-foreground w-10 text-right">{pct}%</span>
+                  <span className="text-xs font-semibold w-12 text-right">{cityPct}%</span>
                 </div>
               </div>
 
-              {/* Bairros table */}
-              <div className="border-t max-h-[240px] overflow-y-auto">
+              <div className="border-t max-h-[280px] overflow-y-auto">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-muted/30 sticky top-0 z-10">
                       <th className="text-left pl-5 pr-2 py-2 text-muted-foreground font-medium">Bairro</th>
-                      <th className="text-right px-2 py-2 text-muted-foreground font-medium">Qtd</th>
+                      {useStats && <th className="text-right px-2 py-2 text-muted-foreground font-medium">Total</th>}
+                      <th className="text-right px-2 py-2 text-muted-foreground font-medium">Inadimpl.</th>
+                      <th className="text-right px-2 py-2 text-muted-foreground font-medium">%</th>
                       <th className="text-right px-2 py-2 text-muted-foreground font-medium hidden sm:table-cell">Valor</th>
-                      <th className="text-right px-2 py-2 text-muted-foreground font-medium hidden md:table-cell">Atraso</th>
-                      <th className="text-left px-2 py-2 text-muted-foreground font-medium w-24">Distribuicao</th>
+                      <th className="text-left px-2 pr-5 py-2 text-muted-foreground font-medium w-28">Inadimplencia</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/50">
-                    {data.bairros.sort((a, b) => b.count - a.count).map((row, i) => {
-                      const bairro = row.city.split(" — ")[1] || "Sem bairro";
-                      const bairroPct = data.totalCount > 0 ? Math.round((row.count / data.totalCount) * 100) : 0;
+                    {data.bairros.sort((a, b) => b.overdue - a.overdue).map((b, i) => {
+                      const pctColor = b.pct >= 60 ? "text-red-600" : b.pct >= 30 ? "text-orange-600" : b.pct >= 10 ? "text-amber-600" : "text-green-600";
+                      const pctBar = b.pct >= 60 ? "bg-red-500" : b.pct >= 30 ? "bg-orange-500" : b.pct >= 10 ? "bg-amber-500" : "bg-green-500";
                       return (
                         <tr key={i} className="hover:bg-muted/10 transition-colors">
-                          <td className="pl-5 pr-2 py-2 text-sm">{bairro}</td>
-                          <td className="px-2 py-2 text-right font-semibold tabular-nums">{row.count}</td>
-                          <td className="px-2 py-2 text-right text-muted-foreground hidden sm:table-cell">R$ {fmt(row.totalOverdue)}</td>
-                          <td className="px-2 py-2 text-right text-muted-foreground hidden md:table-cell">{row.avgDaysOverdue}d</td>
-                          <td className="px-2 py-2">
+                          <td className="pl-5 pr-2 py-2 text-sm">{b.name}</td>
+                          {useStats && <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">{b.total}</td>}
+                          <td className="px-2 py-2 text-right font-semibold tabular-nums">{b.overdue}</td>
+                          <td className={`px-2 py-2 text-right font-bold tabular-nums ${pctColor}`}>{b.pct}%</td>
+                          <td className="px-2 py-2 text-right text-muted-foreground hidden sm:table-cell">R$ {fmt(b.totalOverdue)}</td>
+                          <td className="px-2 pr-5 py-2">
                             <div className="flex items-center gap-1.5">
-                              <div className="flex-1 h-1 bg-muted rounded-full overflow-hidden">
-                                <div className={`h-full rounded-full ${barColor} opacity-60`} style={{ width: `${Math.max(bairroPct, 3)}%` }} />
+                              <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                                <div className={`h-full rounded-full ${pctBar}`} style={{ width: `${Math.max(b.pct, 3)}%` }} />
                               </div>
-                              <span className="text-[10px] text-muted-foreground w-7 text-right tabular-nums">{bairroPct}%</span>
                             </div>
                           </td>
                         </tr>
