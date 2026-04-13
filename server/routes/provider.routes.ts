@@ -17,7 +17,7 @@ export function registerProviderRoutes(): Router {
     if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
     return res.json({
       id: provider.id,
-      name: provider.name,
+      name: provider.tradeName || provider.name,
       subdomain: provider.subdomain,
       plan: provider.plan,
       status: provider.status,
