@@ -1,121 +1,31 @@
-import { randomInt } from "crypto";
-import { XMLParser } from "fast-xml-parser";
-import { withResilience, CircuitBreaker } from "../erp/resilience";
+/**
+ * SPC Service — Integração com API consultanegativacao.com.br v2
+ *
+ * Fluxo assíncrono:
+ * 1. POST /consultas/assincrona → recebe protocolo
+ * 2. Poll GET /consultas/assincrona?protocolo=X até resultado
+ *
+ * Auth: headers cnpjSh, tokenSh, cnpjUsuario, login, password
+ * Env: SPC_API_BASE_URL, SPC_CNPJ_SH, SPC_TOKEN_SH, SPC_OPERATOR_LOGIN, SPC_OPERATOR_PASSWORD
+ */
+
 import { logger } from "../logger";
+import { CircuitBreaker, withResilience } from "../erp/resilience";
 
 // ── Environment ──────────────────────────────────────────────────────────────
 
-const SPC_API_URL = process.env.SPC_API_URL || "https://webservice.mma.com.br/sivng/webservice/ws_spc.php";
-const SPC_API_TOKEN = process.env.SPC_API_TOKEN || "";
-const SPC_PRODUCT_CODE = process.env.SPC_PRODUCT_CODE || "";
-const SPC_ENABLED = process.env.SPC_API_ENABLED === "true";
+const SPC_API_BASE_URL = process.env.SPC_API_BASE_URL || "https://api.consultanegativacao.com.br/v2";
+const SPC_CNPJ_SH = process.env.SPC_CNPJ_SH || "";
+const SPC_TOKEN_SH = process.env.SPC_TOKEN_SH || "";
+const SPC_OPERATOR_LOGIN = process.env.SPC_OPERATOR_LOGIN || "";
+const SPC_OPERATOR_PASSWORD = process.env.SPC_OPERATOR_PASSWORD || "";
+const SPC_ENABLED = !!(SPC_CNPJ_SH && SPC_TOKEN_SH && SPC_OPERATOR_LOGIN && SPC_OPERATOR_PASSWORD);
 
-// ── Circuit breaker for SPC API ──────────────────────────────────────────────
+// ── Circuit breaker ─────────────────────────────────────────────────────────
 
 const spcCircuit = new CircuitBreaker({ maxFailures: 3, resetTimeMs: 60_000 });
 
-// ── XML Parser ───────────────────────────────────────────────────────────────
-
-const xmlParser = new XMLParser({
-  ignoreAttributes: false,
-  attributeNamePrefix: "@_",
-  textNodeName: "#text",
-  parseAttributeValue: false,
-  trimValues: true,
-});
-
-// ── Mappings ─────────────────────────────────────────────────────────────────
-
-const OCCURRENCE_TYPE_NAMES: Record<string, string> = {
-  "100": "DEBITO",
-  "105": "CHEQUE",
-  "110": "ALERTA",
-  "115": "DEVOLUCAO_CHEQUE",
-  "120": "PENDENCIA_FINANCEIRA",
-  "150": "PROTESTO",
-  "155": "ACAO_JUDICIAL",
-  "160": "FALENCIA_CONCORDATA",
-  "165": "EMPRESA_FALIDA",
-  "170": "REFIN",
-  "175": "ACHEI",
-  "180": "CCF",
-  "185": "PEFIN",
-  "210": "CREDISCORE",
-  "220": "CREDISCORE_SERVER",
-  "230": "CREDISCORE_PLANO",
-};
-
-const OCCURRENCE_SEVERITY: Record<string, string> = {
-  "100": "high",
-  "105": "high",
-  "110": "medium",
-  "115": "high",
-  "120": "high",
-  "150": "critical",
-  "155": "critical",
-  "160": "critical",
-  "165": "critical",
-  "170": "high",
-  "175": "medium",
-  "180": "high",
-  "185": "high",
-};
-
-const MOTIVO_DESCRIPTIONS: Record<string, string> = {
-  "01": "Crediario",
-  "02": "Credito pessoal",
-  "03": "Cartao de credito",
-  "06": "Aluguel",
-  "07": "Condominio",
-  "08": "Taxas",
-  "09": "Reparos",
-  "11": "Cheque sem fundos - 1a apresentacao",
-  "12": "Cheque sem fundos - 2a apresentacao",
-  "13": "Conta encerrada",
-  "14": "Pratica espuria",
-  "20": "Cheque cancelado por solicitacao",
-  "21": "Contra-ordem ao pagamento",
-  "22": "Divergencia de assinatura",
-  "24": "Bloqueio judicial",
-  "25": "Cancelamento talonario pelo banco",
-  "28": "Contra-ordem por furto/roubo",
-  "29": "Talao bloqueado",
-  "30": "Cancelamento por furto/roubo de malote",
-  "31": "Erro formal",
-  "43": "Cheque devolvido anteriormente",
-  "44": "Cheque prescrito",
-  "47": "Ausencia de dados obrigatorios",
-  "48": "Cheque superior a R$100 sem identificacao",
-  "49": "Reapresentacao cheque devolvido",
-};
-
-const SPC_STATUS_ERRORS: Record<string, string> = {
-  "900": "Acesso nao permitido. Token invalido ou servico nao contratado.",
-  "901": "CPF/CNPJ com quantidade de digitos incorreta.",
-  "902": "Codigo do produto SPC invalido.",
-  "903": "NSU com mais de 10 digitos.",
-  "904": "Codigo do produto nao e um numero inteiro valido.",
-  "905": "Tipo de consulta incorreto.",
-  "906": "ID de solicitacao ja utilizado em outra consulta.",
-  "907": "CPF/CNPJ informado difere do retornado na consulta.",
-  "908": "Valor da transacao invalido.",
-  "909": "ID de solicitacao difere do retornado.",
-  "910": "Produto SPC nao homologado para utilizacao.",
-  "999": "Erro nao catalogado no SPC.",
-};
-
 // ── Types ────────────────────────────────────────────────────────────────────
-
-interface ParsedOccurrence {
-  tpocorrencia: string;
-  dcinformante: string;
-  dcorigem: string;
-  cdmotocorrencia: string;
-  dtocorrencia: string;
-  dtvencimento: string;
-  vlocorrencia: number;
-  tpdevedor: string;
-}
 
 export interface SpcResult {
   cpfCnpj: string;
@@ -150,200 +60,269 @@ export interface SpcResult {
     bySegment: Record<string, number>;
   };
   alerts: { type: string; message: string; severity: string }[];
+  rawHtml?: string;
 }
+
+// ── Códigos de consulta ──────────────────────────────────────────────────────
+
+export const SPC_CONSULTATION_TYPES = {
+  PF_BASICA: 1,
+  PF_DETALHADA: 4,
+  SCORE_601: 601,
+  COMPLETA_602: 602,
+  PREMIUM_603: 603,
+} as const;
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
 export function isSpcConfigured(): boolean {
-  return SPC_ENABLED && !!SPC_API_TOKEN && SPC_API_TOKEN.length >= 10 && !!SPC_PRODUCT_CODE;
+  return SPC_ENABLED;
 }
 
-export async function consultarSpc(cpfCnpj: string, _retryCount = 0): Promise<SpcResult> {
-  if (!isSpcConfigured()) {
-    throw new Error("SPC nao configurado. Verifique as variaveis de ambiente.");
+/**
+ * Consultar SPC via API consultanegativacao.com.br
+ * @param cpfCnpj CPF ou CNPJ a consultar
+ * @param cnpjProvedor CNPJ do provedor que está fazendo a consulta
+ * @param codConsulta Código da consulta (default: 601 = Score)
+ * @param retorno "HTML" ou "JSON" (default: "JSON")
+ */
+export async function consultarSpc(
+  cpfCnpj: string,
+  cnpjProvedor?: string,
+  codConsulta: number = SPC_CONSULTATION_TYPES.SCORE_601,
+  retorno: "HTML" | "JSON" = "JSON",
+): Promise<SpcResult> {
+  if (!SPC_ENABLED) {
+    throw new Error("SPC nao configurado. Verifique as variaveis SPC_CNPJ_SH, SPC_TOKEN_SH, SPC_OPERATOR_LOGIN, SPC_OPERATOR_PASSWORD no .env");
   }
 
-  // Generate unique idsolicitacao (Date.now + crypto.randomInt — MUST never repeat)
-  const idsolicitacao = `${Date.now()}${randomInt(1000, 9999)}`;
+  const cleanDoc = cpfCnpj.replace(/\D/g, "");
+  const uf = "PR"; // Default UF — pode ser parametrizado depois
 
-  const url = new URL(SPC_API_URL);
-  url.searchParams.set("method", "SPCConsultaAnalitica");
-  url.searchParams.set("token", SPC_API_TOKEN);
-  url.searchParams.set("idsolicitacao", idsolicitacao);
-  url.searchParams.set("nocnpjcpf", cpfCnpj);
-  url.searchParams.set("cdprodutospc", SPC_PRODUCT_CODE);
-  url.searchParams.set("vltransacao", "0.00");
+  logger.info({ cpfCnpj: cleanDoc.slice(0, 3) + "***", codConsulta }, "SPC consultation started");
 
-  logger.info({ idsolicitacao }, "SPC consultation started");
+  // Step 1: Iniciar consulta assíncrona
+  const protocolo = await iniciarConsulta(cleanDoc, cnpjProvedor || SPC_CNPJ_SH, codConsulta, uf, retorno);
+  logger.info({ protocolo }, "SPC protocolo received");
 
-  const xmlText = await withResilience(
+  // Step 2: Poll resultado
+  const resultado = await buscarResultado(protocolo, cnpjProvedor || SPC_CNPJ_SH);
+  logger.info({ protocolo, hasData: !!resultado }, "SPC result received");
+
+  // Step 3: Parse resultado
+  return parseResultado(cleanDoc, resultado, retorno);
+}
+
+/**
+ * Negativar devedor no SPC
+ */
+export async function negativarSpc(
+  dados: {
+    nome: string;
+    documento: string;
+    endereco: string;
+    bairro: string;
+    municipio: string;
+    uf: string;
+    cep: string;
+    divida: {
+      nossoNumero: string;
+      especieTitulo: string;
+      numDocumento: string;
+      dataEmissao: string;
+      dataVencimento: string;
+      valorTitulo: number;
+      codAlinea: string;
+      codEndosso: string;
+      codAceite: string;
+    };
+  },
+  cnpjProvedor: string,
+): Promise<any> {
+  if (!SPC_ENABLED) {
+    throw new Error("SPC nao configurado");
+  }
+
+  const url = `${SPC_API_BASE_URL}/negativacao`;
+  const response = await fetchSpc(url, "POST", cnpjProvedor, JSON.stringify(dados));
+  return response;
+}
+
+/**
+ * Consultar consumo de créditos SPC
+ */
+export async function consultarConsumo(
+  inicio: string,
+  fim: string,
+): Promise<any> {
+  if (!SPC_ENABLED) throw new Error("SPC nao configurado");
+  const url = `${SPC_API_BASE_URL}/consumo?inicio=${inicio}&final=${fim}`;
+  return fetchSpc(url, "GET", SPC_CNPJ_SH);
+}
+
+// ── Internal ─────────────────────────────────────────────────────────────────
+
+function buildHeaders(cnpjUsuario: string): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    "cnpjSh": SPC_CNPJ_SH,
+    "tokenSh": SPC_TOKEN_SH,
+    "cnpjUsuario": cnpjUsuario,
+    "login": SPC_OPERATOR_LOGIN,
+    "password": SPC_OPERATOR_PASSWORD,
+  };
+}
+
+async function fetchSpc(url: string, method: string, cnpjUsuario: string, body?: string): Promise<any> {
+  return withResilience(
     async () => {
-      const response = await fetch(url.toString(), {
-        method: "GET",
-        headers: {
-          "User-Agent": "ConsultaISP/1.0",
-          "Accept": "application/xml, text/xml",
-        },
+      const response = await fetch(url, {
+        method,
+        headers: buildHeaders(cnpjUsuario),
+        body: method === "POST" ? body : undefined,
+        signal: AbortSignal.timeout(30000),
       });
 
       if (!response.ok) {
-        const err = new Error(`SPC API HTTP ${response.status}`);
-        (err as any).statusCode = response.status;
-        throw err;
+        const text = await response.text().catch(() => "");
+        throw new Error(`SPC API HTTP ${response.status}: ${text.slice(0, 500)}`);
       }
 
-      return response.text();
+      return response.json();
     },
     { retries: 2, minTimeout: 2000, circuit: spcCircuit },
   );
+}
 
-  const parsed = xmlParser.parse(xmlText);
-  const spc = parsed?.spc;
+async function iniciarConsulta(
+  documento: string,
+  cnpjUsuario: string,
+  codConsulta: number,
+  uf: string,
+  retorno: string,
+): Promise<string> {
+  const url = `${SPC_API_BASE_URL}/consultas/assincrona`;
+  const body = JSON.stringify({ documento, codConsulta, uf, retorno });
 
-  if (!spc) {
-    throw new Error("Resposta SPC invalida: elemento <spc> nao encontrado");
+  const data = await fetchSpc(url, "POST", cnpjUsuario, body);
+
+  if (data.protocolo) {
+    return data.protocolo;
   }
 
-  const statusCode = String(spc.cdstatusconsulta || "");
+  if (data.error || data.mensagem) {
+    throw new Error(`SPC erro ao iniciar consulta: ${data.error || data.mensagem}`);
+  }
 
-  // Handle error 906 (duplicate idsolicitacao) — retry once with new ID
-  if (statusCode === "906") {
-    if (_retryCount >= 2) {
-      throw new Error("Erro SPC: ID de solicitacao duplicado apos 3 tentativas. Tente novamente.");
+  throw new Error("SPC resposta inesperada ao iniciar consulta: " + JSON.stringify(data).slice(0, 500));
+}
+
+async function buscarResultado(protocolo: string, cnpjUsuario: string, maxAttempts = 10): Promise<any> {
+  const url = `${SPC_API_BASE_URL}/consultas/assincrona?protocolo=${encodeURIComponent(protocolo)}`;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const data = await fetchSpc(url, "GET", cnpjUsuario);
+
+    // Se tem resultado, retorna
+    if (data.resultado || data.html || data.data || data.score !== undefined) {
+      return data;
     }
-    logger.warn({ attempt: _retryCount + 1 }, "SPC idsolicitacao duplicado, retentando com novo ID");
-    return consultarSpc(cpfCnpj, _retryCount + 1);
+
+    // Se ainda está processando, espera e tenta de novo
+    if (data.status === "processando" || data.status === "pending" || data.pendente) {
+      logger.info({ protocolo, attempt }, "SPC result pending, waiting...");
+      await new Promise(r => setTimeout(r, 2000 + attempt * 500));
+      continue;
+    }
+
+    // Se deu erro, lança
+    if (data.error || data.mensagem) {
+      throw new Error(`SPC erro ao buscar resultado: ${data.error || data.mensagem}`);
+    }
+
+    // Resposta inesperada — pode ser o próprio resultado
+    return data;
   }
 
-  if (statusCode !== "100") {
-    const errorMsg = SPC_STATUS_ERRORS[statusCode] || `Erro SPC desconhecido (status ${statusCode})`;
-    throw new Error(`Erro SPC: ${errorMsg}`);
+  throw new Error(`SPC timeout: resultado nao ficou pronto apos ${maxAttempts} tentativas para protocolo ${protocolo}`);
+}
+
+function parseResultado(cpfCnpj: string, data: any, retorno: string): SpcResult {
+  const isPF = cpfCnpj.length <= 11;
+
+  // Se retorno HTML, salvar o HTML e extrair o que puder
+  if (retorno === "HTML" && (data.html || data.resultado)) {
+    const html = data.html || data.resultado || "";
+    return {
+      cpfCnpj,
+      cadastralData: {
+        nome: data.nome || "Consulta SPC",
+        cpfCnpj,
+        situacaoRf: "Consulte o relatorio",
+        obitoRegistrado: false,
+        tipo: isPF ? "PF" : "PJ",
+      },
+      score: data.score || 0,
+      riskLevel: "unknown",
+      riskLabel: "Consulte o relatorio",
+      recommendation: "Analisar relatorio completo",
+      status: "consulted",
+      restrictions: [],
+      totalRestrictions: 0,
+      previousConsultations: { total: 0, last90Days: 0, bySegment: {} },
+      alerts: [],
+      rawHtml: html,
+    };
   }
 
-  // Parse occurrences
-  const occurrences = parseOccurrences(spc);
-  const situacao = parseInt(String(spc.tpsitconsulta || "1"), 10);
+  // Parse JSON response
+  const resultado = data.resultado || data.data || data;
+  const score = resultado.score || resultado.pontuacao || 0;
+  const hasRestrictions = resultado.restricoes || resultado.has_restrictions || resultado.pendencias;
+  const nome = resultado.nome || resultado.razaoSocial || resultado.nomeConsultado || "Consulta SPC";
 
-  // Calculate score and risk
-  const score = calculateSyntheticScore(situacao, occurrences);
+  // Build restrictions
+  const rawRestrictions = resultado.restricoes || resultado.pendencias || resultado.debitos || [];
+  const restrictions = (Array.isArray(rawRestrictions) ? rawRestrictions : []).map((r: any) => ({
+    type: r.tipo || r.type || r.natureza || "DEBITO",
+    description: r.descricao || r.description || r.informante || "",
+    severity: (r.valor || 0) > 1000 ? "high" : "medium",
+    creditor: r.informante || r.credor || r.empresa || "Nao informado",
+    value: String(r.valor || r.value || "0"),
+    date: r.data || r.dataInclusao || r.date || "",
+    origin: r.origem || r.origin || "",
+  }));
+
+  const totalValue = restrictions.reduce((s: number, r: any) => s + parseFloat(r.value || "0"), 0);
+
   const { riskLevel, riskLabel, recommendation } = getRiskInfo(score);
 
-  // Build status description
-  const status = situacao === 1 ? "clean" : "restricted";
-
-  // Calculate total monetary value of restrictions
-  const restrictionOccurrences = occurrences.filter(o => !["110", "210", "220", "230"].includes(o.tpocorrencia));
-  const totalRestrictionsValue = restrictionOccurrences.reduce((sum, o) => sum + (o.vlocorrencia || 0), 0);
-
-  // Build restrictions from occurrences (excluding alerts and crediscore types)
-  const restrictions = restrictionOccurrences
-    .map(o => ({
-      type: OCCURRENCE_TYPE_NAMES[o.tpocorrencia] || `TIPO_${o.tpocorrencia}`,
-      description: buildOccurrenceDescription(o),
-      severity: OCCURRENCE_SEVERITY[o.tpocorrencia] || "medium",
-      creditor: o.dcinformante || "Nao informado",
-      value: o.vlocorrencia ? o.vlocorrencia.toFixed(2) : "0.00",
-      date: o.dtocorrencia || "N/A",
-      origin: o.dcorigem || "N/A",
-    }));
-
-  // Build alerts from type 110 (ALERTA) occurrences
-  const alerts = occurrences
-    .filter(o => o.tpocorrencia === "110")
-    .map(o => ({
-      type: "ALERTA",
-      message: buildOccurrenceDescription(o),
-      severity: "medium",
-    }));
-
-  const result: SpcResult = {
+  return {
     cpfCnpj,
     cadastralData: {
-      nome: "Consulta SPC",
+      nome,
       cpfCnpj,
-      situacaoRf: situacao === 1 ? "Regular" : "Com restricoes",
-      obitoRegistrado: false,
-      tipo: cpfCnpj.length === 11 ? "PF" : "PJ",
+      dataNascimento: resultado.dataNascimento || resultado.nascimento,
+      nomeMae: resultado.nomeMae,
+      situacaoRf: resultado.situacaoRf || resultado.situacao || (hasRestrictions ? "Com restricoes" : "Regular"),
+      obitoRegistrado: resultado.obito === true,
+      tipo: isPF ? "PF" : "PJ",
     },
     score,
     riskLevel,
     riskLabel,
     recommendation,
-    status,
+    status: hasRestrictions ? "restricted" : "clean",
     restrictions,
-    totalRestrictions: totalRestrictionsValue,
-    previousConsultations: { total: 0, last90Days: 0, bySegment: {} },
-    alerts,
+    totalRestrictions: totalValue,
+    previousConsultations: {
+      total: resultado.consultasAnteriores || 0,
+      last90Days: resultado.consultas90dias || 0,
+      bySegment: {},
+    },
+    alerts: [],
+    rawHtml: resultado.html,
   };
-
-  logger.info(
-    { score, riskLevel, totalRestrictions: restrictions.length, statusCode },
-    "SPC consultation completed",
-  );
-
-  return result;
-}
-
-// ── Internal helpers ─────────────────────────────────────────────────────────
-
-function parseOccurrences(spc: any): ParsedOccurrence[] {
-  if (!spc.ocorrencia) return [];
-
-  const raw = Array.isArray(spc.ocorrencia) ? spc.ocorrencia : [spc.ocorrencia];
-
-  return raw.map((o: any) => ({
-    tpocorrencia: String(o.tpocorrencia || ""),
-    dcinformante: String(o.dcinformante || ""),
-    dcorigem: String(o.dcorigem || ""),
-    cdmotocorrencia: String(o.cdmotocorrencia || ""),
-    dtocorrencia: String(o.dtocorrencia || ""),
-    dtvencimento: String(o.dtvencimento || ""),
-    vlocorrencia: parseFloat(String(o.vlocorrencia || "0")) || 0,
-    tpdevedor: String(o.tpdevedor || ""),
-  }));
-}
-
-function buildOccurrenceDescription(o: ParsedOccurrence): string {
-  const typeName = OCCURRENCE_TYPE_NAMES[o.tpocorrencia] || `Tipo ${o.tpocorrencia}`;
-  const motivo = MOTIVO_DESCRIPTIONS[o.cdmotocorrencia];
-  const parts = [typeName];
-  if (motivo) parts.push(`- ${motivo}`);
-  if (o.dcinformante) parts.push(`(${o.dcinformante})`);
-  if (o.vlocorrencia > 0) parts.push(`R$ ${o.vlocorrencia.toFixed(2)}`);
-  if (o.dtvencimento) parts.push(`venc. ${o.dtvencimento}`);
-  return parts.join(" ");
-}
-
-function calculateSyntheticScore(situacao: number, occurrences: ParsedOccurrence[]): number {
-  // If there's a CREDISCORE occurrence, use its value directly
-  const crediscore = occurrences.find(o => ["210", "220", "230"].includes(o.tpocorrencia));
-  if (crediscore && crediscore.vlocorrencia) {
-    return Math.min(1000, Math.max(0, Math.round(crediscore.vlocorrencia)));
-  }
-
-  // Synthetic score based on situation
-  if (situacao === 1) return 850; // NADA CONSTA
-
-  // Filter real restriction occurrences (exclude alertas 110 and crediscore 210+)
-  const restrictions = occurrences.filter(o => !["110", "210", "220", "230"].includes(o.tpocorrencia));
-
-  if (situacao === 3 && restrictions.length === 0) return 550; // Only alerts
-
-  // Has restrictions — calculate based on count, total value, and severity
-  const totalValue = restrictions.reduce((sum, o) => sum + (o.vlocorrencia || 0), 0);
-  const hasCONCENTRE = restrictions.some(o => {
-    const code = parseInt(o.tpocorrencia);
-    return code >= 150 && code <= 185;
-  });
-
-  let score: number;
-  if (restrictions.length === 1 && totalValue < 500) score = 400;
-  else if (restrictions.length <= 3 && totalValue <= 5000) score = 300;
-  else score = 150;
-
-  if (hasCONCENTRE) score = Math.max(50, score - 100);
-
-  return score;
 }
 
 function getRiskInfo(score: number): { riskLevel: string; riskLabel: string; recommendation: string } {

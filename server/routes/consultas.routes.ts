@@ -725,8 +725,8 @@ export function registerConsultasRoutes(): Router {
         return res.status(400).json({ message: "CPF/CNPJ invalido" });
       }
 
-      // Call SPC API
-      const result = await consultarSpc(cleaned);
+      // Call SPC API — passa CNPJ do provedor como cnpjUsuario
+      const result = await consultarSpc(cleaned, provider?.cnpj || undefined);
 
       // Debit credits and save consultation atomically
       // Sistema unificado: consulta SPC consome 4 creditos do saldo unico
