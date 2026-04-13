@@ -419,7 +419,7 @@ export function AppSidebar() {
           </div>
           <div className="flex flex-col min-w-0 flex-1">
             <span className="text-sm font-medium truncate">{user?.name}</span>
-            <span className="text-xs text-[var(--color-muted)] truncate">{provider?.name}</span>
+            <span className="text-xs text-[var(--color-muted)] truncate">{(provider as any)?.tradeName || provider?.name}</span>
           </div>
         </div>
         <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-[var(--color-muted)]" onClick={logout} data-testid="button-logout">

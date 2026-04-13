@@ -50,7 +50,7 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-bold text-[var(--color-ink)]" data-testid="text-dashboard-title">
             Painel do Provedor
           </h1>
-          <p className="text-base text-[var(--color-muted)]">{provider?.name}</p>
+          <p className="text-base text-[var(--color-muted)]">{(provider as any)?.tradeName || provider?.name}</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           {partnerCode && (

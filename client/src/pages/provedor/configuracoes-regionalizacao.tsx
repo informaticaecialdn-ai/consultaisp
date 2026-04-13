@@ -414,9 +414,9 @@ export default function ConfiguracoesRegionalizacaoPage() {
                 <Card key={provider.id} className="p-4 space-y-2">
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-950 flex items-center justify-center text-sm font-bold text-indigo-700 dark:text-indigo-300">
-                      {provider.name.charAt(0).toUpperCase()}
+                      {((provider as any).tradeName || provider.name || "").charAt(0).toUpperCase()}
                     </div>
-                    <span className="font-medium text-sm">{provider.name}</span>
+                    <span className="font-medium text-sm">{(provider as any).tradeName || provider.name}</span>
                   </div>
                   {shared.length > 0 && (
                     <div className="flex flex-wrap gap-1">

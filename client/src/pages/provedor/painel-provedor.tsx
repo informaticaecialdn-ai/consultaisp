@@ -508,7 +508,7 @@ export default function PainelProvedorPage() {
           </div>
           <div>
             <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-2xl font-bold" data-testid="text-painel-title">{provider?.name}</h1>
+              <h1 className="text-2xl font-bold" data-testid="text-painel-title">{provider?.tradeName || provider?.name}</h1>
               <Badge className={`text-xs gap-1.5 ${planInfo.color}`}>
                 <PlanIcon className="w-4 h-4" />
                 {planInfo.label}
@@ -1336,7 +1336,7 @@ export default function PainelProvedorPage() {
                   <Users className="w-5 h-5" />Usuarios do Provedor
                 </h2>
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  Gerencie quem tem acesso ao painel do {provider?.name}
+                  Gerencie quem tem acesso ao painel do {provider?.tradeName || provider?.name}
                 </p>
               </div>
               {user?.role === "admin" && (
