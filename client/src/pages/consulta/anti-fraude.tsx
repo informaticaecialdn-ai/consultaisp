@@ -305,7 +305,9 @@ function AlertCard({ alert, onResolve, onDismiss }: {
             {daysOverdue <= 90 ? "CONTRATO RECENTE" : "DEVEDOR CRONICO"}
           </span>
         </div>
-        <span className="text-xs opacity-90">{timeAgo(alert.createdAt)}</span>
+        <span className="text-xs opacity-90">
+          {alert.createdAt ? new Date(alert.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }) : ""}
+        </span>
       </div>
 
       <div className="p-4 space-y-3">
@@ -353,12 +355,19 @@ function AlertCard({ alert, onResolve, onDismiss }: {
           </div>
         </div>
 
-        {/* Quem consultou */}
+        {/* Quem consultou + data */}
         {alert.consultingProviderName && (
-          <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-950/20 rounded-lg px-3 py-2">
-            <Users className="w-4 h-4 text-blue-500" />
-            <span className="text-sm">Consultado por</span>
-            <span className="font-semibold text-sm">{alert.consultingProviderName}</span>
+          <div className="flex items-center justify-between gap-2 bg-blue-50 dark:bg-blue-950/20 rounded-lg px-3 py-2">
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-blue-500" />
+              <span className="text-sm">Consultado por</span>
+              <span className="font-semibold text-sm">{alert.consultingProviderName}</span>
+            </div>
+            {alert.createdAt && (
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {new Date(alert.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+              </span>
+            )}
           </div>
         )}
 
