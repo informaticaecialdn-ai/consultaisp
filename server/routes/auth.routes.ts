@@ -37,8 +37,8 @@ export function registerAuthRoutes(): Router {
         if (requestSubdomain) {
           const provider = await storage.getProvider(user.providerId);
           if (provider?.subdomain && provider.subdomain !== requestSubdomain) {
-            return res.status(403).json({
-              message: `Este login pertence ao provedor ${provider.tradeName || provider.name}. Acesse via ${provider.subdomain}.consultaisp.com.br`,
+            return res.status(401).json({
+              message: "Email ou senha incorretos",
             });
           }
         }
