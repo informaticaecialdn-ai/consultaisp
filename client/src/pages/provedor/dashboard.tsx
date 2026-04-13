@@ -85,7 +85,7 @@ export default function DashboardPage() {
             <Wifi className="w-5 h-5" style={{ color: "var(--color-navy)" }} />
             <span className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wide">Seu Provedor na Rede</span>
           </div>
-          <p className="text-lg font-bold text-[var(--color-ink)]">{provider?.name}</p>
+          <p className="text-lg font-bold text-[var(--color-ink)]">{(provider as any)?.tradeName || provider?.name}</p>
           {partnerCode && (
             <p className="text-sm text-[var(--color-muted)] mt-1">Código: <span className="font-mono font-bold" style={{ color: "var(--color-navy)" }}>{partnerCode}</span></p>
           )}
