@@ -1,65 +1,76 @@
 /**
  * Geocoding utilities — CEP, cidade, endereco completo, codigo IBGE.
+ * Usa Google Maps Geocoding API quando GOOGLE_MAPS_API_KEY esta configurada.
+ * Fallback pra Nominatim se Google nao disponivel.
  */
 
 const _geoCache = new Map<string, [number, number] | null>();
 const _ibgeCache = new Map<string, { city: string; state: string } | null>();
+
+const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY || "";
+const USE_GOOGLE = GOOGLE_API_KEY.length > 10;
+
+function isInBrazil(lat: number, lng: number): boolean {
+  return lat >= -34 && lat <= 6 && lng >= -74 && lng <= -34;
+}
+
+async function geocodeViaGoogle(query: string): Promise<[number, number] | null> {
+  try {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&components=country:BR&key=${GOOGLE_API_KEY}`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (data.status === "OK" && data.results?.[0]) {
+      const loc = data.results[0].geometry.location;
+      if (isInBrazil(loc.lat, loc.lng)) {
+        return [loc.lat, loc.lng];
+      }
+    }
+  } catch {}
+  return null;
+}
+
+async function geocodeViaNominatim(query: string): Promise<[number, number] | null> {
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=br`;
+    const r = await fetch(url, {
+      headers: { "User-Agent": "ConsultaISP/1.0 heatmap@consultaisp.com.br" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return null;
+    const data: any[] = await r.json();
+    if (data[0]) {
+      const lat = parseFloat(data[0].lat);
+      const lon = parseFloat(data[0].lon);
+      if (isInBrazil(lat, lon)) return [lat, lon];
+    }
+  } catch {}
+  return null;
+}
+
+async function geocodeQuery(query: string): Promise<[number, number] | null> {
+  if (USE_GOOGLE) return await geocodeViaGoogle(query);
+  return await geocodeViaNominatim(query);
+}
 
 /** Geocodificar por endereco completo (rua + cidade + estado) — mais preciso */
 export async function geocodeAddress(address: string, city: string, state: string): Promise<[number, number] | null> {
   const q = `${address}, ${city}, ${state}, Brasil`;
   const key = `addr:${q.toLowerCase()}`;
   if (_geoCache.has(key)) return _geoCache.get(key)!;
-  try {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&countrycodes=br`;
-    const r = await fetch(url, {
-      headers: { "User-Agent": "ConsultaISP/1.0 heatmap@consultaisp.com.br" },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (r.ok) {
-      const data: any[] = await r.json();
-      if (data[0]) {
-        const lat = parseFloat(data[0].lat);
-        const lon = parseFloat(data[0].lon);
-        if (lat >= -34 && lat <= 6 && lon >= -74 && lon <= -34) {
-          const coords: [number, number] = [lat, lon];
-          _geoCache.set(key, coords);
-          return coords;
-        }
-      }
-    }
-  } catch {}
-  _geoCache.set(key, null);
-  return null;
+  const coords = await geocodeQuery(q);
+  _geoCache.set(key, coords);
+  return coords;
 }
 
 /** Geocodificar por cidade + estado — fallback quando endereco nao resolve */
 export async function geocodeCity(city: string, state: string): Promise<[number, number] | null> {
   const key = `city:${city.toLowerCase()},${state.toLowerCase()}`;
   if (_geoCache.has(key)) return _geoCache.get(key)!;
-  try {
-    const q = `${city}, ${state}, Brasil`;
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&countrycodes=br`;
-    const r = await fetch(url, {
-      headers: { "User-Agent": "ConsultaISP/1.0 heatmap@consultaisp.com.br" },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (r.ok) {
-      const data: any[] = await r.json();
-      if (data[0]) {
-        const lat = parseFloat(data[0].lat);
-        const lon = parseFloat(data[0].lon);
-        if (lat >= -34 && lat <= 6 && lon >= -74 && lon <= -34) {
-          const coords: [number, number] = [lat, lon];
-          _geoCache.set(key, coords);
-          return coords;
-        }
-        console.warn(`[Geocoding] Fora do Brasil: "${q}" → ${lat},${lon}`);
-      }
-    }
-  } catch {}
-  _geoCache.set(key, null);
-  return null;
+  const q = `${city}, ${state}, Brasil`;
+  const coords = await geocodeQuery(q);
+  _geoCache.set(key, coords);
+  return coords;
 }
 
 /** Geocodificar por CEP via Nominatim → lat/lng do bairro/regiao do CEP.
