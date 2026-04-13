@@ -606,13 +606,9 @@ export default function PainelProvedorPage() {
                   <span className="text-sm text-muted-foreground">Verificacao KYC</span>
                   <Badge className={`border ${kycConfig.color}`}>{kycConfig.label}</Badge>
                 </div>
-                <div className="flex justify-between items-center py-2 border-b">
-                  <span className="text-sm text-muted-foreground">Creditos ISP</span>
-                  <span className="font-semibold" data-testid="text-isp-credits">{provider?.ispCredits ?? 0}</span>
-                </div>
                 <div className="flex justify-between items-center py-2">
-                  <span className="text-sm text-muted-foreground">Creditos SPC</span>
-                  <span className="font-semibold" data-testid="text-spc-credits">{provider?.spcCredits ?? 0}</span>
+                  <span className="text-sm text-muted-foreground">Creditos</span>
+                  <span className="font-semibold" data-testid="text-isp-credits">{(provider?.ispCredits ?? 0) + (provider?.spcCredits ?? 0)}</span>
                 </div>
               </div>
             </Card>
@@ -1432,26 +1428,12 @@ export default function PainelProvedorPage() {
                     <Search className="w-5 h-5 text-white" />
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Creditos ISP</p>
-                    <p className="text-3xl font-bold" data-testid="text-isp-credits-tab">{provider?.ispCredits ?? 0}</p>
+                    <p className="text-xs text-muted-foreground">Saldo de Creditos</p>
+                    <p className="text-3xl font-bold" data-testid="text-isp-credits-tab">{(provider?.ispCredits ?? 0) + (provider?.spcCredits ?? 0)}</p>
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Cada consulta ISP em outro provedor consome 1 credito. Consultas no proprio provedor sao gratuitas.
-                </p>
-              </Card>
-              <Card className="p-5">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 rounded-lg bg-purple-500 flex items-center justify-center">
-                    <BarChart3 className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Creditos SPC</p>
-                    <p className="text-3xl font-bold" data-testid="text-spc-credits-tab">{provider?.spcCredits ?? 0}</p>
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Cada consulta ao bureau SPC consome 1 credito SPC.
+                  Consulta ISP (rede colaborativa): 1 credito. Consulta na propria base: gratuita. Consulta SPC: 4 creditos.
                 </p>
               </Card>
             </div>

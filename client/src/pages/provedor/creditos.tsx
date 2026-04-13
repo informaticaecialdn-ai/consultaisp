@@ -229,7 +229,7 @@ export default function CreditosPage() {
           <span className="text-sm text-[var(--color-navy)] font-semibold uppercase tracking-wide">Saldo de Creditos</span>
           <Wallet className="w-5 h-5 text-[var(--color-navy)]" />
         </div>
-        <p className="text-4xl font-bold text-[var(--color-navy)]" data-testid="text-credits-balance">{provider?.ispCredits ?? 0}</p>
+        <p className="text-4xl font-bold text-[var(--color-navy)]" data-testid="text-credits-balance">{(provider?.ispCredits ?? 0) + (provider?.spcCredits ?? 0)}</p>
         <p className="text-sm text-[var(--color-muted)] mt-1">creditos disponiveis</p>
       </div>
 
