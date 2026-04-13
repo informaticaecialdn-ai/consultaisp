@@ -451,13 +451,14 @@ export class IxcConnector implements ErpConnector {
    */
   async fetchCustomers(config: ErpConnectionConfig): Promise<ErpFetchResult> {
     try {
+      // rp=500, maxPages=200 → ate 100.000 clientes (vs default 10.000)
       const allRows = await this.listAll(config, "cliente", {
         qtype: "cliente.id",
         query: "0",
         oper: ">",
         sortname: "cliente.id",
         sortorder: "asc",
-      });
+      }, 500, 200);
 
       // Bulk resolve cidade/uf FK (mesma logica do fetchCancelledDelinquents)
       const cidadeMap = await this.bulkResolveCidadeUf(config);
