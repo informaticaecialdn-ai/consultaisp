@@ -29,9 +29,27 @@ export function registerAuthRoutes(): Router {
       if (!user.emailVerified) {
         return res.status(403).json({ message: "Email nao verificado. Verifique sua caixa de entrada.", code: "EMAIL_NOT_VERIFIED", email: user.email });
       }
+      // Validar isolamento de tenant: usuario so pode logar no subdominio do seu provedor
+      // Superadmins podem logar em qualquer subdominio (ou no dominio principal)
+      if (user.role !== "superadmin" && user.providerId) {
+        const { extractSubdomainFromHost } = await import("../tenant");
+        const requestSubdomain = extractSubdomainFromHost(req.hostname);
+        if (requestSubdomain) {
+          const provider = await storage.getProvider(user.providerId);
+          if (provider?.subdomain && provider.subdomain !== requestSubdomain) {
+            return res.status(403).json({
+              message: `Este login pertence ao provedor ${provider.tradeName || provider.name}. Acesse via ${provider.subdomain}.consultaisp.com.br`,
+            });
+          }
+        }
+      }
+
       req.session.userId = user.id;
       req.session.providerId = user.providerId || 0;
       req.session.role = user.role;
+      // Gravar subdomain na sessao pra validacao no requireAuth
+      const { extractSubdomainFromHost } = await import("../tenant");
+      req.session.subdomain = extractSubdomainFromHost(req.hostname) || undefined;
       const provider = user.providerId ? await storage.getProvider(user.providerId) : null;
       await new Promise<void>((resolve, reject) => {
         req.session.save((err) => err ? reject(err) : resolve());
