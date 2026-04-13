@@ -7,7 +7,7 @@
 
 import { storage } from "../storage";
 import { getConnector, buildConnectorConfig, getProviderLimiter } from "../erp";
-import { geocodeCity, geocodeCep, geocodeByCep, resolveIbgeCode } from "./geocoding";
+import { geocodeCity, geocodeCep, geocodeAddress, resolveIbgeCode } from "./geocoding";
 
 let _syncing = false;
 
@@ -104,14 +104,15 @@ export async function syncProviderToDb(
         } catch {}
       }
 
-      // Geocodificar: CEP → bairro-level coords (cache por CEP unico, ~100 CEPs = ~100 calls).
-      // Fallback: cidade → city-level com jitter.
-      // LGPD: jitter ±200m no CEP, ±2km na cidade.
-      if (customer.cep && city) {
-        const cepCoords = await geocodeByCep(customer.cep, city, state);
-        if (cepCoords) {
-          lat = String(cepCoords[0] + (Math.random() - 0.5) * 0.004);
-          lng = String(cepCoords[1] + (Math.random() - 0.5) * 0.004);
+      // Geocodificar por ENDERECO (rua + cidade + estado) — cache por rua unica.
+      // Londrina tem ~300 ruas unicas de inadimplentes, nao 3928.
+      // Fallback: cidade-level com jitter.
+      // LGPD: jitter ±100m no endereco, ±2km na cidade.
+      if (address && city && state) {
+        const addrCoords = await geocodeAddress(address, city, state);
+        if (addrCoords) {
+          lat = String(addrCoords[0] + (Math.random() - 0.5) * 0.002);
+          lng = String(addrCoords[1] + (Math.random() - 0.5) * 0.002);
         }
       }
       if (!lat && city && state) {
