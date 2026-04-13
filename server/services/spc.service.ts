@@ -1,12 +1,10 @@
 /**
- * SPC Service — Integração com API consultanegativacao.com.br v2
+ * SPC Service — Integração direta com SPC Brasil via SOAP/WSDL
  *
- * Fluxo assíncrono:
- * 1. POST /consultas/assincrona → recebe protocolo
- * 2. Poll GET /consultas/assincrona?protocolo=X até resultado
- *
- * Auth: headers cnpjSh, tokenSh, cnpjUsuario, login, password
- * Env: SPC_API_BASE_URL, SPC_CNPJ_SH, SPC_TOKEN_SH, SPC_OPERATOR_LOGIN, SPC_OPERATOR_PASSWORD
+ * Endpoint: https://servicos.spc.org.br/spc/remoting/ws/consulta/consultaWebService
+ * Auth: Basic Auth (base64 username:password)
+ * Protocolo: SOAP 1.1 com XML envelope
+ * Produto: 257 (consulta padrão)
  */
 
 import { logger } from "../logger";
@@ -14,12 +12,11 @@ import { CircuitBreaker, withResilience } from "../erp/resilience";
 
 // ── Environment ──────────────────────────────────────────────────────────────
 
-const SPC_API_BASE_URL = process.env.SPC_API_BASE_URL || "https://api.consultanegativacao.com.br/v2";
-const SPC_CNPJ_SH = process.env.SPC_CNPJ_SH || "";
-const SPC_TOKEN_SH = process.env.SPC_TOKEN_SH || "";
-const SPC_OPERATOR_LOGIN = process.env.SPC_OPERATOR_LOGIN || "";
-const SPC_OPERATOR_PASSWORD = process.env.SPC_OPERATOR_PASSWORD || "";
-const SPC_ENABLED = !!(SPC_CNPJ_SH && SPC_TOKEN_SH && SPC_OPERATOR_LOGIN && SPC_OPERATOR_PASSWORD);
+const SPC_WSDL_URL = process.env.SPC_WSDL_URL || "https://servicos.spc.org.br/spc/remoting/ws/consulta/consultaWebService";
+const SPC_USERNAME = process.env.SPC_USERNAME || "";
+const SPC_PASSWORD = process.env.SPC_PASSWORD || "";
+const SPC_PRODUCT_CODE = process.env.SPC_PRODUCT_CODE || "257";
+const SPC_ENABLED = !!(SPC_USERNAME && SPC_PASSWORD);
 
 // ── Circuit breaker ─────────────────────────────────────────────────────────
 
@@ -60,18 +57,8 @@ export interface SpcResult {
     bySegment: Record<string, number>;
   };
   alerts: { type: string; message: string; severity: string }[];
-  rawHtml?: string;
+  rawXml?: string;
 }
-
-// ── Códigos de consulta ──────────────────────────────────────────────────────
-
-export const SPC_CONSULTATION_TYPES = {
-  PF_BASICA: 1,
-  PF_DETALHADA: 4,
-  SCORE_601: 601,
-  COMPLETA_602: 602,
-  PREMIUM_603: 603,
-} as const;
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -80,249 +67,229 @@ export function isSpcConfigured(): boolean {
 }
 
 /**
- * Consultar SPC via API consultanegativacao.com.br
- * @param cpfCnpj CPF ou CNPJ a consultar
- * @param cnpjProvedor CNPJ do provedor que está fazendo a consulta
- * @param codConsulta Código da consulta (default: 601 = Score)
- * @param retorno "HTML" ou "JSON" (default: "JSON")
+ * Consultar SPC Brasil via SOAP
+ * @param cpfCnpj CPF ou CNPJ
+ * @param codigoProduto Código do produto SPC (default: 257)
  */
 export async function consultarSpc(
   cpfCnpj: string,
-  cnpjProvedor?: string,
-  codConsulta: number = SPC_CONSULTATION_TYPES.SCORE_601,
-  retorno: "HTML" | "JSON" = "JSON",
+  _cnpjProvedor?: string,
+  codigoProduto?: number,
 ): Promise<SpcResult> {
   if (!SPC_ENABLED) {
-    throw new Error("SPC nao configurado. Verifique as variaveis SPC_CNPJ_SH, SPC_TOKEN_SH, SPC_OPERATOR_LOGIN, SPC_OPERATOR_PASSWORD no .env");
+    throw new Error("SPC nao configurado. Defina SPC_USERNAME e SPC_PASSWORD no .env");
   }
 
   const cleanDoc = cpfCnpj.replace(/\D/g, "");
-  const uf = "PR"; // Default UF — pode ser parametrizado depois
+  const tipoConsumidor = cleanDoc.length === 11 ? "F" : "J";
+  const produto = codigoProduto || parseInt(SPC_PRODUCT_CODE) || 257;
 
-  logger.info({ cpfCnpj: cleanDoc.slice(0, 3) + "***", codConsulta }, "SPC consultation started");
+  logger.info({ doc: cleanDoc.slice(0, 3) + "***", produto, tipo: tipoConsumidor }, "[SPC] Consulta iniciada");
 
-  // Step 1: Iniciar consulta assíncrona
-  const protocolo = await iniciarConsulta(cleanDoc, cnpjProvedor || SPC_CNPJ_SH, codConsulta, uf, retorno);
-  logger.info({ protocolo }, "SPC protocolo received");
+  const soapBody = buildSoapEnvelope(produto, tipoConsumidor, cleanDoc);
+  const auth = Buffer.from(`${SPC_USERNAME}:${SPC_PASSWORD}`).toString("base64");
 
-  // Step 2: Poll resultado
-  const resultado = await buscarResultado(protocolo, cnpjProvedor || SPC_CNPJ_SH);
-  logger.info({ protocolo, hasData: !!resultado }, "SPC result received");
-
-  // Step 3: Parse resultado
-  return parseResultado(cleanDoc, resultado, retorno);
-}
-
-/**
- * Negativar devedor no SPC
- */
-export async function negativarSpc(
-  dados: {
-    nome: string;
-    documento: string;
-    endereco: string;
-    bairro: string;
-    municipio: string;
-    uf: string;
-    cep: string;
-    divida: {
-      nossoNumero: string;
-      especieTitulo: string;
-      numDocumento: string;
-      dataEmissao: string;
-      dataVencimento: string;
-      valorTitulo: number;
-      codAlinea: string;
-      codEndosso: string;
-      codAceite: string;
-    };
-  },
-  cnpjProvedor: string,
-): Promise<any> {
-  if (!SPC_ENABLED) {
-    throw new Error("SPC nao configurado");
-  }
-
-  const url = `${SPC_API_BASE_URL}/negativacao`;
-  const response = await fetchSpc(url, "POST", cnpjProvedor, JSON.stringify(dados));
-  return response;
-}
-
-/**
- * Consultar consumo de créditos SPC
- */
-export async function consultarConsumo(
-  inicio: string,
-  fim: string,
-): Promise<any> {
-  if (!SPC_ENABLED) throw new Error("SPC nao configurado");
-  const url = `${SPC_API_BASE_URL}/consumo?inicio=${inicio}&final=${fim}`;
-  return fetchSpc(url, "GET", SPC_CNPJ_SH);
-}
-
-// ── Internal ─────────────────────────────────────────────────────────────────
-
-function buildHeaders(cnpjUsuario: string): Record<string, string> {
-  return {
-    "Content-Type": "application/json",
-    "cnpjSh": SPC_CNPJ_SH,
-    "tokenSh": SPC_TOKEN_SH,
-    "cnpjUsuario": cnpjUsuario,
-    "login": SPC_OPERATOR_LOGIN,
-    "password": SPC_OPERATOR_PASSWORD,
-  };
-}
-
-async function fetchSpc(url: string, method: string, cnpjUsuario: string, body?: string): Promise<any> {
-  return withResilience(
+  const xmlResponse = await withResilience(
     async () => {
-      const response = await fetch(url, {
-        method,
-        headers: buildHeaders(cnpjUsuario),
-        body: method === "POST" ? body : undefined,
+      const response = await fetch(SPC_WSDL_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "text/xml; charset=utf-8",
+          "Authorization": `Basic ${auth}`,
+          "SOAPAction": "consultar",
+        },
+        body: soapBody,
         signal: AbortSignal.timeout(30000),
       });
 
       if (!response.ok) {
-        const text = await response.text().catch(() => "");
-        throw new Error(`SPC API HTTP ${response.status}: ${text.slice(0, 500)}`);
+        const errText = await response.text().catch(() => "");
+        throw new Error(`SPC API HTTP ${response.status}: ${errText.slice(0, 500)}`);
       }
 
-      return response.json();
+      return response.text();
     },
     { retries: 2, minTimeout: 2000, circuit: spcCircuit },
   );
+
+  logger.info({ responseLength: xmlResponse.length }, "[SPC] Resposta recebida");
+
+  return parseXmlResponse(cleanDoc, xmlResponse);
 }
 
-async function iniciarConsulta(
-  documento: string,
-  cnpjUsuario: string,
-  codConsulta: number,
-  uf: string,
-  retorno: string,
-): Promise<string> {
-  const url = `${SPC_API_BASE_URL}/consultas/assincrona`;
-  const body = JSON.stringify({ documento, codConsulta, uf, retorno });
+// ── SOAP Envelope ────────────────────────────────────────────────────────────
 
-  const data = await fetchSpc(url, "POST", cnpjUsuario, body);
-
-  if (data.protocolo) {
-    return data.protocolo;
-  }
-
-  if (data.error || data.mensagem) {
-    throw new Error(`SPC erro ao iniciar consulta: ${data.error || data.mensagem}`);
-  }
-
-  throw new Error("SPC resposta inesperada ao iniciar consulta: " + JSON.stringify(data).slice(0, 500));
+function buildSoapEnvelope(codigoProduto: number, tipoConsumidor: string, documento: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:web="http://webservice.consulta.spcjava.spcbrasil.org/">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <web:filtro>
+      <codigo-produto>${codigoProduto}</codigo-produto>
+      <tipo-consumidor>${tipoConsumidor}</tipo-consumidor>
+      <documento-consumidor>${documento}</documento-consumidor>
+    </web:filtro>
+  </soapenv:Body>
+</soapenv:Envelope>`;
 }
 
-async function buscarResultado(protocolo: string, cnpjUsuario: string, maxAttempts = 10): Promise<any> {
-  const url = `${SPC_API_BASE_URL}/consultas/assincrona?protocolo=${encodeURIComponent(protocolo)}`;
+// ── XML Parser (sem dependencia externa) ─────────────────────────────────────
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const data = await fetchSpc(url, "GET", cnpjUsuario);
-
-    // Se tem resultado, retorna
-    if (data.resultado || data.html || data.data || data.score !== undefined) {
-      return data;
-    }
-
-    // Se ainda está processando, espera e tenta de novo
-    if (data.status === "processando" || data.status === "pending" || data.pendente) {
-      logger.info({ protocolo, attempt }, "SPC result pending, waiting...");
-      await new Promise(r => setTimeout(r, 2000 + attempt * 500));
-      continue;
-    }
-
-    // Se deu erro, lança
-    if (data.error || data.mensagem) {
-      throw new Error(`SPC erro ao buscar resultado: ${data.error || data.mensagem}`);
-    }
-
-    // Resposta inesperada — pode ser o próprio resultado
-    return data;
-  }
-
-  throw new Error(`SPC timeout: resultado nao ficou pronto apos ${maxAttempts} tentativas para protocolo ${protocolo}`);
+function extractTag(xml: string, tag: string): string {
+  const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i");
+  const match = xml.match(regex);
+  return match ? match[1].trim() : "";
 }
 
-function parseResultado(cpfCnpj: string, data: any, retorno: string): SpcResult {
+function extractAllTags(xml: string, tag: string): string[] {
+  const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "gi");
+  const results: string[] = [];
+  let match;
+  while ((match = regex.exec(xml)) !== null) {
+    results.push(match[1].trim());
+  }
+  return results;
+}
+
+function extractTagValue(xml: string, tag: string): string {
+  // Handles both <tag>value</tag> and <tag><valor>value</valor></tag>
+  const content = extractTag(xml, tag);
+  if (!content) return "";
+  // Se contem sub-tags, extrair <valor> ou <descricao>
+  if (content.includes("<")) {
+    return extractTag(content, "valor") || extractTag(content, "descricao") || extractTag(content, "nome") || content.replace(/<[^>]+>/g, "").trim();
+  }
+  return content;
+}
+
+// ── Response Parser ──────────────────────────────────────────────────────────
+
+function parseXmlResponse(cpfCnpj: string, xml: string): SpcResult {
   const isPF = cpfCnpj.length <= 11;
 
-  // Se retorno HTML, salvar o HTML e extrair o que puder
-  if (retorno === "HTML" && (data.html || data.resultado)) {
-    const html = data.html || data.resultado || "";
-    return {
-      cpfCnpj,
-      cadastralData: {
-        nome: data.nome || "Consulta SPC",
-        cpfCnpj,
-        situacaoRf: "Consulte o relatorio",
-        obitoRegistrado: false,
-        tipo: isPF ? "PF" : "PJ",
-      },
-      score: data.score || 0,
-      riskLevel: "unknown",
-      riskLabel: "Consulte o relatorio",
-      recommendation: "Analisar relatorio completo",
-      status: "consulted",
-      restrictions: [],
-      totalRestrictions: 0,
-      previousConsultations: { total: 0, last90Days: 0, bySegment: {} },
-      alerts: [],
-      rawHtml: html,
-    };
+  // Extract main data from SOAP response
+  const body = extractTag(xml, "soapenv:Body") || extractTag(xml, "soap:Body") || extractTag(xml, "S:Body") || xml;
+  const resultado = extractTag(body, "return") || extractTag(body, "resultado") || body;
+
+  // Nome do consumidor
+  const nome = extractTagValue(resultado, "nome-consumidor")
+    || extractTagValue(resultado, "nome")
+    || extractTagValue(resultado, "razao-social")
+    || "Consulta SPC";
+
+  // Score
+  const scoreStr = extractTagValue(resultado, "score")
+    || extractTagValue(resultado, "pontuacao")
+    || extractTagValue(resultado, "classe-risco");
+  const score = parseInt(scoreStr) || 0;
+
+  // Data nascimento
+  const dataNasc = extractTagValue(resultado, "data-nascimento")
+    || extractTagValue(resultado, "nascimento");
+
+  // Nome da mae
+  const nomeMae = extractTagValue(resultado, "nome-mae");
+
+  // Situacao RF
+  const situacaoRf = extractTagValue(resultado, "situacao-documento")
+    || extractTagValue(resultado, "situacao");
+
+  // Obito
+  const obitoStr = extractTagValue(resultado, "indicador-obito") || extractTagValue(resultado, "obito");
+  const obitoRegistrado = obitoStr === "S" || obitoStr === "true" || obitoStr === "1";
+
+  // Restricoes / ocorrencias
+  const restrictions: SpcResult["restrictions"] = [];
+  const ocorrencias = extractAllTags(resultado, "ocorrencia");
+
+  for (const occ of ocorrencias) {
+    const tipo = extractTagValue(occ, "tipo-ocorrencia") || extractTagValue(occ, "tipo") || "DEBITO";
+    const informante = extractTagValue(occ, "nome-informante") || extractTagValue(occ, "informante") || "";
+    const valor = extractTagValue(occ, "valor") || extractTagValue(occ, "valor-ocorrencia") || "0";
+    const data = extractTagValue(occ, "data-ocorrencia") || extractTagValue(occ, "data-inclusao") || "";
+    const origem = extractTagValue(occ, "origem") || extractTagValue(occ, "cidade-associado") || "";
+    const motivo = extractTagValue(occ, "motivo") || extractTagValue(occ, "descricao") || "";
+    const vencimento = extractTagValue(occ, "data-vencimento") || "";
+
+    const numValor = parseFloat(valor.replace(/[^\d.,]/g, "").replace(",", ".")) || 0;
+
+    restrictions.push({
+      type: mapTipoOcorrencia(tipo),
+      description: motivo || `${mapTipoOcorrencia(tipo)} - ${informante}`,
+      severity: numValor > 1000 ? "high" : numValor > 0 ? "medium" : "low",
+      creditor: informante || "Nao informado",
+      value: String(numValor.toFixed(2)),
+      date: data || vencimento || "",
+      origin: origem,
+    });
   }
 
-  // Parse JSON response
-  const resultado = data.resultado || data.data || data;
-  const score = resultado.score || resultado.pontuacao || 0;
-  const hasRestrictions = resultado.restricoes || resultado.has_restrictions || resultado.pendencias;
-  const nome = resultado.nome || resultado.razaoSocial || resultado.nomeConsultado || "Consulta SPC";
-
-  // Build restrictions
-  const rawRestrictions = resultado.restricoes || resultado.pendencias || resultado.debitos || [];
-  const restrictions = (Array.isArray(rawRestrictions) ? rawRestrictions : []).map((r: any) => ({
-    type: r.tipo || r.type || r.natureza || "DEBITO",
-    description: r.descricao || r.description || r.informante || "",
-    severity: (r.valor || 0) > 1000 ? "high" : "medium",
-    creditor: r.informante || r.credor || r.empresa || "Nao informado",
-    value: String(r.valor || r.value || "0"),
-    date: r.data || r.dataInclusao || r.date || "",
-    origin: r.origem || r.origin || "",
+  // Alertas
+  const alertas = extractAllTags(resultado, "alerta");
+  const alerts = alertas.map(a => ({
+    type: "ALERTA",
+    message: extractTagValue(a, "descricao") || extractTagValue(a, "mensagem") || a.replace(/<[^>]+>/g, "").trim(),
+    severity: "medium" as const,
   }));
 
-  const totalValue = restrictions.reduce((s: number, r: any) => s + parseFloat(r.value || "0"), 0);
+  // Consultas anteriores
+  const qtdConsultas = parseInt(extractTagValue(resultado, "quantidade-consulta-anterior") || "0") || 0;
+  const qtdConsultas90 = parseInt(extractTagValue(resultado, "quantidade-consulta-90-dias") || "0") || 0;
 
-  const { riskLevel, riskLabel, recommendation } = getRiskInfo(score);
+  // Total valor restricoes
+  const totalValue = restrictions.reduce((s, r) => s + parseFloat(r.value || "0"), 0);
 
-  return {
+  // Status
+  const hasRestrictions = restrictions.length > 0;
+  const status = hasRestrictions ? "restricted" : "clean";
+
+  // Risk
+  const { riskLevel, riskLabel, recommendation } = score > 0
+    ? getRiskInfo(score)
+    : getSyntheticRisk(restrictions);
+
+  const result: SpcResult = {
     cpfCnpj,
     cadastralData: {
       nome,
       cpfCnpj,
-      dataNascimento: resultado.dataNascimento || resultado.nascimento,
-      nomeMae: resultado.nomeMae,
-      situacaoRf: resultado.situacaoRf || resultado.situacao || (hasRestrictions ? "Com restricoes" : "Regular"),
-      obitoRegistrado: resultado.obito === true,
+      dataNascimento: dataNasc || undefined,
+      nomeMae: nomeMae || undefined,
+      situacaoRf: situacaoRf || (hasRestrictions ? "Com restricoes" : "Regular"),
+      obitoRegistrado,
       tipo: isPF ? "PF" : "PJ",
     },
-    score,
+    score: score || (hasRestrictions ? 300 : 850),
     riskLevel,
     riskLabel,
     recommendation,
-    status: hasRestrictions ? "restricted" : "clean",
+    status,
     restrictions,
     totalRestrictions: totalValue,
-    previousConsultations: {
-      total: resultado.consultasAnteriores || 0,
-      last90Days: resultado.consultas90dias || 0,
-      bySegment: {},
-    },
-    alerts: [],
-    rawHtml: resultado.html,
+    previousConsultations: { total: qtdConsultas, last90Days: qtdConsultas90, bySegment: {} },
+    alerts,
+    rawXml: xml,
   };
+
+  logger.info(
+    { score: result.score, riskLevel, restrictions: restrictions.length },
+    "[SPC] Consulta parseada",
+  );
+
+  return result;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+const TIPO_MAP: Record<string, string> = {
+  "100": "DEBITO", "105": "CHEQUE", "110": "ALERTA",
+  "115": "DEVOLUCAO_CHEQUE", "120": "PENDENCIA_FINANCEIRA",
+  "150": "PROTESTO", "155": "ACAO_JUDICIAL",
+  "160": "FALENCIA", "170": "REFIN", "180": "CCF", "185": "PEFIN",
+};
+
+function mapTipoOcorrencia(tipo: string): string {
+  return TIPO_MAP[tipo] || tipo;
 }
 
 function getRiskInfo(score: number): { riskLevel: string; riskLabel: string; recommendation: string } {
@@ -330,5 +297,12 @@ function getRiskInfo(score: number): { riskLevel: string; riskLabel: string; rec
   if (score >= 701) return { riskLevel: "low", riskLabel: "Risco Baixo", recommendation: "Aprovar" };
   if (score >= 501) return { riskLevel: "medium", riskLabel: "Risco Medio", recommendation: "Aprovar com ressalvas" };
   if (score >= 301) return { riskLevel: "high", riskLabel: "Risco Alto", recommendation: "Analisar com cautela" };
+  return { riskLevel: "very_high", riskLabel: "Risco Muito Alto", recommendation: "Recusar" };
+}
+
+function getSyntheticRisk(restrictions: SpcResult["restrictions"]): { riskLevel: string; riskLabel: string; recommendation: string } {
+  if (restrictions.length === 0) return { riskLevel: "very_low", riskLabel: "Nada Consta", recommendation: "Aprovar" };
+  const total = restrictions.reduce((s, r) => s + parseFloat(r.value || "0"), 0);
+  if (restrictions.length <= 2 && total < 1000) return { riskLevel: "high", riskLabel: "Risco Alto", recommendation: "Analisar com cautela" };
   return { riskLevel: "very_high", riskLabel: "Risco Muito Alto", recommendation: "Recusar" };
 }
