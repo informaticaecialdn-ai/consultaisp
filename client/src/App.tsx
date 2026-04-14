@@ -1,4 +1,4 @@
-import { useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -102,6 +102,63 @@ const PROVIDER_ONLY_PATHS = [
   "/benchmark-regional",
 ];
 
+function ChangePasswordModal() {
+  const { mustChangePassword, clearMustChangePassword } = useAuth();
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  if (!mustChangePassword) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    if (newPassword.length < 6) { setError("Senha deve ter no minimo 6 caracteres"); return; }
+    if (newPassword !== confirmPassword) { setError("Senhas nao conferem"); return; }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newPassword }),
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.message || "Erro ao alterar senha"); return; }
+      clearMustChangePassword();
+    } catch { setError("Erro de conexao"); } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4">
+        <div className="text-center">
+          <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mx-auto mb-3">
+            <svg className="w-6 h-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m0 0v2m0-2h2m-2 0H10m9-7a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          </div>
+          <h2 className="text-xl font-bold">Alterar Senha</h2>
+          <p className="text-sm text-gray-500 mt-1">Por seguranca, altere sua senha antes de continuar.</p>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          {error && <p className="text-sm text-red-600 bg-red-50 dark:bg-red-950/20 rounded px-3 py-2">{error}</p>}
+          <div>
+            <label className="text-sm font-medium block mb-1">Nova Senha</label>
+            <input type="password" className="w-full border rounded-lg px-3 py-2 text-sm" value={newPassword} onChange={e => setNewPassword(e.target.value)} autoFocus minLength={6} required />
+          </div>
+          <div>
+            <label className="text-sm font-medium block mb-1">Confirmar Senha</label>
+            <input type="password" className="w-full border rounded-lg px-3 py-2 text-sm" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} minLength={6} required />
+          </div>
+          <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg text-sm disabled:opacity-50">
+            {loading ? "Alterando..." : "Alterar Senha"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function AuthenticatedApp() {
   const { user, isLoading } = useAuth();
   const [location, navigate] = useLocation();
@@ -203,6 +260,7 @@ function App() {
       <TooltipProvider>
         <ErrorBoundary>
           <AuthProvider>
+            <ChangePasswordModal />
             <AuthenticatedApp />
           </AuthProvider>
         </ErrorBoundary>

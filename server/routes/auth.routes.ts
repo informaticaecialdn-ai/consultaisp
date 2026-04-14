@@ -54,7 +54,11 @@ export function registerAuthRoutes(): Router {
       await new Promise<void>((resolve, reject) => {
         req.session.save((err) => err ? reject(err) : resolve());
       });
-      return res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role }, provider });
+      return res.json({
+        user: { id: user.id, email: user.email, name: user.name, role: user.role },
+        provider,
+        mustChangePassword: user.mustChangePassword || false,
+      });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
@@ -189,7 +193,33 @@ export function registerAuthRoutes(): Router {
     }
     const provider = user.providerId ? await storage.getProvider(user.providerId) : null;
     const partnerCode = provider ? (await import("../utils/provider-anonymizer.js")).generatePartnerCode(provider.id, provider.tradeName || provider.name) : null;
-    return res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role }, provider, partnerCode });
+    return res.json({
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      provider,
+      partnerCode,
+      mustChangePassword: user.mustChangePassword || false,
+    });
+  });
+
+  router.post("/api/auth/change-password", async (req, res) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ message: "Nao autenticado" });
+    }
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ message: "Senha deve ter no minimo 6 caracteres" });
+    }
+    try {
+      const { hashPassword } = await import("../password");
+      const hashed = await hashPassword(newPassword);
+      const { users } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const { db } = await import("../db");
+      await db.update(users).set({ password: hashed, mustChangePassword: false }).where(eq(users.id, req.session.userId));
+      return res.json({ message: "Senha alterada com sucesso" });
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
   });
 
   return router;
