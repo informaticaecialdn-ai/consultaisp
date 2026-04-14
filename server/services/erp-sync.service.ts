@@ -161,7 +161,7 @@ export async function syncProviderToDb(
       // Fallback: cidade-level com jitter.
       // LGPD: jitter ±100m no endereco, ±2km na cidade.
       if (address && city && state) {
-        const addrCoords = await geocodeAddress(address, city, state);
+        const addrCoords = await geocodeAddress(address, city, state, customer.cep);
         if (addrCoords) {
           lat = String(addrCoords[0] + (Math.random() - 0.5) * 0.002);
           lng = String(addrCoords[1] + (Math.random() - 0.5) * 0.002);

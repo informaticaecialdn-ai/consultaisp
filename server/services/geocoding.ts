@@ -53,12 +53,42 @@ async function geocodeQuery(query: string): Promise<[number, number] | null> {
   return await geocodeViaNominatim(query);
 }
 
-/** Geocodificar por endereco completo (rua + cidade + estado) — mais preciso */
-export async function geocodeAddress(address: string, city: string, state: string): Promise<[number, number] | null> {
+/** Geocodificar por endereco completo.
+ * Prioridade: CEP+cidade (mais confiavel) → endereco+cidade → cidade.
+ * Google Maps pode resolver nomes de rua pra cidades homônimas (ex: "Rua Moacyr Arcoverde" → Arcoverde-PE).
+ * CEP nunca mente — sempre aponta pra cidade correta. */
+export async function geocodeAddress(address: string, city: string, state: string, cep?: string): Promise<[number, number] | null> {
+  // 1. Tentar por CEP + cidade (mais confiavel)
+  if (cep) {
+    const cleanCep = cep.replace(/\D/g, "");
+    if (cleanCep.length >= 8) {
+      const cepKey = `cep:${cleanCep},${city.toLowerCase()}`;
+      if (_geoCache.has(cepKey)) return _geoCache.get(cepKey)!;
+      const cepCoords = await geocodeQuery(`${cleanCep}, ${city}, ${state}, Brasil`);
+      _geoCache.set(cepKey, cepCoords);
+      if (cepCoords) return cepCoords;
+    }
+  }
+
+  // 2. Tentar por endereco + cidade (pode falhar pra ruas com nome de cidade)
   const q = `${address}, ${city}, ${state}, Brasil`;
   const key = `addr:${q.toLowerCase()}`;
   if (_geoCache.has(key)) return _geoCache.get(key)!;
   const coords = await geocodeQuery(q);
+
+  // Validar que o resultado esta perto da cidade esperada (nao em outro estado)
+  if (coords) {
+    const cityCoords = await geocodeCity(city, state);
+    if (cityCoords) {
+      const dist = Math.abs(coords[0] - cityCoords[0]) + Math.abs(coords[1] - cityCoords[1]);
+      if (dist > 1.0) {
+        // Resultado muito longe da cidade (~100km+) — provavelmente resolveu pra cidade errada
+        _geoCache.set(key, null);
+        return cep ? null : null; // Fallback pro geocodeCity no caller
+      }
+    }
+  }
+
   _geoCache.set(key, coords);
   return coords;
 }
