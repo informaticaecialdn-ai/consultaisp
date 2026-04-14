@@ -78,6 +78,8 @@ export const users = pgTable("users", {
   verificationTokenExpiresAt: timestamp("verification_token_expires_at"),
   lgpdAcceptedAt: timestamp("lgpd_accepted_at"),
   mustChangePassword: boolean("must_change_password").notNull().default(false),
+  resetToken: text("reset_token"),
+  resetTokenExpiresAt: timestamp("reset_token_expires_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

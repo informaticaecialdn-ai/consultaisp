@@ -183,6 +183,65 @@ export function registerAuthRoutes(): Router {
     });
   });
 
+  // Esqueci minha senha
+  router.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) return res.status(400).json({ message: "Email obrigatorio" });
+
+      // Sempre retorna sucesso (nao revela se email existe)
+      const user = await storage.getUserByEmail(email);
+      if (user) {
+        const crypto = await import("crypto");
+        const token = crypto.randomBytes(32).toString("hex");
+        const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
+        const { users } = await import("@shared/schema");
+        const { eq } = await import("drizzle-orm");
+        const { db } = await import("../db");
+        await db.update(users).set({ resetToken: token, resetTokenExpiresAt: expiresAt }).where(eq(users.id, user.id));
+        const { sendPasswordResetEmail } = await import("../services/email");
+        await sendPasswordResetEmail(user.email, user.name, token).catch(err =>
+          console.warn(`[auth] Erro ao enviar email de reset: ${err.message}`)
+        );
+      }
+      return res.json({ message: "Se o email estiver cadastrado, voce recebera instrucoes para redefinir sua senha." });
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  // Redefinir senha com token
+  router.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { token, newPassword } = req.body;
+      if (!token || !newPassword) return res.status(400).json({ message: "Token e nova senha obrigatorios" });
+      if (newPassword.length < 6) return res.status(400).json({ message: "Senha deve ter no minimo 6 caracteres" });
+
+      const { users } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const { db } = await import("../db");
+
+      const [user] = await db.select().from(users).where(eq(users.resetToken, token)).limit(1);
+      if (!user) return res.status(400).json({ message: "Link invalido ou expirado" });
+      if (user.resetTokenExpiresAt && new Date(user.resetTokenExpiresAt) < new Date()) {
+        return res.status(400).json({ message: "Link expirado. Solicite uma nova redefinicao." });
+      }
+
+      const { hashPassword } = await import("../password");
+      const hashed = await hashPassword(newPassword);
+      await db.update(users).set({
+        password: hashed,
+        resetToken: null,
+        resetTokenExpiresAt: null,
+        mustChangePassword: false,
+      }).where(eq(users.id, user.id));
+
+      return res.json({ message: "Senha alterada com sucesso. Faca login com a nova senha." });
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
   router.get("/api/auth/me", async (req, res) => {
     if (!req.session.userId) {
       return res.status(401).json({ message: "Nao autenticado" });

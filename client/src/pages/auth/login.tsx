@@ -39,7 +39,113 @@ function formatPhone(value: string): string {
   return `(${digits.slice(0,2)}) ${digits.slice(2,7)}-${digits.slice(7)}`;
 }
 
-type PageState = "login" | "register" | "check-email";
+type PageState = "login" | "register" | "check-email" | "forgot" | "reset";
+
+function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.message); return; }
+      setSent(true);
+    } catch { setError("Erro de conexao"); } finally { setLoading(false); }
+  };
+
+  if (sent) {
+    return (
+      <div className="text-center py-4">
+        <div className="w-12 h-12 rounded-full bg-[var(--color-success)]/10 flex items-center justify-center mx-auto mb-3">
+          <CheckCircle className="w-6 h-6 text-[var(--color-success)]" />
+        </div>
+        <h3 className="font-semibold text-lg mb-2">Email enviado</h3>
+        <p className="text-sm text-[var(--color-muted)] mb-4">Se o email estiver cadastrado, voce recebera instrucoes para redefinir sua senha.</p>
+        <Button variant="ghost" onClick={onBack} className="text-[var(--color-navy)]">Voltar ao login</Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="py-2">
+      <h3 className="font-semibold text-lg text-center mb-2">Esqueci minha senha</h3>
+      <p className="text-sm text-[var(--color-muted)] text-center mb-4">Informe seu email e enviaremos um link para redefinir sua senha.</p>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        {error && <p className="text-sm text-[var(--color-danger)] bg-[var(--color-danger-bg)] rounded px-3 py-2">{error}</p>}
+        <Input type="email" placeholder="seu@email.com" value={email} onChange={e => setEmail(e.target.value)} required />
+        <Button type="submit" disabled={loading} className="w-full bg-[var(--color-navy)] hover:bg-[var(--color-steel)] text-white font-semibold">
+          {loading ? "Enviando..." : "Enviar link de redefinicao"}
+        </Button>
+      </form>
+      <button type="button" onClick={onBack} className="mt-3 text-sm text-[var(--color-navy)] hover:underline w-full text-center block">Voltar ao login</button>
+    </div>
+  );
+}
+
+function ResetPasswordForm({ onBack }: { onBack: () => void }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [done, setDone] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get("reset") || "";
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password !== confirm) { setError("Senhas nao conferem"); return; }
+    setError("");
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, newPassword: password }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.message); return; }
+      setDone(true);
+    } catch { setError("Erro de conexao"); } finally { setLoading(false); }
+  };
+
+  if (done) {
+    return (
+      <div className="text-center py-4">
+        <div className="w-12 h-12 rounded-full bg-[var(--color-success)]/10 flex items-center justify-center mx-auto mb-3">
+          <CheckCircle className="w-6 h-6 text-[var(--color-success)]" />
+        </div>
+        <h3 className="font-semibold text-lg mb-2">Senha alterada</h3>
+        <p className="text-sm text-[var(--color-muted)] mb-4">Sua senha foi redefinida com sucesso. Faca login com a nova senha.</p>
+        <Button onClick={onBack} className="bg-[var(--color-navy)] text-white">Ir para login</Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="py-2">
+      <h3 className="font-semibold text-lg text-center mb-2">Redefinir senha</h3>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        {error && <p className="text-sm text-[var(--color-danger)] bg-[var(--color-danger-bg)] rounded px-3 py-2">{error}</p>}
+        <Input type="password" placeholder="Nova senha" value={password} onChange={e => setPassword(e.target.value)} minLength={6} required />
+        <Input type="password" placeholder="Confirmar senha" value={confirm} onChange={e => setConfirm(e.target.value)} minLength={6} required />
+        <Button type="submit" disabled={loading} className="w-full bg-[var(--color-navy)] hover:bg-[var(--color-steel)] text-white font-semibold">
+          {loading ? "Alterando..." : "Redefinir senha"}
+        </Button>
+      </form>
+    </div>
+  );
+}
 
 export default function LoginPage() {
   const { login, register } = useAuth();
@@ -59,8 +165,9 @@ export default function LoginPage() {
   });
 
   const [pageState, setPageState] = useState<PageState>(() => {
-    if (isSubdomainMode) return "login";
     const params = new URLSearchParams(window.location.search);
+    if (params.get("reset")) return "reset";
+    if (isSubdomainMode) return "login";
     return params.get("mode") === "register" ? "register" : "login";
   });
   const [isLoading, setIsLoading] = useState(false);
@@ -346,6 +453,7 @@ export default function LoginPage() {
                   </p>
                 </div>
 
+                {pageState !== "forgot" && pageState !== "reset" && (
                 <form onSubmit={handleSubmit} className="space-y-4">
                   {pageState === "register" && (
                     <>
@@ -527,6 +635,11 @@ export default function LoginPage() {
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="text-sm font-medium text-[var(--color-ink)]">Senha</label>
+                      {pageState === "login" && (
+                        <button type="button" className="text-xs text-[var(--color-navy)] hover:underline" onClick={() => setPageState("forgot" as any)}>
+                          Esqueci minha senha
+                        </button>
+                      )}
                     </div>
                     <div className="relative">
                       <Input
@@ -611,8 +724,17 @@ export default function LoginPage() {
                     {!isLoading && <ArrowLeft className="w-4 h-4 ml-2 rotate-180" />}
                   </Button>
                 </form>
+                )}
 
-                {!isSubdomainMode && (
+                {pageState === "forgot" && (
+                  <ForgotPasswordForm onBack={() => setPageState("login")} />
+                )}
+
+                {pageState === "reset" && (
+                  <ResetPasswordForm onBack={() => setPageState("login")} />
+                )}
+
+                {!isSubdomainMode && pageState !== "forgot" && pageState !== "reset" && (
                   <p className="mt-5 text-center text-sm text-[var(--color-muted)]">
                     {pageState === "register" ? "Ja tem uma conta? " : "Ainda nao tem uma conta? "}
                     <button
