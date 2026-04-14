@@ -171,7 +171,7 @@ export default function ConsultaSPCPage() {
     <div className="p-4 lg:p-6 space-y-6" data-testid="consulta-spc-page">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center">
+          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[var(--color-navy)] to-[var(--color-navy)] flex items-center justify-center">
             <BarChart3 className="w-6 h-6 text-white" />
           </div>
           <div>
@@ -180,27 +180,27 @@ export default function ConsultaSPCPage() {
           </div>
         </div>
         <Badge variant="secondary" className="gap-1.5 px-3 py-1.5 text-sm">
-          <CreditCard className="w-4 h-4 text-purple-600" />
-          Creditos SPC: <span className="font-bold" data-testid="text-spc-credits">{data?.credits ?? "..."}</span>
+          <CreditCard className="w-4 h-4 text-[var(--color-navy)]" />
+          Creditos: <span className="font-bold" data-testid="text-spc-credits">{data?.credits ?? "..."}</span>
         </Badge>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="p-5 bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20 border-purple-200/50 dark:border-purple-800/30">
+        <Card className="p-5 bg-gradient-to-br bg-[var(--color-navy-bg)] border-[var(--color-navy)]/10">
           <div className="flex items-center justify-between gap-2 mb-3">
             <span className="text-sm font-medium text-muted-foreground">Consultas Hoje</span>
-            <TrendingUp className="w-5 h-5 text-purple-500" />
+            <TrendingUp className="w-5 h-5 text-[var(--color-navy)]" />
           </div>
           <div className="text-2xl font-bold" data-testid="text-spc-today">{isLoading ? <Skeleton className="h-7 w-8" /> : data?.todayCount}</div>
         </Card>
-        <Card className="p-5 bg-gradient-to-br from-orange-50 to-orange-100/50 dark:from-orange-950/30 dark:to-orange-900/20 border-orange-200/50 dark:border-orange-800/30">
+        <Card className="p-5 bg-gradient-to-br bg-[var(--color-gold-bg)] border-[var(--color-gold)]/10">
           <div className="flex items-center justify-between gap-2 mb-3">
             <span className="text-sm font-medium text-muted-foreground">Consultas Mês</span>
-            <CalendarDays className="w-5 h-5 text-orange-500" />
+            <CalendarDays className="w-5 h-5 text-[var(--color-gold)]" />
           </div>
           <div className="text-2xl font-bold" data-testid="text-spc-month">{isLoading ? <Skeleton className="h-7 w-8" /> : data?.monthCount}</div>
         </Card>
-        <Card className="p-5 bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-950/30 dark:to-emerald-900/20 border-emerald-200/50 dark:border-emerald-800/30">
+        <Card className="p-5 bg-gradient-to-br bg-[var(--color-success-bg)] border-[var(--color-success)]/10">
           <div className="flex items-center justify-between gap-2 mb-3">
             <span className="text-sm font-medium text-muted-foreground">Taxa Limpo</span>
             <CheckCircle className="w-5 h-5 text-emerald-500" />
@@ -213,10 +213,10 @@ export default function ConsultaSPCPage() {
             )}
           </div>
         </Card>
-        <Card className="p-5 bg-gradient-to-br from-pink-50 to-pink-100/50 dark:from-pink-950/30 dark:to-pink-900/20 border-pink-200/50 dark:border-pink-800/30">
+        <Card className="p-5 bg-gradient-to-br bg-[var(--color-danger-bg)] border-[var(--color-danger)]/10">
           <div className="flex items-center justify-between gap-2 mb-3">
             <span className="text-sm font-medium text-muted-foreground">Score Médio</span>
-            <BarChart3 className="w-5 h-5 text-pink-500" />
+            <BarChart3 className="w-5 h-5 text-[var(--color-danger)]" />
           </div>
           <div className="text-2xl font-bold">
             {isLoading ? <Skeleton className="h-7 w-8" /> : (
@@ -251,7 +251,7 @@ export default function ConsultaSPCPage() {
         <TabsContent value="nova">
           <Card className="p-6">
             <div className="flex items-center gap-3 mb-6">
-              <BarChart3 className="w-5 h-5 text-purple-600" />
+              <BarChart3 className="w-5 h-5 text-[var(--color-navy)]" />
               <h2 className="text-lg font-semibold">Realizar Consulta SPC</h2>
             </div>
 
@@ -284,7 +284,7 @@ export default function ConsultaSPCPage() {
               <Button
                 onClick={handleSearch}
                 disabled={!query.trim() || mutation.isPending}
-                className="bg-gradient-to-r from-purple-600 to-purple-700"
+                className="bg-gradient-to-r from-[var(--color-navy)] to-[var(--color-navy)]"
                 data-testid="button-consultar-spc"
               >
                 {mutation.isPending ? "Consultando..." : "Consultar SPC"}
@@ -298,24 +298,24 @@ export default function ConsultaSPCPage() {
               </div>
             )}
 
-            <div className="mt-4 bg-purple-50 dark:bg-purple-950/30 rounded-lg p-4 flex items-start gap-3">
-              <Info className="w-5 h-5 text-purple-600 mt-0.5 flex-shrink-0" />
+            <div className="mt-4 bg-[var(--color-navy-bg)] rounded-lg p-4 flex items-start gap-3">
+              <Info className="w-5 h-5 text-[var(--color-navy)] mt-0.5 flex-shrink-0" />
               <p className="text-sm text-muted-foreground">
                 <span className="font-semibold text-foreground">Consulta Oficial SPC:</span> Cada consulta consome{" "}
-                <span className="font-bold text-purple-600">1 credito SPC</span> e retorna dados cadastrais, score, restricoes financeiras, protestos e historico de consultas.
+                <span className="font-bold text-[var(--color-navy)]">4 creditos</span> e retorna dados cadastrais, score, restricoes financeiras, protestos e historico de consultas.
               </p>
             </div>
 
             {result && (
               <div className="mt-6 space-y-5" data-testid="spc-result">
                 <div className="border rounded-lg overflow-hidden">
-                  <div className="bg-gradient-to-r from-purple-800 to-purple-900 text-white px-6 py-4">
+                  <div className="bg-gradient-to-r from-[var(--color-navy)] to-[var(--color-navy)] text-white px-6 py-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <BarChart3 className="w-5 h-5" />
                         <div>
                           <h3 className="text-lg font-semibold">Consulta SPC - {result.cadastralData.tipo === "PF" ? "CPF" : "CNPJ"}: {formatCpfCnpj(result.cpfCnpj)}</h3>
-                          <p className="text-sm text-purple-200">Servico de Protecao ao Credito</p>
+                          <p className="text-sm text-white/70">Servico de Protecao ao Credito</p>
                         </div>
                       </div>
                       <Badge className={`border-0 ${result.status === "clean" ? "bg-emerald-500 text-white" : "bg-rose-500 text-white"}`}>
@@ -647,7 +647,7 @@ export default function ConsultaSPCPage() {
                     </div>
                   </div>
                   <div className="flex items-start gap-3 p-3 bg-purple-50 dark:bg-purple-950/20 rounded-lg">
-                    <span className="font-bold text-purple-600">2.</span>
+                    <span className="font-bold text-[var(--color-navy)]">2.</span>
                     <div>
                       <p className="font-medium text-foreground">Consulta SPC (completa)</p>
                       <p className="text-xs">Confirma situacao financeira geral. Score + restricoes + historico.</p>
