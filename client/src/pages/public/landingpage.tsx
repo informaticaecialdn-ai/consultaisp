@@ -192,21 +192,26 @@ export default function LandingPage() {
       </section>
 
       {/* BARRA ERPs */}
-      <section className="bg-[var(--color-bg)] border-y border-[var(--color-border)] py-4">
-        <div className="max-w-6xl mx-auto px-6 flex flex-col sm:flex-row items-center gap-6 justify-between">
-          <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] whitespace-nowrap">Integra com</p>
-          <div className="flex items-center gap-6 flex-wrap justify-center">
-            {erps.map(erp => (
-              <div key={erp.key} className="flex items-center gap-2 opacity-50 hover:opacity-100 transition-opacity">
-                {erp.logoBase64 ? (
-                  <img src={erp.logoBase64} alt={erp.name} className="h-6 object-contain"/>
-                ) : (
-                  <span className="text-[var(--color-ink)] text-sm font-bold">{erp.name}</span>
-                )}
+      <section className="bg-[var(--color-surface)] border-y border-[var(--color-border)] py-6">
+        <div className="max-w-6xl mx-auto px-6">
+          <p className="text-center font-mono text-xs uppercase tracking-[0.15em] text-[var(--color-muted)] mb-5">Integra com os principais ERPs do mercado ISP</p>
+          <div className="flex items-center justify-center gap-4 flex-wrap">
+            {[
+              { name: "IXC Soft", color: "from-blue-600 to-blue-700" },
+              { name: "MK Solutions", color: "from-green-600 to-green-700" },
+              { name: "Hubsoft", color: "from-purple-600 to-purple-700" },
+              { name: "SGP", color: "from-orange-600 to-orange-700" },
+              { name: "Voalle", color: "from-cyan-600 to-cyan-700" },
+              { name: "RBX ISP", color: "from-red-600 to-red-700" },
+            ].map(erp => (
+              <div key={erp.name} className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] hover:border-[var(--color-navy)]/30 hover:shadow-sm transition-all">
+                <div className={`w-7 h-7 rounded bg-gradient-to-br ${erp.color} flex items-center justify-center`}>
+                  <Router className="w-3.5 h-3.5 text-white" />
+                </div>
+                <span className="text-sm font-semibold text-[var(--color-ink)]">{erp.name}</span>
               </div>
             ))}
           </div>
-          <p className="text-xs text-[var(--color-muted)] whitespace-nowrap">Ou via <span className="text-[var(--color-ink)] font-medium">planilha CSV</span></p>
         </div>
       </section>
 
@@ -219,7 +224,7 @@ export default function LandingPage() {
           </div>
           <div className="grid md:grid-cols-3 gap-8">
             {[
-              {n:"01",icon:Database,title:"Configure em 15 min",desc:"Conecte seu ERP (IXC, SGP, MK Solutions) ou importe via planilha CSV. Sem instalação, sem técnico.",badge:"Setup: 15 min"},
+              {n:"01",icon:Database,title:"Configure em 15 min",desc:"Conecte seu ERP (IXC, MK Solutions, SGP, Hubsoft, Voalle, RBX ISP) via API. Sem instalacao, sem tecnico.",badge:"Setup: 15 min"},
               {n:"02",icon:Search,title:"Consulte antes de ativar",desc:"CPF, CNPJ ou endereço. Em menos de 2 segundos: score de risco, histórico na rede, equipamentos retidos e sugestão de decisão.",badge:"< 2 segundos"},
               {n:"03",icon:Bell,title:"Receba alertas anti-fraude",desc:"Quando seu cliente inadimplente é consultado por outro provedor para migrar, você recebe alerta imediato no WhatsApp.",badge:"Tempo real"},
             ].map((s,i) => (
@@ -442,7 +447,7 @@ export default function LandingPage() {
               {q:"O que é a base de dados compartilhada?",a:"É uma base única onde todos os provedores registram seus inadimplentes. Quando você consulta um CPF, o sistema verifica em todos os provedores da rede e retorna dados anonimizados: dias de atraso, faixa de valor, equipamentos pendentes. Nunca dados pessoais identificáveis."},
               {q:"Consultas na minha própria base são cobradas?",a:"Não. Consultas de clientes do seu próprio provedor são sempre gratuitas e ilimitadas. Créditos são consumidos apenas quando a consulta retorna dados de outros provedores da rede — 1 crédito por provedor externo encontrado."},
               {q:"Como funciona a análise por endereço?",a:"Você informa o CEP e o número da residência. O sistema cruza em toda a rede de provedores e mostra o histórico de inadimplência associado àquele imóvel — independente do CPF do morador atual. Isso detecta casos onde o inadimplente usa o CPF de um parente mas mora no mesmo local."},
-              {q:"Quanto tempo leva para configurar?",a:"15 minutos para conectar um ERP (IXC, SGP, MK Solutions, Voalle, Hubsoft, RBX ISP) via API. Se preferir, importe sua base de inadimplentes via planilha CSV e comece a consultar imediatamente. Sem instalação, sem técnico."},
+              {q:"Quanto tempo leva para configurar?",a:"15 minutos para conectar um ERP (IXC, MK Solutions, SGP, Hubsoft, Voalle, RBX ISP) via API. A sincronizacao e automatica — seus dados de inadimplencia sao atualizados diariamente. Sem instalacao, sem tecnico."},
               {q:"Compartilhar dados de inadimplentes viola a LGPD?",a:"Não. O sistema compartilha apenas indicadores anonimizados — dias de atraso, faixa de valor e se há equipamentos pendentes. Nunca nome, CPF, endereço ou dados pessoais identificáveis. O sistema foi construído em conformidade com a LGPD."},
               {q:"E a Resolução Anatel 765 — como ela afeta meu provedor?",a:"A Resolução 765 obriga a notificar o cliente em D+15 e aguardar até D+60 antes de cancelar. São 75 dias que o inadimplente pode usar para contratar outro provedor sem pagar. Com o anti-fraude, você recebe alerta em tempo real quando ele tenta migrar — e pode agir antes que a ONU saia da sua mão."},
               {q:"Quais ERPs são suportados na integração automática?",a:"IXC Soft, SGP, MK Solutions, Hubsoft, Voalle, RBX ISP e outros. Solicitações para novos ERPs são avaliadas semanalmente — basta abrir um chamado pelo painel."},
