@@ -820,6 +820,100 @@ export class MkConnector implements ErpConnector {
     }
   }
 
+  /** Buscar TODOS os clientes (ativos + inativos) para total por bairro */
+  async fetchCustomers(config: ErpConnectionConfig): Promise<ErpFetchResult> {
+    try {
+      const tokenAuth = await this.authenticate(config);
+      const base = this.baseUrl(config);
+
+      // Duas chamadas: ativos (data_alteracao) + todos (range cd_cliente)
+      const allClients: any[] = [];
+      const seen = new Set<string>();
+
+      const urls = [
+        `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&data_alteracao_inicio=01/01/2000`,
+        `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente_inicio=0&cd_cliente_fim=999999999`,
+      ];
+
+      for (const url of urls) {
+        try {
+          const resp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(180000) });
+          if (!resp.ok) continue;
+          const cj: any = await resp.json();
+          const list: any[] = Array.isArray(cj) ? cj : cj?.Clientes || cj?.clientes || cj?.registros || cj?.data || [];
+          for (const row of list) {
+            const cd = String(row.CodigoPessoa || row.codigopessoa || row.id || "");
+            if (cd && !seen.has(cd)) {
+              seen.add(cd);
+              allClients.push(row);
+            }
+          }
+        } catch {}
+      }
+
+      console.log(`[MK] fetchCustomers: ${allClients.length} clientes totais`);
+
+      const customers: NormalizedErpCustomer[] = allClients
+        .map(row => {
+          const cpfCnpj = cleanCpfCnpj(row.CPF_CNPJ || row.cpf_cnpj || row.CPF || row.cpf || "");
+          if (!cpfCnpj) return null;
+
+          // Extrair endereco do array endereco[]
+          const enderecos = row.enderecos || row.Enderecos || row.endereco || row.Endereco;
+          let address: string | undefined;
+          let addressNumber: string | undefined;
+          let neighborhood: string | undefined;
+          let city: string | undefined;
+          let state: string | undefined;
+          let cep: string | undefined;
+
+          if (Array.isArray(enderecos) && enderecos.length > 0) {
+            const p = enderecos.find((e: any) => String(e.tipo || "").toUpperCase() === "INSTALACAO") || enderecos[0];
+            address = p.logradouro || p.Logradouro;
+            addressNumber = p.numero != null ? String(p.numero) : undefined;
+            neighborhood = p.bairro || p.Bairro;
+            city = p.cidade || p.Cidade;
+            state = p.estado || p.Estado || p.uf;
+            cep = p.cep || p.CEP;
+          } else if (enderecos && typeof enderecos === "object" && !Array.isArray(enderecos)) {
+            address = enderecos.logradouro || enderecos.Logradouro;
+            neighborhood = enderecos.bairro || enderecos.Bairro;
+            city = enderecos.cidade || enderecos.Cidade;
+            state = enderecos.estado || enderecos.Estado;
+            cep = enderecos.cep || enderecos.CEP;
+          }
+
+          return {
+            cpfCnpj,
+            name: row.Nome || row.nome || "",
+            email: row.Email || row.email || undefined,
+            phone: row.Fone || row.fone ? cleanPhone(row.Fone || row.fone) : undefined,
+            address,
+            addressNumber,
+            neighborhood,
+            city,
+            state,
+            cep,
+            totalOverdueAmount: 0,
+            maxDaysOverdue: 0,
+            overdueInvoicesCount: 0,
+            erpSource: "mk",
+          };
+        })
+        .filter((c): c is NonNullable<typeof c> => c !== null);
+
+      return {
+        ok: true,
+        message: `${customers.length} clientes encontrados`,
+        customers,
+        totalRecords: customers.length,
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      return { ok: false, message: `Erro: ${msg}`, customers: [] };
+    }
+  }
+
   /** Fallback: iterate WSMKConsultaClientes + WSMKFaturasPendentes per customer. */
   private async fetchDelinquentsFallback(config: ErpConnectionConfig, tokenAuth: string, base: string): Promise<ErpFetchResult> {
     console.log(`[MK] Fallback: buscando via WSMKConsultaClientes com data_alteracao`);
@@ -907,55 +1001,6 @@ export class MkConnector implements ErpConnector {
       customers,
       totalRecords: customers.length,
     };
-  }
-
-  async fetchCustomers(config: ErpConnectionConfig): Promise<ErpFetchResult> {
-    try {
-      const tokenAuth = await this.authenticate(config);
-      const base = this.baseUrl(config);
-
-      const url = `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}`;
-      console.log(`[MK] Buscando clientes via WSMKConsultaClientes`);
-
-      const response = await withResilience(
-        () => fetch(url, { method: "GET", signal: AbortSignal.timeout(30000) }),
-        { retries: 3, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
-      );
-
-      if (!response.ok) {
-        return { ok: false, message: `MK WSMKConsultaClientes respondeu com status ${response.status}`, customers: [], totalRecords: 0 };
-      }
-
-      const json: any = await response.json();
-      const rows: any[] = Array.isArray(json) ? json : json?.registros || json?.data || [];
-
-      console.log(`[MK] WSMKConsultaClientes retornou ${rows.length} registro(s)`);
-
-      const customers: NormalizedErpCustomer[] = rows
-        .map((r: any) => {
-          const cpfCnpj = cleanCpfCnpj(r.doc || r.cpf || r.cnpj || r.cpf_cnpj || "");
-          if (!cpfCnpj) return null;
-          return {
-            cpfCnpj,
-            name: r.nome || r.razao_social || "",
-            email: r.email || undefined,
-            phone: r.fone || r.celular || r.telefone ? cleanPhone(r.fone || r.celular || r.telefone) : undefined,
-            address: r.endereco || r.logradouro || undefined,
-            city: r.cidade || r.municipio || undefined,
-            state: r.uf || r.estado || undefined,
-            cep: r.cep || undefined,
-            totalOverdueAmount: 0,
-            maxDaysOverdue: 0,
-            erpSource: "mk",
-          };
-        })
-        .filter((c): c is NonNullable<typeof c> => c !== null);
-
-      return { ok: true, message: `${customers.length} clientes encontrados`, customers, totalRecords: customers.length };
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Erro desconhecido";
-      return { ok: false, message: `Erro: ${msg}`, customers: [] };
-    }
   }
 
   async fetchCustomersByCep(config: ErpConnectionConfig, cep: string): Promise<ErpFetchResult> {

@@ -62,6 +62,7 @@ export function aggregateByCustomer(
     phone?: string;
     address?: string;
     addressNumber?: string;
+    neighborhood?: string;
     city?: string;
     state?: string;
     cep?: string;
@@ -88,6 +89,7 @@ export function aggregateByCustomer(
         phone: inv.phone,
         address: inv.address,
         addressNumber: inv.addressNumber,
+        neighborhood: inv.neighborhood,
         city: inv.city,
         state: inv.state,
         cep: inv.cep,
