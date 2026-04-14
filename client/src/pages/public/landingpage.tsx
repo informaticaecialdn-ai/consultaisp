@@ -86,19 +86,19 @@ export default function LandingPage() {
           <div>
             <div className="inline-flex items-center gap-2 bg-[var(--color-navy-bg)] border border-[var(--color-border)] text-[var(--color-navy)] text-xs font-semibold px-3 py-1.5 rounded-sm mb-6">
               <div className="w-1.5 h-1.5 bg-[var(--color-navy)] rounded-full animate-pulse" />
-              Rede colaborativa de inadimplentes entre provedores
+              Plataforma Colaborativa de Credito para ISPs
             </div>
             <h1 className="font-display font-light text-5xl text-[var(--color-ink)] leading-[1.05] tracking-tight mb-5" data-testid="text-hero-title">
-              Saiba quem não vai pagar —<br/>
-              <span className="text-[var(--color-navy)]">antes de instalar.</span>
+              Consulte o CPF antes de instalar.<br/>
+              <span className="text-[var(--color-navy)]">Evite perdas antes que acontecam.</span>
             </h1>
             <p className="text-lg text-[var(--color-muted)] leading-relaxed mb-8 max-w-lg">
-              A rede colaborativa que revela o histórico de inadimplência de qualquer CPF entre provedores de internet. Score de risco em 2 segundos.
+              Score de risco em 2 segundos baseado no historico real de toda a rede de provedores. Saiba se o cliente ja deixou dividas em outro provedor antes de liberar a instalacao.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 mb-10">
               <Button size="lg" onClick={goRegister} data-testid="button-hero-cta"
                 className="bg-[var(--color-navy)] hover:bg-[var(--color-steel)] text-white px-8 gap-2 h-12 text-base font-bold rounded">
-                Criar conta grátis <ArrowRight className="w-4 h-4" />
+                Proteger Meu Provedor — Gratis <ArrowRight className="w-4 h-4" />
               </Button>
               <Button size="lg" variant="outline" onClick={() => document.getElementById("como-funciona")?.scrollIntoView({behavior:"smooth"})}
                 className="border-[var(--color-border)] text-[var(--color-muted)] px-8 h-12 text-base rounded" data-testid="button-hero-features">
@@ -106,7 +106,7 @@ export default function LandingPage() {
               </Button>
             </div>
             <div className="flex items-center gap-6 pt-6 border-t border-[var(--color-border)]">
-              {[{v:"R$ 690",l:"prejuízo médio/inadimplente"},{v:"< 2s",l:"resultado da consulta"},{v:"Grátis",l:"consultas na sua base"}].map(s => (
+              {[{v:"R$ 690",l:"prejuizo medio evitado"},{v:"< 2s",l:"resultado da consulta"},{v:"Gratis",l:"consultas na propria base"}].map(s => (
                 <div key={s.l}><p className="text-xl font-mono font-black text-[var(--color-ink)]">{s.v}</p><p className="text-xs text-[var(--color-muted)] mt-0.5">{s.l}</p></div>
               ))}
             </div>
@@ -286,7 +286,7 @@ export default function LandingPage() {
               </div>
               <p className="text-xs text-[var(--color-muted)] mb-6">Para conhecer a plataforma</p>
               <ul className="space-y-2.5 mb-6 flex-1">
-                {["40 créditos para testar a rede","Consultas ilimitadas na sua base","Anti-fraude básico","Importação via CSV","1 usuário"].map(f => (
+                {["30 creditos para testar a rede","Consultas ilimitadas na sua base","Anti-fraude basico","Importacao via CSV","1 usuario"].map(f => (
                   <li key={f} className="flex items-start gap-2 text-sm text-[var(--color-ink)]">
                     <CheckCircle2 className="w-4 h-4 text-[var(--color-success)] flex-shrink-0 mt-0.5"/>{f}
                   </li>
@@ -307,7 +307,7 @@ export default function LandingPage() {
               </div>
               <p className="text-xs text-[var(--color-muted)] mb-6">Acesso completo para seu provedor</p>
               <ul className="space-y-2.5 mb-6 flex-1">
-                {["Acesso completo a toda a rede","Todos os ERPs integrados","Usuários ilimitados","Anti-fraude completo","Consulta em lote (até 500 CPFs)","Suporte prioritário"].map(f => (
+                {["Acesso completo a toda a rede","Todos os ERPs integrados","Usuarios ilimitados","Anti-fraude completo + WhatsApp","Consulta SPC integrada","Consulta em lote (ate 500 CPFs)"].map(f => (
                   <li key={f} className="flex items-start gap-2 text-sm text-[var(--color-ink)]">
                     <CheckCircle2 className="w-4 h-4 text-[var(--color-success)] flex-shrink-0 mt-0.5"/>{f}
                   </li>
@@ -332,15 +332,15 @@ export default function LandingPage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 text-sm text-[var(--color-ink)]">
-                  <CheckCircle2 className="w-4 h-4 text-[var(--color-navy)] flex-shrink-0"/>Consulta colaborativa (outros provedores)
+                  <CheckCircle2 className="w-4 h-4 text-[var(--color-navy)] flex-shrink-0"/>Consulta ISP (rede colaborativa)
                 </span>
-                <span className="text-sm font-bold text-[var(--color-navy)]">R$ 1,00 / CPF</span>
+                <span className="text-sm font-bold text-[var(--color-navy)]">1 credito</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 text-sm text-[var(--color-ink)]">
-                  <CheckCircle2 className="w-4 h-4 text-[var(--color-navy)] flex-shrink-0"/>Consulta SPC/Serasa
+                  <CheckCircle2 className="w-4 h-4 text-[var(--color-navy)] flex-shrink-0"/>Consulta SPC Brasil
                 </span>
-                <span className="text-sm font-bold text-[var(--color-navy)]">R$ 4,00 / CPF</span>
+                <span className="text-sm font-bold text-[var(--color-navy)]">4 creditos</span>
               </div>
             </div>
           </div>
