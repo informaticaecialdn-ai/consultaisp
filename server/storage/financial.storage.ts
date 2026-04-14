@@ -182,6 +182,15 @@ export class FinancialStorage {
       spcCreditsAdded: order.spcCredits,
       notes: `Creditos liberados via pedido ${order.orderNumber} (${order.packageName})`,
     });
+
+    // Emitir NFS-e automaticamente apos pagamento confirmado
+    try {
+      const { emitirNfseParaCompra } = await import("../services/nfse-auto");
+      emitirNfseParaCompra(order.providerId, updated).catch((err: any) =>
+        console.warn(`[NFS-e] Erro ao emitir NFS-e para pedido ${order.orderNumber}: ${err.message}`)
+      );
+    } catch {}
+
     return updated;
   }
 
