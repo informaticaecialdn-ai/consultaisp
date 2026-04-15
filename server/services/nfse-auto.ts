@@ -68,6 +68,19 @@ export async function emitirNfseParaCompra(
     orderNumber: order.orderNumber,
   }, "[NFS-e Auto] Emitindo NFS-e");
 
+  // Resolver codigo IBGE do municipio do tomador via CEP
+  let codigoMunicipioTomador = "3550308"; // fallback SP
+  if (provider.addressZip) {
+    try {
+      const cepClean = provider.addressZip.replace(/\D/g, "").padEnd(8, "0").slice(0, 8);
+      const cepRes = await fetch(`https://viacep.com.br/ws/${cepClean}/json/`, { signal: AbortSignal.timeout(5000) });
+      if (cepRes.ok) {
+        const cepData = await cepRes.json();
+        if (cepData.ibge) codigoMunicipioTomador = cepData.ibge;
+      }
+    } catch {}
+  }
+
   const result = await emitirNfse({
     ref,
     cnpjPrestador: PRESTADOR_CNPJ,
@@ -81,7 +94,7 @@ export async function emitirNfseParaCompra(
       numero: provider.addressNumber || "S/N",
       complemento: provider.addressComplement || undefined,
       bairro: provider.addressNeighborhood || "Centro",
-      codigoMunicipio: "3550308", // Sao Paulo - TODO: resolver via IBGE do provider
+      codigoMunicipio: codigoMunicipioTomador,
       uf: provider.addressState || "SP",
       cep: provider.addressZip || "01000000",
     },
