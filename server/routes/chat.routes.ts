@@ -129,7 +129,28 @@ export function registerChatRoutes(): Router {
       if (chat.status === "closed") return res.status(400).json({ message: "Chat encerrado" });
       const { content } = req.body;
       if (!content?.trim()) return res.status(400).json({ message: "Mensagem vazia" });
+
+      // Salvar mensagem do visitante
       const msg = await storage.createVisitorChatMessage(chat.id, content.trim(), false, chat.visitorName);
+
+      // Gerar resposta automatica via IA (fire-and-forget pra nao bloquear o response)
+      (async () => {
+        try {
+          const { generateChatResponse } = await import("../services/chat-agent");
+          // Buscar historico do chat pra contexto
+          const allMessages = await storage.getVisitorChatMessages(chat.id);
+          const history = allMessages.map((m: any) => ({
+            role: (m.isFromAdmin ? "assistant" : "user") as "user" | "assistant",
+            content: m.content,
+          }));
+          const aiResponse = await generateChatResponse(content.trim(), history.slice(0, -1));
+          // Salvar resposta da IA como mensagem do admin
+          await storage.createVisitorChatMessage(chat.id, aiResponse, true, "Consulta ISP");
+        } catch (err: any) {
+          console.warn(`[ChatAgent] Erro ao gerar resposta: ${err.message}`);
+        }
+      })();
+
       return res.status(201).json(msg);
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
