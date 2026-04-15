@@ -26,6 +26,7 @@ const TAB_ALIASES: Record<string, string> = {
   "crm-conversas": "crm",
   "crm-agentes": "crm",
   "crm-prospeccao": "crm",
+  "crm-treinamento": "crm",
 };
 
 function resolveTab(hash: string): string {

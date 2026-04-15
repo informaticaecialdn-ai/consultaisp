@@ -161,6 +161,7 @@ const ADMIN_GROUPS = [
       { title: "Conversas", hash: "crm-conversas", icon: Target, testId: "link-crm-conversas" },
       { title: "Agentes", hash: "crm-agentes", icon: Target, testId: "link-crm-agentes" },
       { title: "Prospeccao", hash: "crm-prospeccao", icon: Target, testId: "link-crm-prospeccao" },
+      { title: "Treinamento", hash: "crm-treinamento", icon: Target, testId: "link-crm-treinamento" },
     ],
   },
 ];

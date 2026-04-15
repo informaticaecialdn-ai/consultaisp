@@ -6,6 +6,7 @@ import CrmPipelineTab from "./CrmPipelineTab";
 import CrmConversasTab from "./CrmConversasTab";
 import CrmAgentesTab from "./CrmAgentesTab";
 import CrmProspeccaoTab from "./CrmProspeccaoTab";
+import CrmTreinamentoTab from "./CrmTreinamentoTab";
 
 const CRM_SUB_TABS = [
   { key: "crm-dashboard", label: "Dashboard" },
@@ -14,6 +15,7 @@ const CRM_SUB_TABS = [
   { key: "crm-conversas", label: "Conversas" },
   { key: "crm-agentes", label: "Agentes" },
   { key: "crm-prospeccao", label: "Prospeccao" },
+  { key: "crm-treinamento", label: "Treinamento" },
 ] as const;
 
 type CrmSubTab = (typeof CRM_SUB_TABS)[number]["key"];
@@ -63,6 +65,7 @@ export default function CrmTab() {
       {activeSubTab === "crm-conversas" && <CrmConversasTab />}
       {activeSubTab === "crm-agentes" && <CrmAgentesTab />}
       {activeSubTab === "crm-prospeccao" && <CrmProspeccaoTab />}
+      {activeSubTab === "crm-treinamento" && <CrmTreinamentoTab />}
     </div>
   );
 }
