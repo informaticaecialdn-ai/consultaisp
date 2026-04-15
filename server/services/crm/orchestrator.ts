@@ -1,8 +1,9 @@
 import { db } from "../../db";
 import { crmLeads, crmConversas, crmAtividades, crmHandoffs, crmTarefas } from "@shared/crm-schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { analyzeAndDecide, sendToAgent, type AgentAnalysis, type ConversationMessage } from "./agents";
 import { calculateScore, shouldHandoff, getEtapaForAgente } from "./scoring";
+import { evaluateResponse } from "./training";
 
 export interface ProcessResult {
   resposta: string;
@@ -114,6 +115,19 @@ export async function processMessage(
         scoreResult.scoreTotal
       );
     }
+  }
+
+  // 10. Fire-and-forget: supervisor evaluation
+  const [lastConversa] = await db.select().from(crmConversas)
+    .where(and(eq(crmConversas.leadId, leadId), eq(crmConversas.direcao, "enviada")))
+    .orderBy(desc(crmConversas.criadoEm))
+    .limit(1);
+
+  if (lastConversa) {
+    evaluateResponse(
+      lastConversa.id, leadId, activeAgent,
+      message, analise.resposta_whatsapp, lead
+    ).catch((err) => console.error("[Training] Erro na avaliacao:", err.message));
   }
 
   return {

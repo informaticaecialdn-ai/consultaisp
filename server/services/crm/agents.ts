@@ -5,6 +5,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { getAgent } from "./agent-config";
+import { buildLearningContext } from "./training";
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -81,10 +82,24 @@ Responda APENAS com JSON valido (sem markdown, sem backticks):
     { role: "user" as const, content: analysisPrompt },
   ];
 
+  // Build learning context from approved rules + relevant examples
+  const leadTags = [
+    leadData.porte as string,
+    leadData.erp as string,
+    leadData.classificacao as string,
+    leadData.etapaFunil as string,
+    leadData.regiao as string,
+  ].filter(Boolean);
+
+  const learningContext = await buildLearningContext(agentKey, leadTags);
+  const fullSystemPrompt = learningContext
+    ? `${agent.systemPrompt}\n\n${learningContext}`
+    : agent.systemPrompt;
+
   const response = await client.messages.create({
     model: agent.model,
     max_tokens: 2048,
-    system: agent.systemPrompt,
+    system: fullSystemPrompt,
     messages,
   });
 
