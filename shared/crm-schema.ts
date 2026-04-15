@@ -138,6 +138,49 @@ export const crmSessoesAgentes = pgTable("crm_sessoes_agentes", {
   criadoEm: timestamp("criado_em").defaultNow(),
 });
 
+// ========== CRM AVALIACOES (Supervisor) ==========
+export const crmAvaliacoes = pgTable("crm_avaliacoes", {
+  id: serial("id").primaryKey(),
+  conversaId: integer("conversa_id").notNull().references(() => crmConversas.id),
+  leadId: integer("lead_id"),
+  agente: text("agente").notNull(),
+  nota: integer("nota").notNull(),
+  leadRespondeu: boolean("lead_respondeu"),
+  leadSentimento: text("lead_sentimento"),
+  scoreImpacto: integer("score_impacto"),
+  problemas: text("problemas").array().default(sql`'{}'::text[]`),
+  sugestao: text("sugestao"),
+  aprovada: boolean("aprovada"),
+  criadoEm: timestamp("criado_em").defaultNow(),
+});
+
+// ========== CRM CONHECIMENTO (Base de exemplos) ==========
+export const crmConhecimento = pgTable("crm_conhecimento", {
+  id: serial("id").primaryKey(),
+  agente: text("agente").notNull(),
+  tipo: text("tipo").notNull(),
+  contexto: text("contexto"),
+  mensagemLead: text("mensagem_lead"),
+  respostaAgente: text("resposta_agente"),
+  resultado: text("resultado"),
+  tags: text("tags").array().default(sql`'{}'::text[]`),
+  ativo: boolean("ativo").notNull().default(true),
+  criadoEm: timestamp("criado_em").defaultNow(),
+});
+
+// ========== CRM REGRAS APRENDIDAS ==========
+export const crmRegrasAprendidas = pgTable("crm_regras_aprendidas", {
+  id: serial("id").primaryKey(),
+  agente: text("agente").notNull(),
+  regra: text("regra").notNull(),
+  evidencia: text("evidencia"),
+  categoria: text("categoria").notNull(),
+  status: text("status").notNull().default("pendente"),
+  prioridade: integer("prioridade").notNull().default(0),
+  criadoEm: timestamp("criado_em").defaultNow(),
+  aprovadoEm: timestamp("aprovado_em"),
+});
+
 // ========== ZOD SCHEMAS ==========
 export const insertCrmLeadSchema = createInsertSchema(crmLeads).omit({
   id: true,
