@@ -9,6 +9,7 @@ import CadastrosTab from "@/components/admin/tabs/CadastrosTab";
 import FinanceiroTab from "@/components/admin/tabs/FinanceiroTab";
 import SuporteTab from "@/components/admin/tabs/SuporteTab";
 import ConfiguracoesTab from "@/components/admin/tabs/ConfiguracoesTab";
+import CrmTab from "@/components/admin/tabs/crm/CrmTab";
 
 /**
  * Legacy tab hash aliases: old deep links that should map to the new 6 tabs.
@@ -19,6 +20,12 @@ const TAB_ALIASES: Record<string, string> = {
   integracoes: "provedores",      // ERP config is now per-provider (inside drawer)
   sincronizacao: "painel",        // Auto-sync widget is on the overview
   erps: "configuracoes",          // ERP catalog is now under Configuracoes
+  "crm-dashboard": "crm",
+  "crm-leads": "crm",
+  "crm-pipeline": "crm",
+  "crm-conversas": "crm",
+  "crm-agentes": "crm",
+  "crm-prospeccao": "crm",
 };
 
 function resolveTab(hash: string): string {
@@ -79,6 +86,7 @@ export default function AdminSistemaPage() {
         {activeTab === "financeiro" && <FinanceiroTab />}
         {activeTab === "suporte" && <SuporteTab />}
         {activeTab === "configuracoes" && <ConfiguracoesTab />}
+        {activeTab === "crm" && <CrmTab />}
       </div>
     </div>
   );

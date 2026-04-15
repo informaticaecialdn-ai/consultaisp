@@ -46,6 +46,7 @@ import {
   ClipboardList,
   Package,
   RefreshCw,
+  Target,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -147,6 +148,19 @@ const ADMIN_GROUPS = [
     collapsible: false,
     items: [
       { title: "Configuracoes", hash: "configuracoes", icon: Settings, testId: "link-admin-configuracoes" },
+    ],
+  },
+  {
+    label: "CRM Vendas",
+    key: "crm",
+    collapsible: true,
+    items: [
+      { title: "Dashboard", hash: "crm-dashboard", icon: Target, testId: "link-crm-dashboard" },
+      { title: "Leads", hash: "crm-leads", icon: Target, testId: "link-crm-leads" },
+      { title: "Pipeline", hash: "crm-pipeline", icon: Target, testId: "link-crm-pipeline" },
+      { title: "Conversas", hash: "crm-conversas", icon: Target, testId: "link-crm-conversas" },
+      { title: "Agentes", hash: "crm-agentes", icon: Target, testId: "link-crm-agentes" },
+      { title: "Prospeccao", hash: "crm-prospeccao", icon: Target, testId: "link-crm-prospeccao" },
     ],
   },
 ];
