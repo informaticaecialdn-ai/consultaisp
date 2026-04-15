@@ -3,6 +3,7 @@ import { requireSuperAdmin } from "../auth";
 import { db } from "../db";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { processMessage, requestContent, requestStrategy } from "../services/crm/orchestrator";
+import { sendText, isZapiConfigured, validateWebhookToken, parseWebhookPayload, setWebhook, formatPhone } from "../services/crm/zapi";
 import {
   crmLeads, crmConversas, crmAtividades, crmHandoffs,
   crmTarefas, crmMetricasDiarias, crmCampanhas,
@@ -489,6 +490,136 @@ export function registerCrmRoutes(): Router {
       }
       const result = await requestStrategy(tipo, dados || {});
       return res.json(result);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  // ==================== WEBHOOK Z-API (PUBLICO) ====================
+  router.post("/api/crm/webhook/zapi", async (req, res) => {
+    try {
+      // Validate token
+      const headerToken = req.headers["client-token"] as string | undefined;
+      if (!validateWebhookToken(headerToken)) {
+        return res.status(401).json({ message: "Token invalido" });
+      }
+
+      const parsed = parseWebhookPayload(req.body);
+      if (!parsed) {
+        return res.status(200).json({ message: "Ignorado" });
+      }
+
+      const { phone, message } = parsed;
+
+      // Find or create lead by phone
+      let [lead] = await db.select().from(crmLeads).where(eq(crmLeads.telefone, phone));
+
+      if (!lead) {
+        // Create new lead from incoming WhatsApp message
+        [lead] = await db.insert(crmLeads).values({
+          telefone: phone,
+          origem: "whatsapp",
+          agenteAtual: "carlos", // New leads go to Carlos (SDR)
+        }).returning();
+      }
+
+      // Process through orchestrator
+      const result = await processMessage(lead.id, message);
+
+      // Send agent response via Z-API
+      if (result.resposta) {
+        await sendText(phone, result.resposta);
+      }
+
+      return res.status(200).json({ ok: true, leadId: lead.id });
+    } catch (error: any) {
+      console.error("[CRM Webhook] Erro:", error.message);
+      return res.status(200).json({ ok: false, error: error.message });
+    }
+  });
+
+  router.post("/api/crm/webhook/zapi/status", async (_req, res) => {
+    // Status updates (delivered, read) — acknowledge silently
+    return res.status(200).json({ ok: true });
+  });
+
+  // ==================== PROSPECCAO EM MASSA ====================
+  router.post("/api/crm/prospectar", requireSuperAdmin, async (req, res) => {
+    try {
+      const { telefones, regiao, mensagemBase } = req.body;
+      if (!telefones || !Array.isArray(telefones) || telefones.length === 0) {
+        return res.status(400).json({ message: "Lista de telefones obrigatoria" });
+      }
+
+      if (!isZapiConfigured()) {
+        return res.status(400).json({ message: "Z-API nao configurado. Configure ZAPI_INSTANCE_ID e ZAPI_TOKEN no .env" });
+      }
+
+      const resultados: Array<{ telefone: string; status: string; erro?: string; leadId?: number }> = [];
+
+      for (const telefone of telefones) {
+        try {
+          const phone = formatPhone(telefone);
+
+          // Find or create lead
+          let [lead] = await db.select().from(crmLeads).where(eq(crmLeads.telefone, phone));
+          if (!lead) {
+            [lead] = await db.insert(crmLeads).values({
+              telefone: phone,
+              regiao: regiao || undefined,
+              origem: "campanha",
+              agenteAtual: "carlos",
+            }).returning();
+          }
+
+          // Generate prospection message via Carlos
+          const result = await processMessage(lead.id, mensagemBase || `Prospeccao outbound para ${regiao || "regiao"}`);
+
+          // Send via Z-API
+          const sendResult = await sendText(phone, result.resposta);
+
+          if (sendResult.success) {
+            resultados.push({ telefone: phone, status: "enviado", leadId: lead.id });
+          } else {
+            resultados.push({ telefone: phone, status: "erro", erro: sendResult.error });
+          }
+
+          // Small delay between messages (2-5 seconds to avoid Z-API rate limits)
+          await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
+        } catch (err: any) {
+          resultados.push({ telefone, status: "erro", erro: err.message });
+        }
+      }
+
+      return res.json({
+        total: telefones.length,
+        enviados: resultados.filter(r => r.status === "enviado").length,
+        erros: resultados.filter(r => r.status === "erro").length,
+        resultados,
+      });
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  // ==================== SETUP WEBHOOK ====================
+  router.post("/api/crm/setup-webhook", requireSuperAdmin, async (req, res) => {
+    try {
+      const { webhookUrl } = req.body;
+      if (!webhookUrl) {
+        return res.status(400).json({ message: "webhookUrl obrigatoria" });
+      }
+      const result = await setWebhook(webhookUrl);
+      return res.json(result);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  // ==================== ZAPI STATUS ====================
+  router.get("/api/crm/zapi-status", requireSuperAdmin, async (_req, res) => {
+    try {
+      return res.json({ configured: isZapiConfigured() });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }

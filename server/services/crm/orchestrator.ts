@@ -225,3 +225,37 @@ export async function requestStrategy(tipo: string, dados: Record<string, any>) 
   const prompt = `SOLICITACAO DE ESTRATEGIA:\nTipo: ${tipo}\nDados: ${JSON.stringify(dados)}\n\nElabore a estrategia com acoes praticas.`;
   return sendToAgent("sofia", prompt);
 }
+
+/**
+ * Process an incoming WhatsApp message (from Z-API webhook).
+ * Finds or creates the lead by phone, processes through the standard pipeline,
+ * and sends the response back via WhatsApp.
+ */
+export async function processWhatsAppMessage(
+  phone: string,
+  message: string
+): Promise<ProcessResult & { sentViaWhatsApp: boolean }> {
+  // Find or create lead
+  let [lead] = await db.select().from(crmLeads).where(eq(crmLeads.telefone, phone));
+
+  if (!lead) {
+    [lead] = await db.insert(crmLeads).values({
+      telefone: phone,
+      origem: "whatsapp",
+      agenteAtual: "carlos",
+    }).returning();
+  }
+
+  // Process through standard pipeline
+  const result = await processMessage(lead.id, message);
+
+  // Send response via Z-API
+  let sentViaWhatsApp = false;
+  if (result.resposta) {
+    const { sendText } = await import("./zapi");
+    const sendResult = await sendText(phone, result.resposta);
+    sentViaWhatsApp = sendResult.success;
+  }
+
+  return { ...result, sentViaWhatsApp };
+}
