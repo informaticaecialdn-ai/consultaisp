@@ -70,18 +70,20 @@ export async function emitirNfse(input: NfseEmitInput): Promise<NfseResult> {
   const url = `${BASE_URL()}/v2/nfse?ref=${encodeURIComponent(input.ref)}`;
 
   // Montar payload no formato Focus NFe
+  const cleanCnpjCpf = input.tomador.cnpjCpf.replace(/\D/g, "");
+  const isCnpj = cleanCnpjCpf.length === 14;
+
   const body: Record<string, any> = {
     data_emissao: new Date().toISOString(),
-    natureza_operacao: "1", // Tributacao no municipio
-    optante_simples_nacional: false,
+    natureza_operacao: "1",
     prestador: {
       cnpj: input.cnpjPrestador.replace(/\D/g, ""),
       inscricao_municipal: input.inscricaoMunicipal,
-      codigo_municipio: "3550308", // Sao Paulo - SP
+      codigo_municipio: "3550308",
     },
     tomador: {
-      cnpj: input.tomador.cnpjCpf.replace(/\D/g, "").length === 14 ? input.tomador.cnpjCpf.replace(/\D/g, "") : undefined,
-      cpf: input.tomador.cnpjCpf.replace(/\D/g, "").length === 11 ? input.tomador.cnpjCpf.replace(/\D/g, "") : undefined,
+      cnpj: isCnpj ? cleanCnpjCpf : undefined,
+      cpf: !isCnpj ? cleanCnpjCpf : undefined,
       razao_social: input.tomador.razaoSocial,
       email: input.tomador.email,
       telefone: input.tomador.telefone?.replace(/\D/g, "") || undefined,
@@ -90,19 +92,28 @@ export async function emitirNfse(input: NfseEmitInput): Promise<NfseResult> {
         numero: input.tomador.numero,
         complemento: input.tomador.complemento || undefined,
         bairro: input.tomador.bairro,
-        codigo_municipio: input.tomador.codigoMunicipio,
         uf: input.tomador.uf,
         cep: input.tomador.cep.replace(/\D/g, ""),
       },
     },
     servico: {
-      aliquota: input.aliquotaIss,
       discriminacao: input.descricao,
-      iss_retido: false,
-      item_lista_servico: input.codigoServico,
-      codigo_tributario_municipio: input.codigoServico,
-      valor_servicos: input.valor,
+      item_lista_servico: "07498",
+      valor_servicos: String(input.valor),
+      valor_final_cobrado: String(input.valor),
+      base_calculo: String(input.valor),
+      aliquota: String(input.aliquotaIss),
+      iss_retido: "0",
+      valor_ipi: 0,
+      codigo_nbs: "000000000",
+      codigo_indicador_operacao: "000000",
+      ibs_cbs_classificacao_tributaria: "000001",
     },
+    exigibilidade_suspensa: 0,
+    pagamento_parcelado_antecipado: 0,
+    finalidade_emissao: 0,
+    consumidor_final: 0,
+    indicador_destinatario: 0,
   };
 
   console.log(`[FocusNFe] Emitindo NFS-e ref=${input.ref} valor=R$${input.valor} env=${IS_PRODUCTION() ? "PROD" : "HOMOLOG"}`);
