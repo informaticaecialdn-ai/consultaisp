@@ -76,6 +76,7 @@ export async function emitirNfse(input: NfseEmitInput): Promise<NfseResult> {
   const body: Record<string, any> = {
     data_emissao: new Date().toISOString(),
     natureza_operacao: "1",
+    optante_simples_nacional: true,
     prestador: {
       cnpj: input.cnpjPrestador.replace(/\D/g, ""),
       inscricao_municipal: input.inscricaoMunicipal,
@@ -97,23 +98,13 @@ export async function emitirNfse(input: NfseEmitInput): Promise<NfseResult> {
       },
     },
     servico: {
+      aliquota: input.aliquotaIss,
       discriminacao: input.descricao,
-      item_lista_servico: "07498",
-      valor_servicos: String(input.valor),
-      valor_final_cobrado: String(input.valor),
-      base_calculo: String(input.valor),
-      aliquota: String(input.aliquotaIss),
-      iss_retido: "0",
-      valor_ipi: 0,
-      codigo_nbs: "000000000",
-      codigo_indicador_operacao: "000000",
-      ibs_cbs_classificacao_tributaria: "000001",
+      iss_retido: false,
+      item_lista_servico: input.codigoServico,
+      codigo_tributario_municipio: input.codigoServico,
+      valor_servicos: input.valor,
     },
-    exigibilidade_suspensa: 0,
-    pagamento_parcelado_antecipado: 0,
-    finalidade_emissao: 0,
-    consumidor_final: 0,
-    indicador_destinatario: 0,
   };
 
   console.log(`[FocusNFe] Emitindo NFS-e ref=${input.ref} valor=R$${input.valor} env=${IS_PRODUCTION() ? "PROD" : "HOMOLOG"}`);
