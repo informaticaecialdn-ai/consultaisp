@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireSuperAdmin } from "../auth";
 import { db } from "../db";
 import { getSafeErrorMessage } from "../utils/safe-error";
+import { processMessage, requestContent, requestStrategy } from "../services/crm/orchestrator";
 import {
   crmLeads, crmConversas, crmAtividades, crmHandoffs,
   crmTarefas, crmMetricasDiarias, crmCampanhas,
@@ -445,6 +446,48 @@ export function registerCrmRoutes(): Router {
           .orderBy(desc(crmAtividades.criadoEm)).limit(5);
         return { agente, leadsAtivos: leads.count, atividades: recentAtividades };
       }));
+      return res.json(result);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  // ==================== SEND (via Agent) ====================
+  router.post("/api/crm/send", requireSuperAdmin, async (req, res) => {
+    try {
+      const { leadId, message, agentKey } = req.body;
+      if (!leadId || !message) {
+        return res.status(400).json({ message: "leadId e message sao obrigatorios" });
+      }
+      const result = await processMessage(leadId, message, agentKey);
+      return res.json(result);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  // ==================== CONTEUDO (Leo) ====================
+  router.post("/api/crm/conteudo", requireSuperAdmin, async (req, res) => {
+    try {
+      const { tipo, briefing } = req.body;
+      if (!tipo || !briefing) {
+        return res.status(400).json({ message: "tipo e briefing sao obrigatorios" });
+      }
+      const result = await requestContent(tipo, briefing);
+      return res.json(result);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  // ==================== ESTRATEGIA (Sofia) ====================
+  router.post("/api/crm/estrategia", requireSuperAdmin, async (req, res) => {
+    try {
+      const { tipo, dados } = req.body;
+      if (!tipo) {
+        return res.status(400).json({ message: "tipo e obrigatorio" });
+      }
+      const result = await requestStrategy(tipo, dados || {});
       return res.json(result);
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
