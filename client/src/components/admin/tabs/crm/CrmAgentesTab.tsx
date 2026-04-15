@@ -9,6 +9,7 @@ const AGENTE_COLORS: Record<string, string> = {
   carlos: "#34d399",
   lucas: "#60a5fa",
   rafael: "#a78bfa",
+  marcos: "#f59e0b",
 };
 
 const AGENTE_ROLES: Record<string, string> = {
@@ -17,6 +18,7 @@ const AGENTE_ROLES: Record<string, string> = {
   carlos: "Pre-Vendas/SDR",
   lucas: "Vendas",
   rafael: "Closer",
+  marcos: "Midia Paga",
 };
 
 const AGENTE_MODELS: Record<string, string> = {
@@ -25,6 +27,7 @@ const AGENTE_MODELS: Record<string, string> = {
   carlos: "Sonnet 4.6",
   lucas: "Opus 4.6",
   rafael: "Opus 4.6",
+  marcos: "Opus 4.6",
 };
 
 export default function CrmAgentesTab() {
@@ -46,8 +49,8 @@ export default function CrmAgentesTab() {
   return (
     <div className="space-y-6">
       {/* Agent cards */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        {["sofia", "leo", "carlos", "lucas", "rafael"].map((key) => {
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        {["sofia", "leo", "carlos", "lucas", "rafael", "marcos"].map((key) => {
           const stats = agentes.find((a: any) => a.agente === key);
           const monitor = monitorData.find((m: any) => m.agente === key);
           return (

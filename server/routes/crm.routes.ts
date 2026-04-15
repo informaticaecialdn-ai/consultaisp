@@ -29,7 +29,7 @@ const updateLeadSchema = z.object({
   scoreComportamento: z.number().int().min(0).max(50).optional(),
   classificacao: z.enum(["frio", "morno", "quente", "ultra_quente"]).optional(),
   etapaFunil: z.enum(["novo", "prospeccao", "qualificacao", "demo", "proposta", "negociacao", "fechamento"]).optional(),
-  agenteAtual: z.enum(["sofia", "leo", "carlos", "lucas", "rafael"]).optional(),
+  agenteAtual: z.enum(["sofia", "leo", "carlos", "lucas", "rafael", "marcos"]).optional(),
   valorEstimado: z.string().optional(),
   motivoPerda: z.string().max(500).optional().nullable(),
   dataProximaAcao: z.string().datetime().optional().nullable(),
@@ -131,7 +131,7 @@ export function registerCrmRoutes(): Router {
 
   router.get("/api/crm/metricas/agentes", requireSuperAdmin, async (_req, res) => {
     try {
-      const agentes = ["sofia", "leo", "carlos", "lucas", "rafael"];
+      const agentes = ["sofia", "leo", "carlos", "lucas", "rafael", "marcos"];
       const result = await Promise.all(agentes.map(async (agente) => {
         const [leads] = await db.select({ count: count() }).from(crmLeads)
           .where(eq(crmLeads.agenteAtual, agente));
@@ -438,7 +438,7 @@ export function registerCrmRoutes(): Router {
   // ==================== MONITOR ====================
   router.get("/api/crm/monitor", requireSuperAdmin, async (_req, res) => {
     try {
-      const agentes = ["sofia", "leo", "carlos", "lucas", "rafael"];
+      const agentes = ["sofia", "leo", "carlos", "lucas", "rafael", "marcos"];
       const result = await Promise.all(agentes.map(async (agente) => {
         const [leads] = await db.select({ count: count() }).from(crmLeads)
           .where(eq(crmLeads.agenteAtual, agente));

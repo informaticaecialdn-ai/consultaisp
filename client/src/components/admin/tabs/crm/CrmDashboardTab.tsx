@@ -19,6 +19,7 @@ const AGENTE_COLORS: Record<string, string> = {
   carlos: "#34d399",
   lucas: "#60a5fa",
   rafael: "#a78bfa",
+  marcos: "#f59e0b",
 };
 
 export default function CrmDashboardTab() {

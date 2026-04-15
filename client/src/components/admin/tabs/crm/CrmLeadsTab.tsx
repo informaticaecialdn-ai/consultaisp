@@ -19,7 +19,7 @@ const CLASSIFICACAO_BADGE: Record<string, string> = {
   ultra_quente: "bg-red-100 text-red-800",
 };
 
-const AGENTES = ["sofia", "leo", "carlos", "lucas", "rafael"];
+const AGENTES = ["sofia", "leo", "carlos", "lucas", "rafael", "marcos"];
 
 export default function CrmLeadsTab() {
   const { toast } = useToast();

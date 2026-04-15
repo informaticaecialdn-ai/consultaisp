@@ -14,6 +14,7 @@ const AGENTE_COLORS: Record<string, string> = {
   carlos: "#34d399",
   lucas: "#60a5fa",
   rafael: "#a78bfa",
+  marcos: "#f59e0b",
 };
 
 const CLASSIFICACAO_BADGE: Record<string, string> = {
@@ -132,7 +133,7 @@ export default function CrmConversasTab() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {["sofia", "leo", "carlos", "lucas", "rafael"].map((a) => (
+                    {["sofia", "leo", "carlos", "lucas", "rafael", "marcos"].map((a) => (
                       <SelectItem key={a} value={a} className="capitalize">
                         {a}
                       </SelectItem>
