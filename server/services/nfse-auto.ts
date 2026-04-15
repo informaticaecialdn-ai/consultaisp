@@ -12,7 +12,8 @@ import { logger } from "../logger";
 // Dados do prestador (Pks Sistemas / Consulta ISP)
 const PRESTADOR_CNPJ = "64199963000149";
 const PRESTADOR_IM = process.env.FOCUS_NFE_IM || "";
-const CODIGO_SERVICO = "01.07";
+const CODIGO_SERVICO_SP = "07498"; // Codigo numerico SP (nao "01.07" com ponto)
+const CODIGO_SERVICO = CODIGO_SERVICO_SP;
 const ALIQUOTA_ISS = 2.90;
 
 /**
