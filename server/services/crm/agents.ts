@@ -1,18 +1,14 @@
 /**
- * CRM Agents — Integracao com Claude via OpenAI-compatible API.
- * Usa OpenAI SDK com AI_INTEGRATIONS_OPENAI_API_KEY e AI_INTEGRATIONS_OPENAI_BASE_URL
- * (mesmo padrao de ai-analysis.ts e chat-agent.ts).
+ * CRM Agents — Integracao direta com Anthropic API.
+ * Usa @anthropic-ai/sdk com ANTHROPIC_API_KEY.
  */
 
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { getAgent } from "./agent-config";
 
-function getClient() {
-  return new OpenAI({
-    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  });
-}
+const client = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
 
 export interface AgentAnalysis {
   resposta_whatsapp: string;
@@ -35,7 +31,7 @@ export interface ConversationMessage {
 }
 
 /**
- * Envia uma mensagem para um agente e obtém uma análise estruturada em JSON.
+ * Envia uma mensagem para um agente e obtem uma analise estruturada em JSON.
  * Usa o modelo e system prompt configurados por agente.
  */
 export async function analyzeAndDecide(
@@ -77,27 +73,31 @@ Responda APENAS com JSON valido (sem markdown, sem backticks):
   }
 }`;
 
-  const messages: Array<{ role: "user" | "assistant"; content: string }> = [
-    ...historico.map((h) => ({ role: h.role, content: h.content })),
+  const messages: Anthropic.MessageParam[] = [
+    ...historico.map((h) => ({
+      role: h.role as "user" | "assistant",
+      content: h.content,
+    })),
     { role: "user" as const, content: analysisPrompt },
   ];
 
-  const client = getClient();
-  const response = await client.chat.completions.create({
+  const response = await client.messages.create({
     model: agent.model,
     max_tokens: 2048,
-    messages: [
-      { role: "system", content: agent.systemPrompt },
-      ...messages,
-    ],
+    system: agent.systemPrompt,
+    messages,
   });
 
-  const text = response.choices?.[0]?.message?.content?.trim() || "";
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+
   return parseAgentResponse(text);
 }
 
 /**
- * Envia uma mensagem livre para um agente (geração de conteúdo, estratégia, etc.)
+ * Envia uma mensagem livre para um agente (geracao de conteudo, estrategia, etc.)
  * Retorna a resposta em texto bruto.
  */
 export async function sendToAgent(
@@ -114,19 +114,19 @@ export async function sendToAgent(
     ? `${contextStr}\n\nMENSAGEM:\n${message}`
     : message;
 
-  const client = getClient();
-  const response = await client.chat.completions.create({
+  const response = await client.messages.create({
     model: agent.model,
     max_tokens: 2048,
-    messages: [
-      { role: "system", content: agent.systemPrompt },
-      { role: "user", content: fullMessage },
-    ],
+    system: agent.systemPrompt,
+    messages: [{ role: "user", content: fullMessage }],
   });
 
-  const text = response.choices?.[0]?.message?.content?.trim() || "";
-  const usage = response.usage;
-  const tokensUsados = (usage?.prompt_tokens || 0) + (usage?.completion_tokens || 0);
+  const text = response.content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("");
+
+  const tokensUsados = (response.usage.input_tokens || 0) + (response.usage.output_tokens || 0);
 
   return { resposta: text, tokensUsados };
 }
@@ -151,7 +151,6 @@ function buildLeadContext(leadData: Record<string, unknown>): string {
 }
 
 function parseAgentResponse(text: string): AgentAnalysis {
-  // Tenta extrair JSON da resposta
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
     try {
@@ -177,11 +176,10 @@ function parseAgentResponse(text: string): AgentAnalysis {
         },
       };
     } catch {
-      // JSON parse falhou, usa fallback abaixo
+      // JSON parse falhou, usa fallback
     }
   }
 
-  // Fallback: retorna texto bruto como resposta
   return {
     resposta_whatsapp: text.substring(0, 500),
     score_update: { perfil: 0, comportamento: 0 },
