@@ -8,7 +8,9 @@ import {
   crmLeads, crmConversas, crmAtividades, crmHandoffs,
   crmTarefas, crmMetricasDiarias, crmCampanhas,
   insertCrmLeadSchema, insertCrmTarefaSchema, insertCrmCampanhaSchema,
+  crmAvaliacoes, crmConhecimento, crmRegrasAprendidas,
 } from "@shared/crm-schema";
+import { approveRule, rejectRule } from "../services/crm/training";
 import { eq, desc, asc, sql, and, ilike, or, count } from "drizzle-orm";
 import { z } from "zod";
 
@@ -620,6 +622,160 @@ export function registerCrmRoutes(): Router {
   router.get("/api/crm/zapi-status", requireSuperAdmin, async (_req, res) => {
     try {
       return res.json({ configured: isZapiConfigured() });
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  // ==================== AVALIACOES (Training) ====================
+  router.get("/api/crm/avaliacoes", requireSuperAdmin, async (req, res) => {
+    try {
+      const { agente, nota, limit: lim } = req.query;
+      const conditions = [];
+      if (agente) conditions.push(eq(crmAvaliacoes.agente, agente as string));
+      if (nota) conditions.push(eq(crmAvaliacoes.nota, parseInt(nota as string)));
+      const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+      const avaliacoes = await db.select().from(crmAvaliacoes)
+        .where(where)
+        .orderBy(desc(crmAvaliacoes.criadoEm))
+        .limit(parseInt(lim as string) || 50);
+      return res.json(avaliacoes);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  router.patch("/api/crm/avaliacoes/:id", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { aprovada } = req.body;
+      const [updated] = await db.update(crmAvaliacoes)
+        .set({ aprovada })
+        .where(eq(crmAvaliacoes.id, id))
+        .returning();
+      if (!updated) return res.status(404).json({ message: "Avaliacao nao encontrada" });
+      return res.json(updated);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  // ==================== CONHECIMENTO (Training) ====================
+  router.get("/api/crm/conhecimento", requireSuperAdmin, async (req, res) => {
+    try {
+      const { agente, tipo } = req.query;
+      const conditions = [];
+      if (agente) conditions.push(eq(crmConhecimento.agente, agente as string));
+      if (tipo) conditions.push(eq(crmConhecimento.tipo, tipo as string));
+      const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+      const exemplos = await db.select().from(crmConhecimento)
+        .where(where)
+        .orderBy(desc(crmConhecimento.criadoEm))
+        .limit(100);
+      return res.json(exemplos);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  router.patch("/api/crm/conhecimento/:id", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { ativo } = req.body;
+      const [updated] = await db.update(crmConhecimento)
+        .set({ ativo })
+        .where(eq(crmConhecimento.id, id))
+        .returning();
+      if (!updated) return res.status(404).json({ message: "Exemplo nao encontrado" });
+      return res.json(updated);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  // ==================== REGRAS APRENDIDAS (Training) ====================
+  router.get("/api/crm/regras", requireSuperAdmin, async (req, res) => {
+    try {
+      const { agente, status } = req.query;
+      const conditions = [];
+      if (agente) conditions.push(eq(crmRegrasAprendidas.agente, agente as string));
+      if (status) conditions.push(eq(crmRegrasAprendidas.status, status as string));
+      const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+      const regras = await db.select().from(crmRegrasAprendidas)
+        .where(where)
+        .orderBy(desc(crmRegrasAprendidas.criadoEm));
+      return res.json(regras);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  router.post("/api/crm/regras", requireSuperAdmin, async (req, res) => {
+    try {
+      const { agente, regra, categoria } = req.body;
+      if (!agente || !regra || !categoria) {
+        return res.status(400).json({ message: "agente, regra e categoria sao obrigatorios" });
+      }
+      const [created] = await db.insert(crmRegrasAprendidas)
+        .values({ agente, regra, categoria, evidencia: "Criada manualmente", status: "aprovada", aprovadoEm: new Date() })
+        .returning();
+      return res.status(201).json(created);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  router.patch("/api/crm/regras/:id", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { action } = req.body;
+      if (action === "aprovar") {
+        const [updated] = await approveRule(id);
+        return res.json(updated);
+      } else if (action === "rejeitar") {
+        const [updated] = await rejectRule(id);
+        return res.json(updated);
+      }
+      return res.status(400).json({ message: "action deve ser 'aprovar' ou 'rejeitar'" });
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  // ==================== TREINAMENTO STATS ====================
+  router.get("/api/crm/treinamento/stats", requireSuperAdmin, async (_req, res) => {
+    try {
+      const agentes = ["sofia", "leo", "carlos", "lucas", "rafael", "marcos"];
+      const stats = await Promise.all(agentes.map(async (agente) => {
+        const [totalAvaliacoes] = await db.select({ count: count() }).from(crmAvaliacoes)
+          .where(eq(crmAvaliacoes.agente, agente));
+        const [mediaResult] = await db.select({
+          media: sql<string>`COALESCE(AVG(${crmAvaliacoes.nota}), 0)`,
+        }).from(crmAvaliacoes).where(eq(crmAvaliacoes.agente, agente));
+        const [regrasAtivas] = await db.select({ count: count() }).from(crmRegrasAprendidas)
+          .where(and(
+            sql`(${crmRegrasAprendidas.agente} = ${agente} OR ${crmRegrasAprendidas.agente} = 'todos')`,
+            eq(crmRegrasAprendidas.status, "aprovada")
+          ));
+        const [exemplos] = await db.select({ count: count() }).from(crmConhecimento)
+          .where(and(eq(crmConhecimento.agente, agente), eq(crmConhecimento.ativo, true)));
+
+        return {
+          agente,
+          totalAvaliacoes: totalAvaliacoes.count,
+          notaMedia: Number(Number(mediaResult.media).toFixed(1)),
+          regrasAtivas: regrasAtivas.count,
+          exemplosAtivos: exemplos.count,
+        };
+      }));
+
+      const [regrasPendentes] = await db.select({ count: count() }).from(crmRegrasAprendidas)
+        .where(eq(crmRegrasAprendidas.status, "pendente"));
+
+      return res.json({ agentes: stats, regrasPendentes: regrasPendentes.count });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
