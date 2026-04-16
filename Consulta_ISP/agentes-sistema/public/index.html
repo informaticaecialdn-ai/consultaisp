@@ -1,4 +1,4 @@
-<\!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -158,7 +158,7 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
 </head>
 <body>
 <div class="app">
-  <\!-- TOPBAR -->
+  <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
       <span class="topbar-logo">Consulta ISP</span>
@@ -171,7 +171,7 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
     </div>
   </div>
 
-  <\!-- SIDEBAR -->
+  <!-- SIDEBAR -->
   <div class="sidebar">
     <div class="nav-section">
       <div class="nav-section-title">Principal</div>
@@ -202,10 +202,10 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
     </div>
   </div>
 
-  <\!-- MAIN CONTENT -->
+  <!-- MAIN CONTENT -->
   <div class="main">
 
-    <\!-- DASHBOARD PAGE -->
+    <!-- DASHBOARD PAGE -->
     <div class="page active" id="page-dashboard">
       <div class="page-header"><h1>Dashboard</h1></div>
       <div class="stats-grid" id="dash-stats"></div>
@@ -231,7 +231,7 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
       </div>
     </div>
 
-    <\!-- PIPELINE PAGE -->
+    <!-- PIPELINE PAGE -->
     <div class="page" id="page-pipeline">
       <div class="page-header">
         <h1>Pipeline de Vendas</h1>
@@ -244,7 +244,7 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
       <div id="pipeline-content"></div>
     </div>
 
-    <\!-- LEADS PAGE -->
+    <!-- LEADS PAGE -->
     <div class="page" id="page-leads">
       <div class="page-header">
         <h1>Leads</h1>
@@ -268,7 +268,7 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
       </div></div>
     </div>
 
-    <\!-- CONVERSAS PAGE -->
+    <!-- CONVERSAS PAGE -->
     <div class="page" id="page-conversas">
       <div class="page-header"><h1>Conversas</h1></div>
       <div style="display:grid;grid-template-columns:300px 1fr;gap:16px;height:calc(100vh - 140px)">
@@ -291,7 +291,7 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
       </div>
     </div>
 
-    <\!-- MONITOR PAGE -->
+    <!-- MONITOR PAGE -->
     <div class="page" id="page-monitor">
       <div class="page-header"><h1>Monitor de Agentes</h1><button class="btn btn-outline btn-sm" onclick="loadMonitor()">Atualizar</button></div>
       <div class="grid-3" id="monitor-agents"></div>
@@ -301,7 +301,7 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
       </div>
     </div>
 
-    <\!-- PROSPECTAR PAGE -->
+    <!-- PROSPECTAR PAGE -->
     <div class="page" id="page-prospectar">
       <div class="page-header"><h1>Prospeccao</h1></div>
       <div class="grid-2">
@@ -325,7 +325,7 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
       </div>
     </div>
 
-    <\!-- CONTEUDO PAGE -->
+    <!-- CONTEUDO PAGE -->
     <div class="page" id="page-conteudo">
       <div class="page-header"><h1>Gerar Conteudo (Leo)</h1></div>
       <div class="panel">
@@ -341,7 +341,7 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
       </div>
     </div>
 
-    <\!-- TAREFAS PAGE -->
+    <!-- TAREFAS PAGE -->
     <div class="page" id="page-tarefas">
       <div class="page-header"><h1>Tarefas</h1></div>
       <div class="panel"><div class="panel-body no-pad" style="max-height:calc(100vh - 160px)">
@@ -350,7 +350,7 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
       </div></div>
     </div>
 
-    <\!-- RELATORIOS PAGE -->
+    <!-- RELATORIOS PAGE -->
     <div class="page" id="page-relatorios">
       <div class="page-header"><h1>Relatorios</h1>
         <div class="tabs"><div class="tab active" onclick="loadReports('7')">7 dias</div><div class="tab" onclick="loadReports('30')">30 dias</div><div class="tab" onclick="loadReports('90')">90 dias</div></div>
@@ -365,13 +365,13 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
       </div>
     </div>
 
-    <\!-- FUNIL PAGE -->
+    <!-- FUNIL PAGE -->
     <div class="page" id="page-funil">
       <div class="page-header"><h1>Funil de Vendas</h1></div>
       <div id="funil-visual"></div>
     </div>
 
-    <\!-- AGENT PAGES (generic) -->
+    <!-- AGENT PAGES (generic) -->
     <div class="page" id="page-agente-detail">
       <div class="page-header"><h1 id="agent-page-title">Agente</h1></div>
       <div class="stats-grid" id="agent-stats"></div>
@@ -383,7 +383,7 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
   </div>
 </div>
 
-<\!-- MODAL NOVO LEAD -->
+<!-- MODAL NOVO LEAD -->
 <div class="modal-overlay" id="modal-novo-lead">
   <div class="modal">
     <h2>Novo Lead</h2>
@@ -396,7 +396,7 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
   </div>
 </div>
 
-<\!-- MODAL LEAD DETAIL -->
+<!-- MODAL LEAD DETAIL -->
 <div class="modal-overlay" id="modal-lead-detail">
   <div class="modal" style="width:700px">
     <div style="display:flex;justify-content:space-between;align-items:start">
@@ -419,7 +419,7 @@ const ETAPA_LABELS={novo:'Novos',prospeccao:'Prospeccao',qualificacao:'Qualifica
 document.querySelectorAll('.nav-item[data-page]').forEach(item=>{
   item.addEventListener('click',()=>{
     const page=item.dataset.page;
-    if(page.startsWith('agente-')&&page\!=='agente-detail'){loadAgentPage(page.replace('agente-',''));return}
+    if(page.startsWith('agente-')&&page!=='agente-detail'){loadAgentPage(page.replace('agente-',''));return}
     goPage(page);
   });
 });
@@ -436,7 +436,7 @@ function goPage(page){
 function showModal(id){document.getElementById('modal-'+id).classList.add('show')}
 function hideModal(id){document.getElementById('modal-'+id).classList.remove('show')}
 function refreshAll(){const active=document.querySelector('.page.active');if(active)goPage(active.id.replace('page-',''))}
-function timeAgo(d){if(\!d)return'-';const s=Math.floor((Date.now()-new Date(d+'Z'))/1000);if(s<60)return'agora';if(s<3600)return Math.floor(s/60)+'m';if(s<86400)return Math.floor(s/3600)+'h';return Math.floor(s/86400)+'d'}
+function timeAgo(d){if(!d)return'-';const s=Math.floor((Date.now()-new Date(d+'Z'))/1000);if(s<60)return'agora';if(s<3600)return Math.floor(s/60)+'m';if(s<86400)return Math.floor(s/3600)+'h';return Math.floor(s/86400)+'d'}
 function scoreColor(s){if(s>=81)return'var(--red)';if(s>=61)return'var(--orange)';if(s>=31)return'var(--yellow)';return'var(--blue)'}
 async function api(path,opts){const r=await fetch(API+path,opts);return r.json()}
 
@@ -529,7 +529,7 @@ function buildPipelineByAgent(leads){
 
 function buildPipelineByRegion(leads){
   const regioes={};
-  leads.forEach(l=>{const r=l.regiao||l.estado||'Sem regiao';if(\!regioes[r])regioes[r]=[];regioes[r].push(l)});
+  leads.forEach(l=>{const r=l.regiao||l.estado||'Sem regiao';if(!regioes[r])regioes[r]=[];regioes[r].push(l)});
   const sorted=Object.entries(regioes).sort((a,b)=>b[1].length-a[1].length);
   document.getElementById('pipeline-content').innerHTML=`<div class="pipeline-container">${sorted.slice(0,8).map(([r,cards])=>`
     <div class="pipe-column"><div class="pipe-column-header"><span class="pipe-title">📍 ${r}</span><span class="pipe-count">${cards.length}</span></div><div class="pipe-column-body">${cards.map(l=>`
@@ -608,7 +608,7 @@ async function openChat(id,title){
 }
 
 async function sendChat(){
-  const input=document.getElementById('chat-input');const msg=input.value.trim();if(\!msg||\!currentChatLead)return;input.value='';
+  const input=document.getElementById('chat-input');const msg=input.value.trim();if(!msg||!currentChatLead)return;input.value='';
   const d=await api('/leads/'+currentChatLead);
   const mode=document.getElementById('chat-mode').value;
   await api('/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:d.lead.telefone,message:msg,agente:mode==='agent'?d.lead.agente_atual:undefined})});
@@ -633,7 +633,7 @@ async function loadMonitor(){
   document.getElementById('monitor-feed').innerHTML=(acts.atividades||[]).map(a=>`
     <div class="activity-item"><div class="activity-dot" style="background:${AGENTE_COLORS[a.agente]||'var(--muted)'}20;color:${AGENTE_COLORS[a.agente]||'var(--muted)'}">${a.tipo==='resposta_enviada'?'💬':a.tipo.includes('handoff')?'🔄':a.tipo==='lead_criado'?'🆕':'⚡'}</div>
     <div class="activity-content"><div class="activity-title"><span class="badge b-${a.agente}">${a.agente}</span> ${a.descricao?.substring(0,100)||a.tipo} ${a.lead_nome?`<span style="color:var(--muted);font-size:.8rem">| ${a.lead_nome}</span>`:''}</div>
-    <div class="activity-meta">${timeAgo(a.criado_em)}${a.tempo_ms?' | '+a.tempo_ms+'ms':''} ${a.score_antes\!==null&&a.score_depois\!==null?`| Score: ${a.score_antes}→${a.score_depois}`:''}</div></div></div>
+    <div class="activity-meta">${timeAgo(a.criado_em)}${a.tempo_ms?' | '+a.tempo_ms+'ms':''} ${a.score_antes!==null&&a.score_depois!==null?`| Score: ${a.score_antes}→${a.score_depois}`:''}</div></div></div>
   `).join('');
 }
 
@@ -670,7 +670,7 @@ async function loadReports(dias){
 // FUNIL
 async function loadFunil(){
   const d=await api('/funil');
-  const etapas=(d.funil||[]).filter(e=>\!['convertido','perdido','nurturing'].includes(e.etapa));
+  const etapas=(d.funil||[]).filter(e=>!['convertido','perdido','nurturing'].includes(e.etapa));
   const maxCount=Math.max(...etapas.map(e=>e.count),1);
   
   document.getElementById('funil-visual').innerHTML=`
@@ -685,7 +685,7 @@ async function loadFunil(){
 // PROSPECTAR
 async function startProspecting(){
   const tels=document.getElementById('prosp-tels').value.split('\n').map(t=>t.trim()).filter(Boolean);
-  if(\!tels.length){alert('Adicione telefones');return}
+  if(!tels.length){alert('Adicione telefones');return}
   document.getElementById('prosp-btn').disabled=true;document.getElementById('prosp-btn').textContent='Enviando...';
   document.getElementById('prosp-result').innerHTML='<div style="color:var(--yellow)">Prospeccao em andamento...</div>';
   const res=await api('/prospectar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telefones:tels,regiao:document.getElementById('prosp-regiao').value,mensagem_base:document.getElementById('prosp-ctx').value||undefined})});
@@ -697,7 +697,7 @@ async function loadCampaigns(){const d=await api('/campanhas');if(d.campanhas?.l
 // CONTEUDO
 async function generateContent(){
   const tipo=document.getElementById('cont-tipo').value;const brief=document.getElementById('cont-brief').value;
-  if(\!brief){alert('Preencha o briefing');return}
+  if(!brief){alert('Preencha o briefing');return}
   document.getElementById('cont-btn').disabled=true;document.getElementById('cont-btn').textContent='Leo escrevendo...';
   document.getElementById('cont-result').style.display='block';document.getElementById('cont-result').textContent='Gerando...';
   const res=await api('/conteudo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tipo,briefing:brief+' Contexto: '+document.getElementById('cont-ctx').value})});
@@ -707,7 +707,7 @@ async function generateContent(){
 
 // CREATE LEAD
 async function createLead(){
-  const tel=document.getElementById('nl-tel').value;if(\!tel){alert('Telefone obrigatorio');return}
+  const tel=document.getElementById('nl-tel').value;if(!tel){alert('Telefone obrigatorio');return}
   const body={telefone:tel,nome:document.getElementById('nl-nome').value,provedor:document.getElementById('nl-provedor').value,cidade:document.getElementById('nl-cidade').value,estado:document.getElementById('nl-estado').value,regiao:document.getElementById('nl-regiao').value,porte:document.getElementById('nl-porte').value,erp:document.getElementById('nl-erp').value};
   await api('/leads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const msg=document.getElementById('nl-msg').value||`Gerar prospeccao para ${body.nome||'provedor'} de ${body.cidade||body.regiao||'regiao desconhecida'}`;
