@@ -1,0 +1,11 @@
+# === PRODUCAO ===
+# Descomente e substitua pelo seu dominio real:
+# agentes.consultaisp.com.br {
+#     reverse_proxy agentes:3001
+# }
+
+# === TESTE LOCAL ===
+# Para testar sem dominio (HTTP na porta 80):
+:80 {
+    reverse_proxy agentes:3001
+}

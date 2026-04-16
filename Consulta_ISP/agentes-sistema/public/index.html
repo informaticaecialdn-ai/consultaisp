@@ -1,0 +1,753 @@
+<\!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Consulta ISP - CRM & Agentes</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--bg:#0a0e1a;--bg2:#111827;--card:#1a2234;--card2:#1e293b;--border:#2d3a4f;--text:#e2e8f0;--muted:#7a8ba8;--pink:#f472b6;--yellow:#fbbf24;--green:#34d399;--blue:#60a5fa;--purple:#a78bfa;--red:#f87171;--orange:#fb923c;--cyan:#22d3ee}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:var(--bg2)}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+.app{display:grid;grid-template-columns:220px 1fr;grid-template-rows:56px 1fr;height:100vh}
+
+/* TOPBAR */
+.topbar{grid-column:1/-1;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px;z-index:10}
+.topbar-left{display:flex;align-items:center;gap:16px}
+.topbar-logo{font-size:1.1rem;font-weight:800;background:linear-gradient(135deg,var(--blue),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.topbar-badge{padding:3px 10px;border-radius:20px;font-size:.65rem;font-weight:700;background:rgba(52,211,153,.15);color:var(--green);text-transform:uppercase;letter-spacing:.5px}
+.topbar-right{display:flex;align-items:center;gap:12px}
+.topbar-status{display:flex;align-items:center;gap:6px;font-size:.8rem;color:var(--muted)}
+.topbar-status .pulse{width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.btn{padding:7px 14px;border-radius:8px;border:none;cursor:pointer;font-size:.8rem;font-weight:600;transition:.15s;display:inline-flex;align-items:center;gap:6px}
+.btn-sm{padding:5px 10px;font-size:.75rem}
+.btn-primary{background:var(--blue);color:#fff}.btn-primary:hover{background:#3b82f6}
+.btn-success{background:var(--green);color:#0a0e1a}.btn-success:hover{opacity:.9}
+.btn-outline{background:transparent;border:1px solid var(--border);color:var(--text)}.btn-outline:hover{border-color:var(--blue);color:var(--blue)}
+.btn-ghost{background:transparent;color:var(--muted)}.btn-ghost:hover{color:var(--text);background:rgba(255,255,255,.05)}
+.btn-danger{background:rgba(248,113,113,.15);color:var(--red)}.btn-danger:hover{background:rgba(248,113,113,.25)}
+
+/* SIDEBAR */
+.sidebar{background:var(--bg2);border-right:1px solid var(--border);padding:12px;overflow-y:auto}
+.nav-section{margin-bottom:16px}
+.nav-section-title{font-size:.65rem;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);padding:8px 12px;font-weight:600}
+.nav-item{padding:9px 12px;border-radius:8px;cursor:pointer;font-size:.85rem;display:flex;align-items:center;gap:10px;transition:.15s;color:var(--muted)}
+.nav-item:hover{background:rgba(255,255,255,.04);color:var(--text)}
+.nav-item.active{background:rgba(96,165,250,.1);color:var(--blue)}
+.nav-item .nav-icon{width:20px;text-align:center;font-size:.95rem}
+.nav-item .nav-badge{margin-left:auto;padding:1px 7px;border-radius:10px;font-size:.7rem;font-weight:600;background:rgba(96,165,250,.2);color:var(--blue)}
+.agent-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+
+/* MAIN */
+.main{overflow-y:auto;padding:20px;background:var(--bg)}
+.page{display:none}.page.active{display:block}
+.page-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.page-header h1{font-size:1.4rem;font-weight:700}
+.page-header-actions{display:flex;gap:8px}
+
+/* STAT CARDS */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:20px}
+.stat-card{background:var(--card);border-radius:12px;padding:18px;border:1px solid var(--border)}
+.stat-card .stat-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.stat-card .stat-icon{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.1rem}
+.stat-card .stat-change{font-size:.75rem;padding:2px 6px;border-radius:4px}
+.stat-card .stat-change.up{background:rgba(52,211,153,.1);color:var(--green)}
+.stat-card .stat-change.down{background:rgba(248,113,113,.1);color:var(--red)}
+.stat-card .stat-val{font-size:1.8rem;font-weight:800;line-height:1}
+.stat-card .stat-label{font-size:.75rem;color:var(--muted);margin-top:4px}
+
+/* PANELS & GRIDS */
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px}
+.grid-2-1{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:20px}
+.panel{background:var(--card);border-radius:12px;border:1px solid var(--border);overflow:hidden}
+.panel-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.panel-header h2{font-size:1rem;font-weight:600;display:flex;align-items:center;gap:8px}
+.panel-body{padding:16px 20px;max-height:400px;overflow-y:auto}
+.panel-body.no-pad{padding:0}
+
+/* TABLES */
+.table{width:100%;border-collapse:collapse;font-size:.85rem}
+.table th{text-align:left;padding:10px 16px;font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);border-bottom:1px solid var(--border);font-weight:600;position:sticky;top:0;background:var(--card)}
+.table td{padding:10px 16px;border-bottom:1px solid rgba(45,58,79,.5)}
+.table tr:hover td{background:rgba(255,255,255,.02)}
+.table tr{cursor:pointer}
+
+/* BADGES */
+.badge{padding:3px 10px;border-radius:12px;font-size:.7rem;font-weight:600;white-space:nowrap}
+.b-frio{background:rgba(96,165,250,.15);color:var(--blue)}
+.b-morno{background:rgba(251,191,36,.15);color:var(--yellow)}
+.b-quente{background:rgba(249,115,22,.15);color:var(--orange)}
+.b-ultra_quente{background:rgba(239,68,68,.15);color:var(--red)}
+.b-convertido{background:rgba(52,211,153,.15);color:var(--green)}
+.b-perdido{background:rgba(127,140,160,.15);color:var(--muted)}
+.b-sofia{background:rgba(244,114,182,.12);color:var(--pink)}
+.b-leo{background:rgba(251,191,36,.12);color:var(--yellow)}
+.b-carlos{background:rgba(52,211,153,.12);color:var(--green)}
+.b-lucas{background:rgba(96,165,250,.12);color:var(--blue)}
+.b-rafael{background:rgba(167,139,250,.12);color:var(--purple)}
+
+/* PIPELINE KANBAN */
+.pipeline-container{display:flex;gap:12px;overflow-x:auto;padding-bottom:16px;min-height:500px}
+.pipe-column{min-width:220px;flex:1;background:var(--bg2);border-radius:12px;border:1px solid var(--border);display:flex;flex-direction:column}
+.pipe-column-header{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.pipe-column-header .pipe-title{font-size:.85rem;font-weight:700;display:flex;align-items:center;gap:8px}
+.pipe-column-header .pipe-count{padding:2px 8px;border-radius:10px;font-size:.7rem;background:rgba(255,255,255,.08)}
+.pipe-column-header .pipe-value{font-size:.7rem;color:var(--green)}
+.pipe-column-body{padding:8px;flex:1;overflow-y:auto}
+.pipe-card{background:var(--card);border-radius:8px;padding:12px;margin-bottom:8px;cursor:pointer;border:1px solid transparent;transition:.15s;border-left:3px solid}
+.pipe-card:hover{border-color:var(--border)}
+.pipe-card .pc-top{display:flex;justify-content:space-between;align-items:start;margin-bottom:6px}
+.pipe-card .pc-name{font-weight:600;font-size:.85rem}
+.pipe-card .pc-provider{font-size:.75rem;color:var(--muted)}
+.pipe-card .pc-bottom{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
+.pipe-card .pc-score{font-size:.7rem}
+.score-bar{width:60px;height:4px;border-radius:2px;background:var(--border);overflow:hidden}
+.score-bar-fill{height:100%;border-radius:2px;transition:width .3s}
+
+/* ACTIVITY FEED */
+.activity-item{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid rgba(45,58,79,.4)}
+.activity-item:last-child{border-bottom:none}
+.activity-dot{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:.85rem;flex-shrink:0}
+.activity-content{flex:1}
+.activity-title{font-size:.85rem;font-weight:500}
+.activity-meta{font-size:.7rem;color:var(--muted);margin-top:2px}
+
+/* CHARTS */
+.chart-container{position:relative;height:250px;width:100%}
+
+/* MODAL */
+.modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:100;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal{background:var(--card);border-radius:16px;border:1px solid var(--border);padding:24px;width:560px;max-width:92vw;max-height:85vh;overflow-y:auto}
+.modal h2{font-size:1.2rem;margin-bottom:20px}
+.form-group{margin-bottom:14px}
+.form-group label{display:block;font-size:.78rem;color:var(--muted);margin-bottom:4px;font-weight:500}
+.form-group input,.form-group textarea,.form-group select{width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.88rem;font-family:inherit}
+.form-group input:focus,.form-group textarea:focus,.form-group select:focus{outline:none;border-color:var(--blue)}
+.form-group textarea{resize:vertical;min-height:80px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}
+
+/* CHAT */
+.chat-panel{display:grid;grid-template-rows:auto 1fr auto;height:500px}
+.chat-header{padding:16px 20px;border-bottom:1px solid var(--border)}
+.chat-messages{overflow-y:auto;padding:16px 20px}
+.chat-bubble-wrap{margin-bottom:12px;display:flex;flex-direction:column}
+.chat-bubble-wrap.in{align-items:flex-start}
+.chat-bubble-wrap.out{align-items:flex-end}
+.chat-bubble{padding:10px 14px;border-radius:12px;max-width:80%;font-size:.88rem;line-height:1.5}
+.chat-bubble-wrap.in .chat-bubble{background:var(--bg2);border-bottom-left-radius:4px}
+.chat-bubble-wrap.out .chat-bubble{background:rgba(96,165,250,.15);border-bottom-right-radius:4px}
+.chat-bubble-meta{font-size:.65rem;color:var(--muted);margin-top:3px}
+.chat-input-area{padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px}
+.chat-input-area input{flex:1;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.88rem}
+
+/* RESPONSIVE */
+@media(max-width:900px){.app{grid-template-columns:1fr}.sidebar{display:none}.grid-2,.grid-3,.grid-2-1{grid-template-columns:1fr}.pipeline-container{flex-direction:column}}
+
+/* TABS */
+.tabs{display:flex;gap:2px;margin-bottom:16px;background:var(--bg2);border-radius:10px;padding:3px;width:fit-content}
+.tab{padding:7px 16px;border-radius:8px;cursor:pointer;font-size:.82rem;color:var(--muted);transition:.15s}
+.tab.active{background:var(--card);color:var(--text);font-weight:600}
+.tab:hover:not(.active){color:var(--text)}
+</style>
+</head>
+<body>
+<div class="app">
+  <\!-- TOPBAR -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <span class="topbar-logo">Consulta ISP</span>
+      <span class="topbar-badge">CRM & Agentes IA</span>
+    </div>
+    <div class="topbar-right">
+      <span class="topbar-status"><span class="pulse"></span> Sistema Ativo</span>
+      <button class="btn btn-outline btn-sm" onclick="refreshAll()">Atualizar</button>
+      <button class="btn btn-primary btn-sm" onclick="showModal('novo-lead')">+ Novo Lead</button>
+    </div>
+  </div>
+
+  <\!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="nav-section">
+      <div class="nav-section-title">Principal</div>
+      <div class="nav-item active" data-page="dashboard"><span class="nav-icon">📊</span>Dashboard<span class="nav-badge" id="nav-leads-count">0</span></div>
+      <div class="nav-item" data-page="pipeline"><span class="nav-icon">📈</span>Pipeline</div>
+      <div class="nav-item" data-page="leads"><span class="nav-icon">👥</span>Leads</div>
+      <div class="nav-item" data-page="conversas"><span class="nav-icon">💬</span>Conversas</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-section-title">Operacoes</div>
+      <div class="nav-item" data-page="monitor"><span class="nav-icon">🔴</span>Monitor Agentes</div>
+      <div class="nav-item" data-page="prospectar"><span class="nav-icon">🚀</span>Prospectar</div>
+      <div class="nav-item" data-page="conteudo"><span class="nav-icon">✍️</span>Conteudo</div>
+      <div class="nav-item" data-page="tarefas"><span class="nav-icon">📋</span>Tarefas<span class="nav-badge" id="nav-tarefas-count">0</span></div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-section-title">Relatorios</div>
+      <div class="nav-item" data-page="relatorios"><span class="nav-icon">📉</span>Relatorios</div>
+      <div class="nav-item" data-page="funil"><span class="nav-icon">🔻</span>Funil</div>
+    </div>
+    <div class="nav-section">
+      <div class="nav-section-title">Agentes</div>
+      <div class="nav-item" data-page="agente-sofia"><span class="agent-dot" style="background:var(--pink)"></span>Sofia<span style="color:var(--muted);font-size:.75rem;margin-left:auto">Marketing</span></div>
+      <div class="nav-item" data-page="agente-leo"><span class="agent-dot" style="background:var(--yellow)"></span>Leo<span style="color:var(--muted);font-size:.75rem;margin-left:auto">Copy</span></div>
+      <div class="nav-item" data-page="agente-carlos"><span class="agent-dot" style="background:var(--green)"></span>Carlos<span style="color:var(--muted);font-size:.75rem;margin-left:auto">SDR</span></div>
+      <div class="nav-item" data-page="agente-lucas"><span class="agent-dot" style="background:var(--blue)"></span>Lucas<span style="color:var(--muted);font-size:.75rem;margin-left:auto">Vendas</span></div>
+      <div class="nav-item" data-page="agente-rafael"><span class="agent-dot" style="background:var(--purple)"></span>Rafael<span style="color:var(--muted);font-size:.75rem;margin-left:auto">Closer</span></div>
+    </div>
+  </div>
+
+  <\!-- MAIN CONTENT -->
+  <div class="main">
+
+    <\!-- DASHBOARD PAGE -->
+    <div class="page active" id="page-dashboard">
+      <div class="page-header"><h1>Dashboard</h1></div>
+      <div class="stats-grid" id="dash-stats"></div>
+      <div class="grid-2-1">
+        <div class="panel">
+          <div class="panel-header"><h2>📈 Mensagens (7 dias)</h2></div>
+          <div class="panel-body"><div class="chart-container"><canvas id="chartMsgs"></canvas></div></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><h2>🎯 Classificacao</h2></div>
+          <div class="panel-body"><div class="chart-container"><canvas id="chartClass"></canvas></div></div>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="panel">
+          <div class="panel-header"><h2>⚡ Atividade dos Agentes</h2><button class="btn btn-ghost btn-sm" onclick="goPage('monitor')">Ver mais</button></div>
+          <div class="panel-body" id="dash-activities"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><h2>🔄 Transferencias Recentes</h2></div>
+          <div class="panel-body" id="dash-handoffs"></div>
+        </div>
+      </div>
+    </div>
+
+    <\!-- PIPELINE PAGE -->
+    <div class="page" id="page-pipeline">
+      <div class="page-header">
+        <h1>Pipeline de Vendas</h1>
+        <div class="tabs" id="pipeline-tabs">
+          <div class="tab active" data-view="etapa">Por Etapa</div>
+          <div class="tab" data-view="agente">Por Agente</div>
+          <div class="tab" data-view="regiao">Por Regiao</div>
+        </div>
+      </div>
+      <div id="pipeline-content"></div>
+    </div>
+
+    <\!-- LEADS PAGE -->
+    <div class="page" id="page-leads">
+      <div class="page-header">
+        <h1>Leads</h1>
+        <div class="page-header-actions">
+          <input type="text" id="lead-search" placeholder="Buscar..." style="padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.85rem;width:200px" oninput="loadLeads()">
+          <select id="lead-filter-agent" style="padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.82rem" onchange="loadLeads()">
+            <option value="">Todos agentes</option>
+            <option value="carlos">Carlos</option><option value="lucas">Lucas</option><option value="rafael">Rafael</option><option value="sofia">Sofia</option>
+          </select>
+          <select id="lead-filter-class" style="padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.82rem" onchange="loadLeads()">
+            <option value="">Todas class.</option>
+            <option value="frio">Frio</option><option value="morno">Morno</option><option value="quente">Quente</option><option value="ultra_quente">Ultra Quente</option>
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="showModal('novo-lead')">+ Novo Lead</button>
+        </div>
+      </div>
+      <div class="panel"><div class="panel-body no-pad" style="max-height:calc(100vh - 180px)">
+        <table class="table" id="leads-table"><thead><tr>
+          <th>Nome / Telefone</th><th>Provedor</th><th>Regiao</th><th>Score</th><th>Class.</th><th>Agente</th><th>Etapa</th><th>Atualizado</th>
+        </tr></thead><tbody id="leads-tbody"></tbody></table>
+      </div></div>
+    </div>
+
+    <\!-- CONVERSAS PAGE -->
+    <div class="page" id="page-conversas">
+      <div class="page-header"><h1>Conversas</h1></div>
+      <div style="display:grid;grid-template-columns:300px 1fr;gap:16px;height:calc(100vh - 140px)">
+        <div class="panel" style="display:flex;flex-direction:column">
+          <div class="panel-header"><h2>Leads</h2></div>
+          <div class="panel-body" id="conv-leads-list" style="flex:1;overflow-y:auto"></div>
+        </div>
+        <div class="panel chat-panel" id="chat-panel">
+          <div class="chat-header" id="chat-header"><span style="color:var(--muted)">Selecione um lead</span></div>
+          <div class="chat-messages" id="chat-messages"></div>
+          <div class="chat-input-area">
+            <input type="text" id="chat-input" placeholder="Digite uma mensagem..." onkeypress="if(event.key==='Enter')sendChat()">
+            <select id="chat-mode" style="padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.8rem;width:120px">
+              <option value="agent">Via Agente</option>
+              <option value="direct">Direta</option>
+            </select>
+            <button class="btn btn-primary btn-sm" onclick="sendChat()">Enviar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <\!-- MONITOR PAGE -->
+    <div class="page" id="page-monitor">
+      <div class="page-header"><h1>Monitor de Agentes</h1><button class="btn btn-outline btn-sm" onclick="loadMonitor()">Atualizar</button></div>
+      <div class="grid-3" id="monitor-agents"></div>
+      <div class="panel">
+        <div class="panel-header"><h2>📡 Feed de Atividades em Tempo Real</h2></div>
+        <div class="panel-body" id="monitor-feed" style="max-height:400px"></div>
+      </div>
+    </div>
+
+    <\!-- PROSPECTAR PAGE -->
+    <div class="page" id="page-prospectar">
+      <div class="page-header"><h1>Prospeccao</h1></div>
+      <div class="grid-2">
+        <div class="panel">
+          <div class="panel-header"><h2>🚀 Prospeccao em Massa</h2></div>
+          <div class="panel-body">
+            <div class="form-group"><label>Telefones (um por linha)</label><textarea id="prosp-tels" rows="6" placeholder="5511999998888&#10;5521988887777"></textarea></div>
+            <div class="form-row">
+              <div class="form-group"><label>Regiao</label><input type="text" id="prosp-regiao" placeholder="Interior de SP"></div>
+              <div class="form-group"><label>Porte alvo</label><select id="prosp-porte"><option value="">Todos</option><option value="micro">Micro</option><option value="pequeno">Pequeno</option><option value="medio">Medio</option><option value="grande">Grande</option></select></div>
+            </div>
+            <div class="form-group"><label>Contexto (opcional)</label><textarea id="prosp-ctx" rows="3" placeholder="Info extra para o Carlos usar..."></textarea></div>
+            <button class="btn btn-success" onclick="startProspecting()" id="prosp-btn">Iniciar Prospeccao</button>
+            <div id="prosp-result" style="margin-top:16px"></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><h2>📊 Campanhas</h2></div>
+          <div class="panel-body" id="campaigns-list"><div style="text-align:center;color:var(--muted);padding:40px">Nenhuma campanha ainda</div></div>
+        </div>
+      </div>
+    </div>
+
+    <\!-- CONTEUDO PAGE -->
+    <div class="page" id="page-conteudo">
+      <div class="page-header"><h1>Gerar Conteudo (Leo)</h1></div>
+      <div class="panel">
+        <div class="panel-body">
+          <div class="form-row">
+            <div class="form-group"><label>Tipo</label><select id="cont-tipo"><option value="whatsapp_prospeccao">WhatsApp Prospeccao</option><option value="whatsapp_followup">WhatsApp Follow-up</option><option value="instagram_carrossel">Instagram Carrossel</option><option value="instagram_reels">Script Reels</option><option value="email_nurturing">Email Nurturing</option><option value="landing_page">Landing Page</option><option value="pitch_vendas">Pitch de Vendas</option></select></div>
+            <div class="form-group"><label>Regiao/Contexto</label><input type="text" id="cont-ctx" placeholder="Ex: provedores FTTH no Parana"></div>
+          </div>
+          <div class="form-group"><label>Briefing</label><textarea id="cont-brief" rows="4" placeholder="Descreva o que precisa..."></textarea></div>
+          <button class="btn btn-primary" onclick="generateContent()" id="cont-btn">Gerar com Leo</button>
+          <div id="cont-result" style="margin-top:20px;white-space:pre-wrap;background:var(--bg);border-radius:8px;padding:16px;display:none"></div>
+        </div>
+      </div>
+    </div>
+
+    <\!-- TAREFAS PAGE -->
+    <div class="page" id="page-tarefas">
+      <div class="page-header"><h1>Tarefas</h1></div>
+      <div class="panel"><div class="panel-body no-pad" style="max-height:calc(100vh - 160px)">
+        <table class="table"><thead><tr><th>Tipo</th><th>Descricao</th><th>Agente</th><th>Lead</th><th>Prioridade</th><th>Status</th><th>Acao</th></tr></thead>
+        <tbody id="tarefas-tbody"></tbody></table>
+      </div></div>
+    </div>
+
+    <\!-- RELATORIOS PAGE -->
+    <div class="page" id="page-relatorios">
+      <div class="page-header"><h1>Relatorios</h1>
+        <div class="tabs"><div class="tab active" onclick="loadReports('7')">7 dias</div><div class="tab" onclick="loadReports('30')">30 dias</div><div class="tab" onclick="loadReports('90')">90 dias</div></div>
+      </div>
+      <div class="grid-2">
+        <div class="panel"><div class="panel-header"><h2>Performance por Agente</h2></div><div class="panel-body"><div class="chart-container"><canvas id="chartAgentes"></canvas></div></div></div>
+        <div class="panel"><div class="panel-header"><h2>Leads por Regiao</h2></div><div class="panel-body"><div class="chart-container"><canvas id="chartRegiao"></canvas></div></div></div>
+      </div>
+      <div class="grid-2">
+        <div class="panel"><div class="panel-header"><h2>Evolucao do Pipeline</h2></div><div class="panel-body"><div class="chart-container"><canvas id="chartPipeline"></canvas></div></div></div>
+        <div class="panel"><div class="panel-header"><h2>Leads por Etapa do Funil</h2></div><div class="panel-body"><div class="chart-container"><canvas id="chartFunil"></canvas></div></div></div>
+      </div>
+    </div>
+
+    <\!-- FUNIL PAGE -->
+    <div class="page" id="page-funil">
+      <div class="page-header"><h1>Funil de Vendas</h1></div>
+      <div id="funil-visual"></div>
+    </div>
+
+    <\!-- AGENT PAGES (generic) -->
+    <div class="page" id="page-agente-detail">
+      <div class="page-header"><h1 id="agent-page-title">Agente</h1></div>
+      <div class="stats-grid" id="agent-stats"></div>
+      <div class="grid-2">
+        <div class="panel"><div class="panel-header"><h2>Leads Ativos</h2></div><div class="panel-body" id="agent-leads"></div></div>
+        <div class="panel"><div class="panel-header"><h2>Atividades Recentes</h2></div><div class="panel-body" id="agent-activities"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<\!-- MODAL NOVO LEAD -->
+<div class="modal-overlay" id="modal-novo-lead">
+  <div class="modal">
+    <h2>Novo Lead</h2>
+    <div class="form-row"><div class="form-group"><label>Telefone *</label><input type="text" id="nl-tel" placeholder="5511999998888"></div><div class="form-group"><label>Nome</label><input type="text" id="nl-nome"></div></div>
+    <div class="form-row"><div class="form-group"><label>Provedor</label><input type="text" id="nl-provedor"></div><div class="form-group"><label>Cidade</label><input type="text" id="nl-cidade"></div></div>
+    <div class="form-row"><div class="form-group"><label>Estado</label><input type="text" id="nl-estado" placeholder="SP"></div><div class="form-group"><label>Regiao</label><input type="text" id="nl-regiao" placeholder="Interior de SP"></div></div>
+    <div class="form-row"><div class="form-group"><label>Porte</label><select id="nl-porte"><option value="desconhecido">Desconhecido</option><option value="micro">Micro (&lt;1k)</option><option value="pequeno">Pequeno (1-5k)</option><option value="medio">Medio (5-50k)</option><option value="grande">Grande (50k+)</option></select></div><div class="form-group"><label>ERP</label><select id="nl-erp"><option value="">Desconhecido</option><option value="MK">MK</option><option value="IXC">IXC</option><option value="Hubsoft">Hubsoft</option><option value="Voalle">Voalle</option><option value="SGP">SGP</option><option value="RBX">RBX</option><option value="Outro">Outro</option></select></div></div>
+    <div class="form-group"><label>Mensagem inicial (Carlos envia via WhatsApp)</label><textarea id="nl-msg" rows="3" placeholder="Deixe vazio para o Carlos gerar automaticamente"></textarea></div>
+    <div class="modal-footer"><button class="btn btn-outline" onclick="hideModal('novo-lead')">Cancelar</button><button class="btn btn-primary" onclick="createLead()">Criar e Prospectar</button></div>
+  </div>
+</div>
+
+<\!-- MODAL LEAD DETAIL -->
+<div class="modal-overlay" id="modal-lead-detail">
+  <div class="modal" style="width:700px">
+    <div style="display:flex;justify-content:space-between;align-items:start">
+      <h2 id="ld-title">Lead</h2>
+      <button class="btn btn-ghost btn-sm" onclick="hideModal('lead-detail')">✕</button>
+    </div>
+    <div id="ld-content"></div>
+  </div>
+</div>
+
+<script>
+const API='/api';
+let charts={};let currentChatLead=null;
+const AGENTE_COLORS={sofia:'var(--pink)',leo:'var(--yellow)',carlos:'var(--green)',lucas:'var(--blue)',rafael:'var(--purple)'};
+const AGENTE_NAMES={sofia:'Sofia - Marketing',leo:'Leo - Copywriter',carlos:'Carlos - Pre-Vendas',lucas:'Lucas - Vendas',rafael:'Rafael - Closer'};
+const ETAPA_COLORS={novo:'#64748b',prospeccao:'#34d399',qualificacao:'#fbbf24',demo_agendada:'#60a5fa',proposta_enviada:'#fb923c',negociacao:'#a78bfa',fechamento:'#f472b6',convertido:'#22d3ee',nurturing:'#7a8ba8',perdido:'#475569'};
+const ETAPA_LABELS={novo:'Novos',prospeccao:'Prospeccao',qualificacao:'Qualificacao',demo_agendada:'Demo Agendada',proposta_enviada:'Proposta',negociacao:'Negociacao',fechamento:'Fechamento',convertido:'Convertido',nurturing:'Nurturing',perdido:'Perdido'};
+
+// NAV
+document.querySelectorAll('.nav-item[data-page]').forEach(item=>{
+  item.addEventListener('click',()=>{
+    const page=item.dataset.page;
+    if(page.startsWith('agente-')&&page\!=='agente-detail'){loadAgentPage(page.replace('agente-',''));return}
+    goPage(page);
+  });
+});
+
+function goPage(page){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  const el=document.getElementById('page-'+page);
+  if(el){el.classList.add('active');document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add('active')}
+  const loaders={dashboard:loadDashboard,pipeline:loadPipeline,leads:loadLeads,conversas:loadConversas,monitor:loadMonitor,tarefas:loadTarefas,relatorios:()=>loadReports('7'),funil:loadFunil,prospectar:loadCampaigns};
+  if(loaders[page])loaders[page]();
+}
+
+function showModal(id){document.getElementById('modal-'+id).classList.add('show')}
+function hideModal(id){document.getElementById('modal-'+id).classList.remove('show')}
+function refreshAll(){const active=document.querySelector('.page.active');if(active)goPage(active.id.replace('page-',''))}
+function timeAgo(d){if(\!d)return'-';const s=Math.floor((Date.now()-new Date(d+'Z'))/1000);if(s<60)return'agora';if(s<3600)return Math.floor(s/60)+'m';if(s<86400)return Math.floor(s/3600)+'h';return Math.floor(s/86400)+'d'}
+function scoreColor(s){if(s>=81)return'var(--red)';if(s>=61)return'var(--orange)';if(s>=31)return'var(--yellow)';return'var(--blue)'}
+async function api(path,opts){const r=await fetch(API+path,opts);return r.json()}
+
+// DASHBOARD
+async function loadDashboard(){
+  const d=await api('/stats');
+  document.getElementById('nav-leads-count').textContent=d.total_leads;
+  document.getElementById('nav-tarefas-count').textContent=d.tarefas_pendentes;
+  const quentes=(d.por_classificacao||[]).filter(c=>c.classificacao==='quente'||c.classificacao==='ultra_quente').reduce((s,c)=>s+c.c,0);
+  
+  document.getElementById('dash-stats').innerHTML=`
+    <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:rgba(96,165,250,.12)">👥</div></div><div class="stat-val" style="color:var(--blue)">${d.total_leads}</div><div class="stat-label">Total de Leads</div></div>
+    <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:rgba(52,211,153,.12)">💬</div></div><div class="stat-val" style="color:var(--green)">${d.msgs_hoje}</div><div class="stat-label">Mensagens Hoje</div></div>
+    <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:rgba(249,115,22,.12)">🔥</div></div><div class="stat-val" style="color:var(--orange)">${quentes}</div><div class="stat-label">Leads Quentes</div></div>
+    <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:rgba(167,139,250,.12)">💰</div></div><div class="stat-val" style="color:var(--purple)">R$${(d.valor_pipeline||0).toLocaleString('pt-BR')}</div><div class="stat-label">Valor Pipeline</div></div>
+    <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:rgba(34,211,238,.12)">📋</div></div><div class="stat-val" style="color:var(--cyan)">${d.tarefas_pendentes}</div><div class="stat-label">Tarefas Pendentes</div></div>
+    <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:rgba(251,191,36,.12)">⚡</div></div><div class="stat-val" style="color:var(--yellow)">${d.leads_hoje}</div><div class="stat-label">Leads Hoje</div></div>`;
+
+  // Activity feed
+  const acts=d.atividades_recentes||[];
+  document.getElementById('dash-activities').innerHTML=acts.length?acts.slice(0,8).map(a=>`
+    <div class="activity-item"><div class="activity-dot" style="background:${AGENTE_COLORS[a.agente]||'var(--muted)'}20;color:${AGENTE_COLORS[a.agente]||'var(--muted)'}">${a.tipo==='resposta_enviada'?'💬':a.tipo==='handoff_enviado'?'🔄':a.tipo==='lead_criado'?'🆕':a.tipo==='demo_agendada'?'📅':'⚡'}</div>
+    <div class="activity-content"><div class="activity-title"><span class="badge b-${a.agente}" style="margin-right:6px">${a.agente}</span>${a.descricao?.substring(0,80)||a.tipo}</div><div class="activity-meta">${timeAgo(a.criado_em)}</div></div></div>
+  `).join(''):'<div style="text-align:center;color:var(--muted);padding:30px">Nenhuma atividade ainda</div>';
+
+  // Handoffs
+  const hfs=d.handoffs_recentes||[];
+  document.getElementById('dash-handoffs').innerHTML=hfs.length?hfs.map(h=>`
+    <div class="activity-item"><div class="activity-dot" style="background:rgba(96,165,250,.12);color:var(--blue)">🔄</div>
+    <div class="activity-content"><div class="activity-title">${h.nome||h.telefone}: <span class="badge b-${h.de_agente}">${h.de_agente}</span> → <span class="badge b-${h.para_agente}">${h.para_agente}</span></div><div class="activity-meta">Score: ${h.score_no_momento} | ${timeAgo(h.criado_em)}</div></div></div>
+  `).join(''):'<div style="text-align:center;color:var(--muted);padding:30px">Nenhuma transferencia</div>';
+
+  // Charts
+  buildDashCharts(d);
+}
+
+function buildDashCharts(d){
+  if(charts.msgs)charts.msgs.destroy();
+  if(charts.cls)charts.cls.destroy();
+  
+  const cls=d.por_classificacao||[];
+  const clsLabels=cls.map(c=>c.classificacao);
+  const clsData=cls.map(c=>c.c);
+  const clsColors=cls.map(c=>({frio:'#60a5fa',morno:'#fbbf24',quente:'#fb923c',ultra_quente:'#f87171',convertido:'#34d399',perdido:'#475569'}[c.classificacao]||'#7a8ba8'));
+  
+  charts.cls=new Chart(document.getElementById('chartClass'),{type:'doughnut',data:{labels:clsLabels,datasets:[{data:clsData,backgroundColor:clsColors,borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#94a3b8',font:{size:11}}}}}});
+}
+
+// PIPELINE
+async function loadPipeline(){
+  const d=await api('/leads');
+  const leads=d.leads||[];
+  buildPipelineByEtapa(leads);
+  
+  document.querySelectorAll('#pipeline-tabs .tab').forEach(t=>{
+    t.onclick=()=>{
+      document.querySelectorAll('#pipeline-tabs .tab').forEach(x=>x.classList.remove('active'));
+      t.classList.add('active');
+      if(t.dataset.view==='etapa')buildPipelineByEtapa(leads);
+      else if(t.dataset.view==='agente')buildPipelineByAgent(leads);
+      else buildPipelineByRegion(leads);
+    };
+  });
+}
+
+function buildPipelineByEtapa(leads){
+  const etapas=['novo','prospeccao','qualificacao','demo_agendada','proposta_enviada','negociacao','fechamento'];
+  const grouped={};etapas.forEach(e=>grouped[e]=[]);
+  leads.forEach(l=>{if(grouped[l.etapa_funil])grouped[l.etapa_funil].push(l)});
+  
+  document.getElementById('pipeline-content').innerHTML=`<div class="pipeline-container">${etapas.map(e=>{
+    const cards=grouped[e]||[];const val=cards.reduce((s,c)=>s+(c.valor_estimado||0),0);
+    return`<div class="pipe-column"><div class="pipe-column-header"><div><span class="pipe-title"><span style="color:${ETAPA_COLORS[e]||'#fff'}">●</span> ${ETAPA_LABELS[e]||e}</span></div><div style="text-align:right"><span class="pipe-count">${cards.length}</span>${val?`<div class="pipe-value">R$${val.toLocaleString('pt-BR')}</div>`:''}</div></div><div class="pipe-column-body">${cards.map(l=>`
+      <div class="pipe-card" style="border-left-color:${scoreColor(l.score_total)}" onclick="openLeadDetail(${l.id})"><div class="pc-top"><div><div class="pc-name">${l.nome||l.telefone}</div><div class="pc-provider">${l.provedor||''} ${l.cidade?'- '+l.cidade:''}</div></div><span class="badge b-${l.agente_atual}" style="font-size:.6rem">${l.agente_atual}</span></div><div class="pc-bottom"><div class="pc-score" style="color:${scoreColor(l.score_total)}">Score: ${l.score_total}</div><div class="score-bar"><div class="score-bar-fill" style="width:${l.score_total}%;background:${scoreColor(l.score_total)}"></div></div></div></div>
+    `).join('')}</div></div>`;
+  }).join('')}</div>`;
+}
+
+function buildPipelineByAgent(leads){
+  const agents=['carlos','lucas','rafael','sofia'];
+  const grouped={};agents.forEach(a=>grouped[a]=[]);
+  leads.forEach(l=>{if(grouped[l.agente_atual])grouped[l.agente_atual].push(l)});
+  document.getElementById('pipeline-content').innerHTML=`<div class="pipeline-container">${agents.map(a=>{
+    const cards=grouped[a]||[];
+    return`<div class="pipe-column"><div class="pipe-column-header"><span class="pipe-title"><span style="color:${AGENTE_COLORS[a]}">●</span> ${AGENTE_NAMES[a]||a}</span><span class="pipe-count">${cards.length}</span></div><div class="pipe-column-body">${cards.map(l=>`
+      <div class="pipe-card" style="border-left-color:${AGENTE_COLORS[a]}" onclick="openLeadDetail(${l.id})"><div class="pc-name">${l.nome||l.telefone}</div><div class="pc-provider">${l.provedor||''}</div><div class="pc-bottom"><span class="badge b-${l.classificacao}">${l.classificacao}</span><span style="font-size:.7rem;color:${scoreColor(l.score_total)}">${l.score_total}pts</span></div></div>
+    `).join('')}</div></div>`;
+  }).join('')}</div>`;
+}
+
+function buildPipelineByRegion(leads){
+  const regioes={};
+  leads.forEach(l=>{const r=l.regiao||l.estado||'Sem regiao';if(\!regioes[r])regioes[r]=[];regioes[r].push(l)});
+  const sorted=Object.entries(regioes).sort((a,b)=>b[1].length-a[1].length);
+  document.getElementById('pipeline-content').innerHTML=`<div class="pipeline-container">${sorted.slice(0,8).map(([r,cards])=>`
+    <div class="pipe-column"><div class="pipe-column-header"><span class="pipe-title">📍 ${r}</span><span class="pipe-count">${cards.length}</span></div><div class="pipe-column-body">${cards.map(l=>`
+      <div class="pipe-card" style="border-left-color:${scoreColor(l.score_total)}" onclick="openLeadDetail(${l.id})"><div class="pc-name">${l.nome||l.telefone}</div><div class="pc-provider">${l.provedor||''}</div><div class="pc-bottom"><span class="badge b-${l.agente_atual}">${l.agente_atual}</span><span style="font-size:.7rem">${l.score_total}pts</span></div></div>
+    `).join('')}</div></div>
+  `).join('')}</div>`;
+}
+
+// LEADS TABLE
+async function loadLeads(){
+  const busca=document.getElementById('lead-search')?.value||'';
+  const agente=document.getElementById('lead-filter-agent')?.value||'';
+  const cls=document.getElementById('lead-filter-class')?.value||'';
+  const params=new URLSearchParams();
+  if(busca)params.set('busca',busca);if(agente)params.set('agente',agente);if(cls)params.set('classificacao',cls);
+  const d=await api('/leads?'+params);
+  document.getElementById('leads-tbody').innerHTML=(d.leads||[]).map(l=>`
+    <tr onclick="openLeadDetail(${l.id})"><td><strong>${l.nome||'-'}</strong><br><span style="font-size:.75rem;color:var(--muted)">${l.telefone}</span></td><td>${l.provedor||'-'}</td><td>${l.regiao||l.estado||l.cidade||'-'}</td><td><span style="color:${scoreColor(l.score_total)};font-weight:700">${l.score_total}</span></td><td><span class="badge b-${l.classificacao}">${l.classificacao}</span></td><td><span class="badge b-${l.agente_atual}">${l.agente_atual}</span></td><td style="font-size:.8rem">${ETAPA_LABELS[l.etapa_funil]||l.etapa_funil}</td><td style="font-size:.8rem;color:var(--muted)">${timeAgo(l.atualizado_em)}</td></tr>
+  `).join('');
+}
+
+// LEAD DETAIL
+async function openLeadDetail(id){
+  const d=await api('/leads/'+id);const l=d.lead;
+  document.getElementById('ld-title').textContent=l.nome||l.telefone;
+  document.getElementById('ld-content').innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div><strong>Telefone:</strong> ${l.telefone}</div><div><strong>Provedor:</strong> ${l.provedor||'-'}</div>
+      <div><strong>Cidade:</strong> ${l.cidade||'-'} / ${l.estado||'-'}</div><div><strong>Regiao:</strong> ${l.regiao||'-'}</div>
+      <div><strong>Porte:</strong> ${l.porte}</div><div><strong>ERP:</strong> ${l.erp||'-'}</div>
+      <div><strong>Score:</strong> <span style="color:${scoreColor(l.score_total)};font-weight:700">${l.score_total}/100</span> (P:${l.score_perfil} C:${l.score_comportamento})</div>
+      <div><strong>Classificacao:</strong> <span class="badge b-${l.classificacao}">${l.classificacao}</span></div>
+      <div><strong>Agente:</strong> <span class="badge b-${l.agente_atual}">${AGENTE_NAMES[l.agente_atual]||l.agente_atual}</span></div>
+      <div><strong>Etapa:</strong> ${ETAPA_LABELS[l.etapa_funil]||l.etapa_funil}</div>
+      <div><strong>Valor estimado:</strong> R$${(l.valor_estimado||0).toLocaleString('pt-BR')}</div>
+      <div><strong>Origem:</strong> ${l.origem||'-'}</div>
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
+      <button class="btn btn-sm btn-outline" onclick="transferLead(${l.id},'carlos')">→ Carlos</button>
+      <button class="btn btn-sm btn-outline" onclick="transferLead(${l.id},'lucas')">→ Lucas</button>
+      <button class="btn btn-sm btn-outline" onclick="transferLead(${l.id},'rafael')">→ Rafael</button>
+      <button class="btn btn-sm btn-outline" onclick="transferLead(${l.id},'sofia')">→ Sofia</button>
+    </div>
+    <h3 style="margin-bottom:8px;font-size:.95rem">Historico (${(d.conversas||[]).length} mensagens)</h3>
+    <div style="max-height:300px;overflow-y:auto;background:var(--bg);border-radius:8px;padding:12px">
+      ${(d.conversas||[]).map(c=>`<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between"><span class="badge b-${c.agente}" style="font-size:.6rem">${c.agente}</span><span style="font-size:.65rem;color:var(--muted)">${c.direcao==='recebida'?'← IN':'→ OUT'} | ${timeAgo(c.criado_em)}</span></div><div style="font-size:.85rem;margin-top:4px;${c.direcao==='enviada'?'color:var(--blue)':''}">${c.mensagem}</div></div>`).join('')}
+    </div>
+    ${(d.handoffs||[]).length?`<h3 style="margin:12px 0 8px;font-size:.95rem">Transferencias</h3>${d.handoffs.map(h=>`<div style="font-size:.82rem;margin-bottom:4px"><span class="badge b-${h.de_agente}">${h.de_agente}</span> → <span class="badge b-${h.para_agente}">${h.para_agente}</span> <span style="color:var(--muted)">${h.motivo||''} (score:${h.score_no_momento})</span></div>`).join('')}':''}`;
+  showModal('lead-detail');
+}
+
+async function transferLead(id,to){
+  await api('/transferir',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lead_id:id,para_agente:to,motivo:'Transferencia manual via CRM'})});
+  hideModal('lead-detail');refreshAll();
+}
+
+// CONVERSAS
+async function loadConversas(){
+  const d=await api('/leads');
+  document.getElementById('conv-leads-list').innerHTML=(d.leads||[]).map(l=>`
+    <div style="padding:10px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px" onclick="openChat(${l.id},'${(l.nome||l.telefone).replace(/'/g,'')}')">
+      <div style="flex:1"><div style="font-weight:600;font-size:.85rem">${l.nome||l.telefone}</div><div style="font-size:.72rem;color:var(--muted)">${l.provedor||''} | ${l.agente_atual}</div></div>
+      <span class="badge b-${l.classificacao}" style="font-size:.6rem">${l.classificacao}</span>
+    </div>
+  `).join('');
+}
+
+async function openChat(id,title){
+  currentChatLead=id;
+  const d=await api('/leads/'+id);
+  document.getElementById('chat-header').innerHTML=`<strong>${title}</strong> <span class="badge b-${d.lead.agente_atual}" style="margin-left:8px">${AGENTE_NAMES[d.lead.agente_atual]}</span> <span style="font-size:.8rem;color:var(--muted);margin-left:8px">Score: ${d.lead.score_total}</span>`;
+  document.getElementById('chat-messages').innerHTML=(d.conversas||[]).map(c=>`
+    <div class="chat-bubble-wrap ${c.direcao==='recebida'?'in':'out'}"><div class="chat-bubble">${c.mensagem}</div><div class="chat-bubble-meta">${c.agente} | ${timeAgo(c.criado_em)}${c.tempo_resposta_ms?' | '+c.tempo_resposta_ms+'ms':''}</div></div>
+  `).join('');
+  const el=document.getElementById('chat-messages');el.scrollTop=el.scrollHeight;
+}
+
+async function sendChat(){
+  const input=document.getElementById('chat-input');const msg=input.value.trim();if(\!msg||\!currentChatLead)return;input.value='';
+  const d=await api('/leads/'+currentChatLead);
+  const mode=document.getElementById('chat-mode').value;
+  await api('/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:d.lead.telefone,message:msg,agente:mode==='agent'?d.lead.agente_atual:undefined})});
+  setTimeout(()=>openChat(currentChatLead,d.lead.nome||d.lead.telefone),500);
+}
+
+// MONITOR
+async function loadMonitor(){
+  const d=await api('/metricas/agentes');
+  const acts=await api('/atividades?limit=30');
+  
+  document.getElementById('monitor-agents').innerHTML=(d.agentes||[]).map(a=>`
+    <div class="panel"><div class="panel-header"><h2><span style="color:${AGENTE_COLORS[a.agente]}">●</span> ${AGENTE_NAMES[a.agente]}</h2><span style="font-size:.7rem;color:var(--muted)">${a.ultima_atividade?timeAgo(a.ultima_atividade):'Sem atividade'}</span></div>
+    <div class="panel-body" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div><span style="font-size:1.3rem;font-weight:700;color:${AGENTE_COLORS[a.agente]}">${a.leads_ativos}</span><div style="font-size:.7rem;color:var(--muted)">Leads ativos</div></div>
+      <div><span style="font-size:1.3rem;font-weight:700">${a.total_mensagens}</span><div style="font-size:.7rem;color:var(--muted)">Mensagens</div></div>
+      <div><span style="font-size:1.3rem;font-weight:700">${a.atividades_hoje}</span><div style="font-size:.7rem;color:var(--muted)">Atividades hoje</div></div>
+      <div><span style="font-size:1.3rem;font-weight:700">${a.handoffs_enviados}</span><div style="font-size:.7rem;color:var(--muted)">Handoffs</div></div>
+    </div></div>
+  `).join('');
+
+  document.getElementById('monitor-feed').innerHTML=(acts.atividades||[]).map(a=>`
+    <div class="activity-item"><div class="activity-dot" style="background:${AGENTE_COLORS[a.agente]||'var(--muted)'}20;color:${AGENTE_COLORS[a.agente]||'var(--muted)'}">${a.tipo==='resposta_enviada'?'💬':a.tipo.includes('handoff')?'🔄':a.tipo==='lead_criado'?'🆕':'⚡'}</div>
+    <div class="activity-content"><div class="activity-title"><span class="badge b-${a.agente}">${a.agente}</span> ${a.descricao?.substring(0,100)||a.tipo} ${a.lead_nome?`<span style="color:var(--muted);font-size:.8rem">| ${a.lead_nome}</span>`:''}</div>
+    <div class="activity-meta">${timeAgo(a.criado_em)}${a.tempo_ms?' | '+a.tempo_ms+'ms':''} ${a.score_antes\!==null&&a.score_depois\!==null?`| Score: ${a.score_antes}→${a.score_depois}`:''}</div></div></div>
+  `).join('');
+}
+
+// TAREFAS
+async function loadTarefas(){
+  const d=await api('/tarefas?status=pendente');
+  document.getElementById('tarefas-tbody').innerHTML=(d.tarefas||[]).map(t=>`
+    <tr><td><span class="badge" style="background:rgba(255,255,255,.06)">${t.tipo}</span></td><td style="max-width:300px">${t.descricao}</td><td><span class="badge b-${t.agente}">${t.agente}</span></td><td>${t.lead_nome||'-'}</td><td style="color:${t.prioridade==='alta'?'var(--red)':'var(--muted)'}">${t.prioridade}</td><td>${t.status}</td><td><button class="btn btn-sm btn-success" onclick="completeTask(${t.id})">Concluir</button></td></tr>
+  `).join('');
+}
+async function completeTask(id){await api('/tarefas/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'concluida'})});loadTarefas()}
+
+// RELATORIOS
+async function loadReports(dias){
+  const d=await api('/stats');
+  const agents=await api('/metricas/agentes');
+  
+  // Agentes chart
+  if(charts.agentes)charts.agentes.destroy();
+  const ag=agents.agentes||[];
+  charts.agentes=new Chart(document.getElementById('chartAgentes'),{type:'bar',data:{labels:ag.map(a=>a.agente),datasets:[{label:'Leads',data:ag.map(a=>a.leads_ativos),backgroundColor:ag.map(a=>{const c=AGENTE_COLORS[a.agente];return c?c.replace('var(','').replace(')',''):'#60a5fa'})},{label:'Mensagens',data:ag.map(a=>a.total_mensagens),backgroundColor:'rgba(255,255,255,.1)'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#94a3b8'}}},scales:{x:{ticks:{color:'#7a8ba8'}},y:{ticks:{color:'#7a8ba8'},grid:{color:'rgba(45,58,79,.5)'}}}}});
+
+  // Regiao chart
+  if(charts.regiao)charts.regiao.destroy();
+  const regs=d.por_regiao||[];
+  charts.regiao=new Chart(document.getElementById('chartRegiao'),{type:'bar',data:{labels:regs.map(r=>r.regiao),datasets:[{data:regs.map(r=>r.c),backgroundColor:'rgba(96,165,250,.3)',borderColor:'var(--blue)',borderWidth:1}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#7a8ba8'},grid:{color:'rgba(45,58,79,.5)'}},y:{ticks:{color:'#7a8ba8'}}}}});
+
+  // Funil chart
+  if(charts.funil)charts.funil.destroy();
+  const etapas=d.por_etapa||[];
+  charts.funil=new Chart(document.getElementById('chartFunil'),{type:'doughnut',data:{labels:etapas.map(e=>ETAPA_LABELS[e.etapa]||e.etapa),datasets:[{data:etapas.map(e=>e.c),backgroundColor:etapas.map(e=>ETAPA_COLORS[e.etapa]||'#475569'),borderWidth:0}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#94a3b8',font:{size:10}}}}}});
+}
+
+// FUNIL
+async function loadFunil(){
+  const d=await api('/funil');
+  const etapas=(d.funil||[]).filter(e=>\!['convertido','perdido','nurturing'].includes(e.etapa));
+  const maxCount=Math.max(...etapas.map(e=>e.count),1);
+  
+  document.getElementById('funil-visual').innerHTML=`
+    <div class="panel"><div class="panel-body">
+      ${etapas.map((e,i)=>{
+        const w=Math.max(20,((e.count/maxCount)*100));
+        return`<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-weight:600;font-size:.9rem">${ETAPA_LABELS[e.etapa]||e.etapa}</span><span style="color:var(--muted);font-size:.85rem">${e.count} leads (${e.taxa}%)</span></div><div style="background:var(--bg);border-radius:6px;overflow:hidden;height:32px"><div style="width:${w}%;height:100%;background:${ETAPA_COLORS[e.etapa]||'#475569'};border-radius:6px;display:flex;align-items:center;padding-left:12px;font-size:.8rem;font-weight:600;transition:width .5s">${e.count>0?'R$'+(e.valor||0).toLocaleString('pt-BR'):''}</div></div></div>`;
+      }).join('')}
+    </div></div>`;
+}
+
+// PROSPECTAR
+async function startProspecting(){
+  const tels=document.getElementById('prosp-tels').value.split('\n').map(t=>t.trim()).filter(Boolean);
+  if(\!tels.length){alert('Adicione telefones');return}
+  document.getElementById('prosp-btn').disabled=true;document.getElementById('prosp-btn').textContent='Enviando...';
+  document.getElementById('prosp-result').innerHTML='<div style="color:var(--yellow)">Prospeccao em andamento...</div>';
+  const res=await api('/prospectar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({telefones:tels,regiao:document.getElementById('prosp-regiao').value,mensagem_base:document.getElementById('prosp-ctx').value||undefined})});
+  document.getElementById('prosp-btn').disabled=false;document.getElementById('prosp-btn').textContent='Iniciar Prospeccao';
+  document.getElementById('prosp-result').innerHTML=(res.resultados||[]).map(r=>`<div style="padding:8px;margin-bottom:6px;background:var(--bg);border-radius:8px;border-left:3px solid ${r.status==='enviado'?'var(--green)':'var(--red)'}"><strong>${r.telefone}</strong>: ${r.status} ${r.resposta?'<br><span style="font-size:.82rem;color:var(--muted)">'+r.resposta.substring(0,120)+'...</span>':''}</div>`).join('');
+}
+async function loadCampaigns(){const d=await api('/campanhas');if(d.campanhas?.length)document.getElementById('campaigns-list').innerHTML=d.campanhas.map(c=>`<div style="padding:10px;border-bottom:1px solid var(--border)"><strong>${c.nome}</strong> (${c.tipo})<br><span style="font-size:.8rem;color:var(--muted)">${c.total_enviados} enviados | ${c.total_respondidos} respondidos | ${c.total_qualificados} qualificados</span></div>`).join('')}
+
+// CONTEUDO
+async function generateContent(){
+  const tipo=document.getElementById('cont-tipo').value;const brief=document.getElementById('cont-brief').value;
+  if(\!brief){alert('Preencha o briefing');return}
+  document.getElementById('cont-btn').disabled=true;document.getElementById('cont-btn').textContent='Leo escrevendo...';
+  document.getElementById('cont-result').style.display='block';document.getElementById('cont-result').textContent='Gerando...';
+  const res=await api('/conteudo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tipo,briefing:brief+' Contexto: '+document.getElementById('cont-ctx').value})});
+  document.getElementById('cont-btn').disabled=false;document.getElementById('cont-btn').textContent='Gerar com Leo';
+  document.getElementById('cont-result').textContent=res.resposta||'Erro ao gerar';
+}
+
+// CREATE LEAD
+async function createLead(){
+  const tel=document.getElementById('nl-tel').value;if(\!tel){alert('Telefone obrigatorio');return}
+  const body={telefone:tel,nome:document.getElementById('nl-nome').value,provedor:document.getElementById('nl-provedor').value,cidade:document.getElementById('nl-cidade').value,estado:document.getElementById('nl-estado').value,regiao:document.getElementById('nl-regiao').value,porte:document.getElementById('nl-porte').value,erp:document.getElementById('nl-erp').value};
+  await api('/leads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const msg=document.getElementById('nl-msg').value||`Gerar prospeccao para ${body.nome||'provedor'} de ${body.cidade||body.regiao||'regiao desconhecida'}`;
+  await api('/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:tel,message:msg,agente:'carlos'})});
+  hideModal('novo-lead');refreshAll();
+}
+
+// AGENT PAGE
+async function loadAgentPage(agente){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-agente-detail').classList.add('active');
+  document.getElementById('agent-page-title').innerHTML=`<span style="color:${AGENTE_COLORS[agente]}">●</span> ${AGENTE_NAMES[agente]}`;
+  
+  const [leads,acts,metrics]=await Promise.all([api('/leads?agente='+agente),api('/atividades?agente='+agente+'&limit=15'),api('/metricas/agentes')]);
+  const ag=(metrics.agentes||[]).find(a=>a.agente===agente)||{};
+  
+  document.getElementById('agent-stats').innerHTML=`
+    <div class="stat-card"><div class="stat-val" style="color:${AGENTE_COLORS[agente]}">${ag.leads_ativos||0}</div><div class="stat-label">Leads Ativos</div></div>
+    <div class="stat-card"><div class="stat-val">${ag.total_mensagens||0}</div><div class="stat-label">Total Mensagens</div></div>
+    <div class="stat-card"><div class="stat-val">${ag.atividades_hoje||0}</div><div class="stat-label">Atividades Hoje</div></div>
+    <div class="stat-card"><div class="stat-val">${ag.handoffs_enviados||0}</div><div class="stat-label">Handoffs Enviados</div></div>`;
+  
+  document.getElementById('agent-leads').innerHTML=(leads.leads||[]).slice(0,10).map(l=>`
+    <div style="display:flex;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="openLeadDetail(${l.id})">
+      <div style="flex:1"><strong style="font-size:.88rem">${l.nome||l.telefone}</strong><div style="font-size:.75rem;color:var(--muted)">${l.provedor||''} ${l.cidade||''}</div></div>
+      <span class="badge b-${l.classificacao}">${l.classificacao}</span><span style="margin-left:8px;font-size:.8rem;color:${scoreColor(l.score_total)}">${l.score_total}pts</span>
+    </div>
+  `).join('');
+
+  document.getElementById('agent-activities').innerHTML=(acts.atividades||[]).map(a=>`
+    <div class="activity-item"><div class="activity-dot" style="background:${AGENTE_COLORS[agente]}20;color:${AGENTE_COLORS[agente]}">${a.tipo==='resposta_enviada'?'💬':'⚡'}</div>
+    <div class="activity-content"><div class="activity-title">${a.descricao?.substring(0,90)||a.tipo}</div><div class="activity-meta">${timeAgo(a.criado_em)}${a.tempo_ms?' | '+a.tempo_ms+'ms':''}</div></div></div>
+  `).join('');
+}
+
+// Auto-refresh
+setInterval(()=>{const active=document.querySelector('.page.active');if(active?.id==='page-monitor')loadMonitor()},15000);
+
+// Init
+loadDashboard();
+</script>
+</body>
+</html>

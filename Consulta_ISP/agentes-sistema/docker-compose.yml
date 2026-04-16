@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  agentes:
+    build: .
+    container_name: consulta-isp-agentes
+    expose:
+      - "3001"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./skills-ref:/app/skills-ref:ro
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy-proxy
+    depends_on:
+      - agentes
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  caddy_data:
+  caddy_config:
