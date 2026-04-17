@@ -355,5 +355,20 @@ caso a primeira opcao tambem falhe.
 
 ---
 
+## 11. Visao estrategica e planejamento de sprints
+
+Este runbook cobre exclusivamente a camada operacional (deploy, backup,
+troubleshooting). Para entender **o que foi entregue em cada sprint**,
+**quais dividas tecnicas estao ativas** e **o que esta no proximo ciclo**,
+consulte:
+
+- `ROADMAP.md` — visao estrategica (sprints 0-5 entregues, sprint 6 planejado)
+- `docs/SMOKE-TEST-CAMPANHA.md` — procedimento de validacao antes de
+  qualquer campanha real
+
+Regra pratica: bugs e incidentes -> runbook. Prioridades e escopo -> roadmap.
+
+---
+
 **Donos do runbook:** time de infra do Consulta ISP. Atualize este arquivo
 sempre que mudar stack, credenciais ou procedimentos.
