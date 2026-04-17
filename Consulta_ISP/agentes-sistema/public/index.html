@@ -415,30 +415,86 @@ const AGENTE_NAMES={sofia:'Sofia - Marketing',leo:'Leo - Copywriter',carlos:'Car
 const ETAPA_COLORS={novo:'#64748b',prospeccao:'#34d399',qualificacao:'#fbbf24',demo_agendada:'#60a5fa',proposta_enviada:'#fb923c',negociacao:'#a78bfa',fechamento:'#f472b6',convertido:'#22d3ee',nurturing:'#7a8ba8',perdido:'#475569'};
 const ETAPA_LABELS={novo:'Novos',prospeccao:'Prospeccao',qualificacao:'Qualificacao',demo_agendada:'Demo Agendada',proposta_enviada:'Proposta',negociacao:'Negociacao',fechamento:'Fechamento',convertido:'Convertido',nurturing:'Nurturing',perdido:'Perdido'};
 
-// NAV
-document.querySelectorAll('.nav-item[data-page]').forEach(item=>{
-  item.addEventListener('click',()=>{
-    const page=item.dataset.page;
-    if(page.startsWith('agente-')&&page!=='agente-detail'){loadAgentPage(page.replace('agente-',''));return}
+// NAV (event delegation: funciona mesmo se o DOM do sidebar for regenerado ou parcialmente corrompido)
+document.addEventListener('click', (ev) => {
+  const navEl = ev.target.closest('.nav-item[data-page]');
+  if (!navEl) return;
+  const page = navEl.dataset.page;
+  if (page && page.startsWith('agente-') && page !== 'agente-detail') {
+    loadAgentPage(page.replace('agente-',''));
+  } else if (page) {
     goPage(page);
+  }
+});
+// Fallback: se DOMContentLoaded disparar depois, reforca o bind (idempotente)
+window.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.nav-item[data-page]').forEach(item => {
+    if (item.dataset.bound) return;
+    item.dataset.bound = '1';
+    item.addEventListener('click', () => {
+      const page = item.dataset.page;
+      if (page.startsWith('agente-') && page !== 'agente-detail') { loadAgentPage(page.replace('agente-','')); return; }
+      goPage(page);
+    });
   });
 });
 
 function goPage(page){
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
-  const el=document.getElementById('page-'+page);
-  if(el){el.classList.add('active');document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add('active')}
-  const loaders={dashboard:loadDashboard,pipeline:loadPipeline,leads:loadLeads,conversas:loadConversas,monitor:loadMonitor,tarefas:loadTarefas,relatorios:()=>loadReports('7'),funil:loadFunil,prospectar:loadCampaigns};
-  if(loaders[page])loaders[page]();
+  try {
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+    const el=document.getElementById('page-'+page);
+    if(el){el.classList.add('active');document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add('active')}
+    else { showError('Pagina "'+page+'" nao encontrada no DOM. Verifique /status.html'); return; }
+    const loaders={dashboard:loadDashboard,pipeline:loadPipeline,leads:loadLeads,conversas:loadConversas,monitor:loadMonitor,tarefas:loadTarefas,relatorios:()=>loadReports('7'),funil:loadFunil,prospectar:loadCampaigns};
+    if(loaders[page]) {
+      Promise.resolve(loaders[page]()).catch(err => showError('Erro ao carregar "'+page+'": '+err.message));
+    }
+  } catch(e) { showError('Falha em goPage('+page+'): '+e.message); }
 }
 
-function showModal(id){document.getElementById('modal-'+id).classList.add('show')}
-function hideModal(id){document.getElementById('modal-'+id).classList.remove('show')}
+function showModal(id){document.getElementById('modal-'+id)?.classList.add('show')}
+function hideModal(id){document.getElementById('modal-'+id)?.classList.remove('show')}
 function refreshAll(){const active=document.querySelector('.page.active');if(active)goPage(active.id.replace('page-',''))}
 function timeAgo(d){if(!d)return'-';const s=Math.floor((Date.now()-new Date(d+'Z'))/1000);if(s<60)return'agora';if(s<3600)return Math.floor(s/60)+'m';if(s<86400)return Math.floor(s/3600)+'h';return Math.floor(s/86400)+'d'}
 function scoreColor(s){if(s>=81)return'var(--red)';if(s>=61)return'var(--orange)';if(s>=31)return'var(--yellow)';return'var(--blue)'}
-async function api(path,opts){const r=await fetch(API+path,opts);return r.json()}
+
+// Banner de erro visivel (sempre disponivel)
+function showError(msg){
+  let bar = document.getElementById('err-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'err-bar';
+    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#7f1d1d;color:#fecaca;padding:10px 16px;z-index:9999;font-size:.85rem;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #ef4444';
+    bar.innerHTML = '<span id="err-msg"></span><span><a href="/status.html" style="color:#fff;margin-right:12px">Diagnostico</a><button onclick="document.getElementById(\'err-bar\').remove()" style="background:transparent;color:#fff;border:1px solid #fff;padding:2px 8px;border-radius:4px;cursor:pointer">X</button></span>';
+    document.body.appendChild(bar);
+  }
+  document.getElementById('err-msg').textContent = '[ERRO] ' + msg;
+  console.error('[showError]', msg);
+}
+
+// api() com error handling robusto + retry unico em falha de rede
+async function api(path, opts, _retry) {
+  try {
+    const r = await fetch(API + path, opts);
+    if (!r.ok) {
+      const body = await r.text().catch(() => '');
+      showError('HTTP '+r.status+' em '+path+(body?' - '+body.substring(0,200):''));
+      return {};
+    }
+    const txt = await r.text();
+    try { return JSON.parse(txt); }
+    catch { showError('Resposta nao-JSON em '+path+': '+txt.substring(0,100)); return {}; }
+  } catch (e) {
+    if (!_retry) { await new Promise(r=>setTimeout(r,800)); return api(path, opts, true); }
+    showError('Falha de rede em '+path+': '+e.message);
+    return {};
+  }
+}
+
+// Captura erros globais de JS (normalmente invisiveis ao usuario)
+window.addEventListener('error', (ev) => { showError('JS: '+ev.message+' ('+ev.filename+':'+ev.lineno+')'); });
+window.addEventListener('unhandledrejection', (ev) => { showError('Promise: '+(ev.reason?.message||ev.reason)); });
 
 // DASHBOARD
 async function loadDashboard(){
