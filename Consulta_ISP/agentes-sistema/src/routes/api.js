@@ -770,53 +770,54 @@ function requireAdminConfirm(req, res, next) {
   next();
 }
 
+const envFile = require('../utils/env-file');
+const path = require('path');
+const ENV_PATH = process.env.ENV_FILE_PATH || path.join(__dirname, '../../.env');
+
+function notifyAlertWebhook(message) {
+  const url = process.env.ERROR_REPORT_WEBHOOK;
+  if (!url) return;
+  const body = JSON.stringify({ content: message, ts: new Date().toISOString() });
+  try {
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body
+    }).catch(err => console.warn('[ALERT-WEBHOOK] falhou:', err.message));
+  } catch (err) {
+    console.warn('[ALERT-WEBHOOK] falhou:', err.message);
+  }
+}
+
 // POST /api/admin/kill-broadcast — exige header X-Admin-Confirm: yes
 router.post('/admin/kill-broadcast', requireAdminConfirm, async (req, res) => {
   // Pausa todas campanhas ativas (efeito imediato observavel)
   const affected = campanhasService.pauseAll();
 
-  // Persiste flag no .env se possivel (kill switch global)
+  // Persiste flag no .env (kill switch global reconhecido pelo worker em <=10s)
   try {
-    const fs = require('fs');
-    const path = require('path');
-    const envPath = path.join(__dirname, '../../.env');
-    if (fs.existsSync(envPath)) {
-      let content = fs.readFileSync(envPath, 'utf-8');
-      if (/^BROADCAST_WORKER_ENABLED\s*=/m.test(content)) {
-        content = content.replace(/^BROADCAST_WORKER_ENABLED\s*=.*/m, 'BROADCAST_WORKER_ENABLED=false');
-      } else {
-        content += (content.endsWith('\n') ? '' : '\n') + 'BROADCAST_WORKER_ENABLED=false\n';
-      }
-      fs.writeFileSync(envPath, content);
-    }
+    envFile.setEnvVar(ENV_PATH, 'BROADCAST_WORKER_ENABLED', 'false');
     process.env.BROADCAST_WORKER_ENABLED = 'false';
   } catch (err) {
     console.warn('[KILL-SWITCH] falha ao atualizar .env:', err.message);
   }
 
+  // Alerta (fail-safe)
+  notifyAlertWebhook(`[KILL-SWITCH] Broadcast desligado via API. ${affected} campanha(s) pausada(s).`);
+
   res.json({
     success: true,
     action: 'kill-broadcast',
     campanhas_pausadas: affected,
-    observacao: 'Worker vai ficar idle. Para retomada total, restart do container worker recomendado.'
+    pending_restart: true,
+    observacao: 'Worker lê .env a cada iteração e ficará idle em <=10s. Para restart total do container, rode: docker compose restart worker'
   });
 });
 
 // POST /api/admin/resume-broadcast
 router.post('/admin/resume-broadcast', requireAdminConfirm, (req, res) => {
   try {
-    const fs = require('fs');
-    const path = require('path');
-    const envPath = path.join(__dirname, '../../.env');
-    if (fs.existsSync(envPath)) {
-      let content = fs.readFileSync(envPath, 'utf-8');
-      if (/^BROADCAST_WORKER_ENABLED\s*=/m.test(content)) {
-        content = content.replace(/^BROADCAST_WORKER_ENABLED\s*=.*/m, 'BROADCAST_WORKER_ENABLED=true');
-      } else {
-        content += (content.endsWith('\n') ? '' : '\n') + 'BROADCAST_WORKER_ENABLED=true\n';
-      }
-      fs.writeFileSync(envPath, content);
-    }
+    envFile.setEnvVar(ENV_PATH, 'BROADCAST_WORKER_ENABLED', 'true');
     process.env.BROADCAST_WORKER_ENABLED = 'true';
   } catch (err) {
     console.warn('[RESUME] falha ao atualizar .env:', err.message);

@@ -7,7 +7,8 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "test:integration": "node tests/test-integration.js",
-    "test:campanhas": "node tests/integration/campanhas.test.js"
+    "test:campanhas": "node tests/integration/campanhas.test.js",
+    "test:smoke-broadcast": "node tests/integration/smoke-broadcast.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
