@@ -40,11 +40,16 @@ app.listen(PORT, () => {
   ╚══════════════════════════════════════════════╝
   `);
 
-  // Feature 1: Scheduler de follow-ups (a cada 5 minutos)
-  const followup = require('./services/followup');
-  const followupInterval = setInterval(() => {
-    followup.processFollowups().catch(e => console.error('[FOLLOWUP] Erro scheduler:', e.message));
-  }, 5 * 60 * 1000);
-  followupInterval.unref();
-  console.log('  [SCHEDULER] Follow-up checker ativo (5 min)');
+  // Sprint 5: setInterval de followup foi movido para src/worker.js.
+  // O processo HTTP nao executa mais trabalho em background — isso vive
+  // no container `consulta-isp-worker` (veja docker-compose.yml).
+  if (process.env.RUN_WORKERS_IN_SERVER === 'true') {
+    const followupWorker = require('./workers/followup-worker');
+    const broadcastWorker = require('./workers/broadcast');
+    followupWorker.start();
+    if (process.env.BROADCAST_WORKER_ENABLED !== 'false') broadcastWorker.start();
+    console.log('  [SCHEDULER] Workers embarcados no HTTP (dev only)');
+  } else {
+    console.log('  [SCHEDULER] Workers rodam em processo separado (src/worker.js)');
+  }
 });

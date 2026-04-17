@@ -4,6 +4,7 @@ services:
   agentes:
     build: .
     container_name: consulta-isp-agentes
+    command: ["node", "src/server.js"]
     expose:
       - "3001"
     env_file:
@@ -12,6 +13,30 @@ services:
       - ./data:/app/data
       - ./skills-ref:/app/skills-ref:ro
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  worker:
+    build: .
+    container_name: consulta-isp-worker
+    command: ["node", "src/worker.js"]
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./skills-ref:/app/skills-ref:ro
+    restart: unless-stopped
+    depends_on:
+      - agentes
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9091/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     logging:
       driver: "json-file"
       options:
