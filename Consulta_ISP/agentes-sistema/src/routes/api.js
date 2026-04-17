@@ -16,6 +16,91 @@ router.get('/health', (req, res) => {
   }
 });
 
+// === DIAGNOSE (relatorio completo de saude do sistema) ===
+// Use: curl http://localhost:3080/api/diagnose  (ou do dominio publico)
+// Retorna status de TODOS os subsistemas e integridade do index.html
+router.get('/diagnose', (req, res) => {
+  const fs = require('fs');
+  const path = require('path');
+  const out = {
+    timestamp: new Date().toISOString(),
+    uptime_sec: Math.round(process.uptime()),
+    node_version: process.version,
+    env: process.env.NODE_ENV || 'development',
+    checks: {}
+  };
+
+  // 1) Database
+  try {
+    const db = getDb();
+    db.prepare('SELECT 1').get();
+    const tabelas = db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map(r => r.name);
+    const contagens = {};
+    for (const t of ['leads','conversas','atividades_agentes','tarefas','handoffs','avaliacoes','followups','ab_tests','campanhas','treinamento_agentes']) {
+      try { contagens[t] = db.prepare(`SELECT COUNT(*) as c FROM ${t}`).get().c; } catch { contagens[t] = 'MISSING'; }
+    }
+    out.checks.database = { status: 'ok', tabelas_count: tabelas.length, tabelas, contagens };
+  } catch (e) { out.checks.database = { status: 'error', error: e.message }; }
+
+  // 2) Env / credenciais
+  const envVars = ['ANTHROPIC_API_KEY','ZAPI_INSTANCE_ID','ZAPI_TOKEN','ZAPI_CLIENT_TOKEN','AGENT_SOFIA_ID','AGENT_CARLOS_ID','PORT','WEBHOOK_URL'];
+  const envStatus = {};
+  for (const k of envVars) {
+    const v = process.env[k];
+    envStatus[k] = v ? { set: true, length: v.length, preview: v.substring(0,6) + '...' } : { set: false };
+  }
+  out.checks.env = envStatus;
+
+  // 3) Integridade do index.html (detecta corrupcao de escape de comentarios)
+  try {
+    const htmlPath = path.join(__dirname, '../../public/index.html');
+    const html = fs.readFileSync(htmlPath, 'utf-8');
+    const size = html.length;
+    const tagsAbertas = (html.match(/<!--/g) || []).length;
+    const tagsFechadas = (html.match(/-->/g) || []).length;
+    // Detecta a corrupcao classica: `<\!--` (backslash antes do !)
+    const escapadas = (html.match(/<\\!--/g) || []).length;
+    // Procura se o script principal esta presente
+    const temScript = html.includes('loadDashboard()') && html.includes('addEventListener');
+    const temNavItems = (html.match(/data-page=/g) || []).length;
+    out.checks.index_html = {
+      status: (escapadas === 0 && temScript && temNavItems >= 10) ? 'ok' : 'CORROMPIDO',
+      size_bytes: size,
+      comentarios_abertos: tagsAbertas,
+      comentarios_fechados: tagsFechadas,
+      comentarios_escapados_erro: escapadas,
+      tem_script: temScript,
+      nav_items_count: temNavItems,
+      first_50_chars: html.substring(0, 50),
+      last_50_chars: html.substring(size - 50)
+    };
+  } catch (e) { out.checks.index_html = { status: 'error', error: e.message }; }
+
+  // 4) Scheduler / workers
+  try {
+    const followup = require('../services/followup');
+    const pendentes = followup.getPending ? followup.getPending().length : 'n/a';
+    out.checks.followup_scheduler = { status: 'ok', pendentes };
+  } catch (e) { out.checks.followup_scheduler = { status: 'error', error: e.message }; }
+
+  // 5) Servicos Claude/Z-API (so verifica se carregam)
+  try { require('../services/claude'); out.checks.claude_service = { status: 'ok' }; }
+  catch (e) { out.checks.claude_service = { status: 'error', error: e.message }; }
+  try { require('../services/zapi'); out.checks.zapi_service = { status: 'ok' }; }
+  catch (e) { out.checks.zapi_service = { status: 'error', error: e.message }; }
+
+  // 6) Sumario global
+  const erros = Object.entries(out.checks).filter(([k,v]) => v.status !== 'ok').map(([k,v]) => ({ subsistema: k, status: v.status, erro: v.error || null }));
+  out.summary = {
+    total_checks: Object.keys(out.checks).length,
+    passed: Object.values(out.checks).filter(v => v.status === 'ok').length,
+    failed: erros.length,
+    problemas: erros
+  };
+
+  res.json(out);
+});
+
 // === STATS / DASHBOARD ===
 router.get('/stats', (req, res) => {
   const db = getDb();
