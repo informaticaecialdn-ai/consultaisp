@@ -131,20 +131,8 @@ function initialize() {
       criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
-    CREATE TABLE IF NOT EXISTS campanhas (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      nome TEXT NOT NULL,
-      tipo TEXT NOT NULL,
-      agente TEXT NOT NULL,
-      regiao TEXT,
-      status TEXT DEFAULT 'rascunho',
-      total_enviados INTEGER DEFAULT 0,
-      total_respondidos INTEGER DEFAULT 0,
-      total_qualificados INTEGER DEFAULT 0,
-      mensagem_template TEXT,
-      criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
-      finalizado_em DATETIME
-    );
+    -- Tabela campanhas (schema v2, Sprint 5 Broadcast Engine) e criada via migrations/009.
+    -- O schema v1 legado, se existir, e renomeado para campanhas_legacy automaticamente.
 
     CREATE INDEX IF NOT EXISTS idx_leads_telefone ON leads(telefone);
     CREATE INDEX IF NOT EXISTS idx_leads_agente ON leads(agente_atual);
@@ -233,6 +221,10 @@ function initialize() {
   try {
     conn.exec("ALTER TABLE leads ADD COLUMN canal_preferido TEXT DEFAULT 'whatsapp'");
   } catch { /* coluna ja existe */ }
+
+  // Aplicar migrations versionadas (schema_migrations)
+  const { runMigrations } = require('./migrations');
+  runMigrations(conn);
 
   console.log('[DB] Banco de dados inicializado com sucesso');
 }

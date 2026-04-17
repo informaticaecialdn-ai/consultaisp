@@ -411,17 +411,473 @@ router.put('/tarefas/:id', (req, res) => {
   res.json({ success: true });
 });
 
-// === CAMPANHAS ===
+// === CAMPANHAS (Sprint 5 — Broadcast Engine) ===
+const campanhasService = require('../services/campanhas');
+const audienciasService = require('../services/audiencias');
+const templatesService = require('../services/templates');
+const templateEngine = require('../services/template-engine');
+const consent = require('../services/consent');
+const broadcastWorker = require('../workers/broadcast');
+
+const VALID_AGENTES = ['carlos', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'diana'];
+
+function bad(res, msg, code = 400) {
+  return res.status(code).json({ error: msg });
+}
+
+function validateCreatePayload(body) {
+  const errors = [];
+  if (!body.nome || typeof body.nome !== 'string' || body.nome.length > 200) errors.push('nome invalido');
+  if (!Number.isInteger(body.audiencia_id) || body.audiencia_id <= 0) errors.push('audiencia_id invalido');
+  if (!Number.isInteger(body.template_id) || body.template_id <= 0) errors.push('template_id invalido');
+  if (!VALID_AGENTES.includes(body.agente_remetente)) errors.push('agente_remetente invalido');
+  const rate = body.rate_limit_per_min;
+  if (rate !== undefined && (!Number.isInteger(rate) || rate < 1 || rate > 60)) errors.push('rate_limit_per_min 1..60');
+  const jmin = body.jitter_min_sec;
+  if (jmin !== undefined && (!Number.isInteger(jmin) || jmin < 0 || jmin > 60)) errors.push('jitter_min_sec 0..60');
+  const jmax = body.jitter_max_sec;
+  if (jmax !== undefined && (!Number.isInteger(jmax) || jmax < 0 || jmax > 60)) errors.push('jitter_max_sec 0..60');
+  return errors;
+}
+
+// GET /api/campanhas (paginada)
 router.get('/campanhas', (req, res) => {
-  const db = getDb();
-  res.json({ campanhas: db.prepare('SELECT * FROM campanhas ORDER BY criado_em DESC').all() });
+  const { status, limit = 50, offset = 0 } = req.query;
+  const campanhas = campanhasService.list({
+    status,
+    limit: parseInt(limit),
+    offset: parseInt(offset)
+  });
+  const enriquecidas = campanhas.map(c => {
+    const aud = audienciasService.getById(c.audiencia_id);
+    const tpl = templatesService.getById(c.template_id);
+    return {
+      ...c,
+      audiencia_nome: aud?.nome || null,
+      audiencia_total: aud?.total_leads || 0,
+      template_nome: tpl?.nome || null,
+      template_hsm: tpl?.ja_aprovado_meta === 1
+    };
+  });
+  res.json({ campanhas: enriquecidas, total: enriquecidas.length });
 });
 
+// PUT /api/campanhas/pause-all — declarado ANTES de /:id para nao ser interpretado como id
+router.put('/campanhas/pause-all', (req, res) => {
+  const affected = campanhasService.pauseAll();
+  res.json({ affected });
+});
+
+// POST /api/campanhas (rascunho)
 router.post('/campanhas', (req, res) => {
+  const errors = validateCreatePayload(req.body);
+  if (errors.length) return bad(res, errors.join('; '));
+  try {
+    const campanha = campanhasService.create({
+      nome: req.body.nome,
+      audiencia_id: req.body.audiencia_id,
+      template_id: req.body.template_id,
+      agente_remetente: req.body.agente_remetente,
+      rate_limit_per_min: req.body.rate_limit_per_min,
+      jitter_min_sec: req.body.jitter_min_sec,
+      jitter_max_sec: req.body.jitter_max_sec,
+      agendada_para: req.body.agendada_para || null,
+      criada_por: req.body.criada_por || req.headers['x-user'] || null
+    });
+    res.status(201).json({ campanha });
+  } catch (err) {
+    bad(res, err.message);
+  }
+});
+
+// GET /api/campanhas/:id (detalhe + stats)
+router.get('/campanhas/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  const stats = campanhasService.getStats(id);
+  if (!stats) return bad(res, 'campanha nao encontrada', 404);
+  const campanha = campanhasService.getById(id);
+  const aud = audienciasService.getById(campanha.audiencia_id);
+  const tpl = templatesService.getById(campanha.template_id);
+  res.json({ campanha, stats, audiencia: aud, template: tpl });
+});
+
+// PUT /api/campanhas/:id (apenas rascunho)
+router.put('/campanhas/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  try {
+    const campanha = campanhasService.update(id, req.body);
+    res.json({ campanha });
+  } catch (err) {
+    bad(res, err.message);
+  }
+});
+
+// POST /api/campanhas/:id/expand (resolve audiencia -> cria envios)
+router.post('/campanhas/:id/expand', (req, res) => {
+  const id = parseInt(req.params.id);
+  try {
+    const result = campanhasService.expand(id);
+    const stats = campanhasService.getStats(id);
+    res.json({ ...result, stats });
+  } catch (err) {
+    bad(res, err.message);
+  }
+});
+
+// POST /api/campanhas/:id/start
+router.post('/campanhas/:id/start', (req, res) => {
+  const id = parseInt(req.params.id);
+  try {
+    const campanha = campanhasService.getById(id);
+    if (!campanha) return bad(res, 'campanha nao encontrada', 404);
+
+    // Garante que envios foram criados antes de iniciar
+    if (campanha.total_envios === 0) {
+      campanhasService.expand(id);
+    }
+    const started = campanhasService.start(id);
+    res.json({ campanha: started, stats: campanhasService.getStats(id) });
+  } catch (err) {
+    bad(res, err.message);
+  }
+});
+
+// POST /api/campanhas/:id/pause
+router.post('/campanhas/:id/pause', (req, res) => {
+  const id = parseInt(req.params.id);
+  try {
+    const campanha = campanhasService.pause(id);
+    res.json({ campanha });
+  } catch (err) {
+    bad(res, err.message);
+  }
+});
+
+// POST /api/campanhas/:id/resume
+router.post('/campanhas/:id/resume', (req, res) => {
+  const id = parseInt(req.params.id);
+  try {
+    const campanha = campanhasService.resume(id);
+    res.json({ campanha });
+  } catch (err) {
+    bad(res, err.message);
+  }
+});
+
+// POST /api/campanhas/:id/cancel
+router.post('/campanhas/:id/cancel', (req, res) => {
+  const id = parseInt(req.params.id);
+  try {
+    const campanha = campanhasService.cancel(id);
+    res.json({ campanha });
+  } catch (err) {
+    bad(res, err.message);
+  }
+});
+
+// DELETE /api/campanhas/:id (soft delete, apenas rascunho)
+router.delete('/campanhas/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  try {
+    campanhasService.remove(id);
+    res.json({ success: true });
+  } catch (err) {
+    bad(res, err.message);
+  }
+});
+
+// GET /api/campanhas/:id/envios
+router.get('/campanhas/:id/envios', (req, res) => {
+  const id = parseInt(req.params.id);
+  const { status, limit = 100, offset = 0 } = req.query;
+  const envios = campanhasService.listEnvios(id, {
+    status,
+    limit: parseInt(limit),
+    offset: parseInt(offset)
+  });
+  res.json({ envios, total: envios.length });
+});
+
+// GET /api/campanhas/:id/stats
+router.get('/campanhas/:id/stats', (req, res) => {
+  const id = parseInt(req.params.id);
+  const stats = campanhasService.getStats(id);
+  if (!stats) return bad(res, 'campanha nao encontrada', 404);
+  res.json(stats);
+});
+
+// GET /api/campanhas/:id/timeline?last=60
+router.get('/campanhas/:id/timeline', (req, res) => {
+  const id = parseInt(req.params.id);
+  const lastMinutes = parseInt(req.query.last) || 60;
+  const buckets = campanhasService.getTimeline(id, { lastMinutes });
+  res.json({ buckets, lastMinutes });
+});
+
+// POST /api/campanhas/:id/preview (renderiza 3 amostras de leads)
+router.post('/campanhas/:id/preview', (req, res) => {
+  const id = parseInt(req.params.id);
+  const campanha = campanhasService.getById(id);
+  if (!campanha) return bad(res, 'campanha nao encontrada', 404);
+  const template = templatesService.getById(campanha.template_id);
+  if (!template) return bad(res, 'template nao encontrado', 404);
+  const leads = audienciasService.getLeads(campanha.audiencia_id, { limit: 3 });
+  const samples = leads.map(lead => ({
+    lead: { id: lead.id, nome: lead.nome, telefone: campanhasService.maskPhone(lead.telefone) },
+    mensagem: templateEngine.render(template.conteudo, lead)
+  }));
+  res.json({ samples, total_leads: leads.length });
+});
+
+// ---- helpers de criacao para testes/smoke ----
+// POST /api/audiencias (endpoint minimal para Sprint 5 standalone)
+router.post('/audiencias', (req, res) => {
+  const { nome, descricao, tipo, filtros, lead_ids } = req.body;
+  if (!nome) return bad(res, 'nome obrigatorio');
+  try {
+    const aud = audienciasService.create({ nome, descricao, tipo, filtros });
+    if (Array.isArray(lead_ids) && lead_ids.length > 0) {
+      audienciasService.addLeads(aud.id, lead_ids);
+    }
+    const refreshed = audienciasService.getById(aud.id);
+    res.status(201).json({ audiencia: refreshed });
+  } catch (err) {
+    bad(res, err.message);
+  }
+});
+
+router.get('/audiencias', (req, res) => {
+  res.json({ audiencias: audienciasService.list(req.query) });
+});
+
+router.get('/audiencias/:id', (req, res) => {
+  const aud = audienciasService.getById(parseInt(req.params.id));
+  if (!aud) return bad(res, 'audiencia nao encontrada', 404);
+  res.json({ audiencia: aud });
+});
+
+// POST /api/templates
+router.post('/templates', (req, res) => {
+  const { nome, conteudo, agente, descricao, ja_aprovado_meta } = req.body;
+  if (!nome || !conteudo) return bad(res, 'nome e conteudo obrigatorios');
+  try {
+    const tpl = templatesService.create({ nome, conteudo, agente, descricao, ja_aprovado_meta });
+    res.status(201).json({ template: tpl });
+  } catch (err) {
+    bad(res, err.message);
+  }
+});
+
+router.get('/templates', (req, res) => {
+  res.json({ templates: templatesService.list(req.query) });
+});
+
+router.get('/templates/:id', (req, res) => {
+  const tpl = templatesService.getById(parseInt(req.params.id));
+  if (!tpl) return bad(res, 'template nao encontrado', 404);
+  res.json({ template: tpl });
+});
+
+// ---- Smoke test endpoint (Sprint 5 / T5) ----
+// POST /api/campanhas/smoke-test
+// Cria audiencia + template + campanha de teste com ate 10 telefones
+router.post('/campanhas/smoke-test', (req, res) => {
+  const telefones = Array.isArray(req.body.telefones) ? req.body.telefones : [];
+  if (telefones.length < 1 || telefones.length > 10) {
+    return bad(res, 'Forneca 1-10 telefones de teste');
+  }
+  try {
+    const db = getDb();
+    // 1. Cria leads se nao existirem
+    const leadIds = [];
+    const insertLead = db.prepare(`
+      INSERT INTO leads (telefone, nome, origem)
+      VALUES (?, ?, 'smoke_test')
+      ON CONFLICT(telefone) DO UPDATE SET atualizado_em = CURRENT_TIMESTAMP
+    `);
+    const getLead = db.prepare('SELECT id FROM leads WHERE telefone = ?');
+    telefones.forEach((tel, idx) => {
+      const clean = String(tel).replace(/\D/g, '');
+      if (!clean) return;
+      insertLead.run(clean, `Smoke Test ${idx + 1}`);
+      const row = getLead.get(clean);
+      if (row) leadIds.push(row.id);
+    });
+
+    // 2. Cria audiencia estatica
+    const audNome = `Smoke Test ${new Date().toISOString().slice(0, 16)}`;
+    const aud = audienciasService.create({
+      nome: audNome,
+      descricao: 'Audiencia gerada automaticamente pelo endpoint smoke-test',
+      tipo: 'estatica'
+    });
+    audienciasService.addLeads(aud.id, leadIds);
+
+    // 3. Cria template simples
+    const tpl = templatesService.create({
+      nome: 'Smoke Test Template',
+      conteudo: 'Ola {{primeiro_nome}}! Teste interno do Broadcast Engine (Sprint 5).',
+      agente: req.body.agente_remetente || 'carlos',
+      descricao: 'Template gerado para smoke test'
+    });
+
+    // 4. Cria campanha em rascunho (nao dispara)
+    const campanha = campanhasService.create({
+      nome: `Smoke Test ${new Date().toISOString().slice(0, 16)}`,
+      audiencia_id: aud.id,
+      template_id: tpl.id,
+      agente_remetente: req.body.agente_remetente || 'carlos',
+      rate_limit_per_min: 5,
+      jitter_min_sec: 3,
+      jitter_max_sec: 5,
+      criada_por: 'smoke-test'
+    });
+
+    res.status(201).json({
+      campanha_id: campanha.id,
+      audiencia_id: aud.id,
+      template_id: tpl.id,
+      lead_ids: leadIds,
+      instrucoes: 'Campanha criada em rascunho. Chame POST /api/campanhas/:id/start para disparar.'
+    });
+  } catch (err) {
+    bad(res, err.message, 500);
+  }
+});
+
+// POST /api/consent/opt-out { telefone, motivo }
+router.post('/consent/opt-out', (req, res) => {
+  const { telefone, motivo } = req.body;
+  if (!telefone) return bad(res, 'telefone obrigatorio');
+  consent.markOptOut(telefone, motivo || 'manual');
+  res.json({ success: true });
+});
+
+router.delete('/consent/opt-out/:telefone', (req, res) => {
+  consent.clearOptOut(req.params.telefone);
+  res.json({ success: true });
+});
+
+router.get('/consent/:telefone', (req, res) => {
+  res.json(consent.canSendTo(req.params.telefone));
+});
+
+// ---- Admin / kill switch (Sprint 5 / T5) ----
+function requireAdminConfirm(req, res, next) {
+  if (req.headers['x-admin-confirm'] !== 'yes') {
+    return bad(res, 'X-Admin-Confirm: yes requerido', 403);
+  }
+  next();
+}
+
+// POST /api/admin/kill-broadcast — exige header X-Admin-Confirm: yes
+router.post('/admin/kill-broadcast', requireAdminConfirm, async (req, res) => {
+  // Pausa todas campanhas ativas (efeito imediato observavel)
+  const affected = campanhasService.pauseAll();
+
+  // Persiste flag no .env se possivel (kill switch global)
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const envPath = path.join(__dirname, '../../.env');
+    if (fs.existsSync(envPath)) {
+      let content = fs.readFileSync(envPath, 'utf-8');
+      if (/^BROADCAST_WORKER_ENABLED\s*=/m.test(content)) {
+        content = content.replace(/^BROADCAST_WORKER_ENABLED\s*=.*/m, 'BROADCAST_WORKER_ENABLED=false');
+      } else {
+        content += (content.endsWith('\n') ? '' : '\n') + 'BROADCAST_WORKER_ENABLED=false\n';
+      }
+      fs.writeFileSync(envPath, content);
+    }
+    process.env.BROADCAST_WORKER_ENABLED = 'false';
+  } catch (err) {
+    console.warn('[KILL-SWITCH] falha ao atualizar .env:', err.message);
+  }
+
+  res.json({
+    success: true,
+    action: 'kill-broadcast',
+    campanhas_pausadas: affected,
+    observacao: 'Worker vai ficar idle. Para retomada total, restart do container worker recomendado.'
+  });
+});
+
+// POST /api/admin/resume-broadcast
+router.post('/admin/resume-broadcast', requireAdminConfirm, (req, res) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const envPath = path.join(__dirname, '../../.env');
+    if (fs.existsSync(envPath)) {
+      let content = fs.readFileSync(envPath, 'utf-8');
+      if (/^BROADCAST_WORKER_ENABLED\s*=/m.test(content)) {
+        content = content.replace(/^BROADCAST_WORKER_ENABLED\s*=.*/m, 'BROADCAST_WORKER_ENABLED=true');
+      } else {
+        content += (content.endsWith('\n') ? '' : '\n') + 'BROADCAST_WORKER_ENABLED=true\n';
+      }
+      fs.writeFileSync(envPath, content);
+    }
+    process.env.BROADCAST_WORKER_ENABLED = 'true';
+  } catch (err) {
+    console.warn('[RESUME] falha ao atualizar .env:', err.message);
+  }
+  res.json({ success: true, action: 'resume-broadcast' });
+});
+
+// GET /api/admin/broadcast-status
+router.get('/admin/broadcast-status', (req, res) => {
   const db = getDb();
-  const { nome, tipo, agente, regiao, mensagem_template } = req.body;
-  const result = db.prepare('INSERT INTO campanhas (nome, tipo, agente, regiao, mensagem_template) VALUES (?,?,?,?,?)').run(nome, tipo, agente || 'carlos', regiao, mensagem_template);
-  res.json({ success: true, id: result.lastInsertRowid });
+  const ativas = db.prepare(
+    "SELECT id, nome, status, enviados_count, falhas_count, total_envios FROM campanhas WHERE status IN ('enviando','pausada','agendada')"
+  ).all();
+  res.json({
+    kill_switch: process.env.BROADCAST_WORKER_ENABLED === 'false',
+    worker: broadcastWorker.status(),
+    campanhas_ativas: ativas
+  });
+});
+
+// GET /api/health/deep (Sprint 5 / T5 + Sprint 3 / T4)
+router.get('/health/deep', (req, res) => {
+  const db = getDb();
+  const checks = {};
+
+  try {
+    db.prepare('SELECT 1').get();
+    checks.database = { status: 'ok' };
+  } catch (err) {
+    checks.database = { status: 'error', error: err.message };
+  }
+
+  try {
+    const heartbeat = broadcastWorker.readHeartbeat();
+    const now = Date.now();
+    const ageSec = heartbeat ? Math.round((now - new Date(heartbeat.ts).getTime()) / 1000) : null;
+    const stale = ageSec == null || ageSec > 60;
+    const pendentes = db.prepare(
+      "SELECT COUNT(*) AS c FROM campanha_envios WHERE status = 'pendente'"
+    ).get().c;
+    const ativas = db.prepare(
+      "SELECT COUNT(*) AS c FROM campanhas WHERE status = 'enviando'"
+    ).get().c;
+    checks.broadcast_worker = {
+      status: stale ? 'stale' : 'ok',
+      last_heartbeat: heartbeat?.ts || null,
+      heartbeat_age_sec: ageSec,
+      campanhas_ativas: ativas,
+      envios_pendentes: pendentes,
+      kill_switch_active: process.env.BROADCAST_WORKER_ENABLED === 'false'
+    };
+  } catch (err) {
+    checks.broadcast_worker = { status: 'error', error: err.message };
+  }
+
+  const overall = Object.values(checks).every(c => c.status === 'ok') ? 'ok' : 'degraded';
+  res.status(overall === 'ok' ? 200 : 503).json({
+    status: overall,
+    timestamp: new Date().toISOString(),
+    checks
+  });
 });
 
 // === FUNIL / PIPELINE REPORT ===

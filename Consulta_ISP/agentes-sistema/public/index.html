@@ -184,6 +184,7 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
       <div class="nav-section-title">Operacoes</div>
       <div class="nav-item" data-page="monitor"><span class="nav-icon">🔴</span>Monitor Agentes</div>
       <div class="nav-item" data-page="prospectar"><span class="nav-icon">🚀</span>Prospectar</div>
+      <div class="nav-item" data-page="campanhas"><span class="nav-icon">📨</span>Campanhas<span class="nav-badge" id="nav-campanhas-count">0</span></div>
       <div class="nav-item" data-page="conteudo"><span class="nav-icon">✍️</span>Conteudo</div>
       <div class="nav-item" data-page="tarefas"><span class="nav-icon">📋</span>Tarefas<span class="nav-badge" id="nav-tarefas-count">0</span></div>
     </div>
@@ -380,6 +381,54 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
         <div class="panel"><div class="panel-header"><h2>Atividades Recentes</h2></div><div class="panel-body" id="agent-activities"></div></div>
       </div>
     </div>
+
+    <!-- CAMPANHAS PAGE (Sprint 5 — Broadcast Engine) -->
+    <div class="page" id="page-campanhas">
+      <div class="page-header">
+        <h1>Campanhas</h1>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-outline btn-sm" id="btn-kill-switch-open">⛔ Kill Switch</button>
+          <button class="btn btn-outline btn-sm" id="btn-pause-all-campanhas">⏸ Pausar TODAS</button>
+          <button class="btn btn-primary btn-sm" id="btn-new-campanha">+ Nova Campanha</button>
+        </div>
+      </div>
+      <div id="campanhas-kill-switch-area"></div>
+      <div id="campanhas-list" style="display:flex;flex-direction:column;gap:12px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL WIZARD CAMPANHA (3 etapas) -->
+<div class="modal-overlay" id="modal-campanha-wizard">
+  <div class="modal" style="width:820px;max-width:95vw">
+    <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px">
+      <h2 id="wizard-title">Nova Campanha</h2>
+      <button class="btn btn-ghost btn-sm" onclick="hideModal('campanha-wizard')">✕</button>
+    </div>
+    <div id="wizard-steps-indicator" style="display:flex;gap:8px;margin-bottom:20px"></div>
+    <div id="wizard-step-body"></div>
+    <div class="modal-footer" id="wizard-footer" style="justify-content:space-between"></div>
+  </div>
+</div>
+
+<!-- MODAL KILL SWITCH -->
+<div class="modal-overlay" id="modal-kill-switch">
+  <div class="modal" style="width:500px">
+    <h2 style="color:#ef4444">🚨 Kill Switch — Parar TODOS os envios</h2>
+    <p style="color:var(--muted);font-size:.9rem">
+      Para o worker de broadcast imediatamente. Nenhuma mensagem nova e enviada ate reativacao manual.
+      Use em emergencia (ex: descobriu bug, taxa de falha alta, denuncia LGPD).
+    </p>
+    <div id="ks-status" style="padding:12px;border-radius:6px;margin:12px 0;font-size:.85rem"></div>
+    <label style="font-size:.85rem;color:var(--muted);margin-top:8px">Digite <b>CONFIRMAR</b> para ativar:</label>
+    <input id="ks-confirm-input" placeholder="CONFIRMAR" style="width:100%;padding:8px;margin-top:6px;background:#0f172a;border:1px solid #f59e0b;color:#fff;border-radius:4px;font-family:ui-monospace,monospace" />
+    <div class="modal-footer" style="justify-content:space-between;margin-top:16px">
+      <button class="btn btn-outline" onclick="hideModal('kill-switch')">Cancelar</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-outline btn-sm" id="btn-resume-broadcast">▶ Retomar broadcast</button>
+        <button class="btn" id="btn-activate-kill" style="background:#dc2626;color:#fff">⛔ Ativar Kill Switch</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -446,7 +495,7 @@ function goPage(page){
     const el=document.getElementById('page-'+page);
     if(el){el.classList.add('active');document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add('active')}
     else { showError('Pagina "'+page+'" nao encontrada no DOM. Verifique /status.html'); return; }
-    const loaders={dashboard:loadDashboard,pipeline:loadPipeline,leads:loadLeads,conversas:loadConversas,monitor:loadMonitor,tarefas:loadTarefas,relatorios:()=>loadReports('7'),funil:loadFunil,prospectar:loadCampaigns};
+    const loaders={dashboard:loadDashboard,pipeline:loadPipeline,leads:loadLeads,conversas:loadConversas,monitor:loadMonitor,tarefas:loadTarefas,relatorios:()=>loadReports('7'),funil:loadFunil,prospectar:loadCampaigns,campanhas:()=>window.CampanhasUI && window.CampanhasUI.load()};
     if(loaders[page]) {
       Promise.resolve(loaders[page]()).catch(err => showError('Erro ao carregar "'+page+'": '+err.message));
     }
@@ -748,7 +797,7 @@ async function startProspecting(){
   document.getElementById('prosp-btn').disabled=false;document.getElementById('prosp-btn').textContent='Iniciar Prospeccao';
   document.getElementById('prosp-result').innerHTML=(res.resultados||[]).map(r=>`<div style="padding:8px;margin-bottom:6px;background:var(--bg);border-radius:8px;border-left:3px solid ${r.status==='enviado'?'var(--green)':'var(--red)'}"><strong>${r.telefone}</strong>: ${r.status} ${r.resposta?'<br><span style="font-size:.82rem;color:var(--muted)">'+r.resposta.substring(0,120)+'...</span>':''}</div>`).join('');
 }
-async function loadCampaigns(){const d=await api('/campanhas');if(d.campanhas?.length)document.getElementById('campaigns-list').innerHTML=d.campanhas.map(c=>`<div style="padding:10px;border-bottom:1px solid var(--border)"><strong>${c.nome}</strong> (${c.tipo})<br><span style="font-size:.8rem;color:var(--muted)">${c.total_enviados} enviados | ${c.total_respondidos} respondidos | ${c.total_qualificados} qualificados</span></div>`).join('')}
+async function loadCampaigns(){const d=await api('/campanhas');if(d.campanhas?.length)document.getElementById('campaigns-list').innerHTML=d.campanhas.map(c=>`<div style="padding:10px;border-bottom:1px solid var(--border)"><strong>${c.nome}</strong> <span style="font-size:.75rem;padding:2px 6px;border-radius:4px;background:var(--bg);color:var(--muted)">${c.status||'rascunho'}</span> ${c.agente_remetente?`· ${c.agente_remetente}`:''} ${c.audiencia_nome?`· ${c.audiencia_nome}`:''}<br><span style="font-size:.8rem;color:var(--muted)">${c.enviados_count||0}/${c.total_envios||0} enviados | ${c.entregues_count||0} entregues | ${c.lidos_count||0} lidos | ${c.respondidos_count||0} respondidos | ${c.falhas_count||0} falhas</span></div>`).join('')}
 
 // CONTEUDO
 async function generateContent(){
@@ -805,5 +854,10 @@ setInterval(()=>{const active=document.querySelector('.page.active');if(active?.
 // Init
 loadDashboard();
 </script>
+
+<!-- Sprint 5 — Broadcast Engine UI -->
+<script src="/js/cards/campanha-card.js"></script>
+<script src="/js/wizards/new-campanha.js"></script>
+<script src="/js/cards/kill-switch.js"></script>
 </body>
 </html>

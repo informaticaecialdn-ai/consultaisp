@@ -2,6 +2,16 @@ const express = require('express');
 const router = express.Router();
 const orchestrator = require('../services/orchestrator');
 const { getDb } = require('../models/database');
+const consent = require('../services/consent');
+const campanhasService = require('../services/campanhas');
+
+const STOP_KEYWORDS = ['STOP', 'PARAR', 'SAIR', 'CANCELAR', 'DESCADASTRAR'];
+
+function detectStopKeyword(text) {
+  if (!text) return false;
+  const normalized = String(text).trim().toUpperCase();
+  return STOP_KEYWORDS.some(k => normalized === k || normalized.startsWith(k + ' '));
+}
 
 // Webhook Z-API - recebe mensagens do WhatsApp
 router.post('/zapi', async (req, res) => {
@@ -25,6 +35,36 @@ router.post('/zapi', async (req, res) => {
     };
 
     console.log(`[WEBHOOK] Mensagem de ${phone}: ${message.substring(0, 80)}...`);
+
+    // Sprint 5 / T3: detecta opt-out via palavras-chave (STOP/PARAR/SAIR) e marca
+    // consent antes de processar. Respostas do lead tambem atualizam campanha_envios.
+    if (detectStopKeyword(message)) {
+      consent.markOptOut(phone, `keyword:${String(message).trim().substring(0, 30)}`, 'whatsapp');
+      console.log(`[WEBHOOK] Opt-out registrado via keyword para ${phone}`);
+    }
+
+    // Marca resposta no campanha_envios se lead recebeu broadcast recente
+    try {
+      const db = getDb();
+      const lead = db.prepare('SELECT id FROM leads WHERE telefone = ?').get(phone);
+      if (lead) {
+        const envio = db.prepare(`
+          SELECT id, campanha_id FROM campanha_envios
+          WHERE lead_id = ? AND status IN ('enviado','entregue','lido')
+          ORDER BY enviado_em DESC LIMIT 1
+        `).get(lead.id);
+        if (envio) {
+          db.prepare(`
+            UPDATE campanha_envios
+            SET status = 'respondido', respondido_em = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `).run(envio.id);
+          campanhasService.incrementCounter(envio.campanha_id, 'respondidos_count');
+        }
+      }
+    } catch (err) {
+      console.warn('[WEBHOOK] falha ao atualizar campanha_envios:', err.message);
+    }
 
     const result = await orchestrator.processIncoming(phone, message, messageData);
 
@@ -74,6 +114,40 @@ router.post('/zapi/status', (req, res) => {
           `).run(statusEntrega, lead.id);
         }
       }
+
+      // Sprint 5 / T3: linka webhook delivery -> campanha_envios via zapi_message_id
+      if (messageId) {
+        try {
+          const envio = db.prepare(
+            'SELECT id, campanha_id FROM campanha_envios WHERE zapi_message_id = ?'
+          ).get(messageId);
+          if (envio) {
+            if (statusEntrega === 'entregue') {
+              const res = db.prepare(`
+                UPDATE campanha_envios
+                SET status = 'entregue', entregue_em = CURRENT_TIMESTAMP
+                WHERE id = ? AND status IN ('enviado','processando')
+              `).run(envio.id);
+              if (res.changes > 0) {
+                campanhasService.incrementCounter(envio.campanha_id, 'entregues_count');
+              }
+            } else if (statusEntrega === 'lido') {
+              const res = db.prepare(`
+                UPDATE campanha_envios
+                SET status = 'lido', lido_em = CURRENT_TIMESTAMP,
+                    entregue_em = COALESCE(entregue_em, CURRENT_TIMESTAMP)
+                WHERE id = ? AND status IN ('enviado','entregue','processando')
+              `).run(envio.id);
+              if (res.changes > 0) {
+                campanhasService.incrementCounter(envio.campanha_id, 'lidos_count');
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('[WEBHOOK] falha campanha_envios delivery:', err.message);
+        }
+      }
+
       console.log(`[WEBHOOK] Status ${statusEntrega} para ${phone || messageId}`);
     }
 
