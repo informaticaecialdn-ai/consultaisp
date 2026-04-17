@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Consulta ISP - Fluxo Completo do Sistema</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #0a0e17; color: #e0e6ed; overflow-x: hidden; }
+
+  /* NAV */
+  .nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; background: rgba(10,14,23,0.95); backdrop-filter: blur(12px); border-bottom: 1px solid #1e293b; padding: 12px 24px; display: flex; align-items: center; gap: 16px; }
+  .nav h1 { font-size: 18px; color: #38bdf8; font-weight: 700; white-space: nowrap; }
+  .nav-tabs { display: flex; gap: 4px; overflow-x: auto; flex: 1; }
+  .nav-tab { padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; background: transparent; color: #94a3b8; border: 1px solid transparent; transition: all 0.2s; white-space: nowrap; }
+  .nav-tab:hover { background: #1e293b; color: #e2e8f0; }
+  .nav-tab.active { background: #1e3a5f; color: #38bdf8; border-color: #38bdf8; }
+
+  /* MAIN */
+  main { padding: 80px 24px 40px; max-width: 1400px; margin: 0 auto; }
+  .section { display: none; animation: fadeIn 0.3s ease; }
+  .section.active { display: block; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* FLOW CONTAINERS */
+  .flow-title { font-size: 28px; font-weight: 800; color: #f1f5f9; margin-bottom: 8px; }
+  .flow-subtitle { font-size: 15px; color: #64748b; margin-bottom: 32px; line-height: 1.6; }
+
+  /* FLOW DIAGRAM */
+  .flow { display: flex; flex-direction: column; gap: 0; align-items: center; margin: 24px 0; }
+  .flow-step { background: #111827; border: 1px solid #1e293b; border-radius: 12px; padding: 20px 28px; max-width: 680px; width: 100%; position: relative; }
+  .flow-step.trigger { border-color: #f59e0b; background: linear-gradient(135deg, #1a1708, #111827); }
+  .flow-step.process { border-color: #3b82f6; background: linear-gradient(135deg, #0c1929, #111827); }
+  .flow-step.decision { border-color: #a855f7; background: linear-gradient(135deg, #1a0c29, #111827); border-radius: 12px; }
+  .flow-step.output { border-color: #22c55e; background: linear-gradient(135deg, #0c1a12, #111827); }
+  .flow-step.agent { border-color: #06b6d4; background: linear-gradient(135deg, #0c1a1e, #111827); }
+  .flow-step.error { border-color: #ef4444; background: linear-gradient(135deg, #1a0c0c, #111827); }
+  .flow-step.training { border-color: #ec4899; background: linear-gradient(135deg, #1a0c14, #111827); }
+
+  .step-badge { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; padding: 3px 10px; border-radius: 4px; margin-bottom: 8px; }
+  .badge-trigger { background: #f59e0b20; color: #f59e0b; }
+  .badge-process { background: #3b82f620; color: #3b82f6; }
+  .badge-decision { background: #a855f720; color: #a855f7; }
+  .badge-output { background: #22c55e20; color: #22c55e; }
+  .badge-agent { background: #06b6d420; color: #06b6d4; }
+  .badge-error { background: #ef444420; color: #ef4444; }
+  .badge-training { background: #ec489920; color: #ec4899; }
+
+  .step-title { font-size: 16px; font-weight: 700; color: #f1f5f9; margin-bottom: 6px; }
+  .step-detail { font-size: 13px; color: #94a3b8; line-height: 1.6; }
+  .step-code { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 11.5px; color: #67e8f9; background: #0f172a; padding: 10px 14px; border-radius: 6px; margin-top: 8px; overflow-x: auto; white-space: pre; border: 1px solid #1e293b; }
+
+  .arrow { width: 2px; height: 32px; background: linear-gradient(to bottom, #334155, #475569); position: relative; margin: 0 auto; }
+  .arrow::after { content: ''; position: absolute; bottom: -6px; left: -5px; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid #475569; }
+
+  .arrow-label { font-size: 11px; color: #64748b; text-align: center; margin: -4px 0 -4px; padding: 2px 8px; }
+
+  /* BRANCH */
+  .branch { display: flex; gap: 16px; max-width: 680px; width: 100%; }
+  .branch > * { flex: 1; }
+  .branch .flow-step { max-width: none; }
+
+  /* GRID FOR AGENTS */
+  .agent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin: 24px 0; }
+  .agent-card { background: #111827; border: 1px solid #1e293b; border-radius: 12px; padding: 20px; }
+  .agent-card h3 { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+  .agent-card .role { font-size: 12px; color: #64748b; margin-bottom: 12px; }
+  .agent-card .model { font-size: 11px; color: #06b6d4; background: #06b6d415; padding: 2px 8px; border-radius: 4px; display: inline-block; margin-bottom: 10px; }
+  .agent-card ul { list-style: none; padding: 0; }
+  .agent-card li { font-size: 13px; color: #94a3b8; padding: 3px 0; padding-left: 16px; position: relative; }
+  .agent-card li::before { content: ''; position: absolute; left: 0; top: 10px; width: 6px; height: 6px; border-radius: 50%; background: #334155; }
+
+  /* TABLE */
+  .info-table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  .info-table th, .info-table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #1e293b; font-size: 13px; }
+  .info-table th { color: #64748b; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; }
+  .info-table td { color: #cbd5e1; }
+  .info-table tr:hover td { background: #111827; }
+
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; margin: 1px; }
+  .tag-blue { background: #3b82f620; color: #60a5fa; }
+  .tag-green { background: #22c55e20; color: #4ade80; }
+  .tag-purple { background: #a855f720; color: #c084fc; }
+  .tag-amber { background: #f59e0b20; color: #fbbf24; }
+  .tag-red { background: #ef444420; color: #f87171; }
+  .tag-cyan { background: #06b6d420; color: #22d3ee; }
+  .tag-pink { background: #ec489920; color: #f472b6; }
+
+  /* SECTION SPECIFIC */
+  .tech-stack { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+  .tech-item { background: #1e293b; padding: 6px 14px; border-radius: 6px; font-size: 12px; color: #94a3b8; }
+
+  .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin: 16px 0; }
+  .metric-card { background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 16px; text-align: center; }
+  .metric-value { font-size: 28px; font-weight: 800; color: #38bdf8; }
+  .metric-label { font-size: 12px; color: #64748b; margin-top: 4px; }
+
+  .divider { border: none; border-top: 1px solid #1e293b; margin: 32px 0; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 16px; margin: 16px 0; padding: 16px; background: #111827; border-radius: 8px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #94a3b8; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 3px; }
+
+  /* RESPONSIVE */
+  @media (max-width: 768px) {
+    .branch { flex-direction: column; }
+    .nav-tabs { overflow-x: auto; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <h1>Consulta ISP</h1>
+  <div class="nav-tabs">
+    <div class="nav-tab active" onclick="showSection('overview')">Visao Geral</div>
+    <div class="nav-tab" onclick="showSection('whatsapp')">Fluxo WhatsApp</div>
+    <div class="nav-tab" onclick="showSection('scoring')">Lead Scoring</div>
+    <div class="nav-tab" onclick="showSection('handoff')">Handoff</div>
+    <div class="nav-tab" onclick="showSection('skills')">Skills & Knowledge</div>
+    <div class="nav-tab" onclick="showSection('training')">Treinamento</div>
+    <div class="nav-tab" onclick="showSection('supervisor')">Supervisor (Diana)</div>
+    <div class="nav-tab" onclick="showSection('ads')">Midia Paga</div>
+    <div class="nav-tab" onclick="showSection('prospecting')">Prospeccao</div>
+    <div class="nav-tab" onclick="showSection('database')">Banco de Dados</div>
+    <div class="nav-tab" onclick="showSection('api')">API Routes</div>
+  </div>
+</nav>
+
+<main>
+
+<!-- ==================== VISAO GERAL ==================== -->
+<div id="overview" class="section active">
+  <div class="flow-title">Arquitetura do Sistema de Agentes IA</div>
+  <div class="flow-subtitle">
+    Sistema multi-agente de vendas B2B para provedores de internet (ISPs).<br>
+    Produto: Consulta ISP — plataforma colaborativa regional de analise de credito entre provedores.
+  </div>
+
+  <div class="tech-stack">
+    <div class="tech-item">Node.js + Express</div>
+    <div class="tech-item">better-sqlite3 (WAL)</div>
+    <div class="tech-item">@anthropic-ai/sdk</div>
+    <div class="tech-item">Z-API (WhatsApp)</div>
+    <div class="tech-item">Meta Ads SDK</div>
+    <div class="tech-item">Google Ads API</div>
+    <div class="tech-item">Docker + Caddy</div>
+    <div class="tech-item">SPA Dashboard (Chart.js)</div>
+  </div>
+
+  <div class="metric-grid">
+    <div class="metric-card"><div class="metric-value">7</div><div class="metric-label">Agentes IA</div></div>
+    <div class="metric-card"><div class="metric-value">9</div><div class="metric-label">Tabelas SQLite</div></div>
+    <div class="metric-card"><div class="metric-value">6</div><div class="metric-label">Skills-Ref Files</div></div>
+    <div class="metric-card"><div class="metric-value">12</div><div class="metric-label">Task Types</div></div>
+    <div class="metric-card"><div class="metric-value">5</div><div class="metric-label">Route Modules</div></div>
+    <div class="metric-card"><div class="metric-value">7</div><div class="metric-label">Service Modules</div></div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="agent-grid">
+    <div class="agent-card" style="border-left: 3px solid #3b82f6;">
+      <h3 style="color:#60a5fa;">Carlos</h3>
+      <div class="role">Pre-Vendas / SDR</div>
+      <div class="model">claude-sonnet-4-6</div>
+      <ul>
+        <li>Primeiro contato WhatsApp</li>
+        <li>Qualificacao de leads</li>
+        <li>Coleta de dados (nome, provedor, cidade, porte, ERP)</li>
+        <li>Lead scoring inicial</li>
+        <li>Decide proximo passo (nutrir, transferir, agendar)</li>
+      </ul>
+    </div>
+    <div class="agent-card" style="border-left: 3px solid #8b5cf6;">
+      <h3 style="color:#a78bfa;">Lucas</h3>
+      <div class="role">Vendas / Consultor</div>
+      <div class="model">claude-opus-4-6</div>
+      <ul>
+        <li>Apresentacao de beneficios</li>
+        <li>Calculo de ROI personalizado</li>
+        <li>Agendamento de demos</li>
+        <li>Negociacao consultiva</li>
+        <li>Venda baseada em dor/solucao</li>
+      </ul>
+    </div>
+    <div class="agent-card" style="border-left: 3px solid #22c55e;">
+      <h3 style="color:#4ade80;">Rafael</h3>
+      <div class="role">Closer</div>
+      <div class="model">claude-opus-4-6</div>
+      <ul>
+        <li>Fechamento de contratos</li>
+        <li>Resolucao de objecoes finais</li>
+        <li>Definicao de plano e pagamento</li>
+        <li>Onboarding inicial</li>
+        <li>Tecnicas: urgencia, ROI, regional</li>
+      </ul>
+    </div>
+    <div class="agent-card" style="border-left: 3px solid #f59e0b;">
+      <h3 style="color:#fbbf24;">Sofia</h3>
+      <div class="role">Marketing / Estrategia</div>
+      <div class="model">claude-sonnet-4-6</div>
+      <ul>
+        <li>Planejamento de campanhas</li>
+        <li>Estrategia de regionalizacao</li>
+        <li>Geracao de demanda (full-funnel)</li>
+        <li>Analise de mercado ISP</li>
+        <li>Recebe leads frios para nurturing</li>
+      </ul>
+    </div>
+    <div class="agent-card" style="border-left: 3px solid #ec4899;">
+      <h3 style="color:#f472b6;">Leo</h3>
+      <div class="role">Copywriter</div>
+      <div class="model">claude-opus-4-6</div>
+      <ul>
+        <li>Textos para WhatsApp, Instagram, Email</li>
+        <li>Frameworks AIDA, PAS</li>
+        <li>Landing pages</li>
+        <li>Templates de anuncios</li>
+        <li>Linguagem de setor ISP</li>
+      </ul>
+    </div>
+    <div class="agent-card" style="border-left: 3px solid #06b6d4;">
+      <h3 style="color:#22d3ee;">Marcos</h3>
+      <div class="role">Midia Paga</div>
+      <div class="model">claude-opus-4-6</div>
+      <ul>
+        <li>Meta Ads + Google Ads</li>
+        <li>Otimizacao automatica (CPL, CTR, ROAS)</li>
+        <li>Segmentacao ISP/telecom</li>
+        <li>Regras de pause/scale automatico</li>
+        <li>Negative keywords inteligentes</li>
+      </ul>
+    </div>
+    <div class="agent-card" style="border-left: 3px solid #ef4444;">
+      <h3 style="color:#f87171;">Diana</h3>
+      <div class="role">Gerente de Operacoes / Supervisor</div>
+      <div class="model">claude-opus-4-6</div>
+      <ul>
+        <li>Planeja, delega e consolida</li>
+        <li>Coordena dependencias entre agentes</li>
+        <li>Execucao paralela de tarefas</li>
+        <li>Relatorios consolidados</li>
+        <li>Analise e recomendacoes</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== FLUXO WHATSAPP ==================== -->
+<div id="whatsapp" class="section">
+  <div class="flow-title">Fluxo Principal: Mensagem WhatsApp</div>
+  <div class="flow-subtitle">
+    Toda interacao inbound do lead segue este fluxo. O sistema processa a mensagem do inicio ao fim de forma autonoma.<br>
+    <strong>Arquivo principal:</strong> webhook.js &rarr; orchestrator.js &rarr; claude.js &rarr; zapi.js
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#f59e0b;"></div>Trigger/Entrada</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#3b82f6;"></div>Processamento</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#a855f7;"></div>Decisao</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#22c55e;"></div>Saida/Acao</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#06b6d4;"></div>Agente IA</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ec4899;"></div>Treinamento</div>
+  </div>
+
+  <div class="flow">
+    <div class="flow-step trigger">
+      <span class="step-badge badge-trigger">1. TRIGGER</span>
+      <div class="step-title">Lead envia mensagem no WhatsApp</div>
+      <div class="step-detail">Z-API recebe o evento e faz POST para <code>/webhook/zapi</code></div>
+      <div class="step-code">POST /webhook/zapi
+{ phone: "5511999...", text: { message: "Ola..." }, fromMe: false, type: "texto" }</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step process">
+      <span class="step-badge badge-process">2. WEBHOOK</span>
+      <div class="step-title">webhook.js valida e roteia</div>
+      <div class="step-detail">Ignora mensagens proprias (<code>fromMe</code>), extrai phone + message, chama orchestrator.</div>
+      <div class="step-code">if (!data.phone || !data.text?.message) return 'ignored';
+if (data.fromMe) return 'own_message';
+orchestrator.processIncoming(phone, message, messageData);</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step decision">
+      <span class="step-badge badge-decision">3. LEAD EXISTE?</span>
+      <div class="step-title">orchestrator.processIncoming()</div>
+      <div class="step-detail">Busca lead pelo telefone. Se nao existe, cria automaticamente com <code>agente_atual='carlos'</code> e <code>etapa_funil='novo'</code>.</div>
+      <div class="step-code">let lead = db.prepare('SELECT * FROM leads WHERE telefone = ?').get(phone);
+if (!lead) {
+  INSERT INTO leads (telefone, agente_atual, etapa_funil, origem)
+  VALUES (?, 'carlos', 'novo', 'whatsapp')
+}</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step process">
+      <span class="step-badge badge-process">4. ARMAZENA</span>
+      <div class="step-title">Salva mensagem recebida</div>
+      <div class="step-detail">Grava na tabela <code>conversas</code> (direcao='recebida') e incrementa metrica diaria.</div>
+      <div class="step-code">INSERT INTO conversas (lead_id, agente, direcao, mensagem, tipo, canal)
+VALUES (?, agente_atual, 'recebida', message, tipo, 'whatsapp')</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step process">
+      <span class="step-badge badge-process">5. CONTEXTO</span>
+      <div class="step-title">Carrega historico (ultimas 10 mensagens)</div>
+      <div class="step-detail">Busca ultimas 10 mensagens do lead em ordem cronologica (recebida &rarr; user, enviada &rarr; assistant).</div>
+      <div class="step-code">SELECT direcao, mensagem FROM conversas
+WHERE lead_id = ? ORDER BY criado_em DESC LIMIT 10
+// Mapeia: recebida -> { role: 'user' }, enviada -> { role: 'assistant' }</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step agent">
+      <span class="step-badge badge-agent">6. AGENTE IA</span>
+      <div class="step-title">claude.analyzeAndDecide(agentKey, message, leadData)</div>
+      <div class="step-detail">
+        Envia para o Claude do agente atual com:<br>
+        <strong>System prompt</strong> = prompt base + skills knowledge + training context<br>
+        <strong>Messages</strong> = historico (10 msgs) + analysisPrompt (JSON format)<br>
+        Resposta obrigatoria em JSON com 5 campos.
+      </div>
+      <div class="step-code">// System prompt composition:
+let prompt = prompts[agentKey];                    // Base prompt do agente
+const taskType = _inferTaskType(lastMessage);       // Infere tipo de tarefa
+const skillContext = skills.getCompactContext(agentKey, taskType);  // Max 8000 chars
+const trainingContext = training.getTrainingContext(agentKey);      // Regras aprendidas
+prompt += skillContext + trainingContext;
+
+// Resposta esperada:
+{ resposta_whatsapp, score_update: { perfil, comportamento },
+  acao, notas_internas, dados_extraidos: { nome, provedor, cidade, porte, erp, num_clientes } }</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step process">
+      <span class="step-badge badge-process">7. ATUALIZA LEAD</span>
+      <div class="step-title">Extrai dados e atualiza score</div>
+      <div class="step-detail">
+        Salva dados extraidos (nome, provedor, etc.) e ajusta score.<br>
+        Score perfil: 0-50 | Score comportamento: 0-50 | Total: 0-100<br>
+        Classifica: frio (0-30) | morno (31-60) | quente (61-80) | ultra_quente (81-100)
+      </div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step output">
+      <span class="step-badge badge-output">8. RESPONDE</span>
+      <div class="step-title">Envia resposta via Z-API</div>
+      <div class="step-detail">Envia <code>resposta_whatsapp</code> para o lead, salva na tabela conversas (direcao='enviada'), loga atividade.</div>
+      <div class="step-code">await zapi.sendText(phone, analise.resposta_whatsapp);
+INSERT INTO conversas (..., 'enviada', resposta, tempo_resposta_ms, metadata)</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step decision">
+      <span class="step-badge badge-decision">9. ACAO?</span>
+      <div class="step-title">_processAction() — decide proximo passo</div>
+      <div class="step-detail">O agente decidiu uma acao na analise. O orchestrator executa:</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="branch">
+      <div class="flow-step output" style="font-size:12px;">
+        <span class="step-badge badge-output" style="font-size:9px;">RESPONDER</span>
+        <div class="step-title" style="font-size:14px;">Continuar conversa</div>
+        <div class="step-detail">Nenhuma acao adicional. Lead permanece com o agente atual.</div>
+      </div>
+      <div class="flow-step output" style="font-size:12px;">
+        <span class="step-badge badge-output" style="font-size:9px;">TRANSFERIR</span>
+        <div class="step-title" style="font-size:14px;">Handoff de agente</div>
+        <div class="step-detail">transferir_vendas &rarr; Lucas<br>transferir_closer &rarr; Rafael<br>devolver_marketing &rarr; Sofia</div>
+      </div>
+    </div>
+
+    <div style="height:12px;"></div>
+
+    <div class="branch">
+      <div class="flow-step output" style="font-size:12px;">
+        <span class="step-badge badge-output" style="font-size:9px;">AGENDAR</span>
+        <div class="step-title" style="font-size:14px;">Agendar demo</div>
+        <div class="step-detail">Cria tarefa (tipo=demo, prioridade=alta). Atualiza etapa &rarr; demo_agendada</div>
+      </div>
+      <div class="flow-step output" style="font-size:12px;">
+        <span class="step-badge badge-output" style="font-size:9px;">PROPOSTA</span>
+        <div class="step-title" style="font-size:14px;">Enviar proposta</div>
+        <div class="step-detail">Cria tarefa (tipo=proposta, prioridade=alta). Atualiza etapa &rarr; proposta_enviada</div>
+      </div>
+    </div>
+
+    <div class="arrow"></div>
+
+    <div class="flow-step training">
+      <span class="step-badge badge-training">10. TRAINING (FIRE-AND-FORGET)</span>
+      <div class="step-title">Extrai aprendizados das conversas de sucesso</div>
+      <div class="step-detail">
+        Apenas quando ha avanco significativo: transferir_vendas, transferir_closer, agendar_demo, enviar_proposta.<br>
+        Usa Claude Sonnet para analisar a conversa e extrair regras acionaveis. Async, nao bloqueia a resposta.
+      </div>
+      <div class="step-code">if (['transferir_vendas', 'transferir_closer', 'agendar_demo', 'enviar_proposta'].includes(acao)) {
+  training.analyzeConversation(agentKey, conversaTexto, acao, claude.client)
+    .catch(e => console.error('[TRAINING] Erro async:', e.message));
+}</div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== LEAD SCORING ==================== -->
+<div id="scoring" class="section">
+  <div class="flow-title">Sistema de Lead Scoring</div>
+  <div class="flow-subtitle">
+    Score bidimensional (perfil + comportamento) com classificacao automatica e gatilhos de acao.<br>
+    <strong>Implementado em:</strong> orchestrator._updateScore()
+  </div>
+
+  <div class="flow">
+    <div class="flow-step process">
+      <span class="step-badge badge-process">SCORE PERFIL (0-50 pts)</span>
+      <div class="step-title">Baseado nos dados coletados do lead</div>
+      <div class="step-detail">
+        Cada dado novo adiciona pontos ao perfil. O agente decide o incremento via <code>score_update.perfil</code>.<br>
+        Exemplos: nome (+5), provedor (+10), cidade (+5), porte (+10), ERP (+5), num_clientes (+10), decisor (+5).
+      </div>
+    </div>
+    <div class="arrow"></div>
+    <div class="flow-step process">
+      <span class="step-badge badge-process">SCORE COMPORTAMENTO (0-50 pts)</span>
+      <div class="step-title">Baseado nos sinais de engajamento</div>
+      <div class="step-detail">
+        Cada interacao positiva incrementa o score. O agente decide via <code>score_update.comportamento</code>.<br>
+        Exemplos: resposta rapida (+3), pediu demo (+15), perguntou preco (+10), mostrou dor (+8), engajamento alto (+5).
+      </div>
+    </div>
+    <div class="arrow"></div>
+    <div class="flow-step decision">
+      <span class="step-badge badge-decision">CLASSIFICACAO AUTOMATICA</span>
+      <div class="step-title">score_total = perfil + comportamento (0-100)</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="branch">
+      <div class="flow-step" style="border-color: #64748b;">
+        <div class="step-title" style="color:#94a3b8;">Frio: 0-30</div>
+        <div class="step-detail">Lead recem-chegado ou desengajado. Pode ser devolvido para Sofia (nurturing).</div>
+      </div>
+      <div class="flow-step" style="border-color: #f59e0b;">
+        <div class="step-title" style="color:#fbbf24;">Morno: 31-60</div>
+        <div class="step-detail">Lead engajado, respondendo perguntas, mostrando interesse. Carlos continua qualificando.</div>
+      </div>
+    </div>
+    <div style="height:8px;"></div>
+    <div class="branch">
+      <div class="flow-step" style="border-color: #ef4444;">
+        <div class="step-title" style="color:#f87171;">Quente: 61-80</div>
+        <div class="step-detail">Lead qualificado com dor clara. Gatilho para transferir_vendas &rarr; Lucas.</div>
+      </div>
+      <div class="flow-step" style="border-color: #22c55e;">
+        <div class="step-title" style="color:#4ade80;">Ultra Quente: 81-100</div>
+        <div class="step-detail">Lead pronto para fechar. Gatilho para transferir_closer &rarr; Rafael.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="step-code" style="max-width:680px;margin:24px auto;">_updateScore(leadId, scoreUpdate) {
+  novoPerfil = Math.min(50, lead.score_perfil + scoreUpdate.perfil);
+  novoComportamento = Math.min(50, lead.score_comportamento + scoreUpdate.comportamento);
+  total = novoPerfil + novoComportamento;
+  classificacao = total >= 81 ? 'ultra_quente'
+                : total >= 61 ? 'quente'
+                : total >= 31 ? 'morno' : 'frio';
+}</div>
+</div>
+
+<!-- ==================== HANDOFF ==================== -->
+<div id="handoff" class="section">
+  <div class="flow-title">Fluxo de Handoff entre Agentes</div>
+  <div class="flow-subtitle">
+    Pipeline de vendas com transferencia automatica baseada na decisao do agente IA.<br>
+    <strong>Implementado em:</strong> orchestrator.transferLead() + orchestrator._processAction()
+  </div>
+
+  <div class="flow">
+    <div class="flow-step agent" style="border-color:#3b82f6;">
+      <span class="step-badge badge-agent">CARLOS (Pre-Vendas)</span>
+      <div class="step-title">Etapa: novo &rarr; qualificacao</div>
+      <div class="step-detail">Recebe todos os leads novos. Qualifica, coleta dados, pontua. Decide acao:</div>
+    </div>
+    <div class="arrow"></div>
+    <div class="arrow-label"><span class="tag tag-blue">acao: transferir_vendas</span></div>
+
+    <div class="flow-step process">
+      <span class="step-badge badge-process">HANDOFF</span>
+      <div class="step-title">orchestrator.transferLead(leadId, 'carlos', 'lucas', motivo)</div>
+      <div class="step-detail">
+        1. UPDATE leads SET agente_atual = 'lucas'<br>
+        2. INSERT INTO handoffs (de_agente, para_agente, score_no_momento)<br>
+        3. INSERT INTO tarefas (tipo='handoff', status='concluida')<br>
+        4. UPDATE leads SET etapa_funil = 'negociacao'<br>
+        5. Loga atividade (handoff_enviado + handoff_recebido)<br>
+        6. Incrementa metrica leads_qualificados
+      </div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step agent" style="border-color:#8b5cf6;">
+      <span class="step-badge" style="background:#8b5cf620;color:#a78bfa;">LUCAS (Vendas)</span>
+      <div class="step-title">Etapa: negociacao</div>
+      <div class="step-detail">Faz demonstracoes, calcula ROI, negocia. Pode agendar demo ou enviar proposta.</div>
+    </div>
+    <div class="arrow"></div>
+    <div class="arrow-label"><span class="tag tag-purple">acao: transferir_closer</span></div>
+
+    <div class="flow-step agent" style="border-color:#22c55e;">
+      <span class="step-badge" style="background:#22c55e20;color:#4ade80;">RAFAEL (Closer)</span>
+      <div class="step-title">Etapa: fechamento</div>
+      <div class="step-detail">Fecha contrato, resolve objecoes finais, define plano/pagamento. Acoes: enviar_proposta ou encerrar.</div>
+    </div>
+
+    <div style="height:24px;"></div>
+
+    <div class="flow-step" style="border-color:#f59e0b;max-width:680px;width:100%;">
+      <span class="step-badge badge-trigger">CAMINHO ALTERNATIVO</span>
+      <div class="step-title">devolver_marketing &rarr; Sofia</div>
+      <div class="step-detail">
+        Qualquer agente pode devolver lead frio para Sofia (nurturing).<br>
+        <code>acao: devolver_marketing</code> &rarr; agente_atual = 'sofia', etapa_funil = 'nurturing', classificacao = 'frio'
+      </div>
+    </div>
+  </div>
+
+  <table class="info-table" style="max-width:680px;margin:24px auto;">
+    <tr><th>Acao</th><th>De</th><th>Para</th><th>Etapa Funil</th></tr>
+    <tr><td><span class="tag tag-blue">transferir_vendas</span></td><td>Carlos</td><td>Lucas</td><td>negociacao</td></tr>
+    <tr><td><span class="tag tag-purple">transferir_closer</span></td><td>Lucas</td><td>Rafael</td><td>fechamento</td></tr>
+    <tr><td><span class="tag tag-amber">devolver_marketing</span></td><td>Qualquer</td><td>Sofia</td><td>nurturing</td></tr>
+    <tr><td><span class="tag tag-green">agendar_demo</span></td><td>Agente atual</td><td>—</td><td>demo_agendada</td></tr>
+    <tr><td><span class="tag tag-green">enviar_proposta</span></td><td>Agente atual</td><td>—</td><td>proposta_enviada</td></tr>
+    <tr><td><span class="tag tag-red">encerrar</span></td><td>Agente atual</td><td>—</td><td>perdido</td></tr>
+  </table>
+</div>
+
+<!-- ==================== SKILLS ==================== -->
+<div id="skills" class="section">
+  <div class="flow-title">Sistema de Skills & Knowledge Injection</div>
+  <div class="flow-subtitle">
+    Conhecimento estatico em markdown injetado no system prompt do agente, filtrado por agentKey + taskType.<br>
+    <strong>Implementado em:</strong> skills-knowledge.js | <strong>Arquivos:</strong> skills-ref/*.md
+  </div>
+
+  <div class="flow">
+    <div class="flow-step trigger">
+      <span class="step-badge badge-trigger">ENTRADA</span>
+      <div class="step-title">claude._getSystemPrompt(agentKey, context)</div>
+      <div class="step-detail">Ao compor o system prompt, chama <code>skillsKnowledge.getCompactContext(agentKey, taskType)</code></div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step process">
+      <span class="step-badge badge-process">1. INFER TASK TYPE</span>
+      <div class="step-title">_inferTaskType(lastMessage)</div>
+      <div class="step-detail">Analisa a mensagem do lead e mapeia para 1 dos 12 tipos de tarefa usando keywords.</div>
+      <div class="step-code">cold-email | email-sequence | ad-campaign | demand-gen | lead-research
+pricing | copywriting | strategy | sales | closing | orchestration | general</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step process">
+      <span class="step-badge badge-process">2. FILE MAPPING</span>
+      <div class="step-title">Seleciona arquivos por agente</div>
+      <div class="step-detail">Cada agente tem 2-3 arquivos de skills mapeados:</div>
+    </div>
+  </div>
+
+  <table class="info-table" style="max-width:800px;margin:16px auto;">
+    <tr><th>Agente</th><th>Arquivos Mapeados</th></tr>
+    <tr><td><span class="tag tag-blue">Carlos</span></td><td>vendas-sofia.md, prospecao-pricing.md, emailseq.md</td></tr>
+    <tr><td><span class="tag tag-purple">Lucas</span></td><td>vendas-sofia.md, prospecao-pricing.md</td></tr>
+    <tr><td><span class="tag tag-green">Rafael</span></td><td>vendas-sofia.md, prospecao-pricing.md</td></tr>
+    <tr><td><span class="tag tag-amber">Sofia</span></td><td>vendas-sofia.md, demandgen.md, prospecao-pricing.md</td></tr>
+    <tr><td><span class="tag tag-pink">Leo</span></td><td>marcos-leo.md, emailseq.md, demandgen.md</td></tr>
+    <tr><td><span class="tag tag-cyan">Marcos</span></td><td>marcos-leo.md, demandgen.md</td></tr>
+    <tr><td><span class="tag tag-red">Diana</span></td><td>marcos-leo.md, vendas-sofia.md, agentes-arch.md</td></tr>
+  </table>
+
+  <div class="flow" style="margin-top:24px;">
+    <div class="flow-step process">
+      <span class="step-badge badge-process">3. EXTRACT SECTIONS</span>
+      <div class="step-title">_extractSection(content, agentKey)</div>
+      <div class="step-detail">
+        Extrai TODAS as secoes relevantes por header markers (regex multi-match).<br>
+        Cada agente tem markers: ex. Carlos = ['CARLOS', 'PROSPECAO', 'PRINCIPIOS FUNDAMENTAIS']<br>
+        Diana recebe o arquivo inteiro (sem filtro de secao).
+      </div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step process">
+      <span class="step-badge badge-process">4. FILTER BY TASK TYPE</span>
+      <div class="step-title">getCompactContext() — filtra por keywords do taskType</div>
+      <div class="step-detail">
+        Divide o conhecimento em secoes (por ##) e filtra as que contem keywords do tipo de tarefa.<br>
+        Ex: taskType='pricing' filtra por ['PRICING', 'TIER', 'PRECO', 'VAN WESTENDORP', 'FREEMIUM', 'TRIAL']<br>
+        Se taskType='general', retorna tudo (sem filtro).
+      </div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step output">
+      <span class="step-badge badge-output">5. INJETA NO PROMPT</span>
+      <div class="step-title">Max 8000 chars, cache de 5 min</div>
+      <div class="step-detail">Resultado concatenado ao system prompt como <code>\n\nBASE DE CONHECIMENTO (taskType):\n...</code></div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== TREINAMENTO ==================== -->
+<div id="training" class="section">
+  <div class="flow-title">Sistema de Treinamento Continuo</div>
+  <div class="flow-subtitle">
+    Aprendizado automatico extraido de conversas de sucesso. Regras injetadas no system prompt.<br>
+    <strong>Implementado em:</strong> training.js | <strong>Tabela:</strong> treinamento_agentes
+  </div>
+
+  <div class="flow">
+    <div class="flow-step trigger">
+      <span class="step-badge badge-trigger">GATILHO</span>
+      <div class="step-title">Evento de avanco no funil</div>
+      <div class="step-detail">Dispara quando o orchestrator detecta uma das 4 acoes de sucesso:</div>
+      <div class="step-code">['transferir_vendas', 'transferir_closer', 'agendar_demo', 'enviar_proposta']</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step agent">
+      <span class="step-badge badge-agent">ANALISE (Claude Sonnet)</span>
+      <div class="step-title">training.analyzeConversation(agentKey, texto, outcome, client)</div>
+      <div class="step-detail">
+        Fire-and-forget: roda async, nao bloqueia resposta ao lead.<br>
+        Claude Sonnet analisa a conversa inteira e extrai aprendizados em JSON.
+      </div>
+      <div class="step-code">// Claude recebe:
+"Analise esta conversa do agente {agentKey} com resultado {outcome}"
+
+// Claude responde:
+{ "aprendizados": [
+    { "tipo": "objecao_superada", "regra": "...", "contexto": "quando aplicar" },
+    { "tipo": "abordagem_eficaz", "regra": "...", "contexto": "..." }
+  ]
+}</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step process">
+      <span class="step-badge badge-process">LEARN</span>
+      <div class="step-title">training.learn(agentKey, tipo, regra, contexto)</div>
+      <div class="step-detail">
+        Para cada aprendizado extraido:<br>
+        - Se ja existe (agente+tipo+regra iguais): incrementa <code>vezes_aplicada</code> e <code>confianca +0.05</code><br>
+        - Se nao existe: INSERT com <code>confianca=0.5</code>, <code>fonte='automatico'</code>
+      </div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step output">
+      <span class="step-badge badge-output">INJECAO NO PROMPT</span>
+      <div class="step-title">training.getTrainingContext(agentKey)</div>
+      <div class="step-detail">
+        Busca top 15 regras ativas (confianca >= 0.3) agrupadas por tipo:<br>
+        Objecoes superadas | Abordagens eficazes | Insights regionais | Insights de persona | Frases que convertem | Erros a evitar | Timing ideal
+      </div>
+      <div class="step-code">// Injetado como:
+\n\nAPRENDIZADOS DAS CONVERSAS ANTERIORES:
+Objecoes que funcionaram:
+- Lead de provedor pequeno responde melhor quando...
+Abordagens eficazes:
+- Mencionar o efeito de rede regional gera mais interesse...</div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div style="max-width:680px;margin:0 auto;">
+    <div class="step-title" style="margin-bottom:12px;">Ciclo de Confianca</div>
+    <table class="info-table">
+      <tr><th>Metodo</th><th>Efeito</th><th>Resultado</th></tr>
+      <tr><td>learn() — primeira vez</td><td>confianca = 0.5</td><td>Regra nova criada</td></tr>
+      <tr><td>learn() — duplicada</td><td>confianca += 0.05</td><td>Reforco natural</td></tr>
+      <tr><td>recordSuccess()</td><td>confianca += 0.1</td><td>Regra validada</td></tr>
+      <tr><td>recordFailure()</td><td>confianca -= 0.1</td><td>Regra penalizada</td></tr>
+      <tr><td>disable()</td><td>ativo = 0</td><td>Regra desativada</td></tr>
+      <tr><td style="color:#ef4444;">confianca &lt; 0.3</td><td colspan="2">Regra nao aparece no contexto (filtrada automaticamente)</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ==================== SUPERVISOR ==================== -->
+<div id="supervisor" class="section">
+  <div class="flow-title">Supervisor: Diana (Orquestracao Multi-Agente)</div>
+  <div class="flow-subtitle">
+    Diana nao executa — ela planeja, delega e consolida. Usada para demandas de marketing e coordenacao entre agentes.<br>
+    <strong>Implementado em:</strong> supervisor.js | <strong>Routes:</strong> /api/supervisor/*
+  </div>
+
+  <div class="flow">
+    <div class="flow-step trigger">
+      <span class="step-badge badge-trigger">DEMANDA</span>
+      <div class="step-title">POST /api/supervisor/run</div>
+      <div class="step-detail">Recebe demanda de alto nivel. Ex: "Criar campanha de lancamento para regiao Sul"</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step agent">
+      <span class="step-badge badge-agent">DIANA PLANEJA</span>
+      <div class="step-title">createDemand(demanda, contexto)</div>
+      <div class="step-detail">
+        Diana analisa a demanda e cria plano de execucao em JSON:<br>
+        Cada tarefa tem: ordem, agente, tarefa (descricao), briefing, depende_de, prioridade.
+      </div>
+      <div class="step-code">// Diana retorna:
+{ "plano_execucao": [
+    { "ordem": 1, "agente": "sofia", "tarefa": "Estrategia regional", "briefing": "...", "depende_de": null },
+    { "ordem": 2, "agente": "leo", "tarefa": "Criar copy ads", "briefing": "...", "depende_de": 1 },
+    { "ordem": 2, "agente": "marcos", "tarefa": "Configurar campanha", "briefing": "...", "depende_de": 1 },
+    { "ordem": 3, "agente": "diana", "tarefa": "Consolidar e lançar", "briefing": "...", "depende_de": 2 }
+  ]
+}</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step process">
+      <span class="step-badge badge-process">EXECUTA PLANO</span>
+      <div class="step-title">executePlan(taskId)</div>
+      <div class="step-detail">
+        Agrupa tarefas por <code>ordem</code>. Executa mesma ordem em <strong>paralelo</strong> (Promise.all).<br>
+        Tarefas com <code>depende_de</code> recebem resultado da tarefa anterior no briefing.<br>
+        Ordens diferentes executam <strong>sequencialmente</strong>.
+      </div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="branch">
+      <div class="flow-step agent" style="font-size:12px;">
+        <span class="step-badge badge-agent" style="font-size:9px;">ORDEM 1</span>
+        <div class="step-title" style="font-size:14px;">Sofia: Estrategia</div>
+        <div class="step-detail">Executa sequencialmente</div>
+      </div>
+      <div class="flow-step agent" style="font-size:12px;">
+        <span class="step-badge badge-agent" style="font-size:9px;">ORDEM 2 (PARALELO)</span>
+        <div class="step-title" style="font-size:14px;">Leo + Marcos</div>
+        <div class="step-detail">Promise.all() — ambos em paralelo</div>
+      </div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step agent">
+      <span class="step-badge badge-agent">DIANA CONSOLIDA</span>
+      <div class="step-title">_consolidateResults(task)</div>
+      <div class="step-detail">
+        Diana recebe todos os resultados, avalia qualidade de cada entrega, e gera relatorio consolidado com proximos passos.
+      </div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step output">
+      <span class="step-badge badge-output">RESULTADO</span>
+      <div class="step-title">Retorna consolidacao + resultados detalhados + tokens totais</div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div style="max-width:680px;margin:0 auto;">
+    <div class="step-title" style="margin-bottom:12px;">Endpoints do Supervisor</div>
+    <table class="info-table">
+      <tr><th>Metodo</th><th>Rota</th><th>Funcao</th></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/supervisor/demand</td><td>Cria plano (sem executar)</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/supervisor/execute/:taskId</td><td>Executa plano existente</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/supervisor/run</td><td>Cria + executa em um passo</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/supervisor/analyze</td><td>Diana analisa e recomenda</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/supervisor/delegate</td><td>Delega tarefa para agente</td></tr>
+      <tr><td><span class="tag tag-blue">GET</span></td><td>/api/supervisor/tasks</td><td>Lista todas as tasks</td></tr>
+      <tr><td><span class="tag tag-blue">GET</span></td><td>/api/supervisor/tasks/:taskId</td><td>Status de uma task</td></tr>
+      <tr><td><span class="tag tag-blue">GET</span></td><td>/api/supervisor/report</td><td>Relatorio da equipe</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ==================== ADS ==================== -->
+<div id="ads" class="section">
+  <div class="flow-title">Fluxo de Midia Paga (Marcos)</div>
+  <div class="flow-subtitle">
+    Gerenciamento automatizado de Meta Ads + Google Ads com otimizacao por IA.<br>
+    <strong>Implementado em:</strong> ads-optimizer.js, meta-ads.js, google-ads.js | <strong>Routes:</strong> /api/ads/*
+  </div>
+
+  <div class="flow">
+    <div class="flow-step trigger">
+      <span class="step-badge badge-trigger">CRIACAO</span>
+      <div class="step-title">Campanha criada via API ou Diana</div>
+      <div class="step-detail">POST /api/ads/meta/campaigns ou /api/ads/google/campaigns com objetivo, orcamento, segmentacao.</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step process">
+      <span class="step-badge badge-process">MONITORAMENTO</span>
+      <div class="step-title">ads-optimizer.js — regras automaticas</div>
+      <div class="step-detail">Avalia metricas periodicamente e aplica regras pre-configuradas:</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="branch">
+      <div class="flow-step" style="border-color:#ef4444;">
+        <div class="step-title" style="color:#f87171;font-size:14px;">Meta Ads Rules</div>
+        <div class="step-detail" style="font-size:12px;">
+          Pausar: CPL > 2x target por 3+ dias<br>
+          Alerta: CTR &lt; 0.5%<br>
+          Alerta: Frequencia > 4<br>
+          Escalar: +30% budget se CPL &lt; 70% target<br>
+          Pausar: 0 leads com gasto > 3x CPL target
+        </div>
+      </div>
+      <div class="flow-step" style="border-color:#3b82f6;">
+        <div class="step-title" style="color:#60a5fa;font-size:14px;">Google Ads Rules</div>
+        <div class="step-detail" style="font-size:12px;">
+          Regras similares por CPA<br>
+          Auto negative keywords: gratis, curso, emprego, etc.<br>
+          Ajuste de lances por performance<br>
+          Segmentacao telecom/ISP/fibra
+        </div>
+      </div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step agent">
+      <span class="step-badge badge-agent">MARCOS (IA)</span>
+      <div class="step-title">Analise estrategica e recomendacoes</div>
+      <div class="step-detail">Marcos analisa performance e sugere otimizacoes alem das regras automaticas. Coordena com Leo (copy) e Sofia (estrategia) via Diana quando necessario.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== PROSPECCAO ==================== -->
+<div id="prospecting" class="section">
+  <div class="flow-title">Fluxo de Prospeccao em Massa</div>
+  <div class="flow-subtitle">
+    Envio outbound para listas de provedores via WhatsApp.<br>
+    <strong>Implementado em:</strong> orchestrator.sendOutbound() | <strong>Route:</strong> POST /api/prospectar
+  </div>
+
+  <div class="flow">
+    <div class="flow-step trigger">
+      <span class="step-badge badge-trigger">INICIO</span>
+      <div class="step-title">POST /api/prospectar</div>
+      <div class="step-detail">Recebe lista de telefones, agente (default: carlos), mensagem e configuracao de campanha.</div>
+      <div class="step-code">{ telefones: ["5511...", "5521..."], agente: "carlos",
+  mensagem: "Ola, somos o Consulta ISP...", campanha: "sul-q1-2026" }</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step process">
+      <span class="step-badge badge-process">CAMPANHA</span>
+      <div class="step-title">Cria ou vincula campanha</div>
+      <div class="step-detail">Se informado nome de campanha, cria registro na tabela <code>campanhas</code> para tracking.</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step process">
+      <span class="step-badge badge-process">LOOP</span>
+      <div class="step-title">Para cada telefone na lista</div>
+      <div class="step-detail">Processa sequencialmente com delay para nao sobrecarregar Z-API.</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step agent">
+      <span class="step-badge badge-agent">AGENTE PERSONALIZA</span>
+      <div class="step-title">orchestrator.sendOutbound(phone, agentKey, message)</div>
+      <div class="step-detail">
+        1. Cria lead se nao existe (etapa_funil='prospeccao', origem='outbound')<br>
+        2. Claude personaliza a mensagem para cada lead<br>
+        3. Envia via Z-API<br>
+        4. Salva na tabela conversas<br>
+        5. Quando lead responde, entra no fluxo normal de WhatsApp
+      </div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="flow-step output">
+      <span class="step-badge badge-output">RESULTADO</span>
+      <div class="step-title">Retorna total enviados, falhas e IDs dos leads criados</div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== DATABASE ==================== -->
+<div id="database" class="section">
+  <div class="flow-title">Banco de Dados (SQLite + WAL)</div>
+  <div class="flow-subtitle">
+    Esquema completo com 9 tabelas + indices. Arquivo: data/agentes.db<br>
+    <strong>Implementado em:</strong> database.js
+  </div>
+
+  <div class="agent-grid">
+    <div class="agent-card" style="border-left: 3px solid #3b82f6;">
+      <h3 style="color:#60a5fa;">leads</h3>
+      <div class="role">Tabela principal do CRM</div>
+      <ul>
+        <li>telefone (UNIQUE), nome, provedor, cidade, estado, regiao</li>
+        <li>porte, erp, num_clientes, decisor, email, cargo, site</li>
+        <li>score_perfil (0-50), score_comportamento (0-50), score_total</li>
+        <li>classificacao (frio/morno/quente/ultra_quente)</li>
+        <li>etapa_funil, agente_atual, origem, valor_estimado</li>
+      </ul>
+    </div>
+    <div class="agent-card" style="border-left: 3px solid #8b5cf6;">
+      <h3 style="color:#a78bfa;">conversas</h3>
+      <div class="role">Log de mensagens</div>
+      <ul>
+        <li>lead_id (FK), agente, direcao (recebida/enviada)</li>
+        <li>mensagem, tipo, canal (whatsapp)</li>
+        <li>tokens_usados, tempo_resposta_ms</li>
+        <li>metadata (JSON: acao, notas)</li>
+      </ul>
+    </div>
+    <div class="agent-card" style="border-left: 3px solid #22c55e;">
+      <h3 style="color:#4ade80;">atividades_agentes</h3>
+      <div class="role">Log de atividades</div>
+      <ul>
+        <li>agente, tipo, descricao</li>
+        <li>lead_id, decisao, score_antes, score_depois</li>
+        <li>tokens_usados, tempo_ms</li>
+      </ul>
+    </div>
+    <div class="agent-card" style="border-left: 3px solid #f59e0b;">
+      <h3 style="color:#fbbf24;">handoffs</h3>
+      <div class="role">Historico de transferencias</div>
+      <ul>
+        <li>lead_id, de_agente, para_agente</li>
+        <li>motivo, score_no_momento</li>
+      </ul>
+    </div>
+    <div class="agent-card" style="border-left: 3px solid #ec4899;">
+      <h3 style="color:#f472b6;">treinamento_agentes</h3>
+      <div class="role">Regras aprendidas</div>
+      <ul>
+        <li>agente, tipo, regra, contexto, fonte</li>
+        <li>confianca (0.0-1.0), vezes_aplicada, vezes_sucesso</li>
+        <li>ativo (0/1)</li>
+      </ul>
+    </div>
+    <div class="agent-card" style="border-left: 3px solid #06b6d4;">
+      <h3 style="color:#22d3ee;">metricas_diarias</h3>
+      <div class="role">KPIs por agente/dia</div>
+      <ul>
+        <li>data + agente (UNIQUE)</li>
+        <li>mensagens_enviadas/recebidas, leads_novos/qualificados</li>
+        <li>demos_agendadas, propostas_enviadas, contratos_fechados</li>
+        <li>tokens_consumidos, valor_pipeline</li>
+      </ul>
+    </div>
+    <div class="agent-card" style="border-left: 3px solid #64748b;">
+      <h3 style="color:#94a3b8;">tarefas</h3>
+      <div class="role">Fila de tarefas</div>
+      <ul>
+        <li>lead_id, agente, tipo (demo/proposta/handoff)</li>
+        <li>descricao, status, prioridade, data_limite</li>
+      </ul>
+    </div>
+    <div class="agent-card" style="border-left: 3px solid #a855f7;">
+      <h3 style="color:#c084fc;">campanhas</h3>
+      <div class="role">Campanhas de prospeccao</div>
+      <ul>
+        <li>nome, tipo, agente, regiao, status</li>
+        <li>total_enviados, total_respondidos, total_qualificados</li>
+        <li>mensagem_template</li>
+      </ul>
+    </div>
+    <div class="agent-card" style="border-left: 3px solid #334155;">
+      <h3 style="color:#64748b;">sessoes_agentes</h3>
+      <div class="role">Sessoes ativas</div>
+      <ul>
+        <li>lead_id, agente, session_id, ativo</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== API ROUTES ==================== -->
+<div id="api" class="section">
+  <div class="flow-title">API Routes</div>
+  <div class="flow-subtitle">
+    Todas as rotas REST disponibilizadas pelo servidor Express na porta 3001.
+  </div>
+
+  <div style="max-width:900px;margin:0 auto;">
+    <div class="step-title" style="margin:16px 0 8px;">Core API (/api)</div>
+    <table class="info-table">
+      <tr><th style="width:60px;">Metodo</th><th style="width:240px;">Rota</th><th>Descricao</th></tr>
+      <tr><td><span class="tag tag-blue">GET</span></td><td>/api/stats</td><td>Dashboard stats (leads, classificacao, etapa, mensagens, tarefas)</td></tr>
+      <tr><td><span class="tag tag-blue">GET</span></td><td>/api/metricas/historico</td><td>Metricas diarias (7 dias)</td></tr>
+      <tr><td><span class="tag tag-blue">GET</span></td><td>/api/metricas/agentes</td><td>Metricas por agente hoje</td></tr>
+      <tr><td><span class="tag tag-blue">GET</span></td><td>/api/funil</td><td>Funil de vendas</td></tr>
+      <tr><td><span class="tag tag-blue">GET</span></td><td>/api/leads</td><td>Listar leads (com filtros)</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/leads</td><td>Criar lead manualmente</td></tr>
+      <tr><td><span class="tag tag-blue">GET</span></td><td>/api/leads/:id</td><td>Detalhe do lead + conversas</td></tr>
+      <tr><td><span class="tag tag-amber">PUT</span></td><td>/api/leads/:id</td><td>Atualizar lead</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/send</td><td>Enviar mensagem manual</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/prospectar</td><td>Prospeccao em massa</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/conteudo</td><td>Gerar conteudo (Leo)</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/estrategia</td><td>Gerar estrategia (Sofia)</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/transferir</td><td>Transferir lead entre agentes</td></tr>
+      <tr><td><span class="tag tag-blue">GET</span></td><td>/api/skills/status</td><td>Status dos arquivos de skills</td></tr>
+      <tr><td><span class="tag tag-blue">GET</span></td><td>/api/skills/test/:agent/:taskType</td><td>Testar skill injection</td></tr>
+      <tr><td><span class="tag tag-blue">GET</span></td><td>/api/training/stats</td><td>Estatisticas do treinamento</td></tr>
+      <tr><td><span class="tag tag-blue">GET</span></td><td>/api/training/rules/:agent</td><td>Regras de um agente</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/training/learn</td><td>Registrar regra manualmente</td></tr>
+    </table>
+
+    <div class="step-title" style="margin:24px 0 8px;">Webhook (/webhook)</div>
+    <table class="info-table">
+      <tr><th style="width:60px;">Metodo</th><th style="width:240px;">Rota</th><th>Descricao</th></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/webhook/zapi</td><td>Recebe mensagem do WhatsApp (Z-API)</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/webhook/zapi/status</td><td>Status de entrega/leitura</td></tr>
+    </table>
+
+    <div class="step-title" style="margin:24px 0 8px;">Ads (/api/ads)</div>
+    <table class="info-table">
+      <tr><th style="width:60px;">Metodo</th><th style="width:240px;">Rota</th><th>Descricao</th></tr>
+      <tr><td><span class="tag tag-blue">GET</span></td><td>/api/ads/meta/campaigns</td><td>Listar campanhas Meta</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/ads/meta/campaigns</td><td>Criar campanha Meta</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/ads/optimizer/run</td><td>Rodar otimizacao automatica</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/ads/ai/planner</td><td>Marcos planeja campanha</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/ads/ai/reporter</td><td>Marcos gera relatorio</td></tr>
+      <tr><td colspan="3" style="color:#64748b;font-size:12px;">+ Google Ads endpoints similares (campaigns, adgroups, keywords, RSAs)</td></tr>
+    </table>
+
+    <div class="step-title" style="margin:24px 0 8px;">Supervisor (/api/supervisor)</div>
+    <table class="info-table">
+      <tr><th style="width:60px;">Metodo</th><th style="width:240px;">Rota</th><th>Descricao</th></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/supervisor/demand</td><td>Criar plano de execucao</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/supervisor/execute/:taskId</td><td>Executar plano existente</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/supervisor/run</td><td>Criar + executar (one-shot)</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/supervisor/analyze</td><td>Analise e recomendacao</td></tr>
+      <tr><td><span class="tag tag-green">POST</span></td><td>/api/supervisor/delegate</td><td>Delegar tarefa para agente</td></tr>
+      <tr><td><span class="tag tag-blue">GET</span></td><td>/api/supervisor/report</td><td>Relatorio consolidado equipe</td></tr>
+      <tr><td><span class="tag tag-blue">GET</span></td><td>/api/supervisor/tasks</td><td>Listar tasks ativas</td></tr>
+    </table>
+  </div>
+</div>
+
+</main>
+
+<script>
+function showSection(id) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  event.target.classList.add('active');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+</script>
+</body>
+</html>

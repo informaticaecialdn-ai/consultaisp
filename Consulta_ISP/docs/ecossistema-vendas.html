@@ -1,0 +1,266 @@
+<\!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ecossistema de Vendas - Consulta ISP</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+.container { max-width: 1200px; margin: 0 auto; padding: 40px 20px; }
+h1 { text-align: center; font-size: 2.2rem; margin-bottom: 8px; background: linear-gradient(135deg, #60a5fa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.subtitle { text-align: center; color: #94a3b8; font-size: 1rem; margin-bottom: 40px; }
+.agents-row { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-bottom: 32px; }
+.agent-card { background: #1e293b; border-radius: 16px; padding: 24px 20px; width: 210px; text-align: center; border: 2px solid transparent; transition: all 0.3s; position: relative; }
+.agent-card:hover { transform: translateY(-4px); box-shadow: 0 8px 30px rgba(0,0,0,0.3); }
+.agent-card.marketing { border-color: #f472b6; }
+.agent-card.marketing:hover { box-shadow: 0 8px 30px rgba(244,114,182,0.2); }
+.agent-card.copywriter { border-color: #fbbf24; }
+.agent-card.copywriter:hover { box-shadow: 0 8px 30px rgba(251,191,36,0.2); }
+.agent-card.prevendas { border-color: #34d399; }
+.agent-card.prevendas:hover { box-shadow: 0 8px 30px rgba(52,211,153,0.2); }
+.agent-card.vendas { border-color: #60a5fa; }
+.agent-card.vendas:hover { box-shadow: 0 8px 30px rgba(96,165,250,0.2); }
+.agent-card.closer { border-color: #a78bfa; }
+.agent-card.closer:hover { box-shadow: 0 8px 30px rgba(167,139,250,0.2); }
+.agent-avatar { width: 64px; height: 64px; border-radius: 50%; margin: 0 auto 12px; display: flex; align-items: center; justify-content: center; font-size: 28px; }
+.marketing .agent-avatar { background: linear-gradient(135deg, #f472b6, #ec4899); }
+.copywriter .agent-avatar { background: linear-gradient(135deg, #fbbf24, #f59e0b); }
+.prevendas .agent-avatar { background: linear-gradient(135deg, #34d399, #10b981); }
+.vendas .agent-avatar { background: linear-gradient(135deg, #60a5fa, #3b82f6); }
+.closer .agent-avatar { background: linear-gradient(135deg, #a78bfa, #8b5cf6); }
+.agent-name { font-size: 1.1rem; font-weight: 700; margin-bottom: 4px; }
+.agent-role { font-size: 0.8rem; color: #94a3b8; margin-bottom: 12px; }
+.agent-id { font-size: 0.65rem; color: #475569; font-family: monospace; word-break: break-all; }
+.agent-tasks { text-align: left; font-size: 0.78rem; color: #cbd5e1; margin-top: 10px; line-height: 1.5; }
+.agent-tasks li { margin-bottom: 4px; list-style: none; }
+.agent-tasks li::before { content: "→ "; color: #60a5fa; }
+.flow-section { background: #1e293b; border-radius: 16px; padding: 32px; margin-bottom: 24px; }
+.flow-title { font-size: 1.3rem; font-weight: 700; margin-bottom: 20px; text-align: center; }
+.flow-diagram { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+.flow-step { background: #0f172a; border-radius: 12px; padding: 14px 18px; text-align: center; min-width: 140px; }
+.flow-step .step-num { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+.flow-step .step-name { font-weight: 700; font-size: 0.95rem; }
+.flow-step .step-agent { font-size: 0.75rem; color: #94a3b8; }
+.flow-arrow { font-size: 1.5rem; color: #60a5fa; }
+.flow-step.s1 { border-left: 3px solid #f472b6; }
+.flow-step.s1 .step-num { color: #f472b6; }
+.flow-step.s2 { border-left: 3px solid #fbbf24; }
+.flow-step.s2 .step-num { color: #fbbf24; }
+.flow-step.s3 { border-left: 3px solid #34d399; }
+.flow-step.s3 .step-num { color: #34d399; }
+.flow-step.s4 { border-left: 3px solid #60a5fa; }
+.flow-step.s4 .step-num { color: #60a5fa; }
+.flow-step.s5 { border-left: 3px solid #a78bfa; }
+.flow-step.s5 .step-num { color: #a78bfa; }
+.reverse-flows { margin-top: 20px; }
+.reverse-flows h3 { font-size: 1rem; margin-bottom: 12px; color: #f87171; }
+.reverse-flow { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 0.85rem; color: #cbd5e1; }
+.reverse-flow .rev-arrow { color: #f87171; font-size: 1.2rem; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 24px; }
+.stat-card { background: #0f172a; border-radius: 12px; padding: 20px; text-align: center; }
+.stat-value { font-size: 1.8rem; font-weight: 800; }
+.stat-label { font-size: 0.8rem; color: #94a3b8; margin-top: 4px; }
+.model-badge { display: inline-block; background: #1e293b; border: 1px solid #60a5fa; border-radius: 6px; padding: 2px 8px; font-size: 0.7rem; font-family: monospace; color: #60a5fa; margin-top: 8px; }
+.scoring-section { background: #1e293b; border-radius: 16px; padding: 32px; margin-bottom: 24px; }
+.scoring-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 16px; }
+.scoring-col h3 { font-size: 1rem; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #334155; }
+.score-item { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 0.85rem; }
+.score-item .pts { color: #34d399; font-weight: 600; }
+.classification { margin-top: 20px; }
+.class-item { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 0.85rem; }
+.class-dot { width: 12px; height: 12px; border-radius: 50%; }
+.class-dot.cold { background: #60a5fa; }
+.class-dot.warm { background: #fbbf24; }
+.class-dot.hot { background: #f97316; }
+.class-dot.ultra { background: #ef4444; }
+footer { text-align: center; margin-top: 40px; color: #475569; font-size: 0.8rem; }
+@media (max-width: 768px) {
+  .agents-row { flex-direction: column; align-items: center; }
+  .scoring-grid { grid-template-columns: 1fr; }
+  .flow-diagram { flex-direction: column; }
+  .flow-arrow { transform: rotate(90deg); }
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Ecossistema de Vendas - Consulta ISP</h1>
+  <p class="subtitle">5 Agentes Autonomos | Claude Platform | Modelo claude-opus-4-6</p>
+
+  <div class="agents-row">
+    <div class="agent-card marketing">
+      <div class="agent-avatar">📣</div>
+      <div class="agent-name">Sofia</div>
+      <div class="agent-role">Marketing</div>
+      <div class="agent-id">agent_011Ca5mPLbzjTfKFnLn3VAkM</div>
+      <span class="model-badge">claude-opus-4-6</span>
+      <ul class="agent-tasks">
+        <li>Campanhas Inbound/Outbound</li>
+        <li>Instagram e redes sociais</li>
+        <li>Email marketing e nurturing</li>
+        <li>Regionalizacao estrategica</li>
+      </ul>
+    </div>
+    <div class="agent-card copywriter">
+      <div class="agent-avatar">✍️</div>
+      <div class="agent-name">Leo</div>
+      <div class="agent-role">Copywriter</div>
+      <div class="agent-id">agent_011Ca5mcHZYB3Ki3hRphRZVg</div>
+      <span class="model-badge">claude-opus-4-6</span>
+      <ul class="agent-tasks">
+        <li>Posts Instagram e Reels</li>
+        <li>Copy WhatsApp e email</li>
+        <li>Landing pages e site</li>
+        <li>Materiais de venda</li>
+      </ul>
+    </div>
+    <div class="agent-card prevendas">
+      <div class="agent-avatar">🔍</div>
+      <div class="agent-name">Carlos</div>
+      <div class="agent-role">Pre-Vendas (SDR/BDR/LDR)</div>
+      <div class="agent-id">agent_011Ca5mnFkBMp7ktd2N5c3zN</div>
+      <span class="model-badge">claude-opus-4-6</span>
+      <ul class="agent-tasks">
+        <li>Prospeccao por regiao</li>
+        <li>Lead scoring (0-100)</li>
+        <li>Qualificacao Inbound/Outbound</li>
+        <li>Handoff para Vendas</li>
+      </ul>
+    </div>
+    <div class="agent-card vendas">
+      <div class="agent-avatar">🤝</div>
+      <div class="agent-name">Lucas</div>
+      <div class="agent-role">Vendas</div>
+      <div class="agent-id">agent_011Ca5n9NNsdPT8D5ttKpd6j</div>
+      <span class="model-badge">claude-opus-4-6</span>
+      <ul class="agent-tasks">
+        <li>Demos personalizadas</li>
+        <li>Negociacao e ROI</li>
+        <li>Gestao do pipeline</li>
+        <li>Follow-up estrategico</li>
+      </ul>
+    </div>
+    <div class="agent-card closer">
+      <div class="agent-avatar">🎯</div>
+      <div class="agent-name">Rafael</div>
+      <div class="agent-role">Closer</div>
+      <div class="agent-id">agent_011Ca5nJJ6QSfbx1gLf2ku5N</div>
+      <span class="model-badge">claude-opus-4-6</span>
+      <ul class="agent-tasks">
+        <li>6 tecnicas de fechamento</li>
+        <li>Objecoes finais</li>
+        <li>Contrato e assinatura</li>
+        <li>Onboarding pos-venda</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="flow-section">
+    <div class="flow-title">Funil de Vendas Completo</div>
+    <div class="flow-diagram">
+      <div class="flow-step s1">
+        <div class="step-num">Etapa 1</div>
+        <div class="step-name">Atracao</div>
+        <div class="step-agent">Sofia (Marketing)</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step s2">
+        <div class="step-num">Etapa 2</div>
+        <div class="step-name">Conteudo</div>
+        <div class="step-agent">Leo (Copywriter)</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step s3">
+        <div class="step-num">Etapa 3</div>
+        <div class="step-name">Qualificacao</div>
+        <div class="step-agent">Carlos (Pre-Vendas)</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step s4">
+        <div class="step-num">Etapa 4</div>
+        <div class="step-name">Venda</div>
+        <div class="step-agent">Lucas (Vendas)</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step s5">
+        <div class="step-num">Etapa 5</div>
+        <div class="step-name">Fechamento</div>
+        <div class="step-agent">Rafael (Closer)</div>
+      </div>
+    </div>
+
+    <div class="reverse-flows">
+      <h3>Fluxos Reversos</h3>
+      <div class="reverse-flow">
+        <span class="rev-arrow">←</span>
+        <span>Lead frio (score 0-30): Carlos devolve para Sofia para nurturing</span>
+      </div>
+      <div class="reverse-flow">
+        <span class="rev-arrow">←</span>
+        <span>Lead esfriou pos-demo: Lucas devolve para Carlos ou Sofia</span>
+      </div>
+      <div class="reverse-flow">
+        <span class="rev-arrow">←</span>
+        <span>Motivo de perda: Rafael reporta feedback para toda equipe</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="scoring-section">
+    <div class="flow-title">Lead Scoring - Carlos (Pre-Vendas)</div>
+    <div class="scoring-grid">
+      <div class="scoring-col">
+        <h3>Perfil (0-50 pts)</h3>
+        <div class="score-item"><span>Provedor grande</span><span class="pts">+30</span></div>
+        <div class="score-item"><span>Provedor medio</span><span class="pts">+20</span></div>
+        <div class="score-item"><span>Regiao com ISPs no sistema</span><span class="pts">+20</span></div>
+        <div class="score-item"><span>ERP compativel</span><span class="pts">+10</span></div>
+        <div class="score-item"><span>Decisor identificado</span><span class="pts">+10</span></div>
+      </div>
+      <div class="scoring-col">
+        <h3>Comportamento (0-50 pts)</h3>
+        <div class="score-item"><span>Pediu demonstracao</span><span class="pts">+25</span></div>
+        <div class="score-item"><span>Participou de webinar</span><span class="pts">+20</span></div>
+        <div class="score-item"><span>Mencionou inadimplencia</span><span class="pts">+20</span></div>
+        <div class="score-item"><span>Fez perguntas</span><span class="pts">+15</span></div>
+        <div class="score-item"><span>Baixou material rico</span><span class="pts">+15</span></div>
+        <div class="score-item"><span>Respondeu mensagem</span><span class="pts">+10</span></div>
+      </div>
+    </div>
+    <div class="classification">
+      <div class="class-item"><div class="class-dot cold"></div><strong>0-30:</strong> Lead Frio → Nurturing (Sofia)</div>
+      <div class="class-item"><div class="class-dot warm"></div><strong>31-60:</strong> Lead Morno → Continuar qualificacao (Carlos)</div>
+      <div class="class-item"><div class="class-dot hot"></div><strong>61-80:</strong> Lead Quente → Agendar com Vendas (Lucas)</div>
+      <div class="class-item"><div class="class-dot ultra"></div><strong>81-100:</strong> Ultra Quente → Prioridade maxima (Lucas)</div>
+    </div>
+  </div>
+
+  <div class="flow-section">
+    <div class="flow-title">Resumo do Ecossistema</div>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-value" style="color:#60a5fa">5</div>
+        <div class="stat-label">Agentes Ativos</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color:#a78bfa">opus-4-6</div>
+        <div class="stat-label">Modelo Utilizado</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color:#34d399">6</div>
+        <div class="stat-label">ERPs Integrados</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" style="color:#fbbf24">100</div>
+        <div class="stat-label">Score Maximo Lead</div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Consulta ISP - Ecossistema de Vendas com IA | Gerado em 15/04/2026 | Claude Platform
+  </footer>
+</div>
+</body>
+</html>
