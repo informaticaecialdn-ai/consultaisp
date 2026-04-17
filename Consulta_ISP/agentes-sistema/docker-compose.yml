@@ -37,6 +37,36 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ============================================================
+  # Litestream — replicacao continua do SQLite (data/agentes.db)
+  # ------------------------------------------------------------
+  # Desativado por padrao. Ativar no Sprint 1 descomentando o
+  # bloco abaixo e preenchendo as LITESTREAM_* no .env.
+  # Requer:
+  #   1) litestream.yml preenchido (endpoint, bucket, region)
+  #   2) Vars no .env: LITESTREAM_B2_BUCKET, *_REGION, *_ENDPOINT,
+  #      *_KEY_ID, *_APP_KEY (ou equivalentes AWS)
+  #   3) Volume `./data` compartilhado com o container `agentes`
+  # Docs: https://litestream.io/guides/docker/
+  # ============================================================
+  # litestream:
+  #   image: litestream/litestream:0.3
+  #   container_name: consulta-isp-litestream
+  #   depends_on:
+  #     - agentes
+  #   env_file:
+  #     - .env
+  #   volumes:
+  #     - ./data:/data
+  #     - ./litestream.yml:/etc/litestream.yml:ro
+  #   command: replicate -config /etc/litestream.yml
+  #   restart: unless-stopped
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-size: "10m"
+  #       max-file: "3"
+
 volumes:
   caddy_data:
   caddy_config:

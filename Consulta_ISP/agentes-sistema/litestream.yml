@@ -1,0 +1,56 @@
+# ============================================================
+# Litestream  |  Consulta ISP - agentes-sistema
+# ============================================================
+# Replicacao continua do SQLite (data/agentes.db) para storage
+# remoto S3-compativel (AWS S3 ou Backblaze B2).
+#
+# Substitua ${VAR} no momento de rodar; todas as credenciais
+# vem do .env (que NUNCA deve ser comitado). Exemplo:
+#
+#   docker run --env-file .env litestream/litestream:0.3 \
+#     -config /etc/litestream.yml replicate
+#
+# Docs: https://litestream.io/reference/config/
+# ============================================================
+
+# Diretorio local onde o Litestream mantem estado transacional
+# (WAL shadow frames). Nao versionar.
+addr: ":9090"  # endpoint /metrics (Prometheus-compatible)
+
+# Intervalo de snapshot full — 24h cobre bem o caso de uso
+# (tamanho do DB esperado < 500 MB, changes baixas por dia).
+# Pontos de sync incrementais sao continuos (sub-segundo).
+# ------------------------------------------------------------
+
+dbs:
+  - path: /data/agentes.db
+    # Sync interval entre flushes do WAL para o replica. Default 1s.
+    replicas:
+      # ---- Backblaze B2 (S3-compatible endpoint) ---------------
+      - name: b2
+        type: s3
+        bucket: ${LITESTREAM_B2_BUCKET}
+        path: agentes-sistema/agentes.db
+        region: ${LITESTREAM_B2_REGION}           # ex: us-west-002
+        endpoint: ${LITESTREAM_B2_ENDPOINT}       # ex: https://s3.us-west-002.backblazeb2.com
+        access-key-id: ${LITESTREAM_B2_KEY_ID}
+        secret-access-key: ${LITESTREAM_B2_APP_KEY}
+        # Retencao dos snapshots + WAL segments
+        retention: 168h            # 7 dias
+        retention-check-interval: 1h
+        snapshot-interval: 24h
+        sync-interval: 1s
+        validation-interval: 24h
+
+      # ---- AWS S3 (opcional - fallback / region secundaria) ----
+      # Descomente SE for ativar replica redundante em AWS.
+      # - name: aws
+      #   type: s3
+      #   bucket: ${LITESTREAM_AWS_BUCKET}
+      #   path: agentes-sistema/agentes.db
+      #   region: ${LITESTREAM_AWS_REGION}         # ex: sa-east-1
+      #   access-key-id: ${LITESTREAM_AWS_KEY_ID}
+      #   secret-access-key: ${LITESTREAM_AWS_SECRET_KEY}
+      #   retention: 168h
+      #   snapshot-interval: 24h
+      #   sync-interval: 1s
