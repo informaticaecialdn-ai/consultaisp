@@ -1,5 +1,5 @@
 const claude = require('./claude');
-const db = require('../models/database');
+const { getDb } = require('../models/database');
 
 class SupervisorService {
   constructor() {
@@ -283,7 +283,8 @@ Crie um relatorio executivo com:
   // Helpers
   _getLeadCount() {
     try {
-      const result = db.get('SELECT COUNT(*) as total FROM leads');
+      const db = getDb();
+      const result = db.prepare('SELECT COUNT(*) as total FROM leads').get();
       return result?.total || 0;
     } catch (e) {
       return 0;
@@ -292,14 +293,15 @@ Crie um relatorio executivo com:
 
   _getRecentActivities(periodo) {
     try {
+      const db = getDb();
       const dias = parseInt(periodo) || 7;
-      const result = db.all(`
+      const result = db.prepare(`
         SELECT agente, tipo, descricao, criado_em
         FROM atividades_agentes
-        WHERE criado_em > datetime('now', '-${dias} days')
+        WHERE criado_em > datetime('now', ?)
         ORDER BY criado_em DESC
         LIMIT 50
-      `);
+      `).all(`-${dias} days`);
       return result || [];
     } catch (e) {
       return [];
@@ -308,10 +310,11 @@ Crie um relatorio executivo com:
 
   _logActivity(agente, tipo, descricao) {
     try {
-      db.run(`
+      const db = getDb();
+      db.prepare(`
         INSERT INTO atividades_agentes (agente, tipo, descricao, criado_em)
         VALUES (?, ?, ?, datetime('now'))
-      `, [agente, tipo, descricao]);
+      `).run(agente, tipo, descricao);
     } catch (e) {
       console.error('[SUPERVISOR] Erro ao logar atividade:', e.message);
     }

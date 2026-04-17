@@ -42,8 +42,9 @@ app.listen(PORT, () => {
 
   // Feature 1: Scheduler de follow-ups (a cada 5 minutos)
   const followup = require('./services/followup');
-  setInterval(() => {
+  const followupInterval = setInterval(() => {
     followup.processFollowups().catch(e => console.error('[FOLLOWUP] Erro scheduler:', e.message));
   }, 5 * 60 * 1000);
+  followupInterval.unref();
   console.log('  [SCHEDULER] Follow-up checker ativo (5 min)');
 });

@@ -7,6 +7,9 @@ const FOLLOWUP_HOURS = [24, 48, 72];
 const MAX_TENTATIVAS = 3;
 
 class FollowupService {
+  constructor() {
+    this._processing = false;
+  }
 
   /**
    * Agenda follow-up para um lead (chamado apos agente responder e nao haver followup ativo)
@@ -50,55 +53,76 @@ class FollowupService {
 
   /**
    * Processa followups pendentes (rodar a cada 5 min via setInterval)
+   * Lock atomico in-memory evita execucoes concorrentes sobrepostas.
    */
   async processFollowups() {
-    const db = getDb();
-    const now = new Date().toISOString();
+    if (this._processing) {
+      console.log('[FOLLOWUP] Ja em processamento, ignorando tick concorrente');
+      return;
+    }
+    this._processing = true;
+    try {
+      const db = getDb();
+      const now = new Date().toISOString();
 
-    const pendentes = db.prepare(
-      "SELECT f.*, l.telefone, l.nome, l.provedor, l.agente_atual FROM followups f JOIN leads l ON f.lead_id = l.id WHERE f.status = 'pendente' AND f.proximo_envio <= ?"
-    ).all(now);
+      const pendentes = db.prepare(
+        "SELECT f.*, l.telefone, l.nome, l.provedor, l.agente_atual FROM followups f JOIN leads l ON f.lead_id = l.id WHERE f.status = 'pendente' AND f.proximo_envio <= ?"
+      ).all(now);
 
-    if (pendentes.length === 0) return;
+      if (pendentes.length === 0) return;
 
-    console.log(`[FOLLOWUP] Processando ${pendentes.length} followups`);
+      console.log(`[FOLLOWUP] Processando ${pendentes.length} followups`);
 
-    for (const f of pendentes) {
-      try {
-        // Gerar mensagem de follow-up via Claude
-        const result = await claude.sendToAgent(f.agente,
-          `Gere um follow-up curto (max 2 frases) para o lead ${f.nome || 'desconhecido'} do provedor ${f.provedor || '?'}. Esta e a tentativa ${f.tentativa} de ${MAX_TENTATIVAS}. Ultima mensagem: "${(f.mensagem_original || '').substring(0, 200)}". Tom: amigavel, sem pressao, mostre que lembrou dele. SEM markdown.`,
-          { leadData: { nome: f.nome, provedor: f.provedor } }
-        );
+      // Reivindica linhas atomicamente (claim) para evitar duplicidade caso o lock
+      // in-memory seja contornado (ex: multiplas instancias do processo)
+      const claim = db.prepare(
+        "UPDATE followups SET status = 'processando' WHERE id = ? AND status = 'pendente'"
+      );
 
-        // Enviar via Z-API
-        await zapi.sendText(f.telefone, result.resposta);
+      for (const f of pendentes) {
+        const claimed = claim.run(f.id);
+        if (claimed.changes === 0) continue; // outro worker ja pegou
 
-        // Registrar conversa
-        db.prepare(
-          "INSERT INTO conversas (lead_id, agente, direcao, mensagem, tipo, canal) VALUES (?, ?, 'enviada', ?, 'followup', 'whatsapp')"
-        ).run(f.lead_id, f.agente, result.resposta);
+        try {
+          // Gerar mensagem de follow-up via Claude
+          const result = await claude.sendToAgent(f.agente,
+            `Gere um follow-up curto (max 2 frases) para o lead ${f.nome || 'desconhecido'} do provedor ${f.provedor || '?'}. Esta e a tentativa ${f.tentativa} de ${MAX_TENTATIVAS}. Ultima mensagem: "${(f.mensagem_original || '').substring(0, 200)}". Tom: amigavel, sem pressao, mostre que lembrou dele. SEM markdown.`,
+            { leadData: { nome: f.nome, provedor: f.provedor } }
+          );
 
-        // Marcar como enviado
-        db.prepare("UPDATE followups SET status = 'enviado' WHERE id = ?").run(f.id);
+          // Enviar via Z-API
+          await zapi.sendText(f.telefone, result.resposta);
 
-        // Agendar proximo followup se nao atingiu max
-        if (f.tentativa < MAX_TENTATIVAS) {
-          const proxHoras = FOLLOWUP_HOURS[f.tentativa] || 72;
-          const proximoEnvio = new Date(Date.now() + proxHoras * 60 * 60 * 1000).toISOString();
+          // Registrar conversa
           db.prepare(
-            'INSERT INTO followups (lead_id, agente, mensagem_original, tentativa, proximo_envio) VALUES (?,?,?,?,?)'
-          ).run(f.lead_id, f.agente, result.resposta, f.tentativa + 1, proximoEnvio);
+            "INSERT INTO conversas (lead_id, agente, direcao, mensagem, tipo, canal) VALUES (?, ?, 'enviada', ?, 'followup', 'whatsapp')"
+          ).run(f.lead_id, f.agente, result.resposta);
+
+          // Marcar como enviado
+          db.prepare("UPDATE followups SET status = 'enviado' WHERE id = ?").run(f.id);
+
+          // Agendar proximo followup se nao atingiu max
+          if (f.tentativa < MAX_TENTATIVAS) {
+            const proxHoras = FOLLOWUP_HOURS[f.tentativa] || 72;
+            const proximoEnvio = new Date(Date.now() + proxHoras * 60 * 60 * 1000).toISOString();
+            db.prepare(
+              'INSERT INTO followups (lead_id, agente, mensagem_original, tentativa, proximo_envio) VALUES (?,?,?,?,?)'
+            ).run(f.lead_id, f.agente, result.resposta, f.tentativa + 1, proximoEnvio);
+          }
+
+          console.log(`[FOLLOWUP] Enviado tentativa ${f.tentativa} para ${f.telefone}`);
+
+          // Delay entre envios
+          await new Promise(r => setTimeout(r, 3000));
+
+        } catch (err) {
+          console.error(`[FOLLOWUP] Erro lead ${f.lead_id}:`, err.message);
+          // Devolve o item para a fila em caso de erro
+          db.prepare("UPDATE followups SET status = 'pendente' WHERE id = ? AND status = 'processando'").run(f.id);
         }
-
-        console.log(`[FOLLOWUP] Enviado tentativa ${f.tentativa} para ${f.telefone}`);
-
-        // Delay entre envios
-        await new Promise(r => setTimeout(r, 3000));
-
-      } catch (err) {
-        console.error(`[FOLLOWUP] Erro lead ${f.lead_id}:`, err.message);
       }
+    } finally {
+      this._processing = false;
     }
   }
 

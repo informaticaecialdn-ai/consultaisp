@@ -62,21 +62,21 @@ class ClaudeAgentService {
     const fullMessage = contextStr ? `${contextStr}\n\nMENSAGEM DO LEAD:\n${message}` : message;
 
     try {
+      // Garante alternancia de roles user/assistant (API da Anthropic exige isso)
+      const messages = this._buildMessages(context.historico, fullMessage);
+
       // Usa a API de Messages com o system prompt do agente
       const response = await this.client.messages.create({
         model: agent.model,
         max_tokens: 2048,
         system: this._getSystemPrompt(agentKey, context),
-        messages: [
-          ...(context.historico || []),
-          { role: 'user', content: fullMessage }
-        ]
+        messages
       });
 
       const resposta = response.content[0].text;
-      
+
       console.log(`[CLAUDE] ${agent.name} respondeu (${resposta.length} chars)`);
-      
+
       return {
         agente: agentKey,
         resposta,
@@ -121,14 +121,12 @@ Responda APENAS com JSON valido:
 }`;
 
     try {
+      const messages = this._buildMessages(leadData.historico, analysisPrompt);
       const response = await this.client.messages.create({
         model: agent.model,
         max_tokens: 2048,
         system: this._getSystemPrompt(agentKey, { leadData, lastMessage: leadData.historico?.[leadData.historico.length - 1]?.content }),
-        messages: [
-          ...(leadData.historico || []),
-          { role: 'user', content: analysisPrompt }
-        ]
+        messages
       });
 
       const text = response.content[0].text;
@@ -271,6 +269,45 @@ Elabore a estrategia solicitada com acoes praticas e cronograma.
     }
 
     return prompt;
+  }
+
+  /**
+   * Monta messages garantindo alternancia user/assistant exigida pela API da Anthropic.
+   * - Normaliza roles invalidos para 'user'
+   * - Colapsa mensagens consecutivas do mesmo role concatenando conteudo
+   * - Garante que a primeira mensagem seja 'user'
+   * - Adiciona a mensagem final do usuario e, se necessario, colapsa com a anterior
+   */
+  _buildMessages(historico, finalUserMessage) {
+    const normalized = [];
+    const src = Array.isArray(historico) ? historico : [];
+
+    for (const raw of src) {
+      if (!raw || typeof raw.content !== 'string' || raw.content.trim() === '') continue;
+      const role = raw.role === 'assistant' ? 'assistant' : 'user';
+      const content = raw.content;
+      const last = normalized[normalized.length - 1];
+      if (last && last.role === role) {
+        last.content = `${last.content}\n\n${content}`;
+      } else {
+        normalized.push({ role, content });
+      }
+    }
+
+    // Garante que a primeira mensagem seja 'user'
+    if (normalized.length > 0 && normalized[0].role === 'assistant') {
+      normalized.shift();
+    }
+
+    // Adiciona a mensagem final; se o ultimo ja for user, colapsa
+    const last = normalized[normalized.length - 1];
+    if (last && last.role === 'user') {
+      last.content = `${last.content}\n\n${finalUserMessage}`;
+    } else {
+      normalized.push({ role: 'user', content: finalUserMessage });
+    }
+
+    return normalized;
   }
 
   // 11B-6: Parser JSON robusto com multiplas tentativas
