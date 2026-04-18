@@ -746,26 +746,77 @@ router.post('/audiencias/count', (req, res) => {
   } catch (err) { bad(res, err.message); }
 });
 
-// POST /api/templates
-router.post('/templates', (req, res) => {
-  const { nome, conteudo, agente, descricao, ja_aprovado_meta } = req.body;
-  if (!nome || !conteudo) return bad(res, 'nome e conteudo obrigatorios');
-  try {
-    const tpl = templatesService.create({ nome, conteudo, agente, descricao, ja_aprovado_meta });
-    res.status(201).json({ template: tpl });
-  } catch (err) {
-    bad(res, err.message);
-  }
-});
-
+// === TEMPLATES (Sprint 4 / T5) — CRUD completo com Zod ===
 router.get('/templates', (req, res) => {
   res.json({ templates: templatesService.list(req.query) });
+});
+
+router.post('/templates', validate(schemas.template), (req, res) => {
+  try {
+    const tpl = templatesService.create(req.body);
+    res.status(201).json({ template: tpl });
+  } catch (err) { bad(res, err.message); }
 });
 
 router.get('/templates/:id', (req, res) => {
   const tpl = templatesService.getById(parseInt(req.params.id));
   if (!tpl) return bad(res, 'template nao encontrado', 404);
   res.json({ template: tpl });
+});
+
+router.put('/templates/:id', validate(schemas.templateUpdate), (req, res) => {
+  const id = parseInt(req.params.id);
+  const current = templatesService.getById(id);
+  if (!current) return bad(res, 'template nao encontrado', 404);
+  try {
+    const tpl = templatesService.update(id, req.body);
+    res.json({ template: tpl });
+  } catch (err) { bad(res, err.message); }
+});
+
+router.delete('/templates/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  const current = templatesService.getById(id);
+  if (!current) return bad(res, 'template nao encontrado', 404);
+  templatesService.remove(id); // soft delete ativo=0
+  res.json({ success: true, soft_deleted: true });
+});
+
+// GET /api/templates/:id/render?leadId=X
+router.get('/templates/:id/render', (req, res) => {
+  const id = parseInt(req.params.id);
+  const leadId = parseInt(req.query.leadId);
+  if (!leadId) return bad(res, 'leadId obrigatorio');
+  const result = templatesService.renderForLead(id, leadId);
+  if (!result) return bad(res, 'template nao encontrado', 404);
+  res.json(result);
+});
+
+// GET /api/templates/:id/preview?audienciaId=Y&n=3
+router.get('/templates/:id/preview', (req, res) => {
+  const id = parseInt(req.params.id);
+  const audienciaId = parseInt(req.query.audienciaId);
+  const n = Math.min(10, Math.max(1, parseInt(req.query.n) || 3));
+  if (!audienciaId) return bad(res, 'audienciaId obrigatorio');
+  const samples = templatesService.previewWithSamples(id, audienciaId, n);
+  if (!samples) return bad(res, 'template nao encontrado', 404);
+  res.json({ samples });
+});
+
+// POST /api/templates/:id/clone
+router.post('/templates/:id/clone', (req, res) => {
+  const id = parseInt(req.params.id);
+  const cloned = templatesService.clone(id, { nome: req.body?.nome });
+  if (!cloned) return bad(res, 'template nao encontrado', 404);
+  res.status(201).json({ template: cloned });
+});
+
+// POST /api/templates/render-preview — render live no editor (sem persistir)
+router.post('/templates/render-preview', (req, res) => {
+  const { conteudo, vars } = req.body || {};
+  if (typeof conteudo !== 'string') return bad(res, 'conteudo obrigatorio (string)');
+  if (conteudo.length > 4096) return bad(res, 'conteudo max 4096 chars');
+  res.json(templatesService.renderPreview(conteudo, vars || {}));
 });
 
 // ---- Smoke test endpoint (Sprint 5 / T5) ----
