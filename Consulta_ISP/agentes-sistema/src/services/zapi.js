@@ -111,15 +111,21 @@ class ZApiService {
     }
   }
 
-  // Configura webhook
+  // Configura webhook (Sprint 2 / T2: inclui header HMAC via ZAPI_WEBHOOK_TOKEN)
   async setWebhook(webhookUrl) {
     try {
+      const hmacToken = process.env.ZAPI_WEBHOOK_TOKEN;
+      const body = { value: webhookUrl };
+      // Z-API aceita headers customizados para autenticar o callback de volta
+      if (hmacToken) {
+        body.headers = [{ name: 'X-Z-API-Token', value: hmacToken }];
+      }
       const response = await axios.put(
         `${this.apiUrl}/update-webhook-received`,
-        { value: webhookUrl },
+        body,
         { headers: this.headers }
       );
-      console.log(`[Z-API] Webhook configurado: ${webhookUrl}`);
+      console.log(`[Z-API] Webhook configurado: ${webhookUrl}${hmacToken ? ' (com HMAC)' : ''}`);
       return response.data;
     } catch (error) {
       console.error(`[Z-API] Erro ao configurar webhook:`, error.response?.data || error.message);

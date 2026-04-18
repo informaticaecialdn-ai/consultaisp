@@ -13,8 +13,44 @@ function detectStopKeyword(text) {
   return STOP_KEYWORDS.some(k => normalized === k || normalized.startsWith(k + ' '));
 }
 
+// Sprint 2 / T2: validacao de token Z-API via header x-z-api-token
+function validateZapiToken(req, res) {
+  const expected = process.env.ZAPI_WEBHOOK_TOKEN;
+  const enforce = process.env.ZAPI_WEBHOOK_ENFORCE === 'true';
+  const provided = req.get('x-z-api-token') || req.get('X-Z-API-Token') || '';
+
+  if (!expected) {
+    if (enforce) {
+      console.error('[WEBHOOK-HMAC] enforce=true mas ZAPI_WEBHOOK_TOKEN ausente no .env');
+      res.status(401).json({ error: 'webhook_token_not_configured' });
+      return false;
+    }
+    return true;
+  }
+
+  if (!provided) {
+    if (enforce) {
+      res.status(401).json({ error: 'webhook_token_missing' });
+      return false;
+    }
+    console.warn('[WEBHOOK-HMAC] token ausente (modo log-only, enforce=false)');
+    return true;
+  }
+
+  if (provided !== expected) {
+    if (enforce) {
+      res.status(401).json({ error: 'webhook_token_invalid' });
+      return false;
+    }
+    console.warn('[WEBHOOK-HMAC] token divergente (modo log-only, enforce=false)');
+    return true;
+  }
+  return true;
+}
+
 // Webhook Z-API - recebe mensagens do WhatsApp
 router.post('/zapi', async (req, res) => {
+  if (!validateZapiToken(req, res)) return;
   try {
     const data = req.body;
 
@@ -83,6 +119,7 @@ router.post('/zapi', async (req, res) => {
 
 // Feature 4: Webhook Z-API - status de entrega/leitura
 router.post('/zapi/status', (req, res) => {
+  if (!validateZapiToken(req, res)) return;
   try {
     const data = req.body;
     const messageId = data.id || data.messageId || data.ids?.[0];
