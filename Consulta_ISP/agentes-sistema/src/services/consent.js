@@ -1,7 +1,11 @@
-// Opt-in/opt-out tracking (stub minimal para Sprint 5).
-// Sprint 4 / T3 estende com gatilhos de palavras-chave (STOP, SAIR, PARAR).
+// Opt-in/opt-out tracking (Sprint 2 / T3).
+// Usa tabela lead_opt_out (migration 008-sprint4-stubs.sql).
 
 const { getDb } = require('../models/database');
+
+// Regex ESTRITA: match apenas se a mensagem for EXATAMENTE uma dessas palavras-chave.
+// Evita falso-positivo tipo "vou parar de fumar" marcando opt-out.
+const OPT_OUT_REGEX = /^(STOP|SAIR|PARAR|CANCELAR|UNSUBSCRIBE|SAIA|REMOVA|REMOVER|NAO QUERO MAIS|CANCELE|DESCADASTRAR)\.?\s*$/i;
 
 function normalizePhone(phone) {
   if (!phone) return '';
@@ -17,7 +21,7 @@ function canSendTo(phone) {
       'SELECT * FROM lead_opt_out WHERE telefone = ?'
     ).get(telefone);
     if (row) {
-      return { allowed: false, reason: `opt-out registrado em ${row.criado_em}` };
+      return { allowed: false, reason: `opt-out registrado em ${row.criado_em}`, record: row };
     }
   } catch (err) {
     // tabela pode nao existir em ambiente legado
@@ -45,4 +49,34 @@ function clearOptOut(phone) {
   return res.changes > 0;
 }
 
-module.exports = { canSendTo, markOptOut, clearOptOut, normalizePhone };
+// Sprint 2 / T3: detecta mensagem de opt-out com regex estrita (match exato).
+function detectOptOutFromMessage(text) {
+  if (!text) return false;
+  const normalized = String(text).trim();
+  if (!normalized) return false;
+  return OPT_OUT_REGEX.test(normalized);
+}
+
+function listOptOuts({ limit = 100, offset = 0 } = {}) {
+  const db = getDb();
+  return db.prepare(
+    'SELECT * FROM lead_opt_out ORDER BY criado_em DESC LIMIT ? OFFSET ?'
+  ).all(parseInt(limit), parseInt(offset));
+}
+
+function getOptOut(phone) {
+  const telefone = normalizePhone(phone);
+  if (!telefone) return null;
+  const db = getDb();
+  return db.prepare('SELECT * FROM lead_opt_out WHERE telefone = ?').get(telefone) || null;
+}
+
+module.exports = {
+  canSendTo,
+  markOptOut,
+  clearOptOut,
+  detectOptOutFromMessage,
+  listOptOuts,
+  getOptOut,
+  normalizePhone,
+};

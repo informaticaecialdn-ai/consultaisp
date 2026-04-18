@@ -762,6 +762,35 @@ router.get('/consent/:telefone', (req, res) => {
   res.json(consent.canSendTo(req.params.telefone));
 });
 
+// === CONSENTIMENTO (Sprint 2 / T3) - CRUD admin sobre lead_opt_out ===
+// GET /api/consentimento - lista paginada
+router.get('/consentimento', (req, res) => {
+  const { limit = 100, offset = 0 } = req.query;
+  const items = consent.listOptOuts({ limit, offset });
+  res.json({ items, total: items.length });
+});
+
+// GET /api/consentimento/:telefone - detalhe
+router.get('/consentimento/:telefone', (req, res) => {
+  const row = consent.getOptOut(req.params.telefone);
+  if (!row) return res.status(404).json({ error: 'telefone nao encontrado em lead_opt_out' });
+  res.json({ optout: row });
+});
+
+// POST /api/consentimento/:telefone/optout - admin marca opt-out manualmente
+router.post('/consentimento/:telefone/optout', (req, res) => {
+  const { motivo, canal } = req.body || {};
+  const ok = consent.markOptOut(req.params.telefone, motivo || 'admin_manual', canal || 'admin');
+  if (!ok) return bad(res, 'telefone invalido');
+  res.json({ success: true });
+});
+
+// DELETE /api/consentimento/:telefone - admin reverte opt-out
+router.delete('/consentimento/:telefone', (req, res) => {
+  const ok = consent.clearOptOut(req.params.telefone);
+  res.json({ success: ok });
+});
+
 // ---- Admin / kill switch (Sprint 5 / T5) ----
 function requireAdminConfirm(req, res, next) {
   if (req.headers['x-admin-confirm'] !== 'yes') {

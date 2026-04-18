@@ -6,6 +6,7 @@ const followup = require('./followup');
 const abTesting = require('./ab-testing');
 const instagram = require('./instagram');
 const emailSender = require('./email-sender');
+const consent = require('./consent');
 
 class Orchestrator {
 
@@ -104,6 +105,13 @@ class Orchestrator {
   // 11B-5: Delay configuravel na prospeccao
   async sendOutbound(phone, agentKey, message, delayMs = 0) {
     const db = getDb();
+
+    // Sprint 2 / T3: bloqueia outbound para telefones com opt-out registrado
+    const consentCheck = consent.canSendTo(phone);
+    if (!consentCheck.allowed) {
+      console.warn(`[ORCHESTRATOR] sendOutbound BLOQUEADO para ${phone}: ${consentCheck.reason}`);
+      return { blocked: true, reason: 'optout', detail: consentCheck.reason, agente: agentKey };
+    }
 
     if (delayMs > 0) {
       await new Promise(resolve => setTimeout(resolve, delayMs));

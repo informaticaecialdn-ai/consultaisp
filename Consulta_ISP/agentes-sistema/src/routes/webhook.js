@@ -4,14 +4,8 @@ const orchestrator = require('../services/orchestrator');
 const { getDb } = require('../models/database');
 const consent = require('../services/consent');
 const campanhasService = require('../services/campanhas');
-
-const STOP_KEYWORDS = ['STOP', 'PARAR', 'SAIR', 'CANCELAR', 'DESCADASTRAR'];
-
-function detectStopKeyword(text) {
-  if (!text) return false;
-  const normalized = String(text).trim().toUpperCase();
-  return STOP_KEYWORDS.some(k => normalized === k || normalized.startsWith(k + ' '));
-}
+const followup = require('../services/followup');
+const zapi = require('../services/zapi');
 
 // Sprint 2 / T2: validacao de token Z-API via header x-z-api-token
 function validateZapiToken(req, res) {
@@ -72,11 +66,24 @@ router.post('/zapi', async (req, res) => {
 
     console.log(`[WEBHOOK] Mensagem de ${phone}: ${message.substring(0, 80)}...`);
 
-    // Sprint 5 / T3: detecta opt-out via palavras-chave (STOP/PARAR/SAIR) e marca
-    // consent antes de processar. Respostas do lead tambem atualizam campanha_envios.
-    if (detectStopKeyword(message)) {
-      consent.markOptOut(phone, `keyword:${String(message).trim().substring(0, 30)}`, 'whatsapp');
-      console.log(`[WEBHOOK] Opt-out registrado via keyword para ${phone}`);
+    // Sprint 2 / T3: opt-out automatico com regex ESTRITA antes do orchestrator.
+    // Cancela followups, marca opt-out e responde confirmacao. NAO processa mensagem.
+    if (consent.detectOptOutFromMessage(message)) {
+      consent.markOptOut(phone, 'mensagem_stop', 'webhook');
+      try {
+        const db = getDb();
+        const lead = db.prepare('SELECT id FROM leads WHERE telefone = ?').get(phone);
+        if (lead) followup.cancelFollowups(lead.id);
+      } catch (err) {
+        console.warn('[WEBHOOK] falha ao cancelar followups no opt-out:', err.message);
+      }
+      try {
+        await zapi.sendText(phone, 'Voce foi removido da nossa lista. Nao recebera mais mensagens. Obrigado!');
+      } catch (err) {
+        console.warn('[WEBHOOK] falha ao enviar confirmacao de opt-out:', err.message);
+      }
+      console.log(`[WEBHOOK] Opt-out registrado via mensagem STOP para ${phone}`);
+      return res.status(200).json({ ok: true, action: 'optout' });
     }
 
     // Marca resposta no campanha_envios se lead recebeu broadcast recente
