@@ -179,6 +179,8 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
       <div class="nav-item" data-page="pipeline"><span class="nav-icon">📈</span>Pipeline</div>
       <div class="nav-item" data-page="leads"><span class="nav-icon">👥</span>Leads</div>
       <div class="nav-item" data-page="conversas"><span class="nav-icon">💬</span>Conversas</div>
+      <div class="nav-item" data-page="audiencias"><span class="nav-icon">🎯</span>Audiencias</div>
+      <div class="nav-item" data-page="templates"><span class="nav-icon">📝</span>Templates</div>
     </div>
     <div class="nav-section">
       <div class="nav-section-title">Operacoes</div>
@@ -292,6 +294,31 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- AUDIENCIAS PAGE (Sprint 4 / T4) -->
+    <div class="page" id="page-audiencias">
+      <div class="page-header">
+        <h1>Audiencias</h1>
+        <div class="page-header-actions">
+          <button class="btn btn-primary" onclick="window.AudienciasUI && window.AudienciasUI.openCreate()">+ Nova Audiencia</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><h2>Lista</h2></div>
+        <div class="panel-body no-pad" id="audiencias-list"></div>
+      </div>
+    </div>
+
+    <!-- TEMPLATES PAGE (Sprint 4 / T5) -->
+    <div class="page" id="page-templates">
+      <div class="page-header">
+        <h1>Templates</h1>
+        <div class="page-header-actions">
+          <button class="btn btn-primary" onclick="window.TemplatesUI && window.TemplatesUI.openCreate()">+ Novo Template</button>
+        </div>
+      </div>
+      <div id="templates-grid" class="grid-3"></div>
     </div>
 
     <!-- MONITOR PAGE -->
@@ -497,7 +524,7 @@ function goPage(page){
     const el=document.getElementById('page-'+page);
     if(el){el.classList.add('active');document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add('active')}
     else { showError('Pagina "'+page+'" nao encontrada no DOM. Verifique /status.html'); return; }
-    const loaders={dashboard:loadDashboard,pipeline:loadPipeline,leads:loadLeads,conversas:loadConversas,monitor:loadMonitor,tarefas:loadTarefas,relatorios:()=>loadReports('7'),funil:loadFunil,prospectar:loadCampaigns,campanhas:()=>window.CampanhasUI && window.CampanhasUI.load()};
+    const loaders={dashboard:loadDashboard,pipeline:loadPipeline,leads:loadLeads,conversas:loadConversas,monitor:loadMonitor,tarefas:loadTarefas,relatorios:()=>loadReports('7'),funil:loadFunil,prospectar:loadCampaigns,campanhas:()=>window.CampanhasUI && window.CampanhasUI.load(),audiencias:()=>window.loadAudiencias && window.loadAudiencias(),templates:()=>window.loadTemplates && window.loadTemplates()};
     if(loaders[page]) {
       Promise.resolve(loaders[page]()).catch(err => showError('Erro ao carregar "'+page+'": '+err.message));
     }
@@ -903,6 +930,22 @@ loadDashboard();
 <script src="/js/cards/cost-card.js"></script>
 <script src="/js/cards/health-card.js"></script>
 <script src="/js/cards/errors-card.js"></script>
+
+<!-- Sprint 4 — Audiencias + Templates -->
+<script src="/js/cards/audiencias-list.js"></script>
+<script src="/js/modals/new-audiencia.js"></script>
+<script src="/js/cards/template-card.js"></script>
+<script src="/js/modals/template-editor.js"></script>
+<script>
+window.loadAudiencias = function loadAudiencias(){
+  const el = document.getElementById('audiencias-list');
+  if (el && typeof window.loadAudienciasList === 'function') window.loadAudienciasList(el);
+};
+window.loadTemplates = function loadTemplates(){
+  const el = document.getElementById('templates-grid');
+  if (el && typeof window.loadTemplatesGrid === 'function') window.loadTemplatesGrid(el);
+};
+</script>
 <script>
 (function(){
   function renderOpsCards(){

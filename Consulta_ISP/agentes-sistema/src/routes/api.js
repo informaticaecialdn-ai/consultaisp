@@ -645,31 +645,105 @@ router.post('/campanhas/:id/preview', (req, res) => {
   res.json({ samples, total_leads: leads.length });
 });
 
-// ---- helpers de criacao para testes/smoke ----
-// POST /api/audiencias (endpoint minimal para Sprint 5 standalone)
-router.post('/audiencias', (req, res) => {
-  const { nome, descricao, tipo, filtros, lead_ids } = req.body;
-  if (!nome) return bad(res, 'nome obrigatorio');
-  try {
-    const aud = audienciasService.create({ nome, descricao, tipo, filtros });
-    if (Array.isArray(lead_ids) && lead_ids.length > 0) {
-      audienciasService.addLeads(aud.id, lead_ids);
-    }
-    const refreshed = audienciasService.getById(aud.id);
-    res.status(201).json({ audiencia: refreshed });
-  } catch (err) {
-    bad(res, err.message);
-  }
-});
-
+// === AUDIENCIAS (Sprint 4 / T4) — CRUD completo com Zod ===
 router.get('/audiencias', (req, res) => {
   res.json({ audiencias: audienciasService.list(req.query) });
+});
+
+router.post('/audiencias', validate(schemas.audienciaCreate), (req, res) => {
+  try {
+    const body = req.body;
+    let aud;
+    if (body.tipo === 'estatica') {
+      aud = audienciasService.createEstatica(
+        body.nome, body.descricao || null, body.lead_ids || [], body.criada_por || null
+      );
+    } else {
+      aud = audienciasService.createDinamica(
+        body.nome, body.descricao || null, body.filtros, body.criada_por || null
+      );
+    }
+    res.status(201).json({ audiencia: aud });
+  } catch (err) { bad(res, err.message); }
 });
 
 router.get('/audiencias/:id', (req, res) => {
   const aud = audienciasService.getById(parseInt(req.params.id));
   if (!aud) return bad(res, 'audiencia nao encontrada', 404);
   res.json({ audiencia: aud });
+});
+
+router.put('/audiencias/:id', validate(schemas.audienciaUpdate), (req, res) => {
+  const id = parseInt(req.params.id);
+  const current = audienciasService.getById(id);
+  if (!current) return bad(res, 'audiencia nao encontrada', 404);
+  try {
+    const aud = audienciasService.update(id, req.body);
+    res.json({ audiencia: aud });
+  } catch (err) { bad(res, err.message); }
+});
+
+router.delete('/audiencias/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  const aud = audienciasService.getById(id);
+  if (!aud) return bad(res, 'audiencia nao encontrada', 404);
+  audienciasService.remove(id); // soft delete
+  res.json({ success: true, soft_deleted: true });
+});
+
+router.get('/audiencias/:id/leads', (req, res) => {
+  const id = parseInt(req.params.id);
+  const limit = Math.min(10000, parseInt(req.query.limit) || 100);
+  const offset = Math.max(0, parseInt(req.query.offset) || 0);
+  const aud = audienciasService.getById(id);
+  if (!aud) return bad(res, 'audiencia nao encontrada', 404);
+  const leads = audienciasService.getLeads(id, { limit, offset });
+  res.json({ leads, total: aud.total_leads, limit, offset });
+});
+
+router.get('/audiencias/:id/preview', (req, res) => {
+  const id = parseInt(req.params.id);
+  const n = Math.min(20, Math.max(1, parseInt(req.query.n) || 5));
+  const aud = audienciasService.getById(id);
+  if (!aud) return bad(res, 'audiencia nao encontrada', 404);
+  res.json({ preview: audienciasService.previewLeads(id, n) });
+});
+
+router.post('/audiencias/:id/refresh-count', (req, res) => {
+  const id = parseInt(req.params.id);
+  const aud = audienciasService.getById(id);
+  if (!aud) return bad(res, 'audiencia nao encontrada', 404);
+  const total = audienciasService.resolveCount(id);
+  res.json({ success: true, total_leads: total });
+});
+
+router.post('/audiencias/:id/leads', (req, res) => {
+  const id = parseInt(req.params.id);
+  const leadIds = Array.isArray(req.body.lead_ids) ? req.body.lead_ids.map(Number).filter(Number.isFinite) : [];
+  if (leadIds.length === 0) return bad(res, 'lead_ids array vazio');
+  if (leadIds.length > 10000) return bad(res, 'max 10000 leads por request');
+  const aud = audienciasService.getById(id);
+  if (!aud) return bad(res, 'audiencia nao encontrada', 404);
+  if (aud.tipo !== 'estatica') return bad(res, 'so audiencia estatica aceita add-leads');
+  const added = audienciasService.addLeads(id, leadIds);
+  res.json({ success: true, added });
+});
+
+router.delete('/audiencias/:id/leads/:leadId', (req, res) => {
+  const id = parseInt(req.params.id);
+  const leadId = parseInt(req.params.leadId);
+  const aud = audienciasService.getById(id);
+  if (!aud) return bad(res, 'audiencia nao encontrada', 404);
+  const removed = audienciasService.removeLead(id, leadId);
+  res.json({ success: removed });
+});
+
+// Live count para UI (dinamica sem persistir): POST /api/audiencias/count
+router.post('/audiencias/count', (req, res) => {
+  try {
+    const total = audienciasService.countByFiltros(req.body?.filtros || {});
+    res.json({ total });
+  } catch (err) { bad(res, err.message); }
 });
 
 // POST /api/templates
