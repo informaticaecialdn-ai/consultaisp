@@ -6,7 +6,10 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test:integration": "node tests/test-integration.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:legacy-integration": "node tests/legacy/test-integration.js",
     "test:campanhas": "node tests/integration/campanhas.test.js",
     "test:smoke-broadcast": "node tests/integration/smoke-broadcast.test.js"
   },
@@ -30,6 +33,9 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0"
+    "@vitest/coverage-v8": "^4.1.4",
+    "nodemon": "^3.1.0",
+    "supertest": "^7.2.2",
+    "vitest": "^4.1.4"
   }
 }

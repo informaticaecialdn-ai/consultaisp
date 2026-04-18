@@ -1,17 +1,25 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 
-const dbPath = path.join(__dirname, '../../data/agentes.db');
+// Permite override via DB_PATH (testes usam :memory:).
+const dbPath = process.env.DB_PATH || path.join(__dirname, '../../data/agentes.db');
 let db;
 
 function getDb() {
   if (!db) {
-    const fs = require('fs');
-    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    if (dbPath !== ':memory:') {
+      const fs = require('fs');
+      fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    }
     db = new Database(dbPath);
-    db.pragma('journal_mode = WAL');
+    if (dbPath !== ':memory:') db.pragma('journal_mode = WAL');
   }
   return db;
+}
+
+// Helper para testes: fecha a conexao atual (caller precisa require-ar novamente).
+function _resetForTests() {
+  if (db) { try { db.close(); } catch { /* ignore */ } db = undefined; }
 }
 
 function initialize() {
@@ -229,4 +237,4 @@ function initialize() {
   console.log('[DB] Banco de dados inicializado com sucesso');
 }
 
-module.exports = { getDb, initialize };
+module.exports = { getDb, initialize, _resetForTests };
