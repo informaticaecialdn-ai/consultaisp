@@ -1,5 +1,6 @@
 const { getDb } = require('../models/database');
 const logger = require('../utils/logger');
+const claudeWrapper = require('../utils/claude-client');
 
 class TrainingService {
 
@@ -82,9 +83,10 @@ class TrainingService {
     return context;
   }
 
-  async analyzeConversation(agentKey, conversation, outcome, claudeClient) {
+  async analyzeConversation(agentKey, conversation, outcome, _claudeClientDeprecated) {
     try {
-      const response = await claudeClient.messages.create({
+      // Sprint 3 / T2: usa wrapper com tracking, ignora client injetado legado.
+      const response = await claudeWrapper.messages.create({
         model: 'claude-sonnet-4-6',
         max_tokens: 1024,
         system: 'Voce analisa conversas de vendas e extrai aprendizados acionaveis. Responda APENAS em JSON.',
@@ -106,7 +108,7 @@ Responda em JSON:
   ]
 }`
         }]
-      });
+      }, { agente: agentKey, contexto: 'training.analyzeConversation' });
 
       const text = response.content[0].text;
       const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -123,9 +125,10 @@ Responda em JSON:
     return [];
   }
 
-  async evaluateResponse(agentKey, leadId, conversaId, agentResponse, leadMessage, leadData, claudeClient) {
+  async evaluateResponse(agentKey, leadId, conversaId, agentResponse, leadMessage, leadData, _claudeClientDeprecated) {
     try {
-      const response = await claudeClient.messages.create({
+      // Sprint 3 / T2: usa wrapper com tracking.
+      const response = await claudeWrapper.messages.create({
         model: 'claude-sonnet-4-6',
         max_tokens: 512,
         system: 'Voce e um supervisor de vendas. Avalie a resposta do agente. Responda APENAS em JSON.',
@@ -147,7 +150,7 @@ Avalie em JSON:
   "tags": ["regiao", "porte", "erp"]
 }`
         }]
-      });
+      }, { agente: agentKey, lead_id: leadId, contexto: 'training.evaluateResponse' });
 
       const text = response.content[0].text;
       const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -182,7 +185,7 @@ Avalie em JSON:
 
         const count = db.prepare('SELECT COUNT(*) as c FROM avaliacoes WHERE agente = ?').get(agentKey).c;
         if (count % 10 === 0 && count > 0) {
-          this._analyzePatterns(agentKey, claudeClient).catch(e =>
+          this._analyzePatterns(agentKey).catch(e =>
             logger.error({ err: e.message }, '[TRAINING] erro patterns')
           );
         }
@@ -195,7 +198,7 @@ Avalie em JSON:
     return null;
   }
 
-  async _analyzePatterns(agentKey, claudeClient) {
+  async _analyzePatterns(agentKey) {
     const db = getDb();
     const recent = db.prepare(
       'SELECT * FROM avaliacoes WHERE agente = ? ORDER BY criado_em DESC LIMIT 10'
@@ -206,7 +209,7 @@ Avalie em JSON:
       try { return JSON.parse(a.problemas || '[]'); } catch { return []; }
     });
 
-    const response = await claudeClient.messages.create({
+    const response = await claudeWrapper.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 512,
       system: 'Analise padroes de avaliacao e sugira regras de melhoria. Responda em JSON.',
@@ -220,7 +223,7 @@ Sugestoes: ${recent.map(a => a.sugestao).filter(Boolean).join('; ')}
 Sugira ate 3 regras em JSON:
 { "regras": [{ "tipo": "...", "regra": "...", "contexto": "..." }] }`
       }]
-    });
+    }, { agente: agentKey, contexto: 'training._analyzePatterns' });
 
     const text = response.content[0].text;
     const jsonMatch = text.match(/\{[\s\S]*\}/);

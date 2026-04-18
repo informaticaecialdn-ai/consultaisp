@@ -1,6 +1,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const skillsKnowledge = require('./skills-knowledge');
 const logger = require('../utils/logger');
+const claudeWrapper = require('../utils/claude-client');
 
 class ClaudeAgentService {
   constructor() {
@@ -66,12 +67,17 @@ class ClaudeAgentService {
       // Garante alternancia de roles user/assistant (API da Anthropic exige isso)
       const messages = this._buildMessages(context.historico, fullMessage);
 
-      // Usa a API de Messages com o system prompt do agente
-      const response = await this.client.messages.create({
+      // Usa wrapper que persiste claude_usage (Sprint 3 / T2)
+      const response = await claudeWrapper.messages.create({
         model: agent.model,
         max_tokens: 2048,
         system: this._getSystemPrompt(agentKey, context),
         messages
+      }, {
+        agente: agentKey,
+        lead_id: context.leadData?.id || context.leadId || null,
+        contexto: 'sendToAgent',
+        correlation_id: context.correlationId || null,
       });
 
       const resposta = response.content[0].text;
@@ -123,11 +129,16 @@ Responda APENAS com JSON valido:
 
     try {
       const messages = this._buildMessages(leadData.historico, analysisPrompt);
-      const response = await this.client.messages.create({
+      const response = await claudeWrapper.messages.create({
         model: agent.model,
         max_tokens: 2048,
         system: this._getSystemPrompt(agentKey, { leadData, lastMessage: leadData.historico?.[leadData.historico.length - 1]?.content }),
         messages
+      }, {
+        agente: agentKey,
+        lead_id: leadData?.id || null,
+        contexto: 'analyzeAndDecide',
+        correlation_id: leadData?.correlationId || null,
       });
 
       const text = response.content[0].text;
@@ -139,11 +150,16 @@ Responda APENAS com JSON valido:
       // Retry: pede ao Claude pra reformatar
       logger.warn({ agente: agentKey }, '[CLAUDE] JSON malformado, tentando retry');
       try {
-        const retry = await this.client.messages.create({
+        const retry = await claudeWrapper.messages.create({
           model: agent.model,
           max_tokens: 1024,
           system: 'Reformate esta resposta como JSON valido. Responda APENAS o JSON, sem texto adicional.',
           messages: [{ role: 'user', content: text }]
+        }, {
+          agente: agentKey,
+          lead_id: leadData?.id || null,
+          contexto: 'analyzeAndDecide:retry',
+          correlation_id: leadData?.correlationId || null,
         });
         const retryText = retry.content[0].text;
         const retryParsed = this._parseJsonResponse(retryText);

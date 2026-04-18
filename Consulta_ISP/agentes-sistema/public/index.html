@@ -210,6 +210,8 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
     <div class="page active" id="page-dashboard">
       <div class="page-header"><h1>Dashboard</h1></div>
       <div class="stats-grid" id="dash-stats"></div>
+      <!-- Sprint 3 / T2+T4+T5: cards de observabilidade -->
+      <div class="stats-grid" id="dash-ops-cards" style="margin-bottom:20px"></div>
       <div class="grid-2-1">
         <div class="panel">
           <div class="panel-header"><h2>📈 Mensagens (7 dias)</h2></div>
@@ -896,5 +898,25 @@ loadDashboard();
 <script src="/js/cards/campanha-card.js"></script>
 <script src="/js/wizards/new-campanha.js"></script>
 <script src="/js/cards/kill-switch.js"></script>
+
+<!-- Sprint 3 — Observability cards -->
+<script src="/js/cards/cost-card.js"></script>
+<script src="/js/cards/health-card.js"></script>
+<script src="/js/cards/errors-card.js"></script>
+<script>
+(function(){
+  function renderOpsCards(){
+    const root = document.getElementById('dash-ops-cards');
+    if (!root) return;
+    root.innerHTML = '<div id="ops-cost"></div><div id="ops-health"></div><div id="ops-errors"></div>';
+    if (window.loadCostCard)   window.loadCostCard(document.getElementById('ops-cost'));
+    if (window.loadHealthCard) window.loadHealthCard(document.getElementById('ops-health'));
+    if (window.loadErrorsCard) window.loadErrorsCard(document.getElementById('ops-errors'));
+  }
+  // Carrega uma vez no boot e depois a cada 60s
+  setTimeout(renderOpsCards, 500);
+  setInterval(renderOpsCards, 60000);
+})();
+</script>
 </body>
 </html>

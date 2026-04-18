@@ -69,6 +69,10 @@ app.use('/', dashboardRoutes);
 // Initialize database
 db.initialize();
 
+// Sprint 3 / T2: inicia monitor de custo Claude (alerta diario)
+const costMonitor = require('./services/cost-monitor');
+costMonitor.start();
+
 app.listen(PORT, () => {
   console.log(`
   ╔══════════════════════════════════════════════╗

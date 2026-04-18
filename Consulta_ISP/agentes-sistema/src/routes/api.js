@@ -1072,6 +1072,67 @@ router.get('/relatorios/pdf', async (req, res) => {
   }
 });
 
+// === CUSTO CLAUDE (Sprint 3 / T2) ===
+function aggregateUsage(where, params = []) {
+  const db = getDb();
+  const totals = db.prepare(
+    `SELECT COALESCE(SUM(custo_usd),0) AS total_usd,
+            COALESCE(SUM(input_tokens),0) AS input_tokens,
+            COALESCE(SUM(output_tokens),0) AS output_tokens,
+            COUNT(*) AS chamadas
+     FROM claude_usage WHERE ${where}`
+  ).get(...params);
+  const porAgente = db.prepare(
+    `SELECT agente,
+            COALESCE(SUM(custo_usd),0) AS total_usd,
+            COUNT(*) AS chamadas
+     FROM claude_usage WHERE ${where}
+     GROUP BY agente ORDER BY total_usd DESC`
+  ).all(...params);
+  const porModelo = db.prepare(
+    `SELECT modelo,
+            COALESCE(SUM(custo_usd),0) AS total_usd,
+            COUNT(*) AS chamadas
+     FROM claude_usage WHERE ${where}
+     GROUP BY modelo ORDER BY total_usd DESC`
+  ).all(...params);
+  return { totals, por_agente: porAgente, por_modelo: porModelo };
+}
+
+router.get('/costs/today', (req, res) => {
+  const data = aggregateUsage("DATE(criado_em) = DATE('now')");
+  res.json({ period: 'today', ...data });
+});
+
+router.get('/costs/month', (req, res) => {
+  const data = aggregateUsage("criado_em >= DATE('now','start of month')");
+  res.json({ period: 'month', ...data });
+});
+
+router.get('/costs/range', (req, res) => {
+  const { from, to } = req.query;
+  if (!from || !to) return bad(res, 'parametros from e to sao obrigatorios (YYYY-MM-DD)');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+    return bad(res, 'from/to devem ser YYYY-MM-DD');
+  }
+  const data = aggregateUsage('DATE(criado_em) BETWEEN ? AND ?', [from, to]);
+  res.json({ period: { from, to }, ...data });
+});
+
+router.get('/costs/timeseries', (req, res) => {
+  const db = getDb();
+  const days = Math.min(365, Math.max(1, parseInt(req.query.days) || 30));
+  const rows = db.prepare(
+    `SELECT DATE(criado_em) AS dia,
+            COALESCE(SUM(custo_usd),0) AS total_usd,
+            COUNT(*) AS chamadas
+     FROM claude_usage
+     WHERE criado_em >= DATE('now', ?)
+     GROUP BY dia ORDER BY dia ASC`
+  ).all(`-${days} days`);
+  res.json({ days, serie: rows });
+});
+
 // === METRICAS DE ENTREGA ===
 router.get('/metricas/entrega', (req, res) => {
   try {
