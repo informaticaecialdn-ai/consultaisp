@@ -68,6 +68,10 @@ router.post('/zapi', async (req, res) => {
 
     logger.info({ phone: maskPhone(phone), preview: maskMessage(message) }, '[WEBHOOK] mensagem recebida');
 
+    // Sprint 4 / T3: inbound organico = opt-in implicito (se nao ha optout prevalente).
+    // Faz isso ANTES do opt-out detector porque markOptIn nao sobrescreve opt-out.
+    consent.markOptIn(phone, 'inbound_organico');
+
     // Sprint 2 / T3: opt-out automatico com regex ESTRITA antes do orchestrator.
     // Cancela followups, marca opt-out e responde confirmacao. NAO processa mensagem.
     if (consent.detectOptOutFromMessage(message)) {

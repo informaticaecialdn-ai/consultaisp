@@ -247,13 +247,33 @@ router.get('/leads/:id', (req, res) => {
   const db = getDb();
   const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(req.params.id);
   if (!lead) return res.status(404).json({ error: 'Lead nao encontrado' });
-  
+
   const conversas = db.prepare('SELECT * FROM conversas WHERE lead_id = ? ORDER BY criado_em ASC').all(lead.id);
   const tarefas = db.prepare('SELECT * FROM tarefas WHERE lead_id = ? ORDER BY criado_em DESC').all(lead.id);
   const handoffs = db.prepare(`SELECT * FROM handoffs WHERE lead_id = ? ORDER BY criado_em DESC`).all(lead.id);
   const atividades = db.prepare('SELECT * FROM atividades_agentes WHERE lead_id = ? ORDER BY criado_em DESC LIMIT 20').all(lead.id);
-  
+
   res.json({ lead, conversas, tarefas, handoffs, atividades });
+});
+
+// Sprint 4 / T3: check de janela 24h + consent para decidir freeform vs template.
+router.get('/leads/:id/can-send', async (req, res) => {
+  const windowChecker = require('../services/window-checker');
+  const consent = require('../services/consent');
+  const db = getDb();
+  const lead = db.prepare('SELECT id, telefone FROM leads WHERE id = ?').get(parseInt(req.params.id));
+  if (!lead) return res.status(404).json({ error: 'Lead nao encontrado' });
+
+  const freeform = await windowChecker.canSendFreeForm(lead.id);
+  const consentStatus = consent.getStatus(lead.telefone);
+  const anyOutbound = !consentStatus || consentStatus.status !== 'optout';
+
+  res.json({
+    lead_id: lead.id,
+    freeform,
+    any_outbound: { allowed: anyOutbound, reason: anyOutbound ? null : 'optout' },
+    consent: consentStatus,
+  });
 });
 
 router.put('/leads/:id', (req, res) => {
