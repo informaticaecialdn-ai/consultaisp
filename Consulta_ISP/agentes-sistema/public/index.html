@@ -522,10 +522,44 @@ function showError(msg){
   console.error('[showError]', msg);
 }
 
-// api() com error handling robusto + retry unico em falha de rede
+// --- Sprint 2 / T1: Bearer auth no dashboard ---
+function getAuthToken(){ try{ return localStorage.getItem('api_token') || ''; }catch{ return ''; } }
+function setAuthToken(t){ try{ localStorage.setItem('api_token', t); }catch{} }
+function promptForToken(reason){
+  const cur = getAuthToken();
+  const msg = reason ? (reason + '\n\nCole o API token (API_AUTH_TOKEN):') : 'Cole o API token (API_AUTH_TOKEN):';
+  const v = prompt(msg, cur);
+  if (v && v.trim()) { setAuthToken(v.trim()); renderTokenBanner(); return true; }
+  return false;
+}
+function renderTokenBanner(){
+  const exists = !!getAuthToken();
+  let bar = document.getElementById('auth-banner');
+  if (exists) { if (bar) bar.remove(); return; }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'auth-banner';
+    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#78350f;color:#fde68a;padding:8px 16px;z-index:9998;font-size:.8rem;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #f59e0b';
+    bar.innerHTML = '<span>Token API nao configurado - algumas rotas retornarao 401</span><button onclick="promptForToken()" style="background:#f59e0b;color:#111;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-weight:600">Configurar</button>';
+    document.body.appendChild(bar);
+  }
+}
+
+// api() com error handling robusto + retry unico em falha de rede + Bearer auth
 async function api(path, opts, _retry) {
   try {
-    const r = await fetch(API + path, opts);
+    const o = Object.assign({}, opts || {});
+    o.headers = Object.assign({}, o.headers || {});
+    const tok = getAuthToken();
+    if (tok) o.headers['Authorization'] = 'Bearer ' + tok;
+    const r = await fetch(API + path, o);
+    if (r.status === 401) {
+      if (!_retry && promptForToken('Autenticacao necessaria para ' + path)) {
+        return api(path, opts, true);
+      }
+      showError('401 em '+path+' - token ausente ou invalido');
+      return {};
+    }
     if (!r.ok) {
       const body = await r.text().catch(() => '');
       showError('HTTP '+r.status+' em '+path+(body?' - '+body.substring(0,200):''));
@@ -540,6 +574,9 @@ async function api(path, opts, _retry) {
     return {};
   }
 }
+
+// Render banner no load
+setTimeout(renderTokenBanner, 100);
 
 // Captura erros globais de JS (normalmente invisiveis ao usuario)
 window.addEventListener('error', (ev) => { showError('JS: '+ev.message+' ('+ev.filename+':'+ev.lineno+')'); });
