@@ -66,12 +66,43 @@ app.use('/api/supervisor', supervisorRoutes);
 app.use(express.static(path.join(__dirname, '../public')));
 app.use('/', dashboardRoutes);
 
+// Sprint 3 / T5: error handler Express (ultimo middleware antes de listen)
+const errorTracker = require('./services/error-tracker');
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, _next) => {
+  errorTracker.trackError(err, {
+    tipo: 'express',
+    correlation_id: req.correlationId,
+    method: req.method,
+    path: req.path,
+  });
+  if (res.headersSent) return;
+  res.status(err.status || 500).json({
+    error: 'internal_error',
+    correlation_id: req.correlationId,
+  });
+});
+
 // Initialize database
 db.initialize();
 
 // Sprint 3 / T2: inicia monitor de custo Claude (alerta diario)
 const costMonitor = require('./services/cost-monitor');
 costMonitor.start();
+
+// Sprint 3 / T5: cleanup diario de errors_log resolvidos > 90 dias
+errorTracker.startCleanup();
+
+// Sprint 3 / T5: captura uncaughtException + unhandledRejection
+process.on('uncaughtException', (err) => {
+  errorTracker.trackError(err, { tipo: 'uncaughtException' });
+  // Exit delay para permitir webhook/flush, mas garante restart do processo
+  setTimeout(() => process.exit(1), 1000);
+});
+process.on('unhandledRejection', (reason) => {
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  errorTracker.trackError(err, { tipo: 'unhandledRejection' });
+});
 
 app.listen(PORT, () => {
   console.log(`

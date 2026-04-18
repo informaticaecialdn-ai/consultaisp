@@ -1083,6 +1083,53 @@ router.get('/relatorios/pdf', async (req, res) => {
   }
 });
 
+// === ERRORS LOG (Sprint 3 / T5) ===
+const errorTracker = require('../services/error-tracker');
+
+router.get('/errors', (req, res) => {
+  const db = getDb();
+  const limit = Math.min(500, parseInt(req.query.limit) || 100);
+  const offset = Math.max(0, parseInt(req.query.offset) || 0);
+  const includeResolved = req.query.all === 'true';
+  const where = includeResolved ? '1=1' : 'resolvido = 0';
+  const items = db.prepare(
+    `SELECT id, tipo, mensagem, correlation_id, resolvido, criado_em
+     FROM errors_log WHERE ${where} ORDER BY criado_em DESC LIMIT ? OFFSET ?`
+  ).all(limit, offset);
+  const total = db.prepare(
+    `SELECT COUNT(*) AS c FROM errors_log WHERE ${where}`
+  ).get().c;
+  res.json({ items, total, limit, offset });
+});
+
+router.get('/errors/count', (req, res) => {
+  const db = getDb();
+  const unresolved = db.prepare('SELECT COUNT(*) AS c FROM errors_log WHERE resolvido = 0').get().c;
+  const last24h = db.prepare(
+    "SELECT COUNT(*) AS c FROM errors_log WHERE criado_em >= DATETIME('now','-1 day')"
+  ).get().c;
+  res.json({ unresolved, last_24h: last24h });
+});
+
+router.get('/errors/:id', (req, res) => {
+  const db = getDb();
+  const row = db.prepare('SELECT * FROM errors_log WHERE id = ?').get(parseInt(req.params.id));
+  if (!row) return res.status(404).json({ error: 'nao encontrado' });
+  res.json(row);
+});
+
+router.post('/errors/:id/resolve', (req, res) => {
+  const db = getDb();
+  const r = db.prepare('UPDATE errors_log SET resolvido = 1 WHERE id = ?').run(parseInt(req.params.id));
+  res.json({ success: r.changes > 0 });
+});
+
+router.delete('/errors/cleanup', (req, res) => {
+  const days = Math.max(1, parseInt(req.query.days) || 90);
+  const removidos = errorTracker.cleanupOldResolved({ days });
+  res.json({ success: true, removidos, days });
+});
+
 // === CUSTO CLAUDE (Sprint 3 / T2) ===
 function aggregateUsage(where, params = []) {
   const db = getDb();
