@@ -1,4 +1,5 @@
 const bizSdk = require('facebook-nodejs-business-sdk');
+const logger = require('../utils/logger');
 
 class MetaAdsService {
   constructor() {
@@ -13,7 +14,7 @@ class MetaAdsService {
     const appSecret = process.env.META_APP_SECRET;
 
     if (!accessToken || !appId) {
-      console.log('[META-ADS] Credenciais nao configuradas - servico desabilitado');
+      logger.info('[META-ADS] Credenciais nao configuradas - servico desabilitado');
       return;
     }
 
@@ -27,7 +28,7 @@ class MetaAdsService {
     this.account = new bizSdk.AdAccount(this.accountId);
 
     this.initialized = true;
-    console.log('[META-ADS] Servico inicializado com sucesso');
+    logger.info('[META-ADS] Servico inicializado com sucesso');
   }
 
   // === CAMPANHAS ===
@@ -51,10 +52,10 @@ class MetaAdsService {
 
     try {
       const campaign = await this.account.createCampaign([], params);
-      console.log(`[META-ADS] Campanha criada: ${name} (ID: ${campaign.id})`);
+      logger.info(`[META-ADS] Campanha criada: ${name} (ID: ${campaign.id})`);
       return { success: true, campaign_id: campaign.id, name };
     } catch (error) {
-      console.error('[META-ADS] Erro ao criar campanha:', error.message);
+      logger.error('[META-ADS] Erro ao criar campanha:', error.message);
       throw error;
     }
   }
@@ -70,10 +71,10 @@ class MetaAdsService {
 
     try {
       await campaign.update(params);
-      console.log(`[META-ADS] Campanha ${campaignId} atualizada`);
+      logger.info(`[META-ADS] Campanha ${campaignId} atualizada`);
       return { success: true };
     } catch (error) {
-      console.error('[META-ADS] Erro ao atualizar campanha:', error.message);
+      logger.error('[META-ADS] Erro ao atualizar campanha:', error.message);
       throw error;
     }
   }
@@ -99,10 +100,10 @@ class MetaAdsService {
 
     try {
       const adset = await this.account.createAdSet([], params);
-      console.log(`[META-ADS] AdSet criado: ${name} (ID: ${adset.id})`);
+      logger.info(`[META-ADS] AdSet criado: ${name} (ID: ${adset.id})`);
       return { success: true, adset_id: adset.id, name };
     } catch (error) {
-      console.error('[META-ADS] Erro ao criar AdSet:', error.message);
+      logger.error('[META-ADS] Erro ao criar AdSet:', error.message);
       throw error;
     }
   }
@@ -120,10 +121,10 @@ class MetaAdsService {
 
     try {
       await adset.update(params);
-      console.log(`[META-ADS] AdSet ${adsetId} atualizado`);
+      logger.info(`[META-ADS] AdSet ${adsetId} atualizado`);
       return { success: true };
     } catch (error) {
-      console.error('[META-ADS] Erro ao atualizar AdSet:', error.message);
+      logger.error('[META-ADS] Erro ao atualizar AdSet:', error.message);
       throw error;
     }
   }
@@ -142,10 +143,10 @@ class MetaAdsService {
 
     try {
       const ad = await this.account.createAd([], params);
-      console.log(`[META-ADS] Anuncio criado: ${name} (ID: ${ad.id})`);
+      logger.info(`[META-ADS] Anuncio criado: ${name} (ID: ${ad.id})`);
       return { success: true, ad_id: ad.id, name };
     } catch (error) {
-      console.error('[META-ADS] Erro ao criar anuncio:', error.message);
+      logger.error('[META-ADS] Erro ao criar anuncio:', error.message);
       throw error;
     }
   }
@@ -177,10 +178,10 @@ class MetaAdsService {
 
     try {
       const creative = await this.account.createAdCreative([], params);
-      console.log(`[META-ADS] Criativo criado: ${name} (ID: ${creative.id})`);
+      logger.info(`[META-ADS] Criativo criado: ${name} (ID: ${creative.id})`);
       return { success: true, creative_id: creative.id, name };
     } catch (error) {
-      console.error('[META-ADS] Erro ao criar criativo:', error.message);
+      logger.error('[META-ADS] Erro ao criar criativo:', error.message);
       throw error;
     }
   }
@@ -204,7 +205,7 @@ class MetaAdsService {
       );
       return { success: true, data: insights.map(i => i._data) };
     } catch (error) {
-      console.error('[META-ADS] Erro ao buscar insights:', error.message);
+      logger.error('[META-ADS] Erro ao buscar insights:', error.message);
       throw error;
     }
   }
@@ -223,7 +224,7 @@ class MetaAdsService {
       const insights = await adset.getInsights(fields, { date_preset: datePreset });
       return { success: true, data: insights.map(i => i._data) };
     } catch (error) {
-      console.error('[META-ADS] Erro ao buscar insights AdSet:', error.message);
+      logger.error('[META-ADS] Erro ao buscar insights AdSet:', error.message);
       throw error;
     }
   }
@@ -244,7 +245,7 @@ class MetaAdsService {
       });
       return { success: true, data: insights.map(i => i._data) };
     } catch (error) {
-      console.error('[META-ADS] Erro ao buscar insights da conta:', error.message);
+      logger.error('[META-ADS] Erro ao buscar insights da conta:', error.message);
       throw error;
     }
   }
@@ -266,7 +267,7 @@ class MetaAdsService {
       const campaigns = await this.account.getCampaigns(fields, params);
       return { success: true, campaigns: campaigns.map(c => c._data) };
     } catch (error) {
-      console.error('[META-ADS] Erro ao listar campanhas:', error.message);
+      logger.error('[META-ADS] Erro ao listar campanhas:', error.message);
       throw error;
     }
   }
@@ -284,7 +285,7 @@ class MetaAdsService {
       const adsets = await campaign.getAdSets(fields, { limit });
       return { success: true, adsets: adsets.map(a => a._data) };
     } catch (error) {
-      console.error('[META-ADS] Erro ao listar AdSets:', error.message);
+      logger.error('[META-ADS] Erro ao listar AdSets:', error.message);
       throw error;
     }
   }
@@ -306,10 +307,10 @@ class MetaAdsService {
 
     try {
       const audience = await this.account.createCustomAudience([], params);
-      console.log(`[META-ADS] Publico criado: ${name} (ID: ${audience.id})`);
+      logger.info(`[META-ADS] Publico criado: ${name} (ID: ${audience.id})`);
       return { success: true, audience_id: audience.id, name };
     } catch (error) {
-      console.error('[META-ADS] Erro ao criar publico:', error.message);
+      logger.error('[META-ADS] Erro ao criar publico:', error.message);
       throw error;
     }
   }
@@ -330,10 +331,10 @@ class MetaAdsService {
 
     try {
       const audience = await this.account.createCustomAudience([], params);
-      console.log(`[META-ADS] Lookalike criado: ${name} (ID: ${audience.id})`);
+      logger.info(`[META-ADS] Lookalike criado: ${name} (ID: ${audience.id})`);
       return { success: true, audience_id: audience.id, name };
     } catch (error) {
-      console.error('[META-ADS] Erro ao criar lookalike:', error.message);
+      logger.error('[META-ADS] Erro ao criar lookalike:', error.message);
       throw error;
     }
   }

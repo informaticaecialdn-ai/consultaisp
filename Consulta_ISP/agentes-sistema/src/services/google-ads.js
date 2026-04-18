@@ -1,4 +1,5 @@
 const { GoogleAdsApi, enums } = require('google-ads-api');
+const logger = require('../utils/logger');
 
 class GoogleAdsService {
   constructor() {
@@ -13,7 +14,7 @@ class GoogleAdsService {
     const developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
 
     if (!clientId || !developerToken) {
-      console.log('[GOOGLE-ADS] Credenciais nao configuradas - servico desabilitado');
+      logger.info('[GOOGLE-ADS] Credenciais nao configuradas - servico desabilitado');
       return;
     }
 
@@ -34,7 +35,7 @@ class GoogleAdsService {
     });
 
     this.initialized = true;
-    console.log('[GOOGLE-ADS] Servico inicializado com sucesso');
+    logger.info('[GOOGLE-ADS] Servico inicializado com sucesso');
   }
 
   // === CAMPANHAS ===
@@ -88,10 +89,10 @@ class GoogleAdsService {
       const campaignResourceName = result.results[0].resource_name;
       const campaignId = campaignResourceName.split('/').pop();
 
-      console.log(`[GOOGLE-ADS] Campanha criada: ${name} (ID: ${campaignId})`);
+      logger.info(`[GOOGLE-ADS] Campanha criada: ${name} (ID: ${campaignId})`);
       return { success: true, campaign_id: campaignId, resource_name: campaignResourceName, name };
     } catch (error) {
-      console.error('[GOOGLE-ADS] Erro ao criar campanha:', error.message);
+      logger.error('[GOOGLE-ADS] Erro ao criar campanha:', error.message);
       throw error;
     }
   }
@@ -105,10 +106,10 @@ class GoogleAdsService {
 
     try {
       await this.customer.campaigns.update({ campaign: campaignUpdate });
-      console.log(`[GOOGLE-ADS] Campanha atualizada: ${campaignResourceName}`);
+      logger.info(`[GOOGLE-ADS] Campanha atualizada: ${campaignResourceName}`);
       return { success: true };
     } catch (error) {
-      console.error('[GOOGLE-ADS] Erro ao atualizar campanha:', error.message);
+      logger.error('[GOOGLE-ADS] Erro ao atualizar campanha:', error.message);
       throw error;
     }
   }
@@ -132,10 +133,10 @@ class GoogleAdsService {
       const resourceName = result.results[0].resource_name;
       const adGroupId = resourceName.split('/').pop();
 
-      console.log(`[GOOGLE-ADS] Ad Group criado: ${name} (ID: ${adGroupId})`);
+      logger.info(`[GOOGLE-ADS] Ad Group criado: ${name} (ID: ${adGroupId})`);
       return { success: true, ad_group_id: adGroupId, resource_name: resourceName, name };
     } catch (error) {
-      console.error('[GOOGLE-ADS] Erro ao criar Ad Group:', error.message);
+      logger.error('[GOOGLE-ADS] Erro ao criar Ad Group:', error.message);
       throw error;
     }
   }
@@ -159,10 +160,10 @@ class GoogleAdsService {
 
     try {
       const results = await this.customer.adGroupCriteria.create(operations);
-      console.log(`[GOOGLE-ADS] ${keywords.length} keywords adicionadas ao AdGroup ${adGroupId}`);
+      logger.info(`[GOOGLE-ADS] ${keywords.length} keywords adicionadas ao AdGroup ${adGroupId}`);
       return { success: true, count: keywords.length };
     } catch (error) {
-      console.error('[GOOGLE-ADS] Erro ao adicionar keywords:', error.message);
+      logger.error('[GOOGLE-ADS] Erro ao adicionar keywords:', error.message);
       throw error;
     }
   }
@@ -183,10 +184,10 @@ class GoogleAdsService {
 
     try {
       await this.customer.campaignCriteria.create(operations);
-      console.log(`[GOOGLE-ADS] ${keywords.length} negative keywords adicionadas`);
+      logger.info(`[GOOGLE-ADS] ${keywords.length} negative keywords adicionadas`);
       return { success: true, count: keywords.length };
     } catch (error) {
-      console.error('[GOOGLE-ADS] Erro ao adicionar negatives:', error.message);
+      logger.error('[GOOGLE-ADS] Erro ao adicionar negatives:', error.message);
       throw error;
     }
   }
@@ -216,10 +217,10 @@ class GoogleAdsService {
         }
       });
 
-      console.log(`[GOOGLE-ADS] Anuncio RSA criado no AdGroup ${adGroupId}`);
+      logger.info(`[GOOGLE-ADS] Anuncio RSA criado no AdGroup ${adGroupId}`);
       return { success: true, resource_name: result.results[0].resource_name };
     } catch (error) {
-      console.error('[GOOGLE-ADS] Erro ao criar RSA:', error.message);
+      logger.error('[GOOGLE-ADS] Erro ao criar RSA:', error.message);
       throw error;
     }
   }
@@ -276,7 +277,7 @@ class GoogleAdsService {
 
       return { success: true, data: formatted };
     } catch (error) {
-      console.error('[GOOGLE-ADS] Erro ao buscar metricas:', error.message);
+      logger.error('[GOOGLE-ADS] Erro ao buscar metricas:', error.message);
       throw error;
     }
   }
@@ -325,7 +326,7 @@ class GoogleAdsService {
         }))
       };
     } catch (error) {
-      console.error('[GOOGLE-ADS] Erro ao buscar metricas AdGroup:', error.message);
+      logger.error('[GOOGLE-ADS] Erro ao buscar metricas AdGroup:', error.message);
       throw error;
     }
   }
@@ -371,7 +372,7 @@ class GoogleAdsService {
         }))
       };
     } catch (error) {
-      console.error('[GOOGLE-ADS] Erro ao buscar metricas keywords:', error.message);
+      logger.error('[GOOGLE-ADS] Erro ao buscar metricas keywords:', error.message);
       throw error;
     }
   }
@@ -405,7 +406,7 @@ class GoogleAdsService {
         }))
       };
     } catch (error) {
-      console.error('[GOOGLE-ADS] Erro ao listar campanhas:', error.message);
+      logger.error('[GOOGLE-ADS] Erro ao listar campanhas:', error.message);
       throw error;
     }
   }
@@ -444,7 +445,7 @@ class GoogleAdsService {
         }))
       };
     } catch (error) {
-      console.error('[GOOGLE-ADS] Erro ao buscar search terms:', error.message);
+      logger.error('[GOOGLE-ADS] Erro ao buscar search terms:', error.message);
       throw error;
     }
   }

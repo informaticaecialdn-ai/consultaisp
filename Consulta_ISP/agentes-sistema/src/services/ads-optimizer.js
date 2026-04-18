@@ -1,4 +1,5 @@
 const metaAds = require('./meta-ads');
+const logger = require('../utils/logger');
 const googleAds = require('./google-ads');
 const claude = require('./claude');
 const { getDb } = require('../models/database');
@@ -45,7 +46,7 @@ class AdsOptimizer {
         }
       }
     } catch (error) {
-      console.error('[ADS-OPTIMIZER] Erro na otimizacao Meta:', error.message);
+      logger.error('[ADS-OPTIMIZER] Erro na otimizacao Meta:', error.message);
     }
 
     return acoes;
@@ -185,7 +186,7 @@ class AdsOptimizer {
         }
       }
     } catch (error) {
-      console.error('[ADS-OPTIMIZER] Erro na otimizacao Google:', error.message);
+      logger.error('[ADS-OPTIMIZER] Erro na otimizacao Google:', error.message);
     }
 
     return acoes;
@@ -317,7 +318,7 @@ Responda de forma direta e pratica, como um gestor de trafego experiente.`;
       const result = await claude.sendToAgent('marcos', prompt);
       return result;
     } catch (error) {
-      console.error('[ADS-OPTIMIZER] Erro na analise IA:', error.message);
+      logger.error('[ADS-OPTIMIZER] Erro na analise IA:', error.message);
       throw error;
     }
   }
@@ -366,7 +367,7 @@ Responda em JSON com a estrutura completa da campanha:
 
       return { success: true, raw: result.resposta };
     } catch (error) {
-      console.error('[ADS-OPTIMIZER] Erro ao planejar campanha:', error.message);
+      logger.error('[ADS-OPTIMIZER] Erro ao planejar campanha:', error.message);
       throw error;
     }
   }
@@ -422,7 +423,7 @@ Responda em JSON com a estrutura completa da campanha:
         `INSERT INTO atividades_agentes (agente, tipo, descricao, decisao) VALUES (?,?,?,?)`
       ).run(agente, tipo, descricao, decisao);
     } catch (e) {
-      console.error('[ADS-OPTIMIZER] Erro ao logar atividade:', e.message);
+      logger.error('[ADS-OPTIMIZER] Erro ao logar atividade:', e.message);
     }
   }
 }

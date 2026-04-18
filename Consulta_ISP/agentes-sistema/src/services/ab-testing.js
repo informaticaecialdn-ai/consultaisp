@@ -1,5 +1,6 @@
 const { getDb } = require('../models/database');
 const training = require('./training');
+const logger = require('../utils/logger');
 
 class ABTestingService {
 
@@ -11,7 +12,7 @@ class ABTestingService {
     const result = db.prepare(
       'INSERT INTO ab_tests (agente, tipo_mensagem, variante_a, variante_b, min_envios) VALUES (?,?,?,?,?)'
     ).run(agente, tipoMensagem, varianteA, varianteB, minEnvios);
-    console.log(`[A/B] Teste criado: ${agente}/${tipoMensagem} (id=${result.lastInsertRowid})`);
+    logger.info({ agente, tipoMensagem, id: result.lastInsertRowid }, '[A/B] teste criado');
     return result.lastInsertRowid;
   }
 
@@ -83,7 +84,7 @@ class ABTestingService {
         `Taxa ${(taxaVencedora * 100).toFixed(0)}% vs ${((vencedor === 'a' ? taxaB : taxaA) * 100).toFixed(0)}%`
       );
 
-      console.log(`[A/B] Teste ${testId} concluido: vencedor=${vencedor} (${(taxaVencedora * 100).toFixed(0)}%)`);
+      logger.info({ testId, vencedor, taxa_pct: (taxaVencedora * 100).toFixed(0) }, '[A/B] teste concluido');
       return vencedor;
     }
 

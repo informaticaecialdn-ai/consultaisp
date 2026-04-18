@@ -3,6 +3,8 @@
  * Requer: RESEND_API_KEY no .env
  */
 
+const logger = require('../utils/logger');
+
 class EmailSenderService {
 
   constructor() {
@@ -40,7 +42,7 @@ class EmailSenderService {
       }
 
       const data = await response.json();
-      console.log(`[EMAIL] Enviado para ${to}: ${subject}`);
+      logger.info({ to, subject }, '[EMAIL] enviado');
       return { success: true, id: data.id };
     } catch (error) {
       return { success: false, error: error.message };

@@ -13,6 +13,7 @@ const supervisorRoutes = require('./routes/supervisor');
 const dashboardRoutes = require('./routes/dashboard');
 const db = require('./models/database');
 const { requireAuth } = require('./middleware/auth');
+const correlationMiddleware = require('./middleware/correlation');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -25,6 +26,9 @@ app.use(cors());
 app.use(morgan('dev'));
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
+// Correlation ID (Sprint 3 / T1) - gera/propaga X-Correlation-Id em todas requests
+app.use(correlationMiddleware);
 
 // Rate limits (Sprint 2 / T1)
 const apiLimiter = rateLimit({

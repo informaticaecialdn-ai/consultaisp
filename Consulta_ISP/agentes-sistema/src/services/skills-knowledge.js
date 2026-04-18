@@ -1,4 +1,5 @@
 const fs = require('fs');
+const logger = require('../utils/logger');
 const path = require('path');
 
 class SkillsKnowledgeService {
@@ -62,7 +63,7 @@ class SkillsKnowledgeService {
         const section = this._extractSection(content, agentKey);
         if (section) knowledge += section + '\n\n';
       } catch (e) {
-        console.log(`[SKILLS] Arquivo ${file} nao encontrado. Skills de referencia desabilitadas para ${agentKey}.`);
+        logger.info(`[SKILLS] Arquivo ${file} nao encontrado. Skills de referencia desabilitadas para ${agentKey}.`);
       }
     }
 
@@ -161,7 +162,7 @@ class SkillsKnowledgeService {
   clearCache() {
     this.cache.clear();
     this.cacheTimestamps.clear();
-    console.log('[SKILLS] Cache limpo');
+    logger.info('[SKILLS] Cache limpo');
   }
 }
 

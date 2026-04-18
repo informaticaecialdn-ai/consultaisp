@@ -1,4 +1,5 @@
 const { getDb } = require('../models/database');
+const logger = require('../utils/logger');
 
 class TrainingService {
 
@@ -26,7 +27,7 @@ class TrainingService {
       'INSERT INTO treinamento_agentes (agente, tipo, regra, contexto, fonte) VALUES (?, ?, ?, ?, ?)'
     ).run(agentKey, tipo, regra, enrichedContexto, 'automatico');
 
-    console.log(`[TRAINING] ${agentKey} aprendeu: [${tipo}] ${regra.substring(0, 80)}...`);
+    logger.info({ agente: agentKey, tipo, regra: String(regra || '').slice(0, 80) }, '[TRAINING] aprendeu');
     return result.lastInsertRowid;
   }
 
@@ -117,7 +118,7 @@ Responda em JSON:
         return result.aprendizados;
       }
     } catch (e) {
-      console.error(`[TRAINING] Erro na analise:`, e.message);
+      logger.error({ err: e.message }, '[TRAINING] erro na analise');
     }
     return [];
   }
@@ -182,14 +183,14 @@ Avalie em JSON:
         const count = db.prepare('SELECT COUNT(*) as c FROM avaliacoes WHERE agente = ?').get(agentKey).c;
         if (count % 10 === 0 && count > 0) {
           this._analyzePatterns(agentKey, claudeClient).catch(e =>
-            console.error('[TRAINING] Erro patterns:', e.message)
+            logger.error({ err: e.message }, '[TRAINING] erro patterns')
           );
         }
 
         return avaliacao;
       }
     } catch (e) {
-      console.error(`[TRAINING] Erro avaliacao:`, e.message);
+      logger.error({ err: e.message }, '[TRAINING] erro avaliacao');
     }
     return null;
   }
@@ -228,7 +229,7 @@ Sugira ate 3 regras em JSON:
       for (const r of (result.regras || [])) {
         this.learn(agentKey, r.tipo, r.regra, r.contexto);
       }
-      console.log(`[TRAINING] ${agentKey}: ${result.regras?.length || 0} regras sugeridas`);
+      logger.info({ agente: agentKey, regras: result.regras?.length || 0 }, '[TRAINING] regras sugeridas');
     }
   }
 

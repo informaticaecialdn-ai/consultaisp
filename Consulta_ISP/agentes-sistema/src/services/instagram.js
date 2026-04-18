@@ -3,6 +3,8 @@
  * Requer: META_PAGE_ACCESS_TOKEN, META_PAGE_ID no .env
  */
 
+const logger = require('../utils/logger');
+
 class InstagramService {
 
   constructor() {
@@ -44,7 +46,7 @@ class InstagramService {
         return { success: false, error: `Instagram API ${response.status}: ${text}` };
       }
 
-      console.log(`[INSTAGRAM] DM enviada para ${recipientId}`);
+      logger.info({ recipientId }, '[INSTAGRAM] DM enviada');
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
