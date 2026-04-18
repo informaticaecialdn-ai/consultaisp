@@ -1,4 +1,6 @@
 const axios = require('axios');
+const logger = require('../utils/logger');
+const { maskPhone } = require('../utils/pii');
 
 class ZApiService {
   constructor() {
@@ -35,10 +37,10 @@ class ZApiService {
         { phone: formatted, message },
         { headers: this.headers }
       );
-      console.log(`[Z-API] Mensagem enviada para ${formatted}`);
+      logger.info({ phone: maskPhone(formatted) }, '[Z-API] mensagem enviada');
       return response.data;
     } catch (error) {
-      console.error(`[Z-API] Erro ao enviar mensagem:`, error.response?.data || error.message);
+      logger.error({ phone: maskPhone(formatted), err: error.response?.data || error.message }, '[Z-API] erro ao enviar mensagem');
       throw error;
     }
   }
@@ -54,7 +56,7 @@ class ZApiService {
       );
       return response.data;
     } catch (error) {
-      console.error(`[Z-API] Erro ao enviar imagem:`, error.response?.data || error.message);
+      logger.error({ phone: maskPhone(formatted), err: error.response?.data || error.message }, '[Z-API] erro ao enviar imagem');
       throw error;
     }
   }
@@ -70,7 +72,7 @@ class ZApiService {
       );
       return response.data;
     } catch (error) {
-      console.error(`[Z-API] Erro ao enviar documento:`, error.response?.data || error.message);
+      logger.error({ phone: maskPhone(formatted), err: error.response?.data || error.message }, '[Z-API] erro ao enviar documento');
       throw error;
     }
   }
@@ -92,7 +94,7 @@ class ZApiService {
       );
       return response.data;
     } catch (error) {
-      console.error(`[Z-API] Erro ao enviar botoes:`, error.response?.data || error.message);
+      logger.error({ phone: maskPhone(formatted), err: error.response?.data || error.message }, '[Z-API] erro ao enviar botoes');
       throw error;
     }
   }
@@ -125,10 +127,10 @@ class ZApiService {
         body,
         { headers: this.headers }
       );
-      console.log(`[Z-API] Webhook configurado: ${webhookUrl}${hmacToken ? ' (com HMAC)' : ''}`);
+      logger.info({ webhook: webhookUrl, hmac: !!hmacToken }, '[Z-API] webhook configurado');
       return response.data;
     } catch (error) {
-      console.error(`[Z-API] Erro ao configurar webhook:`, error.response?.data || error.message);
+      logger.error({ err: error.response?.data || error.message }, '[Z-API] erro ao configurar webhook');
       throw error;
     }
   }

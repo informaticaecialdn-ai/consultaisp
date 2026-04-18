@@ -1,33 +1,55 @@
-// Logger leve com correlationId. Sprint 3 / T1 substituira por pino.
-// API compativel com pino (info/warn/error/fatal/debug) para facilitar swap.
+// Logger baseado em Pino com redact automatico (Sprint 2 / T5).
+// API compativel com versao anterior: info/warn/error/fatal/debug.
+// Em dev, usa pino-pretty. Em prod, JSON estruturado.
 
-function format(level, corr, payload, msg) {
-  const ts = new Date().toISOString();
-  const tag = corr ? `[${corr}]` : '';
-  let details = '';
-  if (payload && typeof payload === 'object') {
-    try { details = ' ' + JSON.stringify(payload); } catch { details = ''; }
-  }
-  return `${ts} ${level.toUpperCase()} ${tag} ${msg || ''}${details}`.trim();
+const pino = require('pino');
+
+const isProd = process.env.NODE_ENV === 'production';
+
+const redactPaths = [
+  'phone',
+  'telefone',
+  'message',
+  'mensagem',
+  'text',
+  '*.text',
+  '*.message',
+  '*.mensagem',
+  'lead.telefone',
+  'lead.nome',
+  'lead.email',
+  '*.applicationKey',
+  '*.access_token',
+  '*.refresh_token',
+  '*.password',
+  '*.api_key',
+  '*.apiKey',
+  'req.headers.authorization',
+  'req.headers["x-z-api-token"]',
+  'headers.authorization',
+  'headers["x-z-api-token"]',
+];
+
+const transport = isProd
+  ? undefined
+  : {
+      target: 'pino-pretty',
+      options: { colorize: true, translateTime: 'SYS:HH:MM:ss', ignore: 'pid,hostname' },
+    };
+
+const baseLogger = pino({
+  level: process.env.LOG_LEVEL || (isProd ? 'info' : 'debug'),
+  redact: { paths: redactPaths, censor: '[REDACTED]' },
+  base: undefined,
+  transport,
+});
+
+// Preserva a API antiga (withCorrelation) para quem ja usava o stub.
+function withCorrelation(id) {
+  const child = baseLogger.child({ corr: id });
+  child.withCorrelation = withCorrelation;
+  return child;
 }
+baseLogger.withCorrelation = withCorrelation;
 
-function makeLogger(correlation) {
-  const call = (fn, level) => (objOrMsg, maybeMsg) => {
-    if (typeof objOrMsg === 'string') {
-      fn(format(level, correlation, null, objOrMsg));
-    } else {
-      fn(format(level, correlation, objOrMsg, maybeMsg));
-    }
-  };
-  return {
-    info: call(console.log, 'info'),
-    warn: call(console.warn, 'warn'),
-    error: call(console.error, 'error'),
-    fatal: call(console.error, 'fatal'),
-    debug: call(console.log, 'debug'),
-    withCorrelation(id) { return makeLogger(id); }
-  };
-}
-
-const root = makeLogger(null);
-module.exports = root;
+module.exports = baseLogger;

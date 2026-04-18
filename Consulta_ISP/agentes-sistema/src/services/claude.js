@@ -1,5 +1,6 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const skillsKnowledge = require('./skills-knowledge');
+const logger = require('../utils/logger');
 
 class ClaudeAgentService {
   constructor() {
@@ -75,7 +76,7 @@ class ClaudeAgentService {
 
       const resposta = response.content[0].text;
 
-      console.log(`[CLAUDE] ${agent.name} respondeu (${resposta.length} chars)`);
+      logger.info({ agente: agent.name, chars: resposta.length }, '[CLAUDE] resposta gerada');
 
       return {
         agente: agentKey,
@@ -83,7 +84,7 @@ class ClaudeAgentService {
         tokens_usados: response.usage.input_tokens + response.usage.output_tokens
       };
     } catch (error) {
-      console.error(`[CLAUDE] Erro com agente ${agent.name}:`, error.message);
+      logger.error({ agente: agent.name, err: error.message }, '[CLAUDE] erro no agente');
       throw error;
     }
   }
@@ -136,7 +137,7 @@ Responda APENAS com JSON valido:
       if (parsed) return parsed;
 
       // Retry: pede ao Claude pra reformatar
-      console.warn(`[CLAUDE] JSON malformado de ${agentKey}, tentando retry...`);
+      logger.warn({ agente: agentKey }, '[CLAUDE] JSON malformado, tentando retry');
       try {
         const retry = await this.client.messages.create({
           model: agent.model,
@@ -148,7 +149,7 @@ Responda APENAS com JSON valido:
         const retryParsed = this._parseJsonResponse(retryText);
         if (retryParsed) return retryParsed;
       } catch (retryErr) {
-        console.error(`[CLAUDE] Retry falhou:`, retryErr.message);
+        logger.error({ err: retryErr.message }, '[CLAUDE] retry falhou');
       }
 
       // Fallback final: usa texto como resposta
@@ -160,7 +161,7 @@ Responda APENAS com JSON valido:
         dados_extraidos: {}
       };
     } catch (error) {
-      console.error(`[CLAUDE] Erro na analise:`, error.message);
+      logger.error({ err: error.message }, '[CLAUDE] erro na analise');
       // 11B-6: Nao propagar erro — retornar fallback seguro
       return {
         resposta_whatsapp: 'Desculpe, tive um problema tecnico. Pode repetir?',

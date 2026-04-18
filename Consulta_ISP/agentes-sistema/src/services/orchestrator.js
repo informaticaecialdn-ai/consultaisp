@@ -7,6 +7,8 @@ const abTesting = require('./ab-testing');
 const instagram = require('./instagram');
 const emailSender = require('./email-sender');
 const consent = require('./consent');
+const logger = require('../utils/logger');
+const { maskPhone } = require('../utils/pii');
 
 class Orchestrator {
 
@@ -79,7 +81,7 @@ class Orchestrator {
       training.evaluateResponse(
         lead.agente_atual, lead.id, null,
         analise.resposta_whatsapp, message, lead, claude.client
-      ).catch(e => console.error('[TRAINING] Erro avaliacao async:', e.message));
+      ).catch(e => logger.error({ err: e.message }, '[TRAINING] erro avaliacao async'));
     }
 
     // 11B-1: Pular _processAction se score ja triggou o mesmo handoff
@@ -91,7 +93,7 @@ class Orchestrator {
     if (['transferir_vendas', 'transferir_closer', 'agendar_demo', 'enviar_proposta'].includes(analise.acao)) {
       const conversaTexto = historico.map(m => `${m.role}: ${m.content}`).join('\n');
       training.analyzeConversation(lead.agente_atual, conversaTexto, analise.acao, claude.client)
-        .catch(e => console.error('[TRAINING] Erro async:', e.message));
+        .catch(e => logger.error({ err: e.message }, '[TRAINING] erro async'));
     }
 
     // Feature 1: Agendar followup se acao nao e terminal
@@ -109,7 +111,7 @@ class Orchestrator {
     // Sprint 2 / T3: bloqueia outbound para telefones com opt-out registrado
     const consentCheck = consent.canSendTo(phone);
     if (!consentCheck.allowed) {
-      console.warn(`[ORCHESTRATOR] sendOutbound BLOQUEADO para ${phone}: ${consentCheck.reason}`);
+      logger.warn({ phone: maskPhone(phone), reason: consentCheck.reason }, '[ORCHESTRATOR] sendOutbound bloqueado (opt-out)');
       return { blocked: true, reason: 'optout', detail: consentCheck.reason, agente: agentKey };
     }
 
@@ -219,7 +221,7 @@ class Orchestrator {
         await zapi.sendText(lead.telefone, message);
       }
     } catch (e) {
-      console.error(`[CANAL] Erro ${canal}:`, e.message);
+      logger.error({ canal, err: e.message }, '[CANAL] falha ao enviar');
       // Fallback pra WhatsApp se outro canal falhar
       if (canal !== 'whatsapp') {
         await zapi.sendText(lead.telefone, message);

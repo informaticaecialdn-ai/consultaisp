@@ -1,6 +1,8 @@
 const { getDb } = require('../models/database');
 const claude = require('./claude');
 const zapi = require('./zapi');
+const logger = require('../utils/logger');
+const { maskPhone } = require('../utils/pii');
 
 // Intervalos de follow-up em horas
 const FOLLOWUP_HOURS = [24, 48, 72];
@@ -35,7 +37,7 @@ class FollowupService {
       'INSERT INTO followups (lead_id, agente, mensagem_original, tentativa, proximo_envio) VALUES (?,?,?,?,?)'
     ).run(leadId, agente, lastMsg?.mensagem || '', 1, proximoEnvio);
 
-    console.log(`[FOLLOWUP] Agendado para lead ${leadId} em ${horasAte}h`);
+    logger.info({ lead_id: leadId, horas: horasAte }, '[FOLLOWUP] agendado');
   }
 
   /**
@@ -47,7 +49,7 @@ class FollowupService {
       "UPDATE followups SET status = 'cancelado' WHERE lead_id = ? AND status = 'pendente'"
     ).run(leadId);
     if (result.changes > 0) {
-      console.log(`[FOLLOWUP] Cancelados ${result.changes} followups para lead ${leadId}`);
+      logger.info({ lead_id: leadId, cancelados: result.changes }, '[FOLLOWUP] cancelados');
     }
   }
 
@@ -57,7 +59,7 @@ class FollowupService {
    */
   async processFollowups() {
     if (this._processing) {
-      console.log('[FOLLOWUP] Ja em processamento, ignorando tick concorrente');
+      logger.debug('[FOLLOWUP] ja em processamento, ignorando tick concorrente');
       return;
     }
     this._processing = true;
@@ -71,7 +73,7 @@ class FollowupService {
 
       if (pendentes.length === 0) return;
 
-      console.log(`[FOLLOWUP] Processando ${pendentes.length} followups`);
+      logger.info({ total: pendentes.length }, '[FOLLOWUP] processando batch');
 
       // Reivindica linhas atomicamente (claim) para evitar duplicidade caso o lock
       // in-memory seja contornado (ex: multiplas instancias do processo)
@@ -110,13 +112,13 @@ class FollowupService {
             ).run(f.lead_id, f.agente, result.resposta, f.tentativa + 1, proximoEnvio);
           }
 
-          console.log(`[FOLLOWUP] Enviado tentativa ${f.tentativa} para ${f.telefone}`);
+          logger.info({ tentativa: f.tentativa, phone: maskPhone(f.telefone), lead_id: f.lead_id }, '[FOLLOWUP] enviado');
 
           // Delay entre envios
           await new Promise(r => setTimeout(r, 3000));
 
         } catch (err) {
-          console.error(`[FOLLOWUP] Erro lead ${f.lead_id}:`, err.message);
+          logger.error({ lead_id: f.lead_id, err: err.message }, '[FOLLOWUP] erro ao enviar');
           // Devolve o item para a fila em caso de erro
           db.prepare("UPDATE followups SET status = 'pendente' WHERE id = ? AND status = 'processando'").run(f.id);
         }

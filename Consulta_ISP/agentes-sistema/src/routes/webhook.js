@@ -6,6 +6,8 @@ const consent = require('../services/consent');
 const campanhasService = require('../services/campanhas');
 const followup = require('../services/followup');
 const zapi = require('../services/zapi');
+const logger = require('../utils/logger');
+const { maskPhone, maskMessage } = require('../utils/pii');
 
 // Sprint 2 / T2: validacao de token Z-API via header x-z-api-token
 function validateZapiToken(req, res) {
@@ -15,7 +17,7 @@ function validateZapiToken(req, res) {
 
   if (!expected) {
     if (enforce) {
-      console.error('[WEBHOOK-HMAC] enforce=true mas ZAPI_WEBHOOK_TOKEN ausente no .env');
+      logger.error('[WEBHOOK-HMAC] enforce=true mas ZAPI_WEBHOOK_TOKEN ausente no .env');
       res.status(401).json({ error: 'webhook_token_not_configured' });
       return false;
     }
@@ -27,7 +29,7 @@ function validateZapiToken(req, res) {
       res.status(401).json({ error: 'webhook_token_missing' });
       return false;
     }
-    console.warn('[WEBHOOK-HMAC] token ausente (modo log-only, enforce=false)');
+    logger.warn('[WEBHOOK-HMAC] token ausente (modo log-only, enforce=false)');
     return true;
   }
 
@@ -36,7 +38,7 @@ function validateZapiToken(req, res) {
       res.status(401).json({ error: 'webhook_token_invalid' });
       return false;
     }
-    console.warn('[WEBHOOK-HMAC] token divergente (modo log-only, enforce=false)');
+    logger.warn('[WEBHOOK-HMAC] token divergente (modo log-only, enforce=false)');
     return true;
   }
   return true;
@@ -64,7 +66,7 @@ router.post('/zapi', async (req, res) => {
       timestamp: data.moment
     };
 
-    console.log(`[WEBHOOK] Mensagem de ${phone}: ${message.substring(0, 80)}...`);
+    logger.info({ phone: maskPhone(phone), preview: maskMessage(message) }, '[WEBHOOK] mensagem recebida');
 
     // Sprint 2 / T3: opt-out automatico com regex ESTRITA antes do orchestrator.
     // Cancela followups, marca opt-out e responde confirmacao. NAO processa mensagem.
@@ -75,14 +77,14 @@ router.post('/zapi', async (req, res) => {
         const lead = db.prepare('SELECT id FROM leads WHERE telefone = ?').get(phone);
         if (lead) followup.cancelFollowups(lead.id);
       } catch (err) {
-        console.warn('[WEBHOOK] falha ao cancelar followups no opt-out:', err.message);
+        logger.warn({ err: err.message }, '[WEBHOOK] falha ao cancelar followups no opt-out');
       }
       try {
         await zapi.sendText(phone, 'Voce foi removido da nossa lista. Nao recebera mais mensagens. Obrigado!');
       } catch (err) {
-        console.warn('[WEBHOOK] falha ao enviar confirmacao de opt-out:', err.message);
+        logger.warn({ err: err.message }, '[WEBHOOK] falha ao enviar confirmacao de opt-out');
       }
-      console.log(`[WEBHOOK] Opt-out registrado via mensagem STOP para ${phone}`);
+      logger.info({ phone: maskPhone(phone) }, '[WEBHOOK] opt-out registrado via mensagem STOP');
       return res.status(200).json({ ok: true, action: 'optout' });
     }
 
@@ -106,7 +108,7 @@ router.post('/zapi', async (req, res) => {
         }
       }
     } catch (err) {
-      console.warn('[WEBHOOK] falha ao atualizar campanha_envios:', err.message);
+      logger.warn({ err: err.message }, '[WEBHOOK] falha ao atualizar campanha_envios');
     }
 
     const result = await orchestrator.processIncoming(phone, message, messageData);
@@ -119,7 +121,7 @@ router.post('/zapi', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('[WEBHOOK] Erro:', error.message);
+    logger.error({ err: error.message }, '[WEBHOOK] erro');
     res.status(200).json({ status: 'error', message: error.message });
   }
 });
@@ -188,16 +190,16 @@ router.post('/zapi/status', (req, res) => {
             }
           }
         } catch (err) {
-          console.warn('[WEBHOOK] falha campanha_envios delivery:', err.message);
+          logger.warn({ err: err.message }, '[WEBHOOK] falha campanha_envios delivery');
         }
       }
 
-      console.log(`[WEBHOOK] Status ${statusEntrega} para ${phone || messageId}`);
+      logger.info({ status: statusEntrega, phone: phone ? maskPhone(phone) : undefined, messageId }, '[WEBHOOK] status entrega');
     }
 
     res.status(200).json({ received: true, status: statusEntrega });
   } catch (error) {
-    console.error('[WEBHOOK] Erro status:', error.message);
+    logger.error({ err: error.message }, '[WEBHOOK] erro status');
     res.status(200).json({ received: true });
   }
 });
@@ -227,7 +229,7 @@ router.post('/instagram', async (req, res) => {
             const senderId = msg.sender.id;
             const message = msg.message.text;
 
-            console.log(`[INSTAGRAM] DM de ${senderId}: ${message.substring(0, 80)}...`);
+            logger.info({ senderId, preview: maskMessage(message) }, '[INSTAGRAM] DM recebido');
 
             // Processar pelo orchestrator (usa senderId como "telefone")
             const result = await orchestrator.processIncoming(
@@ -246,7 +248,7 @@ router.post('/instagram', async (req, res) => {
 
     res.status(200).json({ status: 'processed' });
   } catch (error) {
-    console.error('[INSTAGRAM] Erro webhook:', error.message);
+    logger.error({ err: error.message }, '[INSTAGRAM] erro webhook');
     res.status(200).json({ status: 'error' });
   }
 });

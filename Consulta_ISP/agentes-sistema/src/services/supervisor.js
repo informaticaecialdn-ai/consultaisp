@@ -1,5 +1,6 @@
 const claude = require('./claude');
 const { getDb } = require('../models/database');
+const logger = require('../utils/logger');
 
 class SupervisorService {
   constructor() {
@@ -10,7 +11,7 @@ class SupervisorService {
   async createDemand(demanda, contexto = {}) {
     const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
-    console.log(`[SUPERVISOR] Nova demanda: "${demanda}" (${taskId})`);
+    logger.info({ taskId, demanda }, '[SUPERVISOR] nova demanda');
 
     // Diana analisa a demanda e cria plano
     const plano = await claude.sendToAgent('diana', `
@@ -33,7 +34,7 @@ Analise esta demanda e crie o plano de execucao em JSON conforme seu formato pad
       const jsonMatch = plano.resposta.match(/\{[\s\S]*\}/);
       planoObj = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
     } catch (e) {
-      console.error('[SUPERVISOR] Erro ao parsear plano:', e.message);
+      logger.error({ err: e.message }, '[SUPERVISOR] erro ao parsear plano');
       planoObj = null;
     }
 
@@ -76,7 +77,7 @@ Analise esta demanda e crie o plano de execucao em JSON conforme seu formato pad
     const plano = task.plano;
     const resultados = [];
 
-    console.log(`[SUPERVISOR] Executando plano ${taskId} com ${plano.plano_execucao.length} tarefas`);
+    logger.info({ taskId, total: plano.plano_execucao.length }, '[SUPERVISOR] executando plano');
 
     // Agrupa por ordem para identificar tarefas paralelas vs sequenciais
     const tarefasPorOrdem = {};
@@ -91,7 +92,7 @@ Analise esta demanda e crie o plano de execucao em JSON conforme seu formato pad
     for (const ordem of ordensSequenciais) {
       const tarefasNaOrdem = tarefasPorOrdem[ordem];
 
-      console.log(`[SUPERVISOR] Executando ordem ${ordem}: ${tarefasNaOrdem.length} tarefa(s)`);
+      logger.info({ ordem, tarefas: tarefasNaOrdem.length }, '[SUPERVISOR] executando ordem');
 
       // Verifica dependencias
       for (const tarefa of tarefasNaOrdem) {
@@ -106,7 +107,7 @@ Analise esta demanda e crie o plano de execucao em JSON conforme seu formato pad
       // Executa tarefas da mesma ordem em paralelo
       const promises = tarefasNaOrdem.map(async (tarefa) => {
         try {
-          console.log(`[SUPERVISOR] -> ${tarefa.agente}: ${tarefa.tarefa}`);
+          logger.info({ agente: tarefa.agente, tarefa: String(tarefa.tarefa || '').slice(0, 80) }, '[SUPERVISOR] delegando');
 
           const resultado = await claude.sendToAgent(tarefa.agente, tarefa.briefing, {});
 
@@ -121,7 +122,7 @@ Analise esta demanda e crie o plano de execucao em JSON conforme seu formato pad
             status: 'concluido'
           };
         } catch (error) {
-          console.error(`[SUPERVISOR] Erro com ${tarefa.agente}:`, error.message);
+          logger.error({ agente: tarefa.agente, err: error.message }, '[SUPERVISOR] erro no agente');
           return {
             ordem: tarefa.ordem,
             agente: tarefa.agente,
@@ -228,7 +229,7 @@ Responda em JSON:
 
   // Pede para um agente especifico via Diana (com contexto gerencial)
   async delegateToAgent(agentKey, tarefa, contexto = {}) {
-    console.log(`[SUPERVISOR] Delegando para ${agentKey}: ${tarefa}`);
+    logger.info({ agente: agentKey, tarefa: String(tarefa || '').slice(0, 80) }, '[SUPERVISOR] delegando (simples)');
 
     const resultado = await claude.sendToAgent(agentKey, tarefa, contexto);
 
@@ -316,7 +317,7 @@ Crie um relatorio executivo com:
         VALUES (?, ?, ?, datetime('now'))
       `).run(agente, tipo, descricao);
     } catch (e) {
-      console.error('[SUPERVISOR] Erro ao logar atividade:', e.message);
+      logger.error({ err: e.message }, '[SUPERVISOR] erro ao logar atividade');
     }
   }
 }
