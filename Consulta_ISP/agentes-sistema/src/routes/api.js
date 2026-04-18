@@ -4,6 +4,8 @@ const orchestrator = require('../services/orchestrator');
 const claude = require('../services/claude');
 const zapi = require('../services/zapi');
 const { getDb } = require('../models/database');
+const { validate } = require('../middleware/validate');
+const schemas = require('../schemas/api');
 
 // === HEALTHCHECK ===
 router.get('/health', (req, res) => {
@@ -272,11 +274,10 @@ router.put('/leads/:id', (req, res) => {
   res.json({ success: true });
 });
 
-router.post('/leads', (req, res) => {
+router.post('/leads', validate(schemas.createLead), (req, res) => {
   const db = getDb();
   const { telefone, nome, provedor, cidade, estado, regiao, porte, erp, origem } = req.body;
-  if (!telefone) return res.status(400).json({ error: 'Telefone obrigatorio' });
-  
+
   try {
     db.prepare(`INSERT INTO leads (telefone, nome, provedor, cidade, estado, regiao, porte, erp, origem) VALUES (?,?,?,?,?,?,?,?,?)`).run(telefone, nome, provedor, cidade, estado, regiao, porte, erp, origem || 'manual');
     const lead = db.prepare('SELECT * FROM leads WHERE telefone = ?').get(telefone);
@@ -315,11 +316,9 @@ router.get('/conversas/recentes', (req, res) => {
 });
 
 // === MENSAGENS ===
-router.post('/send', async (req, res) => {
+router.post('/send', validate(schemas.send), async (req, res) => {
   try {
     const { phone, message, agente } = req.body;
-    if (!phone || !message) return res.status(400).json({ error: 'phone e message sao obrigatorios' });
-    
     if (agente) {
       const result = await orchestrator.sendOutbound(phone, agente, message);
       res.json(result);
@@ -333,11 +332,10 @@ router.post('/send', async (req, res) => {
 });
 
 // === PROSPECCAO ===
-router.post('/prospectar', async (req, res) => {
+router.post('/prospectar', validate(schemas.prospectar), async (req, res) => {
   try {
     const { telefones, regiao, mensagem_base } = req.body;
-    if (!telefones?.length) return res.status(400).json({ error: 'Lista vazia' });
-    
+
     const resultados = [];
     for (const tel of telefones) {
       try {
@@ -468,10 +466,8 @@ router.put('/campanhas/pause-all', (req, res) => {
   res.json({ affected });
 });
 
-// POST /api/campanhas (rascunho)
-router.post('/campanhas', (req, res) => {
-  const errors = validateCreatePayload(req.body);
-  if (errors.length) return bad(res, errors.join('; '));
+// POST /api/campanhas (rascunho) - validado via Zod (Sprint 2 / T4)
+router.post('/campanhas', validate(schemas.campanha), (req, res) => {
   try {
     const campanha = campanhasService.create({
       nome: req.body.nome,
