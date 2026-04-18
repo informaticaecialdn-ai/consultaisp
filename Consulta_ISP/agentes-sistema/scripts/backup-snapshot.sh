@@ -61,3 +61,7 @@ echo "[backup] OK (${SIZE}) -> ${OUT_FILE}.gz"
 cd "${OUT_DIR}"
 ls -1t agentes.db.*.sqlite.gz 2>/dev/null | tail -n +15 | xargs -r rm -f --
 echo "[backup] retencao local aplicada (14 ultimos snapshots)"
+
+# Sprint 3 / T4: heartbeat para o health-checker
+date -u +"%Y-%m-%dT%H:%M:%SZ" > "${ROOT_DIR}/data/.last-backup-at"
+echo "[backup] heartbeat gravado em data/.last-backup-at"

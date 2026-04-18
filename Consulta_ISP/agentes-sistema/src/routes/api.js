@@ -864,18 +864,16 @@ router.get('/admin/broadcast-status', (req, res) => {
 });
 
 // GET /api/health/deep (Sprint 5 / T5 + Sprint 3 / T4)
-router.get('/health/deep', (req, res) => {
-  const db = getDb();
-  const checks = {};
+// Publico: retorna apenas { status }. Autenticado (Bearer): retorna JSON completo.
+const healthChecker = require('../services/health-checker');
+router.get('/health/deep', async (req, res) => {
+  const authz = req.get('authorization') || '';
+  const isAuthed = /^Bearer\s+(.+)$/i.test(authz) &&
+    authz.split(/\s+/)[1] === process.env.API_AUTH_TOKEN;
 
+  let extra = {};
   try {
-    db.prepare('SELECT 1').get();
-    checks.database = { status: 'ok' };
-  } catch (err) {
-    checks.database = { status: 'error', error: err.message };
-  }
-
-  try {
+    const db = getDb();
     const heartbeat = broadcastWorker.readHeartbeat();
     const now = Date.now();
     const ageSec = heartbeat ? Math.round((now - new Date(heartbeat.ts).getTime()) / 1000) : null;
@@ -886,23 +884,36 @@ router.get('/health/deep', (req, res) => {
     const ativas = db.prepare(
       "SELECT COUNT(*) AS c FROM campanhas WHERE status = 'enviando'"
     ).get().c;
-    checks.broadcast_worker = {
-      status: stale ? 'stale' : 'ok',
+    extra.broadcast_worker = {
+      status: stale ? 'degraded' : 'ok',
       last_heartbeat: heartbeat?.ts || null,
       heartbeat_age_sec: ageSec,
       campanhas_ativas: ativas,
       envios_pendentes: pendentes,
-      kill_switch_active: process.env.BROADCAST_WORKER_ENABLED === 'false'
+      kill_switch_active: process.env.BROADCAST_WORKER_ENABLED === 'false',
     };
   } catch (err) {
-    checks.broadcast_worker = { status: 'error', error: err.message };
+    extra.broadcast_worker = { status: 'down', error: err.message };
   }
 
-  const overall = Object.values(checks).every(c => c.status === 'ok') ? 'ok' : 'degraded';
-  res.status(overall === 'ok' ? 200 : 503).json({
+  const deep = await healthChecker.runAll();
+  const checks = { ...deep.checks, ...extra };
+
+  // overall leva em conta os extras
+  let overall = deep.status;
+  for (const v of Object.values(extra)) {
+    if (v.status === 'down') { overall = 'down'; break; }
+    if (v.status === 'degraded' && overall === 'ok') overall = 'degraded';
+  }
+
+  const httpStatus = overall === 'down' ? 503 : 200;
+  if (!isAuthed) {
+    return res.status(httpStatus).json({ status: overall });
+  }
+  res.status(httpStatus).json({
     status: overall,
-    timestamp: new Date().toISOString(),
-    checks
+    timestamp: deep.timestamp,
+    checks,
   });
 });
 
