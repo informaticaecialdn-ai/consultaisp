@@ -748,7 +748,7 @@ async function openLeadDetail(id){
     <div style="max-height:300px;overflow-y:auto;background:var(--bg);border-radius:8px;padding:12px">
       ${(d.conversas||[]).map(c=>`<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between"><span class="badge b-${c.agente}" style="font-size:.6rem">${c.agente}</span><span style="font-size:.65rem;color:var(--muted)">${c.direcao==='recebida'?'← IN':'→ OUT'} | ${timeAgo(c.criado_em)}</span></div><div style="font-size:.85rem;margin-top:4px;${c.direcao==='enviada'?'color:var(--blue)':''}">${c.mensagem}</div></div>`).join('')}
     </div>
-    ${(d.handoffs||[]).length?`<h3 style="margin:12px 0 8px;font-size:.95rem">Transferencias</h3>${d.handoffs.map(h=>`<div style="font-size:.82rem;margin-bottom:4px"><span class="badge b-${h.de_agente}">${h.de_agente}</span> → <span class="badge b-${h.para_agente}">${h.para_agente}</span> <span style="color:var(--muted)">${h.motivo||''} (score:${h.score_no_momento})</span></div>`).join('')}':''}`;
+    ${(d.handoffs||[]).length?`<h3 style="margin:12px 0 8px;font-size:.95rem">Transferencias</h3>${d.handoffs.map(h=>`<div style="font-size:.82rem;margin-bottom:4px"><span class="badge b-${h.de_agente}">${h.de_agente}</span> → <span class="badge b-${h.para_agente}">${h.para_agente}</span> <span style="color:var(--muted)">${h.motivo||''} (score:${h.score_no_momento})</span></div>`).join('')}`:''}`;
   showModal('lead-detail');
 }
 
