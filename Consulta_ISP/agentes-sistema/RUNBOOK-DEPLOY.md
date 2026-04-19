@@ -36,14 +36,77 @@ chmod 600 .env
 vim .env
 ```
 
-Variaveis **obrigatorias** (sem elas o app nao sobe ou nao responde):
-`ANTHROPIC_API_KEY`, `AGENT_*_ID`, `ZAPI_*`, `WEBHOOK_URL`.
+### 2.1 Variaveis CRITICAS (sem elas o app nao sobe ou nao responde)
 
-Variaveis **Litestream** (continuam comentadas ate o Sprint 1):
+| Var | Origem | O que acontece se faltar |
+|-----|--------|--------------------------|
+| `ANTHROPIC_API_KEY` | console.anthropic.com | Agentes nao geram resposta |
+| `AGENT_SOFIA_ID`, `AGENT_LEO_ID`, `AGENT_CARLOS_ID`, `AGENT_LUCAS_ID`, `AGENT_RAFAEL_ID`, `AGENT_MARCOS_ID`, `AGENT_DIANA_ID` | Anthropic Platform Agents | Mapeamento de agente nao funciona |
+| `ZAPI_INSTANCE_ID`, `ZAPI_TOKEN`, `ZAPI_CLIENT_TOKEN` | app.z-api.io | Mensagens nao enviadas/recebidas |
+| `WEBHOOK_URL` | dominio publico | `setup-webhook` nao consegue configurar Z-API |
+
+### 2.2 Variaveis de SEGURANCA (Sprint 2 — adicionadas abr/2026)
+
+| Var | Default sugerido | O que faz |
+|-----|------------------|-----------|
+| `API_AUTH_TOKEN` | `openssl rand -hex 32` | Token Bearer obrigatorio em `/api/*` (exceto `/api/health`) |
+| `ZAPI_WEBHOOK_TOKEN` | `openssl rand -hex 32` | Header HMAC enviado pela Z-API ao chamar `/webhook/zapi` |
+| `ZAPI_WEBHOOK_ENFORCE` | `false` | `true` rejeita webhook sem header HMAC. **Use `false` ate validar nos logs que header esta chegando** |
+
+### 2.3 Variaveis de OBSERVABILITY (Sprint 3 — adicionadas abr/2026)
+
+| Var | Default | O que faz |
+|-----|---------|-----------|
+| `COST_ALERT_DAILY_USD` | `25` | Threshold de alerta diario do gasto Claude |
+| `COST_ALERT_WEBHOOK` | (vazio) | URL Discord/Slack/generica que recebe POST quando passa do threshold |
+| `ERROR_REPORT_WEBHOOK` | (vazio) | Mesma logica para erros capturados (`uncaughtException`/Express handler) |
+| `LOG_LEVEL` | `info` em prod, `debug` em dev | Pino log level |
+| `NODE_ENV` | `production` | Define formato de log (JSON vs pino-pretty) |
+
+### 2.4 Variaveis de WORKERS / BROADCAST (Sprint 5 — defaults seguros)
+
+| Var | Default | O que faz |
+|-----|---------|-----------|
+| `BROADCAST_WORKER_ENABLED` | `true` | Liga worker de broadcast. `false` = kill switch (worker idle em ate 10s) |
+| `FOLLOWUP_WORKER_ENABLED` | `true` | Liga worker de followup |
+| `RUN_WORKERS_IN_SERVER` | `false` | `true` apenas em dev — embarca workers no processo HTTP |
+| `BROADCAST_RATE_PER_MIN` | `20` | Rate limit padrao por campanha (overridavel por campanha) |
+| `BROADCAST_JITTER_MIN_SEC` / `BROADCAST_JITTER_MAX_SEC` | `3` / `8` | Jitter aleatorio entre envios |
+| `BROADCAST_MAX_RETRIES` | `3` | Tentativas em erro transient antes de marcar `falhou` |
+| `BROADCAST_RETRY_DELAYS_SEC` | `30,120,600` | Delays exponenciais (1a, 2a, 3a tentativa) |
+| `BROADCAST_FAILURE_THRESHOLD_PCT` | `20` | Auto-pause se taxa de falha > N% (base >= 10 processados) |
+| `BROADCAST_BATCH_SIZE` | `10` | Quantos envios o worker reivindica por iteracao |
+
+### 2.5 Variaveis de LITESTREAM (continuam comentadas ate ser reativado)
+
 `LITESTREAM_B2_BUCKET`, `LITESTREAM_B2_REGION`, `LITESTREAM_B2_ENDPOINT`,
-`LITESTREAM_B2_KEY_ID`, `LITESTREAM_B2_APP_KEY`.
+`LITESTREAM_B2_KEY_ID`, `LITESTREAM_B2_APP_KEY`. Ver secao 10.
 
-Nunca comite `.env`. `.gitignore` ja cobre o padrao `**/.env`.
+### 2.6 Boas praticas
+
+- **Nunca comite `.env`** — `.gitignore` ja cobre `**/.env`
+- **Nunca cole valores via `echo >>`** — gera duplicatas. Use `nano .env` ou
+  o helper idempotente `scripts/deploy-sprint4.sh` (faz upsert sem duplicar)
+- **Para gerar tokens fortes:** `openssl rand -hex 32`
+- **Para validar tudo presente apos editar:**
+  ```bash
+  for v in ANTHROPIC_API_KEY API_AUTH_TOKEN ZAPI_INSTANCE_ID ZAPI_TOKEN \
+           ZAPI_WEBHOOK_TOKEN WEBHOOK_URL; do
+    grep -qE "^${v}=.+" .env && echo "${v}=<set>" || echo "${v}=MISSING"
+  done
+  ```
+
+### 2.7 Reload apos editar `.env`
+
+Vars sao lidas no boot do container. Apos editar:
+
+```bash
+docker compose restart agentes
+docker compose restart worker  # se mudou BROADCAST_*
+```
+
+Worker tambem le `.env` a cada iteracao (BROADCAST_WORKER_ENABLED, kill switch).
+Para mudancas de outras vars, restart e necessario.
 
 ---
 
@@ -195,6 +258,14 @@ docker compose up -d --remove-orphans
 | Dashboard 502 Bad Gateway | nginx do host nao alcanca container | Verificar `docker compose ps` mostra `127.0.0.1:3080->3001/tcp`. Se nao, reaplicar bloco `ports:` no docker-compose.yml e `docker compose up -d --force-recreate agentes` |
 | /api/X retorna "Cannot GET" mas /api/health funciona | Imagem antiga rodando | `cd /opt/consulta-isp-fullrepo && git pull && cd /opt/consulta-isp-agentes && docker compose build --no-cache agentes && docker compose up -d --force-recreate agentes` |
 | Litestream 403 AccessDenied / InvalidAccessKeyId | Key com namePrefix OU bug B2 | Recriar key SEM "File name prefix". Se persistir, ver secao 10 (Litestream divida tecnica) |
+| `/api/leads` retorna 401 unauthorized (Sprint 2) | Bearer token ausente ou errado | Header `Authorization: Bearer $API_AUTH_TOKEN`. Dashboard pede o token na primeira carga |
+| Z-API `setup-webhook` retorna 500 "Instance not found" | Credenciais Z-API erradas/expiradas | Conferir `ZAPI_INSTANCE_ID`/`TOKEN`/`CLIENT_TOKEN` no painel app.z-api.io. Atualizar `.env` + `docker compose restart agentes` |
+| Webhook Z-API recebe 401 apos flipar `ZAPI_WEBHOOK_ENFORCE=true` | Z-API nao envia o header `X-Z-API-Token` | Verificar que `setup-webhook` foi chamado APOS setar `ZAPI_WEBHOOK_TOKEN` no `.env`. Header e configurado na Z-API via API setWebhook |
+| `/api/health/deep` retorna `degraded: backup` | Heartbeat de backup ausente ha > 7h | Rodar `bash scripts/backup-snapshot.sh` (gera `data/.last-backup-at`). Configurar cron 6h se ainda nao tiver |
+| `/api/health/deep` retorna 503 com `anthropic: down` | API key vencida ou Anthropic fora | Verificar `ANTHROPIC_API_KEY` em console.anthropic.com. Cache de check e 60s, espere 1min apos atualizar |
+| `cost_alert` disparou e custo Claude alto inesperado | Loop infinito de retry, ou agente respondendo sem parar | Checar `/api/costs/today` para ver breakdown por agente. `/api/errors` para ver erros recentes. Considerar pausar broadcast |
+| Logs sem `X-Correlation-Id` em request | Middleware correlation nao registrado (regressao Sprint 3/T1) | Conferir `app.use(correlationMiddleware)` em `src/server.js` ANTES dos routers |
+| `errors_log` crescendo sem parar | Bug em codigo gerando uncaughtException continuo | `GET /api/errors` para ver tipo. `cleanupOldResolved()` apaga apenas resolvidos > 90 dias. Resolver e marcar via `POST /api/errors/:id/resolve` |
 
 Em incidente alto-impacto:
 1. Snapshot defensivo (`./scripts/backup-snapshot.sh`).

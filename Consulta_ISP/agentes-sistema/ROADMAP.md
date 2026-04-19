@@ -65,22 +65,149 @@ end-to-end: codigo -> GitHub -> VPS -> container -> dominio.
 
 ---
 
-## Sprints 2-4 — Broadcast foundations (entregue dentro do Sprint 5)
+## Sprint 2 — Security + LGPD (entregue, abr/2026)
 
-**Objetivo:** Preparar infra de campanhas antes do motor rodar.
+**Objetivo:** Endurecer o sistema antes de campanhas em massa: auth,
+HMAC webhook, opt-out automatico, sanitizacao de inputs e mascaramento
+de PII em logs.
 
-Os commits de Sprint 2-4 foram consolidados nas migrations e services
-entregues dentro do Sprint 5 (sem commits dedicados no git — tudo foi
-amarrado na migration 008-sprint4-stubs.sql e nas migrations 009-011).
+### T1 — Auth Bearer + Helmet + Rate limit (`5e00dbd`)
+- `src/middleware/auth.js` — `requireAuth` valida `Authorization: Bearer <API_AUTH_TOKEN>`
+- Helmet com security headers em todas as respostas
+- Rate limit `/api/*` (100 req/15min) e `/api/prospectar` (10 req/h)
+- Bypass auth: `/api/health`, `/webhook/*`, estaticos
+- Dashboard injeta token via `localStorage.api_token` (banner amarelo se ausente)
 
-**Entregas:**
-- `migrations/008-sprint4-stubs.sql` — schemas base de campanhas
-- `services/audiencias.js` — audiencias estaticas e dinamicas
-- `services/templates.js` + `template-engine.js` — templates com
-  interpolacao `{{primeiro_nome}}`, HSM approved flag
-- `services/consent.js` — opt-out com STOP, SAIR, DESCADASTRAR
-- `services/window-checker.js` — janela 24h para mensagens non-HSM
-- Regex BR de telefone (`55DDDNNNNNNNN`)
+### T2 — HMAC token validation no webhook Z-API (`c16fe6c`)
+- `validateZapiToken()` em `routes/webhook.js` valida header `x-z-api-token`
+- Modo enforce/log-only via `ZAPI_WEBHOOK_ENFORCE=true|false`
+- `setWebhook()` configura Z-API com header customizado para callback HMAC
+
+### T3 — Opt-out LGPD automatico (`2d3755b`)
+- `consent.detectOptOutFromMessage()` com regex ESTRITA (evita falso-positivo)
+- Webhook detecta `STOP|SAIR|PARAR|CANCELAR|UNSUBSCRIBE|...` e marca `lead_opt_out`
+- Cancela followups + envia confirmacao + responde 200
+- `orchestrator.sendOutbound` bloqueia telefones com optout (`{blocked:true}`)
+- 4 endpoints CRUD em `/api/consentimento`
+
+### T4 — Sanitizacao Zod (`8ed0123`)
+- `src/schemas/api.js` — schemas Zod para 4 endpoints criticos
+- `src/middleware/validate.js` — wrapper centralizado, devolve 400 com `issues[]`
+- Aplicado em `/api/leads`, `/api/prospectar`, `/api/send`, `/api/campanhas`
+
+### T5 — Pino logger + PII mascarado (`56d50e6`)
+- `src/utils/logger.js` — Pino com `redact` automatico de tokens/headers
+- `src/utils/pii.js` — `maskPhone(5511****1234)`, `maskName`, `maskMessage`
+- Substituido `console.*` por `logger.*` em 6 services criticos
+- Dev: pino-pretty colorido. Prod: JSON estruturado
+
+---
+
+## Sprint 3 — Observability (entregue, abr/2026)
+
+**Objetivo:** Operar com confianca: correlacionar logs, rastrear custo
+Claude, tests automatizados, health profundo e captura de erros.
+
+### T1 — Pino + correlationId (`2f780c0`)
+- `src/middleware/correlation.js` — gera/propaga `X-Correlation-Id` em todas as routes
+- `req.logger = logger.withCorrelation(id)` disponivel em handlers
+- Substituido `console.*` em 9 services restantes (training, ab-testing,
+  instagram, email-sender, meta-ads, google-ads, ads-optimizer, skills-knowledge)
+- `.eslintrc.json` com `no-console` warn (allow `error`, `warn`)
+
+### T2 — Painel custo Claude (`e130e51`)
+- Migration `012-claude-usage.sql` (agente, modelo, tokens, custo_usd, correlation_id)
+- `data/claude-prices.json` — precos por modelo com `verified_at`
+- `src/utils/cost-calculator.js` — calcula USD por modelo
+- `src/utils/claude-client.js` — wrapper que persiste em `claude_usage`
+- `claude.js` + `training.js` migrados para o wrapper
+- Endpoints `/api/costs/{today,month,range,timeseries}`
+- `services/cost-monitor.js` — alerta diario via `COST_ALERT_WEBHOOK`
+- `cost-card.js` no dashboard (verde/amarelo/vermelho por threshold)
+
+### T3 — Vitest + 8 testes integracao + CI (`146ba1f`)
+- `vitest` + `supertest` + `@vitest/coverage-v8`
+- `vitest.config.js` escopa apenas `tests/integration/sprint3/`
+- Legacy tests movidos para `tests/legacy/` com README
+- 8 testes: auth, webhook-hmac, opt-out, outbound-blocked, validation,
+  followup-lock, claude-messages, diagnose
+- Helpers `db/auth/app` para setup em memoria (`DB_PATH=:memory:`)
+- Tests pulam se `better-sqlite3` bindings indisponiveis (Node 24 local)
+- CI `.github/workflows/test.yml` com Node 20 (prebuilds funcionam)
+
+### T4 — /api/health/deep com 7 checks (`28aee15`)
+- `services/health-checker.js`: db, anthropic, zapi, backup, disk, memory, uptime
+- Anthropic + Z-API cacheados 60s (zero custo extra)
+- `/api/health/deep` publico retorna apenas `{status}`; com Bearer retorna detalhe
+- HTTP 503 se overall=down, 200 caso contrario
+- `scripts/backup-snapshot.sh` grava `data/.last-backup-at` (heartbeat)
+- `health-card.js` no dashboard (semaforo verde/amarelo/vermelho)
+
+### T5 — Errors log + uncaughtException (`711165e`)
+- Migration `013-errors-log.sql`
+- `services/error-tracker.js` persiste + aciona webhook + cleanup 24h
+- `server.js`: handler Express + `process.on('uncaughtException'|'unhandledRejection')`
+- Endpoints `/api/errors`, `/errors/count`, `/errors/:id`, `/errors/cleanup`
+- `uncaughtException` aguarda 1s antes de `process.exit(1)`
+- `errors-card.js` no dashboard (count vermelho se > 0)
+
+---
+
+## Sprint 4 — Audiencias + Templates (entregue, abr/2026)
+
+**Objetivo:** Substituir os stubs de Sprint 4 (008-sprint4-stubs.sql) por
+implementacao real de audiencias dinamicas com query builder seguro,
+templates com versionamento e preview live, opt-in tracking.
+
+### T1 — Audiencias service + query builder (`314043a`)
+- Migration `014-sprint4-fields.sql` adiciona campos: `ativa`, `criada_por`,
+  `total_leads_atualizado_em` em audiencias; `categoria`, `ativo`,
+  `meta_template_id`, `variaveis_obrigatorias` em templates;
+  `status`, `optin_em`, `optin_origem`, `atualizado_em` em lead_opt_out
+- `src/utils/audiencia-query-builder.js` com whitelist estrita (10 filtros)
+- Params prepared, NUNCA interpolados. Filtros invalidos ignorados silenciosamente
+- `services/audiencias.js` estendido: `createEstatica`, `createDinamica`,
+  `previewLeads`, `removeLead`, `countByFiltros`, soft delete (`ativa=0`)
+
+### T2 — Template engine completo (`84be5c5`)
+- `utils/template-engine.js`: render com `{{var|fallback}}`, `enrichVars`
+  (`saudacao`, `dia_semana`, `primeiro_nome`), `missingVariables`
+- `services/templates.js` completo: `getByNome`, `clone`, `renderForLead`,
+  `previewWithSamples`, `renderPreview` (live), versao++ em mudanca de conteudo,
+  soft delete (`ativo=0`), `removeHard` separado
+- `services/template-engine.js` vira re-export do utils/ (compat Sprint 5)
+- Schemas Zod: `template`, `templateUpdate`, `audienciaCreate`
+  (discriminated union), `audienciaUpdate`, `filtrosSchema`
+
+### T3 — Window checker 24h + opt-in tracking (`4b3ad69`)
+- `window-checker.js`: `canSendFreeForm` retorna `allowed/reason/recommendation/`
+  `hoursSince/hoursRemaining`
+- `canReceiveAnyOutbound` combina janela + consent
+- `batchCheckWindow` otimizado (1 query para N leads)
+- `consent.markOptIn`: insere `status='ativo'` sem sobrescrever optout
+- Webhook marca opt-in automatico em inbound organico
+- Endpoint `GET /api/leads/:id/can-send`
+
+### T4 — CRUD audiencias + UI (`77fc43e`)
+- 10 endpoints auth Bearer em `/api/audiencias/*`:
+  GET list, POST create (Zod discriminated), GET :id, PUT :id, DELETE :id (soft),
+  GET :id/leads, GET :id/preview, POST :id/refresh-count,
+  POST :id/leads, DELETE :id/leads/:leadId, POST `/audiencias/count` (live)
+- `audiencias-list.js`: tabela com preview/refresh/excluir actions
+- `new-audiencia.js`: modal 2 tabs (Estatica | Dinamica) com preview live
+  de count (debounce 500ms)
+- Menu lateral ganha entrada "Audiencias"
+
+### T5 — CRUD templates + UI editor (`d126778`)
+- 8 endpoints auth Bearer em `/api/templates/*`:
+  GET list, POST create (Zod), GET :id, PUT :id (incrementa versao),
+  DELETE :id (soft), GET :id/render?leadId=X,
+  GET :id/preview?audienciaId=Y&n=3, POST :id/clone,
+  POST `/templates/render-preview` (render live sem persistir)
+- `template-card.js`: grid de cards com versao, vars, badges HSM/INATIVO
+- `template-editor.js`: modal com preview live (debounce 500ms) +
+  sample vars + char count + warnings de var faltando
+- Menu lateral ganha entrada "Templates"
 
 ---
 
@@ -128,15 +255,31 @@ switch e smoke test. Sistema pronto para campanhas reais no Sprint 6.
 **Objetivo:** Por o broadcast engine em producao com campanhas reais
 + resolver dividas carregadas dos sprints anteriores.
 
+### Prioridade BLOQUEADOR
+0. **Restaurar credenciais Z-API** — instance configurada em `.env`
+   da VPS retorna "Instance not found" ao chamar `/api/setup-webhook`.
+   Sem isso, broadcast/inbound nao funcionam. Verificar painel Z-API
+   e atualizar `ZAPI_INSTANCE_ID`/`ZAPI_TOKEN`/`ZAPI_CLIENT_TOKEN`.
+
 ### Prioridade alta
-1. **Campanha real #1** — executar smoke test documentado em
-   `docs/SMOKE-TEST-CAMPANHA.md`, aprovar criterios, liberar primeira
-   campanha de verdade com audiencia pequena (50-100 leads).
-2. **Retomar Litestream** — escolher entre trocar B2 para us-west,
-   AWS S3, ou simplesmente manter cron de snapshot local se o volume
-   de dados seguir baixo. Ver `RUNBOOK-DEPLOY.md` secao 10.
-3. **Dashboard de campanhas em tempo real** — ja existe polling 5s;
+1. **Campanha real #1** — depois de Z-API funcionar, executar smoke
+   test documentado em `docs/SMOKE-TEST-CAMPANHA.md`, aprovar criterios,
+   liberar primeira campanha de verdade com audiencia pequena (50-100 leads).
+2. **Flipar `ZAPI_WEBHOOK_ENFORCE=true`** — depois de validar via logs
+   que Z-API esta enviando o header `X-Z-API-Token` corretamente.
+3. **Retomar Litestream** — escolher entre trocar B2 para us-west,
+   AWS S3, ou Cloudflare R2. Ver `RUNBOOK-DEPLOY.md` secao 10.
+4. **Dashboard de campanhas em tempo real** — ja existe polling 5s;
    adicionar grafico de envios/min e taxa de entrega.
+
+### Limpeza tecnica recomendada
+- **Caddyfile + servico caddy no docker-compose** — VPS usa nginx do host
+  (Sprint 1/T3). Codigo morto. Decidir: deletar ou manter como exemplo.
+- **Stubs Meta/Google Ads** — `meta-ads.js`, `google-ads.js`,
+  `ads-optimizer.js` estao implementados mas nunca chamados pelo
+  orchestrator. Decidir: integrar (chamar em `_processAction`) ou deletar.
+- **Tests legacy** — `tests/integration/*.test.js` (Sprint 5) sao scripts
+  Node, nao Vitest. Migrar pra Vitest ou mover pra `tests/legacy/`.
 
 ### Backlog
 - NFS-e FocusNFe (emissao automatica de NF apos conversao)
@@ -146,13 +289,18 @@ switch e smoke test. Sistema pronto para campanhas reais no Sprint 6.
 - fetchCustomers com paginacao para ERPs grandes (IXC, MK)
 - Multi-canal: Instagram DM + email como fallback quando WhatsApp
   janela 24h fecha
+- UI explicita para kill switch (`/api/admin/kill-broadcast` so e
+  acessivel via curl com header `X-Admin-Confirm: yes`)
 
 ### Divida tecnica conhecida
 - Litestream desativado (Sprint 1/T4)
+- Caddy comentado em docker-compose.yml (substituido por nginx host
+  no Sprint 1/T3)
 - Dependencia N8N em `heatmap-cache.ts` do Consulta_ISP principal
   (nao afeta agentes-sistema diretamente, mas compartilha VPS)
-- Tests de integracao pulam quando `better-sqlite3` native bindings
-  ausentes — rodar em Docker ou Node 20
+- Tests de integracao Sprint 5 pulam quando `better-sqlite3` native
+  bindings ausentes — rodar em Docker ou Node 20
+- Tests Sprint 3 (Vitest) tambem pulam em Node 24 local; CI Node 20 funciona
 
 ---
 
@@ -161,22 +309,70 @@ switch e smoke test. Sistema pronto para campanhas reais no Sprint 6.
 ```
 agentes-sistema/
 ├── src/
-│   ├── server.js              # Express entry (HTTP)
+│   ├── server.js              # Express entry (HTTP) + helmet + auth + correlation
 │   ├── worker.js              # Worker entry (broadcast + followup)
-│   ├── routes/api.js          # ~1000 linhas, ~50 endpoints
-│   ├── services/              # 20+ services (agentes, campanhas, etc)
-│   ├── workers/broadcast.js   # loop com claim atomico
-│   ├── utils/env-file.js      # helper kill switch
-│   └── migrations/            # 008-011 aplicadas
-├── public/                    # dashboard estatico (index.html + js/)
-├── tests/integration/         # 7 suites (pulam sem SQLite native)
+│   ├── routes/                # api.js (~50 endpoints), webhook.js, ads.js, supervisor.js, dashboard.js
+│   ├── middleware/            # auth.js, correlation.js, validate.js (Sprints 2/3)
+│   ├── schemas/api.js         # schemas Zod (Sprint 2/T4)
+│   ├── services/              # 24 services (claude, zapi, orchestrator, campanhas, audiencias, templates, ...)
+│   ├── workers/               # broadcast.js, followup-worker.js
+│   ├── utils/                 # logger.js (Pino), pii.js, claude-client.js, cost-calculator.js,
+│   │                          # template-engine.js, audiencia-query-builder.js, env-file.js
+│   └── migrations/            # 008-014 aplicadas (008 stubs, 009-011 broadcast, 012 cost,
+│                              # 013 errors, 014 sprint4 fields)
+├── public/
+│   ├── index.html             # dashboard com banner auth + cards observability
+│   └── js/
+│       ├── cards/             # cost, health, errors, audiencias-list, template, campanha, kill-switch
+│       ├── modals/            # new-audiencia, template-editor
+│       └── wizards/           # new-campanha
+├── data/
+│   ├── agentes.db             # SQLite (better-sqlite3)
+│   ├── claude-prices.json     # precos por modelo (Sprint 3/T2)
+│   └── .last-backup-at        # heartbeat usado por health/deep
+├── tests/
+│   ├── setup.js               # config global Vitest
+│   ├── helpers/               # db, auth, app
+│   ├── integration/sprint3/   # 8 testes Vitest (Sprint 3)
+│   ├── integration/           # tests legados Sprint 5 (scripts Node)
+│   └── legacy/                # tests anteriores arquivados
+├── scripts/
+│   ├── deploy-sprint4.sh      # deploy idempotente VPS (Sprint 2/3/4)
+│   ├── smoke-test-deploy.sh   # validacao deploy sem rebuild
+│   ├── backup-snapshot.sh     # snapshot SQLite + heartbeat
+│   └── restore-litestream.sh  # restore (Litestream desativado)
 ├── docs/SMOKE-TEST-CAMPANHA.md
 ├── RUNBOOK-DEPLOY.md          # ops (deploy, backup, troubleshoot)
 ├── ROADMAP.md                 # este arquivo (visao estrategica)
-├── docker-compose.yml         # app + worker (+ litestream comentado)
-├── Caddyfile                  # NAO usado em producao (nginx host faz proxy)
+├── docker-compose.yml         # app + worker (+ caddy/litestream comentados)
+├── vitest.config.js           # Vitest config (Sprint 3/T3)
+├── .eslintrc.json             # no-console warn (Sprint 3/T1)
+├── Caddyfile                  # DEAD CODE (nginx host substitui em prod)
 └── fix-vps.sh                 # deploy limpo emergencial
 ```
+
+---
+
+## Estado atual do sistema (snapshot abr/2026)
+
+| Componente | Status | Observacao |
+|-----------|--------|------------|
+| Express server | OK | porta 3001, exposto :3080 via 127.0.0.1 |
+| Worker process | OK | container `consulta-isp-worker` separado |
+| Auth Bearer | OK | token via `API_AUTH_TOKEN`, dashboard com banner |
+| HMAC webhook | log-only | `ZAPI_WEBHOOK_ENFORCE=false` na VPS (transicao gradual) |
+| Pino logs + correlation | OK | JSON estruturado em prod, pino-pretty em dev |
+| Cost monitoring | OK | tabela claude_usage, alerta diario via webhook |
+| Health/deep (7 checks) | OK | 503 se overall=down, publico = `{status}` apenas |
+| Errors log | OK | uncaughtException capturado, cleanup 90+ dias |
+| Audiencias service+UI | OK | estatica + dinamica com 10 filtros whitelist |
+| Templates service+UI | OK | preview live, versionamento, HSM flag |
+| Window checker 24h | OK | + opt-in tracking automatico em inbound |
+| Broadcast engine | OK | rate limit + retry + kill switch + auto-pause |
+| **Z-API integration** | **QUEBRADO** | **Instance not found - precisa reconfig (Sprint 6/P0)** |
+| Litestream | desativado | snapshot local 6h via cron (Sprint 1/T4) |
+| Caddy | desativado | nginx do host substitui (Sprint 1/T3) |
+| Meta/Google Ads | stub | services existem mas nao chamados |
 
 ---
 
