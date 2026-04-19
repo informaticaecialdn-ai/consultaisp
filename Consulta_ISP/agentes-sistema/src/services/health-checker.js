@@ -46,11 +46,13 @@ async function checkAnthropic() {
       });
       if (res.ok) return { status: 'ok', latency_ms: Date.now() - t0, http_status: res.status };
       if (res.status === 401 || res.status === 403) {
-        return { status: 'down', latency_ms: Date.now() - t0, http_status: res.status, reason: 'credencial invalida' };
+        // credencial invalida = degraded (sistema sobe, mas IA nao funciona)
+        return { status: 'degraded', latency_ms: Date.now() - t0, http_status: res.status, reason: 'credencial invalida' };
       }
       return { status: 'degraded', latency_ms: Date.now() - t0, http_status: res.status };
     } catch (err) {
-      return { status: 'down', error: err.message };
+      // Network falhou — degraded em vez de down (timeout/DNS nao deve derrubar /health)
+      return { status: 'degraded', error: err.message };
     }
   });
 }
@@ -76,7 +78,8 @@ async function checkZapi() {
       const connected = body?.connected === true;
       return { status: connected ? 'ok' : 'degraded', latency_ms: Date.now() - t0, connected };
     } catch (err) {
-      return { status: 'down', error: err.message };
+      // Z-API e canal opcional — falha = degraded, nao down
+      return { status: 'degraded', error: err.message };
     }
   });
 }
@@ -138,10 +141,15 @@ async function runAll() {
   ].map(([k, p]) => Promise.resolve(p).then(v => [k, v]).catch(err => [k, { status: 'down', error: err.message }])));
 
   const checks = Object.fromEntries(entries);
+  // Apenas database 'down' derruba o sistema todo (HTTP 503).
+  // Outras integracoes 'down' viram 'degraded' no overall.
   let overall = 'ok';
-  for (const v of Object.values(checks)) {
-    if (v.status === 'down') { overall = 'down'; break; }
-    if (v.status === 'degraded') overall = 'degraded';
+  if (checks.database?.status === 'down') {
+    overall = 'down';
+  } else {
+    for (const [key, v] of Object.entries(checks)) {
+      if (v.status === 'down' || v.status === 'degraded') overall = 'degraded';
+    }
   }
   return { status: overall, checks, timestamp: new Date().toISOString() };
 }

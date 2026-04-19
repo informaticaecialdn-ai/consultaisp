@@ -106,30 +106,33 @@ router.get('/diagnose', (req, res) => {
 // === STATS / DASHBOARD ===
 router.get('/stats', (req, res) => {
   const db = getDb();
-  const hoje = new Date().toISOString().split('T')[0];
-  
-  const total_leads = db.prepare('SELECT COUNT(*) as c FROM leads').get().c;
-  const msgs_hoje = db.prepare("SELECT COUNT(*) as c FROM conversas WHERE DATE(criado_em) = DATE('now')").get().c;
-  const tarefas_pendentes = db.prepare("SELECT COUNT(*) as c FROM tarefas WHERE status = 'pendente'").get().c;
-  
-  const por_classificacao = db.prepare('SELECT classificacao, COUNT(*) as c FROM leads GROUP BY classificacao').all();
-  const por_agente = db.prepare('SELECT agente_atual as agente, COUNT(*) as c FROM leads GROUP BY agente_atual').all();
-  const por_etapa = db.prepare('SELECT etapa_funil as etapa, COUNT(*) as c FROM leads GROUP BY etapa_funil').all();
-  const por_regiao = db.prepare('SELECT COALESCE(regiao, estado, "Sem regiao") as regiao, COUNT(*) as c FROM leads GROUP BY regiao ORDER BY c DESC LIMIT 10').all();
-  
-  const valor_pipeline = db.prepare('SELECT COALESCE(SUM(valor_estimado),0) as v FROM leads WHERE etapa_funil NOT IN ("perdido","convertido")').get().v;
-  const leads_hoje = db.prepare("SELECT COUNT(*) as c FROM leads WHERE DATE(criado_em) = DATE('now')").get().c;
-  const conversoes_mes = db.prepare("SELECT COUNT(*) as c FROM leads WHERE etapa_funil='convertido' AND criado_em >= DATE('now','start of month')").get().c;
-  
-  // Atividades recentes dos agentes
-  const atividades_recentes = db.prepare('SELECT * FROM atividades_agentes ORDER BY criado_em DESC LIMIT 20').all();
-  
-  // Handoffs recentes
-  const handoffs_recentes = db.prepare(`
-    SELECT h.*, l.nome, l.provedor, l.telefone 
-    FROM handoffs h JOIN leads l ON h.lead_id = l.id 
+  // Cada query e isolada pra que falha em uma nao quebre o endpoint todo.
+  // Defaults conservadores quando a tabela/coluna nao existe ainda.
+  const safe = (fn, fallback) => { try { return fn(); } catch (e) {
+    if (req.logger) req.logger.warn({ err: e.message }, '[STATS] query falhou');
+    return fallback;
+  }};
+
+  const total_leads = safe(() => db.prepare('SELECT COUNT(*) as c FROM leads').get().c, 0);
+  const msgs_hoje = safe(() => db.prepare("SELECT COUNT(*) as c FROM conversas WHERE DATE(criado_em) = DATE('now')").get().c, 0);
+  const tarefas_pendentes = safe(() => db.prepare("SELECT COUNT(*) as c FROM tarefas WHERE status = 'pendente'").get().c, 0);
+
+  const por_classificacao = safe(() => db.prepare('SELECT classificacao, COUNT(*) as c FROM leads GROUP BY classificacao').all(), []);
+  const por_agente = safe(() => db.prepare('SELECT agente_atual as agente, COUNT(*) as c FROM leads GROUP BY agente_atual').all(), []);
+  const por_etapa = safe(() => db.prepare('SELECT etapa_funil as etapa, COUNT(*) as c FROM leads GROUP BY etapa_funil').all(), []);
+  const por_regiao = safe(() => db.prepare("SELECT COALESCE(regiao, estado, 'Sem regiao') as regiao, COUNT(*) as c FROM leads GROUP BY regiao ORDER BY c DESC LIMIT 10").all(), []);
+
+  const valor_pipeline = safe(() => db.prepare("SELECT COALESCE(SUM(valor_estimado),0) as v FROM leads WHERE etapa_funil NOT IN ('perdido','convertido')").get().v, 0);
+  const leads_hoje = safe(() => db.prepare("SELECT COUNT(*) as c FROM leads WHERE DATE(criado_em) = DATE('now')").get().c, 0);
+  const conversoes_mes = safe(() => db.prepare("SELECT COUNT(*) as c FROM leads WHERE etapa_funil='convertido' AND criado_em >= DATE('now','start of month')").get().c, 0);
+
+  const atividades_recentes = safe(() => db.prepare('SELECT * FROM atividades_agentes ORDER BY criado_em DESC LIMIT 20').all(), []);
+
+  const handoffs_recentes = safe(() => db.prepare(`
+    SELECT h.*, l.nome, l.provedor, l.telefone
+    FROM handoffs h JOIN leads l ON h.lead_id = l.id
     ORDER BY h.criado_em DESC LIMIT 10
-  `).all();
+  `).all(), []);
 
   // 11B-3: Metricas de avaliacoes do supervisor
   let avaliacoes_resumo = [];
