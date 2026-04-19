@@ -168,6 +168,7 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
       <span class="topbar-status"><span class="pulse"></span> Sistema Ativo</span>
       <button class="btn btn-outline btn-sm" onclick="refreshAll()">Atualizar</button>
       <button class="btn btn-primary btn-sm" onclick="showModal('novo-lead')">+ Novo Lead</button>
+      <button class="btn btn-ghost btn-sm" onclick="doLogout()" title="Sair (limpa token e volta para login)">Sair</button>
     </div>
   </div>
 
@@ -486,6 +487,18 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
 </div>
 
 <script>
+// Sprint 4 hotfix: redirect para login se nao autenticado.
+// Antes de tudo: se nao tem token em localStorage, vai pra /login.html.
+// (nao bloqueia se ja esta no /login.html — esse arquivo tem proprio guard)
+(function authGuard(){
+  if (location.pathname === '/login.html') return;
+  if (!localStorage.getItem('api_token')) {
+    location.href = '/login.html';
+    // throw para parar execucao do resto do script
+    throw new Error('redirecting to login');
+  }
+})();
+
 const API='/api';
 let charts={};let currentChatLead=null;
 const AGENTE_COLORS={sofia:'var(--pink)',leo:'var(--yellow)',carlos:'var(--green)',lucas:'var(--blue)',rafael:'var(--purple)'};
@@ -554,6 +567,11 @@ function showError(msg){
 // --- Sprint 2 / T1: Bearer auth no dashboard ---
 function getAuthToken(){ try{ return localStorage.getItem('api_token') || ''; }catch{ return ''; } }
 function setAuthToken(t){ try{ localStorage.setItem('api_token', t); }catch{} }
+function doLogout(){
+  if (!confirm('Sair e voltar para a tela de login?')) return;
+  try { localStorage.removeItem('api_token'); } catch {}
+  location.href = '/login.html';
+}
 function promptForToken(reason){
   const cur = getAuthToken();
   const msg = reason ? (reason + '\n\nCole o API token (API_AUTH_TOKEN):') : 'Cole o API token (API_AUTH_TOKEN):';

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow">
+<title>Login — Consulta ISP CRM</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Inter','Segoe UI',system-ui,sans-serif}
+:root{--bg:#0a0e1a;--bg2:#111827;--card:#1a2234;--border:#2d3a4f;--text:#e2e8f0;--muted:#7a8ba8;--blue:#60a5fa;--purple:#a78bfa;--green:#34d399;--red:#f87171;--yellow:#fbbf24}
+body{background:linear-gradient(135deg,#0a0e1a 0%,#1a2234 100%);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:40px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+.logo{font-size:1.6rem;font-weight:800;background:linear-gradient(135deg,var(--blue),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:6px}
+.subtitle{color:var(--muted);font-size:.85rem;margin-bottom:30px}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px}
+.field input{width:100%;padding:12px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.95rem;font-family:monospace}
+.field input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(96,165,250,.15)}
+.btn{width:100%;padding:13px;background:linear-gradient(135deg,var(--blue),var(--purple));color:#fff;border:none;border-radius:8px;font-size:.95rem;font-weight:600;cursor:pointer;transition:.15s}
+.btn:hover{opacity:.92;transform:translateY(-1px)}
+.btn:disabled{opacity:.6;cursor:wait;transform:none}
+.error{margin-top:14px;padding:10px 14px;background:rgba(248,113,113,.12);color:var(--red);border:1px solid rgba(248,113,113,.3);border-radius:8px;font-size:.85rem;display:none}
+.error.show{display:block}
+.success{margin-top:14px;padding:10px 14px;background:rgba(52,211,153,.12);color:var(--green);border:1px solid rgba(52,211,153,.3);border-radius:8px;font-size:.85rem;display:none}
+.success.show{display:block}
+.hint{margin-top:24px;padding-top:20px;border-top:1px solid var(--border);font-size:.72rem;color:var(--muted);line-height:1.6}
+.hint code{background:var(--bg2);padding:2px 6px;border-radius:4px;color:var(--blue);font-size:.7rem}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;margin-right:8px;vertical-align:-2px}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">Consulta ISP</div>
+  <div class="subtitle">CRM &amp; Agentes IA — Acesso restrito</div>
+
+  <form id="login-form" autocomplete="off">
+    <div class="field">
+      <label for="password">Senha de acesso</label>
+      <input type="password" id="password" name="password" autocomplete="current-password"
+             placeholder="LOGIN_PASSWORD ou API_AUTH_TOKEN" required autofocus minlength="1" maxlength="256">
+    </div>
+    <button type="submit" class="btn" id="submit-btn">Entrar</button>
+    <div id="error-msg" class="error"></div>
+    <div id="success-msg" class="success"></div>
+  </form>
+
+  <div class="hint">
+    Esqueceu a senha? Pegue na VPS:<br>
+    <code>grep "^LOGIN_PASSWORD\|^API_AUTH_TOKEN" /opt/consulta-isp-agentes/.env</code>
+    <br><br>
+    Acesso aceita <strong>LOGIN_PASSWORD</strong> (memorivel) ou o proprio <strong>API_AUTH_TOKEN</strong> (64 chars).
+  </div>
+</div>
+
+<script>
+// Limpa service workers antigos da aplicacao Consulta ISP principal
+// (causa loop infinito de /api/config/maps-key — ver Sprint 4 hotfix).
+(async function cleanupAncientWorkers(){
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for (const reg of regs) {
+        await reg.unregister();
+        console.log('[LOGIN] SW unregistered:', reg.scope);
+      }
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      for (const k of keys) await caches.delete(k);
+    }
+  } catch (e) { console.warn('[LOGIN] cleanup failed:', e.message); }
+})();
+
+// Se ja tem token valido no localStorage, valida e redireciona
+(async function autoLogin(){
+  const tok = localStorage.getItem('api_token');
+  if (!tok) return;
+  try {
+    const r = await fetch('/api/auth/check', { headers: { 'Authorization': 'Bearer ' + tok } });
+    if (r.ok) {
+      showSuccess('Sessao ativa. Redirecionando...');
+      setTimeout(() => location.href = '/', 600);
+    }
+  } catch {}
+})();
+
+const form = document.getElementById('login-form');
+const btn = document.getElementById('submit-btn');
+const errorEl = document.getElementById('error-msg');
+const successEl = document.getElementById('success-msg');
+
+function showError(msg){
+  errorEl.textContent = msg;
+  errorEl.classList.add('show');
+  successEl.classList.remove('show');
+}
+function showSuccess(msg){
+  successEl.textContent = msg;
+  successEl.classList.add('show');
+  errorEl.classList.remove('show');
+}
+
+form.addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  errorEl.classList.remove('show');
+  successEl.classList.remove('show');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Validando...';
+
+  const password = document.getElementById('password').value;
+
+  try {
+    const r = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+
+    if (r.status === 429) {
+      showError('Muitas tentativas. Aguarde 15 minutos e tente novamente.');
+      btn.disabled = false;
+      btn.textContent = 'Entrar';
+      return;
+    }
+
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      showError(body.error === 'invalid_credentials'
+        ? 'Senha incorreta'
+        : 'Erro: ' + (body.error || r.status));
+      btn.disabled = false;
+      btn.textContent = 'Entrar';
+      return;
+    }
+
+    const data = await r.json();
+    if (!data.token) {
+      showError('Resposta invalida do servidor');
+      btn.disabled = false;
+      btn.textContent = 'Entrar';
+      return;
+    }
+
+    localStorage.setItem('api_token', data.token);
+    showSuccess('Login OK! Redirecionando...');
+    setTimeout(() => location.href = '/', 500);
+
+  } catch (err) {
+    showError('Falha de rede: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = 'Entrar';
+  }
+});
+</script>
+</body>
+</html>

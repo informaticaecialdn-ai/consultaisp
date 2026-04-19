@@ -124,6 +124,8 @@ upsert_env() {
 # Defaults seguros dos Sprints 2/3/4 (nao sobrescrevem se ja setado)
 upsert_env "ZAPI_WEBHOOK_ENFORCE" "false"
 upsert_env "COST_ALERT_DAILY_USD" "25"
+# LOGIN_PASSWORD vazio = login aceita o proprio API_AUTH_TOKEN
+upsert_env "LOGIN_PASSWORD" ""
 upsert_env "BROADCAST_WORKER_ENABLED" "true"
 upsert_env "BROADCAST_RATE_PER_MIN" "20"
 upsert_env "BROADCAST_JITTER_MIN_SEC" "3"

@@ -35,6 +35,7 @@ app.use(correlationMiddleware);
 const PUBLIC_BYPASS_PATHS = new Set([
   '/health', '/health/deep', '/diagnose',
   '/config/maps-key', '/config/public',
+  '/auth/login', '/auth/check',
 ]);
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -62,6 +63,10 @@ const prospectarLimiter = rateLimit({
 
 // Bypass paths (webhook, health, estaticos) sao servidos ANTES do auth
 app.use('/webhook', webhookRoutes);
+
+// Sprint 4 hotfix: rotas de auth (login/check) ANTES do requireAuth
+// — rate limit dedicado dentro do proprio auth.js
+app.use('/api/auth', require('./routes/auth'));
 
 // Sprint 4 hotfix: stubs publicos ANTES do auth + rate limit
 // para nao serem bloqueados por loops de SWs/extensoes da aplicacao

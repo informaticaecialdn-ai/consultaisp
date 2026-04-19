@@ -45,13 +45,23 @@ vim .env
 | `ZAPI_INSTANCE_ID`, `ZAPI_TOKEN`, `ZAPI_CLIENT_TOKEN` | app.z-api.io | Mensagens nao enviadas/recebidas |
 | `WEBHOOK_URL` | dominio publico | `setup-webhook` nao consegue configurar Z-API |
 
-### 2.2 Variaveis de SEGURANCA (Sprint 2 — adicionadas abr/2026)
+### 2.2 Variaveis de SEGURANCA (Sprint 2 + login Sprint 4)
 
 | Var | Default sugerido | O que faz |
 |-----|------------------|-----------|
-| `API_AUTH_TOKEN` | `openssl rand -hex 32` | Token Bearer obrigatorio em `/api/*` (exceto `/api/health`) |
+| `API_AUTH_TOKEN` | `openssl rand -hex 32` | Token Bearer obrigatorio em `/api/*` (exceto `/api/health` e `/api/auth/*`) |
+| `LOGIN_PASSWORD` | `<frase memorivel>` | Senha do formulario `/login.html`. Se ausente, login aceita o proprio API_AUTH_TOKEN |
 | `ZAPI_WEBHOOK_TOKEN` | `openssl rand -hex 32` | Header HMAC enviado pela Z-API ao chamar `/webhook/zapi` |
 | `ZAPI_WEBHOOK_ENFORCE` | `false` | `true` rejeita webhook sem header HMAC. **Use `false` ate validar nos logs que header esta chegando** |
+
+**Fluxo de login:** Usuario acessa `/`, JS detecta ausencia de
+`localStorage.api_token` e redireciona para `/login.html`. Form pede
+senha (LOGIN_PASSWORD ou API_AUTH_TOKEN). POST `/api/auth/login`
+valida e retorna o API_AUTH_TOKEN, que e gravado em localStorage.
+Endpoint `/api/auth/check` valida token armazenado.
+
+Rate limit do login: 10 tentativas / 15 min por IP (anti brute-force).
+Resposta com delay constante de 400ms anti timing-attack.
 
 ### 2.3 Variaveis de OBSERVABILITY (Sprint 3 — adicionadas abr/2026)
 
