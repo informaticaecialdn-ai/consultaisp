@@ -182,6 +182,7 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
       <div class="nav-item" data-page="conversas"><span class="nav-icon">💬</span>Conversas</div>
       <div class="nav-item" data-page="audiencias"><span class="nav-icon">🎯</span>Audiencias</div>
       <div class="nav-item" data-page="templates"><span class="nav-icon">📝</span>Templates</div>
+      <div class="nav-item" data-page="apify"><span class="nav-icon">🌐</span>Apify Scraping</div>
     </div>
     <div class="nav-section">
       <div class="nav-section-title">Operacoes</div>
@@ -308,6 +309,20 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
       <div class="panel">
         <div class="panel-header"><h2>Lista</h2></div>
         <div class="panel-body no-pad" id="audiencias-list"></div>
+      </div>
+    </div>
+
+    <!-- APIFY PAGE (Sprint 7) -->
+    <div class="page" id="page-apify">
+      <div class="page-header">
+        <h1>Prospeccao Apify</h1>
+        <div class="page-header-actions">
+          <button class="btn btn-primary" onclick="window.openApifyModal && window.openApifyModal()">+ Novo Scraping</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><h2>Historico de Runs</h2></div>
+        <div class="panel-body no-pad" id="apify-runs-list"></div>
       </div>
     </div>
 
@@ -537,7 +552,7 @@ function goPage(page){
     const el=document.getElementById('page-'+page);
     if(el){el.classList.add('active');document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add('active')}
     else { showError('Pagina "'+page+'" nao encontrada no DOM. Verifique /status.html'); return; }
-    const loaders={dashboard:loadDashboard,pipeline:loadPipeline,leads:loadLeads,conversas:loadConversas,monitor:loadMonitor,tarefas:loadTarefas,relatorios:()=>loadReports('7'),funil:loadFunil,prospectar:loadCampaigns,campanhas:()=>window.CampanhasUI && window.CampanhasUI.load(),audiencias:()=>window.loadAudiencias && window.loadAudiencias(),templates:()=>window.loadTemplates && window.loadTemplates()};
+    const loaders={dashboard:loadDashboard,pipeline:loadPipeline,leads:loadLeads,conversas:loadConversas,monitor:loadMonitor,tarefas:loadTarefas,relatorios:()=>loadReports('7'),funil:loadFunil,prospectar:loadCampaigns,campanhas:()=>window.CampanhasUI && window.CampanhasUI.load(),audiencias:()=>window.loadAudiencias && window.loadAudiencias(),templates:()=>window.loadTemplates && window.loadTemplates(),apify:()=>window.loadApifyRuns && window.loadApifyRuns()};
     if(loaders[page]) {
       Promise.resolve(loaders[page]()).catch(err => showError('Erro ao carregar "'+page+'": '+err.message));
     }
@@ -954,6 +969,10 @@ loadDashboard();
 <script src="/js/modals/new-audiencia.js"></script>
 <script src="/js/cards/template-card.js"></script>
 <script src="/js/modals/template-editor.js"></script>
+
+<!-- Sprint 7 — Apify Prospeccao -->
+<script src="/js/modals/apify-run.js"></script>
+
 <script>
 window.loadAudiencias = function loadAudiencias(){
   const el = document.getElementById('audiencias-list');
@@ -962,6 +981,36 @@ window.loadAudiencias = function loadAudiencias(){
 window.loadTemplates = function loadTemplates(){
   const el = document.getElementById('templates-grid');
   if (el && typeof window.loadTemplatesGrid === 'function') window.loadTemplatesGrid(el);
+};
+window.loadApifyRuns = async function loadApifyRuns(){
+  const el = document.getElementById('apify-runs-list');
+  if (!el) return;
+  const data = await api('/apify/runs?limit=50');
+  const items = data?.items || [];
+  if (items.length === 0) {
+    el.innerHTML = '<div style="text-align:center;color:var(--muted);padding:30px">Nenhum scraping ainda. Clique em "+ Novo Scraping" para comecar.</div>';
+    return;
+  }
+  el.innerHTML = `
+    <table class="table">
+      <thead>
+        <tr><th>Quando</th><th>Actor</th><th>Status</th><th>Items</th><th>Novos</th><th>Dup</th><th>Custo</th><th>Duracao</th></tr>
+      </thead>
+      <tbody>
+        ${items.map(r => `
+          <tr>
+            <td style="font-size:.75rem;color:var(--muted)">${(r.iniciado_em||'').slice(0,16).replace('T',' ')}</td>
+            <td>${r.actor_label || r.actor_id}</td>
+            <td><span class="badge" style="background:rgba(${r.status==='imported'?'52,211,153':r.status==='failed'?'248,113,113':'251,191,36'},.15);color:${r.status==='imported'?'var(--green)':r.status==='failed'?'var(--red)':'var(--yellow)'}">${r.status}</span></td>
+            <td><strong>${r.items_count||0}</strong></td>
+            <td style="color:var(--green)"><strong>${r.leads_novos||0}</strong></td>
+            <td style="color:var(--muted)">${r.leads_dup||0}</td>
+            <td style="color:var(--muted)">$${(r.cost_usd||0).toFixed(3)}</td>
+            <td style="color:var(--muted);font-size:.75rem">${r.duracao_ms?Math.round(r.duracao_ms/1000)+'s':'-'}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
 };
 </script>
 <script>

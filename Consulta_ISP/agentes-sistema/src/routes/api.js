@@ -1228,6 +1228,136 @@ router.get('/relatorios/pdf', async (req, res) => {
   }
 });
 
+// === APIFY PROSPECCAO (Sprint 7) ===
+const apifyService = require('../services/apify');
+const leadImporter = require('../services/lead-importer');
+
+// GET /api/apify/catalog — lista actors pre-configurados
+router.get('/apify/catalog', (req, res) => {
+  res.json({
+    configured: apifyService.client.isConfigured(),
+    actors: apifyService.listCatalog(),
+  });
+});
+
+// POST /api/apify/ping — valida APIFY_TOKEN
+router.post('/apify/ping', async (req, res) => {
+  if (!apifyService.client.isConfigured()) {
+    return res.status(503).json({ error: 'apify_not_configured', hint: 'set APIFY_TOKEN no .env' });
+  }
+  try {
+    const me = await apifyService.client.ping();
+    res.json({ ok: true, user: { username: me?.data?.username, email: me?.data?.email, plan: me?.data?.plan } });
+  } catch (err) { bad(res, err.message); }
+});
+
+// GET /api/apify/runs — historico
+router.get('/apify/runs', (req, res) => {
+  const db = getDb();
+  const limit = Math.min(200, parseInt(req.query.limit) || 50);
+  const items = db.prepare(
+    `SELECT id, actor_id, actor_label, apify_run_id, status, items_count,
+            leads_novos, leads_dup, leads_invalidos, cost_usd, duracao_ms,
+            iniciado_em, finalizado_em, importado_em, erro
+     FROM apify_runs ORDER BY iniciado_em DESC LIMIT ?`
+  ).all(limit);
+  res.json({ items, total: items.length });
+});
+
+// GET /api/apify/runs/:id — detalhe + params
+router.get('/apify/runs/:id', (req, res) => {
+  const db = getDb();
+  const row = db.prepare('SELECT * FROM apify_runs WHERE id = ?').get(parseInt(req.params.id));
+  if (!row) return bad(res, 'run nao encontrado', 404);
+  res.json({ run: row });
+});
+
+// POST /api/apify/run — dispara actor (sync com timeout, ou async)
+router.post('/apify/run', validate(schemas.apifyRun), async (req, res) => {
+  if (!apifyService.client.isConfigured()) {
+    return res.status(503).json({ error: 'apify_not_configured' });
+  }
+
+  const { actor_id, input = {}, sync = false, timeout_sec = 240, iniciada_por = null, auto_import = true } = req.body;
+  const catalogEntry = apifyService.getCatalogEntry(actor_id);
+  const finalInput = Object.keys(input).length > 0 ? input : (catalogEntry?.default_input || {});
+
+  const db = getDb();
+  const ins = db.prepare(`
+    INSERT INTO apify_runs
+      (actor_id, actor_label, params, status, iniciada_por)
+    VALUES (?, ?, ?, 'running', ?)
+  `).run(actor_id, catalogEntry?.label || actor_id, JSON.stringify(finalInput), iniciada_por);
+  const runId = ins.lastInsertRowid;
+
+  const t0 = Date.now();
+  try {
+    if (sync) {
+      // Modo sincrono: bloqueia ate o actor terminar (max timeout_sec)
+      const items = await apifyService.client.runSyncGetItems(actor_id, finalInput, { timeoutSec: timeout_sec });
+      const duracao_ms = Date.now() - t0;
+      let stats = { novos: 0, dup: 0, invalidos: 0, total: items.length, shape: 'unknown' };
+      if (auto_import) {
+        stats = leadImporter.importItems(items, { runId });
+      }
+      db.prepare(`
+        UPDATE apify_runs SET
+          status = 'imported', items_count = ?, leads_novos = ?, leads_dup = ?,
+          leads_invalidos = ?, duracao_ms = ?, finalizado_em = CURRENT_TIMESTAMP,
+          importado_em = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(items.length, stats.novos, stats.dup, stats.invalidos, duracao_ms, runId);
+      return res.json({ run_id: runId, mode: 'sync', items_count: items.length, stats, shape: stats.shape });
+    } else {
+      // Modo async: dispara e retorna imediato. Cliente faz polling via GET /runs/:id
+      const meta = await apifyService.client.startRun(actor_id, finalInput);
+      db.prepare(`UPDATE apify_runs SET apify_run_id = ?, status = 'running' WHERE id = ?`)
+        .run(meta.id, runId);
+      return res.status(202).json({ run_id: runId, mode: 'async', apify_run_id: meta.id, status: meta.status });
+    }
+  } catch (err) {
+    db.prepare(`
+      UPDATE apify_runs SET status = 'failed', erro = ?,
+        duracao_ms = ?, finalizado_em = CURRENT_TIMESTAMP WHERE id = ?
+    `).run(err.message.slice(0, 500), Date.now() - t0, runId);
+    return res.status(500).json({ error: err.message, run_id: runId });
+  }
+});
+
+// POST /api/apify/runs/:id/refresh — busca status na Apify e importa se terminou
+router.post('/apify/runs/:id/refresh', async (req, res) => {
+  if (!apifyService.client.isConfigured()) {
+    return res.status(503).json({ error: 'apify_not_configured' });
+  }
+  const db = getDb();
+  const id = parseInt(req.params.id);
+  const run = db.prepare('SELECT * FROM apify_runs WHERE id = ?').get(id);
+  if (!run) return bad(res, 'run nao encontrado', 404);
+  if (!run.apify_run_id) return bad(res, 'run nao tem apify_run_id (foi sync ou erro inicial)');
+
+  try {
+    const meta = await apifyService.client.getRun(run.apify_run_id);
+    const status = (meta.status || 'unknown').toLowerCase();
+    let updates = { status };
+
+    if (status === 'succeeded') {
+      const datasetId = meta.defaultDatasetId;
+      const items = await apifyService.client.getDatasetItems(datasetId);
+      const stats = leadImporter.importItems(items, { runId: id });
+      db.prepare(`
+        UPDATE apify_runs SET
+          status = 'imported', items_count = ?, leads_novos = ?, leads_dup = ?,
+          leads_invalidos = ?, finalizado_em = CURRENT_TIMESTAMP, importado_em = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(items.length, stats.novos, stats.dup, stats.invalidos, id);
+      return res.json({ run_id: id, status: 'imported', stats });
+    }
+
+    db.prepare('UPDATE apify_runs SET status = ? WHERE id = ?').run(status, id);
+    res.json({ run_id: id, status, apify_meta: { startedAt: meta.startedAt, finishedAt: meta.finishedAt } });
+  } catch (err) { bad(res, err.message); }
+});
+
 // === ERRORS LOG (Sprint 3 / T5) ===
 const errorTracker = require('../services/error-tracker');
 

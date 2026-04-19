@@ -107,6 +107,16 @@ const audienciaUpdate = z.object({
   ativa: z.boolean().optional(),
 }).strict();
 
+// Sprint 7: Apify run config.
+const apifyRun = z.object({
+  actor_id: z.string().min(1).max(200),
+  input: z.object({}).passthrough().optional(),
+  sync: z.boolean().optional(),               // se true, aguarda ate timeoutSec
+  timeout_sec: z.number().int().min(30).max(300).optional(),
+  iniciada_por: z.string().trim().max(100).optional().nullable(),
+  auto_import: z.boolean().optional().default(true),  // importa automaticamente os leads quando sync OK
+}).strict();
+
 module.exports = {
   createLead,
   prospectar,
@@ -117,5 +127,6 @@ module.exports = {
   audienciaCreate,
   audienciaUpdate,
   filtrosSchema,
+  apifyRun,
   VALID_AGENTES,
 };
