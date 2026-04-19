@@ -6,35 +6,87 @@
 <title>Consulta ISP - CRM & Agentes</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 :root{
-  /* Brand colors (Sales Intelligence Dashboard palette adaptada) */
-  --bg:#0a0e1a; --bg2:#111827; --card:#1a2234; --card2:#1e293b; --border:#2d3a4f;
-  --text:#e2e8f0; --muted:#7a8ba8;
-  --pink:#f472b6; --yellow:#fbbf24; --green:#34d399; --blue:#60a5fa;
-  --purple:#a78bfa; --red:#f87171; --orange:#fb923c; --cyan:#22d3ee;
-  /* Sprint 7 polish: design tokens */
+  /* === Claude / Anthropic-aligned tokens (skill: design > claude.md) === */
+  /* Surface — warm parchment palette (light theme) */
+  --bg:#f5f4ed;             /* Parchment — page canvas, warm cream */
+  --bg2:#faf9f5;            /* Ivory — sidebar/topbar/elevated */
+  --card:#ffffff;           /* Pure White — card surfaces */
+  --card2:#e8e6dc;          /* Warm Sand — hover/secondary buttons */
+  /* Dark surfaces (used for sections that need contrast) */
+  --bg-dark:#141413;        /* Anthropic Near Black */
+  --surface-dark:#30302e;   /* Dark Surface */
+  /* Borders (cream-tinted, barely visible) */
+  --border:#f0eee6;         /* Border Cream — standard */
+  --border-subtle:#faf9f5;  /* Almost invisible */
+  --border-warm:#e8e6dc;    /* Border Warm — prominent */
+  --border-solid:#e8e6dc;   /* Border alias */
+  /* Text — exclusively warm, yellow-brown undertone */
+  --text:#141413;           /* Near Black — warm olive-tinted */
+  --text-secondary:#4d4c48; /* Charcoal Warm */
+  --muted:#5e5d59;          /* Olive Gray — body text muted */
+  --quaternary:#87867f;     /* Stone Gray — metadata, captions */
+  /* Brand & accent — terracotta */
+  --blue:#c96442;           /* Terracotta Brand — primary CTAs (alias kept p/ compat) */
+  --accent:#d97757;         /* Coral Accent */
+  --accent-hover:#b85531;
+  --terracotta:#c96442;
+  --coral:#d97757;
+  /* Status (Claude uses crimson/blue minimally) */
+  --green:#5b7c5e;          /* Muted green (warm-toned) */
+  --emerald:#10b981;
+  --red:#b53333;            /* Error Crimson */
+  --yellow:#b8923a;         /* Warm yellow */
+  --pink:#c96442;           /* Re-route pink to terracotta */
+  --purple:#7a6a8c;         /* Muted purple */
+  --orange:#d97757;
+  --cyan:#3898ec;           /* Focus Blue (only cool color) */
+  /* Motion */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  /* Claude radius scale — generously rounded */
   --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
-  --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
-  --shadow-md: 0 4px 12px rgba(0,0,0,.25);
-  --shadow-lg: 0 12px 40px rgba(0,0,0,.4);
-  --focus-ring: 0 0 0 3px rgba(96,165,250,.4);
+  --radius-2xl: 24px; --radius-3xl: 32px;
+  /* Claude shadows — ring-based + whisper soft */
+  --shadow-sm: 0 0 0 1px var(--border-warm);
+  --shadow-md: 0 0 0 1px #d1cfc5;            /* Ring Warm */
+  --shadow-lg: rgba(0,0,0,0.05) 0px 4px 24px; /* Whisper soft */
+  --shadow-inset: inset 0 0 0 1px rgba(0,0,0,0.15);
+  --focus-ring: 0 0 0 3px rgba(56,152,236,0.35); /* Focus Blue */
 }
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Plus Jakarta Sans','Inter','Segoe UI',system-ui,sans-serif;font-feature-settings:"cv11","ss01","ss03";background:var(--bg);color:var(--text);overflow:hidden;height:100vh;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
-::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:var(--bg2)}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}::-webkit-scrollbar-thumb:hover{background:#3a4a64}
+body{
+  /* Sans for UI — Inter; Serif for headlines — Newsreader (Anthropic Serif fallback) */
+  font-family:'Inter','SF Pro Display',-apple-system,system-ui,'Segoe UI',Roboto,sans-serif;
+  font-feature-settings:"cv11","ss01";
+  background:var(--bg);color:var(--text);overflow:hidden;height:100vh;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+  line-height:1.60; /* Claude relaxed body */
+}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border-warm);border-radius:4px}
+::-webkit-scrollbar-thumb:hover{background:#c2c0b6}
 
-/* Sprint 7 polish: a11y focus rings */
-*:focus-visible{outline:none;box-shadow:var(--focus-ring);border-radius:var(--radius-sm)}
+/* Claude typography — serif headlines (single weight 500), sans body */
+h1,.h1{font-family:'Newsreader','Anthropic Serif',Georgia,serif;font-weight:500;line-height:1.10;letter-spacing:0}
+h2,.h2{font-family:'Newsreader','Anthropic Serif',Georgia,serif;font-weight:500;line-height:1.20;letter-spacing:0}
+h3,.h3{font-family:'Newsreader','Anthropic Serif',Georgia,serif;font-weight:500;line-height:1.20;letter-spacing:0}
 
-/* Sprint 7 polish: smooth transitions globais */
+/* Mono for code only */
+code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mono',Menlo,monospace;letter-spacing:-0.32px}
+
+/* a11y focus rings — Claude Focus Blue (only cool color in system) */
+*:focus-visible{outline:none;box-shadow:var(--focus-ring);border-radius:var(--radius-md)}
+
+/* Smooth transitions */
 .btn,.nav-item,.stat-card,.panel,.activity-item,.table tr,a,select,input,textarea,button{transition:background var(--transition-base),border-color var(--transition-base),color var(--transition-base),transform var(--transition-base),box-shadow var(--transition-base),opacity var(--transition-base)}
-.stat-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);border-color:rgba(96,165,250,.3)}
+/* Claude-style hover: ring shadow lift, no movement */
+.stat-card:hover{box-shadow:var(--shadow-md);border-color:#d1cfc5}
 .btn:active{transform:scale(0.97)}
 
 /* Sprint 7 polish: empty state component */

@@ -7,30 +7,79 @@
 <title>Login — Consulta ISP CRM</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500&display=swap" rel="stylesheet">
 <style>
-*{margin:0;padding:0;box-sizing:border-box;font-family:'Plus Jakarta Sans','Inter','Segoe UI',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-:root{--bg:#0a0e1a;--bg2:#111827;--card:#1a2234;--border:#2d3a4f;--text:#e2e8f0;--muted:#7a8ba8;--blue:#60a5fa;--purple:#a78bfa;--green:#34d399;--red:#f87171;--yellow:#fbbf24}
-*:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(96,165,250,.4)}
+/* Claude design system (skill: design > claude.md) — warm parchment + serif */
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Inter','SF Pro Display',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+:root{
+  --bg:#f5f4ed;          /* Parchment */
+  --bg2:#faf9f5;         /* Ivory */
+  --card:#ffffff;        /* Pure White */
+  --border:#f0eee6;      /* Border Cream */
+  --border-warm:#e8e6dc;
+  --text:#141413;        /* Near Black */
+  --text-secondary:#4d4c48; /* Charcoal Warm */
+  --muted:#5e5d59;       /* Olive Gray */
+  --terracotta:#c96442;  /* Terracotta Brand */
+  --coral:#d97757;
+  --green:#5b7c5e;
+  --red:#b53333;         /* Error Crimson */
+  --yellow:#b8923a;
+  --focus-blue:#3898ec;
+}
+*:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(56,152,236,.35);border-radius:8px}
 @media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.01ms !important;transition-duration:.01ms !important}}
-body{background:linear-gradient(135deg,#0a0e1a 0%,#1a2234 100%);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:40px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,.4)}
-.logo{font-size:1.6rem;font-weight:800;background:linear-gradient(135deg,var(--blue),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:6px}
-.subtitle{color:var(--muted);font-size:.85rem;margin-bottom:30px}
-.field{margin-bottom:16px}
-.field label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px}
-.field input{width:100%;padding:12px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:.95rem;font-family:monospace}
-.field input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(96,165,250,.15)}
-.btn{width:100%;padding:13px;background:linear-gradient(135deg,var(--blue),var(--purple));color:#fff;border:none;border-radius:8px;font-size:.95rem;font-weight:600;cursor:pointer;transition:.15s}
-.btn:hover{opacity:.92;transform:translateY(-1px)}
+body{
+  background:var(--bg); /* Parchment */
+  color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;
+  line-height:1.60;
+}
+.card{
+  background:var(--card); /* Pure White */
+  border:1px solid var(--border); /* Border Cream */
+  border-radius:24px;
+  padding:48px 40px;width:100%;max-width:440px;
+  box-shadow:rgba(0,0,0,0.05) 0px 4px 24px, 0 0 0 1px var(--border-warm);
+}
+.logo{
+  font-family:'Newsreader','Anthropic Serif',Georgia,serif;
+  font-size:2rem;font-weight:500;line-height:1.10;
+  color:var(--text); /* Near Black */
+  margin-bottom:8px;
+}
+.subtitle{color:var(--muted);font-size:.95rem;margin-bottom:32px;line-height:1.60}
+.field{margin-bottom:18px}
+.field label{display:block;font-size:.78rem;color:var(--muted);margin-bottom:8px;letter-spacing:.5px;font-weight:500;text-transform:uppercase}
+.field input{
+  width:100%;padding:12px 14px;
+  background:var(--bg2);
+  border:1px solid var(--border-warm);
+  border-radius:12px;
+  color:var(--text);font-size:.95rem;font-family:'JetBrains Mono',monospace;
+  transition:border-color .2s, box-shadow .2s;
+}
+.field input::placeholder{color:var(--quaternary,#87867f)}
+.field input:focus{outline:none;border-color:var(--focus-blue);box-shadow:0 0 0 3px rgba(56,152,236,.18)}
+.btn{
+  width:100%;padding:14px;
+  background:var(--terracotta); /* Terracotta Brand — primary CTA */
+  color:#faf9f5; /* Ivory */
+  border:none;border-radius:12px;
+  font-size:.95rem;font-weight:600;cursor:pointer;
+  box-shadow:0 0 0 1px var(--terracotta);
+  transition:background .2s, transform .15s, box-shadow .2s;
+  letter-spacing:-0.01em;
+}
+.btn:hover{background:#b85531;box-shadow:0 0 0 1px #b85531, rgba(0,0,0,0.05) 0px 4px 12px}
+.btn:active{transform:scale(0.98)}
 .btn:disabled{opacity:.6;cursor:wait;transform:none}
-.error{margin-top:14px;padding:10px 14px;background:rgba(248,113,113,.12);color:var(--red);border:1px solid rgba(248,113,113,.3);border-radius:8px;font-size:.85rem;display:none}
+.error{margin-top:14px;padding:12px 14px;background:rgba(181,51,51,.06);color:var(--red);border:1px solid rgba(181,51,51,.25);border-radius:8px;font-size:.85rem;display:none}
 .error.show{display:block}
-.success{margin-top:14px;padding:10px 14px;background:rgba(52,211,153,.12);color:var(--green);border:1px solid rgba(52,211,153,.3);border-radius:8px;font-size:.85rem;display:none}
+.success{margin-top:14px;padding:12px 14px;background:rgba(91,124,94,.08);color:var(--green);border:1px solid rgba(91,124,94,.25);border-radius:8px;font-size:.85rem;display:none}
 .success.show{display:block}
-.hint{margin-top:24px;padding-top:20px;border-top:1px solid var(--border);font-size:.72rem;color:var(--muted);line-height:1.6}
-.hint code{background:var(--bg2);padding:2px 6px;border-radius:4px;color:var(--blue);font-size:.7rem}
-.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;margin-right:8px;vertical-align:-2px}
+.hint{margin-top:32px;padding-top:24px;border-top:1px solid var(--border);font-size:.78rem;color:var(--muted);line-height:1.65}
+.hint code{background:var(--bg);padding:3px 7px;border-radius:6px;color:var(--text-secondary);font-size:.72rem;font-family:'JetBrains Mono',monospace;border:1px solid var(--border-warm)}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;margin-right:8px;vertical-align:-2px}
 @keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
