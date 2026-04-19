@@ -4,12 +4,64 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Consulta ISP - CRM & Agentes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
-:root{--bg:#0a0e1a;--bg2:#111827;--card:#1a2234;--card2:#1e293b;--border:#2d3a4f;--text:#e2e8f0;--muted:#7a8ba8;--pink:#f472b6;--yellow:#fbbf24;--green:#34d399;--blue:#60a5fa;--purple:#a78bfa;--red:#f87171;--orange:#fb923c;--cyan:#22d3ee}
+:root{
+  /* Brand colors (Sales Intelligence Dashboard palette adaptada) */
+  --bg:#0a0e1a; --bg2:#111827; --card:#1a2234; --card2:#1e293b; --border:#2d3a4f;
+  --text:#e2e8f0; --muted:#7a8ba8;
+  --pink:#f472b6; --yellow:#fbbf24; --green:#34d399; --blue:#60a5fa;
+  --purple:#a78bfa; --red:#f87171; --orange:#fb923c; --cyan:#22d3ee;
+  /* Sprint 7 polish: design tokens */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.25);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,.4);
+  --focus-ring: 0 0 0 3px rgba(96,165,250,.4);
+}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh}
-::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:var(--bg2)}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+body{font-family:'Plus Jakarta Sans','Inter','Segoe UI',system-ui,sans-serif;font-feature-settings:"cv11","ss01","ss03";background:var(--bg);color:var(--text);overflow:hidden;height:100vh;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:var(--bg2)}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}::-webkit-scrollbar-thumb:hover{background:#3a4a64}
+
+/* Sprint 7 polish: a11y focus rings */
+*:focus-visible{outline:none;box-shadow:var(--focus-ring);border-radius:var(--radius-sm)}
+
+/* Sprint 7 polish: smooth transitions globais */
+.btn,.nav-item,.stat-card,.panel,.activity-item,.table tr,a,select,input,textarea,button{transition:background var(--transition-base),border-color var(--transition-base),color var(--transition-base),transform var(--transition-base),box-shadow var(--transition-base),opacity var(--transition-base)}
+.stat-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-md);border-color:rgba(96,165,250,.3)}
+.btn:active{transform:scale(0.97)}
+
+/* Sprint 7 polish: empty state component */
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;color:var(--muted);text-align:center;gap:14px}
+.empty-state-icon{width:64px;height:64px;border-radius:50%;background:rgba(96,165,250,.08);display:flex;align-items:center;justify-content:center;font-size:28px;color:var(--blue)}
+.empty-state-title{font-size:1rem;color:var(--text);font-weight:600}
+.empty-state-desc{font-size:.85rem;max-width:380px;line-height:1.5}
+.empty-state .btn{margin-top:8px}
+
+/* Sprint 7 polish: skeleton loading */
+.skeleton{background:linear-gradient(90deg,var(--bg2) 25%,#1a2234 50%,var(--bg2) 75%);background-size:200% 100%;animation:skeleton-shimmer 1.5s ease-in-out infinite;border-radius:var(--radius-sm);min-height:14px}
+@keyframes skeleton-shimmer{0%{background-position:-200% 0}100%{background-position:200% 0}}
+.skeleton-card{height:100px;border-radius:var(--radius-lg);margin-bottom:12px}
+.skeleton-row{height:48px;margin-bottom:8px}
+
+/* Sprint 7 polish: toast/notification */
+@keyframes slide-up{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes fade-in{from{opacity:0}to{opacity:1}}
+.fade-in{animation:fade-in var(--transition-slow) ease-out}
+.slide-up{animation:slide-up var(--transition-slow) ease-out}
+
+/* Sprint 7 polish: prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;scroll-behavior:auto !important}
+  .stat-card:hover{transform:none}
+  .btn:active{transform:none}
+}
 
 .app{display:grid;grid-template-columns:220px 1fr;grid-template-rows:56px 1fr;height:100vh}
 
@@ -693,14 +745,14 @@ async function loadDashboard(){
   document.getElementById('dash-activities').innerHTML=acts.length?acts.slice(0,8).map(a=>`
     <div class="activity-item"><div class="activity-dot" style="background:${AGENTE_COLORS[a.agente]||'var(--muted)'}20;color:${AGENTE_COLORS[a.agente]||'var(--muted)'}">${a.tipo==='resposta_enviada'?'💬':a.tipo==='handoff_enviado'?'🔄':a.tipo==='lead_criado'?'🆕':a.tipo==='demo_agendada'?'📅':'⚡'}</div>
     <div class="activity-content"><div class="activity-title"><span class="badge b-${a.agente}" style="margin-right:6px">${a.agente}</span>${a.descricao?.substring(0,80)||a.tipo}</div><div class="activity-meta">${timeAgo(a.criado_em)}</div></div></div>
-  `).join(''):'<div style="text-align:center;color:var(--muted);padding:30px">Nenhuma atividade ainda</div>';
+  `).join(''):`<div class="empty-state" style="padding:30px"><div class="empty-state-icon" style="width:48px;height:48px;font-size:20px">⚡</div><div class="empty-state-title" style="font-size:.9rem">Aguardando primeira atividade</div><div class="empty-state-desc" style="font-size:.78rem">Quando os agentes comecarem a interagir com leads, voce vera tudo aqui em tempo real.</div></div>`;
 
   // Handoffs
   const hfs=d.handoffs_recentes||[];
   document.getElementById('dash-handoffs').innerHTML=hfs.length?hfs.map(h=>`
     <div class="activity-item"><div class="activity-dot" style="background:rgba(96,165,250,.12);color:var(--blue)">🔄</div>
     <div class="activity-content"><div class="activity-title">${h.nome||h.telefone}: <span class="badge b-${h.de_agente}">${h.de_agente}</span> → <span class="badge b-${h.para_agente}">${h.para_agente}</span></div><div class="activity-meta">Score: ${h.score_no_momento} | ${timeAgo(h.criado_em)}</div></div></div>
-  `).join(''):'<div style="text-align:center;color:var(--muted);padding:30px">Nenhuma transferencia</div>';
+  `).join(''):`<div class="empty-state" style="padding:30px"><div class="empty-state-icon" style="width:48px;height:48px;font-size:20px">🔄</div><div class="empty-state-title" style="font-size:.9rem">Sem handoffs recentes</div><div class="empty-state-desc" style="font-size:.78rem">Quando um lead for transferido entre agentes (Carlos → Lucas → Rafael), o historico aparece aqui.</div></div>`;
 
   // Charts
   buildDashCharts(d);
@@ -1229,10 +1281,17 @@ window.loadTemplates = function loadTemplates(){
 window.loadApifyRuns = async function loadApifyRuns(){
   const el = document.getElementById('apify-runs-list');
   if (!el) return;
+  el.innerHTML = '<div style="padding:20px"><div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div><div class="skeleton skeleton-row"></div></div>';
   const data = await api('/apify/runs?limit=50');
   const items = data?.items || [];
   if (items.length === 0) {
-    el.innerHTML = '<div style="text-align:center;color:var(--muted);padding:30px">Nenhum scraping ainda. Clique em "+ Novo Scraping" para comecar.</div>';
+    el.innerHTML = `
+      <div class="empty-state fade-in">
+        <div class="empty-state-icon">🌐</div>
+        <div class="empty-state-title">Nenhum scraping ainda</div>
+        <div class="empty-state-desc">Use o Apify pra encontrar provedores de internet por regiao no Google Maps. 50 leads custam menos de R$1.</div>
+        <button class="btn btn-primary" onclick="window.openApifyModal && window.openApifyModal()">+ Iniciar primeiro scraping</button>
+      </div>`;
     return;
   }
   el.innerHTML = `
