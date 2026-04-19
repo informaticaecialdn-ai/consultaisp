@@ -30,12 +30,28 @@ app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 // Correlation ID (Sprint 3 / T1) - gera/propaga X-Correlation-Id em todas requests
 app.use(correlationMiddleware);
 
-// Rate limits (Sprint 2 / T1)
+// Rate limits (Sprint 2 / T1) — pula health, config publicos e
+// chamadas autenticadas legitimas (Bearer valido).
+const PUBLIC_BYPASS_PATHS = new Set([
+  '/health', '/health/deep', '/diagnose',
+  '/config/maps-key', '/config/public',
+]);
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    if (PUBLIC_BYPASS_PATHS.has(req.path)) return true;
+    // Tambem pula se ja vem com Bearer correto (operadores autenticados
+    // nao devem competir com loops de SWs anonimos por slot de rate limit)
+    const authz = req.get('authorization') || '';
+    if (authz.startsWith('Bearer ') && process.env.API_AUTH_TOKEN &&
+        authz.slice(7).trim() === process.env.API_AUTH_TOKEN) {
+      return true;
+    }
+    return false;
+  },
 });
 const prospectarLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -58,7 +74,8 @@ app.get('/api/config/public', (req, res) => {
 });
 
 // /api/health e publico (bypass explicito antes do requireAuth no router)
-// Rate limit aplica em tudo sob /api; auth aplica em /api exceto health
+// Rate limit aplica em tudo sob /api (com skip configurado acima)
+// auth aplica em /api exceto health
 app.use('/api', apiLimiter);
 app.use('/api/prospectar', prospectarLimiter);
 app.use('/api', (req, res, next) => {
