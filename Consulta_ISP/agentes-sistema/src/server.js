@@ -47,6 +47,16 @@ const prospectarLimiter = rateLimit({
 // Bypass paths (webhook, health, estaticos) sao servidos ANTES do auth
 app.use('/webhook', webhookRoutes);
 
+// Sprint 4 hotfix: stubs publicos ANTES do auth + rate limit
+// para nao serem bloqueados por loops de SWs/extensoes da aplicacao
+// principal Consulta ISP que vivem no mesmo dominio.
+app.get('/api/config/maps-key', (req, res) => {
+  res.json({ key: process.env.GOOGLE_MAPS_API_KEY || null, source: 'agentes-sistema' });
+});
+app.get('/api/config/public', (req, res) => {
+  res.json({ app: 'agentes-sistema', version: '1.0', auth_required: true });
+});
+
 // /api/health e publico (bypass explicito antes do requireAuth no router)
 // Rate limit aplica em tudo sob /api; auth aplica em /api exceto health
 app.use('/api', apiLimiter);
