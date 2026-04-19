@@ -83,9 +83,14 @@ else
   fail "X-Correlation-Id header ausente"
 fi
 
-# 8. Migrations
-MIGS=$(docker compose -f "${RUNTIME_DIR}/docker-compose.yml" exec -T agentes \
-  sqlite3 /app/data/agentes.db "SELECT name FROM schema_migrations ORDER BY name;" 2>/dev/null || true)
+# 8. Migrations — via Node (sqlite3 CLI nao esta no container)
+MIGS=$(docker compose -f "${RUNTIME_DIR}/docker-compose.yml" exec -T agentes node -e "
+try {
+  const db = require('better-sqlite3')('/app/data/agentes.db');
+  const rows = db.prepare('SELECT name FROM schema_migrations ORDER BY name').all();
+  rows.forEach(r => console.log(r.name));
+} catch (e) { process.stderr.write(e.message); }
+" 2>/dev/null || true)
 for m in "012-claude-usage.sql" "013-errors-log.sql" "014-sprint4-fields.sql"; do
   if echo "$MIGS" | grep -q "$m"; then
     ok "migration aplicada: $m"
