@@ -259,6 +259,68 @@ router.get('/leads/:id', (req, res) => {
   res.json({ lead, conversas, tarefas, handoffs, atividades });
 });
 
+// Sprint 7 polish: export CSV de leads (com filtros aplicaveis via query string).
+router.get('/leads/export.csv', (req, res) => {
+  const db = getDb();
+  const { agente, classificacao, etapa, regiao, porte, busca, origem } = req.query;
+  let query = 'SELECT id, telefone, nome, provedor, cidade, estado, regiao, porte, erp, classificacao, etapa_funil, agente_atual, score_total, valor_estimado, origem, criado_em FROM leads WHERE 1=1';
+  const params = [];
+  if (agente) { query += ' AND agente_atual = ?'; params.push(agente); }
+  if (classificacao) { query += ' AND classificacao = ?'; params.push(classificacao); }
+  if (etapa) { query += ' AND etapa_funil = ?'; params.push(etapa); }
+  if (origem) { query += ' AND origem = ?'; params.push(origem); }
+  if (regiao) { query += ' AND (regiao LIKE ? OR estado LIKE ?)'; params.push(`%${regiao}%`, `%${regiao}%`); }
+  if (porte) { query += ' AND porte = ?'; params.push(porte); }
+  if (busca) { query += ' AND (nome LIKE ? OR provedor LIKE ? OR cidade LIKE ? OR telefone LIKE ?)'; params.push(`%${busca}%`, `%${busca}%`, `%${busca}%`, `%${busca}%`); }
+  query += ' ORDER BY criado_em DESC LIMIT 50000';
+  const rows = db.prepare(query).all(...params);
+
+  const cols = ['id','telefone','nome','provedor','cidade','estado','regiao','porte','erp','classificacao','etapa_funil','agente_atual','score_total','valor_estimado','origem','criado_em'];
+  const escape = (v) => {
+    if (v == null) return '';
+    const s = String(v);
+    if (/[",\n;]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  };
+  const csv = [cols.join(','), ...rows.map(r => cols.map(c => escape(r[c])).join(','))].join('\n');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="leads-${new Date().toISOString().slice(0,10)}.csv"`);
+  res.send('\uFEFF' + csv); // BOM pra Excel abrir UTF-8 corretamente
+});
+
+// Sprint 7 polish: bulk delete (transacao, retorna quantos foram excluidos).
+router.post('/leads/bulk-delete', (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isFinite) : [];
+  if (ids.length === 0) return bad(res, 'lista de ids vazia');
+  if (ids.length > 5000) return bad(res, 'max 5000 ids por batch');
+  const db = getDb();
+  const placeholders = ids.map(() => '?').join(',');
+  const tx = db.transaction(() => {
+    db.prepare(`DELETE FROM conversas WHERE lead_id IN (${placeholders})`).run(...ids);
+    db.prepare(`DELETE FROM tarefas WHERE lead_id IN (${placeholders})`).run(...ids);
+    db.prepare(`DELETE FROM handoffs WHERE lead_id IN (${placeholders})`).run(...ids);
+    db.prepare(`DELETE FROM atividades_agentes WHERE lead_id IN (${placeholders})`).run(...ids);
+    return db.prepare(`DELETE FROM leads WHERE id IN (${placeholders})`).run(...ids).changes;
+  });
+  const removed = tx();
+  res.json({ success: true, removed });
+});
+
+// Sprint 7 polish: bulk transfer (atribuir agente em N leads).
+router.post('/leads/bulk-transfer', (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isFinite) : [];
+  const para_agente = String(req.body?.para_agente || '').trim();
+  const VALID = ['carlos','lucas','rafael','sofia','marcos','leo','diana'];
+  if (ids.length === 0) return bad(res, 'lista de ids vazia');
+  if (!VALID.includes(para_agente)) return bad(res, 'para_agente invalido');
+  const db = getDb();
+  const placeholders = ids.map(() => '?').join(',');
+  const r = db.prepare(
+    `UPDATE leads SET agente_atual = ?, atualizado_em = CURRENT_TIMESTAMP WHERE id IN (${placeholders})`
+  ).run(para_agente, ...ids);
+  res.json({ success: true, atualizados: r.changes });
+});
+
 // Sprint 4 / T3: check de janela 24h + consent para decidir freeform vs template.
 router.get('/leads/:id/can-send', async (req, res) => {
   const windowChecker = require('../services/window-checker');
@@ -1229,6 +1291,49 @@ router.get('/relatorios/pdf', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// === SETTINGS / SYSTEM INFO (Sprint 7 polish) ===
+// Retorna estado das integracoes + flags. NAO expoe secrets.
+router.get('/settings/system', (req, res) => {
+  const env = process.env;
+  const mask = v => !v ? null : `${v.slice(0, 4)}****${v.slice(-4)}`;
+  res.json({
+    environment: env.NODE_ENV || 'development',
+    integrations: {
+      anthropic: { configured: !!env.ANTHROPIC_API_KEY, key_preview: mask(env.ANTHROPIC_API_KEY) },
+      zapi: {
+        configured: !!(env.ZAPI_INSTANCE_ID && env.ZAPI_TOKEN),
+        instance_preview: mask(env.ZAPI_INSTANCE_ID),
+        webhook_enforce: env.ZAPI_WEBHOOK_ENFORCE === 'true',
+      },
+      apify: { configured: !!env.APIFY_TOKEN, token_preview: mask(env.APIFY_TOKEN) },
+      resend: { configured: !!env.RESEND_API_KEY },
+      google_maps: { configured: !!env.GOOGLE_MAPS_API_KEY },
+    },
+    flags: {
+      broadcast_worker_enabled: env.BROADCAST_WORKER_ENABLED !== 'false',
+      followup_worker_enabled: env.FOLLOWUP_WORKER_ENABLED !== 'false',
+      run_workers_in_server: env.RUN_WORKERS_IN_SERVER === 'true',
+    },
+    limits: {
+      cost_alert_daily_usd: parseFloat(env.COST_ALERT_DAILY_USD || '25'),
+      broadcast_rate_per_min: parseInt(env.BROADCAST_RATE_PER_MIN || '20'),
+      broadcast_max_retries: parseInt(env.BROADCAST_MAX_RETRIES || '3'),
+      broadcast_failure_threshold_pct: parseInt(env.BROADCAST_FAILURE_THRESHOLD_PCT || '20'),
+    },
+    auth: {
+      api_token_present: !!env.API_AUTH_TOKEN,
+      login_password_set: !!env.LOGIN_PASSWORD,
+      zapi_webhook_token_present: !!env.ZAPI_WEBHOOK_TOKEN,
+    },
+    sistema: {
+      version: '1.0.0',
+      uptime_sec: Math.round(process.uptime()),
+      node_version: process.version,
+      memory_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+    },
+  });
 });
 
 // === APIFY PROSPECCAO (Sprint 7) ===

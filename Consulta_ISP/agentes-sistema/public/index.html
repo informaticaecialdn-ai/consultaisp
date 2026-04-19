@@ -183,6 +183,7 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
       <div class="nav-item" data-page="audiencias"><span class="nav-icon">🎯</span>Audiencias</div>
       <div class="nav-item" data-page="templates"><span class="nav-icon">📝</span>Templates</div>
       <div class="nav-item" data-page="apify"><span class="nav-icon">🌐</span>Apify Scraping</div>
+      <div class="nav-item" data-page="settings"><span class="nav-icon">⚙️</span>Configuracoes</div>
     </div>
     <div class="nav-section">
       <div class="nav-section-title">Operacoes</div>
@@ -254,9 +255,9 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
     <!-- LEADS PAGE -->
     <div class="page" id="page-leads">
       <div class="page-header">
-        <h1>Leads</h1>
+        <h1>Leads <span id="leads-count" style="color:var(--muted);font-size:.85rem;font-weight:normal;margin-left:8px"></span></h1>
         <div class="page-header-actions">
-          <input type="text" id="lead-search" placeholder="Buscar..." style="padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.85rem;width:200px" oninput="loadLeads()">
+          <input type="text" id="lead-search" placeholder="Buscar..." style="padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.85rem;width:200px" oninput="onLeadSearchInput()">
           <select id="lead-filter-agent" style="padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.82rem" onchange="loadLeads()">
             <option value="">Todos agentes</option>
             <option value="carlos">Carlos</option><option value="lucas">Lucas</option><option value="rafael">Rafael</option><option value="sofia">Sofia</option>
@@ -265,13 +266,32 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
             <option value="">Todas class.</option>
             <option value="frio">Frio</option><option value="morno">Morno</option><option value="quente">Quente</option><option value="ultra_quente">Ultra Quente</option>
           </select>
+          <select id="lead-filter-origem" style="padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.82rem" onchange="loadLeads()">
+            <option value="">Toda origem</option>
+            <option value="manual">Manual</option><option value="whatsapp">WhatsApp</option><option value="apify_google_maps">Apify (Google Maps)</option><option value="importacao">Importacao CSV</option><option value="outbound">Outbound</option>
+          </select>
+          <button class="btn btn-outline btn-sm" onclick="exportLeadsCsv()" title="Exporta CSV com filtros aplicados">⬇ CSV</button>
           <button class="btn btn-primary btn-sm" onclick="showModal('novo-lead')">+ Novo Lead</button>
         </div>
       </div>
-      <div class="panel"><div class="panel-body no-pad" style="max-height:calc(100vh - 180px)">
+      <div id="leads-bulk-bar" style="display:none;padding:10px 16px;background:rgba(96,165,250,.1);border:1px solid var(--blue);border-radius:8px;margin-bottom:10px;align-items:center;justify-content:space-between">
+        <span><strong id="leads-selected-count">0</strong> leads selecionados</span>
+        <div style="display:flex;gap:6px">
+          <select id="bulk-transfer-agent" style="padding:5px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:.78rem">
+            <option value="">→ Transferir para...</option>
+            <option value="carlos">Carlos</option><option value="lucas">Lucas</option><option value="rafael">Rafael</option><option value="sofia">Sofia</option>
+          </select>
+          <button class="btn btn-sm btn-outline" onclick="bulkTransferLeads()">Aplicar</button>
+          <button class="btn btn-sm btn-danger" onclick="bulkDeleteLeads()">🗑 Excluir</button>
+          <button class="btn btn-sm btn-ghost" onclick="clearLeadSelection()">Limpar</button>
+        </div>
+      </div>
+      <div class="panel"><div class="panel-body no-pad" style="max-height:calc(100vh - 220px);overflow-y:auto">
         <table class="table" id="leads-table"><thead><tr>
-          <th>Nome / Telefone</th><th>Provedor</th><th>Regiao</th><th>Score</th><th>Class.</th><th>Agente</th><th>Etapa</th><th>Atualizado</th>
+          <th style="width:30px"><input type="checkbox" id="leads-select-all" onchange="toggleAllLeads(this.checked)"></th>
+          <th>Nome / Telefone</th><th>Provedor</th><th>Regiao</th><th>Score</th><th>Class.</th><th>Agente</th><th>Etapa</th><th>Origem</th><th>Atualizado</th>
         </tr></thead><tbody id="leads-tbody"></tbody></table>
+        <div id="leads-pagination" style="padding:14px;text-align:center"></div>
       </div></div>
     </div>
 
@@ -310,6 +330,15 @@ body{font-family:'Inter','Segoe UI',system-ui,sans-serif;background:var(--bg);co
         <div class="panel-header"><h2>Lista</h2></div>
         <div class="panel-body no-pad" id="audiencias-list"></div>
       </div>
+    </div>
+
+    <!-- SETTINGS PAGE (Sprint 7 polish) -->
+    <div class="page" id="page-settings">
+      <div class="page-header">
+        <h1>Configuracoes</h1>
+        <button class="btn btn-outline btn-sm" onclick="loadSettings()">↻ Atualizar</button>
+      </div>
+      <div id="settings-content" style="color:var(--muted)">carregando...</div>
     </div>
 
     <!-- APIFY PAGE (Sprint 7) -->
@@ -552,7 +581,7 @@ function goPage(page){
     const el=document.getElementById('page-'+page);
     if(el){el.classList.add('active');document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add('active')}
     else { showError('Pagina "'+page+'" nao encontrada no DOM. Verifique /status.html'); return; }
-    const loaders={dashboard:loadDashboard,pipeline:loadPipeline,leads:loadLeads,conversas:loadConversas,monitor:loadMonitor,tarefas:loadTarefas,relatorios:()=>loadReports('7'),funil:loadFunil,prospectar:loadCampaigns,campanhas:()=>window.CampanhasUI && window.CampanhasUI.load(),audiencias:()=>window.loadAudiencias && window.loadAudiencias(),templates:()=>window.loadTemplates && window.loadTemplates(),apify:()=>window.loadApifyRuns && window.loadApifyRuns()};
+    const loaders={dashboard:loadDashboard,pipeline:loadPipeline,leads:loadLeads,conversas:loadConversas,monitor:loadMonitor,tarefas:loadTarefas,relatorios:()=>loadReports('7'),funil:loadFunil,prospectar:loadCampaigns,campanhas:()=>window.CampanhasUI && window.CampanhasUI.load(),audiencias:()=>window.loadAudiencias && window.loadAudiencias(),templates:()=>window.loadTemplates && window.loadTemplates(),apify:()=>window.loadApifyRuns && window.loadApifyRuns(),settings:loadSettings};
     if(loaders[page]) {
       Promise.resolve(loaders[page]()).catch(err => showError('Erro ao carregar "'+page+'": '+err.message));
     }
@@ -742,17 +771,130 @@ function buildPipelineByRegion(leads){
   `).join('')}</div>`;
 }
 
-// LEADS TABLE
-async function loadLeads(){
+// LEADS TABLE com paginacao + bulk + export (Sprint 7 polish)
+let leadsState = { offset: 0, limit: 50, total: 0, selected: new Set() };
+let leadSearchDebounce = null;
+function onLeadSearchInput(){
+  clearTimeout(leadSearchDebounce);
+  leadSearchDebounce = setTimeout(() => { leadsState.offset = 0; loadLeads(); }, 350);
+}
+function buildLeadsQuery(opts = {}) {
   const busca=document.getElementById('lead-search')?.value||'';
   const agente=document.getElementById('lead-filter-agent')?.value||'';
   const cls=document.getElementById('lead-filter-class')?.value||'';
+  const origem=document.getElementById('lead-filter-origem')?.value||'';
   const params=new URLSearchParams();
-  if(busca)params.set('busca',busca);if(agente)params.set('agente',agente);if(cls)params.set('classificacao',cls);
+  if(busca)params.set('busca',busca);
+  if(agente)params.set('agente',agente);
+  if(cls)params.set('classificacao',cls);
+  if(origem)params.set('origem',origem);
+  if (!opts.skipLimit) {
+    params.set('limit', leadsState.limit);
+    params.set('offset', leadsState.offset);
+  }
+  return params;
+}
+async function loadLeads(){
+  const params = buildLeadsQuery();
   const d=await api('/leads?'+params);
-  document.getElementById('leads-tbody').innerHTML=(d.leads||[]).map(l=>`
-    <tr onclick="openLeadDetail(${l.id})"><td><strong>${l.nome||'-'}</strong><br><span style="font-size:.75rem;color:var(--muted)">${l.telefone}</span></td><td>${l.provedor||'-'}</td><td>${l.regiao||l.estado||l.cidade||'-'}</td><td><span style="color:${scoreColor(l.score_total)};font-weight:700">${l.score_total}</span></td><td><span class="badge b-${l.classificacao}">${l.classificacao}</span></td><td><span class="badge b-${l.agente_atual}">${l.agente_atual}</span></td><td style="font-size:.8rem">${ETAPA_LABELS[l.etapa_funil]||l.etapa_funil}</td><td style="font-size:.8rem;color:var(--muted)">${timeAgo(l.atualizado_em)}</td></tr>
-  `).join('');
+  leadsState.total = d.total || 0;
+  document.getElementById('leads-count').textContent = `(${d.total||0} total)`;
+  document.getElementById('leads-tbody').innerHTML=(d.leads||[]).map(l=>{
+    const checked = leadsState.selected.has(l.id) ? 'checked' : '';
+    return `
+    <tr data-lead-id="${l.id}" style="cursor:pointer">
+      <td onclick="event.stopPropagation()"><input type="checkbox" class="lead-checkbox" ${checked} onchange="toggleLeadSelect(${l.id}, this.checked)"></td>
+      <td onclick="openLeadDetail(${l.id})"><strong>${l.nome||'-'}</strong><br><span style="font-size:.75rem;color:var(--muted)">${l.telefone}</span></td>
+      <td onclick="openLeadDetail(${l.id})">${l.provedor||'-'}</td>
+      <td onclick="openLeadDetail(${l.id})">${l.regiao||l.estado||l.cidade||'-'}</td>
+      <td onclick="openLeadDetail(${l.id})"><span style="color:${scoreColor(l.score_total)};font-weight:700">${l.score_total}</span></td>
+      <td onclick="openLeadDetail(${l.id})"><span class="badge b-${l.classificacao}">${l.classificacao}</span></td>
+      <td onclick="openLeadDetail(${l.id})"><span class="badge b-${l.agente_atual}">${l.agente_atual}</span></td>
+      <td onclick="openLeadDetail(${l.id})" style="font-size:.8rem">${ETAPA_LABELS[l.etapa_funil]||l.etapa_funil}</td>
+      <td onclick="openLeadDetail(${l.id})" style="font-size:.7rem;color:var(--muted)">${l.origem||'-'}</td>
+      <td onclick="openLeadDetail(${l.id})" style="font-size:.8rem;color:var(--muted)">${timeAgo(l.atualizado_em)}</td>
+    </tr>`;
+  }).join('');
+  renderLeadsPagination();
+  updateBulkBar();
+}
+function renderLeadsPagination(){
+  const el = document.getElementById('leads-pagination');
+  if (!el) return;
+  const start = leadsState.offset + 1;
+  const end = Math.min(leadsState.offset + leadsState.limit, leadsState.total);
+  const totalPages = Math.max(1, Math.ceil(leadsState.total / leadsState.limit));
+  const currentPage = Math.floor(leadsState.offset / leadsState.limit) + 1;
+  el.innerHTML = leadsState.total === 0 ? '' : `
+    <div style="color:var(--muted);font-size:.82rem;display:inline-flex;gap:14px;align-items:center">
+      <span>${start}-${end} de ${leadsState.total}</span>
+      <button class="btn btn-sm btn-outline" ${leadsState.offset === 0 ? 'disabled' : ''} onclick="leadsState.offset = Math.max(0, leadsState.offset - leadsState.limit); loadLeads();">← Anterior</button>
+      <span>Pagina <strong>${currentPage}</strong> de ${totalPages}</span>
+      <button class="btn btn-sm btn-outline" ${end >= leadsState.total ? 'disabled' : ''} onclick="leadsState.offset += leadsState.limit; loadLeads();">Proxima →</button>
+    </div>`;
+}
+function toggleLeadSelect(id, checked){
+  if (checked) leadsState.selected.add(id);
+  else leadsState.selected.delete(id);
+  updateBulkBar();
+}
+function toggleAllLeads(checked){
+  document.querySelectorAll('.lead-checkbox').forEach(cb => {
+    cb.checked = checked;
+    const id = parseInt(cb.closest('tr')?.dataset?.leadId);
+    if (id) { if (checked) leadsState.selected.add(id); else leadsState.selected.delete(id); }
+  });
+  updateBulkBar();
+}
+function clearLeadSelection(){
+  leadsState.selected.clear();
+  document.querySelectorAll('.lead-checkbox').forEach(cb => cb.checked = false);
+  document.getElementById('leads-select-all').checked = false;
+  updateBulkBar();
+}
+function updateBulkBar(){
+  const bar = document.getElementById('leads-bulk-bar');
+  if (!bar) return;
+  if (leadsState.selected.size > 0) {
+    bar.style.display = 'flex';
+    document.getElementById('leads-selected-count').textContent = leadsState.selected.size;
+  } else {
+    bar.style.display = 'none';
+  }
+}
+async function bulkTransferLeads(){
+  const para = document.getElementById('bulk-transfer-agent').value;
+  if (!para) { alert('Selecione um agente'); return; }
+  const ids = [...leadsState.selected];
+  if (!confirm(`Transferir ${ids.length} leads para ${para}?`)) return;
+  const r = await api('/leads/bulk-transfer', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids, para_agente: para }) });
+  alert(`${r.atualizados} leads atualizados`);
+  clearLeadSelection();
+  loadLeads();
+}
+async function bulkDeleteLeads(){
+  const ids = [...leadsState.selected];
+  if (!confirm(`EXCLUIR ${ids.length} leads e TODOS os dados relacionados (conversas, tarefas, handoffs)? IRREVERSIVEL.`)) return;
+  const r = await api('/leads/bulk-delete', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ids }) });
+  alert(`${r.removed} leads excluidos`);
+  clearLeadSelection();
+  loadLeads();
+}
+function exportLeadsCsv(){
+  const params = buildLeadsQuery({ skipLimit: true });
+  const tok = localStorage.getItem('api_token') || '';
+  // CSV download via blob (precisa do Bearer no header)
+  fetch('/api/leads/export.csv?' + params, { headers: { 'Authorization': 'Bearer ' + tok } })
+    .then(r => r.blob())
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `leads-${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    })
+    .catch(e => alert('Falha no export: ' + e.message));
 }
 
 // LEAD DETAIL
@@ -947,6 +1089,107 @@ async function loadAgentPage(agente){
   `).join('');
 }
 
+// === SETTINGS PAGE (Sprint 7 polish) ===
+async function loadSettings(){
+  const root = document.getElementById('settings-content');
+  if (!root) return;
+  root.innerHTML = '<div style="padding:20px;text-align:center">carregando...</div>';
+  try {
+    const s = await api('/settings/system');
+    const intGrid = (label, ok, preview) => `
+      <div class="stat-card" style="padding:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <strong style="font-size:.9rem">${label}</strong>
+          <span class="badge" style="background:rgba(${ok?'52,211,153':'248,113,113'},.15);color:${ok?'var(--green)':'var(--red)'}">${ok?'OK':'NAO CONFIG'}</span>
+        </div>
+        <div style="font-size:.72rem;color:var(--muted);font-family:monospace">${preview||''}</div>
+      </div>`;
+    const flagRow = (label, on, hint) => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div><strong>${label}</strong>${hint?`<br><span style="font-size:.72rem;color:var(--muted)">${hint}</span>`:''}</div>
+        <span class="badge" style="background:rgba(${on?'52,211,153':'251,191,36'},.15);color:${on?'var(--green)':'var(--yellow)'}">${on?'ATIVO':'OFF'}</span>
+      </div>`;
+
+    root.innerHTML = `
+      <div class="grid-2" style="margin-bottom:20px">
+        <div class="panel"><div class="panel-header"><h2>🔌 Integracoes</h2></div>
+          <div class="panel-body" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            ${intGrid('Anthropic (Claude)', s.integrations.anthropic.configured, s.integrations.anthropic.key_preview)}
+            ${intGrid('Z-API (WhatsApp)', s.integrations.zapi.configured, s.integrations.zapi.instance_preview)}
+            ${intGrid('Apify', s.integrations.apify.configured, s.integrations.apify.token_preview)}
+            ${intGrid('Resend (Email)', s.integrations.resend.configured)}
+            ${intGrid('Google Maps', s.integrations.google_maps.configured)}
+          </div>
+        </div>
+        <div class="panel"><div class="panel-header"><h2>🚦 Feature Flags</h2></div>
+          <div class="panel-body">
+            ${flagRow('Broadcast Worker', s.flags.broadcast_worker_enabled, 'Worker dedicado de campanhas')}
+            ${flagRow('Followup Worker', s.flags.followup_worker_enabled, 'Scheduler de mensagens de followup')}
+            ${flagRow('Workers no HTTP', s.flags.run_workers_in_server, 'Roda workers embarcados (DEV apenas)')}
+            ${flagRow('Z-API enforce HMAC', s.integrations.zapi.webhook_enforce, 'Rejeita webhook sem header')}
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-2" style="margin-bottom:20px">
+        <div class="panel"><div class="panel-header"><h2>⚙️ Limites</h2></div>
+          <div class="panel-body" style="font-size:.85rem">
+            <div style="margin:6px 0"><strong>Custo Claude diario alerta:</strong> $${s.limits.cost_alert_daily_usd}</div>
+            <div style="margin:6px 0"><strong>Broadcast rate / min:</strong> ${s.limits.broadcast_rate_per_min}</div>
+            <div style="margin:6px 0"><strong>Broadcast max retries:</strong> ${s.limits.broadcast_max_retries}</div>
+            <div style="margin:6px 0"><strong>Auto-pause se falha %:</strong> ${s.limits.broadcast_failure_threshold_pct}%</div>
+          </div>
+        </div>
+        <div class="panel"><div class="panel-header"><h2>🔐 Auth</h2></div>
+          <div class="panel-body" style="font-size:.85rem">
+            <div style="margin:6px 0">${s.auth.api_token_present?'✅':'❌'} API_AUTH_TOKEN configurado</div>
+            <div style="margin:6px 0">${s.auth.login_password_set?'✅':'⚠️'} LOGIN_PASSWORD ${s.auth.login_password_set?'setado':'(usando API_AUTH_TOKEN)'}</div>
+            <div style="margin:6px 0">${s.auth.zapi_webhook_token_present?'✅':'❌'} ZAPI_WEBHOOK_TOKEN configurado</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel"><div class="panel-header"><h2>📊 Sistema</h2></div>
+        <div class="panel-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;font-size:.85rem">
+          <div><strong style="color:var(--muted);font-size:.7rem;text-transform:uppercase">Ambiente</strong><br><span style="font-size:1rem">${s.environment}</span></div>
+          <div><strong style="color:var(--muted);font-size:.7rem;text-transform:uppercase">Versao</strong><br><span style="font-size:1rem">${s.sistema.version}</span></div>
+          <div><strong style="color:var(--muted);font-size:.7rem;text-transform:uppercase">Node</strong><br><span style="font-size:1rem">${s.sistema.node_version}</span></div>
+          <div><strong style="color:var(--muted);font-size:.7rem;text-transform:uppercase">Uptime</strong><br><span style="font-size:1rem">${Math.round(s.sistema.uptime_sec/60)} min</span></div>
+          <div><strong style="color:var(--muted);font-size:.7rem;text-transform:uppercase">Memoria RSS</strong><br><span style="font-size:1rem">${s.sistema.memory_mb} MB</span></div>
+        </div>
+      </div>
+
+      <div style="margin-top:20px;padding:12px;background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.3);border-radius:8px;font-size:.78rem;color:var(--muted)">
+        💡 Para alterar variaveis, edite <code>/opt/consulta-isp-agentes/.env</code> na VPS e reinicie o container.
+        Ver <code>RUNBOOK-DEPLOY.md</code> secao 2.
+      </div>`;
+  } catch (e) {
+    root.innerHTML = `<div style="color:var(--red);padding:20px">Erro ao carregar: ${e.message}</div>`;
+  }
+}
+
+// === ATALHO Ctrl+K (busca rapida em leads) ===
+document.addEventListener('keydown', (ev) => {
+  if ((ev.ctrlKey || ev.metaKey) && ev.key === 'k') {
+    ev.preventDefault();
+    goPage('leads');
+    setTimeout(() => {
+      const inp = document.getElementById('lead-search');
+      if (inp) { inp.focus(); inp.select(); }
+    }, 100);
+  }
+});
+
+// === AUTO-REFRESH cards do dashboard a cada 30s ===
+setInterval(() => {
+  const active = document.querySelector('.page.active');
+  if (active?.id === 'page-dashboard') {
+    if (typeof loadDashboard === 'function') loadDashboard();
+  } else if (active?.id === 'page-monitor') {
+    loadMonitor();
+  }
+}, 30000);
+
 // Auto-refresh
 setInterval(()=>{const active=document.querySelector('.page.active');if(active?.id==='page-monitor')loadMonitor()},15000);
 
@@ -972,6 +1215,7 @@ loadDashboard();
 
 <!-- Sprint 7 — Apify Prospeccao -->
 <script src="/js/modals/apify-run.js"></script>
+<script src="/js/modals/apify-detail.js"></script>
 
 <script>
 window.loadAudiencias = function loadAudiencias(){
@@ -994,11 +1238,11 @@ window.loadApifyRuns = async function loadApifyRuns(){
   el.innerHTML = `
     <table class="table">
       <thead>
-        <tr><th>Quando</th><th>Actor</th><th>Status</th><th>Items</th><th>Novos</th><th>Dup</th><th>Custo</th><th>Duracao</th></tr>
+        <tr><th>Quando</th><th>Actor</th><th>Status</th><th>Items</th><th>Novos</th><th>Dup</th><th>Custo</th><th>Duracao</th><th>Acoes</th></tr>
       </thead>
       <tbody>
         ${items.map(r => `
-          <tr>
+          <tr style="cursor:pointer" onclick="window.ApifyDetail && window.ApifyDetail.open(${r.id})">
             <td style="font-size:.75rem;color:var(--muted)">${(r.iniciado_em||'').slice(0,16).replace('T',' ')}</td>
             <td>${r.actor_label || r.actor_id}</td>
             <td><span class="badge" style="background:rgba(${r.status==='imported'?'52,211,153':r.status==='failed'?'248,113,113':'251,191,36'},.15);color:${r.status==='imported'?'var(--green)':r.status==='failed'?'var(--red)':'var(--yellow)'}">${r.status}</span></td>
@@ -1007,6 +1251,11 @@ window.loadApifyRuns = async function loadApifyRuns(){
             <td style="color:var(--muted)">${r.leads_dup||0}</td>
             <td style="color:var(--muted)">$${(r.cost_usd||0).toFixed(3)}</td>
             <td style="color:var(--muted);font-size:.75rem">${r.duracao_ms?Math.round(r.duracao_ms/1000)+'s':'-'}</td>
+            <td onclick="event.stopPropagation()">
+              ${(r.status === 'running' || r.status === 'pending')
+                ? `<button class="btn btn-sm btn-outline" onclick="window.ApifyDetail.refresh(${r.id})">↻ Refresh</button>`
+                : `<button class="btn btn-sm btn-outline" onclick="window.ApifyDetail.open(${r.id})">Detalhes</button>`}
+            </td>
           </tr>
         `).join('')}
       </tbody>
