@@ -7,12 +7,17 @@
     if (typeof api !== 'function') return;
 
     try {
-      const data = await api('/autonomy/dashboard');
+      const [data, cob] = await Promise.all([
+        api('/autonomy/dashboard'),
+        api('/regioes/cobertura').catch(() => null)
+      ]);
       const flags = data.flags || {};
       const ks = data.kill_switches?.kill_switches || {};
       const pipe = data.pipeline || {};
       const ultima = data.ultima_acao_por_agente || [];
       const tools = data.tool_calls_24h || [];
+      const cobertura = (cob?.cobertura || []).filter(c => c.leads_prospectados > 0)
+        .sort((a, b) => b.leads_prospectados - a.leads_prospectados).slice(0, 8);
 
       const flagRow = (label, on, envVar) => `
         <tr>
@@ -68,6 +73,29 @@
             .join('')
         : '<li style="color:var(--muted)">nenhuma atividade hoje</li>';
 
+      // Cobertura regional — top mesorregioes ativas
+      const coberturaHtml = cobertura.length
+        ? cobertura.map(c => {
+            const densidade = c.total_cidades ? Math.min(100, Math.round((c.leads_prospectados / c.total_cidades) * 100)) : 0;
+            const barColor = densidade >= 50 ? 'var(--green)' : densidade >= 20 ? 'var(--yellow)' : 'var(--terracotta)';
+            return `
+              <li style="padding:6px 0;font-size:.78rem;border-bottom:1px solid var(--border)">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+                  <strong style="color:var(--text)">${c.nome}</strong>
+                  <span style="color:var(--muted);font-size:.7rem">${c.uf}</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <div style="flex:1;height:4px;background:var(--border-warm);border-radius:2px;overflow:hidden">
+                    <div style="width:${densidade}%;height:100%;background:${barColor}"></div>
+                  </div>
+                  <span style="color:var(--muted);font-size:.7rem;min-width:56px;text-align:right">
+                    ${c.leads_prospectados}L · ${c.ganhos}✓
+                  </span>
+                </div>
+              </li>`;
+          }).join('')
+        : '<li style="color:var(--muted);padding:6px 0">sem dados regionais ainda</li>';
+
       containerEl.innerHTML = `
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:18px">
           <div class="stat-card">
@@ -80,6 +108,10 @@
               <div><div style="color:var(--muted);font-size:.7rem">Ganhos 7d</div><div style="font-size:1.4rem;font-weight:600;color:var(--green)">${pipe.ganhos_7d || 0}</div></div>
               <div><div style="color:var(--muted);font-size:.7rem">Perdidos 7d</div><div style="font-size:1.4rem;font-weight:600;color:var(--red)">${pipe.perdidos_7d || 0}</div></div>
             </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label" style="margin-bottom:12px">Cobertura regional (top 8)</div>
+            <ul style="margin:0;padding:0;list-style:none;max-height:240px;overflow-y:auto">${coberturaHtml}</ul>
           </div>
           <div class="stat-card">
             <div class="stat-label" style="margin-bottom:12px">Atividade hoje por agente</div>

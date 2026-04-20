@@ -18,6 +18,30 @@ const platformAgent = require('../services/platform-agent-client');
 const claude = require('../services/claude');
 const autoHealer = require('../services/auto-healer');
 
+// Conta quantos provedores da mesma mesorregiao ja foram contatados/qualificados.
+// Usa pra pitch "rede regional" nos prompts cold.
+function getRegionalDensity(mesorregiao) {
+  if (!mesorregiao) return null;
+  try {
+    const db = getDb();
+    const row = db.prepare(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN classificacao IN ('morno','quente','ultra_quente') THEN 1 ELSE 0 END) AS engajados,
+        SUM(CASE WHEN etapa_funil = 'ganho' THEN 1 ELSE 0 END) AS fechados
+      FROM leads
+      WHERE mesorregiao = ?
+    `).get(mesorregiao);
+    return {
+      total: row?.total || 0,
+      engajados: row?.engajados || 0,
+      fechados: row?.fechados || 0
+    };
+  } catch {
+    return null;
+  }
+}
+
 const TICK_INTERVAL_MS = 2 * 60 * 60 * 1000; // 2h
 const BATCH_SIZE = 5;
 const JITTER_MIN_MS = 20 * 1000;
@@ -107,18 +131,39 @@ function buildColdPrompt(lead) {
     ? `\n\nDADOS ENRIQUECIDOS (use pra personalizar a abordagem):\n${enriched.map(e => '- ' + e).join('\n')}\n`
     : '\n\n(Lead ainda nao enriquecido — abordagem mais generica.)\n';
 
+  // NETWORK EFFECT REGIONAL — core do pitch do produto
+  const density = getRegionalDensity(lead.mesorregiao);
+  const regionalBlock = (density && density.total >= 2)
+    ? `\nREDE REGIONAL JA ATIVA:
+Na mesorregiao "${lead.mesorregiao_nome || lead.mesorregiao}" ja temos ${density.total} provedores
+mapeados, ${density.engajados} engajados e ${density.fechados} fechando. QUANTO MAIS
+provedores da mesma regiao participarem, MAIOR o valor da base (cliente calote
+em um provedor sera detectado pelos outros). Use isso no pitch:
+- "Ja temos X provedores aqui na regiao ${lead.mesorregiao_nome || 'sua'}"
+- "Voce seria o Y-esimo a entrar — e quem entra primeiro tem vantagem"
+- "O efeito de rede e local: so funciona se a regiao estiver coberta"
+`
+    : `\nREDE REGIONAL:
+Voce e um dos primeiros provedores da regiao ${lead.mesorregiao_nome || lead.cidade || 'local'}
+que estamos abordando. Pitch diferente: "estamos entrando na regiao de ${lead.mesorregiao_nome || 'sua cidade'}
+e quem topar primeiro ajuda a definir a base (+ ganha condicao especial de pioneiro)".
+`;
+
   return `COLD OUTBOUND para lead novo (ele NUNCA conversou com a gente ainda).
 Lead: ${lead.nome || lead.provedor || 'ISP'} — ${lead.cidade || '?'}/${lead.estado || '?'}
+Mesorregiao: ${lead.mesorregiao_nome || 'n/a'}
 Site: ${lead.site || 'n/a'}
-${enrichedBlock}
+${enrichedBlock}${regionalBlock}
+
 Contexto: voce descobriu esse provedor via Google Maps e ja pegou dados da Receita
-Federal + emails/redes do site. Use isso pra personalizar — ex: "Oi, vi que a {razao social}
-esta ativa em {cidade} desde {ano}, e voce e o {decisor}..."
+Federal + emails/redes do site. O PRODUTO e uma base colaborativa REGIONAL — so
+funciona se varios ISPs da mesma regiao participarem (por isso a mensagem regional
+acima e CENTRAL ao pitch).
 
 Seu objetivo: abrir conversa de forma natural e curta pra descobrir se tem interesse.
 - Max 3 frases, tom conversacional, SEM markdown, SEM pitch agressivo
 - Se tiver decisor identificado, chame ele pelo primeiro nome
-- Mencione brevemente a proposta de valor (base colaborativa regional de inadimplencia)
+- SEMPRE mencione o aspecto REGIONAL (rede local, densidade, network effect)
 - Termine com 1 pergunta aberta simples
 - Se a janela 24h estiver fechada (lead nunca enviou inbound), use send_whatsapp com is_template=true
 - NUNCA revele que e IA

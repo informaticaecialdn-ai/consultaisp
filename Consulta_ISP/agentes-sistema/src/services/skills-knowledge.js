@@ -50,7 +50,8 @@ class SkillsKnowledgeService {
       sofia: [
         'skills-conhecimento-vendas-sofia.md',
         'skills-conhecimento-demandgen.md',
-        'skills-conhecimento-prospecao-pricing.md'
+        'skills-conhecimento-prospecao-pricing.md',
+        'skills-conhecimento-sofia-regional-playbook.md'
       ],
       iani: [
         'skills-conhecimento-marcos-leo.md',
