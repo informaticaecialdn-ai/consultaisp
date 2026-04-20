@@ -31,15 +31,21 @@ class SkillsKnowledgeService {
       carlos: [
         'skills-conhecimento-vendas-sofia.md',
         'skills-conhecimento-prospecao-pricing.md',
-        'skills-conhecimento-emailseq.md'
+        'skills-conhecimento-emailseq.md',
+        'carlos-qualificacao-bant.md',
+        'skills-conhecimento-carlos-objecoes-isp.md'
       ],
       lucas: [
         'skills-conhecimento-vendas-sofia.md',
-        'skills-conhecimento-prospecao-pricing.md'
+        'skills-conhecimento-prospecao-pricing.md',
+        'skills-conhecimento-carlos-objecoes-isp.md',
+        'skills-conhecimento-lucas-roi-isp.md'
       ],
       rafael: [
         'skills-conhecimento-vendas-sofia.md',
-        'skills-conhecimento-prospecao-pricing.md'
+        'skills-conhecimento-prospecao-pricing.md',
+        'skills-conhecimento-carlos-objecoes-isp.md',
+        'skills-conhecimento-lucas-roi-isp.md'
       ],
       sofia: [
         'skills-conhecimento-vendas-sofia.md',
@@ -49,7 +55,8 @@ class SkillsKnowledgeService {
       diana: [
         'skills-conhecimento-marcos-leo.md',
         'skills-conhecimento-vendas-sofia.md',
-        'skills-conhecimento-agentes-arch.md'
+        'skills-conhecimento-agentes-arch.md',
+        'skills-conhecimento-diana-relatorios.md'
       ]
     };
 
