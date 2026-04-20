@@ -40,7 +40,9 @@ body{
   border-radius:24px;
   padding:48px 40px;width:100%;max-width:440px;
   box-shadow:rgba(0,0,0,0.05) 0px 4px 24px, 0 0 0 1px var(--border-warm);
+  animation:card-in 380ms cubic-bezier(0.16, 1, 0.3, 1);
 }
+@keyframes card-in{from{opacity:0;transform:translateY(20px) scale(0.96)}to{opacity:1;transform:translateY(0) scale(1)}}
 .logo{
   font-family:'Newsreader','Anthropic Serif',Georgia,serif;
   font-size:2rem;font-weight:500;line-height:1.10;
@@ -71,7 +73,7 @@ body{
   letter-spacing:-0.01em;
 }
 .btn:hover{background:#b85531;box-shadow:0 0 0 1px #b85531, rgba(0,0,0,0.05) 0px 4px 12px}
-.btn:active{transform:scale(0.98)}
+.btn:active{transform:scale(0.96);transition:transform 120ms cubic-bezier(0.34, 1.56, 0.64, 1)}
 .btn:disabled{opacity:.6;cursor:wait;transform:none}
 .error{margin-top:14px;padding:12px 14px;background:rgba(181,51,51,.06);color:var(--red);border:1px solid rgba(181,51,51,.25);border-radius:8px;font-size:.85rem;display:none}
 .error.show{display:block}

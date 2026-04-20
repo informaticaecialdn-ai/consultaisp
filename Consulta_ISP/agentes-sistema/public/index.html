@@ -44,10 +44,16 @@
   --purple:#7a6a8c;         /* Muted purple */
   --orange:#d97757;
   --cyan:#3898ec;           /* Focus Blue (only cool color) */
-  /* Motion */
-  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  /* Motion — spring physics curves (Apple HIG-inspired, Claude warm feel) */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);          /* gentle stop */
+  --ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);       /* spring overshoot subtle */
+  --ease-out-spring: cubic-bezier(0.16, 1, 0.3, 1);         /* dramatic ease, "pop in" */
+  --ease-in-out-circ: cubic-bezier(0.85, 0, 0.15, 1);       /* smooth two-way */
+  --transition-fast: 180ms var(--ease-out-quart);
+  --transition-base: 240ms var(--ease-out-quart);
+  --transition-slow: 320ms var(--ease-out-quart);
+  /* Spring duration mais relaxado pra modais/sheets (HIG-style) */
+  --transition-spring: 380ms var(--ease-out-spring);
   /* Claude radius scale — generously rounded */
   --radius-sm: 6px; --radius-md: 8px; --radius-lg: 12px; --radius-xl: 16px;
   --radius-2xl: 24px; --radius-3xl: 32px;
@@ -83,11 +89,18 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
 /* a11y focus rings — Claude Focus Blue (only cool color in system) */
 *:focus-visible{outline:none;box-shadow:var(--focus-ring);border-radius:var(--radius-md)}
 
-/* Smooth transitions */
-.btn,.nav-item,.stat-card,.panel,.activity-item,.table tr,a,select,input,textarea,button{transition:background var(--transition-base),border-color var(--transition-base),color var(--transition-base),transform var(--transition-base),box-shadow var(--transition-base),opacity var(--transition-base)}
-/* Claude-style hover: ring shadow lift, no movement */
+/* Smooth transitions com spring physics */
+.btn,.nav-item,.stat-card,.panel,.activity-item,.table tr,a,select,input,textarea,button{
+  transition:background var(--transition-base),border-color var(--transition-base),color var(--transition-base),
+             transform var(--transition-fast) var(--ease-out-back),
+             box-shadow var(--transition-base),opacity var(--transition-base)
+}
+/* Claude-style hover: ring shadow lift, sem deslocamento */
 .stat-card:hover{box-shadow:var(--shadow-md);border-color:#d1cfc5}
-.btn:active{transform:scale(0.97)}
+/* Microinteracao tactile com spring rebote */
+.btn:active{transform:scale(0.96)}
+.nav-item:active{transform:scale(0.98)}
+.pipe-card:active{transform:scale(0.99)}
 
 /* Empty state — Claude warm tones */
 .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;color:var(--muted);text-align:center;gap:14px}
@@ -102,11 +115,24 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
 .skeleton-card{height:100px;border-radius:var(--radius-lg);margin-bottom:12px}
 .skeleton-row{height:48px;margin-bottom:8px}
 
-/* Sprint 7 polish: toast/notification */
-@keyframes slide-up{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+/* === Spring physics keyframes (Claude HIG-inspired) === */
+@keyframes slide-up{
+  from{transform:translateY(24px) scale(0.96);opacity:0}
+  to{transform:translateY(0) scale(1);opacity:1}
+}
 @keyframes fade-in{from{opacity:0}to{opacity:1}}
-.fade-in{animation:fade-in var(--transition-slow) ease-out}
-.slide-up{animation:slide-up var(--transition-slow) ease-out}
+@keyframes scale-in{
+  from{transform:scale(0.94);opacity:0}
+  to{transform:scale(1);opacity:1}
+}
+@keyframes scale-fade{
+  from{transform:scale(1.04);opacity:0}
+  to{transform:scale(1);opacity:1}
+}
+.fade-in{animation:fade-in var(--transition-slow) var(--ease-out-quart)}
+.slide-up{animation:slide-up var(--transition-spring) var(--ease-out-spring)}
+.scale-in{animation:scale-in var(--transition-spring) var(--ease-out-spring)}
+.scale-fade{animation:scale-fade var(--transition-base) var(--ease-out-quart)}
 
 /* Sprint 7 polish: prefers-reduced-motion */
 @media (prefers-reduced-motion: reduce){
@@ -160,7 +186,7 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
 
 /* === MAIN === */
 .main{overflow-y:auto;padding:24px 28px;background:var(--bg)}
-.page{display:none}.page.active{display:block;animation:fade-in var(--transition-slow) ease-out}
+.page{display:none}.page.active{display:block;animation:scale-fade var(--transition-base) var(--ease-out-quart)}
 .page-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;gap:16px;flex-wrap:wrap}
 .page-header h1{font-family:'Newsreader','Anthropic Serif',Georgia,serif;font-size:1.85rem;font-weight:500;line-height:1.10;color:var(--text)}
 .page-header-actions{display:flex;gap:8px;align-items:center}
@@ -212,6 +238,15 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
 .b-marcos{background:rgba(217,119,87,.10);color:#a64d28;border-color:rgba(217,119,87,.22)}
 .b-diana{background:rgba(94,93,89,.10);color:#4d4c48;border-color:var(--border-warm)}
 
+/* === SVG ICONS (Lucide-style strokes 1.5px) === */
+.icon{width:18px;height:18px;display:inline-block;flex-shrink:0;stroke:currentColor;stroke-width:1.5;fill:none;stroke-linecap:round;stroke-linejoin:round;vertical-align:middle}
+.icon-sm{width:14px;height:14px}
+.icon-lg{width:24px;height:24px}
+.icon-xl{width:32px;height:32px}
+.nav-item .icon{width:18px;height:18px}
+.stat-card .stat-icon .icon{width:18px;height:18px;color:var(--text-secondary)}
+.empty-state-icon .icon{width:28px;height:28px;color:var(--terracotta)}
+
 /* === PIPELINE KANBAN (Claude warm columns) === */
 .pipeline-container{display:flex;gap:14px;overflow-x:auto;padding-bottom:18px;min-height:500px}
 .pipe-column{min-width:240px;flex:1;background:var(--bg2);border-radius:12px;border:1px solid var(--border);display:flex;flex-direction:column}
@@ -243,8 +278,8 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
 
 /* === MODAL (Claude — generous radius, ring shadow + whisper, overlay 85% black) === */
 .modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(20,20,19,.55);z-index:100;align-items:center;justify-content:center;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
-.modal-overlay.show{display:flex;animation:fade-in var(--transition-slow) ease-out}
-.modal{background:var(--card);border-radius:24px;border:1px solid var(--border);padding:32px;width:560px;max-width:92vw;max-height:85vh;overflow-y:auto;box-shadow:rgba(0,0,0,0.05) 0px 4px 24px, 0 0 0 1px var(--border-warm);animation:slide-up var(--transition-slow) ease-out}
+.modal-overlay.show{display:flex;animation:fade-in var(--transition-base) var(--ease-out-quart)}
+.modal{background:var(--card);border-radius:24px;border:1px solid var(--border);padding:32px;width:560px;max-width:92vw;max-height:85vh;overflow-y:auto;box-shadow:rgba(0,0,0,0.05) 0px 4px 24px, 0 0 0 1px var(--border-warm);animation:slide-up var(--transition-spring) var(--ease-out-spring);transform-origin:center center}
 .modal h2{font-family:'Newsreader','Anthropic Serif',Georgia,serif;font-size:1.5rem;font-weight:500;line-height:1.20;margin-bottom:24px;color:var(--text)}
 .form-group{margin-bottom:16px}
 .form-group label{display:block;font-size:.78rem;color:var(--muted);margin-bottom:6px;font-weight:500;letter-spacing:.3px}
@@ -279,6 +314,38 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
 </style>
 </head>
 <body>
+<!-- Lucide SVG icon sprite (Sprint 7 polish — Claude design system) -->
+<svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-dashboard" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></symbol>
+  <symbol id="i-pipeline" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-message" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></symbol>
+  <symbol id="i-template" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3" fill="currentColor"/></symbol>
+  <symbol id="i-rocket" viewBox="0 0 24 24"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></symbol>
+  <symbol id="i-broadcast" viewBox="0 0 24 24"><path d="M5.41 21 6 18"/><path d="m16.17 21-.59-3"/><path d="M3 5h18"/><path d="m21 9-1.5 9.5a2 2 0 0 1-2 1.5h-11a2 2 0 0 1-2-1.5L3 9"/><circle cx="12" cy="9" r="2"/></symbol>
+  <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+  <symbol id="i-checklist" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></symbol>
+  <symbol id="i-funnel" viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></symbol>
+  <symbol id="i-flame" viewBox="0 0 24 24"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></symbol>
+  <symbol id="i-dollar" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></symbol>
+  <symbol id="i-shield-x" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></symbol>
+  <symbol id="i-handoff" viewBox="0 0 24 24"><path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></symbol>
+  <symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>
+</svg>
+
 <div class="app">
   <!-- TOPBAR -->
   <div class="topbar">
@@ -288,9 +355,9 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
     </div>
     <div class="topbar-right">
       <span class="topbar-status"><span class="pulse"></span> Sistema Ativo</span>
-      <button class="btn btn-outline btn-sm" onclick="refreshAll()">Atualizar</button>
-      <button class="btn btn-primary btn-sm" onclick="showModal('novo-lead')">+ Novo Lead</button>
-      <button class="btn btn-ghost btn-sm" onclick="doLogout()" title="Sair (limpa token e volta para login)">Sair</button>
+      <button class="btn btn-outline btn-sm" onclick="refreshAll()"><svg class="icon icon-sm"><use href="#i-refresh"/></svg>Atualizar</button>
+      <button class="btn btn-primary btn-sm" onclick="showModal('novo-lead')"><svg class="icon icon-sm"><use href="#i-plus"/></svg>Novo Lead</button>
+      <button class="btn btn-ghost btn-sm" onclick="doLogout()" title="Sair (limpa token e volta para login)"><svg class="icon icon-sm"><use href="#i-logout"/></svg>Sair</button>
     </div>
   </div>
 
@@ -298,27 +365,27 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
   <div class="sidebar">
     <div class="nav-section">
       <div class="nav-section-title">Principal</div>
-      <div class="nav-item active" data-page="dashboard"><span class="nav-icon">📊</span>Dashboard<span class="nav-badge" id="nav-leads-count">0</span></div>
-      <div class="nav-item" data-page="pipeline"><span class="nav-icon">📈</span>Pipeline</div>
-      <div class="nav-item" data-page="leads"><span class="nav-icon">👥</span>Leads</div>
-      <div class="nav-item" data-page="conversas"><span class="nav-icon">💬</span>Conversas</div>
-      <div class="nav-item" data-page="audiencias"><span class="nav-icon">🎯</span>Audiencias</div>
-      <div class="nav-item" data-page="templates"><span class="nav-icon">📝</span>Templates</div>
-      <div class="nav-item" data-page="apify"><span class="nav-icon">🌐</span>Apify Scraping</div>
-      <div class="nav-item" data-page="settings"><span class="nav-icon">⚙️</span>Configuracoes</div>
+      <div class="nav-item active" data-page="dashboard"><svg class="icon"><use href="#i-dashboard"/></svg>Dashboard<span class="nav-badge" id="nav-leads-count">0</span></div>
+      <div class="nav-item" data-page="pipeline"><svg class="icon"><use href="#i-pipeline"/></svg>Pipeline</div>
+      <div class="nav-item" data-page="leads"><svg class="icon"><use href="#i-users"/></svg>Leads</div>
+      <div class="nav-item" data-page="conversas"><svg class="icon"><use href="#i-message"/></svg>Conversas</div>
+      <div class="nav-item" data-page="audiencias"><svg class="icon"><use href="#i-target"/></svg>Audiencias</div>
+      <div class="nav-item" data-page="templates"><svg class="icon"><use href="#i-template"/></svg>Templates</div>
+      <div class="nav-item" data-page="apify"><svg class="icon"><use href="#i-globe"/></svg>Apify Scraping</div>
+      <div class="nav-item" data-page="settings"><svg class="icon"><use href="#i-settings"/></svg>Configuracoes</div>
     </div>
     <div class="nav-section">
       <div class="nav-section-title">Operacoes</div>
-      <div class="nav-item" data-page="monitor"><span class="nav-icon">🔴</span>Monitor Agentes</div>
-      <div class="nav-item" data-page="prospectar"><span class="nav-icon">🚀</span>Prospectar</div>
-      <div class="nav-item" data-page="campanhas"><span class="nav-icon">📨</span>Campanhas<span class="nav-badge" id="nav-campanhas-count">0</span></div>
-      <div class="nav-item" data-page="conteudo"><span class="nav-icon">✍️</span>Conteudo</div>
-      <div class="nav-item" data-page="tarefas"><span class="nav-icon">📋</span>Tarefas<span class="nav-badge" id="nav-tarefas-count">0</span></div>
+      <div class="nav-item" data-page="monitor"><svg class="icon"><use href="#i-monitor"/></svg>Monitor Agentes</div>
+      <div class="nav-item" data-page="prospectar"><svg class="icon"><use href="#i-rocket"/></svg>Prospectar</div>
+      <div class="nav-item" data-page="campanhas"><svg class="icon"><use href="#i-broadcast"/></svg>Campanhas<span class="nav-badge" id="nav-campanhas-count">0</span></div>
+      <div class="nav-item" data-page="conteudo"><svg class="icon"><use href="#i-edit"/></svg>Conteudo</div>
+      <div class="nav-item" data-page="tarefas"><svg class="icon"><use href="#i-checklist"/></svg>Tarefas<span class="nav-badge" id="nav-tarefas-count">0</span></div>
     </div>
     <div class="nav-section">
       <div class="nav-section-title">Relatorios</div>
-      <div class="nav-item" data-page="relatorios"><span class="nav-icon">📉</span>Relatorios</div>
-      <div class="nav-item" data-page="funil"><span class="nav-icon">🔻</span>Funil</div>
+      <div class="nav-item" data-page="relatorios"><svg class="icon"><use href="#i-chart"/></svg>Relatorios</div>
+      <div class="nav-item" data-page="funil"><svg class="icon"><use href="#i-funnel"/></svg>Funil</div>
     </div>
     <div class="nav-section">
       <div class="nav-section-title">Agentes</div>
@@ -816,26 +883,26 @@ async function loadDashboard(){
   const quentes=(d.por_classificacao||[]).filter(c=>c.classificacao==='quente'||c.classificacao==='ultra_quente').reduce((s,c)=>s+c.c,0);
   
   document.getElementById('dash-stats').innerHTML=`
-    <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:rgba(96,165,250,.12)">👥</div></div><div class="stat-val" style="color:var(--blue)">${d.total_leads}</div><div class="stat-label">Total de Leads</div></div>
-    <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:rgba(52,211,153,.12)">💬</div></div><div class="stat-val" style="color:var(--green)">${d.msgs_hoje}</div><div class="stat-label">Mensagens Hoje</div></div>
-    <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:rgba(249,115,22,.12)">🔥</div></div><div class="stat-val" style="color:var(--orange)">${quentes}</div><div class="stat-label">Leads Quentes</div></div>
-    <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:rgba(167,139,250,.12)">💰</div></div><div class="stat-val" style="color:var(--purple)">R$${(d.valor_pipeline||0).toLocaleString('pt-BR')}</div><div class="stat-label">Valor Pipeline</div></div>
-    <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:rgba(34,211,238,.12)">📋</div></div><div class="stat-val" style="color:var(--cyan)">${d.tarefas_pendentes}</div><div class="stat-label">Tarefas Pendentes</div></div>
-    <div class="stat-card"><div class="stat-top"><div class="stat-icon" style="background:rgba(251,191,36,.12)">⚡</div></div><div class="stat-val" style="color:var(--yellow)">${d.leads_hoje}</div><div class="stat-label">Leads Hoje</div></div>`;
+    <div class="stat-card"><div class="stat-top"><div class="stat-icon"><svg class="icon"><use href="#i-users"/></svg></div></div><div class="stat-val">${d.total_leads}</div><div class="stat-label">Total de Leads</div></div>
+    <div class="stat-card"><div class="stat-top"><div class="stat-icon"><svg class="icon"><use href="#i-message"/></svg></div></div><div class="stat-val">${d.msgs_hoje}</div><div class="stat-label">Mensagens Hoje</div></div>
+    <div class="stat-card"><div class="stat-top"><div class="stat-icon"><svg class="icon"><use href="#i-flame"/></svg></div></div><div class="stat-val">${quentes}</div><div class="stat-label">Leads Quentes</div></div>
+    <div class="stat-card"><div class="stat-top"><div class="stat-icon"><svg class="icon"><use href="#i-dollar"/></svg></div></div><div class="stat-val">R$${(d.valor_pipeline||0).toLocaleString('pt-BR')}</div><div class="stat-label">Valor Pipeline</div></div>
+    <div class="stat-card"><div class="stat-top"><div class="stat-icon"><svg class="icon"><use href="#i-checklist"/></svg></div></div><div class="stat-val">${d.tarefas_pendentes}</div><div class="stat-label">Tarefas Pendentes</div></div>
+    <div class="stat-card"><div class="stat-top"><div class="stat-icon"><svg class="icon"><use href="#i-bolt"/></svg></div></div><div class="stat-val">${d.leads_hoje}</div><div class="stat-label">Leads Hoje</div></div>`;
 
   // Activity feed
   const acts=d.atividades_recentes||[];
   document.getElementById('dash-activities').innerHTML=acts.length?acts.slice(0,8).map(a=>`
     <div class="activity-item"><div class="activity-dot" style="background:${AGENTE_COLORS[a.agente]||'var(--muted)'}20;color:${AGENTE_COLORS[a.agente]||'var(--muted)'}">${a.tipo==='resposta_enviada'?'💬':a.tipo==='handoff_enviado'?'🔄':a.tipo==='lead_criado'?'🆕':a.tipo==='demo_agendada'?'📅':'⚡'}</div>
     <div class="activity-content"><div class="activity-title"><span class="badge b-${a.agente}" style="margin-right:6px">${a.agente}</span>${a.descricao?.substring(0,80)||a.tipo}</div><div class="activity-meta">${timeAgo(a.criado_em)}</div></div></div>
-  `).join(''):`<div class="empty-state" style="padding:30px"><div class="empty-state-icon" style="width:48px;height:48px;font-size:20px">⚡</div><div class="empty-state-title" style="font-size:.9rem">Aguardando primeira atividade</div><div class="empty-state-desc" style="font-size:.78rem">Quando os agentes comecarem a interagir com leads, voce vera tudo aqui em tempo real.</div></div>`;
+  `).join(''):`<div class="empty-state" style="padding:30px"><div class="empty-state-icon" style="width:48px;height:48px"><svg class="icon icon-lg"><use href="#i-activity"/></svg></div><div class="empty-state-title" style="font-size:1rem">Aguardando primeira atividade</div><div class="empty-state-desc" style="font-size:.82rem">Quando os agentes comecarem a interagir com leads, voce vera tudo aqui em tempo real.</div></div>`;
 
   // Handoffs
   const hfs=d.handoffs_recentes||[];
   document.getElementById('dash-handoffs').innerHTML=hfs.length?hfs.map(h=>`
     <div class="activity-item"><div class="activity-dot" style="background:rgba(96,165,250,.12);color:var(--blue)">🔄</div>
     <div class="activity-content"><div class="activity-title">${h.nome||h.telefone}: <span class="badge b-${h.de_agente}">${h.de_agente}</span> → <span class="badge b-${h.para_agente}">${h.para_agente}</span></div><div class="activity-meta">Score: ${h.score_no_momento} | ${timeAgo(h.criado_em)}</div></div></div>
-  `).join(''):`<div class="empty-state" style="padding:30px"><div class="empty-state-icon" style="width:48px;height:48px;font-size:20px">🔄</div><div class="empty-state-title" style="font-size:.9rem">Sem handoffs recentes</div><div class="empty-state-desc" style="font-size:.78rem">Quando um lead for transferido entre agentes (Carlos → Lucas → Rafael), o historico aparece aqui.</div></div>`;
+  `).join(''):`<div class="empty-state" style="padding:30px"><div class="empty-state-icon" style="width:48px;height:48px"><svg class="icon icon-lg"><use href="#i-handoff"/></svg></div><div class="empty-state-title" style="font-size:1rem">Sem handoffs recentes</div><div class="empty-state-desc" style="font-size:.82rem">Quando um lead for transferido entre agentes (Carlos → Lucas → Rafael), o historico aparece aqui.</div></div>`;
 
   // Charts
   buildDashCharts(d);
@@ -1370,10 +1437,10 @@ window.loadApifyRuns = async function loadApifyRuns(){
   if (items.length === 0) {
     el.innerHTML = `
       <div class="empty-state fade-in">
-        <div class="empty-state-icon">🌐</div>
+        <div class="empty-state-icon"><svg class="icon"><use href="#i-globe"/></svg></div>
         <div class="empty-state-title">Nenhum scraping ainda</div>
         <div class="empty-state-desc">Use o Apify pra encontrar provedores de internet por regiao no Google Maps. 50 leads custam menos de R$1.</div>
-        <button class="btn btn-primary" onclick="window.openApifyModal && window.openApifyModal()">+ Iniciar primeiro scraping</button>
+        <button class="btn btn-primary" onclick="window.openApifyModal && window.openApifyModal()"><svg class="icon icon-sm"><use href="#i-plus"/></svg>Iniciar primeiro scraping</button>
       </div>`;
     return;
   }

@@ -1,17 +1,18 @@
-// Cost card (Sprint 3 / T2). Funcao pura — chama via renderCostCard(el, data).
-// data = { today: {total_usd, ...}, month: {total_usd, ...}, threshold_usd }
+// Cost card (Sprint 3 / T2 — refatorado pra Claude design system).
+// Sem inline hex; usa CSS vars do index.html.
 
 (function () {
   function formatUsd(v) {
     return '$' + (Number(v || 0)).toFixed(2);
   }
 
-  function colorFor(total, threshold) {
-    if (!threshold || threshold <= 0) return 'var(--blue)';
+  // Status semantico: cor warm pelo % do threshold
+  function statusFor(total, threshold) {
+    if (!threshold || threshold <= 0) return { label: 'ok', color: 'var(--green)' };
     const pct = total / threshold;
-    if (pct >= 1.0) return 'var(--red)';
-    if (pct >= 0.7) return 'var(--yellow)';
-    return 'var(--green)';
+    if (pct >= 1.0) return { label: 'over', color: 'var(--red)' };
+    if (pct >= 0.7) return { label: 'warning', color: 'var(--yellow)' };
+    return { label: 'ok', color: 'var(--green)' };
   }
 
   window.renderCostCard = function renderCostCard(containerEl, data) {
@@ -19,19 +20,23 @@
     const today = Number(data?.today?.totals?.total_usd || 0);
     const month = Number(data?.month?.totals?.total_usd || 0);
     const threshold = Number(data?.threshold_usd || 25);
-    const todayColor = colorFor(today, threshold);
+    const st = statusFor(today, threshold);
+    const pct = threshold ? Math.min(100, Math.round((today / threshold) * 100)) : 0;
 
     containerEl.innerHTML = `
       <div class="stat-card" data-card="claude-cost">
         <div class="stat-top">
-          <div class="stat-icon" style="background:rgba(96,165,250,.12)">🤖</div>
+          <div class="stat-icon"><svg class="icon"><use href="#i-dollar"/></svg></div>
+          <span class="badge" style="background:${st.color === 'var(--red)' ? 'rgba(181,51,51,.10)' : st.color === 'var(--yellow)' ? 'rgba(184,146,58,.10)' : 'rgba(91,124,94,.12)'};color:${st.color};border-color:transparent">${pct}%</span>
         </div>
-        <div class="stat-val" style="color:${todayColor}">${formatUsd(today)}</div>
+        <div class="stat-val" style="color:${st.color}">${formatUsd(today)}</div>
         <div class="stat-label">Custo Claude (hoje)</div>
-        <div style="margin-top:8px;font-size:.72rem;color:var(--muted)">
-          Mes: <strong style="color:var(--text)">${formatUsd(month)}</strong>
-          &nbsp;&middot;&nbsp;
-          Limite diario: ${formatUsd(threshold)}
+        <div style="margin-top:10px;font-size:.74rem;color:var(--muted);display:flex;justify-content:space-between">
+          <span>Mes <strong style="color:var(--text)">${formatUsd(month)}</strong></span>
+          <span>Limite <strong style="color:var(--text)">${formatUsd(threshold)}</strong></span>
+        </div>
+        <div style="margin-top:8px;height:3px;background:var(--border-warm);border-radius:9999px;overflow:hidden">
+          <div style="width:${pct}%;height:100%;background:${st.color};transition:width .3s ease-out"></div>
         </div>
       </div>`;
   };
@@ -46,8 +51,8 @@
       ]);
       const threshold_usd = 25;
       window.renderCostCard(containerEl, { today, month, threshold_usd });
-    } catch (e) {
-      containerEl.innerHTML = '<div class="stat-card"><div class="stat-label">Custo Claude indisponivel</div></div>';
+    } catch {
+      containerEl.innerHTML = '<div class="stat-card"><div class="stat-label" style="text-align:center;padding:20px">Custo Claude indisponivel</div></div>';
     }
   };
 })();
