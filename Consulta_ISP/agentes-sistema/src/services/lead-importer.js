@@ -8,6 +8,7 @@
 
 const { getDb } = require('../models/database');
 const logger = require('../utils/logger');
+const regioes = require('./regioes');
 
 // Normaliza telefone para formato 55DDDNNNNNNNN (apenas digitos).
 // Retorna null se nao parecer numero brasileiro valido.
@@ -42,6 +43,9 @@ function mapGoogleMapsItem(item) {
   const cidade = item.city || item.address?.split(',')?.[1]?.trim() || null;
   const estado = item.state || item.address?.match(/\b([A-Z]{2})\b/)?.[1] || null;
 
+  // Lookup mesorregiao IBGE
+  const mesoHit = cidade && estado ? regioes.lookupMesorregiao(cidade, estado) : null;
+
   // Score boost por estabelecimento (proxy de tamanho)
   const reviews = Number(item.reviewsCount || item.reviewCount || 0);
   const rating = Number(item.totalScore || item.rating || 0);
@@ -56,7 +60,9 @@ function mapGoogleMapsItem(item) {
     provedor: item.title || item.name || null,       // mesmo (ISP é a empresa)
     cidade,
     estado,
-    regiao: cidade,
+    regiao: mesoHit?.nome || cidade, // mesorregiao real se tiver, senao fallback cidade
+    mesorregiao: mesoHit?.slug || null,
+    mesorregiao_nome: mesoHit?.nome || null,
     erp: null,
     site: item.website || null,
     email: item.email || null,
@@ -102,10 +108,11 @@ function importItems(items, { runId = null, dryRun = false } = {}) {
 
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO leads
-      (telefone, nome, provedor, cidade, estado, regiao, erp, site, email,
+      (telefone, nome, provedor, cidade, estado, regiao, mesorregiao, mesorregiao_nome,
+       erp, site, email,
        score_perfil, classificacao, etapa_funil, agente_atual, origem,
        apify_run_id, dados_externos)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   let novos = 0, dup = 0, invalidos = 0;
@@ -116,7 +123,8 @@ function importItems(items, { runId = null, dryRun = false } = {}) {
       if (dryRun) { novos++; continue; }
       const r = stmt.run(
         lead.telefone, lead.nome, lead.provedor, lead.cidade, lead.estado,
-        lead.regiao, lead.erp, lead.site, lead.email,
+        lead.regiao, lead.mesorregiao, lead.mesorregiao_nome,
+        lead.erp, lead.site, lead.email,
         lead.score_perfil, lead.classificacao, lead.etapa_funil, lead.agente_atual,
         lead.origem, runId, lead.dados_externos
       );

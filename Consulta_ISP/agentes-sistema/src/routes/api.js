@@ -1494,15 +1494,92 @@ router.get('/errors/count', (req, res) => {
   res.json({ unresolved, last_24h: last24h });
 });
 
+// === REGIOES IBGE (regionalizacao da prospeccao) ===
+router.get('/regioes/estados', (req, res) => {
+  try {
+    const regioes = require('../services/regioes');
+    res.json({ estados: regioes.listEstados() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/regioes/:uf/mesorregioes', (req, res) => {
+  try {
+    const regioes = require('../services/regioes');
+    const uf = req.params.uf.toUpperCase();
+    const mesorregioes = regioes.listMesorregioes(uf);
+    res.json({ uf, mesorregioes });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/regioes/:uf/mesorregioes/:slug', (req, res) => {
+  try {
+    const regioes = require('../services/regioes');
+    const detalhe = regioes.getMesorregiao(req.params.uf.toUpperCase(), req.params.slug);
+    if (!detalhe) return res.status(404).json({ error: 'mesorregiao_nao_encontrada' });
+    res.json(detalhe);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Cobertura por mesorregiao — quantas leads ja prospectadas por regiao
+router.get('/regioes/cobertura', (req, res) => {
+  try {
+    const regioes = require('../services/regioes');
+    const db = getDb();
+    const all = regioes.listAllMesorregioes();
+
+    // Agrega leads por mesorregiao
+    const stats = db.prepare(`
+      SELECT estado, mesorregiao, mesorregiao_nome,
+             COUNT(*) AS total,
+             SUM(CASE WHEN classificacao IN ('quente','ultra_quente') THEN 1 ELSE 0 END) AS quentes,
+             SUM(CASE WHEN etapa_funil = 'ganho' THEN 1 ELSE 0 END) AS ganhos,
+             SUM(CASE WHEN enriched_at IS NOT NULL THEN 1 ELSE 0 END) AS enriquecidos
+      FROM leads
+      WHERE mesorregiao IS NOT NULL
+      GROUP BY 1,2,3
+    `).all();
+
+    const byKey = new Map();
+    for (const s of stats) byKey.set(`${s.estado}:${s.mesorregiao}`, s);
+
+    const cobertura = all.map((m) => {
+      const s = byKey.get(`${m.uf}:${m.slug}`) || {};
+      return {
+        uf: m.uf,
+        uf_nome: m.uf_nome,
+        slug: m.slug,
+        nome: m.nome,
+        total_cidades: m.total_cidades,
+        leads_prospectados: s.total || 0,
+        leads_quentes: s.quentes || 0,
+        ganhos: s.ganhos || 0,
+        enriquecidos: s.enriquecidos || 0,
+        densidade: s.total || 0 // proxy simples: total leads na regiao
+      };
+    });
+
+    res.json({ cobertura });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // === PROSPECTOR AUTONOMO (Milestone 1 / C) — config + stats + manual trigger ===
 router.get('/prospector/config', (req, res) => {
   const db = getDb();
   try {
     const row = db.prepare('SELECT * FROM prospector_config WHERE id = 1').get();
-    if (!row) return res.json({ enabled: false, regioes: [], termos: [], _missing: true });
+    if (!row) return res.json({ enabled: false, regioes: [], mesorregioes: [], termos: [], _missing: true });
     res.json({
       enabled: !!row.enabled,
       regioes: JSON.parse(row.regioes || '[]'),
+      mesorregioes: JSON.parse(row.mesorregioes || '[]'),
       termos: JSON.parse(row.termos || '[]'),
       max_leads_por_run: row.max_leads_por_run,
       min_rating: row.min_rating,
@@ -1532,6 +1609,10 @@ router.patch('/prospector/config', (req, res) => {
         body.regioes !== undefined
           ? JSON.stringify(Array.isArray(body.regioes) ? body.regioes : [])
           : existing?.regioes ?? '[]',
+      mesorregioes:
+        body.mesorregioes !== undefined
+          ? JSON.stringify(Array.isArray(body.mesorregioes) ? body.mesorregioes : [])
+          : existing?.mesorregioes ?? '[]',
       termos:
         body.termos !== undefined
           ? JSON.stringify(Array.isArray(body.termos) ? body.termos : [])
@@ -1543,11 +1624,12 @@ router.patch('/prospector/config', (req, res) => {
       validation_cron: body.validation_cron || existing?.validation_cron || '0 9 * * *'
     };
     db.prepare(
-      `INSERT INTO prospector_config (id, enabled, regioes, termos, max_leads_por_run, min_rating, min_reviews, scraping_cron, validation_cron, atualizado_em)
-       VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `INSERT INTO prospector_config (id, enabled, regioes, mesorregioes, termos, max_leads_por_run, min_rating, min_reviews, scraping_cron, validation_cron, atualizado_em)
+       VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
        ON CONFLICT(id) DO UPDATE SET
          enabled = excluded.enabled,
          regioes = excluded.regioes,
+         mesorregioes = excluded.mesorregioes,
          termos = excluded.termos,
          max_leads_por_run = excluded.max_leads_por_run,
          min_rating = excluded.min_rating,
@@ -1558,6 +1640,7 @@ router.patch('/prospector/config', (req, res) => {
     ).run(
       updates.enabled,
       updates.regioes,
+      updates.mesorregioes,
       updates.termos,
       updates.max_leads_por_run,
       updates.min_rating,

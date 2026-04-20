@@ -13,6 +13,7 @@
 const { getDb } = require('../models/database');
 const { normalizePhoneBR } = require('./lead-importer');
 const logger = require('../utils/logger');
+const regioes = require('./regioes');
 
 const BLACKLIST_KEYWORDS = [
   'clinica',
@@ -296,9 +297,10 @@ function importApproved({ limit = 100 } = {}) {
 
   const insertLead = db.prepare(`
     INSERT OR IGNORE INTO leads
-      (telefone, nome, provedor, cidade, estado, regiao, erp, site, email,
+      (telefone, nome, provedor, cidade, estado, regiao, mesorregiao, mesorregiao_nome,
+       erp, site, email,
        score_perfil, classificacao, etapa_funil, agente_atual, origem, dados_externos)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const markImported = db.prepare(`
@@ -318,13 +320,18 @@ function importApproved({ limit = 100 } = {}) {
         const estado = raw.state || null;
         const scorePerfil = Math.round((Number(raw.score_perfil) || 10) * 1);
 
+        // Lookup mesorregiao IBGE
+        const mesoHit = cidade && estado ? regioes.lookupMesorregiao(cidade, estado) : null;
+
         const r = insertLead.run(
           row.telefone,
           row.nome,
           row.nome, // provedor = nome da empresa
           cidade,
           estado,
-          cidade,
+          mesoHit?.nome || cidade, // regiao = mesorregiao nome ou fallback cidade
+          mesoHit?.slug || null,
+          mesoHit?.nome || null,
           null, // erp desconhecido
           row.site,
           row.email,
@@ -360,10 +367,21 @@ function enqueue(raw, { source = 'apify_google_maps', source_run_id = null } = {
   const db = getDb();
   const telefone =
     normalizePhoneBR(raw.phone || raw.phoneUnformatted || raw.contactPhone) || null;
+
+  const cidade = raw.city || null;
+  const estado = raw.state || null;
+  // Se o scraper foi disparado com mesorregiao_hint, usa direto; senao lookup
+  let mesoSlug = raw._mesorregiao_slug || null;
+  let mesoNome = raw._mesorregiao_nome || null;
+  if (!mesoSlug && cidade && estado) {
+    const hit = regioes.lookupMesorregiao(cidade, estado);
+    if (hit) { mesoSlug = hit.slug; mesoNome = hit.nome; }
+  }
+
   const r = db
     .prepare(
-      `INSERT INTO leads_pending (source, source_run_id, raw_data, nome, telefone, email, site, cidade, estado)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO leads_pending (source, source_run_id, raw_data, nome, telefone, email, site, cidade, estado, mesorregiao, mesorregiao_nome)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       source,
@@ -373,8 +391,10 @@ function enqueue(raw, { source = 'apify_google_maps', source_run_id = null } = {
       telefone,
       raw.email || null,
       raw.website || raw.url || null,
-      raw.city || null,
-      raw.state || null
+      cidade,
+      estado,
+      mesoSlug,
+      mesoNome
     );
   return r.lastInsertRowid;
 }

@@ -15,6 +15,7 @@ const apify = require('../services/apify');
 const validator = require('../services/lead-validator');
 const enricher = require('../services/enricher');
 const autoHealer = require('../services/auto-healer');
+const regioes = require('../services/regioes');
 
 const TICK_INTERVAL_MS = 5 * 60 * 1000; // checa a cada 5min se tem cron pra rodar
 const MAX_ITEMS_POR_RUN = 50;
@@ -31,7 +32,8 @@ function getConfig() {
     if (!row) return null;
     return {
       enabled: !!row.enabled,
-      regioes: JSON.parse(row.regioes || '[]'),
+      regioes: JSON.parse(row.regioes || '[]'),           // LEGADO: UFs soltas
+      mesorregioes: JSON.parse(row.mesorregioes || '[]'), // NOVO: [{uf, slug, nome}]
       termos: JSON.parse(row.termos || '[]'),
       max_leads_por_run: row.max_leads_por_run || MAX_ITEMS_POR_RUN,
       scraping_cron: row.scraping_cron || '0 8 * * 1,3,5',
@@ -78,7 +80,52 @@ function isCronTimeNow(cron) {
   return hourMatch && minMatch && dowMatch;
 }
 
-// Roda scraping: para cada combinacao (regiao x termo) dispara Apify sync (ate 5min)
+// Monta lista de (cidade, uf) x termo a partir da config.
+// NOVO: expande cidades das mesorregioes escolhidas + anexa hint no raw_data
+// LEGADO: se nao tem mesorregioes, usa UFs soltas (comportamento antigo)
+function buildSearchTargets(cfg) {
+  const targets = [];
+
+  // NOVO: expande mesorregioes em cidades individuais
+  if (Array.isArray(cfg.mesorregioes) && cfg.mesorregioes.length > 0) {
+    const cidades = regioes.expandCidades(cfg.mesorregioes);
+    for (const c of cidades) {
+      for (const termo of cfg.termos) {
+        targets.push({
+          locationLabel: `${c.cidade}, ${c.uf}`,
+          locationQuery: `${c.cidade}, ${c.uf}, Brazil`,
+          termo,
+          mesorregiao_slug: c.mesorregiao_slug,
+          mesorregiao_nome: c.mesorregiao_nome,
+          cidade: c.cidade,
+          uf: c.uf
+        });
+      }
+    }
+  }
+
+  // LEGADO: UFs soltas (mantido pra compat, mas gera menos densidade)
+  if (targets.length === 0 && Array.isArray(cfg.regioes)) {
+    for (const uf of cfg.regioes) {
+      for (const termo of cfg.termos) {
+        targets.push({
+          locationLabel: uf,
+          locationQuery: `${uf}, Brazil`,
+          termo,
+          mesorregiao_slug: null,
+          mesorregiao_nome: null,
+          cidade: null,
+          uf
+        });
+      }
+    }
+  }
+
+  return targets;
+}
+
+// Roda scraping iterando cidades da mesorregiao x termos.
+// Cada item Apify vem marcado com _mesorregiao_slug pra linkar o lead na origem.
 async function runScraping() {
   const cfg = getConfig();
   if (!cfg || !cfg.enabled) {
@@ -89,67 +136,100 @@ async function runScraping() {
     logger.warn('[PROSPECTOR] scraping skip: APIFY_TOKEN ausente');
     return { skipped: true, reason: 'no_apify_token' };
   }
+  if (!cfg.termos?.length) {
+    return { skipped: true, reason: 'no_termos' };
+  }
+
+  const targets = buildSearchTargets(cfg);
+  if (targets.length === 0) {
+    return { skipped: true, reason: 'no_targets' };
+  }
+
+  // Limite de alvos por tick pra evitar explosao de custo
+  const MAX_TARGETS_PER_TICK = Math.min(cfg.max_leads_por_run || 50, 100);
+  const workTargets = targets.slice(0, MAX_TARGETS_PER_TICK);
+
+  logger.info(
+    { total_targets: targets.length, executando: workTargets.length, mesorregioes: cfg.mesorregioes?.length || 0 },
+    '[PROSPECTOR] iniciando scraping regional'
+  );
 
   const db = getDb();
   const results = [];
 
-  for (const regiao of cfg.regioes) {
-    for (const termo of cfg.termos) {
-      try {
-        const input = {
-          searchStringsArray: [termo],
-          locationQuery: `${regiao}, Brazil`,
-          maxCrawledPlacesPerSearch: Math.min(cfg.max_leads_por_run, 30),
-          language: 'pt-BR',
-          maxImages: 0,
-          includeReviews: false
-        };
+  for (const t of workTargets) {
+    try {
+      const input = {
+        searchStringsArray: [t.termo],
+        locationQuery: t.locationQuery,
+        maxCrawledPlacesPerSearch: Math.min(cfg.max_leads_por_run, 20),
+        language: 'pt-BR',
+        maxImages: 0,
+        includeReviews: false
+      };
 
-        logger.info({ regiao, termo }, '[PROSPECTOR] iniciando scraping');
-        const t0 = Date.now();
+      const t0 = Date.now();
 
-        // Registra apify_run pendente
-        const runInsert = db
-          .prepare(
-            `INSERT INTO apify_runs (actor_id, actor_label, params, status, iniciada_por)
-             VALUES ('compass/crawler-google-places', 'Google Maps Scraper', ?, 'running', 'prospector_cron')`
-          )
-          .run(JSON.stringify(input));
-        const runId = runInsert.lastInsertRowid;
+      const runInsert = db
+        .prepare(
+          `INSERT INTO apify_runs (actor_id, actor_label, params, status, iniciada_por)
+           VALUES ('compass/crawler-google-places', 'Google Maps Scraper', ?, 'running', 'prospector_cron')`
+        )
+        .run(JSON.stringify({ ...input, _meta: { mesorregiao: t.mesorregiao_slug, cidade: t.cidade, uf: t.uf } }));
+      const runId = runInsert.lastInsertRowid;
 
-        const items = await apify.client.runSyncGetItems(
-          'compass/crawler-google-places',
-          { ...input },
-          { timeoutSec: 240 }
-        );
+      const items = await apify.client.runSyncGetItems(
+        'compass/crawler-google-places',
+        { ...input },
+        { timeoutSec: 240 }
+      );
 
-        const duracao = Date.now() - t0;
-        const { enqueued } = validator.enqueueBatch(items, {
-          source: 'apify_google_maps',
-          source_run_id: runId
-        });
+      // Injeta hint de mesorregiao em cada item antes de enfileirar
+      const itemsWithHint = items.map((it) => ({
+        ...it,
+        _mesorregiao_slug: t.mesorregiao_slug,
+        _mesorregiao_nome: t.mesorregiao_nome,
+        // Se o item nao traz city/state, usa o target
+        city: it.city || t.cidade,
+        state: it.state || t.uf
+      }));
 
-        db.prepare(
-          `UPDATE apify_runs SET
-             status = 'succeeded', items_count = ?, leads_novos = ?,
-             duracao_ms = ?, finalizado_em = CURRENT_TIMESTAMP
-           WHERE id = ?`
-        ).run(items.length, enqueued, duracao, runId);
+      const duracao = Date.now() - t0;
+      const { enqueued } = validator.enqueueBatch(itemsWithHint, {
+        source: 'apify_google_maps',
+        source_run_id: runId
+      });
 
-        results.push({ regiao, termo, items: items.length, enqueued, runId });
-        logger.info(
-          { regiao, termo, items: items.length, enqueued, duracao },
-          '[PROSPECTOR] scraping concluido'
-        );
-      } catch (err) {
-        logger.error({ regiao, termo, err: err.message }, '[PROSPECTOR] erro scraping');
-        results.push({ regiao, termo, error: err.message });
-      }
+      db.prepare(
+        `UPDATE apify_runs SET
+           status = 'succeeded', items_count = ?, leads_novos = ?,
+           duracao_ms = ?, finalizado_em = CURRENT_TIMESTAMP
+         WHERE id = ?`
+      ).run(items.length, enqueued, duracao, runId);
+
+      results.push({
+        label: t.locationLabel,
+        termo: t.termo,
+        mesorregiao: t.mesorregiao_nome,
+        items: items.length,
+        enqueued,
+        runId
+      });
+      logger.info(
+        { label: t.locationLabel, termo: t.termo, items: items.length, enqueued, duracao_ms: duracao },
+        '[PROSPECTOR] scraping target concluido'
+      );
+    } catch (err) {
+      logger.error(
+        { label: t.locationLabel, termo: t.termo, err: err.message },
+        '[PROSPECTOR] erro scraping target'
+      );
+      results.push({ label: t.locationLabel, termo: t.termo, error: err.message });
     }
   }
 
   lastScrapingRun = new Date().toISOString();
-  return { ran: true, results };
+  return { ran: true, results, total_targets: targets.length, executed: workTargets.length };
 }
 
 async function runValidation() {
