@@ -379,6 +379,7 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
       <div class="nav-section-title">Operacoes</div>
       <div class="nav-item" data-page="monitor"><svg class="icon"><use href="#i-monitor"/></svg>Monitor Agentes</div>
       <div class="nav-item" data-page="prospectar"><svg class="icon"><use href="#i-rocket"/></svg>Prospectar</div>
+      <div class="nav-item" data-page="prospector-auto"><svg class="icon"><use href="#i-globe"/></svg>Prospector IA</div>
       <div class="nav-item" data-page="campanhas"><svg class="icon"><use href="#i-broadcast"/></svg>Campanhas<span class="nav-badge" id="nav-campanhas-count">0</span></div>
       <div class="nav-item" data-page="conteudo"><svg class="icon"><use href="#i-edit"/></svg>Conteudo</div>
       <div class="nav-item" data-page="tarefas"><svg class="icon"><use href="#i-checklist"/></svg>Tarefas<span class="nav-badge" id="nav-tarefas-count">0</span></div>
@@ -592,6 +593,17 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
       </div>
     </div>
 
+    <!-- PROSPECTOR AUTO (IA) PAGE -->
+    <div class="page" id="page-prospector-auto">
+      <div class="page-header">
+        <h1>Prospector IA</h1>
+        <div style="color:var(--muted);font-size:.85rem;margin-top:4px">
+          Worker autonomo: descobre ISPs via Google Maps (Apify), valida, e dispara cold outbound via Carlos — tudo em cron.
+        </div>
+      </div>
+      <div id="prospector-auto-panel"></div>
+    </div>
+
     <!-- CONTEUDO PAGE -->
     <div class="page" id="page-conteudo">
       <div class="page-header"><h1>Gerar Conteudo (Leo)</h1></div>
@@ -797,7 +809,7 @@ function goPage(page){
     const el=document.getElementById('page-'+page);
     if(el){el.classList.add('active');document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add('active')}
     else { showError('Pagina "'+page+'" nao encontrada no DOM. Verifique /status.html'); return; }
-    const loaders={dashboard:loadDashboard,pipeline:loadPipeline,leads:loadLeads,conversas:loadConversas,monitor:loadMonitor,tarefas:loadTarefas,relatorios:()=>loadReports('7'),funil:loadFunil,prospectar:loadCampaigns,campanhas:()=>window.CampanhasUI && window.CampanhasUI.load(),audiencias:()=>window.loadAudiencias && window.loadAudiencias(),templates:()=>window.loadTemplates && window.loadTemplates(),apify:()=>window.loadApifyRuns && window.loadApifyRuns(),settings:loadSettings,autonomia:()=>window.loadAutonomyPanel && window.loadAutonomyPanel(document.getElementById('autonomy-panel'))};
+    const loaders={dashboard:loadDashboard,pipeline:loadPipeline,leads:loadLeads,conversas:loadConversas,monitor:loadMonitor,tarefas:loadTarefas,relatorios:()=>loadReports('7'),funil:loadFunil,prospectar:loadCampaigns,'prospector-auto':()=>window.loadProspectorAuto && window.loadProspectorAuto(),campanhas:()=>window.CampanhasUI && window.CampanhasUI.load(),audiencias:()=>window.loadAudiencias && window.loadAudiencias(),templates:()=>window.loadTemplates && window.loadTemplates(),apify:()=>window.loadApifyRuns && window.loadApifyRuns(),settings:loadSettings,autonomia:()=>window.loadAutonomyPanel && window.loadAutonomyPanel(document.getElementById('autonomy-panel'))};
     if(loaders[page]) {
       Promise.resolve(loaders[page]()).catch(err => showError('Erro ao carregar "'+page+'": '+err.message));
     }
@@ -1424,6 +1436,7 @@ loadDashboard();
 <script src="/js/cards/errors-card.js"></script>
 <script src="/js/cards/tool-calls-card.js"></script>
 <script src="/js/cards/autonomy-panel.js"></script>
+<script src="/js/pages/prospector-auto.js"></script>
 
 <!-- Sprint 4 — Audiencias + Templates -->
 <script src="/js/cards/audiencias-list.js"></script>
