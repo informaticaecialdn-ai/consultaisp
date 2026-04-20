@@ -8,6 +8,7 @@ const followupWorker = require('./workers/followup-worker');
 const prospectorWorker = require('./workers/prospector');
 const outboundWorker = require('./workers/outbound');
 const supervisorWorker = require('./workers/supervisor');
+const marcosWorker = require('./workers/marcos');
 const autoHealer = require('./services/auto-healer');
 
 const WORKER_HEALTH_PORT = parseInt(process.env.WORKER_HEALTH_PORT) || 9091;
@@ -49,6 +50,13 @@ async function main() {
     logger.info('SUPERVISOR_WORKER_ENABLED!=true, supervisor em stand-by');
   }
 
+  // Marcos midia paga autonomo (cron 1 tick diario 8h BR).
+  if (process.env.MARCOS_WORKER_ENABLED === 'true') {
+    marcosWorker.start();
+  } else {
+    logger.info('MARCOS_WORKER_ENABLED!=true, marcos em stand-by');
+  }
+
   // Milestone 3 / G: auto-healer (kill switches automaticos por custo/erro/zapi).
   autoHealer.start();
 
@@ -63,6 +71,7 @@ async function main() {
         prospector: prospectorWorker.status(),
         outbound: outboundWorker.status(),
         supervisor: supervisorWorker.status(),
+        marcos: marcosWorker.status(),
         env: process.env.NODE_ENV || 'development'
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -85,6 +94,7 @@ async function gracefulShutdown(signal) {
     await prospectorWorker.stop();
     await outboundWorker.stop();
     await supervisorWorker.stop();
+    await marcosWorker.stop();
     autoHealer.stop();
   } catch (err) {
     logger.error({ err: err.message }, 'erro no shutdown');

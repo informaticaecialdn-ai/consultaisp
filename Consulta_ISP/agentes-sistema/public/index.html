@@ -357,7 +357,6 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
     <div class="topbar-right">
       <span class="topbar-status"><span class="pulse"></span> Sistema Ativo</span>
       <button class="btn btn-outline btn-sm" onclick="refreshAll()"><svg class="icon icon-sm"><use href="#i-refresh"/></svg>Atualizar</button>
-      <button class="btn btn-primary btn-sm" onclick="showModal('novo-lead')"><svg class="icon icon-sm"><use href="#i-plus"/></svg>Novo Lead</button>
       <button class="btn btn-ghost btn-sm" onclick="doLogout()" title="Sair (limpa token e volta para login)"><svg class="icon icon-sm"><use href="#i-logout"/></svg>Sair</button>
     </div>
   </div>
@@ -448,6 +447,14 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
 
     <!-- LEADS PAGE -->
     <div class="page" id="page-leads">
+      <div style="background:var(--bg2);border:1px solid var(--border-warm);border-left:3px solid var(--terracotta);padding:12px 16px;border-radius:8px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div style="font-size:.85rem;color:var(--text-secondary)">
+          <strong style="color:var(--text)">Modo autonomo.</strong> Leads entram automaticamente via
+          <a href="#" onclick="event.preventDefault();goPage('prospector-auto')" style="color:var(--terracotta);text-decoration:none;font-weight:500">Prospector IA</a>,
+          webhook WhatsApp inbound ou re-engajamento da Sofia.
+          <span style="color:var(--muted)">Esta pagina e read-only — nao ha mais criacao manual.</span>
+        </div>
+      </div>
       <div class="page-header">
         <h1>Leads <span id="leads-count" style="color:var(--muted);font-size:.85rem;font-weight:normal;margin-left:8px"></span></h1>
         <div class="page-header-actions">
@@ -465,7 +472,6 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
             <option value="manual">Manual</option><option value="whatsapp">WhatsApp</option><option value="apify_google_maps">Apify (Google Maps)</option><option value="importacao">Importacao CSV</option><option value="outbound">Outbound</option>
           </select>
           <button class="btn btn-outline btn-sm" onclick="exportLeadsCsv()" title="Exporta CSV com filtros aplicados">⬇ CSV</button>
-          <button class="btn btn-primary btn-sm" onclick="showModal('novo-lead')">+ Novo Lead</button>
         </div>
       </div>
       <div id="leads-bulk-bar" style="display:none;padding:10px 16px;background:rgba(96,165,250,.1);border:1px solid var(--blue);border-radius:8px;margin-bottom:10px;align-items:center;justify-content:space-between">
@@ -745,19 +751,6 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
         <button class="btn" id="btn-activate-kill" style="background:#dc2626;color:#fff">⛔ Ativar Kill Switch</button>
       </div>
     </div>
-  </div>
-</div>
-
-<!-- MODAL NOVO LEAD -->
-<div class="modal-overlay" id="modal-novo-lead">
-  <div class="modal">
-    <h2>Novo Lead</h2>
-    <div class="form-row"><div class="form-group"><label>Telefone *</label><input type="text" id="nl-tel" placeholder="5511999998888"></div><div class="form-group"><label>Nome</label><input type="text" id="nl-nome"></div></div>
-    <div class="form-row"><div class="form-group"><label>Provedor</label><input type="text" id="nl-provedor"></div><div class="form-group"><label>Cidade</label><input type="text" id="nl-cidade"></div></div>
-    <div class="form-row"><div class="form-group"><label>Estado</label><input type="text" id="nl-estado" placeholder="SP"></div><div class="form-group"><label>Regiao</label><input type="text" id="nl-regiao" placeholder="Interior de SP"></div></div>
-    <div class="form-row"><div class="form-group"><label>Porte</label><select id="nl-porte"><option value="desconhecido">Desconhecido</option><option value="micro">Micro (&lt;1k)</option><option value="pequeno">Pequeno (1-5k)</option><option value="medio">Medio (5-50k)</option><option value="grande">Grande (50k+)</option></select></div><div class="form-group"><label>ERP</label><select id="nl-erp"><option value="">Desconhecido</option><option value="MK">MK</option><option value="IXC">IXC</option><option value="Hubsoft">Hubsoft</option><option value="Voalle">Voalle</option><option value="SGP">SGP</option><option value="RBX">RBX</option><option value="Outro">Outro</option></select></div></div>
-    <div class="form-group"><label>Mensagem inicial (Carla envia via WhatsApp)</label><textarea id="nl-msg" rows="3" placeholder="Deixe vazio para o Carla gerar automaticamente"></textarea></div>
-    <div class="modal-footer"><button class="btn btn-outline" onclick="hideModal('novo-lead')">Cancelar</button><button class="btn btn-primary" onclick="createLead()">Criar e Prospectar</button></div>
   </div>
 </div>
 
@@ -1322,14 +1315,9 @@ async function generateContent(){
 }
 
 // CREATE LEAD
-async function createLead(){
-  const tel=document.getElementById('nl-tel').value;if(!tel){alert('Telefone obrigatorio');return}
-  const body={telefone:tel,nome:document.getElementById('nl-nome').value,provedor:document.getElementById('nl-provedor').value,cidade:document.getElementById('nl-cidade').value,estado:document.getElementById('nl-estado').value,regiao:document.getElementById('nl-regiao').value,porte:document.getElementById('nl-porte').value,erp:document.getElementById('nl-erp').value};
-  await api('/leads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-  const msg=document.getElementById('nl-msg').value||`Gerar prospeccao para ${body.nome||'provedor'} de ${body.cidade||body.regiao||'regiao desconhecida'}`;
-  await api('/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:tel,message:msg,agente:'carla'})});
-  hideModal('novo-lead');refreshAll();
-}
+// createLead removido (v2): sistema e autonomo — leads entram via
+// Prospector IA (Apify) ou webhook WhatsApp inbound. Nao ha mais
+// criacao manual. Pra CSV de leads antigos existentes, veja Importacao.
 
 // AGENT PAGE
 async function loadAgentPage(agente){

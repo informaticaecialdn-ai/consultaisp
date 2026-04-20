@@ -20,6 +20,10 @@ const reassign_stuck_leads = require('./reassign_stuck_leads');
 const notify_operator = require('./notify_operator');
 const { pause: pause_campaign, resume: resume_campaign } = require('./pause_campaign');
 const lookup_cnpj = require('./lookup_cnpj');
+// Marcos (midia paga) tools
+const ads_create_campaign = require('./ads_create_campaign');
+const ads_get_performance = require('./ads_get_performance');
+const { activate: ads_activate_campaign, pause: ads_pause_campaign, adjustBudget: ads_adjust_budget } = require('./ads_control');
 
 const ALL_TOOLS = {
   send_whatsapp,
@@ -39,7 +43,12 @@ const ALL_TOOLS = {
   notify_operator,
   pause_campaign,
   resume_campaign,
-  lookup_cnpj
+  lookup_cnpj,
+  ads_create_campaign,
+  ads_get_performance,
+  ads_activate_campaign,
+  ads_pause_campaign,
+  ads_adjust_budget
 };
 
 // Autorizacao por agente (quem pode chamar o que).
@@ -101,8 +110,13 @@ const AGENT_TOOLS = {
     // + generate_copy_variant, save_template, query_templates, ab_test_setup (Frente F)
   ],
   marcos: [
-    'query_leads'
-    // + query_campaign_performance, ab_test_setup, ab_test_conclude, adjust_rate_limit (Frente F)
+    'query_leads',
+    'query_lead_detail',
+    'ads_create_campaign',
+    'ads_get_performance',
+    'ads_activate_campaign',
+    'ads_pause_campaign',
+    'ads_adjust_budget'
   ],
   iani: [
     'query_leads',
