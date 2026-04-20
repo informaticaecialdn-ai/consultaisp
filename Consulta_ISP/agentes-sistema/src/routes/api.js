@@ -1863,6 +1863,163 @@ router.post('/autonomy/healer/check', async (req, res) => {
   }
 });
 
+// === ATIVIDADE 360° — TIMELINE UNIFICADA DE TUDO QUE OS AGENTES FIZERAM ===
+// Junta: atividades_agentes + agent_tool_calls + handoffs + conversas +
+// tarefas + apify_runs em uma ordenacao temporal unica.
+router.get('/atividade/timeline', (req, res) => {
+  const db = getDb();
+  const {
+    agente,
+    lead_id,
+    tipo,          // 'all' | 'tool_call' | 'conversa' | 'handoff' | 'atividade' | 'tarefa' | 'run'
+    since,         // ISO timestamp
+    limit = 100,
+    offset = 0
+  } = req.query;
+
+  try {
+    const lim = Math.min(Math.max(parseInt(limit) || 100, 1), 500);
+    const off = Math.max(parseInt(offset) || 0, 0);
+    const tipoFilter = tipo || 'all';
+    const sinceSql = since ? `AND criado_em >= ?` : '';
+    const agenteSql = agente ? `AND agente = ?` : '';
+    const leadSql = lead_id ? `AND lead_id = ?` : '';
+
+    const unions = [];
+    const queries = {};
+
+    // 1. Atividades (atividades_agentes)
+    if (tipoFilter === 'all' || tipoFilter === 'atividade') {
+      queries.atividade = `
+        SELECT 'atividade' AS kind, id, agente, lead_id, tipo AS subtipo, descricao,
+               decisao AS meta1, score_depois AS meta2, tempo_ms AS duracao_ms,
+               criado_em
+        FROM atividades_agentes
+        WHERE 1=1 ${agenteSql} ${leadSql} ${sinceSql}
+      `;
+    }
+
+    // 2. Tool calls (agent_tool_calls)
+    if (tipoFilter === 'all' || tipoFilter === 'tool_call') {
+      queries.tool_call = `
+        SELECT 'tool_call' AS kind, id, agente, lead_id, tool_name AS subtipo,
+               COALESCE(SUBSTR(tool_input, 1, 200), '') AS descricao,
+               status AS meta1, erro AS meta2, duracao_ms,
+               criado_em
+        FROM agent_tool_calls
+        WHERE 1=1 ${agenteSql} ${leadSql} ${sinceSql}
+      `;
+    }
+
+    // 3. Conversas (conversas) — agrupa direcao na descricao
+    if (tipoFilter === 'all' || tipoFilter === 'conversa') {
+      queries.conversa = `
+        SELECT 'conversa' AS kind, id, agente, lead_id, direcao AS subtipo,
+               SUBSTR(mensagem, 1, 300) AS descricao,
+               canal AS meta1, tipo AS meta2, tempo_resposta_ms AS duracao_ms,
+               criado_em
+        FROM conversas
+        WHERE 1=1 ${agenteSql} ${leadSql} ${sinceSql}
+      `;
+    }
+
+    // 4. Handoffs
+    if (tipoFilter === 'all' || tipoFilter === 'handoff') {
+      queries.handoff = `
+        SELECT 'handoff' AS kind, id, de_agente AS agente, lead_id,
+               para_agente AS subtipo,
+               COALESCE(motivo, '') AS descricao,
+               de_agente AS meta1, CAST(score_no_momento AS TEXT) AS meta2,
+               NULL AS duracao_ms,
+               criado_em
+        FROM handoffs
+        WHERE 1=1 ${leadSql} ${sinceSql}
+      `;
+    }
+
+    // 5. Tarefas
+    if (tipoFilter === 'all' || tipoFilter === 'tarefa') {
+      queries.tarefa = `
+        SELECT 'tarefa' AS kind, id, agente, lead_id, tipo AS subtipo,
+               descricao, status AS meta1, prioridade AS meta2,
+               NULL AS duracao_ms, criado_em
+        FROM tarefas
+        WHERE 1=1 ${agenteSql} ${leadSql} ${sinceSql}
+      `;
+    }
+
+    // 6. Apify runs (nao tem lead_id, mas e relevante pra auditoria geral)
+    if ((tipoFilter === 'all' || tipoFilter === 'run') && !lead_id) {
+      queries.run = `
+        SELECT 'run' AS kind, id, COALESCE(iniciada_por, 'apify') AS agente,
+               NULL AS lead_id, actor_label AS subtipo,
+               COALESCE(status || ' — ' || items_count || ' items, ' || leads_novos || ' novos', '') AS descricao,
+               status AS meta1, CAST(cost_usd AS TEXT) AS meta2, duracao_ms,
+               iniciado_em AS criado_em
+        FROM apify_runs
+        WHERE 1=1 ${sinceSql ? 'AND iniciado_em >= ?' : ''}
+      `;
+    }
+
+    const sources = Object.values(queries).filter(Boolean);
+    if (sources.length === 0) return res.json({ items: [], total: 0 });
+
+    const combined = `
+      SELECT * FROM (
+        ${sources.join(' UNION ALL ')}
+      ) AS combined
+      ORDER BY criado_em DESC
+      LIMIT ? OFFSET ?
+    `;
+
+    // Monta params na ordem exata de cada subquery
+    const params = [];
+    for (const key of Object.keys(queries)) {
+      if (key === 'run') {
+        if (since) params.push(since);
+        continue;
+      }
+      if (agente && (key !== 'handoff')) params.push(agente);
+      if (lead_id) params.push(parseInt(lead_id));
+      if (since) params.push(since);
+    }
+    params.push(lim, off);
+
+    const items = db.prepare(combined).all(...params);
+    res.json({ items, count: items.length, limit: lim, offset: off });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Summary agregado pro header do painel 360°
+router.get('/atividade/summary', (req, res) => {
+  const db = getDb();
+  const { since } = req.query;
+  try {
+    const sinceClause = since ? since : "datetime('now','-24 hours')";
+    const row = db.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM atividades_agentes WHERE criado_em >= ${since ? '?' : sinceClause}) AS atividades,
+        (SELECT COUNT(*) FROM agent_tool_calls WHERE criado_em >= ${since ? '?' : sinceClause}) AS tool_calls,
+        (SELECT COUNT(*) FROM conversas WHERE criado_em >= ${since ? '?' : sinceClause}) AS conversas,
+        (SELECT COUNT(*) FROM handoffs WHERE criado_em >= ${since ? '?' : sinceClause}) AS handoffs,
+        (SELECT COUNT(*) FROM tarefas WHERE criado_em >= ${since ? '?' : sinceClause}) AS tarefas
+    `).get(...(since ? [since, since, since, since, since] : []));
+
+    const porAgente = db.prepare(`
+      SELECT agente, COUNT(*) AS total
+      FROM atividades_agentes
+      WHERE criado_em >= ${since ? '?' : sinceClause}
+      GROUP BY agente ORDER BY total DESC
+    `).all(...(since ? [since] : []));
+
+    res.json({ ...row, por_agente: porAgente });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // === AUTONOMIA — DASHBOARD UNIFICADO (Frente H) ===
 router.get('/autonomy/dashboard', async (req, res) => {
   const db = getDb();

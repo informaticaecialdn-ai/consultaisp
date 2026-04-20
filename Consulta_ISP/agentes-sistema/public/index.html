@@ -383,6 +383,7 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
       <div class="nav-item" data-page="campanhas"><svg class="icon"><use href="#i-broadcast"/></svg>Campanhas<span class="nav-badge" id="nav-campanhas-count">0</span></div>
       <div class="nav-item" data-page="conteudo"><svg class="icon"><use href="#i-edit"/></svg>Conteudo</div>
       <div class="nav-item" data-page="tarefas"><svg class="icon"><use href="#i-checklist"/></svg>Tarefas<span class="nav-badge" id="nav-tarefas-count">0</span></div>
+      <div class="nav-item" data-page="atividade"><svg class="icon"><use href="#i-activity"/></svg>Atividade 360°</div>
       <div class="nav-item" data-page="autonomia"><svg class="icon"><use href="#i-activity"/></svg>Autonomia</div>
       <a class="nav-item" href="/fluxogramas.html" target="_blank" style="text-decoration:none"><svg class="icon"><use href="#i-pipeline"/></svg>Fluxogramas<span style="color:var(--muted);font-size:.7rem;margin-left:auto">↗</span></a>
     </div>
@@ -665,6 +666,17 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
       <div id="funil-visual"></div>
     </div>
 
+    <!-- ATIVIDADE 360° PAGE -->
+    <div class="page" id="page-atividade">
+      <div class="page-header">
+        <h1>Atividade 360°</h1>
+        <div style="color:var(--muted);font-size:.85rem;margin-top:4px">
+          Timeline unificada: tool calls, conversas, handoffs, tarefas e apify runs — tudo que os 7 agentes fizeram/fazem.
+        </div>
+      </div>
+      <div id="atividade-panel"></div>
+    </div>
+
     <!-- AUTONOMIA PAGE (Milestone 3 / H) -->
     <div class="page" id="page-autonomia">
       <div class="page-header">
@@ -824,7 +836,7 @@ function goPage(page){
     const el=document.getElementById('page-'+page);
     if(el){el.classList.add('active');document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add('active')}
     else { showError('Pagina "'+page+'" nao encontrada no DOM. Verifique /status.html'); return; }
-    const loaders={dashboard:loadDashboard,pipeline:loadPipeline,leads:loadLeads,conversas:loadConversas,monitor:loadMonitor,tarefas:loadTarefas,relatorios:()=>loadReports('7'),funil:loadFunil,prospectar:loadCampaigns,'prospector-auto':()=>window.loadProspectorAuto && window.loadProspectorAuto(),campanhas:()=>window.CampanhasUI && window.CampanhasUI.load(),audiencias:()=>window.loadAudiencias && window.loadAudiencias(),templates:()=>window.loadTemplates && window.loadTemplates(),apify:()=>window.loadApifyRuns && window.loadApifyRuns(),settings:loadSettings,autonomia:()=>window.loadAutonomyPanel && window.loadAutonomyPanel(document.getElementById('autonomy-panel'))};
+    const loaders={dashboard:loadDashboard,pipeline:loadPipeline,leads:loadLeads,conversas:loadConversas,monitor:loadMonitor,tarefas:loadTarefas,relatorios:()=>loadReports('7'),funil:loadFunil,prospectar:loadCampaigns,'prospector-auto':()=>window.loadProspectorAuto && window.loadProspectorAuto(),campanhas:()=>window.CampanhasUI && window.CampanhasUI.load(),audiencias:()=>window.loadAudiencias && window.loadAudiencias(),templates:()=>window.loadTemplates && window.loadTemplates(),apify:()=>window.loadApifyRuns && window.loadApifyRuns(),settings:loadSettings,autonomia:()=>window.loadAutonomyPanel && window.loadAutonomyPanel(document.getElementById('autonomy-panel')),atividade:()=>window.loadAtividade && window.loadAtividade()};
     if(loaders[page]) {
       Promise.resolve(loaders[page]()).catch(err => showError('Erro ao carregar "'+page+'": '+err.message));
     }
@@ -1467,6 +1479,7 @@ loadDashboard();
 <script src="/js/cards/tool-calls-card.js"></script>
 <script src="/js/cards/autonomy-panel.js"></script>
 <script src="/js/pages/prospector-auto.js"></script>
+<script src="/js/pages/atividade.js"></script>
 
 <!-- Sprint 4 — Audiencias + Templates -->
 <script src="/js/cards/audiencias-list.js"></script>
