@@ -1494,6 +1494,47 @@ router.get('/errors/count', (req, res) => {
   res.json({ unresolved, last_24h: last24h });
 });
 
+// === TOOL CALLS (Milestone 1 / B8) — observabilidade da autonomia ===
+router.get('/tool-calls/stats', (req, res) => {
+  const db = getDb();
+  try {
+    const hoje = db.prepare(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN status = 'ok' THEN 1 ELSE 0 END) AS ok,
+              SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS erro,
+              SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) AS blocked
+       FROM agent_tool_calls WHERE DATE(criado_em) = DATE('now')`
+    ).get();
+    const porAgente = db.prepare(
+      `SELECT agente, COUNT(*) AS chamadas
+       FROM agent_tool_calls
+       WHERE DATE(criado_em) = DATE('now')
+       GROUP BY agente ORDER BY chamadas DESC`
+    ).all();
+    const porTool = db.prepare(
+      `SELECT tool_name, COUNT(*) AS chamadas
+       FROM agent_tool_calls
+       WHERE DATE(criado_em) = DATE('now')
+       GROUP BY tool_name ORDER BY chamadas DESC`
+    ).all();
+    const ultimas = db.prepare(
+      `SELECT id, agente, tool_name, status, duracao_ms, criado_em
+       FROM agent_tool_calls
+       ORDER BY id DESC LIMIT 10`
+    ).all();
+    res.json({ hoje, por_agente: porAgente, por_tool: porTool, ultimas });
+  } catch (err) {
+    // Tabela pode nao existir (migration 016 nao aplicada)
+    res.json({
+      hoje: { total: 0, ok: 0, erro: 0, blocked: 0 },
+      por_agente: [],
+      por_tool: [],
+      ultimas: [],
+      migration_pending: true
+    });
+  }
+});
+
 router.get('/errors/:id', (req, res) => {
   const db = getDb();
   const row = db.prepare('SELECT * FROM errors_log WHERE id = ?').get(parseInt(req.params.id));

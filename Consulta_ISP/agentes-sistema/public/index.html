@@ -344,6 +344,7 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
   <symbol id="i-heart" viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></symbol>
   <symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></symbol>
   <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></symbol>
 </svg>
 
 <div class="app">
@@ -1408,6 +1409,7 @@ loadDashboard();
 <script src="/js/cards/cost-card.js"></script>
 <script src="/js/cards/health-card.js"></script>
 <script src="/js/cards/errors-card.js"></script>
+<script src="/js/cards/tool-calls-card.js"></script>
 
 <!-- Sprint 4 — Audiencias + Templates -->
 <script src="/js/cards/audiencias-list.js"></script>
@@ -1476,10 +1478,11 @@ window.loadApifyRuns = async function loadApifyRuns(){
   function renderOpsCards(){
     const root = document.getElementById('dash-ops-cards');
     if (!root) return;
-    root.innerHTML = '<div id="ops-cost"></div><div id="ops-health"></div><div id="ops-errors"></div>';
-    if (window.loadCostCard)   window.loadCostCard(document.getElementById('ops-cost'));
-    if (window.loadHealthCard) window.loadHealthCard(document.getElementById('ops-health'));
-    if (window.loadErrorsCard) window.loadErrorsCard(document.getElementById('ops-errors'));
+    root.innerHTML = '<div id="ops-cost"></div><div id="ops-health"></div><div id="ops-errors"></div><div id="ops-tool-calls"></div>';
+    if (window.loadCostCard)      window.loadCostCard(document.getElementById('ops-cost'));
+    if (window.loadHealthCard)    window.loadHealthCard(document.getElementById('ops-health'));
+    if (window.loadErrorsCard)    window.loadErrorsCard(document.getElementById('ops-errors'));
+    if (window.loadToolCallsCard) window.loadToolCallsCard(document.getElementById('ops-tool-calls'));
   }
   // Carrega uma vez no boot e depois a cada 60s
   setTimeout(renderOpsCards, 500);

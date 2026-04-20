@@ -1,4 +1,5 @@
 const claude = require('./claude');
+const platformAgent = require('./platform-agent-client');
 const zapi = require('./zapi');
 const { getDb } = require('../models/database');
 const training = require('./training');
@@ -9,6 +10,11 @@ const emailSender = require('./email-sender');
 const consent = require('./consent');
 const logger = require('../utils/logger');
 const { maskPhone } = require('../utils/pii');
+
+// Feature flag (Milestone 1 / B7). Quando true, usa platform-agent-client (tool calling).
+function useToolCallingAgents() {
+  return String(process.env.USE_TOOL_CALLING_AGENTS || 'false').toLowerCase() === 'true';
+}
 
 class Orchestrator {
 
@@ -46,7 +52,32 @@ class Orchestrator {
     const scoreBefore = lead.score_total;
 
     const canal = messageData.canal || lead.canal_preferido || 'whatsapp';
-    const analise = await claude.analyzeAndDecide(lead.agente_atual, message, { ...lead, historico, lastMessage: message, canal });
+    const correlationId = messageData.correlationId || messageData.correlation_id || null;
+
+    // Milestone 1 / B5: rota condicional.
+    // Flag USE_TOOL_CALLING_AGENTS=true -> platform-agent-client (tools: send_whatsapp etc.)
+    // Flag false (default)             -> claude.analyzeAndDecide (path legado JSON)
+    let analise;
+    if (useToolCallingAgents()) {
+      logger.info(
+        { agente: lead.agente_atual, lead_id: lead.id, correlationId },
+        '[ORCHESTRATOR] usando tool-calling agents'
+      );
+      analise = await platformAgent.analyzeAndDecideWithTools(lead.agente_atual, message, {
+        ...lead,
+        historico,
+        lastMessage: message,
+        canal,
+        correlationId
+      });
+    } else {
+      analise = await claude.analyzeAndDecide(lead.agente_atual, message, {
+        ...lead,
+        historico,
+        lastMessage: message,
+        canal
+      });
+    }
     const elapsed = Date.now() - startTime;
 
     this._updateLeadData(lead.id, analise.dados_extraidos);
@@ -73,7 +104,15 @@ class Orchestrator {
     this._updateDailyMetric(lead.agente_atual, 'mensagens_enviadas', 1);
 
     // Tarefa 2: Enviar pelo canal correto (whatsapp/instagram/email)
-    await this._sendByChannel(leadAfter, analise.resposta_whatsapp);
+    // Milestone 1 / B5: se o caminho tool-calling ja enviou via send_whatsapp tool,
+    // nao re-enviar aqui (evita mensagem duplicada).
+    const jaEnviouViaTool = analise._via === 'platform_agent_client'
+      && Array.isArray(analise._tool_calls)
+      && analise._tool_calls.some(tc => tc.name === 'send_whatsapp' && tc.status === 'ok');
+
+    if (!jaEnviouViaTool && analise.resposta_whatsapp && analise.resposta_whatsapp.trim()) {
+      await this._sendByChannel(leadAfter, analise.resposta_whatsapp);
+    }
 
     // 11B-4: Rate limiting — avaliar a cada 3 mensagens, nao toda
     const msgCount = db.prepare('SELECT COUNT(*) as c FROM conversas WHERE lead_id = ? AND direcao = ?').get(lead.id, 'enviada').c;
