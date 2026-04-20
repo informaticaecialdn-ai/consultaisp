@@ -1,5 +1,5 @@
 // Tool: handoff_to_agent
-// Transfere o lead pra outro agente (Carlos->Lucas, Lucas->Rafael, qualquer->Sofia nurturing).
+// Transfere o lead pra outro agente (Carla->Lucas, Lucas->Rafael, qualquer->Sofia nurturing).
 // Atualiza agente_atual, etapa_funil apropriada, registra em handoffs.
 
 const { getDb } = require('../models/database');
@@ -8,7 +8,7 @@ const logger = require('../utils/logger');
 const ETAPA_POR_AGENTE = {
   sofia: 'nurturing',
   leo: null, // Leo nao e etapa de funil, so produz copy
-  carlos: 'qualificacao',
+  carla: 'qualificacao',
   lucas: 'negociacao',
   rafael: 'fechamento',
   marcos: null,
@@ -25,7 +25,7 @@ module.exports = {
       lead_id: { type: 'integer' },
       to: {
         type: 'string',
-        enum: ['sofia', 'leo', 'carlos', 'lucas', 'rafael', 'marcos', 'iani']
+        enum: ['sofia', 'leo', 'carla', 'lucas', 'rafael', 'marcos', 'iani']
       },
       reason: { type: 'string', description: 'Motivo curto do handoff (ex: "BANT qualificado, score 72")' },
       context_summary: {

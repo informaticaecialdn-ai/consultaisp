@@ -16,7 +16,7 @@
           <input id="te-nome" type="text" placeholder="Nome (obrigatorio)" style="padding:8px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text)" />
           <select id="te-agente" style="padding:8px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text)">
             <option value="">(sem agente)</option>
-            <option value="carlos">carlos</option><option value="lucas">lucas</option>
+            <option value="carla">carla</option><option value="lucas">lucas</option>
             <option value="rafael">rafael</option><option value="sofia">sofia</option>
             <option value="marcos">marcos</option><option value="leo">leo</option>
             <option value="iani">iani</option>

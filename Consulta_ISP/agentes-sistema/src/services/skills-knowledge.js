@@ -28,23 +28,23 @@ class SkillsKnowledgeService {
         'skills-conhecimento-emailseq.md',
         'skills-conhecimento-demandgen.md'
       ],
-      carlos: [
+      carla: [
         'skills-conhecimento-vendas-sofia.md',
         'skills-conhecimento-prospecao-pricing.md',
         'skills-conhecimento-emailseq.md',
-        'carlos-qualificacao-bant.md',
-        'skills-conhecimento-carlos-objecoes-isp.md'
+        'carla-qualificacao-bant.md',
+        'skills-conhecimento-carla-objecoes-isp.md'
       ],
       lucas: [
         'skills-conhecimento-vendas-sofia.md',
         'skills-conhecimento-prospecao-pricing.md',
-        'skills-conhecimento-carlos-objecoes-isp.md',
+        'skills-conhecimento-carla-objecoes-isp.md',
         'skills-conhecimento-lucas-roi-isp.md'
       ],
       rafael: [
         'skills-conhecimento-vendas-sofia.md',
         'skills-conhecimento-prospecao-pricing.md',
-        'skills-conhecimento-carlos-objecoes-isp.md',
+        'skills-conhecimento-carla-objecoes-isp.md',
         'skills-conhecimento-lucas-roi-isp.md'
       ],
       sofia: [
@@ -87,7 +87,7 @@ class SkillsKnowledgeService {
     const sectionMap = {
       marcos: ['MARCOS', 'PARTE 1', 'ESTRATEGIA FULL-FUNNEL', 'SEO'],
       leo: ['LEO', 'PARTE 2', 'DIRETRIZES DE COPY', 'CHECKLIST', 'PRINCIPIOS FUNDAMENTAIS'],
-      carlos: ['CARLOS', 'PROSPECAO', 'PRINCIPIOS FUNDAMENTAIS'],
+      carla: ['CARLA', 'CARLOS', 'PROSPECAO', 'PRINCIPIOS FUNDAMENTAIS'],
       lucas: ['LUCAS', 'RAFAEL', 'PRICING', 'OBJECOES'],
       rafael: ['LUCAS', 'RAFAEL', 'PRICING', 'PROPOSTAS'],
       sofia: ['SOFIA', 'ESTRATEGIA', 'ATRIBUICAO', 'METRICAS', 'PARCERIAS', 'PRICING'],

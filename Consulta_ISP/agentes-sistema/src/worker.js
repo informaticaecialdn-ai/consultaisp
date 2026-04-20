@@ -35,7 +35,7 @@ async function main() {
     logger.info('PROSPECTOR_WORKER_ENABLED!=true, prospector em stand-by');
   }
 
-  // Milestone 2 / D1: Carlos SDR autonomo (cold outbound a cada 2h BR).
+  // Milestone 2 / D1: Carla SDR autonomo (cold outbound a cada 2h BR).
   if (process.env.OUTBOUND_WORKER_ENABLED === 'true') {
     outboundWorker.start();
   } else {

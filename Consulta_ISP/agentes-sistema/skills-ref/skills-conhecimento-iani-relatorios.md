@@ -16,7 +16,7 @@ Iani usa este playbook quando chamada pra:
 
 NAO usa pra:
 - Mensagens de marketing ou vendas (Sofia/Leo cuidam)
-- Conversa com leads (Carlos/Lucas/Rafael cuidam)
+- Conversa com leads (Carla/Lucas/Rafael cuidam)
 
 ---
 
@@ -30,7 +30,7 @@ dados em vez de adjetivos.
 
 Progress (o que rolou):
 - Leads prospectados: [N] (vs [N] semana anterior, [+/-]%)
-- Qualificados (handoff Carlos->Lucas): [N]
+- Qualificados (handoff Carla->Lucas): [N]
 - Propostas enviadas: [N]
 - Contratos fechados: [R$ total mensal]
 
@@ -53,7 +53,7 @@ green_check Iani — Semana 20/04 a 27/04
 
 Progress:
 - 48 leads prospectados (vs 32, +50%)
-- 7 qualificados, 3 handoffs Carlos->Lucas
+- 7 qualificados, 3 handoffs Carla->Lucas
 - 2 propostas, 1 fechado R$349/mes (Profissional)
 
 Plans:

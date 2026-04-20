@@ -46,7 +46,7 @@ function initialize() {
       score_total INTEGER DEFAULT 0,
       classificacao TEXT DEFAULT 'frio',
       etapa_funil TEXT DEFAULT 'novo',
-      agente_atual TEXT DEFAULT 'carlos',
+      agente_atual TEXT DEFAULT 'carla',
       origem TEXT DEFAULT 'manual',
       valor_estimado REAL DEFAULT 0,
       motivo_perda TEXT,

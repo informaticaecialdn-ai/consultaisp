@@ -29,7 +29,7 @@
   };
 
   const AGENT_COLORS = {
-    sofia: '#a64d28', leo: '#8a6d2a', carlos: '#3d5a40', carla: '#3d5a40',
+    sofia: '#a64d28', leo: '#8a6d2a', carla: '#3d5a40', carlos: '#3d5a40',
     lucas: '#2a72b3', rafael: '#5a4d6e', marcos: '#a64d28',
     iani: '#4d4c48', diana: '#4d4c48', prospector_cron: '#b8923a', apify: '#5b7c5e'
   };
@@ -149,7 +149,6 @@
               <option value="">Todos</option>
               <option value="sofia" ${state.filters.agente === 'sofia' ? 'selected' : ''}>Sofia</option>
               <option value="leo" ${state.filters.agente === 'leo' ? 'selected' : ''}>Leo</option>
-              <option value="carlos" ${state.filters.agente === 'carlos' ? 'selected' : ''}>Carlos</option>
               <option value="carla" ${state.filters.agente === 'carla' ? 'selected' : ''}>Carla</option>
               <option value="lucas" ${state.filters.agente === 'lucas' ? 'selected' : ''}>Lucas</option>
               <option value="rafael" ${state.filters.agente === 'rafael' ? 'selected' : ''}>Rafael</option>

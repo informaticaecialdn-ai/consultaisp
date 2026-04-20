@@ -1,14 +1,14 @@
 // Sprint 5 — Wizard 3 etapas: Audiencia -> Template -> Confirmacao.
 (function () {
   const API = '/api';
-  const AGENTES = ['carlos', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'iani'];
+  const AGENTES = ['carla', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'iani'];
 
   const state = {
     step: 1,
     editId: null,
     audiencia_id: null,
     template_id: null,
-    agente_remetente: 'carlos',
+    agente_remetente: 'carla',
     nome: '',
     rate_limit_per_min: 20,
     jitter_min_sec: 3,
@@ -300,7 +300,7 @@
     state.editId = opts.editId || null;
     state.audiencia_id = null;
     state.template_id = null;
-    state.agente_remetente = 'carlos';
+    state.agente_remetente = 'carla';
     state.nome = '';
     state.rate_limit_per_min = 20;
     state.jitter_min_sec = 3;

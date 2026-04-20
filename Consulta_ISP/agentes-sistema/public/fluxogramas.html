@@ -128,7 +128,7 @@ code {
   <h1>Fluxogramas dos Agentes</h1>
   <p class="subtitle">Como os 7 agentes IA do Consulta ISP se comportam, decidem e se coordenam.</p>
   <div class="legend">
-    <div class="legend-item"><span class="legend-dot" style="background:#c96442"></span>Comercial (Carlos, Lucas, Rafael)</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#c96442"></span>Comercial (Carla, Lucas, Rafael)</div>
     <div class="legend-item"><span class="legend-dot" style="background:#5b7c5e"></span>Marketing (Sofia, Leo, Marcos)</div>
     <div class="legend-item"><span class="legend-dot" style="background:#4d4c48"></span>Supervisao (Iani)</div>
     <div class="legend-item"><span class="legend-dot" style="background:#b8923a"></span>Sistema/Worker</div>
@@ -142,7 +142,7 @@ code {
   <a href="#inbound">4. Inbound WhatsApp</a>
   <a href="#iani">5. Iani supervisora</a>
   <a href="#autoheal">6. Auto-healer</a>
-  <a href="#carlos">7. Decisao Carlos</a>
+  <a href="#carla">7. Decisao Carla</a>
 </nav>
 
 <!-- 1. MAPA DOS AGENTES -->
@@ -261,7 +261,7 @@ flowchart LR
     S1{Score?}:::decision
 
     FRIO["<b>Score &lt; 31</b><br/>Sofia nurturing"]:::marketing
-    MORNO["<b>Score 31-60</b><br/>Carlos continua"]:::comercial
+    MORNO["<b>Score 31-60</b><br/>Carla continua"]:::comercial
     QUENTE["<b>Score 61-80</b><br/>Lucas"]:::comercial
     ULTRA["<b>Score 81+</b><br/>Rafael"]:::comercial
 
@@ -433,13 +433,13 @@ flowchart LR
 </section>
 
 <!-- 7. CARLOS EXEMPLO -->
-<section id="carlos">
-  <h2>7. Decisao interna de Carlos (exemplo real)</h2>
-  <p class="section-desc">Lead manda "Oi, sou da NetFibra em Varginha". O que Carlos faz?</p>
+<section id="carla">
+  <h2>7. Decisao interna de Carla (exemplo real)</h2>
+  <p class="section-desc">Lead manda "Oi, sou da NetFibra em Varginha". O que Carla faz?</p>
   <div class="mermaid">
 flowchart TD
     MSG(["<i>'Oi, sou da NetFibra<br/>em Varginha'</i>"]):::start
-    INVOKE["invokeAgent('carlos',<br/>msg, ctx)"]:::worker
+    INVOKE["invokeAgent('carla',<br/>msg, ctx)"]:::worker
 
     I1["<b>Iter 1</b><br/>Claude pensa...<br/>decide: <b>enrich_lead</b>"]:::comercial
     T1["Handler enrich_lead:<br/>UPDATE leads SET<br/>nome, provedor, cidade"]:::tool

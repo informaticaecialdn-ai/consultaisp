@@ -46,7 +46,7 @@ const ALL_TOOLS = {
 // Sofia/Leo/Marcos tem tools adicionais que vem em frentes futuras (D, F).
 // Iani tem leitura ampla + reassign (vem em F1).
 const AGENT_TOOLS = {
-  carlos: [
+  carla: [
     'send_whatsapp',
     'check_consent',
     'check_window_24h',

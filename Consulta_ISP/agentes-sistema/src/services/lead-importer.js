@@ -69,7 +69,7 @@ function mapGoogleMapsItem(item) {
     score_perfil: scorePerfil,
     classificacao: 'frio',
     etapa_funil: 'novo',
-    agente_atual: 'carlos',
+    agente_atual: 'carla',
     origem: 'apify_google_maps',
     dados_externos: JSON.stringify({
       address: item.address,

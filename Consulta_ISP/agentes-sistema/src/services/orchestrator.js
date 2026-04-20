@@ -25,9 +25,9 @@ class Orchestrator {
     let lead = db.prepare('SELECT * FROM leads WHERE telefone = ?').get(phone);
 
     if (!lead) {
-      db.prepare(`INSERT INTO leads (telefone, agente_atual, etapa_funil, origem) VALUES (?, 'carlos', 'novo', 'whatsapp')`).run(phone);
+      db.prepare(`INSERT INTO leads (telefone, agente_atual, etapa_funil, origem) VALUES (?, 'carla', 'novo', 'whatsapp')`).run(phone);
       lead = db.prepare('SELECT * FROM leads WHERE telefone = ?').get(phone);
-      this._logActivity('carlos', 'lead_criado', `Novo lead via WhatsApp: ${phone}`, lead.id);
+      this._logActivity('carla', 'lead_criado', `Novo lead via WhatsApp: ${phone}`, lead.id);
       this._updateDailyMetric(lead.agente_atual, 'leads_novos', 1);
     }
 
@@ -87,14 +87,14 @@ class Orchestrator {
 
     // 11B-1: Handoff automatico por score — track se houve handoff pra evitar duplicata
     let scoreHandoffDone = false;
-    if (leadAfter.agente_atual === 'carlos' && leadAfter.score_total >= 61) {
-      await this.transferLead(lead.id, 'carlos', 'lucas', 'Score automatico >= 61');
+    if (leadAfter.agente_atual === 'carla' && leadAfter.score_total >= 61) {
+      await this.transferLead(lead.id, 'carla', 'lucas', 'Score automatico >= 61');
       scoreHandoffDone = true;
     } else if (leadAfter.agente_atual === 'lucas' && leadAfter.score_total >= 81) {
       await this.transferLead(lead.id, 'lucas', 'rafael', 'Score automatico >= 81');
       scoreHandoffDone = true;
-    } else if (leadAfter.agente_atual === 'carlos' && leadAfter.score_total < 31 && leadAfter.score_total > 0) {
-      await this.transferLead(lead.id, 'carlos', 'sofia', 'Score baixo < 31, devolver marketing');
+    } else if (leadAfter.agente_atual === 'carla' && leadAfter.score_total < 31 && leadAfter.score_total > 0) {
+      await this.transferLead(lead.id, 'carla', 'sofia', 'Score baixo < 31, devolver marketing');
       scoreHandoffDone = true;
     }
 
@@ -200,13 +200,13 @@ class Orchestrator {
 
     db.prepare(`INSERT INTO tarefas (lead_id, agente, tipo, descricao, status) VALUES (?, ?, 'handoff', ?, 'concluida')`).run(leadId, toAgent, `Recebido de ${fromAgent}: ${motivo}`);
 
-    const etapas = { sofia: 'nurturing', carlos: 'qualificacao', lucas: 'negociacao', rafael: 'fechamento' };
+    const etapas = { sofia: 'nurturing', carla: 'qualificacao', lucas: 'negociacao', rafael: 'fechamento' };
     if (etapas[toAgent]) db.prepare('UPDATE leads SET etapa_funil = ? WHERE id = ?').run(etapas[toAgent], leadId);
 
     this._logActivity(fromAgent, 'handoff_enviado', `Lead transferido para ${toAgent}: ${motivo}`, leadId);
     this._logActivity(toAgent, 'handoff_recebido', `Lead recebido de ${fromAgent}: ${motivo}`, leadId);
 
-    if (toAgent === 'lucas') this._updateDailyMetric('carlos', 'leads_qualificados', 1);
+    if (toAgent === 'lucas') this._updateDailyMetric('carla', 'leads_qualificados', 1);
     if (toAgent === 'rafael') this._updateDailyMetric('lucas', 'leads_qualificados', 1);
   }
 

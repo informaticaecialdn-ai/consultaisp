@@ -1,5 +1,5 @@
 // Outbound Worker (Milestone 2 / D1).
-// Carlos SDR autonomo: a cada 2h em horario comercial BR pega ate N leads
+// Carla SDR autonomo: a cada 2h em horario comercial BR pega ate N leads
 // novos (origem=prospector_auto) e dispara cold outbound via WhatsApp.
 //
 // Guardrails:
@@ -62,7 +62,7 @@ function isBusinessHourBR() {
   return brHour >= 9 && brHour < 17;
 }
 
-function coldBudgetRemaining(agente = 'carlos') {
+function coldBudgetRemaining(agente = 'carla') {
   const db = getDb();
   const maxPorDia = Number(process.env.OUTBOUND_MAX_COLD_PER_DAY) || 30;
   const row = db
@@ -84,7 +84,7 @@ function pickCandidates(limit = BATCH_SIZE) {
     .prepare(
       `SELECT l.* FROM leads l
        WHERE l.origem = 'prospector_auto'
-         AND l.agente_atual = 'carlos'
+         AND l.agente_atual = 'carla'
          AND l.etapa_funil IN ('novo','prospeccao')
          AND NOT EXISTS (
            SELECT 1 FROM conversas c
@@ -103,7 +103,7 @@ function pickCandidates(limit = BATCH_SIZE) {
 }
 
 function buildColdPrompt(lead) {
-  // Monta resumo do enrichment pra dar contexto rico ao Carlos
+  // Monta resumo do enrichment pra dar contexto rico ao Carla
   const enriched = [];
   if (lead.razao_social) enriched.push(`Razao social: ${lead.razao_social}`);
   if (lead.cnpj) enriched.push(`CNPJ: ${lead.cnpj}`);
@@ -199,7 +199,7 @@ async function processLead(lead) {
 
     if (useToolCallingAgents()) {
       // Path 1 (futuro): agente chama send_whatsapp tool direto
-      const result = await platformAgent.invokeAgent('carlos', prompt, {
+      const result = await platformAgent.invokeAgent('carla', prompt, {
         leadData: lead,
         correlationId: `outbound_${lead.id}_${Date.now()}`,
         taskType: 'cold_outbound'
@@ -222,7 +222,7 @@ async function processLead(lead) {
       if (!resposta) return { status: 'no_response', lead_id: lead.id };
     } else {
       // Path 2 (legado): gera texto com sendToAgent + envia via zapi direto
-      const out = await claude.sendToAgent('carlos', prompt, { leadData: lead });
+      const out = await claude.sendToAgent('carla', prompt, { leadData: lead });
       resposta = out.resposta;
     }
 
@@ -230,7 +230,7 @@ async function processLead(lead) {
       await zapi.sendText(lead.telefone, resposta);
       db.prepare(
         `INSERT INTO conversas (lead_id, agente, direcao, mensagem, tipo, canal, metadata)
-         VALUES (?, 'carlos', 'enviada', ?, 'texto', 'whatsapp', ?)`
+         VALUES (?, 'carla', 'enviada', ?, 'texto', 'whatsapp', ?)`
       ).run(lead.id, resposta, JSON.stringify({ cold_outbound: true, via: 'outbound_worker' }));
       consecutiveErrors = 0;
       return { status: 'sent', lead_id: lead.id };
@@ -264,7 +264,7 @@ async function runBatch() {
     return { skipped: true, reason: 'circuit_open' };
   }
 
-  const budget = coldBudgetRemaining('carlos');
+  const budget = coldBudgetRemaining('carla');
   if (budget === 0) {
     logger.info('[OUTBOUND] budget diario esgotado');
     return { skipped: true, reason: 'daily_budget' };
@@ -342,7 +342,7 @@ function status() {
     consecutive_errors: consecutiveErrors,
     paused: consecutiveErrors >= ERROR_PAUSE_THRESHOLD,
     business_hour: isBusinessHourBR(),
-    budget_remaining: coldBudgetRemaining('carlos')
+    budget_remaining: coldBudgetRemaining('carla')
   };
 }
 

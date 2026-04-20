@@ -154,7 +154,7 @@ Analise o snapshot abaixo e DECIDA quais tools chamar. Seja cirurgica — se nao
 nada pra fazer, nao chame tools, so responda "tudo ok".
 
 Criterios pra agir:
-1. Se houver leads "parados_7d" > 0 em algum agente comercial (carlos/lucas/rafael),
+1. Se houver leads "parados_7d" > 0 em algum agente comercial (carla/lucas/rafael),
    chame reassign_stuck_leads({ dias_parado: 7, so_agentes: [...], dry_run: false }).
 2. Se "erros_unresolved" > 10 OU "custo_hoje_usd" > 40, chame notify_operator
    com severity="warn" ou "critical".

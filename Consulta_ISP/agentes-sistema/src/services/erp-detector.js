@@ -16,7 +16,7 @@
 //  - gere      (Gere)
 //
 // Se nenhum bate, retorna null (lead.erp fica sem ser setado,
-// e Carlos pergunta o ERP durante a conversa).
+// e Carla pergunta o ERP durante a conversa).
 
 const PATTERNS = {
   ixc: {

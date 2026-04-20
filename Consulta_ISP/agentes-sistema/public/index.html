@@ -232,7 +232,7 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
 /* Agentes — distinct warm tones */
 .b-sofia{background:rgba(201,100,66,.10);color:#a64d28;border-color:rgba(201,100,66,.22)}
 .b-leo{background:rgba(184,146,58,.10);color:#8a6d2a;border-color:rgba(184,146,58,.20)}
-.b-carlos{background:rgba(91,124,94,.12);color:#3d5a40;border-color:rgba(91,124,94,.25)}
+.b-carla{background:rgba(91,124,94,.12);color:#3d5a40;border-color:rgba(91,124,94,.25)}
 .b-lucas{background:rgba(56,152,236,.08);color:#2a72b3;border-color:rgba(56,152,236,.18)}
 .b-rafael{background:rgba(122,106,140,.10);color:#5a4d6e;border-color:rgba(122,106,140,.22)}
 .b-marcos{background:rgba(217,119,87,.10);color:#a64d28;border-color:rgba(217,119,87,.22)}
@@ -396,7 +396,7 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
       <div class="nav-section-title">Agentes</div>
       <div class="nav-item" data-page="agente-sofia"><span class="agent-dot" style="background:var(--pink)"></span>Sofia<span style="color:var(--muted);font-size:.75rem;margin-left:auto">Marketing</span></div>
       <div class="nav-item" data-page="agente-leo"><span class="agent-dot" style="background:var(--yellow)"></span>Leo<span style="color:var(--muted);font-size:.75rem;margin-left:auto">Copy</span></div>
-      <div class="nav-item" data-page="agente-carlos"><span class="agent-dot" style="background:var(--green)"></span>Carlos<span style="color:var(--muted);font-size:.75rem;margin-left:auto">SDR</span></div>
+      <div class="nav-item" data-page="agente-carla"><span class="agent-dot" style="background:var(--green)"></span>Carla<span style="color:var(--muted);font-size:.75rem;margin-left:auto">SDR</span></div>
       <div class="nav-item" data-page="agente-lucas"><span class="agent-dot" style="background:var(--blue)"></span>Lucas<span style="color:var(--muted);font-size:.75rem;margin-left:auto">Vendas</span></div>
       <div class="nav-item" data-page="agente-rafael"><span class="agent-dot" style="background:var(--purple)"></span>Rafael<span style="color:var(--muted);font-size:.75rem;margin-left:auto">Closer</span></div>
     </div>
@@ -454,7 +454,7 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
           <input type="text" id="lead-search" placeholder="Buscar..." style="padding:7px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.85rem;width:200px" oninput="onLeadSearchInput()">
           <select id="lead-filter-agent" style="padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.82rem" onchange="loadLeads()">
             <option value="">Todos agentes</option>
-            <option value="carlos">Carlos</option><option value="lucas">Lucas</option><option value="rafael">Rafael</option><option value="sofia">Sofia</option>
+            <option value="carla">Carla</option><option value="lucas">Lucas</option><option value="rafael">Rafael</option><option value="sofia">Sofia</option>
           </select>
           <select id="lead-filter-class" style="padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:.82rem" onchange="loadLeads()">
             <option value="">Todas class.</option>
@@ -473,7 +473,7 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
         <div style="display:flex;gap:6px">
           <select id="bulk-transfer-agent" style="padding:5px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:.78rem">
             <option value="">→ Transferir para...</option>
-            <option value="carlos">Carlos</option><option value="lucas">Lucas</option><option value="rafael">Rafael</option><option value="sofia">Sofia</option>
+            <option value="carla">Carla</option><option value="lucas">Lucas</option><option value="rafael">Rafael</option><option value="sofia">Sofia</option>
           </select>
           <button class="btn btn-sm btn-outline" onclick="bulkTransferLeads()">Aplicar</button>
           <button class="btn btn-sm btn-danger" onclick="bulkDeleteLeads()">🗑 Excluir</button>
@@ -511,7 +511,7 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
               </div>
               <div style="margin-top:18px;padding:10px 14px;background:var(--bg2);border:1px solid var(--border-warm);border-radius:8px;font-size:.78rem;max-width:340px">
                 <div style="color:var(--text);font-weight:600;margin-bottom:4px">Dica</div>
-                <div>Use "Via Agente" pra que Carlos/Lucas formulem a resposta, ou "Direta" pra enviar exatamente o que voce escreveu.</div>
+                <div>Use "Via Agente" pra que Carla/Lucas formulem a resposta, ou "Direta" pra enviar exatamente o que voce escreveu.</div>
               </div>
             </div>
           </div>
@@ -597,7 +597,7 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
               <div class="form-group"><label>Regiao</label><input type="text" id="prosp-regiao" placeholder="Interior de SP"></div>
               <div class="form-group"><label>Porte alvo</label><select id="prosp-porte"><option value="">Todos</option><option value="micro">Micro</option><option value="pequeno">Pequeno</option><option value="medio">Medio</option><option value="grande">Grande</option></select></div>
             </div>
-            <div class="form-group"><label>Contexto (opcional)</label><textarea id="prosp-ctx" rows="3" placeholder="Info extra para o Carlos usar..."></textarea></div>
+            <div class="form-group"><label>Contexto (opcional)</label><textarea id="prosp-ctx" rows="3" placeholder="Info extra para o Carla usar..."></textarea></div>
             <button class="btn btn-success" onclick="startProspecting()" id="prosp-btn">Iniciar Prospeccao</button>
             <div id="prosp-result" style="margin-top:16px"></div>
           </div>
@@ -614,7 +614,7 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
       <div class="page-header">
         <h1>Prospector IA</h1>
         <div style="color:var(--muted);font-size:.85rem;margin-top:4px">
-          Worker autonomo: descobre ISPs via Google Maps (Apify), valida, e dispara cold outbound via Carlos — tudo em cron.
+          Worker autonomo: descobre ISPs via Google Maps (Apify), valida, e dispara cold outbound via Carla — tudo em cron.
         </div>
       </div>
       <div id="prospector-auto-panel"></div>
@@ -756,7 +756,7 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
     <div class="form-row"><div class="form-group"><label>Provedor</label><input type="text" id="nl-provedor"></div><div class="form-group"><label>Cidade</label><input type="text" id="nl-cidade"></div></div>
     <div class="form-row"><div class="form-group"><label>Estado</label><input type="text" id="nl-estado" placeholder="SP"></div><div class="form-group"><label>Regiao</label><input type="text" id="nl-regiao" placeholder="Interior de SP"></div></div>
     <div class="form-row"><div class="form-group"><label>Porte</label><select id="nl-porte"><option value="desconhecido">Desconhecido</option><option value="micro">Micro (&lt;1k)</option><option value="pequeno">Pequeno (1-5k)</option><option value="medio">Medio (5-50k)</option><option value="grande">Grande (50k+)</option></select></div><div class="form-group"><label>ERP</label><select id="nl-erp"><option value="">Desconhecido</option><option value="MK">MK</option><option value="IXC">IXC</option><option value="Hubsoft">Hubsoft</option><option value="Voalle">Voalle</option><option value="SGP">SGP</option><option value="RBX">RBX</option><option value="Outro">Outro</option></select></div></div>
-    <div class="form-group"><label>Mensagem inicial (Carlos envia via WhatsApp)</label><textarea id="nl-msg" rows="3" placeholder="Deixe vazio para o Carlos gerar automaticamente"></textarea></div>
+    <div class="form-group"><label>Mensagem inicial (Carla envia via WhatsApp)</label><textarea id="nl-msg" rows="3" placeholder="Deixe vazio para o Carla gerar automaticamente"></textarea></div>
     <div class="modal-footer"><button class="btn btn-outline" onclick="hideModal('novo-lead')">Cancelar</button><button class="btn btn-primary" onclick="createLead()">Criar e Prospectar</button></div>
   </div>
 </div>
@@ -788,8 +788,8 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
 const API='/api';
 let charts={};let currentChatLead=null;
 // Claude warm-aligned chart palette
-const AGENTE_COLORS={sofia:'#a64d28',leo:'#8a6d2a',carlos:'#3d5a40',lucas:'#2a72b3',rafael:'#5a4d6e',marcos:'#a64d28',iani:'#4d4c48'};
-const AGENTE_NAMES={sofia:'Sofia - Marketing',leo:'Leo - Copywriter',carlos:'Carlos - Pre-Vendas',lucas:'Lucas - Vendas',rafael:'Rafael - Closer'};
+const AGENTE_COLORS={sofia:'#a64d28',leo:'#8a6d2a',carla:'#3d5a40',lucas:'#2a72b3',rafael:'#5a4d6e',marcos:'#a64d28',iani:'#4d4c48'};
+const AGENTE_NAMES={sofia:'Sofia - Marketing',leo:'Leo - Copywriter',carla:'Carla - Pre-Vendas',lucas:'Lucas - Vendas',rafael:'Rafael - Closer'};
 const ETAPA_COLORS={novo:'#87867f',prospeccao:'#3d5a40',qualificacao:'#8a6d2a',demo_agendada:'#2a72b3',proposta_enviada:'#a64d28',negociacao:'#5a4d6e',fechamento:'#c96442',convertido:'#3d5a40',nurturing:'#b0aea5',perdido:'#62666d'};
 
 // Chart.js defaults — Claude warm tones (single point of truth)
@@ -955,7 +955,7 @@ async function loadDashboard(){
   document.getElementById('dash-handoffs').innerHTML=hfs.length?hfs.map(h=>`
     <div class="activity-item"><div class="activity-dot" style="background:rgba(96,165,250,.12);color:var(--blue)">🔄</div>
     <div class="activity-content"><div class="activity-title">${h.nome||h.telefone}: <span class="badge b-${h.de_agente}">${h.de_agente}</span> → <span class="badge b-${h.para_agente}">${h.para_agente}</span></div><div class="activity-meta">Score: ${h.score_no_momento} | ${timeAgo(h.criado_em)}</div></div></div>
-  `).join(''):`<div class="empty-state" style="padding:30px"><div class="empty-state-icon" style="width:48px;height:48px"><svg class="icon icon-lg"><use href="#i-handoff"/></svg></div><div class="empty-state-title" style="font-size:1rem">Sem handoffs recentes</div><div class="empty-state-desc" style="font-size:.82rem">Quando um lead for transferido entre agentes (Carlos → Lucas → Rafael), o historico aparece aqui.</div></div>`;
+  `).join(''):`<div class="empty-state" style="padding:30px"><div class="empty-state-icon" style="width:48px;height:48px"><svg class="icon icon-lg"><use href="#i-handoff"/></svg></div><div class="empty-state-title" style="font-size:1rem">Sem handoffs recentes</div><div class="empty-state-desc" style="font-size:.82rem">Quando um lead for transferido entre agentes (Carla → Lucas → Rafael), o historico aparece aqui.</div></div>`;
 
   // Charts
   buildDashCharts(d);
@@ -1004,7 +1004,7 @@ function buildPipelineByEtapa(leads){
 }
 
 function buildPipelineByAgent(leads){
-  const agents=['carlos','lucas','rafael','sofia'];
+  const agents=['carla','lucas','rafael','sofia'];
   const grouped={};agents.forEach(a=>grouped[a]=[]);
   leads.forEach(l=>{if(grouped[l.agente_atual])grouped[l.agente_atual].push(l)});
   document.getElementById('pipeline-content').innerHTML=`<div class="pipeline-container">${agents.map(a=>{
@@ -1184,7 +1184,7 @@ async function openLeadDetail(id){
       <div><strong>Origem:</strong> ${l.origem||'-'}</div>
     </div>
     <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
-      <button class="btn btn-sm btn-outline" onclick="transferLead(${l.id},'carlos')">→ Carlos</button>
+      <button class="btn btn-sm btn-outline" onclick="transferLead(${l.id},'carla')">→ Carla</button>
       <button class="btn btn-sm btn-outline" onclick="transferLead(${l.id},'lucas')">→ Lucas</button>
       <button class="btn btn-sm btn-outline" onclick="transferLead(${l.id},'rafael')">→ Rafael</button>
       <button class="btn btn-sm btn-outline" onclick="transferLead(${l.id},'sofia')">→ Sofia</button>
@@ -1327,7 +1327,7 @@ async function createLead(){
   const body={telefone:tel,nome:document.getElementById('nl-nome').value,provedor:document.getElementById('nl-provedor').value,cidade:document.getElementById('nl-cidade').value,estado:document.getElementById('nl-estado').value,regiao:document.getElementById('nl-regiao').value,porte:document.getElementById('nl-porte').value,erp:document.getElementById('nl-erp').value};
   await api('/leads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const msg=document.getElementById('nl-msg').value||`Gerar prospeccao para ${body.nome||'provedor'} de ${body.cidade||body.regiao||'regiao desconhecida'}`;
-  await api('/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:tel,message:msg,agente:'carlos'})});
+  await api('/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone:tel,message:msg,agente:'carla'})});
   hideModal('novo-lead');refreshAll();
 }
 

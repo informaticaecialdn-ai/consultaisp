@@ -38,14 +38,14 @@ module.exports = {
       agente: {
         type: 'string',
         description:
-          'Nome do agente que esta enviando (carlos, lucas, rafael). Usado para log/metrica.'
+          'Nome do agente que esta enviando (carla, lucas, rafael). Usado para log/metrica.'
       }
     },
     required: ['text']
   },
   async handler(input, ctx = {}) {
     const db = getDb();
-    const agentKey = input.agente || ctx.agente || 'carlos';
+    const agentKey = input.agente || ctx.agente || 'carla';
     const correlationId = ctx.correlationId || null;
 
     let lead = null;

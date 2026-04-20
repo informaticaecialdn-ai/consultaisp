@@ -19,7 +19,7 @@ module.exports = {
       so_agentes: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Limita a esses agentes (ex: ["carlos","lucas"]). Default: todos exceto sofia/diana.'
+        description: 'Limita a esses agentes (ex: ["carla","lucas"]). Default: todos exceto sofia/diana.'
       },
       max_reassign: {
         type: 'integer',
@@ -39,7 +39,7 @@ module.exports = {
     const max = Math.max(1, Math.min(Number(input.max_reassign) || 50, 200));
     const agentes = Array.isArray(input.so_agentes) && input.so_agentes.length > 0
       ? input.so_agentes
-      : ['carlos', 'lucas', 'rafael'];
+      : ['carla', 'lucas', 'rafael'];
 
     const placeholders = agentes.map(() => '?').join(',');
     const stuck = db

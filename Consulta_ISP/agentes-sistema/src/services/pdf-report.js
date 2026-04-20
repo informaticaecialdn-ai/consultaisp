@@ -20,7 +20,7 @@ class PdfReportService {
       count: db.prepare('SELECT COUNT(*) as c FROM leads WHERE etapa_funil = ?').get(e).c
     }));
 
-    const agentes = ['carlos','lucas','rafael','sofia','leo','marcos','iani'];
+    const agentes = ['carla','lucas','rafael','sofia','leo','marcos','iani'];
     const perfAgentes = agentes.map(a => {
       const leads = db.prepare('SELECT COUNT(*) as c FROM leads WHERE agente_atual = ?').get(a).c;
       const msgs = db.prepare("SELECT COUNT(*) as c FROM conversas WHERE agente = ? AND criado_em >= ?").get(a, dataMin).c;

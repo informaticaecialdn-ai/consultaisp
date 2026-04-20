@@ -27,7 +27,7 @@ const prospectar = z.object({
 }).strict();
 
 // POST /api/send
-const VALID_AGENTES = ['carlos', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'iani'];
+const VALID_AGENTES = ['carla', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'iani'];
 const send = z.object({
   phone: z.string().trim().regex(phoneRegex, 'phone invalido'),
   message: z.string().trim().min(1).max(4096),

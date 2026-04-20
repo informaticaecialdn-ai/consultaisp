@@ -49,7 +49,7 @@ Pitch com ancora:
 
 Acoes da Sofia:
 - Identificar top 3 ISPs por porte (num_clientes ou rating Google)
-- Delegar pro Carlos/Lucas pra pitch VIP com desconto de pioneiro
+- Delegar pro Carla/Lucas pra pitch VIP com desconto de pioneiro
 - Uma vez fechado, usar nome (com autorizacao) nos proximos pitches
 
 ### Fase 3 — Snowball (densidade critica)
@@ -57,7 +57,7 @@ Acoes da Sofia:
 Objetivo: chegar em ~40% dos ISPs da mesorregiao (densidade minima pra
 network effect funcionar).
 
-Cold outbound padrao do Carlos menciona:
+Cold outbound padrao do Carla menciona:
 > "Ja temos 5 provedores na [mesorregiao] — voce seria o 6o. A base
 >  regional comeca a detectar calotes com esse volume."
 
@@ -143,8 +143,8 @@ Quando CAC cai abaixo de R$300 e cobertura >60%, a regiao virou "self-propelling
 >  campanha Meta Ads segmentada pelos municipios dela. Objetivo: lead
 >  inbound local. Budget inicial R$500/semana."
 
-### Pro Carlos (SDR)
-> "Carlos, no cold pra leads da mesorregiao [X], SEMPRE mencione quantos
+### Pro Carla (SDR)
+> "Carla, no cold pra leads da mesorregiao [X], SEMPRE mencione quantos
 >  provedores dessa regiao ja estao. Se ainda for <3, posicione como
 >  'oportunidade pioneira'. Se for >5, posicione como 'network effect'."
 

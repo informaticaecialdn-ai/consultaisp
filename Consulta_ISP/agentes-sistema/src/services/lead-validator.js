@@ -412,7 +412,7 @@ function importApproved({ limit = 100 } = {}) {
           scorePerfil,
           'frio',
           'novo',
-          'carlos',
+          'carla',
           'prospector_auto',
           row.raw_data
         );

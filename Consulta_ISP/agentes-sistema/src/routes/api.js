@@ -195,7 +195,7 @@ router.get('/metricas/historico', (req, res) => {
 router.get('/metricas/agentes', (req, res) => {
   const db = getDb();
   
-  const agentes = ['sofia', 'leo', 'carlos', 'lucas', 'rafael'];
+  const agentes = ['sofia', 'leo', 'carla', 'lucas', 'rafael'];
   const resultado = agentes.map(a => {
     const leads = db.prepare('SELECT COUNT(*) as c FROM leads WHERE agente_atual = ?').get(a).c;
     const msgs = db.prepare('SELECT COUNT(*) as c FROM conversas WHERE agente = ?').get(a).c;
@@ -310,7 +310,7 @@ router.post('/leads/bulk-delete', (req, res) => {
 router.post('/leads/bulk-transfer', (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isFinite) : [];
   const para_agente = String(req.body?.para_agente || '').trim();
-  const VALID = ['carlos','lucas','rafael','sofia','marcos','leo','iani'];
+  const VALID = ['carla','lucas','rafael','sofia','marcos','leo','iani'];
   if (ids.length === 0) return bad(res, 'lista de ids vazia');
   if (!VALID.includes(para_agente)) return bad(res, 'para_agente invalido');
   const db = getDb();
@@ -426,7 +426,7 @@ router.post('/prospectar', validate(schemas.prospectar), async (req, res) => {
       try {
         await new Promise(r => setTimeout(r, 2000 + Math.random() * 3000));
         const msg = mensagem_base || `Gerar mensagem de prospeccao fria para provedor da regiao ${regiao || 'Brasil'}`;
-        const result = await orchestrator.sendOutbound(tel, 'carlos', msg);
+        const result = await orchestrator.sendOutbound(tel, 'carla', msg);
         resultados.push({ telefone: tel, status: 'enviado', resposta: result.resposta });
       } catch (err) {
         resultados.push({ telefone: tel, status: 'erro', erro: err.message });
@@ -502,7 +502,7 @@ const templateEngine = require('../services/template-engine');
 const consent = require('../services/consent');
 const broadcastWorker = require('../workers/broadcast');
 
-const VALID_AGENTES = ['carlos', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'iani'];
+const VALID_AGENTES = ['carla', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'iani'];
 
 function bad(res, msg, code = 400) {
   return res.status(code).json({ error: msg });
@@ -923,7 +923,7 @@ router.post('/campanhas/smoke-test', (req, res) => {
     const tpl = templatesService.create({
       nome: 'Smoke Test Template',
       conteudo: 'Ola {{primeiro_nome}}! Teste interno do Broadcast Engine (Sprint 5).',
-      agente: req.body.agente_remetente || 'carlos',
+      agente: req.body.agente_remetente || 'carla',
       descricao: 'Template gerado para smoke test'
     });
 
@@ -932,7 +932,7 @@ router.post('/campanhas/smoke-test', (req, res) => {
       nome: `Smoke Test ${new Date().toISOString().slice(0, 16)}`,
       audiencia_id: aud.id,
       template_id: tpl.id,
-      agente_remetente: req.body.agente_remetente || 'carlos',
+      agente_remetente: req.body.agente_remetente || 'carla',
       rate_limit_per_min: 5,
       jitter_min_sec: 3,
       jitter_max_sec: 5,
@@ -1160,7 +1160,7 @@ const training = require('../services/training');
 const skillsKnowledge = require('../services/skills-knowledge');
 
 router.get('/skills/status', (req, res) => {
-  const agents = ['carlos', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'iani'];
+  const agents = ['carla', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'iani'];
   const status = {};
   for (const agent of agents) {
     const k = skillsKnowledge.getKnowledgeForAgent(agent);
@@ -2088,7 +2088,7 @@ router.get('/autonomy/dashboard', async (req, res) => {
   }
 });
 
-// === OUTBOUND WORKER (Milestone 2 / D1) — Carlos SDR autonomo ===
+// === OUTBOUND WORKER (Milestone 2 / D1) — Carla SDR autonomo ===
 router.get('/outbound/stats', (req, res) => {
   const db = getDb();
   try {
@@ -2096,14 +2096,14 @@ router.get('/outbound/stats', (req, res) => {
     const hoje = db
       .prepare(
         `SELECT COUNT(*) AS c FROM conversas
-         WHERE agente = 'carlos' AND direcao = 'enviada'
+         WHERE agente = 'carla' AND direcao = 'enviada'
          AND DATE(criado_em) = DATE('now')
          AND metadata LIKE '%cold_outbound%'`
       )
       .get();
     const qualificados7d = db
       .prepare(
-        "SELECT COUNT(*) AS c FROM handoffs WHERE de_agente = 'carlos' AND para_agente = 'lucas' AND criado_em > DATE('now','-7 day')"
+        "SELECT COUNT(*) AS c FROM handoffs WHERE de_agente = 'carla' AND para_agente = 'lucas' AND criado_em > DATE('now','-7 day')"
       )
       .get();
     const descartados7d = db
@@ -2262,7 +2262,7 @@ router.get('/costs/timeseries', (req, res) => {
 router.get('/metricas/entrega', (req, res) => {
   try {
     const db = getDb();
-    const agentes = ['carlos', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'iani'];
+    const agentes = ['carla', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'iani'];
     const result = agentes.map(a => {
       const total = db.prepare("SELECT COUNT(*) as c FROM conversas WHERE agente = ? AND direcao = 'enviada'").get(a).c;
       let entregues = 0, lidos = 0;

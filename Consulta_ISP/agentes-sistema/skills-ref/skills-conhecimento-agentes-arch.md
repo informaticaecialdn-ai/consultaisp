@@ -31,7 +31,7 @@ Aplicacao Iani: Para campanhas multi-canal:
 1. Sofia define estrategia e segmentacao
 2. Leo cria copys e conteudos
 3. Marcos configura campanhas de paid media
-4. Carlos prepara sequencias de outreach
+4. Carla prepara sequencias de outreach
 5. Iani revisa o conjunto e verifica consistencia
 
 ### Padrao Tool Registry (Registro Dinamico)
@@ -43,7 +43,7 @@ Gerenciamento dinamico de agentes disponiveis:
 **Registry de Agentes Consulta ISP:**
 | Agente | Especialidade | Quando Acionar |
 |--------|--------------|----------------|
-| Carlos | SDR, prospecao, cold outreach | Lead research, emails frios, follow-up, qualificacao |
+| Carla | SDR, prospecao, cold outreach | Lead research, emails frios, follow-up, qualificacao |
 | Lucas | Closer, negociacao | Demo scripts, handling objecoes, fechamento, propostas |
 | Rafael | Consultor, diagnostico | Analise de necessidades, solucao tecnica, ROI, propostas consultivas |
 | Sofia | Estrategia de marketing | Planejamento de campanha, metricas, posicionamento, pricing |

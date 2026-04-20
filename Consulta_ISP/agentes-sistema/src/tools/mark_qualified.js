@@ -7,7 +7,7 @@ const logger = require('../utils/logger');
 module.exports = {
   name: 'mark_qualified',
   description:
-    'Marca o lead como qualificado BANT. Use quando voce (Carlos) extraiu: Budget (tem verba), Authority (e decisor), Need (tem dor que resolvemos), Timeline (tem urgencia). Atualiza score_perfil, classificacao e observacoes. NAO faz handoff automatico — para transferir ao Lucas, use handoff_to_agent depois.',
+    'Marca o lead como qualificado BANT. Use quando voce (Carla) extraiu: Budget (tem verba), Authority (e decisor), Need (tem dor que resolvemos), Timeline (tem urgencia). Atualiza score_perfil, classificacao e observacoes. NAO faz handoff automatico — para transferir ao Lucas, use handoff_to_agent depois.',
   input_schema: {
     type: 'object',
     properties: {
@@ -62,7 +62,7 @@ module.exports = {
     db.prepare(
       `INSERT INTO atividades_agentes (agente, tipo, descricao, lead_id, score_antes, score_depois)
        VALUES (?, 'qualificacao', ?, ?, ?, ?)`
-    ).run(ctx.agente || 'carlos', input.resumo, input.lead_id, lead.score_total, total);
+    ).run(ctx.agente || 'carla', input.resumo, input.lead_id, lead.score_total, total);
 
     logger.info(
       { lead_id: input.lead_id, score_total: total, classificacao, agente: ctx.agente },

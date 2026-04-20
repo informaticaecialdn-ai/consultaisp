@@ -122,7 +122,7 @@
               <div style="font-size:1.4rem;font-weight:600;color:var(--green)">${comErp}</div>
             </div>
             <div style="padding:10px 14px;background:var(--bg2);border-radius:8px;border:1px solid var(--border)">
-              <div style="font-size:.72rem;color:var(--muted);text-transform:uppercase">Sem ERP (Carlos pergunta)</div>
+              <div style="font-size:.72rem;color:var(--muted);text-transform:uppercase">Sem ERP (Carla pergunta)</div>
               <div style="font-size:1.4rem;font-weight:600;color:var(--muted)">${semErp}</div>
             </div>
             <div style="padding:10px 14px;background:var(--bg2);border-radius:8px;border:1px solid var(--border)">
@@ -145,7 +145,7 @@
             </table>
           ` : '<div style="color:var(--muted);text-align:center;padding:10px">nenhum ERP detectado ainda — rode enrichment pra popular</div>'}
           <div style="margin-top:10px;font-size:.72rem;color:var(--muted)">
-            Suportados: ${suportados.map(s => esc(s.label)).join(', ')}. Outros ERPs podem ser cadastrados manualmente pelo Carlos via tool <code>enrich_lead</code>.
+            Suportados: ${suportados.map(s => esc(s.label)).join(', ')}. Outros ERPs podem ser cadastrados manualmente pelo Carla via tool <code>enrich_lead</code>.
           </div>
         </div>
       </div>`;
@@ -202,8 +202,8 @@
       <div class="stats-grid" style="margin-bottom:14px">
         ${statCard('Pendentes na fila', queueByStatus.pending || 0, 'aguardando validacao', 'i-activity', queueByStatus.pending > 50 ? 'yellow' : 'muted')}
         ${statCard('Aprovados 7 dias', pipe.leads_ultimos_7d || 0, 'leads prospector_auto importados', 'i-shield-check', 'green')}
-        ${statCard('Cold hoje (Carlos)', out?.cold_hoje || 0, `max diario: ${outboundStatus.budget_remaining != null ? (out?.cold_hoje || 0) + budgetRemaining : '—'}`, 'i-broadcast', 'terracotta')}
-        ${statCard('Qualificados 7d', out?.qualificados_7d || 0, 'handoffs Carlos → Lucas', 'i-users', 'green')}
+        ${statCard('Cold hoje (Carla)', out?.cold_hoje || 0, `max diario: ${outboundStatus.budget_remaining != null ? (out?.cold_hoje || 0) + budgetRemaining : '—'}`, 'i-broadcast', 'terracotta')}
+        ${statCard('Qualificados 7d', out?.qualificados_7d || 0, 'handoffs Carla → Lucas', 'i-users', 'green')}
       </div>`;
   }
 
