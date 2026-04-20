@@ -378,3 +378,32 @@ agentes-sistema/
 
 **Donos:** time Consulta ISP. Atualize este arquivo ao abrir cada sprint
 novo (Sprint X — objetivo + T1..Tn) e ao fechar cada ticket.
+
+---
+
+## Autonomia End-to-End (Milestones 1-3, 2026-04)
+
+Direcao: sistema vira **self-driving** — ciclo prospeccao→qualificacao→fechamento
+rodando 24h sem operador, reportando apenas excecoes. Ver [`.planning/AUTONOMY.md`](.planning/AUTONOMY.md)
+pra visao completa e [`.planning/STATUS.md`](.planning/STATUS.md) pra progresso.
+
+### Entregue
+| Componente | Arquivos | Flag |
+|-----------|----------|------|
+| Tools registry (17 handlers) | `src/tools/` | — |
+| platform-agent-client (tool_use loop) | `src/services/platform-agent-client.js` | `USE_TOOL_CALLING_AGENTS` |
+| Migration 016 `agent_tool_calls` | `src/migrations/016-*` | — |
+| Prospector autonomo | `src/workers/prospector.js` + `src/services/lead-validator.js` | `PROSPECTOR_WORKER_ENABLED` |
+| Outbound autonomo (Carlos) | `src/workers/outbound.js` | `OUTBOUND_WORKER_ENABLED` |
+| Supervisor (Diana cron 1h) | `src/workers/supervisor.js` | `SUPERVISOR_WORKER_ENABLED` |
+| Auto-healer + kill switches | `src/services/auto-healer.js` + migration 018 | monitor sempre on |
+| UI painel `/autonomia` | `public/js/cards/autonomy-panel.js` | — |
+| Skill BANT | `skills-ref/carlos-qualificacao-bant.md` | — |
+
+Todas as flags **default OFF** pra rollout seguro. Ordem recomendada
+em [`.planning/STATUS.md`](.planning/STATUS.md#rollout-recomendado--quando-ligar-as-flags).
+
+### Pendente externo
+- [ ] Z-API reconfig (usuario na VPS)
+- [ ] Ativacao progressiva das flags (1 por dia)
+

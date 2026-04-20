@@ -453,3 +453,77 @@ Regra pratica: bugs e incidentes -> runbook. Prioridades e escopo -> roadmap.
 
 **Donos do runbook:** time de infra do Consulta ISP. Atualize este arquivo
 sempre que mudar stack, credenciais ou procedimentos.
+
+---
+
+## 12. Autonomia (Milestones 1-3)
+
+Sistema tem workers autonomos (prospector, outbound, supervisor) que rodam
+via flags em `.env`. **Default OFF.** Ative gradualmente. Ordem em
+`.planning/STATUS.md`.
+
+### Ligando as flags (na VPS)
+
+```bash
+ssh root@187.127.7.168
+cd /opt/consulta-isp-agentes
+nano .env
+# Editar as flags (uma por vez, observar 1 dia):
+#   USE_TOOL_CALLING_AGENTS=true
+#   PROSPECTOR_WORKER_ENABLED=true
+#   OUTBOUND_WORKER_ENABLED=true
+#   OUTBOUND_MAX_COLD_PER_DAY=5   # comece baixo!
+#   SUPERVISOR_WORKER_ENABLED=true
+
+docker compose up -d --force-recreate agentes worker
+docker compose logs -f worker --tail=50
+```
+
+### Kill switches em runtime (sem mexer .env)
+
+```bash
+# Ver ativos
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:3080/api/autonomy/kill-switches | jq
+
+# Pausar outbound (ex: detectou problema)
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"reason":"investigando entregabilidade"}' \
+  http://localhost:3080/api/autonomy/kill-switches/outbound
+
+# Kill ALL (parar tudo)
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  http://localhost:3080/api/autonomy/kill-switches/all
+
+# Despausar
+curl -X DELETE -H "Authorization: Bearer $TOKEN" \
+  http://localhost:3080/api/autonomy/kill-switches/outbound
+```
+
+Ou use a UI: `/autonomia` no dashboard.
+
+### Auto-healer (auto-pause por threshold)
+
+Roda no worker process a cada 5min. Se custo Claude > `AUTO_PAUSE_COST_USD`
+(default 50 USD), taxa de erro > `AUTO_PAUSE_ERROR_RATE_PCT` (default 5%)
+ou Z-API down > `AUTO_PAUSE_ZAPI_DOWN_MIN` (default 30min), liga kill switch
+automaticamente.
+
+### Verificacao end-to-end
+
+```bash
+# Tool calls de hoje (precisa USE_TOOL_CALLING_AGENTS=true)
+docker compose exec -T agentes node -e "
+const db = require('better-sqlite3')('/app/data/agentes.db');
+console.log(db.prepare('SELECT agente, tool_name, status, COUNT(*) c FROM agent_tool_calls WHERE DATE(criado_em)=DATE(\"now\") GROUP BY 1,2,3').all());
+"
+
+# Leads prospectados hoje
+sqlite3 /opt/consulta-isp-agentes/data/agentes.db \
+  "SELECT DATE(criado_em), COUNT(*) FROM leads WHERE origem='prospector_auto' GROUP BY 1 ORDER BY 1 DESC LIMIT 7"
+
+# Pipeline E2E (snapshot)
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:3080/api/autonomy/dashboard | jq '.pipeline'
+
+# Worker status unificado
+curl -s http://localhost:9091/health | jq
+```
