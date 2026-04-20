@@ -1,12 +1,12 @@
 // Tool: query_leads
-// Filtra leads por criterios (etapa, classificacao, agente, dias_sem_responder).
+// Filtra leads por criterios (etapa, classificacao, agente, mesorregiao, erp, enriquecido).
 
 const { getDb } = require('../models/database');
 
 module.exports = {
   name: 'query_leads',
   description:
-    'Lista leads filtrados. Util para encontrar leads por etapa do funil, classificacao, agente responsavel, ou leads parados sem resposta. Retorna no maximo 50 linhas. Campos: id, telefone, nome, provedor, cidade, score_total, classificacao, etapa_funil, agente_atual, ultimo_contato.',
+    'Lista leads filtrados. Filtros disponiveis: etapa_funil, classificacao, agente_atual, dias_sem_resposta, origem, mesorregiao, erp, tem_cnpj, tem_email. Retorna no maximo 50 linhas com campos: id, telefone, nome, provedor, cnpj, razao_social, cidade, estado, mesorregiao_nome, porte, erp, num_clientes, decisor, score_total, classificacao, etapa_funil, agente_atual, origem, ultimo_contato, enriched_at.',
   input_schema: {
     type: 'object',
     properties: {
@@ -31,6 +31,28 @@ module.exports = {
       origem: {
         type: 'string',
         description: 'Filtrar por origem (whatsapp, outbound, apify, prospector_auto, import)'
+      },
+      mesorregiao: {
+        type: 'string',
+        description:
+          'Filtrar por slug de mesorregiao IBGE. Ex: "norte-central-paranaense", "sul-sudoeste-de-minas". Util pra Sofia/Iani analisarem conquista regional.'
+      },
+      estado: {
+        type: 'string',
+        description: 'Filtrar por UF (2 letras). Ex: "PR", "SP".'
+      },
+      erp: {
+        type: 'string',
+        enum: ['ixc', 'mk', 'sgp', 'hubsoft', 'voalle', 'rbx', 'topsapp', 'radiusnet', 'gere', 'outro'],
+        description: 'Filtrar por ERP usado. Util pra segmentar campanhas ou pitch de integracao nativa.'
+      },
+      tem_cnpj: {
+        type: 'boolean',
+        description: 'Se true, so leads com CNPJ preenchido (enriquecidos via Receita).'
+      },
+      tem_email: {
+        type: 'boolean',
+        description: 'Se true, so leads com email preenchido (permite outbound por email).'
       },
       limit: {
         type: 'integer',
@@ -59,6 +81,24 @@ module.exports = {
       clauses.push('l.origem = ?');
       params.push(input.origem);
     }
+    if (input.mesorregiao) {
+      clauses.push('l.mesorregiao = ?');
+      params.push(input.mesorregiao);
+    }
+    if (input.estado) {
+      clauses.push('l.estado = ?');
+      params.push(String(input.estado).toUpperCase());
+    }
+    if (input.erp) {
+      clauses.push('l.erp = ?');
+      params.push(input.erp);
+    }
+    if (input.tem_cnpj) {
+      clauses.push("l.cnpj IS NOT NULL AND l.cnpj != ''");
+    }
+    if (input.tem_email) {
+      clauses.push("l.email IS NOT NULL AND l.email != ''");
+    }
     if (input.dias_sem_resposta) {
       clauses.push(
         `NOT EXISTS (
@@ -74,8 +114,12 @@ module.exports = {
     const rows = db
       .prepare(
         `SELECT
-           l.id, l.telefone, l.nome, l.provedor, l.cidade, l.estado, l.porte, l.erp,
+           l.id, l.telefone, l.nome, l.provedor,
+           l.cnpj, l.razao_social, l.situacao_receita,
+           l.cidade, l.estado, l.mesorregiao, l.mesorregiao_nome,
+           l.porte, l.erp, l.num_clientes, l.decisor, l.email,
            l.score_total, l.classificacao, l.etapa_funil, l.agente_atual, l.origem,
+           l.enriched_at,
            (SELECT MAX(criado_em) FROM conversas WHERE lead_id = l.id) as ultimo_contato
          FROM leads l
          ${where}

@@ -78,6 +78,58 @@ function buildSnapshot() {
       }
     })();
 
+    // Cobertura regional — top 5 mesorregioes com mais leads (pra Iani ver foco)
+    const porMesorregiao = (() => {
+      try {
+        return db
+          .prepare(
+            `SELECT mesorregiao_nome AS regiao, estado AS uf, COUNT(*) AS total,
+                    SUM(CASE WHEN classificacao IN ('quente','ultra_quente') THEN 1 ELSE 0 END) AS quentes,
+                    SUM(CASE WHEN etapa_funil = 'ganho' THEN 1 ELSE 0 END) AS ganhos
+             FROM leads
+             WHERE mesorregiao IS NOT NULL
+             GROUP BY 1,2 ORDER BY total DESC LIMIT 5`
+          )
+          .all();
+      } catch {
+        return [];
+      }
+    })();
+
+    // Breakdown por ERP — Iani ve onde concentrar integracao
+    const porErp = (() => {
+      try {
+        return db
+          .prepare(
+            `SELECT erp, COUNT(*) AS total,
+                    SUM(CASE WHEN classificacao IN ('quente','ultra_quente') THEN 1 ELSE 0 END) AS quentes,
+                    SUM(CASE WHEN etapa_funil = 'ganho' THEN 1 ELSE 0 END) AS ganhos
+             FROM leads
+             WHERE erp IS NOT NULL AND erp != ''
+             GROUP BY erp ORDER BY total DESC`
+          )
+          .all();
+      } catch {
+        return [];
+      }
+    })();
+
+    // Enrichment gap — quantos leads prospector_auto ainda sem enrichment
+    const enrichGap = (() => {
+      try {
+        return db
+          .prepare(
+            `SELECT COUNT(*) AS c FROM leads
+             WHERE origem = 'prospector_auto'
+               AND enriched_at IS NULL
+               AND site IS NOT NULL AND LENGTH(site) > 5`
+          )
+          .get()?.c || 0;
+      } catch {
+        return 0;
+      }
+    })();
+
     return {
       timestamp: new Date().toISOString(),
       por_etapa: porEtapa,
@@ -85,7 +137,11 @@ function buildSnapshot() {
       parados_7d: parados7d,
       mensagens_hoje: msgsHoje?.c || 0,
       erros_unresolved: errosUnresolved,
-      custo_hoje_usd: custoHoje
+      custo_hoje_usd: custoHoje,
+      // NOVO: dados regionais + ERP
+      top_mesorregioes: porMesorregiao,
+      por_erp: porErp,
+      enrichment_pending: enrichGap
     };
   } catch (err) {
     logger.warn({ err: err.message }, '[SUPERVISOR_WORKER] buildSnapshot erro');
@@ -104,10 +160,18 @@ Criterios pra agir:
    com severity="warn" ou "critical".
 3. Se ver anomalia nao coberta pelas regras acima (ex: mensagens_hoje=0 em
    horario comercial), chame notify_operator.
-4. Sem acao necessaria -> so escreva "tudo ok" e pare.
+4. Se "enrichment_pending" > 50, sugira via notify_operator(info) que operador
+   rode enrichment manual — muitos leads cold sem contexto = cold ruim.
+5. Analise "top_mesorregioes": se ha concentracao saudavel (>5 leads, quentes>0)
+   em uma regiao, pode usar handoff_to_agent pra reforcar time comercial alocado
+   nela. Se dispersao grande (5 regioes diferentes com <3 leads cada), e sinal
+   de que a estrategia regional NAO esta sendo seguida — alerta via notify.
+6. "por_erp" mostra onde concentrar esforco: se 70%+ dos leads usam 1 ERP (ex: IXC),
+   Marcos pode criar campanha segmentada por esse ERP (integracao nativa como pitch).
+7. Sem acao necessaria -> so escreva "tudo ok" e pare.
 
 Nao repita acoes: se ja realocou leads parados nesse tick, nao chame de novo.
-Use a tool query_leads pra investigar detalhes antes de agir, se necessario.
+Use a tool query_leads (com filtros mesorregiao/erp) pra investigar antes de agir.
 
 SNAPSHOT:`;
 

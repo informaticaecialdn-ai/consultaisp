@@ -18,7 +18,7 @@ const ETAPA_POR_AGENTE = {
 module.exports = {
   name: 'handoff_to_agent',
   description:
-    'Transfere o lead pra outro agente. Use quando: qualificou BANT -> lucas. Lucas apresentou proposta -> rafael para fechar. Lead frio/timing errado -> sofia para nurturing. Sempre forneca contexto denso no context_summary para que o proximo agente nao faca perguntas repetidas.',
+    'Transfere o lead pra outro agente. Use quando: qualificou BANT -> lucas. Lucas apresentou proposta -> rafael para fechar. Lead frio/timing errado -> sofia para nurturing. IMPORTANTE: o context_summary deve incluir TODOS os dados relevantes ja descobertos — nome do decisor, cargo, CNPJ/razao social (se enriquecido), porte/num_clientes, ERP usado, principais dores, objecoes ja levantadas, proxima acao. O proximo agente vai LER esse resumo antes de responder — se faltar dado, ele repete pergunta e perde credibilidade.',
   input_schema: {
     type: 'object',
     properties: {
@@ -31,7 +31,7 @@ module.exports = {
       context_summary: {
         type: 'string',
         description:
-          'Resumo denso do que foi conversado — BANT extraido, objecoes ja levantadas, pontos importantes. O proximo agente vai ler ISSO antes de responder o lead.'
+          'Resumo DENSO pro proximo agente. Template sugerido: "Decisor: {nome/cargo}. CNPJ: {cnpj} ({razao social}). Porte: {num_clientes} clientes. ERP: {erp}. Dor principal: {...}. Budget: {...}. Objecoes ja respondidas: {...}. Proxima acao sugerida: {...}". Evite frases tipo "fale com ele" — o proximo agente precisa de FATOS pra nao repetir pergunta.'
       }
     },
     required: ['lead_id', 'to', 'reason']
