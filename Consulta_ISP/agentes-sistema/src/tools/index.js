@@ -24,6 +24,11 @@ const lookup_cnpj = require('./lookup_cnpj');
 const ads_create_campaign = require('./ads_create_campaign');
 const ads_get_performance = require('./ads_get_performance');
 const { activate: ads_activate_campaign, pause: ads_pause_campaign, adjustBudget: ads_adjust_budget } = require('./ads_control');
+// Fechamento de deal (P0 Rafael/Lucas/Leo)
+const lucas_send_proposal = require('./lucas_send_proposal');
+const rafael_create_contract = require('./rafael_create_contract');
+const rafael_create_payment = require('./rafael_create_payment');
+const leo_generate_ad_creative = require('./leo_generate_ad_creative');
 
 const ALL_TOOLS = {
   send_whatsapp,
@@ -48,7 +53,11 @@ const ALL_TOOLS = {
   ads_get_performance,
   ads_activate_campaign,
   ads_pause_campaign,
-  ads_adjust_budget
+  ads_adjust_budget,
+  lucas_send_proposal,
+  rafael_create_contract,
+  rafael_create_payment,
+  leo_generate_ad_creative
 };
 
 // Autorizacao por agente (quem pode chamar o que).
@@ -80,6 +89,7 @@ const AGENT_TOOLS = {
     'enrich_lead',
     'handoff_to_agent',
     'create_proposal',
+    'lucas_send_proposal',
     'lookup_cnpj'
   ],
   rafael: [
@@ -92,6 +102,9 @@ const AGENT_TOOLS = {
     'enrich_lead',
     'handoff_to_agent',
     'create_proposal',
+    'lucas_send_proposal',
+    'rafael_create_contract',
+    'rafael_create_payment',
     'mark_closed_won',
     'mark_closed_lost',
     'lookup_cnpj'
@@ -106,8 +119,8 @@ const AGENT_TOOLS = {
   ],
   leo: [
     'query_leads',
-    'query_lead_detail'
-    // + generate_copy_variant, save_template, query_templates, ab_test_setup (Frente F)
+    'query_lead_detail',
+    'leo_generate_ad_creative'
   ],
   marcos: [
     'query_leads',
@@ -116,7 +129,8 @@ const AGENT_TOOLS = {
     'ads_get_performance',
     'ads_activate_campaign',
     'ads_pause_campaign',
-    'ads_adjust_budget'
+    'ads_adjust_budget',
+    'leo_generate_ad_creative'
   ],
   iani: [
     'query_leads',
