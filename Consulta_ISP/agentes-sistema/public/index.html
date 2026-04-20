@@ -382,6 +382,7 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
       <div class="nav-item" data-page="campanhas"><svg class="icon"><use href="#i-broadcast"/></svg>Campanhas<span class="nav-badge" id="nav-campanhas-count">0</span></div>
       <div class="nav-item" data-page="conteudo"><svg class="icon"><use href="#i-edit"/></svg>Conteudo</div>
       <div class="nav-item" data-page="tarefas"><svg class="icon"><use href="#i-checklist"/></svg>Tarefas<span class="nav-badge" id="nav-tarefas-count">0</span></div>
+      <div class="nav-item" data-page="autonomia"><svg class="icon"><use href="#i-activity"/></svg>Autonomia</div>
     </div>
     <div class="nav-section">
       <div class="nav-section-title">Relatorios</div>
@@ -636,6 +637,17 @@ code,pre,.mono{font-family:'JetBrains Mono','Anthropic Mono',ui-monospace,'SF Mo
       <div id="funil-visual"></div>
     </div>
 
+    <!-- AUTONOMIA PAGE (Milestone 3 / H) -->
+    <div class="page" id="page-autonomia">
+      <div class="page-header">
+        <h1>Autonomia</h1>
+        <div style="color:var(--muted);font-size:.85rem;margin-top:4px">
+          Status dos workers, kill switches e pipeline end-to-end. Sistema foi feito pra rodar sozinho — voce aqui e o supervisor.
+        </div>
+      </div>
+      <div id="autonomy-panel"></div>
+    </div>
+
     <!-- AGENT PAGES (generic) -->
     <div class="page" id="page-agente-detail">
       <div class="page-header"><h1 id="agent-page-title">Agente</h1></div>
@@ -784,7 +796,7 @@ function goPage(page){
     const el=document.getElementById('page-'+page);
     if(el){el.classList.add('active');document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add('active')}
     else { showError('Pagina "'+page+'" nao encontrada no DOM. Verifique /status.html'); return; }
-    const loaders={dashboard:loadDashboard,pipeline:loadPipeline,leads:loadLeads,conversas:loadConversas,monitor:loadMonitor,tarefas:loadTarefas,relatorios:()=>loadReports('7'),funil:loadFunil,prospectar:loadCampaigns,campanhas:()=>window.CampanhasUI && window.CampanhasUI.load(),audiencias:()=>window.loadAudiencias && window.loadAudiencias(),templates:()=>window.loadTemplates && window.loadTemplates(),apify:()=>window.loadApifyRuns && window.loadApifyRuns(),settings:loadSettings};
+    const loaders={dashboard:loadDashboard,pipeline:loadPipeline,leads:loadLeads,conversas:loadConversas,monitor:loadMonitor,tarefas:loadTarefas,relatorios:()=>loadReports('7'),funil:loadFunil,prospectar:loadCampaigns,campanhas:()=>window.CampanhasUI && window.CampanhasUI.load(),audiencias:()=>window.loadAudiencias && window.loadAudiencias(),templates:()=>window.loadTemplates && window.loadTemplates(),apify:()=>window.loadApifyRuns && window.loadApifyRuns(),settings:loadSettings,autonomia:()=>window.loadAutonomyPanel && window.loadAutonomyPanel(document.getElementById('autonomy-panel'))};
     if(loaders[page]) {
       Promise.resolve(loaders[page]()).catch(err => showError('Erro ao carregar "'+page+'": '+err.message));
     }
@@ -1410,6 +1422,7 @@ loadDashboard();
 <script src="/js/cards/health-card.js"></script>
 <script src="/js/cards/errors-card.js"></script>
 <script src="/js/cards/tool-calls-card.js"></script>
+<script src="/js/cards/autonomy-panel.js"></script>
 
 <!-- Sprint 4 — Audiencias + Templates -->
 <script src="/js/cards/audiencias-list.js"></script>

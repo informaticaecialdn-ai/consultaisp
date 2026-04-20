@@ -134,6 +134,28 @@ const CATALOG = {
       language: 'pt-BR',
     },
   },
+  'poidata/email-extractor': {
+    label: 'Email Extractor (by URL)',
+    description: 'Extrai emails/telefones de uma lista de URLs (enriquece leads existentes sem contato)',
+    cost_estimate_usd_per_1k: 2,
+    target: 'enriquecimento de contato',
+    default_input: {
+      startUrls: [{ url: 'https://exemplo.com.br' }],
+      maxDepth: 2,
+      maxConcurrency: 5,
+    },
+  },
+  'apify/contact-info-scraper': {
+    label: 'Contact Info Scraper (social+contato)',
+    description: 'Varre site do provedor e extrai: emails, telefones, linkedin, instagram, facebook',
+    cost_estimate_usd_per_1k: 3,
+    target: 'enriquecimento social + contato',
+    default_input: {
+      startUrls: [{ url: 'https://exemplo.com.br' }],
+      maxDepth: 1,
+      proxyConfiguration: { useApifyProxy: true },
+    },
+  },
 };
 
 function listCatalog() {

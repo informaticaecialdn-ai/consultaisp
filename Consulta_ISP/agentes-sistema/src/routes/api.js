@@ -1494,6 +1494,309 @@ router.get('/errors/count', (req, res) => {
   res.json({ unresolved, last_24h: last24h });
 });
 
+// === PROSPECTOR AUTONOMO (Milestone 1 / C) — config + stats + manual trigger ===
+router.get('/prospector/config', (req, res) => {
+  const db = getDb();
+  try {
+    const row = db.prepare('SELECT * FROM prospector_config WHERE id = 1').get();
+    if (!row) return res.json({ enabled: false, regioes: [], termos: [], _missing: true });
+    res.json({
+      enabled: !!row.enabled,
+      regioes: JSON.parse(row.regioes || '[]'),
+      termos: JSON.parse(row.termos || '[]'),
+      max_leads_por_run: row.max_leads_por_run,
+      min_rating: row.min_rating,
+      min_reviews: row.min_reviews,
+      scraping_cron: row.scraping_cron,
+      validation_cron: row.validation_cron,
+      atualizado_em: row.atualizado_em
+    });
+  } catch (err) {
+    res.json({ enabled: false, _migration_pending: true });
+  }
+});
+
+router.patch('/prospector/config', (req, res) => {
+  const body = req.body || {};
+  const db = getDb();
+  try {
+    const existing = db.prepare('SELECT * FROM prospector_config WHERE id = 1').get();
+    const updates = {
+      enabled:
+        body.enabled !== undefined
+          ? body.enabled
+            ? 1
+            : 0
+          : existing?.enabled ?? 0,
+      regioes:
+        body.regioes !== undefined
+          ? JSON.stringify(Array.isArray(body.regioes) ? body.regioes : [])
+          : existing?.regioes ?? '[]',
+      termos:
+        body.termos !== undefined
+          ? JSON.stringify(Array.isArray(body.termos) ? body.termos : [])
+          : existing?.termos ?? '[]',
+      max_leads_por_run: Number(body.max_leads_por_run) || existing?.max_leads_por_run || 50,
+      min_rating: Number(body.min_rating) || existing?.min_rating || 3.5,
+      min_reviews: Number(body.min_reviews) || existing?.min_reviews || 3,
+      scraping_cron: body.scraping_cron || existing?.scraping_cron || '0 8 * * 1,3,5',
+      validation_cron: body.validation_cron || existing?.validation_cron || '0 9 * * *'
+    };
+    db.prepare(
+      `INSERT INTO prospector_config (id, enabled, regioes, termos, max_leads_por_run, min_rating, min_reviews, scraping_cron, validation_cron, atualizado_em)
+       VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT(id) DO UPDATE SET
+         enabled = excluded.enabled,
+         regioes = excluded.regioes,
+         termos = excluded.termos,
+         max_leads_por_run = excluded.max_leads_por_run,
+         min_rating = excluded.min_rating,
+         min_reviews = excluded.min_reviews,
+         scraping_cron = excluded.scraping_cron,
+         validation_cron = excluded.validation_cron,
+         atualizado_em = CURRENT_TIMESTAMP`
+    ).run(
+      updates.enabled,
+      updates.regioes,
+      updates.termos,
+      updates.max_leads_por_run,
+      updates.min_rating,
+      updates.min_reviews,
+      updates.scraping_cron,
+      updates.validation_cron
+    );
+    res.json({ success: true, config: updates });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/prospector/stats', (req, res) => {
+  const db = getDb();
+  try {
+    const validator = require('../services/lead-validator');
+    const queueStats = validator.stats();
+    const leadsAuto = db
+      .prepare(
+        "SELECT COUNT(*) AS total FROM leads WHERE origem = 'prospector_auto'"
+      )
+      .get();
+    const ultimos7d = db
+      .prepare(
+        "SELECT COUNT(*) AS c FROM leads WHERE origem = 'prospector_auto' AND criado_em > DATE('now','-7 day')"
+      )
+      .get();
+    const runsRecentes = db
+      .prepare(
+        "SELECT id, status, items_count, leads_novos, iniciado_em, duracao_ms, iniciada_por FROM apify_runs WHERE iniciada_por = 'prospector_cron' ORDER BY id DESC LIMIT 10"
+      )
+      .all();
+    res.json({
+      queue: queueStats,
+      leads_importados: leadsAuto?.total || 0,
+      leads_ultimos_7d: ultimos7d?.c || 0,
+      runs_recentes: runsRecentes
+    });
+  } catch (err) {
+    res.json({
+      queue: { by_status: [] },
+      leads_importados: 0,
+      leads_ultimos_7d: 0,
+      runs_recentes: [],
+      _migration_pending: true
+    });
+  }
+});
+
+// Trigger manual: pra testar sem esperar cron
+router.post('/prospector/run-scraping', async (req, res) => {
+  try {
+    const prospector = require('../workers/prospector');
+    const result = await prospector.runScraping();
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/prospector/run-validation', async (req, res) => {
+  try {
+    const prospector = require('../workers/prospector');
+    const result = await prospector.runValidation();
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === AUTONOMIA — KILL SWITCHES + AUTO-HEALER (Milestone 3 / G) ===
+router.get('/autonomy/kill-switches', (req, res) => {
+  try {
+    const autoHealer = require('../services/auto-healer');
+    res.json(autoHealer.snapshot());
+  } catch (err) {
+    res.json({ kill_switches: {}, _error: err.message });
+  }
+});
+
+router.post('/autonomy/kill-switches/:worker', (req, res) => {
+  try {
+    const autoHealer = require('../services/auto-healer');
+    const worker = req.params.worker;
+    if (worker === 'all') {
+      autoHealer.killAll(req.body?.reason || 'manual kill-all');
+    } else {
+      autoHealer.setKill(worker, req.body?.reason || 'manual');
+    }
+    res.json({ success: true, snapshot: autoHealer.snapshot() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/autonomy/kill-switches/:worker', (req, res) => {
+  try {
+    const autoHealer = require('../services/auto-healer');
+    const worker = req.params.worker;
+    if (worker === 'all') {
+      const cleared = autoHealer.clearAll();
+      res.json({ success: true, cleared });
+    } else {
+      const was = autoHealer.clearKill(worker);
+      res.json({ success: true, was_killed: was });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/autonomy/healer/check', async (req, res) => {
+  try {
+    const autoHealer = require('../services/auto-healer');
+    const snap = await autoHealer.runCheck();
+    res.json({ success: true, snapshot: snap });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === AUTONOMIA — DASHBOARD UNIFICADO (Frente H) ===
+router.get('/autonomy/dashboard', async (req, res) => {
+  const db = getDb();
+  try {
+    const autoHealer = require('../services/auto-healer');
+
+    // Status de cada worker (precisa ir ate o worker.js health, nao temos aqui)
+    // Usamos info indireta: kill switches + dados no DB
+    const flags = {
+      USE_TOOL_CALLING_AGENTS: String(process.env.USE_TOOL_CALLING_AGENTS) === 'true',
+      PROSPECTOR_WORKER_ENABLED: String(process.env.PROSPECTOR_WORKER_ENABLED) === 'true',
+      OUTBOUND_WORKER_ENABLED: String(process.env.OUTBOUND_WORKER_ENABLED) === 'true',
+      SUPERVISOR_WORKER_ENABLED: String(process.env.SUPERVISOR_WORKER_ENABLED) === 'true',
+      BROADCAST_WORKER_ENABLED: String(process.env.BROADCAST_WORKER_ENABLED) !== 'false',
+      FOLLOWUP_WORKER_ENABLED: String(process.env.FOLLOWUP_WORKER_ENABLED) !== 'false'
+    };
+
+    // Pipeline E2E — leads por hora em cada etapa (ultimas 24h)
+    const pipeline = db
+      .prepare(
+        `SELECT
+           SUM(CASE WHEN origem = 'prospector_auto' AND criado_em > DATETIME('now','-24 hours') THEN 1 ELSE 0 END) AS prospectados_24h,
+           SUM(CASE WHEN etapa_funil = 'qualificacao' THEN 1 ELSE 0 END) AS em_qualificacao,
+           SUM(CASE WHEN etapa_funil = 'negociacao' THEN 1 ELSE 0 END) AS em_negociacao,
+           SUM(CASE WHEN etapa_funil = 'proposta_enviada' THEN 1 ELSE 0 END) AS com_proposta,
+           SUM(CASE WHEN etapa_funil = 'ganho' AND atualizado_em > DATETIME('now','-7 days') THEN 1 ELSE 0 END) AS ganhos_7d,
+           SUM(CASE WHEN etapa_funil = 'perdido' AND atualizado_em > DATETIME('now','-7 days') THEN 1 ELSE 0 END) AS perdidos_7d
+         FROM leads`
+      )
+      .get();
+
+    // Ultima acao de cada agente
+    const ultimaAcao = db
+      .prepare(
+        `SELECT agente, MAX(criado_em) AS ultima, COUNT(*) AS total
+         FROM atividades_agentes
+         WHERE DATE(criado_em) = DATE('now')
+         GROUP BY agente`
+      )
+      .all();
+
+    // Tool calls ultimas 24h por agente
+    let toolCalls24h = [];
+    try {
+      toolCalls24h = db
+        .prepare(
+          `SELECT agente, tool_name, COUNT(*) AS c
+           FROM agent_tool_calls
+           WHERE criado_em > DATETIME('now','-24 hours')
+           GROUP BY agente, tool_name ORDER BY c DESC LIMIT 20`
+        )
+        .all();
+    } catch {
+      /* migration 016 pode nao estar */
+    }
+
+    res.json({
+      flags,
+      kill_switches: autoHealer.snapshot(),
+      pipeline,
+      ultima_acao_por_agente: ultimaAcao,
+      tool_calls_24h: toolCalls24h
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === OUTBOUND WORKER (Milestone 2 / D1) — Carlos SDR autonomo ===
+router.get('/outbound/stats', (req, res) => {
+  const db = getDb();
+  try {
+    const outbound = require('../workers/outbound');
+    const hoje = db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM conversas
+         WHERE agente = 'carlos' AND direcao = 'enviada'
+         AND DATE(criado_em) = DATE('now')
+         AND metadata LIKE '%cold_outbound%'`
+      )
+      .get();
+    const qualificados7d = db
+      .prepare(
+        "SELECT COUNT(*) AS c FROM handoffs WHERE de_agente = 'carlos' AND para_agente = 'lucas' AND criado_em > DATE('now','-7 day')"
+      )
+      .get();
+    const descartados7d = db
+      .prepare(
+        "SELECT COUNT(*) AS c FROM leads WHERE etapa_funil IN ('nurturing','perdido') AND atualizado_em > DATE('now','-7 day') AND motivo_perda IS NOT NULL"
+      )
+      .get();
+    res.json({
+      worker: outbound.status(),
+      cold_hoje: hoje?.c || 0,
+      qualificados_7d: qualificados7d?.c || 0,
+      descartados_7d: descartados7d?.c || 0
+    });
+  } catch (err) {
+    res.json({ worker: { running: false }, _error: err.message });
+  }
+});
+
+router.post('/outbound/run-batch', async (req, res) => {
+  try {
+    const outbound = require('../workers/outbound');
+    const r = await outbound.runBatch();
+    res.json({ success: true, ...r });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/outbound/reset-circuit', (req, res) => {
+  const outbound = require('../workers/outbound');
+  res.json(outbound.resetCircuit());
+});
+
 // === TOOL CALLS (Milestone 1 / B8) — observabilidade da autonomia ===
 router.get('/tool-calls/stats', (req, res) => {
   const db = getDb();

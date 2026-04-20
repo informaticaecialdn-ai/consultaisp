@@ -12,6 +12,13 @@ const mark_unqualified = require('./mark_unqualified');
 const schedule_followup = require('./schedule_followup');
 const enrich_lead = require('./enrich_lead');
 const handoff_to_agent = require('./handoff_to_agent');
+// Milestone 2/3 tools
+const create_proposal = require('./create_proposal');
+const mark_closed_won = require('./mark_closed_won');
+const mark_closed_lost = require('./mark_closed_lost');
+const reassign_stuck_leads = require('./reassign_stuck_leads');
+const notify_operator = require('./notify_operator');
+const { pause: pause_campaign, resume: resume_campaign } = require('./pause_campaign');
 
 const ALL_TOOLS = {
   send_whatsapp,
@@ -23,7 +30,14 @@ const ALL_TOOLS = {
   mark_unqualified,
   schedule_followup,
   enrich_lead,
-  handoff_to_agent
+  handoff_to_agent,
+  create_proposal,
+  mark_closed_won,
+  mark_closed_lost,
+  reassign_stuck_leads,
+  notify_operator,
+  pause_campaign,
+  resume_campaign
 };
 
 // Autorizacao por agente (quem pode chamar o que).
@@ -52,8 +66,8 @@ const AGENT_TOOLS = {
     'mark_unqualified',
     'schedule_followup',
     'enrich_lead',
-    'handoff_to_agent'
-    // + create_proposal, schedule_demo, log_objection (Frente E)
+    'handoff_to_agent',
+    'create_proposal'
   ],
   rafael: [
     'send_whatsapp',
@@ -63,8 +77,10 @@ const AGENT_TOOLS = {
     'query_leads',
     'schedule_followup',
     'enrich_lead',
-    'handoff_to_agent'
-    // + mark_closed_won, mark_closed_lost, generate_contract (Frente E)
+    'handoff_to_agent',
+    'create_proposal',
+    'mark_closed_won',
+    'mark_closed_lost'
   ],
   sofia: [
     'query_leads',
@@ -85,8 +101,11 @@ const AGENT_TOOLS = {
   diana: [
     'query_leads',
     'query_lead_detail',
-    'handoff_to_agent'
-    // + pause_campaign, resume_campaign, notify_operator, reassign_stuck_leads (Frente F1)
+    'handoff_to_agent',
+    'reassign_stuck_leads',
+    'notify_operator',
+    'pause_campaign',
+    'resume_campaign'
   ]
 };
 

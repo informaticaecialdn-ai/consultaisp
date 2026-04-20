@@ -5,6 +5,10 @@ const logger = require('./utils/logger');
 const db = require('./models/database');
 const broadcastWorker = require('./workers/broadcast');
 const followupWorker = require('./workers/followup-worker');
+const prospectorWorker = require('./workers/prospector');
+const outboundWorker = require('./workers/outbound');
+const supervisorWorker = require('./workers/supervisor');
+const autoHealer = require('./services/auto-healer');
 
 const WORKER_HEALTH_PORT = parseInt(process.env.WORKER_HEALTH_PORT) || 9091;
 
@@ -24,6 +28,30 @@ async function main() {
     logger.warn('FOLLOWUP_WORKER_ENABLED=false, followup em stand-by');
   }
 
+  // Milestone 1 / C3: prospector autonomo (scraping + validation via Apify).
+  if (process.env.PROSPECTOR_WORKER_ENABLED === 'true') {
+    prospectorWorker.start();
+  } else {
+    logger.info('PROSPECTOR_WORKER_ENABLED!=true, prospector em stand-by');
+  }
+
+  // Milestone 2 / D1: Carlos SDR autonomo (cold outbound a cada 2h BR).
+  if (process.env.OUTBOUND_WORKER_ENABLED === 'true') {
+    outboundWorker.start();
+  } else {
+    logger.info('OUTBOUND_WORKER_ENABLED!=true, outbound em stand-by');
+  }
+
+  // Milestone 3 / F1: Diana supervisora (cron 1h em 1h via platform-agent-client).
+  if (process.env.SUPERVISOR_WORKER_ENABLED === 'true') {
+    supervisorWorker.start();
+  } else {
+    logger.info('SUPERVISOR_WORKER_ENABLED!=true, supervisor em stand-by');
+  }
+
+  // Milestone 3 / G: auto-healer (kill switches automaticos por custo/erro/zapi).
+  autoHealer.start();
+
   const server = http.createServer((req, res) => {
     if (req.url === '/health') {
       const health = {
@@ -32,6 +60,9 @@ async function main() {
         pid: process.pid,
         broadcast: broadcastWorker.status(),
         followup: followupWorker.status(),
+        prospector: prospectorWorker.status(),
+        outbound: outboundWorker.status(),
+        supervisor: supervisorWorker.status(),
         env: process.env.NODE_ENV || 'development'
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -51,6 +82,10 @@ async function gracefulShutdown(signal) {
   try {
     await broadcastWorker.stop();
     await followupWorker.stop();
+    await prospectorWorker.stop();
+    await outboundWorker.stop();
+    await supervisorWorker.stop();
+    autoHealer.stop();
   } catch (err) {
     logger.error({ err: err.message }, 'erro no shutdown');
   }
