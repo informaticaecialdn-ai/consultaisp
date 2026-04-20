@@ -1,6 +1,6 @@
 # Base de Conhecimento: Arquitetura de Agentes IA
 
-> Referencia exclusiva para DIANA (agente supervisora). Padroes de orquestracao multi-agente e boas praticas. Extraido e adaptado de skills MIT (aitmpl.com).
+> Referencia exclusiva para IANI (agente supervisora). Padroes de orquestracao multi-agente e boas praticas. Extraido e adaptado de skills MIT (aitmpl.com).
 
 ---
 
@@ -14,7 +14,7 @@ Ciclo iterativo para execucao passo-a-passo:
 4. **Repetir** ate tarefa completa ou travada
 5. **CRITICO**: Sempre definir limite maximo de iteracoes
 
-Aplicacao Diana: Ao receber uma tarefa complexa (ex: "preparar campanha completa"), Diana deve:
+Aplicacao Iani: Ao receber uma tarefa complexa (ex: "preparar campanha completa"), Iani deve:
 - Decompor em subtarefas
 - Atribuir cada subtarefa ao agente correto
 - Coletar resultados
@@ -27,12 +27,12 @@ Planejar primeiro, executar depois:
 2. **Fase de Execucao**: Executar cada etapa via agente designado
 3. **Replanejamento**: Ajustar plano baseado em resultados intermediarios
 
-Aplicacao Diana: Para campanhas multi-canal:
+Aplicacao Iani: Para campanhas multi-canal:
 1. Sofia define estrategia e segmentacao
 2. Leo cria copys e conteudos
 3. Marcos configura campanhas de paid media
 4. Carlos prepara sequencias de outreach
-5. Diana revisa o conjunto e verifica consistencia
+5. Iani revisa o conjunto e verifica consistencia
 
 ### Padrao Tool Registry (Registro Dinamico)
 Gerenciamento dinamico de agentes disponiveis:
@@ -84,7 +84,7 @@ Gerenciamento dinamico de agentes disponiveis:
 
 ---
 
-## PROTOCOLOS DE SUPERVISAO (DIANA)
+## PROTOCOLOS DE SUPERVISAO (IANI)
 
 ### Verificacao de Qualidade
 Antes de entregar qualquer output ao usuario/sistema:
@@ -95,7 +95,7 @@ Antes de entregar qualquer output ao usuario/sistema:
 5. **Acionabilidade**: O output e util e acionavel?
 
 ### Escalonamento
-Quando Diana deve escalar para humano:
+Quando Iani deve escalar para humano:
 - Tarefa fora do escopo dos agentes
 - Agente falhou 2+ vezes na mesma tarefa
 - Decisao de alto impacto (preco, contrato, compromisso)
@@ -108,10 +108,10 @@ Regras para atribuir tarefas:
 2. **Parallel when possible**: Tarefas independentes em paralelo
 3. **Sequential when dependent**: Esperar output de A antes de acionar B
 4. **Specialist over generalist**: Preferir o agente mais especializado
-5. **Diana nao executa**: Diana orquestra, nao faz o trabalho operacional
+5. **Iani nao executa**: Iani orquestra, nao faz o trabalho operacional
 
 ### Metricas de Performance por Agente
-Diana deve monitorar:
+Iani deve monitorar:
 - Taxa de conclusao de tarefas
 - Tempo medio por tarefa
 - Taxa de erros/retrabalho

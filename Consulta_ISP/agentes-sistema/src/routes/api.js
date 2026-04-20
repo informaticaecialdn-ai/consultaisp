@@ -310,7 +310,7 @@ router.post('/leads/bulk-delete', (req, res) => {
 router.post('/leads/bulk-transfer', (req, res) => {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isFinite) : [];
   const para_agente = String(req.body?.para_agente || '').trim();
-  const VALID = ['carlos','lucas','rafael','sofia','marcos','leo','diana'];
+  const VALID = ['carlos','lucas','rafael','sofia','marcos','leo','iani'];
   if (ids.length === 0) return bad(res, 'lista de ids vazia');
   if (!VALID.includes(para_agente)) return bad(res, 'para_agente invalido');
   const db = getDb();
@@ -502,7 +502,7 @@ const templateEngine = require('../services/template-engine');
 const consent = require('../services/consent');
 const broadcastWorker = require('../workers/broadcast');
 
-const VALID_AGENTES = ['carlos', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'diana'];
+const VALID_AGENTES = ['carlos', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'iani'];
 
 function bad(res, msg, code = 400) {
   return res.status(code).json({ error: msg });
@@ -1160,7 +1160,7 @@ const training = require('../services/training');
 const skillsKnowledge = require('../services/skills-knowledge');
 
 router.get('/skills/status', (req, res) => {
-  const agents = ['carlos', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'diana'];
+  const agents = ['carlos', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'iani'];
   const status = {};
   for (const agent of agents) {
     const k = skillsKnowledge.getKnowledgeForAgent(agent);
@@ -1956,7 +1956,7 @@ router.get('/costs/timeseries', (req, res) => {
 router.get('/metricas/entrega', (req, res) => {
   try {
     const db = getDb();
-    const agentes = ['carlos', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'diana'];
+    const agentes = ['carlos', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'iani'];
     const result = agentes.map(a => {
       const total = db.prepare("SELECT COUNT(*) as c FROM conversas WHERE agente = ? AND direcao = 'enviada'").get(a).c;
       let entregues = 0, lidos = 0;

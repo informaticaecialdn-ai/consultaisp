@@ -52,11 +52,11 @@ class SkillsKnowledgeService {
         'skills-conhecimento-demandgen.md',
         'skills-conhecimento-prospecao-pricing.md'
       ],
-      diana: [
+      iani: [
         'skills-conhecimento-marcos-leo.md',
         'skills-conhecimento-vendas-sofia.md',
         'skills-conhecimento-agentes-arch.md',
-        'skills-conhecimento-diana-relatorios.md'
+        'skills-conhecimento-iani-relatorios.md'
       ]
     };
 
@@ -90,10 +90,10 @@ class SkillsKnowledgeService {
       lucas: ['LUCAS', 'RAFAEL', 'PRICING', 'OBJECOES'],
       rafael: ['LUCAS', 'RAFAEL', 'PRICING', 'PROPOSTAS'],
       sofia: ['SOFIA', 'ESTRATEGIA', 'ATRIBUICAO', 'METRICAS', 'PARCERIAS', 'PRICING'],
-      diana: null
+      iani: null
     };
 
-    if (agentKey === 'diana') return content;
+    if (agentKey === 'iani') return content;
 
     const markers = sectionMap[agentKey];
     if (!markers) return content;

@@ -44,7 +44,7 @@ const ALL_TOOLS = {
 
 // Autorizacao por agente (quem pode chamar o que).
 // Sofia/Leo/Marcos tem tools adicionais que vem em frentes futuras (D, F).
-// Diana tem leitura ampla + reassign (vem em F1).
+// Iani tem leitura ampla + reassign (vem em F1).
 const AGENT_TOOLS = {
   carlos: [
     'send_whatsapp',
@@ -104,7 +104,7 @@ const AGENT_TOOLS = {
     'query_leads'
     // + query_campaign_performance, ab_test_setup, ab_test_conclude, adjust_rate_limit (Frente F)
   ],
-  diana: [
+  iani: [
     'query_leads',
     'query_lead_detail',
     'handoff_to_agent',

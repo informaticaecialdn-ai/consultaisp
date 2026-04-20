@@ -5,7 +5,7 @@
 // IMPORTANTE: apesar do nome "platform-agent", este wrapper roda Messages API
 // (nao Managed Agents). Motivo: latencia — responder WhatsApp em <3s nao admite
 // spin-up de container cloud. Managed Agents sera usado em workers de background
-// (Diana/Sofia/Marcos) em frentes futuras.
+// (Iani/Sofia/Marcos) em frentes futuras.
 //
 // Formato output identico ao claude.analyzeAndDecide para orchestrator consumir:
 //   { resposta_whatsapp, score_update, acao, notas_internas, dados_extraidos }
@@ -57,7 +57,7 @@ Seu trabalho: fechar contrato, resolver objecoes finais, definir plano e pagamen
 
   marcos: `Voce e o Marcos, midia paga. Gerencie campanhas Meta/Google.`,
 
-  diana: `Voce e a Diana, Gerente de Operacoes. Supervisiona o time de agentes e reatribui leads parados.`
+  iani: `Voce e a Iani, Gerente de Operacoes. Supervisiona o time de agentes e reatribui leads parados.`
 };
 
 function buildSystemPrompt(agentKey, context = {}) {
@@ -169,13 +169,13 @@ async function invokeAgent(agentKey, userMessage, options = {}) {
 
   // Modelo por agente (fallback)
   const MODELS = {
-    sofia: 'claude-sonnet-4-6',
-    leo: 'claude-opus-4-6',
+    sofia: 'claude-opus-4-7',
+    leo: 'claude-opus-4-7',
     carlos: 'claude-sonnet-4-6',
-    lucas: 'claude-opus-4-6',
-    rafael: 'claude-opus-4-6',
-    marcos: 'claude-opus-4-6',
-    diana: 'claude-opus-4-6'
+    lucas: 'claude-opus-4-7',
+    rafael: 'claude-opus-4-7',
+    marcos: 'claude-opus-4-7',
+    iani: 'claude-opus-4-7'
   };
   const effectiveModel = model || MODELS[agentKey] || 'claude-sonnet-4-6';
 

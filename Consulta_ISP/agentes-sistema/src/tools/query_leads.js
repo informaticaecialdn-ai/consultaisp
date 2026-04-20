@@ -21,7 +21,7 @@ module.exports = {
       },
       agente_atual: {
         type: 'string',
-        enum: ['sofia', 'leo', 'carlos', 'lucas', 'rafael', 'marcos', 'diana']
+        enum: ['sofia', 'leo', 'carlos', 'lucas', 'rafael', 'marcos', 'iani']
       },
       dias_sem_resposta: {
         type: 'integer',

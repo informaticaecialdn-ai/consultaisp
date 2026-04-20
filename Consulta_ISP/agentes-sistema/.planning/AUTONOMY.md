@@ -15,7 +15,7 @@
 │  5. HANDOFF      → tool handoff_to_agent(to=lucas)             │
 │  6. FECHAMENTO   → Rafael + tool mark_closed_won               │
 │  7. FOLLOWUP     → followup worker (existente)                 │
-│  8. SUPERVISAO   → supervisor worker (Diana cron 1h)           │
+│  8. SUPERVISAO   → supervisor worker (Iani cron 1h)           │
 │  9. AUTOHEAL     → auto-healer monitora custo/erro/Z-API       │
 └────────────────────────────────────────────────────────────────┘
 ```
@@ -30,7 +30,7 @@
 | **Sofia** (Marketing) | query_leads, query_lead_detail, schedule_followup, handoff_to_agent | nurturing via followup worker |
 | **Leo** (Copy) | query_leads, query_lead_detail | invocado on-demand por Sofia/Marcos |
 | **Marcos** (Midia) | query_leads | invocado on-demand |
-| **Diana** (Ops) | query_leads, query_lead_detail, handoff_to_agent, reassign_stuck_leads, notify_operator, pause_campaign, resume_campaign | `supervisor.js` (cron 1h) |
+| **Iani** (Ops) | query_leads, query_lead_detail, handoff_to_agent, reassign_stuck_leads, notify_operator, pause_campaign, resume_campaign | `supervisor.js` (cron 1h) |
 
 ## Feature flags (rollout progressivo)
 
@@ -41,7 +41,7 @@ Todas em `.env`, default OFF. Ative gradualmente:
 | `USE_TOOL_CALLING_AGENTS=true` | Agentes chamam tools via Messages API (vs JSON legado) | 1. Ligar em homolog, testar 1 dia com leads internos |
 | `PROSPECTOR_WORKER_ENABLED=true` | Scraping + validacao automatica | 2. Apos confirmar USE_TOOL_CALLING_AGENTS estavel |
 | `OUTBOUND_WORKER_ENABLED=true` | Carlos manda cold outbound autonomo | 3. Apos ter leads prospector_auto em fila, com limite OUTBOUND_MAX_COLD_PER_DAY=10 inicialmente |
-| `SUPERVISOR_WORKER_ENABLED=true` | Diana supervisora em cron 1h | 4. Apos pipeline completo rodando |
+| `SUPERVISOR_WORKER_ENABLED=true` | Iani supervisora em cron 1h | 4. Apos pipeline completo rodando |
 
 ## Kill switches (runtime)
 
@@ -81,7 +81,7 @@ Logs estruturados: `grep 'TOOL'`, `grep 'AGENT_CLIENT'`, `grep 'AUTO_HEALER'`, `
 ## Intervencao humana — quando?
 
 Sistema chama voce apenas em:
-1. Diana dispara `notify_operator(severity=critical)` via webhook
+1. Iani dispara `notify_operator(severity=critical)` via webhook
 2. Kill switch liga sozinho (voce ve na pagina Autonomia)
 3. Custo diario > AUTO_PAUSE_COST_USD
 4. Campanha pausada sozinha por taxa de falha

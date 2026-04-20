@@ -1,7 +1,7 @@
 // Sprint 5 — Wizard 3 etapas: Audiencia -> Template -> Confirmacao.
 (function () {
   const API = '/api';
-  const AGENTES = ['carlos', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'diana'];
+  const AGENTES = ['carlos', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'iani'];
 
   const state = {
     step: 1,

@@ -12,7 +12,7 @@ const ETAPA_POR_AGENTE = {
   lucas: 'negociacao',
   rafael: 'fechamento',
   marcos: null,
-  diana: null
+  iani: null
 };
 
 module.exports = {
@@ -25,7 +25,7 @@ module.exports = {
       lead_id: { type: 'integer' },
       to: {
         type: 'string',
-        enum: ['sofia', 'leo', 'carlos', 'lucas', 'rafael', 'marcos', 'diana']
+        enum: ['sofia', 'leo', 'carlos', 'lucas', 'rafael', 'marcos', 'iani']
       },
       reason: { type: 'string', description: 'Motivo curto do handoff (ex: "BANT qualificado, score 72")' },
       context_summary: {

@@ -13,8 +13,8 @@ class SupervisorService {
 
     logger.info({ taskId, demanda }, '[SUPERVISOR] nova demanda');
 
-    // Diana analisa a demanda e cria plano
-    const plano = await claude.sendToAgent('diana', `
+    // Iani analisa a demanda e cria plano
+    const plano = await claude.sendToAgent('iani', `
 NOVA DEMANDA RECEBIDA:
 "${demanda}"
 
@@ -42,7 +42,7 @@ Analise esta demanda e crie o plano de execucao em JSON conforme seu formato pad
       return {
         taskId,
         status: 'erro',
-        mensagem: 'Diana nao conseguiu criar plano estruturado',
+        mensagem: 'Iani nao conseguiu criar plano estruturado',
         resposta_raw: plano.resposta
       };
     }
@@ -58,7 +58,7 @@ Analise esta demanda e crie o plano de execucao em JSON conforme seu formato pad
     });
 
     // Registra atividade
-    this._logActivity('diana', 'plano_criado', `Demanda: ${demanda} | Tarefas: ${planoObj.plano_execucao?.length || 0}`);
+    this._logActivity('iani', 'plano_criado', `Demanda: ${demanda} | Tarefas: ${planoObj.plano_execucao?.length || 0}`);
 
     return {
       taskId,
@@ -140,14 +140,14 @@ Analise esta demanda e crie o plano de execucao em JSON conforme seu formato pad
 
     task.resultados = resultados;
 
-    // Diana consolida os resultados
+    // Iani consolida os resultados
     const consolidacao = await this._consolidateResults(task);
 
     task.status = 'concluido';
     task.consolidacao = consolidacao;
     task.concluido_em = new Date().toISOString();
 
-    this._logActivity('diana', 'plano_concluido', `Task ${taskId}: ${resultados.filter(r => r.status === 'concluido').length}/${resultados.length} tarefas OK`);
+    this._logActivity('iani', 'plano_concluido', `Task ${taskId}: ${resultados.filter(r => r.status === 'concluido').length}/${resultados.length} tarefas OK`);
 
     return {
       taskId,
@@ -158,13 +158,13 @@ Analise esta demanda e crie o plano de execucao em JSON conforme seu formato pad
     };
   }
 
-  // Diana consolida todos os resultados em um relatorio final
+  // Iani consolida todos os resultados em um relatorio final
   async _consolidateResults(task) {
     const resumoResultados = task.resultados.map(r =>
       `[${r.agente.toUpperCase()}] ${r.tarefa}:\n${r.status === 'concluido' ? r.resultado : 'ERRO: ' + r.erro}`
     ).join('\n\n---\n\n');
 
-    const response = await claude.sendToAgent('diana', `
+    const response = await claude.sendToAgent('iani', `
 CONSOLIDACAO DE RESULTADOS:
 
 DEMANDA ORIGINAL: "${task.demanda}"
@@ -192,9 +192,9 @@ Consolide estes resultados no formato JSON padrao de consolidacao. Avalie a qual
     return this.executePlan(planResult.taskId);
   }
 
-  // Pede para Diana analisar uma situacao e recomendar acoes
+  // Pede para Iani analisar uma situacao e recomendar acoes
   async analyzeAndRecommend(situacao, dados = {}) {
-    const response = await claude.sendToAgent('diana', `
+    const response = await claude.sendToAgent('iani', `
 ANALISE SOLICITADA:
 ${situacao}
 
@@ -227,20 +227,20 @@ Responda em JSON:
     }
   }
 
-  // Pede para um agente especifico via Diana (com contexto gerencial)
+  // Pede para um agente especifico via Iani (com contexto gerencial)
   async delegateToAgent(agentKey, tarefa, contexto = {}) {
     logger.info({ agente: agentKey, tarefa: String(tarefa || '').slice(0, 80) }, '[SUPERVISOR] delegando (simples)');
 
     const resultado = await claude.sendToAgent(agentKey, tarefa, contexto);
 
-    this._logActivity(agentKey, 'tarefa_delegada', `Tarefa delegada pela Diana: ${tarefa.substring(0, 100)}`);
+    this._logActivity(agentKey, 'tarefa_delegada', `Tarefa delegada pela Iani: ${tarefa.substring(0, 100)}`);
 
     return resultado;
   }
 
   // Gera relatorio consolidado de todos os agentes
   async generateTeamReport(periodo = '7d') {
-    const response = await claude.sendToAgent('diana', `
+    const response = await claude.sendToAgent('iani', `
 SOLICITACAO: Gere um relatorio consolidado da equipe.
 
 PERIODO: ultimos ${periodo}

@@ -1,10 +1,10 @@
 // Supervisor Worker (Milestone 3 / F1).
-// Diana rodando em cron 1h em 1h: analisa snapshot do funil e toma acoes via tools.
+// Iani rodando em cron 1h em 1h: analisa snapshot do funil e toma acoes via tools.
 //
 // Difere do service src/services/supervisor.js (que e on-demand, orquestrador de plans
 // multiagente). Este worker e a "camera" constante — roda sempre, curto e focado.
 //
-// Acoes que Diana pode tomar:
+// Acoes que Iani pode tomar:
 //  - reassign_stuck_leads (leads parados >7d)
 //  - pause_campaign (se campanha com taxa falha >30%)
 //  - notify_operator (anomalia detectada)
@@ -29,7 +29,7 @@ function useToolCallingAgents() {
   return String(process.env.USE_TOOL_CALLING_AGENTS || 'false').toLowerCase() === 'true';
 }
 
-// Snapshot do funil que Diana recebe como input
+// Snapshot do funil que Iani recebe como input
 function buildSnapshot() {
   const db = getDb();
   try {
@@ -93,7 +93,7 @@ function buildSnapshot() {
   }
 }
 
-const DIANA_PROMPT = `Voce acabou de acordar pra seu tick horario de supervisao.
+const IANI_PROMPT = `Voce acabou de acordar pra seu tick horario de supervisao.
 Analise o snapshot abaixo e DECIDA quais tools chamar. Seja cirurgica — se nao ha
 nada pra fazer, nao chame tools, so responda "tudo ok".
 
@@ -135,9 +135,9 @@ async function tick() {
       return;
     }
 
-    const input = `${DIANA_PROMPT}\n\n${JSON.stringify(snapshot, null, 2)}`;
+    const input = `${IANI_PROMPT}\n\n${JSON.stringify(snapshot, null, 2)}`;
 
-    const result = await platformAgent.invokeAgent('diana', input, {
+    const result = await platformAgent.invokeAgent('iani', input, {
       correlationId: `supervisor_tick_${Date.now()}`,
       taskType: 'orchestration',
       maxIterations: 4

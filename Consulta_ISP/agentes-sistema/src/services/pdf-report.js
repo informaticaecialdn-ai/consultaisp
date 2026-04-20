@@ -20,7 +20,7 @@ class PdfReportService {
       count: db.prepare('SELECT COUNT(*) as c FROM leads WHERE etapa_funil = ?').get(e).c
     }));
 
-    const agentes = ['carlos','lucas','rafael','sofia','leo','marcos','diana'];
+    const agentes = ['carlos','lucas','rafael','sofia','leo','marcos','iani'];
     const perfAgentes = agentes.map(a => {
       const leads = db.prepare('SELECT COUNT(*) as c FROM leads WHERE agente_atual = ?').get(a).c;
       const msgs = db.prepare("SELECT COUNT(*) as c FROM conversas WHERE agente = ? AND criado_em >= ?").get(a, dataMin).c;
@@ -46,7 +46,7 @@ class PdfReportService {
 
     let analiseNarrativa = '';
     try {
-      const result = await claude.sendToAgent('diana',
+      const result = await claude.sendToAgent('iani',
         `Gere um resumo executivo de ${periodo} do time de vendas. Dados: ${leadsNovos} leads novos, ${conversoes} conversoes, ${perdidos} perdidos, Pipeline R$ ${pipeline}. Seja conciso (max 5 frases). Tom executivo.`
       );
       analiseNarrativa = result.resposta;
@@ -116,9 +116,9 @@ class PdfReportService {
         doc.moveDown();
       }
 
-      // Analise Diana
+      // Analise Iani
       if (data.analiseNarrativa) {
-        doc.fontSize(14).font('Helvetica-Bold').text('Analise Executiva (Diana)');
+        doc.fontSize(14).font('Helvetica-Bold').text('Analise Executiva (Iani)');
         doc.fontSize(10).font('Helvetica').text(data.analiseNarrativa);
       }
 

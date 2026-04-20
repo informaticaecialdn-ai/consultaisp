@@ -27,7 +27,7 @@ Atualizado: 2026-04-20
 - [x] D2 — skill `skills-ref/carlos-qualificacao-bant.md` + tools Lucas/Rafael
 
 ### Milestone 3 — Self-driving
-- [x] F1 — `src/workers/supervisor.js` (Diana cron 1h via platform-agent-client)
+- [x] F1 — `src/workers/supervisor.js` (Iani cron 1h via platform-agent-client)
 - [x] G — `src/services/auto-healer.js` (monitor 5min + kill switches)
 - [x] H — pagina `/autonomia` + `public/js/cards/autonomy-panel.js`
 - [x] A3 — docs `AUTONOMY.md`, `STATUS.md`, `PLATFORM-AGENTS-API.md`
@@ -74,13 +74,13 @@ SELECT agente, COUNT(*) FROM conversas
 WHERE DATE(criado_em)=DATE('now') AND metadata LIKE '%cold_outbound%'
 GROUP BY 1"
 
-# Passo 4 — ligar Diana supervisora
+# Passo 4 — ligar Iani supervisora
 SUPERVISOR_WORKER_ENABLED=true
 
 # Verificar (apos 1 hora):
 sqlite3 data/agentes.db "
 SELECT tool_name, COUNT(*) FROM agent_tool_calls
-WHERE agente='diana' AND DATE(criado_em)=DATE('now')
+WHERE agente='iani' AND DATE(criado_em)=DATE('now')
 GROUP BY 1"
 ```
 

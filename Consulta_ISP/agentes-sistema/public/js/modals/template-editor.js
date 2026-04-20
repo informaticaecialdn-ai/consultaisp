@@ -19,7 +19,7 @@
             <option value="carlos">carlos</option><option value="lucas">lucas</option>
             <option value="rafael">rafael</option><option value="sofia">sofia</option>
             <option value="marcos">marcos</option><option value="leo">leo</option>
-            <option value="diana">diana</option>
+            <option value="iani">iani</option>
           </select>
         </div>
 

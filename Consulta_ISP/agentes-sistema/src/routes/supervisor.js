@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const supervisor = require('../services/supervisor');
 
-// POST /api/supervisor/demand - Cria uma nova demanda (Diana planeja)
+// POST /api/supervisor/demand - Cria uma nova demanda (Iani planeja)
 router.post('/demand', async (req, res) => {
   try {
     const { demanda, contexto } = req.body;
@@ -38,7 +38,7 @@ router.post('/run', async (req, res) => {
   }
 });
 
-// POST /api/supervisor/analyze - Diana analisa situacao e recomenda acoes
+// POST /api/supervisor/analyze - Iani analisa situacao e recomenda acoes
 router.post('/analyze', async (req, res) => {
   try {
     const { situacao, dados } = req.body;

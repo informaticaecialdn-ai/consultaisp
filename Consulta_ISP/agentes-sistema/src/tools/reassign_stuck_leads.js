@@ -1,5 +1,5 @@
 // Tool: reassign_stuck_leads (Milestone 3 / F1).
-// Diana realoca leads parados. Usada por src/workers/supervisor.js.
+// Iani realoca leads parados. Usada por src/workers/supervisor.js.
 
 const { getDb } = require('../models/database');
 const logger = require('../utils/logger');
@@ -7,7 +7,7 @@ const logger = require('../utils/logger');
 module.exports = {
   name: 'reassign_stuck_leads',
   description:
-    'Reatribui leads parados (sem resposta ha N dias) de volta pra Sofia (nurturing). Util pra Diana liberar slots do time comercial. Retorna contagem de reatribuidos por agente origem.',
+    'Reatribui leads parados (sem resposta ha N dias) de volta pra Sofia (nurturing). Util pra Iani liberar slots do time comercial. Retorna contagem de reatribuidos por agente origem.',
   input_schema: {
     type: 'object',
     properties: {
@@ -73,13 +73,13 @@ module.exports = {
              atualizado_em = CURRENT_TIMESTAMP
            WHERE id = ?`
         ).run(
-          `REASSIGN (Diana): parado ${dias}d em ${lead.agente_atual} -> sofia nurturing`,
+          `REASSIGN (Iani): parado ${dias}d em ${lead.agente_atual} -> sofia nurturing`,
           lead.id
         );
         db.prepare(
           `INSERT INTO handoffs (lead_id, de_agente, para_agente, motivo)
            VALUES (?, ?, 'sofia', ?)`
-        ).run(lead.id, lead.agente_atual, `Diana realocou: parado ${dias}d`);
+        ).run(lead.id, lead.agente_atual, `Iani realocou: parado ${dias}d`);
         stats.reassigned++;
         stats.by_from[lead.agente_atual] = (stats.by_from[lead.agente_atual] || 0) + 1;
       }
@@ -87,7 +87,7 @@ module.exports = {
     tx();
 
     logger.info(
-      { ...stats, agente: ctx.agente || 'diana' },
+      { ...stats, agente: ctx.agente || 'iani' },
       '[TOOL reassign_stuck_leads]'
     );
 
