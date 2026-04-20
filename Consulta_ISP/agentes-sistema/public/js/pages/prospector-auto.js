@@ -17,19 +17,20 @@
     if (typeof api !== 'function') return;
 
     try {
-      const [cfg, stats, out] = await Promise.all([
+      const [cfg, stats, out, enrich] = await Promise.all([
         api('/prospector/config').catch(() => null),
         api('/prospector/stats').catch(() => null),
         api('/outbound/stats').catch(() => null),
+        api('/enricher/stats').catch(() => null),
       ]);
       currentConfig = cfg;
-      render(root, cfg, stats, out);
+      render(root, cfg, stats, out, enrich);
     } catch (err) {
       root.innerHTML = `<div class="panel"><div class="panel-body" style="color:var(--red);text-align:center">Erro: ${esc(err.message)}</div></div>`;
     }
   }
 
-  function render(root, cfg, stats, out) {
+  function render(root, cfg, stats, out, enrich) {
     const enabled = !!cfg?.enabled;
     const regioes = Array.isArray(cfg?.regioes) ? cfg.regioes : [];
     const termos = Array.isArray(cfg?.termos) ? cfg.termos : [];
@@ -42,13 +43,24 @@
     const budgetRemaining = outboundStatus.budget_remaining != null ? outboundStatus.budget_remaining : '—';
     const isKilled = !!outboundStatus.paused;
 
+    const enrichedPct = enrich?.enriched_pct || 0;
+    const enrichColor = enrichedPct >= 70 ? 'green' : enrichedPct >= 30 ? 'yellow' : 'muted';
+
     root.innerHTML = `
       <!-- Header status -->
+      <div class="stats-grid" style="margin-bottom:16px">
+        ${statCard('Pendentes na fila', queueByStatus.pending || 0, 'aguardando validacao', 'i-activity', queueByStatus.pending > 50 ? 'yellow' : 'muted')}
+        ${statCard('Aprovados 7 dias', pipe.leads_ultimos_7d || 0, 'leads importados origem=prospector_auto', 'i-shield-check', 'green')}
+        ${statCard('Cold hoje (Carlos)', out?.cold_hoje || 0, `max diario: ${outboundStatus.budget_remaining != null ? (out?.cold_hoje || 0) + budgetRemaining : '—'}`, 'i-broadcast', 'terracotta')}
+        ${statCard('Qualificados 7d', out?.qualificados_7d || 0, 'handoffs Carlos -> Lucas', 'i-users', 'green')}
+      </div>
+
+      <!-- Enrichment stats -->
       <div class="stats-grid" style="margin-bottom:20px">
-        ${statCard('Pendentes na fila', queueByStatus.pending || 0, 'aguardando validacao', 'i-clock', queueByStatus.pending > 50 ? 'yellow' : 'muted')}
-        ${statCard('Aprovados 7 dias', pipe.leads_ultimos_7d || 0, 'leads importados com origem=prospector_auto', 'i-check', 'green')}
-        ${statCard('Cold hoje (Carlos)', out?.cold_hoje || 0, `max diario: ${outboundStatus.budget_remaining != null ? (out?.cold_hoje || 0) + budgetRemaining : '—'}`, 'i-send', 'terracotta')}
-        ${statCard('Qualificados 7d', out?.qualificados_7d || 0, 'handoffs Carlos -> Lucas', 'i-user-check', 'green')}
+        ${statCard('Enriquecidos', `${enrichedPct}%`, `${enrich?.enriched || 0} de ${enrich?.total || 0} leads prospector_auto`, 'i-globe', enrichColor)}
+        ${statCard('Com CNPJ', enrich?.com_cnpj || 0, 'leads com dados Receita Federal', 'i-shield-check', enrich?.com_cnpj > 0 ? 'green' : 'muted')}
+        ${statCard('Com email extra', enrich?.com_email || 0, 'emails oficiais descobertos', 'i-message', enrich?.com_email > 0 ? 'green' : 'muted')}
+        ${statCard('Pendentes enrich', enrich?.pending || 0, 'com site mas ainda nao enriquecidos', 'i-activity', enrich?.pending > 0 ? 'yellow' : 'muted')}
       </div>
 
       <!-- Worker status -->
@@ -90,6 +102,9 @@
             </button>
             <button class="btn btn-outline" onclick="window.ProspectorAuto.runValidation()" style="width:100%;margin-bottom:8px">
               <svg class="icon icon-sm"><use href="#i-check"/></svg> Validar fila agora
+            </button>
+            <button class="btn btn-outline" onclick="window.ProspectorAuto.runEnrichment()" style="width:100%;margin-bottom:8px">
+              <svg class="icon icon-sm"><use href="#i-globe"/></svg> Enriquecer leads (Apify + Receita)
             </button>
             <button class="btn btn-outline" onclick="window.ProspectorAuto.runOutboundBatch()" style="width:100%;margin-bottom:8px">
               <svg class="icon icon-sm"><use href="#i-send"/></svg> Rodar batch outbound (Carlos)
@@ -349,6 +364,29 @@
       try {
         const r = await api('/outbound/run-batch', { method: 'POST' });
         alert(r.skipped ? `Skipped: ${r.reason}` : `OK: ${r.sent || 0} enviados de ${r.processed || 0} tentados`);
+        await loadAll();
+      } catch (err) {
+        alert('Erro: ' + err.message);
+      } finally {
+        if (btn) { btn.disabled = false; loadAll(); }
+      }
+    },
+
+    async runEnrichment() {
+      const btn = event?.target?.closest('button');
+      if (btn) { btn.disabled = true; btn.textContent = 'Enriquecendo... (ate 4min)'; }
+      try {
+        const r = await api('/enricher/run', {
+          method: 'POST',
+          body: JSON.stringify({ limit: 20 })
+        });
+        if (r.reason === 'no_candidates') {
+          alert('Nada pra enriquecer — todos ja estao enriquecidos ou sem site.');
+        } else if (r.reason === 'apify_not_configured') {
+          alert('APIFY_TOKEN nao configurado no .env');
+        } else {
+          alert(`Enriquecidos: ${r.enriched || 0} de ${r.total || 0}\nCNPJ encontrado: ${r.cnpj_found || 0}\nReceitaWS OK: ${r.receita_ok || 0}\nSem dados: ${r.no_data || 0}`);
+        }
         await loadAll();
       } catch (err) {
         alert('Erro: ' + err.message);

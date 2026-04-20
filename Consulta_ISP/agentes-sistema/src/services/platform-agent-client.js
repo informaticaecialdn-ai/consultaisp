@@ -79,12 +79,51 @@ function buildSystemPrompt(agentKey, context = {}) {
     if (l.id) parts.push(`ID: ${l.id}`);
     if (l.nome) parts.push(`Nome: ${l.nome}`);
     if (l.provedor) parts.push(`Provedor: ${l.provedor}`);
+    if (l.razao_social) parts.push(`Razao Social (Receita): ${l.razao_social}`);
+    if (l.cnpj) parts.push(`CNPJ: ${l.cnpj}`);
+    if (l.situacao_receita) parts.push(`Situacao Receita: ${l.situacao_receita}`);
     if (l.cidade) parts.push(`Cidade: ${l.cidade}${l.estado ? '/' + l.estado : ''}`);
     if (l.porte) parts.push(`Porte: ${l.porte}`);
     if (l.erp) parts.push(`ERP: ${l.erp}`);
     if (l.num_clientes) parts.push(`Clientes: ${l.num_clientes}`);
+    if (l.decisor) parts.push(`Decisor: ${l.decisor}`);
+    if (l.cargo) parts.push(`Cargo: ${l.cargo}`);
+    if (l.email) parts.push(`Email: ${l.email}`);
+    if (l.site) parts.push(`Site: ${l.site}`);
     if (l.score_total !== undefined) parts.push(`Score: ${l.score_total}/100 (${l.classificacao})`);
     if (l.etapa_funil) parts.push(`Etapa: ${l.etapa_funil}`);
+
+    // Dados enriquecidos (Apify + ReceitaWS)
+    try {
+      if (l.dados_receita) {
+        const dr = typeof l.dados_receita === 'string' ? JSON.parse(l.dados_receita) : l.dados_receita;
+        if (dr.abertura) parts.push(`Empresa desde: ${dr.abertura}`);
+        if (dr.atividade_principal?.[0]?.text) parts.push(`Atividade: ${dr.atividade_principal[0].text}`);
+        if (Array.isArray(dr.qsa) && dr.qsa.length) {
+          const socios = dr.qsa.slice(0, 3).map(s => `${s.nome} (${s.qual})`).join('; ');
+          parts.push(`Socios: ${socios}`);
+        }
+      }
+    } catch { /* ignore parse errors */ }
+
+    try {
+      if (l.emails_extras) {
+        const ems = typeof l.emails_extras === 'string' ? JSON.parse(l.emails_extras) : l.emails_extras;
+        if (Array.isArray(ems) && ems.length) parts.push(`Emails descobertos: ${ems.slice(0, 3).join(', ')}`);
+      }
+    } catch { /* ignore */ }
+
+    try {
+      if (l.redes_sociais) {
+        const rs = typeof l.redes_sociais === 'string' ? JSON.parse(l.redes_sociais) : l.redes_sociais;
+        const have = [];
+        if (rs.linkedin?.length) have.push('LinkedIn');
+        if (rs.instagram?.length) have.push('Instagram');
+        if (rs.facebook?.length) have.push('Facebook');
+        if (have.length) parts.push(`Redes: ${have.join(', ')}`);
+      }
+    } catch { /* ignore */ }
+
     if (l.observacoes) parts.push(`Obs: ${l.observacoes.slice(-300)}`);
     prompt += parts.join('\n');
   }

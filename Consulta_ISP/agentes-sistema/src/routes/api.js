@@ -1629,6 +1629,38 @@ router.post('/prospector/run-validation', async (req, res) => {
   }
 });
 
+// === ENRICHER (Apify contact-info-scraper + ReceitaWS) ===
+router.get('/enricher/stats', (req, res) => {
+  try {
+    const enricher = require('../services/enricher');
+    res.json(enricher.stats());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/enricher/run', async (req, res) => {
+  try {
+    const enricher = require('../services/enricher');
+    const limit = Math.min(Math.max(parseInt(req.body?.limit) || 20, 1), 100);
+    const force = !!req.body?.force;
+    const result = await enricher.enrichBatch({ limit, force });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/leads/:id/enrich-site', async (req, res) => {
+  try {
+    const enricher = require('../services/enricher');
+    const result = await enricher.enrichLead(parseInt(req.params.id));
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // === RECEITAWS (enriquecimento CNPJ) ===
 router.get('/receitaws/cnpj/:cnpj', async (req, res) => {
   try {

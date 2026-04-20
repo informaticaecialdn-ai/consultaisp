@@ -79,14 +79,46 @@ function pickCandidates(limit = BATCH_SIZE) {
 }
 
 function buildColdPrompt(lead) {
+  // Monta resumo do enrichment pra dar contexto rico ao Carlos
+  const enriched = [];
+  if (lead.razao_social) enriched.push(`Razao social: ${lead.razao_social}`);
+  if (lead.cnpj) enriched.push(`CNPJ: ${lead.cnpj}`);
+  if (lead.situacao_receita) enriched.push(`Situacao: ${lead.situacao_receita}`);
+
+  try {
+    if (lead.dados_receita) {
+      const dr = typeof lead.dados_receita === 'string' ? JSON.parse(lead.dados_receita) : lead.dados_receita;
+      if (dr.abertura) enriched.push(`Fundada em: ${dr.abertura}`);
+      if (Array.isArray(dr.qsa) && dr.qsa.length) {
+        const primeiro = dr.qsa[0];
+        enriched.push(`Decisor provavel: ${primeiro.nome} (${primeiro.qual})`);
+      }
+    }
+  } catch { /* ignore */ }
+
+  try {
+    if (lead.emails_extras) {
+      const ems = JSON.parse(lead.emails_extras);
+      if (Array.isArray(ems) && ems.length) enriched.push(`Emails oficiais: ${ems.slice(0, 2).join(', ')}`);
+    }
+  } catch { /* ignore */ }
+
+  const enrichedBlock = enriched.length
+    ? `\n\nDADOS ENRIQUECIDOS (use pra personalizar a abordagem):\n${enriched.map(e => '- ' + e).join('\n')}\n`
+    : '\n\n(Lead ainda nao enriquecido — abordagem mais generica.)\n';
+
   return `COLD OUTBOUND para lead novo (ele NUNCA conversou com a gente ainda).
 Lead: ${lead.nome || lead.provedor || 'ISP'} — ${lead.cidade || '?'}/${lead.estado || '?'}
 Site: ${lead.site || 'n/a'}
-Contexto: voce acabou de descobrir esse provedor via Google Maps. E uma primeira aproximacao.
+${enrichedBlock}
+Contexto: voce descobriu esse provedor via Google Maps e ja pegou dados da Receita
+Federal + emails/redes do site. Use isso pra personalizar — ex: "Oi, vi que a {razao social}
+esta ativa em {cidade} desde {ano}, e voce e o {decisor}..."
 
 Seu objetivo: abrir conversa de forma natural e curta pra descobrir se tem interesse.
 - Max 3 frases, tom conversacional, SEM markdown, SEM pitch agressivo
-- Mencione brevemente a proposta de valor (base colaborativa regional de inadimplencia entre ISPs)
+- Se tiver decisor identificado, chame ele pelo primeiro nome
+- Mencione brevemente a proposta de valor (base colaborativa regional de inadimplencia)
 - Termine com 1 pergunta aberta simples
 - Se a janela 24h estiver fechada (lead nunca enviou inbound), use send_whatsapp com is_template=true
 - NUNCA revele que e IA

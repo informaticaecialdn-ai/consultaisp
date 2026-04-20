@@ -13,6 +13,7 @@ const { getDb } = require('../models/database');
 const logger = require('../utils/logger');
 const apify = require('../services/apify');
 const validator = require('../services/lead-validator');
+const enricher = require('../services/enricher');
 const autoHealer = require('../services/auto-healer');
 
 const TICK_INTERVAL_MS = 5 * 60 * 1000; // checa a cada 5min se tem cron pra rodar
@@ -162,9 +163,21 @@ async function runValidation() {
     logger.info('[PROSPECTOR] iniciando validation + import');
     const val = validator.processQueue({ limit: 200 });
     const imp = validator.importApproved({ limit: 200 });
+
+    // Enrichment automatico apos import (CNPJ + emails + socials via Apify)
+    let enrichResult = { skipped: true };
+    if (imp.importados > 0 && apify.client.isConfigured()) {
+      try {
+        enrichResult = await enricher.enrichBatch({ limit: Math.min(imp.importados, 30) });
+      } catch (err) {
+        logger.warn({ err: err.message }, '[PROSPECTOR] enrichment falhou (nao-bloqueante)');
+        enrichResult = { error: err.message };
+      }
+    }
+
     lastValidationRun = new Date().toISOString();
-    logger.info({ val, imp }, '[PROSPECTOR] validation concluida');
-    return { ran: true, validation: val, import: imp };
+    logger.info({ val, imp, enrich: enrichResult }, '[PROSPECTOR] validation + enrich concluida');
+    return { ran: true, validation: val, import: imp, enrichment: enrichResult };
   } catch (err) {
     logger.error({ err: err.message }, '[PROSPECTOR] erro validation');
     return { error: err.message };
