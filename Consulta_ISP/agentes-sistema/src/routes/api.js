@@ -1526,6 +1526,40 @@ router.get('/regioes/:uf/mesorregioes/:slug', (req, res) => {
   }
 });
 
+// Breakdown por ERP — quantas ISPs prospectadas usam cada ERP
+router.get('/regioes/erp-breakdown', (req, res) => {
+  const db = getDb();
+  try {
+    const erpDetector = require('../services/erp-detector');
+    const suportados = erpDetector.listSuportados();
+    const porErp = db
+      .prepare(
+        `SELECT erp, COUNT(*) AS total,
+                SUM(CASE WHEN classificacao IN ('quente','ultra_quente') THEN 1 ELSE 0 END) AS quentes,
+                SUM(CASE WHEN etapa_funil = 'ganho' THEN 1 ELSE 0 END) AS ganhos
+         FROM leads
+         WHERE erp IS NOT NULL AND erp != ''
+         GROUP BY erp ORDER BY total DESC`
+      )
+      .all();
+    const totalComErp = porErp.reduce((s, x) => s + (x.total || 0), 0);
+    const totalSemErp = db
+      .prepare(
+        "SELECT COUNT(*) AS c FROM leads WHERE origem = 'prospector_auto' AND (erp IS NULL OR erp = '')"
+      )
+      .get().c;
+
+    res.json({
+      por_erp: porErp,
+      total_com_erp: totalComErp,
+      total_sem_erp: totalSemErp,
+      erps_suportados: suportados
+    });
+  } catch (err) {
+    res.json({ por_erp: [], total_com_erp: 0, total_sem_erp: 0, erps_suportados: [], _error: err.message });
+  }
+});
+
 // Cobertura por mesorregiao — quantas leads ja prospectadas por regiao
 router.get('/regioes/cobertura', (req, res) => {
   try {

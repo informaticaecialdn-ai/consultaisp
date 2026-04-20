@@ -14,6 +14,7 @@ const { getDb } = require('../models/database');
 const logger = require('../utils/logger');
 const apify = require('./apify');
 const receitaws = require('./receitaws');
+const erpDetector = require('./erp-detector');
 
 const APIFY_ACTOR = 'apify/contact-info-scraper';
 const DEFAULT_BATCH_SIZE = 20;
@@ -92,12 +93,13 @@ function matchItemToLead(item, leads) {
   return null;
 }
 
-async function persistEnrichment(leadId, extracted, receitaRaw, source) {
+async function persistEnrichment(leadId, extracted, receitaRaw, source, erpDetection) {
   const db = getDb();
-  const lead = db.prepare('SELECT email, cnpj FROM leads WHERE id = ?').get(leadId);
+  const lead = db.prepare('SELECT email, cnpj, erp FROM leads WHERE id = ?').get(leadId);
   if (!lead) return false;
 
   const receitaSum = receitaRaw ? receitaws.summarize(receitaRaw) : null;
+  const erpSlug = erpDetection?.erp || null;
 
   db.prepare(`
     UPDATE leads SET
@@ -110,6 +112,7 @@ async function persistEnrichment(leadId, extracted, receitaRaw, source) {
       emails_extras = ?,
       telefones_extras = ?,
       redes_sociais = ?,
+      erp = COALESCE(erp, ?),
       enriched_at = CURRENT_TIMESTAMP,
       enrich_source = ?,
       enrich_erro = NULL,
@@ -126,6 +129,7 @@ async function persistEnrichment(leadId, extracted, receitaRaw, source) {
     JSON.stringify(extracted.emails),
     JSON.stringify(extracted.phones),
     JSON.stringify(extracted.socials),
+    erpSlug,
     source || 'apify_contact_info',
     leadId
   );
@@ -223,7 +227,8 @@ async function enrichBatch({ limit = DEFAULT_BATCH_SIZE, leadIds = null, force =
   let enriched = 0,
     noData = 0,
     cnpjFound = 0,
-    receitaOk = 0;
+    receitaOk = 0,
+    erpDetected = 0;
 
   const processedLeadIds = new Set();
 
@@ -234,6 +239,16 @@ async function enrichBatch({ limit = DEFAULT_BATCH_SIZE, leadIds = null, force =
     processedLeadIds.add(lead.id);
 
     const extracted = extractFromItem(item);
+
+    // Detecta ERP no conteudo do site
+    const erpDetection = erpDetector.detectFromApifyItem(item);
+    if (erpDetection) {
+      erpDetected++;
+      logger.info(
+        { lead_id: lead.id, erp: erpDetection.erp, confidence: erpDetection.confidence },
+        '[ENRICHER] ERP detectado'
+      );
+    }
 
     // Se tem CNPJ, enriquece tambem via Receita
     let receitaRaw = null;
@@ -255,10 +270,11 @@ async function enrichBatch({ limit = DEFAULT_BATCH_SIZE, leadIds = null, force =
       extracted.cnpj ||
       extracted.emails.length > 0 ||
       extracted.phones.length > 0 ||
-      Object.values(extracted.socials).some(arr => arr.length > 0);
+      Object.values(extracted.socials).some(arr => arr.length > 0) ||
+      erpDetection;
 
     if (hasAnyData || receitaRaw) {
-      await persistEnrichment(lead.id, extracted, receitaRaw, 'apify_contact_info');
+      await persistEnrichment(lead.id, extracted, receitaRaw, 'apify_contact_info', erpDetection);
       enriched++;
     } else {
       markAttempted(lead.id, 'empty_result');
@@ -280,6 +296,7 @@ async function enrichBatch({ limit = DEFAULT_BATCH_SIZE, leadIds = null, force =
     no_data: noData,
     cnpj_found: cnpjFound,
     receita_ok: receitaOk,
+    erp_detected: erpDetected,
     unique_urls: startUrls.length,
     items_from_apify: items.length
   };
@@ -323,16 +340,30 @@ function stats() {
       )
       .get().c;
 
+    const comErp = db
+      .prepare(
+        "SELECT COUNT(*) AS c FROM leads WHERE origem = 'prospector_auto' AND erp IS NOT NULL AND erp != ''"
+      )
+      .get().c;
+
+    const porErp = db
+      .prepare(
+        "SELECT erp, COUNT(*) AS c FROM leads WHERE origem = 'prospector_auto' AND erp IS NOT NULL AND erp != '' GROUP BY erp ORDER BY c DESC"
+      )
+      .all();
+
     return {
       total,
       enriched,
       pending,
       com_cnpj: comCnpj,
       com_email: comEmail,
+      com_erp: comErp,
+      por_erp: porErp,
       enriched_pct: total ? Math.round((enriched / total) * 100) : 0
     };
   } catch {
-    return { _migration_pending: true, total: 0, enriched: 0, pending: 0, com_cnpj: 0, com_email: 0, enriched_pct: 0 };
+    return { _migration_pending: true, total: 0, enriched: 0, pending: 0, com_cnpj: 0, com_email: 0, com_erp: 0, por_erp: [], enriched_pct: 0 };
   }
 }
 

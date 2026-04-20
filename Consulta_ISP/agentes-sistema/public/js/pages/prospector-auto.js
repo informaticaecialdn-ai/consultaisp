@@ -26,18 +26,20 @@
     if (typeof api !== 'function') return;
 
     try {
-      const [cfg, stats, out, enrich, cobertura] = await Promise.all([
+      const [cfg, stats, out, enrich, cobertura, erpBreakdown] = await Promise.all([
         api('/prospector/config').catch(() => null),
         api('/prospector/stats').catch(() => null),
         api('/outbound/stats').catch(() => null),
         api('/enricher/stats').catch(() => null),
-        api('/regioes/cobertura').catch(() => null)
+        api('/regioes/cobertura').catch(() => null),
+        api('/regioes/erp-breakdown').catch(() => null)
       ]);
       state.cfg = cfg;
       state.stats = stats;
       state.out = out;
       state.enrich = enrich;
       state.cobertura = cobertura;
+      state.erpBreakdown = erpBreakdown;
       if (!state.pickerSelecionadas.length && cfg?.mesorregioes?.length) {
         state.pickerSelecionadas = cfg.mesorregioes.slice();
       }
@@ -65,9 +67,88 @@
       ${renderStatsRow({ pipe, out, outboundStatus, budgetRemaining, queueByStatus })}
       ${renderEnrichRow(enrich, enrichedPct, enrichColor)}
       ${state.editMode ? renderRegionPicker() : renderConfigView(cfg)}
+      ${renderErpBreakdown()}
       ${renderCoberturaTable()}
       ${renderRecentRuns(pipe.runs_recentes || [])}
     `;
+  }
+
+  function renderErpBreakdown() {
+    const data = state.erpBreakdown;
+    if (!data) return '';
+    const porErp = data.por_erp || [];
+    const suportados = data.erps_suportados || [];
+    const semErp = data.total_sem_erp || 0;
+    const comErp = data.total_com_erp || 0;
+
+    if (porErp.length === 0 && semErp === 0) return '';
+
+    const erpLabels = {};
+    for (const s of suportados) erpLabels[s.slug] = s.label;
+
+    const rows = porErp.map(r => {
+      const label = erpLabels[r.erp] || r.erp;
+      const pct = comErp ? Math.round((r.total / comErp) * 100) : 0;
+      return `
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:8px 10px"><strong>${esc(label)}</strong> <span style="color:var(--muted);font-size:.7rem">${esc(r.erp)}</span></td>
+          <td style="padding:8px 10px;text-align:right"><strong>${r.total}</strong></td>
+          <td style="padding:8px 10px;text-align:right;color:${r.quentes > 0 ? 'var(--green)' : 'var(--muted)'}">${r.quentes}</td>
+          <td style="padding:8px 10px;text-align:right;color:${r.ganhos > 0 ? 'var(--green)' : 'var(--muted)'}">${r.ganhos}</td>
+          <td style="padding:8px 10px;text-align:right">
+            <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px">
+              <div style="width:60px;height:5px;background:var(--border-warm);border-radius:3px;overflow:hidden">
+                <div style="width:${pct}%;height:100%;background:var(--terracotta)"></div>
+              </div>
+              <span style="font-size:.72rem;color:var(--muted);min-width:30px">${pct}%</span>
+            </div>
+          </td>
+        </tr>`;
+    }).join('');
+
+    const total = comErp + semErp;
+    const pctDetectado = total ? Math.round((comErp / total) * 100) : 0;
+
+    return `
+      <div class="panel" style="margin-bottom:18px">
+        <div class="panel-header">
+          <h2>ERPs detectados nos leads</h2>
+          <span style="color:var(--muted);font-size:.78rem">${pctDetectado}% dos prospects ja identificados</span>
+        </div>
+        <div class="panel-body">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:14px">
+            <div style="padding:10px 14px;background:var(--bg2);border-radius:8px;border:1px solid var(--border)">
+              <div style="font-size:.72rem;color:var(--muted);text-transform:uppercase">Com ERP</div>
+              <div style="font-size:1.4rem;font-weight:600;color:var(--green)">${comErp}</div>
+            </div>
+            <div style="padding:10px 14px;background:var(--bg2);border-radius:8px;border:1px solid var(--border)">
+              <div style="font-size:.72rem;color:var(--muted);text-transform:uppercase">Sem ERP (Carlos pergunta)</div>
+              <div style="font-size:1.4rem;font-weight:600;color:var(--muted)">${semErp}</div>
+            </div>
+            <div style="padding:10px 14px;background:var(--bg2);border-radius:8px;border:1px solid var(--border)">
+              <div style="font-size:.72rem;color:var(--muted);text-transform:uppercase">Suportados</div>
+              <div style="font-size:1.4rem;font-weight:600;color:var(--terracotta)">${suportados.length}</div>
+            </div>
+          </div>
+          ${porErp.length ? `
+            <table style="width:100%;border-collapse:collapse;font-size:.85rem">
+              <thead>
+                <tr style="border-bottom:1px solid var(--border)">
+                  <th style="text-align:left;padding:8px 10px">ERP</th>
+                  <th style="text-align:right;padding:8px 10px">Leads</th>
+                  <th style="text-align:right;padding:8px 10px">Quentes</th>
+                  <th style="text-align:right;padding:8px 10px">Ganhos</th>
+                  <th style="text-align:right;padding:8px 10px">% do total</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          ` : '<div style="color:var(--muted);text-align:center;padding:10px">nenhum ERP detectado ainda — rode enrichment pra popular</div>'}
+          <div style="margin-top:10px;font-size:.72rem;color:var(--muted)">
+            Suportados: ${suportados.map(s => esc(s.label)).join(', ')}. Outros ERPs podem ser cadastrados manualmente pelo Carlos via tool <code>enrich_lead</code>.
+          </div>
+        </div>
+      </div>`;
   }
 
   // --- BARRA DE AÇÕES (topo, destacada) ---

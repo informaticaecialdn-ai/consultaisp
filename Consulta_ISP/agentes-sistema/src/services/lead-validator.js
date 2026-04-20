@@ -15,6 +15,10 @@ const { normalizePhoneBR } = require('./lead-importer');
 const logger = require('../utils/logger');
 const regioes = require('./regioes');
 
+// Keywords que indicam FORA DO ICP (substring match case-insensitive).
+// Usadas como filtro grosso. Patterns mais especificos (regex) estao em
+// OPERADORA_PATTERNS abaixo — aqueles sao os criticos pra filtrar revendas
+// de operadora nacional (Vivo/Claro/TIM/Oi), que NAO sao nosso publico.
 const BLACKLIST_KEYWORDS = [
   'clinica',
   'igreja',
@@ -26,6 +30,59 @@ const BLACKLIST_KEYWORDS = [
   'academia',
   'barbearia'
 ];
+
+// Patterns REGEX (case-insensitive) que identificam revendas/autorizadas de
+// grandes operadoras nacionais. ISP regional usa esses nomes as vezes no
+// nome fantasia, mas a combinacao com palavras como "autorizada" ou "fibra"
+// indica revenda — nao sao ISPs proprios.
+const OPERADORA_PATTERNS = [
+  // Vivo
+  /\bvivo\s+fibra\b/i,
+  /\bvivo\s+autoriz/i,
+  /\bvivo\s+loja\b/i,
+  /\bloja\s+vivo\b/i,
+  /\brevenda\s+vivo\b/i,
+  /\bautoriz(ada|ado)\s+vivo\b/i,
+  // TIM
+  /\btim\s+live\b/i,
+  /\btim\s+fibra\b/i,
+  /\btim\s+loja\b/i,
+  /\bloja\s+tim\b/i,
+  /\brevenda\s+tim\b/i,
+  /\bautoriz(ada|ado)\s+tim\b/i,
+  // Claro/Net (cuidado — "claro" sozinho e ambiguo)
+  /\bclaro\s+net\b/i,
+  /\bclaro\s+fibra\b/i,
+  /\bclaro\s+residencial\b/i,
+  /\bnet\s+claro\b/i,
+  /\bloja\s+claro\b/i,
+  /\brevenda\s+claro\b/i,
+  /\bautoriz(ada|ado)\s+claro\b/i,
+  // Oi
+  /\boi\s+fibra\b/i,
+  /\boi\s+fibrax\b/i,
+  /\bloja\s+oi\b/i,
+  /\brevenda\s+oi\b/i,
+  /\bautoriz(ada|ado)\s+oi\b/i,
+  // Algar (operadora regional grande)
+  /\balgar\s+telecom\b/i,
+  // Genericos
+  /\brevendedor(a)?\b/i,
+  /\brevenda\s+autoriz/i,
+  /\bponto\s+de\s+venda\b/i,
+  /\bloja\s+autoriz/i,
+  // Multimarcas (revendem varias operadoras — nao tem base propria)
+  /\bmultimarca(s)?\b/i
+];
+
+function isRevendaOperadora(nome) {
+  if (!nome) return { hit: false };
+  const s = String(nome);
+  for (const pat of OPERADORA_PATTERNS) {
+    if (pat.test(s)) return { hit: true, pattern: pat.source };
+  }
+  return { hit: false };
+}
 
 // DDDs brasileiros validos (lista oficial ANATEL)
 const DDDS_VALIDOS = new Set([
@@ -135,7 +192,7 @@ function validate(raw) {
     };
   }
 
-  // 3. Blacklist (falsos positivos: igreja, clinica, etc.)
+  // 3a. Blacklist (falsos positivos: igreja, clinica, etc.)
   const bl = blacklistCheck(nome);
   if (bl.hit) {
     flags.push('fora_icp');
@@ -143,6 +200,23 @@ function validate(raw) {
     return {
       approved: false,
       score: 0.1,
+      flags,
+      reasons,
+      phone: phoneCheck.phone,
+      nome,
+      email,
+      site
+    };
+  }
+
+  // 3b. Revenda de operadora (Vivo/TIM/Claro/Oi autorizadas) = NAO e ISP regional
+  const rev = isRevendaOperadora(nome);
+  if (rev.hit) {
+    flags.push('revenda_operadora');
+    reasons.push(`rejeitado: revenda de operadora (pattern ${rev.pattern})`);
+    return {
+      approved: false,
+      score: 0,
       flags,
       reasons,
       phone: phoneCheck.phone,
@@ -435,5 +509,7 @@ module.exports = {
   enqueueBatch,
   stats,
   validatePhone,
-  isDuplicateLead
+  isDuplicateLead,
+  isRevendaOperadora,
+  OPERADORA_PATTERNS
 };

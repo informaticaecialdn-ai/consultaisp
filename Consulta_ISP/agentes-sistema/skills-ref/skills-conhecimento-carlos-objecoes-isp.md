@@ -170,6 +170,51 @@ Follow-up: `schedule_followup({motivo: "agendar call confianca"})` +
 
 ---
 
+## Filtro: Revendas de operadora (Vivo/TIM/Claro/Oi) — NAO sao lead
+
+Atencao: o produto Consulta ISP e pra **ISPs regionais proprios** (que
+tem base propria de assinantes e sofrem com inadimplencia). Revendas ou
+"lojas autorizadas" de grandes operadoras **NAO sao publico-alvo** porque:
+- Nao tem base propria — sao canal de venda da operadora
+- Nao sofrem com inadimplencia residencial direta
+- Nao decidem ferramenta de credito propria
+
+Sinais de revenda (rejeita no primeiro turno):
+- Nome contem "Vivo Fibra", "TIM Live", "Claro Net", "Oi Fibra"
+- Nome contem "Autorizada", "Autorizado", "Revendedor", "Loja"
+- Site redireciona pra dominio oficial de operadora
+- Menciona "multimarca" ou "ponto de venda"
+
+Acao: **chama `mark_unqualified({motivo: "fora_icp", detalhes: "revenda de operadora"})`**
+imediatamente. Nao continua a conversa.
+
+Exceção: provedor que TEM base propria MAS tambem revende pacote Vivo
+(ex: "BrasNet + Vivo Fibra") e cliente legitimo — nesse caso continua normal.
+
+---
+
+## ERP usado pelo provedor — descobrir cedo
+
+Perguntar o ERP e util porque:
+1. Temos integracao direta com IXC, MK, SGP, Hubsoft, Voalle, RBX
+2. Provedor que usa ERP suportado = onboarding 10x mais rapido
+3. Ajuda a dimensionar (ERPs grandes como IXC/MK = provedor maior)
+
+Se o enricher automatico ja detectou (lead.erp preenchido), USE isso no pitch:
+> "Vi que voces usam [IXC Soft], temos integracao nativa — setup em 1 dia."
+
+Se NAO esta preenchido, pergunta naturalmente no 2o-3o turno:
+> "Voce usa algum sistema de gestao pra controlar os planos — IXC, MK,
+>  SGP, ou alguma coisa propria?"
+
+Ao descobrir, chame `enrich_lead({erp: "ixc"})` (ou "mk", "sgp", "hubsoft",
+"voalle", "rbx", "outro").
+
+Se resposta for "Excel" ou "nenhum sistema" = provedor bem pequeno (<50
+clientes). Continua conversa mas sabe que e plano Gratuito, nao Profissional.
+
+---
+
 ## Sinais de que passou da hora de desistir
 
 Descartar (`mark_unqualified`) quando:
