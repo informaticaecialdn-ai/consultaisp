@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fluxogramas dos Agentes — Consulta ISP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:opsz,wght@6..72,500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js"></script>
+<style>
+:root {
+  --bg: #f5f4ed;
+  --bg2: #faf9f5;
+  --card: #ffffff;
+  --border: #f0eee6;
+  --border-warm: #e8e6dc;
+  --text: #141413;
+  --text-sec: #4d4c48;
+  --muted: #5e5d59;
+  --terracotta: #c96442;
+  --green: #5b7c5e;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+.container { max-width: 1200px; margin: 0 auto; padding: 40px 24px 80px; }
+header { border-bottom: 1px solid var(--border-warm); padding-bottom: 24px; margin-bottom: 40px; }
+h1 {
+  font-family: 'Newsreader', Georgia, serif;
+  font-size: 2.5rem;
+  font-weight: 500;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+.subtitle { color: var(--muted); margin-top: 6px; font-size: 1rem; }
+.legend {
+  display: flex; gap: 24px; flex-wrap: wrap;
+  margin-top: 20px; padding: 14px 18px;
+  background: var(--bg2); border-radius: 10px;
+  border: 1px solid var(--border);
+  font-size: .85rem;
+}
+.legend-item { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+nav {
+  position: sticky; top: 0;
+  background: var(--bg);
+  padding: 16px 0; margin: 0 -24px 30px;
+  padding-left: 24px; padding-right: 24px;
+  border-bottom: 1px solid var(--border-warm);
+  z-index: 10;
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+nav a {
+  padding: 6px 14px;
+  background: var(--card);
+  border: 1px solid var(--border-warm);
+  border-radius: 9999px;
+  text-decoration: none;
+  color: var(--text-sec);
+  font-size: .82rem;
+  font-weight: 500;
+  transition: all .2s;
+}
+nav a:hover { background: var(--terracotta); color: #faf9f5; border-color: var(--terracotta); }
+
+section {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 32px;
+  margin-bottom: 28px;
+  box-shadow: 0 0 0 1px var(--border-warm), rgba(0,0,0,0.04) 0px 2px 8px;
+}
+h2 {
+  font-family: 'Newsreader', Georgia, serif;
+  font-size: 1.6rem;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.section-desc { color: var(--muted); margin-bottom: 24px; font-size: .95rem; }
+.mermaid {
+  background: var(--bg2);
+  border-radius: 10px;
+  padding: 24px;
+  text-align: center;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+}
+.note {
+  margin-top: 18px;
+  padding: 14px 16px;
+  background: rgba(201, 100, 66, 0.05);
+  border-left: 3px solid var(--terracotta);
+  border-radius: 6px;
+  font-size: .88rem;
+  color: var(--text-sec);
+}
+.note strong { color: var(--text); }
+footer { text-align: center; color: var(--muted); font-size: .8rem; margin-top: 40px; }
+code {
+  font-family: 'JetBrains Mono', Menlo, monospace;
+  font-size: .82rem;
+  background: var(--bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-warm);
+}
+@media print {
+  nav { display: none; }
+  section { page-break-inside: avoid; box-shadow: none; border: 1px solid #ccc; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>Fluxogramas dos Agentes</h1>
+  <p class="subtitle">Como os 7 agentes IA do Consulta ISP se comportam, decidem e se coordenam.</p>
+  <div class="legend">
+    <div class="legend-item"><span class="legend-dot" style="background:#c96442"></span>Comercial (Carlos, Lucas, Rafael)</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#5b7c5e"></span>Marketing (Sofia, Leo, Marcos)</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#4d4c48"></span>Supervisao (Iani)</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#b8923a"></span>Sistema/Worker</div>
+  </div>
+</header>
+
+<nav>
+  <a href="#mapa">1. Mapa dos agentes</a>
+  <a href="#pipeline">2. Pipeline E2E</a>
+  <a href="#handoffs">3. Handoffs por score</a>
+  <a href="#inbound">4. Inbound WhatsApp</a>
+  <a href="#iani">5. Iani supervisora</a>
+  <a href="#autoheal">6. Auto-healer</a>
+  <a href="#carlos">7. Decisao Carlos</a>
+</nav>
+
+<!-- 1. MAPA DOS AGENTES -->
+<section id="mapa">
+  <h2>1. Mapa dos agentes</h2>
+  <p class="section-desc">Quem e quem, qual modelo, qual papel no time.</p>
+  <div class="mermaid">
+graph TB
+    OP["fa:fa-user Operador humano<br/><i>(voce)</i>"]:::human
+
+    IANI["<b>IANI</b><br/>Gerente de Operacoes<br/>Opus 4.7<br/><i>cron 1h, supervisiona</i>"]:::supervisor
+
+    SOFIA["<b>SOFIA</b><br/>Marketing<br/>Opus 4.7<br/><i>estrategia, ICP</i>"]:::marketing
+    LEO["<b>LEO</b><br/>Copywriter<br/>Opus 4.7<br/><i>copy, headlines</i>"]:::marketing
+    MARCOS["<b>MARCOS</b><br/>Midia Paga<br/>Opus 4.7<br/><i>Meta/Google Ads</i>"]:::marketing
+
+    CARLOS["<b>CARLOS</b><br/>SDR / Pre-Vendas<br/>Sonnet 4.6<br/><i>qualifica BANT</i>"]:::comercial
+    LUCAS["<b>LUCAS</b><br/>Vendas<br/>Opus 4.7<br/><i>proposta, ROI</i>"]:::comercial
+    RAFAEL["<b>RAFAEL</b><br/>Closer<br/>Opus 4.7<br/><i>fechamento</i>"]:::comercial
+
+    OP -.->|recebe relatorios<br/>+alertas criticos| IANI
+    IANI -->|delega| SOFIA
+    IANI -->|delega| LEO
+    IANI -->|delega| MARCOS
+    IANI -->|monitora| CARLOS
+    IANI -->|monitora| LUCAS
+    IANI -->|monitora| RAFAEL
+
+    SOFIA <-->|pede copy| LEO
+    LEO -->|copy pronta| MARCOS
+
+    CARLOS -->|score 61+| LUCAS
+    LUCAS -->|score 81+| RAFAEL
+    CARLOS -.->|score < 31<br/>nurturing| SOFIA
+    LUCAS -.->|frio| SOFIA
+
+    classDef supervisor fill:#4d4c48,stroke:#141413,color:#faf9f5,stroke-width:2px
+    classDef marketing fill:#788c5d,stroke:#5b7c5e,color:#faf9f5,stroke-width:2px
+    classDef comercial fill:#c96442,stroke:#b85531,color:#faf9f5,stroke-width:2px
+    classDef human fill:#faf9f5,stroke:#4d4c48,color:#141413,stroke-width:2px,stroke-dasharray: 4 4
+  </div>
+  <div class="note">
+    <strong>Como ler:</strong> setas cheias = acao direta; setas pontilhadas = excepcional/raro.
+    Operador (voce) so recebe relatorios da Iani — nao conversa com os agentes individualmente.
+  </div>
+</section>
+
+<!-- 2. PIPELINE E2E -->
+<section id="pipeline">
+  <h2>2. Pipeline E2E — do descobrimento ao fechamento</h2>
+  <p class="section-desc">Jornada do lead pelo sistema. Tudo automatico nos caminhos principais.</p>
+  <div class="mermaid">
+flowchart TD
+    START([Inicio]):::start
+    PROSPECT["<b>Prospector Worker</b><br/>cron seg/qua/sex 8h<br/>Apify Google Maps"]:::worker
+    PENDING[("leads_pending<br/><i>status=pending</i>")]:::db
+    VALIDATOR["<b>Lead Validator</b><br/>DDD BR, blacklist,<br/>rating, dedup<br/>score 0-1"]:::worker
+    REJECT{{"rejected<br/>(frio ou invalido)"}}:::reject
+    LEADS[("leads<br/><i>origem=prospector_auto</i>")]:::db
+    OUTBOUND["<b>Outbound Worker</b><br/>cron 2h 9-17h BR<br/>max 30/dia por agente"]:::worker
+    CARLOS["<b>CARLOS</b><br/>cold WhatsApp<br/>tools: send_whatsapp,<br/>check_consent, lookup_cnpj"]:::comercial
+    RESP{Lead responde?}:::decision
+    BANT["<b>CARLOS qualifica</b><br/>tools: enrich_lead,<br/>mark_qualified<br/>skill: BANT framework"]:::comercial
+    SCORE{Score?}:::decision
+    SOFIA_NUR["<b>SOFIA</b><br/>nurturing 30-90d<br/>re-engaja futuro"]:::marketing
+    LUCAS["<b>LUCAS</b><br/>apresenta produto<br/>tool: create_proposal<br/>skill: ROI calculator"]:::comercial
+    RAFAEL["<b>RAFAEL</b><br/>negociacao final<br/>tools: mark_closed_won /<br/>mark_closed_lost"]:::comercial
+    WON([Contrato fechado<br/><b>CLOSED WON</b>]):::won
+    LOST([Perdido<br/>motivo registrado]):::lost
+
+    START --> PROSPECT --> PENDING --> VALIDATOR
+    VALIDATOR -->|score < 0.45| REJECT
+    VALIDATOR -->|score >= 0.45| LEADS
+    LEADS --> OUTBOUND --> CARLOS
+    CARLOS --> RESP
+    RESP -->|nao em 48h| RESP2{"2 tentativas<br/>exauridas?"}:::decision
+    RESP2 -->|sim| SOFIA_NUR
+    RESP2 -->|nao| CARLOS
+    RESP -->|sim| BANT
+    BANT --> SCORE
+    SCORE -->|< 31| SOFIA_NUR
+    SCORE -->|31-60| BANT
+    SCORE -->|61-80| LUCAS
+    SCORE -->|81+| RAFAEL
+    LUCAS -->|lead aceita| RAFAEL
+    LUCAS -->|lead recusa| LOST
+    RAFAEL --> WON
+    RAFAEL --> LOST
+
+    classDef start fill:#b8923a,stroke:#8a6d2a,color:#faf9f5
+    classDef worker fill:#e8dcc2,stroke:#b8923a,color:#141413
+    classDef db fill:#d1d5db,stroke:#6b7280,color:#141413
+    classDef comercial fill:#c96442,stroke:#b85531,color:#faf9f5
+    classDef marketing fill:#788c5d,stroke:#5b7c5e,color:#faf9f5
+    classDef decision fill:#faf9f5,stroke:#4d4c48,color:#141413
+    classDef reject fill:#e8d5d1,stroke:#b53333,color:#141413
+    classDef won fill:#5b7c5e,stroke:#3d5a40,color:#faf9f5
+    classDef lost fill:#b53333,stroke:#8a2828,color:#faf9f5
+  </div>
+  <div class="note">
+    <strong>Intervencao humana:</strong> em teoria nenhuma — operador so entra se Iani sinalizar
+    excecao via <code>notify_operator</code>. Na pratica, pode revisar propostas geradas quando
+    <code>AUTO_SEND_PROPOSAL=false</code>.
+  </div>
+</section>
+
+<!-- 3. HANDOFFS -->
+<section id="handoffs">
+  <h2>3. Handoffs por score</h2>
+  <p class="section-desc">Regras automaticas de roteamento. Quanto maior o score, mais avancado no funil.</p>
+  <div class="mermaid">
+flowchart LR
+    LEAD["<b>Lead</b><br/>score inicial 0"]:::neutral
+    CARLOS["<b>CARLOS</b><br/>qualifica"]:::comercial
+
+    S1{Score?}:::decision
+
+    FRIO["<b>Score &lt; 31</b><br/>Sofia nurturing"]:::marketing
+    MORNO["<b>Score 31-60</b><br/>Carlos continua"]:::comercial
+    QUENTE["<b>Score 61-80</b><br/>Lucas"]:::comercial
+    ULTRA["<b>Score 81+</b><br/>Rafael"]:::comercial
+
+    LEAD --> CARLOS --> S1
+    S1 -->|frio| FRIO
+    S1 -->|morno| MORNO
+    S1 -->|quente| QUENTE
+    S1 -->|ultra quente| ULTRA
+
+    MORNO -.->|volta pra qualif.| CARLOS
+    FRIO -.->|apos 30-90d| CARLOS
+
+    QUENTE -->|score cruza 81| ULTRA
+
+    classDef comercial fill:#c96442,stroke:#b85531,color:#faf9f5
+    classDef marketing fill:#788c5d,stroke:#5b7c5e,color:#faf9f5
+    classDef decision fill:#faf9f5,stroke:#4d4c48,color:#141413
+    classDef neutral fill:#e8e6dc,stroke:#5e5d59,color:#141413
+  </div>
+  <div class="note">
+    <strong>Handoffs automaticos</strong> acontecem no <code>orchestrator.js</code> apos
+    cada mensagem — se score cruzou threshold, move sozinho.<br>
+    <strong>Handoffs explicitos</strong> acontecem quando o agente decide chamar
+    <code>handoff_to_agent({to, reason})</code> — mais contextual, inclui resumo BANT.
+  </div>
+</section>
+
+<!-- 4. INBOUND -->
+<section id="inbound">
+  <h2>4. Inbound — WhatsApp chegando</h2>
+  <p class="section-desc">O caminho que uma mensagem recebida percorre.</p>
+  <div class="mermaid">
+flowchart TD
+    MSG(["Lead envia<br/>WhatsApp"]):::start
+    WH["Z-API webhook<br/>POST /webhook/zapi"]:::worker
+    HMAC{Valida HMAC?}:::decision
+    OPT{"E opt-out?<br/>(STOP, SAIR...)"}:::decision
+    MARK_OUT["markOptOut<br/>+ return 200"]:::reject
+    MARK_IN["markOptIn automatico<br/>+ registra conversa"]:::worker
+    FOLLOW["cancelFollowups<br/>+ recordResponse A/B"]:::worker
+    FLAG{"USE_TOOL_CALLING_<br/>AGENTS?"}:::decision
+    PLATFORM["<b>platform-agent-client</b><br/>loop tool_use<br/>+ persiste em<br/>agent_tool_calls"]:::comercial
+    LEGACY["<b>claude.analyzeAndDecide</b><br/>(JSON legado)"]:::comercial
+    ACTIONS["Pos-processamento:<br/>- handoff por score<br/>- proxima acao<br/>- agendar followup<br/>- evaluate resposta"]:::worker
+
+    MSG --> WH
+    WH --> HMAC
+    HMAC -->|invalido| REJ["401 Unauthorized"]:::reject
+    HMAC -->|ok| OPT
+    OPT -->|sim| MARK_OUT
+    OPT -->|nao| MARK_IN
+    MARK_IN --> FOLLOW
+    FOLLOW --> FLAG
+    FLAG -->|true| PLATFORM
+    FLAG -->|false| LEGACY
+    PLATFORM --> ACTIONS
+    LEGACY --> ACTIONS
+
+    classDef start fill:#b8923a,stroke:#8a6d2a,color:#faf9f5
+    classDef worker fill:#e8dcc2,stroke:#b8923a,color:#141413
+    classDef comercial fill:#c96442,stroke:#b85531,color:#faf9f5
+    classDef decision fill:#faf9f5,stroke:#4d4c48,color:#141413
+    classDef reject fill:#e8d5d1,stroke:#b53333,color:#141413
+  </div>
+</section>
+
+<!-- 5. IANI -->
+<section id="iani">
+  <h2>5. Iani supervisora — ciclo de 1 hora</h2>
+  <p class="section-desc">O que Iani faz a cada hora, sem ninguem pedir.</p>
+  <div class="mermaid">
+flowchart TD
+    TICK(["Cron dispara<br/>a cada 1h"]):::start
+    KILL{"kill_switch<br/>ativo?"}:::decision
+    FLAG{"USE_TOOL_<br/>CALLING_<br/>AGENTS?"}:::decision
+    SNAP["<b>buildSnapshot()</b><br/>- leads por etapa<br/>- parados &gt; 7d<br/>- erros unresolved<br/>- custo hoje<br/>- mensagens hoje"]:::worker
+    INVOKE["<b>IANI Platform Agent</b><br/>Opus 4.7<br/>recebe snapshot + prompt"]:::supervisor
+
+    DECIDE{Iani decide}:::decision
+
+    REASSIGN["<b>reassign_stuck_leads</b><br/>leads &gt; 7d parados<br/>volta pra Sofia nurturing"]:::tool
+    NOTIFY["<b>notify_operator</b><br/>severidade: warn|critical<br/>webhook + errors_log"]:::tool
+    PAUSE["<b>pause_campaign</b><br/>se taxa falha &gt; 30%"]:::tool
+    HANDOFF["<b>handoff_to_agent</b><br/>realoca leads<br/>mal-atribuidos"]:::tool
+    NADA(["tudo ok<br/>volta dormir"]):::neutral
+
+    LOG["Log em<br/>agent_tool_calls"]:::db
+
+    TICK --> KILL
+    KILL -->|sim| END1["skip"]:::reject
+    KILL -->|nao| FLAG
+    FLAG -->|false| END2["skip"]:::reject
+    FLAG -->|true| SNAP
+    SNAP --> INVOKE --> DECIDE
+    DECIDE --> REASSIGN
+    DECIDE --> NOTIFY
+    DECIDE --> PAUSE
+    DECIDE --> HANDOFF
+    DECIDE --> NADA
+    REASSIGN --> LOG
+    NOTIFY --> LOG
+    PAUSE --> LOG
+    HANDOFF --> LOG
+
+    classDef start fill:#b8923a,stroke:#8a6d2a,color:#faf9f5
+    classDef worker fill:#e8dcc2,stroke:#b8923a,color:#141413
+    classDef supervisor fill:#4d4c48,stroke:#141413,color:#faf9f5
+    classDef tool fill:#a64d28,stroke:#8a3a1e,color:#faf9f5
+    classDef decision fill:#faf9f5,stroke:#4d4c48,color:#141413
+    classDef reject fill:#e8d5d1,stroke:#b53333,color:#141413
+    classDef neutral fill:#e8e6dc,stroke:#5e5d59,color:#141413
+    classDef db fill:#d1d5db,stroke:#6b7280,color:#141413
+  </div>
+  <div class="note">
+    <strong>Quando a Iani te avisa:</strong> apos <code>notify_operator</code> com
+    severity=warn ou critical — voce recebe via webhook (Discord/Slack) ou ve em
+    <code>/api/errors</code>. Anomalias tipicas: custo estourado, Z-API down,
+    taxa de erro alta, lead critico parado.
+  </div>
+</section>
+
+<!-- 6. AUTO-HEALER -->
+<section id="autoheal">
+  <h2>6. Auto-healer — protecao automatica</h2>
+  <p class="section-desc">Sistema detecta problemas e se pausa sozinho antes de gerar prejuizo.</p>
+  <div class="mermaid">
+flowchart LR
+    TICK(["Cron 5min"]):::start
+
+    C1{"Custo Claude<br/>hoje &gt; $50?"}:::decision
+    C2{"Z-API down<br/>&gt; 30 min?"}:::decision
+    C3{"Taxa erro<br/>1h &gt; 5%?"}:::decision
+
+    K1["setKill('outbound')<br/>setKill('supervisor')"]:::tool
+    K2["setKill('outbound')"]:::tool
+    K3["setKill('outbound')"]:::tool
+
+    DB[("system_flags<br/>(cross-process)")]:::db
+
+    WORKER["Workers no proximo tick<br/>consultam isKilled()<br/>e fazem skip"]:::worker
+
+    OPERATOR["<b>Operador ve</b><br/>pagina /autonomia<br/>pode fazer<br/>Clear ALL"]:::human
+
+    TICK --> C1
+    TICK --> C2
+    TICK --> C3
+    C1 -->|sim| K1
+    C2 -->|sim| K2
+    C3 -->|sim| K3
+    K1 --> DB
+    K2 --> DB
+    K3 --> DB
+    DB --> WORKER
+    DB -.-> OPERATOR
+
+    classDef start fill:#b8923a,stroke:#8a6d2a,color:#faf9f5
+    classDef worker fill:#e8dcc2,stroke:#b8923a,color:#141413
+    classDef tool fill:#a64d28,stroke:#8a3a1e,color:#faf9f5
+    classDef decision fill:#faf9f5,stroke:#4d4c48,color:#141413
+    classDef db fill:#d1d5db,stroke:#6b7280,color:#141413
+    classDef human fill:#faf9f5,stroke:#4d4c48,color:#141413,stroke-dasharray: 4 4
+  </div>
+  <div class="note">
+    <strong>Thresholds configuraveis via .env:</strong>
+    <code>AUTO_PAUSE_COST_USD</code> (default 50),
+    <code>AUTO_PAUSE_ZAPI_DOWN_MIN</code> (default 30),
+    <code>AUTO_PAUSE_ERROR_RATE_PCT</code> (default 5).
+  </div>
+</section>
+
+<!-- 7. CARLOS EXEMPLO -->
+<section id="carlos">
+  <h2>7. Decisao interna de Carlos (exemplo real)</h2>
+  <p class="section-desc">Lead manda "Oi, sou da NetFibra em Varginha". O que Carlos faz?</p>
+  <div class="mermaid">
+flowchart TD
+    MSG(["<i>'Oi, sou da NetFibra<br/>em Varginha'</i>"]):::start
+    INVOKE["invokeAgent('carlos',<br/>msg, ctx)"]:::worker
+
+    I1["<b>Iter 1</b><br/>Claude pensa...<br/>decide: <b>enrich_lead</b>"]:::comercial
+    T1["Handler enrich_lead:<br/>UPDATE leads SET<br/>nome, provedor, cidade"]:::tool
+    DB1[("agent_tool_calls<br/>status=ok")]:::db
+
+    I2["<b>Iter 2</b><br/>decide: <b>lookup_cnpj</b><br/>(se lead menciona CNPJ)<br/>OU <b>send_whatsapp</b>"]:::comercial
+    T2["send_whatsapp:<br/>check_consent OK,<br/>check_window_24h OK,<br/>zapi.sendText"]:::tool
+    RESP(["<i>'Legal! Quantos<br/>clientes atende hoje?'</i>"]):::start
+
+    I3["<b>Iter 3</b><br/>stop_reason: end_turn<br/>retorna texto final"]:::comercial
+
+    MSG --> INVOKE --> I1 --> T1 --> DB1 --> I2 --> T2 --> RESP --> I3
+
+    classDef start fill:#b8923a,stroke:#8a6d2a,color:#faf9f5
+    classDef worker fill:#e8dcc2,stroke:#b8923a,color:#141413
+    classDef comercial fill:#c96442,stroke:#b85531,color:#faf9f5
+    classDef tool fill:#a64d28,stroke:#8a3a1e,color:#faf9f5
+    classDef db fill:#d1d5db,stroke:#6b7280,color:#141413
+  </div>
+  <div class="note">
+    <strong>Total:</strong> 3 roundtrips com Claude, 2 tool calls persistidas em
+    <code>agent_tool_calls</code>, latencia tipica <strong>3-5 segundos</strong>.
+    Guardrail: max 6 iteracoes por invocacao (protege contra loop infinito).
+  </div>
+</section>
+
+<footer>
+  Gerado a partir de <code>.planning/FLUXOGRAMAS.md</code> (versao ASCII) + Mermaid.js 11<br>
+  Acesse: <code>/fluxogramas.html</code> no servidor ou abra este arquivo direto no navegador
+</footer>
+
+</div>
+
+<script>
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'base',
+  themeVariables: {
+    primaryColor: '#faf9f5',
+    primaryTextColor: '#141413',
+    primaryBorderColor: '#e8e6dc',
+    lineColor: '#5e5d59',
+    fontFamily: 'Inter, system-ui, sans-serif',
+    fontSize: '14px'
+  },
+  flowchart: {
+    curve: 'basis',
+    padding: 20
+  }
+});
+</script>
+</body>
+</html>
