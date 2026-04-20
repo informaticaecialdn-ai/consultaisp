@@ -19,6 +19,7 @@ const mark_closed_lost = require('./mark_closed_lost');
 const reassign_stuck_leads = require('./reassign_stuck_leads');
 const notify_operator = require('./notify_operator');
 const { pause: pause_campaign, resume: resume_campaign } = require('./pause_campaign');
+const lookup_cnpj = require('./lookup_cnpj');
 
 const ALL_TOOLS = {
   send_whatsapp,
@@ -37,7 +38,8 @@ const ALL_TOOLS = {
   reassign_stuck_leads,
   notify_operator,
   pause_campaign,
-  resume_campaign
+  resume_campaign,
+  lookup_cnpj
 };
 
 // Autorizacao por agente (quem pode chamar o que).
@@ -54,7 +56,8 @@ const AGENT_TOOLS = {
     'mark_unqualified',
     'schedule_followup',
     'enrich_lead',
-    'handoff_to_agent'
+    'handoff_to_agent',
+    'lookup_cnpj'
   ],
   lucas: [
     'send_whatsapp',
@@ -67,7 +70,8 @@ const AGENT_TOOLS = {
     'schedule_followup',
     'enrich_lead',
     'handoff_to_agent',
-    'create_proposal'
+    'create_proposal',
+    'lookup_cnpj'
   ],
   rafael: [
     'send_whatsapp',
@@ -80,13 +84,15 @@ const AGENT_TOOLS = {
     'handoff_to_agent',
     'create_proposal',
     'mark_closed_won',
-    'mark_closed_lost'
+    'mark_closed_lost',
+    'lookup_cnpj'
   ],
   sofia: [
     'query_leads',
     'query_lead_detail',
     'schedule_followup',
-    'handoff_to_agent'
+    'handoff_to_agent',
+    'lookup_cnpj'
     // + get_campaign_stats, suggest_icp_adjust, request_copy_from_leo (Frente F)
   ],
   leo: [
@@ -105,7 +111,8 @@ const AGENT_TOOLS = {
     'reassign_stuck_leads',
     'notify_operator',
     'pause_campaign',
-    'resume_campaign'
+    'resume_campaign',
+    'lookup_cnpj'
   ]
 };
 

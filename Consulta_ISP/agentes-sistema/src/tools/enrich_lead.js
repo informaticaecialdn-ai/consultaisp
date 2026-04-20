@@ -18,7 +18,9 @@ const ALLOWED_FIELDS = [
   'email',
   'cargo',
   'site',
-  'valor_estimado'
+  'valor_estimado',
+  'cnpj',
+  'razao_social'
 ];
 
 module.exports = {
@@ -48,7 +50,9 @@ module.exports = {
           email: { type: 'string' },
           cargo: { type: 'string' },
           site: { type: 'string' },
-          valor_estimado: { type: 'number', description: 'Ticket medio mensal estimado em R$' }
+          valor_estimado: { type: 'number', description: 'Ticket medio mensal estimado em R$' },
+          cnpj: { type: 'string', description: 'CNPJ (14 digitos ou formatado). Depois de salvar, use lookup_cnpj pra enriquecer o resto.' },
+          razao_social: { type: 'string', description: 'Razao social vinda da Receita Federal' }
         }
       }
     },

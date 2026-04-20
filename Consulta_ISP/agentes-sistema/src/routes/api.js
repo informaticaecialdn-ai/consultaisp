@@ -1629,6 +1629,40 @@ router.post('/prospector/run-validation', async (req, res) => {
   }
 });
 
+// === RECEITAWS (enriquecimento CNPJ) ===
+router.get('/receitaws/cnpj/:cnpj', async (req, res) => {
+  try {
+    const receitaws = require('../services/receitaws');
+    const result = await receitaws.lookup(req.params.cnpj);
+    if (!result.ok) return res.status(404).json(result);
+    res.json({ ok: true, cached: result.cached, summary: receitaws.summarize(result.data), raw: result.data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/receitaws/stats', (req, res) => {
+  const receitaws = require('../services/receitaws');
+  res.json({
+    has_token: receitaws.hasToken(),
+    cache: receitaws.cacheStats()
+  });
+});
+
+// Enriquece 1 lead pelo CNPJ salvo (ou passado no body).
+router.post('/leads/:id/enrich-cnpj', async (req, res) => {
+  try {
+    const leadId = parseInt(req.params.id);
+    const cnpj = req.body?.cnpj || null;
+    const tool = require('../tools/lookup_cnpj');
+    const result = await tool.handler({ lead_id: leadId, cnpj, force_refresh: !!req.body?.force_refresh });
+    if (!result.ok) return res.status(404).json(result);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // === AUTONOMIA — KILL SWITCHES + AUTO-HEALER (Milestone 3 / G) ===
 router.get('/autonomy/kill-switches', (req, res) => {
   try {
