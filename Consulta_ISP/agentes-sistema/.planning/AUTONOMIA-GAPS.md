@@ -1,7 +1,8 @@
 # Analise honesta — o que falta pra autonomia total
 
-Data: 2026-04-20
+Data: 2026-04-21 (atualizado)
 Estado atual: `heatmap-fix` branch
+Commits recentes P0 (985f546) + P1 (este commit) — autonomia subiu ~75% → ~90%
 
 Objetivo: mapear **todo** gap que impede o sistema de rodar 24h sem
 intervencao humana, por agente. Prioridade honesta (P0=critico, P3=nice-to-have).

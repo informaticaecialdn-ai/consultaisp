@@ -29,6 +29,11 @@ const lucas_send_proposal = require('./lucas_send_proposal');
 const rafael_create_contract = require('./rafael_create_contract');
 const rafael_create_payment = require('./rafael_create_payment');
 const leo_generate_ad_creative = require('./leo_generate_ad_creative');
+// P1 — Sofia/Leo/Lucas
+const sofia_adjust_icp = require('./sofia_adjust_icp');
+const sofia_start_email_sequence = require('./sofia_start_email_sequence');
+const lucas_schedule_demo = require('./lucas_schedule_demo');
+const leo_create_landing_regional = require('./leo_create_landing_regional');
 
 const ALL_TOOLS = {
   send_whatsapp,
@@ -57,7 +62,11 @@ const ALL_TOOLS = {
   lucas_send_proposal,
   rafael_create_contract,
   rafael_create_payment,
-  leo_generate_ad_creative
+  leo_generate_ad_creative,
+  sofia_adjust_icp,
+  sofia_start_email_sequence,
+  lucas_schedule_demo,
+  leo_create_landing_regional
 };
 
 // Autorizacao por agente (quem pode chamar o que).
@@ -90,6 +99,7 @@ const AGENT_TOOLS = {
     'handoff_to_agent',
     'create_proposal',
     'lucas_send_proposal',
+    'lucas_schedule_demo',
     'lookup_cnpj'
   ],
   rafael: [
@@ -114,13 +124,16 @@ const AGENT_TOOLS = {
     'query_lead_detail',
     'schedule_followup',
     'handoff_to_agent',
-    'lookup_cnpj'
-    // + get_campaign_stats, suggest_icp_adjust, request_copy_from_leo (Frente F)
+    'lookup_cnpj',
+    'sofia_adjust_icp',
+    'sofia_start_email_sequence',
+    'notify_operator'
   ],
   leo: [
     'query_leads',
     'query_lead_detail',
-    'leo_generate_ad_creative'
+    'leo_generate_ad_creative',
+    'leo_create_landing_regional'
   ],
   marcos: [
     'query_leads',

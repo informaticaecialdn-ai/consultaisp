@@ -9,6 +9,8 @@ const prospectorWorker = require('./workers/prospector');
 const outboundWorker = require('./workers/outbound');
 const supervisorWorker = require('./workers/supervisor');
 const marcosWorker = require('./workers/marcos');
+const sofiaWorker = require('./workers/sofia');
+const emailSeqWorker = require('./workers/email-sequences-worker');
 const autoHealer = require('./services/auto-healer');
 
 const WORKER_HEALTH_PORT = parseInt(process.env.WORKER_HEALTH_PORT) || 9091;
@@ -57,6 +59,18 @@ async function main() {
     logger.info('MARCOS_WORKER_ENABLED!=true, marcos em stand-by');
   }
 
+  // Sofia estrategia semanal (domingo 20h BR).
+  if (process.env.SOFIA_WORKER_ENABLED === 'true') {
+    sofiaWorker.start();
+  } else {
+    logger.info('SOFIA_WORKER_ENABLED!=true, sofia em stand-by');
+  }
+
+  // Email sequences worker (processa envios 15min em 15min).
+  if (process.env.EMAIL_SEQUENCES_WORKER_ENABLED !== 'false') {
+    emailSeqWorker.start();
+  }
+
   // Milestone 3 / G: auto-healer (kill switches automaticos por custo/erro/zapi).
   autoHealer.start();
 
@@ -72,6 +86,8 @@ async function main() {
         outbound: outboundWorker.status(),
         supervisor: supervisorWorker.status(),
         marcos: marcosWorker.status(),
+        sofia: sofiaWorker.status(),
+        email_sequences: emailSeqWorker.status(),
         env: process.env.NODE_ENV || 'development'
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -95,6 +111,8 @@ async function gracefulShutdown(signal) {
     await outboundWorker.stop();
     await supervisorWorker.stop();
     await marcosWorker.stop();
+    await sofiaWorker.stop();
+    await emailSeqWorker.stop();
     autoHealer.stop();
   } catch (err) {
     logger.error({ err: err.message }, 'erro no shutdown');
