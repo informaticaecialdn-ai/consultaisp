@@ -13,7 +13,7 @@ const CLASSIFICACOES_VALIDAS = new Set([
 ]);
 
 const AGENTES_VALIDOS = new Set([
-  'carla', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'iani',
+  'carla', 'lucas', 'rafael', 'sofia', 'marcos', 'leo', 'bia',
 ]);
 
 // Retorna { where, params } com clausulas preparadas.

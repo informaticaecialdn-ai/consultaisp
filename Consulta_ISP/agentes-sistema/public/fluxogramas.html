@@ -130,7 +130,7 @@ code {
   <div class="legend">
     <div class="legend-item"><span class="legend-dot" style="background:#c96442"></span>Comercial (Carla, Lucas, Rafael)</div>
     <div class="legend-item"><span class="legend-dot" style="background:#5b7c5e"></span>Marketing (Sofia, Leo, Marcos)</div>
-    <div class="legend-item"><span class="legend-dot" style="background:#4d4c48"></span>Supervisao (Iani)</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#4d4c48"></span>Supervisao (Bia)</div>
     <div class="legend-item"><span class="legend-dot" style="background:#b8923a"></span>Sistema/Worker</div>
   </div>
 </header>
@@ -140,7 +140,7 @@ code {
   <a href="#pipeline">2. Pipeline E2E</a>
   <a href="#handoffs">3. Handoffs por score</a>
   <a href="#inbound">4. Inbound WhatsApp</a>
-  <a href="#iani">5. Iani supervisora</a>
+  <a href="#bia">5. Bia supervisora</a>
   <a href="#autoheal">6. Auto-healer</a>
   <a href="#carla">7. Decisao Carla</a>
 </nav>
@@ -153,7 +153,7 @@ code {
 graph TB
     OP["fa:fa-user Operador humano<br/><i>(voce)</i>"]:::human
 
-    IANI["<b>IANI</b><br/>Gerente de Operacoes<br/>Opus 4.7<br/><i>cron 1h, supervisiona</i>"]:::supervisor
+    BIA["<b>BIA</b><br/>Gerente de Operacoes<br/>Opus 4.7<br/><i>cron 1h, supervisiona</i>"]:::supervisor
 
     SOFIA["<b>SOFIA</b><br/>Marketing<br/>Opus 4.7<br/><i>estrategia, ICP</i>"]:::marketing
     LEO["<b>LEO</b><br/>Copywriter<br/>Opus 4.7<br/><i>copy, headlines</i>"]:::marketing
@@ -163,13 +163,13 @@ graph TB
     LUCAS["<b>LUCAS</b><br/>Vendas<br/>Opus 4.7<br/><i>proposta, ROI</i>"]:::comercial
     RAFAEL["<b>RAFAEL</b><br/>Closer<br/>Opus 4.7<br/><i>fechamento</i>"]:::comercial
 
-    OP -.->|recebe relatorios<br/>+alertas criticos| IANI
-    IANI -->|delega| SOFIA
-    IANI -->|delega| LEO
-    IANI -->|delega| MARCOS
-    IANI -->|monitora| CARLOS
-    IANI -->|monitora| LUCAS
-    IANI -->|monitora| RAFAEL
+    OP -.->|recebe relatorios<br/>+alertas criticos| BIA
+    BIA -->|delega| SOFIA
+    BIA -->|delega| LEO
+    BIA -->|delega| MARCOS
+    BIA -->|monitora| CARLOS
+    BIA -->|monitora| LUCAS
+    BIA -->|monitora| RAFAEL
 
     SOFIA <-->|pede copy| LEO
     LEO -->|copy pronta| MARCOS
@@ -186,7 +186,7 @@ graph TB
   </div>
   <div class="note">
     <strong>Como ler:</strong> setas cheias = acao direta; setas pontilhadas = excepcional/raro.
-    Operador (voce) so recebe relatorios da Iani — nao conversa com os agentes individualmente.
+    Operador (voce) so recebe relatorios da Bia — nao conversa com os agentes individualmente.
   </div>
 </section>
 
@@ -243,7 +243,7 @@ flowchart TD
     classDef lost fill:#b53333,stroke:#8a2828,color:#faf9f5
   </div>
   <div class="note">
-    <strong>Intervencao humana:</strong> em teoria nenhuma — operador so entra se Iani sinalizar
+    <strong>Intervencao humana:</strong> em teoria nenhuma — operador so entra se Bia sinalizar
     excecao via <code>notify_operator</code>. Na pratica, pode revisar propostas geradas quando
     <code>AUTO_SEND_PROPOSAL=false</code>.
   </div>
@@ -328,19 +328,19 @@ flowchart TD
   </div>
 </section>
 
-<!-- 5. IANI -->
-<section id="iani">
-  <h2>5. Iani supervisora — ciclo de 1 hora</h2>
-  <p class="section-desc">O que Iani faz a cada hora, sem ninguem pedir.</p>
+<!-- 5. BIA -->
+<section id="bia">
+  <h2>5. Bia supervisora — ciclo de 1 hora</h2>
+  <p class="section-desc">O que Bia faz a cada hora, sem ninguem pedir.</p>
   <div class="mermaid">
 flowchart TD
     TICK(["Cron dispara<br/>a cada 1h"]):::start
     KILL{"kill_switch<br/>ativo?"}:::decision
     FLAG{"USE_TOOL_<br/>CALLING_<br/>AGENTS?"}:::decision
     SNAP["<b>buildSnapshot()</b><br/>- leads por etapa<br/>- parados &gt; 7d<br/>- erros unresolved<br/>- custo hoje<br/>- mensagens hoje"]:::worker
-    INVOKE["<b>IANI Platform Agent</b><br/>Opus 4.7<br/>recebe snapshot + prompt"]:::supervisor
+    INVOKE["<b>BIA Platform Agent</b><br/>Opus 4.7<br/>recebe snapshot + prompt"]:::supervisor
 
-    DECIDE{Iani decide}:::decision
+    DECIDE{Bia decide}:::decision
 
     REASSIGN["<b>reassign_stuck_leads</b><br/>leads &gt; 7d parados<br/>volta pra Sofia nurturing"]:::tool
     NOTIFY["<b>notify_operator</b><br/>severidade: warn|critical<br/>webhook + errors_log"]:::tool
@@ -376,7 +376,7 @@ flowchart TD
     classDef db fill:#d1d5db,stroke:#6b7280,color:#141413
   </div>
   <div class="note">
-    <strong>Quando a Iani te avisa:</strong> apos <code>notify_operator</code> com
+    <strong>Quando a Bia te avisa:</strong> apos <code>notify_operator</code> com
     severity=warn ou critical — voce recebe via webhook (Discord/Slack) ou ve em
     <code>/api/errors</code>. Anomalias tipicas: custo estourado, Z-API down,
     taxa de erro alta, lead critico parado.

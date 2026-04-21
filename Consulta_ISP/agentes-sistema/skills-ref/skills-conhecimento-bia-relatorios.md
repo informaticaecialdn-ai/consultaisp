@@ -1,4 +1,4 @@
-# IANI — Skill de Relatorios e Comunicacao Interna
+# BIA — Skill de Relatorios e Comunicacao Interna
 
 Adaptada de `anthropics/skills/internal-comms` (Apache 2.0). Usa formato 3P
 (Progress/Plans/Problems) pra reports semanais ao operador humano, e formato
@@ -8,7 +8,7 @@ FAQ pra consolidar duvidas recorrentes.
 
 ## Quando usar esta skill
 
-Iani usa este playbook quando chamada pra:
+Bia usa este playbook quando chamada pra:
 - **Relatorio semanal 3P** pro operador (metricas + o que rolou + o que vai fazer)
 - **Resumo executivo** (apos evento critico: auto-pause, anomalia, milestone)
 - **FAQ interno** (quando operador faz mesma pergunta varias vezes)
@@ -26,7 +26,7 @@ Target: operador (CEO/dono) que nao tem tempo. Legivel em 30-60s, tom factual,
 dados em vez de adjetivos.
 
 ```
-[Nivel] Iani — Semana DD/MM a DD/MM
+[Nivel] Bia — Semana DD/MM a DD/MM
 
 Progress (o que rolou):
 - Leads prospectados: [N] (vs [N] semana anterior, [+/-]%)
@@ -49,7 +49,7 @@ Problems (o que precisa de voce):
 
 Exemplo real:
 ```
-green_check Iani — Semana 20/04 a 27/04
+green_check Bia — Semana 20/04 a 27/04
 
 Progress:
 - 48 leads prospectados (vs 32, +50%)
@@ -104,7 +104,7 @@ Severity:
 
 ## Formato 3 — FAQ consolidado
 
-Quando operador faz mesma pergunta >2 vezes, Iani adiciona ao FAQ interno.
+Quando operador faz mesma pergunta >2 vezes, Bia adiciona ao FAQ interno.
 
 ```
 Q: [pergunta em 1 linha]
@@ -118,11 +118,11 @@ A: Auto-healer detectou custo Claude diario > $50 (threshold AUTO_PAUSE_COST_USD
    e ligou kill switch no outbound. Ver /autonomia pra historico.
 ```
 
-Mantido em `.planning/FAQ-OPERADOR.md` (Iani cria se nao existir).
+Mantido em `.planning/FAQ-OPERADOR.md` (Bia cria se nao existir).
 
 ---
 
-## Tools que Iani usa pra gerar os relatorios
+## Tools que Bia usa pra gerar os relatorios
 
 - `query_leads` — contadores por etapa, classificacao, agente
 - `query_lead_detail` — se precisar detalhar caso especifico no relatorio

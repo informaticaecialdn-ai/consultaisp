@@ -1,5 +1,5 @@
 // Tool: notify_operator (Milestone 3 / F1).
-// Iani avisa operador humano de anomalia que exige intervencao.
+// Bia avisa operador humano de anomalia que exige intervencao.
 // Loga em errors_log como 'supervisor_alert' e tenta webhook se ERROR_REPORT_WEBHOOK setado.
 
 const { getDb } = require('../models/database');
@@ -8,7 +8,7 @@ const logger = require('../utils/logger');
 module.exports = {
   name: 'notify_operator',
   description:
-    'Registra alerta de Iani pro operador humano (anomalia que o sistema nao sabe resolver sozinho). Grava em errors_log + envia webhook se configurado. Use com parcimonia — so pra coisas que exigem olho humano.',
+    'Registra alerta de Bia pro operador humano (anomalia que o sistema nao sabe resolver sozinho). Grava em errors_log + envia webhook se configurado. Use com parcimonia — so pra coisas que exigem olho humano.',
   input_schema: {
     type: 'object',
     properties: {
@@ -42,7 +42,7 @@ module.exports = {
         `[${input.titulo}] ${input.mensagem}`,
         JSON.stringify({
           supervisor_alert: true,
-          from_agent: ctx.agente || 'iani',
+          from_agent: ctx.agente || 'bia',
           ...(input.contexto || {})
         })
       );
@@ -56,7 +56,7 @@ module.exports = {
       try {
         const payload = {
           content: `[${severity.toUpperCase()}] ${input.titulo}\n${input.mensagem}${input.contexto ? '\n```\n' + JSON.stringify(input.contexto, null, 2) + '\n```' : ''}`,
-          username: 'Iani (Supervisor IA)'
+          username: 'Bia (Supervisor IA)'
         };
         const r = await fetch(webhook, {
           method: 'POST',

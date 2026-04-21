@@ -21,7 +21,7 @@ module.exports = {
       },
       agente_atual: {
         type: 'string',
-        enum: ['sofia', 'leo', 'carla', 'lucas', 'rafael', 'marcos', 'iani']
+        enum: ['sofia', 'leo', 'carla', 'lucas', 'rafael', 'marcos', 'bia']
       },
       dias_sem_resposta: {
         type: 'integer',
@@ -35,7 +35,7 @@ module.exports = {
       mesorregiao: {
         type: 'string',
         description:
-          'Filtrar por slug de mesorregiao IBGE. Ex: "norte-central-paranaense", "sul-sudoeste-de-minas". Util pra Sofia/Iani analisarem conquista regional.'
+          'Filtrar por slug de mesorregiao IBGE. Ex: "norte-central-paranaense", "sul-sudoeste-de-minas". Util pra Sofia/Bia analisarem conquista regional.'
       },
       estado: {
         type: 'string',

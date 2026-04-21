@@ -53,11 +53,11 @@ class SkillsKnowledgeService {
         'skills-conhecimento-prospecao-pricing.md',
         'skills-conhecimento-sofia-regional-playbook.md'
       ],
-      iani: [
+      bia: [
         'skills-conhecimento-marcos-leo.md',
         'skills-conhecimento-vendas-sofia.md',
         'skills-conhecimento-agentes-arch.md',
-        'skills-conhecimento-iani-relatorios.md'
+        'skills-conhecimento-bia-relatorios.md'
       ]
     };
 
@@ -91,10 +91,10 @@ class SkillsKnowledgeService {
       lucas: ['LUCAS', 'RAFAEL', 'PRICING', 'OBJECOES'],
       rafael: ['LUCAS', 'RAFAEL', 'PRICING', 'PROPOSTAS'],
       sofia: ['SOFIA', 'ESTRATEGIA', 'ATRIBUICAO', 'METRICAS', 'PARCERIAS', 'PRICING'],
-      iani: null
+      bia: null
     };
 
-    if (agentKey === 'iani') return content;
+    if (agentKey === 'bia') return content;
 
     const markers = sectionMap[agentKey];
     if (!markers) return content;

@@ -31,7 +31,7 @@
   const AGENT_COLORS = {
     sofia: '#a64d28', leo: '#8a6d2a', carla: '#3d5a40', carlos: '#3d5a40',
     lucas: '#2a72b3', rafael: '#5a4d6e', marcos: '#a64d28',
-    iani: '#4d4c48', diana: '#4d4c48', prospector_cron: '#b8923a', apify: '#5b7c5e'
+    bia: '#4d4c48', diana: '#4d4c48', prospector_cron: '#b8923a', apify: '#5b7c5e'
   };
 
   function esc(s) {
@@ -153,7 +153,7 @@
               <option value="lucas" ${state.filters.agente === 'lucas' ? 'selected' : ''}>Lucas</option>
               <option value="rafael" ${state.filters.agente === 'rafael' ? 'selected' : ''}>Rafael</option>
               <option value="marcos" ${state.filters.agente === 'marcos' ? 'selected' : ''}>Marcos</option>
-              <option value="iani" ${state.filters.agente === 'iani' ? 'selected' : ''}>Iani</option>
+              <option value="bia" ${state.filters.agente === 'bia' ? 'selected' : ''}>Bia</option>
             </select>
           </div>
           <div style="flex:1;min-width:130px">

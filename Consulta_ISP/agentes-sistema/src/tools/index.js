@@ -71,7 +71,7 @@ const ALL_TOOLS = {
 
 // Autorizacao por agente (quem pode chamar o que).
 // Sofia/Leo/Marcos tem tools adicionais que vem em frentes futuras (D, F).
-// Iani tem leitura ampla + reassign (vem em F1).
+// Bia tem leitura ampla + reassign (vem em F1).
 const AGENT_TOOLS = {
   carla: [
     'send_whatsapp',
@@ -145,7 +145,7 @@ const AGENT_TOOLS = {
     'ads_adjust_budget',
     'leo_generate_ad_creative'
   ],
-  iani: [
+  bia: [
     'query_leads',
     'query_lead_detail',
     'handoff_to_agent',

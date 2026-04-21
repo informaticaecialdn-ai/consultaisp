@@ -4,7 +4,7 @@
 //  - remover mesorregiao improdutiva (>30 leads, 0 qualificados)
 //  - ajustar min_rating/min_reviews se qualidade caiu
 //  - delegar copy pro Leo ou campanha pro Marcos
-//  - relatorio semanal pra Iani via notify_operator
+//  - relatorio semanal pra Bia via notify_operator
 
 const { getDb } = require('../models/database');
 const logger = require('../utils/logger');

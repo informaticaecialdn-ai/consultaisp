@@ -45,7 +45,7 @@ async function main() {
     logger.info('OUTBOUND_WORKER_ENABLED!=true, outbound em stand-by');
   }
 
-  // Milestone 3 / F1: Iani supervisora (cron 1h em 1h via platform-agent-client).
+  // Milestone 3 / F1: Bia supervisora (cron 1h em 1h via platform-agent-client).
   if (process.env.SUPERVISOR_WORKER_ENABLED === 'true') {
     supervisorWorker.start();
   } else {

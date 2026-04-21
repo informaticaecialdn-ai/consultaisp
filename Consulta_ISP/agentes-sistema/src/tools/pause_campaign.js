@@ -6,7 +6,7 @@ const logger = require('../utils/logger');
 const pause = {
   name: 'pause_campaign',
   description:
-    'Pausa uma campanha de broadcast em andamento. Use quando taxa de falha > threshold ou quando Iani detecta que e hora de parar.',
+    'Pausa uma campanha de broadcast em andamento. Use quando taxa de falha > threshold ou quando Bia detecta que e hora de parar.',
   input_schema: {
     type: 'object',
     properties: {

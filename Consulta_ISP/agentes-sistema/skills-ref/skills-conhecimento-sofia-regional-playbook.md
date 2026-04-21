@@ -148,8 +148,8 @@ Quando CAC cai abaixo de R$300 e cobertura >60%, a regiao virou "self-propelling
 >  provedores dessa regiao ja estao. Se ainda for <3, posicione como
 >  'oportunidade pioneira'. Se for >5, posicione como 'network effect'."
 
-### Pra Iani (caso precise reporte)
-> "Iani, me passe o 3P da mesorregiao [X]: quanto prospectamos, quanto
+### Pra Bia (caso precise reporte)
+> "Bia, me passe o 3P da mesorregiao [X]: quanto prospectamos, quanto
 >  qualificamos, quanto fechamos na ultima semana."
 
 ---

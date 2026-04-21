@@ -4,7 +4,7 @@
 
 CREATE TABLE IF NOT EXISTS agent_tool_calls (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  agente TEXT NOT NULL,                -- sofia, leo, carla, lucas, rafael, marcos, iani
+  agente TEXT NOT NULL,                -- sofia, leo, carla, lucas, rafael, marcos, bia
   lead_id INTEGER,                     -- nullable (algumas tools nao sao por lead)
   tool_name TEXT NOT NULL,             -- send_whatsapp, check_consent, handoff_to_agent, etc.
   tool_input TEXT,                     -- JSON do input_schema enviado pelo modelo

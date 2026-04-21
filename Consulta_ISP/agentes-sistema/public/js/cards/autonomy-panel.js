@@ -132,7 +132,7 @@
               ${flagRow('Tool Calling Agents (autonomia core)', flags.USE_TOOL_CALLING_AGENTS, 'USE_TOOL_CALLING_AGENTS')}
               ${flagRow('Prospector (scraping + validation)', flags.PROSPECTOR_WORKER_ENABLED, 'PROSPECTOR_WORKER_ENABLED')}
               ${flagRow('Outbound (Carla SDR cold)', flags.OUTBOUND_WORKER_ENABLED, 'OUTBOUND_WORKER_ENABLED')}
-              ${flagRow('Supervisor (Iani cron 1h)', flags.SUPERVISOR_WORKER_ENABLED, 'SUPERVISOR_WORKER_ENABLED')}
+              ${flagRow('Supervisor (Bia cron 1h)', flags.SUPERVISOR_WORKER_ENABLED, 'SUPERVISOR_WORKER_ENABLED')}
               ${flagRow('Broadcast (campanhas)', flags.BROADCAST_WORKER_ENABLED, 'BROADCAST_WORKER_ENABLED')}
               ${flagRow('Followup (cron 5min)', flags.FOLLOWUP_WORKER_ENABLED, 'FOLLOWUP_WORKER_ENABLED')}
             </tbody>

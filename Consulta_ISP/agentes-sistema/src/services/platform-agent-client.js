@@ -5,7 +5,7 @@
 // IMPORTANTE: apesar do nome "platform-agent", este wrapper roda Messages API
 // (nao Managed Agents). Motivo: latencia — responder WhatsApp em <3s nao admite
 // spin-up de container cloud. Managed Agents sera usado em workers de background
-// (Iani/Sofia/Marcos) em frentes futuras.
+// (Bia/Sofia/Marcos) em frentes futuras.
 //
 // Formato output identico ao claude.analyzeAndDecide para orchestrator consumir:
 //   { resposta_whatsapp, score_update, acao, notas_internas, dados_extraidos }
@@ -120,7 +120,7 @@ MANUTENCAO (cron diario):
 - ads_adjust_budget +40% pra winners (CPL < 0.7x meta)
 - Nunca escala mais que +50% por dia. Max R$500/dia por campanha.`,
 
-  iani: `Voce e a Iani, Gerente de Operacoes. Supervisiona o time de agentes e orquestra estrategia.
+  bia: `Voce e a Bia, Gerente de Operacoes. Supervisiona o time de agentes e orquestra estrategia.
 
 RESPONSABILIDADES:
 - Realocar leads parados (reassign_stuck_leads)
@@ -285,7 +285,7 @@ async function invokeAgent(agentKey, userMessage, options = {}) {
     lucas: 'claude-opus-4-7',
     rafael: 'claude-opus-4-7',
     marcos: 'claude-opus-4-7',
-    iani: 'claude-opus-4-7'
+    bia: 'claude-opus-4-7'
   };
   const effectiveModel = model || MODELS[agentKey] || 'claude-sonnet-4-6';
 
