@@ -69,6 +69,13 @@ Reservado para Spec 004. Depende de mesma infra.
 - **FR-014**: Cliente que respondeu "PARAR" 1 vez MUST ser marcado opt-out permanente para WhatsApp. Toda outbound futura para esse número (mesmo template aprovado) MUST ser bloqueada pela Júlia.
 - **FR-015**: O sistema MUST suportar rotação automática do `access_token` da Meta (cron a cada 45 dias renova long-lived). Se token expirar, alertar admin do tenant.
 
+### Defesa Multi-Tenant em Profundidade (belt-and-suspenders)
+
+- **FR-016**: Todas as 6 tabelas novas MUST ter Postgres Row-Level Security (RLS) habilitada com policy `provider_id = current_setting('app.current_provider_id')::int`. Mesmo se aplicação esquecer o filtro WHERE, banco bloqueia em nível físico.
+- **FR-017**: Middleware Express MUST executar `SET LOCAL app.current_provider_id = ${req.session.providerId}` no início de cada transaction autenticada. Sessões sem `providerId` bloqueiam acesso a tabelas com RLS.
+- **FR-018**: Lint customizado MUST falhar build se query em `server/storage/*.ts` para tabela multi-tenant for executada sem `.where(eq(table.providerId, ...))` explícito ou helper `withTenantContext()` aplicado.
+- **FR-019**: Audit log MUST conter telemetria de cross-tenant access pattern: alerta admin do Provedor.ai se um usuário do tenant A consulta resourceIds que pertencem ao tenant B (mesmo que retorne vazio por RLS — tentativa é sinal de bug ou intenção maliciosa).
+
 ### Key Entities
 
 - **Communications**: tabela existente após esta spec. Cada mensagem inbound/outbound persistida. Schema em `drafts/schemas-drizzle.ts`.
