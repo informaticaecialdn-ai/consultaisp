@@ -1,111 +1,122 @@
 # Quickstart — Spec 004 Implementation
 
-**Phase**: 1 (Design output)
-**Audience:** dev implementando
+**Status:** Phases 1-5 implementadas. Phase 6 (Polish + Deploy) em andamento.
+**Audience:** dev mantendo / operador deployando
 
-## Sequência de Implementação Recomendada
+## Status da entrega
 
-### 0. Autorização (✅ resolvida)
-- Owner autorizou em 2026-05-11 as 5 tabelas novas: `asaas_accounts`, `pix_charges`, `payment_events`, `agent_toggles`, `outbound_attempts`.
-- Registro em memória: `project_schema_authorization_spec004.md`.
+| Phase | Status | Commit |
+|---|---|---|
+| 1 Setup | ✅ | `9f367f7` |
+| 2 Foundational (5 tabelas + storages + Asaas multi-tenant) | ✅ exceto T009 migrations VPS | `9f367f7` |
+| 3 US1 Bruno (MVP) | ✅ | `6b37c51` |
+| 4 US2 Sofia (webhook + worker) | ✅ | `f9b3ec1` |
+| 5 US3 Painel (Asaas config + Régua + Dossiê) | ✅ | `3fba2c0` |
+| 6 Polish (changelog + smoke test + deploy) | 🔄 em andamento | — |
 
-### 1. Schema + Migrations (1 dia)
-- Mesclar `drafts/schemas-drizzle.ts` em `shared/schema.ts` (após autorização).
-- Adicionar Zod insert schemas + types exportados.
-- Migration SQL `0XX_spec004_add_tables.sql` (5 tabelas + índices, incluindo o expression UNIQUE em `outbound_attempts`).
-- `npm run db:push` em dev, validar com `psql`.
-- Backfill `agent_toggles` com defaults OFF para providers existentes.
-- Teste obrigatório `multi-tenant-pix.test.ts`.
-
-### 2. Refator Asaas Multi-Tenant (1 dia)
-- Refatorar `server/services/asaas.ts`: extrair `asaasRequest(apiKey, method, path, body)` recebendo `apiKey` como parâmetro.
-- Manter wrapper legado que lê `process.env.ASAAS_API_KEY` para `creditOrders` (não quebrar fluxo SaaS atual).
-- Novo `server/services/asaas-multi-tenant.ts`: decifra chave do provedor + injeta + cria Pix dinâmico + busca QR Code.
-- Função `createPixForInvoice(providerId, invoiceId, attemptId)` que retorna `{asaasPaymentId, qrCodeBase64, copyPaste}`.
-
-### 3. Storage Layer (1 dia)
-- 5 novos arquivos em `server/storage/`: `asaas-account`, `pix-charge`, `payment-event`, `agent-toggle`, `outbound-attempt`.
-- Todas as funções recebem `providerId` como 1º parâmetro.
-- Helpers crítos: `pix-charge.upsertByAsaasId()`, `payment-event.insertOrSkip()` (idempotente), `outbound-attempt.tryReserve(invoiceId, step)` (atomic insert ou throw).
-
-### 4. Bruno Agent + Tool (2 dias)
-- `server/prompts/bruno.md` — system prompt.
-- `server/agents/bruno.ts` — `invokeBruno(tenantId, input) → { templateName, variables, pix }`.
-- `server/agents/tools/gerar-pix-bruno.ts` — tool TS que chama `asaas-multi-tenant.createPixForInvoice`.
-- Testes unitários com mock Anthropic + mock Asaas.
-
-### 5. Sofia Agent (1 dia)
-- `server/prompts/sofia.md`.
-- `server/agents/sofia.ts` — invokeSofia().
-- Sofia consulta `agent_memories` via storage (Spec 003).
-
-### 6. Workers (2 dias)
-- `server/workers/bruno-scheduler.ts` — cron diário por tenant (`node-cron` ou similar leve, dentro de `server/worker.ts`).
-- `server/workers/sofia-event-processor.ts` — BullMQ consumer da fila "sofia-thank".
-- `server/workers/outbound-retry.ts` — cron 15min para `failed → retry` (FR-020).
-- Integrar `server/worker.ts` para iniciar todos.
-
-### 7. Webhook + Routes Asaas (1 dia)
-- `server/routes/webhook.routes.ts` ADD `POST /webhooks/asaas` (signature check + enqueue + 200).
-- `server/routes/asaas-config.routes.ts` — CRUD da chave Asaas.
-- `server/routes/regua.routes.ts` — GET painel + PATCH toggles.
-- `server/routes/dossie.routes.ts` — GET dossiê PDF/JSON.
-
-### 8. UI (3 dias)
-- `client/src/pages/configuracoes-asaas.tsx` — conectar chave Asaas + status.
-- `client/src/pages/configuracoes-agentes.tsx` — toggles Bruno/Sofia + horários.
-- `client/src/pages/regua-pre-vencimento.tsx` — tabela com filtros, status badges.
-- `client/src/pages/cliente-dossie.tsx` — botão "Gerar dossiê" no perfil do cliente.
-- Hooks TanStack Query: `useAsaasAccount`, `useAgentToggles`, `useReguaPreVencimento`, `useDossie`.
-
-### 9. Templates HSM Meta (paralelo, ~3 dias úteis aprovação)
-- Submeter 2 templates UTILITY no Business Manager do Vertical Fibra:
-  - `lembrete_prevencimento_v1` com componente IMAGE
-  - `agradecimento_pagamento_v1` somente texto
-- Rascunhos JSON em `drafts/`.
-
-### 10. Testes E2E (2 dias)
-- ngrok → Asaas sandbox → criar Pix → confirmar pagamento → ver Sofia disparar.
-- Smoke test no Vertical Fibra com 3 faturas reais + 1 pagamento real (cliente teste).
-- Verificar dossiê de auditoria contém: Bruno send + Júlia decision + Pix charge + payment event + Sofia send.
-
-**Total estimado:** ~14 dias-dev (solo) ou 7-8 dias com 2 devs paralelos.
-
-## Variáveis de Ambiente Necessárias
+## Variáveis de Ambiente (verificadas durante implementação)
 
 ```env
-# Já existentes (Spec 003)
+# Spec 003 (já existentes)
 ANTHROPIC_API_KEY=sk-ant-...
-ENCRYPTION_MASTER_KEY=...               # mesma usada por whatsapp_accounts
-REDIS_URL=redis://localhost:6379
-DATABASE_URL=...
+ENCRYPTION_MASTER_KEY=<hex 64 chars>        # mesma da Spec 003
+REDIS_URL=redis://localhost:6379            # OBRIGATÓRIO para Bruno+Sofia+retry worker
+DATABASE_URL=postgresql://...
+META_VERIFY_TOKEN=...                       # webhook WhatsApp
 
-# Asaas (NOVO uso)
-# A chave global ASAAS_API_KEY continua existindo SÓ para creditOrders da plataforma.
-# Cada tenant cadastra sua própria chave via UI — armazenada cifrada em asaas_accounts.
-ASAAS_API_KEY=...                       # MANTIDO (plataforma SaaS->provedor)
+# Asaas (multi-uso)
+ASAAS_API_KEY=...                           # SOMENTE para creditOrders SaaS->ISP. Pix dinâmico vem da chave do tenant em asaas_accounts.
+
+# Opcionais (per-agent model override)
+HELENA_MODEL=claude-sonnet-4-5-20250514     # default no código
+BRUNO_MODEL=claude-haiku-4-5-20251001       # default no código
+SOFIA_MODEL=claude-haiku-4-5-20251001       # default no código
 ```
 
-## Critérios de Aceitação Pré-GA
+**Importante:** sem `REDIS_URL`, os workers Bruno/Sofia/outbound-retry ficam **desligados** no boot do worker process (degrada limpo via guard no `server/worker.ts`).
 
-- [x] Owner autorizou as 5 tabelas (Princípio II) — 2026-05-11
-- [ ] `multi-tenant-pix.test.ts` passa: tenant A nunca gera Pix na conta de B
-- [ ] Bruno gera Pix correto no Asaas sandbox e mensagem chega no WhatsApp de teste
-- [ ] Re-rodar scheduler no mesmo dia NÃO duplica Pix (idempotência FR-005)
-- [ ] Webhook Asaas duplicado NÃO dispara Sofia duas vezes (FR-008)
-- [ ] Mensagem fora de 08:00–20:00 fica em `waiting_window`, não envia
-- [ ] Cliente em opt-out (`whatsapp_optouts`) é excluído da régua
-- [ ] Dossiê de 12 meses gerado em <30s para cliente com 50+ comunicações
-- [ ] Toggle "Bruno OFF" para o provider e Bruno não dispara
-- [ ] `npm run check` sem erros novos
-- [ ] Smoke test em produção Vertical Fibra sem regressão em fluxos da Spec 003
+## Sequência de Deploy (VPS Hostinger)
 
-## Próximos Comandos
+Ordem em produção:
 
 ```bash
-# Phase 2 — gerar tasks.md
-/speckit-tasks
+# 1. Local: push commits
+git push origin 004-cobranca-pix-bruno-sofia
+# (depois merge para main quando smoke test passar)
 
-# Após tasks.md aprovado — implementação paralela
-# (dispatch agents para steps 1-10 em paralelo quando possível)
+# 2. SSH VPS Hostinger
+ssh user@vps-hostinger
+cd /caminho/Consulta-ISP
+
+# 3. Pull + install deps + build
+git pull origin main
+npm ci
+npm run build
+
+# 4. Apply migrations Spec 004 (T009)
+npm run db:migrate
+# Aplica em ordem:
+#   migrations/0005_spec004_create_tables.sql     (5 tabelas novas)
+#   migrations/0006_spec004_outbound_unique_index.sql (UNIQUE D-3/D-1/dia)
+#   migrations/0007_spec004_backfill_agent_toggles.sql (defaults OFF)
+
+# 5. Restart processes (PM2)
+pm2 restart all
+# Confirma que worker process loga "Bruno + Sofia + outbound retry started"
+
+# 6. Smoke test (T061)
+# Ver specs/004-cobranca-pix-bruno-sofia/SMOKE-TEST-RESULT.md
 ```
+
+## Critérios de Aceitação — status atual
+
+| Critério | Status | Como verificar |
+|---|---|---|
+| Owner autorizou as 5 tabelas | ✅ 2026-05-11 | Memória `project_schema_authorization_spec004.md` |
+| `multi-tenant-pix.test.ts` passa | ⏳ aguarda VPS DATABASE_URL | Roda automático no CI quando configurado |
+| Bruno gera Pix no Asaas sandbox + WhatsApp | ⏳ Phase 6 | Smoke test |
+| Re-rodar scheduler mesmo dia não duplica | ✅ por design | UNIQUE em outbound_attempts |
+| Webhook Asaas duplicado não dispara Sofia 2x | ✅ por design | UNIQUE em payment_events + insertOrSkip |
+| Janela horária respeitada | ✅ código | Tests `waiting_window` cobrem |
+| Opt-out exclui da régua | ✅ código | Tests `bruno_skipped_optout` cobrem |
+| Dossiê 12 meses <30s | ⏳ teste perf na VPS | `dossie.routes.test.ts` valida SC-006 |
+| Toggle Bruno OFF cancela disparo | ✅ código | `bruno_disabled` test |
+| `npm run check` sem erros novos | ✅ | Verificado durante US1, US2, US3 |
+| Smoke test Vertical Fibra sem regressão Spec 003 | ⏳ Phase 6 | T061 + T064 |
+
+## Endpoints implementados
+
+### Públicos
+- `POST /webhooks/asaas` (auth via token header)
+
+### Auth + Admin
+- `GET/POST/DELETE /api/asaas/account` — credenciais Asaas (rate-limit 5/15min POST)
+- `GET /api/regua/pre-vencimento` — listagem paginada com filtros
+- `GET/PATCH /api/regua/agente-config` — toggles + janela horária + templates
+- `GET /api/dossie/cliente/:customerId?format=pdf|json` — dossiê
+
+### Frontend (Wouter)
+- `/configuracoes/asaas`
+- `/configuracoes/agentes`
+- `/regua-pre-vencimento`
+- `/cliente/:customerId/dossie`
+
+## Próximos comandos (Phase 6)
+
+```bash
+# T058: este arquivo (atualizado)
+# T059: typecheck full
+npx tsc --noEmit
+
+# T060: changelog
+# docs/spec-004-changelog.md criado
+
+# T061-T064: ver SMOKE-TEST-RESULT.md + docs/spec-004-deploy.md
+```
+
+## Decisões importantes registradas
+
+1. **Direct API mantida** — pesquisa em maio/2026 confirmou que Managed Agents (platform.claude.com) é produto para coding agents long-running; Bruno/Sofia/Helena/Júlia ficam no Messages API (caminho oficial Anthropic para custom agent loops). Detalhes em `specs/005-platform-integration/spec.md`.
+2. **pdfkit local** para dossiê (não Skills) — Skills NÃO são ZDR-eligible; CPF iria pra Anthropic.
+3. **Audit imutável local** via triggers Postgres — defesa Procon/Anatel garantida.
+4. **MCP server pra ERPs** virou Spec 005 — fora do escopo Spec 004.
