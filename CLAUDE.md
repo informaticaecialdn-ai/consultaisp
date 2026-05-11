@@ -859,5 +859,5 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan:
-`specs/001-fetchcustomers-pagination/plan.md`
+`specs/003-whatsapp-julia-helena/plan.md`
 <!-- SPECKIT END -->
