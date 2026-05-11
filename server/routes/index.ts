@@ -26,6 +26,10 @@ import { registerWhatsappRoutes } from "./whatsapp.routes";
 import { registerWhatsAppWebhookRoutes } from "../communications/whatsapp/webhook";
 import { registerWhatsAppOAuthRoutes } from "../communications/whatsapp/embedded-signup";
 import { registerAsaasWebhookRoutes } from "./webhook.routes";
+// Spec 004 US3 — Painel
+import { registerAsaasConfigRoutes } from "./asaas-config.routes";
+import { registerReguaRoutes } from "./regua.routes";
+import { registerDossieRoutes } from "./dossie.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -57,8 +61,11 @@ export async function registerRoutes(
   app.use(registerWhatsappRoutes());
   app.use(registerWhatsAppWebhookRoutes());
   app.use(registerWhatsAppOAuthRoutes());
-  // Spec 004 — webhook Asaas
+  // Spec 004 — webhook Asaas + Painel US3
   app.use(registerAsaasWebhookRoutes());
+  app.use(registerAsaasConfigRoutes());
+  app.use(registerReguaRoutes());
+  app.use(registerDossieRoutes());
 
   return httpServer;
 }

@@ -154,35 +154,35 @@ description: "Task list for Spec 004 — Bruno (preventivo) + Sofia (agradecimen
 
 ### Backend Routes
 
-- [ ] T041 [P] [US3] Criar `server/routes/asaas-config.routes.ts` com `GET /api/asaas/account`, `POST /api/asaas/account` (valida chave via Asaas `/myAccount`, detecta `mode`, cifra, salva), `DELETE /api/asaas/account`. Middlewares `requireAuth` + `requireAdmin`. Rate-limit 5/15min em POST.
-- [ ] T042 [P] [US3] Criar `server/routes/regua.routes.ts` com `GET /api/regua/pre-vencimento` (filtros `from/to/status/step/page/limit`), `GET /api/regua/agente-config` (cria default se não existe), `PATCH /api/regua/agente-config` (atualiza + audit + cancela jobs BullMQ pendentes se desativa Bruno).
-- [ ] T043 [P] [US3] Criar `server/routes/dossie.routes.ts` com `GET /api/dossie/cliente/:customerId` query `from`, `to`, `format=pdf|json`. Multi-tenant gate (`customer.providerId === req.session.providerId`).
-- [ ] T044 [US3] Criar `server/services/dossie-builder.ts` exportando `buildDossie(providerId, customerId, from, to): DossieData` que faz 6 SELECTs paralelos via storages (Promise.all). Helper `renderDossiePdf(data): Buffer` usando `pdfkit` (já no projeto).
-- [ ] T045 [US3] Registrar as 3 novas rotas em `server/routes/index.ts`.
+- [x] T041 [P] [US3] `server/routes/asaas-config.routes.ts` criado: GET status, POST connect (Zod validate + Asaas /myAccount + detecta mode + AES-256-GCM via storage), DELETE disconnect (markRevoked + auto-suspende brunoAtivo). Rate-limit 5/15min in-memory. Audit completo.
+- [x] T042 [P] [US3] `server/routes/regua.routes.ts` criado: GET /api/regua/pre-vencimento com paginação + filtros (from/to/step/status), join batch de customer+invoice+pix. GET + PATCH /api/regua/agente-config com Zod validate, audit, normalização HH:MM:SS.
+- [x] T043 [P] [US3] `server/routes/dossie.routes.ts` criado: GET /api/dossie/cliente/:customerId com format=pdf|json. Multi-tenant gate em buildDossie. Audit do próprio dossiê (LGPD).
+- [x] T044 [US3] `server/services/dossie-builder.ts` criado: buildDossie com 6 SELECTs paralelos (Promise.all) + multi-tenant gate. renderDossiePdf com pdfkit streaming: cabeçalho provider, resumo executivo, compliance checks, comunicações, pix charges, audit timeline, declaração legal.
+- [x] T045 [US3] 3 rotas registradas em `server/routes/index.ts` (registerAsaasConfigRoutes + registerReguaRoutes + registerDossieRoutes).
 
 ### Frontend Pages
 
-- [ ] T046 [P] [US3] Criar `client/src/pages/configuracoes-asaas.tsx`: form de conexão (input chave + token webhook + botão "Testar e salvar"), status badge (`connected/mode/lastUsedAt`), botão "Desconectar". Usa `useAsaasAccount` hook.
-- [ ] T047 [P] [US3] Criar `client/src/pages/configuracoes-agentes.tsx`: 2 toggles (Bruno + Sofia), TimePicker para `schedulerHoraLocal`, `janelaInicio`, `janelaFim`, checkbox `permiteSabado/Domingo`, select para templates. Usa `useAgentToggles` hook.
-- [ ] T048 [P] [US3] Criar `client/src/pages/regua-pre-vencimento.tsx`: tabela paginada com colunas (cliente, valor, vencimento, step, status Pix, status envio, ações). Filtros: data, status, step. Badge colorida por status. Usa `useReguaPreVencimento`.
-- [ ] T049 [P] [US3] Criar `client/src/pages/cliente-dossie.tsx` (ou botão dentro de `clientes/[id].tsx` existente): seletor `from/to`, botões "Baixar PDF" + "Baixar JSON". Usa `useDossie`.
+- [x] T046 [P] [US3] `client/src/pages/provedor/configuracoes-asaas.tsx` criado: form chave+webhook token, badge sandbox/produção, status accountStatus, lastUsedAt, botão Desconectar com confirmação.
+- [x] T047 [P] [US3] `client/src/pages/provedor/configuracoes-agentes.tsx` criado: 2 Switches (Bruno/Sofia), 3 TimePickers (scheduler/janelaInicio/janelaFim), 2 Checkboxes (sábado/domingo), 2 Inputs (templates Meta), Save com feedback success/error.
+- [x] T048 [P] [US3] `client/src/pages/provedor/regua-pre-vencimento.tsx` criado: tabela paginada Cliente/Valor/Vencimento/Passo/Pix/Envio/Tentativas/Agendado. Filtros from/to/step/status. Paginação prev/next.
+- [x] T049 [P] [US3] `client/src/pages/provedor/cliente-dossie.tsx` criado: seletor from/to (default 12 meses), 2 botões DossieExportButton (PDF + JSON). Card de integridade jurídica explicando audit_logs imutável.
 
 ### Frontend Hooks (TanStack Query)
 
-- [ ] T050 [P] [US3] Criar `client/src/hooks/use-asaas-account.ts` com `useAsaasAccount()` (GET) + `useConnectAsaas()` (POST mutation) + `useDisconnectAsaas()` (DELETE mutation). Invalida cache pertinente.
-- [ ] T051 [P] [US3] Criar `client/src/hooks/use-agent-toggles.ts` com `useAgentToggles()` + `useUpdateAgentToggles()`.
-- [ ] T052 [P] [US3] Criar `client/src/hooks/use-regua-pre-vencimento.ts` com `useReguaPreVencimento(filters)`.
-- [ ] T053 [P] [US3] Criar `client/src/hooks/use-dossie.ts` com `useDossie(customerId, from, to, format)` retornando blob para download.
+- [x] T050 [P] [US3] `client/src/hooks/use-asaas-account.ts` — useAsaasAccount/useConnectAsaas/useDisconnectAsaas com TanStack Query + invalidação.
+- [x] T051 [P] [US3] `client/src/hooks/use-agent-toggles.ts` — useAgentToggles/useUpdateAgentToggles.
+- [x] T052 [P] [US3] `client/src/hooks/use-regua-pre-vencimento.ts` — useReguaPreVencimento(filters) com queryString construído.
+- [x] T053 [P] [US3] `client/src/hooks/use-dossie.ts` — useDossie() mutation que faz blob download para PDF + retorna JSON para format=json.
 
 ### Componentes shadcn + Routing
 
-- [ ] T054 [P] [US3] Criar componentes auxiliares: `client/src/components/regua/PixStatusBadge.tsx`, `client/src/components/regua/EnvioStatusBadge.tsx`, `client/src/components/dossie/DossieExportButton.tsx`. Cores conforme padrão shadcn.
-- [ ] T055 [US3] Adicionar 4 rotas em `client/src/App.tsx` (Wouter): `/configuracoes/asaas`, `/configuracoes/agentes`, `/regua-pre-vencimento`, e botão dossiê no perfil cliente existente. Atualizar `client/src/components/app-sidebar.tsx` com novos itens de menu agrupados em "Cobrança".
+- [x] T054 [P] [US3] PixStatusBadge + EnvioStatusBadge (mapas variant + label pt-BR) + DossieExportButton (com loading state e error feedback).
+- [x] T055 [US3] 4 rotas adicionadas em App.tsx (/configuracoes/asaas, /configuracoes/agentes, /regua-pre-vencimento, /cliente/:customerId/dossie). app-sidebar: novo grupo "Cobrança" com 3 itens (Régua/Configurar Agentes/Conexão Asaas).
 
 ### Testes E2E backend
 
-- [ ] T056 [US3] Criar `server/routes/asaas-config.routes.test.ts`: connect com chave fake → mock Asaas `/myAccount` → 201; chave inválida → 400; multi-tenant (provider B nunca vê chave de A).
-- [ ] T057 [US3] Criar `server/routes/dossie.routes.test.ts`: gerar dossiê 12 meses (com seed de comunicações + audit_logs) → SC-006 medido (<30s); multi-tenant gate (admin de B tentando GET cliente de A → 404).
+- [x] T056 [US3] `server/routes/asaas-config.routes.test.ts` — 6 testes via supertest (GET vazio, POST válido, POST inválido 400, POST webhookToken curto 422, multi-tenant isolation, DELETE auto-suspend Bruno).
+- [x] T057 [US3] `server/routes/dossie.routes.test.ts` — 6 testes (JSON OK, PDF binário com %PDF, multi-tenant 404, invalid customerId 400, from>to 400, performance SC-006 <30s).
 
 **Checkpoint US3**: Admin tem visibilidade + controle + defesa jurídica. Pronto pra vender plano pago.
 

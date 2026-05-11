@@ -46,6 +46,11 @@ const ConfiguracoesRegionalizacaoPage = lazy(() => import("@/pages/provedor/conf
 const ConfiguracoesWhatsappPage = lazy(() => import("@/pages/provedor/configuracoes-whatsapp"));
 const ComunicacoesPage = lazy(() => import("@/pages/provedor/comunicacoes"));
 const BenchmarkRegionalPage = lazy(() => import("@/pages/provedor/benchmark-regional"));
+// Spec 004 US3 — Painel Cobrança
+const ConfiguracoesAsaasPage = lazy(() => import("@/pages/provedor/configuracoes-asaas"));
+const ConfiguracoesAgentesPage = lazy(() => import("@/pages/provedor/configuracoes-agentes"));
+const ReguaPreVencimentoPage = lazy(() => import("@/pages/provedor/regua-pre-vencimento"));
+const ClienteDossiePage = lazy(() => import("@/pages/provedor/cliente-dossie"));
 
 // Public
 const LandingPage = lazy(() => import("@/pages/public/landingpage"));
@@ -93,6 +98,11 @@ function Router() {
         <Route path="/configuracoes/whatsapp" component={ConfiguracoesWhatsappPage} />
         <Route path="/comunicacoes" component={ComunicacoesPage} />
         <Route path="/benchmark-regional" component={BenchmarkRegionalPage} />
+        {/* Spec 004 US3 — Painel Cobrança */}
+        <Route path="/configuracoes/asaas" component={ConfiguracoesAsaasPage} />
+        <Route path="/configuracoes/agentes" component={ConfiguracoesAgentesPage} />
+        <Route path="/regua-pre-vencimento" component={ReguaPreVencimentoPage} />
+        <Route path="/cliente/:customerId/dossie" component={ClienteDossiePage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>

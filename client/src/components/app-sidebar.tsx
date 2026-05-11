@@ -48,6 +48,7 @@ import {
   RefreshCw,
   Target,
   MessageCircle,
+  Bot,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -84,6 +85,12 @@ const mainMenu = [
   { title: "Meus Dados", url: "/benchmark-regional", icon: TrendingUp },
 ];
 
+// Spec 004 US3 — Painel Cobrança
+const cobrancaMenu = [
+  { title: "Régua Pré-Vencimento", url: "/regua-pre-vencimento", icon: ClipboardList },
+  { title: "Configurar Agentes", url: "/configuracoes/agentes", icon: Bot },
+  { title: "Conexão Asaas", url: "/configuracoes/asaas", icon: CreditCard },
+];
 
 const financeMenu = [
   { title: "Comprar Creditos", url: "/creditos", icon: CreditCard },
@@ -353,6 +360,26 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
+
+        <SidebarGroup>
+          <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)]">
+            Cobrança
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {cobrancaMenu.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton asChild data-active={location === item.url}>
+                    <Link href={item.url} data-testid={`link-cobranca-${item.url.replace(/\//g, "-")}`}>
+                      <item.icon className="w-4 h-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
 
         <SidebarGroup>
           <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)]">
