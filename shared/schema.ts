@@ -792,3 +792,50 @@ export type AgentToggles = typeof agentToggles.$inferSelect;
 export type InsertAgentToggles = z.infer<typeof insertAgentTogglesSchema>;
 export type OutboundAttempt = typeof outboundAttempts.$inferSelect;
 export type InsertOutboundAttempt = z.infer<typeof insertOutboundAttemptSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════
+// Spec 008.5 — MCP ERP Wrapper · Bearer tokens
+//
+// Anthropic Managed Agents conectam a MCP servers externos via Vault com
+// auth `static_bearer` (NÃO OAuth/JWT — confirmado pela doc oficial).
+// Owner gera token aqui no superadmin, copia para credential do Vault na
+// platform.claude.com, agent invoca MCP server com Authorization: Bearer.
+//
+// Multi-tenant: cada token pertence a 1 tenant. Bearer chega no MCP →
+// resolve providerId pelo hash → todas as queries filtram automático.
+//
+// Token mostrado UMA VEZ na criação. Apenas hash persiste (scrypt — mesmo
+// padrão de server/password.ts).
+//
+// Auditoria de tool calls: vai em audit_logs com actor_type="mcp".
+// ═══════════════════════════════════════════════════════════════════════
+export const mcpBearerTokens = pgTable("mcp_bearer_tokens", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  /** Hash scrypt do bearer token (formato salt:derivedKey, mesmo padrão de password.ts) */
+  tokenHash: text("token_hash").notNull(),
+  /** Prefixo público "mcp_xxxxxxxx" (8 chars após "mcp_") — usado no UI sem expor o token completo */
+  tokenPrefix: text("token_prefix").notNull(),
+  /** Descrição livre, ex: "Bruno production agent · Vertical Fibra" */
+  name: text("name").notNull(),
+  /** Scopes: ['read'] (default) ou ['read','read_pii']. Controla mascaramento de PII em erp_get_customer */
+  allowedScopes: text("allowed_scopes").array().notNull().default(sql`'{read}'::text[]`),
+  /** Subset de tools permitidas; null = todas */
+  allowedTools: text("allowed_tools").array(),
+  createdByUserId: integer("created_by_user_id").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  /** Última vez que o bearer foi usado em request MCP (para detectar tokens dormentes) */
+  lastUsedAt: timestamp("last_used_at"),
+  /** Soft delete: revogado != deletado para preservar audit trail */
+  revokedAt: timestamp("revoked_at"),
+}, (t) => ({
+  providerIdx: index("mcp_bearer_tokens_provider_idx").on(t.providerId),
+  prefixIdx: index("mcp_bearer_tokens_prefix_idx").on(t.tokenPrefix),
+}));
+
+export const insertMcpBearerTokenSchema = createInsertSchema(mcpBearerTokens).omit({
+  id: true, createdAt: true, lastUsedAt: true, revokedAt: true,
+});
+
+export type McpBearerToken = typeof mcpBearerTokens.$inferSelect;
+export type InsertMcpBearerToken = z.infer<typeof insertMcpBearerTokenSchema>;

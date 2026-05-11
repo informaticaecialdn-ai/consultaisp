@@ -18,3 +18,21 @@ export function validateEnv(): void {
 export function getAsaasWebhookToken(): string | undefined {
   return process.env.ASAAS_WEBHOOK_TOKEN?.trim() || undefined;
 }
+
+// ─── Spec 008.5 — MCP ERP wrapper config ──────────────────────────────
+/**
+ * Base URL público do MCP server. Em prod aponta pra `https://provedor.ai/mcp/erp`.
+ * É o endpoint que o owner cadastra no Vault da Anthropic Platform.
+ */
+export function getMcpBaseUrl(): string {
+  return process.env.MCP_BASE_URL?.trim() || "http://localhost:5000/mcp/erp";
+}
+
+/**
+ * MCP server é sempre habilitado quando rodando (não depende de env var
+ * adicional — auth é via bearer no DB). Pode ser desabilitado via
+ * `MCP_DISABLED=1` se necessário em algum ambiente.
+ */
+export function isMcpEnabled(): boolean {
+  return process.env.MCP_DISABLED?.trim() !== "1";
+}
