@@ -1,13 +1,74 @@
-# CLAUDE.md — Consulta ISP (Super Prompt)
+# CLAUDE.md — Provedor.ai (Super Prompt)
+
+> **Pivot 2026-05-11:** Este projeto **EVOLUIU** do Consulta ISP standalone
+> para o ecossistema **Provedor.ai**. Caminho B confirmado — mantemos o
+> stack atual (Drizzle + Express + Postgres direto) e ADICIONAMOS features
+> incrementalmente. NÃO criamos monorepo zero.
 
 ---
 
 ## 1. IDENTIDADE DO PROJETO
 
-Você é o desenvolvedor principal do **Consulta ISP** — um SaaS multi-tenant de análise de crédito colaborativa para provedores regionais de internet (ISPs) no Brasil. Funciona como um bureau de crédito especializado em telecom: provedores compartilham dados de inadimplência para minimizar calotes, fraudes por migração serial e perdas de equipamentos.
+Você é o desenvolvedor principal do **Provedor.ai** — um SaaS multi-tenant
+para provedores de internet (ISPs) brasileiros. O produto é um ecossistema
+composto por **módulos**, sendo o primeiro deles o **Módulo Cobrança
+Inteligente** (10 funcionários digitais sêniores que cobrem todo o ciclo
+de recebível, do lembrete pré-vencimento à recuperação de equipamentos
+pós-cancelamento).
 
-**Repositório:** `https://github.com/informaticaecialdn-ai/Consulta-ISP`
-**Ambiente original:** Replit (com deploy para produção)
+**O Consulta ISP** — produto histórico desta codebase — é **um dos módulos**
+do Provedor.ai (Rede Colaborativa de Risco). Continua existindo, com suas
+features atuais (heatmap, antifraude, importação CSV, créditos ISP/SPC),
+mas agora sob o guarda-chuva Provedor.ai.
+
+### Diferenciação competitiva
+
+- **Não é chatbot** — 10 funcionários digitais sêniores (Marcos, Júlia,
+  Bruno, Helena, Rafael, Carla, Daniel, Lucas, Sofia, Pedro), cada um com
+  persona consistente, SOPs, KPIs, e poder de ação real (gerar boleto,
+  registrar acordo, suspender régua, escalar humano).
+- **Agentes hospedados na plataforma Anthropic** (https://platform.claude.com/workspaces/default/agents)
+  com prompts versionados em `server/prompts/` como source-of-truth.
+- **Vertical exclusivo de provedor** (Neofin, iRecebi, Assertiva são
+  genéricos).
+- **Integração nativa com 10 ERPs ISP** (IXC, MK, SGP, Hubsoft, Voalle,
+  RBX, TopSApp, RadiusNet, Gere, ReceitaNet) — já implementados em
+  `server/erp/connectors/`.
+- **Conformidade hardcoded:** Anatel 765/2023, CDC arts. 42/43/71, LGPD,
+  Lei 14.181/2021. Compliance Agent (Júlia) tem poder de veto absoluto
+  sobre toda comunicação outbound.
+- **Audit log imutável** (triggers Postgres bloqueiam UPDATE/DELETE) —
+  defesa jurídica em Procon/Anatel/Justiça com dossiê gerado em <30s.
+- **Rede colaborativa de risco** (módulo Consulta ISP) — dados de
+  inadimplência cross-tenant alimentam scoring e antifraude.
+
+### Cliente alvo
+
+Provedor com 300–10.000 assinantes, dor mensurável de inadimplência
+(8–12% do faturamento) e equipamentos em comodato não recuperados
+(R$ 30k–150k/ano de prejuízo).
+
+### Pricing (Standalone tiers)
+
+- Essencial: R$ 249/mês (até 500 assinantes) — Aurora/Bruno + Clara/Rafael + Júlia + 2 ERPs
+- Profissional: R$ 499/mês (501-2.000) — adiciona Helena + Sofia + Marcos + Carla
+- Plus: R$ 899/mês (2.001-10.000) — adiciona Daniel + Lucas + Pedro + Confissão Dívida + e-Notariado
+- Bundle Plus+ R$ 1.499/mês (2028+) — adiciona Faturamento + Fiscal
+- Bundle Enterprise R$ 3.500-7.500/mês (2029+) — substitui ERP técnico
+
+Plus 1-3% success fee opcional sobre recuperação D+30+.
+
+### Documentação canônica
+
+Especificações detalhadas em `C:\Provedor.ai\Ecossistema\`:
+- **CLAUDE.md** — briefing técnico original
+- **MODULES_ROADMAP.md** — 64 módulos em 10 categorias, 36 meses
+- **TEAM.md** — os 10 funcionários digitais (canônico)
+- **provedor-ai-agentes.md** — system prompts e specs operacionais
+- **RESOURCES.md** — 17 recursos R1-R17 com schemas + código TS + APIs
+
+**Repositório:** este é o repo principal (era Consulta ISP, agora Provedor.ai)
+**Ambiente:** Desenvolvimento local + deploy VPS Hostinger (já em produção)
 
 ---
 
