@@ -77,36 +77,128 @@ const PLAN_LABELS: Record<string, string> = {
   enterprise: "Enterprise",
 };
 
-const mainMenu = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Consulta ISP", url: "/consulta-isp", icon: Search },
-  { title: "Consulta SPC", url: "/consulta-spc", icon: BarChart3 },
-  { title: "Anti-Fraude", url: "/anti-fraude", icon: ShieldAlert },
-  { title: "Meus Dados", url: "/benchmark-regional", icon: TrendingUp },
-];
+// ═══════════════════════════════════════════════════════════════════════
+// SIDEBAR PROVEDOR.AI — 9 grupos top-level (Spec 007 · DESIGN.md §4.1)
+//
+// Estrutura canônica que substitui blocos antigos (mainMenu/cobrancaMenu/
+// financeMenu/toolsMenu/configMenu). Cada grupo é collapsible (exceto
+// Dashboard e Time, que são atalhos diretos).
+//
+// Itens com comingSoon: placeholder até spec correspondente entrar.
+// adminOnly: visível só para role="admin" do tenant.
+// ═══════════════════════════════════════════════════════════════════════
 
-// Spec 004 US3 — Painel Cobrança · Spec 007 adiciona Time Digital
-const cobrancaMenu = [
-  { title: "Time Digital", url: "/time", icon: Users },
-  { title: "Régua Pré-Vencimento", url: "/regua-pre-vencimento", icon: ClipboardList },
-  { title: "Configurar Agentes", url: "/configuracoes/agentes", icon: Bot },
-  { title: "Conexão Asaas", url: "/configuracoes/asaas", icon: CreditCard },
-];
+type SidebarItem = {
+  title: string;
+  url?: string;            // rota direta; quando ausente + comingSoon, vira disabled
+  icon: React.ComponentType<{ className?: string }>;
+  testId?: string;
+  comingSoon?: string;     // ex: "Spec 010" — exibe badge "Em breve"
+  adminOnly?: boolean;
+};
 
-const financeMenu = [
-  { title: "Comprar Creditos", url: "/creditos", icon: CreditCard },
-  { title: "Notas Fiscais", url: "/nfse", icon: FileText },
-];
+type SidebarGroupDef = {
+  label: string;
+  key: string;
+  icon: React.ComponentType<{ className?: string }>;
+  /** Quando definido, o grupo é um atalho direto (sem collapsible). */
+  directUrl?: string;
+  items?: SidebarItem[];
+  /** Default collapse state quando collapsible. */
+  defaultOpen?: boolean;
+  adminOnly?: boolean;
+};
 
-const toolsMenu = [
-  { title: "Importacao", url: "/importacao", icon: Upload },
-  { title: "Importar Equip.", url: "/importacao-equipamentos", icon: Package },
-];
-
-const configMenu = [
-  { title: "Regionalizacao", url: "/configuracoes/regionalizacao", icon: MapPin },
-  { title: "WhatsApp Business", url: "/configuracoes/whatsapp", icon: MessageCircle },
-  { title: "Comunicacoes", url: "/comunicacoes", icon: MessageSquare },
+const SIDEBAR_GROUPS: SidebarGroupDef[] = [
+  {
+    label: "Dashboard",
+    key: "dashboard",
+    icon: LayoutDashboard,
+    directUrl: "/",
+  },
+  {
+    label: "Clientes",
+    key: "clientes",
+    icon: Users,
+    defaultOpen: true,
+    items: [
+      { title: "Inadimplentes", url: "/inadimplentes", icon: TrendingUp },
+      { title: "Anti-Fraude", url: "/anti-fraude", icon: ShieldAlert },
+      { title: "Mapa de Calor", url: "/mapa-calor", icon: MapPin },
+      { title: "Consulta ISP (Rede)", url: "/consulta-isp", icon: Search },
+      { title: "Consulta SPC", url: "/consulta-spc", icon: BarChart3 },
+    ],
+  },
+  {
+    label: "Cobrança",
+    key: "cobranca",
+    icon: Bot,
+    defaultOpen: true,
+    items: [
+      { title: "Régua Pré-Vencimento", url: "/regua-pre-vencimento", icon: ClipboardList },
+      { title: "Configurar Agentes", url: "/configuracoes/agentes", icon: Bot },
+      { title: "Comunicações", url: "/comunicacoes", icon: MessageSquare },
+      { title: "Conexão Asaas", url: "/configuracoes/asaas", icon: CreditCard },
+    ],
+  },
+  {
+    label: "Equipamentos",
+    key: "equipamentos",
+    icon: Package,
+    items: [
+      { title: "Importar Equip.", url: "/importacao-equipamentos", icon: Upload },
+      { title: "Recuperações", icon: RefreshCw, comingSoon: "Spec 013 · Lucas" },
+    ],
+  },
+  {
+    label: "Carteiras",
+    key: "carteiras",
+    icon: Target,
+    items: [
+      { title: "Por região / POP", icon: MapPin, comingSoon: "Spec 015 · CRM Plus+" },
+      { title: "Minhas tarefas", icon: ClipboardList, comingSoon: "Spec 015" },
+    ],
+  },
+  {
+    label: "Time Digital",
+    key: "time",
+    icon: Users,
+    directUrl: "/time",
+  },
+  {
+    label: "Anatel Shield",
+    key: "anatel-shield",
+    icon: Shield,
+    items: [
+      { title: "Notificações legais", icon: FileText, comingSoon: "Spec 010 · Carla" },
+      { title: "Defesa Procon", icon: Shield, comingSoon: "Spec 010" },
+      { title: "Status do shield", icon: Activity, comingSoon: "Spec 011 · Marcos" },
+    ],
+  },
+  {
+    label: "Relatórios",
+    key: "relatorios",
+    icon: BarChart3,
+    items: [
+      { title: "Benchmark Regional", url: "/benchmark-regional", icon: TrendingUp },
+      { title: "Importação CSV", url: "/importacao", icon: Database },
+      { title: "Provedor Index", icon: Activity, comingSoon: "Spec 011 · Marcos" },
+    ],
+  },
+  {
+    label: "Settings",
+    key: "settings",
+    icon: Settings,
+    adminOnly: true,
+    items: [
+      { title: "Painel do Provedor", url: "/painel-provedor", icon: Building2, testId: "link-painel-provedor" },
+      { title: "Administração", url: "/administracao", icon: UserCog },
+      { title: "WhatsApp Business", url: "/configuracoes/whatsapp", icon: MessageCircle },
+      { title: "Regionalização", url: "/configuracoes/regionalizacao", icon: Globe },
+      { title: "Comprar Créditos", url: "/creditos", icon: CreditCard },
+      { title: "Notas Fiscais", url: "/nfse", icon: FileText },
+    ],
+  },
 ];
 
 const ADMIN_GROUPS = [
@@ -246,6 +338,114 @@ function AdminCollapsibleGroup({
   );
 }
 
+function ProviderSidebarGroup({
+  group,
+  location,
+  search,
+}: {
+  group: SidebarGroupDef;
+  location: string;
+  search: string;
+}) {
+  const [open, setOpen] = useState<boolean>(group.defaultOpen ?? false);
+
+  // Grupo "direct" (Dashboard, Time): atalho sem collapsible
+  if (group.directUrl) {
+    const isActive = location === group.directUrl;
+    const GroupIcon = group.icon;
+    return (
+      <SidebarGroup className="py-0.5">
+        <SidebarGroupContent>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild data-active={isActive}>
+                <Link href={group.directUrl}>
+                  <GroupIcon className="w-4 h-4" />
+                  <span className="font-medium">{group.label}</span>
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroupContent>
+      </SidebarGroup>
+    );
+  }
+
+  const GroupIcon = group.icon;
+  const items = group.items ?? [];
+
+  return (
+    <SidebarGroup className="py-0.5">
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <CollapsibleTrigger asChild>
+          <SidebarGroupLabel
+            className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)] px-2 py-1.5 cursor-pointer flex items-center justify-between w-full hover:text-foreground transition-colors"
+            data-testid={`sidebar-group-${group.key}`}
+          >
+            <span className="flex items-center gap-2">
+              <GroupIcon className="w-3.5 h-3.5" />
+              {group.label}
+            </span>
+            <ChevronDown
+              className={`w-3 h-3 transition-transform duration-200 ${open ? "rotate-0" : "-rotate-90"}`}
+            />
+          </SidebarGroupLabel>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {items.map((item) => {
+                const ItemIcon = item.icon;
+                const isDisabled = !item.url || !!item.comingSoon;
+
+                if (isDisabled) {
+                  return (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton
+                        disabled
+                        className="cursor-not-allowed opacity-60"
+                        data-testid={`sidebar-coming-soon-${group.key}-${item.title}`}
+                        title={item.comingSoon ? `Em breve · ${item.comingSoon}` : "Em breve"}
+                      >
+                        <ItemIcon className="w-4 h-4" />
+                        <span className="flex-1 truncate">{item.title}</span>
+                        <Badge
+                          variant="outline"
+                          className="ml-auto text-[9px] px-1.5 py-0 h-4 font-normal border-[var(--color-brand-amber-500)]/40 text-[var(--color-brand-amber-700)]"
+                        >
+                          Em breve
+                        </Badge>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                }
+
+                const [itemPath, itemQuery] = item.url!.split("?");
+                const isActive =
+                  location === itemPath && (!itemQuery || search === `?${itemQuery}`);
+
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild data-active={isActive}>
+                      <Link
+                        href={item.url!}
+                        data-testid={item.testId ?? `sidebar-${group.key}-${item.url!.replace(/\//g, "-")}`}
+                      >
+                        <ItemIcon className="w-4 h-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </CollapsibleContent>
+      </Collapsible>
+    </SidebarGroup>
+  );
+}
+
 export function AppSidebar() {
   const [location, navigate] = useLocation();
   const search = useSearch();
@@ -340,120 +540,15 @@ export function AppSidebar() {
         </Link>
       </SidebarHeader>
 
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)]">
-            Principal
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {mainMenu.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild data-active={location === item.url}>
-                    <Link href={item.url}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)]">
-            Cobrança
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {cobrancaMenu.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild data-active={location === item.url}>
-                    <Link href={item.url} data-testid={`link-cobranca-${item.url.replace(/\//g, "-")}`}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)]">
-            Financeiro
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {financeMenu.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild data-active={location === item.url}>
-                    <Link href={item.url}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)]">
-            Gestao
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {toolsMenu.map((item) => {
-                const [itemPath, itemQuery] = item.url.split("?");
-                const isActive = location === itemPath && (!itemQuery || search === `?${itemQuery}`);
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild data-active={isActive}>
-                      <Link href={item.url}>
-                        <item.icon className="w-4 h-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild data-active={location === "/painel-provedor"}>
-                  <Link href="/painel-provedor" data-testid="link-painel-provedor">
-                    <Building2 className="w-4 h-4" />
-                    <span>Painel do Provedor</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        {(user?.role === "admin") && (
-          <SidebarGroup>
-            <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)]">
-              Configuracoes
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {configMenu.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild data-active={location === item.url}>
-                      <Link href={item.url}>
-                        <item.icon className="w-4 h-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
+      <SidebarContent className="gap-0">
+        {SIDEBAR_GROUPS.filter((g) => !g.adminOnly || user?.role === "admin").map((group) => (
+          <ProviderSidebarGroup
+            key={group.key}
+            group={group}
+            location={location}
+            search={search}
+          />
+        ))}
       </SidebarContent>
 
       <SidebarFooter className="p-4 space-y-3">
