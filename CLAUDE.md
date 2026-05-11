@@ -293,26 +293,31 @@ SPC_CREDIT_PACKAGES = [
 
 ---
 
-## 7. INTEGRAÇÃO ERP — SITUAÇÃO ATUAL E MIGRAÇÃO NECESSÁRIA
+## 7. INTEGRAÇÃO ERP — ARQUITETURA DE CONECTORES
 
-### Situação Atual
-O sistema usa **N8N como proxy** para comunicação com ERPs, especialmente o IXC Soft. Há um proxy N8N em `https://n8n.aluisiocunha.com.br/webhook/ixc-inadimplentes` que contorna restrições de IP do IXC.
+### Situação Atual (pós-migração N8N, 2026-03-31)
+O sistema usa um **registry de conectores ERP nativos** — sem nenhum proxy intermediário. Cada ERP suportado tem implementação dedicada que fala direto com a API REST do ERP do provedor. Caminho legado N8N foi removido em GSD Phase 05 (`erp-ui-n8n-removal`, commits `c479768` + `2958d54`).
 
-**Problema:** A dependência do N8N precisa ser eliminada. O sistema deve fazer **chamadas diretas via API** para TODOS os ERPs suportados, sem intermediários.
+### Arquitetura Implementada
 
-### O QUE PRECISA SER FEITO: Motor de Integração ERP Direto
+**Local:** `server/erp-connector.ts` (interface) + implementações por ERP. Heatmap, scheduler, rotas de test/sync e consultas usam o connector registry via `getConnector(erpSource)`.
 
-**Substituir o N8N por um módulo de integração nativo** (`server/erp-connector.ts`) que se conecte diretamente a cada ERP via suas APIs REST. O módulo deve:
+**ERPs suportados via conectores diretos:** IXC Soft, MK Solutions, SGP, Hubsoft, Voalle, RBX ISP.
 
-1. Ter um **conector abstrato** (interface) com implementações específicas por ERP
-2. Suportar **auto-sync** via scheduler (já existe em `scheduler.ts`, só precisa expandir)
-3. Suportar **sync manual** via rota `POST /api/provider/erp-integrations/:source/sync`
-4. Alimentar o **mapa de calor** (substituir `fetchIxcDelinquents` em `heatmap-cache.ts`)
-5. Manter logs em `erpSyncLogs` e status em `erpIntegrations`
+**Fluxos cobertos:**
+1. **Sync manual:** `POST /api/provider/erp-integrations/:source/sync`
+2. **Auto-sync:** scheduler dispara `connectors[source].fetchDelinquents()` periodicamente
+3. **Heatmap:** `heatmap-cache.ts` consulta via registry, suporta os 6 ERPs (não só IXC)
+4. **Test de conexão:** `POST /api/provider/erp-integrations/:source/test`
+5. **Logs:** `erpSyncLogs` registra cada tentativa (sucesso/erro/contagem)
+6. **Catálogo:** `GET /api/erp-connectors` expõe metadata (`name`, `label`, `configFields`)
 
-### ERPs e Suas APIs
+### Pré-requisito operacional por ERP
+Alguns ERPs (notavelmente IXC) exigem que o provedor **libere o IP do servidor** no painel deles antes da primeira sincronização. Sem isso, o teste de conexão retorna erro de bloqueio.
 
-#### IXC Soft (IXCSoft/IXC Provedor) — JÁ IMPLEMENTADO PARCIALMENTE
+### ERPs e Suas APIs (referência)
+
+#### IXC Soft (IXCSoft/IXC Provedor)
 - **Auth:** Basic Auth (`Base64(user:token)`)
 - **Base URL:** `https://[dominio]/webservice/v1/`
 - **Método:** POST com header `ixcsoft: "listar"` e `Content-Type: application/json`
@@ -321,7 +326,7 @@ O sistema usa **N8N como proxy** para comunicação com ERPs, especialmente o IX
 - **Paginação:** campos `page`, `rp` (records per page)
 - **Resposta:** `{ registros: [...], total: N }`
 - **Docs:** https://wikiapiprovedor.ixcsoft.com.br/
-- **Nota:** Pode ter restrição de IP — o sistema já tenta fallback via N8N proxy. Na nova versão, instruir o provedor a liberar o IP do servidor.
+- **Nota:** Provedor deve liberar IP do servidor (whitelist) no painel IXC antes do primeiro test/sync. Erro de bloqueio é diferenciado de credencial inválida na mensagem retornada.
 
 #### MK Solutions (MK Auth)
 - **Auth:** JWT Bearer Token (gerado na interface admin do MK Auth)
@@ -402,13 +407,13 @@ interface ErpCustomer {
 // Registry: const connectors: Record<string, ErpConnector> = { ixc: new IxcConnector(), mk: new MkConnector(), ... }
 ```
 
-### O que Mudar em Cada Arquivo
-1. **Criar `server/erp-connector.ts`** — Interface + implementações por ERP
-2. **Atualizar `server/scheduler.ts`** — Usar connectors[source].fetchDelinquents() em vez de `fetchErpCustomersForScheduler()`
-3. **Atualizar `server/heatmap-cache.ts`** — Remover N8N proxy, usar connectors[source].fetchDelinquents()
-4. **Atualizar `server/routes.ts`** — Rotas de test/sync usando connectors
-5. **Atualizar `shared/schema.ts`** — Adicionar campos extras na tabela `erpIntegrations` se necessário (ex: `clientId`, `clientSecret` para Hubsoft OAuth)
-6. **Atualizar frontend** — Tela de configuração ERP para campos específicos de cada ERP
+### Estado dos Arquivos (referência)
+- **`server/erp-connector.ts`** — Interface + connector registry (`getConnector`, `buildConnectorConfig`) ✅ implementado
+- **`server/scheduler.ts`** — Usa `connectors[source].fetchDelinquents()` ✅
+- **`server/heatmap-cache.ts`** — Reescrito para usar registry (~225 linhas, 6 ERPs suportados) ✅
+- **`server/routes/erp.routes.ts`** — Rotas de test/sync via connectors ✅; `GET /api/erp-connectors` expõe catálogo ✅
+- **`shared/schema.ts`** — Tabela `erp_integrations` cobre campos por ERP (incl. OAuth do Hubsoft) ✅
+- **Frontend** — Tela de configuração ERP renderiza campos do connector metadata ✅
 
 ---
 
@@ -472,7 +477,7 @@ GET/PATCH provider/webhook-config, GET provider/trial-status
 GET provider/erp-integrations, PATCH erp-integrations/:source
 POST erp-integrations/:source/test, POST erp-integrations/:source/sync
 GET provider/erp-sync-logs, erp-integration-stats
-GET/PATCH provider/n8n-config, POST n8n-config/test
+GET /api/erp-connectors (catálogo público de conectores e seus campos)
 
 ### Mapa de Calor (requireAuth)
 GET heatmap/provider, heatmap/regional, heatmap/city-ranking, heatmap/sync-info, heatmap/cache-status
@@ -550,9 +555,9 @@ Especialista em fraude por migração serial ISP. Contexto: cliente contrata, n�
 ## 12. MAPA DE CALOR (server/heatmap-cache.ts)
 
 - **Cache in-memory** por provedor com TTL 24h
-- **Fonte principal:** API do ERP IXC (fn_areceber status=A) — PRECISA EXPANDIR PARA OUTROS ERPs
-- **Geocodificação:** CEP → ViaCEP → cidade/estado → Nominatim → lat/lng
-- **N8N Proxy atual:** `https://n8n.aluisiocunha.com.br/webhook/ixc-inadimplentes` — A SER REMOVIDO
+- **Fonte:** Connector registry — suporta os 6 ERPs (IXC, MK, SGP, Hubsoft, Voalle, RBX) via `getConnector(erpSource).fetchDelinquents()`
+- **Geocodificação:** quando o ERP não retorna endereço estruturado, fallback CEP → ViaCEP → cidade/estado → Nominatim → lat/lng
+- **Rate limiting:** `getProviderLimiter` controla concorrência por provedor para respeitar limites dos ERPs
 - **Scheduler:** Refresh automático a cada 24h + manual via POST /api/heatmap/refresh
 - Tabela `customers` NÃO é usada — somente cache in-memory
 
@@ -589,19 +594,22 @@ npm run db:push      # drizzle-kit push (sync schema → PostgreSQL)
 
 ## 15. PRIORIDADE DE DESENVOLVIMENTO
 
-### Imediato — Migração ERP
-1. Criar `server/erp-connector.ts` com interface + implementações
-2. Implementar conectores: IXC (refatorar existente), MK Auth, SGP, Hubsoft, Voalle, RBX
-3. Remover dependência N8N de `heatmap-cache.ts`
-4. Atualizar `scheduler.ts` para usar conectores
-5. Atualizar rotas de test/sync em `routes.ts`
-6. Adaptar UI de configuração ERP para campos específicos de cada ERP
+### Concluído (referência)
+- ✅ Migração ERP completa: 6 conectores diretos + remoção total do N8N (Phases 04 + 05 do GSD arquivado)
+- ✅ Multi-ERP heatmap via connector registry
+- ✅ IXC e MK validados em produção (per memória do projeto)
+
+### Em Aberto — Próximos Itens
+1. **NFS-e via FocusNFe** — emissão fiscal eletrônica de notas
+2. **SPC desbloqueio** — integração real com SPC Brasil (SOAP servicos.spc.org.br, produto 257)
+3. **Paginação em `fetchCustomers`** — atualmente sem paginação em todos os conectores
+4. **Indicador de % de inadimplência** — métrica agregada por provedor no dashboard
 
 ### Melhorias Planejadas
-- Unificar preços (schema vs landing page)
-- Expandir mapa de calor para todos os ERPs (não só IXC)
+- Unificar preços (schema vs landing page — divergência documentada na seção 5)
 - Dashboard analytics avançado
 - API pública documentada para integrações customizadas
+- Cobertura de testes para áreas críticas (auth, multi-tenant, score ISP, ERP connectors)
 
 <!-- GSD:project-start source:PROJECT.md -->
 ## Project
@@ -786,3 +794,9 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 > Profile not yet configured. Run `/gsd:profile-user` to generate your developer profile.
 > This section is managed by `generate-claude-profile` -- do not edit manually.
 <!-- GSD:profile-end -->
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan:
+`specs/001-fetchcustomers-pagination/plan.md`
+<!-- SPECKIT END -->

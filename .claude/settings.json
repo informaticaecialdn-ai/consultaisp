@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx vitest *)",
+      "Bash(npm rebuild *)",
+      "Bash(npx prebuild-install *)",
+      "Bash(chmod +x c:/ClaudeCode/Consulta_ISP/agentes-sistema/scripts/deploy-sprint4.sh c:/ClaudeCode/Consulta_ISP/agentes-sistema/scripts/smoke-test-deploy.sh c:/ClaudeCode/deploy-vps-hostinger.sh)",
+      "Bash(bash -n c:/ClaudeCode/Consulta_ISP/agentes-sistema/scripts/deploy-sprint4.sh)",
+      "Bash(bash -n c:/ClaudeCode/Consulta_ISP/agentes-sistema/scripts/smoke-test-deploy.sh)",
+      "Bash(bash -n c:/ClaudeCode/deploy-vps-hostinger.sh)"
+    ]
+  },
+  "enabledPlugins": {
+    "sdd@sdd-local": true
+  }
+}
