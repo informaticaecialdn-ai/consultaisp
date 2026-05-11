@@ -15,7 +15,7 @@ import express, { type Request, type Response, type Router } from "express";
 import { Queue } from "bullmq";
 import IORedis from "ioredis";
 import { logger } from "../../logger";
-import { validateWhatsAppSignature, captureRawBody } from "./signature";
+import { validateWhatsAppSignature } from "./signature";
 
 const QUEUE_NAME = "whatsapp-webhook";
 
@@ -42,9 +42,9 @@ function getQueue(): Queue {
 /**
  * Monta o router /webhooks/whatsapp.
  *
- * Importante: este router usa `express.json` LOCAL com `verify` callback
- * próprio para garantir que o raw body é capturado mesmo se outro middleware
- * global tentar consumir o stream antes.
+ * Importante: raw body é capturado pelo `express.json` GLOBAL em server/index.ts
+ * via `verify` callback que armazena `req.rawBody = buf`. validateWhatsAppSignature
+ * lê esse Buffer para HMAC-SHA256.
  */
 export function registerWhatsAppWebhookRoutes(): Router {
   const router: Router = express.Router();
@@ -76,13 +76,10 @@ export function registerWhatsAppWebhookRoutes(): Router {
   });
 
   // POST /webhooks/whatsapp — recebe payloads
-  // Precisa de raw body capturado PARA o signature check.
+  // Raw body é capturado pelo `verify` callback do express.json() global
+  // em server/index.ts (`req.rawBody = buf`). validateWhatsAppSignature lê esse buffer.
   router.post(
     "/webhooks/whatsapp",
-    express.json({
-      limit: "1mb",
-      verify: captureRawBody,
-    }),
     validateWhatsAppSignature,
     async (req: Request, res: Response): Promise<void> => {
       const t0 = Date.now();
