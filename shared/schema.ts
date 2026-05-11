@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, decimal, serial, jsonb, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, decimal, serial, jsonb, uniqueIndex, index, date, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -660,3 +660,135 @@ export type WhatsappAccount = typeof whatsappAccounts.$inferSelect;
 export type InsertWhatsappAccount = z.infer<typeof insertWhatsappAccountSchema>;
 export type WhatsappOptout = typeof whatsappOptouts.$inferSelect;
 export type InsertWhatsappOptout = z.infer<typeof insertWhatsappOptoutSchema>;
+
+// ============================================================================
+// SPEC 004 — Bruno (preventivo) + Sofia (agradecimento) + Pix dinâmico
+// Schema autorizado pelo owner em 2026-05-11.
+// Multi-tenant invariante: toda tabela tem provider_id (Princípio I).
+// ============================================================================
+
+// 1) asaas_accounts — credenciais Asaas por tenant (1:1)
+export const asaasAccounts = pgTable("asaas_accounts", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().unique().references(() => providers.id),
+  apiKeyEncrypted: text("api_key_encrypted").notNull(),
+  webhookTokenEncrypted: text("webhook_token_encrypted"),
+  mode: varchar("mode", { length: 10 }).notNull().default("sandbox"),
+  accountStatus: varchar("account_status", { length: 20 }).notNull().default("pending"),
+  lastUsedAt: timestamp("last_used_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// 2) pix_charges — Pix dinâmico gerado por Bruno
+export const pixCharges = pgTable("pix_charges", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  invoiceId: integer("invoice_id").notNull().references(() => invoices.id),
+  customerId: integer("customer_id").notNull().references(() => customers.id),
+  asaasPaymentId: text("asaas_payment_id").notNull().unique(),
+  value: numeric("value", { precision: 12, scale: 2 }).notNull(),
+  dueDate: date("due_date").notNull(),
+  pixQrCodeBase64: text("pix_qr_code_base64"),
+  pixCopyPaste: text("pix_copy_paste"),
+  pixExpiresAt: timestamp("pix_expires_at"),
+  status: varchar("status", { length: 20 }).notNull().default("pending"),
+  paidAt: timestamp("paid_at"),
+  cancelledAt: timestamp("cancelled_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  providerStatusIdx: index("pix_charges_provider_status_idx").on(t.providerId, t.status),
+  invoiceIdx: index("pix_charges_invoice_idx").on(t.invoiceId),
+  providerDueDateIdx: index("pix_charges_provider_due_idx").on(t.providerId, t.dueDate),
+}));
+
+// 3) payment_events — audit dos webhooks Asaas, idempotência por (provider, payment, event)
+export const paymentEvents = pgTable("payment_events", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  asaasPaymentId: text("asaas_payment_id").notNull(),
+  eventType: varchar("event_type", { length: 40 }).notNull(),
+  externalEventId: text("external_event_id"),
+  payload: jsonb("payload").notNull(),
+  receivedAt: timestamp("received_at").notNull().defaultNow(),
+  processingStatus: varchar("processing_status", { length: 20 }).notNull().default("processed"),
+  rejectionReason: text("rejection_reason"),
+  sofiaJobId: text("sofia_job_id"),
+}, (t) => ({
+  uniqueProviderPaymentEvent: uniqueIndex("payment_events_provider_payment_event_uq")
+    .on(t.providerId, t.asaasPaymentId, t.eventType),
+  receivedAtIdx: index("payment_events_received_at_idx").on(t.receivedAt),
+  processingStatusIdx: index("payment_events_processing_status_idx").on(t.processingStatus),
+}));
+
+// 4) agent_toggles — bruno/sofia on/off + janela horária por tenant
+export const agentToggles = pgTable("agent_toggles", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().unique().references(() => providers.id),
+  brunoAtivo: boolean("bruno_ativo").notNull().default(false),
+  sofiaAtiva: boolean("sofia_ativa").notNull().default(false),
+  schedulerHoraLocal: varchar("scheduler_hora_local", { length: 8 }).notNull().default("09:00:00"),
+  janelaInicio: varchar("janela_inicio", { length: 8 }).notNull().default("08:00:00"),
+  janelaFim: varchar("janela_fim", { length: 8 }).notNull().default("20:00:00"),
+  permiteSabado: boolean("permite_sabado").notNull().default(true),
+  permiteDomingo: boolean("permite_domingo").notNull().default(false),
+  templateBrunoNome: text("template_bruno_nome"),
+  templateSofiaNome: text("template_sofia_nome"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// 5) outbound_attempts — estado da régua (intenção + Júlia decision + retry)
+export const outboundAttempts = pgTable("outbound_attempts", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  customerId: integer("customer_id").notNull().references(() => customers.id),
+  invoiceId: integer("invoice_id").references(() => invoices.id),
+  pixChargeId: integer("pix_charge_id").references(() => pixCharges.id),
+  agentId: varchar("agent_id", { length: 40 }).notNull(),
+  step: varchar("step", { length: 20 }).notNull(),
+  scheduledFor: timestamp("scheduled_for").notNull(),
+  status: varchar("status", { length: 30 }).notNull().default("scheduled"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  nextRetryAt: timestamp("next_retry_at"),
+  complianceCheckId: text("compliance_check_id"),
+  communicationId: integer("communication_id"),
+  failureReason: text("failure_reason"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  providerStatusScheduledIdx: index("outbound_attempts_provider_status_scheduled_idx")
+    .on(t.providerId, t.status, t.scheduledFor),
+  statusNextRetryIdx: index("outbound_attempts_status_next_retry_idx")
+    .on(t.status, t.nextRetryAt),
+  // UNIQUE (invoice_id, step, scheduled_for::date) criado via SQL raw na migration
+}));
+
+// Spec 004 — insert schemas + types
+export const insertAsaasAccountSchema = createInsertSchema(asaasAccounts).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export const insertPixChargeSchema = createInsertSchema(pixCharges).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export const insertPaymentEventSchema = createInsertSchema(paymentEvents).omit({
+  id: true, receivedAt: true,
+});
+export const insertAgentTogglesSchema = createInsertSchema(agentToggles).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+export const insertOutboundAttemptSchema = createInsertSchema(outboundAttempts).omit({
+  id: true, createdAt: true, updatedAt: true,
+});
+
+export type AsaasAccount = typeof asaasAccounts.$inferSelect;
+export type InsertAsaasAccount = z.infer<typeof insertAsaasAccountSchema>;
+export type PixCharge = typeof pixCharges.$inferSelect;
+export type InsertPixCharge = z.infer<typeof insertPixChargeSchema>;
+export type PaymentEvent = typeof paymentEvents.$inferSelect;
+export type InsertPaymentEvent = z.infer<typeof insertPaymentEventSchema>;
+export type AgentToggles = typeof agentToggles.$inferSelect;
+export type InsertAgentToggles = z.infer<typeof insertAgentTogglesSchema>;
+export type OutboundAttempt = typeof outboundAttempts.$inferSelect;
+export type InsertOutboundAttempt = z.infer<typeof insertOutboundAttemptSchema>;

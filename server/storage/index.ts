@@ -40,6 +40,12 @@ import { AgentMemoryStorage } from "./agent-memory.storage";
 import { ComplianceCheckStorage } from "./compliance-check.storage";
 import { WhatsappAccountStorage } from "./whatsapp-account.storage";
 import { WhatsappOptoutStorage } from "./whatsapp-optout.storage";
+// Spec 004 — Bruno + Sofia + Pix dinâmico
+import { AsaasAccountStorage } from "./asaas-account.storage";
+import { PixChargeStorage } from "./pix-charge.storage";
+import { PaymentEventStorage } from "./payment-event.storage";
+import { AgentToggleStorage } from "./agent-toggle.storage";
+import { OutboundAttemptStorage } from "./outbound-attempt.storage";
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
@@ -227,6 +233,12 @@ class DatabaseStorage implements IStorage {
   complianceCheck = new ComplianceCheckStorage();
   whatsappAccount = new WhatsappAccountStorage();
   whatsappOptout = new WhatsappOptoutStorage();
+  // Spec 004
+  asaasAccount = new AsaasAccountStorage();
+  pixCharge = new PixChargeStorage();
+  paymentEvent = new PaymentEventStorage();
+  agentToggle = new AgentToggleStorage();
+  outboundAttempt = new OutboundAttemptStorage();
 
   // Users
   getUser = (id: number) => this._users.getUser(id);
@@ -405,3 +417,9 @@ export { AgentMemoryStorage } from "./agent-memory.storage";
 export { ComplianceCheckStorage } from "./compliance-check.storage";
 export { WhatsappAccountStorage } from "./whatsapp-account.storage";
 export { WhatsappOptoutStorage } from "./whatsapp-optout.storage";
+// Spec 004 — re-export classes for direct instantiation/testing
+export { AsaasAccountStorage } from "./asaas-account.storage";
+export { PixChargeStorage } from "./pix-charge.storage";
+export { PaymentEventStorage } from "./payment-event.storage";
+export { AgentToggleStorage } from "./agent-toggle.storage";
+export { OutboundAttemptStorage } from "./outbound-attempt.storage";
