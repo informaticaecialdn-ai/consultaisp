@@ -23,6 +23,8 @@ import { registerNfseRoutes } from "./nfse.routes";
 import { registerBenchmarkRoutes } from "./benchmark.routes";
 import { registerCrmRoutes } from "./crm.routes";
 import { registerWhatsappRoutes } from "./whatsapp.routes";
+import { registerWhatsAppWebhookRoutes } from "../communications/whatsapp/webhook";
+import { registerWhatsAppOAuthRoutes } from "../communications/whatsapp/embedded-signup";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -52,6 +54,8 @@ export async function registerRoutes(
   app.use(registerBenchmarkRoutes());
   app.use(registerCrmRoutes());
   app.use(registerWhatsappRoutes());
+  app.use(registerWhatsAppWebhookRoutes());
+  app.use(registerWhatsAppOAuthRoutes());
 
   return httpServer;
 }
