@@ -79,7 +79,7 @@ function AgentCard({ agent }: { agent: AgentProfile }) {
 
         {!isActive && (
           <p className="text-[10px] text-[var(--color-muted)] mt-3 italic">
-            {agent.model} · {agent.stack === "managed-agents" ? "Anthropic Platform" : "Direct API"}
+            {agent.model} · Anthropic Platform
           </p>
         )}
       </Card>

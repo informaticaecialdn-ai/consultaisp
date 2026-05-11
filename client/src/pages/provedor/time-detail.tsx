@@ -135,11 +135,17 @@ export default function TimeDetailPage() {
               <dd className="font-medium">{catalog.model}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-[var(--color-muted)]">Hospedagem</dt>
-              <dd className="font-medium">
-                {catalog.stack === "managed-agents" ? "Anthropic Platform" : "Direct API local"}
-              </dd>
+              <dt className="text-[var(--color-muted)]">Hospedagem canônica</dt>
+              <dd className="font-medium">Anthropic Platform</dd>
             </div>
+            {catalog.currentStack !== catalog.stack && (
+              <div className="flex justify-between">
+                <dt className="text-[var(--color-muted)]">Em execução</dt>
+                <dd className="font-medium text-[var(--color-brand-amber-700)]">
+                  Direct API (legacy · migrar Spec 008.6)
+                </dd>
+              </div>
+            )}
             <div className="flex justify-between">
               <dt className="text-[var(--color-muted)]">ID interno</dt>
               <dd className="font-mono text-xs">{catalog.id}</dd>

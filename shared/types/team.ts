@@ -6,27 +6,35 @@
  * a partir de audit_logs / outbound_attempts / compliance_checks por providerId.
  */
 
+/**
+ * Os 10 funcionários digitais do Provedor.ai — todos como Managed Agents na
+ * platform.claude.com/workspaces/default/agents (decisão owner 2026-05-11).
+ * Júlia/Bruno/Helena/Sofia já existem no codebase em Direct API; serão
+ * migrados para Managed Agents na Spec 008.6.
+ */
 export const AGENT_IDS = [
   "marcos",  // Gerente de Operações (orquestrador) — em treinamento
-  "julia",   // Analista de Conformidade — online ✓
-  "bruno",   // Lembrador Sênior — online ✓ (toggle controla disparo)
-  "helena",  // Atendente Master — online ✓
+  "julia",   // Analista de Conformidade — online ✓ (migrar em 008.6)
+  "bruno",   // Lembrador Sênior — online ✓ (migrar em 008.6)
+  "helena",  // Atendente Master — online ✓ (migrar em 008.6)
   "rafael",  // Negociador D+1 a D+14 — em treinamento
   "carla",   // Esp. Suspensão/Reconexão — em treinamento
   "daniel",  // Cobrador Sênior D+60+ — em treinamento
   "lucas",   // Logística Reversa — em treinamento
-  "sofia",   // Customer Care — online ✓ (toggle controla disparo)
+  "sofia",   // Customer Care — online ✓ (migrar em 008.6)
   "pedro",   // Pesquisa & Insights — em treinamento
 ] as const;
 
 export type AgentId = (typeof AGENT_IDS)[number];
 
 /**
- * Stack canônico (TEAM.md §2). Quando o Plano B (Marcos Direct API) virar
- * Plano A (Managed Agents), apenas a função `getAgentStack(id)` muda — UI
- * continua reusando.
+ * Stack canônico: TODOS os 10 funcionários rodam como Managed Agents na
+ * plataforma Anthropic (decisão do owner — 2026-05-11). O tipo "direct-api"
+ * permanece no enum apenas para registrar agentes EXISTENTES no codebase
+ * (Júlia/Bruno/Helena/Sofia) que ainda não foram migrados — migração é
+ * coberta na Spec 008.6.
  */
-export type AgentStack = "direct-api" | "managed-agents";
+export type AgentStack = "managed-agents" | "direct-api";
 
 /**
  * Status visível no UI. "online" = agente registrado e configurado.
@@ -71,7 +79,11 @@ export interface AgentCatalogEntry {
   initials: string;          // 2 letras Fraunces no badge
   role: string;
   description: string;
+  /** Stack canônico — todos os 10 são Managed Agents na plataforma Anthropic. */
   stack: AgentStack;
+  /** Stack atualmente em execução. Difere de `stack` durante migração legada→canônica.
+   *  Júlia/Bruno/Helena/Sofia hoje rodam Direct API; migram pra Managed na Spec 008.6. */
+  currentStack: AgentStack;
   model: string;
   /** Cor de fundo do avatar — usa CSS var. */
   bgVar: string;             // "var(--color-brand-green-700)"
@@ -87,7 +99,8 @@ export const AGENT_CATALOG: Record<AgentId, AgentCatalogEntry> = {
     initials: "MA",
     role: "Gerente de Operações",
     description: "Orquestrador: decide quem do time atua sobre qual cliente, quando e com qual tom.",
-    stack: "direct-api",  // Plano B — migra para managed-agents pós-DPA
+    stack: "managed-agents",
+    currentStack: "managed-agents",  // não existe ainda — criado direto na plataforma na Spec 011
     model: "Claude Opus 4.7",
     bgVar: "var(--color-brand-navy-700)",
     fgVar: "var(--color-brand-cream-50)",
@@ -99,7 +112,8 @@ export const AGENT_CATALOG: Record<AgentId, AgentCatalogEntry> = {
     initials: "JU",
     role: "Analista de Conformidade",
     description: "Valida em <500ms toda comunicação outbound. Anatel 765, CDC, LGPD. Tem poder de veto.",
-    stack: "direct-api",
+    stack: "managed-agents",
+    currentStack: "direct-api",  // existente — migra na Spec 008.6
     model: "Claude Haiku 4.5",
     bgVar: "var(--color-brand-navy-900)",
     fgVar: "var(--color-shield-gold)",
@@ -110,7 +124,8 @@ export const AGENT_CATALOG: Record<AgentId, AgentCatalogEntry> = {
     initials: "BR",
     role: "Lembrador Sênior",
     description: "Lembretes pré-vencimento (D-5/D-3/D-1) personalizados por perfil A1-C3.",
-    stack: "direct-api",
+    stack: "managed-agents",
+    currentStack: "direct-api",  // existente — migra na Spec 008.6
     model: "Claude Haiku 4.5",
     bgVar: "var(--color-brand-green-500)",
     fgVar: "var(--color-brand-cream-50)",
@@ -121,7 +136,8 @@ export const AGENT_CATALOG: Record<AgentId, AgentCatalogEntry> = {
     initials: "HE",
     role: "Atendente Master",
     description: "Atendimento inbound 24/7 com memória persistente. Resolve dúvidas, gera 2ª via, confirma pagamento.",
-    stack: "direct-api",
+    stack: "managed-agents",
+    currentStack: "direct-api",  // existente — migra na Spec 008.6
     model: "Claude Sonnet 4.6",
     bgVar: "var(--color-brand-green-700)",
     fgVar: "var(--color-brand-cream-50)",
@@ -132,7 +148,8 @@ export const AGENT_CATALOG: Record<AgentId, AgentCatalogEntry> = {
     initials: "RA",
     role: "Negociador",
     description: "Recupera valor entre D+1 e D+14 negociando desconto, prorrogação, parcelamento.",
-    stack: "direct-api",
+    stack: "managed-agents",
+    currentStack: "managed-agents",  // criado direto na plataforma — Spec 009
     model: "Claude Sonnet 4.6",
     bgVar: "var(--color-brand-amber-500)",
     fgVar: "var(--color-brand-navy-900)",
@@ -144,7 +161,8 @@ export const AGENT_CATALOG: Record<AgentId, AgentCatalogEntry> = {
     initials: "CA",
     role: "Especialista em Suspensão e Reconexão",
     description: "Executa ciclo Anatel 765 (D+15/D+30/D+60). Religamento automático em <60s pós-pagamento.",
-    stack: "direct-api",
+    stack: "managed-agents",
+    currentStack: "managed-agents",  // criado direto na plataforma — Spec 010
     model: "Claude Sonnet 4.6",
     bgVar: "var(--color-danger)",
     fgVar: "var(--color-brand-cream-50)",
@@ -157,6 +175,7 @@ export const AGENT_CATALOG: Record<AgentId, AgentCatalogEntry> = {
     role: "Cobrador Sênior",
     description: "Recupera dívidas pós-cancelamento (D+60+) via acordo amigável, SPC/Serasa, protesto.",
     stack: "managed-agents",
+    currentStack: "managed-agents",  // criado direto na plataforma — Spec 012
     model: "Claude Opus 4.7",
     bgVar: "var(--color-brand-navy-900)",
     fgVar: "var(--color-shield-gold)",
@@ -169,6 +188,7 @@ export const AGENT_CATALOG: Record<AgentId, AgentCatalogEntry> = {
     role: "Logística Reversa",
     description: "Recupera equipamentos em comodato pós-cancelamento. Roteirização inteligente de coleta.",
     stack: "managed-agents",
+    currentStack: "managed-agents",  // criado direto na plataforma — Spec 013
     model: "Claude Sonnet 4.6",
     bgVar: "var(--color-brand-amber-700)",
     fgVar: "var(--color-brand-cream-50)",
@@ -180,7 +200,8 @@ export const AGENT_CATALOG: Record<AgentId, AgentCatalogEntry> = {
     initials: "SO",
     role: "Customer Care",
     description: "Agradece pagamentos confirmados de forma humanizada e seletiva. Anti-fadiga.",
-    stack: "direct-api",
+    stack: "managed-agents",
+    currentStack: "direct-api",  // existente — migra na Spec 008.6
     model: "Claude Haiku 4.5",
     bgVar: "var(--color-brand-green-100)",
     fgVar: "var(--color-brand-green-900)",
@@ -192,6 +213,7 @@ export const AGENT_CATALOG: Record<AgentId, AgentCatalogEntry> = {
     role: "Pesquisa & Insights",
     description: "NPS, pulse check, pós-acordo. Classifica respostas e escala detratores em <1h.",
     stack: "managed-agents",
+    currentStack: "managed-agents",  // criado direto na plataforma — Spec 014
     model: "Claude Sonnet 4.6",
     bgVar: "var(--color-brand-navy-500)",
     fgVar: "var(--color-brand-cream-50)",
