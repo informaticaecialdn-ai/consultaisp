@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "landing-page-copywriter": {
+      "source": "onewave-ai/claude-skills",
+      "sourceType": "github",
+      "computedHash": "af0145f315f49ed498f27478d3a4f17842cbf23d7fe724a05075938027162fc2"
+    },
+    "landing-page-design": {
+      "source": "omer-metin/skills-for-antigravity",
+      "sourceType": "github",
+      "computedHash": "73bd88ca54f5a9bb75b5bcf8a61601bbda27f16d37eed69b4562ffc88e60e4b6"
+    }
+  }
+}
