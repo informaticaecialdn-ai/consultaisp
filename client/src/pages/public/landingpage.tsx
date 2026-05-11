@@ -46,7 +46,7 @@ export default function LandingPage() {
             <div className="w-8 h-8 rounded bg-[var(--color-navy)] flex items-center justify-center">
               <Shield className="w-4 h-4 text-white" />
             </div>
-            <span className="text-base font-bold font-display text-[var(--color-ink)]">Consulta ISP</span>
+            <span className="text-base font-bold font-display text-[var(--color-ink)]">Provedor.ai</span>
           </div>
           <div className="hidden md:flex items-center gap-7 text-sm text-[var(--color-muted)]">
             {[["Como funciona","como-funciona"],["Funcionalidades","funcionalidades"],["Preços","precos"],["FAQ","faq"]].map(([l,id]) => (
@@ -501,8 +501,8 @@ export default function LandingPage() {
             <div className="w-7 h-7 rounded bg-[var(--color-navy)] flex items-center justify-center">
               <Shield className="w-3.5 h-3.5 text-white"/>
             </div>
-            <span className="text-white font-bold text-sm">Consulta ISP</span>
-            <span className="text-[var(--color-muted)] text-xs hidden sm:inline">Base colaborativa para provedores</span>
+            <span className="text-white font-bold text-sm">Provedor.ai</span>
+            <span className="text-[var(--color-muted)] text-xs hidden sm:inline">Cobrança inteligente + rede Consulta ISP</span>
           </div>
           <div className="flex items-center gap-4 text-xs text-[var(--color-muted)]">
             <span className="flex items-center gap-1"><Lock className="w-3 h-3"/>Dados criptografados</span>
@@ -511,7 +511,7 @@ export default function LandingPage() {
         </div>
         <div className="max-w-6xl mx-auto px-6 mt-5 pt-5 border-t border-slate-800">
           <p className="text-xs text-[var(--color-muted)] text-center">
-            Consulta ISP — Plataforma colaborativa de análise de crédito para provedores de internet do Brasil
+            Provedor.ai — Plataforma de cobrança inteligente e rede colaborativa Consulta ISP para provedores de internet do Brasil
           </p>
         </div>
       </footer>

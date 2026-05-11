@@ -108,7 +108,7 @@ export function ChatWidget() {
                 <Headphones className="w-4 h-4 text-white" />
               </div>
               <div>
-                <p className="text-sm font-semibold leading-none">Suporte Consulta ISP</p>
+                <p className="text-sm font-semibold leading-none">Suporte Provedor.ai</p>
                 <div className="flex items-center gap-1.5 mt-1">
                   <span className={`w-1.5 h-1.5 rounded-full ${isClosed ? "bg-[var(--color-border)]" : "bg-[var(--color-success)]"}`} />
                   <span className="text-xs text-white/70">{isClosed ? "Conversa encerrada" : "Suporte disponivel"}</span>

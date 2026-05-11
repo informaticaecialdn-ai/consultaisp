@@ -75,7 +75,7 @@ export default function VerificarEmailPage() {
           <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
             <Shield className="w-6 h-6 text-white" />
           </div>
-          <span className="text-xl font-bold">Consulta ISP</span>
+          <span className="text-xl font-bold">Provedor.ai</span>
         </div>
 
         <Card className="p-8 text-center" data-testid="verify-status-card">

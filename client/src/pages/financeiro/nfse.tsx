@@ -75,7 +75,7 @@ export default function NfsePage() {
           uf: form.uf || "SP",
           codigoMunicipio: form.codigoMunicipio || "3550308",
         },
-        descricao: form.descricao || config?.descricaoPadrao || "Licenciamento SaaS - Consulta ISP",
+        descricao: form.descricao || config?.descricaoPadrao || "Licenciamento SaaS - Provedor.ai",
         valor: parseFloat(form.valor),
         codigoServico: config?.codigoServico || "01.07",
         aliquotaIss: config?.aliquotaIss || 2.90,
@@ -231,7 +231,7 @@ export default function NfsePage() {
             <div className="grid grid-cols-3 gap-3">
               <div className="col-span-2">
                 <Label className="text-xs">Descricao do Servico</Label>
-                <Input value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} placeholder={config?.descricaoPadrao || "Licenciamento SaaS - Consulta ISP"} />
+                <Input value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} placeholder={config?.descricaoPadrao || "Licenciamento SaaS - Provedor.ai"} />
               </div>
               <div>
                 <Label className="text-xs">Valor (R$) *</Label>

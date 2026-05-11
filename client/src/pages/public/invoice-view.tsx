@@ -101,15 +101,15 @@ export default function InvoiceViewPage() {
           <div className="flex items-start justify-between mb-8">
             <div>
               <div className="flex items-center gap-3 mb-1">
-                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center">
-                  <span className="text-white font-bold text-sm">CI</span>
+                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[var(--color-brand-green-700)] to-[var(--color-brand-green-900)] flex items-center justify-center">
+                  <span className="text-white font-bold text-sm">P</span>
                 </div>
                 <div>
-                  <h1 className="text-lg font-bold leading-tight">Consulta ISP</h1>
+                  <h1 className="text-lg font-bold leading-tight">Provedor.ai</h1>
                   <p className="text-xs text-muted-foreground">CNPJ: 00.000.000/0001-00</p>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground mt-2">consultaisp.com.br</p>
+              <p className="text-xs text-muted-foreground mt-2">provedor.ai</p>
             </div>
             <div className="text-right">
               <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Nota Fiscal de Servicos</p>
@@ -183,17 +183,17 @@ export default function InvoiceViewPage() {
           <div className="grid grid-cols-2 gap-6 pt-6 border-t">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-2">Observacoes</p>
-              <p className="text-sm text-muted-foreground">{invoice.notes || "Referente a assinatura mensal da plataforma Consulta ISP."}</p>
+              <p className="text-sm text-muted-foreground">{invoice.notes || "Referente a assinatura mensal da plataforma Provedor.ai."}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-2">Emitido por</p>
               <p className="text-sm font-medium">{invoice.createdByName || "Administrador do Sistema"}</p>
-              <p className="text-xs text-muted-foreground">Consulta ISP — Sistema de Analise de Credito</p>
+              <p className="text-xs text-muted-foreground">Provedor.ai — Plataforma de Cobrança Inteligente</p>
             </div>
           </div>
 
           <div className="mt-8 pt-6 border-t text-center">
-            <p className="text-xs text-muted-foreground">Este documento e gerado automaticamente pela plataforma Consulta ISP. Em caso de duvidas, entre em contato pelo suporte.</p>
+            <p className="text-xs text-muted-foreground">Este documento e gerado automaticamente pela plataforma Provedor.ai. Em caso de duvidas, entre em contato pelo suporte.</p>
           </div>
         </div>
       </div>

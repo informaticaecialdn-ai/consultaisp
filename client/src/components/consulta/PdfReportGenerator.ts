@@ -31,7 +31,7 @@ export function generatePDF(result: ConsultaResult): string | null {
   ).join("");
 
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"/>
-<title>Relatorio de Consulta ISP — ${docFormatted}</title>
+<title>Provedor.ai — Relatorio Consulta ISP — ${docFormatted}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:Arial,sans-serif;font-size:12px;color:#1e293b;padding:24px}
@@ -56,7 +56,7 @@ export function generatePDF(result: ConsultaResult): string | null {
 <div class="header">
   <div>
     <h1>Consulta ISP — Relatorio de Credito</h1>
-    <p style="font-size:11px;color:#64748b;margin-top:4px">Documento: <strong>${docFormatted}</strong> &nbsp;|&nbsp; Tipo: ${doc.searchType.toUpperCase()}</p>
+    <p style="font-size:11px;color:#64748b;margin-top:4px">Plataforma Provedor.ai &nbsp;|&nbsp; Documento: <strong>${docFormatted}</strong> &nbsp;|&nbsp; Tipo: ${doc.searchType.toUpperCase()}</p>
   </div>
   <div class="meta">
     <div><strong>Emitido em</strong></div><div>${now}</div>
@@ -95,7 +95,7 @@ ${addrRows ? `<section>
   <ul>${addrRows}</ul>
 </section>` : ""}
 
-<div class="footer">Relatorio gerado por Consulta ISP &nbsp;|&nbsp; ${now} &nbsp;|&nbsp; Documento: ${docFormatted}</div>
+<div class="footer">Relatorio gerado pela plataforma Provedor.ai (módulo Consulta ISP) &nbsp;|&nbsp; ${now} &nbsp;|&nbsp; Documento: ${docFormatted}</div>
 </body></html>`;
 
   return html;

@@ -286,7 +286,7 @@ export function AppSidebar() {
                 <Shield className="w-5 h-5 text-white" />
               </div>
               <div className="flex flex-col">
-                <span className="text-sm font-bold leading-tight">Consulta ISP</span>
+                <span className="text-sm font-bold leading-tight">Provedor.ai</span>
                 <span className="text-xs text-[var(--color-muted)] leading-tight">Sistema Admin</span>
               </div>
             </div>
@@ -332,8 +332,8 @@ export function AppSidebar() {
               <Shield className="w-5 h-5 text-white" />
             </div>
             <div className="flex flex-col">
-              <span className="text-sm font-bold leading-tight">Consulta ISP</span>
-              <span className="text-xs text-[var(--color-muted)] leading-tight">Analise de Credito</span>
+              <span className="text-sm font-bold leading-tight">Provedor.ai</span>
+              <span className="text-xs text-[var(--color-muted)] leading-tight">Cobrança Inteligente</span>
             </div>
           </div>
         </Link>

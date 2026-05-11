@@ -172,7 +172,7 @@ export default function LandingChat() {
                 <MessageCircle className="w-5 h-5 text-white" />
               </div>
               <div>
-                <p className="text-white font-semibold text-sm">Consulta ISP</p>
+                <p className="text-white font-semibold text-sm">Provedor.ai</p>
                 <div className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-green-400" />
                   <span className="text-blue-100 text-xs">Atendimento comercial</span>
@@ -291,7 +291,7 @@ export default function LandingChat() {
                     </Button>
                   </div>
                 )}
-                <p className="text-xs text-slate-400 text-center pb-2">Consulta ISP — Atendimento comercial</p>
+                <p className="text-xs text-slate-400 text-center pb-2">Provedor.ai — Atendimento comercial</p>
               </div>
             </>
           )}

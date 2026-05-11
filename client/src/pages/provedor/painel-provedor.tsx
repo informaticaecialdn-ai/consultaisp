@@ -1240,10 +1240,10 @@ export default function PainelProvedorPage() {
           <div className="space-y-4">
             <Card className="p-6">
               <h2 className="text-lg font-semibold mb-1 flex items-center gap-2">
-                <Globe className="w-5 h-5" />Seu Subdominio no Consulta ISP
+                <Globe className="w-5 h-5" />Seu Subdominio na plataforma Provedor.ai
               </h2>
               <p className="text-sm text-muted-foreground mb-5">
-                Este e o endereco exclusivo do seu provedor na plataforma Consulta ISP.
+                Este e o endereco exclusivo do seu provedor na plataforma Provedor.ai.
               </p>
               {provider?.subdomain ? (
                 <>
@@ -1276,7 +1276,7 @@ export default function PainelProvedorPage() {
                       <ol className="space-y-1.5 text-sm text-muted-foreground list-decimal list-inside">
                         <li>Compartilhe o link com sua equipe</li>
                         <li>Faca login com suas credenciais normais</li>
-                        <li>Acesse todas as funcionalidades do Consulta ISP</li>
+                        <li>Acesse todas as funcionalidades da plataforma Provedor.ai</li>
                         <li>Seu ambiente e isolado dos outros provedores</li>
                       </ol>
                     </Card>

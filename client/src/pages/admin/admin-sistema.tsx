@@ -56,7 +56,7 @@ export default function AdminSistemaPage() {
         <Shield className="w-16 h-16 text-red-500 opacity-40" />
         <h2 className="text-xl font-bold">Acesso Restrito</h2>
         <p className="text-[var(--color-muted)] text-center">
-          Esta area e exclusiva para administradores do sistema Consulta ISP.
+          Esta area e exclusiva para administradores da plataforma Provedor.ai.
         </p>
       </div>
     );

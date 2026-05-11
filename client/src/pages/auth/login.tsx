@@ -319,7 +319,7 @@ export default function LoginPage() {
           <div className="w-9 h-9 rounded bg-[var(--color-navy)]/20 flex items-center justify-center">
             <Shield className="w-5 h-5 text-[var(--color-navy)]" />
           </div>
-          <span className="text-lg font-display font-semibold text-[var(--color-ink)]">Consulta ISP</span>
+          <span className="text-lg font-display font-semibold text-[var(--color-ink)]">Provedor.ai</span>
         </div>
         {!isSubdomainMode && (
           <button
@@ -395,7 +395,7 @@ export default function LoginPage() {
 
                 <div className="bg-[var(--color-navy)]/5 rounded p-4 mb-6 space-y-2">
                   {[
-                    "Abra seu email e procure a mensagem do Consulta ISP",
+                    "Abra seu email e procure a mensagem do Provedor.ai",
                     "Clique no botao \"Confirmar Email\"",
                     "Voce sera redirecionado automaticamente para o sistema",
                   ].map((step, i) => (
@@ -760,7 +760,7 @@ export default function LoginPage() {
       </div>
 
       <footer className="text-center py-4 text-[var(--color-muted)] text-xs">
-        2026 Consulta ISP - Plataforma de Analise de Credito para Provedores de Internet
+        2026 Provedor.ai — Plataforma de Cobrança Inteligente para Provedores de Internet
       </footer>
     </div>
   );

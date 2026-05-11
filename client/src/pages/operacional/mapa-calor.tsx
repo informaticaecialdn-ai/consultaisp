@@ -159,7 +159,7 @@ export default function MapaCalorPage() {
     // Geocode via Nominatim (OpenStreetMap) — sem dependencia do Google
     const query = state ? `${city}, ${state}, Brasil` : `${city}, Brasil`;
     fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=br`, {
-      headers: { "User-Agent": "ConsultaISP/1.0" },
+      headers: { "User-Agent": "Provedor.ai/1.0" },
     })
       .then(r => r.json())
       .then((data: any[]) => {

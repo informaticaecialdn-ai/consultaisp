@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
-   DESIGN SYSTEM TOKENS — Consulta ISP
-   Fonte: DESIGN_SYSTEM.md v2.0
-   NÃO edite diretamente — altere o DESIGN_SYSTEM.md e replique aqui.
+   DESIGN SYSTEM TOKENS — Provedor.ai
+   Fonte: C:\Provedor.ai\Ecossistema\DESIGN.md §3.1 (Maio/2026)
+   NÃO edite diretamente — altere o DESIGN.md e replique aqui.
    ═══════════════════════════════════════════════════════════════ */
 
 :root {
@@ -21,6 +21,34 @@
   --color-gold:       #B8860B;
   --color-danger:     #8B1A1A;
   --color-success:    #1A4A2E;
+
+  /* ── PROVEDOR.AI BRAND PALETTE (DESIGN.md §3.1) ─────────────────
+     Verde-floresta = identidade do Provedor.ai (dinheiro recuperado)
+     Adicionado em Spec 006. Coexiste com paleta legada acima.
+     Use --color-brand-* em superfícies novas; tokens legados servem
+     componentes existentes até migração visual completa (Spec 007+). */
+  --color-brand-green-900: #0F3D2E;  /* deep — wordmark, hero text  */
+  --color-brand-green-700: #1F6B4A;  /* mid — primary buttons       */
+  --color-brand-green-500: #2EA86B;  /* light — success states      */
+  --color-brand-green-100: #D8F0E2;  /* bg — positive surfaces      */
+
+  --color-brand-navy-900:  #0A1628;  /* near-black — body text alt  */
+  --color-brand-navy-700:  #1F3050;  /* dark — links, headers       */
+  --color-brand-navy-500:  #3D5278;  /* mid — secondary text        */
+  --color-brand-navy-300:  #8B98B0;  /* light — placeholders        */
+
+  --color-brand-amber-700: #B8801F;  /* warning dark — at-risk B3   */
+  --color-brand-amber-500: #E8A020;  /* alerts                      */
+  --color-brand-amber-100: #FCF1D9;  /* alert backgrounds           */
+
+  --color-brand-cream-50:  #FBF7F2;  /* warm white — page bg        */
+  --color-brand-cream-100: #F5EDE0;  /* surface alt                 */
+
+  /* Anatel Shield tiers (DESIGN.md §3.1) */
+  --color-shield-bronze:   #B87333;
+  --color-shield-silver:   #B0B5BA;
+  --color-shield-gold:     #C9A227;
+  --color-shield-platinum: #B0BFCF;
 
   /* Fundos semanticos */
   --color-navy-bg:    #EAF0F8;

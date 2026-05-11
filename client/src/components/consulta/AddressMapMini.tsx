@@ -56,7 +56,7 @@ export default function AddressMapMini({ cep, addressNumber, address, city, stat
       // Tentar query principal
       try {
         const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=json&limit=1&countrycodes=br`, {
-          headers: { "User-Agent": "ConsultaISP/1.0" },
+          headers: { "User-Agent": "Provedor.ai/1.0" },
         });
         const data: any[] = await r.json();
         if (data[0]) {
@@ -71,7 +71,7 @@ export default function AddressMapMini({ cep, addressNumber, address, city, stat
         try {
           const clean = cep.replace(/\D/g, "");
           const r2 = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(clean + ", Brasil")}&format=json&limit=1&countrycodes=br`, {
-            headers: { "User-Agent": "ConsultaISP/1.0" },
+            headers: { "User-Agent": "Provedor.ai/1.0" },
           });
           const data2: any[] = await r2.json();
           if (data2[0]) {
@@ -86,7 +86,7 @@ export default function AddressMapMini({ cep, addressNumber, address, city, stat
       if (city && state) {
         try {
           const r3 = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(`${city}, ${state}, Brasil`)}&format=json&limit=1&countrycodes=br`, {
-            headers: { "User-Agent": "ConsultaISP/1.0" },
+            headers: { "User-Agent": "Provedor.ai/1.0" },
           });
           const data3: any[] = await r3.json();
           if (data3[0]) {
