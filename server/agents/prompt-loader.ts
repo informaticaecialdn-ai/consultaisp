@@ -6,9 +6,8 @@
  * Cached in-memory after first load — prompts are static at runtime.
  */
 
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
 
 export type AgentName = "julia" | "helena" | "bruno" | "sofia";
 
@@ -32,14 +31,26 @@ export interface LoadedPrompt {
 
 const _cache = new Map<AgentName, LoadedPrompt>();
 
-// `import.meta.url` works in ESM. Build output is CJS — `script/build.ts` bundles
-// these prompts into the binary OR they live alongside in `server/prompts/`.
-// In dev (`tsx`) we resolve relative to this file's location.
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
+/**
+ * Resolve diretório dos prompts. Funciona em:
+ *  - dev (tsx): cwd = raiz do projeto → server/prompts/
+ *  - prod CJS (esbuild bundle → dist/worker.cjs): cwd = raiz do projeto → server/prompts/
+ *  - prod ESM (caso futuro): mesmo padrão
+ *
+ * Evita `import.meta.url` (undefined em build CJS) e `__dirname` do CJS bundle
+ * (apontaria pra dist/ ao invés de server/agents/).
+ */
 function promptsDir(): string {
-  return resolve(__dirname, "..", "prompts");
+  const candidates = [
+    resolve(process.cwd(), "server", "prompts"),
+    // Fallback se cwd não é a raiz do projeto (rare): tenta o diretório do binary.
+    resolve(process.cwd(), "..", "server", "prompts"),
+  ];
+  for (const p of candidates) {
+    if (existsSync(p)) return p;
+  }
+  // Default — vai falhar com erro claro no readFileSync se path errado.
+  return candidates[0];
 }
 
 function parseFrontmatter(raw: string): { metadata: PromptMetadata; body: string } {
