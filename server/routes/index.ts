@@ -22,6 +22,7 @@ import { registerRegionalRoutes } from "./regional.routes";
 import { registerNfseRoutes } from "./nfse.routes";
 import { registerBenchmarkRoutes } from "./benchmark.routes";
 import { registerCrmRoutes } from "./crm.routes";
+import { registerWhatsappRoutes } from "./whatsapp.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -50,6 +51,7 @@ export async function registerRoutes(
   app.use(registerNfseRoutes());
   app.use(registerBenchmarkRoutes());
   app.use(registerCrmRoutes());
+  app.use(registerWhatsappRoutes());
 
   return httpServer;
 }

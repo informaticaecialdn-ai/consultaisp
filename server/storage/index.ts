@@ -33,6 +33,13 @@ import { ChatStorage } from "./chat.storage";
 import { DashboardStorage } from "./dashboard.storage";
 import { AdminStorage } from "./admin.storage";
 import { ImportStorage } from "./import.storage";
+// Spec 003 — WhatsApp + Júlia + Helena
+import { CommunicationsStorage } from "./communications.storage";
+import { AuditLogStorage } from "./audit-log.storage";
+import { AgentMemoryStorage } from "./agent-memory.storage";
+import { ComplianceCheckStorage } from "./compliance-check.storage";
+import { WhatsappAccountStorage } from "./whatsapp-account.storage";
+import { WhatsappOptoutStorage } from "./whatsapp-optout.storage";
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
@@ -213,6 +220,13 @@ class DatabaseStorage implements IStorage {
   private _dashboard = new DashboardStorage();
   private _admin = new AdminStorage();
   private _import = new ImportStorage();
+  // Spec 003
+  communications = new CommunicationsStorage();
+  auditLog = new AuditLogStorage();
+  agentMemory = new AgentMemoryStorage();
+  complianceCheck = new ComplianceCheckStorage();
+  whatsappAccount = new WhatsappAccountStorage();
+  whatsappOptout = new WhatsappOptoutStorage();
 
   // Users
   getUser = (id: number) => this._users.getUser(id);
@@ -383,3 +397,11 @@ class DatabaseStorage implements IStorage {
 }
 
 export const storage = new DatabaseStorage();
+
+// Spec 003 — re-export classes for direct instantiation/testing
+export { CommunicationsStorage } from "./communications.storage";
+export { AuditLogStorage } from "./audit-log.storage";
+export { AgentMemoryStorage } from "./agent-memory.storage";
+export { ComplianceCheckStorage } from "./compliance-check.storage";
+export { WhatsappAccountStorage } from "./whatsapp-account.storage";
+export { WhatsappOptoutStorage } from "./whatsapp-optout.storage";

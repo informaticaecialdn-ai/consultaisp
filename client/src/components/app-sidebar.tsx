@@ -47,6 +47,7 @@ import {
   Package,
   RefreshCw,
   Target,
+  MessageCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -96,6 +97,8 @@ const toolsMenu = [
 
 const configMenu = [
   { title: "Regionalizacao", url: "/configuracoes/regionalizacao", icon: MapPin },
+  { title: "WhatsApp Business", url: "/configuracoes/whatsapp", icon: MessageCircle },
+  { title: "Comunicacoes", url: "/comunicacoes", icon: MessageSquare },
 ];
 
 const ADMIN_GROUPS = [

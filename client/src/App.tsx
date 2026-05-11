@@ -43,6 +43,8 @@ const PainelProvedorPage = lazy(() => import("@/pages/provedor/painel-provedor")
 const AdministracaoPage = lazy(() => import("@/pages/provedor/administracao"));
 const CreditosPage = lazy(() => import("@/pages/provedor/creditos"));
 const ConfiguracoesRegionalizacaoPage = lazy(() => import("@/pages/provedor/configuracoes-regionalizacao"));
+const ConfiguracoesWhatsappPage = lazy(() => import("@/pages/provedor/configuracoes-whatsapp"));
+const ComunicacoesPage = lazy(() => import("@/pages/provedor/comunicacoes"));
 const BenchmarkRegionalPage = lazy(() => import("@/pages/provedor/benchmark-regional"));
 
 // Public
@@ -88,6 +90,8 @@ function Router() {
         <Route path="/admin/lgpd" component={AdminLgpdPage} />
         <Route path="/lgpd" component={LgpdPage} />
         <Route path="/configuracoes/regionalizacao" component={ConfiguracoesRegionalizacaoPage} />
+        <Route path="/configuracoes/whatsapp" component={ConfiguracoesWhatsappPage} />
+        <Route path="/comunicacoes" component={ComunicacoesPage} />
         <Route path="/benchmark-regional" component={BenchmarkRegionalPage} />
         <Route component={NotFound} />
       </Switch>
@@ -99,7 +103,7 @@ const PROVIDER_ONLY_PATHS = [
   "/", "/consulta-isp", "/consulta-spc", "/anti-fraude",
   "/inadimplentes", "/mapa-calor", "/creditos", "/nfse", "/importacao",
   "/importacao-equipamentos", "/administracao", "/painel-provedor",
-  "/benchmark-regional",
+  "/benchmark-regional", "/configuracoes/whatsapp", "/comunicacoes",
 ];
 
 function ChangePasswordModal() {
