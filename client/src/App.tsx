@@ -51,6 +51,9 @@ const ConfiguracoesAsaasPage = lazy(() => import("@/pages/provedor/configuracoes
 const ConfiguracoesAgentesPage = lazy(() => import("@/pages/provedor/configuracoes-agentes"));
 const ReguaPreVencimentoPage = lazy(() => import("@/pages/provedor/regua-pre-vencimento"));
 const ClienteDossiePage = lazy(() => import("@/pages/provedor/cliente-dossie"));
+// Spec 007 — Time Digital
+const TimePage = lazy(() => import("@/pages/provedor/time"));
+const TimeDetailPage = lazy(() => import("@/pages/provedor/time-detail"));
 
 // Public
 const LandingPage = lazy(() => import("@/pages/public/landingpage"));
@@ -103,6 +106,9 @@ function Router() {
         <Route path="/configuracoes/agentes" component={ConfiguracoesAgentesPage} />
         <Route path="/regua-pre-vencimento" component={ReguaPreVencimentoPage} />
         <Route path="/cliente/:customerId/dossie" component={ClienteDossiePage} />
+        {/* Spec 007 — Time Digital */}
+        <Route path="/time/:agentId" component={TimeDetailPage} />
+        <Route path="/time" component={TimePage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>
@@ -114,6 +120,7 @@ const PROVIDER_ONLY_PATHS = [
   "/inadimplentes", "/mapa-calor", "/creditos", "/nfse", "/importacao",
   "/importacao-equipamentos", "/administracao", "/painel-provedor",
   "/benchmark-regional", "/configuracoes/whatsapp", "/comunicacoes",
+  "/time",  // Spec 007 — Time Digital
 ];
 
 function ChangePasswordModal() {

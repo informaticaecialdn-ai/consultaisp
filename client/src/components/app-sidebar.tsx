@@ -85,8 +85,9 @@ const mainMenu = [
   { title: "Meus Dados", url: "/benchmark-regional", icon: TrendingUp },
 ];
 
-// Spec 004 US3 — Painel Cobrança
+// Spec 004 US3 — Painel Cobrança · Spec 007 adiciona Time Digital
 const cobrancaMenu = [
+  { title: "Time Digital", url: "/time", icon: Users },
   { title: "Régua Pré-Vencimento", url: "/regua-pre-vencimento", icon: ClipboardList },
   { title: "Configurar Agentes", url: "/configuracoes/agentes", icon: Bot },
   { title: "Conexão Asaas", url: "/configuracoes/asaas", icon: CreditCard },

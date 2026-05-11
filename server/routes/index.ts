@@ -30,6 +30,8 @@ import { registerAsaasWebhookRoutes } from "./webhook.routes";
 import { registerAsaasConfigRoutes } from "./asaas-config.routes";
 import { registerReguaRoutes } from "./regua.routes";
 import { registerDossieRoutes } from "./dossie.routes";
+// Spec 007 — Time Digital
+import { registerTeamRoutes } from "./team.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -66,6 +68,8 @@ export async function registerRoutes(
   app.use(registerAsaasConfigRoutes());
   app.use(registerReguaRoutes());
   app.use(registerDossieRoutes());
+  // Spec 007 — Time Digital
+  app.use(registerTeamRoutes());
 
   return httpServer;
 }
