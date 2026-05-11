@@ -25,6 +25,7 @@ import { registerCrmRoutes } from "./crm.routes";
 import { registerWhatsappRoutes } from "./whatsapp.routes";
 import { registerWhatsAppWebhookRoutes } from "../communications/whatsapp/webhook";
 import { registerWhatsAppOAuthRoutes } from "../communications/whatsapp/embedded-signup";
+import { registerAsaasWebhookRoutes } from "./webhook.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -56,6 +57,8 @@ export async function registerRoutes(
   app.use(registerWhatsappRoutes());
   app.use(registerWhatsAppWebhookRoutes());
   app.use(registerWhatsAppOAuthRoutes());
+  // Spec 004 — webhook Asaas
+  app.use(registerAsaasWebhookRoutes());
 
   return httpServer;
 }

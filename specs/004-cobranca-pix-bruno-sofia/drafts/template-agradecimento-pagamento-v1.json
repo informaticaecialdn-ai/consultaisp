@@ -1,0 +1,30 @@
+{
+  "_instructions": [
+    "Spec 004 — Template HSM 'agradecimento_pagamento_v1' para submissão no Meta Business Manager.",
+    "Submissão: Meta Business Manager → WhatsApp Manager → Templates de mensagens → Criar template.",
+    "Categoria: UTILITY (confirmação transacional de pagamento — categoria correta).",
+    "Idioma: pt_BR.",
+    "Variáveis: {{1}} = nome_cliente (primeiro nome), {{2}} = valor (R$ 149,90), {{3}} = data_pagamento (DD/MM/YYYY).",
+    "Sem header (texto puro). Sem footer obrigatório.",
+    "Aprovação típica: 24-72h. Após aprovação, atualizar agent_toggles.templateSofiaNome.",
+    "Tom intencionalmente cordial e curto — Sofia não faz upsell, só agradece."
+  ],
+  "name": "agradecimento_pagamento_v1",
+  "language": "pt_BR",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "Obrigado, {{1}}! Pagamento de {{2}} confirmado em {{3}}. Está tudo certo por aqui — qualquer coisa, é só responder esta mensagem.",
+      "example": {
+        "body_text": [
+          ["João", "R$ 149,90", "14/05/2026"]
+        ]
+      }
+    },
+    {
+      "type": "FOOTER",
+      "text": "Mensagem automática — Provedor.ai"
+    }
+  ]
+}

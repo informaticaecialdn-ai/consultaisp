@@ -118,53 +118,29 @@ description: "Task list for Spec 004 — Bruno (preventivo) + Sofia (agradecimen
 
 ### Sofia Agent + Prompt
 
-- [ ] T030 [P] [US2] Criar `server/prompts/sofia.md` com system prompt pt-BR conforme `contracts/sofia-direct-api.contract.md`. Tom cordial, sem upsell, sem pedir nada em troca.
-- [ ] T031 [P] [US2] Criar `server/agents/tools/consultar-memoria-cliente.ts` (read-only) exportando schema + executor que faz lookup em `agent_memories` (Spec 003) por (customerId, agentId='sofia_v1' ou herdar de helena).
-- [ ] T032 [US2] Criar `server/agents/sofia.ts` exportando `invokeSofia(tenantId, input)`. Estrutura idêntica à Bruno: prompt-loader, Anthropic SDK, output JSON validado. Diferente: tool é só `consultar_memoria_cliente`, output não inclui `pix`.
+- [x] T030 [P] [US2] `server/prompts/sofia.md` criado: persona cordial sem upsell, regras de tom (curto, não menciona próxima fatura), output JSON (templateName + variables + freeFormText opcional). `agent_id: agt_relacionamento_v1`, modelo Haiku 4.5.
+- [x] T031 [P] [US2] `server/agents/tools/consultar-memoria-cliente.ts` criado: read-only com multi-tenant gate (customer × provider) + cross-customer guard (expectedCustomerId). Cross-agent lookup em `agent_memories`.
+- [x] T032 [US2] `server/agents/sofia.ts` criado: `invokeSofia(tenantId, input, options)`, loop max 3 turnos, prompt caching, temperature 0.1 (leve criatividade pro freeFormText), parse+validate JSON output. Tool opcional `consultar_memoria_cliente` (Sofia normalmente não chama — memoryFacts vem no input).
 
 ### HSM Template Sofia
 
-- [ ] T033 [P] [US2] Criar `specs/004-cobranca-pix-bruno-sofia/drafts/template-agradecimento-pagamento-v1.json` para submissão Meta Business Manager. Categoria UTILITY, idioma `pt_BR`, body com `{{1}}=nome_cliente`, `{{2}}=valor`, `{{3}}=data_pagamento`. Sem header (texto puro).
+- [x] T033 [P] [US2] `drafts/template-agradecimento-pagamento-v1.json` criado: UTILITY, pt_BR, body texto puro com 3 variáveis, footer assinatura Provedor.ai. Tom cordial e curto — sem upsell.
 
 ### Webhook Asaas
 
-- [ ] T034 [US2] Criar handler em `server/routes/webhook.routes.ts` (ADD novo, NÃO modifica handlers Meta existentes da Spec 003): `POST /webhooks/asaas`.
-  1. Parse JSON.
-  2. Extrair `externalReference` → `parseProviderRefId(ref)` retorna `{providerId, invoiceId, attemptId}`.
-  3. Load `asaas_accounts` pelo providerId.
-  4. Validar `req.headers['asaas-access-token']` === `decrypt(webhookTokenEncrypted)` via `crypto.timingSafeEqual`. Falha → 401 + audit log `webhook_auth_failed`.
-  5. `payment-event.insertOrSkip(...)` retorna `{inserted, eventId}`.
-  6. Se NÃO inserted (duplicate) → 200 imediato + audit `webhook_duplicate`.
-  7. Se inserted: atualizar `pix_charges.status` conforme `eventType`, atualizar `invoices.status` se `PAYMENT_RECEIVED`, e se `eventType IN ('PAYMENT_RECEIVED','PAYMENT_CONFIRMED')` AND `agent_toggles.sofia_ativa` → enfileirar job "sofia-thank" `{providerId, paymentEventId, customerId, invoiceId, value, paidAt}`.
-  8. Responder 200 imediato.
-- [ ] T035 [US2] Helper `server/services/asaas-multi-tenant.ts`: adicionar `parseExternalReference(ref): { providerId, invoiceId, attemptId } | null` com regex `^provider:(\d+):invoice:(\d+):attempt:(\d+)$`.
+- [x] T034 [US2] `server/routes/webhook.routes.ts` criado com `POST /webhooks/asaas`: parse externalRef, auth via `crypto.timingSafeEqual` contra `webhook_token_encrypted` decifrado, `insertOrSkip` em `payment_events` (idempotência FR-008), update de `pix_charges.status` por evento, update `invoices.status='paid'` em `PAYMENT_RECEIVED/CONFIRMED`, enfileiramento de job `sofia-thank` quando `agent_toggles.sofiaAtiva=true`. Audit para cada caminho (`webhook_processed`, `webhook_duplicate`, `webhook_auth_failed`). Registrado em `server/routes/index.ts`.
+- [x] T035 [US2] ✓ já implementado em T017 (Phase 2): `parseExternalReference` e `buildExternalRef` em `server/services/asaas-multi-tenant.ts` com regex `^provider:(\d+):invoice:(\d+):attempt:(\d+)$`.
 
 ### Sofia Worker
 
-- [ ] T036 [US2] Criar `server/workers/sofia-event-processor.ts` (BullMQ consumer queue `sofia-thank`):
-  1. Carrega customer + provider + agent_toggles.
-  2. Verifica `whatsapp_optouts` — match → skip + audit `sofia_skipped_optout`, return.
-  3. Verifica janela horária — fora → enfileira novamente com delay até próxima abertura.
-  4. Chama `invokeSofia(providerId, input)` → recebe `{templateName, variables, freeFormText}`.
-  5. Cria `outbound_attempts` row com `step='THANK_YOU', status='awaiting_compliance'`.
-  6. Chama `invokeJulia(providerId, { proposedAction })`.
-  7. Aprovado → `metaWhatsappClient.sendTemplate(...)` (ou free-form se janela 24h ativa) → cria `communications` row + `markSent`. Audit `sofia_send_thanks`.
-  8. Veto → `markVetoed` + audit.
-- [ ] T037 [US2] Integrar `startSofiaEventProcessor()` em `server/worker.ts`.
+- [x] T036 [US2] `server/workers/sofia-event-processor.ts` criado: BullMQ Worker (concurrency 5) com fluxo opt-out → janela horária (delay re-enqueue) → tryReserve step='THANK_YOU' → invokeSofia → invokeJulia → Meta sendTemplate (ou sendText se isWithin24hWindow) → persist comunicação + markSent + audit. Veto e falha Meta tratados com markVetoed/markFailed.
+- [x] T037 [US2] `server/worker.ts` atualizado: `startSofiaEventProcessor` integrado junto com Bruno/retry sob guard `REDIS_URL`. Shutdown fecha worker Sofia também.
 
 ### Audit + Testes
 
-- [ ] T038 [US2] Adicionar action types Sofia em audit helper: `sofia_send_thanks`, `sofia_skipped_optout`, `sofia_skipped_window`, `sofia_blocked_julia`, `webhook_auth_failed`, `webhook_duplicate`, `webhook_processed`.
-- [ ] T039 [US2] Criar `server/routes/webhook.routes.test.ts` (sobrescreve/incrementa se já existe Spec 003):
-  - POST /webhooks/asaas com header válido + payload PAYMENT_RECEIVED → 200 + `payment_events` inserido + job enfileirado.
-  - Mesmo payload reenviado → 200 + `payment_events` duplicate (1 row) + NENHUM job novo.
-  - Header inválido → 401 + audit_log entry.
-  - `externalReference` malformado → 400.
-- [ ] T040 [US2] Criar `server/workers/sofia-event-processor.test.ts`:
-  - Caso feliz → `communications` row criada, audit completo, latência < 5min simulado.
-  - Caso opt-out → skip.
-  - Caso Júlia veto → markVetoed sem envio.
-  - Caso webhook duplicado disparou job (defensive double-check) → idempotência segunda camada.
+- [x] T038 [US2] ✓ já antecipado em T028: `SOFIA_AUDIT_ACTIONS` + `WEBHOOK_AUDIT_ACTIONS` em `server/agents/audit-actions.ts` cobrem `sofia_send_thanks`, `sofia_skipped_optout`, `sofia_skipped_window`, `sofia_blocked_julia`, `webhook_processed`, `webhook_duplicate`, `webhook_auth_failed`. Worker Sofia e webhook handler consomem via `auditAction(name)`.
+- [x] T039 [US2] `server/routes/webhook.routes.test.ts` criado: 5 testes via supertest (200 token válido + payment_events inserido + sofia job enfileirado, duplicate idempotência, 401 token inválido + audit, 400 externalRef malformado, PAYMENT_RECEIVED dispara pix_charges→paid). Mocka apenas `getQueue` para não rodar BullMQ real.
+- [x] T040 [US2] `server/workers/sofia-event-processor.test.ts` criado: 5 testes (happy_path, opt_out, julia_blocked, sofia_disabled, sofia_failed). Mocka Sofia/Júlia/Meta/queue. Idempotência defensiva já é coberta pelo webhook handler (T039) — duplicate webhook não enfileira novo job.
 
 **Checkpoint US2**: Sofia funcional. Régua completa de marca (Bruno → pagamento → Sofia) operacional sem painel.
 

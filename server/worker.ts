@@ -44,22 +44,24 @@ import { logger } from "./logger";
     logger.warn({ err }, "[Worker] LGPD titular processor failed to start");
   }
 
-  // Spec 004 — Bruno preventivo + outbound retry. Apenas se REDIS_URL estiver setado;
-  // sem Redis o Bruno simplesmente fica desabilitado (degrada limpo).
+  // Spec 004 — Bruno preventivo + Sofia agradecimento + outbound retry.
+  // Apenas se REDIS_URL estiver setado; sem Redis degrada limpo (workers ficam desligados).
   if (process.env.REDIS_URL) {
     try {
       const { startBrunoScheduler } = await import("./workers/bruno-scheduler");
       const { startBrunoWorker } = await import("./workers/bruno-process-invoice");
+      const { startSofiaEventProcessor } = await import("./workers/sofia-event-processor");
       const { startOutboundRetry } = await import("./workers/outbound-retry");
       startBrunoScheduler();
       startBrunoWorker();
+      startSofiaEventProcessor();
       startOutboundRetry();
-      logger.info("[Worker] Bruno scheduler + worker + outbound retry started (Spec 004)");
+      logger.info("[Worker] Bruno + Sofia + outbound retry started (Spec 004)");
     } catch (err) {
-      logger.error({ err }, "[Worker] Bruno/outbound-retry failed to start");
+      logger.error({ err }, "[Worker] Spec 004 workers failed to start");
     }
   } else {
-    logger.warn("[Worker] REDIS_URL ausente — Bruno scheduler/worker desabilitados (Spec 004)");
+    logger.warn("[Worker] REDIS_URL ausente — Bruno/Sofia/retry desabilitados (Spec 004)");
   }
 
   const shutdown = async (signal: string) => {
@@ -67,14 +69,16 @@ import { logger } from "./logger";
     try {
       const { stopBrunoScheduler } = await import("./workers/bruno-scheduler");
       const { stopBrunoWorker } = await import("./workers/bruno-process-invoice");
+      const { stopSofiaEventProcessor } = await import("./workers/sofia-event-processor");
       const { stopOutboundRetry } = await import("./workers/outbound-retry");
       const { closeQueueResources } = await import("./lib/queue");
       stopBrunoScheduler();
       stopOutboundRetry();
       await stopBrunoWorker();
+      await stopSofiaEventProcessor();
       await closeQueueResources();
     } catch (err) {
-      logger.warn({ err }, "[Worker] Bruno shutdown helpers failed");
+      logger.warn({ err }, "[Worker] Spec 004 shutdown helpers failed");
     }
     await pool.end();
     logger.info("[Worker] Database pool closed");
