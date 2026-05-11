@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export type AgentName = "julia" | "helena";
+export type AgentName = "julia" | "helena" | "bruno" | "sofia";
 
 export interface PromptMetadata {
   agent_id?: string;

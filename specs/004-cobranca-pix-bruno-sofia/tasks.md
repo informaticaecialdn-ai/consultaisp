@@ -50,7 +50,7 @@ description: "Task list for Spec 004 — Bruno (preventivo) + Sofia (agradecimen
 - [x] T006 Criado `migrations/0005_spec004_create_tables.sql` (root migrations/, lido pelo runner) — IF NOT EXISTS p/ coexistir com drizzle-kit push.
 - [x] T007 Criado `migrations/0006_spec004_outbound_unique_index.sql` — UNIQUE com expression `(scheduled_for::date)` partial WHERE step IN ('D-3','D-1').
 - [x] T008 Criado `migrations/0007_spec004_backfill_agent_toggles.sql` — INSERT...SELECT...ON CONFLICT DO NOTHING.
-- [ ] T009 ⏸ Aplicar via `npm run db:migrate` — requer `DATABASE_URL` configurado. Ready to apply. (SQL é idempotente, sem risco.)
+- [ ] T009 ⏸ Aplicar via `npm run db:migrate` na VPS após deploy (decisão do owner 2026-05-11: aplicar via SSH na VPS Hostinger, não local). SQL é idempotente, sem risco.
 
 ### Storage Layer (todos paralelizáveis — arquivos diferentes)
 
@@ -86,44 +86,25 @@ description: "Task list for Spec 004 — Bruno (preventivo) + Sofia (agradecimen
 
 ### Bruno Agent + Prompt + Tool
 
-- [ ] T020 [P] [US1] Criar `server/prompts/bruno.md` com system prompt em pt-BR (identidade, objetivo, regras, exemplos few-shot) conforme `contracts/bruno-direct-api.contract.md`. Frontmatter com `agentId: bruno_v1`, `model: claude-haiku-4-5-20251001`.
-- [ ] T021 [P] [US1] Criar `server/agents/tools/gerar-pix-bruno.ts` exportando `gerarPixBrunoTool` (schema JSON) + `executeGerarPixBruno(tenantId, args)` que chama `asaas-multi-tenant.createPixForInvoice`. Persiste em `pix_charges` via storage.
-- [ ] T022 [US1] Criar `server/agents/bruno.ts` exportando `invokeBruno(tenantId, input)` que: carrega prompt via `prompt-loader.ts` (reutilizado da Spec 003), monta input do contract, faz chamada Anthropic SDK com tool `gerarPixBrunoTool`, processa tool_use round-trip (1 turno), valida output JSON, retorna `{ templateName, variables, pix, freeFormText }`. Inclui prompt caching (system prompt + lista templates).
+- [x] T020 [P] [US1] `server/prompts/bruno.md` criado com frontmatter (`agent_id: agt_preventivo_v1`, `modelo: claude-haiku-4-5-20251001`) e System Prompt em pt-BR (persona, regras de comunicação, output JSON estruturado, few-shot D-3). `prompt-loader.ts` estendido para aceitar `bruno|sofia`.
+- [x] T021 [P] [US1] `server/agents/tools/gerar-pix-bruno.ts` criado: `gerarPixBrunoTool` (schema JSON) + `executeGerarPixBruno(ctx, args)` com multi-tenant gate (invoice+customer×providerId), idempotência defensiva via `byInvoiceAndDay`, chamada a `createPixForInvoice`.
+- [x] T022 [US1] `server/agents/bruno.ts` criado: `invokeBruno(tenantId, input, options)` com loop max 3 turnos, prompt caching (`cache_control: ephemeral` no system + templates), extração + validação de JSON output, reconstrução defensiva de `pix` se modelo omitir após tool_use bem-sucedido.
 
 ### HSM Template draft
 
-- [ ] T023 [P] [US1] Criar `specs/004-cobranca-pix-bruno-sofia/drafts/template-lembrete-prevencimento-v1.json` com payload pronto para submissão no Meta Business Manager: categoria UTILITY, idioma `pt_BR`, body com placeholders `{{1}}=nome_cliente`, `{{2}}=valor`, `{{3}}=data_vencimento`, header IMAGE para QR Code. Incluir instruções de submissão como comentário top do arquivo.
+- [x] T023 [P] [US1] `drafts/template-lembrete-prevencimento-v1.json` criado: payload Meta Business Manager (UTILITY, pt_BR, header IMAGE QR, body com 3 variáveis, footer assinatura), instruções de submissão embutidas via `_instructions` array + corpo alternativo se Meta rejeitar IMAGE.
 
 ### Scheduler + Worker
 
-- [ ] T024 [US1] Criar `server/workers/bruno-scheduler.ts` exportando `startBrunoScheduler()`:
-  - Cron diário (lê `agent_toggles.schedulerHoraLocal` por tenant; usa biblioteca leve `node-cron`).
-  - Para cada provider com `bruno_ativo=true`: query faturas com `dueDate IN (today+3, today+1)` AND `status='pendente'` AND customer com `opt-in WhatsApp` AND não em `whatsapp_optouts`.
-  - Para cada fatura: chama `outbound-attempt.tryReserve()` → se reservado, enfileira job BullMQ "bruno-process-invoice" `{providerId, invoiceId, step, scheduledFor}`. Se já reservado (dia mesmo passo), pula.
-  - Cálculo da janela horária por provider (fuso via `address_state`) — usar `Intl.DateTimeFormat` ou `date-fns-tz`.
-- [ ] T025 [US1] Criar `server/workers/bruno-process-invoice.ts` (BullMQ consumer da queue `bruno-process-invoice`):
-  1. Carrega fatura + customer + provider + agent_toggles.
-  2. Verifica janela horária; se fora → marca `outbound_attempts.status='waiting_window'` + `nextRetryAt`=próxima abertura, return.
-  3. Chama `invokeBruno(providerId, input)` → recebe `{templateName, variables, pix}`.
-  4. Persiste `pix_charges` (se o tool ainda não persistiu) e linka ao `outbound_attempts`.
-  5. Chama `invokeJulia(providerId, { proposedAction: {...} })` (Spec 003).
-  6. Se decisão BLOCKED → `markVetoed`. Se APPROVED → envia via `metaWhatsappClient.sendTemplate(...)` (Spec 003), cria `communications` row + `markSent`.
-  7. Em falha do canal → `markFailed` + agendar retry (Phase 2 retry worker pega).
-  8. Audit log para cada passo: `bruno_generate_pix`, `compliance_decision`, `bruno_send_message`.
-- [ ] T026 [P] [US1] Criar `server/workers/outbound-retry.ts` com cron a cada 15min: seleciona `outbound_attempts` com `status='failed' AND attempt_count < 2 AND next_retry_at <= now()`. Reagenda para próxima janela (`scheduledFor` = próxima abertura), `attempt_count++`, re-enfileira na queue correspondente. Após `attempt_count >= 2`: `status='needs_human_review'` + cria alerta em audit_log com tipo `outbound_needs_review` (será exibido no painel via P3 painel).
-- [ ] T027 [US1] Integrar `startBrunoScheduler()` + `startOutboundRetry()` em `server/worker.ts` (que já é o entry-point do worker process).
+- [x] T024 [US1] `server/workers/bruno-scheduler.ts` criado: tick horário (sem `node-cron` — `setInterval` + `Intl.DateTimeFormat` para TZ por UF), filtra providers com `brunoAtivo=true` cuja `schedulerHoraLocal` casa com hora local atual, varre faturas D-3/D-1 não pagas, exclui opt-outs, reserva via `tryReserve`, enfileira na queue `bruno-process-invoice`. `server/lib/queue.ts` criado como helper compartilhado (lazy Redis + queue factory + `OUTBOUND_JOB_DEFAULTS`).
+- [x] T025 [US1] `server/workers/bruno-process-invoice.ts` criado: BullMQ Worker (concurrency 5) que faz todo o fluxo — load multi-tenant, skipped_paid, opt-out check, janela horária (com `nextWindowOpenUtc` que respeita sábado/domingo), `invokeBruno`, `invokeJulia` (proposedAction com renderedBody), `createMetaClient.sendTemplate(params)`, persist `communications` + `markSent`, audit completo em cada step.
+- [x] T026 [P] [US1] `server/workers/outbound-retry.ts` criado: tick 15min, `selectForRetry` → re-enfileira Bruno (Sofia placeholder até Phase 4); promove para `needs_human_review` após `attemptCount >= 2` com audit `outbound_needs_review`.
+- [x] T027 [US1] `server/worker.ts` atualizado: importação dinâmica de `startBrunoScheduler`/`startBrunoWorker`/`startOutboundRetry` guarded por `REDIS_URL` (degrada limpo se Redis ausente); shutdown hook fecha worker + queue connections.
 
 ### Audit + Testes
 
-- [ ] T028 [US1] Adicionar action types Bruno no helper de audit-log (Spec 003): `bruno_generate_pix`, `bruno_send_message`, `bruno_skipped_optout`, `bruno_skipped_window`, `bruno_skipped_paid`, `bruno_failed_send`. Cada uma com `legalBasis` e `legalReferences` apropriados (ex: pre-vencimento → "CDC art. 71 a contrario sensu — comunicação preventiva permitida").
-- [ ] T029 [US1] Criar `server/workers/bruno-process-invoice.test.ts` (integração, DB real, mocks Anthropic+Asaas+Meta via nock):
-  - Caso feliz D-3 → Pix criado, mensagem enviada, audit completo.
-  - Caso D-1 com fatura já paga → skip + audit `bruno_skipped_paid`.
-  - Caso fora de janela horária → status `waiting_window`.
-  - Caso opt-out → skip + audit `bruno_skipped_optout`.
-  - Caso Júlia veto → `markVetoed`, sem envio Meta.
-  - Caso falha de envio Meta → `markFailed`, retry agendado.
-  - Caso duplo agendamento mesmo dia mesmo passo → segunda chamada `tryReserve` retorna null.
+- [x] T028 [US1] `server/agents/audit-actions.ts` criado como helper centralizado: `BRUNO_AUDIT_ACTIONS`, `SOFIA_AUDIT_ACTIONS`, `WEBHOOK_AUDIT_ACTIONS`, `OUTBOUND_RETRY_AUDIT_ACTIONS` (cada uma com `legalBasis` + `legalReferences` default) + `auditAction(name)` builder. `bruno-process-invoice.ts` e `outbound-retry.ts` refatorados para usar o helper (zero strings inline).
+- [x] T029 [US1] `server/workers/bruno-process-invoice.test.ts` criado (vitest, Postgres real, mocks Anthropic/Júlia/Meta via `vi.mock`): 8 testes cobrindo skipped_paid, skipped_optout, waiting_window, bruno_disabled, happy_path, julia_blocked, meta_fail, bruno_failed. Skipa quando `DATABASE_URL` ausente (validado: typecheck verde, 8/8 skipped no run local sem DB). Idempotência dupla agenda já é coberta em `multi-tenant-pix.test.ts` (T018).
 
 **Checkpoint US1**: Bruno funcional, testado, idempotente. **MVP entregável aqui** — provedor já reduz inadimplência D+0 sem precisar de Sofia/painel.
 

@@ -1,0 +1,41 @@
+{
+  "_instructions": [
+    "Spec 004 — Template HSM 'lembrete_prevencimento_v1' para submissão no Meta Business Manager.",
+    "Submissão: Meta Business Manager → WhatsApp Manager → Templates de mensagens → Criar template.",
+    "Categoria: UTILITY (não MARKETING — lembrete pré-vencimento é utilitário, alinhado a CDC art. 71 a contrario sensu).",
+    "Idioma: pt_BR.",
+    "Variáveis: {{1}} = nome_cliente (primeiro nome), {{2}} = valor (R$ 149,90), {{3}} = data_vencimento (DD/MM/YYYY).",
+    "Header IMAGE: QR Code do Pix (anexado via componente 'header.format=IMAGE' com sample_url no submit; em runtime, parâmetro 'image' com link público OU media_id).",
+    "Footer: assinatura do provedor (curta).",
+    "Aprovação típica: 24-72h. Acompanhar status via Meta Business Manager API ou painel.",
+    "Após aprovação: atualizar agent_toggles.templateBrunoNome com o nome literal aprovado pelo Meta."
+  ],
+  "name": "lembrete_prevencimento_v1",
+  "language": "pt_BR",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "HEADER",
+      "format": "IMAGE",
+      "example": {
+        "header_handle": [
+          "<UPLOAD_HANDLE_PNG_AMOSTRA_QR_CODE>"
+        ]
+      }
+    },
+    {
+      "type": "BODY",
+      "text": "Olá, {{1}}! Passando para lembrar que sua fatura de {{2}} vence em {{3}}. Para facilitar, segue o QR Code do Pix — basta abrir o app do banco, ir em Pix → Pagar com QR Code e apontar a câmera. Em caso de dúvida, é só responder esta mensagem que a gente ajuda.",
+      "example": {
+        "body_text": [
+          ["João", "R$ 149,90", "14/05/2026"]
+        ]
+      }
+    },
+    {
+      "type": "FOOTER",
+      "text": "Mensagem automática — responda para falar com atendimento"
+    }
+  ],
+  "_alt_body_se_meta_rejeitar_imagem": "Caso a Meta rejeite o header IMAGE (algumas categorias UTILITY exigem header texto), usar este corpo alternativo (mesmas variáveis):\n\nOlá, {{1}}! Sua fatura de {{2}} vence em {{3}}. Para pagar via Pix, use o código copia-e-cola que enviaremos logo após esta mensagem ou responda aqui que a gente passa a 2ª via."
+}
