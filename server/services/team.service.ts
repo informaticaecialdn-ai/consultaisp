@@ -199,3 +199,118 @@ function resolveKpi(id: AgentId, ctx: KpiContext): AgentKpi {
       return { label: "—", value: 0 };
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// Spec 007 Sub-fase C — agregação cross-tenant para o superadmin
+// ═══════════════════════════════════════════════════════════════════════
+
+export interface AdminTeamStats {
+  /** Total de tenants no sistema (count from providers). */
+  totalTenants: number;
+  /** Tenants com pelo menos 1 toggle ativo (Bruno OR Sofia). */
+  tenantsWithActiveAgents: number;
+  /** Mensagens outbound enviadas (status='sent') no mês corrente, cross-tenant. */
+  totalSentThisMonth: number;
+  /** Taxa de bloqueio agregada da Júlia (% BLOCKED / total compliance_checks). */
+  juliaBlockRateGlobal: number;
+  juliaTotalChecks: number;
+  /** Top tenants por volume de mensagens no mês. */
+  topTenantsByVolume: Array<{
+    providerId: number;
+    providerName: string;
+    sentCount: number;
+  }>;
+  /** Volume por agente cross-tenant (apenas implementados). */
+  byAgent: Array<{
+    agentId: AgentId;
+    sentCount: number;
+    tenantsActive: number;
+  }>;
+}
+
+/**
+ * Agregação cross-tenant para a aba superadmin "Time Digital".
+ * Sem cache — query direta. Otimizar quando virar gargalo.
+ */
+export async function buildAdminTeamStats(): Promise<AdminTeamStats> {
+  const monthStart = startOfMonth();
+
+  // Import dinâmico para evitar circular (providers usa db, que usa este service indiretamente)
+  const { providers } = await import("@shared/schema");
+
+  const [
+    totalTenantsRow,
+    activeAgentTenantsRow,
+    sentByAgentRows,
+    juliaGlobalRow,
+    topTenantsRows,
+  ] = await Promise.all([
+    db.select({ count: sql<number>`count(*)::int` }).from(providers),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(agentToggles)
+      .where(sql`${agentToggles.brunoAtivo} = true OR ${agentToggles.sofiaAtiva} = true`),
+    db
+      .select({
+        agentId: outboundAttempts.agentId,
+        sentCount: sql<number>`count(*)::int`,
+        tenantsActive: sql<number>`count(distinct ${outboundAttempts.providerId})::int`,
+      })
+      .from(outboundAttempts)
+      .where(
+        and(
+          eq(outboundAttempts.status, "sent"),
+          gte(outboundAttempts.createdAt, monthStart),
+        ),
+      )
+      .groupBy(outboundAttempts.agentId),
+    db
+      .select({
+        total: sql<number>`count(*)::int`,
+        blocked: sql<number>`count(*) filter (where ${complianceChecks.decision} = 'BLOCKED')::int`,
+      })
+      .from(complianceChecks)
+      .where(gte(complianceChecks.createdAt, monthStart)),
+    db
+      .select({
+        providerId: providers.id,
+        providerName: providers.name,
+        sentCount: sql<number>`count(${outboundAttempts.id})::int`,
+      })
+      .from(outboundAttempts)
+      .innerJoin(providers, eq(providers.id, outboundAttempts.providerId))
+      .where(
+        and(
+          eq(outboundAttempts.status, "sent"),
+          gte(outboundAttempts.createdAt, monthStart),
+        ),
+      )
+      .groupBy(providers.id, providers.name)
+      .orderBy(sql`count(${outboundAttempts.id}) desc`)
+      .limit(5),
+  ]);
+
+  const totalSent = sentByAgentRows.reduce((acc, r) => acc + (r.sentCount ?? 0), 0);
+  const juliaTotal = juliaGlobalRow[0]?.total ?? 0;
+  const juliaBlocked = juliaGlobalRow[0]?.blocked ?? 0;
+
+  return {
+    totalTenants: totalTenantsRow[0]?.count ?? 0,
+    tenantsWithActiveAgents: activeAgentTenantsRow[0]?.count ?? 0,
+    totalSentThisMonth: totalSent,
+    juliaBlockRateGlobal: juliaTotal === 0 ? 0 : Math.round((juliaBlocked / juliaTotal) * 100),
+    juliaTotalChecks: juliaTotal,
+    topTenantsByVolume: topTenantsRows.map((r) => ({
+      providerId: r.providerId,
+      providerName: r.providerName,
+      sentCount: r.sentCount ?? 0,
+    })),
+    byAgent: sentByAgentRows
+      .filter((r) => ACTIVE_AGENT_IDS.includes(r.agentId as AgentId))
+      .map((r) => ({
+        agentId: r.agentId as AgentId,
+        sentCount: r.sentCount ?? 0,
+        tenantsActive: r.tenantsActive ?? 0,
+      })),
+  };
+}

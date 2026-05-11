@@ -13,6 +13,7 @@ import { eq, desc, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { z } from "zod";
 import { sendCompletionEmail } from "../services/lgpd-email.service";
+import { buildAdminTeamStats } from "../services/team.service";
 
 const adminUpdateProviderSchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -49,6 +50,16 @@ export function registerAdminRoutes(): Router {
   router.get("/api/admin/stats", requireSuperAdmin, async (_req, res) => {
     try {
       const stats = await storage.getSystemStats();
+      return res.json(stats);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  // Spec 007 Sub-C — Time Digital agregado cross-tenant
+  router.get("/api/admin/team-stats", requireSuperAdmin, async (_req, res) => {
+    try {
+      const stats = await buildAdminTeamStats();
       return res.json(stats);
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });

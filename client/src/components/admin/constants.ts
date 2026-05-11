@@ -1,6 +1,6 @@
 import {
   BarChart3, Activity, Building2, Users, Database, DollarSign,
-  MessageSquare, RefreshCw, Settings, ClipboardList, Target,
+  MessageSquare, RefreshCw, Settings, ClipboardList, Target, Bot,
 } from "lucide-react";
 
 export const VALID_TABS = [
@@ -11,6 +11,7 @@ export const VALID_TABS = [
   "suporte",
   "configuracoes",
   "crm",
+  "time-digital",  // Spec 007 Sub-C
 ] as const;
 
 export type AdminTabKey = (typeof VALID_TABS)[number];
@@ -23,6 +24,7 @@ export const PAGE_META: Record<string, { title: string; desc: string; icon: any;
   suporte: { title: "Suporte", desc: "Chat direto com provedores e visitantes", icon: MessageSquare, color: "from-orange-500 to-amber-600" },
   configuracoes: { title: "Configuracoes", desc: "Catalogo de ERPs e configuracoes do sistema", icon: Settings, color: "from-teal-600 to-emerald-700" },
   crm: { title: "CRM Vendas", desc: "Gestao de leads, pipeline e agentes de vendas", icon: Target, color: "from-pink-600 to-rose-700" },
+  "time-digital": { title: "Time Digital", desc: "Visao agregada cross-tenant dos 10 funcionarios digitais do Provedor.ai", icon: Bot, color: "from-emerald-600 to-teal-700" },
   // Legacy aliases (still referenced by deep links / internals)
   usuarios: { title: "Usuarios", desc: "Contas e acessos do sistema", icon: Users, color: "from-violet-600 to-purple-700" },
   erps: { title: "ERPs Cadastrados", desc: "Gerencie os sistemas ERP suportados", icon: Database, color: "from-teal-600 to-emerald-700" },

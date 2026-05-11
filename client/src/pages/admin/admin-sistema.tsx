@@ -10,6 +10,7 @@ import FinanceiroTab from "@/components/admin/tabs/FinanceiroTab";
 import SuporteTab from "@/components/admin/tabs/SuporteTab";
 import ConfiguracoesTab from "@/components/admin/tabs/ConfiguracoesTab";
 import CrmTab from "@/components/admin/tabs/crm/CrmTab";
+import TimeDigitalTab from "@/components/admin/tabs/TimeDigitalTab";
 
 /**
  * Legacy tab hash aliases: old deep links that should map to the new 6 tabs.
@@ -88,6 +89,7 @@ export default function AdminSistemaPage() {
         {activeTab === "suporte" && <SuporteTab />}
         {activeTab === "configuracoes" && <ConfiguracoesTab />}
         {activeTab === "crm" && <CrmTab />}
+        {activeTab === "time-digital" && <TimeDigitalTab />}
       </div>
     </div>
   );

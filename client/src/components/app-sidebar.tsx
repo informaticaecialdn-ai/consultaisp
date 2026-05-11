@@ -238,6 +238,14 @@ const ADMIN_GROUPS = [
     ],
   },
   {
+    label: "Time Digital",
+    key: "time-digital-group",
+    collapsible: false,
+    items: [
+      { title: "Visao Agregada", hash: "time-digital", icon: Bot, testId: "link-admin-time-digital" },
+    ],
+  },
+  {
     label: "Suporte",
     key: "suporte",
     collapsible: false,
