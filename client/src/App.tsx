@@ -54,6 +54,8 @@ const ClienteDossiePage = lazy(() => import("@/pages/provedor/cliente-dossie"));
 // Spec 007 — Time Digital
 const TimePage = lazy(() => import("@/pages/provedor/time"));
 const TimeDetailPage = lazy(() => import("@/pages/provedor/time-detail"));
+// Spec 010A — Customer Health
+const HealthSimulatorPage = lazy(() => import("@/pages/provedor/health-simulator"));
 
 // Public
 const LandingPage = lazy(() => import("@/pages/public/landingpage"));
@@ -109,6 +111,8 @@ function Router() {
         {/* Spec 007 — Time Digital */}
         <Route path="/time/:agentId" component={TimeDetailPage} />
         <Route path="/time" component={TimePage} />
+        {/* Spec 010A — Customer Health Score simulator */}
+        <Route path="/health/simulador" component={HealthSimulatorPage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>
@@ -121,6 +125,7 @@ const PROVIDER_ONLY_PATHS = [
   "/importacao-equipamentos", "/administracao", "/painel-provedor",
   "/benchmark-regional", "/configuracoes/whatsapp", "/comunicacoes",
   "/time",  // Spec 007 — Time Digital
+  "/health",  // Spec 010A — Customer Health
 ];
 
 function ChangePasswordModal() {
