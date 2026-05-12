@@ -460,23 +460,42 @@ voice_calls
 
 ---
 
-## 6. Validações técnicas feitas em 2026-05-12
+## 6. Validações técnicas FEITAS em 2026-05-12
+
+Todas as 4 validações técnicas executadas via sub-agentes paralelos contra documentação oficial.
 
 ### ✅ FATO: ErpConnector atual é read-only (5 métodos cliente/fatura)
-- Bloqueia parcialmente Spec 012 e Spec 013 (dados de banda)
-- Pré-requisito: Spec 012.0 estende interface antes de Spec 012/013 alcançarem ROI máximo
+- Confirmado em [server/erp/types.ts:141](server/erp/types.ts#L141)
+- Spec 012.0 cria como pré-requisito de Spec 012/013
 
-### ⏳ Validar: Asaas API suporta `dueDate` em horas?
-- Bloqueia Spec 009 se não suportar
-- Workaround: criar charges sequenciais com cancelamento programado via webhook
+### ✅ FATO: Asaas API NÃO suporta `dueDate` em horas, mas há workaround viável
+- `POST /v3/payments` (que usamos hoje): só `dueDate` em dias
+- `POST /v3/pix/qrCodes/static`: aceita `expirationDate` datetime + `expirationSeconds` (mas perde vínculo com `payments`)
+- **Escolhido:** workaround com `POST /v3/payments` + worker temporal (create → cancel → create) — mantém vínculo invoices
+- Rate limit: 25k req/12h global, 50 GETs concorrentes — folgado para nossa escala
+- Risco: QR Code copiado antes do cancel pode ainda ser pago no valor antigo. Mitigação: tolerar e registrar como aceito
+- **Spec 009 documenta arquitetura completa**
 
-### ⏳ Validar: IXC e MK adapters podem ser estendidos para `getOnuStatus`?
-- Doc IXC menciona `radius_online` e `monitoramento_online_geral` — provável SIM
-- Doc MK menciona "ConexõesAtivas" — provável SIM
-- Outros 4 ERPs: validar caso a caso na demanda
+### ✅ FATO: IXC adapter pode ser estendido (FULL capability)
+- `radusuarios.online` (S/N), `ultima_conexao_final`, `download_atual`, `upload_atual` confirmados na wiki
+- Sinal óptico Rx/Tx: tabela inferida (`cliente_fibra_onu` ou variações) — discovery em runtime via padrão já estabelecido no connector
+- Auth idêntica à atual (zero refactor)
+- **Spec 012.0 documenta implementação completa**
 
-### ⏳ Validar: Anthropic tem Realtime voice API?
-- Define arquitetura Spec 015 (Realtime nativo vs stitching STT+Chat+TTS)
+### ✅ FATO: MK adapter LIMITADO (degraded capability)
+- Sem endpoint REST oficial para RADIUS/ONU/banda
+- Proxy degradado via `WSMKConexoesPorCliente.Bloqueada` (binário)
+- Banda real e accounting RADIUS vivem em tabela `radacct` do Postgres MK-Auth — fora do contrato `ErpConnector`
+- Tenants MK terão Spec 012 com força reduzida
+- **Spec 012.0 documenta limitação explícita**
+
+### ✅ FATO: Anthropic Realtime voice API NÃO existe
+- Claude Voice é "emerging", sem SDK estável, sem API pública
+- Recomendação Anthropic oficial: parceria Hume AI (Empathic Voice Interface)
+- Padrão indústria: stitching Twilio ConversationRelay + Deepgram STT + Claude API + ElevenLabs TTS
+- Custo estimado: ~R$ 2.100/mês para Vertical Fibra (60 chamadas/dia × 5min)
+- ROI defensável: 17% do custo humano efetivo
+- **Spec 015 documenta arquitetura stitching completa**
 
 ---
 
