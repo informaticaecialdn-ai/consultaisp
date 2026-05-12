@@ -26,6 +26,13 @@ import {
   consultarMemoriaTool,
   executeConsultarMemoria,
 } from "./tools/consultar-memoria-cliente";
+// Spec 008.6 — Managed Agents adapter + shadow comparison
+import { getAgentRuntime } from "../env";
+import {
+  invokeSofiaManaged,
+  compareSofiaOutputs,
+} from "../services/agents/sofia-managed";
+import { logInvocation, hashInput } from "../services/agents/invocation-log";
 
 export const SOFIA_AGENT_ID = "agt_relacionamento_v1";
 const SOFIA_MODEL = process.env.SOFIA_MODEL ?? "claude-haiku-4-5-20251001";
@@ -108,6 +115,40 @@ function validateOutput(raw: unknown): SofiaOutput | null {
 }
 
 export async function invokeSofia(
+  tenantId: number,
+  input: SofiaInput,
+  options: InvokeSofiaOptions,
+): Promise<SofiaResult> {
+  // Spec 008.6 — runtime feature flag
+  const runtime = getAgentRuntime("sofia");
+  if (runtime === "managed") {
+    return invokeSofiaManaged(tenantId, input, options);
+  }
+  if (runtime === "shadow") {
+    const [directResult, managedResult] = await Promise.allSettled([
+      invokeSofiaDirect(tenantId, input, options),
+      invokeSofiaManaged(tenantId, input, options),
+    ]);
+    if (directResult.status !== "fulfilled") throw directResult.reason;
+    if (managedResult.status === "fulfilled") {
+      const cmp = compareSofiaOutputs(directResult.value, managedResult.value);
+      void logInvocation({
+        providerId: tenantId,
+        agentId: "sofia",
+        runtime: "shadow",
+        inputHash: hashInput({ customerId: options.customerId, paidAt: input.paidAt }),
+        outputJson: { direct: directResult.value, managed: managedResult.value, comparison: cmp },
+        status: cmp.significantDiff ? "diff" : "ok",
+        errorMessage: cmp.significantDiff ? cmp.summary : null,
+        correlationId: options.correlationId ?? null,
+      });
+    }
+    return directResult.value;
+  }
+  return invokeSofiaDirect(tenantId, input, options);
+}
+
+async function invokeSofiaDirect(
   tenantId: number,
   input: SofiaInput,
   options: InvokeSofiaOptions,

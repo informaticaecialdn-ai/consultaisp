@@ -23,6 +23,13 @@ import { createMessage } from "./anthropic-client";
 import { loadPrompt } from "./prompt-loader";
 import { loadEnrichedContext, extractFactsFromTurn, detectPromise, compactSummary } from "./memory";
 import { executeTool, helenaTools, type ToolContext, type ToolResult } from "./tools";
+// Spec 008.6 — Managed Agents adapter + shadow comparison
+import { getAgentRuntime } from "../env";
+import {
+  invokeHelenaManaged,
+  compareHelenaOutputs,
+} from "../services/agents/helena-managed";
+import { logInvocation, hashInput } from "../services/agents/invocation-log";
 
 const HELENA_AGENT_ID = "agt_reativo_v1";
 // Use a known-supported Sonnet model; we keep this central for easy rotation.
@@ -90,6 +97,39 @@ const CANCEL_HINTS = /\b(quero cancelar|cancelamento|encerrar contrato|me d[ée]
 // ============================================================
 
 export async function invokeHelena(input: HelenaInput): Promise<HelenaResult> {
+  // Spec 008.6 — runtime feature flag
+  const runtime = getAgentRuntime("helena");
+  if (runtime === "managed") {
+    return invokeHelenaManaged(input);
+  }
+  if (runtime === "shadow") {
+    const [directResult, managedResult] = await Promise.allSettled([
+      invokeHelenaDirect(input),
+      invokeHelenaManaged(input),
+    ]);
+    if (directResult.status !== "fulfilled") throw directResult.reason;
+    if (managedResult.status === "fulfilled") {
+      const cmp = compareHelenaOutputs(directResult.value, managedResult.value);
+      void logInvocation({
+        providerId: input.tenantId,
+        agentId: "helena",
+        runtime: "shadow",
+        inputHash: hashInput({
+          customerId: input.customerId,
+          whatsappMessageId: input.whatsappMessageId,
+        }),
+        outputJson: { direct: directResult.value, managed: managedResult.value, comparison: cmp },
+        status: cmp.significantDiff ? "diff" : "ok",
+        errorMessage: cmp.significantDiff ? cmp.summary : null,
+        correlationId: input.correlationId ?? null,
+      });
+    }
+    return directResult.value;
+  }
+  return invokeHelenaDirect(input);
+}
+
+async function invokeHelenaDirect(input: HelenaInput): Promise<HelenaResult> {
   const started = Date.now();
   const toolsCalled: string[] = [];
   const complianceCheckIds: string[] = [];

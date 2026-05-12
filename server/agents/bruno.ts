@@ -29,6 +29,13 @@ import {
   executeGerarPixBruno,
   type GerarPixBrunoResult,
 } from "./tools/gerar-pix-bruno";
+// Spec 008.6 — Managed Agents adapter + shadow comparison
+import { getAgentRuntime } from "../env";
+import {
+  invokeBrunoManaged,
+  compareBrunoOutputs,
+} from "../services/agents/bruno-managed";
+import { logInvocation, hashInput } from "../services/agents/invocation-log";
 
 export const BRUNO_AGENT_ID = "agt_preventivo_v1";
 const BRUNO_MODEL = process.env.BRUNO_MODEL ?? "claude-haiku-4-5-20251001";
@@ -157,6 +164,44 @@ function validateOutput(raw: unknown): BrunoOutput | null {
 }
 
 export async function invokeBruno(
+  tenantId: number,
+  input: BrunoInput,
+  options: InvokeBrunoOptions,
+): Promise<BrunoResult> {
+  // Spec 008.6 — runtime feature flag (default direct preserva comportamento)
+  const runtime = getAgentRuntime("bruno");
+  if (runtime === "managed") {
+    return invokeBrunoManaged(tenantId, input, options);
+  }
+  if (runtime === "shadow") {
+    const [directResult, managedResult] = await Promise.allSettled([
+      invokeBrunoDirect(tenantId, input, options),
+      invokeBrunoManaged(tenantId, input, options),
+    ]);
+    if (directResult.status !== "fulfilled") throw directResult.reason;
+    if (managedResult.status === "fulfilled") {
+      const cmp = compareBrunoOutputs(directResult.value, managedResult.value);
+      void logInvocation({
+        providerId: tenantId,
+        agentId: "bruno",
+        runtime: "shadow",
+        inputHash: hashInput({
+          customerId: options.customerId,
+          invoiceId: input.invoiceId,
+          step: input.step,
+        }),
+        outputJson: { direct: directResult.value, managed: managedResult.value, comparison: cmp },
+        status: cmp.significantDiff ? "diff" : "ok",
+        errorMessage: cmp.significantDiff ? cmp.summary : null,
+        correlationId: options.correlationId ?? null,
+      });
+    }
+    return directResult.value;
+  }
+  return invokeBrunoDirect(tenantId, input, options);
+}
+
+async function invokeBrunoDirect(
   tenantId: number,
   input: BrunoInput,
   options: InvokeBrunoOptions,
