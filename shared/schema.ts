@@ -839,3 +839,51 @@ export const insertMcpBearerTokenSchema = createInsertSchema(mcpBearerTokens).om
 
 export type McpBearerToken = typeof mcpBearerTokens.$inferSelect;
 export type InsertMcpBearerToken = z.infer<typeof insertMcpBearerTokenSchema>;
+
+// ═══════════════════════════════════════════════════════════════════════
+// Spec 008.6 — Managed Agents migration tracker
+// AUTORIZADO em specs/008-6-migrate-agents-to-managed/spec.md §Schema NOVO
+// Rastreia toda invocação dos 4 agentes (Júlia/Bruno/Helena/Sofia) para:
+//   1. Comparar paridade direct vs managed em modo shadow
+//   2. Auditoria + custo Managed Agents
+//   3. Telemetria no /admin-sistema#time-digital
+// ═══════════════════════════════════════════════════════════════════════
+export const agentInvocations = pgTable("agent_invocations", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  /** Nome interno: "julia" | "bruno" | "helena" | "sofia" (futuramente também marcos/rafael/etc.) */
+  agentId: text("agent_id").notNull(),
+  /** Runtime executado: "direct" | "managed" | "shadow" */
+  runtime: text("runtime").notNull(),
+  /** ID da session na platform.claude.com (sess_xxx) — null em modo direct */
+  anthropicSessionId: text("anthropic_session_id"),
+  /** ID do agent na platform.claude.com (agt_xxx) — null em modo direct */
+  anthropicAgentId: text("anthropic_agent_id"),
+  /** Hash do input para deduplicar comparações shadow */
+  inputHash: text("input_hash"),
+  /** Output shape específico do agente (JuliaDecision, BrunoResult, etc.) */
+  outputJson: jsonb("output_json"),
+  tokensInput: integer("tokens_input"),
+  tokensOutput: integer("tokens_output"),
+  latencyMs: integer("latency_ms"),
+  /** "ok" | "error" | "timeout" | "diff" (último para shadow quando direct!=managed) */
+  status: text("status").notNull(),
+  errorMessage: text("error_message"),
+  /** Cruza com communications/audit_logs/compliance_checks via correlationId */
+  correlationId: text("correlation_id"),
+  /** Em shadow: aponta para a linha do par (a outra runtime do mesmo input). */
+  pairedInvocationId: integer("paired_invocation_id"),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  endedAt: timestamp("ended_at"),
+}, (t) => ({
+  providerAgentTimeIdx: index("agent_invocations_provider_agent_time_idx").on(t.providerId, t.agentId, t.startedAt),
+  correlationIdx: index("agent_invocations_correlation_idx").on(t.correlationId),
+  runtimeIdx: index("agent_invocations_runtime_idx").on(t.runtime),
+}));
+
+export const insertAgentInvocationSchema = createInsertSchema(agentInvocations).omit({
+  id: true, startedAt: true,
+});
+
+export type AgentInvocation = typeof agentInvocations.$inferSelect;
+export type InsertAgentInvocation = z.infer<typeof insertAgentInvocationSchema>;
