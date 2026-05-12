@@ -39,6 +39,12 @@ import { isMcpEnabled } from "../env";
 import { registerAgentToolsRoutes } from "./agent-tools.routes";
 // Spec 010A — Customer Health Score preview endpoints
 import { registerCustomerHealthRoutes } from "./customer-health.routes";
+// Spec 009 — Pix Dinâmico preview
+import { registerPixDynamicRoutes } from "./pix-dynamic.routes";
+// Spec 013 — Silent Exit risk preview
+import { registerSilentExitRoutes } from "./silent-exit.routes";
+// Spec 014 — Competitor Monitor preview
+import { registerCompetitorMonitorRoutes } from "./competitor-monitor.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -80,6 +86,12 @@ export async function registerRoutes(
 
   // Spec 010A — Customer Health Score preview (sem schema, só calculator puro)
   app.use(registerCustomerHealthRoutes());
+  // Spec 009 — Pix Dinâmico preview (sem Asaas real, só tier calculator)
+  app.use(registerPixDynamicRoutes());
+  // Spec 013 — Silent Exit risk preview
+  app.use(registerSilentExitRoutes());
+  // Spec 014 — Competitor Monitor preview (sem Serper, só heurística)
+  app.use(registerCompetitorMonitorRoutes());
 
   // Spec 008.5 — MCP ERP wrapper (controlado por env var MCP_DISABLED)
   if (isMcpEnabled()) {
