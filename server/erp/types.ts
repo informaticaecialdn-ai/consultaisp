@@ -132,6 +132,50 @@ export interface ErpFetchResult {
   totalRecords?: number;
 }
 
+/* ────────────────────────────────────────────────────────────────────
+ * Spec 012.0 — Estensão: status técnico do cliente em tempo real
+ *
+ * Permite que connectors expõem (opcionalmente) dados de rede:
+ *   - ONU online/offline + lastSeen + sinal óptico
+ *   - Consumo de banda + última atividade
+ *
+ * Pré-requisito de Specs 012 (Recup Proativa) e 013 (Detector Saída).
+ *
+ * Capability levels:
+ *   - 'full': ERP expõe dados completos via API REST (ex: IXC com radusuarios + cliente_fibra_onu)
+ *   - 'degraded': ERP só expõe proxy parcial (ex: MK só tem flag Bloqueada binário)
+ *   - 'unavailable': ERP não expõe (default para connectors que não implementam)
+ * ──────────────────────────────────────────────────────────────────── */
+
+export interface OnuStatus {
+  online: boolean;
+  lastSeen?: Date;
+  signalRxDbm?: number;
+  signalTxDbm?: number;
+  source: "radius" | "olt" | "inferred_bloqueado" | "unavailable";
+}
+
+export interface CustomerActivity {
+  bandwidthMbAvg?: number;
+  bandwidthDownloadMbTotal?: number;
+  bandwidthUploadMbTotal?: number;
+  lastActivityAt?: Date;
+  source: "radius" | "olt" | "unavailable";
+}
+
+export interface ErpCapabilities {
+  /** Status da ONU/conexão em tempo real */
+  onuStatus: "full" | "degraded" | "unavailable";
+  /** Consumo de banda / atividade do cliente */
+  customerActivity: "full" | "degraded" | "unavailable";
+}
+
+/** Default capabilities — connectors sem extensão herdam `unavailable`. */
+export const DEFAULT_ERP_CAPABILITIES: ErpCapabilities = {
+  onuStatus: "unavailable",
+  customerActivity: "unavailable",
+};
+
 /**
  * Core ERP Connector interface.
  *
@@ -142,6 +186,13 @@ export interface ErpConnector {
   readonly name: string;
   readonly label: string;
   readonly configFields: ErpConfigField[];
+
+  /**
+   * Capabilities declaradas pelo connector.
+   * Opcional para compatibilidade — connectors sem extensão herdam `unavailable`.
+   * Spec 012.0 introduz; demais connectors atualizam conforme implementam.
+   */
+  readonly capabilities?: ErpCapabilities;
 
   /** Test connectivity to the ERP API */
   testConnection(config: ErpConnectionConfig): Promise<ErpTestResult>;
@@ -157,4 +208,39 @@ export interface ErpConnector {
 
   /** Fetch customers by CEP prefix with overdue data aggregated (optional) */
   fetchCustomersByCep?(config: ErpConnectionConfig, cep: string): Promise<ErpFetchResult>;
+
+  /**
+   * Spec 012.0 — Status técnico atual da ONU/conexão de UM cliente.
+   * Opcional. Connectors sem implementação retornam `{ source: "unavailable" }`
+   * via método utilitário (não throw).
+   */
+  getOnuStatus?(
+    config: ErpConnectionConfig,
+    customerErpId: string,
+  ): Promise<OnuStatus>;
+
+  /**
+   * Spec 012.0 — Atividade do cliente nos últimos N dias (banda + lastSeen).
+   * Opcional. Retorna `{ source: "unavailable" }` se ERP não expõe.
+   */
+  getCustomerActivity?(
+    config: ErpConnectionConfig,
+    customerErpId: string,
+    sinceDays: number,
+  ): Promise<CustomerActivity>;
+}
+
+/**
+ * Helper para connectors que não implementam status técnico.
+ * Retorna OnuStatus indicando indisponibilidade.
+ */
+export function unavailableOnuStatus(): OnuStatus {
+  return { online: false, source: "unavailable" };
+}
+
+/**
+ * Helper para connectors que não implementam atividade do cliente.
+ */
+export function unavailableCustomerActivity(): CustomerActivity {
+  return { source: "unavailable" };
 }

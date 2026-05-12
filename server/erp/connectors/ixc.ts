@@ -26,11 +26,14 @@
 
 import type {
   ErpConnector,
+  ErpCapabilities,
   ErpConfigField,
   ErpConnectionConfig,
   ErpTestResult,
   ErpFetchResult,
   NormalizedErpCustomer,
+  OnuStatus,
+  CustomerActivity,
 } from "../types.js";
 import { CircuitBreaker, withResilience } from "../resilience.js";
 import { cleanCpfCnpj, cleanCep, cleanPhone, calculateDaysOverdue, aggregateByCustomer } from "../normalize.js";
@@ -66,6 +69,16 @@ export class IxcConnector implements ErpConnector {
     { key: "apiUser", label: "ID do Usuario (numerico)", type: "text", required: true, placeholder: "45" },
     { key: "apiToken", label: "Token do Usuario", type: "password", required: true },
   ];
+
+  /**
+   * Spec 012.0 — IXC suporta FULL capability:
+   * - onuStatus via radusuarios.online + ultima_conexao_final + cliente_fibra_onu (best-effort)
+   * - customerActivity via radusuarios.download_atual/upload_atual + ultima_conexao_final
+   */
+  readonly capabilities: ErpCapabilities = {
+    onuStatus: "full",
+    customerActivity: "full",
+  };
 
   private circuitMap = new Map<string, CircuitBreaker>();
 
@@ -1021,6 +1034,147 @@ export class IxcConnector implements ErpConnector {
       return { ok: true, connections };
     } catch (err: unknown) {
       return { ok: false, connections: [] };
+    }
+  }
+
+  /* ──────────────────────────────────────────────────────────────────
+   * Spec 012.0 — Status técnico em tempo real (FULL capability)
+   * ────────────────────────────────────────────────────────────────── */
+
+  /**
+   * Spec 012.0 — Helper: parse de data IXC para Date.
+   * IXC retorna timestamps em formato variado ("YYYY-MM-DD HH:mm:ss" usual).
+   */
+  private parseIxcDate(input: unknown): Date | undefined {
+    if (!input) return undefined;
+    if (typeof input !== "string") return undefined;
+    const s = input.trim();
+    if (!s) return undefined;
+    // Tenta ISO direto primeiro, depois "YYYY-MM-DD HH:mm:ss"
+    const tryIso = new Date(s);
+    if (!isNaN(tryIso.getTime())) return tryIso;
+    const fixed = s.replace(" ", "T") + "Z";
+    const tryFixed = new Date(fixed);
+    return isNaN(tryFixed.getTime()) ? undefined : tryFixed;
+  }
+
+  /**
+   * Spec 012.0 — Status atual da ONU/conexão do cliente.
+   *
+   * Estratégia:
+   *   1. Busca em `radusuarios` — `online` (S/N), `ultima_conexao_final`
+   *   2. Tenta `cliente_fibra_onu` / `fibra_onu` / `monitora_potencia_onu`
+   *      para sinal óptico Rx/Tx (best-effort, instâncias variam)
+   *
+   * Retorno gracioso: se nenhuma tabela retorna, `online=false, source="radius"`.
+   */
+  async getOnuStatus(
+    config: ErpConnectionConfig,
+    customerErpId: string,
+  ): Promise<OnuStatus> {
+    let online = false;
+    let lastSeen: Date | undefined;
+    let signalRxDbm: number | undefined;
+    let signalTxDbm: number | undefined;
+    let opticalSource: OnuStatus["source"] = "radius";
+
+    // 1. RADIUS user status
+    try {
+      const radiusRows = await this.listAll(config, "radusuarios", {
+        qtype: "radusuarios.id_cliente",
+        query: customerErpId,
+        oper: "=",
+      }, 10, 1);
+
+      const r = radiusRows[0] as Record<string, unknown> | undefined;
+      if (r) {
+        online = r.online === "S" || r.online === "s";
+        lastSeen = this.parseIxcDate(r.ultima_conexao_final);
+      }
+    } catch {
+      // RADIUS query falhou — segue com defaults
+    }
+
+    // 2. Sinal óptico — best-effort em múltiplas tabelas
+    const opticalTables = ["cliente_fibra_onu", "fibra_onu", "monitora_potencia_onu"];
+    for (const table of opticalTables) {
+      try {
+        const onuRows = await this.listAll(config, table, {
+          qtype: `${table}.id_cliente`,
+          query: customerErpId,
+          oper: "=",
+        }, 5, 1);
+
+        const o = onuRows[0] as Record<string, unknown> | undefined;
+        if (!o) continue;
+
+        const rxRaw = (o.sinal_rx ?? o.potencia_rx ?? o.rx_power) as unknown;
+        const txRaw = (o.sinal_tx ?? o.potencia_tx ?? o.tx_power) as unknown;
+        const rx = typeof rxRaw === "string" ? parseFloat(rxRaw) : typeof rxRaw === "number" ? rxRaw : NaN;
+        const tx = typeof txRaw === "string" ? parseFloat(txRaw) : typeof txRaw === "number" ? txRaw : NaN;
+
+        if (Number.isFinite(rx)) signalRxDbm = rx;
+        if (Number.isFinite(tx)) signalTxDbm = tx;
+        if (signalRxDbm !== undefined || signalTxDbm !== undefined) {
+          opticalSource = "olt";
+          break;
+        }
+      } catch {
+        // Tabela pode não existir nessa instância — tenta a próxima
+      }
+    }
+
+    return {
+      online,
+      lastSeen,
+      signalRxDbm,
+      signalTxDbm,
+      source: signalRxDbm !== undefined || signalTxDbm !== undefined ? opticalSource : "radius",
+    };
+  }
+
+  /**
+   * Spec 012.0 — Atividade do cliente nos últimos N dias.
+   *
+   * IXC expõe `download_atual` + `upload_atual` em `radusuarios` (consumo
+   * agregado no período corrente, em bytes). Calculamos média MB/dia.
+   *
+   * Limitação: não temos accounting RADIUS por dia (radacct). Usamos snapshot.
+   */
+  async getCustomerActivity(
+    config: ErpConnectionConfig,
+    customerErpId: string,
+    sinceDays: number,
+  ): Promise<CustomerActivity> {
+    try {
+      const rows = await this.listAll(config, "radusuarios", {
+        qtype: "radusuarios.id_cliente",
+        query: customerErpId,
+        oper: "=",
+      }, 10, 1);
+
+      const r = rows[0] as Record<string, unknown> | undefined;
+      if (!r) return { source: "unavailable" };
+
+      const downStr = String(r.download_atual ?? "0");
+      const upStr = String(r.upload_atual ?? "0");
+      const downBytes = parseFloat(downStr);
+      const upBytes = parseFloat(upStr);
+
+      const downloadMb = Number.isFinite(downBytes) ? downBytes / 1_000_000 : 0;
+      const uploadMb = Number.isFinite(upBytes) ? upBytes / 1_000_000 : 0;
+      const totalMb = downloadMb + uploadMb;
+      const days = Math.max(1, sinceDays);
+
+      return {
+        bandwidthMbAvg: totalMb / days,
+        bandwidthDownloadMbTotal: downloadMb,
+        bandwidthUploadMbTotal: uploadMb,
+        lastActivityAt: this.parseIxcDate(r.ultima_conexao_final),
+        source: "radius",
+      };
+    } catch {
+      return { source: "unavailable" };
     }
   }
 }

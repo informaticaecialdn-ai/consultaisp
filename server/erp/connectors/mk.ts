@@ -17,12 +17,16 @@
 
 import type {
   ErpConnector,
+  ErpCapabilities,
   ErpConfigField,
   ErpConnectionConfig,
   ErpTestResult,
   ErpFetchResult,
   NormalizedErpCustomer,
+  OnuStatus,
+  CustomerActivity,
 } from "../types.js";
+import { unavailableCustomerActivity } from "../types.js";
 import { CircuitBreaker, withResilience } from "../resilience.js";
 import { cleanCpfCnpj, cleanPhone, calculateDaysOverdue, aggregateByCustomer } from "../normalize.js";
 
@@ -50,6 +54,17 @@ export class MkConnector implements ErpConnector {
     { key: "apiToken", label: "Token do Usuario MK", type: "password", required: true },
     { key: "mkContraSenha", label: "Contra-Senha Webservice", type: "password", required: true },
   ];
+
+  /**
+   * Spec 012.0 — MK suporta capability DEGRADED:
+   * - onuStatus: proxy via WSMKConexoesPorCliente.Bloqueada (binário, não tempo real)
+   * - customerActivity: NÃO disponível (radacct vive em Postgres do MK-Auth, fora API)
+   * Validado 2026-05-12: documentação oficial MK não expõe RADIUS/ONU/banda via REST.
+   */
+  readonly capabilities: ErpCapabilities = {
+    onuStatus: "degraded",
+    customerActivity: "unavailable",
+  };
 
   private circuitMap = new Map<string, CircuitBreaker>();
 
@@ -1130,5 +1145,83 @@ export class MkConnector implements ErpConnector {
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
       return { ok: false, message: `Erro: ${msg}`, customers: [] };
     }
+  }
+
+  /* ──────────────────────────────────────────────────────────────────
+   * Spec 012.0 — Status técnico (DEGRADED capability)
+   *
+   * MK não expõe RADIUS/ONU/banda via API REST oficial.
+   * Único proxy disponível: WSMKConexoesPorCliente.Bloqueada (binário).
+   * Sinal óptico real exige SNMP direto na OLT (out of scope).
+   * Banda real vive em radacct (Postgres MK-Auth), fora do contrato.
+   * ────────────────────────────────────────────────────────────────── */
+
+  /**
+   * Spec 012.0 — Status da ONU (DEGRADED).
+   *
+   * Inferência: cliente NÃO bloqueado financeiramente ≈ online.
+   * Limitação: não é "tempo real RADIUS" — apenas reflete estado financeiro
+   * propagado para o concentrador pelo MK.
+   */
+  async getOnuStatus(
+    config: ErpConnectionConfig,
+    customerErpId: string,
+  ): Promise<OnuStatus> {
+    try {
+      const token = await this.authenticate(config);
+      const base = this.baseUrl(config);
+      const url = `${base}/mk/WSMKConexoesPorCliente.rule?sys=MK0&token=${encodeURIComponent(token)}&cd_cliente=${encodeURIComponent(customerErpId)}`;
+
+      const response = await withResilience(
+        () => fetch(url, { method: "GET", signal: AbortSignal.timeout(10000) }),
+        { retries: 1, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
+      );
+
+      if (!response.ok) {
+        return { online: false, source: "unavailable" };
+      }
+
+      const data: unknown = await response.json();
+      const root = data as Record<string, unknown> | unknown[];
+      const conexoes: unknown[] = Array.isArray(root)
+        ? root
+        : ((root as Record<string, unknown>)?.Conexoes as unknown[]) ||
+          ((root as Record<string, unknown>)?.conexoes as unknown[]) ||
+          [];
+
+      // Lê primeira conexão (cliente normalmente tem 1 contrato ativo)
+      const first = conexoes[0] as Record<string, unknown> | undefined;
+      if (!first) {
+        return { online: false, source: "unavailable" };
+      }
+
+      const bloqueadaRaw = (first.Bloqueada ?? first.bloqueada ?? first.Bloqueado ?? "") as string;
+      const bloqueada =
+        String(bloqueadaRaw).toUpperCase() === "S" ||
+        String(bloqueadaRaw).toUpperCase() === "SIM" ||
+        String(bloqueadaRaw) === "true" ||
+        String(bloqueadaRaw) === "1";
+
+      return {
+        online: !bloqueada,  // heurística degradada
+        source: "inferred_bloqueado",
+      };
+    } catch {
+      return { online: false, source: "unavailable" };
+    }
+  }
+
+  /**
+   * Spec 012.0 — Atividade do cliente (NÃO disponível em MK).
+   *
+   * Sempre retorna `{ source: "unavailable" }`. Para banda real, tenant MK
+   * precisa adicional não-REST (SQL direto em radacct, Zabbix, HelpFiber).
+   */
+  async getCustomerActivity(
+    _config: ErpConnectionConfig,
+    _customerErpId: string,
+    _sinceDays: number,
+  ): Promise<CustomerActivity> {
+    return unavailableCustomerActivity();
   }
 }
