@@ -49,6 +49,10 @@ import {
   Target,
   MessageCircle,
   Bot,
+  FlaskConical,
+  HeartPulse,
+  Radar,
+  Timer,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -183,6 +187,17 @@ const SIDEBAR_GROUPS: SidebarGroupDef[] = [
       { title: "Benchmark Regional", url: "/benchmark-regional", icon: TrendingUp },
       { title: "Importação CSV", url: "/importacao", icon: Database },
       { title: "Provedor Index", icon: Activity, comingSoon: "Spec 011 · Marcos" },
+    ],
+  },
+  {
+    label: "Simuladores",
+    key: "simuladores",
+    icon: FlaskConical,
+    items: [
+      { title: "Health Score 360º", url: "/health/simulador", icon: HeartPulse },
+      { title: "Saída Silenciosa", url: "/silent-exit/simulador", icon: TrendingUp },
+      { title: "Geo-Monitor Concorrente", url: "/competitor-monitor/simulador", icon: Radar },
+      { title: "Pix Dinâmico Decay", url: "/pix-dynamic/simulador", icon: Timer },
     ],
   },
   {

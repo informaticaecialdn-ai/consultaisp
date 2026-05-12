@@ -17,6 +17,10 @@ import { requireAuth } from "../auth";
 import { logger } from "../logger";
 import { calculateHealthScore } from "../services/customer-health/score-calculator";
 import { recommendAction } from "../services/customer-health/recommendation-engine";
+import {
+  buildCustomerHealthInputs,
+  CustomerNotFoundError,
+} from "../services/customer-health/snapshot-builder";
 
 /** Schema Zod do body da preview — valida inputs antes de calcular. */
 const previewInputSchema = z.object({
@@ -102,6 +106,77 @@ export function registerCustomerHealthRoutes(): Router {
         logger.error(
           { action: "customer_health_preview_error", err: msg },
           "Customer health preview failed",
+        );
+        return res.status(500).json({ ok: false, error: msg });
+      }
+    },
+  );
+
+  /**
+   * GET /api/customers/:id/health
+   *
+   * Computa health score on-the-fly para cliente real do tenant atual.
+   * Não persiste — consulta tabelas existentes e retorna resultado fresco.
+   *
+   * Quando schema customer_health_snapshots for autorizado, este endpoint
+   * passa a ler do snapshot persistido (com fallback para on-the-fly).
+   */
+  router.get(
+    "/api/customers/:id/health",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      const customerId = parseInt(String(req.params.id), 10);
+      if (!Number.isFinite(customerId) || customerId <= 0) {
+        return res.status(400).json({ ok: false, error: "invalid_customer_id" });
+      }
+      const providerId = req.session?.providerId;
+      if (!providerId) {
+        return res.status(401).json({ ok: false, error: "no_provider_context" });
+      }
+
+      const started = Date.now();
+      try {
+        const inputs = await buildCustomerHealthInputs(providerId, customerId);
+        const score = calculateHealthScore(inputs);
+        const recommendation = recommendAction(inputs, score);
+
+        logger.debug(
+          {
+            action: "customer_health_on_the_fly",
+            providerId,
+            customerId,
+            healthScore: score.healthScore,
+            healthTier: score.healthTier,
+            latencyMs: Date.now() - started,
+          },
+          "Customer health computed on-the-fly",
+        );
+
+        return res.json({
+          ok: true,
+          data: {
+            customerId,
+            healthScore: score.healthScore,
+            healthTier: score.healthTier,
+            components: score.components,
+            predictions: {
+              inadimplenciaRisk30dPercent: score.inadimplenciaRisk30dPercent,
+              churnRisk60dPercent: score.churnRisk60dPercent,
+            },
+            recommendation,
+            inputsSnapshot: inputs,
+            computedAt: new Date().toISOString(),
+            source: "on_the_fly",  // futura: 'persisted' quando schema autorizado
+          },
+        });
+      } catch (err) {
+        if (err instanceof CustomerNotFoundError) {
+          return res.status(404).json({ ok: false, error: "customer_not_found" });
+        }
+        const msg = err instanceof Error ? err.message : "computation_failed";
+        logger.error(
+          { action: "customer_health_on_the_fly_error", providerId, customerId, err: msg },
+          "Customer health on-the-fly computation failed",
         );
         return res.status(500).json({ ok: false, error: msg });
       }
