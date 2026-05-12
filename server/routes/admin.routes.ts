@@ -14,6 +14,9 @@ import crypto from "crypto";
 import { z } from "zod";
 import { sendCompletionEmail } from "../services/lgpd-email.service";
 import { buildAdminTeamStats } from "../services/team.service";
+import { mcpBearerTokens } from "@shared/schema";
+import { generateBearerToken } from "../mcp/bearer-auth";
+import { MCP_SCOPES, MCP_TOOLS, type McpScope, type McpToolName } from "../mcp/types";
 
 const adminUpdateProviderSchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -825,6 +828,123 @@ export function registerAdminRoutes(): Router {
         sendCompletionEmail(existing.email, existing.protocolo, existing.tipoSolicitacao, summary).catch(() => {});
       }
 
+      return res.json(updated);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────
+  // Spec 008.5 — MCP bearer tokens (superadmin CRUD)
+  //
+  // Gerados pelo superadmin, copiados como credential static_bearer no
+  // Vault da Anthropic Platform. Cada token pertence a 1 providerId e
+  // controla scopes (read | read_pii) + subset de tools permitidas.
+  // ─────────────────────────────────────────────────────────────────
+
+  /** GET /api/admin/mcp/tokens?providerId=N — lista tokens (sem hash) */
+  router.get("/api/admin/mcp/tokens", requireSuperAdmin, async (req, res) => {
+    try {
+      const providerIdParam = req.query.providerId;
+      const conds = [];
+      if (providerIdParam) {
+        const n = parseInt(String(providerIdParam), 10);
+        if (Number.isFinite(n)) {
+          conds.push(eq(mcpBearerTokens.providerId, n));
+        }
+      }
+      const rows = await db
+        .select({
+          id: mcpBearerTokens.id,
+          providerId: mcpBearerTokens.providerId,
+          tokenPrefix: mcpBearerTokens.tokenPrefix,
+          name: mcpBearerTokens.name,
+          allowedScopes: mcpBearerTokens.allowedScopes,
+          allowedTools: mcpBearerTokens.allowedTools,
+          createdByUserId: mcpBearerTokens.createdByUserId,
+          createdAt: mcpBearerTokens.createdAt,
+          lastUsedAt: mcpBearerTokens.lastUsedAt,
+          revokedAt: mcpBearerTokens.revokedAt,
+        })
+        .from(mcpBearerTokens)
+        .where(conds.length ? conds[0] : undefined)
+        .orderBy(desc(mcpBearerTokens.createdAt));
+      return res.json(rows);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  /**
+   * POST /api/admin/mcp/tokens — cria novo bearer token.
+   * Body: { providerId, name, allowedScopes?, allowedTools? }
+   * Retorna { token, prefix, ... } UMA VEZ — token completo nunca mais
+   * volta. Cliente PRECISA salvar agora.
+   */
+  const createMcpTokenSchema = z.object({
+    providerId: z.number().int().positive(),
+    name: z.string().min(1).max(200),
+    allowedScopes: z.array(z.enum(MCP_SCOPES)).optional(),
+    allowedTools: z.array(z.enum(MCP_TOOLS)).nullable().optional(),
+  }).strict();
+
+  router.post("/api/admin/mcp/tokens", requireSuperAdmin, async (req, res) => {
+    try {
+      const parsed = createMcpTokenSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.flatten() });
+      }
+      const { providerId, name, allowedScopes, allowedTools } = parsed.data;
+      const userId = req.session.userId ?? null;
+
+      const generated = await generateBearerToken();
+
+      const [inserted] = await db
+        .insert(mcpBearerTokens)
+        .values({
+          providerId,
+          tokenHash: generated.hash,
+          tokenPrefix: generated.prefix,
+          name,
+          allowedScopes: (allowedScopes ?? ["read"]) as McpScope[],
+          allowedTools: (allowedTools ?? null) as McpToolName[] | null,
+          createdByUserId: userId,
+        })
+        .returning();
+
+      return res.status(201).json({
+        // Token COMPLETO retornado UMA VEZ — frontend mostra com alerta
+        token: generated.token,
+        record: {
+          id: inserted.id,
+          providerId: inserted.providerId,
+          tokenPrefix: inserted.tokenPrefix,
+          name: inserted.name,
+          allowedScopes: inserted.allowedScopes,
+          allowedTools: inserted.allowedTools,
+          createdAt: inserted.createdAt,
+        },
+      });
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  /** PATCH /api/admin/mcp/tokens/:id/revoke — soft delete */
+  router.patch("/api/admin/mcp/tokens/:id/revoke", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = parseInt(String(req.params.id), 10);
+      if (!Number.isFinite(id)) {
+        return res.status(400).json({ message: "Invalid id" });
+      }
+      const [updated] = await db
+        .update(mcpBearerTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(mcpBearerTokens.id, id))
+        .returning({ id: mcpBearerTokens.id, revokedAt: mcpBearerTokens.revokedAt });
+      if (!updated) {
+        return res.status(404).json({ message: "Token não encontrado" });
+      }
       return res.json(updated);
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });

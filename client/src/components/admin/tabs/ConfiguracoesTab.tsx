@@ -12,6 +12,7 @@ import {
   ToggleLeft, ToggleRight,
 } from "lucide-react";
 import type { ErpCatalog } from "@shared/schema";
+import McpTokensSection from "../McpTokensSection";
 
 const BLANK_ERP_FORM = {
   key: "", name: "", description: "", gradient: "from-teal-500 to-teal-600",
@@ -124,6 +125,9 @@ export default function ConfiguracoesTab() {
 
   return (
     <div className="space-y-4">
+      {/* Spec 008.5 — MCP Tokens (Anthropic Platform) */}
+      <McpTokensSection />
+
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <p className="text-sm text-[var(--color-muted)]">
           {erpCatalogList.length} ERP(s) cadastrado(s). Adicione logos para deixar mais visual para os provedores.
