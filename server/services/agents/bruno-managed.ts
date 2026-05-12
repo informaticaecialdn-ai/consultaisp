@@ -23,6 +23,7 @@ import { pixCharges } from "@shared/schema";
 import { logger } from "../../logger";
 import { invokeAgent } from "./platform-client";
 import { logInvocation, hashInput } from "./invocation-log";
+import { buildCustomerContextLite } from "./context-enricher";
 import type {
   BrunoInput,
   BrunoOutput,
@@ -75,13 +76,21 @@ export async function invokeBrunoManaged(
   input: BrunoInput,
   options: InvokeBrunoOptions,
 ): Promise<BrunoResult> {
+  // Spec 010A — enriquece com customer health (lite, não infla tokens)
+  // Falha graciosa: null se erro/cliente não encontrado, Bruno segue sem.
+  const customerHealth = await buildCustomerContextLite(tenantId, options.customerId);
+
   const userMessage = JSON.stringify({
     instruction:
       "Escolha o template de lembrete (D-3 ou D-1), gere Pix dinâmico via tool " +
-      "`gerar_pix` (use os IDs fornecidos), preencha variáveis em pt-BR e emita JSON final.",
+      "`gerar_pix` (use os IDs fornecidos), preencha variáveis em pt-BR e emita JSON final. " +
+      "Calibre tom conforme customerHealth.healthTier: gold/healthy = lembrete cordial, " +
+      "warning = cordial extra com facilitação, critical = NÃO enviar lembrete preventivo, " +
+      "marca recommendedAgent='human_marcos' no output e abort.",
     context: input,
     customerId: options.customerId,
     attemptId: options.attemptId,
+    customerHealth,  // null se erro, Bruno segue sem
   });
 
   const invocation = await invokeAgent({

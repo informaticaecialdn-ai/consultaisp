@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FileText, ShieldCheck } from "lucide-react";
 import { DossieExportButton } from "@/components/dossie/DossieExportButton";
+import { CustomerHealthPanel } from "@/components/health/CustomerHealthPanel";
 
 function defaultPeriod() {
   const to = new Date();
@@ -78,6 +79,12 @@ export default function ClienteDossiePage() {
           <DossieExportButton customerId={customerId} from={from} to={to} format="json" />
         </div>
       </Card>
+
+      {/* Spec 010A — Customer Health Score in-context */}
+      <div>
+        <h2 className="text-lg font-semibold mb-3">Saúde do cliente</h2>
+        <CustomerHealthPanel customerId={customerId} />
+      </div>
 
       <Card className="p-6 bg-muted/30">
         <div className="flex gap-3">

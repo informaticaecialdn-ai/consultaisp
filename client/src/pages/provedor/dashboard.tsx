@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
+import { AtRiskDashboardCard } from "@/components/health/AtRiskDashboardCard";
 import {
   Search,
   CreditCard,
@@ -77,6 +78,9 @@ export default function DashboardPage() {
           </Link>
         </div>
       </div>
+
+      {/* Spec 010A — Customer Health at-risk */}
+      <AtRiskDashboardCard limit={10} />
 
       {/* Identidade na Rede */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
