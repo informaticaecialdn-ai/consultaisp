@@ -56,6 +56,12 @@ const TimePage = lazy(() => import("@/pages/provedor/time"));
 const TimeDetailPage = lazy(() => import("@/pages/provedor/time-detail"));
 // Spec 010A — Customer Health
 const HealthSimulatorPage = lazy(() => import("@/pages/provedor/health-simulator"));
+// Spec 013 — Silent Exit
+const SilentExitSimulatorPage = lazy(() => import("@/pages/provedor/silent-exit-simulator"));
+// Spec 014 — Competitor Monitor
+const CompetitorMonitorSimulatorPage = lazy(() => import("@/pages/provedor/competitor-monitor-simulator"));
+// Spec 009 — Pix Dinâmico
+const PixDynamicSimulatorPage = lazy(() => import("@/pages/provedor/pix-dynamic-simulator"));
 
 // Public
 const LandingPage = lazy(() => import("@/pages/public/landingpage"));
@@ -113,6 +119,12 @@ function Router() {
         <Route path="/time" component={TimePage} />
         {/* Spec 010A — Customer Health Score simulator */}
         <Route path="/health/simulador" component={HealthSimulatorPage} />
+        {/* Spec 013 — Silent Exit Risk simulator */}
+        <Route path="/silent-exit/simulador" component={SilentExitSimulatorPage} />
+        {/* Spec 014 — Competitor Monitor heuristic simulator */}
+        <Route path="/competitor-monitor/simulador" component={CompetitorMonitorSimulatorPage} />
+        {/* Spec 009 — Pix Dinâmico tier simulator */}
+        <Route path="/pix-dynamic/simulador" component={PixDynamicSimulatorPage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>
@@ -126,6 +138,9 @@ const PROVIDER_ONLY_PATHS = [
   "/benchmark-regional", "/configuracoes/whatsapp", "/comunicacoes",
   "/time",  // Spec 007 — Time Digital
   "/health",  // Spec 010A — Customer Health
+  "/silent-exit",  // Spec 013
+  "/competitor-monitor",  // Spec 014
+  "/pix-dynamic",  // Spec 009
 ];
 
 function ChangePasswordModal() {
