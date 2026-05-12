@@ -32,6 +32,9 @@ import { registerReguaRoutes } from "./regua.routes";
 import { registerDossieRoutes } from "./dossie.routes";
 // Spec 007 — Time Digital
 import { registerTeamRoutes } from "./team.routes";
+// Spec 008.5 — MCP ERP wrapper
+import { registerMcpErpRoutes } from "./mcp.routes";
+import { isMcpEnabled } from "../env";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -70,6 +73,11 @@ export async function registerRoutes(
   app.use(registerDossieRoutes());
   // Spec 007 — Time Digital
   app.use(registerTeamRoutes());
+
+  // Spec 008.5 — MCP ERP wrapper (controlado por env var MCP_DISABLED)
+  if (isMcpEnabled()) {
+    app.use(registerMcpErpRoutes());
+  }
 
   return httpServer;
 }
