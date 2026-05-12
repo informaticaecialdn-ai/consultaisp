@@ -1,8 +1,26 @@
 # ROADMAP V2 — Provedor.AI
 
 **Criado:** 2026-05-12
+**Última atualização:** 2026-05-12 (Spec 010A operacional end-to-end + funcs puras de 009/013/014 + simuladores)
 **Status:** Canônico — substitui o plano de 3 meses anterior (`cuddly-churning-dijkstra.md`) nas Specs 009-014.
 **Mantém intacto:** Specs 003-008.6 já commitadas. Esta é a **próxima onda**.
+
+## ⚡ Status atual (snapshot 2026-05-12)
+
+| Spec | Funcs puras + tests | API preview | API on-the-fly (cliente real) | UI simulador | UI cliente real | Agent integration |
+|---|---|---|---|---|---|---|
+| 009 Pix Dinâmico | ✅ 22 tests | ✅ `POST /api/pix-dynamic/preview-offer` | ⏳ aguarda schema | ✅ `/pix-dynamic/simulador` | ⏳ | ⏳ |
+| 010A Customer Health | ✅ 49 tests | ✅ `POST /api/customer-health/calculate-preview` | ✅ `GET /api/customers/:id/health` + `GET /api/dashboard/at-risk` | ✅ `/health/simulador` | ✅ Tab dossiê + Dashboard card | ✅ Helena + Bruno managed |
+| 011 Confissão D+1 C3 | (depende 010A) | — | — | — | — | (será via Rafael) |
+| 012.0 ErpConnector estendido | ✅ 22 tests (IXC + MK) | — | — (lê via getOnuStatus) | — | — | ✅ disponível |
+| 012 Recuperação Proativa | ⏳ aguarda schema | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 013 Silent Exit | ✅ 18 tests | ✅ `POST /api/silent-exit/preview-risk` | ✅ `GET /api/customers/:id/silent-exit-risk` (limited) | ✅ `/silent-exit/simulador` | ⏳ | ⏳ |
+| 014 Geo-Monitor | ✅ 11 tests (heurística) | ✅ `POST /api/competitor-monitor/preview-classify` | N/A (não-per-cliente) | ✅ `/competitor-monitor/simulador` | ⏳ | ⏳ |
+| 015 Voice Agent | ⏳ aguarda validação custo + clientes 50+ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+
+**Tests vitest da sessão:** 139/139 passando.
+**Baseline TypeScript:** 112 errors (mantida — zero novo erro introduzido).
+**Bloqueios pendentes:** autorização schema (6 tabelas), Prompts v2 CoWork, números Vertical Fibra, ações owner Anthropic Platform.
 
 ---
 
