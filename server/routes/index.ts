@@ -37,6 +37,8 @@ import { registerMcpErpRoutes } from "./mcp.routes";
 import { isMcpEnabled } from "../env";
 // Spec 008.6 — Custom HTTP Tools for Managed Agents
 import { registerAgentToolsRoutes } from "./agent-tools.routes";
+// Spec 010A — Customer Health Score preview endpoints
+import { registerCustomerHealthRoutes } from "./customer-health.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -75,6 +77,9 @@ export async function registerRoutes(
   app.use(registerDossieRoutes());
   // Spec 007 — Time Digital
   app.use(registerTeamRoutes());
+
+  // Spec 010A — Customer Health Score preview (sem schema, só calculator puro)
+  app.use(registerCustomerHealthRoutes());
 
   // Spec 008.5 — MCP ERP wrapper (controlado por env var MCP_DISABLED)
   if (isMcpEnabled()) {
