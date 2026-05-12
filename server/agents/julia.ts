@@ -27,6 +27,14 @@ import { ANATEL_TIMELINE, LEGAL_BASES, LEGAL_REFS } from "./legal-references";
 import { AgentMemoryStorage } from "../storage/agent-memory.storage";
 import { ComplianceCheckStorage } from "../storage/compliance-check.storage";
 import { AuditLogStorage } from "../storage/audit-log.storage";
+// Spec 008.6 — feature flag + Managed Agents Layer 3
+import { getAgentRuntime } from "../env";
+import {
+  juliaLayer3Managed,
+  compareLayer3Outputs,
+  type JuliaLayer3Input,
+} from "../services/agents/julia-managed";
+import { logInvocation, hashInput } from "../services/agents/invocation-log";
 
 const JULIA_AGENT_ID = "agt_compliance_v1";
 const JULIA_MODEL = "claude-haiku-4-5-20251001";
@@ -265,6 +273,122 @@ async function runLayer3(
 }
 
 // ============================================================
+// Spec 008.6 — Layer 3 runtime dispatcher
+// ============================================================
+
+interface RuntimeDispatch {
+  runtime: "direct" | "shadow" | "managed";
+  input: JuliaInput;
+  systemPrompt: string;
+  customerContext: Record<string, unknown>;
+}
+
+/**
+ * Routes Layer 3 to direct, managed, or shadow (both in parallel, returns direct).
+ * In shadow mode, writes a `paired` entry in agent_invocations comparing outputs
+ * for offline analysis before flipping to managed.
+ */
+async function runLayer3WithRuntime(
+  dispatch: RuntimeDispatch,
+): Promise<LlmJudgement & { cacheHit: boolean }> {
+  const { runtime, input, systemPrompt, customerContext } = dispatch;
+
+  // ───── DIRECT mode (default, comportamento atual) ─────
+  if (runtime === "direct") {
+    const { judgement, cacheHit } = await runLayer3(input, systemPrompt, customerContext);
+    return { ...judgement, cacheHit };
+  }
+
+  // ───── MANAGED mode (apenas plataforma) ─────
+  if (runtime === "managed") {
+    const managedInput: JuliaLayer3Input = {
+      providerId: input.tenantId,
+      customerId: input.customerId,
+      actionType: "send_message",
+      content: input.content!,
+      channel: input.channel,
+      customerContext,
+      correlationId: input.correlationId,
+    };
+    const m = await juliaLayer3Managed(managedInput);
+    // Se managed falhar, fallback safe → pass (least restrictive). Erro já loga em logInvocation.
+    return {
+      passed: m.passed,
+      issues: m.issues,
+      suggestions: m.suggestions,
+      cacheHit: false,
+    };
+  }
+
+  // ───── SHADOW mode (direct canônico + managed paralelo) ─────
+  const managedInput: JuliaLayer3Input = {
+    providerId: input.tenantId,
+    customerId: input.customerId,
+    actionType: "send_message",
+    content: input.content!,
+    channel: input.channel,
+    customerContext,
+    correlationId: input.correlationId,
+  };
+
+  const [directResult, managedResult] = await Promise.allSettled([
+    runLayer3(input, systemPrompt, customerContext),
+    juliaLayer3Managed(managedInput),
+  ]);
+
+  if (directResult.status !== "fulfilled") {
+    throw directResult.reason; // direct é canônico — erro propaga
+  }
+
+  // Loga direct invocação como source of truth
+  const directJudgement = directResult.value.judgement;
+  const directCacheHit = directResult.value.cacheHit;
+
+  // Comparação shadow para telemetria (não bloqueia retorno)
+  if (managedResult.status === "fulfilled") {
+    const cmp = compareLayer3Outputs(directJudgement, managedResult.value);
+    void logInvocation({
+      providerId: input.tenantId,
+      agentId: "julia",
+      runtime: "shadow",
+      inputHash: hashInput({ content: input.content, customerId: input.customerId }),
+      outputJson: {
+        direct: directJudgement,
+        managed: managedResult.value,
+        comparison: cmp,
+      },
+      latencyMs: managedResult.value.latencyMs,
+      status: cmp.significantDiff ? "diff" : "ok",
+      errorMessage: cmp.significantDiff ? cmp.summary : null,
+      correlationId: input.correlationId ?? null,
+    });
+    logger.info(
+      {
+        action: "julia_shadow_compare",
+        identical: cmp.identical,
+        significantDiff: cmp.significantDiff,
+        summary: cmp.summary,
+        correlationId: input.correlationId,
+      },
+      "Júlia shadow comparison",
+    );
+  } else {
+    void logInvocation({
+      providerId: input.tenantId,
+      agentId: "julia",
+      runtime: "shadow",
+      inputHash: hashInput({ content: input.content, customerId: input.customerId }),
+      outputJson: { direct: directJudgement, managedError: String(managedResult.reason) },
+      status: "error",
+      errorMessage: `managed_failed: ${(managedResult.reason as Error)?.message ?? "unknown"}`,
+      correlationId: input.correlationId ?? null,
+    });
+  }
+
+  return { ...directJudgement, cacheHit: directCacheHit };
+}
+
+// ============================================================
 // Layer 4 — Vulnerabilidade (memory facts)
 // ============================================================
 
@@ -349,13 +473,23 @@ export async function invokeJulia(input: JuliaInput): Promise<JuliaDecision> {
   }
 
   // Layer 3 — semantic LLM (only for send_message with content)
+  // Spec 008.6: feature flag AGENT_RUNTIME_JULIA controla qual backend
+  // executa o LLM. "direct" = Anthropic Messages API local (default);
+  // "managed" = agent na plataforma; "shadow" = ambos paralelo, retorna direct.
   let llmAdjustment = false;
   if (blockingReasons.length === 0 && input.actionType === "send_message" && input.content) {
     try {
       const { systemPrompt } = loadPrompt("julia");
       const customerContext = { customerId: input.customerId, providerId: input.tenantId };
-      const { judgement, cacheHit: ch } = await runLayer3(input, systemPrompt, customerContext);
-      cacheHit = ch;
+      const runtime = getAgentRuntime("julia");
+
+      const judgement = await runLayer3WithRuntime({
+        runtime,
+        input,
+        systemPrompt,
+        customerContext,
+      });
+      cacheHit = judgement.cacheHit;
       camadas.semantica = judgement.passed;
       if (!judgement.passed) {
         if (judgement.issues.length > 0 && judgement.suggestions.length > 0) {
