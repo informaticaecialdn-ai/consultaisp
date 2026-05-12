@@ -28,6 +28,7 @@ import { invokeAgent } from "./platform-client";
 import { logInvocation, hashInput } from "./invocation-log";
 import { loadEnrichedContext } from "../../agents/memory";
 import { CommunicationsStorage } from "../../storage/communications.storage";
+import { buildCustomerContext } from "./context-enricher";
 import type { HelenaInput, HelenaResult } from "../../agents/helena";
 
 const HELENA_AGENT_ID = "agt_reativo_v1";
@@ -74,11 +75,18 @@ export async function invokeHelenaManaged(input: HelenaInput): Promise<HelenaRes
     );
   }
 
-  // 2. Monta payload com tudo que a Helena precisa
+  // 2. Enriquece com customer health context (Spec 010A integration).
+  // Falha graciosa: null não bloqueia conversação, agente segue sem.
+  const healthContext = await buildCustomerContext(input.tenantId, input.customerId);
+
+  // 3. Monta payload com tudo que a Helena precisa
   const userMessage = JSON.stringify({
     instruction:
       "Atenda o cliente. Use as tools necessárias (consultar_fatura, gerar_pix, etc.) " +
       "e SEMPRE passe outbound text por enviar_whatsapp (que faz gate Júlia automaticamente). " +
+      "Calibre tom conforme healthTier do customerHealth: gold=cortês, healthy=normal, " +
+      "warning=cordial extra, critical=respeitoso máximo. Se severity=human_intervention, " +
+      "escale imediato. " +
       "Quando concluir, emita JSON: { outboundMessageId?, escalated, escalationType?, escalationReason?, " +
       "memoryUpdated: {facts:[], promises:[]} }",
     customerId: input.customerId,
@@ -86,6 +94,7 @@ export async function invokeHelenaManaged(input: HelenaInput): Promise<HelenaRes
     messageText: input.messageText,
     whatsappMessageId: input.whatsappMessageId,
     enrichedContext: ctx,
+    customerHealth: healthContext,  // null se erro; agente segue sem
   });
 
   const invocation = await invokeAgent({

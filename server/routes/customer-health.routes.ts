@@ -13,8 +13,11 @@
 
 import express, { type Request, type Response, type Router } from "express";
 import { z } from "zod";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { requireAuth } from "../auth";
 import { logger } from "../logger";
+import { db } from "../db";
+import { customers, invoices } from "@shared/schema";
 import { calculateHealthScore } from "../services/customer-health/score-calculator";
 import { recommendAction } from "../services/customer-health/recommendation-engine";
 import {
@@ -177,6 +180,143 @@ export function registerCustomerHealthRoutes(): Router {
         logger.error(
           { action: "customer_health_on_the_fly_error", providerId, customerId, err: msg },
           "Customer health on-the-fly computation failed",
+        );
+        return res.status(500).json({ ok: false, error: msg });
+      }
+    },
+  );
+
+  /**
+   * GET /api/dashboard/at-risk
+   *
+   * Lista priorizada dos N clientes do tenant com maior probabilidade de
+   * inadimplência nos próximos 30d. Computa on-the-fly para clientes que
+   * têm pelo menos 1 fatura vencida (universo "at risk" — muito menor que
+   * total de clientes ativos, mantém performance < 2s).
+   *
+   * Query params:
+   *   ?limit=20 (default, max 100)
+   */
+  router.get(
+    "/api/dashboard/at-risk",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      const providerId = req.session?.providerId;
+      if (!providerId) {
+        return res.status(401).json({ ok: false, error: "no_provider_context" });
+      }
+
+      const limitRaw = Number(req.query.limit ?? 20);
+      const limit = Math.min(100, Math.max(1, Number.isFinite(limitRaw) ? limitRaw : 20));
+
+      const started = Date.now();
+      try {
+        // Universo "at risk": clientes com pelo menos 1 invoice overdue.
+        // Reduz drasticamente o cálculo (geralmente <100 vs 10k+ ativos).
+        const overdueCustomers = await db
+          .selectDistinct({ customerId: invoices.customerId })
+          .from(invoices)
+          .where(
+            and(
+              eq(invoices.providerId, providerId),
+              sql`(${invoices.status} = 'overdue' OR (${invoices.status} = 'pending' AND ${invoices.dueDate} < NOW()))`,
+            ),
+          )
+          .limit(500);  // hard cap pra proteger memória/tempo
+
+        // Calcula health para cada e ordena por inadimplência risk DESC
+        const results: Array<{
+          customerId: number;
+          healthScore: number;
+          healthTier: string;
+          inadimplenciaRisk30dPercent: number;
+          churnRisk60dPercent: number;
+          recommendedAgent: string;
+          recommendedAction: string;
+        }> = [];
+
+        for (const { customerId } of overdueCustomers) {
+          try {
+            const inputs = await buildCustomerHealthInputs(providerId, customerId);
+            const score = calculateHealthScore(inputs);
+            const recommendation = recommendAction(inputs, score);
+
+            // Só inclui warning/critical (não healthy/gold que voltam por algum dado defasado)
+            if (score.healthTier === "warning" || score.healthTier === "critical") {
+              results.push({
+                customerId,
+                healthScore: score.healthScore,
+                healthTier: score.healthTier,
+                inadimplenciaRisk30dPercent: score.inadimplenciaRisk30dPercent,
+                churnRisk60dPercent: score.churnRisk60dPercent,
+                recommendedAgent: recommendation.recommendedAgent,
+                recommendedAction: recommendation.recommendedAction,
+              });
+            }
+          } catch {
+            // cliente individual com erro não bloqueia o resto
+            continue;
+          }
+        }
+
+        // Sort: critical primeiro, depois maior inadimplenciaRisk30dPercent
+        results.sort((a, b) => {
+          if (a.healthTier !== b.healthTier) {
+            return a.healthTier === "critical" ? -1 : 1;
+          }
+          return b.inadimplenciaRisk30dPercent - a.inadimplenciaRisk30dPercent;
+        });
+
+        const top = results.slice(0, limit);
+
+        // Enriquecer com nome do cliente (1 query batch)
+        const customerIds = top.map((r) => r.customerId);
+        const customerNames =
+          customerIds.length > 0
+            ? await db
+                .select({ id: customers.id, name: customers.name })
+                .from(customers)
+                .where(
+                  and(
+                    eq(customers.providerId, providerId),
+                    sql`${customers.id} IN ${customerIds}`,
+                  ),
+                )
+            : [];
+        const nameMap = new Map(customerNames.map((c) => [c.id, c.name]));
+
+        const enriched = top.map((r) => ({ ...r, customerName: nameMap.get(r.customerId) ?? null }));
+
+        logger.info(
+          {
+            action: "dashboard_at_risk",
+            providerId,
+            universeSize: overdueCustomers.length,
+            atRiskCount: results.length,
+            returned: enriched.length,
+            latencyMs: Date.now() - started,
+          },
+          "Dashboard at-risk computed",
+        );
+
+        return res.json({
+          ok: true,
+          data: {
+            customers: enriched,
+            stats: {
+              universeSize: overdueCustomers.length,
+              atRiskCount: results.length,
+              criticalCount: results.filter((r) => r.healthTier === "critical").length,
+              warningCount: results.filter((r) => r.healthTier === "warning").length,
+            },
+            computedAt: new Date().toISOString(),
+          },
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "computation_failed";
+        logger.error(
+          { action: "dashboard_at_risk_error", providerId, err: msg },
+          "Dashboard at-risk failed",
         );
         return res.status(500).json({ ok: false, error: msg });
       }
