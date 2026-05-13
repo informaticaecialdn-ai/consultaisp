@@ -192,25 +192,19 @@ function estimarRoi(opts: {
   };
 }
 
-/**
- * Formata CPF/CNPJ sem mascarar. Mostra valor REAL (ambiente interno do
- * provedor — operador autorizado vê dados completos pra cobrar).
- * Mascaramento volta na Spec de LGPD (logs/audit/PDFs externos).
- */
-function formatCpf(raw: string | null): string {
+function maskCpf(raw: string | null): string {
   if (!raw) return "—";
   const clean = raw.replace(/\D/g, "");
-  if (clean.length === 11) return `${clean.slice(0, 3)}.${clean.slice(3, 6)}.${clean.slice(6, 9)}-${clean.slice(9)}`;
-  if (clean.length === 14) return `${clean.slice(0, 2)}.${clean.slice(2, 5)}.${clean.slice(5, 8)}/${clean.slice(8, 12)}-${clean.slice(12)}`;
+  if (clean.length === 11) return `***.${clean.slice(3, 6)}.${clean.slice(6, 9)}-**`;
+  if (clean.length === 14) return `**.${clean.slice(2, 5)}.${clean.slice(5, 8)}/${clean.slice(8, 12)}-**`;
   return clean;
 }
 
-function formatPhone(raw: string | null): string | null {
+function maskPhone(raw: string | null): string | null {
   if (!raw) return null;
   const clean = raw.replace(/\D/g, "");
-  if (clean.length === 11) return `(${clean.slice(0, 2)}) ${clean.slice(2, 7)}-${clean.slice(7)}`;
-  if (clean.length === 10) return `(${clean.slice(0, 2)}) ${clean.slice(2, 6)}-${clean.slice(6)}`;
-  return raw;
+  if (clean.length < 4) return raw;
+  return `(${clean.slice(0, 2)}) ****-${clean.slice(-4)}`;
 }
 
 function monthsBetween(from: Date | string | null, to: Date): number {
@@ -250,7 +244,7 @@ export async function buildCliente360(providerId: number, customerId: number): P
   // 4. Inferências
   const contractStatus = (customer.status === "cancelled" ? "cancelled" : customer.status === "suspended" ? "suspended" : "active") as "active" | "cancelled" | "suspended";
   const tempoRelacaoMeses = monthsBetween(customer.createdAt, new Date());
-  const diasDesdeCancelamento = contractStatus === "cancelled" ? daysSince(customer.lastSyncAt) : null;
+  const diasDesdeCancelamento = contractStatus === "cancelled" ? daysSince(customer.updatedAt ?? customer.lastSyncAt) : null;
 
   const taxaAtraso12m = healthInputs.invoicesTotal > 0
     ? healthInputs.invoicesLate / healthInputs.invoicesTotal
@@ -286,8 +280,8 @@ export async function buildCliente360(providerId: number, customerId: number): P
     cliente: {
       id: customer.id,
       nome: customer.name,
-      cpfMasked: formatCpf(customer.cpfCnpj),
-      phoneMasked: formatPhone(customer.phone),
+      cpfMasked: maskCpf(customer.cpfCnpj),
+      phoneMasked: maskPhone(customer.phone),
       email: customer.email,
       bairro: customer.neighborhood,
       cidade: customer.city,
