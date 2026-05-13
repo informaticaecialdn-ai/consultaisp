@@ -1,207 +1,198 @@
-# Spec 012.5 — Cliente 360º (tela de Cobrança Operacional)
+# Spec 012.5 — Cliente 360º (Operacional, 3 cenários)
 
 **Status:** Aguardando autorização schema + design completo.
-**Estimativa:** ~16 dias-pessoa (per spec do `Consulta_ISP/agentes-sistema/`).
+**Estimativa:** ~20-30 dias-pessoa para implementação 100% (todos cenários).
 **Sessão de origem:** 2026-05-13 — Emerson pediu visão 360 completa após quick win
 do dossiê.
 
-## Quick win JÁ implementado (parcial — não substitui esta spec)
+## Documentos canônicos pareados (nesta pasta)
 
+- [`CLIENTE_360-schema-geral.md`](./CLIENTE_360-schema-geral.md) — schema técnico geral (JSON consolidado, Prisma schema, blocos A-O, LGPD, retenção)
+- [`CLIENTE_360-tela-cobranca-ativa.md`](./CLIENTE_360-tela-cobranca-ativa.md) — tela operacional para cliente ATIVO (12 cards, wireframe, JSON cobrança, botões calibrados por perfil DNA)
+- [`CLIENTE_360-tela-recuperacao.md`](./CLIENTE_360-tela-recuperacao.md) — tela operacional para EX-CLIENTE (5 estágios Daniel + workflow Lucas paralelo, ROI obrigatório, prescrição CC 206)
+- [`mockup-cobranca.html`](./mockup-cobranca.html) — mockup visual cobrança ativa (Tailwind, abrir no navegador)
+- [`mockup-recuperacao.html`](./mockup-recuperacao.html) — mockup visual recuperação pós-cancelamento
+
+**Origem:** documentos canônicos vêm do projeto `Consulta_ISP/agentes-sistema/` (sistema A — vendas). Stack lá é Next 15 + Hono + apps/web monorepo. **Stack aqui (c:\ClaudeCode\) é Caminho B: Vite + Express + Drizzle + Wouter mantidos.** Os specs descrevem o quê e o porquê; o como adapta pro stack atual.
+
+---
+
+## Três cenários distintos da mesma tela
+
+A "Cliente 360" é, na verdade, **3 telas diferentes** dependendo do status do contrato:
+
+### Cenário A — Cliente ATIVO (contrato vigente)
+
+**Objetivo:** preservar relacionamento + recuperar receita preventivamente.
+
+- **Agentes ativos:** Helena, Bruno, Rafael, Sofia, Pedro (todos)
+- **Régua DNA:** A1-C3 calibra tom/cadência/desconto
+- **Sofia:** agradece pagamentos
+- **Pedro:** pesquisa NPS
+- **Descontos máx:** até 30% policy
+- **Tela completa:** `CLIENTE_360-tela-cobranca-ativa.md` (12 cards)
+
+### Cenário B — Cliente SUSPENSO (D+15 Anatel, bloqueio temporário)
+
+**Objetivo:** religar serviço via acordo amigável agressivo antes de virar cancelado.
+
+- **Agentes ativos:** Carla (timeline Anatel 765), Rafael (acordos agressivos), Helena (inbound)
+- **Régua DNA:** congelada no momento da suspensão
+- **Descontos máx:** até 40% (8x sem juros)
+- **Críticos:** janela <60s religamento pós-Pix (Spec 010 Religamento Inteligente)
+- **Tela:** variante da `CLIENTE_360-tela-cobranca-ativa.md` com timeline regulatória destacada
+
+### Cenário C — Cliente CANCELADO (ex-cliente, contrato encerrado)
+
+**Objetivo:** recuperar dívida financeira (Daniel) + equipamento comodato (Lucas) dentro da lei, com ROI positivo.
+
+- **Agentes ativos:** Daniel (recuperação financeira D+60+), Lucas (equipamentos)
+- **Régua DNA:** congelada no perfil do cancelamento (não recalcula mais)
+- **Descontos máx:** até 70% (autonomia maior — ex-cliente)
+- **5 estágios Daniel:** amigável → anuência prévia CDC 43§2 → negativação SPC/Serasa → protesto → cessão/arquivar
+- **Workflow Lucas paralelo:** Dia 0 (3 caminhos) → Dia 7 (downsell -10%) → Dia 15 (notificação formal) → Dia 30 (soma à negativação) → Dia 60 (pequenas causas)
+- **ROI obrigatório:** se ROI < 0.3 → arquivar com fundamentação econômica
+- **Loop ConsultaISP:** registrar evento de inadimplência é o moat principal
+- **Tela completa:** `CLIENTE_360-tela-recuperacao.md` (13 cards distintos)
+
+---
+
+## Quick win JÁ implementado (não substitui esta spec)
+
+**Estado atual em prod (2026-05-13):**
 - `GET /api/customers/:id/profile` retornando customer + equipment + contracts
 - `<CustomerProfilePanel>` renderizando 4 cards no `cliente-dossie.tsx`:
   Identidade & Contato, Localização, Cobrança & Contrato, Equipamentos
-- Princípios aplicados: CPF/telefone mascarado, status do contrato como badge,
-  densidade calculada, tolerante a dados vazios
+- Health Score 360 com branch lógica `contractStatus`:
+  - active → Helena/Bruno/Rafael/Sofia
+  - cancelled → Lucas/Daniel + banner "Risco já materializado"
+  - suspended → Carla/Rafael
 
-O quick win cobre **20%** da visão. Esta spec descreve os outros **80%**.
+**Cobertura atual: ~15% da visão completa.**
 
----
-
-## 1. Princípios da tela
-
-1. **Decisão em 3 segundos.** Ao abrir a tela, operador deve entender em <3s: este cliente PODE ser cobrado agora? Se sim, COMO? Se não, POR QUÊ?
-
-2. **Bloqueios sangram primeiro.** Se há flag de compliance (vulnerável/binding/prescrita/Procon/chamado técnico aberto), o **TOPO** mostra em vermelho/âmbar + bloqueia ações restritivas. Operador não precisa "encontrar" o bloqueio, ele aparece de cara.
-
-3. **Histórico → presente → futuro.** Esquerda: o que aconteceu (timeline). Centro: situação atual (números). Direita: próximas ações sugeridas pelo Score & Decisão.
-
-4. **Ações calibradas por perfil.** Botões de ação variam conforme Régua DNA. Cliente A3 não tem botão "Negativar". Cliente C3 não tem botão "Desconto 30%" antes de D+60.
-
-5. **Auditoria visível.** Cada ação mostra: quem (qual funcionário/agente), quando, base legal. Toda decisão Júlia bloqueada aparece com motivo + lei citada. Provedor SENTE que está protegido.
-
-6. **Densidade calculada.** Operador trabalha 8h/dia na tela. Tipografia DM Sans 14px, tabelas compactas, ícones 16px. Sem cards gigantes desperdiçando espaço.
-
-7. **Mobile NÃO é prioridade no admin.** Esta tela é desktop-first. Cliente final (assinante) é mobile-first, mas é OUTRA tela (renegocia.isp).
+Falta tudo o que está nos documentos canônicos: 12 cards estruturados, predições ML, score Marcos, timeline régua, audit Júlia, alertas críticos contextuais, ROI, loop Consulta ISP.
 
 ---
 
-## 2. Estrutura de 12 cards
+## Roadmap de execução proposto
 
-### Header (sticky topo)
-- Nome + CPF mascarado + idade + cidade/UF + bairro
-- Telefones (mascarados) + email
-- Tempo de relação + perfil Régua DNA (A1-C3) + comparação 30d atrás
-- Saldo devedor + qty faturas + dias atraso mais antiga
-- Status contrato + última interação (canal/sentiment)
-- Tabs: Ações | Histórico | Conversas | Compliance | Configurar
-- Alertas no header: 🟠 queda fiel A3→B3, 🚨 Procon aberto, 🛡️ vulnerável confirmado
+### Fase 1 — Schema + Fundação (4-5 dias)
 
-### Coluna esquerda (40%)
-1. **Alertas críticos** — máx 5 visíveis com ação rápida (queda fiel, sinal vulnerável, incidente POP, acordo quebrado, geo-cluster)
-2. **Régua DNA aplicada** — perfil + 30d atrás + tom/cadência/canal/desconto/parcelas/retenção/humano-obrigatório
-3. **Predições ML & scores** — prob pagamento, prob churn, prob Procon, LTV, Consulta ISP, SPC, Serasa, ROI estimado
-4. **Status técnico** — link, sinal ONU, uptime, POP, último incidente, chamados abertos. Bloqueio de cobrança se chamado técnico aberto.
-5. **Equipamentos comodato** — lista com valor de reposição. Útil pro Lucas.
-6. **Flags de compliance** — vulnerável, binding, super endividado, menor idade, prescrita CC 206, serviço essencial, pausa Súmula 548, falecido
+**Pré-requisito:** autorização do owner para adicionar tabelas (CLAUDE.md §13.1).
 
-### Coluna direita (60%)
-7. **Situação financeira detalhada** — saldo + lista de faturas em aberto com cálculo Anatel 765 art. 88 (principal + multa 2% + juros 1%/mês) + botões Gerar Pix / 2ª via / Negociar. Histórico: último pagamento, padrão (NL), taxa atraso 12m, valor pago acumulado.
-8. **Próximas ações sugeridas** — output Score & Decisão Marcos com 3 ações ranqueadas por ROI + ❌ não-recomendadas com razão
-9. **Linha do tempo** — últimas 10 interações (mensagens + eventos + pagamentos + incidentes) com filtros agent/canal/sentiment
-
-### Rodapé full-width
-10. **Régua em execução** — timeline horizontal D-5 a D+60 com marcos cumpridos/pausados/futuros + base legal Anatel
-11. **Auditoria recente Júlia** — últimas 5 decisões (APROVADO/COM_AJUSTE/BLOQUEADO) com base legal
-
----
-
-## 3. JSON payload completo (referência)
-
-Endpoint: `GET /api/customers/:id/cobranca` — retorna estrutura tipada com 24
-seções (header, alertas_críticos, régua_dna, financeiro, predições_ml,
-scores_externos, status_técnico, equipamentos_comodato, flags_compliance,
-timeline_comunicação, régua_em_execução, próximas_ações_sugeridas,
-nao_recomendado, auditoria_recente, carteira, tasks_abertas, metadados).
-
-Ver versão completa do spec funcional em
-`C:\ClaudeCode\Consulta_ISP\agentes-sistema\mockups\` + arquivos referenciados:
-- `CLIENTE_360_COBRANCA.md` (funcional, ~300 linhas)
-- `cliente-360-cobranca.html` (mockup visual)
-- componentes-react.md (inventário 28 componentes, ~1000 linhas)
-- backend-routes.ts (11 endpoints REST tipados Hono)
-
-**Importante:** o repositório `agentes-sistema/` é o sistema A (vendas) com
-stack diferente (Next 15 + Hono + apps/web monorepo). Esta spec descreve
-adaptação pro stack atual do `c:\ClaudeCode\` (Vite + Express + Drizzle +
-Wouter — Caminho B confirmado em 2026-05-11).
-
----
-
-## 4. Botões de ação calibrados por perfil DNA
-
-| Ação | Disponibilidade | Quem aprova | Validação Júlia |
-|---|---|---|---|
-| Gerar Pix | sempre | autônomo agente | horário + opt-out |
-| Gerar 2ª via boleto | sempre | autônomo | horário + opt-out |
-| Lembrete amigável | sempre (não em chamado técnico aberto) | autônomo | horário + opt-out + janela 24h |
-| Desconto ≤5% | autônomo Rafael (D+1 a D+14) | Rafael | policy do tenant |
-| Desconto 5-15% | Score ConsultaISP >600 + 12m+ pagando | Rafael pré-aprovado | policy + histórico |
-| Desconto 15-30% | requer aprovação humana | Marcos → owner | tarefa humana |
-| Parcelamento até 3x | D+11 a D+14 | Rafael autônomo | policy |
-| Parcelamento até 12x (vulnerável) | flag_vulneravel=true | Rafael humanizado | Lei 14.181 |
-| Notificação formal Anatel D+12 | D-1, D+3, D+7 enviados | Carla | Anatel 765 art. 84 IV |
-| Suspensão parcial D+15 | anuência ≥15d + Júlia OK | Carla | Anatel 765 + Júlia |
-| Anuência negativação D+30 | após D+15 cumprido | Daniel | CDC 43§2 + Súmula 359 |
-| Negativação SPC/Serasa | anuência 10 dias úteis + Júlia OK | Daniel | Súmula 359 + valor mín R$ 50 |
-| Excluir negativação após pagamento | obrigatório 5 dias úteis | Daniel cron | Súmula 548 STJ + Lei 12.039 |
-| Protesto cartório | D+121-D+180, dívida >R$ 200, ROI+ | Daniel + humano | sem disputa judicial |
-| Pausar régua manual | qualquer momento | Marcos/operador humano | audit log |
-| Confirmar vulnerável | apenas humano | humano | flag persistente + Lei 14.181 |
-| Pausa Súmula 548 | cliente alega "já paguei" | Helena automático | Súmula 548 STJ |
-| Escalar humano | qualquer momento | qualquer agente | audit |
-
----
-
-## 5. Endpoints REST (a implementar)
-
-```
-GET    /api/customers/:id/cobranca           → JSON completo (24 seções)
-GET    /api/customers/:id/cobranca/header    → só header
-GET    /api/customers/:id/cobranca/alertas   → só alertas
-GET    /api/customers/:id/cobranca/timeline?limit=10&agent=&channel=
-POST   /api/customers/:id/actions/pausar-regua → { duracao_dias }
-POST   /api/customers/:id/actions/confirmar-vulneravel
-POST   /api/customers/:id/actions/escalar-humano → { motivo, prazo }
-POST   /api/customers/:id/actions/gerar-pix → { fatura_id }
-POST   /api/customers/:id/actions/gerar-2via → { fatura_id }
-POST   /api/customers/:id/actions/proposta-rafael → { tipo, parcelas, desconto_pct }
-POST   /api/customers/:id/actions/notificacao-anatel-d12 → Carla
-POST   /api/customers/:id/actions/suspender-d15 → Carla + Júlia gate
-POST   /api/customers/:id/actions/anuencia-d30 → Daniel
-POST   /api/customers/:id/actions/negativar-d40 → Daniel + Júlia gate
-POST   /api/customers/:id/actions/baixar-negativacao → Daniel
-GET    /api/customers/:id/cobranca/proximas-acoes → output Score & Decisão (Marcos)
-```
-
-Toda mudança de estado registrada em `audit_logs` com: timestamp, agente/operador,
-ação, antes/depois, fundamentação legal.
-
----
-
-## 6. Schema novo necessário (requer autorização)
-
-- `customer_health_snapshots` (Spec 010A já solicitada — Carla blocking)
-- `regra_pauses` — pausas manuais ou automáticas (vulnerável, Súmula 548, incidente)
+**Novas tabelas necessárias:**
+- `customer_health_snapshots` (Spec 010A já pedida)
+- `regra_pauses` — pausas manuais + auto (vulnerável, Súmula 548)
 - `customer_portfolio_assignments` — carteira atribuída ao operador
-- `customer_tasks` — tasks atribuídas pra humano (queda fiel → ligar pessoalmente)
+- `customer_tasks` — tasks humanas (queda fiel → liga, etc)
 - `legal_notifications` (Spec 010 Carla — Anatel 765)
 - `next_action_recommendations` (Spec 011 Marcos — RESOURCES R6)
 - `provedor_index_snapshots` (Spec 011 Marcos — RESOURCES R7)
+- `recovery_stage_events` — log dos 5 estágios Daniel para ex-clientes
+- `equipment_recovery_attempts` — log workflow Lucas (Dia 0/3/7/15/30/60)
+
+**Migrações Drizzle + rollback testado em staging.**
+
+### Fase 2 — MK Connector v3 (3-4 dias)
+
+Persiste **contracts** + **invoices** + **ordens_servico** + **payments_history** ao sincronizar (hoje só agrega no customer). Necessário pra:
+- Card de faturas com cálculo Anatel 765 art. 88 real
+- Histórico financeiro 12m
+- Padrão de pagamento em NL
+- Anuência prévia CDC 43§2 com prova de entrega
+
+### Fase 3 — Tela Cobrança Ativa MVP (5-7 dias)
+
+Implementa 6 cards prioritários:
+1. Header completo + alertas críticos
+2. Régua DNA aplicada (já calcula no health-360, falta UI)
+3. Predições ML (heurísticas v1 já existem no calculator)
+4. Situação financeira detalhada com cálculo Anatel
+5. Próximas ações sugeridas (precisa Marcos Spec 011 mínimo)
+6. Timeline régua em execução
+
+Wireframe: `mockup-cobranca.html` é a referência visual exata.
+
+### Fase 4 — Tela Recuperação Pós-Cancelamento (5-7 dias)
+
+Implementa 7 cards específicos do cenário C:
+1. Header ex-cliente + análise post-mortem
+2. Histórico de recuperação (tentativas + outcomes)
+3. **Decisão econômica ROI (card central)** — `valor × prob - custo` por estágio
+4. Dívida equipamentos Lucas (com alerta revenda ilegal via Consulta ISP)
+5. Timeline 5 estágios + paralelo Lucas
+6. Compliance ex-cliente (prescrição CC 206 + falecido + fraude)
+7. Loop Consulta ISP (moat estratégico)
+
+Wireframe: `mockup-recuperacao.html`.
+
+### Fase 5 — Predições ML reais (5+ dias, opcional)
+
+Substitui heurísticas v1 por modelos treinados (regressão logística → gradient boosting). Dataset: 12 meses de histórico do tenant piloto.
+
+### Fase 6 — Diferenciação comercial (3-5 dias)
+
+- Botões de ação calibrados por perfil DNA (~18 ações distintas, ver tabela em `CLIENTE_360-tela-cobranca-ativa.md` §5)
+- Anti-padrões legais aplicados (CDC 39 V, 42, 71, Súmulas 359/548, CC 206)
+- Audit log Júlia visível em cada bloqueio
+
+**Total: 25-35 dias-pessoa para 3 telas completas.**
 
 ---
 
-## 7. Dependências de outros agentes/módulos
+## Próximos passos imediatos (ordem)
 
-- **Marcos** (Spec 011) — Score & Decisão com ROI ranking
-- **Rafael** (Spec 009) — Negociação D+1 a D+14 com policy DNA
-- **Carla** (Spec 010) — Anatel 765 D+15+ + Religamento <60s
-- **Daniel** (Spec 012) — Recuperação D+60+ com Súmula 359/548
-- **Lucas** (Spec 013) — Recuperação equipamento comodato
-- **Júlia** (Spec 003 ✅) — Compliance gate ATIVA
-- **Helena** (Spec 003 ✅) — Atendimento inbound + Memory ATIVA
-- **Bruno** (Spec 004) — Lembrete pré-vencimento (OFF em prod, aguardando HSM)
-- **Sofia** (Spec 004) — Agradecimento pagamento (OFF, aguardando HSM)
+1. **Owner autoriza schema** — sem isso, fase 1 trava
+2. **Confirmar mockups** — `mockup-cobranca.html` + `mockup-recuperacao.html` representam a visão? Ajustes antes de codar?
+3. **Spec 011 Marcos** — pré-requisito de "próximas ações sugeridas". Ou implementamos heurística v1 enquanto não tem Marcos completo?
+4. **Schema da Régua DNA + ML** — onde armazenamos perfil A1-C3 + predicted_probability? Ainda não há tabelas
+5. **Definir tenant piloto** — Vertical Fibra ou NsLink primeiro? Cliente real pra UAT iterar
 
 ---
 
-## 8. Métricas norte
+## Métricas norte (de `CLIENTE_360-tela-recuperacao.md` §10)
 
-- Tempo médio operador resolve um caso: **≤ 3 minutos**
-- % decisões tomadas com pleno contexto: **≥ 95%**
-- % ações bloqueadas pela Júlia que o operador entendeu o motivo (não recorre): **≥ 90%**
-- NPS interno do operador sobre a tela: **≥ 70**
-- Carga cognitiva (tempo hesitação antes decidir): tendência decrescente
+### Recuperação Daniel
+- D+60-D+90: ≥ 25%
+- D+60-D+180: ≥ 40%
+- Custo por R$ recuperado: ≤ R$ 0,15
+- 0 violações Súmula 548/359
 
----
+### Equipamentos Lucas
+- Devolução voluntária: ≥ 50% (mercado é 15-25%)
+- Recuperação total valor: ≥ 75%
+- 0 cobrança valor > mercado (CDC 39 V)
 
-## 9. Anti-padrões — o que NÃO mostrar
-
-- ❌ Vermelho agressivo em tudo. Vermelho-terra apenas para vedação real legal.
-- ❌ Botão "Negativar" sempre habilitado. Habilitar APENAS quando todos gates legais verdes.
-- ❌ CPF completo na tela. Sempre mascarado, reveal por 5s com audit.
-- ❌ Linguagem agressiva. "Caloteiro" → "Cliente em atraso".
-- ❌ Esconder bloqueios da Júlia. Topo + razão clara.
-- ❌ Cards gigantes ocupando tela toda. Densidade calculada.
-- ❌ Histórico de tudo na primeira tela. Últimas 10 + link "ver todas".
-- ❌ Telefone clicável sem confirmação. Modal "Ligar para [nome]?".
-- ❌ Esconder ROI / custo da ação. Operador deve ver custo de cada decisão.
-- ❌ Predições ML como certeza. Sempre com classificação verbal (BAIXO/MÉDIO/ALTO).
+### Sistêmicas
+- ROI médio recuperação: ≥ 1.5×
+- 100% casos arquivados com fundamentação econômica
+- 100% negativações registradas no Consulta ISP (moat)
 
 ---
 
-## 10. Próximos passos pra executar esta spec
+## Compliance legal hardcoded (anti-padrões)
 
-1. **Autorizar schema** das 7 tabelas novas (CLAUDE.md §13.1)
-2. **Spec 011 Marcos** (orquestrador) em produção — pré-requisito de "próximas ações sugeridas" calibradas
-3. **MK connector v3** persistir contracts + invoices (hoje só agrega no customer) — Quick win 30min via probe-mk-endpoints.ts (já temos os endpoints corretos descobertos)
-4. **Spec dedicada do componente `<CustomerProfilePanel>` v2** com timeline + predições + flags + Score Decisão
-5. **Backend endpoint `GET /api/customers/:id/cobranca`** consolidando 24 seções
-6. **UI redesign** seguindo wireframe ASCII do spec original
-7. **Mockup visual review** com Emerson antes de codar
-8. **Testes E2E** com 1 cliente real (Carla Aparecida, cd=63, 570d atraso)
+Os documentos canônicos listam **12 práticas proibidas** que precisam ser bloqueadas pela Júlia:
+
+1. Cobrança ostensiva diária — CDC 42 (limite 1×/semana mesmo canal)
+2. Ameaça de judicialização sem ação real — CDC 71 (crime)
+3. Negativação antes de 10 dias úteis — Súmula 359 STJ
+4. Não baixar em 5 dias úteis após pagamento — Súmula 548 STJ + Lei 12.039
+5. Cobrança de dívida prescrita — CDC 71 (crime, detenção 3m-1a)
+6. Cobrança equipamento > valor mercado — CDC 39 V
+7. Ignorar sinal vulnerável — Lei 14.181/2021
+8. Cobrança de familiar/empregador — CDC 42 explícito
+9. Cobrança em incidente técnico ativo — boa-fé objetiva
+10. Spam de marketing a ex-cliente irritado — ofende intimidade
+11. Linguagem agressiva ("caloteiro", "vamos meter SPC") — vexatória CDC 71
+12. CPF completo na tela sem audit — LGPD princípio mínimo
+
+Cada uma vira **gate da Júlia** com fundamentação legal apresentada ao operador quando bloqueia ação.
+
+---
 
 Pareado com:
 - `CLAUDE.md` §1 — princípios produto
-- `RESOURCES.md` R6 (Next Action Recommendation), R7 (Provedor Index)
+- `RESOURCES.md` R6 (Next Action), R7 (Provedor Index)
 - `TEAM.md` §4.1 (Marcos), §4.5 (Rafael), §4.6 (Carla), §4.7 (Daniel), §4.8 (Lucas)
 - `DESIGN.md` §3 (tokens), §7 (cards), §4.1 (navegação)

@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cliente 360° Recuperação Pós-Cancelamento — Provedor.AI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'green-900': '#0F3D2E','green-700': '#1F6B4A','green-500': '#2EA86B','green-100': '#D8F0E2',
+            'navy-900': '#0A1628','navy-700': '#1F3050','navy-500': '#3D5278','navy-300': '#8B98B0',
+            'amber-700': '#B8801F','amber-500': '#E8A020','amber-100': '#FCF1D9',
+            'red-700': '#A12828','red-500': '#C73E3E','red-100': '#FBE3E3',
+            'cream-50': '#FBF7F2','cream-100': '#F5EDE0','gold-500': '#C9A227',
+          },
+          fontFamily: {
+            'display': ['Fraunces', 'serif'],
+            'sans': ['DM Sans', 'system-ui', 'sans-serif'],
+            'mono': ['JetBrains Mono', 'Fira Code', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'DM Sans', system-ui, sans-serif; background-color: #FBF7F2; color: #0A1628; }
+    .font-display { font-family: 'Fraunces', serif; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    .card { background: white; border: 1px solid #F0F0F0; border-radius: 12px; box-shadow: 0 1px 3px rgba(15, 61, 46, 0.08), 0 1px 2px rgba(15, 61, 46, 0.04); }
+    .card-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #3D5278; margin-bottom: 12px; }
+    .pulse-red { animation: pulse-red 2s ease-in-out infinite; }
+    @keyframes pulse-red {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(199, 62, 62, 0.4); }
+      50% { box-shadow: 0 0 0 6px rgba(199, 62, 62, 0); }
+    }
+    .pulse-amber { animation: pulse-amber 2s ease-in-out infinite; }
+    @keyframes pulse-amber {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(232, 160, 32, 0.4); }
+      50% { box-shadow: 0 0 0 6px rgba(232, 160, 32, 0); }
+    }
+    .timeline-dot { width: 12px; height: 12px; border-radius: 50%; }
+    .hover-card:hover { box-shadow: 0 4px 6px rgba(15, 61, 46, 0.1), 0 2px 4px rgba(15, 61, 46, 0.06); transform: translateY(-1px); transition: all 200ms; }
+    /* sparkline para sentiment */
+    .sparkline { height: 32px; display: flex; align-items: flex-end; gap: 2px; }
+    .sparkline-bar { flex: 1; background: #C73E3E; border-radius: 2px 2px 0 0; min-width: 4px; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <!-- TOPO / NAV -->
+  <div class="bg-white border-b border-gray-200 sticky top-0 z-50">
+    <div class="max-w-[1440px] mx-auto px-6 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-lg bg-green-900 flex items-center justify-center">
+          <span class="text-white font-display font-semibold text-sm">P</span>
+        </div>
+        <span class="font-display font-semibold text-lg text-navy-900">Provedor.AI</span>
+        <span class="text-navy-300 mx-2">/</span>
+        <span class="text-navy-700">Recuperação</span>
+        <span class="text-navy-300 mx-1">/</span>
+        <span class="text-navy-900 font-medium">Maria Silva Souza (ex-cliente)</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <button class="text-sm text-navy-500 hover:text-navy-900 px-3 py-1.5 rounded-md hover:bg-gray-50">⌘K Buscar</button>
+        <button class="text-sm text-navy-500 hover:text-navy-900">🔔 <span class="bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 ml-1">5</span></button>
+        <div class="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-green-900 font-semibold text-xs">JR</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- HEADER DO EX-CLIENTE -->
+  <div class="bg-white border-b border-gray-200 sticky top-[57px] z-40">
+    <div class="max-w-[1440px] mx-auto px-6 py-4">
+      <div class="flex items-start justify-between">
+        <div class="flex items-start gap-4">
+          <!-- Avatar com indicador ex-cliente -->
+          <div class="relative">
+            <div class="w-14 h-14 rounded-full bg-gradient-to-br from-navy-700 to-navy-900 flex items-center justify-center text-white font-display font-semibold text-xl opacity-70">
+              MS
+            </div>
+            <div class="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-red-500 flex items-center justify-center text-white text-xs">🚫</div>
+          </div>
+          <div>
+            <div class="flex items-center gap-3 mb-1">
+              <h1 class="font-display font-semibold text-2xl text-navy-900">Maria Silva Souza</h1>
+              <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-red-100 text-red-700 text-xs font-semibold">
+                <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                EX-CLIENTE
+              </span>
+              <span class="px-2 py-0.5 rounded text-xs font-mono bg-navy-100 text-navy-700">era C2 no cancelamento</span>
+            </div>
+            <div class="text-sm text-navy-500 flex items-center gap-4 flex-wrap">
+              <span class="font-mono text-xs">CPF 123.***.**-12</span>
+              <span>• 45 anos</span>
+              <span>• 📍 Centro, Cambé/PR</span>
+              <span>• 📞 +55 11 *****1234</span>
+              <span>• ✉️ maria@exemplo.com</span>
+            </div>
+            <div class="text-xs text-navy-500 mt-1 flex items-center gap-3 flex-wrap">
+              <span>Foi cliente <strong class="text-navy-700">35 meses</strong> (Ago/2023 → Jul/2026)</span>
+              <span class="text-red-700">• Cancelado em <strong>15/07/2026</strong> (28 dias atrás)</span>
+              <span>• Motivo: <strong class="text-navy-700">rescisão automática Anatel D+60</strong></span>
+            </div>
+            <div class="text-xs text-navy-500 mt-1">
+              Carteira <strong class="text-navy-700">Recuperação Cambé</strong> · Responsável <strong class="text-navy-700">João Recuperação</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- Lado direito: ações rápidas -->
+        <div class="flex items-center gap-2">
+          <button class="px-3 py-2 text-sm rounded-md border border-gray-200 hover:bg-gray-50 text-navy-700">📋 Histórico</button>
+          <button class="px-3 py-2 text-sm rounded-md border border-gray-200 hover:bg-gray-50 text-navy-700">⚖️ Compliance</button>
+          <button class="px-3 py-2 text-sm rounded-md border border-gray-200 hover:bg-gray-50 text-navy-700">📦 Equipamentos</button>
+          <button class="px-3 py-2 text-sm rounded-md bg-navy-700 text-white font-medium hover:bg-navy-900">▶️ Ações Recuperação</button>
+        </div>
+      </div>
+
+      <!-- Linha de status financeiro -->
+      <div class="mt-4 pt-4 border-t border-gray-100 flex items-center gap-8">
+        <div>
+          <div class="text-xs text-navy-500 font-medium uppercase tracking-wide">Dívida Total</div>
+          <div class="font-display font-semibold text-2xl text-red-700 mt-0.5">R$ 543<span class="text-lg">,00</span></div>
+          <div class="text-xs text-navy-500">R$ 288 financeiro + R$ 255 equip.</div>
+        </div>
+        <div>
+          <div class="text-xs text-navy-500 font-medium uppercase tracking-wide">Estágio Atual</div>
+          <div class="font-display font-semibold text-xl text-amber-700 mt-0.5">Estágio 2/5</div>
+          <div class="text-xs text-amber-700">pré-negativação</div>
+        </div>
+        <div>
+          <div class="text-xs text-navy-500 font-medium uppercase tracking-wide">Pode Negativar</div>
+          <div class="font-display font-semibold text-xl text-navy-900 mt-0.5">3 dias</div>
+          <div class="text-xs text-navy-500">úteis restantes (Súmula 359)</div>
+        </div>
+        <div>
+          <div class="text-xs text-navy-500 font-medium uppercase tracking-wide">Prob. Recuperação</div>
+          <div class="font-display font-semibold text-xl text-amber-700 mt-0.5">18%</div>
+          <div class="text-xs text-amber-700">BAIXO</div>
+        </div>
+        <div class="ml-auto">
+          <div class="text-xs text-navy-500 font-medium uppercase tracking-wide">ROI Recuperação</div>
+          <div class="font-display font-semibold text-2xl text-green-700 mt-0.5">1.46×</div>
+          <div class="text-xs text-green-700 font-medium">PROSSEGUIR até Estágio 3</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="max-w-[1440px] mx-auto px-6 py-6">
+
+    <!-- BANNER ALERTA DUAL: vulneravel suspeita + MAC ativo em outro provedor -->
+    <div class="grid grid-cols-2 gap-4 mb-6">
+      <div class="rounded-lg border-2 border-amber-500 bg-amber-100 p-4 flex items-start gap-3">
+        <div class="text-2xl">🛡️</div>
+        <div class="flex-1">
+          <div class="font-semibold text-amber-700">Sinal Vulnerável Suspeito (Lei 14.181)</div>
+          <div class="text-sm text-navy-700 mt-1">
+            Em <strong>15/06/2026</strong>, cliente declarou <em>"estou desempregado"</em> durante negociação ativa (14 dias antes do cancelamento). <strong>Não foi confirmado</strong> pelo time humano antes do cancelamento.
+          </div>
+          <div class="text-xs text-navy-500 mt-1">
+            Decisão sugerida: <strong>humano validar</strong> se configura Lei 14.181. Se confirmar, <strong>dispensar cobrança</strong> e arquivar com fundamentação.
+          </div>
+          <div class="flex gap-2 mt-2">
+            <button class="px-3 py-1.5 text-sm rounded-md bg-amber-700 text-white font-medium hover:bg-amber-500">Validar com humano</button>
+            <button class="px-3 py-1.5 text-sm rounded-md border border-amber-700 text-amber-700 font-medium hover:bg-amber-50">Confirmar e dispensar</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="rounded-lg border-2 border-red-500 bg-red-100 p-4 flex items-start gap-3">
+        <div class="text-2xl">🚨</div>
+        <div class="flex-1">
+          <div class="font-semibold text-red-700">Suspeita de Revenda Ilegal do Equipamento</div>
+          <div class="text-sm text-navy-700 mt-1">
+            MAC <code class="bg-white px-1.5 py-0.5 rounded text-xs font-mono">AA:BB:CC:DD:EE:FF</code> da ONU foi detectado <strong>ativo em outro provedor</strong> via Consulta ISP. Pode ser revenda ilegal ou venda no OLX.
+          </div>
+          <div class="text-xs text-navy-500 mt-1">
+            Evidência reforça <strong>cobrança formal do equipamento</strong> e pode justificar pequenas causas posteriormente.
+          </div>
+          <div class="flex gap-2 mt-2">
+            <button class="px-3 py-1.5 text-sm rounded-md bg-red-700 text-white font-medium hover:bg-red-500">Ver detalhes Consulta ISP</button>
+            <button class="px-3 py-1.5 text-sm rounded-md border border-red-700 text-red-700 font-medium hover:bg-red-50">Registrar evidência</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LAYOUT 2 COLUNAS -->
+    <div class="grid grid-cols-12 gap-6">
+
+      <!-- COLUNA ESQUERDA (40%) -->
+      <div class="col-span-5 space-y-6">
+
+        <!-- CARD: ANÁLISE POST-MORTEM -->
+        <div class="card hover-card p-5">
+          <div class="card-title">📉 Análise Post-Mortem</div>
+          <div class="space-y-3 text-sm">
+            <div>
+              <div class="text-xs text-navy-500">Categoria</div>
+              <div class="font-medium text-navy-900">Inadimplência → Rescisão Anatel D+60</div>
+            </div>
+            <div class="pt-3 border-t border-gray-100">
+              <div class="text-xs text-navy-500">Ofertas oferecidas (antes do cancelamento)</div>
+              <ul class="text-navy-700 mt-1 space-y-0.5">
+                <li>• 3x desconto 20% → recusada</li>
+                <li>• Downgrade temporário 100Mbps → recusada</li>
+              </ul>
+            </div>
+            <div class="pt-3 border-t border-gray-100">
+              <div class="text-xs text-navy-500">Última resposta do cliente (14 dias antes)</div>
+              <div class="bg-amber-100 border-l-2 border-amber-500 pl-3 py-1.5 mt-1 italic text-navy-700 text-xs">
+                "Estou desempregado, não tenho como pagar agora."
+              </div>
+              <div class="text-xs text-red-700 mt-1">⚠️ Sinal vulnerável Lei 14.181 — não confirmado a tempo</div>
+            </div>
+            <div class="pt-3 border-t border-gray-100">
+              <div class="text-xs text-navy-500 mb-1">Sentiment 30 dias antes do cancelamento</div>
+              <div class="sparkline">
+                <div class="sparkline-bar" style="height: 40%; background: #2EA86B"></div>
+                <div class="sparkline-bar" style="height: 35%; background: #2EA86B"></div>
+                <div class="sparkline-bar" style="height: 25%; background: #E8A020"></div>
+                <div class="sparkline-bar" style="height: 15%; background: #E8A020"></div>
+                <div class="sparkline-bar" style="height: 10%; background: #C73E3E"></div>
+                <div class="sparkline-bar" style="height: 5%; background: #C73E3E"></div>
+              </div>
+              <div class="text-xs text-red-700 mt-1">Trajetória: +0.1 → -0.7 (deterioração severa)</div>
+            </div>
+            <div class="pt-3 border-t border-gray-100">
+              <div class="text-xs text-navy-500 mb-1">Lessons Learned (para Pedro melhorar prevenção)</div>
+              <ul class="text-xs text-navy-700 space-y-1">
+                <li>• Retenção humana acionada D+45 — talvez tarde demais</li>
+                <li>• Sinal vulnerável (15/06) não confirmado a tempo</li>
+                <li>• C2 com queda sentiment severa = preditor de churn</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- CARD: HISTÓRICO DE RECUPERAÇÃO -->
+        <div class="card hover-card p-5">
+          <div class="card-title flex items-center justify-between">
+            <span>🗓️ Histórico de Recuperação</span>
+            <span class="text-xs normal-case text-red-700 font-semibold">4 tentativas / 0 respostas</span>
+          </div>
+          <div class="space-y-3">
+            <div class="flex items-start gap-3 pb-3 border-b border-gray-100">
+              <div class="font-mono text-xs text-navy-500 w-12">20/07</div>
+              <div class="flex-1">
+                <div class="text-sm font-medium text-navy-900">Daniel D+5 amigável</div>
+                <div class="text-xs text-navy-500">Oferta: <strong>10% desconto à vista</strong> · WhatsApp</div>
+                <div class="text-xs text-red-700 mt-0.5">Sem resposta</div>
+              </div>
+            </div>
+            <div class="flex items-start gap-3 pb-3 border-b border-gray-100">
+              <div class="font-mono text-xs text-navy-500 w-12">28/07</div>
+              <div class="flex-1">
+                <div class="text-sm font-medium text-navy-900">Daniel D+13 reforço</div>
+                <div class="text-xs text-navy-500">Oferta: <strong>20% desconto à vista</strong> · WhatsApp</div>
+                <div class="text-xs text-red-700 mt-0.5">Sem resposta</div>
+              </div>
+            </div>
+            <div class="flex items-start gap-3 pb-3 border-b border-gray-100">
+              <div class="font-mono text-xs text-navy-500 w-12">03/08</div>
+              <div class="flex-1">
+                <div class="text-sm font-medium text-navy-900">Daniel D+19 última amigável</div>
+                <div class="text-xs text-navy-500">Oferta: <strong>30% desconto à vista OU 6x sem juros</strong> · Tripla</div>
+                <div class="text-xs text-red-700 mt-0.5">Sem resposta</div>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <div class="font-mono text-xs text-navy-500 w-12">05/08</div>
+              <div class="flex-1">
+                <div class="text-sm font-medium text-navy-900">📋 Anuência Prévia CDC 43§2 + Súmula 359</div>
+                <div class="text-xs text-navy-500">Notificação tripla formal · WhatsApp + SMS + Email PDF</div>
+                <div class="text-xs text-green-700 mt-0.5">✓ Entrega comprovada · WhatsApp lido 18:30 · Email aberto 06/08 09:00</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CARD: PREDIÇÕES ML RECUPERAÇÃO -->
+        <div class="card hover-card p-5">
+          <div class="card-title">🎯 Predições ML — Recuperação</div>
+          <div class="space-y-3 mb-4">
+            <div>
+              <div class="flex justify-between text-xs mb-1">
+                <span class="text-navy-500">Prob. pagamento acordo</span>
+                <span class="font-mono font-semibold text-navy-900">18%</span>
+              </div>
+              <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div class="h-full bg-red-500 rounded-full" style="width: 18%"></div>
+              </div>
+              <div class="text-xs text-red-700 mt-0.5">BAIXO</div>
+            </div>
+            <div>
+              <div class="flex justify-between text-xs mb-1">
+                <span class="text-navy-500">Prob. devolução voluntária equip.</span>
+                <span class="font-mono font-semibold text-navy-900">22%</span>
+              </div>
+              <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div class="h-full bg-amber-500 rounded-full" style="width: 22%"></div>
+              </div>
+              <div class="text-xs text-amber-700 mt-0.5">BAIXO</div>
+            </div>
+            <div>
+              <div class="flex justify-between text-xs mb-1">
+                <span class="text-navy-500">Prob. compra equip. (downsell)</span>
+                <span class="font-mono font-semibold text-navy-900">15%</span>
+              </div>
+              <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div class="h-full bg-amber-500 rounded-full" style="width: 15%"></div>
+              </div>
+              <div class="text-xs text-amber-700 mt-0.5">BAIXO</div>
+            </div>
+            <div>
+              <div class="flex justify-between text-xs mb-1">
+                <span class="text-navy-500">Prob. litígio judicial</span>
+                <span class="font-mono font-semibold text-navy-900">8%</span>
+              </div>
+              <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div class="h-full bg-green-500 rounded-full" style="width: 8%"></div>
+              </div>
+              <div class="text-xs text-green-700 mt-0.5">BAIXO</div>
+            </div>
+            <div>
+              <div class="flex justify-between text-xs mb-1">
+                <span class="text-navy-500">Prob. reconquista 12m</span>
+                <span class="font-mono font-semibold text-navy-900">5%</span>
+              </div>
+              <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div class="h-full bg-red-500 rounded-full" style="width: 5%"></div>
+              </div>
+              <div class="text-xs text-red-700 mt-0.5">MUITO BAIXO</div>
+            </div>
+          </div>
+
+          <div class="pt-3 border-t border-gray-100 grid grid-cols-2 gap-3">
+            <div>
+              <div class="text-xs text-navy-500 uppercase tracking-wide">Score ConsultaISP</div>
+              <div class="font-display font-semibold text-xl text-amber-700">380</div>
+              <div class="text-xs text-navy-500">cairá para ~200 ao negativar</div>
+            </div>
+            <div>
+              <div class="text-xs text-navy-500 uppercase tracking-wide">SPC / Serasa</div>
+              <div class="font-medium text-sm text-green-700">✓ limpo</div>
+              <div class="text-xs text-navy-500">por enquanto</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CARD: DECISÃO ECONÔMICA ROI -->
+        <div class="card hover-card p-5 border-l-4 border-l-green-700">
+          <div class="card-title">💸 Decisão Econômica (ROI)</div>
+
+          <div class="space-y-2 text-sm mb-4">
+            <div class="flex justify-between">
+              <span class="text-navy-500">Valor a recuperar</span>
+              <span class="font-mono font-medium text-navy-900">R$ 543,00</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-navy-500">Probabilidade total</span>
+              <span class="font-mono font-medium text-navy-900">18%</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-navy-500">Valor esperado</span>
+              <span class="font-mono font-medium text-green-700">R$ 97,74</span>
+            </div>
+            <div class="flex justify-between pb-2 border-b border-gray-100">
+              <span class="text-navy-500">Custo total (5 estágios)</span>
+              <span class="font-mono font-medium text-amber-700">R$ 66,80</span>
+            </div>
+            <div class="flex justify-between text-base pt-1">
+              <span class="font-semibold text-navy-900">ROI estimado</span>
+              <span class="font-display font-semibold text-2xl text-green-700">1.46×</span>
+            </div>
+          </div>
+
+          <div class="bg-green-100 border border-green-500 rounded-md p-3 mb-3">
+            <div class="font-semibold text-green-900 text-sm">✓ PROSSEGUIR até Estágio 3</div>
+            <div class="text-xs text-navy-700 mt-1">
+              ROI positivo mas marginal. Negativação D+91 tem boa relação custo-benefício. Protesto D+121 só se mantida fundamentação.
+            </div>
+            <div class="text-xs text-navy-500 mt-1.5">
+              <strong>Reavaliar após D+120</strong> se não recuperar.
+            </div>
+          </div>
+
+          <div class="bg-cream-100 rounded-md p-3 text-xs">
+            <div class="font-semibold text-navy-700 mb-1">Alternativa: arquivar agora</div>
+            <div class="text-navy-500">Perda evitada: <strong>R$ 66,80</strong> · Valor não recuperado: <strong>R$ 97,74</strong></div>
+            <div class="text-red-700 mt-1 font-medium">Não recomendado ainda</div>
+          </div>
+
+          <div class="flex gap-2 mt-3">
+            <button class="flex-1 px-3 py-1.5 text-xs rounded-md border border-gray-200 text-navy-700 hover:bg-gray-50">Recalcular ROI</button>
+            <button class="flex-1 px-3 py-1.5 text-xs rounded-md border border-red-500 text-red-700 hover:bg-red-50">Arquivar caso</button>
+          </div>
+        </div>
+
+        <!-- CARD: COMPLIANCE EX-CLIENTE -->
+        <div class="card hover-card p-5">
+          <div class="card-title">⚖️ Compliance Ex-Cliente</div>
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between items-center py-1.5 border-b border-gray-100">
+              <span class="text-navy-700">Vulnerável (Lei 14.181)</span>
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-700 text-xs font-semibold">⚠️ Suspeita</span>
+            </div>
+            <div class="flex justify-between items-center py-1.5 border-b border-gray-100">
+              <span class="text-navy-700">Binding (Procon)</span>
+              <span class="text-green-700 text-xs font-medium">✓ OK</span>
+            </div>
+            <div class="flex justify-between items-center py-1.5 border-b border-gray-100">
+              <span class="text-navy-700">Super endividado (rede)</span>
+              <span class="text-green-700 text-xs font-medium">✓ OK</span>
+            </div>
+            <div class="flex justify-between items-center py-1.5 border-b border-gray-100">
+              <span class="text-navy-700">Menor de idade</span>
+              <span class="text-green-700 text-xs font-medium">✓ OK</span>
+            </div>
+            <div class="flex justify-between items-center py-1.5 border-b border-gray-100">
+              <span class="text-navy-700">Prescrição CC 206 §5 I</span>
+              <span class="text-green-700 text-xs font-medium">✓ OK <span class="text-navy-500">(5 anos)</span></span>
+            </div>
+            <div class="flex justify-between items-center py-1.5 border-b border-gray-100">
+              <span class="text-navy-700">Falecido</span>
+              <span class="text-green-700 text-xs font-medium">✓ OK</span>
+            </div>
+            <div class="flex justify-between items-center py-1.5 border-b border-gray-100">
+              <span class="text-navy-700">Boleto falso circulando</span>
+              <span class="text-green-700 text-xs font-medium">✓ não detectado</span>
+            </div>
+            <div class="flex justify-between items-center py-1.5">
+              <span class="text-navy-700">Termo comodato</span>
+              <span class="text-green-700 text-xs font-medium">✓ válido</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- COLUNA DIREITA (60%) -->
+      <div class="col-span-7 space-y-6">
+
+        <!-- CARD: DÍVIDA FINANCEIRA -->
+        <div class="card hover-card p-5">
+          <div class="card-title flex items-center justify-between">
+            <span>💰 Dívida Financeira</span>
+            <span class="text-xs normal-case text-navy-500">3 faturas em aberto · Anatel 765 art. 88</span>
+          </div>
+
+          <div class="grid grid-cols-3 gap-4 mb-5 pb-5 border-b border-gray-100">
+            <div>
+              <div class="text-xs text-navy-500 uppercase tracking-wide">Total a Cobrar</div>
+              <div class="font-display font-semibold text-2xl text-red-700 mt-1">R$ 288<span class="text-base">,00</span></div>
+            </div>
+            <div>
+              <div class="text-xs text-navy-500 uppercase tracking-wide">Dívida Mais Antiga</div>
+              <div class="font-display font-semibold text-2xl text-red-700 mt-1">D+95</div>
+              <div class="text-xs text-navy-500">venc 10/04/2026</div>
+            </div>
+            <div>
+              <div class="text-xs text-navy-500 uppercase tracking-wide">Prescrição</div>
+              <div class="font-display font-semibold text-2xl text-navy-900 mt-1">5 anos</div>
+              <div class="text-xs text-navy-500">até 10/04/2031</div>
+            </div>
+          </div>
+
+          <!-- Faturas -->
+          <div class="space-y-3">
+            <div class="border border-red-500 rounded-lg p-4 bg-red-100/30">
+              <div class="flex items-start justify-between mb-3">
+                <div>
+                  <div class="font-mono text-xs text-navy-500">Fatura #4521 · Mensalidade Abril/2026</div>
+                  <div class="text-sm text-red-700">Venceu 10/04/2026 · <strong>D+95</strong></div>
+                </div>
+                <div class="font-display font-semibold text-xl text-red-700">R$ 94,55</div>
+              </div>
+              <div class="grid grid-cols-3 gap-2 text-xs pt-2 border-t border-red-100">
+                <div><div class="text-navy-500">Principal</div><div class="font-mono text-sm">R$ 89,90</div></div>
+                <div><div class="text-navy-500">Multa 2%</div><div class="font-mono text-sm">R$ 1,80</div></div>
+                <div><div class="text-navy-500">Juros 3.17% <span class="text-[10px]">(95d)</span></div><div class="font-mono text-sm">R$ 2,85</div></div>
+              </div>
+            </div>
+
+            <div class="border border-red-500 rounded-lg p-4 bg-red-100/20">
+              <div class="flex items-start justify-between mb-3">
+                <div>
+                  <div class="font-mono text-xs text-navy-500">Fatura #4587 · Mensalidade Maio/2026</div>
+                  <div class="text-sm text-red-700">Venceu 10/05/2026 · <strong>D+65</strong></div>
+                </div>
+                <div class="font-display font-semibold text-xl text-red-700">R$ 93,65</div>
+              </div>
+              <div class="grid grid-cols-3 gap-2 text-xs pt-2 border-t border-red-100">
+                <div><div class="text-navy-500">Principal</div><div class="font-mono text-sm">R$ 89,90</div></div>
+                <div><div class="text-navy-500">Multa 2%</div><div class="font-mono text-sm">R$ 1,80</div></div>
+                <div><div class="text-navy-500">Juros 2.17% <span class="text-[10px]">(65d)</span></div><div class="font-mono text-sm">R$ 1,95</div></div>
+              </div>
+            </div>
+
+            <div class="border border-amber-500 rounded-lg p-4 bg-amber-100/20">
+              <div class="flex items-start justify-between mb-3">
+                <div>
+                  <div class="font-mono text-xs text-navy-500">Fatura #4621 · Mensalidade Junho/2026</div>
+                  <div class="text-sm text-amber-700">Venceu 10/06/2026 · <strong>D+35</strong></div>
+                </div>
+                <div class="font-display font-semibold text-xl text-amber-700">R$ 92,75</div>
+              </div>
+              <div class="grid grid-cols-3 gap-2 text-xs pt-2 border-t border-amber-100">
+                <div><div class="text-navy-500">Principal</div><div class="font-mono text-sm">R$ 89,90</div></div>
+                <div><div class="text-navy-500">Multa 2%</div><div class="font-mono text-sm">R$ 1,80</div></div>
+                <div><div class="text-navy-500">Juros 1.17% <span class="text-[10px]">(35d)</span></div><div class="font-mono text-sm">R$ 1,05</div></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Status anuência -->
+          <div class="mt-5 pt-5 border-t border-gray-100">
+            <div class="bg-amber-100 border border-amber-500 rounded-md p-4">
+              <div class="flex items-start gap-3">
+                <span class="text-xl">📋</span>
+                <div class="flex-1">
+                  <div class="font-semibold text-amber-700">Anuência Prévia Enviada</div>
+                  <div class="text-sm text-navy-700 mt-1">
+                    Notificação tripla (WhatsApp + SMS + Email PDF) enviada em <strong>05/08/2026</strong>.
+                    Comprovação: <strong>lida em 05/08 18:30</strong>.
+                  </div>
+                  <div class="text-xs text-navy-500 mt-1">
+                    Fundamentação: <code class="bg-white px-1.5 py-0.5 rounded text-[11px] font-mono">CDC art. 43 §2 + Súmula 359 STJ</code>
+                  </div>
+                  <div class="text-sm text-amber-700 font-medium mt-2">
+                    ⏳ Negativação liberada em <strong>19/08/2026</strong> (3 dias úteis restantes)
+                  </div>
+                </div>
+              </div>
+              <button class="mt-3 w-full px-3 py-2 text-sm rounded-md bg-amber-500 text-white font-medium opacity-50 cursor-not-allowed">
+                🔒 Negativar SPC+Serasa (bloqueado até 19/08)
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- CARD: DÍVIDA EQUIPAMENTOS (Lucas) -->
+        <div class="card hover-card p-5">
+          <div class="card-title flex items-center justify-between">
+            <span>📦 Dívida Equipamentos (Lucas)</span>
+            <span class="text-xs normal-case text-red-700 font-semibold">2 itens · 28 dias aguardando</span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <!-- ONU -->
+            <div class="border-2 border-red-500 rounded-lg p-4 bg-red-100/30">
+              <div class="text-sm font-semibold text-navy-900 mb-1">ONU ZTE F660</div>
+              <div class="text-xs text-navy-500 font-mono mb-2">ZTE-XYZ-123 · 35 meses uso</div>
+
+              <!-- ALERTA MAC ATIVO EM OUTRO PROVEDOR -->
+              <div class="bg-red-100 border-2 border-red-500 rounded-md p-2 mb-3 pulse-red">
+                <div class="text-xs font-bold text-red-700">🚨 REVENDA ILEGAL DETECTADA</div>
+                <div class="text-xs text-navy-700 mt-0.5">MAC <code class="font-mono text-[10px]">AA:BB:CC:DD:EE:FF</code> ativo em outro provedor</div>
+              </div>
+
+              <div class="space-y-1 text-xs">
+                <div class="flex justify-between"><span class="text-navy-500">Valor aquisição</span><span class="font-mono">R$ 250,00</span></div>
+                <div class="flex justify-between"><span class="text-navy-500">Reposição (35m)</span><span class="font-mono font-semibold">R$ 175,00</span></div>
+                <div class="flex justify-between text-amber-700"><span>Oferta compra (-30%)</span><span class="font-mono font-semibold">R$ 122,50</span></div>
+              </div>
+            </div>
+
+            <!-- Roteador -->
+            <div class="border border-gray-200 rounded-lg p-4">
+              <div class="text-sm font-semibold text-navy-900 mb-1">Roteador TP-Link AC1200</div>
+              <div class="text-xs text-navy-500 font-mono mb-2">TPL-789 · 35 meses uso</div>
+              <div class="space-y-1 text-xs">
+                <div class="flex justify-between"><span class="text-navy-500">Valor aquisição</span><span class="font-mono">R$ 120,00</span></div>
+                <div class="flex justify-between"><span class="text-navy-500">Reposição (35m)</span><span class="font-mono font-semibold">R$ 80,00</span></div>
+                <div class="flex justify-between text-amber-700"><span>Oferta compra (-30%)</span><span class="font-mono font-semibold">R$ 56,00</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Histórico tentativas Lucas -->
+          <div class="mt-4 pt-4 border-t border-gray-100">
+            <div class="text-xs text-navy-500 uppercase tracking-wide font-semibold mb-2">Tentativas Lucas</div>
+            <div class="space-y-2 text-xs">
+              <div class="flex items-center gap-2">
+                <span class="text-green-500">✓</span>
+                <span class="text-navy-700"><strong>15/07</strong> Dia 0 — 3 caminhos oferecidos</span>
+                <span class="text-red-700 ml-auto">sem resposta</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-green-500">✓</span>
+                <span class="text-navy-700"><strong>18/07</strong> Dia 3 — reforço com prazo</span>
+                <span class="text-red-700 ml-auto">sem resposta</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-amber-500">🟡</span>
+                <span class="text-navy-700"><strong>22/07</strong> Dia 7 — downsell compra -10% adicional</span>
+                <span class="text-amber-700 ml-auto">aguardando 6 dias</span>
+              </div>
+              <div class="flex items-center gap-2 opacity-50">
+                <span>◯</span>
+                <span class="text-navy-500"><strong>30/07</strong> Dia 15 — notificação formal + boleto</span>
+              </div>
+              <div class="flex items-center gap-2 opacity-50">
+                <span>◯</span>
+                <span class="text-navy-500"><strong>14/08</strong> Dia 30 — soma à negativação Daniel</span>
+              </div>
+              <div class="flex items-center gap-2 opacity-50">
+                <span>◯</span>
+                <span class="text-navy-500"><strong>13/09</strong> Dia 60 — avaliar pequenas causas</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex gap-2 mt-4">
+            <button class="flex-1 px-3 py-2 text-sm rounded-md bg-amber-700 text-white font-medium hover:bg-amber-500">Notificação D+15</button>
+            <button class="flex-1 px-3 py-2 text-sm rounded-md border border-red-500 text-red-700 hover:bg-red-50">Pequenas causas</button>
+            <button class="flex-1 px-3 py-2 text-sm rounded-md border border-gray-200 text-navy-700 hover:bg-gray-50">Arquivar equip.</button>
+          </div>
+        </div>
+
+        <!-- CARD: PRÓXIMAS AÇÕES (Daniel + Lucas coordenados) -->
+        <div class="card hover-card p-5 border-l-4 border-l-navy-700">
+          <div class="card-title flex items-center justify-between">
+            <span>🎬 Próximas Ações (Daniel + Lucas coordenados)</span>
+            <span class="text-xs normal-case text-navy-500">por Marcos (Score & Decisão)</span>
+          </div>
+
+          <!-- Ação 1: aguardar prazo legal -->
+          <div class="bg-amber-100 border border-amber-500 rounded-lg p-4 mb-3">
+            <div class="flex items-start justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <span class="px-1.5 py-0.5 bg-amber-700 text-white text-[10px] font-bold rounded">RANK 1 ⏳</span>
+                <span class="font-medium text-navy-900">Aguardar 3 dias úteis (Súmula 359)</span>
+              </div>
+              <span class="font-mono text-sm font-semibold text-amber-700">19/08/2026</span>
+            </div>
+            <div class="text-sm text-navy-700 mb-2">
+              Anuência prévia enviada 05/08. Prazo mínimo de 10 dias úteis (Súmula 359 STJ + CDC 43§2) vence em 19/08. Júlia bloqueia negativação antes disso.
+            </div>
+            <div class="text-xs text-navy-500">
+              <strong>Agente:</strong> Daniel · <strong>Tipo:</strong> aguardar prazo · <strong>Custo:</strong> R$ 0
+            </div>
+            <div class="text-xs text-amber-700 mt-1 font-mono">
+              Fontes: CDC art. 43 §2 · Súmula 359 STJ
+            </div>
+          </div>
+
+          <!-- Ação 2: Lucas notificação formal -->
+          <div class="bg-red-100/30 border border-red-500 rounded-lg p-4 mb-3">
+            <div class="flex items-start justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <span class="px-1.5 py-0.5 bg-red-700 text-white text-[10px] font-bold rounded">RANK 2 ⚠️</span>
+                <span class="font-medium text-navy-900">Lucas notificação formal equipamento</span>
+              </div>
+              <span class="font-mono text-sm font-semibold text-red-700">30/07/2026</span>
+            </div>
+            <div class="text-sm text-navy-700 mb-2">
+              Dia 15 desde tentativa downsell. Enviar notificação formal R$ 175 (ONU) + R$ 80 (roteador) com boleto + evidência adicional: <strong>MAC ativo em outro provedor</strong> (revenda ilegal suspeita).
+            </div>
+            <div class="text-xs text-navy-500">
+              <strong>Agente:</strong> Lucas · <strong>Canal:</strong> WhatsApp + SMS + Email · <strong>Custo:</strong> R$ 1,50
+            </div>
+            <button class="mt-2 px-3 py-1.5 text-xs rounded-md bg-red-700 text-white font-medium hover:bg-red-500">Enviar notificação tripla</button>
+          </div>
+
+          <!-- Ação 3: validar vulneravel -->
+          <div class="bg-amber-100/30 border border-amber-500 rounded-lg p-4 mb-3">
+            <div class="flex items-start justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <span class="px-1.5 py-0.5 bg-amber-700 text-white text-[10px] font-bold rounded">RANK 3 👤</span>
+                <span class="font-medium text-navy-900">Validar vulnerabilidade Lei 14.181</span>
+              </div>
+            </div>
+            <div class="text-sm text-navy-700 mb-2">
+              Cliente declarou <em>"estou desempregado"</em> em 15/06 (14d antes do cancelamento). Não foi confirmado pelo humano. Se confirmar agora, <strong>dispensa cobrança</strong> (Lei 14.181) e arquiva caso.
+            </div>
+            <div class="text-xs text-navy-500">
+              <strong>Agente:</strong> humano jurídico · <strong>Tipo:</strong> validação manual · <strong>Custo:</strong> R$ 5
+            </div>
+            <div class="text-xs text-amber-700 mt-1 font-mono">
+              Fontes: Lei 14.181/2021 · CDC arts. 54-A a 54-G
+            </div>
+            <button class="mt-2 px-3 py-1.5 text-xs rounded-md border border-amber-700 text-amber-700 font-medium hover:bg-amber-50">Atribuir task humano</button>
+          </div>
+
+          <!-- Não recomendado -->
+          <div class="mt-4 pt-4 border-t border-gray-100">
+            <div class="text-xs text-red-700 uppercase tracking-wide font-semibold mb-2">❌ Não Recomendado Agora</div>
+            <div class="space-y-1.5 text-sm text-navy-500">
+              <div class="flex items-start gap-2">
+                <span class="text-red-500 mt-0.5">•</span>
+                <span>Negativar SPC+Serasa antes de 19/08 — Júlia bloqueia (Súmula 359 STJ)</span>
+              </div>
+              <div class="flex items-start gap-2">
+                <span class="text-red-500 mt-0.5">•</span>
+                <span>Cobrança ostensiva diária (CDC art. 42 — anti-fadiga máx 1x/semana)</span>
+              </div>
+              <div class="flex items-start gap-2">
+                <span class="text-red-500 mt-0.5">•</span>
+                <span>Protesto cartório antes de D+121 (custo R$ 50, sem retorno garantido)</span>
+              </div>
+              <div class="flex items-start gap-2">
+                <span class="text-red-500 mt-0.5">•</span>
+                <span>Cessão a assessoria antes de D+180 (última opção)</span>
+              </div>
+              <div class="flex items-start gap-2">
+                <span class="text-red-500 mt-0.5">•</span>
+                <span>Marketing/reconquista neste momento (cliente irritado, score 0.25)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CARD: LOOP CONSULTA ISP (moat) -->
+        <div class="card hover-card p-5 border-l-4 border-l-gold-500">
+          <div class="card-title flex items-center justify-between">
+            <span>🌐 Loop Consulta ISP</span>
+            <span class="text-xs normal-case text-gold-500 font-bold">⭐ MOAT PRINCIPAL</span>
+          </div>
+
+          <div class="bg-cream-100 rounded-md p-4 mb-3">
+            <div class="text-sm font-semibold text-navy-900 mb-2">Evento a ser registrado em 19/08/2026:</div>
+            <div class="font-mono text-xs bg-white border border-gray-200 rounded p-3">
+              <div class="text-green-700">// Consulta ISP MCP</div>
+              <div class="text-navy-700">
+                <span class="text-amber-700">consulta_isp</span>.<span class="text-green-700">registrar_evento</span>({<br>
+                &nbsp;&nbsp;tipo: <span class="text-red-700">"inadimplencia_confirmada"</span>,<br>
+                &nbsp;&nbsp;cpf_hash: <span class="text-red-700">"SHA256..."</span>,<br>
+                &nbsp;&nbsp;valor_centavos: <span class="text-navy-900">54300</span>,<br>
+                &nbsp;&nbsp;data_evento: <span class="text-red-700">"2026-07-15"</span>,<br>
+                &nbsp;&nbsp;tipo_divida: [<span class="text-red-700">"mensalidade"</span>, <span class="text-red-700">"equipamento"</span>]<br>
+                });
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-2 text-sm">
+            <div class="flex items-start gap-2">
+              <span class="text-green-500">→</span>
+              <div class="flex-1">
+                <div class="text-navy-700"><strong>Score ConsultaISP</strong> de Maria cairá: <strong class="text-amber-700">380 → ~200</strong></div>
+              </div>
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="text-green-500">→</span>
+              <div class="flex-1">
+                <div class="text-navy-700">Outros provedores parceiros consultarão antes de instalar</div>
+              </div>
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="text-green-500">→</span>
+              <div class="flex-1">
+                <div class="text-navy-700">Maria precisará pagar <strong>Pix upfront</strong> ou <strong>3 mensalidades antecipadas</strong> em qualquer provedor da rede</div>
+              </div>
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="text-green-500">→</span>
+              <div class="flex-1">
+                <div class="text-navy-700">Reduz inadimplência sistêmica do mercado de ISP regional</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 pt-4 border-t border-gray-100 bg-cream-100/50 -mx-2 px-3 py-2 rounded">
+            <div class="text-xs text-gold-500 font-semibold mb-1">⭐ Valor estratégico</div>
+            <div class="text-xs text-navy-700">
+              Este é o <strong>moat principal</strong> do Provedor.AI. Quanto mais provedores na rede, mais valioso fica para todos. Cliente que não pagou um, não consegue contratar outro sem antecipar.
+            </div>
+          </div>
+        </div>
+
+        <!-- CARD: POTENCIAL RECONQUISTA -->
+        <div class="card hover-card p-5">
+          <div class="card-title flex items-center justify-between">
+            <span>🔄 Potencial Reconquista</span>
+            <span class="text-xs normal-case text-red-700 font-semibold">Score 0.25 / 1.0 — BAIXA</span>
+          </div>
+
+          <div class="mb-3">
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-navy-500">Probabilidade reconquista 12 meses</span>
+              <span class="font-mono font-semibold text-navy-900">5%</span>
+            </div>
+            <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div class="h-full bg-red-500 rounded-full" style="width: 5%"></div>
+            </div>
+          </div>
+
+          <div class="text-xs text-navy-500 uppercase tracking-wide font-semibold mb-2">Razões da baixa probabilidade</div>
+          <ul class="text-sm text-navy-700 space-y-1.5 mb-4">
+            <li class="flex items-start gap-2"><span class="text-red-500 mt-0.5">•</span><span>Cancelou por inadimplência, não voluntário</span></li>
+            <li class="flex items-start gap-2"><span class="text-red-500 mt-0.5">•</span><span>Sentiment severamente negativo nos últimos 30 dias</span></li>
+            <li class="flex items-start gap-2"><span class="text-red-500 mt-0.5">•</span><span>Não respondeu nenhuma das 4 tentativas pós-cancelamento</span></li>
+            <li class="flex items-start gap-2"><span class="text-red-500 mt-0.5">•</span><span>Mencionou "desempregado" — questão financeira não resolvida</span></li>
+          </ul>
+
+          <div class="bg-cream-100 rounded-md p-3 mb-3">
+            <div class="text-xs font-semibold text-navy-700 mb-2">Estratégia recomendada: PASSIVA</div>
+            <div class="text-xs text-navy-500 mb-2">Aguardar 6-12 meses. Se cliente voltar a procurar:</div>
+            <ul class="text-xs text-navy-700 space-y-0.5">
+              <li>• Exigir Pix de instalação</li>
+              <li>• 3 primeiras mensalidades upfront</li>
+              <li>• Plano básico inicial (R$ 59,90)</li>
+              <li>• Monitoramento 90 dias antes de upgrade</li>
+              <li>• Score ConsultaISP precisa ter melhorado</li>
+            </ul>
+          </div>
+
+          <div class="bg-red-100 border border-red-500 rounded-md p-3">
+            <div class="text-xs font-semibold text-red-700 mb-1">❌ Ofertas proibidas neste momento</div>
+            <ul class="text-xs text-navy-700 space-y-0.5">
+              <li>• Qualquer comunicação comercial</li>
+              <li>• Telemarketing voluntário</li>
+              <li>• Spam de promoções "vem voltar"</li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- TIMELINE 5 ESTÁGIOS + LUCAS PARALELO -->
+    <div class="mt-6 card p-5">
+      <div class="card-title flex items-center justify-between">
+        <span>⚖️ Timeline 5 Estágios de Recuperação</span>
+        <span class="text-xs normal-case text-navy-500">funil pós-cancelamento (D+60 a D+180+)</span>
+      </div>
+
+      <!-- Timeline Daniel -->
+      <div class="mb-6">
+        <div class="text-xs text-navy-500 uppercase tracking-wide font-semibold mb-3">Daniel (recuperação financeira)</div>
+        <div class="relative pt-4 pb-6 px-2">
+          <div class="absolute top-12 left-0 right-0 h-0.5 bg-gray-200"></div>
+
+          <div class="relative flex justify-between">
+            <!-- Estágio 1 - Amigável -->
+            <div class="flex flex-col items-center w-32">
+              <div class="text-xs text-green-700 mb-1 font-semibold">Estágio 1 ✓</div>
+              <div class="timeline-dot bg-green-500 ring-2 ring-white"></div>
+              <div class="text-[10px] text-center mt-2 text-green-700 font-medium">D+60→D+75<br>Amigável<br>10/20/30% desc.</div>
+            </div>
+
+            <!-- Estágio 2 - Pré-negativação (atual) -->
+            <div class="flex flex-col items-center w-32">
+              <div class="text-xs text-amber-700 mb-1 font-bold">Estágio 2 ⏳</div>
+              <div class="timeline-dot bg-amber-500 ring-4 ring-amber-100 pulse-amber"></div>
+              <div class="text-[10px] text-center mt-2 text-amber-700 font-bold">D+76→D+90<br>Anuência prévia<br>CDC 43§2 + Súm. 359</div>
+            </div>
+
+            <!-- Estágio 3 - Negativação -->
+            <div class="flex flex-col items-center w-32">
+              <div class="text-xs text-red-700 mb-1 font-semibold">Estágio 3 ◯</div>
+              <div class="timeline-dot bg-white border-2 border-red-500"></div>
+              <div class="text-[10px] text-center mt-2 text-red-700 font-medium">D+91→D+120<br>Negativar SPC<br>+ Consulta ISP</div>
+            </div>
+
+            <!-- Estágio 4 - Protesto -->
+            <div class="flex flex-col items-center w-32">
+              <div class="text-xs text-navy-300 mb-1">Estágio 4 ◯</div>
+              <div class="timeline-dot bg-white border-2 border-navy-300"></div>
+              <div class="text-[10px] text-center mt-2 text-navy-500">D+121→D+180<br>Protesto<br>cartório</div>
+            </div>
+
+            <!-- Estágio 5 - Cessão/arquivar -->
+            <div class="flex flex-col items-center w-32">
+              <div class="text-xs text-navy-300 mb-1">Estágio 5 ◯</div>
+              <div class="timeline-dot bg-white border-2 border-navy-300"></div>
+              <div class="text-[10px] text-center mt-2 text-navy-500">D+180+<br>Cessão ou<br>arquivar</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Timeline Lucas (paralelo) -->
+      <div class="pt-4 border-t border-gray-100">
+        <div class="text-xs text-navy-500 uppercase tracking-wide font-semibold mb-3">Lucas (equipamentos) — paralelo</div>
+        <div class="relative pt-4 pb-6 px-2">
+          <div class="absolute top-12 left-0 right-0 h-0.5 bg-gray-200"></div>
+
+          <div class="relative flex justify-between">
+            <div class="flex flex-col items-center w-24">
+              <div class="text-xs text-green-700 mb-1">Dia 0 ✓</div>
+              <div class="timeline-dot bg-green-500 ring-2 ring-white"></div>
+              <div class="text-[10px] text-center mt-2 text-green-700">3 caminhos</div>
+            </div>
+            <div class="flex flex-col items-center w-24">
+              <div class="text-xs text-green-700 mb-1">Dia 3 ✓</div>
+              <div class="timeline-dot bg-green-500 ring-2 ring-white"></div>
+              <div class="text-[10px] text-center mt-2 text-green-700">Reforço</div>
+            </div>
+            <div class="flex flex-col items-center w-24">
+              <div class="text-xs text-amber-700 mb-1 font-bold">Dia 7 🟡</div>
+              <div class="timeline-dot bg-amber-500 ring-4 ring-amber-100 pulse-amber"></div>
+              <div class="text-[10px] text-center mt-2 text-amber-700 font-bold">Downsell -10%</div>
+            </div>
+            <div class="flex flex-col items-center w-24">
+              <div class="text-xs text-red-700 mb-1">Dia 15 ◯</div>
+              <div class="timeline-dot bg-white border-2 border-red-500"></div>
+              <div class="text-[10px] text-center mt-2 text-red-700">Notificação<br>formal</div>
+            </div>
+            <div class="flex flex-col items-center w-24">
+              <div class="text-xs text-red-700 mb-1">Dia 30 ◯</div>
+              <div class="timeline-dot bg-white border-2 border-red-500"></div>
+              <div class="text-[10px] text-center mt-2 text-red-700">Soma a Daniel<br>(negativar)</div>
+            </div>
+            <div class="flex flex-col items-center w-24">
+              <div class="text-xs text-navy-300 mb-1">Dia 60 ◯</div>
+              <div class="timeline-dot bg-white border-2 border-navy-300"></div>
+              <div class="text-[10px] text-center mt-2 text-navy-500">Pequenas<br>causas</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4 pt-4 border-t border-gray-100">
+        <div>
+          <div class="text-xs text-navy-500 uppercase tracking-wide font-semibold mb-2">Status atual</div>
+          <div class="bg-amber-100 border border-amber-500 rounded-md p-3 text-sm">
+            <div class="font-semibold text-amber-700">⏳ Estágio 2 em curso</div>
+            <div class="text-xs text-navy-700 mt-1">Aguardando 3 dias úteis Súmula 359 STJ</div>
+            <div class="text-xs text-navy-500 mt-1">Negativação liberada: 19/08/2026</div>
+          </div>
+        </div>
+        <div>
+          <div class="text-xs text-navy-500 uppercase tracking-wide font-semibold mb-2">Próximos marcos</div>
+          <div class="text-sm space-y-1 text-navy-700">
+            <div>📅 <strong>14/08</strong> — Lucas notificação formal (Dia 15)</div>
+            <div>📅 <strong>19/08</strong> — Daniel negativar SPC+Serasa (Júlia OK)</div>
+            <div>📅 <strong>30/07</strong> — Lucas soma equipamento à negativação Daniel</div>
+            <div>📅 <strong>18/09</strong> — Avaliar Estágio 4 (protesto se ROI mantém)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AUDIT JÚLIA -->
+    <div class="mt-6 card p-5 bg-cream-50 border-cream-100">
+      <div class="card-title flex items-center justify-between">
+        <span>🛡️ Audit Júlia — Decisões neste ex-cliente</span>
+        <span class="text-xs normal-case text-navy-500">últimas 3 de 18 decisões</span>
+      </div>
+
+      <div class="space-y-3">
+        <div class="flex items-start gap-3 pb-3 border-b border-gray-100">
+          <span class="text-red-500 text-lg">❌</span>
+          <div class="flex-1">
+            <div class="flex items-center gap-3 text-sm">
+              <span class="font-mono text-xs text-navy-500">13/08 08:00</span>
+              <span class="font-semibold text-red-700">BLOQUEADO</span>
+              <span class="text-navy-700">daniel.incluir_negativacao_spc_serasa</span>
+            </div>
+            <div class="text-sm text-navy-700 mt-1">Aguardar 3 dias úteis restantes Súmula 359 STJ. Data mínima: 19/08/2026.</div>
+            <div class="text-xs text-navy-500 mt-1">Fontes: <code class="bg-cream-100 px-1.5 py-0.5 rounded font-mono text-[11px]">CDC art. 43 §2 · Súmula 359 STJ</code></div>
+          </div>
+        </div>
+
+        <div class="flex items-start gap-3 pb-3 border-b border-gray-100">
+          <span class="text-green-500 text-lg">✅</span>
+          <div class="flex-1">
+            <div class="flex items-center gap-3 text-sm">
+              <span class="font-mono text-xs text-navy-500">05/08 10:00</span>
+              <span class="font-semibold text-green-700">APROVADO</span>
+              <span class="text-navy-700">daniel.enviar_anuencia_previa_cdc</span>
+            </div>
+            <div class="text-sm text-navy-700 mt-1">Estágio 2 cumprido. 3 tentativas amigáveis sem resposta. Notificação tripla obrigatória — comprovação de entrega OK.</div>
+            <div class="text-xs text-navy-500 mt-1">Fontes: <code class="bg-cream-100 px-1.5 py-0.5 rounded font-mono text-[11px]">CDC art. 43 §2 · Súmula 359 STJ · Súmula 404 STJ</code></div>
+          </div>
+        </div>
+
+        <div class="flex items-start gap-3">
+          <span class="text-amber-500 text-lg">⚠️</span>
+          <div class="flex-1">
+            <div class="flex items-center gap-3 text-sm">
+              <span class="font-mono text-xs text-navy-500">15/07 16:00</span>
+              <span class="font-semibold text-amber-700">APROVADO COM AJUSTE</span>
+              <span class="text-navy-700">marcos.iniciar_recuperacao_pos_cancelamento</span>
+            </div>
+            <div class="text-sm text-navy-700 mt-1">Cliente possivelmente vulnerável Lei 14.181 (sinal em 15/06). Sugerido humano validar antes de cobrança agressiva.</div>
+            <div class="text-xs text-navy-500 mt-1">Fontes: <code class="bg-cream-100 px-1.5 py-0.5 rounded font-mono text-[11px]">Lei 14.181/2021</code></div>
+          </div>
+        </div>
+      </div>
+
+      <button class="mt-4 text-sm text-green-700 font-medium hover:underline">Ver todas decisões (18) →</button>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="mt-8 pt-6 border-t border-gray-200 flex items-center justify-between text-xs text-navy-500">
+      <div>
+        Provedor.AI · Cliente 360° Recuperação Pós-Cancelamento v1.0 ·
+        <span class="font-mono">cliente_id: 4521-aa11-bb22-cc33-dd44ee55ff66</span>
+      </div>
+      <div>
+        Cancelado: <span class="font-mono">15/07/2026</span> ·
+        Estágio: <span class="font-mono">2/5</span> ·
+        Predições ML válidas até: <span class="font-mono">14/08 06:00</span>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>
