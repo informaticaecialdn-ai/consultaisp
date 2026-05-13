@@ -109,11 +109,59 @@ async function probe(label: string, url: string): Promise<any> {
     process.exit(1);
   }
 
-  // === 2. WSMKFaturasPendentes — faturas em aberto deste cliente (provavelmente tem datas) ===
+  // === 2a. WSMKFaturasPendentes — primeiro tenta o cliente atual ===
   await probe(
-    "WSMKFaturasPendentes (faturas pendentes do cliente — esperando ter dt_vencimento)",
+    "WSMKFaturasPendentes (cliente atual — pode estar vazio se Ativo em dia)",
     `${base}/WSMKFaturasPendentes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`,
   );
+
+  // === 2b. Varre clientes até achar 1 com FaturasPendentes != [] (inadimplente real) ===
+  console.log(`\n>>> Varrendo clientes para achar 1 inadimplente real (FaturasPendentes != [])...`);
+  const list = Array.isArray(clienteResp)
+    ? clienteResp
+    : (clienteResp?.Clientes || clienteResp?.clientes || clienteResp?.registros || clienteResp?.data || []);
+
+  let inadimplenteCd: string | null = null;
+  let inadimplenteFaturas: any[] = [];
+  for (let i = 0; i < Math.min(50, list.length); i++) {
+    const c = list[i];
+    const cd = String(c.CodigoPessoa ?? c.codigopessoa ?? "");
+    if (!cd) continue;
+    try {
+      const r = await fetch(
+        `${base}/WSMKFaturasPendentes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cd)}`,
+        { method: "GET", signal: AbortSignal.timeout(10000) },
+      );
+      if (!r.ok) continue;
+      const j: any = await r.json();
+      const faturas = j?.FaturasPendentes ?? j?.faturas_pendentes ?? [];
+      if (Array.isArray(faturas) && faturas.length > 0) {
+        inadimplenteCd = cd;
+        inadimplenteFaturas = faturas;
+        console.log(`>>> Achou inadimplente real: cd_pessoa=${cd}, Nome=${c.Nome ?? "?"}, ${faturas.length} fatura(s) pendente(s)`);
+        break;
+      }
+    } catch {}
+  }
+
+  if (inadimplenteCd) {
+    console.log(`\n========== FATURA PENDENTE REAL (shape com dado dentro) ==========`);
+    console.log(`Cliente: cd_pessoa=${inadimplenteCd}`);
+    console.log(`Total faturas pendentes: ${inadimplenteFaturas.length}`);
+    console.log(`Campos da primeira fatura: ${Object.keys(inadimplenteFaturas[0]).join(", ")}`);
+    console.log(`Primeira fatura JSON:\n${JSON.stringify(inadimplenteFaturas[0], null, 2)}`);
+    if (inadimplenteFaturas.length > 1) {
+      console.log(`\nSegunda fatura JSON:\n${JSON.stringify(inadimplenteFaturas[1], null, 2)}`);
+    }
+
+    // Também dumpa contratos desse cliente inadimplente (pra ver shape real)
+    await probe(
+      `WSMKContratosPorCliente (cliente INADIMPLENTE cd=${inadimplenteCd})`,
+      `${base}/WSMKContratosPorCliente.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(inadimplenteCd)}`,
+    );
+  } else {
+    console.log(`>>> Nenhum cliente com FaturasPendentes nos primeiros 50. Estranho — talvez precise filtrar por Situacao=Inadimplente`);
+  }
 
   // === 3. WSMKFaturas — todas faturas do cliente (histórico) ===
   await probe(
