@@ -102,6 +102,23 @@ export interface DossieData {
   generatedAt: Date;
 }
 
+/**
+ * Wrap query que pode falhar se a tabela não existir (DBs antigos sem
+ * migrate Spec 003/004). Retorna [] em vez de quebrar o dossiê inteiro.
+ * Erros que não são "tabela ausente" propagam normalmente.
+ */
+async function safeArrayQuery<T>(fn: () => Promise<T[]>): Promise<T[]> {
+  try {
+    return await fn();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("does not exist") || msg.includes("relation")) {
+      return [];
+    }
+    throw err;
+  }
+}
+
 function maskCpf(cpfCnpj: string): string {
   if (!cpfCnpj) return "";
   const clean = cpfCnpj.replace(/\D/g, "");
@@ -134,7 +151,8 @@ export async function buildDossie(params: DossieParams): Promise<DossieData> {
   const [prov] = await db.select().from(providers).where(eq(providers.id, providerId)).limit(1);
   if (!prov) throw new Error("provider_not_found");
 
-  // 3. 6 SELECTs paralelos
+  // 3. 6 SELECTs paralelos — cada um tolera tabela faltando (DB sem
+  // migrate Spec 003/004 retorna [] em vez de quebrar o dossiê inteiro)
   const [
     commsRows,
     complianceRows,
@@ -142,38 +160,34 @@ export async function buildDossie(params: DossieParams): Promise<DossieData> {
     auditRows,
     attemptsRows,
   ] = await Promise.all([
-    // Communications
-    db.select().from(communications)
+    safeArrayQuery(() => db.select().from(communications)
       .where(and(
         eq(communications.providerId, providerId),
         eq(communications.customerId, customerId),
         gte(communications.createdAt, from),
         lte(communications.createdAt, to),
       ))
-      .orderBy(asc(communications.createdAt)),
+      .orderBy(asc(communications.createdAt))),
 
-    // Compliance checks
-    db.select().from(complianceChecks)
+    safeArrayQuery(() => db.select().from(complianceChecks)
       .where(and(
         eq(complianceChecks.providerId, providerId),
         eq(complianceChecks.customerId, customerId),
         gte(complianceChecks.createdAt, from),
         lte(complianceChecks.createdAt, to),
       ))
-      .orderBy(asc(complianceChecks.createdAt)),
+      .orderBy(asc(complianceChecks.createdAt))),
 
-    // Pix charges
-    db.select().from(pixCharges)
+    safeArrayQuery(() => db.select().from(pixCharges)
       .where(and(
         eq(pixCharges.providerId, providerId),
         eq(pixCharges.customerId, customerId),
         gte(pixCharges.createdAt, from),
         lte(pixCharges.createdAt, to),
       ))
-      .orderBy(asc(pixCharges.createdAt)),
+      .orderBy(asc(pixCharges.createdAt))),
 
-    // Audit logs (dossier completo já é responsabilidade do storage; aqui delimitamos por data)
-    db.select().from(auditLogs)
+    safeArrayQuery(() => db.select().from(auditLogs)
       .where(and(
         eq(auditLogs.providerId, providerId),
         eq(auditLogs.resource, "customer"),
@@ -181,28 +195,27 @@ export async function buildDossie(params: DossieParams): Promise<DossieData> {
         gte(auditLogs.occurredAt, from),
         lte(auditLogs.occurredAt, to),
       ))
-      .orderBy(asc(auditLogs.occurredAt)),
+      .orderBy(asc(auditLogs.occurredAt))),
 
-    // Outbound attempts
-    db.select().from(outboundAttempts)
+    safeArrayQuery(() => db.select().from(outboundAttempts)
       .where(and(
         eq(outboundAttempts.providerId, providerId),
         eq(outboundAttempts.customerId, customerId),
         gte(outboundAttempts.scheduledFor, from),
         lte(outboundAttempts.scheduledFor, to),
       ))
-      .orderBy(asc(outboundAttempts.scheduledFor)),
+      .orderBy(asc(outboundAttempts.scheduledFor))),
   ]);
 
   // 4. Payment events derivados dos pix charges (escopo do mesmo período)
   const pixIds = pixRows.map(p => p.asaasPaymentId);
   const paymentEventsRows = pixIds.length > 0
-    ? await db.select().from(paymentEvents)
+    ? await safeArrayQuery(() => db.select().from(paymentEvents)
         .where(and(
           eq(paymentEvents.providerId, providerId),
           inArray(paymentEvents.asaasPaymentId, pixIds),
         ))
-        .orderBy(asc(paymentEvents.receivedAt))
+        .orderBy(asc(paymentEvents.receivedAt)))
     : [];
 
   // 5. Summary

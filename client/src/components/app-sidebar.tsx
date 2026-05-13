@@ -49,7 +49,6 @@ import {
   Target,
   MessageCircle,
   Bot,
-  FlaskConical,
   HeartPulse,
   Radar,
   Timer,
@@ -140,9 +139,7 @@ const SIDEBAR_GROUPS: SidebarGroupDef[] = [
     defaultOpen: true,
     items: [
       { title: "Régua Pré-Vencimento", url: "/regua-pre-vencimento", icon: ClipboardList },
-      { title: "Configurar Agentes", url: "/configuracoes/agentes", icon: Bot },
       { title: "Comunicações", url: "/comunicacoes", icon: MessageSquare },
-      { title: "Conexão Asaas", url: "/configuracoes/asaas", icon: CreditCard },
     ],
   },
   {
@@ -190,27 +187,17 @@ const SIDEBAR_GROUPS: SidebarGroupDef[] = [
     ],
   },
   {
-    label: "Simuladores",
-    key: "simuladores",
-    icon: FlaskConical,
-    items: [
-      { title: "Health Score 360º", url: "/health/simulador", icon: HeartPulse },
-      { title: "Calibrador de Pesos", url: "/health/calibrador", icon: Settings },
-      { title: "Saída Silenciosa", url: "/silent-exit/simulador", icon: TrendingUp },
-      { title: "Geo-Monitor Concorrente", url: "/competitor-monitor/simulador", icon: Radar },
-      { title: "Pix Dinâmico Decay", url: "/pix-dynamic/simulador", icon: Timer },
-    ],
-  },
-  {
-    label: "Settings",
-    key: "settings",
+    label: "Configurações",
+    key: "configuracoes",
     icon: Settings,
     adminOnly: true,
     items: [
-      { title: "Painel do Provedor", url: "/painel-provedor", icon: Building2, testId: "link-painel-provedor" },
-      { title: "Administração", url: "/administracao", icon: UserCog },
+      { title: "Configurar Agentes", url: "/configuracoes/agentes", icon: Bot },
+      { title: "Conexão Asaas", url: "/configuracoes/asaas", icon: CreditCard },
       { title: "WhatsApp Business", url: "/configuracoes/whatsapp", icon: MessageCircle },
       { title: "Regionalização", url: "/configuracoes/regionalizacao", icon: Globe },
+      { title: "Painel do Provedor", url: "/painel-provedor", icon: Building2, testId: "link-painel-provedor" },
+      { title: "Administração", url: "/administracao", icon: UserCog },
       { title: "Comprar Créditos", url: "/creditos", icon: CreditCard },
       { title: "Notas Fiscais", url: "/nfse", icon: FileText },
     ],
@@ -259,6 +246,18 @@ const ADMIN_GROUPS = [
     collapsible: false,
     items: [
       { title: "Visao Agregada", hash: "time-digital", icon: Bot, testId: "link-admin-time-digital" },
+    ],
+  },
+  {
+    label: "Laboratorio de Engines",
+    key: "laboratorio",
+    collapsible: true,
+    items: [
+      { title: "Health Score 360", hash: "lab-health", icon: HeartPulse, testId: "link-admin-lab-health", url: "/health/simulador" },
+      { title: "Calibrador de Pesos", hash: "lab-calibrador", icon: Settings, testId: "link-admin-lab-calibrador", url: "/health/calibrador" },
+      { title: "Saida Silenciosa", hash: "lab-silent-exit", icon: TrendingUp, testId: "link-admin-lab-silent-exit", url: "/silent-exit/simulador" },
+      { title: "Geo-Monitor Concorrente", hash: "lab-geo", icon: Radar, testId: "link-admin-lab-geo", url: "/competitor-monitor/simulador" },
+      { title: "Pix Dinamico Decay", hash: "lab-pix", icon: Timer, testId: "link-admin-lab-pix", url: "/pix-dynamic/simulador" },
     ],
   },
   {

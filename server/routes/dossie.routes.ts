@@ -59,22 +59,30 @@ export function registerDossieRoutes(): Router {
     try {
       const data = await buildDossie({ providerId, customerId, from, to });
 
-      // Audit do próprio dossiê (LGPD compliance interna — quem auditou quem)
-      await storage.auditLog.registrarAcao(providerId, {
-        action: "generate_dossie",
-        resource: "customer",
-        resourceId: String(customerId),
-        actorType: "user",
-        actorId: String(req.session.userId),
-        payload: {
-          from: from.toISOString(),
-          to: to.toISOString(),
-          format,
-          totalCommunications: data.summary.totalCommunications,
-          totalCompliance: data.complianceChecks.length,
-          elapsedMs: Date.now() - started,
-        },
-      });
+      // Audit do próprio dossiê (LGPD compliance interna — quem auditou quem).
+      // Tolerante a audit_logs faltando: log do erro mas não bloqueia o PDF.
+      try {
+        await storage.auditLog.registrarAcao(providerId, {
+          action: "generate_dossie",
+          resource: "customer",
+          resourceId: String(customerId),
+          actorType: "user",
+          actorId: String(req.session.userId),
+          payload: {
+            from: from.toISOString(),
+            to: to.toISOString(),
+            format,
+            totalCommunications: data.summary.totalCommunications,
+            totalCompliance: data.complianceChecks.length,
+            elapsedMs: Date.now() - started,
+          },
+        });
+      } catch (auditErr) {
+        const auditMsg = auditErr instanceof Error ? auditErr.message : String(auditErr);
+        if (!auditMsg.includes("does not exist") && !auditMsg.includes("relation")) {
+          logger.warn({ err: auditMsg }, "Falha ao registrar audit do dossiê (não bloqueia)");
+        }
+      }
 
       if (format === "json") {
         res.json(data);

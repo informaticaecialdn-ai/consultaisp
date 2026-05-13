@@ -568,6 +568,11 @@ export class MkConnector implements ErpConnector {
       }
 
       console.log(`[MK] WSMKFaturasAbertas retornou ${faturas.length} faturas. Campos da primeira: ${Object.keys(faturas[0]).join(", ")}`);
+      // Diagnostico verboso — fundamental para detectar nomes de campos diferentes do MK do cliente
+      console.log(`[MK] DIAG primeira fatura JSON: ${JSON.stringify(faturas[0]).slice(0, 800)}`);
+      if (faturas.length > 1) {
+        console.log(`[MK] DIAG segunda fatura JSON: ${JSON.stringify(faturas[1]).slice(0, 800)}`);
+      }
 
       // Prefetch all customers in ONE call via WSMKConsultaClientes with wide date filter.
       // This endpoint returns CPF_CNPJ + enderecos[] (logradouro, numero, bairro, cidade, cep, estado)
@@ -801,10 +806,25 @@ export class MkConnector implements ErpConnector {
             if (customerData.address) stats.withAddress++;
 
             for (const f of personInvoices) {
+              // Aliases expandidos — cobre todas variantes conhecidas do MK
+              // (release 72+, releases anteriores, e variants undocumented).
               const dueDate = f.data_vencimento || f.DataVencimento || f.dt_vencimento || f.DtVencimento
-                || f.vencimento || f.Vencimento || f.dt_venc || f.dtVenc || null;
+                || f.vencimento || f.Vencimento || f.dt_venc || f.dtVenc
+                || f.dt_vencto || f.DtVencto || f.vencto || f.Vencto
+                || f.data_vencto || f.DataVencto || f.dtVencimento || f.dtVencto
+                || f.data_venc || f.DataVenc || f.dataVencimento || null;
               const days = calculateDaysOverdue(dueDate);
               if (days <= 0 && dueDate) continue; // not overdue yet
+
+              // Log diagnostico do primeiro fallback (1d) — ajuda detectar
+              // novos nomes de campo nao mapeados ainda.
+              if (days <= 0 && !dueDate) {
+                if (!(globalThis as any).__mkDateFallbackLogged) {
+                  (globalThis as any).__mkDateFallbackLogged = true;
+                  console.log(`[MK] DIAG fatura SEM data reconhecida. Todos campos: ${Object.keys(f).join(", ")}`);
+                  console.log(`[MK] DIAG JSON completo: ${JSON.stringify(f).slice(0, 1000)}`);
+                }
+              }
 
               allInvoices.push({
                 ...customerData,

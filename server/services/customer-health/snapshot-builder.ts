@@ -129,31 +129,34 @@ export async function buildCustomerHealthInputs(
   const avgDaysLate90d = await avgLateDaysWindow(providerId, customerId, 90);
   const avgDaysLate365d = await avgLateDaysWindow(providerId, customerId, 365);
 
-  // 5. Quebras de acordo
-  const [brokenStats] = await db
-    .select({ brokenCount: count() })
-    .from(agreements)
-    .where(
-      and(
-        eq(agreements.customerId, customerId),
-        eq(agreements.providerId, providerId),
-        eq(agreements.status, "broken"),
-      ),
-    );
-  const brokenAgreementsCount = Number(brokenStats?.brokenCount ?? 0);
+  // 5. Quebras de acordo — tabela autorizada na Spec 003, pode não existir
+  // em DBs antigos sem migrate. Fallback: 0 (cliente sem histórico de acordo).
+  const brokenAgreementsCount = await safeCount(async () => {
+    const [row] = await db
+      .select({ brokenCount: count() })
+      .from(agreements)
+      .where(
+        and(
+          eq(agreements.customerId, customerId),
+          eq(agreements.providerId, providerId),
+          eq(agreements.status, "broken"),
+        ),
+      );
+    return Number(row?.brokenCount ?? 0);
+  });
 
-  // 6. Tickets (inbound communications)
+  // 6. Tickets (inbound communications) — idem, tolera tabela faltando
   const ticketCount30d = await ticketsInDays(providerId, customerId, 30);
   const ticketCount90d = await ticketsInDays(providerId, customerId, 90);
 
-  // 7. Última interação (qualquer communication)
-  const [lastInteraction] = await db
-    .select({ created: sql<Date | null>`max(${communications.createdAt})` })
-    .from(communications)
-    .where(and(eq(communications.customerId, customerId), eq(communications.providerId, providerId)));
-  const lastInteractionDays = lastInteraction?.created
-    ? daysSince(lastInteraction.created)
-    : null;
+  // 7. Última interação (qualquer communication) — idem
+  const lastInteractionDays = await safeQuery<number | null>(async () => {
+    const [row] = await db
+      .select({ created: sql<Date | null>`max(${communications.createdAt})` })
+      .from(communications)
+      .where(and(eq(communications.customerId, customerId), eq(communications.providerId, providerId)));
+    return row?.created ? daysSince(row.created) : null;
+  }, null);
 
   // 8. Sentiment — MVP retorna null. Quando integrarmos NLP (Helena memory),
   // populamos avgSentimentScore90d a partir de agent_memories.sentimentHistory.
@@ -218,27 +221,50 @@ async function avgLateDaysWindow(
 
 /**
  * Conta tickets (communications inbound) em uma janela temporal.
+ * Tolera tabela `communications` faltando (DB sem migrate Spec 003).
  */
 async function ticketsInDays(
   providerId: number,
   customerId: number,
   daysWindow: number,
 ): Promise<number> {
-  const cutoff = new Date(Date.now() - daysWindow * 24 * 60 * 60 * 1000);
+  return safeCount(async () => {
+    const cutoff = new Date(Date.now() - daysWindow * 24 * 60 * 60 * 1000);
+    const [row] = await db
+      .select({ c: count() })
+      .from(communications)
+      .where(
+        and(
+          eq(communications.customerId, customerId),
+          eq(communications.providerId, providerId),
+          eq(communications.direction, "inbound"),
+          gte(communications.createdAt, cutoff),
+        ),
+      );
+    return Number(row?.c ?? 0);
+  });
+}
 
-  const [row] = await db
-    .select({ c: count() })
-    .from(communications)
-    .where(
-      and(
-        eq(communications.customerId, customerId),
-        eq(communications.providerId, providerId),
-        eq(communications.direction, "inbound"),
-        gte(communications.createdAt, cutoff),
-      ),
-    );
+/**
+ * Executa uma query que pode falhar se a tabela não existir (DBs antigos
+ * sem migrate Spec 003). Retorna fallback em caso de erro, logando o motivo.
+ */
+async function safeQuery<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("does not exist") || msg.includes("relation")) {
+      // Tabela autorizada mas não migrada — silencioso, comportamento esperado
+      return fallback;
+    }
+    // Outro tipo de erro — re-throw pra surfar
+    throw err;
+  }
+}
 
-  return Number(row?.c ?? 0);
+async function safeCount(fn: () => Promise<number>): Promise<number> {
+  return safeQuery(fn, 0);
 }
 
 /**

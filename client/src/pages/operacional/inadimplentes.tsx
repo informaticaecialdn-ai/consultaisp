@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +48,7 @@ import {
   Network,
   CheckCircle,
   AlertCircle,
+  HeartPulse,
 } from "lucide-react";
 import { apiRequest, STALE_DASHBOARD, STALE_LISTS } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -150,6 +152,48 @@ export default function InadimplentesPage() {
     staleTime: STALE_LISTS,
   });
 
+  const syncErpMutation = useMutation({
+    mutationFn: async () => {
+      // Busca ERPs configurados e dispara sync sequencial em cada um
+      const integrations: any[] = await apiRequest("GET", "/api/provider/erp-integrations").then(r => r.json());
+      const enabled = integrations.filter(i => i.isEnabled && i.apiUrl && i.apiToken);
+      if (enabled.length === 0) {
+        throw new Error("Nenhum ERP configurado. Configure em Configurações.");
+      }
+      const results: Array<{ source: string; ok: boolean; total?: number; message?: string }> = [];
+      for (const i of enabled) {
+        try {
+          const r = await apiRequest("POST", `/api/provider/erp-integrations/${i.erpSource}/sync`);
+          const j = await r.json();
+          results.push({ source: i.erpSource, ok: j.ok, total: j.totalRecords ?? j.upserted, message: j.message });
+        } catch (e: any) {
+          results.push({ source: i.erpSource, ok: false, message: e?.message ?? "Erro" });
+        }
+      }
+      return results;
+    },
+    onSuccess: (results) => {
+      const ok = results.filter(r => r.ok);
+      const fail = results.filter(r => !r.ok);
+      toast({
+        title: ok.length > 0 ? "Sincronização concluída" : "Sincronização falhou",
+        description: [
+          ...ok.map(r => `${r.source.toUpperCase()}: ${r.total ?? "?"} registros`),
+          ...fail.map(r => `${r.source.toUpperCase()}: ${r.message}`),
+        ].join(" · "),
+        variant: fail.length === ok.length ? "destructive" : "default",
+      });
+      refetch();
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Erro na sincronização",
+        description: err?.message ?? "Falha desconhecida",
+        variant: "destructive",
+      });
+    },
+  });
+
   const lgpdMutation = useMutation({
     mutationFn: async (id: number) => {
       const res = await apiRequest("POST", `/api/inadimplentes/${id}/notificar-lgpd`, { canal: "whatsapp" });
@@ -238,12 +282,13 @@ export default function InadimplentesPage() {
             variant="outline"
             size="sm"
             className="gap-1.5 h-8 text-xs"
-            onClick={() => refetch()}
-            disabled={isFetching}
+            onClick={() => syncErpMutation.mutate()}
+            disabled={syncErpMutation.isPending || isFetching}
             data-testid="button-sync"
+            title="Dispara sync com ERP (busca dados atualizados do MK/IXC/etc)"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
-            Sincronizar
+            <RefreshCw className={`w-3.5 h-3.5 ${syncErpMutation.isPending || isFetching ? "animate-spin" : ""}`} />
+            {syncErpMutation.isPending ? "Sincronizando..." : "Sincronizar"}
           </Button>
           <Button
             variant="outline"
@@ -429,15 +474,19 @@ export default function InadimplentesPage() {
                   >
                     {/* Cliente */}
                     <TableCell>
-                      <div className="flex items-center gap-2.5">
+                      <Link
+                        href={`/cliente/${d.id}/dossie`}
+                        className="flex items-center gap-2.5 hover:opacity-80 transition-opacity cursor-pointer"
+                        data-testid={`link-dossie-name-${d.id}`}
+                      >
                         <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center flex-shrink-0 text-xs font-bold text-muted-foreground uppercase">
                           {d.name?.charAt(0) ?? "?"}
                         </div>
                         <div className="min-w-0">
-                          <p className="text-sm font-semibold truncate max-w-[160px]" data-testid={`text-name-${d.id}`}>{d.name}</p>
+                          <p className="text-sm font-semibold truncate max-w-[160px] hover:underline" data-testid={`text-name-${d.id}`}>{d.name}</p>
                           <p className="text-xs text-muted-foreground font-mono">{formatCpfCnpj(d.cpfCnpj)}</p>
                         </div>
-                      </div>
+                      </Link>
                     </TableCell>
 
                     {/* ERP */}
@@ -501,6 +550,15 @@ export default function InadimplentesPage() {
                     {/* Ações */}
                     <TableCell>
                       <div className="flex items-center justify-end gap-1">
+                        <Link
+                          href={`/cliente/${d.id}/dossie`}
+                          className="inline-flex items-center justify-center h-7 w-7 rounded-md text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors"
+                          title="Dossiê do cliente (Health Score 360º)"
+                          aria-label="Ver dossiê com Health Score"
+                          data-testid={`btn-dossie-${d.id}`}
+                        >
+                          <HeartPulse className="w-3.5 h-3.5" />
+                        </Link>
                         {d.phone && (
                           <Button
                             size="icon"

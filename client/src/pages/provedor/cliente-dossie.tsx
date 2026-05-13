@@ -76,7 +76,6 @@ export default function ClienteDossiePage() {
 
         <div className="flex gap-3 pt-2 border-t">
           <DossieExportButton customerId={customerId} from={from} to={to} format="pdf" />
-          <DossieExportButton customerId={customerId} from={from} to={to} format="json" />
         </div>
       </Card>
 
