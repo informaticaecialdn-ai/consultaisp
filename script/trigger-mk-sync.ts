@@ -13,10 +13,12 @@
 import "dotenv/config";
 import { storage } from "../server/storage";
 import { MkConnector } from "../server/erp/connectors/mk";
+import { syncProviderToDb } from "../server/services/erp-sync.service";
 
 const mkConnector = new MkConnector();
 
 const providerId = Number(process.argv[2] ?? 1);
+const persistMode = process.argv.includes("--persist");
 
 (async () => {
   console.log(`\n=== MK sync debug para provider ${providerId} ===\n`);
@@ -39,7 +41,31 @@ const providerId = Number(process.argv[2] ?? 1);
   console.log(`apiToken (decriptado): ${intg.apiToken ? "(set, " + intg.apiToken.length + " chars)" : "—"}`);
   console.log(`mkContraSenha (decriptado): ${(intg as any).mkContraSenha ? "(set, " + (intg as any).mkContraSenha.length + " chars)" : "—"}\n`);
 
-  console.log(`>>> Chamando mkConnector.fetchDelinquents()...\n`);
+  // Modo --persist: roda a sync REAL (syncProviderToDb) que escreve no DB.
+  // Sem flag: só testa (fetchDelinquents) e mostra distribuicao, sem persistir.
+  if (persistMode) {
+    console.log(`>>> MODO PERSIST: rodando syncProviderToDb (vai gravar no DB)...\n`);
+    const provider = await storage.getProvider(providerId);
+    const startedSync = Date.now();
+    const result = await syncProviderToDb(
+      providerId,
+      provider?.name || `Provider ${providerId}`,
+      "mk",
+      {
+        apiUrl: intg.apiUrl,
+        apiToken: intg.apiToken,
+        apiUser: intg.apiUser ?? null,
+        clientId: null,
+        clientSecret: null,
+        extraConfig: { mkContraSenha: (intg as any).mkContraSenha ?? "" },
+      },
+    );
+    console.log(`\n>>> Sync persist concluido em ${((Date.now() - startedSync) / 1000).toFixed(1)}s`);
+    console.log(`>>> upserted=${result.upserted}, errors=${result.errors}`);
+    process.exit(0);
+  }
+
+  console.log(`>>> Chamando mkConnector.fetchDelinquents() (modo teste, sem persistir)...\n`);
   const started = Date.now();
 
   try {
