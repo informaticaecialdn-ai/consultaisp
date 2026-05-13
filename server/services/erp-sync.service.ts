@@ -63,6 +63,9 @@ export async function syncProviderToDb(
               if (loc) { if (!city) city = loc.city; if (!state) state = loc.state; }
             }
 
+            // Spec 012.5/fix atomicidade — skipPaymentStatus impede que esse
+            // passo 1 zere paymentStatus de inadimplentes caso passo 2 falhe.
+            // Só atualiza identidade (nome, endereco, telefone, etc).
             await storage.upsertFromErp({
               providerId,
               cpfCnpj: customer.cpfCnpj,
@@ -80,6 +83,7 @@ export async function syncProviderToDb(
               maxDaysOverdue: 0,
               overdueInvoicesCount: 0,
               erpSource,
+              skipPaymentStatus: true,
             });
             activeUpserted++;
           } catch {}
