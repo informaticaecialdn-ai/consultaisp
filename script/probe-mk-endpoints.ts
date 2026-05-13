@@ -16,10 +16,14 @@ const providerId = Number(process.argv[2] ?? 1);
 const cdPessoaArg = process.argv[3];
 
 async function authenticate(base: string, token: string, password: string): Promise<string> {
-  const url = `${base}/mk/WSAutenticacao.rule?sys=MK0&token=${encodeURIComponent(token)}&password=${encodeURIComponent(password)}&cd_servico=9999`;
+  const url = `${base}/WSAutenticacao.rule?sys=MK0&token=${encodeURIComponent(token)}&password=${encodeURIComponent(password)}&cd_servico=9999`;
+  console.log(`Auth URL: ${url.replace(/token=[^&]+/, "token=***").replace(/password=[^&]+/, "password=***")}`);
   const r = await fetch(url, { method: "GET", signal: AbortSignal.timeout(15000) });
+  const bodyText = await r.text();
+  console.log(`Auth HTTP: ${r.status}, body: ${bodyText.slice(0, 400)}`);
   if (!r.ok) throw new Error(`Auth HTTP ${r.status}`);
-  const j: any = await r.json();
+  let j: any;
+  try { j = JSON.parse(bodyText); } catch { throw new Error(`Auth retornou non-JSON: ${bodyText.slice(0, 200)}`); }
   const tokenAcesso = j.tokenRetornoAutenticacao || j.token_acesso || j.Token || j.token;
   if (!tokenAcesso) throw new Error(`Auth sem token. Resposta: ${JSON.stringify(j).slice(0, 300)}`);
   return tokenAcesso;
@@ -85,7 +89,7 @@ async function probe(label: string, url: string): Promise<any> {
   // === 1. WSMKConsultaClientes — listar 1 cliente (limit via filtro de data) ===
   const clienteResp = await probe(
     "WSMKConsultaClientes (busca clientes para encontrar 1 ativo inadimplente)",
-    `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&data_alteracao_inicio=01/01/2024`,
+    `${base}/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&data_alteracao_inicio=01/01/2024`,
   );
 
   // Pega cd_pessoa pra usar nos próximos probes
@@ -108,31 +112,31 @@ async function probe(label: string, url: string): Promise<any> {
   // === 2. WSMKFaturasPendentes — faturas em aberto deste cliente (provavelmente tem datas) ===
   await probe(
     "WSMKFaturasPendentes (faturas pendentes do cliente — esperando ter dt_vencimento)",
-    `${base}/mk/WSMKFaturasPendentes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`,
+    `${base}/WSMKFaturasPendentes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`,
   );
 
   // === 3. WSMKFaturas — todas faturas do cliente (histórico) ===
   await probe(
     "WSMKFaturas (todas faturas — histórico completo)",
-    `${base}/mk/WSMKFaturas.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`,
+    `${base}/WSMKFaturas.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`,
   );
 
   // === 4. WSMKContratosPorCliente — contratos deste cliente (pra status ativo/cancelado) ===
   await probe(
     "WSMKContratosPorCliente (contratos do cliente — status, vigência)",
-    `${base}/mk/WSMKContratosPorCliente.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`,
+    `${base}/WSMKContratosPorCliente.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`,
   );
 
   // === 5. WSMKConsultaCliente (singular) — detalhe completo do cliente ===
   await probe(
     "WSMKConsultaCliente (singular — detalhe completo cliente, talvez tenha contratos inline)",
-    `${base}/mk/WSMKConsultaCliente.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`,
+    `${base}/WSMKConsultaCliente.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`,
   );
 
   // === 6. WSMKConexoesPorCliente — status técnico de conexão ===
   await probe(
     "WSMKConexoesPorCliente (status conexao — bloqueada, ativa)",
-    `${base}/mk/WSMKConexoesPorCliente.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`,
+    `${base}/WSMKConexoesPorCliente.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`,
   );
 
   console.log(`\n\n=== Probe completo ===\n`);
