@@ -70,6 +70,10 @@ export class CustomersStorage {
     totalOverdueAmount: number;
     maxDaysOverdue: number;
     overdueInvoicesCount: number;
+    /** Status do contrato no ERP — "active" (contrato vigente), "cancelled" (ex-cliente com cobranca rescisoria), "suspended". Default "active" se nao fornecido. */
+    status?: "active" | "cancelled" | "suspended";
+    /** Plano do contrato ativo (ex "Combo 800MB + Deezer"). Opcional — armazenado em campo flexivel. */
+    contractPlan?: string;
     erpSource: string;
   }): Promise<void> {
     const existing = await db.select().from(customers)
@@ -81,6 +85,7 @@ export class CustomersStorage {
 
     const now = new Date();
     const riskTier = data.maxDaysOverdue > 180 ? "critical" : data.maxDaysOverdue > 90 ? "high" : data.maxDaysOverdue > 60 ? "medium" : "low";
+    const customerStatus = data.status ?? "active";
 
     if (existing.length > 0) {
       await db.update(customers)
@@ -102,6 +107,7 @@ export class CustomersStorage {
           overdueInvoicesCount: data.overdueInvoicesCount,
           equipmentCount: 1,
           equipmentEstimatedValue: "290",
+          status: customerStatus,
           paymentStatus: data.totalOverdueAmount > 0 ? "overdue" : "current",
           riskTier,
           erpSource: data.erpSource,
@@ -129,7 +135,7 @@ export class CustomersStorage {
         overdueInvoicesCount: data.overdueInvoicesCount,
         equipmentCount: 1,
         equipmentEstimatedValue: "290",
-        status: "active",
+        status: customerStatus,
         paymentStatus: data.totalOverdueAmount > 0 ? "overdue" : "current",
         riskTier,
         erpSource: data.erpSource,

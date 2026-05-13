@@ -118,6 +118,7 @@ export class DashboardStorage {
       overdueInvoicesCount: customers.overdueInvoicesCount,
       riskTier: customers.riskTier,
       paymentStatus: customers.paymentStatus,
+      status: customers.status, // ← status do contrato (active/cancelled/suspended)
       erpSource: customers.erpSource,
       lastSyncAt: customers.lastSyncAt,
       createdAt: customers.createdAt,

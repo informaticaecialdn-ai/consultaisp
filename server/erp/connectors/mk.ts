@@ -496,7 +496,167 @@ export class MkConnector implements ErpConnector {
     }
   }
 
+  /**
+   * V2 — Estratégia per-customer descoberta via probe-mk-endpoints.ts em 2026-05-13.
+   *
+   * 1. Lista todos clientes via WSMKConsultaClientes (1 call, retorna ~742 clientes
+   *    com Nome + CPF + endereco[] + Situacao)
+   * 2. Por cliente em paralelo (concurrency=8):
+   *    a) Chama WSMKFaturasPendentes — esse SIM tem data_vencimento DD/MM/AAAA + valor_total
+   *    b) Se vazio, skip (não é inadimplente real)
+   *    c) Se tem fatura, chama WSMKContratosPorCliente — ContratosAtivos.length > 0 → ativo
+   * 3. Monta inadimplente rico: dias reais, status contrato (active/cancelled), plano
+   *
+   * Performance estimada: 742 clientes × 2 calls × ~300ms / concurrency 8 ≈ 1-2 min
+   * Bem mais rápido que parecia — concorrência ajuda muito.
+   *
+   * Por que substituiu o WSMKFaturasAbertas: aquele endpoint retorna lixo (todos
+   * Status=Cancelado, sem data), produzindo "1 dia" pra TODOS inadimplentes.
+   * Confirmado em prod 2026-05-13.
+   */
+  private async fetchDelinquentsV2(config: ErpConnectionConfig): Promise<ErpFetchResult> {
+    const tokenAuth = await this.authenticate(config);
+    const base = this.baseUrl(config);
+
+    console.log(`[MK v2] Listando clientes via WSMKConsultaClientes...`);
+    const clientesUrl = `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&data_alteracao_inicio=01/01/2020`;
+    const clientesResp = await fetch(clientesUrl, { method: "GET", signal: AbortSignal.timeout(120000) });
+    if (!clientesResp.ok) {
+      return { ok: false, message: `WSMKConsultaClientes HTTP ${clientesResp.status}`, customers: [] };
+    }
+    const clientesJson: any = await clientesResp.json();
+    const clientes: any[] = Array.isArray(clientesJson)
+      ? clientesJson
+      : (clientesJson?.Clientes || clientesJson?.clientes || clientesJson?.registros || clientesJson?.data || []);
+
+    console.log(`[MK v2] ${clientes.length} clientes retornados. Iterando WSMKFaturasPendentes per-customer (concorrência 8)...`);
+
+    const CONCURRENCY = 8;
+    const results: NormalizedErpCustomer[] = [];
+    let processed = 0;
+    let withPending = 0;
+
+    for (let i = 0; i < clientes.length; i += CONCURRENCY) {
+      const batch = clientes.slice(i, i + CONCURRENCY);
+      const batchResults = await Promise.all(
+        batch.map(async (cliente: any) => {
+          const cdPessoa = String(cliente.CodigoPessoa ?? cliente.codigopessoa ?? cliente.cd_pessoa ?? "");
+          if (!cdPessoa) return null;
+
+          // 1. Faturas pendentes
+          let faturas: any[] = [];
+          try {
+            const fpUrl = `${base}/mk/WSMKFaturasPendentes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`;
+            const fpResp = await fetch(fpUrl, { method: "GET", signal: AbortSignal.timeout(15000) });
+            if (!fpResp.ok) return null;
+            const fpJson: any = await fpResp.json();
+            faturas = fpJson?.FaturasPendentes ?? fpJson?.faturas_pendentes ?? [];
+          } catch {
+            return null;
+          }
+
+          if (!Array.isArray(faturas) || faturas.length === 0) return null; // não é inadimplente
+          processed++;
+
+          // 2. Contratos (status: ativo vs cancelado)
+          let contractStatus: "active" | "cancelled" = "cancelled";
+          let contractPlan: string | undefined;
+          try {
+            const ctUrl = `${base}/mk/WSMKContratosPorCliente.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`;
+            const ctResp = await fetch(ctUrl, { method: "GET", signal: AbortSignal.timeout(15000) });
+            if (ctResp.ok) {
+              const ctJson: any = await ctResp.json();
+              const ativos: any[] = ctJson?.ContratosAtivos ?? [];
+              if (ativos.length > 0) {
+                contractStatus = "active";
+                contractPlan = ativos[0]?.plano_acesso || ativos[0]?.PlanoAcesso || undefined;
+              }
+            }
+          } catch {}
+
+          // 3. Calcula dias de atraso por fatura (formato MK: DD/MM/YYYY)
+          let totalAmount = 0;
+          let maxDays = 0;
+          for (const f of faturas) {
+            const dueDate = f.data_vencimento || f.DataVencimento || f.vencimento || f.Vencimento || null;
+            const valor = parseFloat(f.valor_total ?? f.valor ?? f.Valor ?? 0) || 0;
+            const days = calculateDaysOverdue(dueDate);
+            totalAmount += valor;
+            if (days > maxDays) maxDays = days;
+          }
+
+          if (maxDays === 0 && faturas.length > 0) {
+            // Pelo menos 1 dia se tem fatura pendente sem data ou data futura
+            // (fatura pendente sem ser vencida ainda — esquisito mas trata)
+            maxDays = 1;
+          }
+
+          withPending++;
+
+          // 4. Extrai endereço (primeiro endereco[] do cliente)
+          const enderecos = cliente.endereco || cliente.enderecos || [];
+          const end = Array.isArray(enderecos) && enderecos.length > 0 ? enderecos[0] : null;
+
+          const cpfCnpj = cleanCpfCnpj(cliente.CPF_CNPJ || cliente.cpf_cnpj || cliente.documento || "");
+          if (!cpfCnpj) return null;
+
+          const phone = cliente.Fone || cliente.fone || cliente.celular;
+          return {
+            cpfCnpj,
+            name: cliente.Nome || cliente.nome || "",
+            email: cliente.Email || cliente.email || undefined,
+            phone: phone ? cleanPhone(phone) : undefined,
+            address: end?.logradouro || end?.endereco || undefined,
+            addressNumber: end?.numero != null ? String(end.numero) : undefined,
+            neighborhood: end?.bairro || undefined,
+            city: end?.cidade || cliente.cidade || undefined,
+            state: end?.estado || end?.uf || cliente.UF || cliente.uf || undefined,
+            cep: end?.cep || cliente.CEP || cliente.cep || undefined,
+            latitude: cliente.Latitude && String(cliente.Latitude).trim() ? String(cliente.Latitude) : undefined,
+            longitude: cliente.Longitude && String(cliente.Longitude).trim() ? String(cliente.Longitude) : undefined,
+            totalOverdueAmount: totalAmount,
+            maxDaysOverdue: maxDays,
+            overdueInvoicesCount: faturas.length,
+            contractStatus,
+            contractPlan,
+            erpSource: "mk" as const,
+          } as NormalizedErpCustomer;
+        }),
+      );
+
+      for (const r of batchResults) {
+        if (r) results.push(r);
+      }
+
+      if ((i + CONCURRENCY) % 80 === 0 || i + CONCURRENCY >= clientes.length) {
+        console.log(`[MK v2] Progresso: ${Math.min(i + CONCURRENCY, clientes.length)}/${clientes.length} clientes processados, ${withPending} inadimplentes`);
+      }
+    }
+
+    console.log(`[MK v2] CONCLUIDO: ${results.length} inadimplentes reais (de ${clientes.length} clientes consultados)`);
+    return {
+      ok: true,
+      message: `${results.length} inadimplentes encontrados (v2 per-customer)`,
+      customers: results,
+      totalRecords: results.length,
+    };
+  }
+
   async fetchDelinquents(config: ErpConnectionConfig, _lastDays?: number): Promise<ErpFetchResult> {
+    // V2 — estratégia per-customer (datas reais + status contrato).
+    // Substituiu o WSMKFaturasAbertas porque aquele endpoint retorna lixo
+    // (Status=Cancelado, sem data) — confirmado em prod.
+    try {
+      const v2Result = await this.fetchDelinquentsV2(config);
+      if (v2Result.ok && v2Result.customers.length > 0) {
+        return v2Result;
+      }
+      console.log(`[MK] V2 retornou 0 inadimplentes, caindo p/ legacy WSMKFaturasAbertas`);
+    } catch (err) {
+      console.log(`[MK] V2 falhou: ${err instanceof Error ? err.message : err} — tentando legacy`);
+    }
+
+    // ─── Legacy fallback: WSMKFaturasAbertas + fallback (mantido por seguranca) ───
     try {
       const tokenAuth = await this.authenticate(config);
       const base = this.baseUrl(config);
