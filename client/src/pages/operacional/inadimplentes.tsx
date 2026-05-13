@@ -120,6 +120,23 @@ function RiskBadge({ tier }: { tier: string }) {
   );
 }
 
+function ContractBadge({ status }: { status: string }) {
+  // active = contrato vigente (cliente ainda usa o servico)
+  // cancelled = ex-cliente (cobranca rescisoria, multa, equipamento nao devolvido)
+  // suspended = bloqueado temporariamente (Anatel 765 D+15)
+  const cfg: Record<string, { label: string; badge: string }> = {
+    active:    { label: "Ativo",     badge: "bg-[var(--color-success-bg)] text-[var(--color-success)]" },
+    cancelled: { label: "Cancelado", badge: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400" },
+    suspended: { label: "Suspenso",  badge: "bg-[var(--color-gold-bg)] text-[var(--score-low)]" },
+  };
+  const c = cfg[status] ?? cfg.active;
+  return (
+    <span className={`inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-full ${c.badge}`}>
+      {c.label}
+    </span>
+  );
+}
+
 function DaysBadge({ days }: { days: number }) {
   const cfg = days >= 90 ? STATUS_CONFIG["90+"]
     : days >= 60 ? STATUS_CONFIG["60-90"]
@@ -459,6 +476,7 @@ export default function InadimplentesPage() {
                   <TableHead className="text-xs font-semibold text-right">Faturas</TableHead>
                   <TableHead className="text-xs font-semibold text-right">Em Aberto</TableHead>
                   <TableHead className="text-xs font-semibold text-center">Atraso</TableHead>
+                  <TableHead className="text-xs font-semibold text-center">Contrato</TableHead>
                   <TableHead className="text-xs font-semibold text-center">Risco</TableHead>
                   <TableHead className="text-xs font-semibold text-center hidden lg:table-cell">Equip.</TableHead>
                   <TableHead className="text-xs font-semibold hidden xl:table-cell">Sincronizado</TableHead>
@@ -523,6 +541,11 @@ export default function InadimplentesPage() {
                     {/* Atraso */}
                     <TableCell className="text-center">
                       <DaysBadge days={d.maxDaysOverdue ?? 0} />
+                    </TableCell>
+
+                    {/* Contrato */}
+                    <TableCell className="text-center">
+                      <ContractBadge status={d.status ?? "active"} />
                     </TableCell>
 
                     {/* Risco */}

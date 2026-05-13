@@ -121,6 +121,10 @@ export interface NormalizedErpCustomer {
     value: string;
     inRecoveryProcess: boolean;
   }>;
+  /** Status do contrato no ERP. "active" = tem contrato vigente, "cancelled" = ex-cliente (pode ter fatura rescisória/equipamento). Mapeado para customers.status no DB. */
+  contractStatus?: "active" | "cancelled" | "suspended";
+  /** Nome do plano contratado (se ativo) — ex "Combo 800MB + Deezer". */
+  contractPlan?: string;
   erpSource: string;
 }
 

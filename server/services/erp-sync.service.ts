@@ -193,6 +193,10 @@ export async function syncProviderToDb(
         totalOverdueAmount: customer.totalOverdueAmount,
         maxDaysOverdue: customer.maxDaysOverdue,
         overdueInvoicesCount: customer.overdueInvoicesCount ?? 1,
+        // Spec 012.0 / connector v2 — status do contrato no ERP
+        // "active" = contrato vigente, "cancelled" = ex-cliente (cobranca rescisoria)
+        status: (customer as any).contractStatus,
+        contractPlan: (customer as any).contractPlan,
         erpSource,
       });
       upserted++;
