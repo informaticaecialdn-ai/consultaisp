@@ -171,20 +171,31 @@ export default function InadimplentesPage() {
 
   const syncErpMutation = useMutation({
     mutationFn: async () => {
-      // Busca ERPs configurados e dispara sync sequencial em cada um
       const integrations: any[] = await apiRequest("GET", "/api/provider/erp-integrations").then(r => r.json());
       const enabled = integrations.filter(i => i.isEnabled && i.apiUrl && i.apiToken);
       if (enabled.length === 0) {
         throw new Error("Nenhum ERP configurado. Configure em Configurações.");
       }
-      const results: Array<{ source: string; ok: boolean; total?: number; message?: string }> = [];
+      const results: Array<{ source: string; ok: boolean; total?: number; message?: string; timeoutButLikelyOk?: boolean }> = [];
       for (const i of enabled) {
         try {
           const r = await apiRequest("POST", `/api/provider/erp-integrations/${i.erpSource}/sync`);
           const j = await r.json();
           results.push({ source: i.erpSource, ok: j.ok, total: j.totalRecords ?? j.upserted, message: j.message });
         } catch (e: any) {
-          results.push({ source: i.erpSource, ok: false, message: e?.message ?? "Erro" });
+          // 504 do nginx → backend continua processando. Mensagem amigável.
+          const msg = e?.message ?? "";
+          const is504 = msg.includes("504") || msg.includes("Gateway") || msg.includes("timeout");
+          if (is504) {
+            results.push({
+              source: i.erpSource,
+              ok: false,
+              timeoutButLikelyOk: true,
+              message: "Sync demora 2-3min. Servidor continua processando em background. Aguarde 3min e recarregue a página."
+            });
+          } else {
+            results.push({ source: i.erpSource, ok: false, message: msg.slice(0, 100) });
+          }
         }
       }
       return results;
@@ -192,14 +203,24 @@ export default function InadimplentesPage() {
     onSuccess: (results) => {
       const ok = results.filter(r => r.ok);
       const fail = results.filter(r => !r.ok);
-      toast({
-        title: ok.length > 0 ? "Sincronização concluída" : "Sincronização falhou",
-        description: [
-          ...ok.map(r => `${r.source.toUpperCase()}: ${r.total ?? "?"} registros`),
-          ...fail.map(r => `${r.source.toUpperCase()}: ${r.message}`),
-        ].join(" · "),
-        variant: fail.length === ok.length ? "destructive" : "default",
-      });
+      const allTimeoutButOk = results.length > 0 && results.every(r => r.timeoutButLikelyOk);
+
+      if (allTimeoutButOk) {
+        toast({
+          title: "Sync rodando em background",
+          description: "O servidor está processando. Aguarde 3 minutos e recarregue (Ctrl+R). A lista vai atualizar quando completar.",
+          variant: "default",
+        });
+      } else {
+        toast({
+          title: ok.length > 0 ? "Sincronização concluída" : "Sincronização falhou",
+          description: [
+            ...ok.map(r => `${r.source.toUpperCase()}: ${r.total ?? "?"} registros`),
+            ...fail.map(r => `${r.source.toUpperCase()}: ${r.message}`),
+          ].join(" · "),
+          variant: fail.length === ok.length && !allTimeoutButOk ? "destructive" : "default",
+        });
+      }
       refetch();
     },
     onError: (err: any) => {

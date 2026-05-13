@@ -87,6 +87,15 @@ export class CustomersStorage {
     /** Plano do contrato ativo (ex "Combo 800MB + Deezer"). Opcional — armazenado em campo flexivel. */
     contractPlan?: string;
     erpSource: string;
+    /**
+     * Spec 012.5/fix atomicidade — quando true, SÓ atualiza identidade (nome,
+     * endereço, telefone) e NÃO mexe em paymentStatus, totalOverdueAmount,
+     * maxDaysOverdue, riskTier. Usado pelo passo 1 do sync (fetchCustomers
+     * trazendo 3130 ativos) pra evitar zerar inadimplentes existentes caso
+     * o passo 2 (fetchDelinquents) falhe. Se passo 2 falha, lista anterior
+     * fica intacta — estado seguro.
+     */
+    skipPaymentStatus?: boolean;
   }): Promise<void> {
     const existing = await db.select().from(customers)
       .where(and(
@@ -100,31 +109,36 @@ export class CustomersStorage {
     const customerStatus = data.status ?? "active";
 
     if (existing.length > 0) {
+      // skipPaymentStatus: passo 1 da sync (fetchCustomers) atualiza só identidade
+      // pra evitar zerar paymentStatus de inadimplentes caso passo 2 falhe.
+      const updateFields: Record<string, any> = {
+        name: data.name,
+        email: data.email || null,
+        phone: data.phone || null,
+        address: data.address || null,
+        addressNumber: data.addressNumber || null,
+        complement: data.complement || null,
+        neighborhood: data.neighborhood || null,
+        city: data.city || null,
+        state: data.state || null,
+        cep: data.cep || null,
+        latitude: data.latitude || null,
+        longitude: data.longitude || null,
+        erpSource: data.erpSource,
+        lastSyncAt: now,
+      };
+      if (!data.skipPaymentStatus) {
+        updateFields.totalOverdueAmount = String(data.totalOverdueAmount);
+        updateFields.maxDaysOverdue = data.maxDaysOverdue;
+        updateFields.overdueInvoicesCount = data.overdueInvoicesCount;
+        updateFields.equipmentCount = 1;
+        updateFields.equipmentEstimatedValue = "290";
+        updateFields.status = customerStatus;
+        updateFields.paymentStatus = data.totalOverdueAmount > 0 ? "overdue" : "current";
+        updateFields.riskTier = riskTier;
+      }
       await db.update(customers)
-        .set({
-          name: data.name,
-          email: data.email || null,
-          phone: data.phone || null,
-          address: data.address || null,
-          addressNumber: data.addressNumber || null,
-          complement: data.complement || null,
-          neighborhood: data.neighborhood || null,
-          city: data.city || null,
-          state: data.state || null,
-          cep: data.cep || null,
-          latitude: data.latitude || null,
-          longitude: data.longitude || null,
-          totalOverdueAmount: String(data.totalOverdueAmount),
-          maxDaysOverdue: data.maxDaysOverdue,
-          overdueInvoicesCount: data.overdueInvoicesCount,
-          equipmentCount: 1,
-          equipmentEstimatedValue: "290",
-          status: customerStatus,
-          paymentStatus: data.totalOverdueAmount > 0 ? "overdue" : "current",
-          riskTier,
-          erpSource: data.erpSource,
-          lastSyncAt: now,
-        })
+        .set(updateFields)
         .where(eq(customers.id, existing[0].id));
     } else {
       await db.insert(customers).values({
