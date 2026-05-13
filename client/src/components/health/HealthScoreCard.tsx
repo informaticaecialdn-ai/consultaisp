@@ -37,6 +37,11 @@ interface HealthScoreCardProps {
   components: HealthComponents;
   predictions: HealthPredictions;
   recommendation: HealthRecommendation;
+  /**
+   * Status do contrato. Quando "cancelled", os labels de "Risco futuro" mudam
+   * para "Já materializado" e o card mostra banner contextual de ex-cliente.
+   */
+  contractStatus?: "active" | "cancelled" | "suspended";
   variant?: "full" | "compact";
   className?: string;
 }
@@ -89,9 +94,12 @@ export function HealthScoreCard({
   components,
   predictions,
   recommendation,
+  contractStatus = "active",
   variant = "full",
   className,
 }: HealthScoreCardProps) {
+  const isCancelled = contractStatus === "cancelled";
+  const isSuspended = contractStatus === "suspended";
   if (variant === "compact") {
     return (
       <div className={cn("flex items-center gap-3 p-2 rounded-md border", className)}>
@@ -135,21 +143,47 @@ export function HealthScoreCard({
         </div>
       </div>
 
-      {/* Predições heurísticas */}
-      <div className="grid grid-cols-2 gap-4 pt-2 border-t">
-        <div>
-          <div className="text-xs text-muted-foreground">Risco inadimplência 30 dias</div>
-          <div className="text-2xl font-semibold tabular-nums">
-            {predictions.inadimplenciaRisk30dPercent}%
+      {/* Banner contextual para ex-cliente — substitui predições futuras */}
+      {isCancelled && (
+        <div className="pt-2 border-t">
+          <div className="rounded-md bg-gray-100 dark:bg-gray-800 px-3 py-2.5">
+            <div className="flex items-start gap-2">
+              <span className="text-base">📋</span>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  Ex-cliente — risco já materializado
+                </p>
+                <p className="text-xs text-gray-700 dark:text-gray-300 mt-0.5 leading-relaxed">
+                  Cliente cancelado com cobrança pendente. Predições futuras (risco inadimplência/churn) não
+                  se aplicam — o evento já ocorreu. Foco em <strong>recuperação</strong> (Daniel/Lucas), não retenção.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
-        <div>
-          <div className="text-xs text-muted-foreground">Risco churn 60 dias</div>
-          <div className="text-2xl font-semibold tabular-nums">
-            {predictions.churnRisk60dPercent}%
+      )}
+
+      {/* Predições heurísticas — só pra clientes ativos/suspensos */}
+      {!isCancelled && (
+        <div className="grid grid-cols-2 gap-4 pt-2 border-t">
+          <div>
+            <div className="text-xs text-muted-foreground">
+              {isSuspended ? "Risco virar cancelado 60d" : "Risco inadimplência 30 dias"}
+            </div>
+            <div className="text-2xl font-semibold tabular-nums">
+              {predictions.inadimplenciaRisk30dPercent}%
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground">
+              {isSuspended ? "Risco cancelamento definitivo" : "Risco churn 60 dias"}
+            </div>
+            <div className="text-2xl font-semibold tabular-nums">
+              {predictions.churnRisk60dPercent}%
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Recomendação */}
       <div className="pt-2 border-t space-y-2">

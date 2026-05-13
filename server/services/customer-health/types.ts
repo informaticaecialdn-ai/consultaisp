@@ -57,6 +57,15 @@ export interface CustomerHealthInputs {
 
   /** Score Consulta ISP (0-1000). null se não consultado. */
   consultaIspScore: number | null;
+
+  /**
+   * Status do contrato no ERP. Impacta semantica do score:
+   * - "active": cliente vigente — lógica padrão (risco futuro, retenção, agentes Rafael/Helena/Bruno)
+   * - "cancelled": ex-cliente — risco já materializado (não há "risco futuro"), foco em recuperação (Daniel/Lucas)
+   * - "suspended": bloqueado temporariamente (D+15 Anatel) — Carla gerencia
+   * Default "active" quando não informado.
+   */
+  contractStatus?: "active" | "cancelled" | "suspended";
 }
 
 /**

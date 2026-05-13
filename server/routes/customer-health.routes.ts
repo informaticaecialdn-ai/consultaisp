@@ -261,6 +261,7 @@ export function registerCustomerHealthRoutes(): Router {
               churnRisk60dPercent: score.churnRisk60dPercent,
             },
             recommendation,
+            contractStatus: inputs.contractStatus ?? "active",
             inputsSnapshot: inputs,
             computedAt: new Date().toISOString(),
             source: "on_the_fly",  // futura: 'persisted' quando schema autorizado

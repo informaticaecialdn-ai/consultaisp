@@ -154,9 +154,16 @@ export function scoreToTier(score: number): HealthTier {
 
 /**
  * inadimplenciaRisk30d (0-100) — heurística não-ML.
+ *
+ * Para cliente CANCELADO: o risco já se materializou (cliente já está inadimplente).
+ * "Risco futuro" não faz sentido. Retornamos 100 (já é inadimplente) — útil para
+ * ordenação mas com semantica diferente. UI deve diferenciar com label "Já inadimplente".
+ *
  * Substituível por modelo treinado na Fase C (Spec 010C).
  */
 export function calcInadimplenciaRisk30d(input: CustomerHealthInputs, healthScore: number): number {
+  if (input.contractStatus === "cancelled") return 100; // já materializado
+
   let risk = 100 - healthScore;
 
   if (input.invoicesOverdueCurrent >= 1) risk += 20;
@@ -169,8 +176,14 @@ export function calcInadimplenciaRisk30d(input: CustomerHealthInputs, healthScor
 
 /**
  * churnRisk60d (0-100) — heurística não-ML.
+ *
+ * Para cliente CANCELADO: churn já ocorreu. Retornamos 100 (materializado).
+ * Para cliente SUSPENSO: alto risco de virar cancelado se não houver acordo.
  */
 export function calcChurnRisk60d(input: CustomerHealthInputs, healthScore: number): number {
+  if (input.contractStatus === "cancelled") return 100; // já churnou
+  if (input.contractStatus === "suspended") return Math.min(100, 70 + (100 - healthScore) * 0.3);
+
   let risk = (100 - healthScore) * 0.7;
 
   if ((input.lastInteractionDays ?? 0) > 180) risk += 25;

@@ -44,14 +44,19 @@ export async function buildCustomerHealthInputs(
   customerId: number,
 ): Promise<CustomerHealthInputs> {
   // 1. Verifica que o cliente existe e pertence ao tenant
+  // Pega também o status do contrato (active/cancelled/suspended) — afeta semantica do score.
   const [customer] = await db
-    .select({ id: customers.id })
+    .select({ id: customers.id, status: customers.status })
     .from(customers)
     .where(and(eq(customers.id, customerId), eq(customers.providerId, providerId)))
     .limit(1);
   if (!customer) {
     throw new CustomerNotFoundError(providerId, customerId);
   }
+  const contractStatus =
+    customer.status === "cancelled" ? "cancelled" :
+    customer.status === "suspended" ? "suspended" :
+    "active";
 
   // 2. Tempo de contrato — primeiro contrato ativo
   const [contractRow] = await db
@@ -182,6 +187,7 @@ export async function buildCustomerHealthInputs(
     lastInteractionDays,
     avgSentimentScore90d,
     consultaIspScore,
+    contractStatus,
   };
 }
 

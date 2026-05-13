@@ -23,6 +23,7 @@ interface CustomerHealthResponse {
     components: HealthComponents;
     predictions: HealthPredictions;
     recommendation: HealthRecommendation;
+    contractStatus?: "active" | "cancelled" | "suspended";
     inputsSnapshot: unknown;
     computedAt: string;
     source: string;
@@ -80,6 +81,7 @@ export function CustomerHealthPanel({ customerId, variant = "full" }: CustomerHe
       components={data.data.components}
       predictions={data.data.predictions}
       recommendation={data.data.recommendation}
+      contractStatus={data.data.contractStatus}
       variant={variant}
     />
   );
