@@ -11,9 +11,7 @@
  * o sync produz "1 dia" para todos inadimplentes (data não parseada).
  */
 import "dotenv/config";
-import { db } from "../server/db";
-import { erpIntegrations } from "../shared/schema";
-import { and, eq } from "drizzle-orm";
+import { storage } from "../server/storage";
 import { MkConnector } from "../server/erp/connectors/mk";
 
 const mkConnector = new MkConnector();
@@ -23,11 +21,9 @@ const providerId = Number(process.argv[2] ?? 1);
 (async () => {
   console.log(`\n=== MK sync debug para provider ${providerId} ===\n`);
 
-  const [intg] = await db
-    .select()
-    .from(erpIntegrations)
-    .where(and(eq(erpIntegrations.providerId, providerId), eq(erpIntegrations.erpSource, "mk")))
-    .limit(1);
+  // Usa storage.getErpIntegrations que decripta as credentials sensíveis
+  const integrations = await storage.getErpIntegrations(providerId);
+  const intg = integrations.find(i => i.erpSource === "mk");
 
   if (!intg) {
     console.error(`Sem integração MK configurada para provider ${providerId}`);
@@ -39,9 +35,9 @@ const providerId = Number(process.argv[2] ?? 1);
   }
 
   console.log(`apiUrl: ${intg.apiUrl}`);
-  console.log(`apiUser: ${intg.apiUser ?? "—"}`);
-  console.log(`apiToken: ${intg.apiToken ? "(set, " + intg.apiToken.length + " chars)" : "—"}`);
-  console.log(`mkContraSenha: ${(intg as any).mkContraSenha ? "(set)" : "—"}\n`);
+  console.log(`apiUser (decriptado): ${intg.apiUser ? "(set, " + intg.apiUser.length + " chars)" : "—"}`);
+  console.log(`apiToken (decriptado): ${intg.apiToken ? "(set, " + intg.apiToken.length + " chars)" : "—"}`);
+  console.log(`mkContraSenha (decriptado): ${(intg as any).mkContraSenha ? "(set, " + (intg as any).mkContraSenha.length + " chars)" : "—"}\n`);
 
   console.log(`>>> Chamando mkConnector.fetchDelinquents()...\n`);
   const started = Date.now();
@@ -51,7 +47,8 @@ const providerId = Number(process.argv[2] ?? 1);
       apiUrl: intg.apiUrl,
       apiToken: intg.apiToken,
       apiUser: intg.apiUser ?? undefined,
-      extra: { mkContraSenha: (intg as any).mkContraSenha ?? "" },
+      mkContraSenha: (intg as any).mkContraSenha ?? undefined,
+      extra: {},
     });
 
     const elapsed = ((Date.now() - started) / 1000).toFixed(1);
