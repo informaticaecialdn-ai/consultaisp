@@ -942,10 +942,15 @@ export class MkConnector implements ErpConnector {
     }
 
     console.log(`[MK] Fallback: ${allClientes.length} clientes retornados`);
+    if (allClientes.length > 0) {
+      console.log(`[MK] FALLBACK DIAG primeiro cliente campos: ${Object.keys(allClientes[0]).join(", ")}`);
+      console.log(`[MK] FALLBACK DIAG primeiro cliente JSON: ${JSON.stringify(allClientes[0]).slice(0, 800)}`);
+    }
 
     const clientesToProcess = allClientes.slice(0, 500);
     const CONCURRENCY = 8;
     const allInvoices: any[] = [];
+    let firstFaturaDiagDumped = false;
 
     for (let i = 0; i < clientesToProcess.length; i += CONCURRENCY) {
       const batch = clientesToProcess.slice(i, i + CONCURRENCY);
@@ -962,12 +967,26 @@ export class MkConnector implements ErpConnector {
               ? fj
               : fj?.FaturasPendentes || fj?.Faturas || fj?.faturas || fj?.registros || fj?.data || [];
 
+            if (!firstFaturaDiagDumped && faturas.length > 0) {
+              firstFaturaDiagDumped = true;
+              console.log(`[MK] FALLBACK DIAG primeira FATURA campos: ${Object.keys(faturas[0]).join(", ")}`);
+              console.log(`[MK] FALLBACK DIAG primeira FATURA JSON: ${JSON.stringify(faturas[0]).slice(0, 800)}`);
+              if (faturas.length > 1) {
+                console.log(`[MK] FALLBACK DIAG segunda FATURA JSON: ${JSON.stringify(faturas[1]).slice(0, 800)}`);
+              }
+            }
+
             const cpfCnpj = cleanCpfCnpj(cliente.Doc || cliente.doc || cliente.cpf || cliente.cnpj || cliente.cpf_cnpj || cliente.documento || "");
             if (!cpfCnpj) return [];
 
             return faturas
               .map((f: any) => {
-                const dueDate = f.data_vencimento || f.DataVencimento || f.vencimento || f.Vencimento || null;
+                // Aliases expandidos — cobre todas variantes conhecidas do MK
+                const dueDate = f.data_vencimento || f.DataVencimento || f.dt_vencimento || f.DtVencimento
+                  || f.vencimento || f.Vencimento || f.dt_venc || f.dtVenc
+                  || f.dt_vencto || f.DtVencto || f.vencto || f.Vencto
+                  || f.data_vencto || f.DataVencto || f.dtVencimento || f.dtVencto
+                  || f.data_venc || f.DataVenc || f.dataVencimento || null;
                 const days = calculateDaysOverdue(dueDate);
                 if (days <= 0 && dueDate) return null;
                 return {
