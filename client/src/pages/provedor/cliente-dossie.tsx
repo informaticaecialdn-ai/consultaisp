@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { FileText, ShieldCheck } from "lucide-react";
 import { DossieExportButton } from "@/components/dossie/DossieExportButton";
 import { CustomerHealthPanel } from "@/components/health/CustomerHealthPanel";
+import { CustomerProfilePanel } from "@/components/customer/CustomerProfilePanel";
 
 function defaultPeriod() {
   const to = new Date();
@@ -78,6 +79,12 @@ export default function ClienteDossiePage() {
           <DossieExportButton customerId={customerId} from={from} to={to} format="pdf" />
         </div>
       </Card>
+
+      {/* Quick win Cliente 360 — Identidade + Contrato + Equipamentos */}
+      <div>
+        <h2 className="text-lg font-semibold mb-3">Identificação & Cobrança</h2>
+        <CustomerProfilePanel customerId={customerId} />
+      </div>
 
       {/* Spec 010A — Customer Health Score in-context */}
       <div>

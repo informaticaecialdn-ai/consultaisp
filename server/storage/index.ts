@@ -72,6 +72,7 @@ export interface IStorage {
   getAllProvidersWithStats(): Promise<ProviderWithStats[]>;
 
   getCustomersByProvider(providerId: number): Promise<Customer[]>;
+  getCustomerByIdAndProvider(customerId: number, providerId: number): Promise<Customer | undefined>;
   getCustomerByCpfCnpj(cpfCnpj: string): Promise<Customer[]>;
   getCustomersByExactAddress(address: string, city: string, state: string | null, cep: string | null, excludeCpfCnpj: string): Promise<Customer[]>;
   getCustomersByAddressHash(addressHash: string, excludeCpfCnpj?: string): Promise<Customer[]>;
@@ -271,6 +272,7 @@ class DatabaseStorage implements IStorage {
   getAllProvidersWithStats = () => this._providers.getAllProvidersWithStats();
   // Customers
   getCustomersByProvider = (providerId: number) => this._customers.getCustomersByProvider(providerId);
+  getCustomerByIdAndProvider = (customerId: number, providerId: number) => this._customers.getCustomerByIdAndProvider(customerId, providerId);
   getCustomerByCpfCnpj = (cpfCnpj: string) => this._customers.getCustomerByCpfCnpj(cpfCnpj);
   getCustomersByExactAddress = (address: string, city: string, state: string | null, cep: string | null, excludeCpfCnpj: string) => this._customers.getCustomersByExactAddress(address, city, state, cep, excludeCpfCnpj);
   getCustomersByAddressHash = (addressHash: string, excludeCpfCnpj?: string) => this._customers.getCustomersByAddressHash(addressHash, excludeCpfCnpj);

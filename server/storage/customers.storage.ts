@@ -11,6 +11,18 @@ export class CustomersStorage {
     return db.select().from(customers).where(eq(customers.providerId, providerId));
   }
 
+  /**
+   * Busca 1 cliente por id + providerId. Multi-tenant strict — retorna undefined
+   * se cliente nao pertence ao provider, prevenindo leaks cross-tenant.
+   * Usado por Cliente 360 e cliente-dossie.
+   */
+  async getCustomerByIdAndProvider(customerId: number, providerId: number): Promise<Customer | undefined> {
+    const [row] = await db.select().from(customers)
+      .where(and(eq(customers.id, customerId), eq(customers.providerId, providerId)))
+      .limit(1);
+    return row;
+  }
+
   async getCustomerByCpfCnpj(cpfCnpj: string): Promise<Customer[]> {
     return db.select().from(customers).where(eq(customers.cpfCnpj, cpfCnpj));
   }
