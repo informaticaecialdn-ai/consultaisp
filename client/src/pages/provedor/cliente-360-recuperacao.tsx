@@ -7,6 +7,7 @@
  * Backend real será construído nas Specs 012/013/014.
  */
 import { useRoute, Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 
 const MOCK = {
   customer: {
@@ -217,14 +218,27 @@ const MOCK = {
 export default function Cliente360RecuperacaoPage() {
   const [, params] = useRoute("/cliente/:customerId/360-recuperacao");
   const customerId = params?.customerId ?? "?";
-  const d = MOCK;
+
+  const { data: realResp } = useQuery<{ ok: boolean; data?: any }>({
+    queryKey: [`/api/customers/${customerId}/cliente-360`],
+    enabled: !!customerId && customerId !== "?",
+    staleTime: 60_000,
+  });
+  const real = realResp?.ok ? realResp.data : null;
+  const d = real ? mergeRealIntoRecup(MOCK, real) : MOCK;
 
   return (
     <div className="min-h-screen" style={{ fontFamily: "DM Sans, system-ui, sans-serif", backgroundColor: "#FBF7F2", color: "#0A1628" }}>
-      {/* Demo banner */}
-      <div className="bg-red-500 text-white text-xs py-1.5 px-4 text-center">
-        🧪 MODO DEMO — dados mockados (Maria Silva Souza ex-cliente). Backend será construído nas Specs 012/013. Cliente real: <Link href={`/cliente/${customerId}/dossie`} className="underline font-semibold">/cliente/{customerId}/dossie</Link>
-      </div>
+      {/* Status banner: real ou fallback */}
+      {real ? (
+        <div className="bg-emerald-700 text-white text-xs py-1.5 px-4 text-center">
+          ✅ Dados REAIS do ex-cliente #{customerId} ({real.cliente.nome}) · ROI: <strong>{real.roi.estimado}×</strong> ({real.roi.decisao}) · Estágios Daniel / Workflow Lucas / Loop ConsultaISP / Audit Júlia = <strong>placeholder</strong> até Specs 012/013/014
+        </div>
+      ) : (
+        <div className="bg-red-500 text-white text-xs py-1.5 px-4 text-center">
+          🧪 Carregando dados reais... (fallback temporário: Maria mockada). Cliente real: <Link href={`/cliente/${customerId}/dossie`} className="underline font-semibold">/cliente/{customerId}/dossie</Link>
+        </div>
+      )}
 
       {/* HEADER EX-CLIENTE */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-40">
@@ -734,6 +748,67 @@ export default function Cliente360RecuperacaoPage() {
       </div>
     </div>
   );
+}
+
+// ─── Merge dados reais sobre mock ──────────────────────────────────────────
+function mergeRealIntoRecup(mock: typeof MOCK, real: any): typeof MOCK {
+  if (!real?.cliente) return mock;
+  const r = real;
+  const meses = r.cliente.tempoRelacaoMeses ?? mock.customer.foiClienteMeses;
+  const inicio = r.cliente.clienteDesdeIso ? new Date(r.cliente.clienteDesdeIso) : null;
+  const inicioStr = inicio ? inicio.toLocaleDateString("pt-BR", { month: "short", year: "numeric" }) : mock.customer.dataInicio;
+  return {
+    ...mock,
+    customer: {
+      ...mock.customer,
+      nome: r.cliente.nome ?? mock.customer.nome,
+      cpfMasked: r.cliente.cpfMasked ?? mock.customer.cpfMasked,
+      bairro: r.cliente.bairro ?? mock.customer.bairro,
+      cidade: r.cliente.cidade ?? mock.customer.cidade,
+      uf: r.cliente.uf ?? mock.customer.uf,
+      telefoneMasked: r.cliente.phoneMasked ?? mock.customer.telefoneMasked,
+      email: r.cliente.email ?? mock.customer.email,
+      foiClienteMeses: meses,
+      dataInicio: inicioStr,
+      diasDesdeCancelamento: r.cliente.diasDesdeCancelamento ?? mock.customer.diasDesdeCancelamento,
+      perfilNoCancelamento: r.perfilDna?.atual ?? mock.customer.perfilNoCancelamento,
+    },
+    header: {
+      ...mock.header,
+      dividaFinanceira: r.financeiro?.saldoDevedor ?? mock.header.dividaFinanceira,
+      dividaEquipamento: (r.equipamentos ?? []).reduce((s: number, eq: any) => s + (eq.valorReposicao ?? 0), 0) || mock.header.dividaEquipamento,
+      dividaTotal: (r.financeiro?.saldoDevedor ?? 0) + ((r.equipamentos ?? []).reduce((s: number, eq: any) => s + (eq.valorReposicao ?? 0), 0)),
+      probRecuperacao: r.roi?.probEstimada ?? mock.header.probRecuperacao,
+      roiRecuperacao: r.roi?.estimado ?? mock.header.roiRecuperacao,
+      decisao: r.roi?.decisao ?? mock.header.decisao,
+    },
+    dividaFinanceira: {
+      ...mock.dividaFinanceira,
+      total: r.financeiro?.saldoDevedor ?? mock.dividaFinanceira.total,
+      diasMaisAntiga: r.financeiro?.maxDiasAtraso ?? mock.dividaFinanceira.diasMaisAntiga,
+    },
+    equipamentos: (r.equipamentos && r.equipamentos.length > 0)
+      ? r.equipamentos.map((eq: any) => ({
+          tipo: [eq.tipo, eq.marca, eq.modelo].filter(Boolean).join(" "),
+          serial: eq.serial ?? "—",
+          meses: meses,
+          aquisicao: (eq.valorReposicao ?? 0) * 1.5,
+          reposicao: eq.valorReposicao ?? 0,
+          oferta: (eq.valorReposicao ?? 0) * 0.7,
+          revendaIlegal: false, // pendente: integração ConsultaISP MAC lookup
+          mac: eq.mac,
+        }))
+      : mock.equipamentos,
+    decisaoEconomica: {
+      ...mock.decisaoEconomica,
+      valorRecuperar: r.financeiro?.saldoDevedor ? r.financeiro.saldoDevedor + ((r.equipamentos ?? []).reduce((s: number, eq: any) => s + (eq.valorReposicao ?? 0), 0)) : mock.decisaoEconomica.valorRecuperar,
+      probTotal: r.roi?.probEstimada ?? mock.decisaoEconomica.probTotal,
+      valorEsperado: r.roi?.valorEsperado ?? mock.decisaoEconomica.valorEsperado,
+      custoTotal: r.roi?.custoEstimado ?? mock.decisaoEconomica.custoTotal,
+      roi: r.roi?.estimado ?? mock.decisaoEconomica.roi,
+      decisao: r.roi?.decisao ?? mock.decisaoEconomica.decisao,
+    },
+  };
 }
 
 // ─── Helpers (mesmos da tela cobrança) ─────────────────────────────────────

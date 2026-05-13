@@ -45,6 +45,8 @@ import { registerPixDynamicRoutes } from "./pix-dynamic.routes";
 import { registerSilentExitRoutes } from "./silent-exit.routes";
 // Spec 014 — Competitor Monitor preview
 import { registerCompetitorMonitorRoutes } from "./competitor-monitor.routes";
+// Spec 012.5 — Cliente 360 (cobrança ativa + recuperação pós-cancelamento)
+import { registerCliente360Routes } from "./cliente-360.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -92,6 +94,8 @@ export async function registerRoutes(
   app.use(registerSilentExitRoutes());
   // Spec 014 — Competitor Monitor preview (sem Serper, só heurística)
   app.use(registerCompetitorMonitorRoutes());
+  // Spec 012.5 — Cliente 360 (Cobrança Ativa + Recuperação Pós-Cancelamento)
+  app.use(registerCliente360Routes());
 
   // Spec 008.5 — MCP ERP wrapper (controlado por env var MCP_DISABLED)
   if (isMcpEnabled()) {

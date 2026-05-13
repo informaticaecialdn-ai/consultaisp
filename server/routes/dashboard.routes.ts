@@ -68,16 +68,14 @@ export function registerDashboardRoutes(): Router {
         return res.status(404).json({ message: "Cliente nao encontrado" });
       }
 
-      // Equipment (tolerante a tabela vazia)
+      // Equipment + Contracts (ownership já garantida pelo customer check acima)
       let equipment: any[] = [];
       try {
-        equipment = await storage.getEquipmentByCustomer(customerId, providerId);
+        equipment = await storage.getEquipmentByCustomer(customerId);
       } catch {}
-
-      // Contracts (tolerante a tabela vazia)
       let contracts: any[] = [];
       try {
-        contracts = await storage.getContractsByCustomer(customerId, providerId);
+        contracts = await storage.getContractsByCustomer(customerId);
       } catch {}
 
       return res.json({ customer, equipment, contracts });

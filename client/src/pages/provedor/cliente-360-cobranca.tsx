@@ -11,6 +11,7 @@
  * (bg-[#0F3D2E]) pra manter fidelidade ao mockup sem editar config global.
  */
 import { useRoute, Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 
 // ─── MOCK DATA (fictícia Maria, replica mockup) ─────────────────────────────
 const MOCK_DATA = {
@@ -179,14 +180,30 @@ const MOCK_DATA = {
 export default function Cliente360CobrancaPage() {
   const [, params] = useRoute("/cliente/:customerId/360-cobranca");
   const customerId = params?.customerId ?? "?";
-  const d = MOCK_DATA;
+
+  // Fetch dados REAIS do cliente. Onde não tem, usa MOCK_DATA como placeholder.
+  const { data: realResp } = useQuery<{ ok: boolean; data?: any }>({
+    queryKey: [`/api/customers/${customerId}/cliente-360`],
+    enabled: !!customerId && customerId !== "?",
+    staleTime: 60_000,
+  });
+  const real = realResp?.ok ? realResp.data : null;
+
+  // Merge: real → sobrescreve mock onde existe
+  const d = real ? mergeRealIntoMock(MOCK_DATA, real) : MOCK_DATA;
 
   return (
     <div className="min-h-screen" style={{ fontFamily: "DM Sans, system-ui, sans-serif", backgroundColor: "#FBF7F2", color: "#0A1628" }}>
-      {/* Demo banner */}
-      <div className="bg-amber-500 text-white text-xs py-1.5 px-4 text-center">
-        🧪 MODO DEMO — dados mockados (cliente fictícia Maria Silva Souza). Backend real será implementado nas Specs 010A/011/012.0. Cliente real: <Link href={`/cliente/${customerId}/dossie`} className="underline font-semibold">/cliente/{customerId}/dossie</Link>
-      </div>
+      {/* Status banner: real (verde) ou mock fallback (âmbar) */}
+      {real ? (
+        <div className="bg-emerald-700 text-white text-xs py-1.5 px-4 text-center">
+          ✅ Dados REAIS do cliente #{customerId} ({real.cliente.nome}) · Perfil DNA: <strong>{real.perfilDna.atual}</strong> (heurística, Spec 010A Fase B trará modelo treinado) · Predições ML / Audit Júlia / Timeline / Alertas Críticos / Status NMS = <strong>placeholder</strong> até specs respectivas
+        </div>
+      ) : (
+        <div className="bg-amber-500 text-white text-xs py-1.5 px-4 text-center">
+          🧪 Carregando dados reais... (fallback temporário: Maria Silva Souza mockada). Cliente real: <Link href={`/cliente/${customerId}/dossie`} className="underline font-semibold">/cliente/{customerId}/dossie</Link>
+        </div>
+      )}
 
       {/* HEADER DO CLIENTE (sticky) */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-40">
@@ -638,6 +655,51 @@ export default function Cliente360CobrancaPage() {
       </div>
     </div>
   );
+}
+
+// ─── Merge dados reais sobre mock ──────────────────────────────────────────
+function mergeRealIntoMock(mock: typeof MOCK_DATA, real: any): typeof MOCK_DATA {
+  if (!real?.cliente) return mock;
+  const r = real;
+  return {
+    ...mock,
+    customer: {
+      ...mock.customer,
+      nome: r.cliente.nome ?? mock.customer.nome,
+      cpfMasked: r.cliente.cpfMasked ?? mock.customer.cpfMasked,
+      bairro: r.cliente.bairro ?? mock.customer.bairro,
+      cidade: r.cliente.cidade ?? mock.customer.cidade,
+      uf: r.cliente.uf ?? mock.customer.uf,
+      telefoneMasked: r.cliente.phoneMasked ?? mock.customer.telefoneMasked,
+      email: r.cliente.email ?? mock.customer.email,
+      tempoRelacaoMeses: r.cliente.tempoRelacaoMeses ?? mock.customer.tempoRelacaoMeses,
+      clienteDesde: r.cliente.clienteDesdeIso ? new Date(r.cliente.clienteDesdeIso).toLocaleDateString("pt-BR", { month: "short", year: "numeric" }) : mock.customer.clienteDesde,
+    },
+    perfilDna: {
+      ...mock.perfilDna,
+      atual: r.perfilDna?.atual ?? mock.perfilDna.atual,
+      tom: r.perfilDna?.tom ?? mock.perfilDna.tom,
+      canalPrimario: r.perfilDna?.canalPrimario ?? mock.perfilDna.canalPrimario,
+      descontoMax: r.perfilDna?.descontoMax ?? mock.perfilDna.descontoMax,
+      humanoObrigatorio: r.perfilDna?.humanoObrigatorio ?? mock.perfilDna.humanoObrigatorio,
+    },
+    financeiro: {
+      ...mock.financeiro,
+      saldoDevedor: r.financeiro?.saldoDevedor ?? mock.financeiro.saldoDevedor,
+      faturasAberto: r.financeiro?.faturasAberto ?? mock.financeiro.faturasAberto,
+      maisAntiga: r.financeiro?.maxDiasAtraso ? `D+${r.financeiro.maxDiasAtraso}` : mock.financeiro.maisAntiga,
+    },
+    equipamentos: (r.equipamentos && r.equipamentos.length > 0)
+      ? r.equipamentos.map((eq: any) => ({
+          tipo: [eq.tipo, eq.marca, eq.modelo].filter(Boolean).join(" ") || eq.tipo,
+          serial: eq.serial ?? "",
+          mac: eq.mac,
+          instalado: "—",
+          reposicao: eq.valorReposicao ?? 0,
+          termo: true,
+        }))
+      : mock.equipamentos,
+  };
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

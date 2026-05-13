@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useRoute, Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { FileText, ShieldCheck, LayoutGrid, RotateCcw } from "lucide-react";
+import { FileText, ShieldCheck, LayoutGrid, RotateCcw, Loader2 } from "lucide-react";
 import { DossieExportButton } from "@/components/dossie/DossieExportButton";
 import { CustomerHealthPanel } from "@/components/health/CustomerHealthPanel";
 import { CustomerProfilePanel } from "@/components/customer/CustomerProfilePanel";
@@ -48,33 +49,8 @@ export default function ClienteDossiePage() {
         </p>
       </div>
 
-      {/* Spec 012.5 — links pras telas Cliente 360 (mockadas) */}
-      <Card className="p-4 bg-gradient-to-r from-emerald-50 to-amber-50 border-emerald-200">
-        <div className="flex items-start gap-3">
-          <LayoutGrid className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-emerald-900">Cliente 360º — visão operacional completa (DEMO)</p>
-            <p className="text-xs text-muted-foreground mt-1 mb-3">
-              Telas com dados mockados replicando os mockups visuais. Backend real será construído nas Specs 010A/011/012/013.
-              Use para ver como vai ficar a tela operacional final dos agentes Marcos/Bruno/Rafael/Carla/Daniel/Lucas.
-            </p>
-            <div className="flex gap-2 flex-wrap">
-              <Link href={`/cliente/${customerId}/360-cobranca`}>
-                <Button size="sm" variant="default" className="gap-1.5 bg-emerald-700 hover:bg-emerald-800">
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                  Cliente 360 Cobrança
-                </Button>
-              </Link>
-              <Link href={`/cliente/${customerId}/360-recuperacao`}>
-                <Button size="sm" variant="outline" className="gap-1.5 border-rose-300 text-rose-700 hover:bg-rose-50">
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  Cliente 360 Recuperação
-                </Button>
-              </Link>
-            </div>
-          </div>
-        </div>
-      </Card>
+      {/* Spec 012.5 — Cliente 360 inteligente (auto-detecta status do contrato) */}
+      <Cliente360CTA customerId={customerId} />
 
       <Card className="p-6 space-y-5">
         <div className="grid grid-cols-2 gap-4">
@@ -137,5 +113,65 @@ export default function ClienteDossiePage() {
         </div>
       </Card>
     </div>
+  );
+}
+
+/**
+ * Detecta status do contrato e oferece botão pra tela 360 correta.
+ * active/suspended → 360-cobranca · cancelled → 360-recuperacao
+ * Mantém ambos os botões disponíveis pra inspecionar a outra perspectiva.
+ */
+function Cliente360CTA({ customerId }: { customerId: number }) {
+  const { data, isLoading } = useQuery<{ ok: boolean; data?: { cliente: { contractStatus: string; nome: string }, roi: { estimado: number; decisao: string } } }>({
+    queryKey: [`/api/customers/${customerId}/cliente-360`],
+    staleTime: 60_000,
+  });
+
+  if (isLoading) {
+    return (
+      <Card className="p-4">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Avaliando perfil do cliente para Cliente 360...
+        </div>
+      </Card>
+    );
+  }
+
+  const status = data?.data?.cliente.contractStatus;
+  const isCancelled = status === "cancelled";
+  const roi = data?.data?.roi;
+
+  return (
+    <Card className={`p-4 bg-gradient-to-r ${isCancelled ? "from-rose-50 to-amber-50 border-rose-200" : "from-emerald-50 to-amber-50 border-emerald-200"}`}>
+      <div className="flex items-start gap-3">
+        {isCancelled ? <RotateCcw className="w-5 h-5 text-rose-700 shrink-0 mt-0.5" /> : <LayoutGrid className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />}
+        <div className="flex-1">
+          <p className={`text-sm font-semibold ${isCancelled ? "text-rose-900" : "text-emerald-900"}`}>
+            Cliente 360º — {isCancelled ? "Recuperação Pós-Cancelamento" : "Cobrança Operacional"}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1 mb-3">
+            {isCancelled
+              ? `Ex-cliente. Foco em recuperação financeira (Daniel) + equipamentos (Lucas). ${roi ? `ROI estimado: ${roi.estimado}× (${roi.decisao})` : ""}`
+              : `Cliente ativo. Visão operacional completa para decisão de cobrança em 3 segundos. ${roi ? `ROI estimado: ${roi.estimado}×` : ""}`}
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <Link href={`/cliente/${customerId}/${isCancelled ? "360-recuperacao" : "360-cobranca"}`}>
+              <Button size="sm" variant="default" className={`gap-1.5 ${isCancelled ? "bg-rose-700 hover:bg-rose-800" : "bg-emerald-700 hover:bg-emerald-800"}`}>
+                {isCancelled ? <RotateCcw className="w-3.5 h-3.5" /> : <LayoutGrid className="w-3.5 h-3.5" />}
+                Abrir Cliente 360 {isCancelled ? "Recuperação" : "Cobrança"}
+              </Button>
+            </Link>
+            {/* Botão secundário pra inspecionar a outra tela (debug/comparação) */}
+            <Link href={`/cliente/${customerId}/${isCancelled ? "360-cobranca" : "360-recuperacao"}`}>
+              <Button size="sm" variant="outline" className="gap-1.5 text-xs">
+                {isCancelled ? <LayoutGrid className="w-3.5 h-3.5" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                Ver tela {isCancelled ? "Cobrança" : "Recuperação"}
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 }
