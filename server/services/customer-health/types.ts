@@ -116,16 +116,27 @@ export interface HealthRecommendation {
 }
 
 /**
- * Pesos default dos componentes. Soma = 1.0 (100%).
- * Por tenant override no futuro (Fase B+).
+ * Pesos dos componentes do health score.
+ * Soma deve ser 1.0 (validar antes de passar para calculator).
  */
-export const DEFAULT_HEALTH_WEIGHTS = {
+export interface HealthWeights {
+  punctuality: number;
+  loyalty: number;
+  reliability: number;
+  sentiment: number;
+  engagement: number;
+  externalScore: number;
+}
+
+/**
+ * Pesos default — calibrados na Spec 010A após análise comportamental ISP.
+ * Soma = 1.0 (100%). Owner pode override via Fase B (config tenant).
+ */
+export const DEFAULT_HEALTH_WEIGHTS: HealthWeights = {
   punctuality: 0.35,
   loyalty: 0.15,
   reliability: 0.15,
   sentiment: 0.1,
   engagement: 0.1,
   externalScore: 0.15,
-} as const;
-
-export type HealthWeights = typeof DEFAULT_HEALTH_WEIGHTS;
+};

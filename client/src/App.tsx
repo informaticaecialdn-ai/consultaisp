@@ -56,6 +56,7 @@ const TimePage = lazy(() => import("@/pages/provedor/time"));
 const TimeDetailPage = lazy(() => import("@/pages/provedor/time-detail"));
 // Spec 010A — Customer Health
 const HealthSimulatorPage = lazy(() => import("@/pages/provedor/health-simulator"));
+const HealthCalibradorPage = lazy(() => import("@/pages/provedor/health-calibrador"));
 // Spec 013 — Silent Exit
 const SilentExitSimulatorPage = lazy(() => import("@/pages/provedor/silent-exit-simulator"));
 // Spec 014 — Competitor Monitor
@@ -119,6 +120,7 @@ function Router() {
         <Route path="/time" component={TimePage} />
         {/* Spec 010A — Customer Health Score simulator */}
         <Route path="/health/simulador" component={HealthSimulatorPage} />
+        <Route path="/health/calibrador" component={HealthCalibradorPage} />
         {/* Spec 013 — Silent Exit Risk simulator */}
         <Route path="/silent-exit/simulador" component={SilentExitSimulatorPage} />
         {/* Spec 014 — Competitor Monitor heuristic simulator */}

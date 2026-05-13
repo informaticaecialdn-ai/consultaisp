@@ -44,6 +44,35 @@ const previewInputSchema = z.object({
   consultaIspScore: z.number().min(0).max(1000).nullable(),
 });
 
+/** Schema dos pesos (Spec 010A calibrador) — soma deve ser ~1.0 */
+const weightsSchema = z
+  .object({
+    punctuality: z.number().min(0).max(1),
+    loyalty: z.number().min(0).max(1),
+    reliability: z.number().min(0).max(1),
+    sentiment: z.number().min(0).max(1),
+    engagement: z.number().min(0).max(1),
+    externalScore: z.number().min(0).max(1),
+  })
+  .refine(
+    (w) =>
+      Math.abs(
+        w.punctuality +
+          w.loyalty +
+          w.reliability +
+          w.sentiment +
+          w.engagement +
+          w.externalScore -
+          1,
+      ) < 0.01,
+    { message: "weights must sum to 1.0 (±0.01)" },
+  );
+
+const calibrateSchema = z.object({
+  inputs: previewInputSchema,
+  weights: weightsSchema,
+});
+
 export function registerCustomerHealthRoutes(): Router {
   const router = express.Router();
   const jsonParser = express.json({ limit: "64kb" });
@@ -109,6 +138,71 @@ export function registerCustomerHealthRoutes(): Router {
         logger.error(
           { action: "customer_health_preview_error", err: msg },
           "Customer health preview failed",
+        );
+        return res.status(500).json({ ok: false, error: msg });
+      }
+    },
+  );
+
+  /**
+   * POST /api/customer-health/calibrate
+   *
+   * Variante do calculate-preview que aceita pesos customizados.
+   * Permite owner testar calibração dos 6 componentes (punctuality, loyalty,
+   * reliability, sentiment, engagement, externalScore) com a soma = 1.0.
+   *
+   * Útil para:
+   *   - Frontend calibrador (/health/calibrador)
+   *   - Validar impacto de mudança de pesos antes de aplicar tenant-wide
+   */
+  router.post(
+    "/api/customer-health/calibrate",
+    jsonParser,
+    requireAuth,
+    (req: Request, res: Response) => {
+      const parsed = calibrateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          ok: false,
+          error: "invalid_input",
+          details: parsed.error.format(),
+        });
+      }
+
+      try {
+        const { inputs, weights } = parsed.data;
+        const score = calculateHealthScore(inputs, weights);
+        const recommendation = recommendAction(inputs, score);
+
+        logger.debug(
+          {
+            action: "customer_health_calibrate",
+            userId: req.session?.userId,
+            healthScore: score.healthScore,
+            healthTier: score.healthTier,
+          },
+          "Customer health calibrate computed",
+        );
+
+        return res.json({
+          ok: true,
+          data: {
+            healthScore: score.healthScore,
+            healthTier: score.healthTier,
+            components: score.components,
+            predictions: {
+              inadimplenciaRisk30dPercent: score.inadimplenciaRisk30dPercent,
+              churnRisk60dPercent: score.churnRisk60dPercent,
+            },
+            recommendation,
+            weightsApplied: weights,
+          },
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "calculation_failed";
+        logger.error(
+          { action: "customer_health_calibrate_error", err: msg },
+          "Customer health calibrate failed",
         );
         return res.status(500).json({ ok: false, error: msg });
       }

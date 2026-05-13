@@ -195,6 +195,7 @@ const SIDEBAR_GROUPS: SidebarGroupDef[] = [
     icon: FlaskConical,
     items: [
       { title: "Health Score 360º", url: "/health/simulador", icon: HeartPulse },
+      { title: "Calibrador de Pesos", url: "/health/calibrador", icon: Settings },
       { title: "Saída Silenciosa", url: "/silent-exit/simulador", icon: TrendingUp },
       { title: "Geo-Monitor Concorrente", url: "/competitor-monitor/simulador", icon: Radar },
       { title: "Pix Dinâmico Decay", url: "/pix-dynamic/simulador", icon: Timer },
