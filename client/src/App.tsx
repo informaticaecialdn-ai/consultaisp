@@ -63,6 +63,9 @@ const SilentExitSimulatorPage = lazy(() => import("@/pages/provedor/silent-exit-
 const CompetitorMonitorSimulatorPage = lazy(() => import("@/pages/provedor/competitor-monitor-simulator"));
 // Spec 009 — Pix Dinâmico
 const PixDynamicSimulatorPage = lazy(() => import("@/pages/provedor/pix-dynamic-simulator"));
+// Spec 012.5 — Cliente 360 demos (mockados)
+const Cliente360CobrancaPage = lazy(() => import("@/pages/provedor/cliente-360-cobranca"));
+const Cliente360RecuperacaoPage = lazy(() => import("@/pages/provedor/cliente-360-recuperacao"));
 
 // Public
 const LandingPage = lazy(() => import("@/pages/public/landingpage"));
@@ -127,6 +130,9 @@ function Router() {
         <Route path="/competitor-monitor/simulador" component={CompetitorMonitorSimulatorPage} />
         {/* Spec 009 — Pix Dinâmico tier simulator */}
         <Route path="/pix-dynamic/simulador" component={PixDynamicSimulatorPage} />
+        {/* Spec 012.5 — Cliente 360 (mockados, replicam mockups HTML) */}
+        <Route path="/cliente/:customerId/360-cobranca" component={Cliente360CobrancaPage} />
+        <Route path="/cliente/:customerId/360-recuperacao" component={Cliente360RecuperacaoPage} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>
@@ -143,6 +149,7 @@ const PROVIDER_ONLY_PATHS = [
   "/silent-exit",  // Spec 013
   "/competitor-monitor",  // Spec 014
   "/pix-dynamic",  // Spec 009
+  "/cliente",  // Spec 012.5 — Cliente 360 (dossiê + 360-cobranca + 360-recuperacao)
 ];
 
 function ChangePasswordModal() {

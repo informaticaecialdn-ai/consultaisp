@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { useRoute } from "wouter";
+import { useRoute, Link } from "wouter";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { FileText, ShieldCheck } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { FileText, ShieldCheck, LayoutGrid, RotateCcw } from "lucide-react";
 import { DossieExportButton } from "@/components/dossie/DossieExportButton";
 import { CustomerHealthPanel } from "@/components/health/CustomerHealthPanel";
 import { CustomerProfilePanel } from "@/components/customer/CustomerProfilePanel";
@@ -46,6 +47,34 @@ export default function ClienteDossiePage() {
           para defesa em Procon, Anatel ou Justiça.
         </p>
       </div>
+
+      {/* Spec 012.5 — links pras telas Cliente 360 (mockadas) */}
+      <Card className="p-4 bg-gradient-to-r from-emerald-50 to-amber-50 border-emerald-200">
+        <div className="flex items-start gap-3">
+          <LayoutGrid className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-emerald-900">Cliente 360º — visão operacional completa (DEMO)</p>
+            <p className="text-xs text-muted-foreground mt-1 mb-3">
+              Telas com dados mockados replicando os mockups visuais. Backend real será construído nas Specs 010A/011/012/013.
+              Use para ver como vai ficar a tela operacional final dos agentes Marcos/Bruno/Rafael/Carla/Daniel/Lucas.
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              <Link href={`/cliente/${customerId}/360-cobranca`}>
+                <Button size="sm" variant="default" className="gap-1.5 bg-emerald-700 hover:bg-emerald-800">
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  Cliente 360 Cobrança
+                </Button>
+              </Link>
+              <Link href={`/cliente/${customerId}/360-recuperacao`}>
+                <Button size="sm" variant="outline" className="gap-1.5 border-rose-300 text-rose-700 hover:bg-rose-50">
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Cliente 360 Recuperação
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </Card>
 
       <Card className="p-6 space-y-5">
         <div className="grid grid-cols-2 gap-4">
