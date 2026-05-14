@@ -1,5 +1,9 @@
 import OpenAI from "openai";
 
+// Modelo configurável via env var. Default = DeepSeek (compatível com OpenAI SDK).
+// Override possível: AI_ANALYSIS_MODEL="gpt-4o-mini" ou "deepseek-reasoner" etc.
+const AI_MODEL = process.env.AI_ANALYSIS_MODEL || "deepseek-chat";
+
 function getOpenAIClient() {
   return new OpenAI({
     apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -232,7 +236,7 @@ export async function streamConsultationAnalysis(
   const prompt = buildConsultationPrompt(consultationData);
 
   const stream = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: AI_MODEL,
     messages: [
       { role: "system", content: CONSULTATION_SYSTEM_PROMPT },
       { role: "user", content: prompt },
@@ -256,7 +260,7 @@ export async function streamAntiFraudAnalysis(
   const prompt = buildAntiFraudPrompt(alerts, customers);
 
   const stream = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: AI_MODEL,
     messages: [
       { role: "system", content: ANTIFRAUD_SYSTEM_PROMPT },
       { role: "user", content: prompt },

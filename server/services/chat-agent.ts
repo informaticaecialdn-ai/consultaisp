@@ -98,7 +98,7 @@ export async function generateChatResponse(
     messages.push({ role: "user", content: userMessage });
 
     const response = await client.chat.completions.create({
-      model: process.env.AI_CHAT_MODEL || "gpt-4o-mini",
+      model: process.env.AI_CHAT_MODEL || process.env.AI_ANALYSIS_MODEL || "deepseek-chat",
       max_tokens: 500,
       temperature: 0.7,
       messages,
