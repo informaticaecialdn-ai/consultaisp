@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import ConsultaIdleState from "@/components/consulta/ConsultaIdleState";
 import { useToast } from "@/hooks/use-toast";
 import {
   Search,
@@ -305,6 +306,19 @@ export default function ConsultaSPCPage() {
                 <span className="font-bold text-[var(--color-brand)]">4 creditos</span> e retorna dados cadastrais, score, restricoes financeiras, protestos e historico de consultas.
               </p>
             </div>
+
+            {!mutation.isPending && !result && (
+              <div className="mt-6">
+                <ConsultaIdleState
+                  consultations={data?.consultations ?? []}
+                  onRerun={(cpfCnpj) => { setQuery(cpfCnpj); mutation.mutate(cpfCnpj); }}
+                  emptyTitle="Nenhuma consulta SPC ainda"
+                  emptyDescription="A consulta oficial no SPC Brasil retorna dados cadastrais, restrições financeiras, protestos e score. Cada consulta consome 4 créditos."
+                  emptyCta="FAZER PRIMEIRA CONSULTA"
+                  searchInputTestId="input-spc-search"
+                />
+              </div>
+            )}
 
             {result && (
               <div className="mt-6 space-y-5" data-testid="spc-result">

@@ -15,19 +15,26 @@ type Consultation = {
   id: number;
   cpfCnpj: string;
   score: number | null;
-  approved: boolean;
-  decisionReco: string | null;
-  cost: number;
   createdAt: string | null;
+  /** Presentes no ISP; ausentes no SPC, que so grava score. */
+  approved?: boolean;
+  decisionReco?: string | null;
+  cost?: number;
 };
+
+type Metric = { label: string; value: string | number; suffix?: string; testId: string };
 
 interface Props {
   consultations: Consultation[];
-  todayCount: number;
-  monthCount: number;
-  approvalRate: number;
-  avgScore: number;
+  /** Omitir quando a pagina ja exibe metricas proprias acima (caso do SPC). */
+  metrics?: Metric[];
   onRerun: (cpfCnpj: string) => void;
+  /** Copy do estado vazio — muda entre ISP e SPC. */
+  emptyTitle: string;
+  emptyDescription: string;
+  emptyCta: string;
+  /** testid do input de busca, para o CTA do estado vazio focar o campo certo */
+  searchInputTestId: string;
 }
 
 const DECISION = {
@@ -58,7 +65,7 @@ function relativeDate(d: string | null) {
   return `${Math.floor(min / 1440)}d`;
 }
 
-function Metric({ label, value, suffix, testId }: { label: string; value: string | number; suffix?: string; testId: string }) {
+function MetricCard({ label, value, suffix, testId }: Metric) {
   return (
     <div className="bg-[var(--color-surface)] rounded-lg px-5 py-4 shadow-[0_0_0_1px_var(--ring-subtle)]">
       <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--color-muted)]">
@@ -72,31 +79,31 @@ function Metric({ label, value, suffix, testId }: { label: string; value: string
   );
 }
 
-function focusSearch() {
-  const el = document.querySelector<HTMLInputElement>('[data-testid="input-isp-search"]');
+function focusSearch(testId: string) {
+  const el = document.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`);
   el?.focus();
   el?.scrollIntoView({ block: "center", behavior: "smooth" });
 }
 
 export default function ConsultaIdleState({
   consultations,
-  todayCount,
-  monthCount,
-  approvalRate,
-  avgScore,
+  metrics,
   onRerun,
+  emptyTitle,
+  emptyDescription,
+  emptyCta,
+  searchInputTestId,
 }: Props) {
   const recent = consultations.slice(0, 5);
 
   return (
     <div className="space-y-6" data-testid="consulta-idle-state">
       {/* Metricas — promovidas do cabecalho, onde estavam comprimidas em texto mono inline */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Metric label="Consultas hoje" value={todayCount} testId="text-isp-today" />
-        <Metric label="No mês" value={monthCount} testId="text-isp-month" />
-        <Metric label="Taxa de aprovação" value={approvalRate} suffix="%" testId="text-isp-approval" />
-        <Metric label="Score médio" value={avgScore} suffix="/1000" testId="text-isp-avg-score" />
-      </div>
+      {metrics && metrics.length > 0 && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {metrics.map(m => <MetricCard key={m.testId} {...m} />)}
+        </div>
+      )}
 
       {recent.length > 0 ? (
         <div>
@@ -120,9 +127,14 @@ export default function ConsultaIdleState({
                     data-testid={`rerun-${c.id}`}
                     className="group w-full min-h-[44px] flex items-center gap-3 px-4 py-3 rounded-lg bg-[var(--color-surface)] text-left shadow-[0_0_0_1px_var(--ring-subtle)] hover:shadow-[0_0_0_1px_var(--ring-warm)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))] motion-safe:transition-shadow"
                   >
+                    {/* SPC nao grava aprovacao — nesse caso o dot herda a faixa do score */}
                     <span
                       className="w-2 h-2 rounded-full flex-none"
-                      style={{ background: c.approved ? "var(--color-success)" : "var(--color-danger)" }}
+                      style={{
+                        background: c.approved === undefined
+                          ? scoreToken(c.score)
+                          : c.approved ? "var(--color-success)" : "var(--color-danger)",
+                      }}
                     />
 
                     <span className="font-mono text-sm text-[var(--color-ink)] tabular-nums">
@@ -143,9 +155,11 @@ export default function ConsultaIdleState({
                     )}
 
                     <span className="ml-auto flex items-center gap-3">
-                      <span className="font-mono text-[10px] text-[var(--color-muted)] tabular-nums">
-                        {c.cost === 0 ? "grátis" : `-${c.cost} cred`}
-                      </span>
+                      {c.cost !== undefined && (
+                        <span className="font-mono text-[10px] text-[var(--color-muted)] tabular-nums">
+                          {c.cost === 0 ? "grátis" : `-${c.cost} cred`}
+                        </span>
+                      )}
                       <span className="hidden sm:flex items-center gap-1 font-mono text-[10px] text-[var(--color-muted)] tabular-nums">
                         <Clock className="w-3 h-3" />
                         {relativeDate(c.createdAt)}
@@ -163,19 +177,18 @@ export default function ConsultaIdleState({
         <div className="rounded-lg bg-[var(--color-surface)] shadow-[0_0_0_1px_var(--ring-subtle)] px-6 py-12 text-center">
           <Search className="w-8 h-8 mx-auto mb-4 text-[var(--color-muted)] opacity-50" />
           <h3 className="font-display font-semibold text-base text-[var(--color-ink)]">
-            Nenhuma consulta ainda
+            {emptyTitle}
           </h3>
           <p className="mt-2 mb-6 mx-auto max-w-[46ch] text-sm text-[var(--color-muted)]">
-            Digite o CPF de um candidato antes de liberar a instalação. Você recebe o score
-            de risco e o histórico dele em toda a rede de provedores.
+            {emptyDescription}
           </p>
           <button
             type="button"
-            onClick={focusSearch}
+            onClick={() => focusSearch(searchInputTestId)}
             data-testid="button-empty-consultar"
             className="min-h-[44px] font-mono text-[11px] tracking-[0.06em] px-4 py-2 rounded-lg bg-[var(--color-brand)] text-[var(--color-surface)] shadow-[0_0_0_1px_var(--color-brand)] hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))] motion-safe:transition-opacity active:scale-[0.97]"
           >
-            FAZER PRIMEIRA CONSULTA
+            {emptyCta}
           </button>
         </div>
       )}

@@ -1,5 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -207,13 +208,40 @@ export default function AntiFraudePage() {
 
       {/* Cards de Alertas */}
       {alertsLoading ? (
-        <div className="p-8 text-center text-muted-foreground">Carregando alertas...</div>
+        /* Skeleton em vez de texto — DESIGN_SYSTEM.md secao 6 */
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" data-testid="alerts-loading">
+          {[0, 1].map(i => (
+            <div key={i} className="rounded-lg bg-[var(--color-surface)] shadow-[0_0_0_1px_var(--ring-subtle)] p-4 space-y-3">
+              <div className="flex items-center gap-3">
+                <Skeleton className="w-9 h-9 rounded-lg" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-2/5" />
+                  <Skeleton className="h-3 w-1/4" />
+                </div>
+              </div>
+              <Skeleton className="h-3 w-full" />
+              <Skeleton className="h-3 w-3/4" />
+            </div>
+          ))}
+        </div>
       ) : filtered.length === 0 ? (
-        <Card className="p-8 text-center">
-          <ShieldAlert className="w-10 h-10 mx-auto mb-3 text-green-400" />
-          <p className="font-medium text-green-700 dark:text-green-300">Nenhum alerta</p>
-          <p className="text-sm text-muted-foreground mt-1">Seus clientes nao estao sendo consultados por outros provedores.</p>
-        </Card>
+        <div className="rounded-lg bg-[var(--color-surface)] shadow-[0_0_0_1px_var(--ring-subtle)] px-6 py-12 text-center" data-testid="alerts-empty">
+          <ShieldAlert className="w-8 h-8 mx-auto mb-4 text-[var(--color-success)]" />
+          <h3 className="font-display font-semibold text-base text-[var(--color-ink)]">
+            Nenhum alerta ativo
+          </h3>
+          <p className="mt-2 mb-6 mx-auto max-w-[46ch] text-sm text-[var(--color-muted)]">
+            Nenhum cliente seu foi consultado por outro provedor. Você é avisado aqui assim
+            que alguém tentar migrar.
+          </p>
+          <a
+            href="/inadimplentes"
+            data-testid="link-empty-inadimplentes"
+            className="inline-flex items-center min-h-[44px] font-mono text-[11px] tracking-[0.06em] px-4 py-2 rounded-lg bg-[var(--color-tag-bg)] text-[var(--color-ink)] hover:shadow-[0_0_0_1px_var(--ring-warm)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))] motion-safe:transition-shadow"
+          >
+            VER INADIMPLENTES
+          </a>
+        </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {filtered.map((alert) => (
@@ -225,14 +253,31 @@ export default function AntiFraudePage() {
       {/* Ranking dos Piores Devedores */}
       <Card className="p-0 overflow-hidden">
         <div className="p-4 border-b flex items-center gap-2">
-          <DollarSign className="w-4 h-4 text-orange-500" />
+          <DollarSign className="w-4 h-4 text-[var(--score-low)]" />
           <h2 className="font-semibold">Ranking de Risco — Seus Clientes</h2>
           <span className="ml-auto text-xs text-muted-foreground">{topDevedores.length} clientes</span>
         </div>
         {risksLoading ? (
-          <div className="p-8 text-center text-muted-foreground">Carregando...</div>
+          <div className="p-4 space-y-3" data-testid="risks-loading">
+            {[0, 1, 2].map(i => (
+              <div key={i} className="flex items-center gap-3">
+                <Skeleton className="w-6 h-6 rounded" />
+                <Skeleton className="h-4 flex-1 max-w-[220px]" />
+                <Skeleton className="h-4 w-16 ml-auto" />
+              </div>
+            ))}
+          </div>
         ) : topDevedores.length === 0 ? (
-          <div className="p-8 text-center text-muted-foreground">Nenhum cliente com risco identificado.</div>
+          <div className="px-6 py-12 text-center" data-testid="risks-empty">
+            <DollarSign className="w-8 h-8 mx-auto mb-4 text-[var(--color-muted)] opacity-50" />
+            <h3 className="font-display font-semibold text-base text-[var(--color-ink)]">
+              Nenhum cliente em risco
+            </h3>
+            <p className="mt-2 mx-auto max-w-[46ch] text-sm text-[var(--color-muted)]">
+              O ranking aparece quando houver inadimplência registrada — por importação de
+              CSV ou sincronização com seu ERP.
+            </p>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -254,13 +299,13 @@ export default function AntiFraudePage() {
                       <p className="font-medium">{c.name}</p>
                       <p className="text-xs text-muted-foreground font-mono">{fmtCpf(c.cpfCnpj)}</p>
                     </td>
-                    <td className="px-4 py-3 font-semibold text-red-600">{fmt(c.overdueAmount)}</td>
+                    <td className="px-4 py-3 font-semibold text-[var(--color-danger)]">{fmt(c.overdueAmount)}</td>
                     <td className="px-4 py-3">
-                      <span className={c.daysOverdue > 90 ? "text-red-600 font-semibold" : ""}>{c.daysOverdue}d</span>
+                      <span className={c.daysOverdue > 90 ? "text-[var(--color-danger)] font-semibold" : ""}>{c.daysOverdue}d</span>
                     </td>
                     <td className="px-4 py-3">
                       {c.recentConsultations > 0 ? (
-                        <Badge className="bg-[var(--color-gold-bg)] text-[var(--score-low)] dark:bg-orange-900/30 dark:text-orange-300 text-xs">
+                        <Badge className="bg-[var(--color-gold-bg)] text-[var(--score-low)] text-xs">
                           {c.recentConsultations}x
                         </Badge>
                       ) : "—"}
@@ -295,9 +340,9 @@ function AlertCard({ alert, onResolve, onDismiss }: {
     <Card className={`overflow-hidden ${isResolved ? "opacity-60" : ""}`}>
       {/* Header do card */}
       <div className={`px-4 py-2 flex items-center justify-between ${
-        daysOverdue > 90 ? "bg-red-500 text-white" :
-        daysOverdue > 30 ? "bg-orange-500 text-white" :
-        "bg-amber-500 text-white"
+        daysOverdue > 90 ? "bg-[var(--color-danger)] text-white" :
+        daysOverdue > 30 ? "bg-[var(--score-low)] text-white" :
+        "bg-[var(--color-gold)] text-white"
       }`}>
         <div className="flex items-center gap-2">
           <AlertTriangle className="w-4 h-4" />
@@ -324,14 +369,14 @@ function AlertCard({ alert, onResolve, onDismiss }: {
               <DollarSign className="w-3 h-3" />
               Divida
             </div>
-            <p className="font-bold text-red-600">{fmt(overdueAmt)}</p>
+            <p className="font-bold text-[var(--color-danger)]">{fmt(overdueAmt)}</p>
           </div>
           <div className="bg-muted/40 rounded-lg p-3">
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
               <Clock className="w-3 h-3" />
               Dias de Atraso
             </div>
-            <p className={`font-bold ${daysOverdue > 90 ? "text-red-600" : "text-orange-600"}`}>{daysOverdue} dias</p>
+            <p className={`font-bold ${daysOverdue > 90 ? "text-[var(--color-danger)]" : "text-[var(--score-low)]"}`}>{daysOverdue} dias</p>
           </div>
           <div className="bg-muted/40 rounded-lg p-3">
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
@@ -346,7 +391,7 @@ function AlertCard({ alert, onResolve, onDismiss }: {
               <ShieldAlert className="w-3 h-3" />
               Score
             </div>
-            <p className={`font-bold ${score < 30 ? "text-red-600" : score < 60 ? "text-orange-600" : "text-green-600"}`}>
+            <p className={`font-bold ${score < 30 ? "text-[var(--color-danger)]" : score < 60 ? "text-[var(--score-low)]" : "text-[var(--color-success)]"}`}>
               {Math.round(score)}/100
             </p>
             <p className="text-xs text-muted-foreground">
@@ -357,9 +402,9 @@ function AlertCard({ alert, onResolve, onDismiss }: {
 
         {/* Quem consultou + data */}
         {alert.consultingProviderName && (
-          <div className="flex items-center justify-between gap-2 bg-blue-50 dark:bg-blue-950/20 rounded-lg px-3 py-2">
+          <div className="flex items-center justify-between gap-2 bg-[var(--color-brand-bg)] rounded-lg px-3 py-2">
             <div className="flex items-center gap-2">
-              <Users className="w-4 h-4 text-blue-500" />
+              <Users className="w-4 h-4 text-[var(--color-brand)]" />
               <span className="text-sm">Consultado por</span>
               <span className="font-semibold text-sm">{alert.consultingProviderName}</span>
             </div>
@@ -372,8 +417,8 @@ function AlertCard({ alert, onResolve, onDismiss }: {
         )}
 
         {/* Prejuizo estimado */}
-        <div className="bg-red-50 dark:bg-red-950/20 border border-[var(--color-danger)] dark:border-red-800 rounded-lg p-3">
-          <p className="text-xs font-semibold text-red-700 dark:text-red-400 uppercase mb-2">Prejuizo Estimado se Migrar</p>
+        <div className="bg-[var(--color-danger-bg)] border border-[var(--color-danger)] rounded-lg p-3">
+          <p className="text-xs font-semibold text-[var(--color-danger)] uppercase mb-2">Prejuizo Estimado se Migrar</p>
           <div className="grid grid-cols-3 gap-2 text-center">
             <div>
               <p className="text-xs text-muted-foreground">Divida</p>
@@ -388,22 +433,22 @@ function AlertCard({ alert, onResolve, onDismiss }: {
               <p className="font-semibold text-sm">{fmt(CUSTO_INSTALACAO)}</p>
             </div>
           </div>
-          <div className="border-t border-red-200 dark:border-red-800 mt-2 pt-2 text-center">
-            <p className="text-lg font-bold text-red-600">{fmt(totalPrejuizo)}</p>
+          <div className="border-t border-[var(--color-danger)] mt-2 pt-2 text-center">
+            <p className="text-lg font-bold text-[var(--color-danger)]">{fmt(totalPrejuizo)}</p>
           </div>
         </div>
 
         {/* Acoes */}
         {!isResolved && (
           <div className="flex items-center gap-2 pt-1">
-            <Button size="sm" className="gap-1.5 flex-1 bg-green-600 hover:bg-green-700" onClick={() => onResolve(alert.id)}>
+            <Button size="sm" className="gap-1.5 flex-1 bg-[var(--color-success)] hover:opacity-90" onClick={() => onResolve(alert.id)}>
               <CheckCircle className="w-3.5 h-3.5" /> Resolvido
             </Button>
             <Button size="sm" variant="outline" className="gap-1.5 flex-1" onClick={() => onDismiss(alert.id)}>
               <XCircle className="w-3.5 h-3.5" /> Ignorar
             </Button>
             <a href={`tel:${(alert.customerCpfCnpj || "").replace(/\D/g, "")}`} className="flex-1">
-              <Button size="sm" variant="outline" className="gap-1.5 w-full border-green-500 text-green-600 hover:bg-green-50">
+              <Button size="sm" variant="outline" className="gap-1.5 w-full border-[var(--color-success)] text-[var(--color-success)] hover:bg-[var(--color-success-bg)]">
                 <Phone className="w-3.5 h-3.5" /> Ligar
               </Button>
             </a>
@@ -421,10 +466,10 @@ function AlertCard({ alert, onResolve, onDismiss }: {
 
 function RiskBadge({ level }: { level: string }) {
   const config: Record<string, string> = {
-    critical: "bg-[var(--color-danger-bg)] text-[var(--color-danger)] dark:bg-red-900/30 dark:text-red-300",
-    high: "bg-[var(--color-gold-bg)] text-[var(--score-low)] dark:bg-orange-900/30 dark:text-orange-300",
+    critical: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]",
+    high: "bg-[var(--color-gold-bg)] text-[var(--score-low)]",
     medium: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]",
-    low: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+    low: "bg-[var(--color-success-bg)] text-[var(--color-success)]",
   };
   const labels: Record<string, string> = { critical: "Critico", high: "Alto", medium: "Medio", low: "Baixo" };
   return <Badge className={`text-xs ${config[level] || config.low}`}>{labels[level] || level}</Badge>;

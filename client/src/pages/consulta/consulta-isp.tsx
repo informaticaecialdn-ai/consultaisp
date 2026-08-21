@@ -200,11 +200,17 @@ export default function ConsultaISPPage() {
             {!mutation.isPending && !result && (
               <ConsultaIdleState
                 consultations={consultations}
-                todayCount={data?.todayCount ?? 0}
-                monthCount={data?.monthCount ?? 0}
-                approvalRate={approvalRate}
-                avgScore={avgScore}
+                metrics={[
+                  { label: "Consultas hoje", value: data?.todayCount ?? 0, testId: "text-isp-today" },
+                  { label: "No mês", value: data?.monthCount ?? 0, testId: "text-isp-month" },
+                  { label: "Taxa de aprovação", value: approvalRate, suffix: "%", testId: "text-isp-approval" },
+                  { label: "Score médio", value: avgScore, suffix: "/1000", testId: "text-isp-avg-score" },
+                ]}
                 onRerun={(cpfCnpj) => handleSearch({ cpfCnpj })}
+                emptyTitle="Nenhuma consulta ainda"
+                emptyDescription="Digite o CPF de um candidato antes de liberar a instalação. Você recebe o score de risco e o histórico dele em toda a rede de provedores."
+                emptyCta="FAZER PRIMEIRA CONSULTA"
+                searchInputTestId="input-isp-search"
               />
             )}
 
