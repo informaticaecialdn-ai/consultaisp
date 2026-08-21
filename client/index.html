@@ -9,6 +9,20 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+      // Aplica o tema ANTES do primeiro paint, evitando flash de tema errado.
+      // Roda antes do React: o toggle so grava a preferencia e recarrega.
+      (function () {
+        try {
+          var t = localStorage.getItem("consultaisp-tema");
+          if (t !== "light" && t !== "dark") {
+            t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+          }
+          document.documentElement.setAttribute("data-theme", t);
+          document.documentElement.classList.toggle("dark", t === "dark");
+        } catch (e) { /* modo privado: segue no tema claro */ }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

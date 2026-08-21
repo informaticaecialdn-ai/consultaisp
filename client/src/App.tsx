@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import ThemeToggle from "@/components/theme-toggle";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ChatWidget } from "@/components/chat-widget";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -232,17 +233,20 @@ function AuthenticatedApp() {
   }
 
   const style = {
-    "--sidebar-width": "16rem",
+    "--sidebar-width": "248px",   /* handoff Sidebar.md */
     "--sidebar-width-icon": "3rem",
   };
 
   return (
     <SidebarProvider style={style as React.CSSProperties}>
-      <div className="flex h-screen w-full">
+      <div className="flex h-screen w-full" data-module="consulta">
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0">
-          <header className="flex items-center h-12 px-3 border-b-[0.5px] border-[var(--color-border)] bg-[var(--color-surface)] sticky top-0 z-50">
+          <header className="flex items-center h-12 px-3 border-b border-[var(--border)] bg-[var(--surface)] sticky top-0 z-50">
             <SidebarTrigger data-testid="button-sidebar-toggle" aria-label="Abrir menu lateral" />
+            <div className="ml-auto flex items-center gap-2">
+              <ThemeToggle />
+            </div>
           </header>
           <main className="flex-1 overflow-auto bg-[var(--color-bg)]">
             <Router />

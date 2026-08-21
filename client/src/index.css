@@ -2,99 +2,138 @@
 @tailwind components;
 @tailwind utilities;
 
-/* LIGHT MODE — Bureau: neutros de stripe.md sobre geometria de intercom.md
-   Os NOMES das variaveis foram mantidos de proposito: 100+ arquivos os consomem.
-   Trocamos os valores, nao a API. */
+/* LIGHT — pele "Razao", voz do modulo Consulta (verbo: Decidir).
+   Uma cor de marca so (berinjela). Saturacao apenas quando significa risco.
+   O numero e sempre o heroi. Estrutura por hairline de 1px, sem gradiente
+   nem sombra dramatica.
+
+   Os nomes --color-* sao a API consumida por 100+ arquivos e foram mantidos.
+   Os nomes curtos da pele (--brand, --ok, --past...) sao os canonicos novos;
+   os --color-* apontam para eles. */
 :root {
-  /* Superficies — instrumento, nao papel */
-  --color-bg:         #F7F9FC;  /* Ground — tint da familia da borda Stripe (derivado) */
-  --color-surface:    #FFFFFF;  /* Stripe Pure White — cards e containers */
-  --color-border:     #E5EDF5;  /* Stripe Border Default */
-  --color-ink:        #061B31;  /* Stripe Deep Navy — texto principal */
-  --color-muted:      #64748D;  /* Stripe Body — texto secundario */
-  --color-tag-bg:     #EFF4F9;  /* Tint neutro — fundo de chip e botao neutro */
+  /* ── Superficies: quatro niveis ───────────────────────────── */
+  --bg:             #F6F6F9;  /* canvas */
+  --surface:        #FFFFFF;  /* card */
+  --surface-2:      #FAFAFC;  /* card aninhado, cabecalho de tabela */
+  --surface-inset:  #F1F1F5;  /* campo, poco, trilha de barra */
 
-  /* Marca — acao, nao acolhimento */
-  --color-brand:      #533AFD;  /* Stripe Purple — CTA, link, estado ativo */
-  --color-steel:      #4434D4;  /* Stripe Purple Hover */
-  --color-brand-bg:   #EEECFF;  /* Purple tint — fundo de acento */
+  /* ── Hairlines: a estrutura do sistema ────────────────────── */
+  --border-faint:   #EFEFF3;
+  --border:         #E4E4EA;
+  --border-strong:  #D2D2DC;
 
-  /* Semanticas — contraste AA sobre branco */
-  --color-gold:       #9B6829;  /* Stripe Lemon — atencao, revisar */
-  --color-gold-bg:    #FBF1E2;
-  --color-danger:     #C41C1C;  /* Intercom Report Red — erro, rejeitar */
-  --color-danger-bg:  #FDE9E9;
-  --color-success:    #108C3D;  /* Stripe Success Text — ok, aprovar */
-  --color-success-bg: #E4F6EA;
+  /* ── Texto ────────────────────────────────────────────────── */
+  --ink:            #1F1D29;  /* quase preto com fundo violeta */
+  --ink-2:          #45414F;
+  --muted:          #6B6878;
 
-  /* Aneis de 1px — nomes mantidos, agora em neutro frio.
-     intercom.md: profundidade vem de borda, nao de sombra projetada. */
-  --ring-warm:        #D3DFEC;
-  --ring-subtle:      #E5EDF5;
-  --ring-deep:        #C2D2E3;
+  /* ── Marca / acao: berinjela, a cor-heroi do modulo ───────── */
+  --brand:          #4A4670;
+  --action:         #4A4670;
+  --brand-hover:    #3C3860;
+  --brand-bg:       #EDECF3;  /* item ativo de sidebar, badge de credito */
+  --brand-soft:     #EDECF3;
+  --brand-ink:      #4A4670;
 
-  /* Score semantico — faixas espelhadas de server/utils/isp-score.ts */
-  --score-high:       var(--color-success);     /* 701-1000 */
-  --score-medium:     var(--color-gold);        /* 501-700  */
-  --score-low:        #C43D02;                  /* 301-500 — Intercom Report Orange, escurecido para AA */
-  --score-critical:   var(--color-danger);      /* 0-300    */
+  /* Escala de texto com os nomes do handoff */
+  --text:           #1F1D29;
+  --text-2:         #45414F;
+  --text-muted:     #6B6878;
+  --text-faint:     #918EA0;  /* rotulo de grupo — um passo alem do muted */
 
-  /* Paleta categorica — identidade (ERP, tags), NAO status.
-     Derivada da report palette do intercom.md, escurecida para AA sobre branco.
+  /* ── Semanticas de status ─────────────────────────────────── */
+  --ok:             #1F7A4C;  --ok-bg:      #E6F3EC;  /* em dia, risco baixo */
+  --gated:          #A9741B;  --gated-bg:   #FBF1DF;  /* risco moderado, migrador */
+  --past:           #8C2F39;  --past-bg:    #F9E8EA;  /* atraso, negativacao */
+  --danger:         #B3261E;  --danger-bg:  #FBE7E5;  /* alerta alto */
+
+  /* ── Proveniencia do dado ─────────────────────────────────── */
+  --mock:           #6B6878;  --mock-bg:    #F1F1F5;  /* dado simulado */
+  --wire:           #1F6F7A;  --wire-bg:    #E4F1F3;  /* dado real do ERP */
+
+  /* ── Ponte para a API antiga (--color-*) ──────────────────── */
+  --color-bg:         #F6F6F9;
+  --color-surface:    #FFFFFF;
+  --color-border:     #E4E4EA;
+  --color-ink:        #1F1D29;
+  --color-muted:      #6B6878;
+  --color-tag-bg:     #F1F1F5;
+  --color-brand:      #4A4670;
+  --color-steel:      #3C3860;
+  --color-brand-bg:   #EDECF3;
+  --color-success:    #1F7A4C;  --color-success-bg: #E6F3EC;
+  --color-gold:       #A9741B;  --color-gold-bg:    #FBF1DF;
+  --color-danger:     #B3261E;  --color-danger-bg:  #FBE7E5;
+
+  /* Aneis de 1px — nomes herdados, valores da nova escala de borda */
+  --ring-subtle:      #EFEFF3;
+  --ring-warm:        #E4E4EA;
+  --ring-deep:        #D2D2DC;
+
+  /* ── Score — faixas espelhadas de server/utils/isp-score.ts ─
+     Aqui a escala de tres negativos ganha uso: 501-700 e "moderado" (gated),
+     301-500 e "atraso" (past) e abaixo de 301 e alerta (danger). */
+  --score-high:       #1F7A4C;  /* 701-1000 */
+  --score-medium:     #A9741B;  /* 501-700  */
+  --score-low:        #8C2F39;  /* 301-500  */
+  --score-critical:   #B3261E;  /* 0-300    */
+
+  /* ── Paleta categorica — identidade (ERP, tags), NAO status.
+     Abafada de proposito: nao compete com a berinjela nem com as semanticas.
      Use apenas em dot/marcador, nunca em fundo de chip. */
-  --cat-blue:         #1E6FBF;
-  --cat-indigo:       #533AFD;
-  --cat-violet:       #6B4FD8;
-  --cat-teal:         #10707A;
-  --cat-green:        #0B8A32;
-  --cat-lime:         #6E8A0F;
-  --cat-amber:        #9B6829;
-  --cat-orange:       #C43D02;
-  --cat-red:          #C41C1C;
-  --cat-pink:         #C4155A;
-  --cat-slate:        #64748D;
-  --cat-navy:         #273951;
+  --cat-blue:         #3B6E96;
+  --cat-indigo:       #4A4670;
+  --cat-violet:       #6A5C86;
+  --cat-teal:         #1F6F7A;
+  --cat-green:        #1F7A4C;
+  --cat-lime:         #63783A;
+  --cat-amber:        #A9741B;
+  --cat-orange:       #A85A2A;
+  --cat-red:          #B3261E;
+  --cat-pink:         #97456A;
+  --cat-slate:        #6B6878;
+  --cat-navy:         #35405C;
 
   --button-outline: rgba(0,0,0, .10);
   --badge-outline: rgba(0,0,0, .05);
   --opaque-button-border-intensity: -8;
   --elevate-1: rgba(0,0,0, .03);
   --elevate-2: rgba(0,0,0, .08);
-  /* shadcn HSL tokens — Bureau (espelham os hex acima) */
-  --background: 213 46% 98%;            /* Ground #F7F9FC */
-  --foreground: 209 92% 11%;            /* Deep Navy #061B31 */
-  --border: 210 47% 93%;                /* Border #E5EDF5 */
-  --card: 0 0% 100%;                    /* Pure White */
-  --card-foreground: 209 92% 11%;
-  --card-border: 210 47% 93%;
+  /* shadcn HSL tokens — espelham os hex da pele acima */
+  --background: 240 20% 97%;            /* --bg #F6F6F9 */
+  --foreground: 250 17% 14%;            /* --ink #1F1D29 */
+  --border: 240 12% 91%;                /* --border #E4E4EA */
+  --card: 0 0% 100%;                    /* --surface */
+  --card-foreground: 250 17% 14%;
+  --card-border: 240 12% 91%;
   --sidebar: 0 0% 100%;
-  --sidebar-foreground: 209 92% 11%;
-  --sidebar-border: 210 47% 93%;
-  --sidebar-primary: 249 97% 61%;       /* Stripe Purple #533AFD */
+  --sidebar-foreground: 250 17% 14%;
+  --sidebar-border: 240 12% 91%;
+  --sidebar-primary: 246 23% 36%;       /* berinjela #4A4670 */
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 249 100% 96%;       /* Purple tint #EEECFF */
-  --sidebar-accent-foreground: 249 97% 61%;
-  --sidebar-ring: 249 97% 61%;
+  --sidebar-accent: 249 23% 94%;        /* --brand-bg #EDECF3 */
+  --sidebar-accent-foreground: 246 23% 36%;
+  --sidebar-ring: 246 23% 36%;
   --popover: 0 0% 100%;
-  --popover-foreground: 209 92% 11%;
-  --popover-border: 210 47% 93%;
-  --primary: 249 97% 61%;               /* Stripe Purple */
+  --popover-foreground: 250 17% 14%;
+  --popover-border: 240 12% 91%;
+  --primary: 246 23% 36%;               /* berinjela — CTA */
   --primary-foreground: 0 0% 100%;
-  --secondary: 210 45% 96%;             /* Tag neutro #EFF4F9 */
-  --secondary-foreground: 214 35% 24%;  /* Label #273951 */
-  --muted: 210 45% 96%;
-  --muted-foreground: 218 17% 47%;      /* Body #64748D */
-  --accent: 249 100% 96%;
-  --accent-foreground: 249 97% 61%;
-  --destructive: 0 75% 44%;             /* Report Red #C41C1C */
+  --secondary: 240 17% 95%;             /* --surface-inset */
+  --secondary-foreground: 257 10% 28%;  /* --ink-2 */
+  --muted: 240 17% 95%;
+  --muted-foreground: 251 7% 44%;       /* --muted #6B6878 */
+  --accent: 249 23% 94%;
+  --accent-foreground: 246 23% 36%;
+  --destructive: 3 71% 41%;             /* --danger #B3261E */
   --destructive-foreground: 0 0% 100%;
-  --input: 211 40% 88%;                 /* Ring #D3DFEC */
-  --ring: 249 97% 61%;                  /* Foco = acento da marca */
-  --chart-1: 249 97% 61%;   /* Purple */
-  --chart-2: 142 85% 29%;   /* Green */
-  --chart-3: 205 73% 43%;   /* Blue */
-  --chart-4: 33 58% 38%;    /* Amber */
-  --chart-5: 186 77% 27%;   /* Teal */
+  --input: 240 13% 84%;                 /* --border-strong */
+  --ring: 246 23% 36%;                  /* foco = berinjela */
+  --chart-1: 246 23% 36%;   /* berinjela */
+  --chart-2: 150 59% 30%;   /* ok */
+  --chart-3: 206 44% 41%;   /* azul abafado */
+  --chart-4: 38 72% 38%;    /* gated */
+  --chart-5: 187 59% 30%;   /* wire teal */
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -102,14 +141,14 @@
   --radius: .5rem;                      /* 8px — base de card (intercom.md) */
   /* intercom.md: profundidade vem de borda, nao de sombra.
      A escala fica quase nula de proposito — nada flutua fora da grade. */
-  --shadow-2xs: 0 0 0 1px hsl(210 47% 93%);
-  --shadow-xs: 0 0 0 1px hsl(210 47% 93%);
-  --shadow-sm: 0 0 0 1px hsl(211 40% 88%);
-  --shadow: 0 0 0 1px hsl(211 40% 88%);
-  --shadow-md: 0 0 0 1px hsl(211 40% 88%);
-  --shadow-lg: 0 0 0 1px hsl(211 40% 88%), 0 8px 24px -12px hsl(209 92% 11% / .18);
-  --shadow-xl: 0 0 0 1px hsl(211 40% 88%), 0 12px 32px -14px hsl(209 92% 11% / .20);
-  --shadow-2xl: 0 0 0 1px hsl(211 40% 88%), 0 16px 40px -16px hsl(209 92% 11% / .22);
+  --shadow-2xs: 0 0 0 1px hsl(240 12% 91%);
+  --shadow-xs: 0 0 0 1px hsl(240 12% 91%);
+  --shadow-sm: 0 0 0 1px hsl(240 13% 84%);
+  --shadow: 0 0 0 1px hsl(240 13% 84%);
+  --shadow-md: 0 0 0 1px hsl(240 13% 84%);
+  --shadow-lg: 0 0 0 1px hsl(240 13% 84%), 0 8px 24px -12px hsl(250 17% 14% / .16);
+  --shadow-xl: 0 0 0 1px hsl(240 13% 84%), 0 12px 32px -14px hsl(250 17% 14% / .18);
+  --shadow-2xl: 0 0 0 1px hsl(240 13% 84%), 0 16px 40px -16px hsl(250 17% 14% / .20);
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 
@@ -143,37 +182,76 @@
 }
 
 .dark {
-  /* Design System Tokens — Bureau dark. Base: Stripe Dark Navy #0D253D. */
-  --color-bg:         #071726;  /* Ground escuro — azul profundo */
-  --color-surface:    #0D253D;  /* Stripe Dark Navy — cards */
-  --color-border:     #1E3B58;
-  --color-ink:        #EAF2FA;  /* Texto sobre escuro */
-  --color-muted:      #8AA2BC;
-  --color-tag-bg:     #12304C;
-  --color-brand:      #8B7CFF;  /* Purple clareado para AA sobre escuro */
-  --color-steel:      #A197FF;
-  --color-gold:       #D8A24A;
-  --color-danger:     #FF6E6E;
-  --color-success:    #4FD07E;
-  --color-brand-bg:   #1C2150;
-  --color-gold-bg:    #33270F;
-  --color-danger-bg:  #3A1616;
-  --color-success-bg: #10331F;
-  --score-low:        #F0763A;
+  /* DARK — mesma pele "Razao". Escuro com fundo violeta, nao cinza neutro:
+     e o que mantem a berinjela coerente nos dois temas. */
+  --bg:             #131219;
+  --surface:        #1A1922;
+  --surface-2:      #201F2A;
+  --surface-inset:  #26242F;
 
-  /* Paleta categorica — clareada para leitura sobre #0D253D */
-  --cat-blue:         #6FB4F0;
-  --cat-indigo:       #8B7CFF;
-  --cat-violet:       #A98CF5;
-  --cat-teal:         #4FBCC6;
-  --cat-green:        #4FD07E;
-  --cat-lime:         #B4CE4E;
-  --cat-amber:        #D8A24A;
-  --cat-orange:       #F0763A;
-  --cat-red:          #FF6E6E;
-  --cat-pink:         #F4749E;
-  --cat-slate:        #8AA2BC;
-  --cat-navy:         #B9CBDE;
+  --border-faint:   #24222D;
+  --border:         #2F2D3A;
+  --border-strong:  #423F51;
+
+  --ink:            #ECEBF1;
+  --ink-2:          #C3C0CE;
+  --muted:          #918DA1;
+
+  --brand:          #A9A2D8;  /* berinjela clareada para AA sobre escuro */
+  --action:         #A9A2D8;
+  --brand-hover:    #BDB6E6;
+  --brand-bg:       #2A2740;
+  --brand-soft:     #2A2740;
+  --brand-ink:      #C5BFEA;  /* mais claro que --brand para contraste sobre --brand-soft */
+
+  --text:           #ECEBF1;
+  --text-2:         #C3C0CE;
+  --text-muted:     #918DA1;
+  --text-faint:     #78748A;
+
+  --ok:             #58C48C;  --ok-bg:      #14301F;
+  --gated:          #D9A441;  --gated-bg:   #332711;
+  --past:           #DE8A93;  --past-bg:    #331A1D;
+  --danger:         #F0716A;  --danger-bg:  #351917;
+
+  --mock:           #918DA1;  --mock-bg:    #26242F;
+  --wire:           #56AEB8;  --wire-bg:    #14302F;
+
+  --color-bg:         #131219;
+  --color-surface:    #1A1922;
+  --color-border:     #2F2D3A;
+  --color-ink:        #ECEBF1;
+  --color-muted:      #918DA1;
+  --color-tag-bg:     #26242F;
+  --color-brand:      #A9A2D8;
+  --color-steel:      #BDB6E6;
+  --color-brand-bg:   #2A2740;
+  --color-success:    #58C48C;  --color-success-bg: #14301F;
+  --color-gold:       #D9A441;  --color-gold-bg:    #332711;
+  --color-danger:     #F0716A;  --color-danger-bg:  #351917;
+
+  --ring-subtle:      #24222D;
+  --ring-warm:        #2F2D3A;
+  --ring-deep:        #423F51;
+
+  --score-high:       #58C48C;
+  --score-medium:     #D9A441;
+  --score-low:        #DE8A93;
+  --score-critical:   #F0716A;
+
+  /* Paleta categorica — clareada para leitura sobre #1A1922 */
+  --cat-blue:         #7FA9CC;
+  --cat-indigo:       #A9A2D8;
+  --cat-violet:       #B6A8CE;
+  --cat-teal:         #56AEB8;
+  --cat-green:        #58C48C;
+  --cat-lime:         #A5B87A;
+  --cat-amber:        #D9A441;
+  --cat-orange:       #D99263;
+  --cat-red:          #F0716A;
+  --cat-pink:         #C98BA8;
+  --cat-slate:        #918DA1;
+  --cat-navy:         #8E97B5;
 
   /* Aneis no dark */
   --ring-warm:        #2A4C6E;
@@ -185,48 +263,48 @@
   --opaque-button-border-intensity: 9;
   --elevate-1: rgba(255,255,255, .04);
   --elevate-2: rgba(255,255,255, .09);
-  --background: 60 4% 8%;              /* Deep Dark #141413 */
-  --foreground: 54 33% 97%;             /* Ivory */
-  --border: 60 3% 19%;                  /* Dark Surface #30302E */
-  --card: 60 3% 19%;
-  --card-foreground: 54 33% 97%;
-  --card-border: 60 3% 19%;
-  --sidebar: 60 4% 8%;
-  --sidebar-foreground: 54 33% 97%;
-  --sidebar-border: 60 3% 19%;
-  --sidebar-primary: 18 64% 60%;        /* Coral */
-  --sidebar-primary-foreground: 54 33% 97%;
-  --sidebar-accent: 60 3% 23%;
-  --sidebar-accent-foreground: 54 33% 97%;
-  --sidebar-ring: 18 64% 60%;
-  --popover: 60 3% 19%;
-  --popover-foreground: 54 33% 97%;
-  --popover-border: 60 3% 19%;
-  --primary: 249 100% 74%;              /* Purple clareado #8B7CFF */
-  --primary-foreground: 209 92% 11%;
-  --secondary: 209 60% 18%;
-  --secondary-foreground: 210 60% 95%;
-  --muted: 209 60% 18%;
-  --muted-foreground: 209 30% 64%;      /* #8AA2BC */
-  --accent: 209 60% 18%;
-  --accent-foreground: 249 100% 74%;
-  --destructive: 0 100% 72%;
-  --destructive-foreground: 209 92% 11%;
-  --input: 209 47% 30%;
-  --ring: 249 100% 74%;
-  --chart-1: 249 100% 74%;  /* Purple */
-  --chart-2: 142 57% 56%;   /* Green */
-  --chart-3: 205 80% 69%;   /* Blue */
+  --background: 249 16% 8%;             /* --bg #131219 */
+  --foreground: 250 18% 93%;            /* --ink #ECEBF1 */
+  --border: 249 13% 20%;                /* --border #2F2D3A */
+  --card: 247 15% 12%;                  /* --surface #1A1922 */
+  --card-foreground: 250 18% 93%;
+  --card-border: 249 13% 20%;
+  --sidebar: 247 15% 12%;
+  --sidebar-foreground: 250 18% 93%;
+  --sidebar-border: 249 13% 20%;
+  --sidebar-primary: 248 41% 74%;       /* berinjela clara #A9A2D8 */
+  --sidebar-primary-foreground: 249 16% 8%;
+  --sidebar-accent: 247 24% 20%;        /* --brand-bg #2A2740 */
+  --sidebar-accent-foreground: 248 41% 74%;
+  --sidebar-ring: 248 41% 74%;
+  --popover: 247 15% 12%;
+  --popover-foreground: 250 18% 93%;
+  --popover-border: 249 13% 20%;
+  --primary: 248 41% 74%;               /* berinjela clara */
+  --primary-foreground: 249 16% 8%;
+  --secondary: 251 13% 16%;             /* --surface-inset */
+  --secondary-foreground: 253 13% 78%;  /* --ink-2 */
+  --muted: 251 13% 16%;
+  --muted-foreground: 252 10% 59%;      /* --muted #918DA1 */
+  --accent: 247 24% 20%;
+  --accent-foreground: 248 41% 74%;
+  --destructive: 3 82% 68%;             /* --danger #F0716A */
+  --destructive-foreground: 249 16% 8%;
+  --input: 250 12% 28%;                 /* --border-strong */
+  --ring: 248 41% 74%;
+  --chart-1: 248 41% 74%;   /* berinjela */
+  --chart-2: 149 48% 56%;   /* ok */
+  --chart-3: 207 43% 65%;   /* azul abafado */
   --chart-4: 38 64% 57%;    /* Amber */
   --chart-5: 186 51% 55%;   /* Teal */
-  --shadow-2xs: 0 0 0 1px hsl(209 49% 23%);
-  --shadow-xs: 0 0 0 1px hsl(209 49% 23%);
-  --shadow-sm: 0 0 0 1px hsl(209 45% 30%);
-  --shadow: 0 0 0 1px hsl(209 45% 30%);
-  --shadow-md: 0 0 0 1px hsl(209 45% 30%);
-  --shadow-lg: 0 0 0 1px hsl(209 45% 30%), 0 8px 24px -12px hsl(0 0% 0% / .5);
-  --shadow-xl: 0 0 0 1px hsl(209 45% 30%), 0 12px 32px -14px hsl(0 0% 0% / .55);
-  --shadow-2xl: 0 0 0 1px hsl(209 45% 30%), 0 16px 40px -16px hsl(0 0% 0% / .6);
+  --shadow-2xs: 0 0 0 1px hsl(249 13% 20%);
+  --shadow-xs: 0 0 0 1px hsl(249 13% 20%);
+  --shadow-sm: 0 0 0 1px hsl(250 12% 28%);
+  --shadow: 0 0 0 1px hsl(250 12% 28%);
+  --shadow-md: 0 0 0 1px hsl(250 12% 28%);
+  --shadow-lg: 0 0 0 1px hsl(250 12% 28%), 0 8px 24px -12px hsl(0 0% 0% / .5);
+  --shadow-xl: 0 0 0 1px hsl(250 12% 28%), 0 12px 32px -14px hsl(0 0% 0% / .55);
+  --shadow-2xl: 0 0 0 1px hsl(250 12% 28%), 0 16px 40px -16px hsl(0 0% 0% / .6);
 
 /* Fallback for older browsers */
   --sidebar-primary-border: hsl(var(--sidebar-primary));
@@ -263,9 +341,14 @@
   }
 
   body {
-    @apply font-sans antialiased bg-background text-foreground;
-    font-size: 17px;  /* Claude body standard */
-    line-height: 1.6;
+    @apply font-sans antialiased;
+    /* Pinta direto com os tokens da pele em vez da ponte hsl(var(--background)):
+       a ponte nao reavaliava ao alternar o tema — o token lia escuro e o
+       background-color continuava claro. */
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 15px;
+    line-height: 1.5;
   }
 
   /* Claude-inspired serif headings in app shell (not landing page) */

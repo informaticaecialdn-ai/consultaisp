@@ -19,6 +19,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import {
+  ScanSearch,
   LayoutDashboard,
   Search,
   BarChart3,
@@ -313,138 +314,144 @@ export function AppSidebar() {
     );
   }
 
+  /* ── Sidebar do provedor — implementacao 1:1 do handoff Sidebar.md ──
+     Nenhuma cor hex aqui: so var(--brand), var(--brand-soft), var(--brand-ink)
+     e a escala --text-*. O tema troca via data-theme no <html>. */
+  const NAV: Array<{ grupo: string; itens: Array<{ label: string; url: string; Icone: any; testId: string }> }> = [
+    {
+      grupo: "Principal",
+      itens: [
+        { label: "Dashboard",     url: "/",            Icone: LayoutDashboard, testId: "link-dashboard" },
+        { label: "Consulta ISP",  url: "/consulta-isp", Icone: ScanSearch,     testId: "link-consulta-isp" },
+        { label: "Consulta SPC",  url: "/consulta-spc", Icone: BarChart3,      testId: "link-consulta-spc" },
+        { label: "Anti-Fraude",   url: "/anti-fraude",  Icone: ShieldAlert,    testId: "link-anti-fraude" },
+        { label: "Meus Dados",    url: "/meus-dados",   Icone: TrendingUp,     testId: "link-meus-dados" },
+      ],
+    },
+    {
+      grupo: "Financeiro",
+      itens: [
+        { label: "Comprar Créditos", url: "/creditos", Icone: CreditCard, testId: "link-creditos" },
+        { label: "Notas Fiscais",    url: "/nfse",     Icone: FileText,   testId: "link-nfse" },
+      ],
+    },
+    {
+      grupo: "Gestão",
+      itens: [
+        { label: "Importação",         url: "/importacao",              Icone: Upload,     testId: "link-importacao" },
+        { label: "Importar Equip.",    url: "/importacao-equipamentos", Icone: Package,    testId: "link-importacao-equipamentos" },
+        { label: "Painel do Provedor", url: "/painel-provedor",         Icone: Building2,  testId: "link-painel-provedor" },
+      ],
+    },
+    {
+      grupo: "Configurações",
+      itens: [
+        { label: "Regionalização", url: "/configuracoes/regionalizacao", Icone: MapPin, testId: "link-regionalizacao" },
+      ],
+    },
+  ];
+
+  // Prefixo, nao igualdade: subrota mantem o pai aceso. "/" e caso especial,
+  // senao ficaria ativo em todas as rotas.
+  const estaAtivo = (url: string) =>
+    url === "/" ? location === "/" : location === url || location.startsWith(url + "/");
+
   return (
     <Sidebar>
-      <SidebarHeader className="p-4">
-        <Link href="/">
-          <div className="flex items-center gap-3 cursor-pointer">
-            <div className="w-9 h-9 rounded bg-[var(--color-brand)] flex items-center justify-center">
-              <Shield className="w-5 h-5 text-white" />
+      <div className="flex flex-col h-full bg-[var(--surface)] border-r border-[var(--border)]">
+
+        {/* Cabecalho */}
+        <div className="flex items-center gap-[10px] px-4 pt-[18px] pb-[14px]">
+          <Link href="/">
+            <div className="flex items-center gap-[10px] cursor-pointer">
+              {/* Glifo de picos de sinal — path fixado pelo handoff, nao redesenhar */}
+              <div className="w-[34px] h-[34px] rounded-lg bg-[var(--brand)] grid place-items-center flex-none">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M5 19V6l7 8 0-8 7 8v5" stroke="#fff" strokeWidth="2"
+                        strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-[14px] font-bold tracking-[-0.02em] text-[var(--text)] leading-tight">
+                  Consulta ISP
+                </span>
+                <span className="text-[11px] text-[var(--text-muted)] leading-tight">
+                  Análise de Crédito
+                </span>
+              </div>
             </div>
-            <div className="flex flex-col">
-              <span className="text-sm font-bold leading-tight">Consulta ISP</span>
-              <span className="text-xs text-[var(--color-muted)] leading-tight">Analise de Credito</span>
-            </div>
-          </div>
-        </Link>
-      </SidebarHeader>
-
-      <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)]">
-            Principal
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {mainMenu.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild data-active={location === item.url}>
-                    <Link href={item.url}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)]">
-            Financeiro
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {financeMenu.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild data-active={location === item.url}>
-                    <Link href={item.url}>
-                      <item.icon className="w-4 h-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)]">
-            Gestao
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {toolsMenu.map((item) => {
-                const [itemPath, itemQuery] = item.url.split("?");
-                const isActive = location === itemPath && (!itemQuery || search === `?${itemQuery}`);
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild data-active={isActive}>
-                      <Link href={item.url}>
-                        <item.icon className="w-4 h-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
-              })}
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild data-active={location === "/painel-provedor"}>
-                  <Link href="/painel-provedor" data-testid="link-painel-provedor">
-                    <Building2 className="w-4 h-4" />
-                    <span>Painel do Provedor</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        {(user?.role === "admin") && (
-          <SidebarGroup>
-            <SidebarGroupLabel className="text-xs font-semibold tracking-wider uppercase text-[var(--color-muted)]">
-              Configuracoes
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {configMenu.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild data-active={location === item.url}>
-                      <Link href={item.url}>
-                        <item.icon className="w-4 h-4" />
-                        <span>{item.title}</span>
-                      </Link>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
-      </SidebarContent>
-
-      <SidebarFooter className="p-4 space-y-3">
-        <TrialBanner />
-
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-[var(--color-brand-bg)] flex items-center justify-center text-sm font-bold text-[var(--color-brand)]">
-            {user?.name?.charAt(0)?.toUpperCase() || "U"}
-          </div>
-          <div className="flex flex-col min-w-0 flex-1">
-            <span className="text-sm font-medium truncate">{user?.name}</span>
-            <span className="text-xs text-[var(--color-muted)] truncate">{(provider as any)?.tradeName || provider?.name}</span>
-          </div>
+          </Link>
         </div>
-        <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-[var(--color-muted)]" onClick={logout} data-testid="button-logout">
-          <LogOut className="w-4 h-4" />
-          Sair
-        </Button>
-        <a href="/lgpd" className="block text-center text-xs text-[var(--color-muted)]/60 hover:text-[var(--color-muted)] transition-colors" data-testid="link-lgpd">
-          Política de Privacidade · LGPD
-        </a>
-      </SidebarFooter>
+
+        {/* Navegacao */}
+        <nav className="flex-1 overflow-y-auto px-2 py-1 flex flex-col gap-[14px]">
+          {NAV.map(({ grupo, itens }) => (
+            <div key={grupo}>
+              <div className="px-2 pt-1 pb-1.5 text-[10.5px] font-semibold tracking-[0.08em] uppercase text-[var(--text-faint)]">
+                {grupo}
+              </div>
+              <div className="flex flex-col gap-0.5">
+                {itens.map(({ label, url, Icone, testId }) => {
+                  const ativo = estaAtivo(url);
+                  return (
+                    <Link key={url} href={url}>
+                      <a
+                        data-testid={testId}
+                        aria-current={ativo ? "page" : undefined}
+                        className={`flex items-center gap-[10px] px-2.5 py-2 rounded-lg text-[13.5px] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--brand)] motion-safe:transition-colors ${
+                          ativo
+                            ? "bg-[var(--brand-soft)] text-[var(--brand-ink)] font-semibold"
+                            : "text-[var(--text-2)] font-medium hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
+                        }`}
+                      >
+                        <Icone className="w-4 h-4 flex-none" strokeWidth={2} />
+                        <span className="truncate">{label}</span>
+                      </a>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </nav>
+
+        {/* Rodape */}
+        <div className="border-t border-[var(--border)] px-4 py-[14px] flex flex-col gap-[10px]">
+          <TrialBanner />
+
+          <div className="flex items-center gap-[10px]">
+            <div className="w-[30px] h-[30px] rounded-full bg-[var(--brand-soft)] text-[var(--brand-ink)] grid place-items-center text-[12px] font-bold flex-none">
+              {user?.name?.charAt(0)?.toUpperCase() || "U"}
+            </div>
+            <div className="flex flex-col min-w-0 flex-1">
+              <span className="text-[13px] font-semibold text-[var(--text)] truncate">
+                {user?.name}
+              </span>
+              <span className="text-[11px] text-[var(--text-muted)] truncate">
+                {(provider as any)?.tradeName || provider?.name}
+              </span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={logout}
+            data-testid="button-logout"
+            className="flex items-center gap-[10px] text-[13px] text-[var(--text-muted)] hover:text-[var(--text)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand)] motion-safe:transition-colors"
+          >
+            <LogOut className="w-4 h-4 flex-none" strokeWidth={2} />
+            Sair
+          </button>
+
+          <a
+            href="/lgpd"
+            data-testid="link-lgpd"
+            className="text-center text-[11px] text-[var(--text-faint)] hover:text-[var(--text-muted)] motion-safe:transition-colors"
+          >
+            Política de Privacidade · LGPD
+          </a>
+        </div>
+      </div>
     </Sidebar>
   );
 }
