@@ -6,10 +6,10 @@ export default {
   theme: {
     extend: {
       borderRadius: {
-        lg: "6px",      /* máximo permitido DS v2.0 */
-        md: "4px",      /* cards de dados */
-        sm: "2px",      /* inputs, buttons, badges */
-        DEFAULT: "4px", /* padrão DS v2.0 */
+        lg: "8px",      /* cards e containers — intercom.md */
+        md: "6px",      /* itens de navegacao — intercom.md */
+        sm: "4px",      /* botoes, inputs, badges — geometria seca */
+        DEFAULT: "4px", /* padrao — intercom.md */
       },
       borderWidth: {
         DEFAULT: "1px", /* DS v2.0: 1px (não 0.5px) */
@@ -98,10 +98,10 @@ export default {
       },
       fontFamily: {
         sans: ["var(--font-sans)"],
-        display: ["Fraunces", "serif"],
-        body: ["DM Sans", "sans-serif"],
+        display: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+        body: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
         serif: ["var(--font-serif)"],
-        mono: ["DM Mono", "monospace"],
+        mono: ["IBM Plex Mono", "ui-monospace", "monospace"],
       },
       keyframes: {
         "accordion-down": {

@@ -86,8 +86,11 @@ function focusSearch(testId: string) {
 }
 
 export default function ConsultaIdleState({
-  consultations,
-  metrics,
+  // Defaults defensivos: durante a migracao do design system um caller ficou
+  // momentaneamente sem `metrics` e o componente derrubou a pagina inteira no
+  // ErrorBoundary. Prop ausente deve degradar, nao quebrar.
+  consultations = [],
+  metrics = [],
   onRerun,
   emptyTitle,
   emptyDescription,
@@ -99,7 +102,7 @@ export default function ConsultaIdleState({
   return (
     <div className="space-y-6" data-testid="consulta-idle-state">
       {/* Metricas — promovidas do cabecalho, onde estavam comprimidas em texto mono inline */}
-      {metrics && metrics.length > 0 && (
+      {metrics.length > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {metrics.map(m => <MetricCard key={m.testId} {...m} />)}
         </div>

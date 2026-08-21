@@ -781,16 +781,23 @@ Architecture not yet mapped. Follow existing patterns found in the codebase.
 Leia @DESIGN_SYSTEM.md ANTES de criar ou alterar qualquer componente, pagina ou estilo.
 Nao desvie dos tokens definidos la — a lista negra da secao 8 e obrigatoria.
 
-Pontos que mais geram erro:
-- O primario e **terracota** `--color-brand` (#C96442). A variavel `--color-navy` e um
-  alias depreciado que contem terracota, nao navy. Use `--color-brand` em codigo novo.
-- Profundidade e **ring shadow** (`0 0 0 1px var(--ring-warm)`), nunca `shadow-md/lg/xl`.
-- Badge de status e retangular (raio 4px), nunca `rounded-full`.
-- O unico azul do sistema e o Focus Blue (#3898EC), so em anel de foco.
+O sistema e "Bureau" (v4.0): instrumento de medicao, neutro frio, denso e alinhado.
+NAO e editorial, NAO e quente, NAO tem serifa.
 
-Para cor e profundidade nao cobertas pelo doc, consulte
-`.claude/skills/design/references/claude.md` — **seccoes 2 e 6 apenas**
-(a tipografia e a escala de raio de la nao se aplicam a este projeto).
+Pontos que mais geram erro:
+- O acento e **roxo** `--color-brand` (#533AFD), texto e **navy** `--color-ink` (#061B31).
+  Botao primario e navy; o roxo fica para navegacao, link e estado ativo.
+- **Nao existe serifa.** Inter para tudo, IBM Plex Mono para todo dado numerico.
+- **Todo numero leva `tabular-nums`.** Coluna desalinhada destroi a leitura de organizacao.
+- Profundidade e **borda de 1px** (`0 0 0 1px var(--ring-subtle)`), nunca `shadow-md/lg/xl`.
+  Os tokens `--ring-*` ainda se chamam "warm" mas valem neutro frio — leia o valor,
+  nao deduza pelo nome.
+- Raio: 4px botao/badge, 6px nav, 8px card. Nada acima de 8px.
+  Badge de status e retangular, nunca `rounded-full`.
+
+Para o que o doc nao cobrir: cor e tipografia em
+`.claude/skills/design/references/stripe.md`; raio e elevacao em
+`.claude/skills/design/references/intercom.md`. Nao misture uma terceira referencia.
 <!-- DESIGN:end -->
 
 <!-- GSD:workflow-start source:GSD defaults -->

@@ -3,615 +3,407 @@
 > Leia este arquivo ANTES de gerar qualquer componente, tela ou estilo.
 > Qualquer desvio dos tokens abaixo é inaceitável.
 
-**Versão 3.0** — alinhada ao que está implementado em `client/src/index.css`.
+**Versão 4.0 — "Bureau"** · alinhada a `client/src/index.css`.
 
 ---
 
-## 0. Aviso de versão — leia primeiro
+## 0. Por que a v4.0 existe
 
-A v2.0 deste documento descrevia um sistema **navy / finança editorial** (`#1A3A5C`, fundo `#F9F7F4`)
-que **nunca existiu no código**. A implementação real é um sistema **warm parchment + terracota**,
-derivado de `.claude/skills/design/references/claude.md`.
+A v3.0 documentava um sistema **warm parchment + terracota**, derivado de
+`references/claude.md`: fundo bege, título em serifa, sombras em anel quente.
+Estava fielmente implementado — o problema não era coerência, era **adequação**.
 
-Se você leu a v2.0 e usou navy, o resultado está errado. A tabela abaixo mapeia a correção:
+O produto é um **bureau de crédito**. O trabalho dele é transmitir rigor, dado e
+autoridade. A v3.0 se descrevia como *"editorial quente e humano — papel envelhecido,
+pense num ensaio impresso"*. Isso é estética de revista numa ferramenta de análise de
+risco. Bege e serifa leem como acolhimento; o produto precisa ler como **medição**.
 
-| v2.0 (obsoleto, nunca implementado) | v3.0 (real, no código) |
+| v3.0 (Claude / parchment) | v4.0 (Bureau) |
 |---|---|
-| Fundo `#F9F7F4` | Parchment `#F5F4ED` |
-| Surface `#FFFFFF` | Ivory `#FAF9F5` |
-| Primário navy `#1A3A5C` | Terracota `#C96442` |
-| Border `#E2DDD6` | Border Cream `#F0EEE6` |
-| Ink `#1A1714` | Near Black `#141413` |
-| Muted `#6B6560` | Olive Gray `#5E5D59` |
-| Danger `#8B1A1A` | Crimson `#B53333` |
-| Success `#1A4A2E` | Olive Green `#4A6B3E` |
-| Sem dark mode | Dark mode completo (seção 3.2) |
-| Raio máximo 6px | Base 8px (`--radius`) — seção 5.1 |
-| Sombras drop `shadow-xs` | **Ring shadows** — seção 5.2 |
+| Fundo Parchment `#F5F4ED` | Ground `#F7F9FC` — neutro frio |
+| Surface Ivory `#FAF9F5` | Pure White `#FFFFFF` |
+| Texto Near Black `#141413` | Deep Navy `#061B31` |
+| Marca Terracota `#C96442` | Purple `#533AFD` |
+| Título Fraunces serifa | Inter, tracking −0.02em |
+| Dado em DM Mono | IBM Plex Mono, `tabular-nums` |
+| Profundidade: ring shadow quente | Borda de 1px, neutro frio |
+| Botão 8px | Botão 4px |
 
-**Armadilha de nomenclatura (resolvida):** a variável `--color-navy` **continha terracota**,
-não navy — resquício da migração que fazia qualquer leitor errar. Os 183 usos foram migrados
-para `--color-brand` e o alias foi removido. Se você encontrar `--color-navy` em algum lugar,
-é código morto: não resolve para nada.
+**A v2.0 estava certa e foi descartada por engano.** Ela dizia *"Finança editorial
+europeia — pense no FT ou Bloomberg"*. Aquela intuição servia ao produto. O código
+tinha derivado para a paleta quente e a v3.0 alinhou o documento ao código, em vez de
+perguntar qual dos dois estava certo. A v4.0 retoma a intenção da v2.0 com referências
+melhores.
+
+**Migração sem quebra:** os **nomes** das variáveis foram mantidos. `--color-brand`
+continua sendo o acento; só o valor mudou de terracota para roxo. Nenhum dos 100+
+arquivos consumidores precisou de edição de cor.
 
 ---
 
 ## 1. Identidade Visual
 
-**Conceito:** editorial quente e humano — papel envelhecido, não interface de software.
-Pense num ensaio impresso, não num dashboard.
-**Palavra-chave:** confiança, sobriedade, calor, precisão.
-**NÃO É:** startup colorida, SaaS genérico, dark dashboard com gradiente roxo-azul.
+**Conceito:** instrumento de medição. Painel de dados denso, alinhado e frio.
+**Palavra-chave:** confiança, rigor, organização, precisão.
+**NÃO É:** papel envelhecido, ensaio editorial, SaaS colorido, dashboard com gradiente.
 
-O sistema é um **híbrido deliberado**:
+O sistema é um **híbrido de duas referências**:
 
-- **Cor e profundidade** vêm de `references/claude.md` (parchment, terracota, ring shadows).
-- **Tipografia é própria do projeto** (Fraunces + DM Sans + DM Mono). Não usamos a
-  Anthropic Serif do reference — Fraunces cumpre o mesmo papel de "gravidade de título de livro".
-- **Raios são mais apertados** que os do reference (que vai até 32px). Somos uma ferramenta
-  densa de dados, não uma landing institucional.
+- **Neutros, semânticas e hierarquia tipográfica** de `references/stripe.md`
+  (fintech, B2B profissional, light-first).
+- **Geometria e profundidade** de `references/intercom.md` — 4px seco em botão,
+  sombra praticamente ausente, profundidade por borda.
 
-Ao consultar `claude.md`, aplique **seções 2 (cor) e 6 (profundidade)**. Ignore a tipografia
-e a escala de raio de lá.
+Ao consultar as referências: cor e tipografia em `stripe.md`, raio e elevação em
+`intercom.md`. Não misture uma terceira.
+
+### Duas derivações declaradas
+
+Nem tudo saiu literal das referências. Estas duas foram **derivadas**, e é
+intencional que estejam registradas:
+
+1. `--color-bg: #F7F9FC` — tint da família da borda Stripe (`#E5EDF5`). O Stripe usa
+   branco puro de fundo; aqui um ground levemente tingido separa o canvas do card.
+2. `--score-low: #C43D02` — Intercom Report Orange (`#fe4c02`) escurecido para passar
+   AA sobre branco. O valor original é vivo demais para texto.
 
 ---
 
 ## 2. Tipografia
 
-Esta seção **não mudou** da v2.0 — a tipografia sempre esteve correta.
-
 ```
-Display / Títulos grandes:  Fraunces, serif, weight 300 (light) ou 600 (semibold)
-                            Use itálico para ênfase emocional: <em>
-Headings internos:          Fraunces, weight 600, 14–18px
-Body / Parágrafos:          DM Sans, weight 400, 14px, line-height 1.6
-Dados / Códigos / Labels:   DM Mono, weight 400 ou 500, 10–13px
+Display / Títulos:  Inter, weight 300 (grande) ou 500 (interno)
+                    Tracking negativo: -0.028em em display, -0.02em em heading
+Body:               Inter, weight 400, 15px, line-height 1.5
+Dados / Labels:     IBM Plex Mono, weight 400-600
+                    SEMPRE com font-variant-numeric: tabular-nums
 ```
 
-**Import** (já presente em `client/index.html`):
+**Import** (em `client/index.html`):
 
 ```html
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,wght@0,300;0,600;1,300&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 ```
 
-**Tokens CSS** (já em `index.css`):
+**Tokens** (em `index.css`):
 
 ```css
---font-sans:    "DM Sans", sans-serif;
---font-display: "Fraunces", serif;
---font-serif:   "Fraunces", serif;
---font-mono:    "DM Mono", monospace;
+--font-sans:    "Inter", ui-sans-serif, system-ui, sans-serif;
+--font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
+--font-mono:    "IBM Plex Mono", ui-monospace, monospace;
 ```
 
-**Regras de hierarquia:**
+**Regras:**
 
-- Serif (Fraunces) carrega **todo** conteúdo de título. Sans (DM Sans) carrega texto funcional.
-- Mono (DM Mono) carrega **todo dado numérico**: scores, valores, CPF, datas, labels de métrica.
-- Em display ≥ 32px, aperte o tracking (`-0.02em`). Em labels mono, abra (`0.08em`).
+- **Não existe serifa neste sistema.** Serifa lê editorial; o produto lê medição.
+- **Todo número é mono e tabular.** Score, valor, CPF, data, contagem, percentual.
+  Sem `tabular-nums` as colunas desalinham e a tela parece descuidada.
+- Display grande usa peso **300**, não bold. Autoridade vem do tamanho e do tracking
+  apertado, não do peso — é o gesto de `stripe.md`.
+- Label mono em caixa alta com tracking aberto (`0.1em`), 10px.
+
+> **Nota de fidelidade:** `stripe.md` especifica **Sohne** e `intercom.md` especifica
+> **Saans**. Ambas são proprietárias e não existem no Google Fonts. Inter é o
+> substituto padrão da Sohne e preserva a silhueta (neo-grotesca, tracking negativo,
+> pesos leves). Não troque por outra sem revisar este documento.
 
 ---
 
-## 3. Paleta de Cores
+## 3. Paleta
 
 ### 3.1 Light (`:root`)
 
 ```css
 :root {
   /* Superfícies */
-  --color-bg:         #F5F4ED;  /* Parchment — creme quente, a alma da paleta */
-  --color-surface:    #FAF9F5;  /* Ivory — cards e containers elevados */
-  --color-border:     #F0EEE6;  /* Border Cream — borda quente quase invisível */
-  --color-tag-bg:     #E8E6DC;  /* Warm Sand — fundo de pills e botões neutros */
+  --color-bg:         #F7F9FC;  /* Ground — tint da borda Stripe (derivado) */
+  --color-surface:    #FFFFFF;  /* Stripe Pure White */
+  --color-border:     #E5EDF5;  /* Stripe Border Default */
+  --color-tag-bg:     #EFF4F9;  /* Tint neutro — chip e botão neutro */
 
   /* Texto */
-  --color-ink:        #141413;  /* Near Black — escuro com tinta oliva */
-  --color-muted:      #5E5D59;  /* Olive Gray — texto secundário, labels */
+  --color-ink:        #061B31;  /* Stripe Deep Navy */
+  --color-muted:      #64748D;  /* Stripe Body */
 
   /* Marca */
-  --color-brand:      #C96442;  /* Terracota — CTA, links, acento de marca */
-  --color-brand-bg:   #FBEFE8;  /* Terracota 10% — fundo de acento suave */
-  --color-steel:      #D97757;  /* Coral — hover / variante clara da terracota */
+  --color-brand:      #533AFD;  /* Stripe Purple — CTA, link, ativo */
+  --color-steel:      #4434D4;  /* Stripe Purple Hover */
+  --color-brand-bg:   #EEECFF;
 
-  /* Semânticas */
-  --color-gold:       #B8860B;  --color-gold-bg:    #F5EDD4;  /* atenção, pendente */
-  --color-danger:     #B53333;  --color-danger-bg:  #F8E7E1;  /* erro, inadimplente */
-  --color-success:    #4A6B3E;  --color-success-bg: #EAEEDF;  /* ativo, regularizado */
+  /* Semânticas — todas com contraste AA sobre branco */
+  --color-success:    #108C3D;  --color-success-bg: #E4F6EA;
+  --color-gold:       #9B6829;  --color-gold-bg:    #FBF1E2;
+  --color-danger:     #C41C1C;  --color-danger-bg:  #FDE9E9;
 
-  /* Ring shadows — assinatura do sistema (seção 5.2) */
-  --ring-warm:        #D1CFC5;
-  --ring-subtle:      #DEDCD1;
-  --ring-deep:        #C2C0B6;
+  /* Anéis de 1px — nome herdado, valor agora neutro frio */
+  --ring-warm:        #D3DFEC;
+  --ring-subtle:      #E5EDF5;
+  --ring-deep:        #C2D2E3;
 
-  /* Score semântico — padronizar em TODO o sistema */
+  /* Score — faixas espelhadas de server/utils/isp-score.ts */
   --score-high:       var(--color-success);  /* 701-1000 */
   --score-medium:     var(--color-gold);     /* 501-700  */
-  --score-low:        #C45A1A;               /* 301-500  */
+  --score-low:        #C43D02;               /* 301-500  */
   --score-critical:   var(--color-danger);   /* 0-300    */
 }
 ```
 
-> **Faixas de score:** os limites acima (701 / 501 / 301) espelham
-> `server/utils/isp-score.ts`, que é a fonte da verdade. O score gravado em
-> `isp_consultations` é **0–1000**, não 0–100 — o `CLAUDE.md` documenta 0–100 e está
-> errado nesse ponto. Existe também um `score100` canônico no motor, usado em outro
-> contexto. Ao pintar score, espelhe as faixas do motor, nunca as reinvente.
+> **Armadilha herdada:** os tokens `--ring-*` ainda se chamam *warm*, mas os valores
+> são neutros frios. O nome sobreviveu para não quebrar os consumidores. Não deduza
+> a cor pelo nome — leia o valor.
 
 ### 3.2 Dark (`.dark`)
 
+Base: Stripe Dark Navy `#0D253D`.
+
 ```css
 .dark {
-  --color-bg:         #141413;  /* Deep Dark — preto quente */
-  --color-surface:    #30302E;  /* Dark Surface — carvão quente */
-  --color-border:     #30302E;
-  --color-tag-bg:     #3D3D3A;
-
-  --color-ink:        #FAF9F5;  /* Ivory sobre escuro */
-  --color-muted:      #B0AEA5;  /* Warm Silver */
-
-  --color-brand:      #D97757;  /* Coral — terracota clareada para dark */
-  --color-brand-bg:   #2B1E18;
-  --color-steel:      #C96442;
-
-  --color-gold:       #D4A72C;  --color-gold-bg:    #2A2518;
-  --color-danger:     #D97777;  --color-danger-bg:  #2E1A1A;
-  --color-success:    #7FA670;  --color-success-bg: #1E2A1A;
-  --score-low:        #E07040;
+  --color-bg:         #071726;
+  --color-surface:    #0D253D;
+  --color-border:     #1E3B58;
+  --color-tag-bg:     #12304C;
+  --color-ink:        #EAF2FA;
+  --color-muted:      #8AA2BC;
+  --color-brand:      #8B7CFF;  /* clareado para AA sobre escuro */
+  --color-steel:      #A197FF;
+  --color-success:    #4FD07E;  --color-success-bg: #10331F;
+  --color-gold:       #D8A24A;  --color-gold-bg:    #33270F;
+  --color-danger:     #FF6E6E;  --color-danger-bg:  #3A1616;
+  --score-low:        #F0763A;
+  --ring-warm:        #2A4C6E;
+  --ring-subtle:      #1E3B58;
+  --ring-deep:        #3A628A;
 }
 ```
 
-**Regra do dark:** as semânticas **clareiam** no dark (crimson `#B53333` → `#D97777`) para manter
-contraste AA sobre `#141413`. Nunca reuse o hex do light no dark.
+**Regra do dark:** semânticas **clareiam**. Nunca reuse o hex do light.
 
-### 3.3 A única cor fria permitida
+### 3.3 Foco
 
 ```css
---ring: 210 83% 57%;  /* Focus Blue #3898EC */
+--ring: 249 97% 61%;  /* = --color-brand */
 ```
 
-Focus Blue é o **único** azul do sistema e existe **só** para foco de teclado (acessibilidade).
-Não use para link, ícone, badge ou gráfico. Regra herdada de `claude.md`.
+Na v3.0 o foco era um azul isolado, única cor fria de um sistema quente. Agora o
+sistema inteiro é frio, então o foco usa o **próprio acento da marca** — mais coerente
+e um token a menos.
 
 ### 3.4 Mapa de uso
 
 | Situação | Token |
 |---|---|
-| CTA primário, link, acento de marca | `--color-brand` |
-| Score alto (701–1000) | `--score-high` |
-| Score médio (501–700) | `--score-medium` |
-| Score baixo (301–500) | `--score-low` |
-| Score crítico (0–300) | `--score-critical` |
-| Status: ativo / regularizado | `--color-success` |
-| Status: inadimplente / negativado | `--color-danger` |
-| Status: pendente / em análise | `--color-gold` |
-| Labels, metadata, texto auxiliar | `--color-muted` |
-| Foco de teclado | `--ring` (Focus Blue) |
+| CTA, link, aba ativa, item de nav selecionado | `--color-brand` |
+| Score 701–1000 · Aprovar · ativo | `--score-high` / `--color-success` |
+| Score 501–700 · Revisar · pendente | `--score-medium` / `--color-gold` |
+| Score 301–500 | `--score-low` |
+| Score 0–300 · Rejeitar · inadimplente | `--score-critical` / `--color-danger` |
+| Label, metadata, texto auxiliar | `--color-muted` |
+| Foco de teclado | `--ring` |
 
 ### 3.5 Paleta categórica — identidade, não status
 
-Alguns dados são **identidade categórica**, não estado: qual ERP originou o registro, qual
-agente atendeu, qual etapa do pipeline. Precisam ser distinguíveis entre si, mas **não**
-significam "bom" ou "ruim". Usar `--color-success`/`--color-danger` aqui é erro semântico —
-um ERP marcado de vermelho lê como problema.
+Para dados que são **identidade** (qual ERP, qual agente, qual etapa) e não estado.
+Derivada da report palette do `intercom.md`, escurecida para AA sobre branco.
 
 ```css
---cat-terracotta: #C96442;   --cat-ochre:  #B8860B;
---cat-moss:       #4A6B3E;   --cat-teal:   #3E6B6B;
---cat-indigo:     #4A5480;   --cat-plum:   #7A4A63;
---cat-rust:       #C45A1A;   --cat-olive:  #6B7B3A;
---cat-clay:       #8A5A4A;   --cat-bronze: #96703C;
---cat-wine:       #8B3A4A;   --cat-slate:  #6B6560;
+--cat-blue:  #1E6FBF;   --cat-indigo: #533AFD;  --cat-violet: #6B4FD8;
+--cat-teal:  #10707A;   --cat-green:  #0B8A32;  --cat-lime:   #6E8A0F;
+--cat-amber: #9B6829;   --cat-orange: #C43D02;  --cat-red:    #C41C1C;
+--cat-pink:  #C4155A;   --cat-slate:  #64748D;  --cat-navy:   #273951;
 ```
 
-Doze matizes da família quente, todos abafados — nenhum neon, nenhum azul-Tailwind.
-No `.dark` cada um tem variante clareada para ler sobre `#30302E`.
+**Regra:** chip neutro + dot categórico. O fundo do chip é sempre
+`--color-tag-bg`; a cor vive só no marcador. Treze chips coloridos lado a lado viram
+ruído e destroem a leitura de organização.
 
-**Regra de aplicação — chip neutro + dot categórico:**
-
-```html
-<span class="... rounded bg-[var(--color-tag-bg)] text-[var(--color-ink)]">
-  <span class="w-1.5 h-1.5 rounded-full bg-[var(--cat-indigo)]" />
-  iXC Soft
-</span>
-```
-
-Treze chips coloridos lado a lado viram ruído e brigam com a sobriedade editorial.
-O fundo do chip é **sempre neutro**; a cor vive só no dot. Use `--cat-*` em marcador,
-borda de 2px ou série de gráfico — **nunca** em fundo de chip ou de card.
-
-**Escalas sequenciais** (heatmap, temperatura de lead) não usam `--cat-*`: precisam de
-luminância monotônica. Use a rampa quente
-`#A3B370 → #D4A72C → #E07040 → #B53333 → #7A2020` (claro para escuro). Onde a
-biblioteca não aceita CSS var (Leaflet.heat, canvas), replique os hexes literalmente
-e comente a origem.
+Use `--cat-*` em dot, borda de 2px ou série de gráfico. **Nunca** em fundo de chip,
+e **nunca** para significar bom/ruim — isso é papel das semânticas.
 
 ---
 
-## 4. Espaçamento e Layout
+## 4. Espaçamento
 
 ```
-Base unit: 4px
-Escala: 4 · 8 · 12 · 16 · 24 · 32 · 48 · 64px
+Base: 4px
+Escala: 4 · 8 · 12 · 16 · 20 · 24 · 32 · 40 · 48 · 64 · 80   (intercom.md)
 
-Gap entre cards:         16px (1rem)
-Padding interno de card: 16px 20px (1rem 1.25rem)
-Padding de seção:        32px (2rem)
+Gap entre cards:         10–16px
+Padding de card:         12px 14px  (denso) · 16px 20px (padrão)
+Padding de seção:        24–32px
 ```
 
-Sem valores fora da escala. Nada de 5px, 13px, 18px.
+Densidade é uma decisão de produto: o operador escaneia muitas linhas por dia. Card
+espaçoso demais reduz quantas linhas cabem na tela e piora o trabalho.
 
 ---
 
-## 5. Bordas, Raios e Profundidade
+## 5. Geometria e Profundidade
 
-### 5.1 Raio
-
-O token base é `--radius: .5rem` (**8px**) e alimenta todos os componentes shadcn.
-Corresponde ao "comfortably rounded (8px)" de `claude.md`.
+### 5.1 Raio — `intercom.md`
 
 ```
-Cards, botões, containers:  8px  (--radius, padrão)
-Inputs, elementos de nav:   8px
-Badges, pills de status:    4px  (mais apertado — densidade de dados)
-Score bar / progress:       2px  (altura 4px)
-Avatares, dots, spinners:   9999px (rounded-full — legítimo)
+Botões, inputs, badges:   4px   (rounded / rounded-sm)
+Itens de navegação:       6px   (rounded-md)
+Cards e containers:       8px   (rounded-lg)
+Avatares, dots, spinners: 9999px (rounded-full — círculo real)
 ```
 
-**Proibido:** `rounded-full` em **badge de status**. Badge de status é retangular com raio 4px.
-`rounded-full` é só para elementos genuinamente circulares.
+Canto seco é a identidade: *"near-rectangular, industrial and precise"*. Nada acima
+de 8px. `rounded-full` em **badge de status** continua proibido.
 
-> **Divergência resolvida:** a v2.0 exigia "máximo 6px" e raio 2px em botões/inputs.
-> Isso conflita com o `--radius: .5rem` implementado e com `claude.md`, que proíbe cantos
-> < 6px em botões e cards ("softness is core to the identity"). A v3.0 documenta os 8px reais.
-> Se quiser voltar ao visual mais seco de 2px, é decisão de produto — mude `--radius`
-> e este documento junto.
+### 5.2 Profundidade — borda, não sombra
 
-### 5.2 Profundidade — ring shadows, não drop shadows
-
-Esta é a **assinatura** do sistema, herdada de `claude.md`. Profundidade se comunica com
-um halo de 1px em cinza quente, não com sombra projetada.
+`intercom.md`: *"Minimal shadows. Depth through warm border colors and surface tints."*
 
 ```css
-/* Nível 0 — plano */
-/* sem sombra, sem borda — texto inline sobre Parchment */
-
-/* Nível 1 — ring sutil (card em repouso) */
-box-shadow: 0 0 0 1px var(--ring-subtle);
-
-/* Nível 2 — ring quente (card interativo, botão hover) */
-box-shadow: 0 0 0 1px var(--ring-warm);
-
-/* Nível 3 — ring profundo (estado ativo/pressionado) */
-box-shadow: 0 0 0 1px var(--ring-deep);
-
-/* Nível 4 — flutuante (modal, popover) — ring + lift quase invisível */
-box-shadow: 0 0 0 1px var(--ring-warm), 0 24px 48px rgba(20, 20, 19, 0.05);
+/* Repouso */          box-shadow: 0 0 0 1px var(--ring-subtle);
+/* Interativo/hover */ box-shadow: 0 0 0 1px var(--ring-warm);
+/* Ativo */            box-shadow: 0 0 0 1px var(--ring-deep);
+/* Flutuante (modal, popover) — único caso com lift */
+box-shadow: 0 0 0 1px var(--ring-warm), 0 12px 32px -14px hsl(209 92% 11% / .20);
 ```
 
-**Proibido:** `shadow-md`, `shadow-lg`, `shadow-xl`, `shadow-2xl`, `drop-shadow-*`.
-Um card que "flutua" com blur pesado quebra o sistema inteiro.
-
-**Classe pronta** para overlays (modal, popover, dropdown, tooltip):
-
-```
-shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)]
-```
-
-Controles pequenos (thumb de switch) usam um lift real e mínimo, não o ring de overlay:
-
-```
-shadow-[0_0_0_1px_var(--ring-deep),0_1px_2px_rgba(20,20,19,0.12)]
-```
-
-> **Resolvido em 2026-08-21:** os 42 usos de `shadow-md/lg/xl/2xl` foram migrados para as
-> classes acima, e a escala `--shadow-*` — que usava `hsl(220 13% 91%)`, cinza frio — passou
-> a `hsl(48 12% 85%)` no light e `hsl(48 6% 8%)` no dark.
-
-### 5.3 Bordas
-
-```css
-border: 1px solid var(--color-border);
-```
-
-Sempre 1px. Nunca 0.5px (não renderiza consistente). Em superfícies onde a borda sumiria,
-use ring shadow no lugar.
+A escala `--shadow-*` foi neutralizada de propósito: de `--shadow-2xs` a `--shadow-md`
+tudo é apenas o anel de 1px. Só `lg`/`xl`/`2xl` carregam um lift, e apenas para
+overlay. **Nada flutua fora da grade** — é isso que produz a sensação de organização.
 
 ---
 
 ## 6. Componentes
 
-### Card de Métrica
-
-```html
-<div class="metric-card">
-  <span class="metric-label">Score ISP</span>
-  <div class="metric-number">742</div>
-  <div class="score-bar"><div class="score-fill" style="width: 74.2%"></div></div>
-</div>
-```
+### Card de métrica
 
 ```css
-.metric-card {
+.metric {
   background: var(--color-surface);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  padding: 1rem 1.25rem;
-  box-shadow: 0 0 0 1px var(--ring-subtle);
-  transition: box-shadow .2s ease;
+  padding: 12px 14px;
 }
-.metric-card:hover { box-shadow: 0 0 0 1px var(--ring-warm); }
-
 .metric-label {
   font-family: var(--font-mono); font-size: 10px;
-  text-transform: uppercase; letter-spacing: 0.08em;
+  text-transform: uppercase; letter-spacing: .11em;
   color: var(--color-muted);
 }
-.metric-number {
-  font-family: var(--font-mono); font-size: 24px; font-weight: 500;
-  color: var(--color-ink); margin: 8px 0 4px;
+.metric-value {
+  font-family: var(--font-mono); font-size: 21px; font-weight: 500;
+  letter-spacing: -.02em; font-variant-numeric: tabular-nums;
+  color: var(--color-ink);
 }
-.score-bar  { height: 4px; background: var(--color-tag-bg); border-radius: 2px; overflow: hidden; }
-.score-fill { height: 100%; background: var(--score-high); border-radius: 2px; }
 ```
 
-O número da métrica é `--color-ink`, **não** terracota. Terracota é para ação, não para dado.
-A cor do `.score-fill` vem da faixa do score (seção 3.4).
+O número é `--color-ink`, nunca o acento. Acento é ação; dado é dado.
 
-### Badge de Status
+### Badge de status
 
 ```css
 .badge {
-  display: inline-flex; align-items: center;
-  font-family: var(--font-mono); font-size: 10px;
-  letter-spacing: 0.06em; font-weight: 500;
-  padding: 3px 8px; border-radius: 4px;   /* NÃO rounded-full */
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+  letter-spacing: .04em; padding: 3px 7px;
+  border-radius: 4px;   /* NUNCA pill */
 }
-.badge-brand   { background: var(--color-brand-bg);   color: var(--color-brand);   }
-.badge-gold    { background: var(--color-gold-bg);    color: var(--color-gold);    }
-.badge-danger  { background: var(--color-danger-bg);  color: var(--color-danger);  }
-.badge-success { background: var(--color-success-bg); color: var(--color-success); }
 ```
 
-### Botões
+Pares: `--color-success-bg` + `--color-success`, e assim por diante.
+
+### Botão
 
 ```css
 .btn {
-  font-family: var(--font-mono); font-size: 11px;
-  letter-spacing: 0.06em; padding: 8px 16px;
-  border-radius: 8px; cursor: pointer; border: none;
-  transition: box-shadow .15s ease, background .15s ease, transform .1s ease;
+  border-radius: 4px; padding: 9px 16px;
+  font-size: 13px; font-weight: 500; letter-spacing: -.005em;
+  transition: background .15s, box-shadow .15s, transform .1s;
 }
-.btn:active        { transform: scale(0.97); }
+.btn:active { transform: scale(0.97); }
 .btn:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
 
-.btn-primary       { background: var(--color-brand); color: var(--color-surface);
-                     box-shadow: 0 0 0 1px var(--color-brand); }
-.btn-primary:hover { background: var(--color-steel); }
-
-.btn-secondary       { background: var(--color-surface); color: var(--color-ink);
-                       box-shadow: 0 0 0 1px var(--ring-warm); }
-.btn-secondary:hover { box-shadow: 0 0 0 1px var(--ring-deep); }
-
-.btn-ghost       { background: transparent; color: var(--color-muted); }
-.btn-ghost:hover { background: var(--color-tag-bg); }
+.btn-primary { background: var(--color-ink); color: var(--color-surface); border: none; }
+.btn-accent  { background: var(--color-brand); color: #fff; border: none; }
+.btn-ghost   { background: var(--color-surface); color: var(--color-ink);
+               box-shadow: 0 0 0 1px var(--ring-warm); }
 ```
 
-### Tabela de Dados
+Botão primário é **navy**, não roxo. O roxo é reservado para navegação e link — assim
+o CTA não compete com o estado ativo da interface.
+
+### Tabela
 
 ```css
-.ds-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .ds-table th {
-  font-family: var(--font-mono); font-size: 10px;
-  letter-spacing: 0.08em; text-transform: uppercase;
+  font-family: var(--font-mono); font-size: 9.5px; font-weight: 500;
+  letter-spacing: .1em; text-transform: uppercase;
   color: var(--color-muted); text-align: left;
-  padding: 8px 12px; border-bottom: 1px solid var(--color-border);
+  padding: 9px 14px; border-bottom: 1px solid var(--color-border);
 }
-.ds-table td { padding: 10px 12px; border-bottom: 1px solid var(--color-border); }
-.ds-table tr:last-child td { border-bottom: none; }
-.ds-table tbody tr:hover { background: var(--color-bg); }
+.ds-table td { padding: 10px 14px; border-bottom: 1px solid var(--color-border); }
+.ds-table td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 ```
 
-### Input
+Toda coluna numérica leva `.num`. É o detalhe que mais carrega organização.
 
-```css
-.ds-input {
-  font-family: var(--font-sans); font-size: 13px;
-  padding: 8px 12px; width: 100%;
-  border: 1px solid var(--color-border); border-radius: 8px;
-  background: var(--color-surface); color: var(--color-ink);
-  outline: none; transition: box-shadow .15s;
-}
-.ds-input:focus-visible {
-  border-color: hsl(var(--ring));
-  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.15);   /* Focus Blue — única cor fria */
-}
-```
+### Estado vazio (obrigatório)
 
-### Estado Vazio (obrigatório)
+Ícone + título + descrição + CTA. Ver `ConsultaIdleState.tsx` como referência viva.
 
-Painel vazio nunca fica em branco. Sempre ícone + título + descrição + CTA.
+### Estado de carregamento
 
-```html
-<div class="empty-state">
-  <Icon class="empty-icon" />
-  <h3 class="empty-title">Nenhuma consulta hoje</h3>
-  <p class="empty-desc">Consulte um CPF para ver score e histórico na rede.</p>
-  <button class="btn btn-primary">Consultar CPF</button>
-</div>
-```
-
-```css
-.empty-state { text-align: center; padding: 48px 24px; }
-.empty-icon  { width: 32px; height: 32px; color: var(--color-muted); opacity: .5; margin: 0 auto 16px; }
-.empty-title { font-family: var(--font-display); font-weight: 600; font-size: 16px; color: var(--color-ink); }
-.empty-desc  { font-family: var(--font-sans); font-size: 13px; color: var(--color-muted); margin: 8px 0 24px; }
-```
-
-### Estado de Carregamento
-
-Para carregamentos > 300ms, use **skeleton com shimmer** — nunca spinner centralizado.
-
-```css
-.skeleton {
-  background: linear-gradient(90deg, var(--color-tag-bg) 25%, var(--color-border) 50%, var(--color-tag-bg) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-  border-radius: 4px;
-}
-@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-
-@media (prefers-reduced-motion: reduce) {
-  .skeleton { animation: none; background: var(--color-tag-bg); }
-}
-```
-
-### Section Label
-
-```css
-.section-label {
-  font-family: var(--font-mono); font-size: 10px;
-  letter-spacing: 0.12em; text-transform: uppercase;
-  color: var(--color-muted); margin-bottom: 1rem;
-  padding-bottom: 0.5rem; border-bottom: 1px solid var(--color-border);
-}
-```
+Skeleton para carga acima de 300ms. Nunca spinner centralizado, nunca
+"Carregando...". Respeite `prefers-reduced-motion`.
 
 ---
 
-## 7. Tailwind
-
-Já configurado em `tailwind.config.ts`:
-
-```js
-fontFamily: {
-  display: ['Fraunces', 'serif'],
-  body:    ['DM Sans', 'sans-serif'],
-  mono:    ['DM Mono', 'monospace'],
-}
-```
-
-**Classes proibidas:**
-
-- `shadow-md`, `shadow-lg`, `shadow-xl`, `shadow-2xl`, `drop-shadow-*` → use ring shadow (5.2)
-- `rounded-full` **em badge de status** → use `rounded` (4px)
-- Cores default do Tailwind: `emerald-*`, `slate-*`, `indigo-*`, `violet-*`, `blue-*`, `gray-*`
-  → use os tokens semânticos (3.4)
-- Gradientes roxo→azul, botões com gradiente
-
-**Sempre prefira** `bg-[var(--color-surface)]` a um hex literal.
-
----
-
-## 8. Anti-Padrões — Lista Negra
+## 7. Anti-Padrões
 
 ```
-FONTES PROIBIDAS:
-  ✗ Inter, Roboto, Arial, system-ui, -apple-system
-  ✗ Space Grotesk, Poppins, Nunito, Outfit
+TIPOGRAFIA
+  ✗ Qualquer serifa (Fraunces, Georgia) — o sistema não tem serifa
+  ✗ Número sem tabular-nums
+  ✗ Bold em display grande (use peso 300 + tracking apertado)
 
-CORES PROIBIDAS:
-  ✗ #6366f1 (indigo), #8b5cf6 (violet), #ef4444 (red-500), #64748b (slate-500)
-  ✗ Qualquer azul que não seja o Focus Blue #3898EC em anel de foco
-  ✗ Qualquer gradiente purple-to-blue
-  ✗ Fundo #0f172a (slate-900 genérico) — o dark é #141413, quente
+COR
+  ✗ Paleta default do Tailwind: slate-*, blue-*, emerald-*, red-*, gray-*
+  ✗ --cat-* significando bom/ruim
+  ✗ Acento roxo em dado numérico
+  ✗ Gradiente em botão, card ou hero
 
-PROFUNDIDADE PROIBIDA:
-  ✗ box-shadow com blur > 4px fora de modal/popover
-  ✗ shadow-md e acima
-  ✗ border: 0.5px
+GEOMETRIA
+  ✗ Raio acima de 8px
+  ✗ rounded-full em badge de status
+  ✗ shadow-md/lg/xl do Tailwind — use os anéis da seção 5.2
+  ✗ border 0.5px
 
-LAYOUT PROIBIDO:
-  ✗ Hero com gradiente de fundo
-  ✗ Cards flutuando com shadow-xl
-  ✗ Botões com gradiente
-  ✗ Emoji decorativo inline
-  ✗ Progress bar em formato pill
-  ✗ Badge de status em formato pill
-  ✗ Painel vazio sem empty state
-  ✗ Spinner centralizado onde cabe skeleton
-
-SEMÂNTICA PROIBIDA:
-  ✗ Verde para algo que não seja sucesso/ativo/positivo
-  ✗ Vermelho decorativo
-  ✗ Terracota em dado numérico (terracota é ação, não informação)
-  ✗ Badge com padding > 4px 10px
-
-ACESSIBILIDADE — NÃO NEGOCIÁVEL:
-  ✗ Remover outline de foco sem substituir por anel visível
-  ✗ Contraste < 4.5:1 em corpo de texto, < 3:1 em texto grande
-  ✗ Alvo de toque < 44x44px no mobile
+ACESSIBILIDADE — NÃO NEGOCIÁVEL
+  ✗ Foco sem anel visível
+  ✗ Contraste < 4.5:1 em corpo, < 3:1 em texto grande
+  ✗ Alvo de toque < 44x44px
   ✗ Animação sem fallback prefers-reduced-motion
 ```
 
 ---
 
-## 9. Tom de Voz da Interface
+## 8. Tom de Voz
 
-- **Labels de campo:** substantivos diretos em minúsculas — `cpf do assinante`, `score atual`
-- **Mensagens de erro:** afirmativas e úteis — `CPF não encontrado no sistema` (não: `Erro 404`)
-- **CTAs:** verbos no infinitivo — `Consultar`, `Ver histórico`, `Exportar relatório`
-- **Headers de seção:** caixa baixa com separador — `histórico de negativações`
-- **NÃO USE:** exclamações (`Dados salvos com sucesso!`), jargão técnico exposto
-  (`Error: null reference`), linguagem de startup (`Turbine seus resultados!`)
+- **Labels:** substantivos diretos em minúsculas — `cpf do assinante`, `score atual`
+- **Erros:** afirmativos e úteis — `CPF não encontrado` (não: `Erro 404`)
+- **CTAs:** verbos no infinitivo — `Consultar`, `Exportar relatório`
+- **NÃO USE:** exclamação, jargão técnico exposto, linguagem de startup
 
 ---
 
-## 10. Uso e dívidas conhecidas
-
-### Como referenciar
-
-```
-Crie o componente seguindo @DESIGN_SYSTEM.md.
-Não use nada da lista negra da seção 8.
-```
-
-Para decisões de cor/profundidade não cobertas aqui, consulte
-`.claude/skills/design/references/claude.md` — **seções 2 e 6 apenas**
-(tipografia e escala de raio de lá não se aplicam, ver seção 1).
-
-### Dívidas fechadas em 2026-08-21
-
-| # | Dívida | O que foi feito |
-|---|---|---|
-| 1 | `shadow-md/lg/xl/2xl` (42 usos, 20 arquivos) | Migrados para o ring shadow da seção 5.2 |
-| 2 | Escala `--shadow-*` em cinza frio | `hsl(220 13% 91%)` → `hsl(48 12% 85%)` / dark `hsl(48 6% 8%)` |
-| 3 | Hex frios hardcoded (15 arquivos) | Mapeados para a família quente; rampa de heatmap refeita com luminância monotônica |
-| 4 | Status dots/badges em `emerald-500`/`gray-400` | Trocados por `--color-success`/`--color-muted`; variantes `dark:` removidas (tokens já trocam sozinhos) |
-| 5 | `rounded-full` em badge de status (9 badges) | → `rounded` (4px). Os 21 dots circulares foram preservados |
-| 6 | `--chart-1..5` em paleta fria | Reescritos na família quente (light + dark) |
-| 7 | `--color-navy` (183 ocorrências, 41 arquivos) | Migrado para `--color-brand`; alias removido |
-
-**Removido:** `client/src/styles/tokens.css` — 75 linhas com a paleta navy da v2.0,
-não importado em lugar nenhum. Era a origem física da confusão que gerou esta revisão.
-
-Typecheck antes e depois: **112 erros nos dois** — nenhum erro novo introduzido.
-(Os 112 são pré-existentes e server-side em sua maioria; ver dívida aberta #2 abaixo.)
-
-### Dívidas abertas
+## 9. Dívidas abertas
 
 | # | Dívida | Volume |
 |---|---|---|
-| 1 | Classes da paleta default do Tailwind (`bg-blue-50`, `bg-slate-100`, `text-red-500`…) | **1190 ocorrências, 47 dos 119 arquivos** |
-| 2 | Gradientes `from-X-N to-Y-M` (subconjunto de #1) | 278 paradas, 37 call sites `bg-gradient-to-*` |
-| 3 | 112 erros de TypeScript pré-existentes (`npm run check`) | maioria em `server/services/*` — `erp-sync`, `heatmap-cache`, `downlevelIteration` |
-| 4 | Dark mode definido mas nunca ativado — nada aplica a classe `.dark` | `next-themes` está nas deps mas não há toggle |
+| 1 | Classes da paleta default do Tailwind ainda espalhadas | ~1190 ocorrências, 47 dos 119 arquivos |
+| 2 | Gradientes `from-X to-Y` (subconjunto de #1) | 278 paradas, 37 call sites |
+| 3 | 112 erros de TypeScript pré-existentes | maioria em `server/services/*` |
+| 4 | Dark mode definido mas nunca ativado — falta o toggle | `next-themes` está nas deps |
+| 5 | `CLAUDE.md` documenta `isp_consultations.score` como 0–100; é **0–1000** | corrigir na fonte |
 
-> **Correção de auditoria:** a primeira versão desta tabela dizia "11 arquivos" para cores
-> frias. Aquele número contava apenas **hex literais** (`#ef4444`); não contava classes
-> Tailwind. O número real é o acima. A rodada de 2026-08-21 fechou o subconjunto
-> **semântico** (status, score, sucesso/erro/atenção) e os hex literais — que era o que
-> causava erro de leitura. O que resta é majoritariamente **decorativo**: caixas de aviso,
-> fundos de ícone, gradientes de KPI.
-
-Fechar #1 não é trabalho de `sed`: cada ocorrência precisa de julgamento sobre o papel
-(informativo? decorativo? categórico?) e várias mudam de significado conforme o contexto.
-Fechar #2 exige tocar **os dois lados** — o mapa de cores e o `className` que consome
-(`bg-gradient-to-br ${x}` precisa perder o `bg-gradient-to-br`, senão vira gradiente sem
-paradas). Ambas merecem passe próprio, tela a tela.
-
-### Nota sobre o reference
-
-`claude.md` linha 51 lista Ring Subtle como `#dedc01` (um amarelo) — é erro de digitação
-no reference. A implementação usa `#DEDCD1`, cinza quente, que é o valor correto.
+A #1 não é trabalho de `sed`: cada ocorrência precisa de julgamento sobre o papel
+(informativo, decorativo ou categórico). Deve ser feita tela a tela.
 
 ---
 
-*Versão 3.0 · Consulta ISP · base: `client/src/index.css` + `references/claude.md`*
+*Versão 4.0 · Consulta ISP · base: `client/src/index.css` + `stripe.md` + `intercom.md`*

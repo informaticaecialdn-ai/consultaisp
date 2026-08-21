@@ -56,17 +56,17 @@ import { useToast } from "@/hooks/use-toast";
 // Ver DESIGN_SYSTEM.md secao 3.5. Nunca use --color-danger/success aqui.
 const ERP_CONFIG: Record<string, { label: string; dot: string }> = {
   ixc:            { label: "iXC Soft",       dot: "bg-[var(--cat-indigo)]"     },
-  sgp:            { label: "SGP",            dot: "bg-[var(--cat-plum)]"       },
-  mk:             { label: "MK Solutions",   dot: "bg-[var(--cat-moss)]"       },
-  tiacos:         { label: "Tiacos",         dot: "bg-[var(--cat-rust)]"       },
-  hubsoft:        { label: "Hubsoft",        dot: "bg-[var(--cat-bronze)]"     },
+  sgp:            { label: "SGP",            dot: "bg-[var(--cat-violet)]"       },
+  mk:             { label: "MK Solutions",   dot: "bg-[var(--cat-green)]"       },
+  tiacos:         { label: "Tiacos",         dot: "bg-[var(--cat-red)]"       },
+  hubsoft:        { label: "Hubsoft",        dot: "bg-[var(--cat-navy)]"     },
   flyspeed:       { label: "Fly Speed",      dot: "bg-[var(--cat-teal)]"       },
-  netflash:       { label: "Netflash",       dot: "bg-[var(--cat-olive)]"      },
-  voalle:         { label: "Voalle",         dot: "bg-[var(--cat-wine)]"       },
-  rbx:            { label: "RBX",            dot: "bg-[var(--cat-terracotta)]" },
-  unisat:         { label: "Unisat",         dot: "bg-[var(--cat-ochre)]"      },
+  netflash:       { label: "Netflash",       dot: "bg-[var(--cat-lime)]"      },
+  voalle:         { label: "Voalle",         dot: "bg-[var(--cat-blue)]"       },
+  rbx:            { label: "RBX",            dot: "bg-[var(--cat-orange)]" },
+  unisat:         { label: "Unisat",         dot: "bg-[var(--cat-amber)]"      },
   clickisp:       { label: "ClickISP",       dot: "bg-[var(--cat-slate)]"      },
-  radius_manager: { label: "Radius Manager", dot: "bg-[var(--cat-clay)]"       },
+  radius_manager: { label: "Radius Manager", dot: "bg-[var(--cat-pink)]"       },
   manual:         { label: "Manual",         dot: "bg-[var(--color-muted)]"    },
 };
 
