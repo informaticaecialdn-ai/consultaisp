@@ -18,6 +18,13 @@ import {
   Users,
   Activity,
   ChevronRight,
+  ScanSearch,
+  BarChart3,
+  ShieldAlert,
+  MapPin,
+  Upload,
+  FileText,
+  Globe,
   Building2,
   Wifi,
 } from "lucide-react";
@@ -87,122 +94,96 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Identidade na Rede */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card className="px-[14px] py-3">
-          <div className="flex items-center gap-2">
-            <Wifi className="w-4 h-4 flex-none" strokeWidth={2} style={{ color: "var(--brand)" }} />
-            <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-              Seu provedor na rede
+      {/* Metricas. O card de creditos leva o CTA embutido: comprar do mesmo lugar
+          onde se ve o saldo, sem viagem ate outra tela. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <Card className="px-[14px] py-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <span className="block text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+              Créditos disponíveis
             </span>
-          </div>
-          <p className="mt-1.5 text-[15px] font-medium text-[var(--text)]">
-            {(provider as any)?.tradeName || provider?.name}
-          </p>
-          {partnerCode && (
-            <p className="text-[12px] text-[var(--text-muted)] mt-0.5">
-              Código: <span className="font-mono tabular-nums text-[var(--brand)]">{partnerCode}</span>
+            <p
+              className="mt-1.5 font-mono text-[21px] font-medium tracking-[-0.02em] text-[var(--text)] tabular-nums"
+              data-testid="value-card-credits"
+            >
+              {isLoading ? "—" : creditos}
             </p>
-          )}
-        </Card>
-        <Card className="px-[14px] py-3">
-          <div className="flex items-center gap-2">
-            <Building2 className="w-4 h-4 flex-none" strokeWidth={2} style={{ color: "var(--brand)" }} />
-            <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-              Provedores parceiros
-            </span>
           </div>
-          <p className="mt-1.5 font-mono text-[21px] font-medium tracking-[-0.02em] text-[var(--text)] tabular-nums">
-            {provedoresParceiros}
-          </p>
-          <p className="text-[12px] text-[var(--text-muted)] mt-0.5">compartilhando dados na sua região</p>
+          <Link href="/creditos">
+            <button
+              type="button"
+              data-testid="button-comprar-creditos"
+              className="flex-none min-h-[36px] text-[12.5px] font-medium px-3 py-2 rounded bg-[var(--brand)] text-white hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand)] motion-safe:transition-opacity active:scale-[0.97]"
+            >
+              Comprar
+            </button>
+          </Link>
         </Card>
+
+        <KpiCard icon={Search}     label="Consultas hoje"       value={isLoading ? null : consultasHoje} testId="card-today" />
+        <KpiCard icon={TrendingUp} label="Consultas no mês"     value={isLoading ? null : consultasMes}  testId="card-month" />
+        <KpiCard icon={Building2}  label="Provedores parceiros" value={provedoresParceiros} sub="compartilhando dados" testId="card-partners" />
       </div>
 
-      {/* KPIs principais */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <KpiCard
-          icon={Search}
-          label="Consultas Hoje"
-          value={isLoading ? null : consultasHoje}
-          color="var(--color-brand)"
-          testId="card-today"
-        />
-        <KpiCard
-          icon={TrendingUp}
-          label="Consultas no Mes"
-          value={isLoading ? null : consultasMes}
-          color="var(--color-brand)"
-          testId="card-month"
-        />
-        <KpiCard
-          icon={CreditCard}
-          label="Creditos Restantes"
-          value={isLoading ? null : creditos}
-          color={creditos < 10 ? "var(--color-danger)" : "var(--color-brand)"}
-          testId="card-credits"
-        />
-      </div>
-
-      {/* Acoes rapidas */}
+      {/* Funcionalidades — toda capacidade do sistema vira card com icone, titulo e
+          descricao. Antes existiam so 4 "acoes rapidas" e metade do sistema ficava
+          invisivel para quem nao conhecia a sidebar de cor. */}
       <div>
-        <Card className="p-0">
-          {/* Cabecalho de card leva separador --border-faint, nao --border */}
-          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--border-faint)]">
-            <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-              Ações rápidas
-            </span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4">
-            <Link href="/consulta-isp">
-              <ActionCard
-                icon={Search}
-                title="Consultar CPF/CNPJ"
-                desc="Verificar score e historico"
-                color="var(--color-brand)"
-              />
+        <h2 className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)] mb-3">
+          Funcionalidades disponíveis
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+          {FUNCIONALIDADES.map(f => (
+            <Link key={f.url} href={f.url}>
+              <FeatureCard {...f} />
             </Link>
-            <Link href="/consulta-spc">
-              <ActionCard
-                icon={Users}
-                title="Consulta SPC"
-                desc="Score de credito SPC"
-                color="var(--color-brand)"
-              />
-            </Link>
-            <Link href="/anti-fraude">
-              <ActionCard
-                icon={Shield}
-                title="Anti-Fraude"
-                desc="Alertas e migradores"
-                color="var(--color-danger)"
-              />
-            </Link>
-            <Link href="/creditos">
-              <ActionCard
-                icon={CreditCard}
-                title="Comprar Creditos"
-                desc="Recarregar consultas"
-                color="var(--color-gold)"
-              />
-            </Link>
-          </div>
-        </Card>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
-function KpiCard({ icon: Icon, label, value, sub, color, testId }: {
-  icon: any; label: string; value: any; sub?: string; color: string; testId: string;
+/* Uma cor de marca so: o ladrilho do icone usa --brand-soft em todos. A pele
+   reserva saturacao para risco, entao variar a cor por card seria ruido. */
+const FUNCIONALIDADES: Array<{ url: string; titulo: string; desc: string; Icone: any }> = [
+  { url: "/consulta-isp",  titulo: "Consulta ISP",  Icone: ScanSearch,  desc: "Score de risco e histórico do CPF em toda a rede de provedores" },
+  { url: "/consulta-spc",  titulo: "Consulta SPC",  Icone: BarChart3,   desc: "Consulta oficial no SPC Brasil, com restrições e protestos" },
+  { url: "/anti-fraude",   titulo: "Anti-Fraude",   Icone: ShieldAlert, desc: "Alertas de migração e ranking de clientes em risco" },
+  { url: "/inadimplentes", titulo: "Inadimplentes", Icone: Users,       desc: "Sua carteira de inadimplentes sincronizada do ERP" },
+  { url: "/mapa-calor",    titulo: "Mapa de Calor", Icone: MapPin,      desc: "Concentração geográfica da inadimplência na sua região" },
+  { url: "/importacao",    titulo: "Importação",    Icone: Upload,      desc: "Importe clientes e faturas por arquivo CSV" },
+  { url: "/importacao-equipamentos", titulo: "Importar Equipamentos", Icone: Package, desc: "Cadastre ONUs e equipamentos em comodato" },
+  { url: "/creditos",      titulo: "Comprar Créditos", Icone: CreditCard, desc: "Recarregue o saldo para novas consultas" },
+  { url: "/nfse",          titulo: "Notas Fiscais", Icone: FileText,    desc: "Emissão e histórico de notas fiscais de serviço" },
+  { url: "/painel-provedor", titulo: "Painel do Provedor", Icone: Building2, desc: "Dados cadastrais, sócios, usuários e documentos" },
+  { url: "/configuracoes/regionalizacao", titulo: "Regionalização", Icone: Globe, desc: "Cidades e mesorregiões que seu provedor atende" },
+  { url: "/meus-dados",    titulo: "Meus Dados",    Icone: Shield,      desc: "Seus dados pessoais e direitos previstos na LGPD" },
+];
+
+function FeatureCard({ titulo, desc, Icone }: { titulo: string; desc: string; Icone: any }) {
+  return (
+    <div className="h-full flex flex-col gap-2.5 p-4 rounded-lg bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)] motion-safe:transition-colors cursor-pointer">
+      <div className="w-9 h-9 rounded-lg grid place-items-center bg-[var(--brand-soft)] flex-none">
+        <Icone className="w-[18px] h-[18px] text-[var(--brand-ink)]" strokeWidth={2} />
+      </div>
+      <div>
+        <p className="text-[13.5px] font-semibold text-[var(--text)] leading-tight">{titulo}</p>
+        <p className="text-[12px] text-[var(--text-muted)] leading-snug mt-1">{desc}</p>
+      </div>
+    </div>
+  );
+}
+function KpiCard({ icon: Icon, label, value, sub, testId }: {
+  icon: any; label: string; value: any; sub?: string; testId: string;
 }) {
   return (
     /* Rotulo em mono caixa-alta e numero em mono tabular — mesma voz da sidebar
        e da Consulta ISP. O numero fica em --text: acento e acao, dado e dado.
-       A cor semantica vive no icone. */
+       O icone e neutro: nesta tela nenhuma metrica e semantica. */
     <Card className="px-[14px] py-3" data-testid={testId}>
       <div className="flex items-center gap-2">
-        <Icon className="w-4 h-4 flex-none" strokeWidth={2} style={{ color }} />
+        <Icon className="w-4 h-4 flex-none text-[var(--text-faint)]" strokeWidth={2} />
         <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
           {label}
         </span>
@@ -224,22 +205,6 @@ function KpiCard({ icon: Icon, label, value, sub, color, testId }: {
   );
 }
 
-function ActionCard({ icon: Icon, title, desc, color }: {
-  icon: any; title: string; desc: string; color: string;
-}) {
-  return (
-    <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-[var(--border)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)] motion-safe:transition-colors cursor-pointer">
-      <div className="w-8 h-8 rounded-lg grid place-items-center flex-none" style={{ background: `${color}14` }}>
-        <Icon className="w-4 h-4" strokeWidth={2} style={{ color }} />
-      </div>
-      <div className="min-w-0">
-        <p className="text-[13.5px] font-medium text-[var(--text)] truncate">{title}</p>
-        <p className="text-[12px] text-[var(--text-muted)] truncate">{desc}</p>
-      </div>
-      <ChevronRight className="w-4 h-4 text-[var(--text-faint)] ml-auto flex-none" strokeWidth={2} />
-    </div>
-  );
-}
 
 function RiskItem({ label, value }: { label: string; value: any }) {
   return (
