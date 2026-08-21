@@ -67,13 +67,16 @@ function relativeDate(d: string | null) {
 
 function MetricCard({ label, value, suffix, testId }: Metric) {
   return (
-    <div className="bg-[var(--color-surface)] rounded-lg px-5 py-4 shadow-[0_0_0_1px_var(--ring-subtle)]">
-      <span className="block font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--color-muted)]">
+    <div className="bg-[var(--color-surface)] rounded-lg px-[14px] py-3 border border-[var(--color-border)]">
+      <span className="block font-mono text-[10px] uppercase tracking-[0.11em] text-[var(--color-muted)]">
         {label}
       </span>
-      <div className="mt-2 font-mono text-2xl font-medium text-[var(--color-ink)] tabular-nums" data-testid={testId}>
+      <div
+        className="mt-1.5 font-mono text-[21px] font-medium tracking-[-0.02em] text-[var(--color-ink)] tabular-nums"
+        data-testid={testId}
+      >
         {value}
-        {suffix && <span className="text-base text-[var(--color-muted)]">{suffix}</span>}
+        {suffix && <span className="text-[12px] text-[var(--color-muted)]">{suffix}</span>}
       </div>
     </div>
   );
@@ -100,80 +103,103 @@ export default function ConsultaIdleState({
   const recent = consultations.slice(0, 5);
 
   return (
-    <div className="space-y-6" data-testid="consulta-idle-state">
+    <div className="space-y-4" data-testid="consulta-idle-state">
       {/* Metricas — promovidas do cabecalho, onde estavam comprimidas em texto mono inline */}
       {metrics.length > 0 && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
           {metrics.map(m => <MetricCard key={m.testId} {...m} />)}
         </div>
       )}
 
       {recent.length > 0 ? (
-        <div>
-          <div className="flex items-baseline justify-between pb-2 mb-3 border-b border-[var(--color-border)]">
-            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
+        /* Tabela, nao lista de cards. Cabecalho de coluna e o que transforma
+           "algumas linhas" em "registro" — e o que faz a tela ler como bureau. */
+        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--color-border)]">
+            <span className="font-mono text-[10px] uppercase tracking-[0.11em] text-[var(--color-muted)]">
               Consultas recentes
             </span>
-            <span className="font-mono text-[10px] text-[var(--color-muted)]">
-              clique para consultar de novo
+            <span className="font-mono text-[10px] uppercase tracking-[0.11em] text-[var(--color-muted)]">
+              Últimas {recent.length}
             </span>
           </div>
 
-          <ul className="flex flex-col gap-2">
-            {recent.map(c => {
-              const dec = DECISION[c.decisionReco as keyof typeof DECISION];
-              return (
-                <li key={c.id}>
-                  <button
-                    type="button"
-                    onClick={() => onRerun(c.cpfCnpj)}
-                    data-testid={`rerun-${c.id}`}
-                    className="group w-full min-h-[44px] flex items-center gap-3 px-4 py-3 rounded-lg bg-[var(--color-surface)] text-left shadow-[0_0_0_1px_var(--ring-subtle)] hover:shadow-[0_0_0_1px_var(--ring-warm)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))] motion-safe:transition-shadow"
-                  >
-                    {/* SPC nao grava aprovacao — nesse caso o dot herda a faixa do score */}
-                    <span
-                      className="w-2 h-2 rounded-full flex-none"
-                      style={{
-                        background: c.approved === undefined
-                          ? scoreToken(c.score)
-                          : c.approved ? "var(--color-success)" : "var(--color-danger)",
-                      }}
-                    />
-
-                    <span className="font-mono text-sm text-[var(--color-ink)] tabular-nums">
-                      {formatCpfCnpj(c.cpfCnpj)}
-                    </span>
-
-                    <span
-                      className="font-mono text-sm font-medium tabular-nums"
-                      style={{ color: scoreToken(c.score) }}
+          <div className="overflow-x-auto">
+            <table className="w-full text-[13px] min-w-[520px]">
+              <thead>
+                <tr>
+                  {["CPF / CNPJ", "Score", "Decisão", "Custo", "Quando"].map(h => (
+                    <th
+                      key={h}
+                      className="text-left font-mono text-[9.5px] font-medium uppercase tracking-[0.1em] text-[var(--color-muted)] px-4 py-2 border-b border-[var(--color-border)]"
                     >
-                      {c.score ?? "—"}
-                    </span>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {recent.map(c => {
+                  const dec = DECISION[c.decisionReco as keyof typeof DECISION];
+                  const cor = scoreToken(c.score);
+                  return (
+                    <tr
+                      key={c.id}
+                      onClick={() => onRerun(c.cpfCnpj)}
+                      tabIndex={0}
+                      role="button"
+                      onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onRerun(c.cpfCnpj); } }}
+                      data-testid={`rerun-${c.id}`}
+                      className="group cursor-pointer border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-bg)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[hsl(var(--ring))] motion-safe:transition-colors"
+                    >
+                      <td className="px-4 py-2.5 font-mono tabular-nums text-[var(--color-ink)] whitespace-nowrap">
+                        {formatCpfCnpj(c.cpfCnpj)}
+                      </td>
 
-                    {dec && (
-                      <span className={`font-mono text-[10px] tracking-[0.06em] px-2 py-0.5 rounded ${dec.cls}`}>
-                        {dec.label}
-                      </span>
-                    )}
-
-                    <span className="ml-auto flex items-center gap-3">
-                      {c.cost !== undefined && (
-                        <span className="font-mono text-[10px] text-[var(--color-muted)] tabular-nums">
-                          {c.cost === 0 ? "grátis" : `-${c.cost} cred`}
+                      <td className="px-4 py-2.5">
+                        <span className="flex items-center gap-2">
+                          <span className="font-mono tabular-nums font-medium" style={{ color: cor }}>
+                            {c.score ?? "—"}
+                          </span>
+                          {c.score !== null && (
+                            <span className="hidden md:block w-[52px] h-[3px] rounded-sm bg-[var(--color-border)] overflow-hidden">
+                              <span
+                                className="block h-full rounded-sm"
+                                style={{ width: `${Math.min(100, c.score / 10)}%`, background: cor }}
+                              />
+                            </span>
+                          )}
                         </span>
-                      )}
-                      <span className="hidden sm:flex items-center gap-1 font-mono text-[10px] text-[var(--color-muted)] tabular-nums">
-                        <Clock className="w-3 h-3" />
-                        {relativeDate(c.createdAt)}
-                      </span>
-                      <ArrowUpRight className="w-4 h-4 text-[var(--color-muted)] opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 motion-safe:transition-opacity" />
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+                      </td>
+
+                      <td className="px-4 py-2.5">
+                        {dec ? (
+                          <span className={`inline-flex items-center gap-1.5 font-mono text-[10px] tracking-[0.04em] px-2 py-0.5 rounded ${dec.cls}`}>
+                            {/* SPC nao grava decisao — nesse caso a celula fica vazia */}
+                            <i className="w-1.5 h-1.5 rounded-full" style={{ background: "currentColor" }} />
+                            {dec.label}
+                          </span>
+                        ) : (
+                          <span className="font-mono text-[10px] text-[var(--color-muted)]">—</span>
+                        )}
+                      </td>
+
+                      <td className="px-4 py-2.5 font-mono tabular-nums text-[var(--color-muted)] text-[12px] whitespace-nowrap">
+                        {c.cost === undefined ? "—" : c.cost === 0 ? "grátis" : `−${c.cost} cred`}
+                      </td>
+
+                      <td className="px-4 py-2.5 font-mono tabular-nums text-[var(--color-muted)] text-[12px] whitespace-nowrap">
+                        <span className="flex items-center gap-2">
+                          {relativeDate(c.createdAt)}
+                          <ArrowUpRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 motion-safe:transition-opacity" />
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : (
         /* Vazio de verdade — provedor ainda nao consultou nada */

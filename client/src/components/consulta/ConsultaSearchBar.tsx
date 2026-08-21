@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Card } from "@/components/ui/card";
+
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, Info, MapPin, FileText, Building2, ChevronDown, ChevronUp } from "lucide-react";
@@ -41,7 +41,12 @@ export default function ConsultaSearchBar({ onSearch, isLoading, hasResult, auto
 
   const detectedType = getDetectedType(query);
 
+  // Digitar um CPF de 11 digitos passa por 8 digitos no meio do caminho, o que dispara
+  // esta busca de CEP. Sem o guard de cancelamento a resposta tardia chegava depois do
+  // else ter limpado o estado e reescrevia "CEP nao encontrado" — a tela mostrava
+  // "CPF detectado" e o erro de CEP ao mesmo tempo.
   useEffect(() => {
+    let cancelado = false;
     const digits = query.replace(/\D/g, "");
     if (digits.length === 8) {
       setCepData(null);
@@ -50,23 +55,27 @@ export default function ConsultaSearchBar({ onSearch, isLoading, hasResult, auto
       fetch(`https://viacep.com.br/ws/${digits}/json/`)
         .then(r => r.json())
         .then((d: CepData) => {
+          if (cancelado) return;
           if (d.erro) {
             setCepError("CEP não encontrado. Verifique o número.");
           } else {
             setCepData(d);
           }
         })
-        .catch(() => setCepError("Erro ao buscar CEP. Tente novamente."))
-        .finally(() => setCepLoading(false));
+        .catch(() => { if (!cancelado) setCepError("Erro ao buscar CEP. Tente novamente."); })
+        .finally(() => { if (!cancelado) setCepLoading(false); });
     } else {
       setCepData(null);
       setCepError("");
       setAddressNumber("");
       setAddressComplement("");
     }
+    return () => { cancelado = true; };
   }, [query]);
 
+  // Mesmo guard de cancelamento do efeito acima.
   useEffect(() => {
+    let cancelado = false;
     const digits = installCepQuery.replace(/\D/g, "");
     if (digits.length === 8) {
       setInstallCepData(null);
@@ -75,20 +84,22 @@ export default function ConsultaSearchBar({ onSearch, isLoading, hasResult, auto
       fetch(`https://viacep.com.br/ws/${digits}/json/`)
         .then(r => r.json())
         .then((d: CepData) => {
+          if (cancelado) return;
           if (d.erro) {
             setInstallCepError("CEP não encontrado. Verifique o número.");
           } else {
             setInstallCepData(d);
           }
         })
-        .catch(() => setInstallCepError("Erro ao buscar CEP. Tente novamente."))
-        .finally(() => setInstallCepLoading(false));
+        .catch(() => { if (!cancelado) setInstallCepError("Erro ao buscar CEP. Tente novamente."); })
+        .finally(() => { if (!cancelado) setInstallCepLoading(false); });
     } else {
       setInstallCepData(null);
       setInstallCepError("");
       setInstallNumber("");
       setInstallComplement("");
     }
+    return () => { cancelado = true; };
   }, [installCepQuery]);
 
   const handleSearch = () => {
@@ -125,28 +136,25 @@ export default function ConsultaSearchBar({ onSearch, isLoading, hasResult, auto
   const cepNumberRequired = isCepMode && !addressNumber.trim();
 
   return (
-    <Card className="overflow-hidden shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] rounded-lg">
-      <div className="bg-[var(--color-bg)] border-b px-6 py-4 flex items-center gap-3">
-        <div className="w-8 h-8 rounded-md bg-[var(--color-brand)] flex items-center justify-center">
-          <Search className="w-4 h-4 text-white" />
-        </div>
-        <h2 className="text-lg font-semibold text-[var(--color-ink)]">Realizar Consulta ISP</h2>
-      </div>
-      <div className="p-6 space-y-4">
+    /* Sem card e sem header: o titulo da pagina ja diz que isto e a Consulta ISP.
+       Repetir "Realizar Consulta ISP" num header proprio so empurrava a busca
+       para baixo e roubava densidade. */
+    <div className="rounded-lg bg-[var(--color-surface)] border border-[var(--color-border)]">
+      <div className="p-4 space-y-3">
         {/* Main input */}
-        <div className="flex gap-3 items-start flex-wrap">
+        <div className="flex gap-2 items-start flex-wrap">
           <div className="flex-1 min-w-[220px]">
             <div className="relative">
               <Input
                 data-testid="input-isp-search"
-                placeholder="CPF, CNPJ ou CEP (apenas números)"
+                placeholder="CPF, CNPJ ou CEP"
                 value={query}
                 onChange={(e) => {
                   setQuery(e.target.value);
                   if (hasResult) onClear();
                 }}
                 onKeyDown={(e) => e.key === "Enter" && !cepData ? handleSearch() : undefined}
-                className="h-12 text-base pr-10 rounded-md border-[var(--color-border)]"
+                className="h-10 text-sm font-mono pr-10 rounded border-[var(--color-border)]"
               />
               {cepLoading && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-[var(--color-steel)] border-t-transparent animate-spin" />
@@ -175,7 +183,7 @@ export default function ConsultaSearchBar({ onSearch, isLoading, hasResult, auto
             <>
               <Button
                 variant="outline"
-                className="h-12 px-5 rounded-md"
+                className="h-10 px-4 rounded text-sm"
                 onClick={handleClear}
                 data-testid="button-clear-isp"
               >
@@ -184,7 +192,7 @@ export default function ConsultaSearchBar({ onSearch, isLoading, hasResult, auto
               <Button
                 onClick={handleSearch}
                 disabled={!query.trim() || isLoading || cepLoading}
-                className="h-12 px-8 rounded-md bg-[var(--color-brand)] hover:opacity-90 text-white font-medium"
+                className="h-10 px-5 rounded text-sm bg-[var(--color-brand)] hover:opacity-90 text-white font-medium"
                 data-testid="button-consultar-isp"
               >
                 {isLoading ? "Consultando..." : "Consultar"}
@@ -377,6 +385,6 @@ export default function ConsultaSearchBar({ onSearch, isLoading, hasResult, auto
           </div>
         )}
       </div>
-    </Card>
+    </div>
   );
 }

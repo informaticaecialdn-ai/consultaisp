@@ -318,14 +318,23 @@ Pares: `--color-success-bg` + `--color-success`, e assim por diante.
 .btn:active { transform: scale(0.97); }
 .btn:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
 
-.btn-primary { background: var(--color-ink); color: var(--color-surface); border: none; }
-.btn-accent  { background: var(--color-brand); color: #fff; border: none; }
+.btn-primary { background: var(--color-brand); color: #fff; border: none; }
+.btn-neutral { background: var(--color-ink); color: var(--color-surface); border: none; }
 .btn-ghost   { background: var(--color-surface); color: var(--color-ink);
                box-shadow: 0 0 0 1px var(--ring-warm); }
 ```
 
-Botão primário é **navy**, não roxo. O roxo é reservado para navegação e link — assim
-o CTA não compete com o estado ativo da interface.
+Botão primário é **roxo** (`--color-brand`). É o que `stripe.md` determina: o Stripe
+Purple é *"Primary brand color, CTA backgrounds, link text, interactive highlights"* —
+uma cor só que ancora ação, link e estado ativo. O token `--primary` do shadcn aponta
+para ele, então todo `<Button>` já sai correto sem classe extra.
+
+`.btn-neutral` (navy) existe para ação secundária forte — exportar, sincronizar —
+onde o roxo roubaria atenção do CTA principal da tela.
+
+> **Correção da v4.0 inicial:** a primeira redação desta seção dizia "botão primário é
+> navy, não roxo". Era regra inventada, não estava em nenhuma referência, e contradizia
+> o `--primary` do próprio `index.css` — o app sempre renderizou roxo. Corrigido aqui.
 
 ### Tabela
 
