@@ -29,9 +29,10 @@ Se você leu a v2.0 e usou navy, o resultado está errado. A tabela abaixo mapei
 | Raio máximo 6px | Base 8px (`--radius`) — seção 5.1 |
 | Sombras drop `shadow-xs` | **Ring shadows** — seção 5.2 |
 
-**Armadilha de nomenclatura:** a variável `--color-navy` **contém terracota**, não navy.
-É resquício da migração. Use `--color-brand`; `--color-navy` segue como alias depreciado
-apenas para não quebrar os 183 usos existentes.
+**Armadilha de nomenclatura (resolvida):** a variável `--color-navy` **continha terracota**,
+não navy — resquício da migração que fazia qualquer leitor errar. Os 183 usos foram migrados
+para `--color-brand` e o alias foi removido. Se você encontrar `--color-navy` em algum lugar,
+é código morto: não resolve para nada.
 
 ---
 
@@ -123,15 +124,17 @@ Dados / Códigos / Labels:   DM Mono, weight 400 ou 500, 10–13px
 
   /* Score semântico — padronizar em TODO o sistema */
   --score-high:       var(--color-success);  /* 701-1000 */
-  --score-medium:     var(--color-gold);     /* 401-700  */
-  --score-low:        #C45A1A;               /* 201-400  */
-  --score-critical:   var(--color-danger);   /* 0-200    */
-
-  /* Alias depreciado — NÃO use em código novo */
-  --color-navy:       var(--color-brand);
-  --color-navy-bg:    var(--color-brand-bg);
+  --score-medium:     var(--color-gold);     /* 501-700  */
+  --score-low:        #C45A1A;               /* 301-500  */
+  --score-critical:   var(--color-danger);   /* 0-300    */
 }
 ```
+
+> **Faixas de score:** os limites acima (701 / 501 / 301) espelham
+> `server/utils/isp-score.ts`, que é a fonte da verdade. O score gravado em
+> `isp_consultations` é **0–1000**, não 0–100 — o `CLAUDE.md` documenta 0–100 e está
+> errado nesse ponto. Existe também um `score100` canônico no motor, usado em outro
+> contexto. Ao pintar score, espelhe as faixas do motor, nunca as reinvente.
 
 ### 3.2 Dark (`.dark`)
 
@@ -174,9 +177,9 @@ Não use para link, ícone, badge ou gráfico. Regra herdada de `claude.md`.
 |---|---|
 | CTA primário, link, acento de marca | `--color-brand` |
 | Score alto (701–1000) | `--score-high` |
-| Score médio (401–700) | `--score-medium` |
-| Score baixo (201–400) | `--score-low` |
-| Score crítico (0–200) | `--score-critical` |
+| Score médio (501–700) | `--score-medium` |
+| Score baixo (301–500) | `--score-low` |
+| Score crítico (0–300) | `--score-critical` |
 | Status: ativo / regularizado | `--color-success` |
 | Status: inadimplente / negativado | `--color-danger` |
 | Status: pendente / em análise | `--color-gold` |

@@ -12,6 +12,7 @@ import type { ConsultaResult } from "@/components/consulta/types";
 import { formatCpfCnpj } from "@/components/consulta/utils";
 import { generatePDF } from "@/components/consulta/PdfReportGenerator";
 import LoadingCard from "@/components/consulta/LoadingCard";
+import ConsultaIdleState from "@/components/consulta/ConsultaIdleState";
 import ConsultaSearchBar from "@/components/consulta/ConsultaSearchBar";
 import ConsultaResultSummary from "@/components/consulta/ConsultaResultSummary";
 import ConsultaResultDetail from "@/components/consulta/ConsultaResultDetail";
@@ -155,13 +156,8 @@ export default function ConsultaISPPage() {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            {/* Inline stats */}
-            <div className="hidden md:flex items-center gap-4 text-[var(--color-muted)]">
-              <span className="font-mono text-sm" data-testid="text-isp-today">hoje <strong className="text-[var(--color-ink)]">{data?.todayCount ?? 0}</strong></span>
-              <span className="font-mono text-sm" data-testid="text-isp-month">mês <strong className="text-[var(--color-ink)]">{data?.monthCount ?? 0}</strong></span>
-              <span className="font-mono text-sm" data-testid="text-isp-approval">aprovação <strong className="text-[var(--color-ink)]">{approvalRate}%</strong></span>
-              <span className="font-mono text-sm" data-testid="text-isp-avg-score">score <strong className="text-[var(--color-ink)]">{avgScore}</strong></span>
-            </div>
+            {/* Metricas migraram para ConsultaIdleState — estavam comprimidas aqui e
+                deixavam o corpo da aba vazio. Cabecalho fica so com os creditos. */}
             {/* Credits */}
             <div className="border-[0.5px] border-[var(--color-border)] rounded px-3 py-1.5 flex items-center gap-2">
               <CreditCard className="w-4 h-4 text-[var(--color-brand)]" />
@@ -200,6 +196,17 @@ export default function ConsultaISPPage() {
             />
 
             {mutation.isPending && <LoadingCard />}
+
+            {!mutation.isPending && !result && (
+              <ConsultaIdleState
+                consultations={consultations}
+                todayCount={data?.todayCount ?? 0}
+                monthCount={data?.monthCount ?? 0}
+                approvalRate={approvalRate}
+                avgScore={avgScore}
+                onRerun={(cpfCnpj) => handleSearch({ cpfCnpj })}
+              />
+            )}
 
             {!mutation.isPending && result && (
               <div className="space-y-4" data-testid="consultation-result">

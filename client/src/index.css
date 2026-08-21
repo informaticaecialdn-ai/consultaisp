@@ -32,9 +32,9 @@
 
   /* Score semantico — padronizar cores de score em TODO o sistema */
   --score-high:       var(--color-success);     /* 701-1000 */
-  --score-medium:     var(--color-gold);         /* 401-700  */
-  --score-low:        #C45A1A;                   /* 201-400  */
-  --score-critical:   var(--color-danger);        /* 0-200    */
+  --score-medium:     var(--color-gold);         /* 501-700  */
+  --score-low:        #C45A1A;                   /* 301-500  */
+  --score-critical:   var(--color-danger);        /* 0-300    */
 
   /* Paleta categorica — identidade (ERP, tags), NAO status.
      Familia quente e abafada. Use apenas em dot/marcador, nunca em fundo de chip. */
