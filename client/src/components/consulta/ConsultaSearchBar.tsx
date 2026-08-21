@@ -67,6 +67,10 @@ export default function ConsultaSearchBar({ onSearch, isLoading, hasResult, auto
     } else {
       setCepData(null);
       setCepError("");
+      // OBRIGATORIO: quando a busca e cancelada no meio (digitou o 9o digito), o
+      // .finally da requisicao antiga e pulado pelo guard. Sem esta linha cepLoading
+      // ficaria true para sempre e o botao Consultar nunca reabilitaria.
+      setCepLoading(false);
       setAddressNumber("");
       setAddressComplement("");
     }
@@ -96,6 +100,7 @@ export default function ConsultaSearchBar({ onSearch, isLoading, hasResult, auto
     } else {
       setInstallCepData(null);
       setInstallCepError("");
+      setInstallCepLoading(false);  // mesmo motivo do efeito acima
       setInstallNumber("");
       setInstallComplement("");
     }

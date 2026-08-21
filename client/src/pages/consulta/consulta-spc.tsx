@@ -310,8 +310,7 @@ export default function ConsultaSPCPage() {
             {!mutation.isPending && !result && (
               <div className="mt-6">
                 <ConsultaIdleState
-                  consultations={data?.consultations ?? []}
-                  onRerun={(cpfCnpj) => { setQuery(cpfCnpj); mutation.mutate(cpfCnpj); }}
+                  totalConsultas={(data?.consultations ?? []).length}
                   emptyTitle="Nenhuma consulta SPC ainda"
                   emptyDescription="A consulta oficial no SPC Brasil retorna dados cadastrais, restrições financeiras, protestos e score. Cada consulta consome 4 créditos."
                   emptyCta="FAZER PRIMEIRA CONSULTA"
