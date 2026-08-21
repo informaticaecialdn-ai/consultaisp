@@ -364,11 +364,20 @@ export function AppSidebar() {
         <div className="flex items-center gap-[10px] px-4 pt-[18px] pb-[14px]">
           <Link href="/">
             <div className="flex items-center gap-[10px] cursor-pointer">
-              {/* Glifo de picos de sinal — path fixado pelo handoff, nao redesenhar */}
-              <div className="w-[34px] h-[34px] rounded-lg bg-[var(--brand)] grid place-items-center flex-none">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M5 19V6l7 8 0-8 7 8v5" stroke="#fff" strokeWidth="2"
-                        strokeLinecap="round" strokeLinejoin="round" />
+              {/* Glifo: arco de score com ponteiro — o artefato que um bureau entrega.
+                  Substitui os picos de sinal, que diziam "provedor de internet" e nao
+                  "bureau de credito". Ecoa o medidor de score da propria tela de consulta.
+                  (Diverge do Sidebar.md, que pedia para nao redesenhar o path anterior.) */}
+              {/* Fundo claro com o arco em berinjela: o score vira o unico elemento
+                  colorido da marca, entao ele e que carrega o destaque.
+                  --surface-2 em vez de branco puro porque a sidebar ja e branca —
+                  um quadrado branco sumiria nela. A hairline fecha a forma. */}
+              <div className="w-[34px] h-[34px] rounded-lg bg-[var(--surface-2)] border border-[var(--border)] grid place-items-center flex-none">
+                <svg width="23" height="23" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M3.5 16.5a8.5 8.5 0 0 1 17 0" stroke="var(--brand)" strokeWidth="2.1"
+                        strokeLinecap="round" />
+                  <path d="M12 16.5l4.4-4.4" stroke="var(--brand)" strokeWidth="2.1"
+                        strokeLinecap="round" />
                 </svg>
               </div>
               <div className="flex flex-col min-w-0">
