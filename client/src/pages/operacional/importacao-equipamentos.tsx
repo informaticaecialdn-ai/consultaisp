@@ -601,7 +601,7 @@ export default function ImportacaoEquipamentosPage() {
                             setForm(f => ({ ...f, tipo: tipo.id, marca: "", modelo: "" }));
                             if (wizardErrors.tipo) setWizardErrors(er => ({ ...er, tipo: "" }));
                           }}
-                          className={`p-4 rounded-lg border-2 transition-all text-left space-y-2 ${colorMap[tipo.color]}`}
+                          className={`p-4 rounded-lg border transition-colors text-left space-y-2 ${colorMap[tipo.color]}`}
                           data-testid={`tipo-card-${tipo.id.replace(/\//g, "-").replace(/ /g, "-")}`}
                         >
                           <div className="flex items-center justify-between">
@@ -658,7 +658,7 @@ export default function ImportacaoEquipamentosPage() {
                           <button
                             key={m}
                             onClick={() => setForm(f => ({ ...f, marca: m, modelo: "" }))}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border-2 transition-colors ${
+                            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
                               form.marca === m
                                 ? "border-amber-500 bg-amber-50 text-[var(--color-gold)]"
                                 : "border-slate-200 text-slate-600 hover:border-amber-300"

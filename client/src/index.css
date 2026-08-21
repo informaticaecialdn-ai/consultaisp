@@ -18,9 +18,9 @@
   --surface-inset:  #F1F1F5;  /* campo, poco, trilha de barra */
 
   /* ── Hairlines: a estrutura do sistema ────────────────────── */
-  --border-faint:   #EFEFF3;
-  --border:         #E4E4EA;
-  --border-strong:  #D2D2DC;
+  --border-faint:   #F2F2F6;  /* separador interno — quase imperceptivel */
+  --border:         #EAEAF0;  /* estrutural — hairline discreta */
+  --border-strong:  #D9D9E2;  /* so input — precisa ler como area editavel */
 
   /* ── Texto ────────────────────────────────────────────────── */
   --ink:            #1F1D29;  /* quase preto com fundo violeta */
@@ -54,7 +54,7 @@
   /* ── Ponte para a API antiga (--color-*) ──────────────────── */
   --color-bg:         #F6F6F9;
   --color-surface:    #FFFFFF;
-  --color-border:     #E4E4EA;
+  --color-border:     #EAEAF0;
   --color-ink:        #1F1D29;
   --color-muted:      #6B6878;
   --color-tag-bg:     #F1F1F5;
@@ -102,7 +102,7 @@
   /* shadcn HSL tokens — espelham os hex da pele acima */
   --background: 240 20% 97%;            /* --bg #F6F6F9 */
   --foreground: 250 17% 14%;            /* --ink #1F1D29 */
-  --border: 240 12% 91%;                /* --border #E4E4EA */
+  --border-hsl: 240 18% 93%;            /* ponte shadcn — nome distinto p/ nao colidir com a hairline --border */
   --card: 0 0% 100%;                    /* --surface */
   --card-foreground: 250 17% 14%;
   --card-border: 240 12% 91%;
@@ -141,8 +141,8 @@
   --radius: .5rem;                      /* 8px — base de card (intercom.md) */
   /* intercom.md: profundidade vem de borda, nao de sombra.
      A escala fica quase nula de proposito — nada flutua fora da grade. */
-  --shadow-2xs: 0 0 0 1px hsl(240 12% 91%);
-  --shadow-xs: 0 0 0 1px hsl(240 12% 91%);
+  --shadow-2xs: 0 0 0 1px hsl(240 18% 93%);
+  --shadow-xs: 0 0 0 1px hsl(240 18% 93%);
   --shadow-sm: 0 0 0 1px hsl(240 13% 84%);
   --shadow: 0 0 0 1px hsl(240 13% 84%);
   --shadow-md: 0 0 0 1px hsl(240 13% 84%);
@@ -265,7 +265,7 @@
   --elevate-2: rgba(255,255,255, .09);
   --background: 249 16% 8%;             /* --bg #131219 */
   --foreground: 250 18% 93%;            /* --ink #ECEBF1 */
-  --border: 249 13% 20%;                /* --border #2F2D3A */
+  --border-hsl: 249 13% 20%;            /* ponte shadcn (dark) */
   --card: 247 15% 12%;                  /* --surface #1A1922 */
   --card-foreground: 250 18% 93%;
   --card-border: 249 13% 20%;
@@ -337,7 +337,7 @@
 
 @layer base {
   * {
-    border-color: hsl(var(--border));
+    border-color: hsl(var(--border-hsl));
   }
 
   body {

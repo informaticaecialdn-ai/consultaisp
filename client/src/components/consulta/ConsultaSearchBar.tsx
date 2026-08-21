@@ -159,7 +159,7 @@ export default function ConsultaSearchBar({ onSearch, isLoading, hasResult, auto
                   if (hasResult) onClear();
                 }}
                 onKeyDown={(e) => e.key === "Enter" && !cepData ? handleSearch() : undefined}
-                className="h-10 text-sm font-mono pr-10 rounded border-[var(--color-border)]"
+                className="h-10 text-sm font-mono pr-10 rounded border-[var(--border-strong)]"
               />
               {cepLoading && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full border-2 border-[var(--color-steel)] border-t-transparent animate-spin" />
@@ -208,7 +208,7 @@ export default function ConsultaSearchBar({ onSearch, isLoading, hasResult, auto
 
         {/* CEP expanded */}
         {cepData && (
-          <div className="border-2 border-[var(--color-steel)]/30 bg-[var(--color-brand-bg)] rounded-lg p-4 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200" data-testid="cep-expanded-panel">
+          <div className="bg-[var(--color-brand-bg)] rounded-lg p-4 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200" data-testid="cep-expanded-panel">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs text-[var(--color-steel)] font-bold uppercase tracking-wide mb-0.5">Endereço localizado</p>
@@ -280,9 +280,11 @@ export default function ConsultaSearchBar({ onSearch, isLoading, hasResult, auto
           </div>
         )}
 
-        {/* Default hint */}
+        {/* Default hint — sem borda propria: ja esta dentro de um card
+            contornado. Contorno dentro de contorno vira ruido; o fundo
+            --surface-inset basta para separar. */}
         {!cepData && !detectedType && (
-          <div className="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg p-4 flex items-start gap-3">
+          <div className="bg-[var(--surface-inset)] rounded-lg p-4 flex items-start gap-3">
             <Info className="w-4 h-4 text-[var(--color-muted)] mt-0.5 flex-shrink-0" />
             <div>
               <p className="text-sm text-[var(--color-ink)]">

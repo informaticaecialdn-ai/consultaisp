@@ -228,7 +228,7 @@ export default function LandingPage() {
               {n:"02",icon:Search,title:"Consulte antes de ativar",desc:"CPF, CNPJ ou endereço. Em menos de 2 segundos: score de risco, histórico na rede, equipamentos retidos e sugestão de decisão.",badge:"< 2 segundos"},
               {n:"03",icon:Bell,title:"Receba alertas anti-fraude",desc:"Quando seu cliente inadimplente é consultado por outro provedor para migrar, você recebe alerta imediato no WhatsApp.",badge:"Tempo real"},
             ].map((s,i) => (
-              <div key={i} className="relative bg-[var(--color-surface)] border-[0.5px] border-[var(--color-border)] rounded p-6 hover:border-[var(--color-brand)] transition-all">
+              <div key={i} className="relative bg-[var(--color-surface)] border border-[var(--border)] rounded p-6 hover:border-[var(--color-brand)] transition-all">
                 <span className="font-mono text-6xl font-black text-[var(--color-tag-bg)] absolute top-4 right-5 leading-none select-none">{s.n}</span>
                 <div className="relative">
                   <div className="w-12 h-12 bg-[var(--color-brand-bg)] border border-[var(--color-border)] rounded flex items-center justify-center mb-4">
@@ -261,7 +261,7 @@ export default function LandingPage() {
               {icon:CreditCard, color:"bg-[var(--color-success-bg)]", ic:"text-[var(--color-success)]", title:"SPC Integrada", desc:"Score SPC, restrições financeiras e protestos direto na plataforma. Negativação sem contrato adicional com Serasa."},
               {icon:Zap, color:"bg-[var(--color-gold-bg)]", ic:"text-[var(--color-gold)]", title:"Análise com IA", desc:"Recomendações automáticas baseadas em inteligência artificial: APROVAR, APROVAR COM RESSALVAS ou REJEITAR."},
             ].map((f,i) => (
-              <div key={i} className="bg-[var(--color-surface)] border-[0.5px] border-[var(--color-border)] rounded p-5 hover:border-[var(--color-brand)] transition-all">
+              <div key={i} className="bg-[var(--color-surface)] border border-[var(--border)] rounded p-5 hover:border-[var(--color-brand)] transition-all">
                 <div className={`w-10 h-10 ${f.color} rounded flex items-center justify-center mb-4`}>
                   <f.icon className={`w-5 h-5 ${f.ic}`}/>
                 </div>
@@ -283,7 +283,7 @@ export default function LandingPage() {
           </div>
           <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
             {/* Gratuito */}
-            <div className="rounded p-6 flex flex-col border-[0.5px] border-[var(--color-border)] transition-all" data-testid="plan-0">
+            <div className="rounded p-6 flex flex-col border border-[var(--border)] transition-all" data-testid="plan-0">
               <h3 className="font-display font-semibold text-lg text-[var(--color-ink)] mb-1">Gratuito</h3>
               <div className="mb-1 flex items-baseline gap-1">
                 <span className="text-4xl font-mono font-black text-[var(--color-ink)]">R$ 0</span>
@@ -377,7 +377,7 @@ export default function LandingPage() {
               { quote: "Antes ficávamos sabendo da inadimplência só depois de instalar. Agora consultamos todo CPF antes de agendar a visita técnica. Zero instalação desperdiçada nos últimos 4 meses.", author: "Fábio L.", role: "Proprietário", city: "ISP — Goiás", stars: 5 },
               { quote: "A equipe de suporte respondeu minha dúvida de integração API em menos de 2 horas. Para quem tem sistema próprio, o webhook facilita muito — zero dependência do ERP.", author: "Juliana S.", role: "Coordenadora de CRM", city: "ISP — Bahia", stars: 5 },
             ].map((t, i) => (
-              <div key={i} className="bg-[var(--color-surface)] rounded border-[0.5px] border-[var(--color-border)] p-6 flex flex-col gap-4" data-testid={`testimonial-${i}`}>
+              <div key={i} className="bg-[var(--color-surface)] rounded border border-[var(--border)] p-6 flex flex-col gap-4" data-testid={`testimonial-${i}`}>
                 <div className="flex gap-0.5">
                   {Array.from({ length: t.stars }).map((_, s) => (
                     <Star key={s} className="w-4 h-4 fill-[var(--color-gold)] text-[var(--color-gold)]" />
@@ -396,7 +396,7 @@ export default function LandingPage() {
           <div className="mt-16">
             <h3 className="font-display font-semibold text-2xl text-[var(--color-ink)] text-center mb-8">Comparativo com o mercado</h3>
             <div className="overflow-x-auto">
-              <table className="w-full bg-[var(--color-surface)] rounded border-[0.5px] border-[var(--color-border)] overflow-hidden">
+              <table className="w-full bg-[var(--color-surface)] rounded border border-[var(--border)] overflow-hidden">
                 <thead>
                   <tr className="border-b border-[var(--color-border)]">
                     <th className="p-4 text-left text-sm font-semibold text-[var(--color-ink)] w-1/3">Funcionalidade</th>
@@ -442,7 +442,7 @@ export default function LandingPage() {
           <div className="text-center mb-12">
             <h2 className="font-display font-light text-4xl text-[var(--color-ink)]">Perguntas frequentes</h2>
           </div>
-          <Accordion type="single" collapsible className="border-[0.5px] border-[var(--color-border)] rounded overflow-hidden" data-testid="faq-section">
+          <Accordion type="single" collapsible className="border border-[var(--border)] rounded overflow-hidden" data-testid="faq-section">
             {[
               {q:"O que é a base de dados compartilhada?",a:"É uma base única onde todos os provedores registram seus inadimplentes. Quando você consulta um CPF, o sistema verifica em todos os provedores da rede e retorna dados anonimizados: dias de atraso, faixa de valor, equipamentos pendentes. Nunca dados pessoais identificáveis."},
               {q:"Consultas na minha própria base são cobradas?",a:"Não. Consultas de clientes do seu próprio provedor são sempre gratuitas e ilimitadas. Créditos são consumidos apenas quando a consulta retorna dados de outros provedores da rede — 1 crédito por provedor externo encontrado."},

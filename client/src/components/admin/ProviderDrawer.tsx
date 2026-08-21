@@ -370,7 +370,7 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
                         }
                         setErpTestResult(null);
                       }}
-                      className={`flex flex-col items-center gap-1 p-2 rounded border-2 transition-all text-center ${
+                      className={`flex flex-col items-center gap-1 p-2 rounded border transition-colors text-center ${
                         isSelected ? "border-[var(--color-brand)] bg-[var(--color-brand-bg)]" : "border-transparent bg-[var(--color-surface)] hover:bg-slate-100"
                       }`}
                       data-testid={`drawer-erp-option-${erp.key}`}

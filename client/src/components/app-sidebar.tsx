@@ -57,7 +57,7 @@ function TrialBanner() {
   const { data } = useQuery<any>({ queryKey: ["/api/provider/trial-status"], staleTime: 5 * 60 * 1000 });
   if (!data?.trial_ativo) return null;
   return (
-    <div className="bg-[var(--color-gold-bg)] border-[0.5px] border-[var(--color-border)] rounded p-2.5 text-xs" data-testid="trial-banner">
+    <div className="bg-[var(--color-gold-bg)] rounded-lg p-2.5 text-xs" data-testid="trial-banner">
       <div className="flex items-center gap-1.5 font-semibold text-[var(--color-gold)] mb-0.5">
         <Crown className="w-3 h-3" />
         Trial — {data.dias_restantes} dia{data.dias_restantes !== 1 ? "s" : ""} restante{data.dias_restantes !== 1 ? "s" : ""}

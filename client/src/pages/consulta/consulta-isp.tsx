@@ -161,7 +161,7 @@ export default function ConsultaISPPage() {
             {/* Metricas migraram para ConsultaIdleState — estavam comprimidas aqui e
                 deixavam o corpo da aba vazio. Cabecalho fica so com os creditos. */}
             {/* Credits */}
-            <div className="border-[0.5px] border-[var(--color-border)] rounded px-3 py-1.5 flex items-center gap-2">
+            <div className="border border-[var(--border)] rounded px-3 py-1.5 flex items-center gap-2">
               <CreditCard className="w-4 h-4 text-[var(--color-brand)]" />
               <span className={`font-mono text-sm font-semibold ${(data?.credits ?? 1) === 0 ? "text-[var(--color-danger)]" : "text-[var(--color-ink)]"}`} data-testid="text-isp-credits">
                 {data?.credits ?? "..."}
@@ -171,7 +171,7 @@ export default function ConsultaISPPage() {
         </div>
 
         {/* TABS */}
-        <div className="flex gap-0 border-b-[0.5px] border-[var(--color-border)] w-fit">
+        <div className="flex gap-0 border-b border-[var(--border)] w-fit">
           {(["nova", "historico", "timeline", "relatorios", "info"] as const).map(tab => (
             <button
               key={tab}
@@ -219,8 +219,8 @@ export default function ConsultaISPPage() {
               <div className="space-y-4" data-testid="consultation-result">
                 {/* Nada Consta CEP */}
                 {result.notFound && result.searchType === "cep" ? (
-                  <Card className="overflow-hidden border-[0.5px] border-[var(--color-border)] rounded">
-                    <div className="bg-[var(--color-success-bg)] px-6 py-4 flex items-center gap-3">
+                  <Card className="overflow-hidden">
+                    <div className="bg-[var(--color-success-bg)] border-b border-[var(--border-faint)] px-6 py-4 flex items-center gap-3">
                       <CheckCircle className="w-6 h-6 text-[var(--color-success)]" />
                       <div>
                         <h3 className="text-lg font-display font-semibold text-[var(--color-ink)]">Nenhum Resultado para este CEP</h3>
@@ -228,15 +228,15 @@ export default function ConsultaISPPage() {
                       </div>
                     </div>
                     <div className="p-6">
-                      <div className="bg-[var(--color-success-bg)] border-[0.5px] border-[var(--color-border)] rounded p-4 flex items-center gap-3">
+                      <div className="bg-[var(--color-success-bg)] rounded-lg p-4 flex items-center gap-3">
                         <Shield className="w-5 h-5 text-[var(--color-success)] flex-shrink-0" />
                         <p className="text-sm text-[var(--color-success)]">Nenhum cliente encontrado nesse CEP na rede ISP colaborativa.</p>
                       </div>
                     </div>
                   </Card>
                 ) : result.notFound && !(result.addressMatches?.some(m => m.hasDebt)) ? (
-                  <Card className="overflow-hidden border-[0.5px] border-[var(--color-border)] rounded">
-                    <div className="bg-[var(--color-success-bg)] px-6 py-4 flex items-center gap-3">
+                  <Card className="overflow-hidden">
+                    <div className="bg-[var(--color-success-bg)] border-b border-[var(--border-faint)] px-6 py-4 flex items-center gap-3">
                       <CheckCircle className="w-6 h-6 text-[var(--color-success)]" />
                       <div>
                         <h3 className="text-lg font-display font-semibold text-[var(--color-ink)]">Nada Consta</h3>
@@ -244,7 +244,7 @@ export default function ConsultaISPPage() {
                       </div>
                     </div>
                     <div className="p-6">
-                      <div className="bg-[var(--color-success-bg)] border-[0.5px] border-[var(--color-border)] rounded p-4 flex items-center gap-3">
+                      <div className="bg-[var(--color-success-bg)] rounded-lg p-4 flex items-center gap-3">
                         <Shield className="w-5 h-5 text-[var(--color-success)] flex-shrink-0" />
                         <p className="text-sm text-[var(--color-success)]">Nenhum cliente encontrado na base de dados. Documento sem restricoes na rede ISP colaborativa.</p>
                       </div>

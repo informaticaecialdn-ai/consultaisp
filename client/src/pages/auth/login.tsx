@@ -353,15 +353,15 @@ export default function LoginPage() {
 
             <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Numeros da plataforma</p>
             <div className="grid grid-cols-3 gap-3 mb-8">
-              <div className="bg-[var(--color-surface)] rounded p-4 text-center border-[0.5px] border-[var(--color-border)]">
+              <div className="bg-[var(--color-surface)] rounded p-4 text-center border border-[var(--border)]">
                 <span className="font-mono font-semibold text-xl block text-[var(--color-gold)]">100+</span>
                 <span className="text-[var(--color-muted)] text-xs">Provedores</span>
               </div>
-              <div className="bg-[var(--color-surface)] rounded p-4 text-center border-[0.5px] border-[var(--color-border)]">
+              <div className="bg-[var(--color-surface)] rounded p-4 text-center border border-[var(--border)]">
                 <span className="font-mono font-semibold text-xl block text-[var(--color-success)]">Multi</span>
                 <span className="text-[var(--color-muted)] text-xs">Base Colaborativa</span>
               </div>
-              <div className="bg-[var(--color-surface)] rounded p-4 text-center border-[0.5px] border-[var(--color-border)]">
+              <div className="bg-[var(--color-surface)] rounded p-4 text-center border border-[var(--border)]">
                 <span className="font-mono font-semibold text-xl block text-[var(--color-gold)]">99.9%</span>
                 <span className="text-[var(--color-muted)] text-xs">Uptime</span>
               </div>
@@ -379,7 +379,7 @@ export default function LoginPage() {
 
           <div className="w-full max-w-md flex-shrink-0">
             {pageState === "check-email" ? (
-              <Card className="p-8 border-[0.5px] border-[var(--color-border)] rounded bg-[var(--color-surface)]" data-testid="check-email-card">
+              <Card className="p-8 border border-[var(--border)] rounded bg-[var(--color-surface)]" data-testid="check-email-card">
                 <div className="text-center mb-6">
                   <div className="w-16 h-16 rounded-full bg-[var(--color-brand)]/10 flex items-center justify-center mx-auto mb-4">
                     <MailCheck className="w-8 h-8 text-[var(--color-brand)]" />
@@ -431,7 +431,7 @@ export default function LoginPage() {
                 </div>
               </Card>
             ) : (
-              <Card className="p-8 border-[0.5px] border-[var(--color-border)] rounded bg-[var(--color-surface)]">
+              <Card className="p-8 border border-[var(--border)] rounded bg-[var(--color-surface)]">
                 <div className="text-center mb-6">
                   <div className="w-12 h-12 rounded-full bg-[var(--color-brand)]/10 flex items-center justify-center mx-auto mb-3">
                     <Shield className="w-6 h-6 text-[var(--color-brand)]" />
@@ -506,7 +506,7 @@ export default function LoginPage() {
                           </p>
                         )}
                         {cnpjLookup === "found" && cnpjData && (
-                          <div className="mt-2 bg-[var(--color-success)]/5 border-[0.5px] border-[var(--color-success)]/30 rounded p-3 space-y-1">
+                          <div className="mt-2 bg-[var(--color-success)]/5 border border-[var(--color-success)]/30 rounded p-3 space-y-1">
                             <p className="text-xs font-semibold text-[var(--color-success)] flex items-center gap-1">
                               <CheckCircle className="w-3.5 h-3.5" />Empresa encontrada
                             </p>
@@ -694,7 +694,7 @@ export default function LoginPage() {
                   )}
 
                   {pageState === "register" && (
-                    <div className="flex items-start gap-2.5 p-3 bg-[var(--color-brand)]/5 border-[0.5px] border-[var(--color-brand)]/20 rounded">
+                    <div className="flex items-start gap-2.5 p-3 bg-[var(--color-brand)]/5 border border-[var(--color-brand)]/20 rounded">
                       <input
                         type="checkbox"
                         id="lgpd-register-accept"

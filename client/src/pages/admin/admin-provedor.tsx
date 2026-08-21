@@ -604,7 +604,7 @@ export default function AdminProvedorPage() {
             </div>
 
             {editingEmailUser && (
-              <div className="mx-5 my-3 p-4 border-2 border-blue-200 dark:border-blue-900 rounded-lg bg-blue-50/50 dark:bg-blue-950/30">
+              <div className="mx-5 my-3 p-4 border border-[var(--border)] rounded-lg bg-[var(--surface-inset)]">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="text-sm font-semibold flex items-center gap-2">
                     <Edit2 className="w-4 h-4 text-blue-600" />

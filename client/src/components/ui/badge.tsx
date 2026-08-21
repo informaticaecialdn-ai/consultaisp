@@ -13,7 +13,7 @@ const badgeVariants = cva(
         secondary: "border-transparent bg-[var(--color-tag-bg)] text-[var(--color-muted)]",
         destructive:
           "border-transparent bg-[var(--color-danger-bg)] text-[var(--color-danger)]",
-        outline: "border-[0.5px] border-[var(--color-border)] text-[var(--color-muted)]",
+        outline: "border border-[var(--border)] text-[var(--color-muted)]",
         navy: "border-transparent bg-[var(--color-brand-bg)] text-[var(--color-brand)]",
         gold: "border-transparent bg-[var(--color-gold-bg)] text-[var(--color-gold)]",
         danger: "border-transparent bg-[var(--color-danger-bg)] text-[var(--color-danger)]",

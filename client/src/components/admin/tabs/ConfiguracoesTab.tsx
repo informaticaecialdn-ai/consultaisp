@@ -139,7 +139,7 @@ export default function ConfiguracoesTab() {
       </div>
 
       {showErpForm && (
-        <Card className="p-5 border-2 border-teal-200 dark:border-teal-900">
+        <Card className="p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-sm">{editingErp ? "Editar ERP" : "Cadastrar Novo ERP"}</h3>
             <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => { setShowErpForm(false); setEditingErp(null); }} data-testid="button-close-erp-form">

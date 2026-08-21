@@ -73,7 +73,14 @@ export default function CreditosPage() {
   const renderPackageCard = (pkg: any, type: "isp") => {
     return (
       <Card key={pkg.id}
-        className={`p-5 relative overflow-hidden cursor-pointer transition-all hover:shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] ${pkg.popular ? "ring-2 ring-[var(--color-brand)]" : "hover:ring-1 hover:ring-[var(--color-border)]"}`}
+        /* Unica excecao de 1px do sistema: o pacote em destaque usa 2px em
+           --brand. A espessura ali e o proprio destaque. Os demais mantem a
+           hairline estrutural de 1px. */
+        className={`p-5 relative overflow-hidden cursor-pointer transition-colors ${
+          pkg.popular
+            ? "border-2 border-[var(--brand)]"
+            : "border border-[var(--border)] hover:border-[var(--border-strong)]"
+        }`}
         onClick={() => setSelectedPkg({ pkg, type })}
         data-testid={`package-${pkg.id}`}>
         {pkg.popular && (
