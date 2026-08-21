@@ -30,7 +30,7 @@ interface Props {
 function MetricCard({ label, value, suffix, testId }: Metric) {
   return (
     <div className="bg-[var(--color-surface)] rounded-lg px-[14px] py-3 border border-[var(--color-border)]">
-      <span className="block font-mono text-[10px] uppercase tracking-[0.11em] text-[var(--color-muted)]">
+      <span className="block text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--color-muted)]">
         {label}
       </span>
       <div

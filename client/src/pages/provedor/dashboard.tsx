@@ -47,31 +47,40 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-[var(--color-ink)]" data-testid="text-dashboard-title">
+          <h1
+            className="text-[19px] font-medium tracking-[-0.02em] text-[var(--text)] leading-tight"
+            data-testid="text-dashboard-title"
+          >
             Painel do Provedor
           </h1>
-          <p className="text-base text-[var(--color-muted)]">{(provider as any)?.tradeName || provider?.name}</p>
+          <p className="text-[13px] text-[var(--text-muted)] mt-0.5">
+            {(provider as any)?.tradeName || provider?.name}
+          </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           {partnerCode && (
-            <div className="flex items-center gap-2 border border-[var(--color-danger)] rounded-lg px-3 py-2 bg-[var(--color-danger-bg)]">
-              <Shield className="w-5 h-5 text-[var(--color-danger)]" />
+            <div className="flex items-center gap-2 border border-[var(--border)] rounded-lg px-2.5 py-1.5 bg-[var(--surface)]">
+              <Shield className="w-4 h-4 flex-none text-[var(--text-faint)]" strokeWidth={2} />
               <div>
-                <p className="font-mono text-sm font-bold text-[var(--color-danger)] leading-none" data-testid="text-partner-code">
+                <p className="font-mono text-[12px] font-medium text-[var(--text)] tabular-nums leading-none" data-testid="text-partner-code">
                   {partnerCode}
                 </p>
-                <p className="text-xs text-[var(--color-muted)] leading-tight mt-0.5">seu código</p>
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)] leading-tight mt-1">
+                  seu código
+                </p>
               </div>
             </div>
           )}
           <Link href="/creditos">
-            <div className="flex items-center gap-2 border border-[var(--color-brand)] rounded-lg px-3 py-2 bg-[var(--color-brand-bg)] cursor-pointer hover:opacity-90 transition-opacity">
-              <CreditCard className="w-5 h-5 text-[var(--color-brand)]" />
+            <div className="flex items-center gap-2 border border-[var(--border)] rounded-lg px-2.5 py-1.5 bg-[var(--surface)] cursor-pointer hover:border-[var(--border-strong)] motion-safe:transition-colors">
+              <CreditCard className="w-4 h-4 flex-none text-[var(--brand)]" strokeWidth={2} />
               <div className="text-right">
-                <p className="font-mono text-lg font-bold text-[var(--color-brand)] leading-none" data-testid="text-credits">
+                <p className="font-mono text-[15px] font-medium text-[var(--brand)] tabular-nums leading-none" data-testid="text-credits">
                   {isLoading ? "..." : creditos}
                 </p>
-                <p className="text-xs text-[var(--color-muted)] leading-tight">créditos</p>
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)] leading-tight mt-1">
+                  créditos
+                </p>
               </div>
             </div>
           </Link>
@@ -80,23 +89,33 @@ export default function DashboardPage() {
 
       {/* Identidade na Rede */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card className="p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Wifi className="w-5 h-5" style={{ color: "var(--color-brand)" }} />
-            <span className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wide">Seu Provedor na Rede</span>
+        <Card className="px-[14px] py-3">
+          <div className="flex items-center gap-2">
+            <Wifi className="w-4 h-4 flex-none" strokeWidth={2} style={{ color: "var(--brand)" }} />
+            <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+              Seu provedor na rede
+            </span>
           </div>
-          <p className="text-lg font-bold text-[var(--color-ink)]">{(provider as any)?.tradeName || provider?.name}</p>
+          <p className="mt-1.5 text-[15px] font-medium text-[var(--text)]">
+            {(provider as any)?.tradeName || provider?.name}
+          </p>
           {partnerCode && (
-            <p className="text-sm text-[var(--color-muted)] mt-1">Código: <span className="font-mono font-bold" style={{ color: "var(--color-brand)" }}>{partnerCode}</span></p>
+            <p className="text-[12px] text-[var(--text-muted)] mt-0.5">
+              Código: <span className="font-mono tabular-nums text-[var(--brand)]">{partnerCode}</span>
+            </p>
           )}
         </Card>
-        <Card className="p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Building2 className="w-5 h-5" style={{ color: "var(--color-brand)" }} />
-            <span className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wide">Provedores Parceiros</span>
+        <Card className="px-[14px] py-3">
+          <div className="flex items-center gap-2">
+            <Building2 className="w-4 h-4 flex-none" strokeWidth={2} style={{ color: "var(--brand)" }} />
+            <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+              Provedores parceiros
+            </span>
           </div>
-          <p className="text-2xl font-bold" style={{ color: "var(--color-brand)" }}>{provedoresParceiros}</p>
-          <p className="text-sm text-[var(--color-muted)] mt-1">compartilhando dados na sua região</p>
+          <p className="mt-1.5 font-mono text-[21px] font-medium tracking-[-0.02em] text-[var(--text)] tabular-nums">
+            {provedoresParceiros}
+          </p>
+          <p className="text-[12px] text-[var(--text-muted)] mt-0.5">compartilhando dados na sua região</p>
         </Card>
       </div>
 
@@ -127,12 +146,14 @@ export default function DashboardPage() {
 
       {/* Acoes rapidas */}
       <div>
-        <Card className="p-6 space-y-4">
-          <div className="flex items-center gap-2">
-            <Search className="w-5 h-5 text-[var(--color-brand)]" />
-            <h2 className="font-semibold text-base text-[var(--color-ink)]">Ações rápidas</h2>
+        <Card className="p-0">
+          {/* Cabecalho de card leva separador --border-faint, nao --border */}
+          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--border-faint)]">
+            <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+              Ações rápidas
+            </span>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4">
             <Link href="/consulta-isp">
               <ActionCard
                 icon={Search}
@@ -176,17 +197,27 @@ function KpiCard({ icon: Icon, label, value, sub, color, testId }: {
   icon: any; label: string; value: any; sub?: string; color: string; testId: string;
 }) {
   return (
-    <Card className="p-5" data-testid={testId}>
-      <div className="flex items-center gap-2 mb-3">
-        <Icon className="w-5 h-5" style={{ color }} />
-        <span className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wide">{label}</span>
+    /* Rotulo em mono caixa-alta e numero em mono tabular — mesma voz da sidebar
+       e da Consulta ISP. O numero fica em --text: acento e acao, dado e dado.
+       A cor semantica vive no icone. */
+    <Card className="px-[14px] py-3" data-testid={testId}>
+      <div className="flex items-center gap-2">
+        <Icon className="w-4 h-4 flex-none" strokeWidth={2} style={{ color }} />
+        <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+          {label}
+        </span>
       </div>
       {value === null ? (
-        <Skeleton className="h-8 w-20" />
+        <Skeleton className="h-7 w-16 mt-1.5" />
       ) : (
         <>
-          <p className="font-mono text-3xl font-bold" style={{ color }} data-testid={`value-${testId}`}>{value}</p>
-          {sub && <p className="text-sm text-[var(--color-muted)] mt-1">{sub}</p>}
+          <p
+            className="mt-1.5 font-mono text-[21px] font-medium tracking-[-0.02em] text-[var(--text)] tabular-nums"
+            data-testid={`value-${testId}`}
+          >
+            {value}
+          </p>
+          {sub && <p className="text-[12px] text-[var(--text-muted)] mt-0.5">{sub}</p>}
         </>
       )}
     </Card>
@@ -197,15 +228,15 @@ function ActionCard({ icon: Icon, title, desc, color }: {
   icon: any; title: string; desc: string; color: string;
 }) {
   return (
-    <div className="flex items-center gap-3 p-4 rounded-lg border border-[var(--color-border)] hover:bg-[var(--color-bg-hover)] transition-colors cursor-pointer">
-      <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${color}15` }}>
-        <Icon className="w-5 h-5" style={{ color }} />
+    <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-[var(--border)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-2)] motion-safe:transition-colors cursor-pointer">
+      <div className="w-8 h-8 rounded-lg grid place-items-center flex-none" style={{ background: `${color}14` }}>
+        <Icon className="w-4 h-4" strokeWidth={2} style={{ color }} />
       </div>
-      <div>
-        <p className="text-base font-medium text-[var(--color-ink)]">{title}</p>
-        <p className="text-sm text-[var(--color-muted)]">{desc}</p>
+      <div className="min-w-0">
+        <p className="text-[13.5px] font-medium text-[var(--text)] truncate">{title}</p>
+        <p className="text-[12px] text-[var(--text-muted)] truncate">{desc}</p>
       </div>
-      <ChevronRight className="w-4 h-4 text-[var(--color-muted)] ml-auto" />
+      <ChevronRight className="w-4 h-4 text-[var(--text-faint)] ml-auto flex-none" strokeWidth={2} />
     </div>
   );
 }
@@ -213,8 +244,8 @@ function ActionCard({ icon: Icon, title, desc, color }: {
 function RiskItem({ label, value }: { label: string; value: any }) {
   return (
     <div>
-      <p className="text-xs text-[var(--color-muted)]">{label}</p>
-      <p className="font-mono text-lg font-bold text-[var(--color-ink)] mt-1">{value}</p>
+      <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">{label}</p>
+      <p className="font-mono text-[17px] font-medium text-[var(--text)] tabular-nums mt-1">{value}</p>
     </div>
   );
 }
