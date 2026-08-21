@@ -65,10 +65,10 @@ export default function DashboardPage() {
             </div>
           )}
           <Link href="/creditos">
-            <div className="flex items-center gap-2 border border-[var(--color-navy)] rounded-lg px-3 py-2 bg-[var(--color-navy-bg)] cursor-pointer hover:opacity-90 transition-opacity">
-              <CreditCard className="w-5 h-5 text-[var(--color-navy)]" />
+            <div className="flex items-center gap-2 border border-[var(--color-brand)] rounded-lg px-3 py-2 bg-[var(--color-brand-bg)] cursor-pointer hover:opacity-90 transition-opacity">
+              <CreditCard className="w-5 h-5 text-[var(--color-brand)]" />
               <div className="text-right">
-                <p className="font-mono text-lg font-bold text-[var(--color-navy)] leading-none" data-testid="text-credits">
+                <p className="font-mono text-lg font-bold text-[var(--color-brand)] leading-none" data-testid="text-credits">
                   {isLoading ? "..." : creditos}
                 </p>
                 <p className="text-xs text-[var(--color-muted)] leading-tight">créditos</p>
@@ -82,20 +82,20 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card className="p-5">
           <div className="flex items-center gap-2 mb-3">
-            <Wifi className="w-5 h-5" style={{ color: "var(--color-navy)" }} />
+            <Wifi className="w-5 h-5" style={{ color: "var(--color-brand)" }} />
             <span className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wide">Seu Provedor na Rede</span>
           </div>
           <p className="text-lg font-bold text-[var(--color-ink)]">{(provider as any)?.tradeName || provider?.name}</p>
           {partnerCode && (
-            <p className="text-sm text-[var(--color-muted)] mt-1">Código: <span className="font-mono font-bold" style={{ color: "var(--color-navy)" }}>{partnerCode}</span></p>
+            <p className="text-sm text-[var(--color-muted)] mt-1">Código: <span className="font-mono font-bold" style={{ color: "var(--color-brand)" }}>{partnerCode}</span></p>
           )}
         </Card>
         <Card className="p-5">
           <div className="flex items-center gap-2 mb-3">
-            <Building2 className="w-5 h-5" style={{ color: "var(--color-navy)" }} />
+            <Building2 className="w-5 h-5" style={{ color: "var(--color-brand)" }} />
             <span className="text-sm font-medium text-[var(--color-muted)] uppercase tracking-wide">Provedores Parceiros</span>
           </div>
-          <p className="text-2xl font-bold" style={{ color: "var(--color-navy)" }}>{provedoresParceiros}</p>
+          <p className="text-2xl font-bold" style={{ color: "var(--color-brand)" }}>{provedoresParceiros}</p>
           <p className="text-sm text-[var(--color-muted)] mt-1">compartilhando dados na sua região</p>
         </Card>
       </div>
@@ -106,21 +106,21 @@ export default function DashboardPage() {
           icon={Search}
           label="Consultas Hoje"
           value={isLoading ? null : consultasHoje}
-          color="var(--color-navy)"
+          color="var(--color-brand)"
           testId="card-today"
         />
         <KpiCard
           icon={TrendingUp}
           label="Consultas no Mes"
           value={isLoading ? null : consultasMes}
-          color="var(--color-navy)"
+          color="var(--color-brand)"
           testId="card-month"
         />
         <KpiCard
           icon={CreditCard}
           label="Creditos Restantes"
           value={isLoading ? null : creditos}
-          color={creditos < 10 ? "var(--color-danger)" : "var(--color-navy)"}
+          color={creditos < 10 ? "var(--color-danger)" : "var(--color-brand)"}
           testId="card-credits"
         />
       </div>
@@ -129,7 +129,7 @@ export default function DashboardPage() {
       <div>
         <Card className="p-6 space-y-4">
           <div className="flex items-center gap-2">
-            <Search className="w-5 h-5 text-[var(--color-navy)]" />
+            <Search className="w-5 h-5 text-[var(--color-brand)]" />
             <h2 className="font-semibold text-base text-[var(--color-ink)]">Ações rápidas</h2>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -138,7 +138,7 @@ export default function DashboardPage() {
                 icon={Search}
                 title="Consultar CPF/CNPJ"
                 desc="Verificar score e historico"
-                color="var(--color-navy)"
+                color="var(--color-brand)"
               />
             </Link>
             <Link href="/consulta-spc">
@@ -146,7 +146,7 @@ export default function DashboardPage() {
                 icon={Users}
                 title="Consulta SPC"
                 desc="Score de credito SPC"
-                color="var(--color-navy)"
+                color="var(--color-brand)"
               />
             </Link>
             <Link href="/anti-fraude">

@@ -77,10 +77,10 @@ function KpiCard({ label, value, icon: Icon, color, sub }: {
 }
 
 function RiskBadge({ count }: { count: number }) {
-  if (count >= 5) return <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 text-xs">Critico</Badge>;
-  if (count >= 3) return <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300 text-xs">Alto</Badge>;
-  if (count >= 2) return <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 text-xs">Moderado</Badge>;
-  return <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 text-xs">Baixo</Badge>;
+  if (count >= 5) return <Badge className="bg-[var(--color-danger-bg)] text-[var(--color-danger)] dark:bg-red-900/30 dark:text-red-300 text-xs">Critico</Badge>;
+  if (count >= 3) return <Badge className="bg-[var(--color-gold-bg)] text-[var(--score-low)] dark:bg-orange-900/30 dark:text-orange-300 text-xs">Alto</Badge>;
+  if (count >= 2) return <Badge className="bg-[var(--color-gold-bg)] text-[var(--color-gold)] text-xs">Moderado</Badge>;
+  return <Badge className="bg-[var(--color-brand-bg)] text-[var(--color-brand)] dark:bg-blue-900/30 dark:text-blue-300 text-xs">Baixo</Badge>;
 }
 
 function RiskBarCell({ value, max }: { value: number; max: number }) {
@@ -234,7 +234,7 @@ export default function MapaCalorPage() {
 
           {providerLoading ? (
             <Card className="p-6 flex flex-col items-center justify-center py-20 gap-3">
-              <RefreshCw className="w-6 h-6 animate-spin text-[var(--color-navy)]" />
+              <RefreshCw className="w-6 h-6 animate-spin text-[var(--color-brand)]" />
               <span className="text-sm font-semibold text-[var(--color-ink)]">Buscando inadimplentes nos ERPs...</span>
               <span className="text-xs text-[var(--color-muted)]">Geocodificando enderecos e montando mapa de calor</span>
             </Card>
@@ -275,9 +275,9 @@ export default function MapaCalorPage() {
                   defaultCenter={providerCenter}
                 />
                 {providerPoints.length === 0 && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-center bg-emerald-50/60 dark:bg-emerald-950/40 rounded-lg z-10">
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-center bg-[var(--color-success-bg)] rounded-lg z-10">
                     <Eye className="w-10 h-10 mx-auto mb-3 text-emerald-400" />
-                    <p className="font-medium text-emerald-700 dark:text-emerald-300">Nenhum inadimplente com localizacao cadastrada</p>
+                    <p className="font-medium text-[var(--color-success)]">Nenhum inadimplente com localizacao cadastrada</p>
                     <p className="text-sm text-muted-foreground mt-1">Clientes sem coordenadas geograficas nao aparecem no mapa.</p>
                   </div>
                 )}
@@ -300,7 +300,7 @@ export default function MapaCalorPage() {
                       <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
                         item.riskTier === "critical" ? "bg-red-500" :
                         item.riskTier === "high" ? "bg-orange-500" :
-                        item.riskTier === "medium" ? "bg-amber-500" : "bg-emerald-500"
+                        item.riskTier === "medium" ? "bg-amber-500" : "bg-[var(--color-success)]"
                       }`} />
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm truncate">{item.name}</p>
@@ -310,9 +310,9 @@ export default function MapaCalorPage() {
                         <p className="text-sm font-semibold">{formatCurrency(item.totalOverdueAmount)}</p>
                       </div>
                       <Badge className={`text-xs flex-shrink-0 ${
-                        item.riskTier === "critical" ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300" :
-                        item.riskTier === "high" ? "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300" :
-                        "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+                        item.riskTier === "critical" ? "bg-[var(--color-danger-bg)] text-[var(--color-danger)] dark:bg-red-900/30 dark:text-red-300" :
+                        item.riskTier === "high" ? "bg-[var(--color-gold-bg)] text-[var(--score-low)] dark:bg-orange-900/30 dark:text-orange-300" :
+                        "bg-[var(--color-gold-bg)] text-[var(--color-gold)]"
                       }`}>
                         {item.riskTier === "critical" ? "Critico" : item.riskTier === "high" ? "Alto" : "Medio"}
                       </Badge>
@@ -389,9 +389,9 @@ export default function MapaCalorPage() {
                     mode="regional"
                   />
                   {regionalPoints.length === 0 && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center text-center bg-emerald-50/60 dark:bg-emerald-950/40 rounded-lg z-10">
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-center bg-[var(--color-success-bg)] rounded-lg z-10">
                       <Eye className="w-10 h-10 mx-auto mb-3 text-emerald-400" />
-                      <p className="font-medium text-emerald-700 dark:text-emerald-300">Nenhum ponto de inadimplencia na rede</p>
+                      <p className="font-medium text-[var(--color-success)]">Nenhum ponto de inadimplencia na rede</p>
                     </div>
                   )}
                 </div>

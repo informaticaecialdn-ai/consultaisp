@@ -73,9 +73,9 @@ const fmt = (v: number) =>
   v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const riskColor: Record<string, string> = {
-  critico: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-  alto: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
-  medio: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+  critico: "bg-[var(--color-danger-bg)] text-[var(--color-danger)] dark:bg-red-900/30 dark:text-red-300",
+  alto: "bg-[var(--color-gold-bg)] text-[var(--score-low)] dark:bg-orange-900/30 dark:text-orange-300",
+  medio: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]",
   baixo: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
 };
 
@@ -162,7 +162,7 @@ export default function BenchmarkRegionalPage() {
       {/* Tendencia 6 meses */}
       <Card className="p-5">
         <div className="flex items-center gap-2 mb-4">
-          <TrendingUp className="w-5 h-5 text-[var(--color-navy)]" />
+          <TrendingUp className="w-5 h-5 text-[var(--color-brand)]" />
           <h2 className="font-semibold text-base">Minha Inadimplência — Últimos 6 Meses</h2>
         </div>
         {trendLoading ? (
@@ -175,8 +175,8 @@ export default function BenchmarkRegionalPage() {
               <YAxis yAxisId="left" tick={{ fontSize: 12 }} />
               <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} tickFormatter={(v) => `R$${(v / 1000).toFixed(0)}k`} />
               <Tooltip formatter={(value: number, name: string) => [name === "count" ? value : `R$ ${fmt(value)}`, name === "count" ? "Inadimplentes" : "Valor"]} />
-              <Line yAxisId="left" type="monotone" dataKey="count" stroke="#ef4444" strokeWidth={2} dot={{ r: 4 }} name="Inadimplentes" />
-              <Line yAxisId="right" type="monotone" dataKey="totalOverdue" stroke="#f97316" strokeWidth={2} dot={{ r: 4 }} name="Valor" />
+              <Line yAxisId="left" type="monotone" dataKey="count" stroke="#B53333" strokeWidth={2} dot={{ r: 4 }} name="Inadimplentes" />
+              <Line yAxisId="right" type="monotone" dataKey="totalOverdue" stroke="#C45A1A" strokeWidth={2} dot={{ r: 4 }} name="Valor" />
             </LineChart>
           </ResponsiveContainer>
         )}
@@ -194,7 +194,7 @@ export default function BenchmarkRegionalPage() {
       {/* Mapa de inadimplentes individuais */}
       <Card className="p-5">
         <div className="flex items-center gap-2 mb-4">
-          <MapPin className="w-5 h-5 text-[var(--color-navy)]" />
+          <MapPin className="w-5 h-5 text-[var(--color-brand)]" />
           <h2 className="font-semibold text-base">Mapa dos Meus Inadimplentes</h2>
           <span className="ml-auto text-sm text-muted-foreground">{defaulters.length} clientes plotados</span>
         </div>
@@ -268,7 +268,7 @@ function CityRankingCards({ ranking, stats }: { ranking: CepRanking[]; stats: Ne
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-2">
-        <MapPin className="w-5 h-5 text-[var(--color-navy)]" />
+        <MapPin className="w-5 h-5 text-[var(--color-brand)]" />
         <h2 className="font-semibold text-lg">Inadimplencia por Cidade</h2>
         <span className="ml-auto text-sm text-muted-foreground">{sortedCities.length} cidades</span>
       </div>
@@ -424,8 +424,8 @@ function BenchmarkMap({ points }: { points: MapPoint[] }) {
           "circle-radius": ["interpolate", ["linear"], ["get", "count"], 1, 6, 5, 12, 10, 18, 20, 28],
           "circle-color": [
             "match", ["get", "riskLevel"],
-            "critico", "#ef4444",
-            "alto", "#f97316",
+            "critico", "#B53333",
+            "alto", "#C45A1A",
             "medio", "#eab308",
             "baixo", "#22c55e",
             "#999",
@@ -526,7 +526,7 @@ function DefaultersMap({ points }: { points: DefaulterPoint[] }) {
         source: "defaulters",
         filter: ["has", "point_count"],
         paint: {
-          "circle-color": ["step", ["get", "point_count"], "#3b82f6", 10, "#f59e0b", 50, "#ef4444"],
+          "circle-color": ["step", ["get", "point_count"], "#3b82f6", 10, "#B8860B", 50, "#B53333"],
           "circle-radius": ["step", ["get", "point_count"], 18, 10, 24, 50, 32],
           "circle-opacity": 0.85,
           "circle-stroke-width": 2,
@@ -556,9 +556,9 @@ function DefaultersMap({ points }: { points: DefaulterPoint[] }) {
         paint: {
           "circle-color": [
             "match", ["get", "riskTier"],
-            "critico", "#ef4444",
-            "alto", "#f97316",
-            "medio", "#f59e0b",
+            "critico", "#B53333",
+            "alto", "#C45A1A",
+            "medio", "#B8860B",
             "baixo", "#22c55e",
             "#6b7280",
           ],

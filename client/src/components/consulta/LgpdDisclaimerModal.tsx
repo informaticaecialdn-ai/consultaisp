@@ -35,7 +35,7 @@ export default function LgpdDisclaimerModal({ open, accepted, onAccept, onCancel
             className="mt-0.5 w-4 h-4 rounded border-blue-300"
             data-testid="lgpd-accept-checkbox"
           />
-          <label htmlFor="lgpd-accept" className="text-xs text-blue-800 leading-relaxed cursor-pointer">
+          <label htmlFor="lgpd-accept" className="text-xs text-[var(--color-brand)] leading-relaxed cursor-pointer">
             Declaro que esta consulta tem finalidade legitima de analise de credito e estou ciente das obrigacoes da LGPD quanto ao tratamento dos dados obtidos.
           </label>
         </div>
@@ -49,7 +49,7 @@ export default function LgpdDisclaimerModal({ open, accepted, onAccept, onCancel
             Cancelar
           </Button>
           <Button
-            className="flex-1 bg-blue-600 hover:bg-blue-700"
+            className="flex-1 bg-[var(--color-brand)] hover:bg-blue-700"
             disabled={!accepted}
             onClick={onAccept}
             data-testid="lgpd-accept-btn"
@@ -57,7 +57,7 @@ export default function LgpdDisclaimerModal({ open, accepted, onAccept, onCancel
             Prosseguir com Consulta
           </Button>
         </div>
-        <p className="text-center text-xs text-slate-400 mt-2">Lei n 13.709/2018 - LGPD - Versao 2.0</p>
+        <p className="text-center text-xs text-[var(--color-muted)] mt-2">Lei n 13.709/2018 - LGPD - Versao 2.0</p>
       </DialogContent>
     </Dialog>
   );

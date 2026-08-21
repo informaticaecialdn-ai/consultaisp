@@ -12,10 +12,10 @@ import { Check, X, Star, Brain, BookOpen, Shield, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const AGENTE_COLORS: Record<string, string> = {
-  sofia: "#f472b6", leo: "#fbbf24", carlos: "#34d399", lucas: "#60a5fa", rafael: "#a78bfa", marcos: "#f59e0b",
+  sofia: "#B98AA3", leo: "#B8860B", carlos: "#4A6B3E", lucas: "#4A5480", rafael: "#7A4A63", marcos: "#B8860B",
 };
 
-const NOTA_COLORS = ["", "bg-red-100 text-red-800", "bg-orange-100 text-orange-800", "bg-yellow-100 text-yellow-800", "bg-blue-100 text-blue-800", "bg-emerald-100 text-emerald-800"];
+const NOTA_COLORS = ["", "bg-[var(--color-danger-bg)] text-[var(--color-danger)]", "bg-[var(--color-gold-bg)] text-[var(--score-low)]", "bg-[var(--color-gold-bg)] text-[var(--color-gold)]", "bg-[var(--color-brand-bg)] text-[var(--color-brand)]", "bg-[var(--color-success-bg)] text-[var(--color-success)]"];
 
 export default function CrmTreinamentoTab() {
   const { toast } = useToast();
@@ -93,7 +93,7 @@ export default function CrmTreinamentoTab() {
             key={tab.key}
             onClick={() => setSub(tab.key as any)}
             className={`px-4 py-2 rounded text-sm font-medium transition-colors flex items-center gap-2 ${
-              sub === tab.key ? "bg-[var(--color-navy)] text-white" : "bg-muted text-[var(--color-muted)] hover:bg-muted/70"
+              sub === tab.key ? "bg-[var(--color-brand)] text-white" : "bg-muted text-[var(--color-muted)] hover:bg-muted/70"
             }`}
           >
             <tab.icon className="w-4 h-4" /> {tab.label}
@@ -121,7 +121,7 @@ export default function CrmTreinamentoTab() {
                 {avaliacoes.map((a: any) => (
                   <div key={a.id} className="p-3 border rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: AGENTE_COLORS[a.agente] || "#64748b" }} />
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: AGENTE_COLORS[a.agente] || "#6B6560" }} />
                       <span className="font-medium capitalize text-sm">{a.agente}</span>
                       <Badge className={NOTA_COLORS[a.nota] || ""}>{a.nota}/5</Badge>
                       {a.leadSentimento && <Badge variant="outline" className="text-xs">{a.leadSentimento}</Badge>}
@@ -162,7 +162,7 @@ export default function CrmTreinamentoTab() {
                       {r.evidencia && <p className="text-xs text-[var(--color-muted)] mt-1">{r.evidencia}</p>}
                     </div>
                     <div className="flex gap-1">
-                      <Button size="sm" variant="outline" className="text-emerald-600" onClick={() => actionRegra.mutate({ id: r.id, action: "aprovar" })}>
+                      <Button size="sm" variant="outline" className="text-[var(--color-success)]" onClick={() => actionRegra.mutate({ id: r.id, action: "aprovar" })}>
                         <Check className="w-4 h-4" />
                       </Button>
                       <Button size="sm" variant="outline" className="text-red-600" onClick={() => actionRegra.mutate({ id: r.id, action: "rejeitar" })}>
@@ -202,7 +202,7 @@ export default function CrmTreinamentoTab() {
                 <div className="space-y-2">
                   {regrasAprovadas.map((r: any) => (
                     <div key={r.id} className="flex items-center gap-3 p-2 border rounded text-sm">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: AGENTE_COLORS[r.agente] || "#64748b" }} />
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: AGENTE_COLORS[r.agente] || "#6B6560" }} />
                       <span className="flex-1">{r.regra}</span>
                       <Badge variant="outline" className="text-xs">{r.categoria}</Badge>
                     </div>
@@ -225,9 +225,9 @@ export default function CrmTreinamentoTab() {
                 {conhecimento.map((e: any) => (
                   <div key={e.id} className={`p-3 border rounded-lg ${!e.ativo ? "opacity-50" : ""}`}>
                     <div className="flex items-center gap-2 mb-2">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: AGENTE_COLORS[e.agente] || "#64748b" }} />
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: AGENTE_COLORS[e.agente] || "#6B6560" }} />
                       <span className="capitalize text-sm font-medium">{e.agente}</span>
-                      <Badge className={e.tipo === "sucesso" ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}>
+                      <Badge className={e.tipo === "sucesso" ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : "bg-[var(--color-danger-bg)] text-[var(--color-danger)]"}>
                         {e.tipo}
                       </Badge>
                       {e.tags?.map((t: string) => <Badge key={t} variant="outline" className="text-xs">{t}</Badge>)}

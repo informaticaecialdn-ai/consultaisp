@@ -127,20 +127,20 @@ export default function MapLibreHeatMap({
       ? [
           "interpolate", ["linear"], ["heatmap-density"],
           0, "rgba(34,197,94,0)",
-          0.2, "#86efac",
-          0.4, "#fde047",
-          0.6, "#fb923c",
-          0.8, "#ef4444",
-          1.0, "#991b1b",
+          0.2, "#A3B370",
+          0.4, "#D4A72C",
+          0.6, "#E07040",
+          0.8, "#B53333",
+          1.0, "#7A2020",
         ]
       : [
           "interpolate", ["linear"], ["heatmap-density"],
           0, "rgba(59,130,246,0)",
-          0.2, "#93c5fd",
-          0.4, "#a78bfa",
-          0.6, "#e879f9",
-          0.8, "#f43f5e",
-          1.0, "#881337",
+          0.2, "#8A94C0",
+          0.4, "#7A4A63",
+          0.6, "#B98AA3",
+          0.8, "#8B3A4A",
+          1.0, "#4A1F28",
         ];
 
     map.addLayer({
@@ -176,7 +176,7 @@ export default function MapLibreHeatMap({
       />
       {status === "loading" && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--color-bg)] rounded-lg gap-2">
-          <div className="w-6 h-6 border-2 border-[var(--color-navy)] border-t-transparent rounded-full animate-spin" />
+          <div className="w-6 h-6 border-2 border-[var(--color-brand)] border-t-transparent rounded-full animate-spin" />
           <span className="text-sm text-[var(--color-muted)]">Carregando mapa...</span>
         </div>
       )}

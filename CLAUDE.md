@@ -775,9 +775,33 @@ Conventions not yet established. Will populate as patterns emerge during develop
 Architecture not yet mapped. Follow existing patterns found in the codebase.
 <!-- GSD:architecture-end -->
 
+<!-- DESIGN:start -->
+## Design
+
+Leia @DESIGN_SYSTEM.md ANTES de criar ou alterar qualquer componente, pagina ou estilo.
+Nao desvie dos tokens definidos la — a lista negra da secao 8 e obrigatoria.
+
+Pontos que mais geram erro:
+- O primario e **terracota** `--color-brand` (#C96442). A variavel `--color-navy` e um
+  alias depreciado que contem terracota, nao navy. Use `--color-brand` em codigo novo.
+- Profundidade e **ring shadow** (`0 0 0 1px var(--ring-warm)`), nunca `shadow-md/lg/xl`.
+- Badge de status e retangular (raio 4px), nunca `rounded-full`.
+- O unico azul do sistema e o Focus Blue (#3898EC), so em anel de foco.
+
+Para cor e profundidade nao cobertas pelo doc, consulte
+`.claude/skills/design/references/claude.md` — **seccoes 2 e 6 apenas**
+(a tipografia e a escala de raio de la nao se aplicam a este projeto).
+<!-- DESIGN:end -->
+
 <!-- GSD:workflow-start source:GSD defaults -->
 ## GSD Workflow Enforcement
 
+> **INATIVO — GSD nao esta instalado neste repositorio.**
+> Nao existe `.claude/commands/` nem skills `gsd:*`, entao os comandos abaixo nao podem
+> ser executados e a regra nao pode ser cumprida. Bloco mantido como registro historico.
+> Para reativar, reinstale o GSD; caso contrario, remova este bloco.
+
+Regra original (nao aplicavel enquanto o GSD estiver ausente):
 Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
 
 Use these entry points:

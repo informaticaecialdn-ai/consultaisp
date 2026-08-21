@@ -150,10 +150,10 @@ export default function FinanceiroTab() {
     <div className="space-y-5">
       {/* Asaas Status Bar */}
       {asaasStatus && (
-        <Card className={`p-4 flex items-center justify-between gap-4 ${asaasStatus.configured ? "border-emerald-200 bg-emerald-50/50 dark:border-emerald-800 dark:bg-emerald-950/20" : "border-amber-200 bg-[var(--color-gold-bg)]/50 dark:border-amber-800 dark:bg-amber-950/20"}`}>
+        <Card className={`p-4 flex items-center justify-between gap-4 ${asaasStatus.configured ? "border-[var(--color-success)] bg-[var(--color-success-bg)]" : "border-amber-200 bg-[var(--color-gold-bg)]/50 dark:border-amber-800 dark:bg-amber-950/20"}`}>
           <div className="flex items-center gap-3">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${asaasStatus.configured ? "bg-emerald-100 dark:bg-emerald-900" : "bg-amber-100 dark:bg-amber-900"}`}>
-              <Wallet className={`w-4 h-4 ${asaasStatus.configured ? "text-emerald-600" : "text-[var(--color-gold)]"}`} />
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${asaasStatus.configured ? "bg-[var(--color-success-bg)]" : "bg-[var(--color-gold-bg)]"}`}>
+              <Wallet className={`w-4 h-4 ${asaasStatus.configured ? "text-[var(--color-success)]" : "text-[var(--color-gold)]"}`} />
             </div>
             <div>
               <p className="text-sm font-semibold">
@@ -167,7 +167,7 @@ export default function FinanceiroTab() {
             </div>
           </div>
           {asaasStatus.configured && (
-            <Badge className={asaasStatus.mode === "sandbox" ? "bg-amber-100 text-[var(--color-gold)]" : "bg-emerald-100 text-emerald-700"}>
+            <Badge className={asaasStatus.mode === "sandbox" ? "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" : "bg-[var(--color-success-bg)] text-[var(--color-success)]"}>
               {asaasStatus.mode === "sandbox" ? "Sandbox" : "Producao"}
             </Badge>
           )}
@@ -417,7 +417,7 @@ export default function FinanceiroTab() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{p.name}</p>
                   <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] mt-0.5">
-                    <span className="text-[var(--color-navy)] font-medium">ISP: {p.ispCredits}</span>
+                    <span className="text-[var(--color-brand)] font-medium">ISP: {p.ispCredits}</span>
                     <span className="text-purple-600 font-medium">SPC: {p.spcCredits}</span>
                   </div>
                 </div>
@@ -436,7 +436,7 @@ export default function FinanceiroTab() {
           <div className="space-y-2 max-h-64 overflow-y-auto">
             {planHistory.map((h: any) => (
               <div key={h.id} className="flex items-start gap-3 py-2 border-b last:border-0 text-sm">
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${h.newPlan ? "bg-purple-100 text-purple-700" : "bg-emerald-100 text-emerald-700"}`}>
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${h.newPlan ? "bg-[var(--color-brand-bg)] text-[var(--color-brand)]" : "bg-[var(--color-success-bg)] text-[var(--color-success)]"}`}>
                   {h.newPlan ? <ArrowUpDown className="w-3.5 h-3.5" /> : <Plus className="w-3 h-3" />}
                 </div>
                 <div className="flex-1 min-w-0">

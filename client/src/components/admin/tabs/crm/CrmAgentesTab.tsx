@@ -4,12 +4,12 @@ import { Badge } from "@/components/ui/badge";
 import { Bot, Users, MessageSquare, Activity, ArrowRightLeft } from "lucide-react";
 
 const AGENTE_COLORS: Record<string, string> = {
-  sofia: "#f472b6",
-  leo: "#fbbf24",
-  carlos: "#34d399",
-  lucas: "#60a5fa",
-  rafael: "#a78bfa",
-  marcos: "#f59e0b",
+  sofia: "#B98AA3",
+  leo: "#B8860B",
+  carlos: "#4A6B3E",
+  lucas: "#4A5480",
+  rafael: "#7A4A63",
+  marcos: "#B8860B",
 };
 
 const AGENTE_ROLES: Record<string, string> = {
@@ -117,7 +117,7 @@ export default function CrmAgentesTab() {
                 <div key={a.id} className="flex items-start gap-3 text-sm py-2 border-b last:border-0">
                   <div
                     className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0"
-                    style={{ backgroundColor: AGENTE_COLORS[a.agente] || "#64748b" }}
+                    style={{ backgroundColor: AGENTE_COLORS[a.agente] || "#6B6560" }}
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -128,7 +128,7 @@ export default function CrmAgentesTab() {
                     {a.scoreAntes !== null && a.scoreDepois !== null && a.scoreAntes !== a.scoreDepois && (
                       <p className="text-xs mt-0.5">
                         Score: {a.scoreAntes} → {a.scoreDepois}
-                        <span className={a.scoreDepois > a.scoreAntes ? "text-emerald-500 ml-1" : "text-red-500 ml-1"}>
+                        <span className={a.scoreDepois > a.scoreAntes ? "text-[var(--color-success)] ml-1" : "text-[var(--color-danger)] ml-1"}>
                           ({a.scoreDepois > a.scoreAntes ? "+" : ""}{a.scoreDepois - a.scoreAntes})
                         </span>
                       </p>

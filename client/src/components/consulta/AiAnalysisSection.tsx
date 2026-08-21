@@ -69,7 +69,7 @@ export default function AiAnalysisSection({ result }: Props) {
             </span>
           )}
           {aiDone && !aiError && (
-            <span className="text-xs text-emerald-600 flex items-center gap-1">
+            <span className="text-xs text-[var(--color-success)] flex items-center gap-1">
               <CheckCircle className="w-3 h-3" />
               Concluido
             </span>

@@ -13,10 +13,10 @@ const PLAN_LABELS: Record<string, string> = {
 };
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  pending:   { label: "Pendente",   color: "bg-amber-100 text-amber-700" },
-  paid:      { label: "Pago",       color: "bg-emerald-100 text-emerald-700" },
+  pending:   { label: "Pendente",   color: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" },
+  paid:      { label: "Pago",       color: "bg-[var(--color-success-bg)] text-[var(--color-success)]" },
   overdue:   { label: "Vencido",    color: "bg-red-100 text-red-700" },
-  cancelled: { label: "Cancelado",  color: "bg-gray-100 text-gray-600" },
+  cancelled: { label: "Cancelado",  color: "bg-[var(--color-tag-bg)] text-[var(--color-muted)]" },
 };
 
 
@@ -97,7 +97,7 @@ export default function InvoiceViewPage() {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-lg p-8 print:shadow-none print:rounded-none">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] p-8 print:shadow-none print:rounded-none">
           <div className="flex items-start justify-between mb-8">
             <div>
               <div className="flex items-center gap-3 mb-1">
@@ -133,7 +133,7 @@ export default function InvoiceViewPage() {
               <p className="text-sm"><span className="text-muted-foreground">Emissao:</span> <span className="font-medium">{new Date(invoice.createdAt).toLocaleDateString("pt-BR")}</span></p>
               <p className="text-sm"><span className="text-muted-foreground">Vencimento:</span> <span className="font-medium">{new Date(invoice.dueDate).toLocaleDateString("pt-BR")}</span></p>
               {invoice.paidDate && (
-                <p className="text-sm"><span className="text-muted-foreground">Pagamento:</span> <span className="font-medium text-emerald-600">{new Date(invoice.paidDate).toLocaleDateString("pt-BR")}</span></p>
+                <p className="text-sm"><span className="text-muted-foreground">Pagamento:</span> <span className="font-medium text-[var(--color-success)]">{new Date(invoice.paidDate).toLocaleDateString("pt-BR")}</span></p>
               )}
             </div>
           </div>
@@ -169,7 +169,7 @@ export default function InvoiceViewPage() {
                 <tr>
                   <td colSpan={2} />
                   <td className="text-right text-sm text-muted-foreground">Desconto</td>
-                  <td className="text-right text-sm text-emerald-600">-{formatCurrency(discount)}</td>
+                  <td className="text-right text-sm text-[var(--color-success)]">-{formatCurrency(discount)}</td>
                 </tr>
               )}
               <tr className="border-t">

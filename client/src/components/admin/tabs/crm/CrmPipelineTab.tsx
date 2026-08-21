@@ -14,9 +14,9 @@ const ETAPAS = [
 
 const CLASSIFICACAO_BADGE: Record<string, string> = {
   frio: "bg-slate-100 text-slate-700",
-  morno: "bg-yellow-100 text-yellow-800",
-  quente: "bg-orange-100 text-orange-800",
-  ultra_quente: "bg-red-100 text-red-800",
+  morno: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]",
+  quente: "bg-[var(--color-gold-bg)] text-[var(--score-low)]",
+  ultra_quente: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]",
 };
 
 export default function CrmPipelineTab() {
@@ -52,7 +52,7 @@ export default function CrmPipelineTab() {
                           <span className="text-xs capitalize text-[var(--color-muted)]">{lead.agenteAtual}</span>
                         </div>
                         {Number(lead.valorEstimado) > 0 && (
-                          <p className="text-xs text-emerald-600 mt-1">
+                          <p className="text-xs text-[var(--color-success)] mt-1">
                             R$ {Number(lead.valorEstimado).toLocaleString("pt-BR")}
                           </p>
                         )}

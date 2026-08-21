@@ -71,7 +71,7 @@ function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
         </div>
         <h3 className="font-semibold text-lg mb-2">Email enviado</h3>
         <p className="text-sm text-[var(--color-muted)] mb-4">Se o email estiver cadastrado, voce recebera instrucoes para redefinir sua senha.</p>
-        <Button variant="ghost" onClick={onBack} className="text-[var(--color-navy)]">Voltar ao login</Button>
+        <Button variant="ghost" onClick={onBack} className="text-[var(--color-brand)]">Voltar ao login</Button>
       </div>
     );
   }
@@ -83,11 +83,11 @@ function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
       <form onSubmit={handleSubmit} className="space-y-3">
         {error && <p className="text-sm text-[var(--color-danger)] bg-[var(--color-danger-bg)] rounded px-3 py-2">{error}</p>}
         <Input type="email" placeholder="seu@email.com" value={email} onChange={e => setEmail(e.target.value)} required />
-        <Button type="submit" disabled={loading} className="w-full bg-[var(--color-navy)] hover:bg-[var(--color-steel)] text-white font-semibold">
+        <Button type="submit" disabled={loading} className="w-full bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-white font-semibold">
           {loading ? "Enviando..." : "Enviar link de redefinicao"}
         </Button>
       </form>
-      <button type="button" onClick={onBack} className="mt-3 text-sm text-[var(--color-navy)] hover:underline w-full text-center block">Voltar ao login</button>
+      <button type="button" onClick={onBack} className="mt-3 text-sm text-[var(--color-brand)] hover:underline w-full text-center block">Voltar ao login</button>
     </div>
   );
 }
@@ -127,7 +127,7 @@ function ResetPasswordForm({ onBack }: { onBack: () => void }) {
         </div>
         <h3 className="font-semibold text-lg mb-2">Senha alterada</h3>
         <p className="text-sm text-[var(--color-muted)] mb-4">Sua senha foi redefinida com sucesso. Faca login com a nova senha.</p>
-        <Button onClick={onBack} className="bg-[var(--color-navy)] text-white">Ir para login</Button>
+        <Button onClick={onBack} className="bg-[var(--color-brand)] text-white">Ir para login</Button>
       </div>
     );
   }
@@ -139,7 +139,7 @@ function ResetPasswordForm({ onBack }: { onBack: () => void }) {
         {error && <p className="text-sm text-[var(--color-danger)] bg-[var(--color-danger-bg)] rounded px-3 py-2">{error}</p>}
         <Input type="password" placeholder="Nova senha" value={password} onChange={e => setPassword(e.target.value)} minLength={6} required />
         <Input type="password" placeholder="Confirmar senha" value={confirm} onChange={e => setConfirm(e.target.value)} minLength={6} required />
-        <Button type="submit" disabled={loading} className="w-full bg-[var(--color-navy)] hover:bg-[var(--color-steel)] text-white font-semibold">
+        <Button type="submit" disabled={loading} className="w-full bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-white font-semibold">
           {loading ? "Alterando..." : "Redefinir senha"}
         </Button>
       </form>
@@ -316,8 +316,8 @@ export default function LoginPage() {
     <div className="min-h-screen bg-[var(--color-bg)] flex flex-col" data-testid="login-page">
       <header className="flex items-center justify-between px-8 py-5">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded bg-[var(--color-navy)]/20 flex items-center justify-center">
-            <Shield className="w-5 h-5 text-[var(--color-navy)]" />
+          <div className="w-9 h-9 rounded bg-[var(--color-brand)]/20 flex items-center justify-center">
+            <Shield className="w-5 h-5 text-[var(--color-brand)]" />
           </div>
           <span className="text-lg font-display font-semibold text-[var(--color-ink)]">Consulta ISP</span>
         </div>
@@ -337,9 +337,9 @@ export default function LoginPage() {
         <div className="w-full max-w-5xl flex flex-col lg:flex-row items-center gap-12 lg:gap-16">
 
           <div className="flex-1 text-[var(--color-ink)] text-center lg:text-left max-w-lg">
-            <div className="inline-flex items-center gap-2 bg-[var(--color-navy-bg)] rounded-sm px-4 py-1.5 mb-6">
+            <div className="inline-flex items-center gap-2 bg-[var(--color-brand-bg)] rounded-sm px-4 py-1.5 mb-6">
               <Shield className="w-4 h-4 text-[var(--color-gold)]" />
-              <span className="text-sm font-medium text-[var(--color-navy)]">Plataforma Colaborativa de Credito</span>
+              <span className="text-sm font-medium text-[var(--color-brand)]">Plataforma Colaborativa de Credito</span>
             </div>
 
             <h1 className="font-display text-3xl lg:text-4xl font-light leading-tight mb-4">
@@ -381,8 +381,8 @@ export default function LoginPage() {
             {pageState === "check-email" ? (
               <Card className="p-8 border-[0.5px] border-[var(--color-border)] rounded bg-[var(--color-surface)]" data-testid="check-email-card">
                 <div className="text-center mb-6">
-                  <div className="w-16 h-16 rounded-full bg-[var(--color-navy)]/10 flex items-center justify-center mx-auto mb-4">
-                    <MailCheck className="w-8 h-8 text-[var(--color-navy)]" />
+                  <div className="w-16 h-16 rounded-full bg-[var(--color-brand)]/10 flex items-center justify-center mx-auto mb-4">
+                    <MailCheck className="w-8 h-8 text-[var(--color-brand)]" />
                   </div>
                   <h2 className="font-display text-2xl font-semibold mb-2" data-testid="text-check-email-title">
                     Verifique seu email
@@ -393,14 +393,14 @@ export default function LoginPage() {
                   <p className="font-semibold mt-1 text-[var(--color-ink)]" data-testid="text-pending-email">{pendingEmail}</p>
                 </div>
 
-                <div className="bg-[var(--color-navy)]/5 rounded p-4 mb-6 space-y-2">
+                <div className="bg-[var(--color-brand)]/5 rounded p-4 mb-6 space-y-2">
                   {[
                     "Abra seu email e procure a mensagem do Consulta ISP",
                     "Clique no botao \"Confirmar Email\"",
                     "Voce sera redirecionado automaticamente para o sistema",
                   ].map((step, i) => (
                     <div key={i} className="flex items-start gap-3">
-                      <span className="w-5 h-5 rounded-full bg-[var(--color-navy)] text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5 font-semibold">
+                      <span className="w-5 h-5 rounded-full bg-[var(--color-brand)] text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5 font-semibold">
                         {i + 1}
                       </span>
                       <span className="text-sm text-[var(--color-muted)]">{step}</span>
@@ -422,7 +422,7 @@ export default function LoginPage() {
                   </Button>
                   <button
                     type="button"
-                    className="text-sm text-[var(--color-navy)] font-medium hover:text-[var(--color-steel)]"
+                    className="text-sm text-[var(--color-brand)] font-medium hover:text-[var(--color-steel)]"
                     onClick={() => setPageState("login")}
                     data-testid="button-back-to-login"
                   >
@@ -433,8 +433,8 @@ export default function LoginPage() {
             ) : (
               <Card className="p-8 border-[0.5px] border-[var(--color-border)] rounded bg-[var(--color-surface)]">
                 <div className="text-center mb-6">
-                  <div className="w-12 h-12 rounded-full bg-[var(--color-navy)]/10 flex items-center justify-center mx-auto mb-3">
-                    <Shield className="w-6 h-6 text-[var(--color-navy)]" />
+                  <div className="w-12 h-12 rounded-full bg-[var(--color-brand)]/10 flex items-center justify-center mx-auto mb-3">
+                    <Shield className="w-6 h-6 text-[var(--color-brand)]" />
                   </div>
                   <h2 className="font-display text-xl font-semibold" data-testid="text-login-title">
                     {isSubdomainMode
@@ -442,7 +442,7 @@ export default function LoginPage() {
                       : pageState === "register" ? "Cadastre-se" : "Bem-vindo de volta"}
                   </h2>
                   {isSubdomainMode && tenantInfo?.name && (
-                    <p className="text-base font-semibold text-[var(--color-navy)] mt-1" data-testid="text-provider-name">
+                    <p className="text-base font-semibold text-[var(--color-brand)] mt-1" data-testid="text-provider-name">
                       {tenantInfo.name.split(" ").slice(0, 2).join(" ")}
                     </p>
                   )}
@@ -636,7 +636,7 @@ export default function LoginPage() {
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="text-sm font-medium text-[var(--color-ink)]">Senha</label>
                       {pageState === "login" && (
-                        <button type="button" className="text-xs text-[var(--color-navy)] hover:underline" onClick={() => setPageState("forgot" as any)}>
+                        <button type="button" className="text-xs text-[var(--color-brand)] hover:underline" onClick={() => setPageState("forgot" as any)}>
                           Esqueci minha senha
                         </button>
                       )}
@@ -694,7 +694,7 @@ export default function LoginPage() {
                   )}
 
                   {pageState === "register" && (
-                    <div className="flex items-start gap-2.5 p-3 bg-[var(--color-navy)]/5 border-[0.5px] border-[var(--color-navy)]/20 rounded">
+                    <div className="flex items-start gap-2.5 p-3 bg-[var(--color-brand)]/5 border-[0.5px] border-[var(--color-brand)]/20 rounded">
                       <input
                         type="checkbox"
                         id="lgpd-register-accept"
@@ -706,7 +706,7 @@ export default function LoginPage() {
                       />
                       <label htmlFor="lgpd-register-accept" className="text-xs text-[var(--color-ink)] leading-relaxed cursor-pointer">
                         Li e aceito os{" "}
-                        <a href="/lgpd" target="_blank" rel="noopener noreferrer" className="underline font-semibold text-[var(--color-navy)] hover:text-[var(--color-steel)]">
+                        <a href="/lgpd" target="_blank" rel="noopener noreferrer" className="underline font-semibold text-[var(--color-brand)] hover:text-[var(--color-steel)]">
                           Termos de Uso e a Politica de Privacidade
                         </a>
                         {" "}conforme a LGPD (Lei n 13.709/2018).
@@ -716,7 +716,7 @@ export default function LoginPage() {
 
                   <Button
                     type="submit"
-                    className="w-full bg-[var(--color-navy)] hover:bg-[var(--color-steel)] h-11 text-base"
+                    className="w-full bg-[var(--color-brand)] hover:bg-[var(--color-steel)] h-11 text-base"
                     disabled={isLoading || (pageState === "register" && !form.lgpdAccepted)}
                     data-testid="button-submit-login"
                   >
@@ -739,7 +739,7 @@ export default function LoginPage() {
                     {pageState === "register" ? "Ja tem uma conta? " : "Ainda nao tem uma conta? "}
                     <button
                       type="button"
-                      className="text-[var(--color-navy)] font-semibold hover:text-[var(--color-steel)]"
+                      className="text-[var(--color-brand)] font-semibold hover:text-[var(--color-steel)]"
                       onClick={() => setPageState(pageState === "register" ? "login" : "register")}
                       data-testid="button-toggle-register"
                     >

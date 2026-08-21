@@ -221,7 +221,7 @@ export default function ConfiguracoesTab() {
               </div>
               <div className="flex items-center gap-2">
                 <button type="button" onClick={() => setErpForm(f => ({ ...f, active: !f.active }))} className="p-0" data-testid="toggle-erp-active">
-                  {erpForm.active ? <ToggleRight className="w-8 h-8 text-emerald-500" /> : <ToggleLeft className="w-8 h-8 text-[var(--color-muted)]" />}
+                  {erpForm.active ? <ToggleRight className="w-8 h-8 text-[var(--color-success)]" /> : <ToggleLeft className="w-8 h-8 text-[var(--color-muted)]" />}
                 </button>
                 <span className="text-sm">{erpForm.active ? "ERP Ativo (visivel para provedores)" : "ERP Inativo (oculto para provedores)"}</span>
               </div>
@@ -267,7 +267,7 @@ export default function ConfiguracoesTab() {
                   <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono" data-testid={`text-erp-key-${erp.id}`}>{erp.key}</code>
                   <button onClick={() => toggleErpActiveMutation.mutate({ id: erp.id, active: !erp.active })} data-testid={`toggle-erp-status-${erp.id}`}>
                     {erp.active
-                      ? <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300 text-xs h-5 cursor-pointer hover:opacity-80">Ativo</Badge>
+                      ? <Badge className="bg-[var(--color-success-bg)] text-[var(--color-success)] text-xs h-5 cursor-pointer hover:opacity-80">Ativo</Badge>
                       : <Badge className="bg-slate-100 text-[var(--color-muted)] dark:bg-slate-800 dark:text-[var(--color-muted)] text-xs h-5 cursor-pointer hover:opacity-80">Inativo</Badge>
                     }
                   </button>

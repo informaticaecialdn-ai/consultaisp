@@ -13,10 +13,10 @@ import { Check, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const STATUS_BADGE: Record<string, string> = {
-  pendente: "bg-yellow-100 text-yellow-800",
-  em_andamento: "bg-blue-100 text-blue-800",
-  concluida: "bg-emerald-100 text-emerald-800",
-  cancelada: "bg-red-100 text-red-800",
+  pendente: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]",
+  em_andamento: "bg-[var(--color-brand-bg)] text-[var(--color-brand)]",
+  concluida: "bg-[var(--color-success-bg)] text-[var(--color-success)]",
+  cancelada: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]",
 };
 
 export default function CrmProspeccaoTab() {
@@ -105,7 +105,7 @@ export default function CrmProspeccaoTab() {
           onClick={() => setSub("tarefas")}
           className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
             sub === "tarefas"
-              ? "bg-[var(--color-navy)] text-white"
+              ? "bg-[var(--color-brand)] text-white"
               : "bg-muted text-[var(--color-muted)] hover:bg-muted/70"
           }`}
         >
@@ -115,7 +115,7 @@ export default function CrmProspeccaoTab() {
           onClick={() => setSub("campanhas")}
           className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
             sub === "campanhas"
-              ? "bg-[var(--color-navy)] text-white"
+              ? "bg-[var(--color-brand)] text-white"
               : "bg-muted text-[var(--color-muted)] hover:bg-muted/70"
           }`}
         >
@@ -148,7 +148,7 @@ export default function CrmProspeccaoTab() {
                           <Badge
                             className={
                               STATUS_BADGE[tarefa.status] ||
-                              "bg-gray-100 text-gray-800"
+                              "bg-[var(--color-tag-bg)] text-gray-800"
                             }
                           >
                             {tarefa.status}

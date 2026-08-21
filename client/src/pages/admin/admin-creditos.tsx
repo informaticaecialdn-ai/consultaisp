@@ -180,7 +180,7 @@ export default function AdminCreditosPage() {
     <div className="p-4 lg:p-5 pb-10 space-y-5">
       {asaasChargeModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setAsaasChargeModal(null)}>
-          <div className="bg-background rounded-lg shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+          <div className="bg-background rounded-lg shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <h2 className="text-base font-bold mb-1 flex items-center gap-2"><Wallet className="w-4 h-4 text-blue-500" />Cobrar via Asaas</h2>
             <p className="text-xs text-muted-foreground mb-4">Pedido {asaasChargeModal.orderNumber} · R$ {parseFloat(asaasChargeModal.amount).toFixed(2).replace(".", ",")}</p>
             <div className="space-y-2">
@@ -206,7 +206,7 @@ export default function AdminCreditosPage() {
 
       {pixModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setPixModal(null)}>
-          <div className="bg-background rounded-lg shadow-xl p-6 w-full max-w-sm text-center" onClick={e => e.stopPropagation()}>
+          <div className="bg-background rounded-lg shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] p-6 w-full max-w-sm text-center" onClick={e => e.stopPropagation()}>
             <h2 className="text-base font-bold mb-1 flex items-center gap-2 justify-center"><QrCode className="w-4 h-4 text-blue-500" />QR Code PIX</h2>
             {pixModal.pixData?.encodedImage
               ? <img src={`data:image/png;base64,${pixModal.pixData.encodedImage}`} alt="QR Code PIX" className="mx-auto w-48 h-48 my-4 rounded-lg border" />
@@ -231,13 +231,13 @@ export default function AdminCreditosPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold flex items-center gap-2">
-            <CreditCard className="w-5 h-5 text-emerald-500" />Pedidos de Creditos
+            <CreditCard className="w-5 h-5 text-[var(--color-success)]" />Pedidos de Creditos
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">Gerencie compras de creditos ISP e SPC dos provedores</p>
         </div>
         <div className="flex items-center gap-2">
           {asaasStatus?.configured && (
-            <Badge className={`text-xs ${asaasStatus.mode === "sandbox" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>
+            <Badge className={`text-xs ${asaasStatus.mode === "sandbox" ? "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" : "bg-[var(--color-success-bg)] text-[var(--color-success)]"}`}>
               <Wallet className="w-3 h-3 mr-1" />{asaasStatus.mode === "sandbox" ? "Sandbox" : "Producao"}
             </Badge>
           )}
@@ -485,8 +485,8 @@ export default function AdminCreditosPage() {
                   const typeBadge = isIsp
                     ? "bg-blue-100 text-blue-700"
                     : isSpc
-                      ? "bg-purple-100 text-purple-700"
-                      : "bg-gray-100 text-gray-600";
+                      ? "bg-[var(--color-brand-bg)] text-[var(--color-brand)]"
+                      : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]";
                   const typeLabel = isIsp ? "ISP" : isSpc ? "SPC" : "Misto";
                   return (
                     <tr key={order.id} className="hover:bg-muted/10 transition-colors" data-testid={`order-row-${order.id}`}>
@@ -516,12 +516,12 @@ export default function AdminCreditosPage() {
                         <div className="flex items-center justify-center gap-1">
                           {order.status === "pending" && (
                             <>
-                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-emerald-600"
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-[var(--color-success)]"
                                 title="Liberar creditos" onClick={() => releaseMutation.mutate(order.id)}
                                 disabled={releaseMutation.isPending} data-testid={`button-release-${order.id}`}>
                                 <CheckCircle className="w-3.5 h-3.5" />
                               </Button>
-                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500"
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-[var(--color-danger)]"
                                 title="Cancelar pedido" onClick={() => cancelMutation.mutate(order.id)}
                                 disabled={cancelMutation.isPending} data-testid={`button-cancel-${order.id}`}>
                                 <XCircle className="w-3.5 h-3.5" />

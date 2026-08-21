@@ -6,10 +6,10 @@ interface Props {
 }
 
 const ZONES = [
-  { min: 0, max: 300, label: "Muito Alto", color: "#C44040" },
+  { min: 0, max: 300, label: "Muito Alto", color: "#B53333" },
   { min: 300, max: 500, label: "Alto", color: "#D97A2B" },
-  { min: 500, max: 700, label: "Moderado", color: "#C9A820" },
-  { min: 700, max: 1000, label: "Baixo", color: "#2E8B57" },
+  { min: 500, max: 700, label: "Moderado", color: "#B8860B" },
+  { min: 700, max: 1000, label: "Baixo", color: "#4A6B3E" },
 ];
 
 function getZone(score: number) {

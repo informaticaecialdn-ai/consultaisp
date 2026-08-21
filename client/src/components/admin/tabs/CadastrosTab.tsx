@@ -14,8 +14,8 @@ import {
 import { PLAN_LABELS } from "../constants";
 
 const VERIFICATION_LABELS: Record<string, { label: string; color: string; icon: any }> = {
-  pending: { label: "Pendente", color: "bg-amber-100 text-[var(--color-gold)] dark:bg-amber-900 dark:text-amber-300", icon: Clock },
-  approved: { label: "Aprovado", color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300", icon: CheckCircle },
+  pending: { label: "Pendente", color: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]", icon: Clock },
+  approved: { label: "Aprovado", color: "bg-[var(--color-success-bg)] text-[var(--color-success)]", icon: CheckCircle },
   rejected: { label: "Rejeitado", color: "bg-red-100 text-[var(--color-danger)] dark:bg-red-900 dark:text-red-300", icon: XCircle },
 };
 
@@ -94,9 +94,9 @@ export default function CadastrosTab() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {(["all", "pending", "approved", "rejected"] as const).map((f) => {
           const labels: Record<string, { label: string; color: string; activeColor: string }> = {
-            all: { label: "Todos", color: "text-gray-600", activeColor: "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900" },
+            all: { label: "Todos", color: "text-[var(--color-muted)]", activeColor: "bg-gray-900 text-white dark:bg-[var(--color-tag-bg)] dark:text-gray-900" },
             pending: { label: "Pendentes", color: "text-[var(--color-gold)]", activeColor: "bg-amber-600 text-white" },
-            approved: { label: "Aprovados", color: "text-emerald-600", activeColor: "bg-emerald-600 text-white" },
+            approved: { label: "Aprovados", color: "text-[var(--color-success)]", activeColor: "bg-[var(--color-success)] text-white" },
             rejected: { label: "Rejeitados", color: "text-[var(--color-danger)]", activeColor: "bg-red-600 text-white" },
           };
           const l = labels[f];
@@ -160,7 +160,7 @@ export default function CadastrosTab() {
                             <CheckCircle className="w-3 h-3" />Email verificado
                           </Badge>
                         ) : (
-                          <Badge className="text-xs bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300 gap-1" data-testid={`badge-email-unverified-${p.id}`}>
+                          <Badge className="text-xs bg-[var(--color-gold-bg)] text-orange-700 dark:bg-orange-900 dark:text-orange-300 gap-1" data-testid={`badge-email-unverified-${p.id}`}>
                             <AlertCircle className="w-3 h-3" />Email nao verificado
                           </Badge>
                         )}
@@ -174,7 +174,7 @@ export default function CadastrosTab() {
                         <div className="flex items-center gap-1.5"><CreditCard className="w-3 h-3 flex-shrink-0" /><span>Plano: {PLAN_LABELS[p.plan]?.label || p.plan}</span></div>
                         <div className="flex items-center gap-1.5"><Users className="w-3 h-3 flex-shrink-0" /><span>{p.userCount || 0} usuario(s)</span></div>
                         <div className="flex items-center gap-1.5">
-                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${p.status === "active" ? "bg-emerald-500" : "bg-gray-400"}`} />
+                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${p.status === "active" ? "bg-[var(--color-success)]" : "bg-[var(--color-muted)]"}`} />
                           <span>{p.status === "active" ? "Ativo" : "Inativo"}</span>
                         </div>
                       </div>
@@ -184,7 +184,7 @@ export default function CadastrosTab() {
                         <>
                           <Button
                             size="sm"
-                            className="gap-1.5 text-xs h-8 bg-emerald-600 hover:bg-emerald-700"
+                            className="gap-1.5 text-xs h-8 bg-[var(--color-success)] hover:opacity-90"
                             onClick={() => updateVerificationMutation.mutate({ id: p.id, verificationStatus: "approved" })}
                             disabled={updateVerificationMutation.isPending}
                             data-testid={`button-approve-${p.id}`}
@@ -222,7 +222,7 @@ export default function CadastrosTab() {
                         </Button>
                       )}
                       {!p.adminEmailVerified && (
-                        <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8 text-[var(--color-navy)] border-blue-200 hover:bg-[var(--color-navy-bg)] hover:text-[var(--color-navy)]" onClick={() => resendVerificationMutation.mutate(p.id)} disabled={resendVerificationMutation.isPending} data-testid={`button-resend-email-${p.id}`}>
+                        <Button size="sm" variant="outline" className="gap-1.5 text-xs h-8 text-[var(--color-brand)] border-blue-200 hover:bg-[var(--color-brand-bg)] hover:text-[var(--color-brand)]" onClick={() => resendVerificationMutation.mutate(p.id)} disabled={resendVerificationMutation.isPending} data-testid={`button-resend-email-${p.id}`}>
                           <RefreshCw className="w-3.5 h-3.5" />Reenviar Email
                         </Button>
                       )}

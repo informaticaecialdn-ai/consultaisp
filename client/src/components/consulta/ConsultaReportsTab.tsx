@@ -28,7 +28,7 @@ export default function ConsultaReportsTab({ consultations, approvedCount, rejec
                 { label: "Total Consultas", value: consultations.length, color: "text-[var(--color-ink)]" },
                 { label: "Aprovadas", value: approvedCount, color: "text-[var(--color-success)]" },
                 { label: "Rejeitadas", value: rejectedCount, color: "text-[var(--color-danger)]" },
-                { label: "Score Medio", value: `${avgScore}/100`, color: "text-[var(--color-navy)]" },
+                { label: "Score Medio", value: `${avgScore}/100`, color: "text-[var(--color-brand)]" },
               ].map(s => (
                 <div key={s.label} className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded p-4 text-center">
                   <p className="text-xs text-[var(--color-muted)] mb-1">{s.label}</p>
@@ -61,8 +61,8 @@ export default function ConsultaReportsTab({ consultations, approvedCount, rejec
                   <h3 className="text-sm font-semibold text-[var(--color-ink)]">Creditos e Alertas</h3>
                   {[
                     { label: "Consultas gratuitas", value: freeCount, color: "text-[var(--color-success)]", bg: "bg-[var(--color-surface)]" },
-                    { label: "Consultas pagas", value: paidCount, color: "text-[var(--color-navy)]", bg: "bg-[var(--color-surface)]" },
-                    { label: "Total creditos consumidos", value: totalSpent, color: "text-[var(--color-navy)]", bg: "bg-[var(--color-navy-bg)]" },
+                    { label: "Consultas pagas", value: paidCount, color: "text-[var(--color-brand)]", bg: "bg-[var(--color-surface)]" },
+                    { label: "Total creditos consumidos", value: totalSpent, color: "text-[var(--color-brand)]", bg: "bg-[var(--color-brand-bg)]" },
                     { label: "Consultas com alertas anti-fraude", value: withAlerts, color: "text-[var(--color-gold)]", bg: "bg-[var(--color-gold-bg)]" },
                   ].map(r => (
                     <div key={r.label} className={`flex justify-between p-3 ${r.bg} border border-[var(--color-border)] rounded text-sm`}>

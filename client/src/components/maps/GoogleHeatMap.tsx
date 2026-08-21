@@ -21,20 +21,20 @@ const BRAZIL_CENTER = { lat: -15.8, lng: -48.0 };
 
 const PROVIDER_GRADIENT = [
   "rgba(34,197,94,0)",
-  "#86efac",
-  "#fde047",
-  "#fb923c",
-  "#ef4444",
-  "#991b1b",
+  "#A3B370",
+  "#D4A72C",
+  "#E07040",
+  "#B53333",
+  "#7A2020",
 ];
 
 const REGIONAL_GRADIENT = [
   "rgba(59,130,246,0)",
-  "#93c5fd",
-  "#a78bfa",
-  "#e879f9",
-  "#f43f5e",
-  "#881337",
+  "#8A94C0",
+  "#7A4A63",
+  "#B98AA3",
+  "#8B3A4A",
+  "#4A1F28",
 ];
 
 // Load Google Maps via script tag (no external library needed)
@@ -193,7 +193,7 @@ export default function GoogleHeatMap({
       />
       {status === "loading" && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--color-bg)] rounded-lg gap-2">
-          <div className="w-6 h-6 border-2 border-[var(--color-navy)] border-t-transparent rounded-full animate-spin" />
+          <div className="w-6 h-6 border-2 border-[var(--color-brand)] border-t-transparent rounded-full animate-spin" />
           <span className="text-sm text-[var(--color-muted)]">Carregando Google Maps...</span>
         </div>
       )}

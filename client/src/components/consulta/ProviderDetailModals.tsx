@@ -190,9 +190,9 @@ export default function ProviderDetailModals({ freeDialogOpen, paidDialogOpen, s
               : "bg-[var(--color-danger-bg)] text-[var(--color-danger)]";
             return (
               <div className="space-y-4 mt-2">
-                <div className="flex items-center gap-3 p-3 bg-[var(--color-navy-bg)] rounded border border-[var(--color-border)]">
+                <div className="flex items-center gap-3 p-3 bg-[var(--color-brand-bg)] rounded border border-[var(--color-border)]">
                   <div className="w-9 h-9 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] flex items-center justify-center flex-shrink-0">
-                    <span className="text-xs font-semibold text-[var(--color-navy)]">{getInitials(d.customerName)}</span>
+                    <span className="text-xs font-semibold text-[var(--color-brand)]">{getInitials(d.customerName)}</span>
                   </div>
                   <div>
                     <p className="font-bold text-[var(--color-ink)] text-sm" data-testid="free-dialog-customer-name">{d.customerName}</p>
@@ -219,14 +219,14 @@ export default function ProviderDetailModals({ freeDialogOpen, paidDialogOpen, s
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-consulta-paga">
           <DialogHeader>
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[var(--color-navy-bg)] flex items-center justify-center flex-shrink-0">
-                <CreditCard className="w-5 h-5 text-[var(--color-navy)]" />
+              <div className="w-10 h-10 rounded-full bg-[var(--color-brand-bg)] flex items-center justify-center flex-shrink-0">
+                <CreditCard className="w-5 h-5 text-[var(--color-brand)]" />
               </div>
               <div>
                 <DialogTitle className="text-base font-bold text-[var(--color-ink)]">Consulta Paga</DialogTitle>
                 <p className="text-xs text-[var(--color-muted)] mt-0.5">{selectedPaidDetail?.providerName} — Outro Provedor</p>
               </div>
-              <span className="ml-auto text-xs font-bold px-2.5 py-1 rounded-sm bg-[var(--color-navy-bg)] text-[var(--color-navy)]">
+              <span className="ml-auto text-xs font-bold px-2.5 py-1 rounded-sm bg-[var(--color-brand-bg)] text-[var(--color-brand)]">
                 1 Credito Debitado
               </span>
             </div>
@@ -251,9 +251,9 @@ export default function ProviderDetailModals({ freeDialogOpen, paidDialogOpen, s
                   </span>
                 </div>
                 <DetailGrid d={d} isOwn={false} />
-                <div className="bg-[var(--color-navy-bg)] border border-[var(--color-border)] rounded p-3 flex items-start gap-2">
-                  <Info className="w-4 h-4 text-[var(--color-navy)] flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-[var(--color-navy)]">
+                <div className="bg-[var(--color-brand-bg)] border border-[var(--color-border)] rounded p-3 flex items-start gap-2">
+                  <Info className="w-4 h-4 text-[var(--color-brand)] flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-[var(--color-brand)]">
                     1 credito ISP foi debitado por este resultado. Dados completos somente disponiveis para clientes do proprio provedor.
                   </p>
                 </div>

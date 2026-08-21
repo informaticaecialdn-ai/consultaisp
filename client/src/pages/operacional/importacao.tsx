@@ -297,20 +297,20 @@ function ImportTab({ type }: { type: ImportType }) {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <Card className="p-4 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-                <CheckCircle className="w-5 h-5 text-emerald-600" />
+              <div className="w-10 h-10 rounded-full bg-[var(--color-success-bg)]/30 flex items-center justify-center">
+                <CheckCircle className="w-5 h-5 text-[var(--color-success)]" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-emerald-600">{result.imported}</p>
+                <p className="text-2xl font-bold text-[var(--color-success)]">{result.imported}</p>
                 <p className="text-xs text-muted-foreground">Importados</p>
               </div>
             </Card>
             <Card className="p-4 flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                <XCircle className="w-5 h-5 text-red-500" />
+                <XCircle className="w-5 h-5 text-[var(--color-danger)]" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-red-500">{result.errors.length}</p>
+                <p className="text-2xl font-bold text-[var(--color-danger)]">{result.errors.length}</p>
                 <p className="text-xs text-muted-foreground">Erros</p>
               </div>
             </Card>
@@ -391,7 +391,7 @@ export default function ImportacaoPage() {
 
       <Card className="p-4">
         <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-          <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+          <FileSpreadsheet className="w-4 h-4 text-[var(--color-success)]" />
           Dados suportados por tipo
         </h3>
         <div className="grid grid-cols-3 gap-4 text-xs text-muted-foreground">
@@ -400,7 +400,7 @@ export default function ImportacaoPage() {
               <p className="font-medium text-foreground mb-1 capitalize">{LABELS[type].title}</p>
               {TEMPLATES[type].headers.map((h) => (
                 <div key={h} className="flex items-center gap-1">
-                  <CheckCircle className="w-3 h-3 text-emerald-500 flex-shrink-0" />
+                  <CheckCircle className="w-3 h-3 text-[var(--color-success)] flex-shrink-0" />
                   <span>{h}</span>
                 </div>
               ))}

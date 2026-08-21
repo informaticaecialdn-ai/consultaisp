@@ -79,14 +79,14 @@ export default function ConsultaISPPage() {
       const otherCount = (data.result?.providerDetails || []).filter((d: any) => !d.isSameProvider).length;
 
       if (data.result?.notFound) {
-        toast({ title: "Nada consta", description: <span>Nenhum registro encontrado. <span className="font-bold text-emerald-600">Gratuita.</span></span> });
+        toast({ title: "Nada consta", description: <span>Nenhum registro encontrado. <span className="font-bold text-[var(--color-success)]">Gratuita.</span></span> });
       } else if (ownCount > 0 && otherCount > 0) {
-        toast({ title: "Consulta gratuita", description: <span>{ownCount} registro{ownCount > 1 ? "s" : ""} do seu provedor. <span className="font-bold text-emerald-600">Gratuita.</span></span> });
+        toast({ title: "Consulta gratuita", description: <span>{ownCount} registro{ownCount > 1 ? "s" : ""} do seu provedor. <span className="font-bold text-[var(--color-success)]">Gratuita.</span></span> });
         setTimeout(() => {
           toast({ title: "Consulta paga", description: <span>{otherCount} Em outros provedores: <span className="font-bold text-red-600">{otherCount} Credito{otherCount > 1 ? "s" : ""}.</span></span> });
         }, 3500);
       } else if (ownCount > 0) {
-        toast({ title: "Consulta gratuita", description: <span>{ownCount} registro{ownCount > 1 ? "s" : ""} do seu provedor. <span className="font-bold text-emerald-600">Gratuita.</span></span> });
+        toast({ title: "Consulta gratuita", description: <span>{ownCount} registro{ownCount > 1 ? "s" : ""} do seu provedor. <span className="font-bold text-[var(--color-success)]">Gratuita.</span></span> });
       } else if (otherCount > 0) {
         toast({ title: "Consulta paga", description: <span>{otherCount} Em outros provedores: <span className="font-bold text-red-600">{otherCount} Credito{otherCount > 1 ? "s" : ""}.</span></span> });
       }
@@ -144,7 +144,7 @@ export default function ConsultaISPPage() {
         {/* HEADER — compact */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded bg-[var(--color-navy)] flex items-center justify-center flex-shrink-0">
+            <div className="w-10 h-10 rounded bg-[var(--color-brand)] flex items-center justify-center flex-shrink-0">
               <Search className="w-5 h-5 text-white" />
             </div>
             <div>
@@ -164,7 +164,7 @@ export default function ConsultaISPPage() {
             </div>
             {/* Credits */}
             <div className="border-[0.5px] border-[var(--color-border)] rounded px-3 py-1.5 flex items-center gap-2">
-              <CreditCard className="w-4 h-4 text-[var(--color-navy)]" />
+              <CreditCard className="w-4 h-4 text-[var(--color-brand)]" />
               <span className={`font-mono text-sm font-semibold ${(data?.credits ?? 1) === 0 ? "text-[var(--color-danger)]" : "text-[var(--color-ink)]"}`} data-testid="text-isp-credits">
                 {data?.credits ?? "..."}
               </span>
@@ -180,7 +180,7 @@ export default function ConsultaISPPage() {
               onClick={() => setActiveTab(tab)}
               data-testid={`tab-${tab}`}
               className={`px-4 py-2 text-sm font-medium transition-colors ${
-                activeTab === tab ? "border-b-2 border-[var(--color-navy)] text-[var(--color-ink)]" : "text-[var(--color-muted)] hover:text-[var(--color-ink)]"
+                activeTab === tab ? "border-b-2 border-[var(--color-brand)] text-[var(--color-ink)]" : "text-[var(--color-muted)] hover:text-[var(--color-ink)]"
               }`}
             >
               {tab === "nova" ? "Nova Consulta" : tab === "historico" ? "Histórico" : tab === "timeline" ? "Timeline" : tab === "relatorios" ? "Relatórios" : "Informações"}

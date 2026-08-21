@@ -38,7 +38,7 @@ interface Stats {
 
 const STATUS_CONFIG: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline"; className?: string }> = {
   pendente: { label: "Pendente", variant: "secondary" },
-  em_andamento: { label: "Em Andamento", variant: "default", className: "bg-blue-600" },
+  em_andamento: { label: "Em Andamento", variant: "default", className: "bg-[var(--color-brand)]" },
   concluido: { label: "Concluido", variant: "default", className: "bg-green-600" },
   recusado: { label: "Recusado", variant: "destructive" },
 };
@@ -160,7 +160,7 @@ export default function AdminLgpdPage() {
         </Card>
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
-            <CheckCircle className="w-8 h-8 text-green-500" />
+            <CheckCircle className="w-8 h-8 text-[var(--color-success)]" />
             <div>
               <p className="text-2xl font-bold">{stats?.concluido ?? 0}</p>
               <p className="text-xs text-muted-foreground">Concluidas</p>
@@ -169,7 +169,7 @@ export default function AdminLgpdPage() {
         </Card>
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
-            <XCircle className="w-8 h-8 text-red-500" />
+            <XCircle className="w-8 h-8 text-[var(--color-danger)]" />
             <div>
               <p className="text-2xl font-bold">{stats?.recusado ?? 0}</p>
               <p className="text-xs text-muted-foreground">Recusadas</p>

@@ -87,8 +87,8 @@ export default function LeafletHeatMap({
     ]);
 
     const gradient = mode === "provider"
-      ? { 0.2: "#86efac", 0.4: "#fde047", 0.6: "#fb923c", 0.8: "#ef4444", 1.0: "#991b1b" }
-      : { 0.2: "#93c5fd", 0.4: "#a78bfa", 0.6: "#e879f9", 0.8: "#f43f5e", 1.0: "#881337" };
+      ? { 0.2: "#A3B370", 0.4: "#D4A72C", 0.6: "#E07040", 0.8: "#B53333", 1.0: "#7A2020" }
+      : { 0.2: "#B0AEA5", 0.4: "#8A94C0", 0.6: "#7A4A63", 0.8: "#8B3A4A", 1.0: "#4A1F28" };
 
     heatRef.current = (L as any).heatLayer(heatData, {
       radius: 30,

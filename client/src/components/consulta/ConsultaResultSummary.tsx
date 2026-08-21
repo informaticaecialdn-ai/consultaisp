@@ -45,7 +45,7 @@ function ProviderRow({ detail, globalIdx, onShowDetail }: { detail: ProviderDeta
       data-testid={`provider-card-${globalIdx}`}
     >
       {/* Status indicator */}
-      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${isDelinquent ? "bg-[#C44040]" : "bg-[#2E8B57]"}`} />
+      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${isDelinquent ? "bg-[#B53333]" : "bg-[#4A6B3E]"}`} />
 
       {/* Provider info */}
       <div className="flex-1 min-w-0">
@@ -104,8 +104,8 @@ function ProviderRow({ detail, globalIdx, onShowDetail }: { detail: ProviderDeta
       <span
         className="text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0"
         style={{
-          backgroundColor: isOwn ? "var(--color-success-bg)" : "var(--color-navy-bg)",
-          color: isOwn ? "var(--color-success)" : "var(--color-navy)",
+          backgroundColor: isOwn ? "var(--color-success-bg)" : "var(--color-brand-bg)",
+          color: isOwn ? "var(--color-success)" : "var(--color-brand)",
         }}
         data-testid={`cost-badge-${globalIdx}`}
       >
@@ -122,14 +122,14 @@ function AddressRow({ match, idx }: { match: AddressMatch; idx: number }) {
       className="flex items-center gap-3 py-2.5 px-4"
       data-testid={`address-match-${idx}`}
     >
-      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${match.hasDebt ? "bg-[#C44040]" : "bg-[#2E8B57]"}`} />
+      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${match.hasDebt ? "bg-[#B53333]" : "bg-[#4A6B3E]"}`} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-semibold" style={{ color: "var(--color-ink)" }} data-testid={`address-match-name-${idx}`}>
             {match.customerName}
           </span>
           {match.isSameProvider && (
-            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-navy-bg)", color: "var(--color-navy)" }}>Seu cliente</span>
+            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-brand-bg)", color: "var(--color-brand)" }}>Seu cliente</span>
           )}
           {match.hasDebt && (
             <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-danger-bg)", color: "var(--color-danger)" }}>Inadimplente</span>
@@ -238,10 +238,10 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
   const addressExtMatches = result.addressMatches?.filter(m => !m.isSameProvider) ?? [];
 
   const decisionCfg = dc === "Accept"
-    ? { color: "#2E8B57", bg: "#2E8B57", label: "APROVAR", icon: CheckCircle, sub: "Sem restricoes na rede ISP" }
+    ? { color: "#4A6B3E", bg: "#4A6B3E", label: "APROVAR", icon: CheckCircle, sub: "Sem restricoes na rede ISP" }
     : dc === "Reject"
-    ? { color: "#C44040", bg: "#C44040", label: "REJEITAR", icon: XCircle, sub: result.recommendation }
-    : { color: "#C9A820", bg: "#C9A820", label: "ANALISAR", icon: AlertCircle, sub: result.recommendation };
+    ? { color: "#B53333", bg: "#B53333", label: "REJEITAR", icon: XCircle, sub: result.recommendation }
+    : { color: "#B8860B", bg: "#B8860B", label: "ANALISAR", icon: AlertCircle, sub: result.recommendation };
 
   return (
     <div className="space-y-4" data-testid="consultation-result-cards">
@@ -265,8 +265,8 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
               </p>
             </div>
             <div className="flex items-center gap-1.5">
-              <Shield className="w-3.5 h-3.5" style={{ color: "var(--color-navy)" }} />
-              <span className="text-xs font-semibold" style={{ color: "var(--color-navy)" }}>Rede ISP Colaborativa</span>
+              <Shield className="w-3.5 h-3.5" style={{ color: "var(--color-brand)" }} />
+              <span className="text-xs font-semibold" style={{ color: "var(--color-brand)" }}>Rede ISP Colaborativa</span>
             </div>
           </div>
 
@@ -336,7 +336,7 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
                           Inadimplente
                         </span>
                       )}
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-navy-bg)", color: "var(--color-navy)" }}>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-brand-bg)", color: "var(--color-brand)" }}>
                         {externalProviders.length} credito{externalProviders.length !== 1 ? "s" : ""}
                       </span>
                     </>
@@ -379,7 +379,7 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
                 <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ backgroundColor: "var(--color-tag-bg)", color: "var(--color-muted)" }}>N/D</span>
               )}
               {result.autoAddressCrossRef === true && (
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-navy-bg)", color: "var(--color-navy)" }}>AUTO</span>
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-brand-bg)", color: "var(--color-brand)" }}>AUTO</span>
               )}
             </div>
           }

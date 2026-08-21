@@ -52,20 +52,22 @@ import { apiRequest, STALE_DASHBOARD, STALE_LISTS } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 // ─── ERP config ──────────────────────────────────────────────────────────────
-const ERP_CONFIG: Record<string, { label: string; color: string; dot: string }> = {
-  ixc:            { label: "iXC Soft",        color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",        dot: "bg-blue-500" },
-  sgp:            { label: "SGP",             color: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300", dot: "bg-purple-500" },
-  mk:             { label: "MK Solutions",    color: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",     dot: "bg-green-500" },
-  tiacos:         { label: "Tiacos",          color: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300", dot: "bg-orange-500" },
-  hubsoft:        { label: "Hubsoft",         color: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300", dot: "bg-indigo-500" },
-  flyspeed:       { label: "Fly Speed",       color: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",         dot: "bg-cyan-500" },
-  netflash:       { label: "Netflash",        color: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300",         dot: "bg-teal-500" },
-  voalle:         { label: "Voalle",          color: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300", dot: "bg-violet-500" },
-  rbx:            { label: "RBX",             color: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300",         dot: "bg-rose-500" },
-  unisat:         { label: "Unisat",          color: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",     dot: "bg-amber-500" },
-  clickisp:       { label: "ClickISP",        color: "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",             dot: "bg-sky-500" },
-  radius_manager: { label: "Radius Manager",  color: "bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300",         dot: "bg-lime-500" },
-  manual:         { label: "Manual",          color: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",            dot: "bg-gray-400" },
+// ERP e identidade categorica, nao status: chip neutro + dot na paleta --cat-*.
+// Ver DESIGN_SYSTEM.md secao 3.5. Nunca use --color-danger/success aqui.
+const ERP_CONFIG: Record<string, { label: string; dot: string }> = {
+  ixc:            { label: "iXC Soft",       dot: "bg-[var(--cat-indigo)]"     },
+  sgp:            { label: "SGP",            dot: "bg-[var(--cat-plum)]"       },
+  mk:             { label: "MK Solutions",   dot: "bg-[var(--cat-moss)]"       },
+  tiacos:         { label: "Tiacos",         dot: "bg-[var(--cat-rust)]"       },
+  hubsoft:        { label: "Hubsoft",        dot: "bg-[var(--cat-bronze)]"     },
+  flyspeed:       { label: "Fly Speed",      dot: "bg-[var(--cat-teal)]"       },
+  netflash:       { label: "Netflash",       dot: "bg-[var(--cat-olive)]"      },
+  voalle:         { label: "Voalle",         dot: "bg-[var(--cat-wine)]"       },
+  rbx:            { label: "RBX",            dot: "bg-[var(--cat-terracotta)]" },
+  unisat:         { label: "Unisat",         dot: "bg-[var(--cat-ochre)]"      },
+  clickisp:       { label: "ClickISP",       dot: "bg-[var(--cat-slate)]"      },
+  radius_manager: { label: "Radius Manager", dot: "bg-[var(--cat-clay)]"       },
+  manual:         { label: "Manual",         dot: "bg-[var(--color-muted)]"    },
 };
 
 const RISK_CONFIG: Record<string, { label: string; badge: string }> = {
@@ -79,7 +81,7 @@ const STATUS_CONFIG: Record<string, { label: string; badge: string }> = {
   "90+":   { label: "90+ dias",  badge: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" },
   "60-90": { label: "60–90 dias", badge: "bg-[var(--color-gold-bg)] text-[var(--score-low)]" },
   "30-60": { label: "30–60 dias", badge: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" },
-  "1-30":  { label: "1–30 dias",  badge: "bg-[var(--color-navy-bg)] text-[var(--color-steel)]" },
+  "1-30":  { label: "1–30 dias",  badge: "bg-[var(--color-brand-bg)] text-[var(--color-steel)]" },
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -102,7 +104,7 @@ const relativeDate = (d: string | null) => {
 function ErpBadge({ source }: { source: string }) {
   const cfg = ERP_CONFIG[source] ?? ERP_CONFIG.manual;
   return (
-    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${cfg.color}`}>
+    <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded bg-[var(--color-tag-bg)] text-[var(--color-ink)]">
       <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot} flex-shrink-0`} />
       {cfg.label}
     </span>
@@ -112,7 +114,7 @@ function ErpBadge({ source }: { source: string }) {
 function RiskBadge({ tier }: { tier: string }) {
   const cfg = RISK_CONFIG[tier] ?? RISK_CONFIG.low;
   return (
-    <span className={`inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-full ${cfg.badge}`}>
+    <span className={`inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded ${cfg.badge}`}>
       {cfg.label}
     </span>
   );
@@ -124,12 +126,12 @@ function ContractBadge({ status }: { status: string }) {
   // suspended = bloqueado temporariamente (Anatel 765 D+15)
   const cfg: Record<string, { label: string; badge: string }> = {
     active:    { label: "Ativo",     badge: "bg-[var(--color-success-bg)] text-[var(--color-success)]" },
-    cancelled: { label: "Cancelado", badge: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400" },
+    cancelled: { label: "Cancelado", badge: "bg-[var(--color-tag-bg)] text-[var(--color-muted)]" },
     suspended: { label: "Suspenso",  badge: "bg-[var(--color-gold-bg)] text-[var(--score-low)]" },
   };
   const c = cfg[status] ?? cfg.active;
   return (
-    <span className={`inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-full ${c.badge}`}>
+    <span className={`inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded ${c.badge}`}>
       {c.label}
     </span>
   );
@@ -141,7 +143,7 @@ function DaysBadge({ days }: { days: number }) {
     : days >= 30 ? STATUS_CONFIG["30-60"]
     : STATUS_CONFIG["1-30"];
   return (
-    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${cfg.badge}`}>
+    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded ${cfg.badge}`}>
       <Clock className="w-3 h-3" />
       {days}d
     </span>
@@ -347,7 +349,7 @@ export default function InadimplentesPage() {
             sub: `de ${list.length} total`,
             icon: Users,
             accent: "from-rose-500 to-red-600",
-            iconBg: "bg-rose-100 dark:bg-rose-900/30",
+            iconBg: "bg-[var(--color-danger-bg)]",
             iconColor: "text-rose-600",
             testId: "stat-defaulters",
           },
@@ -357,7 +359,7 @@ export default function InadimplentesPage() {
             sub: "valor acumulado",
             icon: AlertTriangle,
             accent: "from-orange-500 to-amber-500",
-            iconBg: "bg-orange-100 dark:bg-orange-900/30",
+            iconBg: "bg-[var(--color-gold-bg)] dark:bg-orange-900/30",
             iconColor: "text-orange-600",
             testId: "stat-total",
           },
@@ -616,7 +618,7 @@ export default function InadimplentesPage() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="h-7 w-7 text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20"
+                          className="h-7 w-7 text-amber-600 hover:text-[var(--color-gold)] hover:bg-amber-50 dark:hover:bg-amber-900/20"
                           title="Notificar LGPD/CDC"
                           aria-label="Notificar LGPD/CDC"
                           data-testid={`btn-lgpd-${d.id}`}
@@ -727,15 +729,15 @@ export default function InadimplentesPage() {
               {redeData.alerta_alta_frequencia && (
                 <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
                   <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-amber-700 dark:text-amber-400 font-medium">
+                  <p className="text-xs text-[var(--color-gold)] dark:text-amber-400 font-medium">
                     Alta frequência de consultas — possível tentativa de contratação simultânea em múltiplos provedores.
                   </p>
                 </div>
               )}
               {!redeData.alerta_alta_frequencia && (
-                <div className="flex items-start gap-2 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg p-3">
-                  <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-emerald-700 dark:text-emerald-400">Sem alertas de alta frequência nos últimos 90 dias.</p>
+                <div className="flex items-start gap-2 bg-[var(--color-success-bg)] border border-[var(--color-success)] rounded-lg p-3">
+                  <CheckCircle className="w-4 h-4 text-[var(--color-success)] flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-[var(--color-success)] dark:text-emerald-400">Sem alertas de alta frequência nos últimos 90 dias.</p>
                 </div>
               )}
               <div className="grid grid-cols-2 gap-3">

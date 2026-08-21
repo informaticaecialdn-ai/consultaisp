@@ -37,26 +37,26 @@ export function generatePDF(result: ConsultaResult): string | null {
   body{font-family:Arial,sans-serif;font-size:12px;color:#1e293b;padding:24px}
   .header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #2563eb;padding-bottom:12px;margin-bottom:20px}
   .header h1{font-size:18px;color:#2563eb;font-weight:700}
-  .header .meta{font-size:10px;color:#64748b;text-align:right}
+  .header .meta{font-size:10px;color:#6B6560;text-align:right}
   .score-block{display:flex;gap:24px;align-items:center;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin-bottom:16px}
   .score-circle{width:80px;height:80px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;color:#fff;background:${riskColor}}
   .score-info h2{font-size:15px;font-weight:700;color:${riskColor}}
-  .score-info p{font-size:11px;color:#64748b;margin-top:2px}
+  .score-info p{font-size:11px;color:#6B6560;margin-top:2px}
   .decision{display:inline-block;margin-top:8px;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;color:#fff;background:${decisionColor}}
   section{margin-bottom:16px}
-  section h3{font-size:12px;font-weight:700;text-transform:uppercase;color:#64748b;letter-spacing:.05em;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid #e2e8f0}
+  section h3{font-size:12px;font-weight:700;text-transform:uppercase;color:#6B6560;letter-spacing:.05em;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid #e2e8f0}
   table{width:100%;border-collapse:collapse;font-size:11px}
   th{background:#f1f5f9;text-align:left;padding:6px 8px;font-weight:600;color:#475569}
   td{padding:5px 8px;border-bottom:1px solid #f1f5f9;color:#334155}
   ul{padding-left:16px}
   li{margin-bottom:4px;font-size:11px;color:#334155}
-  .footer{margin-top:24px;border-top:1px solid #e2e8f0;padding-top:10px;font-size:10px;color:#94a3b8;text-align:center}
+  .footer{margin-top:24px;border-top:1px solid #e2e8f0;padding-top:10px;font-size:10px;color:#B0AEA5;text-align:center}
   @media print{body{padding:0} @page{margin:16mm}}
 </style></head><body>
 <div class="header">
   <div>
     <h1>Consulta ISP — Relatorio de Credito</h1>
-    <p style="font-size:11px;color:#64748b;margin-top:4px">Documento: <strong>${docFormatted}</strong> &nbsp;|&nbsp; Tipo: ${doc.searchType.toUpperCase()}</p>
+    <p style="font-size:11px;color:#6B6560;margin-top:4px">Documento: <strong>${docFormatted}</strong> &nbsp;|&nbsp; Tipo: ${doc.searchType.toUpperCase()}</p>
   </div>
   <div class="meta">
     <div><strong>Emitido em</strong></div><div>${now}</div>
@@ -77,7 +77,7 @@ export function generatePDF(result: ConsultaResult): string | null {
   ${doc.providerDetails.length > 0 ? `<table>
     <thead><tr><th>Cliente</th><th>Provedor</th><th>Contrato</th><th>Pagamento</th><th>Divida</th><th>Equipamentos</th></tr></thead>
     <tbody>${providerRows}</tbody>
-  </table>` : "<p style='font-size:11px;color:#64748b'>Nenhum registro encontrado na base colaborativa.</p>"}
+  </table>` : "<p style='font-size:11px;color:#6B6560'>Nenhum registro encontrado na base colaborativa.</p>"}
 </section>
 
 <section>

@@ -134,12 +134,12 @@ export default function NewProviderWizard({ open, onOpenChange }: { open: boolea
           {stepLabels.map((label, i) => (
             <div key={i} className="flex items-center gap-2 flex-1">
               <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
-                step > i + 1 ? "bg-emerald-500 text-white" : step === i + 1 ? "bg-violet-600 text-white" : "bg-muted text-[var(--color-muted)]"
+                step > i + 1 ? "bg-[var(--color-success)] text-white" : step === i + 1 ? "bg-[var(--color-brand)] text-white" : "bg-muted text-[var(--color-muted)]"
               }`}>
                 {step > i + 1 ? <CheckCircle className="w-4 h-4" /> : i + 1}
               </div>
               <span className={`text-xs font-medium ${step === i + 1 ? "text-foreground" : "text-[var(--color-muted)]"}`}>{label}</span>
-              {i < 2 && <div className={`flex-1 h-0.5 ${step > i + 1 ? "bg-emerald-500" : "bg-muted"}`} />}
+              {i < 2 && <div className={`flex-1 h-0.5 ${step > i + 1 ? "bg-[var(--color-success)]" : "bg-muted"}`} />}
             </div>
           ))}
         </div>
@@ -303,7 +303,7 @@ export default function NewProviderWizard({ open, onOpenChange }: { open: boolea
                 <label className="text-xs font-medium mb-1 block">Senha</label>
                 <Input type="password" value={form.adminPassword} onChange={f("adminPassword")} placeholder="Minimo 6 caracteres" />
                 {form.adminPassword.length > 0 && form.adminPassword.length < 6 && (
-                  <p className="text-xs text-red-500 mt-0.5">Senha deve ter no minimo 6 caracteres</p>
+                  <p className="text-xs text-[var(--color-danger)] mt-0.5">Senha deve ter no minimo 6 caracteres</p>
                 )}
               </div>
             </div>

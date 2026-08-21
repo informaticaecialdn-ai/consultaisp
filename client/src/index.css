@@ -13,9 +13,9 @@
   --color-tag-bg:     #E8E6DC;  /* Warm Sand — button and tag backgrounds */
 
   /* Brand accent — Terracotta replaces navy */
-  --color-navy:       #C96442;  /* Terracotta Brand — warm, earthy CTA color */
+  --color-brand:      #C96442;  /* Terracotta Brand — warm, earthy CTA color */
   --color-steel:      #D97757;  /* Coral — hover/lighter variant of terracotta */
-  --color-navy-bg:    #FBEFE8;  /* Terracotta 10% — soft accent background */
+  --color-brand-bg:   #FBEFE8;  /* Terracotta 10% — soft accent background */
 
   /* Semantic colors — warm-tuned */
   --color-gold:       #B8860B;  /* Gold warning */
@@ -35,6 +35,21 @@
   --score-medium:     var(--color-gold);         /* 401-700  */
   --score-low:        #C45A1A;                   /* 201-400  */
   --score-critical:   var(--color-danger);        /* 0-200    */
+
+  /* Paleta categorica — identidade (ERP, tags), NAO status.
+     Familia quente e abafada. Use apenas em dot/marcador, nunca em fundo de chip. */
+  --cat-terracotta:   #C96442;
+  --cat-ochre:        #B8860B;
+  --cat-moss:         #4A6B3E;
+  --cat-teal:         #3E6B6B;
+  --cat-indigo:       #4A5480;
+  --cat-plum:         #7A4A63;
+  --cat-rust:         #C45A1A;
+  --cat-olive:        #6B7B3A;
+  --cat-clay:         #8A5A4A;
+  --cat-bronze:       #96703C;
+  --cat-wine:         #8B3A4A;
+  --cat-slate:        #6B6560;
 
   --button-outline: rgba(0,0,0, .10);
   --badge-outline: rgba(0,0,0, .05);
@@ -71,24 +86,24 @@
   --destructive-foreground: 54 33% 97%;
   --input: 45 13% 83%;                  /* Ring Warm */
   --ring: 210 83% 57%;                  /* Focus Blue #3898EC (only cool color) */
-  --chart-1: 217 91% 60%;
-  --chart-2: 142 76% 36%;
-  --chart-3: 271 91% 65%;
-  --chart-4: 35 91% 60%;
-  --chart-5: 340 82% 52%;
+  --chart-1: 15 56% 52%;    /* Terracota */
+  --chart-2: 104 27% 33%;   /* Moss */
+  --chart-3: 229 27% 40%;   /* Indigo abafado */
+  --chart-4: 43 89% 38%;    /* Ocre */
+  --chart-5: 180 27% 33%;   /* Teal */
   --font-sans: "DM Sans", sans-serif;
   --font-display: "Fraunces", serif;
   --font-serif: "Fraunces", serif;
   --font-mono: "DM Mono", monospace;
   --radius: .5rem;
-  --shadow-2xs: 0px 1px 2px 0px hsl(220 13% 91% / 0.30);
-  --shadow-xs: 0px 1px 3px 0px hsl(220 13% 91% / 0.40);
-  --shadow-sm: 0px 1px 2px 0px hsl(220 13% 91% / 0.50), 0px 1px 3px -1px hsl(220 13% 91% / 0.30);
-  --shadow: 0px 1px 3px 0px hsl(220 13% 91% / 0.50), 0px 2px 4px -1px hsl(220 13% 91% / 0.30);
-  --shadow-md: 0px 2px 4px 0px hsl(220 13% 91% / 0.50), 0px 4px 6px -1px hsl(220 13% 91% / 0.25);
-  --shadow-lg: 0px 4px 6px 0px hsl(220 13% 91% / 0.50), 0px 8px 12px -2px hsl(220 13% 91% / 0.25);
-  --shadow-xl: 0px 8px 12px 0px hsl(220 13% 91% / 0.50), 0px 16px 24px -4px hsl(220 13% 91% / 0.25);
-  --shadow-2xl: 0px 16px 32px 0px hsl(220 13% 91% / 0.60);
+  --shadow-2xs: 0px 1px 2px 0px hsl(48 12% 85% / 0.30);
+  --shadow-xs: 0px 1px 3px 0px hsl(48 12% 85% / 0.40);
+  --shadow-sm: 0px 1px 2px 0px hsl(48 12% 85% / 0.50), 0px 1px 3px -1px hsl(48 12% 85% / 0.30);
+  --shadow: 0px 1px 3px 0px hsl(48 12% 85% / 0.50), 0px 2px 4px -1px hsl(48 12% 85% / 0.30);
+  --shadow-md: 0px 2px 4px 0px hsl(48 12% 85% / 0.50), 0px 4px 6px -1px hsl(48 12% 85% / 0.25);
+  --shadow-lg: 0px 4px 6px 0px hsl(48 12% 85% / 0.50), 0px 8px 12px -2px hsl(48 12% 85% / 0.25);
+  --shadow-xl: 0px 8px 12px 0px hsl(48 12% 85% / 0.50), 0px 16px 24px -4px hsl(48 12% 85% / 0.25);
+  --shadow-2xl: 0px 16px 32px 0px hsl(48 12% 85% / 0.60);
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 
@@ -129,16 +144,30 @@
   --color-ink:        #FAF9F5;  /* Ivory for text on dark */
   --color-muted:      #B0AEA5;  /* Warm Silver */
   --color-tag-bg:     #3D3D3A;
-  --color-navy:       #D97757;  /* Coral — lighter terracotta for dark */
+  --color-brand:      #D97757;  /* Coral — lighter terracotta for dark */
   --color-steel:      #C96442;
   --color-gold:       #D4A72C;
   --color-danger:     #D97777;
   --color-success:    #7FA670;
-  --color-navy-bg:    #2B1E18;
+  --color-brand-bg:   #2B1E18;
   --color-gold-bg:    #2A2518;
   --color-danger-bg:  #2E1A1A;
   --color-success-bg: #1E2A1A;
   --score-low:        #E07040;
+
+  /* Paleta categorica — clareada para leitura sobre #30302E */
+  --cat-terracotta:   #E08A68;
+  --cat-ochre:        #D4A72C;
+  --cat-moss:         #7FA670;
+  --cat-teal:         #6FA3A3;
+  --cat-indigo:       #8A94C0;
+  --cat-plum:         #B98AA3;
+  --cat-rust:         #E07040;
+  --cat-olive:        #A3B370;
+  --cat-clay:         #C2907E;
+  --cat-bronze:       #D0AC72;
+  --cat-wine:         #C97686;
+  --cat-slate:        #B0AEA5;
 
   --button-outline: rgba(255,255,255, .10);
   --badge-outline: rgba(255,255,255, .05);
@@ -174,19 +203,19 @@
   --destructive-foreground: 54 33% 97%;
   --input: 60 3% 23%;
   --ring: 210 83% 57%;
-  --chart-1: 217 91% 70%;
-  --chart-2: 142 76% 56%;
-  --chart-3: 271 91% 75%;
-  --chart-4: 35 91% 70%;
-  --chart-5: 340 82% 62%;
-  --shadow-2xs: 0px 1px 2px 0px hsl(215 16% 20% / 0.40);
-  --shadow-xs: 0px 1px 3px 0px hsl(215 16% 20% / 0.50);
-  --shadow-sm: 0px 1px 2px 0px hsl(215 16% 20% / 0.60), 0px 1px 3px -1px hsl(215 16% 20% / 0.40);
-  --shadow: 0px 1px 3px 0px hsl(215 16% 20% / 0.60), 0px 2px 4px -1px hsl(215 16% 20% / 0.40);
-  --shadow-md: 0px 2px 4px 0px hsl(215 16% 20% / 0.60), 0px 4px 6px -1px hsl(215 16% 20% / 0.35);
-  --shadow-lg: 0px 4px 6px 0px hsl(215 16% 20% / 0.60), 0px 8px 12px -2px hsl(215 16% 20% / 0.35);
-  --shadow-xl: 0px 8px 12px 0px hsl(215 16% 20% / 0.60), 0px 16px 24px -4px hsl(215 16% 20% / 0.35);
-  --shadow-2xl: 0px 16px 32px 0px hsl(215 16% 20% / 0.70);
+  --chart-1: 15 56% 66%;    /* Terracota clara */
+  --chart-2: 104 27% 56%;   /* Moss clara */
+  --chart-3: 229 27% 66%;   /* Indigo claro */
+  --chart-4: 43 70% 56%;    /* Ocre claro */
+  --chart-5: 180 27% 56%;   /* Teal claro */
+  --shadow-2xs: 0px 1px 2px 0px hsl(48 6% 8% / 0.40);
+  --shadow-xs: 0px 1px 3px 0px hsl(48 6% 8% / 0.50);
+  --shadow-sm: 0px 1px 2px 0px hsl(48 6% 8% / 0.60), 0px 1px 3px -1px hsl(48 6% 8% / 0.40);
+  --shadow: 0px 1px 3px 0px hsl(48 6% 8% / 0.60), 0px 2px 4px -1px hsl(48 6% 8% / 0.40);
+  --shadow-md: 0px 2px 4px 0px hsl(48 6% 8% / 0.60), 0px 4px 6px -1px hsl(48 6% 8% / 0.35);
+  --shadow-lg: 0px 4px 6px 0px hsl(48 6% 8% / 0.60), 0px 8px 12px -2px hsl(48 6% 8% / 0.35);
+  --shadow-xl: 0px 8px 12px 0px hsl(48 6% 8% / 0.60), 0px 16px 24px -4px hsl(48 6% 8% / 0.35);
+  --shadow-2xl: 0px 16px 32px 0px hsl(48 6% 8% / 0.70);
 
 /* Fallback for older browsers */
   --sidebar-primary-border: hsl(var(--sidebar-primary));

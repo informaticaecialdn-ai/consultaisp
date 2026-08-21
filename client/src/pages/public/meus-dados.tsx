@@ -73,7 +73,7 @@ export default function MeusDadosPage() {
         {resultado ? (
           <Card className="p-6 space-y-4">
             <div className="flex items-center gap-3">
-              <CheckCircle className="w-8 h-8 text-emerald-500" />
+              <CheckCircle className="w-8 h-8 text-[var(--color-success)]" />
               <div>
                 <h2 className="font-semibold text-lg">Solicitacao Registrada</h2>
                 <p className="text-sm text-muted-foreground">{resultado.message}</p>

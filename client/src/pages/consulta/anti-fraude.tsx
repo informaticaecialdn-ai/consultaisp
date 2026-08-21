@@ -133,7 +133,7 @@ export default function AntiFraudePage() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-xl font-bold flex items-center gap-2">
-            <ShieldAlert className="w-6 h-6 text-red-500" />
+            <ShieldAlert className="w-6 h-6 text-[var(--color-danger)]" />
             Protecao Anti-Fraude
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -260,7 +260,7 @@ export default function AntiFraudePage() {
                     </td>
                     <td className="px-4 py-3">
                       {c.recentConsultations > 0 ? (
-                        <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300 text-xs">
+                        <Badge className="bg-[var(--color-gold-bg)] text-[var(--score-low)] dark:bg-orange-900/30 dark:text-orange-300 text-xs">
                           {c.recentConsultations}x
                         </Badge>
                       ) : "—"}
@@ -372,7 +372,7 @@ function AlertCard({ alert, onResolve, onDismiss }: {
         )}
 
         {/* Prejuizo estimado */}
-        <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+        <div className="bg-red-50 dark:bg-red-950/20 border border-[var(--color-danger)] dark:border-red-800 rounded-lg p-3">
           <p className="text-xs font-semibold text-red-700 dark:text-red-400 uppercase mb-2">Prejuizo Estimado se Migrar</p>
           <div className="grid grid-cols-3 gap-2 text-center">
             <div>
@@ -421,9 +421,9 @@ function AlertCard({ alert, onResolve, onDismiss }: {
 
 function RiskBadge({ level }: { level: string }) {
   const config: Record<string, string> = {
-    critical: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-    high: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
-    medium: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+    critical: "bg-[var(--color-danger-bg)] text-[var(--color-danger)] dark:bg-red-900/30 dark:text-red-300",
+    high: "bg-[var(--color-gold-bg)] text-[var(--score-low)] dark:bg-orange-900/30 dark:text-orange-300",
+    medium: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]",
     low: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
   };
   const labels: Record<string, string> = { critical: "Critico", high: "Alto", medium: "Medio", low: "Baixo" };

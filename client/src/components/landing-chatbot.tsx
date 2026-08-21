@@ -20,7 +20,7 @@ function chatTimeLabel(d: string): string {
 function TypingIndicator() {
   return (
     <div className="flex items-end gap-2 mb-3">
-      <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
+      <div className="w-7 h-7 rounded-full bg-[var(--color-brand)] flex items-center justify-center flex-shrink-0">
         <MessageCircle className="w-3.5 h-3.5 text-white" />
       </div>
       <div className="bg-slate-100 rounded-lg rounded-bl-md px-4 py-3">
@@ -142,8 +142,8 @@ export default function LandingChat() {
     <>
       {!isOpen && showBubbleHint && (
         <div className="fixed bottom-24 right-6 z-50 animate-in fade-in slide-in-from-bottom-2 duration-300">
-          <div className="bg-white rounded-lg rounded-br-md shadow-xl border border-slate-200 p-4 max-w-[260px] relative">
-            <button onClick={() => setShowBubbleHint(false)} className="absolute top-2 right-2 text-slate-400 hover:text-slate-600" data-testid="button-close-hint">
+          <div className="bg-white rounded-lg rounded-br-md shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] border border-slate-200 p-4 max-w-[260px] relative">
+            <button onClick={() => setShowBubbleHint(false)} className="absolute top-2 right-2 text-[var(--color-muted)] hover:text-slate-600" data-testid="button-close-hint">
               <X className="w-3.5 h-3.5" />
             </button>
             <p className="text-sm text-slate-700 font-medium pr-4">Precisa de ajuda? Fale com nossa equipe!</p>
@@ -157,7 +157,7 @@ export default function LandingChat() {
       {!isOpen && (
         <button
           onClick={handleOpen}
-          className="fixed bottom-6 right-6 z-50 w-14 h-14 bg-blue-600 rounded-full shadow-xl flex items-center justify-center hover:scale-105 transition-transform hover:bg-blue-700"
+          className="fixed bottom-6 right-6 z-50 w-14 h-14 bg-[var(--color-brand)] rounded-full shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] flex items-center justify-center hover:scale-105 transition-transform hover:bg-blue-700"
           data-testid="button-chat-open"
         >
           <MessageCircle className="w-6 h-6 text-white" />
@@ -165,8 +165,8 @@ export default function LandingChat() {
       )}
 
       {isOpen && (
-        <div className="fixed bottom-6 right-6 z-50 w-[380px] max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-3rem)] bg-white rounded-lg shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200" data-testid="chat-widget-panel">
-          <div className="bg-blue-600 px-5 py-4 flex items-center justify-between flex-shrink-0">
+        <div className="fixed bottom-6 right-6 z-50 w-[380px] max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-3rem)] bg-white rounded-lg shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] border border-slate-200 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200" data-testid="chat-widget-panel">
+          <div className="bg-[var(--color-brand)] px-5 py-4 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center">
                 <MessageCircle className="w-5 h-5 text-white" />
@@ -218,7 +218,7 @@ export default function LandingChat() {
                   className="h-10 text-sm"
                   data-testid="input-visitor-phone"
                 />
-                <Button type="submit" className="w-full h-10 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold" disabled={starting} data-testid="button-start-chat">
+                <Button type="submit" className="w-full h-10 bg-[var(--color-brand)] hover:bg-blue-700 text-white text-sm font-semibold" disabled={starting} data-testid="button-start-chat">
                   {starting ? <RefreshCw className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
                   Iniciar conversa
                 </Button>
@@ -240,7 +240,7 @@ export default function LandingChat() {
                   messages.map(msg => (
                     <div key={msg.id} className={`flex ${msg.isFromAdmin ? "items-end gap-2" : "justify-end"} mb-3`}>
                       {msg.isFromAdmin && (
-                        <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0">
+                        <div className="w-7 h-7 rounded-full bg-[var(--color-brand)] flex items-center justify-center flex-shrink-0">
                           <MessageCircle className="w-3.5 h-3.5 text-white" />
                         </div>
                       )}
@@ -251,11 +251,11 @@ export default function LandingChat() {
                         <div className={`px-4 py-2.5 text-sm leading-relaxed whitespace-pre-line ${
                           msg.isFromAdmin
                             ? "bg-white text-slate-700 rounded-lg rounded-bl-md border border-slate-200 shadow-sm"
-                            : "bg-blue-600 text-white rounded-lg rounded-br-md"
+                            : "bg-[var(--color-brand)] text-white rounded-lg rounded-br-md"
                         }`}>
                           {msg.content}
                         </div>
-                        <p className="text-xs text-slate-400 px-1">{chatTimeLabel(msg.createdAt)}</p>
+                        <p className="text-xs text-[var(--color-muted)] px-1">{chatTimeLabel(msg.createdAt)}</p>
                       </div>
                     </div>
                   ))
@@ -282,7 +282,7 @@ export default function LandingChat() {
                     <Button
                       type="button"
                       size="sm"
-                      className="h-9 w-9 p-0 rounded-lg bg-blue-600 hover:bg-blue-700 flex-shrink-0"
+                      className="h-9 w-9 p-0 rounded-lg bg-[var(--color-brand)] hover:bg-blue-700 flex-shrink-0"
                       disabled={!message.trim() || sending}
                       onClick={handleSend}
                       data-testid="button-visitor-send"
@@ -291,7 +291,7 @@ export default function LandingChat() {
                     </Button>
                   </div>
                 )}
-                <p className="text-xs text-slate-400 text-center pb-2">Consulta ISP — Atendimento comercial</p>
+                <p className="text-xs text-[var(--color-muted)] text-center pb-2">Consulta ISP — Atendimento comercial</p>
               </div>
             </>
           )}

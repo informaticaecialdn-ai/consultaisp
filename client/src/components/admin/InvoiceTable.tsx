@@ -28,10 +28,10 @@ export default function InvoiceTable({
   const filtered = filter === "all" ? invoices : invoices.filter((i: any) => i.status === filter);
 
   const STATUS_STYLE: Record<string, string> = {
-    pending: "bg-amber-100 text-[var(--color-gold)] dark:bg-amber-900/40 dark:text-amber-300",
-    paid: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+    pending: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]",
+    paid: "bg-[var(--color-success-bg)] text-[var(--color-success)]",
     overdue: "bg-red-100 text-[var(--color-danger)] dark:bg-red-900/40 dark:text-red-300",
-    cancelled: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
+    cancelled: "bg-[var(--color-tag-bg)] text-[var(--color-muted)]",
   };
   const STATUS_LABEL: Record<string, string> = {
     pending: "Pendente", paid: "Pago", overdue: "Vencido", cancelled: "Cancelado",
@@ -67,7 +67,7 @@ export default function InvoiceTable({
             return (
               <tr key={inv.id} className="hover:bg-muted/20 transition-colors" data-testid={`invoice-row-${inv.id}`}>
                 <td className="py-3 px-4">
-                  <span className="font-mono text-xs font-medium text-[var(--color-navy)] dark:text-blue-300">{inv.invoiceNumber}</span>
+                  <span className="font-mono text-xs font-medium text-[var(--color-brand)] dark:text-blue-300">{inv.invoiceNumber}</span>
                 </td>
                 <td className="py-3 px-4">
                   <span className="font-medium text-xs">{inv.providerName}</span>
@@ -110,7 +110,7 @@ export default function InvoiceTable({
                     {(inv.status === "pending" || displayStatus === "overdue") && !inv.asaasChargeId && asaasConfigured && (
                       <Button
                         variant="ghost" size="sm"
-                        className="h-7 w-7 p-0 text-[var(--color-navy)] hover:bg-[var(--color-navy-bg)]"
+                        className="h-7 w-7 p-0 text-[var(--color-brand)] hover:bg-[var(--color-brand-bg)]"
                         onClick={() => onOpenAsaasCharge({ invoiceId: inv.id, invoiceNumber: inv.invoiceNumber })}
                         title="Cobrar via Asaas"
                         data-testid={`button-asaas-charge-${inv.id}`}
@@ -133,7 +133,7 @@ export default function InvoiceTable({
                     {inv.asaasChargeId && inv.asaasBillingType === "PIX" && inv.status !== "paid" && (
                       <Button
                         variant="ghost" size="sm"
-                        className="h-7 w-7 p-0 text-emerald-600 hover:bg-emerald-50"
+                        className="h-7 w-7 p-0 text-[var(--color-success)] hover:bg-[var(--color-success-bg)]"
                         onClick={() => onOpenPix(inv.id)}
                         title="QR Code PIX"
                         disabled={pixPending}
@@ -147,7 +147,7 @@ export default function InvoiceTable({
                         href={inv.asaasInvoiceUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="h-7 w-7 p-0 inline-flex items-center justify-center rounded-md text-[var(--color-muted)] hover:text-[var(--color-navy)] hover:bg-[var(--color-navy-bg)] transition-colors"
+                        className="h-7 w-7 p-0 inline-flex items-center justify-center rounded-md text-[var(--color-muted)] hover:text-[var(--color-brand)] hover:bg-[var(--color-brand-bg)] transition-colors"
                         title="Link de pagamento Asaas"
                         data-testid={`link-asaas-payment-${inv.id}`}
                       >
@@ -157,7 +157,7 @@ export default function InvoiceTable({
                     {(inv.status === "pending" || displayStatus === "overdue") && (
                       <Button
                         variant="ghost" size="sm"
-                        className="h-7 w-7 p-0 text-emerald-600 hover:bg-emerald-50"
+                        className="h-7 w-7 p-0 text-[var(--color-success)] hover:bg-[var(--color-success-bg)]"
                         onClick={() => onMarkPaid(inv.id, inv.amount)}
                         title="Marcar como pago manualmente"
                         data-testid={`button-mark-paid-${inv.id}`}
@@ -168,7 +168,7 @@ export default function InvoiceTable({
                     {(inv.status === "pending" || displayStatus === "overdue") && (
                       <Button
                         variant="ghost" size="sm"
-                        className="h-7 w-7 p-0 text-red-500 hover:bg-[var(--color-danger-bg)]"
+                        className="h-7 w-7 p-0 text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]"
                         onClick={() => { if (confirm("Cancelar esta fatura?")) onCancel(inv.id); }}
                         title="Cancelar fatura"
                         data-testid={`button-cancel-invoice-${inv.id}`}

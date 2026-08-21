@@ -7,19 +7,19 @@ import {
 } from "recharts";
 
 const CLASSIFICACAO_COLORS: Record<string, string> = {
-  frio: "#94a3b8",
-  morno: "#fbbf24",
-  quente: "#f97316",
-  ultra_quente: "#ef4444",
+  frio: "#B0AEA5",
+  morno: "#B8860B",
+  quente: "#C45A1A",
+  ultra_quente: "#B53333",
 };
 
 const AGENTE_COLORS: Record<string, string> = {
-  sofia: "#f472b6",
-  leo: "#fbbf24",
-  carlos: "#34d399",
-  lucas: "#60a5fa",
-  rafael: "#a78bfa",
-  marcos: "#f59e0b",
+  sofia: "#B98AA3",
+  leo: "#B8860B",
+  carlos: "#4A6B3E",
+  lucas: "#4A5480",
+  rafael: "#7A4A63",
+  marcos: "#B8860B",
 };
 
 export default function CrmDashboardTab() {
@@ -33,7 +33,7 @@ export default function CrmDashboardTab() {
     { label: "Total Leads", value: stats?.totalLeads || 0, icon: Users, color: "text-blue-500" },
     { label: "Leads Quentes", value: stats?.leadsQuentes || 0, icon: Flame, color: "text-orange-500" },
     { label: "Tarefas Pendentes", value: stats?.tarefasPendentes || 0, icon: ListTodo, color: "text-yellow-500" },
-    { label: "Pipeline", value: `R$ ${Number(stats?.valorPipeline || 0).toLocaleString("pt-BR")}`, icon: DollarSign, color: "text-emerald-500" },
+    { label: "Pipeline", value: `R$ ${Number(stats?.valorPipeline || 0).toLocaleString("pt-BR")}`, icon: DollarSign, color: "text-[var(--color-success)]" },
   ];
 
   const classificacaoData = (stats?.porClassificacao || []).map((c: any) => ({
@@ -73,7 +73,7 @@ export default function CrmDashboardTab() {
                 <PieChart>
                   <Pie data={classificacaoData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={(e) => `${e.name} (${e.value})`}>
                     {classificacaoData.map((entry: any) => (
-                      <Cell key={entry.name} fill={CLASSIFICACAO_COLORS[entry.name] || "#64748b"} />
+                      <Cell key={entry.name} fill={CLASSIFICACAO_COLORS[entry.name] || "#6B6560"} />
                     ))}
                   </Pie>
                   <Tooltip />
@@ -95,7 +95,7 @@ export default function CrmDashboardTab() {
                   <XAxis type="number" />
                   <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 12 }} />
                   <Tooltip formatter={(v: any) => [`${v} leads`, "Leads"]} />
-                  <Bar dataKey="leads" fill="#60a5fa" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="leads" fill="#4A5480" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -135,7 +135,7 @@ export default function CrmDashboardTab() {
             <div className="space-y-2">
               {stats.atividades.map((a: any) => (
                 <div key={a.id} className="flex items-center gap-3 text-sm py-1 border-b last:border-0">
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: AGENTE_COLORS[a.agente] || "#64748b" }} />
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: AGENTE_COLORS[a.agente] || "#6B6560" }} />
                   <span className="font-medium capitalize">{a.agente}</span>
                   <span className="text-[var(--color-muted)] flex-1">{a.descricao}</span>
                   <span className="text-xs text-[var(--color-muted)]">

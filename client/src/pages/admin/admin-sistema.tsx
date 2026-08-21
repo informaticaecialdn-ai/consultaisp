@@ -53,7 +53,7 @@ export default function AdminSistemaPage() {
   if (!isSuperAdmin) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4 p-8">
-        <Shield className="w-16 h-16 text-red-500 opacity-40" />
+        <Shield className="w-16 h-16 text-[var(--color-danger)] opacity-40" />
         <h2 className="text-xl font-bold">Acesso Restrito</h2>
         <p className="text-[var(--color-muted)] text-center">
           Esta area e exclusiva para administradores do sistema Consulta ISP.

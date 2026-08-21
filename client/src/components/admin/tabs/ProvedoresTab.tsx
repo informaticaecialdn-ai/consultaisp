@@ -95,7 +95,7 @@ export default function ProvedoresTab() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="font-semibold text-sm">{p.name}</p>
-                    <span className={`w-2 h-2 rounded-full ${p.status === "active" ? "bg-emerald-500" : "bg-gray-400"}`} />
+                    <span className={`w-2 h-2 rounded-full ${p.status === "active" ? "bg-[var(--color-success)]" : "bg-[var(--color-muted)]"}`} />
                   </div>
                   <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] mt-0.5">
                     <span className="flex items-center gap-1"><Globe className="w-3 h-3" />{p.subdomain}.consultaisp.com.br</span>
@@ -120,7 +120,7 @@ export default function ProvedoresTab() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-8 w-8 p-0 text-red-500 hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]"
+                      className="h-8 w-8 p-0 text-[var(--color-danger)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]"
                       onClick={() => {
                         if (confirm(`Desativar ${p.name}?`)) deactivateMutation.mutate(p.id);
                       }}

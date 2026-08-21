@@ -23,9 +23,9 @@ const CREDIT_PACKAGES = [
 ];
 
 const STATUS_STYLES: Record<string, { badge: string; label: string; icon: any }> = {
-  pending:   { badge: "bg-amber-100 text-amber-700",  label: "Aguardando Pagamento", icon: Clock },
-  paid:      { badge: "bg-emerald-100 text-emerald-700", label: "Creditos Liberados", icon: CheckCheck },
-  cancelled: { badge: "bg-gray-100 text-gray-600",    label: "Cancelado",            icon: XCircle },
+  pending:   { badge: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]",  label: "Aguardando Pagamento", icon: Clock },
+  paid:      { badge: "bg-[var(--color-success-bg)] text-[var(--color-success)]", label: "Creditos Liberados", icon: CheckCheck },
+  cancelled: { badge: "bg-[var(--color-tag-bg)] text-[var(--color-muted)]",    label: "Cancelado",            icon: XCircle },
   overdue:   { badge: "bg-red-100 text-red-700",      label: "Vencido",              icon: XCircle },
 };
 
@@ -73,15 +73,15 @@ export default function CreditosPage() {
   const renderPackageCard = (pkg: any, type: "isp") => {
     return (
       <Card key={pkg.id}
-        className={`p-5 relative overflow-hidden cursor-pointer transition-all hover:shadow-md ${pkg.popular ? "ring-2 ring-[var(--color-navy)]" : "hover:ring-1 hover:ring-[var(--color-border)]"}`}
+        className={`p-5 relative overflow-hidden cursor-pointer transition-all hover:shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] ${pkg.popular ? "ring-2 ring-[var(--color-brand)]" : "hover:ring-1 hover:ring-[var(--color-border)]"}`}
         onClick={() => setSelectedPkg({ pkg, type })}
         data-testid={`package-${pkg.id}`}>
         {pkg.popular && (
-          <Badge className="absolute top-3 right-3 bg-[var(--color-navy)] border-0 text-white text-xs">Mais Popular</Badge>
+          <Badge className="absolute top-3 right-3 bg-[var(--color-brand)] border-0 text-white text-xs">Mais Popular</Badge>
         )}
         <div className="mb-4">
-          <div className="w-10 h-10 rounded-lg mb-3 flex items-center justify-center bg-[var(--color-navy-bg)]">
-            <CreditCard className="w-5 h-5 text-[var(--color-navy)]" />
+          <div className="w-10 h-10 rounded-lg mb-3 flex items-center justify-center bg-[var(--color-brand-bg)]">
+            <CreditCard className="w-5 h-5 text-[var(--color-brand)]" />
           </div>
           <h3 className="font-bold text-base text-[var(--color-ink)]">{pkg.credits} créditos</h3>
           <p className="text-xl font-bold mt-1 text-[var(--color-ink)]">{pkg.priceLabel}</p>
@@ -115,10 +115,10 @@ export default function CreditosPage() {
 
       {selectedPkg && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setSelectedPkg(null)}>
-          <div className="bg-background rounded-lg shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+          <div className="bg-background rounded-lg shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <div className="text-center mb-4">
-              <div className="w-12 h-12 rounded-lg mx-auto mb-3 flex items-center justify-center bg-[var(--color-navy-bg)]">
-                <CreditCard className="w-6 h-6 text-[var(--color-navy)]" />
+              <div className="w-12 h-12 rounded-lg mx-auto mb-3 flex items-center justify-center bg-[var(--color-brand-bg)]">
+                <CreditCard className="w-6 h-6 text-[var(--color-brand)]" />
               </div>
               <h2 className="text-base font-bold">{selectedPkg.pkg.name}</h2>
               <p className="text-2xl font-bold mt-1">{selectedPkg.pkg.priceLabel}</p>
@@ -148,17 +148,17 @@ export default function CreditosPage() {
 
       {payModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setPayModal(null)}>
-          <div className="bg-background rounded-lg shadow-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+          <div className="bg-background rounded-lg shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
             <div className="text-center mb-4">
-              <div className="w-12 h-12 rounded-lg mx-auto mb-3 bg-emerald-100 flex items-center justify-center">
-                <CheckCircle className="w-6 h-6 text-emerald-600" />
+              <div className="w-12 h-12 rounded-lg mx-auto mb-3 bg-[var(--color-success-bg)] flex items-center justify-center">
+                <CheckCircle className="w-6 h-6 text-[var(--color-success)]" />
               </div>
               <h2 className="text-base font-bold">Pedido Criado!</h2>
               <p className="text-xs text-muted-foreground mt-1">{payModal.order?.orderNumber}</p>
             </div>
             {payModal.charge ? (
               <div className="space-y-3">
-                <div className="p-3 bg-blue-50 rounded-lg text-xs text-blue-800">
+                <div className="p-3 bg-blue-50 rounded-lg text-xs text-[var(--color-brand)]">
                   <p className="font-semibold mb-1 flex items-center gap-1"><Info className="w-3.5 h-3.5" />Aguardando Pagamento</p>
                   <p>Apos o pagamento, seus creditos sao liberados automaticamente em ate 5 minutos.</p>
                 </div>
@@ -179,7 +179,7 @@ export default function CreditosPage() {
                 </div>
               </div>
             ) : (
-              <div className="p-3 bg-amber-50 rounded-lg text-xs text-amber-800">
+              <div className="p-3 bg-amber-50 rounded-lg text-xs text-[var(--color-gold)]">
                 <p className="font-semibold mb-1">Pedido registrado</p>
                 <p>Nossa equipe processara seu pedido em breve. Entre em contato se necessario.</p>
               </div>
@@ -191,7 +191,7 @@ export default function CreditosPage() {
 
       {pixModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setPixModal(null)}>
-          <div className="bg-background rounded-lg shadow-xl p-6 w-full max-w-sm text-center" onClick={e => e.stopPropagation()}>
+          <div className="bg-background rounded-lg shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] p-6 w-full max-w-sm text-center" onClick={e => e.stopPropagation()}>
             <h2 className="text-base font-bold mb-1 flex items-center gap-2 justify-center"><QrCode className="w-4 h-4 text-blue-500" />QR Code PIX</h2>
             <p className="text-xs text-muted-foreground mb-3">Escaneie com seu banco para pagar</p>
             {pixModal.pixData?.encodedImage
@@ -224,12 +224,12 @@ export default function CreditosPage() {
         </div>
       </div>
 
-      <div className="rounded-lg border border-[var(--color-navy)] bg-[var(--color-navy-bg)] p-5">
+      <div className="rounded-lg border border-[var(--color-brand)] bg-[var(--color-brand-bg)] p-5">
         <div className="flex items-center justify-between gap-2 mb-1">
-          <span className="text-sm text-[var(--color-navy)] font-semibold uppercase tracking-wide">Saldo de Creditos</span>
-          <Wallet className="w-5 h-5 text-[var(--color-navy)]" />
+          <span className="text-sm text-[var(--color-brand)] font-semibold uppercase tracking-wide">Saldo de Creditos</span>
+          <Wallet className="w-5 h-5 text-[var(--color-brand)]" />
         </div>
-        <p className="text-4xl font-bold text-[var(--color-navy)]" data-testid="text-credits-balance">{(provider?.ispCredits ?? 0) + (provider?.spcCredits ?? 0)}</p>
+        <p className="text-4xl font-bold text-[var(--color-brand)]" data-testid="text-credits-balance">{(provider?.ispCredits ?? 0) + (provider?.spcCredits ?? 0)}</p>
         <p className="text-sm text-[var(--color-muted)] mt-1">creditos disponiveis</p>
       </div>
 
@@ -237,8 +237,8 @@ export default function CreditosPage() {
         <Card className="p-4 border-amber-200 bg-amber-50/60">
           <div className="flex items-center gap-2 mb-3">
             <Clock className="w-4 h-4 text-amber-600" />
-            <h3 className="font-semibold text-sm text-amber-800">Pagamentos Pendentes</h3>
-            <Badge className="bg-amber-200 text-amber-800 text-xs">{pendingOrders.length}</Badge>
+            <h3 className="font-semibold text-sm text-[var(--color-gold)]">Pagamentos Pendentes</h3>
+            <Badge className="bg-amber-200 text-[var(--color-gold)] text-xs">{pendingOrders.length}</Badge>
           </div>
           <div className="space-y-2">
             {pendingOrders.map((order: any) => {
@@ -279,7 +279,7 @@ export default function CreditosPage() {
 
       <div>
         <div className="flex items-center gap-2 mb-3">
-          <CreditCard className="w-4 h-4 text-[var(--color-navy)]" />
+          <CreditCard className="w-4 h-4 text-[var(--color-brand)]" />
           <h2 className="text-base font-semibold text-[var(--color-ink)]">Pacotes de Creditos</h2>
         </div>
         <p className="text-sm text-[var(--color-muted)] mb-4">
@@ -290,7 +290,7 @@ export default function CreditosPage() {
           <p className="text-sm font-semibold text-[var(--color-ink)] mb-2">Como funciona:</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="flex items-center gap-2">
-              <Search className="w-4 h-4 text-[var(--color-navy)]" />
+              <Search className="w-4 h-4 text-[var(--color-brand)]" />
               <div>
                 <p className="text-sm font-semibold text-[var(--color-ink)]">Consulta ISP</p>
                 <p className="text-xs text-[var(--color-muted)]">1 credito por consulta</p>
@@ -346,13 +346,13 @@ export default function CreditosPage() {
               const typeBadge = isIsp
                 ? "bg-blue-100 text-blue-700"
                 : isSpc
-                  ? "bg-purple-100 text-purple-700"
-                  : "bg-gray-100 text-gray-600";
+                  ? "bg-[var(--color-brand-bg)] text-[var(--color-brand)]"
+                  : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]";
               const typeText = isIsp ? "ISP" : isSpc ? "SPC" : "Misto";
               return (
                 <div key={order.id} className="flex items-center gap-3 px-4 py-3 hover:bg-muted/10 transition-colors" data-testid={`order-row-${order.id}`}>
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${order.status === "paid" ? "bg-emerald-100" : order.status === "cancelled" ? "bg-gray-100" : "bg-amber-100"}`}>
-                    <st.icon className={`w-4 h-4 ${order.status === "paid" ? "text-emerald-600" : order.status === "cancelled" ? "text-gray-500" : "text-amber-600"}`} />
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${order.status === "paid" ? "bg-[var(--color-success-bg)]" : order.status === "cancelled" ? "bg-[var(--color-tag-bg)]" : "bg-[var(--color-gold-bg)]"}`}>
+                    <st.icon className={`w-4 h-4 ${order.status === "paid" ? "text-[var(--color-success)]" : order.status === "cancelled" ? "text-gray-500" : "text-amber-600"}`} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">

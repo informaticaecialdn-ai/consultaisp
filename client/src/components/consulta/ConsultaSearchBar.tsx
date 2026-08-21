@@ -125,9 +125,9 @@ export default function ConsultaSearchBar({ onSearch, isLoading, hasResult, auto
   const cepNumberRequired = isCepMode && !addressNumber.trim();
 
   return (
-    <Card className="overflow-hidden shadow-lg rounded-lg">
+    <Card className="overflow-hidden shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] rounded-lg">
       <div className="bg-[var(--color-bg)] border-b px-6 py-4 flex items-center gap-3">
-        <div className="w-8 h-8 rounded-md bg-[var(--color-navy)] flex items-center justify-center">
+        <div className="w-8 h-8 rounded-md bg-[var(--color-brand)] flex items-center justify-center">
           <Search className="w-4 h-4 text-white" />
         </div>
         <h2 className="text-lg font-semibold text-[var(--color-ink)]">Realizar Consulta ISP</h2>
@@ -184,7 +184,7 @@ export default function ConsultaSearchBar({ onSearch, isLoading, hasResult, auto
               <Button
                 onClick={handleSearch}
                 disabled={!query.trim() || isLoading || cepLoading}
-                className="h-12 px-8 rounded-md bg-[var(--color-navy)] hover:opacity-90 text-white font-medium"
+                className="h-12 px-8 rounded-md bg-[var(--color-brand)] hover:opacity-90 text-white font-medium"
                 data-testid="button-consultar-isp"
               >
                 {isLoading ? "Consultando..." : "Consultar"}
@@ -195,14 +195,14 @@ export default function ConsultaSearchBar({ onSearch, isLoading, hasResult, auto
 
         {/* CEP expanded */}
         {cepData && (
-          <div className="border-2 border-[var(--color-steel)]/30 bg-[var(--color-navy-bg)] rounded-lg p-4 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200" data-testid="cep-expanded-panel">
+          <div className="border-2 border-[var(--color-steel)]/30 bg-[var(--color-brand-bg)] rounded-lg p-4 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200" data-testid="cep-expanded-panel">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs text-[var(--color-steel)] font-bold uppercase tracking-wide mb-0.5">Endereço localizado</p>
                 <p className="text-base font-black text-[var(--color-ink)]">{cepData.logradouro}</p>
                 <p className="text-sm text-[var(--color-muted)]">{cepData.bairro} · {cepData.localidade}/{cepData.uf}</p>
               </div>
-              <div className="bg-[var(--color-navy)] text-white text-xs font-bold px-2 py-1 rounded-md whitespace-nowrap">
+              <div className="bg-[var(--color-brand)] text-white text-xs font-bold px-2 py-1 rounded-md whitespace-nowrap">
                 CEP confirmado
               </div>
             </div>
@@ -249,7 +249,7 @@ export default function ConsultaSearchBar({ onSearch, isLoading, hasResult, auto
               <Button
                 onClick={handleSearch}
                 disabled={!addressNumber.trim() || isLoading}
-                className="h-10 flex-1 rounded-md bg-[var(--color-navy)] hover:opacity-90 text-white font-semibold gap-2"
+                className="h-10 flex-1 rounded-md bg-[var(--color-brand)] hover:opacity-90 text-white font-semibold gap-2"
                 data-testid="button-consultar-isp"
               >
                 <MapPin className="w-4 h-4" />
@@ -257,9 +257,9 @@ export default function ConsultaSearchBar({ onSearch, isLoading, hasResult, auto
               </Button>
             </div>
 
-            <div className="flex items-start gap-2 bg-[var(--color-navy-bg)] border border-[var(--color-steel)]/20 rounded-lg p-3">
+            <div className="flex items-start gap-2 bg-[var(--color-brand-bg)] border border-[var(--color-steel)]/20 rounded-lg p-3">
               <Info className="w-3.5 h-3.5 text-[var(--color-steel)] flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-[var(--color-navy)]">
+              <p className="text-xs text-[var(--color-brand)]">
                 <span className="font-semibold">Busca por endereço:</span> Cruzamos esse endereço com todos os provedores parceiros.
                 CPF limpo não significa bom pagador — o inadimplente troca de CPF, mas o endereço fica.
               </p>
@@ -318,7 +318,7 @@ export default function ConsultaSearchBar({ onSearch, isLoading, hasResult, auto
                 {installCepError && <p className="text-xs text-[var(--color-danger)] font-medium">{installCepError}</p>}
 
                 {installCepData && (
-                  <div className="bg-[var(--color-navy-bg)] border border-[var(--color-steel)]/20 rounded-md p-3 space-y-2">
+                  <div className="bg-[var(--color-brand-bg)] border border-[var(--color-steel)]/20 rounded-md p-3 space-y-2">
                     <div>
                       <p className="text-xs text-[var(--color-steel)] font-bold uppercase tracking-wide mb-0.5">Endereço localizado</p>
                       <p className="text-sm font-semibold text-[var(--color-ink)]">{installCepData.logradouro}</p>
@@ -352,7 +352,7 @@ export default function ConsultaSearchBar({ onSearch, isLoading, hasResult, auto
                     </div>
                     <Button
                       size="sm"
-                      className="w-full gap-2 bg-[var(--color-navy)] hover:opacity-90 text-white"
+                      className="w-full gap-2 bg-[var(--color-brand)] hover:opacity-90 text-white"
                       disabled={!installNumber.trim() || isLoading}
                       onClick={() => {
                         if (!installCepData || !installNumber.trim()) return;

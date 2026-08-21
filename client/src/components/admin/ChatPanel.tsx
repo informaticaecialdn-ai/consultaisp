@@ -134,11 +134,11 @@ export default function ChatPanel({
             <div>
               <p className="text-sm font-bold">{panelTitle}</p>
               <p className="text-xs text-[var(--color-muted)]">
-                {totalUnread > 0 ? <span className="text-[var(--color-navy)] font-medium">{totalUnread} nao lida(s)</span> : `${threads.length} conversa(s)`}
+                {totalUnread > 0 ? <span className="text-[var(--color-brand)] font-medium">{totalUnread} nao lida(s)</span> : `${threads.length} conversa(s)`}
               </p>
             </div>
             {totalUnread > 0 && (
-              <span className="w-6 h-6 bg-[var(--color-navy)] text-white text-xs rounded-full flex items-center justify-center font-bold" data-testid="badge-total-unread">{totalUnread}</span>
+              <span className="w-6 h-6 bg-[var(--color-brand)] text-white text-xs rounded-full flex items-center justify-center font-bold" data-testid="badge-total-unread">{totalUnread}</span>
             )}
           </div>
           <div className="relative">
@@ -156,7 +156,7 @@ export default function ChatPanel({
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`flex-1 text-xs py-1 rounded-md font-medium transition-colors ${filter === f ? "bg-[var(--color-navy)] text-white" : "bg-muted text-[var(--color-muted)] hover:bg-muted/70"}`}
+                className={`flex-1 text-xs py-1 rounded-md font-medium transition-colors ${filter === f ? "bg-[var(--color-brand)] text-white" : "bg-muted text-[var(--color-muted)] hover:bg-muted/70"}`}
                 data-testid={`${filterTestIdPrefix}-${f}`}
               >
                 {f === "all" ? "Todos" : f === "open" ? "Abertos" : "Fechados"}
@@ -174,12 +174,12 @@ export default function ChatPanel({
             const displayName = getDisplayName(t);
             const initial = isProvider ? providerInitials(displayName) : displayName.charAt(0).toUpperCase();
             const baseColor = isProvider
-              ? (t.status === "open" ? "from-blue-500 to-indigo-600" : "from-gray-400 to-gray-500")
-              : (t.status === "open" ? "from-green-500 to-emerald-600" : "from-gray-400 to-gray-500");
+              ? (t.status === "open" ? "from-blue-500 to-indigo-600" : "bg-[var(--color-muted)]")
+              : (t.status === "open" ? "bg-[var(--color-success)]" : "bg-[var(--color-muted)]");
             return (
               <button
                 key={t.id}
-                className={`w-full text-left px-4 py-3 hover:bg-muted/40 transition-colors ${activeThread?.id === t.id ? "bg-[var(--color-navy-bg)] border-l-2 border-l-blue-600" : ""}`}
+                className={`w-full text-left px-4 py-3 hover:bg-muted/40 transition-colors ${activeThread?.id === t.id ? "bg-[var(--color-brand-bg)] border-l-2 border-l-blue-600" : ""}`}
                 onClick={() => setActiveThread(t)}
                 data-testid={`${threadTestIdPrefix}-${t.id}`}
               >
@@ -201,11 +201,11 @@ export default function ChatPanel({
                       )}
                     </p>
                     <div className="flex items-center justify-between mt-1">
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${t.status === "open" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-600"}`}>
+                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${t.status === "open" ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>
                         {t.status === "open" ? "Aberto" : "Fechado"}
                       </span>
                       {t.unreadCount > 0 && (
-                        <span className="w-5 h-5 bg-[var(--color-navy)] text-white text-xs rounded-full flex items-center justify-center font-bold" data-testid={`unread-badge-${t.id}`}>
+                        <span className="w-5 h-5 bg-[var(--color-brand)] text-white text-xs rounded-full flex items-center justify-center font-bold" data-testid={`unread-badge-${t.id}`}>
                           {t.unreadCount}
                         </span>
                       )}
@@ -239,8 +239,8 @@ export default function ChatPanel({
               <div className="flex items-center gap-3">
                 <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 ${
                   isProvider
-                    ? (activeThread.status === "open" ? "from-blue-500 to-indigo-600" : "from-gray-400 to-gray-500")
-                    : (activeThread.status === "open" ? "from-green-500 to-emerald-600" : "from-gray-400 to-gray-500")
+                    ? (activeThread.status === "open" ? "from-blue-500 to-indigo-600" : "bg-[var(--color-muted)]")
+                    : (activeThread.status === "open" ? "bg-[var(--color-success)]" : "bg-[var(--color-muted)]")
                 }`}>
                   {isProvider ? providerInitials(getDisplayName(activeThread)) : getDisplayName(activeThread).charAt(0).toUpperCase()}
                 </div>
@@ -248,7 +248,7 @@ export default function ChatPanel({
                   <div className="flex items-center gap-2">
                     <p className="font-semibold text-sm">{getDisplayName(activeThread)}</p>
                     {isProvider && (
-                      <span className={`w-2 h-2 rounded-full ${activeThread.status === "open" ? "bg-emerald-500" : "bg-gray-400"}`} />
+                      <span className={`w-2 h-2 rounded-full ${activeThread.status === "open" ? "bg-[var(--color-success)]" : "bg-[var(--color-muted)]"}`} />
                     )}
                   </div>
                   <p className="text-xs text-[var(--color-muted)]">
@@ -327,7 +327,7 @@ export default function ChatPanel({
                           <p className="text-xs font-semibold text-[var(--color-muted)] ml-1">{m.senderName}</p>
                         )}
                         <div className={`rounded px-3.5 py-2.5 ${m.isFromAdmin
-                            ? "bg-[var(--color-navy)] text-white rounded-br-sm"
+                            ? "bg-[var(--color-brand)] text-white rounded-br-sm"
                             : "bg-[var(--color-surface)] border rounded-bl-sm"
                           }`}>
                           <p className="text-sm whitespace-pre-wrap leading-relaxed">{m.content}</p>
@@ -360,7 +360,7 @@ export default function ChatPanel({
                     <button
                       key={i}
                       onClick={() => { setMessage(r); setShowQuickReplies(false); textareaRef.current?.focus(); }}
-                      className="text-xs bg-[var(--color-surface)] border rounded-full px-3 py-1 hover:bg-[var(--color-navy-bg)] hover:border-blue-300 hover:text-[var(--color-navy)] transition-colors text-left max-w-[280px] truncate"
+                      className="text-xs bg-[var(--color-surface)] border rounded-full px-3 py-1 hover:bg-[var(--color-brand-bg)] hover:border-blue-300 hover:text-[var(--color-brand)] transition-colors text-left max-w-[280px] truncate"
                       data-testid={`quick-reply-${i}`}
                     >
                       {r}
@@ -408,7 +408,7 @@ export default function ChatPanel({
                       <Button
                         type="button"
                         size="sm"
-                        className="h-8 w-8 p-0 bg-[var(--color-navy)] hover:bg-[var(--color-steel)]"
+                        className="h-8 w-8 p-0 bg-[var(--color-brand)] hover:bg-[var(--color-steel)]"
                         disabled={!message.trim() || sendMutation.isPending}
                         onClick={handleSend}
                         data-testid={isProvider ? "button-admin-chat-send" : "button-visitor-reply-send"}

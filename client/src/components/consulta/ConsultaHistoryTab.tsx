@@ -27,7 +27,7 @@ export default function ConsultaHistoryTab({ consultations }: Props) {
               const customerName = resultData?.providerDetails?.[0]?.customerName;
               const providersFound = resultData?.providersFound || 0;
               return (
-                <div key={c.id} className="flex items-center justify-between p-3.5 bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-[var(--color-navy)] transition-colors" data-testid={`consultation-${c.id}`}>
+                <div key={c.id} className="flex items-center justify-between p-3.5 bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-[var(--color-brand)] transition-colors" data-testid={`consultation-${c.id}`}>
                   <div className="flex items-center gap-3">
                     <div className={`w-2.5 h-2.5 rounded-full ${c.approved ? "bg-[var(--color-success)]" : "bg-[var(--color-danger)]"}`} />
                     <div>

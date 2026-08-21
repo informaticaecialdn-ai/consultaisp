@@ -14,9 +14,9 @@ import { useToast } from "@/hooks/use-toast";
 
 const CLASSIFICACAO_BADGE: Record<string, string> = {
   frio: "bg-slate-100 text-slate-700",
-  morno: "bg-yellow-100 text-yellow-800",
-  quente: "bg-orange-100 text-orange-800",
-  ultra_quente: "bg-red-100 text-red-800",
+  morno: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]",
+  quente: "bg-[var(--color-gold-bg)] text-[var(--score-low)]",
+  ultra_quente: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]",
 };
 
 const AGENTES = ["sofia", "leo", "carlos", "lucas", "rafael", "marcos"];
@@ -162,7 +162,7 @@ export default function CrmLeadsTab() {
                               className="h-full rounded-full"
                               style={{
                                 width: `${lead.scoreTotal}%`,
-                                backgroundColor: lead.scoreTotal >= 81 ? "#ef4444" : lead.scoreTotal >= 61 ? "#f97316" : lead.scoreTotal >= 31 ? "#fbbf24" : "#94a3b8",
+                                backgroundColor: lead.scoreTotal >= 81 ? "#B53333" : lead.scoreTotal >= 61 ? "#C45A1A" : lead.scoreTotal >= 31 ? "#B8860B" : "#B0AEA5",
                               }}
                             />
                           </div>
@@ -214,7 +214,7 @@ export default function CrmLeadsTab() {
                     className="h-full rounded-full transition-all"
                     style={{
                       width: `${leadDetail.scoreTotal}%`,
-                      backgroundColor: leadDetail.scoreTotal >= 81 ? "#ef4444" : leadDetail.scoreTotal >= 61 ? "#f97316" : leadDetail.scoreTotal >= 31 ? "#fbbf24" : "#94a3b8",
+                      backgroundColor: leadDetail.scoreTotal >= 81 ? "#B53333" : leadDetail.scoreTotal >= 61 ? "#C45A1A" : leadDetail.scoreTotal >= 31 ? "#B8860B" : "#B0AEA5",
                     }}
                   />
                 </div>

@@ -72,7 +72,7 @@ export default function VerificarEmailPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-gray-900 dark:to-gray-800 p-6" data-testid="verificar-email-page">
       <div className="w-full max-w-md">
         <div className="flex items-center justify-center gap-3 mb-8">
-          <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
+          <div className="w-10 h-10 rounded-lg bg-[var(--color-brand)] flex items-center justify-center">
             <Shield className="w-6 h-6 text-white" />
           </div>
           <span className="text-xl font-bold">Consulta ISP</span>
@@ -91,15 +91,15 @@ export default function VerificarEmailPage() {
 
           {status === "success" && (
             <>
-              <div className="w-16 h-16 rounded-full bg-emerald-50 dark:bg-emerald-950 flex items-center justify-center mx-auto mb-4">
-                <CheckCircle className="w-8 h-8 text-emerald-600" />
+              <div className="w-16 h-16 rounded-full bg-[var(--color-success-bg)] flex items-center justify-center mx-auto mb-4">
+                <CheckCircle className="w-8 h-8 text-[var(--color-success)]" />
               </div>
-              <h2 className="text-xl font-bold mb-2 text-emerald-700 dark:text-emerald-400" data-testid="text-verify-status">Email verificado!</h2>
+              <h2 className="text-xl font-bold mb-2 text-[var(--color-success)] dark:text-emerald-400" data-testid="text-verify-status">Email verificado!</h2>
               <p className="text-muted-foreground text-sm mb-6">
                 Seu email foi confirmado com sucesso. Voce sera redirecionado para o sistema em instantes.
               </p>
               <div className="w-full bg-muted rounded-full h-1.5">
-                <div className="bg-emerald-500 h-1.5 rounded-full animate-pulse w-full" />
+                <div className="bg-[var(--color-success)] h-1.5 rounded-full animate-pulse w-full" />
               </div>
             </>
           )}
@@ -133,9 +133,9 @@ export default function VerificarEmailPage() {
               </p>
 
               {resendDone ? (
-                <div className="bg-emerald-50 dark:bg-emerald-950/30 rounded-lg p-4 text-center">
-                  <CheckCircle className="w-5 h-5 text-emerald-600 mx-auto mb-2" />
-                  <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">Novo link enviado! Verifique seu email.</p>
+                <div className="bg-[var(--color-success-bg)] rounded-lg p-4 text-center">
+                  <CheckCircle className="w-5 h-5 text-[var(--color-success)] mx-auto mb-2" />
+                  <p className="text-sm font-medium text-[var(--color-success)]">Novo link enviado! Verifique seu email.</p>
                 </div>
               ) : (
                 <div className="space-y-3">

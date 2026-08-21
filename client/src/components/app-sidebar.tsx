@@ -318,7 +318,7 @@ export function AppSidebar() {
       <SidebarHeader className="p-4">
         <Link href="/">
           <div className="flex items-center gap-3 cursor-pointer">
-            <div className="w-9 h-9 rounded bg-[var(--color-navy)] flex items-center justify-center">
+            <div className="w-9 h-9 rounded bg-[var(--color-brand)] flex items-center justify-center">
               <Shield className="w-5 h-5 text-white" />
             </div>
             <div className="flex flex-col">
@@ -429,7 +429,7 @@ export function AppSidebar() {
         <TrialBanner />
 
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-[var(--color-navy-bg)] flex items-center justify-center text-sm font-bold text-[var(--color-navy)]">
+          <div className="w-8 h-8 rounded-full bg-[var(--color-brand-bg)] flex items-center justify-center text-sm font-bold text-[var(--color-brand)]">
             {user?.name?.charAt(0)?.toUpperCase() || "U"}
           </div>
           <div className="flex flex-col min-w-0 flex-1">

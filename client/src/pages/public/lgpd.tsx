@@ -24,7 +24,7 @@ export default function LgpdPage() {
 
         {isLoading ? (
           <div className="grid gap-4">
-            {[1, 2, 3].map(i => <div key={i} className="h-32 rounded-lg bg-slate-200 animate-pulse" />)}
+            {[1, 2, 3].map(i => <div key={i} className="h-32 rounded-lg bg-[var(--color-tag-bg)] animate-pulse" />)}
           </div>
         ) : (
           <div className="grid gap-6">
@@ -68,7 +68,7 @@ export default function LgpdPage() {
             <Card data-testid="lgpd-card-direitos">
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <Users className="w-4 h-4 text-emerald-600" />
+                  <Users className="w-4 h-4 text-[var(--color-success)]" />
                   Seus Direitos como Titular
                 </CardTitle>
               </CardHeader>
@@ -99,7 +99,7 @@ export default function LgpdPage() {
                   <span className="font-semibold text-right max-w-xs">{data?.tempo_retencao}</span>
                 </div>
                 <div className="bg-amber-50 border border-amber-100 rounded-lg p-3">
-                  <p className="text-amber-800 text-xs leading-relaxed">
+                  <p className="text-[var(--color-gold)] text-xs leading-relaxed">
                     Os dados compartilhados entre ISPs da rede são <strong>anonimizados</strong> —
                     apenas indicadores de adimplência (dias de atraso, faixa de valor, equipamentos pendentes).
                     Nunca nome, CPF, endereço ou dados pessoais identificáveis são expostos a terceiros.
@@ -111,7 +111,7 @@ export default function LgpdPage() {
             <Card data-testid="lgpd-card-autoridade">
               <CardContent className="pt-5">
                 <div className="flex items-start gap-3 text-sm text-slate-700">
-                  <Shield className="w-5 h-5 text-slate-400 flex-shrink-0 mt-0.5" />
+                  <Shield className="w-5 h-5 text-[var(--color-muted)] flex-shrink-0 mt-0.5" />
                   <div>
                     <p className="font-medium mb-0.5">Autoridade Supervisora</p>
                     <p className="text-muted-foreground">{data?.autoridade}</p>

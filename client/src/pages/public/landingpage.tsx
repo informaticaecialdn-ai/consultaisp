@@ -43,7 +43,7 @@ export default function LandingPage() {
       <nav className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-surface)] border-b border-[var(--color-border)]">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded bg-[var(--color-navy)] flex items-center justify-center">
+            <div className="w-8 h-8 rounded bg-[var(--color-brand)] flex items-center justify-center">
               <Shield className="w-4 h-4 text-white" />
             </div>
             <span className="text-base font-bold font-display text-[var(--color-ink)]">Consulta ISP</span>
@@ -51,13 +51,13 @@ export default function LandingPage() {
           <div className="hidden md:flex items-center gap-7 text-sm text-[var(--color-muted)]">
             {[["Como funciona","como-funciona"],["Funcionalidades","funcionalidades"],["Preços","precos"],["FAQ","faq"]].map(([l,id]) => (
               <button key={id} onClick={() => document.getElementById(id)?.scrollIntoView({behavior:"smooth"})}
-                className="cursor-pointer hover:text-[var(--color-navy)] transition-colors font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-navy)] focus-visible:ring-offset-2 rounded-sm">{l}</button>
+                className="cursor-pointer hover:text-[var(--color-brand)] transition-colors font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] focus-visible:ring-offset-2 rounded-sm">{l}</button>
             ))}
           </div>
           <div className="flex items-center gap-2">
             <Button variant="ghost" className="hidden md:inline-flex text-[var(--color-muted)] hover:text-[var(--color-ink)] text-sm h-9"
               onClick={goLogin} data-testid="button-landing-login">Login</Button>
-            <Button className="hidden md:inline-flex bg-[var(--color-navy)] hover:bg-[var(--color-steel)] text-white text-sm h-9 px-5 font-semibold rounded"
+            <Button className="hidden md:inline-flex bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-white text-sm h-9 px-5 font-semibold rounded"
               onClick={goRegister} data-testid="button-landing-cadastro">Começar grátis</Button>
             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
               <SheetTrigger asChild>
@@ -69,9 +69,9 @@ export default function LandingPage() {
                 <nav className="flex flex-col gap-4 mt-8">
                   {[["Como funciona","como-funciona"],["Funcionalidades","funcionalidades"],["Preços","precos"],["FAQ","faq"]].map(([l,id]) => (
                     <button key={id} onClick={() => { setMobileMenuOpen(false); document.getElementById(id)?.scrollIntoView({behavior:"smooth"}); }}
-                      className="cursor-pointer text-left text-sm font-medium text-[var(--color-ink)] hover:text-[var(--color-navy)] transition-colors py-2 border-b border-[var(--color-border)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-navy)]">{l}</button>
+                      className="cursor-pointer text-left text-sm font-medium text-[var(--color-ink)] hover:text-[var(--color-brand)] transition-colors py-2 border-b border-[var(--color-border)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]">{l}</button>
                   ))}
-                  <Button className="w-full bg-[var(--color-navy)] hover:bg-[var(--color-steel)] text-white text-sm h-10 font-semibold rounded mt-2"
+                  <Button className="w-full bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-white text-sm h-10 font-semibold rounded mt-2"
                     onClick={() => { setMobileMenuOpen(false); goLogin(); }}>Login</Button>
                 </nav>
               </SheetContent>
@@ -84,20 +84,20 @@ export default function LandingPage() {
       <section className="pt-16 bg-[var(--color-bg)]">
         <div className="max-w-6xl mx-auto px-6 py-16 grid lg:grid-cols-2 gap-12 items-center">
           <div>
-            <div className="inline-flex items-center gap-2 bg-[var(--color-navy-bg)] border border-[var(--color-border)] text-[var(--color-navy)] text-xs font-semibold px-3 py-1.5 rounded-sm mb-6">
-              <div className="w-1.5 h-1.5 bg-[var(--color-navy)] rounded-full animate-pulse" />
+            <div className="inline-flex items-center gap-2 bg-[var(--color-brand-bg)] border border-[var(--color-border)] text-[var(--color-brand)] text-xs font-semibold px-3 py-1.5 rounded-sm mb-6">
+              <div className="w-1.5 h-1.5 bg-[var(--color-brand)] rounded-full animate-pulse" />
               Plataforma Colaborativa de Credito para ISPs
             </div>
             <h1 className="font-display font-light text-5xl text-[var(--color-ink)] leading-[1.05] tracking-tight mb-5" data-testid="text-hero-title">
               Consulte o CPF antes de instalar.<br/>
-              <span className="text-[var(--color-navy)]">Evite perdas antes que acontecam.</span>
+              <span className="text-[var(--color-brand)]">Evite perdas antes que acontecam.</span>
             </h1>
             <p className="text-lg text-[var(--color-muted)] leading-relaxed mb-8 max-w-lg">
               Score de risco em 2 segundos baseado no historico real de toda a rede de provedores. Saiba se o cliente ja deixou dividas em outro provedor antes de liberar a instalacao.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 mb-10">
               <Button size="lg" onClick={goRegister} data-testid="button-hero-cta"
-                className="bg-[var(--color-navy)] hover:bg-[var(--color-steel)] text-white px-8 gap-2 h-12 text-base font-bold rounded">
+                className="bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-white px-8 gap-2 h-12 text-base font-bold rounded">
                 Proteger Meu Provedor — Gratis <ArrowRight className="w-4 h-4" />
               </Button>
               <Button size="lg" variant="outline" onClick={() => document.getElementById("como-funciona")?.scrollIntoView({behavior:"smooth"})}
@@ -127,8 +127,8 @@ export default function LandingPage() {
                 <div className="bg-[var(--color-bg)] p-5">
                   <div className="flex items-center justify-between mb-4 pb-3 border-b border-[var(--color-border)]">
                     <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 bg-[var(--color-navy-bg)] rounded flex items-center justify-center">
-                        <Search className="w-4 h-4 text-[var(--color-navy)]"/>
+                      <div className="w-8 h-8 bg-[var(--color-brand-bg)] rounded flex items-center justify-center">
+                        <Search className="w-4 h-4 text-[var(--color-brand)]"/>
                       </div>
                       <div>
                         <p className="text-xs text-[var(--color-muted)]">CPF consultado</p>
@@ -171,7 +171,7 @@ export default function LandingPage() {
                       <p className="font-mono text-xs text-[var(--color-muted)] font-bold uppercase mb-1">Outro Provedor</p>
                       <p className="text-xs font-bold text-[var(--color-ink)]">Dados restritos</p>
                       <p className="text-xs text-[var(--color-danger)] mt-1">1441 dias · R$400-600</p>
-                      <span className="text-xs bg-[var(--color-navy-bg)] text-[var(--color-navy)] font-bold px-1.5 py-0.5 rounded mt-1 inline-block">1 crédito</span>
+                      <span className="text-xs bg-[var(--color-brand-bg)] text-[var(--color-brand)] font-bold px-1.5 py-0.5 rounded mt-1 inline-block">1 crédito</span>
                     </div>
                   </div>
                   <div className="bg-[var(--color-gold-bg)] border border-[var(--color-border)] rounded p-2.5 flex items-center gap-2">
@@ -204,7 +204,7 @@ export default function LandingPage() {
               { name: "Voalle", color: "from-cyan-600 to-cyan-700" },
               { name: "RBX ISP", color: "from-red-600 to-red-700" },
             ].map(erp => (
-              <div key={erp.name} className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] hover:border-[var(--color-navy)]/30 hover:shadow-sm transition-all">
+              <div key={erp.name} className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] hover:border-[var(--color-brand)]/30 hover:shadow-sm transition-all">
                 <div className={`w-7 h-7 rounded bg-gradient-to-br ${erp.color} flex items-center justify-center`}>
                   <Router className="w-3.5 h-3.5 text-white" />
                 </div>
@@ -228,13 +228,13 @@ export default function LandingPage() {
               {n:"02",icon:Search,title:"Consulte antes de ativar",desc:"CPF, CNPJ ou endereço. Em menos de 2 segundos: score de risco, histórico na rede, equipamentos retidos e sugestão de decisão.",badge:"< 2 segundos"},
               {n:"03",icon:Bell,title:"Receba alertas anti-fraude",desc:"Quando seu cliente inadimplente é consultado por outro provedor para migrar, você recebe alerta imediato no WhatsApp.",badge:"Tempo real"},
             ].map((s,i) => (
-              <div key={i} className="relative bg-[var(--color-surface)] border-[0.5px] border-[var(--color-border)] rounded p-6 hover:border-[var(--color-navy)] transition-all">
+              <div key={i} className="relative bg-[var(--color-surface)] border-[0.5px] border-[var(--color-border)] rounded p-6 hover:border-[var(--color-brand)] transition-all">
                 <span className="font-mono text-6xl font-black text-[var(--color-tag-bg)] absolute top-4 right-5 leading-none select-none">{s.n}</span>
                 <div className="relative">
-                  <div className="w-12 h-12 bg-[var(--color-navy-bg)] border border-[var(--color-border)] rounded flex items-center justify-center mb-4">
-                    <s.icon className="w-5 h-5 text-[var(--color-navy)]"/>
+                  <div className="w-12 h-12 bg-[var(--color-brand-bg)] border border-[var(--color-border)] rounded flex items-center justify-center mb-4">
+                    <s.icon className="w-5 h-5 text-[var(--color-brand)]"/>
                   </div>
-                  <span className="inline-block bg-[var(--color-navy-bg)] text-[var(--color-navy)] text-xs font-bold px-3 py-1 rounded-sm mb-3 border border-[var(--color-border)]">{s.badge}</span>
+                  <span className="inline-block bg-[var(--color-brand-bg)] text-[var(--color-brand)] text-xs font-bold px-3 py-1 rounded-sm mb-3 border border-[var(--color-border)]">{s.badge}</span>
                   <h3 className="font-display font-semibold text-lg text-[var(--color-ink)] mb-2">{s.title}</h3>
                   <p className="text-sm text-[var(--color-muted)] leading-relaxed">{s.desc}</p>
                 </div>
@@ -254,14 +254,14 @@ export default function LandingPage() {
           </div>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
             {[
-              {icon:Search, color:"bg-[var(--color-navy-bg)]", ic:"text-[var(--color-navy)]", title:"Consulta ISP", desc:"Score de risco em 2 segundos. Histórico de inadimplência em toda a rede colaborativa, equipamentos retidos e sugestão automática de decisão."},
+              {icon:Search, color:"bg-[var(--color-brand-bg)]", ic:"text-[var(--color-brand)]", title:"Consulta ISP", desc:"Score de risco em 2 segundos. Histórico de inadimplência em toda a rede colaborativa, equipamentos retidos e sugestão automática de decisão."},
               {icon:Bell, color:"bg-[var(--color-danger-bg)]", ic:"text-[var(--color-danger)]", title:"Anti-Fraude", desc:"Alerta via WhatsApp em tempo real quando seu cliente inadimplente é consultado por outro provedor. Detecta migradores seriais."},
               {icon:Router, color:"bg-[var(--color-gold-bg)]", ic:"text-[var(--color-gold)]", title:"Controle de Equipamentos", desc:"Registre ONUs por modelo, serial e status. Rastreie equipamentos em comodato e identifique retenções antes que virem prejuízo."},
-              {icon:MapPin, color:"bg-[var(--color-navy-bg)]", ic:"text-[var(--color-navy)]", title:"Consulta por Endereço", desc:"Cruza CEP + número em toda a rede. Detecta inadimplência no imóvel mesmo com CPF diferente — identifica golpes de familiares."},
+              {icon:MapPin, color:"bg-[var(--color-brand-bg)]", ic:"text-[var(--color-brand)]", title:"Consulta por Endereço", desc:"Cruza CEP + número em toda a rede. Detecta inadimplência no imóvel mesmo com CPF diferente — identifica golpes de familiares."},
               {icon:CreditCard, color:"bg-[var(--color-success-bg)]", ic:"text-[var(--color-success)]", title:"SPC Integrada", desc:"Score SPC, restrições financeiras e protestos direto na plataforma. Negativação sem contrato adicional com Serasa."},
               {icon:Zap, color:"bg-[var(--color-gold-bg)]", ic:"text-[var(--color-gold)]", title:"Análise com IA", desc:"Recomendações automáticas baseadas em inteligência artificial: APROVAR, APROVAR COM RESSALVAS ou REJEITAR."},
             ].map((f,i) => (
-              <div key={i} className="bg-[var(--color-surface)] border-[0.5px] border-[var(--color-border)] rounded p-5 hover:border-[var(--color-navy)] transition-all">
+              <div key={i} className="bg-[var(--color-surface)] border-[0.5px] border-[var(--color-border)] rounded p-5 hover:border-[var(--color-brand)] transition-all">
                 <div className={`w-10 h-10 ${f.color} rounded flex items-center justify-center mb-4`}>
                   <f.icon className={`w-5 h-5 ${f.ic}`}/>
                 </div>
@@ -303,8 +303,8 @@ export default function LandingPage() {
               </Button>
             </div>
             {/* Profissional */}
-            <div className="rounded p-6 flex flex-col border-2 border-[var(--color-navy)] transition-all relative" data-testid="plan-1">
-              <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-[var(--color-navy)] text-white text-xs font-black px-4 py-1 rounded-sm">RECOMENDADO</div>
+            <div className="rounded p-6 flex flex-col border-2 border-[var(--color-brand)] transition-all relative" data-testid="plan-1">
+              <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-[var(--color-brand)] text-white text-xs font-black px-4 py-1 rounded-sm">RECOMENDADO</div>
               <h3 className="font-display font-semibold text-lg text-[var(--color-ink)] mb-1">Profissional</h3>
               <div className="mb-1 flex items-baseline gap-1">
                 <span className="text-4xl font-mono font-black text-[var(--color-ink)]">R$ 99</span>
@@ -319,7 +319,7 @@ export default function LandingPage() {
                 ))}
               </ul>
               <Button onClick={goRegister}
-                className="w-full font-bold h-11 rounded bg-[var(--color-navy)] hover:bg-[var(--color-steel)] text-white">
+                className="w-full font-bold h-11 rounded bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-white">
                 Começar agora
               </Button>
             </div>
@@ -337,15 +337,15 @@ export default function LandingPage() {
               </div>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 text-sm text-[var(--color-ink)]">
-                  <CheckCircle2 className="w-4 h-4 text-[var(--color-navy)] flex-shrink-0"/>Consulta ISP (rede colaborativa)
+                  <CheckCircle2 className="w-4 h-4 text-[var(--color-brand)] flex-shrink-0"/>Consulta ISP (rede colaborativa)
                 </span>
-                <span className="text-sm font-bold text-[var(--color-navy)]">1 credito</span>
+                <span className="text-sm font-bold text-[var(--color-brand)]">1 credito</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 text-sm text-[var(--color-ink)]">
-                  <CheckCircle2 className="w-4 h-4 text-[var(--color-navy)] flex-shrink-0"/>Consulta SPC Brasil
+                  <CheckCircle2 className="w-4 h-4 text-[var(--color-brand)] flex-shrink-0"/>Consulta SPC Brasil
                 </span>
-                <span className="text-sm font-bold text-[var(--color-navy)]">4 creditos</span>
+                <span className="text-sm font-bold text-[var(--color-brand)]">4 creditos</span>
               </div>
             </div>
           </div>
@@ -362,8 +362,8 @@ export default function LandingPage() {
       <section className="py-20 bg-[var(--color-bg)]">
         <div className="max-w-6xl mx-auto px-6">
           <div className="text-center mb-12">
-            <div className="inline-flex items-center gap-2 bg-[var(--color-navy-bg)] text-[var(--color-navy)] text-xs font-semibold px-3 py-1.5 rounded-sm mb-4">
-              <Star className="w-3.5 h-3.5 fill-[var(--color-navy)]" />
+            <div className="inline-flex items-center gap-2 bg-[var(--color-brand-bg)] text-[var(--color-brand)] text-xs font-semibold px-3 py-1.5 rounded-sm mb-4">
+              <Star className="w-3.5 h-3.5 fill-[var(--color-brand)]" />
               O que os provedores dizem
             </div>
             <h2 className="font-display font-light text-4xl text-[var(--color-ink)]">ISPs que protegem sua receita</h2>
@@ -400,7 +400,7 @@ export default function LandingPage() {
                 <thead>
                   <tr className="border-b border-[var(--color-border)]">
                     <th className="p-4 text-left text-sm font-semibold text-[var(--color-ink)] w-1/3">Funcionalidade</th>
-                    <th className="p-4 text-center text-sm font-bold text-[var(--color-navy)] bg-[var(--color-navy-bg)]">Consulta ISP</th>
+                    <th className="p-4 text-center text-sm font-bold text-[var(--color-brand)] bg-[var(--color-brand-bg)]">Consulta ISP</th>
                     <th className="p-4 text-center text-sm font-semibold text-[var(--color-muted)]">SPC/Serasa</th>
                     <th className="p-4 text-center text-sm font-semibold text-[var(--color-muted)]">TeiaH Valid</th>
                     <th className="p-4 text-center text-sm font-semibold text-[var(--color-muted)]">ISP Score</th>
@@ -419,7 +419,7 @@ export default function LandingPage() {
                   ].map((row,i) => (
                     <tr key={i} className={i%2===0?"bg-[var(--color-surface)]":"bg-[var(--color-bg)]"}>
                       <td className="p-4 text-sm text-[var(--color-ink)] font-medium border-b border-[var(--color-border)]">{row[0]}</td>
-                      <td className="p-4 text-center bg-[var(--color-navy-bg)]/50 border-b border-[var(--color-border)]">
+                      <td className="p-4 text-center bg-[var(--color-brand-bg)]/50 border-b border-[var(--color-border)]">
                         <span className={`text-sm font-bold ${row[1]==="yes"?"text-[var(--color-success)]":"text-[var(--color-border)]"}`}>{row[1]==="yes"?"✅":"❌"}</span>
                       </td>
                       {[row[2],row[3],row[4]].map((v,j) => (
@@ -462,7 +462,7 @@ export default function LandingPage() {
       </section>
 
       {/* CTA FINAL */}
-      <section className="py-20 bg-[var(--color-navy)]">
+      <section className="py-20 bg-[var(--color-brand)]">
         <div className="max-w-3xl mx-auto px-6 text-center">
           <div className="inline-flex items-center gap-2 bg-white/10 text-white text-xs font-semibold px-3 py-1.5 rounded-sm mb-8 border border-white/20">
             <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"/>
@@ -478,7 +478,7 @@ export default function LandingPage() {
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8">
             <Button size="lg" onClick={goRegister} data-testid="button-cta-bottom"
-              className="bg-white text-[var(--color-navy)] hover:bg-[var(--color-navy-bg)] px-10 gap-2 h-12 text-base font-black rounded">
+              className="bg-white text-[var(--color-brand)] hover:bg-[var(--color-brand-bg)] px-10 gap-2 h-12 text-base font-black rounded">
               Criar conta grátis <ArrowRight className="w-4 h-4"/>
             </Button>
             <Button size="lg" variant="outline" onClick={goLogin} data-testid="button-login-bottom"
@@ -498,7 +498,7 @@ export default function LandingPage() {
       <footer className="bg-[#1A1714] py-8">
         <div className="max-w-6xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded bg-[var(--color-navy)] flex items-center justify-center">
+            <div className="w-7 h-7 rounded bg-[var(--color-brand)] flex items-center justify-center">
               <Shield className="w-3.5 h-3.5 text-white"/>
             </div>
             <span className="text-white font-bold text-sm">Consulta ISP</span>

@@ -24,10 +24,10 @@ function BarSegment({ pontos, maximo, color }: { pontos: number; maximo: number;
 function getBarColor(pontos: number, maximo: number): string {
   if (maximo === 0) return "var(--color-muted)";
   const pct = (pontos / maximo) * 100;
-  if (pct >= 80) return "#2E8B57";
-  if (pct >= 50) return "#C9A820";
+  if (pct >= 80) return "#4A6B3E";
+  if (pct >= 50) return "#B8860B";
   if (pct >= 25) return "#D97A2B";
-  return "#C44040";
+  return "#B53333";
 }
 
 export default function ScoreBreakdownPanel({ fatores }: Props) {

@@ -50,7 +50,7 @@ export default function CrmTab() {
             }}
             className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
               activeSubTab === tab.key
-                ? "bg-[var(--color-navy)] text-white"
+                ? "bg-[var(--color-brand)] text-white"
                 : "bg-muted text-[var(--color-muted)] hover:bg-muted/70"
             }`}
           >

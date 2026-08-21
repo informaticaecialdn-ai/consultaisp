@@ -24,10 +24,10 @@ import { Switch } from "@/components/ui/switch";
 const MAIN_DOMAIN = "consultaisp.com.br";
 
 const PLAN_LABELS: Record<string, { label: string; color: string; icon: any }> = {
-  free:       { label: "Gratuito",    color: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300", icon: Star },
+  free:       { label: "Gratuito",    color: "bg-[var(--color-tag-bg)] text-gray-700 dark:text-gray-300", icon: Star },
   basic:      { label: "Basico",      color: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300", icon: Star },
-  pro:        { label: "Profissional",color: "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300", icon: Crown },
-  enterprise: { label: "Enterprise",  color: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300", icon: Crown },
+  pro:        { label: "Profissional",color: "bg-[var(--color-brand-bg)] text-[var(--color-brand)] dark:bg-purple-900 dark:text-purple-300", icon: Crown },
+  enterprise: { label: "Enterprise",  color: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]", icon: Crown },
 };
 
 const LEGAL_TYPES = ["MEI", "ME", "EPP", "LTDA", "S/A", "EIRELI", "Outro"];
@@ -43,14 +43,14 @@ const DOCUMENT_TYPES: Record<string, string> = {
 };
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  pending:  { label: "Pendente",  color: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300" },
-  approved: { label: "Aprovado",  color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300" },
+  pending:  { label: "Pendente",  color: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" },
+  approved: { label: "Aprovado",  color: "bg-[var(--color-success-bg)] text-[var(--color-success)]" },
   rejected: { label: "Rejeitado", color: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300" },
 };
 
 const KYC_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
-  pending:  { label: "Verificacao Pendente", color: "bg-amber-100 text-amber-700 border-amber-200", icon: ClipboardList },
-  approved: { label: "Verificado",           color: "bg-emerald-100 text-emerald-700 border-emerald-200", icon: UserCheck },
+  pending:  { label: "Verificacao Pendente", color: "bg-[var(--color-gold-bg)] text-[var(--color-gold)] border-amber-200", icon: ClipboardList },
+  approved: { label: "Verificado",           color: "bg-[var(--color-success-bg)] text-[var(--color-success)] border-[var(--color-success)]", icon: UserCheck },
   rejected: { label: "Verificacao Rejeitada",color: "bg-red-100 text-red-700 border-red-200", icon: X },
 };
 
@@ -81,7 +81,7 @@ function CopyButton({ text }: { text: string }) {
   };
   return (
     <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={handleCopy} data-testid="button-copy-subdomain">
-      {copied ? <CheckCircle className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+      {copied ? <CheckCircle className="w-4 h-4 text-[var(--color-success)]" /> : <Copy className="w-4 h-4" />}
     </Button>
   );
 }
@@ -598,7 +598,7 @@ export default function PainelProvedorPage() {
                 </div>
                 <div className="flex justify-between items-center py-2 border-b">
                   <span className="text-sm text-muted-foreground">Status</span>
-                  <Badge className={provider?.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}>
+                  <Badge className={provider?.status === "active" ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : "bg-red-100 text-red-700"}>
                     {provider?.status === "active" ? "Ativo" : "Inativo"}
                   </Badge>
                 </div>
@@ -683,7 +683,7 @@ export default function PainelProvedorPage() {
               <Card className="p-4 bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div className="flex items-start gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <div className="w-8 h-8 rounded-lg bg-[var(--color-brand)] flex items-center justify-center flex-shrink-0 mt-0.5">
                       <Wand2 className="w-4 h-4 text-white" />
                     </div>
                     <div>
@@ -697,7 +697,7 @@ export default function PainelProvedorPage() {
                   {user?.role === "admin" && (
                     <Button
                       size="sm"
-                      className="gap-2 bg-blue-600 hover:bg-blue-700 text-white flex-shrink-0"
+                      className="gap-2 bg-[var(--color-brand)] hover:bg-blue-700 text-white flex-shrink-0"
                       onClick={handleCnpjLookup}
                       disabled={cnpjLookupStatus === "loading"}
                       data-testid="button-cnpj-lookup"
@@ -710,7 +710,7 @@ export default function PainelProvedorPage() {
                   )}
                 </div>
                 {cnpjLookupStatus === "done" && (
-                  <div className="mt-3 flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400">
+                  <div className="mt-3 flex items-center gap-2 text-xs text-[var(--color-success)] dark:text-emerald-400">
                     <CheckCircle className="w-4 h-4" />
                     Dados preenchidos automaticamente. Revise e clique em "Salvar Dados" para confirmar.
                   </div>
@@ -1076,7 +1076,7 @@ export default function PainelProvedorPage() {
                         </Button>
                         <Button
                           variant="ghost" size="sm"
-                          className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                          className="h-8 w-8 p-0 text-[var(--color-danger)] hover:text-red-700 hover:bg-red-50"
                           onClick={() => { if (confirm(`Remover socio ${p.name}?`)) deletePartner.mutate(p.id); }}
                           data-testid={`button-delete-partner-${p.id}`}
                         >
@@ -1218,7 +1218,7 @@ export default function PainelProvedorPage() {
                           {user?.role === "admin" && doc.status === "pending" && (
                             <Button
                               variant="ghost" size="sm"
-                              className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                              className="h-8 w-8 p-0 text-[var(--color-danger)] hover:text-red-700 hover:bg-red-50"
                               onClick={() => { if (confirm(`Remover documento ${doc.documentName}?`)) deleteDocument.mutate(doc.id); }}
                               data-testid={`button-delete-doc-${doc.id}`}
                             >
@@ -1271,7 +1271,7 @@ export default function PainelProvedorPage() {
                   <div className="grid md:grid-cols-2 gap-4">
                     <Card className="p-4 border-dashed">
                       <h3 className="font-medium text-sm mb-2 flex items-center gap-2">
-                        <CheckCircle className="w-4 h-4 text-emerald-500" />Como usar o subdominio
+                        <CheckCircle className="w-4 h-4 text-[var(--color-success)]" />Como usar o subdominio
                       </h3>
                       <ol className="space-y-1.5 text-sm text-muted-foreground list-decimal list-inside">
                         <li>Compartilhe o link com sua equipe</li>
@@ -1301,22 +1301,22 @@ export default function PainelProvedorPage() {
               )}
             </Card>
             <Card className="p-6 bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900">
-              <h3 className="font-semibold mb-2 flex items-center gap-2 text-amber-800 dark:text-amber-300">
+              <h3 className="font-semibold mb-2 flex items-center gap-2 text-[var(--color-gold)]">
                 <Settings className="w-4 h-4" />DNS e Configuracao de Producao
               </h3>
-              <p className="text-sm text-amber-700 dark:text-amber-400 mb-3">
+              <p className="text-sm text-[var(--color-gold)] dark:text-amber-400 mb-3">
                 Para o subdominio funcionar em producao, o administrador do sistema deve configurar o DNS wildcard:
               </p>
               <div className="bg-white dark:bg-gray-900 rounded-lg p-3 space-y-2 text-xs font-mono">
                 <div className="flex items-center gap-3 border-t pt-2">
                   <span className="w-16 font-bold text-blue-600">A</span>
                   <span className="w-24">*.consultaisp</span>
-                  <span className="text-emerald-600">IP_DO_SERVIDOR</span>
+                  <span className="text-[var(--color-success)]">IP_DO_SERVIDOR</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="w-16 font-bold text-blue-600">CNAME</span>
                   <span className="w-24">www</span>
-                  <span className="text-emerald-600">consultaisp.com.br</span>
+                  <span className="text-[var(--color-success)]">consultaisp.com.br</span>
                 </div>
               </div>
             </Card>
@@ -1392,18 +1392,18 @@ export default function PainelProvedorPage() {
                       <p className="text-xs text-muted-foreground">{u.email}</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge className={`text-xs ${u.role === "admin" ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"}`}>
+                      <Badge className={`text-xs ${u.role === "admin" ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" : "bg-[var(--color-tag-bg)] text-gray-700 dark:text-gray-300"}`}>
                         {u.role === "admin" ? "Admin" : "Usuario"}
                       </Badge>
                       {u.emailVerified ? (
-                        <CheckCircle className="w-4 h-4 text-emerald-500" title="Email verificado" />
+                        <CheckCircle className="w-4 h-4 text-[var(--color-success)]" title="Email verificado" />
                       ) : (
                         <Mail className="w-4 h-4 text-amber-500" title="Email pendente" />
                       )}
                       {user?.role === "admin" && u.id !== user?.id && (
                         <Button
                           variant="ghost" size="sm"
-                          className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                          className="h-8 w-8 p-0 text-[var(--color-danger)] hover:text-red-700 hover:bg-red-50"
                           onClick={() => { if (confirm(`Remover usuario ${u.name}?`)) deleteUserMutation.mutate(u.id); }}
                           data-testid={`button-delete-user-${u.id}`}
                         >
@@ -1444,8 +1444,8 @@ export default function PainelProvedorPage() {
               <div className="grid md:grid-cols-3 gap-4">
                 {[
                   { plan: "Basico",       price: "R$ 199/mes", isp: 200,         spc: 50,           color: "border-blue-200",                               badge: "bg-blue-100 text-blue-700" },
-                  { plan: "Profissional", price: "R$ 399/mes", isp: 1000,        spc: 200,          color: "border-purple-200 ring-2 ring-purple-300",       badge: "bg-purple-100 text-purple-700", highlight: true },
-                  { plan: "Enterprise",  price: "R$ 799/mes", isp: "Ilimitado", spc: "Ilimitado",  color: "border-amber-200",                              badge: "bg-amber-100 text-amber-700" },
+                  { plan: "Profissional", price: "R$ 399/mes", isp: 1000,        spc: 200,          color: "border-purple-200 ring-2 ring-purple-300",       badge: "bg-[var(--color-brand-bg)] text-[var(--color-brand)]", highlight: true },
+                  { plan: "Enterprise",  price: "R$ 799/mes", isp: "Ilimitado", spc: "Ilimitado",  color: "border-amber-200",                              badge: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" },
                 ].map((p) => (
                   <div key={p.plan} className={`rounded-lg border p-4 relative ${p.color}`}>
                     {p.highlight && (
@@ -1499,10 +1499,10 @@ export default function PainelProvedorPage() {
                   return (
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                       {[
-                        { label: "Integracoes Ativas", value: hasActiveErp ? `${erpTotalEnabled} ativa(s)` : "Nenhuma", icon: CheckCheck, accent: hasActiveErp ? "from-emerald-500 to-green-500" : "from-slate-400 to-slate-500", bg: hasActiveErp ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-slate-100 dark:bg-slate-800", ic: hasActiveErp ? "text-emerald-600" : "text-slate-500" },
+                        { label: "Integracoes Ativas", value: hasActiveErp ? `${erpTotalEnabled} ativa(s)` : "Nenhuma", icon: CheckCheck, accent: hasActiveErp ? "from-emerald-500 to-green-500" : "from-slate-400 to-slate-500", bg: hasActiveErp ? "bg-[var(--color-success-bg)]/30" : "bg-slate-100 dark:bg-slate-800", ic: hasActiveErp ? "text-[var(--color-success)]" : "text-slate-500" },
                         { label: "ERPs Integrados", value: erpNameDisplay, icon: Database, accent: "from-violet-500 to-indigo-500", bg: "bg-violet-100 dark:bg-violet-900/30", ic: "text-violet-600" },
                         { label: "Ultima Sincronizacao", value: relDate(erpLastSync), icon: Clock, accent: "from-sky-500 to-blue-500", bg: "bg-sky-100 dark:bg-sky-900/30", ic: "text-sky-600" },
-                        { label: "Total de Erros", value: erpTotalErrors.toLocaleString("pt-BR"), icon: AlertTriangle, accent: "from-rose-500 to-red-500", bg: "bg-rose-100 dark:bg-rose-900/30", ic: "text-rose-600" },
+                        { label: "Total de Erros", value: erpTotalErrors.toLocaleString("pt-BR"), icon: AlertTriangle, accent: "from-rose-500 to-red-500", bg: "bg-[var(--color-danger-bg)]", ic: "text-rose-600" },
                       ].map(s => (
                         <Card key={s.label} className="relative overflow-hidden p-3">
                           <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${s.accent}`} />
@@ -1542,8 +1542,8 @@ export default function PainelProvedorPage() {
                       const hasCredentials = !!(intg?.apiUrl || intg?.apiToken);
                       const statusBadge = (() => {
                         if (intg?.lastSyncStatus === "error") return { text: "Erro", cls: "bg-red-100 text-red-700 dark:bg-red-900/20" };
-                        if (intg?.isEnabled && hasCredentials) return { text: "Configurado", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/20" };
-                        if (intg?.isEnabled && !hasCredentials) return { text: "Credenciais pendentes", cls: "bg-amber-100 text-amber-700 dark:bg-amber-900/20" };
+                        if (intg?.isEnabled && hasCredentials) return { text: "Configurado", cls: "bg-[var(--color-success-bg)] text-[var(--color-success)]" };
+                        if (intg?.isEnabled && !hasCredentials) return { text: "Credenciais pendentes", cls: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" };
                         return { text: "Desativado", cls: "bg-slate-100 text-slate-600 dark:bg-slate-800" };
                       })();
 
@@ -1603,7 +1603,7 @@ export default function PainelProvedorPage() {
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <p className="text-sm font-semibold leading-tight">{connector.label}</p>
-                                  <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${statusBadge.cls}`}>{statusBadge.text}</span>
+                                  <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${statusBadge.cls}`}>{statusBadge.text}</span>
                                 </div>
                                 {!hasCredentials && (
                                   <p className="text-xs text-muted-foreground leading-tight mt-0.5">{ERP_SETUP_HINTS[connector.name] ?? "Configure as credenciais para ativar"}</p>
@@ -1658,7 +1658,7 @@ export default function PainelProvedorPage() {
                               <div className="flex items-center gap-2 flex-wrap">
                                 <Button
                                   size="sm"
-                                  className="h-8 text-xs gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
+                                  className="h-8 text-xs gap-1.5 bg-[var(--color-brand)] hover:bg-violet-700 text-white"
                                   disabled={saveErpConfigMutation.isPending}
                                   onClick={handleSave}
                                   data-testid={`button-save-erp-${connector.name}`}
@@ -1694,13 +1694,13 @@ export default function PainelProvedorPage() {
                               {(testResult || syncResult) && (
                                 <div className="flex items-center gap-3 flex-wrap">
                                   {testResult && (
-                                    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md ${testResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-600"}`}>
+                                    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md ${testResult.ok ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : "bg-rose-50 text-rose-600"}`}>
                                       {testResult.ok ? <CheckCircle className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
                                       {testResult.ok ? "Conexao OK" : testResult.msg}
                                     </span>
                                   )}
                                   {syncResult && (
-                                    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md ${syncResult.ok ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-600"}`}>
+                                    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md ${syncResult.ok ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : "bg-rose-50 text-rose-600"}`}>
                                       {syncResult.ok ? <CheckCheck className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
                                       {syncResult.msg}
                                     </span>
@@ -1711,7 +1711,7 @@ export default function PainelProvedorPage() {
                               {/* Sync stats for configured ERPs */}
                               {intg && (intg.totalSynced > 0 || intg.totalErrors > 0) && (
                                 <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                                  <span>Sincronizados: <strong className="text-emerald-600">{intg.totalSynced ?? 0}</strong></span>
+                                  <span>Sincronizados: <strong className="text-[var(--color-success)]">{intg.totalSynced ?? 0}</strong></span>
                                   <span>Erros: <strong className={intg.totalErrors > 0 ? "text-rose-500" : ""}>{intg.totalErrors ?? 0}</strong></span>
                                   <span>Ultima sync: {relDate(intg.lastSyncAt)}</span>
                                 </div>
@@ -1767,16 +1767,16 @@ export default function PainelProvedorPage() {
                                 {new Date(log.syncedAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
                               </TableCell>
                               <TableCell className="text-right">
-                                <span className="text-xs font-semibold text-emerald-600">{log.upserted}</span>
+                                <span className="text-xs font-semibold text-[var(--color-success)]">{log.upserted}</span>
                               </TableCell>
                               <TableCell className="text-right">
                                 <span className={`text-xs font-semibold ${log.errors > 0 ? "text-rose-500" : "text-muted-foreground"}`}>{log.errors}</span>
                               </TableCell>
                               <TableCell className="text-center">
-                                <span className={`inline-flex text-xs font-medium px-2 py-0.5 rounded-full ${
-                                  log.status === "success" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/20" :
+                                <span className={`inline-flex text-xs font-medium px-2 py-0.5 rounded ${
+                                  log.status === "success" ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" :
                                   log.status === "error" ? "bg-red-100 text-red-700 dark:bg-red-900/20" :
-                                  "bg-amber-100 text-amber-700 dark:bg-amber-900/20"
+                                  "bg-[var(--color-gold-bg)] text-[var(--color-gold)]"
                                 }`}>{log.status === "success" ? "Sucesso" : log.status === "error" ? "Erro" : "Parcial"}</span>
                               </TableCell>
                               <TableCell className="text-xs text-muted-foreground hidden md:table-cell">{log.ipAddress ?? "—"}</TableCell>

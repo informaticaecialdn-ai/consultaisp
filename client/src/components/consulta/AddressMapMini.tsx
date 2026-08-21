@@ -118,7 +118,7 @@ export default function AddressMapMini({ cep, addressNumber, address, city, stat
       interactive: false,
     });
 
-    new maplibregl.Marker({ color: "#ef4444" })
+    new maplibregl.Marker({ color: "#B53333" })
       .setLngLat(coords)
       .addTo(map);
 
@@ -140,7 +140,7 @@ export default function AddressMapMini({ cep, addressNumber, address, city, stat
   if (loading) {
     return (
       <div className="relative rounded-lg overflow-hidden border border-[var(--color-border)] bg-[var(--color-bg)] flex items-center justify-center" style={{ height: "220px" }}>
-        <div className="w-5 h-5 border-2 border-[var(--color-navy)] border-t-transparent rounded-full animate-spin" />
+        <div className="w-5 h-5 border-2 border-[var(--color-brand)] border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }

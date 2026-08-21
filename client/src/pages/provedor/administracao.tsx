@@ -84,7 +84,7 @@ export default function AdministracaoPage() {
               <div>
                 <label className="text-sm font-medium mb-1.5 block">Status</label>
                 <div className="flex items-center gap-2 h-9">
-                  <Badge variant={provider?.status === "active" ? "default" : "destructive"} className={provider?.status === "active" ? "bg-emerald-500 border-0" : ""}>
+                  <Badge variant={provider?.status === "active" ? "default" : "destructive"} className={provider?.status === "active" ? "bg-[var(--color-success)] border-0" : ""}>
                     {provider?.status === "active" ? "Ativo" : "Inativo"}
                   </Badge>
                 </div>
@@ -122,7 +122,7 @@ export default function AdministracaoPage() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge className="bg-emerald-500 border-0 text-white text-xs">Ativo</Badge>
+                      <Badge className="bg-[var(--color-success)] border-0 text-white text-xs">Ativo</Badge>
                     </TableCell>
                   </TableRow>
                 </TableBody>

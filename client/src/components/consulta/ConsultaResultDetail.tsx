@@ -42,7 +42,7 @@ export default function ConsultaResultDetail({ result, selectedProviderIdx, onBa
   return (
     <div className="space-y-5">
       <button
-        className="flex items-center gap-1.5 text-sm text-[var(--color-navy)] hover:text-[var(--color-steel)] font-medium transition-colors"
+        className="flex items-center gap-1.5 text-sm text-[var(--color-brand)] hover:text-[var(--color-steel)] font-medium transition-colors"
         onClick={onBack}
         data-testid="button-voltar-lista"
       >
@@ -81,7 +81,7 @@ export default function ConsultaResultDetail({ result, selectedProviderIdx, onBa
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <span className={`text-sm font-bold px-2 py-1 rounded ${isOwnSelected ? "bg-[var(--color-navy-bg)] text-[var(--color-navy)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>
+                <span className={`text-sm font-bold px-2 py-1 rounded ${isOwnSelected ? "bg-[var(--color-brand-bg)] text-[var(--color-brand)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>
                   {isOwnSelected ? "SEU PROVEDOR" : "OUTRO PROVEDOR"}
                 </span>
                 <span className={`text-sm font-semibold px-2 py-1 rounded ${riskCls}`} data-testid="text-risk-tier">{result.riskLabel}</span>
@@ -93,7 +93,7 @@ export default function ConsultaResultDetail({ result, selectedProviderIdx, onBa
                 <p className="text-xs font-semibold opacity-80 uppercase tracking-widest">Sugestao</p>
                 <p className="text-xl font-semibold tracking-wide">{decisionLabel}</p>
               </div>
-              <span className={`text-xs font-semibold px-2 py-0.5 rounded-sm ${detailCost === 0 ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : "bg-[var(--color-navy-bg)] text-[var(--color-navy)]"}`} data-testid="detail-cost-badge">
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-sm ${detailCost === 0 ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : "bg-[var(--color-brand-bg)] text-[var(--color-brand)]"}`} data-testid="detail-cost-badge">
                 {detailCost === 0 ? "Gratuita" : "1 Credito"}
               </span>
             </div>
@@ -162,7 +162,7 @@ export default function ConsultaResultDetail({ result, selectedProviderIdx, onBa
 
       {/* BUTTONS */}
       <div className="flex flex-wrap gap-3">
-        <Button className="bg-[var(--color-navy)] hover:bg-[var(--color-steel)] text-white gap-2" onClick={onGeneratePDF} data-testid="button-gerar-relatorio">
+        <Button className="bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-white gap-2" onClick={onGeneratePDF} data-testid="button-gerar-relatorio">
           <Download className="w-4 h-4" />
           Gerar Relatorio
         </Button>
@@ -198,7 +198,7 @@ function ProviderDetailSection({ detail, idx }: { detail: any; idx: number }) {
       <div className="flex items-center gap-2 mb-3">
         <Building2 className="w-5 h-5 text-[var(--color-muted)]" />
         <h3 className="text-base font-bold text-[var(--color-ink)]">Detalhes — {detail.providerName}</h3>
-        <span className={`text-sm font-bold px-2 py-1 rounded ${isOwn ? "bg-[var(--color-navy-bg)] text-[var(--color-navy)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>
+        <span className={`text-sm font-bold px-2 py-1 rounded ${isOwn ? "bg-[var(--color-brand-bg)] text-[var(--color-brand)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>
           {isOwn ? "SEU PROVEDOR" : "OUTRO PROVEDOR"}
         </span>
       </div>

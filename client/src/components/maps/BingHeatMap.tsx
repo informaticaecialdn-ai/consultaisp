@@ -173,7 +173,7 @@ export default function BingHeatMap({
       />
       {status === "loading" && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--color-bg)] rounded-lg gap-2">
-          <div className="w-6 h-6 border-2 border-[var(--color-navy)] border-t-transparent rounded-full animate-spin" />
+          <div className="w-6 h-6 border-2 border-[var(--color-brand)] border-t-transparent rounded-full animate-spin" />
           <span className="text-sm text-[var(--color-muted)]">Carregando Bing Maps...</span>
         </div>
       )}

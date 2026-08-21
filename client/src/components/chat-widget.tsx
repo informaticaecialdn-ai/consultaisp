@@ -97,12 +97,12 @@ export function ChatWidget() {
     <div className="fixed bottom-5 right-5 z-50">
       {open && (
         <div
-          className="absolute bottom-16 right-0 bg-background border rounded-lg shadow-2xl flex flex-col overflow-hidden"
+          className="absolute bottom-16 right-0 bg-background border rounded-lg shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] flex flex-col overflow-hidden"
           style={{ width: "380px", height: "520px" }}
           data-testid="chat-window"
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 bg-[var(--color-navy)] text-white flex-shrink-0">
+          <div className="flex items-center justify-between px-4 py-3 bg-[var(--color-brand)] text-white flex-shrink-0">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
                 <Headphones className="w-4 h-4 text-white" />
@@ -132,7 +132,7 @@ export function ChatWidget() {
               </div>
             ) : messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-4">
-                <div className="w-14 h-14 rounded-lg bg-[var(--color-navy-bg)] flex items-center justify-center">
+                <div className="w-14 h-14 rounded-lg bg-[var(--color-brand-bg)] flex items-center justify-center">
                   <MessageSquare className="w-7 h-7 text-[var(--color-steel)]" />
                 </div>
                 <div>
@@ -141,7 +141,7 @@ export function ChatWidget() {
                     Envie uma mensagem e nossa equipe responderá em breve durante o horario comercial.
                   </p>
                 </div>
-                <div className="bg-[var(--color-navy-bg)] rounded-lg px-4 py-3 text-xs text-[var(--color-navy)] text-left w-full">
+                <div className="bg-[var(--color-brand-bg)] rounded-lg px-4 py-3 text-xs text-[var(--color-brand)] text-left w-full">
                   <p className="font-semibold mb-1">Horario de atendimento</p>
                   <p>Seg–Sex: 08h–18h</p>
                   <p>Sab: 08h–12h</p>
@@ -167,7 +167,7 @@ export function ChatWidget() {
                       )}
                       <div className={`rounded-lg px-3.5 py-2.5 ${m.isFromAdmin
                         ? "bg-[var(--color-surface)] border rounded-bl-sm shadow-sm"
-                        : "bg-[var(--color-navy)] text-white rounded-br-sm"
+                        : "bg-[var(--color-brand)] text-white rounded-br-sm"
                       }`}>
                         <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.content}</p>
                       </div>
@@ -203,7 +203,7 @@ export function ChatWidget() {
                 <Button
                   type="button"
                   size="sm"
-                  className="h-9 w-9 p-0 rounded-lg bg-[var(--color-navy)] hover:opacity-90 flex-shrink-0"
+                  className="h-9 w-9 p-0 rounded-lg bg-[var(--color-brand)] hover:opacity-90 flex-shrink-0"
                   disabled={!message.trim() || sendMutation.isPending}
                   onClick={handleSend}
                   data-testid="button-chat-send"
@@ -223,7 +223,7 @@ export function ChatWidget() {
       {/* FAB button */}
       <button
         onClick={() => setOpen(v => !v)}
-        className="relative w-[52px] h-[52px] bg-[var(--color-navy)] rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transition-all hover:scale-105 active:scale-95"
+        className="relative w-[52px] h-[52px] bg-[var(--color-brand)] rounded-full flex items-center justify-center shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] hover:shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] transition-all hover:scale-105 active:scale-95"
         data-testid="button-open-chat"
       >
         {open ? (

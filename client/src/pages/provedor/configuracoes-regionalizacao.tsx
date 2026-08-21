@@ -257,7 +257,7 @@ export default function ConfiguracoesRegionalizacaoPage() {
 
           {/* Autocomplete Dropdown */}
           {showResults && debouncedSearch.length >= 2 && (
-            <div className="absolute z-50 w-full mt-1 border rounded-md bg-popover shadow-md">
+            <div className="absolute z-50 w-full mt-1 border rounded-md bg-popover shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)]">
               <Command shouldFilter={false}>
                 <CommandList>
                   {filteredResults.length === 0 && !isSearching && (
@@ -310,7 +310,7 @@ export default function ConfiguracoesRegionalizacaoPage() {
           <div className="space-y-2">
             <button
               onClick={() => setShowMesoregions(!showMesoregions)}
-              className="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors"
+              className="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-[var(--color-brand)] transition-colors"
             >
               <Globe className="w-4 h-4" />
               Adicionar por Regiao
@@ -330,7 +330,7 @@ export default function ConfiguracoesRegionalizacaoPage() {
                       {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500 flex-shrink-0" /> : <Globe className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />}
                       <div className="min-w-0">
                         <p className="font-medium text-slate-700 truncate">{meso.name}</p>
-                        <p className="text-xs text-slate-400">{meso.cities} cidades</p>
+                        <p className="text-xs text-[var(--color-muted)]">{meso.cities} cidades</p>
                       </div>
                     </button>
                   );
@@ -380,7 +380,7 @@ export default function ConfiguracoesRegionalizacaoPage() {
           <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200">
             <Globe className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
             <div>
-              <p className="text-xs font-semibold text-blue-800">Mesorregioes de atuacao</p>
+              <p className="text-xs font-semibold text-[var(--color-brand)]">Mesorregioes de atuacao</p>
               <p className="text-xs text-blue-600 mt-0.5">
                 {myCidades.mesorregioes.join(", ")}
               </p>

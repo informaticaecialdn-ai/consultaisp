@@ -253,7 +253,7 @@ export default function ImportacaoEquipamentosPage() {
 
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-lg bg-amber-600 flex items-center justify-center shadow-md">
+            <div className="w-10 h-10 rounded-lg bg-amber-600 flex items-center justify-center shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)]">
               <Package className="w-5 h-5 text-white" />
             </div>
             <div>
@@ -275,8 +275,8 @@ export default function ImportacaoEquipamentosPage() {
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {[
             { label: "Retidos", value: stats.retidos ?? 0, icon: Package, color: "bg-red-100 text-red-700", bg: "bg-red-50", border: "border-red-200" },
-            { label: "Recuperados", value: stats.recuperados ?? 0, icon: CheckCircle, color: "bg-emerald-100 text-emerald-700", bg: "bg-emerald-50", border: "border-emerald-200" },
-            { label: "Valor em Risco", value: totalValorRetido, icon: DollarSign, color: "bg-amber-100 text-amber-700", bg: "bg-amber-50", border: "border-amber-200" },
+            { label: "Recuperados", value: stats.recuperados ?? 0, icon: CheckCircle, color: "bg-[var(--color-success-bg)] text-[var(--color-success)]", bg: "bg-[var(--color-success-bg)]", border: "border-[var(--color-success)]" },
+            { label: "Valor em Risco", value: totalValorRetido, icon: DollarSign, color: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]", bg: "bg-amber-50", border: "border-amber-200" },
           ].map(stat => (
             <Card key={stat.label} className={`p-4 ${stat.border} ${stat.bg}`}>
               <div className="flex items-center gap-3">
@@ -320,7 +320,7 @@ export default function ImportacaoEquipamentosPage() {
                 <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-semibold text-amber-900 text-sm">Por que registrar equipamentos?</p>
-                  <p className="text-xs text-amber-700 mt-1">
+                  <p className="text-xs text-[var(--color-gold)] mt-1">
                     A maioria dos provedores nao registra equipamentos perdidos no ERP. Sem esse registro, o sistema nao consegue
                     alertar outros provedores quando um cliente inadimplente com equipamento retido tenta contratar novo servico.
                   </p>
@@ -330,7 +330,7 @@ export default function ImportacaoEquipamentosPage() {
 
             <Card className="p-5">
               <h3 className="font-bold text-slate-900 mb-3 flex items-center gap-2">
-                <TableIcon className="w-4 h-4 text-slate-400" />
+                <TableIcon className="w-4 h-4 text-[var(--color-muted)]" />
                 Campos Suportados no CSV
               </h3>
               <div className="divide-y divide-slate-100">
@@ -347,7 +347,7 @@ export default function ImportacaoEquipamentosPage() {
                 ].map(row => (
                   <div key={row.campo} className="flex items-center justify-between py-2">
                     <div className="flex items-center gap-3">
-                      {row.obrig && <Badge className="text-xs bg-blue-100 text-blue-800 font-bold">OBRIG</Badge>}
+                      {row.obrig && <Badge className="text-xs bg-[var(--color-brand-bg)] text-[var(--color-brand)] font-bold">OBRIG</Badge>}
                       {!row.obrig && <div className="w-12" />}
                       <code className="text-xs font-mono text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{row.campo}</code>
                     </div>
@@ -367,12 +367,12 @@ export default function ImportacaoEquipamentosPage() {
             >
               <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFileChange} data-testid="input-csv-file" />
               <div className="flex flex-col items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center">
+                <div className="w-12 h-12 rounded-full bg-[var(--color-gold-bg)] flex items-center justify-center">
                   <Upload className="w-6 h-6 text-amber-600" />
                 </div>
                 <div>
                   <p className="font-semibold text-slate-700">Arraste o arquivo CSV aqui</p>
-                  <p className="text-xs text-slate-400 mt-1">ou clique para selecionar — apenas arquivos .csv</p>
+                  <p className="text-xs text-[var(--color-muted)] mt-1">ou clique para selecionar — apenas arquivos .csv</p>
                 </div>
               </div>
             </Card>
@@ -383,13 +383,13 @@ export default function ImportacaoEquipamentosPage() {
                   <h3 className="font-bold text-slate-900">Preview dos Dados</h3>
                   <div className="flex gap-2">
                     {parsedRows.length > 0 && (
-                      <Badge className="bg-emerald-100 text-emerald-800">{parsedRows.length} prontos para importar</Badge>
+                      <Badge className="bg-[var(--color-success-bg)] text-[var(--color-success)]">{parsedRows.length} prontos para importar</Badge>
                     )}
                     {parseErrors.length > 0 && (
-                      <Badge className="bg-red-100 text-red-800">{parseErrors.length} com erro</Badge>
+                      <Badge className="bg-[var(--color-danger-bg)] text-[var(--color-danger)]">{parseErrors.length} com erro</Badge>
                     )}
                     {parsedRows.length > 0 && (
-                      <Badge className="bg-amber-100 text-amber-800">
+                      <Badge className="bg-[var(--color-gold-bg)] text-[var(--color-gold)]">
                         R$ {parsedRows.reduce((s, r) => s + (parseFloat(r.valor_equipamento) || 0), 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })} valor total
                       </Badge>
                     )}
@@ -420,7 +420,7 @@ export default function ImportacaoEquipamentosPage() {
                       </tbody>
                     </table>
                     {parsedRows.length > 10 && (
-                      <p className="text-xs text-slate-400 text-center py-2">Mostrando 10 de {parsedRows.length} registros</p>
+                      <p className="text-xs text-[var(--color-muted)] text-center py-2">Mostrando 10 de {parsedRows.length} registros</p>
                     )}
                   </div>
                 )}
@@ -464,9 +464,9 @@ export default function ImportacaoEquipamentosPage() {
                     data-testid={`wizard-step-${step.n}`}
                   >
                     <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-black transition-all ${
-                      step.n < wizardStep ? "bg-emerald-500 text-white"
+                      step.n < wizardStep ? "bg-[var(--color-success)] text-white"
                       : step.n === wizardStep ? "bg-amber-600 text-white ring-4 ring-amber-100 scale-110"
-                      : "bg-slate-100 text-slate-400"
+                      : "bg-slate-100 text-[var(--color-muted)]"
                     }`}>
                       {step.n < wizardStep ? (
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -474,10 +474,10 @@ export default function ImportacaoEquipamentosPage() {
                         </svg>
                       ) : step.n}
                     </div>
-                    <span className={`text-xs font-semibold ${step.n === wizardStep ? "text-amber-700" : step.n < wizardStep ? "text-emerald-600" : "text-slate-400"}`}>{step.label}</span>
+                    <span className={`text-xs font-semibold ${step.n === wizardStep ? "text-[var(--color-gold)]" : step.n < wizardStep ? "text-[var(--color-success)]" : "text-[var(--color-muted)]"}`}>{step.label}</span>
                   </button>
                   {i < arr.length - 1 && (
-                    <div className={`h-0.5 flex-1 mx-1 mb-4 transition-colors ${step.n < wizardStep ? "bg-emerald-400" : "bg-slate-200"}`} />
+                    <div className={`h-0.5 flex-1 mx-1 mb-4 transition-colors ${step.n < wizardStep ? "bg-[var(--color-success)]" : "bg-[var(--color-tag-bg)]"}`} />
                   )}
                 </div>
               ))}
@@ -485,7 +485,7 @@ export default function ImportacaoEquipamentosPage() {
 
             {/* Step 1: Identificacao */}
             {wizardStep === 1 && (
-              <Card className="overflow-hidden shadow-lg rounded-lg">
+              <Card className="overflow-hidden shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] rounded-lg">
                 <div className="bg-amber-50 border-b border-amber-100 px-6 py-4 flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center">
                     <User className="w-4 h-4 text-white" />
@@ -497,7 +497,7 @@ export default function ImportacaoEquipamentosPage() {
                 </div>
                 <div className="p-6 space-y-5">
                   <div className="space-y-2">
-                    <Label className="text-sm font-semibold text-slate-700">CPF ou CNPJ <span className="text-red-500">*</span></Label>
+                    <Label className="text-sm font-semibold text-slate-700">CPF ou CNPJ <span className="text-[var(--color-danger)]">*</span></Label>
                     <div className="relative">
                       <Input
                         value={form.cpfCnpj}
@@ -524,9 +524,9 @@ export default function ImportacaoEquipamentosPage() {
                         )}
                       </div>
                     </div>
-                    {wizardErrors.cpfCnpj && <p className="text-xs text-red-500 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> {wizardErrors.cpfCnpj}</p>}
+                    {wizardErrors.cpfCnpj && <p className="text-xs text-[var(--color-danger)] flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> {wizardErrors.cpfCnpj}</p>}
                     {detectDocType(form.cpfCnpj) && (
-                      <p className="text-xs text-emerald-600 flex items-center gap-1">
+                      <p className="text-xs text-[var(--color-success)] flex items-center gap-1">
                         <CheckCircle className="w-3 h-3" />
                         {detectDocType(form.cpfCnpj)} valido detectado
                       </p>
@@ -543,12 +543,12 @@ export default function ImportacaoEquipamentosPage() {
                       className="h-12 text-base"
                       data-testid="input-nome-cliente"
                     />
-                    <p className="text-xs text-slate-400">Opcional — facilita identificacao interna</p>
+                    <p className="text-xs text-[var(--color-muted)]">Opcional — facilita identificacao interna</p>
                   </div>
 
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-start gap-3">
                     <AlertTriangle className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-blue-800">
+                    <p className="text-xs text-[var(--color-brand)]">
                       <span className="font-semibold">Dica:</span> O documento sera consultado na rede ISP para cruzamento de dados.
                       Qualquer outro provedor que consulte esse mesmo documento sera alertado sobre o equipamento retido.
                     </p>
@@ -564,7 +564,7 @@ export default function ImportacaoEquipamentosPage() {
 
             {/* Step 2: Tipo de Equipamento */}
             {wizardStep === 2 && (
-              <Card className="overflow-hidden shadow-lg rounded-lg">
+              <Card className="overflow-hidden shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] rounded-lg">
                 <div className="bg-amber-50 border-b border-amber-100 px-6 py-4 flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center">
                     <Package className="w-4 h-4 text-white" />
@@ -581,7 +581,7 @@ export default function ImportacaoEquipamentosPage() {
                       const colorMap: Record<string, string> = {
                         blue: selected ? "border-blue-500 bg-blue-50" : "border-slate-200 hover:border-blue-300 hover:bg-blue-50/50",
                         violet: selected ? "border-violet-500 bg-violet-50" : "border-slate-200 hover:border-violet-300 hover:bg-violet-50/50",
-                        emerald: selected ? "border-emerald-500 bg-emerald-50" : "border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/50",
+                        emerald: selected ? "border-emerald-500 bg-[var(--color-success-bg)]" : "border-slate-200 hover:border-emerald-300 hover:bg-[var(--color-success-bg)]/50",
                         orange: selected ? "border-orange-500 bg-orange-50" : "border-slate-200 hover:border-orange-300 hover:bg-orange-50/50",
                         cyan: selected ? "border-cyan-500 bg-cyan-50" : "border-slate-200 hover:border-cyan-300 hover:bg-cyan-50/50",
                         slate: selected ? "border-slate-500 bg-slate-100" : "border-slate-200 hover:border-slate-400",
@@ -589,8 +589,8 @@ export default function ImportacaoEquipamentosPage() {
                       const iconColorMap: Record<string, string> = {
                         blue: selected ? "bg-blue-500 text-white" : "bg-blue-100 text-blue-600",
                         violet: selected ? "bg-violet-500 text-white" : "bg-violet-100 text-violet-600",
-                        emerald: selected ? "bg-emerald-500 text-white" : "bg-emerald-100 text-emerald-600",
-                        orange: selected ? "bg-orange-500 text-white" : "bg-orange-100 text-orange-600",
+                        emerald: selected ? "bg-[var(--color-success)] text-white" : "bg-[var(--color-success-bg)] text-[var(--color-success)]",
+                        orange: selected ? "bg-orange-500 text-white" : "bg-[var(--color-gold-bg)] text-orange-600",
                         cyan: selected ? "bg-cyan-500 text-white" : "bg-cyan-100 text-cyan-600",
                         slate: selected ? "bg-slate-500 text-white" : "bg-slate-100 text-slate-600",
                       };
@@ -624,7 +624,7 @@ export default function ImportacaoEquipamentosPage() {
                       );
                     })}
                   </div>
-                  {wizardErrors.tipo && <p className="text-xs text-red-500 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> {wizardErrors.tipo}</p>}
+                  {wizardErrors.tipo && <p className="text-xs text-[var(--color-danger)] flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> {wizardErrors.tipo}</p>}
                 </div>
                 <div className="border-t bg-slate-50 px-6 py-4 flex justify-between">
                   <Button variant="outline" className="gap-2" onClick={() => setWizardStep(1)} data-testid="wizard-back-2">
@@ -639,7 +639,7 @@ export default function ImportacaoEquipamentosPage() {
 
             {/* Step 3: Detalhes do Equipamento */}
             {wizardStep === 3 && (
-              <Card className="overflow-hidden shadow-lg rounded-lg">
+              <Card className="overflow-hidden shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] rounded-lg">
                 <div className="bg-amber-50 border-b border-amber-100 px-6 py-4 flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center">
                     <Settings className="w-4 h-4 text-white" />
@@ -660,7 +660,7 @@ export default function ImportacaoEquipamentosPage() {
                             onClick={() => setForm(f => ({ ...f, marca: m, modelo: "" }))}
                             className={`px-3 py-1.5 rounded-lg text-xs font-semibold border-2 transition-colors ${
                               form.marca === m
-                                ? "border-amber-500 bg-amber-50 text-amber-800"
+                                ? "border-amber-500 bg-amber-50 text-[var(--color-gold)]"
                                 : "border-slate-200 text-slate-600 hover:border-amber-300"
                             }`}
                             data-testid={`marca-btn-${m}`}
@@ -682,7 +682,7 @@ export default function ImportacaoEquipamentosPage() {
                                 onClick={() => setForm(f => ({ ...f, modelo: m }))}
                                 className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
                                   form.modelo === m
-                                    ? "border-amber-500 bg-amber-50 text-amber-800"
+                                    ? "border-amber-500 bg-amber-50 text-[var(--color-gold)]"
                                     : "border-slate-200 text-slate-500 hover:border-amber-300"
                                 }`}
                                 data-testid={`modelo-btn-${m}`}
@@ -714,7 +714,7 @@ export default function ImportacaoEquipamentosPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                        <ScanLine className="w-3.5 h-3.5 text-slate-400" />
+                        <ScanLine className="w-3.5 h-3.5 text-[var(--color-muted)]" />
                         Numero de Serie
                       </Label>
                       <Input
@@ -724,12 +724,12 @@ export default function ImportacaoEquipamentosPage() {
                         className="h-10 font-mono text-sm"
                         data-testid="input-numero-serie"
                       />
-                      <p className="text-xs text-slate-400">Usado para identificar o equipamento em campo</p>
+                      <p className="text-xs text-[var(--color-muted)]">Usado para identificar o equipamento em campo</p>
                     </div>
 
                     <div className="space-y-2">
                       <Label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                        <DollarSign className="w-3.5 h-3.5 text-slate-400" />
+                        <DollarSign className="w-3.5 h-3.5 text-[var(--color-muted)]" />
                         Valor do Equipamento (R$)
                       </Label>
                       <div className="relative">
@@ -746,7 +746,7 @@ export default function ImportacaoEquipamentosPage() {
                         />
                       </div>
                       {form.valor && parseFloat(form.valor) > 0 && (
-                        <p className="text-xs text-amber-700 font-semibold">
+                        <p className="text-xs text-[var(--color-gold)] font-semibold">
                           Sera exibido como valor a cobrar do cliente
                         </p>
                       )}
@@ -766,7 +766,7 @@ export default function ImportacaoEquipamentosPage() {
 
             {/* Step 4: Data, Observacoes e Revisao */}
             {wizardStep === 4 && (
-              <Card className="overflow-hidden shadow-lg rounded-lg">
+              <Card className="overflow-hidden shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] rounded-lg">
                 <div className="bg-amber-50 border-b border-amber-100 px-6 py-4 flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center">
                     <CheckCircle className="w-4 h-4 text-white" />
@@ -780,7 +780,7 @@ export default function ImportacaoEquipamentosPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                        <Calendar className="w-3.5 h-3.5 text-[var(--color-muted)]" />
                         Data da Perda / Cancelamento
                       </Label>
                       <Input
@@ -819,17 +819,17 @@ export default function ImportacaoEquipamentosPage() {
                         { label: "Data perda", value: form.dataPerda || "Nao informada" },
                       ].map(row => (
                         <div key={row.label} className="space-y-0.5">
-                          <p className="text-xs text-slate-400 font-semibold uppercase">{row.label}</p>
+                          <p className="text-xs text-[var(--color-muted)] font-semibold uppercase">{row.label}</p>
                           <div className="flex items-center gap-1.5">
                             <p className="text-sm font-semibold text-slate-800">{row.value}</p>
-                            {row.badge && <Badge className="text-xs bg-emerald-100 text-emerald-700">{row.badge}</Badge>}
+                            {row.badge && <Badge className="text-xs bg-[var(--color-success-bg)] text-[var(--color-success)]">{row.badge}</Badge>}
                           </div>
                         </div>
                       ))}
                     </div>
                     {form.observacao && (
                       <div className="pt-2 border-t border-slate-200">
-                        <p className="text-xs text-slate-400 font-semibold uppercase mb-0.5">Observacoes</p>
+                        <p className="text-xs text-[var(--color-muted)] font-semibold uppercase mb-0.5">Observacoes</p>
                         <p className="text-sm text-slate-700">{form.observacao}</p>
                       </div>
                     )}
@@ -837,7 +837,7 @@ export default function ImportacaoEquipamentosPage() {
 
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
                     <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                    <p className="text-xs text-amber-800">
+                    <p className="text-xs text-[var(--color-gold)]">
                       Ao salvar, este equipamento sera vinculado ao CPF/CNPJ informado.
                       Qualquer consulta futura sobre este documento na rede Consulta ISP ira exibir o alerta de equipamento retido.
                     </p>
@@ -891,7 +891,7 @@ export default function ImportacaoEquipamentosPage() {
               <Card className="p-12 text-center border-dashed border-2">
                 <Package className="w-10 h-10 text-slate-300 mx-auto mb-3" />
                 <p className="text-slate-500 font-semibold">Nenhum equipamento cadastrado</p>
-                <p className="text-xs text-slate-400 mt-1">Use a aba "Upload Planilha" ou "Cadastro Manual" para comecar</p>
+                <p className="text-xs text-[var(--color-muted)] mt-1">Use a aba "Upload Planilha" ou "Cadastro Manual" para comecar</p>
               </Card>
             ) : (
               <Card className="overflow-hidden">
@@ -909,14 +909,14 @@ export default function ImportacaoEquipamentosPage() {
                         <tr key={item.id} className="hover:bg-slate-50" data-testid={`row-equipamento-${item.id}`}>
                           <td className="px-3 py-2.5">
                             <p className="font-semibold text-slate-900">{item.nomeCliente || "—"}</p>
-                            <p className="text-slate-400 font-mono">{formatCpf(item.cpfCnpj)}</p>
+                            <p className="text-[var(--color-muted)] font-mono">{formatCpf(item.cpfCnpj)}</p>
                           </td>
                           <td className="px-3 py-2.5">
                             <Badge className="text-xs bg-slate-100 text-slate-700">{item.tipo}</Badge>
                           </td>
                           <td className="px-3 py-2.5">
                             <p className="font-medium text-slate-700">{item.marca || "—"}</p>
-                            <p className="text-slate-400">{item.modelo || "—"}</p>
+                            <p className="text-[var(--color-muted)]">{item.modelo || "—"}</p>
                           </td>
                           <td className="px-3 py-2.5 font-mono text-slate-500">{item.numeroSerie || "—"}</td>
                           <td className="px-3 py-2.5">
@@ -930,7 +930,7 @@ export default function ImportacaoEquipamentosPage() {
                               value={item.status}
                               onValueChange={(v) => updateStatusMutation.mutate({ id: item.id, status: v })}
                             >
-                              <SelectTrigger className={`h-7 text-xs w-32 ${item.status === "retido" ? "border-red-200 bg-red-50" : item.status === "recuperado" ? "border-emerald-200 bg-emerald-50" : "border-slate-200"}`} data-testid={`select-status-${item.id}`}>
+                              <SelectTrigger className={`h-7 text-xs w-32 ${item.status === "retido" ? "border-red-200 bg-red-50" : item.status === "recuperado" ? "border-[var(--color-success)] bg-[var(--color-success-bg)]" : "border-slate-200"}`} data-testid={`select-status-${item.id}`}>
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -945,7 +945,7 @@ export default function ImportacaoEquipamentosPage() {
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                className="h-7 w-7 p-0 text-emerald-600 hover:text-emerald-800"
+                                className="h-7 w-7 p-0 text-[var(--color-success)] hover:text-[var(--color-success)]"
                                 onClick={() => updateStatusMutation.mutate({ id: item.id, status: "recuperado" })}
                                 title="Marcar como recuperado"
                                 data-testid={`button-recuperado-${item.id}`}
@@ -955,7 +955,7 @@ export default function ImportacaoEquipamentosPage() {
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                className="h-7 w-7 p-0 text-red-500 hover:text-red-700"
+                                className="h-7 w-7 p-0 text-[var(--color-danger)] hover:text-red-700"
                                 onClick={() => deleteMutation.mutate(item.id)}
                                 title="Remover"
                                 data-testid={`button-delete-${item.id}`}

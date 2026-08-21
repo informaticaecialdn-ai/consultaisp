@@ -23,7 +23,7 @@ export default function SuporteTab() {
       <div className="flex gap-2 mb-4">
         <button
           onClick={() => setSub("provedores")}
-          className={`px-4 py-2 rounded text-sm font-medium transition-colors ${sub === "provedores" ? "bg-[var(--color-navy)] text-white" : "bg-muted text-[var(--color-muted)] hover:bg-muted/70"}`}
+          className={`px-4 py-2 rounded text-sm font-medium transition-colors ${sub === "provedores" ? "bg-[var(--color-brand)] text-white" : "bg-muted text-[var(--color-muted)] hover:bg-muted/70"}`}
           data-testid="tab-support-providers"
         >
           Provedores
@@ -35,7 +35,7 @@ export default function SuporteTab() {
         </button>
         <button
           onClick={() => setSub("visitantes")}
-          className={`px-4 py-2 rounded text-sm font-medium transition-colors ${sub === "visitantes" ? "bg-[var(--color-navy)] text-white" : "bg-muted text-[var(--color-muted)] hover:bg-muted/70"}`}
+          className={`px-4 py-2 rounded text-sm font-medium transition-colors ${sub === "visitantes" ? "bg-[var(--color-brand)] text-white" : "bg-muted text-[var(--color-muted)] hover:bg-muted/70"}`}
           data-testid="tab-support-visitors"
         >
           Visitantes do Site

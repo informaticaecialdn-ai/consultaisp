@@ -37,7 +37,7 @@ export default function TimelineTab({ timelineData, cpfCnpj, isLoading }: Props)
           </div>
         ) : isLoading ? (
           <div className="flex items-center justify-center py-12 gap-3">
-            <div className="w-5 h-5 border-2 border-[var(--color-navy)] border-t-transparent rounded-full animate-spin" />
+            <div className="w-5 h-5 border-2 border-[var(--color-brand)] border-t-transparent rounded-full animate-spin" />
             <span className="text-[var(--color-muted)] text-sm">Carregando timeline...</span>
           </div>
         ) : !timelineData?.timeline?.length ? (
@@ -113,7 +113,7 @@ export default function TimelineTab({ timelineData, cpfCnpj, isLoading }: Props)
                   return (
                     <div key={idx} className="relative pl-10">
                       <div className={`absolute left-3 top-3 w-2.5 h-2.5 rounded-full ${dotColor} ring-2 ring-white`} />
-                      <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded p-4 hover:border-[var(--color-navy)] transition-colors">
+                      <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded p-4 hover:border-[var(--color-brand)] transition-colors">
                         <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
                           <div className="flex items-center gap-2">
                             <Calendar className="w-3.5 h-3.5 text-[var(--color-muted)]" />

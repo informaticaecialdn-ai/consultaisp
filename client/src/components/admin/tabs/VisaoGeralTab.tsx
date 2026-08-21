@@ -70,7 +70,7 @@ export default function VisaoGeralTab() {
           <div className="space-y-2">
             {allProviders.slice(0, 5).map((p: any) => (
               <div key={p.id} className="flex items-center gap-3 py-1.5 border-b last:border-0" data-testid={`provider-row-${p.id}`}>
-                <div className="w-8 h-8 rounded bg-[var(--color-navy-bg)] dark:bg-blue-900 flex items-center justify-center text-sm font-bold text-[var(--color-navy)] dark:text-blue-300">
+                <div className="w-8 h-8 rounded bg-[var(--color-brand-bg)] dark:bg-blue-900 flex items-center justify-center text-sm font-bold text-[var(--color-brand)] dark:text-blue-300">
                   {p.name?.charAt(0)}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -81,7 +81,7 @@ export default function VisaoGeralTab() {
                   <Badge className={`text-xs ${PLAN_LABELS[p.plan]?.color || ""}`}>
                     {PLAN_LABELS[p.plan]?.label}
                   </Badge>
-                  <span className={`w-2 h-2 rounded-full ${p.status === "active" ? "bg-emerald-500" : "bg-gray-400"}`} />
+                  <span className={`w-2 h-2 rounded-full ${p.status === "active" ? "bg-[var(--color-success)]" : "bg-[var(--color-muted)]"}`} />
                 </div>
               </div>
             ))}
@@ -130,11 +130,11 @@ export default function VisaoGeralTab() {
             <div>
               <p className="text-xs text-[var(--color-muted)]">Scheduler ERP</p>
               {autoSyncStatus?.scheduler?.running ? (
-                <Badge className="bg-amber-100 text-[var(--color-gold)] gap-1">
+                <Badge className="bg-[var(--color-gold-bg)] text-[var(--color-gold)] gap-1">
                   <RefreshCw className="w-3 h-3 animate-spin" />Executando
                 </Badge>
               ) : (
-                <Badge className="bg-emerald-100 text-emerald-700 gap-1">
+                <Badge className="bg-[var(--color-success-bg)] text-[var(--color-success)] gap-1">
                   <CheckCircle className="w-3 h-3" />Aguardando
                 </Badge>
               )}
@@ -187,11 +187,11 @@ export default function VisaoGeralTab() {
           <div className="divide-y">
             {autoSyncStatus.integrations.map((intg: any) => {
               const statusColors: Record<string, string> = {
-                success: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300",
+                success: "bg-[var(--color-success-bg)] text-[var(--color-success)]",
                 error: "bg-red-100 text-[var(--color-danger)] dark:bg-red-900 dark:text-red-300",
-                partial: "bg-amber-100 text-[var(--color-gold)] dark:bg-amber-900 dark:text-amber-300",
+                partial: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]",
               };
-              const statusColor = statusColors[intg.lastSyncStatus] || "bg-gray-100 text-gray-600";
+              const statusColor = statusColors[intg.lastSyncStatus] || "bg-[var(--color-tag-bg)] text-[var(--color-muted)]";
               return (
                 <div key={`${intg.providerId}-${intg.erpSource}`} className="p-4 flex items-center gap-4" data-testid={`sync-row-${intg.providerId}`}>
                   <div className="flex-1 min-w-0">
@@ -202,7 +202,7 @@ export default function VisaoGeralTab() {
                         <Badge className={`text-xs ${statusColor}`}>{intg.lastSyncStatus}</Badge>
                       )}
                       {intg.isDue && (
-                        <Badge className="text-xs bg-[var(--color-navy-bg)] text-[var(--color-navy)]">Vencido</Badge>
+                        <Badge className="text-xs bg-[var(--color-brand-bg)] text-[var(--color-brand)]">Vencido</Badge>
                       )}
                     </div>
                     <div className="flex items-center gap-4 mt-1 text-xs text-[var(--color-muted)] flex-wrap">
@@ -211,8 +211,8 @@ export default function VisaoGeralTab() {
                           ? `Ultima sync: ${new Date(intg.lastSyncAt).toLocaleString("pt-BR")}`
                           : "Nunca sincronizado"}
                       </span>
-                      <span className="text-emerald-600">{intg.totalSynced} sincronizados</span>
-                      {intg.totalErrors > 0 && <span className="text-red-500">{intg.totalErrors} erros</span>}
+                      <span className="text-[var(--color-success)]">{intg.totalSynced} sincronizados</span>
+                      {intg.totalErrors > 0 && <span className="text-[var(--color-danger)]">{intg.totalErrors} erros</span>}
                     </div>
                   </div>
                 </div>

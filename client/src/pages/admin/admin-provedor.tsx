@@ -21,15 +21,15 @@ import {
 } from "lucide-react";
 
 const PLAN_CONFIG: Record<string, { label: string; color: string; isp: number; spc: number; price: number }> = {
-  free:       { label: "Gratuito",   color: "bg-gray-100 text-gray-700",   isp: 50,   spc: 0,   price: 0 },
+  free:       { label: "Gratuito",   color: "bg-[var(--color-tag-bg)] text-gray-700",   isp: 50,   spc: 0,   price: 0 },
   basic:      { label: "Basico",     color: "bg-blue-100 text-blue-700",   isp: 200,  spc: 50,  price: 199 },
   pro:        { label: "Pro",        color: "bg-indigo-100 text-indigo-700", isp: 500, spc: 150, price: 399 },
-  enterprise: { label: "Enterprise", color: "bg-amber-100 text-amber-700", isp: 1500, spc: 500, price: 799 },
+  enterprise: { label: "Enterprise", color: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]", isp: 1500, spc: 500, price: 799 },
 };
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   active:    { label: "Ativo",     color: "bg-green-100 text-green-700" },
-  inactive:  { label: "Inativo",   color: "bg-gray-100 text-gray-500" },
+  inactive:  { label: "Inativo",   color: "bg-[var(--color-tag-bg)] text-gray-500" },
   suspended: { label: "Suspenso",  color: "bg-red-100 text-red-700" },
 };
 
@@ -66,12 +66,12 @@ function StatCard({ icon: Icon, label, value, sub, color = "text-blue-600" }: {
 
 function InvoiceStatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
-    pending:   { label: "Pendente",   cls: "bg-yellow-100 text-yellow-700" },
+    pending:   { label: "Pendente",   cls: "bg-[var(--color-gold-bg)] text-yellow-700" },
     paid:      { label: "Paga",       cls: "bg-green-100 text-green-700" },
     overdue:   { label: "Vencida",    cls: "bg-red-100 text-red-700" },
-    cancelled: { label: "Cancelada",  cls: "bg-gray-100 text-gray-500" },
+    cancelled: { label: "Cancelada",  cls: "bg-[var(--color-tag-bg)] text-gray-500" },
   };
-  const s = map[status] || { label: status, cls: "bg-gray-100 text-gray-600" };
+  const s = map[status] || { label: status, cls: "bg-[var(--color-tag-bg)] text-[var(--color-muted)]" };
   return <Badge className={`${s.cls} border-0 text-xs font-medium`}>{s.label}</Badge>;
 }
 
@@ -450,9 +450,9 @@ export default function AdminProvedorPage() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Globe className="w-4 h-4 text-blue-600" />
-                      <h3 className="font-semibold text-sm text-blue-800">Configuracao DNS do Subdominio</h3>
+                      <h3 className="font-semibold text-sm text-[var(--color-brand)]">Configuracao DNS do Subdominio</h3>
                     </div>
-                    <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-xs font-medium" data-testid="badge-dns-status">
+                    <Badge className="bg-[var(--color-gold-bg)] text-[var(--color-gold)] border-amber-200 text-xs font-medium" data-testid="badge-dns-status">
                       Configurar manualmente
                     </Badge>
                   </div>
@@ -481,7 +481,7 @@ export default function AdminProvedorPage() {
                           <td className="px-4 py-3">
                             <button
                               onClick={() => { navigator.clipboard.writeText(`${provider.subdomain}\tCNAME\tapp.consultaisp.com.br`); }}
-                              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium"
+                              className="flex items-center gap-1 text-xs text-blue-600 hover:text-[var(--color-brand)] font-medium"
                               data-testid="button-copy-dns-record"
                             >
                               <Copy className="w-3 h-3" />Copiar
@@ -661,11 +661,11 @@ export default function AdminProvedorPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <Badge className={`border-0 text-xs ${u.role === "admin" ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600"}`}>
+                      <Badge className={`border-0 text-xs ${u.role === "admin" ? "bg-blue-100 text-blue-700" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>
                         {u.role === "admin" ? "Admin" : "Usuario"}
                       </Badge>
                       {u.emailVerified ? (
-                        <CheckCircle className="w-4 h-4 text-green-500" title="Email verificado" />
+                        <CheckCircle className="w-4 h-4 text-[var(--color-success)]" title="Email verificado" />
                       ) : (
                         <XCircle className="w-4 h-4 text-gray-400" title="Email nao verificado" />
                       )}
@@ -693,7 +693,7 @@ export default function AdminProvedorPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Card className="overflow-hidden">
               <div className="px-5 py-3 border-b bg-blue-50">
-                <h3 className="font-semibold text-blue-800 flex items-center gap-2">
+                <h3 className="font-semibold text-[var(--color-brand)] flex items-center gap-2">
                   <BarChart3 className="w-4 h-4" /> Consultas ISP
                 </h3>
                 <p className="text-xs text-blue-600">{stats.ispConsultations} total · {stats.ispConsultationsMonth} este mes</p>
@@ -850,7 +850,7 @@ export default function AdminProvedorPage() {
               </div>
               <div className="p-3 bg-purple-50 rounded-lg">
                 <p className="text-xs text-purple-600 mb-1">Atual SPC</p>
-                <p className="text-xl font-bold text-purple-700">{provider.spcCredits}</p>
+                <p className="text-xl font-bold text-[var(--color-brand)]">{provider.spcCredits}</p>
               </div>
             </div>
             <div className="space-y-3">
@@ -1066,7 +1066,7 @@ function IntegracaoTab({ providerId, erpSource, erpEnabled }: { providerId: numb
       {/* Header stats */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: "ERPs Ativos", value: erpEnabled && erpSource ? 1 : integrations.filter(i => i.isEnabled).length, color: "text-emerald-600" },
+          { label: "ERPs Ativos", value: erpEnabled && erpSource ? 1 : integrations.filter(i => i.isEnabled).length, color: "text-[var(--color-success)]" },
           { label: "Total Sincronizados", value: integrations.reduce((s, i) => s + (i.totalSynced || 0), 0).toLocaleString("pt-BR"), color: "text-blue-600" },
           { label: "Total de Erros", value: integrations.reduce((s, i) => s + (i.totalErrors || 0), 0).toLocaleString("pt-BR"), color: "text-rose-500" },
         ].map(s => (
@@ -1106,13 +1106,13 @@ function IntegracaoTab({ providerId, erpSource, erpEnabled }: { providerId: numb
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-sm font-semibold">{erp.name}</p>
                       {isActiveErp && (
-                        <span className="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full font-medium">Configurado</span>
+                        <span className="text-xs bg-[var(--color-success-bg)] text-[var(--color-success)] px-1.5 py-0.5 rounded font-medium">Configurado</span>
                       )}
                       {hasCredentials && status && (
-                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-                          status === "success" ? "bg-emerald-100 text-emerald-700" :
+                        <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                          status === "success" ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" :
                           status === "error" ? "bg-red-100 text-red-700" :
-                          "bg-amber-100 text-amber-700"
+                          "bg-[var(--color-gold-bg)] text-[var(--color-gold)]"
                         }`}>{status === "success" ? "Sucesso" : status === "error" ? "Erro" : "Parcial"}</span>
                       )}
                     </div>
@@ -1126,7 +1126,7 @@ function IntegracaoTab({ providerId, erpSource, erpEnabled }: { providerId: numb
                       <p className="text-xs text-muted-foreground mt-0.5">Configurado pelo administrador do sistema</p>
                     ) : null}
                   </div>
-                  <Badge className={`border-0 text-xs flex-shrink-0 ${isEnabled ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"}`} data-testid={`badge-erp-status-${erp.key}`}>
+                  <Badge className={`border-0 text-xs flex-shrink-0 ${isEnabled ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : "bg-[var(--color-tag-bg)] text-gray-500"}`} data-testid={`badge-erp-status-${erp.key}`}>
                     {isEnabled ? "Ativo" : "Inativo"}
                   </Badge>
                 </div>
@@ -1161,7 +1161,7 @@ function IntegracaoTab({ providerId, erpSource, erpEnabled }: { providerId: numb
                   <tr key={log.id} data-testid={`row-synclog-${log.id}`}>
                     <td className="px-4 py-2 font-medium">{ERP_NAMES[log.erpSource] || log.erpSource}</td>
                     <td className="px-4 py-2">
-                      <Badge className={`text-xs border-0 ${log.status === "success" ? "bg-green-100 text-green-700" : log.status === "error" ? "bg-red-100 text-red-700" : "bg-yellow-100 text-yellow-700"}`}>
+                      <Badge className={`text-xs border-0 ${log.status === "success" ? "bg-green-100 text-green-700" : log.status === "error" ? "bg-red-100 text-red-700" : "bg-[var(--color-gold-bg)] text-yellow-700"}`}>
                         {log.status === "success" ? "Sucesso" : log.status === "error" ? "Erro" : log.status}
                       </Badge>
                     </td>

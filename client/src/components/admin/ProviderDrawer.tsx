@@ -265,7 +265,7 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-8 w-8 p-0 text-red-500"
+                    className="h-8 w-8 p-0 text-[var(--color-danger)]"
                     onClick={() => { if (confirm(`Remover usuario ${u.name}?`)) deleteUserMutation.mutate(u.id); }}
                     data-testid={`drawer-button-delete-user-${u.id}`}
                   >
@@ -348,7 +348,7 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
           <TabsContent value="erp" className="space-y-3 pt-4">
             {erpName && (
               <div className="text-xs text-[var(--color-muted)]">
-                ERP atual: <Badge className="bg-[var(--color-navy-bg)] text-[var(--color-navy)]">{erpName}</Badge>
+                ERP atual: <Badge className="bg-[var(--color-brand-bg)] text-[var(--color-brand)]">{erpName}</Badge>
               </div>
             )}
             <div className="space-y-1.5">
@@ -371,7 +371,7 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
                         setErpTestResult(null);
                       }}
                       className={`flex flex-col items-center gap-1 p-2 rounded border-2 transition-all text-center ${
-                        isSelected ? "border-[var(--color-navy)] bg-[var(--color-navy-bg)]" : "border-transparent bg-[var(--color-surface)] hover:bg-slate-100"
+                        isSelected ? "border-[var(--color-brand)] bg-[var(--color-brand-bg)]" : "border-transparent bg-[var(--color-surface)] hover:bg-slate-100"
                       }`}
                       data-testid={`drawer-erp-option-${erp.key}`}
                     >
@@ -382,7 +382,7 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
                           <span className="text-white text-xs font-bold">{erp.name[0]}</span>
                         )}
                       </div>
-                      <p className={`text-xs font-semibold leading-tight ${isSelected ? "text-[var(--color-navy)]" : "text-[var(--color-muted)]"}`}>{erp.name}</p>
+                      <p className={`text-xs font-semibold leading-tight ${isSelected ? "text-[var(--color-brand)]" : "text-[var(--color-muted)]"}`}>{erp.name}</p>
                     </button>
                   );
                 })}
@@ -456,7 +456,7 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
                   </Button>
                 </div>
                 {erpTestResult && (
-                  <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded ${erpTestResult.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-[var(--color-danger-bg)] text-[var(--color-danger)] border border-red-200"}`}>
+                  <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded ${erpTestResult.ok ? "bg-[var(--color-success-bg)] text-[var(--color-success)] border border-[var(--color-success)]" : "bg-[var(--color-danger-bg)] text-[var(--color-danger)] border border-[var(--color-danger)]"}`}>
                     {erpTestResult.ok ? <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />}
                     {erpTestResult.msg}
                   </div>

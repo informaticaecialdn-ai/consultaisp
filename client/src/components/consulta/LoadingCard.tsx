@@ -24,7 +24,7 @@ export default function LoadingCard() {
   }, []);
 
   return (
-    <Card className="p-8 shadow-lg rounded-lg">
+    <Card className="p-8 shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] rounded-lg">
       <div className="flex flex-col gap-6">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 rounded-full border-4 border-blue-200 border-t-blue-600 animate-spin flex-shrink-0" />
@@ -40,7 +40,7 @@ export default function LoadingCard() {
             const active = i === currentStep;
             return (
               <div key={step.id} className={`flex items-start gap-3 p-3 rounded-lg transition-all duration-500 ${active ? "bg-blue-50 border border-blue-200" : done ? "opacity-60" : "opacity-30"}`}>
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${done ? "bg-emerald-500" : active ? "bg-blue-600" : "bg-slate-200"}`}>
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${done ? "bg-[var(--color-success)]" : active ? "bg-[var(--color-brand)]" : "bg-[var(--color-tag-bg)]"}`}>
                   {done ? (
                     <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
@@ -48,11 +48,11 @@ export default function LoadingCard() {
                   ) : active ? (
                     <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
                   ) : (
-                    <span className="text-xs font-bold text-slate-400">{step.id}</span>
+                    <span className="text-xs font-bold text-[var(--color-muted)]">{step.id}</span>
                   )}
                 </div>
                 <div>
-                  <p className={`text-sm font-semibold ${active ? "text-blue-800" : done ? "text-emerald-700" : "text-slate-400"}`}>{step.label}</p>
+                  <p className={`text-sm font-semibold ${active ? "text-[var(--color-brand)]" : done ? "text-[var(--color-success)]" : "text-[var(--color-muted)]"}`}>{step.label}</p>
                   {active && <p className="text-xs text-blue-600 mt-0.5">{step.detail}</p>}
                 </div>
               </div>
@@ -62,7 +62,7 @@ export default function LoadingCard() {
 
         <div className="space-y-1">
           <div className="h-2 bg-blue-100 rounded-full overflow-hidden">
-            <div className="h-full bg-blue-600 rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
+            <div className="h-full bg-[var(--color-brand)] rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
           </div>
           <p className="text-xs text-slate-500 text-right">{progress}%</p>
         </div>

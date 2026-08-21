@@ -36,12 +36,12 @@ export class ErrorBoundary extends Component<Props, State> {
           <Card className="w-full max-w-md mx-4">
             <CardContent className="pt-6">
               <div className="flex mb-4 gap-2">
-                <AlertCircle className="h-8 w-8 text-red-500" />
+                <AlertCircle className="h-8 w-8 text-[var(--color-danger)]" />
                 <h1 className="text-2xl font-bold text-gray-900">
                   Algo deu errado
                 </h1>
               </div>
-              <p className="mt-4 text-sm text-gray-600">
+              <p className="mt-4 text-sm text-[var(--color-muted)]">
                 Ocorreu um erro inesperado. Tente recarregar a página.
               </p>
               <button

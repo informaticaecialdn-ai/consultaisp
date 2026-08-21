@@ -148,17 +148,17 @@ export default function ConsultaSPCPage() {
   const detectedType = getDetectedType(query);
 
   const riskColors: Record<string, string> = {
-    very_low: "bg-emerald-100 text-emerald-800",
-    low: "bg-emerald-100 text-emerald-800",
-    medium: "bg-amber-100 text-amber-800",
-    high: "bg-orange-100 text-orange-800",
-    very_high: "bg-rose-100 text-rose-800",
+    very_low: "bg-[var(--color-success-bg)] text-[var(--color-success)]",
+    low: "bg-[var(--color-success-bg)] text-[var(--color-success)]",
+    medium: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]",
+    high: "bg-[var(--color-gold-bg)] text-[var(--score-low)]",
+    very_high: "bg-[var(--color-danger-bg)] text-rose-800",
   };
 
   const severityColors: Record<string, string> = {
-    medium: "bg-amber-100 text-amber-700 border-amber-200",
-    high: "bg-rose-100 text-rose-700 border-rose-200",
-    critical: "bg-red-100 text-red-800 border-red-300",
+    medium: "bg-[var(--color-gold-bg)] text-[var(--color-gold)] border-amber-200",
+    high: "bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-rose-200",
+    critical: "bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-red-300",
   };
 
   const severityLabels: Record<string, string> = {
@@ -171,7 +171,7 @@ export default function ConsultaSPCPage() {
     <div className="p-4 lg:p-6 space-y-6" data-testid="consulta-spc-page">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[var(--color-navy)] to-[var(--color-navy)] flex items-center justify-center">
+          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-[var(--color-brand)] to-[var(--color-brand)] flex items-center justify-center">
             <BarChart3 className="w-6 h-6 text-white" />
           </div>
           <div>
@@ -180,16 +180,16 @@ export default function ConsultaSPCPage() {
           </div>
         </div>
         <Badge variant="secondary" className="gap-1.5 px-3 py-1.5 text-sm">
-          <CreditCard className="w-4 h-4 text-[var(--color-navy)]" />
+          <CreditCard className="w-4 h-4 text-[var(--color-brand)]" />
           Creditos: <span className="font-bold" data-testid="text-spc-credits">{data?.credits ?? "..."}</span>
         </Badge>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="p-5 bg-gradient-to-br bg-[var(--color-navy-bg)] border-[var(--color-navy)]/10">
+        <Card className="p-5 bg-gradient-to-br bg-[var(--color-brand-bg)] border-[var(--color-brand)]/10">
           <div className="flex items-center justify-between gap-2 mb-3">
             <span className="text-sm font-medium text-muted-foreground">Consultas Hoje</span>
-            <TrendingUp className="w-5 h-5 text-[var(--color-navy)]" />
+            <TrendingUp className="w-5 h-5 text-[var(--color-brand)]" />
           </div>
           <div className="text-2xl font-bold" data-testid="text-spc-today">{isLoading ? <Skeleton className="h-7 w-8" /> : data?.todayCount}</div>
         </Card>
@@ -203,7 +203,7 @@ export default function ConsultaSPCPage() {
         <Card className="p-5 bg-gradient-to-br bg-[var(--color-success-bg)] border-[var(--color-success)]/10">
           <div className="flex items-center justify-between gap-2 mb-3">
             <span className="text-sm font-medium text-muted-foreground">Taxa Limpo</span>
-            <CheckCircle className="w-5 h-5 text-emerald-500" />
+            <CheckCircle className="w-5 h-5 text-[var(--color-success)]" />
           </div>
           <div className="text-2xl font-bold">
             {isLoading ? <Skeleton className="h-7 w-8" /> : (
@@ -251,7 +251,7 @@ export default function ConsultaSPCPage() {
         <TabsContent value="nova">
           <Card className="p-6">
             <div className="flex items-center gap-3 mb-6">
-              <BarChart3 className="w-5 h-5 text-[var(--color-navy)]" />
+              <BarChart3 className="w-5 h-5 text-[var(--color-brand)]" />
               <h2 className="text-lg font-semibold">Realizar Consulta SPC</h2>
             </div>
 
@@ -284,7 +284,7 @@ export default function ConsultaSPCPage() {
               <Button
                 onClick={handleSearch}
                 disabled={!query.trim() || mutation.isPending}
-                className="bg-gradient-to-r from-[var(--color-navy)] to-[var(--color-navy)]"
+                className="bg-gradient-to-r from-[var(--color-brand)] to-[var(--color-brand)]"
                 data-testid="button-consultar-spc"
               >
                 {mutation.isPending ? "Consultando..." : "Consultar SPC"}
@@ -293,23 +293,23 @@ export default function ConsultaSPCPage() {
 
             {detectedType && (
               <div className="mt-2 flex items-center gap-1.5" data-testid="text-spc-detected-type">
-                <CheckCircle className="w-4 h-4 text-emerald-500" />
-                <span className="text-sm font-medium text-emerald-600">{detectedType} detectado</span>
+                <CheckCircle className="w-4 h-4 text-[var(--color-success)]" />
+                <span className="text-sm font-medium text-[var(--color-success)]">{detectedType} detectado</span>
               </div>
             )}
 
-            <div className="mt-4 bg-[var(--color-navy-bg)] rounded-lg p-4 flex items-start gap-3">
-              <Info className="w-5 h-5 text-[var(--color-navy)] mt-0.5 flex-shrink-0" />
+            <div className="mt-4 bg-[var(--color-brand-bg)] rounded-lg p-4 flex items-start gap-3">
+              <Info className="w-5 h-5 text-[var(--color-brand)] mt-0.5 flex-shrink-0" />
               <p className="text-sm text-muted-foreground">
                 <span className="font-semibold text-foreground">Consulta Oficial SPC:</span> Cada consulta consome{" "}
-                <span className="font-bold text-[var(--color-navy)]">4 creditos</span> e retorna dados cadastrais, score, restricoes financeiras, protestos e historico de consultas.
+                <span className="font-bold text-[var(--color-brand)]">4 creditos</span> e retorna dados cadastrais, score, restricoes financeiras, protestos e historico de consultas.
               </p>
             </div>
 
             {result && (
               <div className="mt-6 space-y-5" data-testid="spc-result">
                 <div className="border rounded-lg overflow-hidden">
-                  <div className="bg-gradient-to-r from-[var(--color-navy)] to-[var(--color-navy)] text-white px-6 py-4">
+                  <div className="bg-gradient-to-r from-[var(--color-brand)] to-[var(--color-brand)] text-white px-6 py-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <BarChart3 className="w-5 h-5" />
@@ -318,7 +318,7 @@ export default function ConsultaSPCPage() {
                           <p className="text-sm text-white/70">Servico de Protecao ao Credito</p>
                         </div>
                       </div>
-                      <Badge className={`border-0 ${result.status === "clean" ? "bg-emerald-500 text-white" : "bg-rose-500 text-white"}`}>
+                      <Badge className={`border-0 ${result.status === "clean" ? "bg-[var(--color-success)] text-white" : "bg-rose-500 text-white"}`}>
                         {result.status === "clean" ? "Limpo" : "Com Restricoes"}
                       </Badge>
                     </div>
@@ -353,16 +353,16 @@ export default function ConsultaSPCPage() {
                           <span className="text-muted-foreground">Situacao RF:</span>
                           <p className="font-medium flex items-center gap-1.5">
                             {result.cadastralData.situacaoRf === "Regular" ? (
-                              <><CheckCircle className="w-3.5 h-3.5 text-emerald-500" /> <span className="text-emerald-700">Regular</span></>
+                              <><CheckCircle className="w-3.5 h-3.5 text-[var(--color-success)]" /> <span className="text-[var(--color-success)]">Regular</span></>
                             ) : (
-                              <><XCircle className="w-3.5 h-3.5 text-rose-500" /> <span className="text-rose-700">Irregular</span></>
+                              <><XCircle className="w-3.5 h-3.5 text-rose-500" /> <span className="text-[var(--color-danger)]">Irregular</span></>
                             )}
                           </p>
                         </div>
                         {result.cadastralData.obitoRegistrado && (
                           <div>
                             <span className="text-muted-foreground">Obito:</span>
-                            <p className="font-medium text-rose-700 flex items-center gap-1.5">
+                            <p className="font-medium text-[var(--color-danger)] flex items-center gap-1.5">
                               <AlertTriangle className="w-3.5 h-3.5" /> Registrado
                             </p>
                           </div>
@@ -407,7 +407,7 @@ export default function ConsultaSPCPage() {
 
                     {result.restrictions.length > 0 && (
                       <Card className="p-4">
-                        <h4 className="text-sm font-semibold mb-3 flex items-center gap-2 text-rose-700">
+                        <h4 className="text-sm font-semibold mb-3 flex items-center gap-2 text-[var(--color-danger)]">
                           <AlertTriangle className="w-4 h-4" />
                           Restricoes Encontradas: {result.restrictions.length}
                         </h4>
@@ -436,17 +436,17 @@ export default function ConsultaSPCPage() {
                           ))}
                         </div>
                         <div className="mt-3 p-3 bg-rose-50 dark:bg-rose-950/20 rounded-lg flex items-center justify-between">
-                          <span className="text-sm font-semibold text-rose-700">Total em Restricoes:</span>
-                          <span className="text-lg font-bold text-rose-700">R$ {result.totalRestrictions.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</span>
+                          <span className="text-sm font-semibold text-[var(--color-danger)]">Total em Restricoes:</span>
+                          <span className="text-lg font-bold text-[var(--color-danger)]">R$ {result.totalRestrictions.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</span>
                         </div>
                       </Card>
                     )}
 
                     {result.status === "clean" && (
-                      <Card className="p-6 bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 text-center">
-                        <Shield className="w-10 h-10 mx-auto mb-2 text-emerald-500" />
-                        <p className="text-lg font-semibold text-emerald-700">Nenhuma restricao encontrada</p>
-                        <p className="text-sm text-emerald-600 mt-1">Este documento esta limpo no SPC Brasil</p>
+                      <Card className="p-6 bg-[var(--color-success-bg)] border-[var(--color-success)] text-center">
+                        <Shield className="w-10 h-10 mx-auto mb-2 text-[var(--color-success)]" />
+                        <p className="text-lg font-semibold text-[var(--color-success)]">Nenhuma restricao encontrada</p>
+                        <p className="text-sm text-[var(--color-success)] mt-1">Este documento esta limpo no SPC Brasil</p>
                       </Card>
                     )}
 
@@ -505,7 +505,7 @@ export default function ConsultaSPCPage() {
                   return (
                     <div key={c.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg" data-testid={`spc-consultation-${c.id}`}>
                       <div className="flex items-center gap-3">
-                        <div className={`w-2.5 h-2.5 rounded-full ${(c.score || 0) >= 500 ? "bg-emerald-500" : "bg-rose-500"}`} />
+                        <div className={`w-2.5 h-2.5 rounded-full ${(c.score || 0) >= 500 ? "bg-[var(--color-success)]" : "bg-rose-500"}`} />
                         <div>
                           <span className="text-sm font-medium">{formatCpfCnpj(c.cpfCnpj)}</span>
                           {resultData?.cadastralData?.nome && (
@@ -573,14 +573,14 @@ export default function ConsultaSPCPage() {
                   </Card>
                   <Card className="p-3">
                     <div className="flex items-center gap-2 mb-1">
-                      <div className="w-3 h-3 rounded-full bg-emerald-500" />
+                      <div className="w-3 h-3 rounded-full bg-[var(--color-success)]" />
                       <span className="text-xs font-medium text-foreground">701-900</span>
                     </div>
                     <p className="text-xs">Risco Baixo</p>
                   </Card>
                   <Card className="p-3">
                     <div className="flex items-center gap-2 mb-1">
-                      <div className="w-3 h-3 rounded-full bg-emerald-400" />
+                      <div className="w-3 h-3 rounded-full bg-[var(--color-success)]" />
                       <span className="text-xs font-medium text-foreground">901-1000</span>
                     </div>
                     <p className="text-xs">Risco Muito Baixo</p>
@@ -593,42 +593,42 @@ export default function ConsultaSPCPage() {
                 <div className="space-y-1">
                   <div className="flex items-center justify-between p-2 bg-muted/50 rounded">
                     <div className="flex items-center gap-2">
-                      <Badge className="bg-amber-100 text-amber-700 border-amber-200 border text-xs">PEFIN</Badge>
+                      <Badge className="bg-[var(--color-gold-bg)] text-[var(--color-gold)] border-amber-200 border text-xs">PEFIN</Badge>
                       <span>Pendencia Financeira</span>
                     </div>
                     <span className="text-amber-600 font-medium">Media</span>
                   </div>
                   <div className="flex items-center justify-between p-2 bg-muted/50 rounded">
                     <div className="flex items-center gap-2">
-                      <Badge className="bg-rose-100 text-rose-700 border-rose-200 border text-xs">REFIN</Badge>
+                      <Badge className="bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-rose-200 border text-xs">REFIN</Badge>
                       <span>Restricao Financeira</span>
                     </div>
                     <span className="text-rose-600 font-medium">Alta</span>
                   </div>
                   <div className="flex items-center justify-between p-2 bg-muted/50 rounded">
                     <div className="flex items-center gap-2">
-                      <Badge className="bg-rose-100 text-rose-700 border-rose-200 border text-xs">CCF</Badge>
+                      <Badge className="bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-rose-200 border text-xs">CCF</Badge>
                       <span>Cheque sem Fundo</span>
                     </div>
                     <span className="text-rose-600 font-medium">Alta</span>
                   </div>
                   <div className="flex items-center justify-between p-2 bg-muted/50 rounded">
                     <div className="flex items-center gap-2">
-                      <Badge className="bg-rose-100 text-rose-700 border-rose-200 border text-xs">Protesto</Badge>
+                      <Badge className="bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-rose-200 border text-xs">Protesto</Badge>
                       <span>Titulo protestado em cartorio</span>
                     </div>
                     <span className="text-rose-600 font-medium">Alta</span>
                   </div>
                   <div className="flex items-center justify-between p-2 bg-muted/50 rounded">
                     <div className="flex items-center gap-2">
-                      <Badge className="bg-red-100 text-red-800 border-red-300 border text-xs">Acao Judicial</Badge>
+                      <Badge className="bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-red-300 border text-xs">Acao Judicial</Badge>
                       <span>Processo de cobranca</span>
                     </div>
                     <span className="text-red-700 font-medium">Muito Alta</span>
                   </div>
                   <div className="flex items-center justify-between p-2 bg-muted/50 rounded">
                     <div className="flex items-center gap-2">
-                      <Badge className="bg-red-100 text-red-800 border-red-300 border text-xs">Falencia</Badge>
+                      <Badge className="bg-[var(--color-danger-bg)] text-[var(--color-danger)] border-red-300 border text-xs">Falencia</Badge>
                       <span>Processo falimentar</span>
                     </div>
                     <span className="text-red-700 font-medium">Critica</span>
@@ -647,14 +647,14 @@ export default function ConsultaSPCPage() {
                     </div>
                   </div>
                   <div className="flex items-start gap-3 p-3 bg-purple-50 dark:bg-purple-950/20 rounded-lg">
-                    <span className="font-bold text-[var(--color-navy)]">2.</span>
+                    <span className="font-bold text-[var(--color-brand)]">2.</span>
                     <div>
                       <p className="font-medium text-foreground">Consulta SPC (completa)</p>
                       <p className="text-xs">Confirma situacao financeira geral. Score + restricoes + historico.</p>
                     </div>
                   </div>
-                  <div className="flex items-start gap-3 p-3 bg-emerald-50 dark:bg-emerald-950/20 rounded-lg">
-                    <span className="font-bold text-emerald-600">3.</span>
+                  <div className="flex items-start gap-3 p-3 bg-[var(--color-success-bg)] rounded-lg">
+                    <span className="font-bold text-[var(--color-success)]">3.</span>
                     <div>
                       <p className="font-medium text-foreground">Decisao Final</p>
                       <p className="text-xs">ISP limpo + SPC limpo = Aprovar. ISP com pendencia = Recusar ou garantias.</p>

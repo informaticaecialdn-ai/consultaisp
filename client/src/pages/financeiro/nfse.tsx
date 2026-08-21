@@ -131,8 +131,8 @@ export default function NfsePage() {
     <div className="p-4 lg:p-5 pb-10 space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-[var(--color-navy-bg)] flex items-center justify-center">
-          <FileText className="w-5 h-5 text-[var(--color-navy)]" />
+        <div className="w-10 h-10 rounded-lg bg-[var(--color-brand-bg)] flex items-center justify-center">
+          <FileText className="w-5 h-5 text-[var(--color-brand)]" />
         </div>
         <div>
           <h1 className="text-xl font-bold text-[var(--color-ink)]">Notas Fiscais de Servico</h1>
@@ -154,7 +154,7 @@ export default function NfsePage() {
             <p className="text-sm font-bold text-[var(--color-gold)]">Focus NFe nao configurado</p>
             <p className="text-xs text-[var(--color-muted)] mt-1">
               Adicione <code className="bg-[var(--color-tag-bg)] px-1 rounded">FOCUS_NFE_TOKEN</code> no arquivo .env do servidor.
-              Crie uma conta em <a href="https://focusnfe.com.br" target="_blank" className="underline text-[var(--color-navy)]">focusnfe.com.br</a>
+              Crie uma conta em <a href="https://focusnfe.com.br" target="_blank" className="underline text-[var(--color-brand)]">focusnfe.com.br</a>
             </p>
           </div>
         </div>
@@ -246,7 +246,7 @@ export default function NfsePage() {
           </div>
 
           <Button
-            className="w-full gap-2 bg-[var(--color-navy)] hover:opacity-90 text-white"
+            className="w-full gap-2 bg-[var(--color-brand)] hover:opacity-90 text-white"
             onClick={() => emitMutation.mutate()}
             disabled={emitMutation.isPending || !form.cnpjCpf || !form.razaoSocial || !form.valor || !config?.configured}
           >

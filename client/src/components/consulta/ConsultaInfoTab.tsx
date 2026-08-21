@@ -9,8 +9,8 @@ export default function ConsultaInfoTab() {
         <h2 className="text-lg font-semibold text-[var(--color-ink)]">Sobre a Consulta ISP</h2>
       </div>
       <div className="px-6 pb-6 space-y-5">
-        <div className="bg-[var(--color-navy-bg)] border border-[var(--color-border)] rounded px-5 py-4 flex items-center gap-3">
-          <Search className="w-5 h-5 text-[var(--color-navy)] flex-shrink-0" />
+        <div className="bg-[var(--color-brand-bg)] border border-[var(--color-border)] rounded px-5 py-4 flex items-center gap-3">
+          <Search className="w-5 h-5 text-[var(--color-brand)] flex-shrink-0" />
           <p className="text-sm text-[var(--color-ink)]">
             <span className="font-semibold">Busca Inteligente:</span> O sistema detecta automaticamente se voce digitou um{" "}
             <span className="font-semibold">CPF</span> (11 digitos),{" "}
@@ -26,11 +26,11 @@ export default function ConsultaInfoTab() {
               label: "CPF",
               digits: "11 digitos",
               example: "Exemplo: 123.456.789-00",
-              iconColor: "text-[var(--color-navy)]",
-              iconBg: "bg-[var(--color-navy-bg)]",
+              iconColor: "text-[var(--color-brand)]",
+              iconBg: "bg-[var(--color-brand-bg)]",
               border: "border-[var(--color-border)]",
-              headerBg: "bg-[var(--color-navy-bg)]",
-              labelColor: "text-[var(--color-navy)]",
+              headerBg: "bg-[var(--color-brand-bg)]",
+              labelColor: "text-[var(--color-brand)]",
             },
             {
               icon: Building2,

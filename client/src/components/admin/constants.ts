@@ -32,7 +32,7 @@ export const PAGE_META: Record<string, { title: string; desc: string; icon: any;
 
 export const PLAN_LABELS: Record<string, { label: string; color: string }> = {
   free: { label: "Gratuito", color: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" },
-  basic: { label: "Basico", color: "bg-[var(--color-navy-bg)] text-[var(--color-navy)] dark:bg-blue-900 dark:text-blue-300" },
+  basic: { label: "Basico", color: "bg-[var(--color-brand-bg)] text-[var(--color-brand)] dark:bg-blue-900 dark:text-blue-300" },
   pro: { label: "Pro", color: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300" },
   enterprise: { label: "Enterprise", color: "bg-amber-100 text-[var(--color-gold)] dark:bg-amber-900 dark:text-amber-300" },
 };

@@ -9,19 +9,19 @@ import { Send, Bot, User, ArrowRightLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const AGENTE_COLORS: Record<string, string> = {
-  sofia: "#f472b6",
-  leo: "#fbbf24",
-  carlos: "#34d399",
-  lucas: "#60a5fa",
-  rafael: "#a78bfa",
-  marcos: "#f59e0b",
+  sofia: "#B98AA3",
+  leo: "#B8860B",
+  carlos: "#4A6B3E",
+  lucas: "#4A5480",
+  rafael: "#7A4A63",
+  marcos: "#B8860B",
 };
 
 const CLASSIFICACAO_BADGE: Record<string, string> = {
   frio: "bg-slate-100 text-slate-700",
-  morno: "bg-yellow-100 text-yellow-800",
-  quente: "bg-orange-100 text-orange-800",
-  ultra_quente: "bg-red-100 text-red-800",
+  morno: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]",
+  quente: "bg-[var(--color-gold-bg)] text-[var(--score-low)]",
+  ultra_quente: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]",
 };
 
 export default function CrmConversasTab() {
@@ -180,7 +180,7 @@ export default function CrmConversasTab() {
                     {c.direcao === "enviada" && (
                       <div
                         className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
-                        style={{ backgroundColor: AGENTE_COLORS[c.agente] || "#64748b" }}
+                        style={{ backgroundColor: AGENTE_COLORS[c.agente] || "#6B6560" }}
                       >
                         <Bot className="w-4 h-4 text-white" />
                       </div>
