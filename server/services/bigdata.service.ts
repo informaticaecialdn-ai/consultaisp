@@ -104,7 +104,7 @@ async function gerarToken(providerId: number, cred: Credencial): Promise<TokenCa
   });
   const d: any = await r.json().catch(() => ({}));
   if (!d?.success || !d.token || !d.tokenID) {
-    throw new BigDataError(d?.message || "Não foi possível autenticar na BigDataCorp");
+    throw new BigDataError(d?.message || "Não foi possível autenticar");
   }
   const cacheado: TokenCacheado = {
     token: d.token,
@@ -183,12 +183,17 @@ function normalizarTelefones(bloco: any): TelefoneDetalhado[] {
   })));
 }
 
-/** Rotulo legivel de cada fonte de renda, e se ela vem de registro formal. */
+/**
+ * Rotulo de cada fonte de renda, e se ela vem de registro formal.
+ * Os rotulos NAO nomeiam o fornecedor: a origem do dado e informacao sensivel
+ * de negocio e esses textos vao direto para a tela do provedor. MTE e IBGE
+ * ficam porque sao orgaos publicos, nao o bureau que vendemos.
+ */
 const FONTES_RENDA: Record<string, { rotulo: string; formal: boolean }> = {
   MTE: { rotulo: "Vínculo formal (MTE)", formal: true },
   "COMPANY OWNERSHIP": { rotulo: "Participação societária", formal: true },
-  BIGDATA_V2: { rotulo: "Estimativa BigData v2", formal: false },
-  BIGDATA: { rotulo: "Estimativa BigData", formal: false },
+  BIGDATA_V2: { rotulo: "Estimativa consolidada", formal: false },
+  BIGDATA: { rotulo: "Estimativa consolidada (v1)", formal: false },
   IBGE: { rotulo: "Média IBGE da região", formal: false },
 };
 
@@ -454,7 +459,7 @@ export async function consultarCpf(
     const codigoLogin = d?.Status?.login?.[0]?.Code;
     if (codigoLogin === -111) {
       invalidarToken(providerId);
-      throw new BigDataError("Credencial da BigDataCorp recusada", -111);
+      throw new BigDataError("Credencial recusada", -111);
     }
     return d;
   };

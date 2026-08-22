@@ -36,7 +36,7 @@ type Resultado = {
   veredito: "APROVAR" | "ATENCAO" | "RECUSAR" | "NAO_ENCONTRADO";
   motivos: string[];
   latenciaMs: number;
-  datasetsComFalha: string[];
+  consultasComFalha: number;
   identidade: Identidade;
   enderecos: Endereco[];
   telefones: Telefone[];
@@ -66,7 +66,7 @@ type Resultado = {
   };
   patrimonio: { veiculos: number; recebeAuxilio: boolean; auxiliosAtivos: number; valorAuxilio: number };
   riscoArea: Array<{ endereco: string; ponto?: number; raio100m?: number }>;
-  datasetsIndisponiveis: string[];
+  consultasIndisponiveis: number;
   dados: {
     encontrado: boolean; taxIdStatus?: string; temObito?: boolean;
     nascimentoValidadoNaReceita?: boolean; homonimos?: number;
@@ -133,6 +133,24 @@ const AREA_ROTULO = (p?: number) =>
   p === 1 ? "comunidade setorizada" : p === 2 ? "comunidade" : p === 3 ? "sem comunidade" : "—";
 const AREA_TOM = (p?: number): "ok" | "alerta" | "neutro" =>
   p === 1 ? "alerta" : p === 2 ? "neutro" : "ok";
+
+/**
+ * Etapas reais desta consulta. A Cadastral nao bate em ERP de provedor nenhum,
+ * entao reusar as etapas da Consulta ISP faria a tela mentir sobre a origem do
+ * dado — e a origem e informacao sensivel que nao deve aparecer.
+ */
+const ETAPAS_CADASTRAL = [
+  { id: 1, label: "Validando documento", detail: "Conferindo dígitos verificadores do CPF", duration: 700 },
+  { id: 2, label: "Situação na Receita", detail: "Regularidade, óbito e alterações de nome", duration: 1800 },
+  { id: 3, label: "Vínculo e contato", detail: "Endereços, telefones e ratificação", duration: 2200 },
+  { id: 4, label: "Capacidade e restrições", detail: "Renda, cobranças e histórico judicial", duration: 2000 },
+];
+
+/** CPF mascarado para exibição: o meio não precisa aparecer na tela. */
+const mascaraCpf = (v: string) => {
+  const n = (v || "").replace(/\D/g, "");
+  return n.length === 11 ? n.slice(0, 3) + ".•••.•••-" + n.slice(9) : v;
+};
 
 const soDigitos = (v: string) => v.replace(/\D/g, "").slice(0, 11);
 const formataCpf = (v: string) =>
@@ -233,7 +251,7 @@ function Configuracao({ integracao }: { integracao?: Integracao }) {
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--border-faint)]">
         <Settings2 className="w-3.5 h-3.5 text-[var(--text-muted)]" />
         <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-          Credencial BigDataCorp
+          Credencial da consulta cadastral
         </span>
       </div>
       <form
@@ -241,8 +259,8 @@ function Configuracao({ integracao }: { integracao?: Integracao }) {
         onSubmit={e => { e.preventDefault(); salvar.mutate(); }}
       >
         <p className="text-[13px] text-[var(--text-muted)]">
-          Use um usuário de integração próprio do seu provedor. Assim o consumo e o
-          custo aparecem separados também no painel da BigDataCorp.
+          Credencial de integração própria do seu provedor. Assim o consumo e o
+          custo ficam separados por provedor.
         </p>
         <div>
           <Label htmlFor="login">Usuário</Label>
@@ -406,7 +424,13 @@ export default function ConsultaCadastralPage() {
                   onClear={handleClear}
                 />
 
-                {mutation.isPending && <LoadingCard />}
+                {mutation.isPending && (
+                  <LoadingCard
+                    titulo="Consultando dados cadastrais..."
+                    subtitulo="Aguarde, conferindo situação do CPF, endereço e restrições"
+                    etapas={ETAPAS_CADASTRAL}
+                  />
+                )}
 
                 {!mutation.isPending && !resultado && (
                   <ConsultaIdleState
@@ -429,36 +453,62 @@ export default function ConsultaCadastralPage() {
               {/* A decisão é o produto. Barra lateral na cor do veredito dá o
                   peso que um badge de 12px não dava. */}
               <div className={`rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden border-l-[3px] ${v.borda}`}>
-                <div className="px-4 py-3.5 flex items-start gap-4 flex-wrap">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2.5 flex-wrap">
+                <div className="px-5 py-4">
+                  <div className="flex items-start gap-4 flex-wrap">
+                    <div className="min-w-0 flex-1">
                       <span className={`inline-flex items-center text-[13px] font-semibold tracking-[-0.01em] px-2.5 py-1 rounded ${v.cls}`}
                         data-testid="veredito">
                         {v.rotulo}
                       </span>
-                      <span className="font-mono text-[12px] tabular-nums text-[var(--text-muted)]">
-                        {formataCpf(resultado.cpfCnpj)}
-                      </span>
-                      {resultado.identidade?.nome && (
-                        <span className="text-[13px] text-[var(--text-2)] truncate">
-                          {resultado.identidade.nome}
-                        </span>
+                      {/* Identidade no topo: o operador confirma que consultou a
+                          pessoa certa antes de olhar qualquer número. */}
+                      <p className="text-[17px] font-medium tracking-[-0.015em] text-[var(--text)] mt-2.5 truncate">
+                        {resultado.identidade?.nome ?? "Nome não informado"}
+                      </p>
+                      <p className="font-mono text-[12px] tabular-nums text-[var(--text-muted)] mt-0.5">
+                        {/* CPF mascarado: o número inteiro não precisa ficar na tela. */}
+                        {mascaraCpf(resultado.cpfCnpj)}
+                        {resultado.identidade?.idade ? ` · ${resultado.identidade.idade} anos` : ""}
+                        {resultado.enderecos?.[0]?.cidade
+                          ? ` · ${resultado.enderecos[0].cidade}/${resultado.enderecos[0].uf ?? ""}` : ""}
+                      </p>
+                    </div>
+                    <span className="font-mono text-[11px] text-[var(--text-faint)] tabular-nums shrink-0">
+                      {resultado.latenciaMs} ms
+                    </span>
+                  </div>
+
+                  {/* Os três fatos que passam ou reprovam sozinhos, antes dos motivos. */}
+                  {d?.encontrado && (
+                    <div className="flex gap-1.5 flex-wrap mt-3">
+                      <Tag tom={d.taxIdStatus?.toUpperCase() === "REGULAR" ? "ok" : "alerta"}>
+                        {d.taxIdStatus?.toUpperCase() === "REGULAR" ? "CPF regular na Receita" : `CPF ${d.taxIdStatus}`}
+                      </Tag>
+                      <Tag tom={d.temObito ? "alerta" : "ok"}>
+                        {d.temObito ? "com indicação de óbito" : "sem indicação de óbito"}
+                      </Tag>
+                      {resultado.risco.empregado != null && (
+                        <Tag tom={resultado.risco.empregado ? "ok" : "alerta"}>
+                          {resultado.risco.empregado ? "empregado" : "sem vínculo formal"}
+                          {resultado.risco.socio ? " · sócio de empresa" : ""}
+                        </Tag>
                       )}
                     </div>
-                    <p className="text-[13px] text-[var(--text-muted)] mt-1.5">{v.nota}</p>
-                  </div>
-                  <span className="font-mono text-[11px] text-[var(--text-faint)] tabular-nums shrink-0">
-                    {resultado.latenciaMs} ms
-                  </span>
+                  )}
                 </div>
                 {resultado.motivos.length > 0 && (
-                  <ul className="px-4 pb-3.5 pt-0 space-y-1.5">
-                    {resultado.motivos.map((m, i) => (
-                      <li key={i} className="text-[13px] text-[var(--text-2)] flex gap-2">
-                        <span className="text-[var(--text-faint)] shrink-0">·</span>{m}
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="px-5 pb-4 pt-3 border-t border-[var(--border-faint)]">
+                    <span className="block text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--text-faint)] mb-1.5">
+                      {resultado.veredito === "RECUSAR" ? "Por que recusar" : "Por que cautela"}
+                    </span>
+                    <ul className="space-y-1.5">
+                      {resultado.motivos.map((m, i) => (
+                        <li key={i} className="text-[13px] text-[var(--text-2)] flex gap-2">
+                          <span className="text-[var(--text-faint)] shrink-0">·</span>{m}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
               </div>
 
@@ -510,7 +560,7 @@ export default function ConsultaCadastralPage() {
                 <div className="space-y-3">
                   {/* Score e inadimplência vêm antes do cadastro: é o que decide. */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                    <Bloco titulo="Risco financeiro · BigDataCorp" Icone={Gauge}>
+                    <Bloco titulo="Capacidade de pagamento" Icone={Gauge}>
                       {resultado.risco.score != null ? (
                         <>
                           <div className="flex items-baseline gap-2">
@@ -523,7 +573,7 @@ export default function ConsultaCadastralPage() {
                             )}
                           </div>
                           <p className="text-[11px] text-[var(--text-faint)]">
-                            Score da BigDataCorp — maior é melhor. Nível A é o menor risco, H o maior.
+                            Maior é melhor. Nível A é o menor risco, H o maior.
                           </p>
                           <Pares cols={1}>
                             <Linha rotulo="Empregado atualmente"
@@ -637,7 +687,7 @@ export default function ConsultaCadastralPage() {
                     </p>
                     {resultado.renda.faixa && resultado.renda.emReais && (
                       <p className="text-[12px] text-[var(--text-muted)]">
-                        Faixa BigDataCorp: {resultado.renda.faixa}
+                        Faixa de referência: {resultado.renda.faixa}
                       </p>
                     )}
                     {/* MTE vem de registro do Ministério do Trabalho: é vínculo formal,
@@ -772,18 +822,18 @@ export default function ConsultaCadastralPage() {
                 </div>
               )}
 
-              {resultado.datasetsIndisponiveis?.length > 0 && (
+              {resultado.consultasIndisponiveis > 0 && (
                 <p className="text-[12px] text-[var(--text-muted)]">
-                  Consultas de bureau parceiro não habilitadas na sua conta
-                  ({resultado.datasetsIndisponiveis.length}). Habilitar no BDC Center
-                  acrescenta score de crédito de mercado e histórico de negativação.
+                  {resultado.consultasIndisponiveis} consulta(s) adicional(is)
+                  disponível(is) no seu plano — score de crédito de mercado e histórico
+                  de negativação. Fale com o suporte para habilitar.
                 </p>
               )}
 
-              {resultado.datasetsComFalha.length > 0 && (
+              {resultado.consultasComFalha > 0 && (
                 <p className="text-[12px] text-[var(--text-muted)]">
-                  Consultas que não responderam: {resultado.datasetsComFalha.join(", ")}.
-                  O restante do resultado é válido.
+                  {resultado.consultasComFalha} consulta(s) não responderam. O restante do
+                  resultado é válido.
                 </p>
               )}
                   </div>
@@ -870,8 +920,9 @@ export default function ConsultaCadastralPage() {
             <div className="border-t border-[var(--border-faint)] pt-4">
               <h3 className="text-[15px] font-medium text-[var(--text)]">Fonte dos dados</h3>
               <p className="text-[13px] text-[var(--text-muted)] mt-1 leading-relaxed">
-                BigDataCorp, com credencial própria do seu provedor — o consumo e o custo
-                aparecem separados no painel deles. Cada consulta usa 1 crédito.
+Bases públicas e cadastrais consolidadas, com credencial própria do seu
+                provedor — o consumo e o custo ficam separados por provedor. Cada
+                consulta usa 1 crédito.
               </p>
             </div>
           </div>

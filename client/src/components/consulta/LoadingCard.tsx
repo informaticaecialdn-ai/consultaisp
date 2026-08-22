@@ -2,22 +2,37 @@ import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { LOADING_STEPS } from "./constants";
 
-export default function LoadingCard() {
+interface Etapa { id: number; label: string; detail: string; duration: number }
+
+interface Props {
+  /** Sobrescreve o texto do topo. Sem isso, mantem o da Consulta ISP. */
+  titulo?: string;
+  subtitulo?: string;
+  /**
+   * Etapas proprias. A Consulta Cadastral nao bate em ERP nenhum — dizer
+   * "Consultando ERPs parceiros" seria mentir sobre a origem do dado na tela
+   * do operador.
+   */
+  etapas?: Etapa[];
+}
+
+export default function LoadingCard({ titulo, subtitulo, etapas }: Props = {}) {
+  const PASSOS: Etapa[] = etapas ?? LOADING_STEPS;
   const [currentStep, setCurrentStep] = useState(0);
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
     let elapsed = 0;
-    const totalDur = LOADING_STEPS.reduce((s, st) => s + st.duration, 0);
+    const totalDur = PASSOS.reduce((s, st) => s + st.duration, 0);
     const tick = setInterval(() => {
       elapsed += 100;
       const pct = Math.min((elapsed / totalDur) * 90, 90);
       setProgress(Math.floor(pct));
       let cum = 0;
-      for (let i = 0; i < LOADING_STEPS.length; i++) {
-        cum += LOADING_STEPS[i].duration;
+      for (let i = 0; i < PASSOS.length; i++) {
+        cum += PASSOS[i].duration;
         if (elapsed < cum) { setCurrentStep(i); break; }
-        if (i === LOADING_STEPS.length - 1) setCurrentStep(i);
+        if (i === PASSOS.length - 1) setCurrentStep(i);
       }
     }, 100);
     return () => clearInterval(tick);
@@ -29,13 +44,17 @@ export default function LoadingCard() {
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 rounded-full border-4 border-blue-200 border-t-blue-600 animate-spin flex-shrink-0" />
           <div>
-            <p className="text-lg font-semibold text-slate-900">Consultando rede ISP colaborativa...</p>
-            <p className="text-sm text-slate-500">Aguarde, buscando em multiplos provedores simultaneamente</p>
+            <p className="text-lg font-semibold text-slate-900">
+              {titulo ?? "Consultando rede ISP colaborativa..."}
+            </p>
+            <p className="text-sm text-slate-500">
+              {subtitulo ?? "Aguarde, buscando em multiplos provedores simultaneamente"}
+            </p>
           </div>
         </div>
 
         <div className="space-y-3">
-          {LOADING_STEPS.map((step, i) => {
+          {PASSOS.map((step, i) => {
             const done = i < currentStep;
             const active = i === currentStep;
             return (

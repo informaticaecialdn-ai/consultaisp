@@ -90,7 +90,14 @@ export function registerBigdataRoutes(): Router {
   router.get("/api/bigdata-consultations", requireAuth, async (req, res) => {
     try {
       const providerId = req.session.providerId!;
-      const consultations = await storage.getBigdataConsultations(providerId);
+      const brutas = await storage.getBigdataConsultations(providerId);
+      // A origem do dado e informacao sensivel de negocio: nao sai do servidor.
+      // datasets[] e o payload cru ficam gravados para auditoria, mas nunca vao
+      // ao navegador — la eles apareceriam no devtools de qualquer operador.
+      const consultations = brutas.map(c => ({
+        id: c.id, cpfCnpj: c.cpfCnpj, veredito: c.veredito, createdAt: c.createdAt,
+        consultasRealizadas: c.datasets?.length ?? 0,
+      }));
       const provider = await storage.getProvider(providerId);
 
       const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
@@ -124,7 +131,7 @@ export function registerBigdataRoutes(): Router {
       const integ = await storage.getBigdataIntegration(providerId);
       if (!integ?.login || !integ?.password) {
         return res.status(400).json({
-          message: "Integração BigDataCorp não configurada", naoConfigurado: true,
+          message: "Consulta cadastral não configurada", naoConfigurado: true,
         });
       }
 
@@ -181,8 +188,9 @@ export function registerBigdataRoutes(): Router {
         rastro: r.rastro,
         patrimonio: r.patrimonio,
         riscoArea: r.riscoArea,
-        datasetsIndisponiveis: r.datasetsIndisponiveis,
-        datasetsComFalha: r.datasetsComFalha,
+        // Contagem, nao nome: "partner_quod_..." identificaria o fornecedor.
+        consultasIndisponiveis: r.datasetsIndisponiveis.length,
+        consultasComFalha: r.datasetsComFalha.length,
         latenciaMs: r.latenciaMs,
         createdAt: salva.createdAt,
       });
@@ -192,7 +200,7 @@ export function registerBigdataRoutes(): Router {
       const credencialRuim = error?.codigo === -111;
       return res.status(credencialRuim ? 400 : 503).json({
         message: credencialRuim
-          ? "Credencial da BigDataCorp recusada. Verifique usuário e senha."
+          ? "Credencial recusada. Verifique usuário e senha."
           : getSafeErrorMessage(error),
       });
     }
