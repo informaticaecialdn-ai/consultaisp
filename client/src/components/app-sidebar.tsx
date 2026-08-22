@@ -79,14 +79,7 @@ const PLAN_LABELS: Record<string, string> = {
 
 
 
-const toolsMenu = [
-  { title: "Importacao", url: "/importacao", icon: Upload },
-  { title: "Importar Equip.", url: "/importacao-equipamentos", icon: Package },
-];
 
-const configMenu = [
-  { title: "Regionalizacao", url: "/configuracoes/regionalizacao", icon: MapPin },
-];
 
 const ADMIN_GROUPS = [
   {
@@ -329,11 +322,19 @@ export function AppSidebar() {
       ],
     },
     {
+      // Equipamento perdido e prejuizo direto do provedor e entra no score da
+      // rede: merece grupo proprio, nao um item solto dentro de Gestao.
+      grupo: "Equipamentos",
+      itens: [
+        { label: "Equipamentos", url: "/equipamentos",            Icone: Package, testId: "link-equipamentos" },
+        { label: "Importar",     url: "/importacao-equipamentos", Icone: Upload,  testId: "link-importacao-equipamentos" },
+      ],
+    },
+    {
       grupo: "Gestão",
       itens: [
-        { label: "Importação",         url: "/importacao",              Icone: Upload,     testId: "link-importacao" },
-        { label: "Importar Equip.",    url: "/importacao-equipamentos", Icone: Package,    testId: "link-importacao-equipamentos" },
-        { label: "Painel do Provedor", url: "/painel-provedor",         Icone: Building2,  testId: "link-painel-provedor" },
+        { label: "Importação",         url: "/importacao",      Icone: Upload,    testId: "link-importacao" },
+        { label: "Painel do Provedor", url: "/painel-provedor", Icone: Building2, testId: "link-painel-provedor" },
       ],
     },
     {
