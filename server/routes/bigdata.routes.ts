@@ -86,10 +86,23 @@ export function registerBigdataRoutes(): Router {
     }
   });
 
+  /** Mesmo formato do GET da consulta ISP, para a tela reusar o cabecalho. */
   router.get("/api/bigdata-consultations", requireAuth, async (req, res) => {
     try {
-      const lista = await storage.getBigdataConsultations(req.session.providerId!);
-      return res.json(lista);
+      const providerId = req.session.providerId!;
+      const consultations = await storage.getBigdataConsultations(providerId);
+      const provider = await storage.getProvider(providerId);
+
+      const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+      const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+      const em = (d: Date | null, desde: Date) => !!d && new Date(d) >= desde;
+
+      return res.json({
+        consultations,
+        credits: provider?.bigdataCredits ?? 0,
+        todayCount: consultations.filter(c => em(c.createdAt, hoje)).length,
+        monthCount: consultations.filter(c => em(c.createdAt, inicioMes)).length,
+      });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }

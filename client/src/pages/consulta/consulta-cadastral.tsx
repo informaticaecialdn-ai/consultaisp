@@ -2,8 +2,12 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   IdCard, Search, MapPin, Wallet, ShieldCheck, Settings2, Phone, Mail,
-  Gauge, AlertTriangle, Activity,
+  Gauge, AlertTriangle, Activity, CreditCard,
 } from "lucide-react";
+import LoadingCard from "@/components/consulta/LoadingCard";
+import ConsultaIdleState from "@/components/consulta/ConsultaIdleState";
+import ConsultaSearchBar from "@/components/consulta/ConsultaSearchBar";
+import LgpdDisclaimerModal from "@/components/consulta/LgpdDisclaimerModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -70,7 +74,9 @@ type Resultado = {
   };
 };
 
-const data = (s?: string | null) =>
+/** Formatador de data. Nome distinto de `data` para nao colidir com o
+ *  `const { data }` do useQuery dentro do componente. */
+const fmtData = (s?: string | null) =>
   s ? new Date(s).toLocaleDateString("pt-BR") : "—";
 
 const telefoneFmt = (t: Telefone) => {
@@ -96,11 +102,11 @@ type Integracao = {
   isEnabled: boolean; lastCheckStatus: string | null;
 };
 
-const VEREDITO: Record<Resultado["veredito"], { rotulo: string; cls: string; nota: string }> = {
-  APROVAR:        { rotulo: "Aprovar",         cls: "bg-[var(--ok-bg)] text-[var(--ok)]",         nota: "Nenhum sinal de risco cadastral" },
-  ATENCAO:        { rotulo: "Atenção",         cls: "bg-[var(--gated-bg)] text-[var(--gated)]",   nota: "Contrate com cautela — veja os motivos" },
-  RECUSAR:        { rotulo: "Recusar",         cls: "bg-[var(--danger-bg)] text-[var(--danger)]", nota: "Impedimento cadastral na Receita Federal" },
-  NAO_ENCONTRADO: { rotulo: "Não encontrado",  cls: "bg-[var(--surface-inset)] text-[var(--text-muted)]", nota: "Sem registro — não é recusa, é ausência de informação" },
+const VEREDITO: Record<Resultado["veredito"], { rotulo: string; cls: string; borda: string; nota: string }> = {
+  APROVAR:        { rotulo: "Aprovar",        cls: "bg-[var(--ok-bg)] text-[var(--ok)]",                 borda: "border-l-[var(--ok)]",     nota: "Nenhum sinal de risco cadastral" },
+  ATENCAO:        { rotulo: "Atenção",        cls: "bg-[var(--gated-bg)] text-[var(--gated)]",           borda: "border-l-[var(--gated)]",  nota: "Contrate com cautela — veja os motivos" },
+  RECUSAR:        { rotulo: "Recusar",        cls: "bg-[var(--danger-bg)] text-[var(--danger)]",         borda: "border-l-[var(--danger)]", nota: "Impedimento cadastral na Receita Federal" },
+  NAO_ENCONTRADO: { rotulo: "Não encontrado", cls: "bg-[var(--surface-inset)] text-[var(--text-muted)]", borda: "border-l-[var(--border-strong)]", nota: "Sem registro — não é recusa, é ausência de informação" },
 };
 
 /** A e o menor risco, H o maior. Do meio para baixo ja merece cautela. */
@@ -132,7 +138,9 @@ const soDigitos = (v: string) => v.replace(/\D/g, "").slice(0, 11);
 const formataCpf = (v: string) =>
   soDigitos(v).replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d{1,2})$/, "$1-$2");
 
-function Bloco({ titulo, Icone, children }: { titulo: string; Icone: any; children: React.ReactNode }) {
+function Bloco({
+  titulo, Icone, children, acao,
+}: { titulo: string; Icone: any; children: React.ReactNode; acao?: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--border-faint)]">
@@ -140,19 +148,59 @@ function Bloco({ titulo, Icone, children }: { titulo: string; Icone: any; childr
         <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
           {titulo}
         </span>
+        {acao && <span className="ml-auto">{acao}</span>}
       </div>
-      <div className="px-4 py-3 space-y-2">{children}</div>
+      <div className="px-4 py-3">{children}</div>
     </div>
   );
 }
 
+/**
+ * Grade de pares rotulo/valor. Duas colunas a partir de sm.
+ *
+ * Antes cada par ocupava a largura inteira do card com justify-between, entao
+ * num card de 950px o olho viajava 900px entre o rotulo e o numero. Em duas
+ * colunas a distancia cai pela metade e cabe o dobro de linhas na mesma altura
+ * — densidade e decisao de produto neste sistema, o operador varre muitas
+ * linhas por dia.
+ */
+function Pares({ children, cols = 2 }: { children: React.ReactNode; cols?: 1 | 2 | 3 }) {
+  const grade = cols === 1 ? "grid-cols-1"
+    : cols === 3 ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
+    : "grid-cols-1 sm:grid-cols-2";
+  return <dl className={`grid ${grade} gap-x-8 gap-y-1.5`}>{children}</dl>;
+}
+
 function Linha({ rotulo, valor, alerta }: { rotulo: string; valor: React.ReactNode; alerta?: boolean }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 text-[13px]">
-      <span className="text-[var(--text-muted)]">{rotulo}</span>
-      <span className={`font-mono tabular-nums text-right ${alerta ? "text-[var(--gated)]" : "text-[var(--text)]"}`}>
+    // O valor encosta no rotulo: 1fr no rotulo empurra so o resto da celula,
+    // que e estreita, em vez da largura do card.
+    <div className="grid grid-cols-[1fr_auto] items-baseline gap-3 text-[13px] min-w-0">
+      <dt className="text-[var(--text-muted)] truncate">{rotulo}</dt>
+      <dd className={`font-mono tabular-nums text-right ${alerta ? "text-[var(--gated)] font-medium" : "text-[var(--text)]"}`}>
         {valor}
+      </dd>
+    </div>
+  );
+}
+
+/** Número que decide, na tira de resumo. Mono e tabular, conforme o sistema. */
+function Metrica({
+  rotulo, valor, sub, tom = "neutro",
+}: { rotulo: string; valor: React.ReactNode; sub?: string; tom?: "ok" | "alerta" | "perigo" | "neutro" }) {
+  const cor = tom === "ok" ? "text-[var(--ok)]"
+    : tom === "alerta" ? "text-[var(--gated)]"
+    : tom === "perigo" ? "text-[var(--danger)]"
+    : "text-[var(--text)]";
+  return (
+    <div className="px-4 py-3 min-w-0">
+      <span className="block text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--text-faint)] truncate">
+        {rotulo}
       </span>
+      <p className={`mt-1 font-mono text-[19px] font-medium tracking-[-0.02em] tabular-nums truncate ${cor}`}>
+        {valor}
+      </p>
+      {sub && <p className="text-[11px] text-[var(--text-muted)] truncate">{sub}</p>}
     </div>
   );
 }
@@ -220,127 +268,243 @@ function Configuracao({ integracao }: { integracao?: Integracao }) {
   );
 }
 
+
 export default function ConsultaCadastralPage() {
   const { toast } = useToast();
-  const [cpf, setCpf] = useState("");
-  const [lgpd, setLgpd] = useState(false);
   const [resultado, setResultado] = useState<Resultado | null>(null);
+  const [activeTab, setActiveTab] = useState<"nova" | "historico" | "info">("nova");
   const [verConfig, setVerConfig] = useState(false);
 
-  const { data: integracao, isLoading } = useQuery<Integracao>({
+  // LGPD — mesmo fluxo de modal da Consulta ISP: o aceite vale para a sessao,
+  // nao para cada busca. Checkbox no formulario pedia confirmacao repetida.
+  const [lgpdDisclaimerOpen, setLgpdDisclaimerOpen] = useState(false);
+  const [lgpdAccepted, setLgpdAccepted] = useState(false);
+  const [lgpdSessionAccepted, setLgpdSessionAccepted] = useState(false);
+  const [pendingSearchPayload, setPendingSearchPayload] = useState<any>(null);
+
+  const { data: integracao, isLoading: carregandoIntegracao } = useQuery<Integracao>({
     queryKey: ["/api/bigdata-integration"],
   });
+  const { data } = useQuery<any>({ queryKey: ["/api/bigdata-consultations"] });
+  const consultations = data?.consultations ?? [];
 
-  const consultar = useMutation({
-    mutationFn: async () => {
+  const mutation = useMutation({
+    mutationFn: async (payload: any) => {
       const r = await apiRequest("POST", "/api/bigdata-consultations", {
-        cpfCnpj: soDigitos(cpf),
-        lgpdAccepted: lgpd,
+        cpfCnpj: soDigitos(payload.cpfCnpj),
+        lgpdAccepted: true,
       });
       return r.json();
     },
-    onSuccess: (d: Resultado) => setResultado(d),
+    onSuccess: (d: Resultado) => {
+      setResultado(d);
+      queryClient.invalidateQueries({ queryKey: ["/api/bigdata-consultations"] });
+    },
     onError: (e: any) => {
       setResultado(null);
       toast({ title: "Consulta não realizada", description: e.message, variant: "destructive" });
     },
   });
 
+  const executeSearch = (payload: any) => mutation.mutate(payload);
+
+  const handleSearch = (payload: any) => {
+    if (!lgpdSessionAccepted) {
+      setPendingSearchPayload(payload);
+      setLgpdAccepted(false);
+      setLgpdDisclaimerOpen(true);
+      return;
+    }
+    executeSearch(payload);
+  };
+
+  const handleLgpdAcceptAndSearch = () => {
+    setLgpdSessionAccepted(true);
+    setLgpdDisclaimerOpen(false);
+    if (pendingSearchPayload) {
+      executeSearch(pendingSearchPayload);
+      setPendingSearchPayload(null);
+    }
+  };
+
+  const handleClear = () => setResultado(null);
+
   const configurado = integracao?.configurado;
   const v = resultado ? VEREDITO[resultado.veredito] : null;
   const d = resultado?.dados;
 
+  const aprovados = consultations.filter((c: any) => c.veredito === "APROVAR").length;
+  const taxaAprovacao = consultations.length > 0
+    ? Math.round((aprovados / consultations.length) * 100) : 0;
+
   return (
-    <div className="p-4 lg:p-6 space-y-4" data-testid="consulta-cadastral-page">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-[19px] font-medium tracking-[-0.02em] text-[var(--text)] leading-tight">
-            Consulta Cadastral
-          </h1>
-          <p className="text-[13px] text-[var(--text-muted)] mt-0.5">
-            Situação do CPF na Receita, validação de endereço e faixa de renda
-          </p>
-        </div>
-        {configurado && (
-          <Button variant="ghost" onClick={() => setVerConfig(x => !x)} data-testid="botao-config">
-            <Settings2 className="w-4 h-4 mr-1.5" />
-            Credencial
-          </Button>
-        )}
-      </div>
+    <div className="bg-[var(--color-bg)] p-4 lg:p-5" data-testid="consulta-cadastral-page">
+      <div className="space-y-4">
 
-      {isLoading ? (
-        <Skeleton className="h-[180px] max-w-[520px]" />
-      ) : !configurado || verConfig ? (
-        <Configuracao integracao={integracao} />
-      ) : null}
-
-      {configurado && !verConfig && (
-        <>
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-4 space-y-3 max-w-[640px]">
-            <div className="flex gap-3 flex-wrap items-end">
-              <div className="flex-1 min-w-[200px]">
-                <Label htmlFor="cpf">CPF do assinante</Label>
-                <Input id="cpf" value={formataCpf(cpf)} inputMode="numeric"
-                  onChange={e => setCpf(soDigitos(e.target.value))}
-                  placeholder="000.000.000-00" className="font-mono tabular-nums"
-                  data-testid="campo-cpf" />
-              </div>
-            </div>
-            <label className="flex items-start gap-2 text-[13px] text-[var(--text-2)] cursor-pointer">
-              <input type="checkbox" checked={lgpd} onChange={e => setLgpd(e.target.checked)}
-                className="mt-0.5" data-testid="campo-lgpd" />
-              <span>
-                Declaro que tenho base legal para consultar este CPF — legítimo
-                interesse para análise de risco de contratação (LGPD Art. 7, IX).
-              </span>
-            </label>
-            <Button
-              onClick={() => consultar.mutate()}
-              disabled={consultar.isPending || soDigitos(cpf).length !== 11 || !lgpd}
-              data-testid="botao-consultar"
+        {/* HEADER — mesmo formato da Consulta ISP */}
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h1
+              className="text-[19px] font-medium tracking-[-0.02em] text-[var(--color-ink)] leading-tight"
+              data-testid="text-consulta-cadastral-title"
             >
-              <Search className="w-4 h-4 mr-1.5" />
-              {consultar.isPending ? "Consultando…" : "Consultar"}
-            </Button>
+              Consulta Cadastral
+            </h1>
+            <p className="text-[13px] text-[var(--color-muted)] mt-0.5">
+              Situação do CPF na Receita, endereço, renda e inadimplência
+            </p>
           </div>
-
-          {!resultado && !consultar.isPending && (
-            <div className="rounded-lg bg-[var(--surface)] border border-[var(--border)] px-6 py-12 text-center">
-              <IdCard className="w-8 h-8 mx-auto mb-4 text-[var(--text-muted)] opacity-50" />
-              <h3 className="font-medium text-base text-[var(--text)]">Nenhuma consulta ainda</h3>
-              <p className="mt-2 mx-auto max-w-[52ch] text-sm text-[var(--text-muted)]">
-                Informe o CPF do assinante antes da instalação. A consulta responde se o
-                CPF está regular na Receita e se a pessoa tem vínculo com o endereço.
-              </p>
+          <div className="flex items-center gap-2">
+            {configurado && (
+              <Button variant="ghost" size="sm" onClick={() => setVerConfig(x => !x)} data-testid="botao-config">
+                <Settings2 className="w-4 h-4 mr-1.5" />
+                Credencial
+              </Button>
+            )}
+            <div className="border border-[var(--border)] rounded px-3 py-1.5 flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-[var(--color-brand)]" />
+              <span
+                className={`font-mono text-sm font-semibold ${(data?.credits ?? 1) === 0 ? "text-[var(--color-danger)]" : "text-[var(--color-ink)]"}`}
+                data-testid="text-cadastral-credits"
+              >
+                {data?.credits ?? "..."}
+              </span>
             </div>
-          )}
+          </div>
+        </div>
 
-          {resultado && v && (
-            <div className="space-y-3">
-              <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-4">
-                <div className="flex items-start justify-between gap-4 flex-wrap">
-                  <div>
-                    <span className={`inline-flex items-center text-[12px] font-medium tracking-[0.04em] px-2.5 py-1 rounded ${v.cls}`}
-                      data-testid="veredito">
-                      {v.rotulo}
-                    </span>
-                    <p className="text-[13px] text-[var(--text-muted)] mt-2">{v.nota}</p>
+        {/* TABS */}
+        <div className="flex gap-0 border-b border-[var(--border)] w-fit">
+          {(["nova", "historico", "info"] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              data-testid={`tab-${tab}`}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                activeTab === tab
+                  ? "border-b-2 border-[var(--color-brand)] text-[var(--color-ink)]"
+                  : "text-[var(--color-muted)] hover:text-[var(--color-ink)]"
+              }`}
+            >
+              {tab === "nova" ? "Nova Consulta" : tab === "historico" ? "Histórico" : "Informações"}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === "nova" && (
+          <div className="space-y-5">
+            {carregandoIntegracao ? (
+              <Skeleton className="h-[200px] max-w-[520px]" />
+            ) : !configurado || verConfig ? (
+              <Configuracao integracao={integracao} />
+            ) : (
+              <>
+                <ConsultaSearchBar
+                  onSearch={handleSearch}
+                  isLoading={mutation.isPending}
+                  hasResult={!!resultado}
+                  onClear={handleClear}
+                />
+
+                {mutation.isPending && <LoadingCard />}
+
+                {!mutation.isPending && !resultado && (
+                  <ConsultaIdleState
+                    totalConsultas={consultations.length}
+                    metrics={[
+                      { label: "Consultas hoje", value: data?.todayCount ?? 0, testId: "text-cadastral-today" },
+                      { label: "No mês", value: data?.monthCount ?? 0, testId: "text-cadastral-month" },
+                      { label: "Taxa de aprovação", value: taxaAprovacao, suffix: "%", testId: "text-cadastral-approval" },
+                      { label: "Créditos", value: data?.credits ?? 0, testId: "text-cadastral-saldo" },
+                    ]}
+                    emptyTitle="Nenhuma consulta ainda"
+                    emptyDescription="Digite o CPF do candidato antes de liberar a instalação. Você recebe a situação na Receita, o vínculo com o endereço, a renda estimada e o histórico de inadimplência."
+                    emptyCta="FAZER PRIMEIRA CONSULTA"
+                    searchInputTestId="input-consulta-search"
+                  />
+                )}
+
+                {!mutation.isPending && resultado && v && (
+                  <div className="space-y-4" data-testid="consultation-result">
+              {/* A decisão é o produto. Barra lateral na cor do veredito dá o
+                  peso que um badge de 12px não dava. */}
+              <div className={`rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden border-l-[3px] ${v.borda}`}>
+                <div className="px-4 py-3.5 flex items-start gap-4 flex-wrap">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <span className={`inline-flex items-center text-[13px] font-semibold tracking-[-0.01em] px-2.5 py-1 rounded ${v.cls}`}
+                        data-testid="veredito">
+                        {v.rotulo}
+                      </span>
+                      <span className="font-mono text-[12px] tabular-nums text-[var(--text-muted)]">
+                        {formataCpf(resultado.cpfCnpj)}
+                      </span>
+                      {resultado.identidade?.nome && (
+                        <span className="text-[13px] text-[var(--text-2)] truncate">
+                          {resultado.identidade.nome}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[13px] text-[var(--text-muted)] mt-1.5">{v.nota}</p>
                   </div>
-                  <span className="font-mono text-[11px] text-[var(--text-faint)] tabular-nums">
+                  <span className="font-mono text-[11px] text-[var(--text-faint)] tabular-nums shrink-0">
                     {resultado.latenciaMs} ms
                   </span>
                 </div>
                 {resultado.motivos.length > 0 && (
-                  <ul className="mt-3 space-y-1.5 border-t border-[var(--border-faint)] pt-3">
+                  <ul className="px-4 pb-3.5 pt-0 space-y-1.5">
                     {resultado.motivos.map((m, i) => (
                       <li key={i} className="text-[13px] text-[var(--text-2)] flex gap-2">
-                        <span className="text-[var(--text-faint)]">·</span>{m}
+                        <span className="text-[var(--text-faint)] shrink-0">·</span>{m}
                       </li>
                     ))}
                   </ul>
                 )}
               </div>
+
+              {/* Tira de resumo: os cinco números que decidem, numa varredura só.
+                  Sem ela o operador tinha que ler sete cards para formar o quadro. */}
+              {d?.encontrado && (
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 divide-x divide-y lg:divide-y-0 divide-[var(--border-faint)]">
+                  <Metrica
+                    rotulo="Score de risco"
+                    valor={resultado.risco.score != null ? resultado.risco.score : "—"}
+                    sub={resultado.risco.nivel ? `nível ${resultado.risco.nivel} de A–H` : undefined}
+                    tom={resultado.risco.score == null ? "neutro"
+                      : resultado.risco.score >= 700 ? "ok"
+                      : resultado.risco.score >= 400 ? "alerta" : "perigo"}
+                  />
+                  <Metrica
+                    rotulo="Cobranças 12m"
+                    valor={resultado.inadimplencia.cobrancas365d}
+                    sub={resultado.inadimplencia.emCobrancaAgora ? "em cobrança agora"
+                      : resultado.inadimplencia.credores365d > 1
+                        ? `${resultado.inadimplencia.credores365d} credores` : "nenhuma ativa"}
+                    tom={resultado.inadimplencia.emCobrancaAgora ? "perigo"
+                      : resultado.inadimplencia.cobrancas365d > 0 ? "alerta" : "ok"}
+                  />
+                  <Metrica
+                    rotulo="Processos como réu"
+                    valor={resultado.inadimplencia.processosComoReu}
+                    sub={resultado.inadimplencia.temExecucao ? "com execução judicial"
+                      : `${resultado.inadimplencia.processos365d} no último ano`}
+                    tom={resultado.inadimplencia.temExecucao ? "perigo"
+                      : resultado.inadimplencia.processosComoReu > 0 ? "alerta" : "ok"}
+                  />
+                  <Metrica
+                    rotulo="Renda estimada"
+                    valor={resultado.renda.emReais?.replace("/mês", "") ?? "—"}
+                    sub={resultado.risco.empregado ? "com vínculo formal" : "sem vínculo formal"}
+                    tom={resultado.risco.empregado === false ? "alerta" : "neutro"}
+                  />
+                  <Metrica
+                    rotulo="Consultas 30d"
+                    valor={resultado.rastro.consultas30d}
+                    sub="no mercado inteiro"
+                    tom={resultado.rastro.consultas30d >= 10 ? "alerta" : "ok"}
+                  />
+                </div>
+              )}
 
               {d?.encontrado && (
                 <div className="space-y-3">
@@ -361,7 +525,7 @@ export default function ConsultaCadastralPage() {
                           <p className="text-[11px] text-[var(--text-faint)]">
                             Score da BigDataCorp — maior é melhor. Nível A é o menor risco, H o maior.
                           </p>
-                          <div className="pt-1">
+                          <Pares cols={1}>
                             <Linha rotulo="Empregado atualmente"
                               valor={resultado.risco.empregado == null ? "—" : resultado.risco.empregado ? "Sim" : "Não"}
                               alerta={resultado.risco.empregado === false} />
@@ -369,7 +533,7 @@ export default function ConsultaCadastralPage() {
                               valor={resultado.risco.socio == null ? "—" : resultado.risco.socio ? "Sim" : "Não"} />
                             <Linha rotulo="Recebe auxílio"
                               valor={resultado.risco.recebendoAuxilio == null ? "—" : resultado.risco.recebendoAuxilio ? "Sim" : "Não"} />
-                          </div>
+                          </Pares>
                         </>
                       ) : (
                         <p className="text-[13px] text-[var(--text-muted)]">Sem score para este CPF.</p>
@@ -377,34 +541,39 @@ export default function ConsultaCadastralPage() {
                     </Bloco>
 
                     <Bloco titulo="Inadimplência e judicial" Icone={AlertTriangle}>
-                      <Linha rotulo="Em cobrança agora"
-                        valor={resultado.inadimplencia.emCobrancaAgora ? "Sim" : "Não"}
-                        alerta={resultado.inadimplencia.emCobrancaAgora} />
-                      <Linha rotulo="Cobranças em 12 meses"
-                        valor={resultado.inadimplencia.cobrancas365d +
-                          (resultado.inadimplencia.credores365d > 1
-                            ? " · " + resultado.inadimplencia.credores365d + " credores" : "")}
-                        alerta={resultado.inadimplencia.cobrancas365d > 0} />
-                      <Linha rotulo="Processos como réu"
-                        valor={resultado.inadimplencia.processosComoReu + " de " + resultado.inadimplencia.processosTotal}
-                        alerta={resultado.inadimplencia.temExecucao} />
-                      <Linha rotulo="Processos no último ano"
-                        valor={resultado.inadimplencia.processos365d}
-                        alerta={resultado.inadimplencia.processos365d > 0} />
-                      <Linha rotulo="Dívida ativa da União"
-                        valor={resultado.inadimplencia.dividaAtiva > 0
-                          ? "R$ " + resultado.inadimplencia.dividaAtiva.toLocaleString("pt-BR", { minimumFractionDigits: 2 })
-                          : "nenhuma"}
-                        alerta={resultado.inadimplencia.dividaAtiva > 0} />
-                      <div className="flex gap-1.5 flex-wrap pt-1">
-                        {resultado.inadimplencia.temExecucao && <Tag tom="alerta">execução judicial</Tag>}
-                        {resultado.inadimplencia.naturezas.map((n, i) => <Tag key={i}>{n.toLowerCase()}</Tag>)}
-                      </div>
+                      <Pares>
+                        <Linha rotulo="Em cobrança agora"
+                          valor={resultado.inadimplencia.emCobrancaAgora ? "Sim" : "Não"}
+                          alerta={resultado.inadimplencia.emCobrancaAgora} />
+                        <Linha rotulo="Cobranças em 12 meses"
+                          valor={resultado.inadimplencia.cobrancas365d +
+                            (resultado.inadimplencia.credores365d > 1
+                              ? " · " + resultado.inadimplencia.credores365d + " credores" : "")}
+                          alerta={resultado.inadimplencia.cobrancas365d > 0} />
+                        <Linha rotulo="Processos como réu"
+                          valor={resultado.inadimplencia.processosComoReu + " de " + resultado.inadimplencia.processosTotal}
+                          alerta={resultado.inadimplencia.temExecucao} />
+                        <Linha rotulo="Processos no último ano"
+                          valor={resultado.inadimplencia.processos365d}
+                          alerta={resultado.inadimplencia.processos365d > 0} />
+                        <Linha rotulo="Dívida ativa da União"
+                          valor={resultado.inadimplencia.dividaAtiva > 0
+                            ? "R$ " + resultado.inadimplencia.dividaAtiva.toLocaleString("pt-BR", { minimumFractionDigits: 2 })
+                            : "nenhuma"}
+                          alerta={resultado.inadimplencia.dividaAtiva > 0} />
+                        <Linha rotulo="Última cobrança" valor={fmtData(resultado.inadimplencia.ultimaCobranca)} />
+                      </Pares>
+                      {(resultado.inadimplencia.temExecucao || resultado.inadimplencia.naturezas.length > 0) && (
+                        <div className="flex gap-1.5 flex-wrap pt-2.5 mt-2.5 border-t border-[var(--border-faint)]">
+                          {resultado.inadimplencia.temExecucao && <Tag tom="alerta">execução judicial</Tag>}
+                          {resultado.inadimplencia.naturezas.map((n, i) => <Tag key={i}>{n.toLowerCase()}</Tag>)}
+                        </div>
+                      )}
                     </Bloco>
                   </div>
 
                   <Bloco titulo="Rastro no mercado" Icone={Activity}>
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-2">
+                    <Pares cols={3}>
                       <Linha rotulo="Consultas em 30 dias" valor={resultado.rastro.consultas30d}
                         alerta={resultado.rastro.consultas30d >= 10} />
                       <Linha rotulo="Consultas em 12 meses" valor={resultado.rastro.consultas365d} />
@@ -417,7 +586,7 @@ export default function ConsultaCadastralPage() {
                       <Linha rotulo="Banco digital" valor={ESCALA(resultado.rastro.usoBancoDigital)} />
                       <Linha rotulo="Recebe auxílio"
                         valor={resultado.patrimonio.recebeAuxilio ? "Sim" : "Não"} />
-                    </div>
+                    </Pares>
                     {/* Consulta demais em 30 dias é o padrão do migrador serial —
                         o mesmo sinal que o score ISP persegue dentro da rede. */}
                     <p className="text-[11px] text-[var(--text-faint)] pt-1">
@@ -443,19 +612,21 @@ export default function ConsultaCadastralPage() {
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                   <Bloco titulo="Identidade" Icone={ShieldCheck}>
+                    <Pares>
                     <Linha rotulo="Nome" valor={resultado.identidade.nome ?? "—"} />
                     <Linha rotulo="Nascimento" valor={
-                      data(resultado.identidade.nascimento) +
+                      fmtData(resultado.identidade.nascimento) +
                       (resultado.identidade.idade ? " · " + resultado.identidade.idade + " anos" : "")
                     } />
                     <Linha rotulo="Nome da mãe" valor={resultado.identidade.nomeMae ?? "—"} />
                     <Linha rotulo="Situação na Receita" valor={
-                      (resultado.identidade.situacaoReceita ?? "—") + " · " + data(resultado.identidade.dataSituacao)
+                      (resultado.identidade.situacaoReceita ?? "—") + " · " + fmtData(resultado.identidade.dataSituacao)
                     } alerta={!!d.taxIdStatus && d.taxIdStatus.toUpperCase() !== "REGULAR"} />
                     <Linha rotulo="Indicação de óbito" valor={d.temObito ? "Sim" : "Não"} alerta={d.temObito} />
                     <Linha rotulo="Nascimento confere" valor={d.nascimentoValidadoNaReceita === false ? "Não" : "Sim"}
                       alerta={d.nascimentoValidadoNaReceita === false} />
                     <Linha rotulo="Homônimos" valor={d.homonimos ?? 0} alerta={(d.homonimos ?? 0) >= 100} />
+                    </Pares>
                   </Bloco>
 
                   <Bloco titulo="Renda e patrimônio" Icone={Wallet}>
@@ -490,7 +661,7 @@ export default function ConsultaCadastralPage() {
                       </div>
                     )}
 
-                    <div className="pt-1">
+                    <Pares cols={1}>
                       <Linha rotulo="Patrimônio estimado" valor={
                         resultado.renda.patrimonio && resultado.renda.patrimonio !== "SEM INFORMACAO"
                           ? resultado.renda.patrimonio : "sem informação"} />
@@ -499,7 +670,7 @@ export default function ConsultaCadastralPage() {
                           ? resultado.renda.declaracoesIR.length + " anos · desde " +
                             resultado.renda.declaracoesIR[resultado.renda.declaracoesIR.length - 1].ano
                           : "nenhuma"} />
-                    </div>
+                    </Pares>
 
                     <div className="flex gap-1.5 flex-wrap pt-1">
                       {/* Quem some da Receita costuma ser quem some da cobrança. */}
@@ -545,7 +716,7 @@ export default function ConsultaCadastralPage() {
                               {e.naReceita && <Tag tom="ok">na Receita</Tag>}
                               {e.passagensRuins > 0 && <Tag tom="alerta">{e.passagensRuins} suspeita(s)</Tag>}
                               <span className="font-mono text-[11px] text-[var(--text-faint)] tabular-nums">
-                                visto {data(e.ultimaPassagem)}
+                                visto {fmtData(e.ultimaPassagem)}
                               </span>
                             </div>
                           </li>
@@ -580,7 +751,7 @@ export default function ConsultaCadastralPage() {
                               {t.naoPerturbe && <Tag tom="alerta">não perturbe</Tag>}
                               {t.passagensRuins > 0 && <Tag tom="alerta">{t.passagensRuins} suspeita(s)</Tag>}
                               <span className="font-mono text-[11px] text-[var(--text-faint)] tabular-nums">
-                                visto {data(t.ultimaPassagem)}
+                                visto {fmtData(t.ultimaPassagem)}
                               </span>
                             </div>
                           </li>
@@ -615,10 +786,106 @@ export default function ConsultaCadastralPage() {
                   O restante do resultado é válido.
                 </p>
               )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {activeTab === "historico" && (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
+            {consultations.length === 0 ? (
+              <div className="px-6 py-12 text-center">
+                <IdCard className="w-8 h-8 mx-auto mb-4 text-[var(--text-muted)] opacity-50" />
+                <h3 className="font-medium text-base text-[var(--text)]">Nenhuma consulta no histórico</h3>
+                <p className="mt-2 mx-auto max-w-[52ch] text-sm text-[var(--text-muted)]">
+                  As consultas aparecem aqui assim que você fizer a primeira.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-[13px] min-w-[560px]">
+                  <thead>
+                    <tr>
+                      {["Data", "CPF", "Veredito", "Datasets"].map(h => (
+                        <th key={h} className="text-left text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)] px-4 py-2 border-b border-[var(--border-faint)]">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {consultations.map((c: any) => {
+                      const vv = VEREDITO[c.veredito as Resultado["veredito"]] ?? VEREDITO.NAO_ENCONTRADO;
+                      return (
+                        <tr key={c.id} className="border-b border-[var(--border-faint)] last:border-b-0"
+                          data-testid={`consulta-${c.id}`}>
+                          <td className="px-4 py-2.5 font-mono tabular-nums text-[var(--text-2)]">
+                            {fmtData(c.createdAt)}
+                          </td>
+                          <td className="px-4 py-2.5 font-mono tabular-nums text-[var(--text)]">
+                            {formataCpf(c.cpfCnpj)}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <span className={`inline-flex items-center text-[10px] font-medium tracking-[0.04em] px-2 py-0.5 rounded ${vv.cls}`}>
+                              {vv.rotulo}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 font-mono tabular-nums text-[var(--text-muted)]">
+                            {c.datasets?.length ?? 0}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === "info" && (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-5 py-5 space-y-4 max-w-[760px]">
+            <div>
+              <h3 className="text-[15px] font-medium text-[var(--text)]">O que a Consulta Cadastral responde</h3>
+              <p className="text-[13px] text-[var(--text-muted)] mt-1 leading-relaxed">
+                A Consulta ISP diz se o CPF deve para algum provedor da rede. A Cadastral
+                responde as duas perguntas que vêm antes: esse CPF existe e é utilizável, e
+                essa pessoa tem vínculo com o endereço que informou.
+              </p>
             </div>
-          )}
-        </>
-      )}
+            <div className="border-t border-[var(--border-faint)] pt-4">
+              <h3 className="text-[15px] font-medium text-[var(--text)]">Como o veredito é formado</h3>
+              <Pares cols={1}>
+                <Linha rotulo="Recusar" valor="CPF fora de REGULAR, ou óbito" />
+                <Linha rotulo="Atenção" valor="cobrança, execução, endereço ou renda" />
+                <Linha rotulo="Aprovar" valor="nenhum sinal acima" />
+              </Pares>
+              <p className="text-[12px] text-[var(--text-faint)] mt-2 leading-relaxed">
+                Renda estimada nunca gera recusa — só alerta. Negar serviço por estimativa
+                estatística é decisão que a LGPD dá ao titular o direito de contestar.
+              </p>
+            </div>
+            <div className="border-t border-[var(--border-faint)] pt-4">
+              <h3 className="text-[15px] font-medium text-[var(--text)]">Fonte dos dados</h3>
+              <p className="text-[13px] text-[var(--text-muted)] mt-1 leading-relaxed">
+                BigDataCorp, com credencial própria do seu provedor — o consumo e o custo
+                aparecem separados no painel deles. Cada consulta usa 1 crédito.
+              </p>
+            </div>
+          </div>
+        )}
+
+        <LgpdDisclaimerModal
+          open={lgpdDisclaimerOpen}
+          accepted={lgpdAccepted}
+          onAccept={handleLgpdAcceptAndSearch}
+          onCancel={() => { setLgpdDisclaimerOpen(false); setPendingSearchPayload(null); }}
+          onToggle={setLgpdAccepted}
+        />
+
+      </div>
     </div>
   );
 }
