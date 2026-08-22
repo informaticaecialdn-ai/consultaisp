@@ -179,7 +179,7 @@ export async function syncProviderToDb(
         }
       }
 
-      await storage.upsertFromErp({
+      const clienteSalvo = await storage.upsertFromErp({
         providerId,
         cpfCnpj: customer.cpfCnpj,
         name: customer.name,
@@ -203,6 +203,27 @@ export async function syncProviderToDb(
         contractPlan: (customer as any).contractPlan,
         erpSource,
       });
+
+      // O conector ja normaliza equipmentDetails (ver server/erp/types.ts).
+      // Ate esta versao ninguem lia esse campo — o sync descartava.
+      const detalhes = (customer as any).equipmentDetails as any[] | undefined;
+      if (clienteSalvo?.id && detalhes?.length) {
+        try {
+          await storage.syncEquipmentFromErp(providerId, clienteSalvo.id, detalhes);
+
+          const agregado = await storage.contarEquipamentoRetido([clienteSalvo.id]);
+          const a = agregado.get(clienteSalvo.id);
+          await storage.updateCustomerEquipmentAggregate(
+            clienteSalvo.id,
+            a?.count ?? 0,
+            String(a?.value ?? 0),
+          );
+        } catch (e: any) {
+          // Falha de equipamento nao invalida o upsert do cliente: o dado de
+          // divida e mais critico que o de comodato.
+          console.warn(`[ERPSync] equipamento ${customer.cpfCnpj}: ${e.message}`);
+        }
+      }
       upserted++;
     } catch (err: any) {
       errors++;
