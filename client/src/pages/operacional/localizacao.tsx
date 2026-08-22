@@ -2,12 +2,16 @@ import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
-import MapaCarteira, { type PontoMapa, type PontoRede } from "@/components/maps/MapaCarteira";
+import MapaCarteira, {
+  type PontoMapa, type PontoRede, type CidadeMapa, type ModoMapa,
+} from "@/components/maps/MapaCarteira";
 
 type Resposta = {
   origemArea: 'cidades' | 'meso' | 'uf' | 'nenhuma';
   semCoordenada: number;
-  cidades: Array<{ cidade: string; clientes: number }>;
+  coordenadaSuspeita: Array<{ id: number; cidade: string; lat: number; lon: number }>;
+  cidades: CidadeMapa[];
+  cidadesSemCliente: string[];
   pontos: PontoMapa[];
   bairros: Array<{
     bairro: string; cidade: string; clientes: number;
@@ -33,6 +37,13 @@ const FAIXAS: Array<{ k: string; label: string; teste: (v: number) => boolean }>
   { k: 'de100a300',  label: 'R$ 100–300',   teste: v => v > 100 && v <= 300 },
   { k: 'de300a1000', label: 'R$ 300–1.000', teste: v => v > 300 && v <= 1000 },
   { k: 'acima1000',  label: 'R$ 1.000+',    teste: v => v > 1000 },
+];
+
+/** Espelha corDaTaxa() do MapaCarteira — mesma quebra, mesma cor. */
+const FAIXAS_TAXA = [
+  { label: 'até 20% inadimplência', token: '--ok',     teste: (p: number) => p < 20 },
+  { label: '20–40%',                token: '--gated',  teste: (p: number) => p >= 20 && p < 40 },
+  { label: '40%+',                  token: '--danger', teste: (p: number) => p >= 40 },
 ];
 
 const brl = (v: number) =>
@@ -78,6 +89,10 @@ export default function LocalizacaoPage() {
 
   // Camada de rede: desligada por padrao. A leitura do dia a dia e a carteira
   // propria; a rede e o diferencial do bureau, mas so quando pedida.
+  // Carteira mostra cliente a cliente; regionalizacao agrega por cidade e
+  // responde "onde eu atuo", que e uma pergunta diferente de "quem devo".
+  const [modo, setModo] = useState<ModoMapa>('carteira');
+
   const [verRede, setVerRede] = useState(false);
   const { data: rede = [], isFetching: redeCarregando } = useQuery<PontoRede[]>({
     queryKey: ["/api/heatmap/regional"],
@@ -94,6 +109,11 @@ export default function LocalizacaoPage() {
 
   const pontos = data?.pontos ?? [];
   const bairros = data?.bairros ?? [];
+  const cidades = data?.cidades ?? [];
+  const suspeitas = data?.coordenadaSuspeita ?? [];
+  const semCliente = data?.cidadesSemCliente ?? [];
+  const cidadesPlotaveis = cidades.filter(c => c.lat !== null && c.lon !== null);
+  const cidadesAtendidas = cidades.length + semCliente.length;
 
   const faixa = FAIXAS.find(f => f.k === fDivida) ?? FAIXAS[0];
   const pontosFiltrados = pontos.filter(p =>
@@ -129,8 +149,8 @@ export default function LocalizacaoPage() {
       {data?.origemArea === 'nenhuma' && (
         <div className="rounded-lg bg-[var(--gated-bg)] px-4 py-3 text-[13px] text-[var(--gated)]">
           Você ainda não configurou as cidades atendidas, então o mapa mostra toda a base.{" "}
-          <Link href="/configuracoes/regionalizacao">
-            <a className="underline font-medium">Configurar Regionalização</a>
+          <Link href="/configuracoes/regionalizacao" className="underline font-medium">
+            Configurar Regionalização
           </Link>
         </div>
       )}
@@ -148,7 +168,13 @@ export default function LocalizacaoPage() {
           />
           <Kpi label="R$ vencido no mapa" valor={brl(totalVencido)} sub={`${totalDevedores} devedores`} />
           <Kpi label="Clientes plotados" valor={String(pontosFiltrados.length)} sub={`de ${pontos.length} com coordenada`} />
-          <Kpi label="Sem coordenada" valor={String(data?.semCoordenada ?? 0)} sub="fora do mapa" />
+          <Kpi
+            label="Fora do mapa"
+            valor={String((data?.semCoordenada ?? 0) + suspeitas.length)}
+            sub={suspeitas.length > 0
+              ? `${data?.semCoordenada ?? 0} sem coordenada · ${suspeitas.length} coordenada suspeita`
+              : "sem coordenada no cadastro"}
+          />
         </div>
       )}
 
@@ -156,11 +182,19 @@ export default function LocalizacaoPage() {
         {/* Mapa */}
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
           <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-[var(--border-faint)]">
-            <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-              Mapa real da carteira · OpenStreetMap
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                OpenStreetMap
+              </span>
+              <div className="flex gap-1">
+                <Chip ativo={modo === 'carteira'} onClick={() => setModo('carteira')}>Carteira</Chip>
+                <Chip ativo={modo === 'regionalizacao'} onClick={() => setModo('regionalizacao')}>Regionalização</Chip>
+              </div>
+            </div>
             <span className="font-mono text-[11px] text-[var(--text-muted)] tabular-nums">
-              {pontosFiltrados.length} de {pontos.length} pontos
+              {modo === 'regionalizacao'
+                ? `${cidadesPlotaveis.length} de ${cidadesAtendidas} cidades`
+                : `${pontosFiltrados.length} de ${pontos.length} pontos`}
             </span>
           </div>
 
@@ -174,6 +208,7 @@ export default function LocalizacaoPage() {
                 </Chip>
               ))}
             </div>
+            {modo === 'carteira' && (
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-faint)] w-[52px]">Estado</span>
               <Chip ativo={fEstado === "todos"} onClick={() => setFEstado("todos")}>Todos</Chip>
@@ -181,12 +216,15 @@ export default function LocalizacaoPage() {
                 <Chip key={e.k} ativo={fEstado === e.k} onClick={() => setFEstado(e.k)}>{e.label}</Chip>
               ))}
             </div>
+            )}
+            {modo === 'carteira' && (
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-faint)] w-[52px]">Dívida</span>
               {FAIXAS.map(f => (
                 <Chip key={f.k} ativo={fDivida === f.k} onClick={() => setFDivida(f.k)}>{f.label}</Chip>
               ))}
             </div>
+            )}
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-faint)] w-[52px]">Rede</span>
               <Chip ativo={verRede} onClick={() => setVerRede(v => !v)}>
@@ -210,7 +248,12 @@ export default function LocalizacaoPage() {
           </div>
 
           <div className="p-3">
-            {isLoading ? <Skeleton className="h-[520px] w-full" /> : <MapaCarteira pontos={pontosFiltrados} rede={verRede ? redeVisivel : undefined} />}
+            {isLoading ? <Skeleton className="h-[520px] w-full" /> : <MapaCarteira
+                pontos={pontosFiltrados}
+                cidades={cidades}
+                modo={modo}
+                rede={verRede ? redeVisivel : undefined}
+              />}
           </div>
 
           <div className="flex flex-wrap gap-x-5 gap-y-2 px-4 py-3 border-t border-[var(--border-faint)]">
@@ -221,13 +264,28 @@ export default function LocalizacaoPage() {
                 <b className="font-mono tabular-nums text-[var(--text)]">{redeVisivel.length}</b>
               </span>
             )}
-            {contagem.map(e => (
-              <span key={e.k} className="flex items-center gap-2 text-[12px] text-[var(--text-2)]">
-                <i className="w-2 h-2 rounded-full" style={{ background: `var(${e.token})` }} />
-                {e.label}
-                <b className="font-mono tabular-nums text-[var(--text)]">{e.n}</b>
+            {modo === 'regionalizacao'
+              ? FAIXAS_TAXA.map(f => (
+                  <span key={f.label} className="flex items-center gap-2 text-[12px] text-[var(--text-2)]">
+                    <i className="w-2.5 h-2.5 rounded-full" style={{ background: `var(${f.token})` }} />
+                    {f.label}
+                    <b className="font-mono tabular-nums text-[var(--text)]">
+                      {cidadesPlotaveis.filter(c => f.teste(c.clientes ? (c.inadimplentes / c.clientes) * 100 : 0)).length}
+                    </b>
+                  </span>
+                ))
+              : contagem.map(e => (
+                  <span key={e.k} className="flex items-center gap-2 text-[12px] text-[var(--text-2)]">
+                    <i className="w-2 h-2 rounded-full" style={{ background: `var(${e.token})` }} />
+                    {e.label}
+                    <b className="font-mono tabular-nums text-[var(--text)]">{e.n}</b>
+                  </span>
+                ))}
+            {modo === 'regionalizacao' && semCliente.length > 0 && (
+              <span className="text-[12px] text-[var(--text-muted)]">
+                {semCliente.length} cidades atendidas ainda sem cliente
               </span>
-            ))}
+            )}
           </div>
         </div>
 

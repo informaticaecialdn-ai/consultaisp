@@ -23,9 +23,29 @@ const brl = (v: number) =>
 
 export type PontoRede = { lat: number; lng: number; count: number };
 
+export type CidadeMapa = {
+  cidade: string; clientes: number; inadimplentes: number;
+  dividaTotal: number; lat: number | null; lon: number | null;
+};
+
+export type ModoMapa = 'carteira' | 'regionalizacao';
+
+/** Escala de inadimplencia da cidade — mesma leitura semantica dos pontos. */
+function corDaTaxa(pct: number): string {
+  const token = pct >= 40 ? '--danger' : pct >= 20 ? '--gated' : '--ok';
+  const v = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+  return v || '#6B6878';
+}
+
 export default function MapaCarteira({
-  pontos, rede, height = 520,
-}: { pontos: PontoMapa[]; rede?: PontoRede[]; height?: number }) {
+  pontos, cidades = [], modo = 'carteira', rede, height = 520,
+}: {
+  pontos: PontoMapa[];
+  cidades?: CidadeMapa[];
+  modo?: ModoMapa;
+  rede?: PontoRede[];
+  height?: number;
+}) {
   const div = useRef<HTMLDivElement>(null);
   const mapa = useRef<L.Map | null>(null);
   const camada = useRef<L.LayerGroup | null>(null);
@@ -44,28 +64,55 @@ export default function MapaCarteira({
   useEffect(() => {
     if (!mapa.current || !camada.current) return;
     camada.current.clearLayers();
+
+    const plotaveis = modo === 'regionalizacao'
+      ? cidades.filter(c => c.lat !== null && c.lon !== null)
+      : pontos;
     // Sem ponto, mantem o enquadramento atual: geocodificar so para posicionar
     // um mapa vazio custaria uma volta de rede sem entregar nada.
-    if (pontos.length === 0) return;
+    if (plotaveis.length === 0) return;
 
-    for (const p of pontos) {
-      L.circleMarker([p.lat, p.lon], {
-        radius: 5, weight: 1, color: "#fff",
-        fillColor: corDoEstado(p.estado), fillOpacity: 0.9,
-      })
-        .bindPopup(
-          `<b>${p.bairro || "Sem bairro"}</b><br>${p.cidade}<br>` +
-          (p.emAberto > 0
-            ? `${brl(p.emAberto)} em aberto · ${p.atraso}d`
-            : "sem dívida em aberto"),
-        )
-        .addTo(camada.current!);
+    if (modo === 'regionalizacao') {
+      // Uma bolha por cidade, area proporcional a carteira. Area e nao raio:
+      // o olho compara area, e escalar o raio exagera a cidade grande.
+      const maior = Math.max(...cidades.map(c => c.clientes));
+      for (const c of cidades) {
+        if (c.lat === null || c.lon === null) continue;
+        const taxa = c.clientes > 0 ? (c.inadimplentes / c.clientes) * 100 : 0;
+        L.circleMarker([c.lat, c.lon], {
+          radius: 7 + Math.sqrt(c.clientes / maior) * 17,
+          weight: 1.5, color: "#fff",
+          fillColor: corDaTaxa(taxa), fillOpacity: 0.75,
+        })
+          .bindPopup(
+            `<b>${c.cidade}</b><br>${c.clientes} clientes · ${c.inadimplentes} inad. ` +
+            `(${taxa.toFixed(1)}%)<br>${brl(c.dividaTotal)} em aberto`,
+          )
+          .bindTooltip(c.cidade, { direction: 'top', offset: [0, -6] })
+          .addTo(camada.current!);
+      }
+    } else {
+      for (const p of pontos) {
+        L.circleMarker([p.lat, p.lon], {
+          radius: 5, weight: 1, color: "#fff",
+          fillColor: corDoEstado(p.estado), fillOpacity: 0.9,
+        })
+          .bindPopup(
+            `<b>${p.bairro || "Sem bairro"}</b><br>${p.cidade}<br>` +
+            (p.emAberto > 0
+              ? `${brl(p.emAberto)} em aberto · ${p.atraso}d`
+              : "sem dívida em aberto"),
+          )
+          .addTo(camada.current!);
+      }
     }
 
-    // Enquadra pelos proprios pontos: cidades-brasil.json nao tem coordenada.
-    const bounds = L.latLngBounds(pontos.map(p => [p.lat, p.lon] as [number, number]));
+    // Enquadra pelo que esta plotado: cidades-brasil.json nao tem coordenada.
+    const bounds = L.latLngBounds(
+      plotaveis.map(p => [p.lat as number, ('lon' in p ? p.lon : 0) as number] as [number, number]),
+    );
     mapa.current.fitBounds(bounds, { padding: [32, 32], maxZoom: 14 });
-  }, [pontos]);
+  }, [pontos, cidades, modo]);
 
   // Camada separada: liga e desliga sem redesenhar os pontos da carteira.
   useEffect(() => {
