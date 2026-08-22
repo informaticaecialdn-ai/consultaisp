@@ -30,6 +30,22 @@ export interface DadosCadastrais {
   badAddressPassages?: number;
   /** Faixa da BigData, ex "3 A 5 SM". "SEM INFORMACAO" quando nao ha dado. */
   faixaRenda?: string;
+
+  // ── Sinais de inadimplencia ────────────────────────────────────────────────
+  /** Esta em cobranca neste momento. O sinal mais direto que existe. */
+  emCobrancaAgora?: boolean;
+  cobrancas365d?: number;
+  /** Credores distintos que cobraram — dois credores pesa mais que duas cobrancas do mesmo. */
+  credoresDistintos365d?: number;
+  /** Processos em que a pessoa e RE. Como autor nao diz nada sobre pagar. */
+  processosComoReu?: number;
+  processos365d?: number;
+  /** Execucao de titulo, execucao fiscal: alguem ja foi a juizo cobrar. */
+  temExecucao?: boolean;
+  /** Divida ativa da Uniao/FGTS (PGFN), em reais. */
+  dividaAtiva?: number;
+  /** Intensidade de busca por credito: A e altissima, H e nenhuma. */
+  buscaCredito?: string;
 }
 
 export interface OpcoesVeredito {
@@ -51,6 +67,12 @@ const SALARIO_MINIMO = 1518;
  * operacao mostrar que gera ruido, sobe.
  */
 const HOMONIMOS_DEMAIS = 100;
+
+/**
+ * Processos como reu acima disso vira alerta por volume, mesmo sem execucao.
+ * Quem responde a muitos processos tem historico de conflito contratual.
+ */
+const PROCESSOS_DEMAIS = 5;
 
 /** Status da Receita que impedem contratacao. Qualquer coisa fora de REGULAR. */
 const STATUS_OK = "REGULAR";
@@ -162,6 +184,38 @@ export function decidirVeredito(
         `Renda estimada (${d.faixaRenda}) abaixo da mensalidade do plano`,
       );
     }
+  }
+
+  // ── Inadimplencia ─────────────────────────────────────────────────────────
+  // Nenhum destes recusa sozinho: sao historico, nao impedimento. Cobranca
+  // resolvida e processo perdido nao proibem alguem de contratar internet —
+  // mas o provedor tem o direito de saber antes de instalar.
+  if (d.emCobrancaAgora) {
+    motivos.push("Em processo de cobrança neste momento");
+  } else if ((d.cobrancas365d ?? 0) > 0) {
+    const credores = d.credoresDistintos365d ?? 0;
+    motivos.push(
+      `${d.cobrancas365d} cobrança(s) nos últimos 12 meses` +
+      (credores > 1 ? ` — ${credores} credores diferentes` : ""),
+    );
+  }
+
+  if (d.temExecucao) {
+    motivos.push("Execução judicial de dívida no histórico");
+  } else if ((d.processosComoReu ?? 0) >= PROCESSOS_DEMAIS) {
+    motivos.push(`${d.processosComoReu} processos como réu`);
+  }
+
+  if ((d.dividaAtiva ?? 0) > 0) {
+    motivos.push(
+      `Dívida ativa da União: R$ ${(d.dividaAtiva as number).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
+    );
+  }
+
+  // A e H sao os extremos: A significa procurar credito o tempo todo, o que
+  // costuma anteceder o aperto. So os dois primeiros niveis alertam.
+  if (d.buscaCredito && ["A", "B"].includes(d.buscaCredito.trim().toUpperCase())) {
+    motivos.push("Busca intensa por crédito no mercado");
   }
 
   if (recusar) return { veredito: "RECUSAR", motivos };

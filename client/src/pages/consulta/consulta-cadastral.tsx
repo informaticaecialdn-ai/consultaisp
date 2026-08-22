@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { IdCard, Search, MapPin, Wallet, ShieldCheck, Settings2, Phone, Mail } from "lucide-react";
+import {
+  IdCard, Search, MapPin, Wallet, ShieldCheck, Settings2, Phone, Mail,
+  Gauge, AlertTriangle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,6 +44,17 @@ type Resultado = {
     declaracoesIR: Array<{ ano: string; status?: string; banco?: string; agencia?: string; segmentoVip: boolean }>;
     declaraIrRecorrente: boolean; temSegmentoVip: boolean;
   };
+  risco: {
+    score?: number; nivel?: string; empregado?: boolean; socio?: boolean;
+    recebendoAuxilio?: boolean; inicioUltimaOcupacao?: string;
+  };
+  inadimplencia: {
+    emCobrancaAgora: boolean; cobrancas365d: number; credores365d: number;
+    mesesConsecutivos: number; ultimaCobranca?: string;
+    processosTotal: number; processosComoReu: number; processos365d: number;
+    temExecucao: boolean; naturezas: string[]; dividaAtiva: number;
+  };
+  datasetsIndisponiveis: string[];
   dados: {
     encontrado: boolean; taxIdStatus?: string; temObito?: boolean;
     nascimentoValidadoNaReceita?: boolean; homonimos?: number;
@@ -79,6 +93,14 @@ const VEREDITO: Record<Resultado["veredito"], { rotulo: string; cls: string; not
   ATENCAO:        { rotulo: "Atenção",         cls: "bg-[var(--gated-bg)] text-[var(--gated)]",   nota: "Contrate com cautela — veja os motivos" },
   RECUSAR:        { rotulo: "Recusar",         cls: "bg-[var(--danger-bg)] text-[var(--danger)]", nota: "Impedimento cadastral na Receita Federal" },
   NAO_ENCONTRADO: { rotulo: "Não encontrado",  cls: "bg-[var(--surface-inset)] text-[var(--text-muted)]", nota: "Sem registro — não é recusa, é ausência de informação" },
+};
+
+/** A e o menor risco, H o maior. Do meio para baixo ja merece cautela. */
+const NIVEL_TOM = (n: string): "ok" | "alerta" | "neutro" => {
+  const c = n.trim().toUpperCase();
+  if (["A", "B"].includes(c)) return "ok";
+  if (["C", "D"].includes(c)) return "neutro";
+  return "alerta";
 };
 
 const soDigitos = (v: string) => v.replace(/\D/g, "").slice(0, 11);
@@ -310,6 +332,65 @@ export default function ConsultaCadastralPage() {
 
               {d?.encontrado && (
                 <div className="space-y-3">
+                  {/* Score e inadimplência vêm antes do cadastro: é o que decide. */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    <Bloco titulo="Risco financeiro · BigDataCorp" Icone={Gauge}>
+                      {resultado.risco.score != null ? (
+                        <>
+                          <div className="flex items-baseline gap-2">
+                            <span className="font-mono text-[28px] font-medium tracking-[-0.02em] text-[var(--text)] tabular-nums">
+                              {resultado.risco.score}
+                            </span>
+                            <span className="text-[13px] text-[var(--text-muted)]">/ 1000</span>
+                            {resultado.risco.nivel && (
+                              <Tag tom={NIVEL_TOM(resultado.risco.nivel)}>nível {resultado.risco.nivel}</Tag>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-[var(--text-faint)]">
+                            Score da BigDataCorp — maior é melhor. Nível A é o menor risco, H o maior.
+                          </p>
+                          <div className="pt-1">
+                            <Linha rotulo="Empregado atualmente"
+                              valor={resultado.risco.empregado == null ? "—" : resultado.risco.empregado ? "Sim" : "Não"}
+                              alerta={resultado.risco.empregado === false} />
+                            <Linha rotulo="Sócio de empresa"
+                              valor={resultado.risco.socio == null ? "—" : resultado.risco.socio ? "Sim" : "Não"} />
+                            <Linha rotulo="Recebe auxílio"
+                              valor={resultado.risco.recebendoAuxilio == null ? "—" : resultado.risco.recebendoAuxilio ? "Sim" : "Não"} />
+                          </div>
+                        </>
+                      ) : (
+                        <p className="text-[13px] text-[var(--text-muted)]">Sem score para este CPF.</p>
+                      )}
+                    </Bloco>
+
+                    <Bloco titulo="Inadimplência e judicial" Icone={AlertTriangle}>
+                      <Linha rotulo="Em cobrança agora"
+                        valor={resultado.inadimplencia.emCobrancaAgora ? "Sim" : "Não"}
+                        alerta={resultado.inadimplencia.emCobrancaAgora} />
+                      <Linha rotulo="Cobranças em 12 meses"
+                        valor={resultado.inadimplencia.cobrancas365d +
+                          (resultado.inadimplencia.credores365d > 1
+                            ? " · " + resultado.inadimplencia.credores365d + " credores" : "")}
+                        alerta={resultado.inadimplencia.cobrancas365d > 0} />
+                      <Linha rotulo="Processos como réu"
+                        valor={resultado.inadimplencia.processosComoReu + " de " + resultado.inadimplencia.processosTotal}
+                        alerta={resultado.inadimplencia.temExecucao} />
+                      <Linha rotulo="Processos no último ano"
+                        valor={resultado.inadimplencia.processos365d}
+                        alerta={resultado.inadimplencia.processos365d > 0} />
+                      <Linha rotulo="Dívida ativa da União"
+                        valor={resultado.inadimplencia.dividaAtiva > 0
+                          ? "R$ " + resultado.inadimplencia.dividaAtiva.toLocaleString("pt-BR", { minimumFractionDigits: 2 })
+                          : "nenhuma"}
+                        alerta={resultado.inadimplencia.dividaAtiva > 0} />
+                      <div className="flex gap-1.5 flex-wrap pt-1">
+                        {resultado.inadimplencia.temExecucao && <Tag tom="alerta">execução judicial</Tag>}
+                        {resultado.inadimplencia.naturezas.map((n, i) => <Tag key={i}>{n.toLowerCase()}</Tag>)}
+                      </div>
+                    </Bloco>
+                  </div>
+
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                   <Bloco titulo="Identidade" Icone={ShieldCheck}>
                     <Linha rotulo="Nome" valor={resultado.identidade.nome ?? "—"} />
@@ -468,6 +549,14 @@ export default function ConsultaCadastralPage() {
                     </Bloco>
                   )}
                 </div>
+              )}
+
+              {resultado.datasetsIndisponiveis?.length > 0 && (
+                <p className="text-[12px] text-[var(--text-muted)]">
+                  Consultas de bureau parceiro não habilitadas na sua conta
+                  ({resultado.datasetsIndisponiveis.length}). Habilitar no BDC Center
+                  acrescenta score de crédito de mercado e histórico de negativação.
+                </p>
               )}
 
               {resultado.datasetsComFalha.length > 0 && (

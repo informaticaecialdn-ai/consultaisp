@@ -36,10 +36,31 @@ export interface TelefoneDetalhado {
 
 const BASE_URL = process.env.BIGDATA_BASE_URL || "https://plataforma.bigdatacorp.com.br";
 
-/** Os tres datasets cabem numa requisicao — medido em 516ms para CPF existente. */
+
+/**
+ * Combo de credito. Todos verificados como liberados na conta em 2026-08-22.
+ * Uma unica requisicao traz os nove — a falha de um nao invalida os outros.
+ */
 export const DATASETS = [
-  "basic_data", "addresses_extended", "phones_extended",
-  "emails_extended", "financial_data",
+  // Identidade
+  "basic_data",
+  // Contato e vinculo com endereco
+  "addresses_extended", "phones_extended", "emails_extended",
+  // Capacidade de pagar
+  "financial_data", "financial_risk",
+  // Inadimplencia
+  "collections", "processes", "government_debtors",
+] as const;
+
+/**
+ * Datasets de marketplace (parceiros de bureau). Ficam fora da lista principal
+ * porque nao estao habilitados e sao cobrados a parte. Incluir aqui NAO custa
+ * nada quando estao bloqueados: a BigData recusa com -109 antes de executar.
+ * Quando o provedor habilitar no BDC Center, passam a responder sem mudar codigo.
+ */
+export const DATASETS_MARKETPLACE = [
+  "partner_quod_credit_risk_details_person",
+  "partner_quod_credit_score_person",
 ] as const;
 
 /** Circuito por provedor: a credencial de um nao deve derrubar a consulta de outro. */
@@ -206,6 +227,37 @@ function normalizarRenda(fin: any): RendaDetalhada {
   };
 }
 
+/** Naturezas processuais que significam cobranca judicial de divida. */
+const NATUREZAS_EXECUCAO = ["EXECUCAO", "EXECUÇÃO", "MONITORIA", "MONITÓRIA", "BUSCA E APREENSAO"];
+
+function normalizarInadimplencia(col: any, proc: any, gov: any): Inadimplencia {
+  const lawsuits: any[] = Array.isArray(proc?.Lawsuits) ? proc.Lawsuits : [];
+
+  // So conta execucao onde a pessoa e RE. Executar alguem nao diz nada sobre
+  // pagar as proprias contas — ser executado, sim.
+  const comoReu = lawsuits.filter(l =>
+    String(l?.Status ?? "").toUpperCase().includes("EXECU") ||
+    NATUREZAS_EXECUCAO.some(n => String(l?.Type ?? "").toUpperCase().includes(n)));
+
+  const naturezas = Array.from(new Set(
+    lawsuits.map(l => String(l?.CourtType ?? "").trim()).filter(Boolean),
+  ));
+
+  return {
+    emCobrancaAgora: !!col?.IsCurrentlyOnCollection,
+    cobrancas365d: Number(col?.Last365DaysCollectionOccurrences ?? 0) || 0,
+    credores365d: Number(col?.Last365DaysCollectionOrigins ?? 0) || 0,
+    mesesConsecutivos: Number(col?.MaxConsecutiveCollectionMonths ?? 0) || 0,
+    ultimaCobranca: col?.LastCollectionDate || undefined,
+    processosTotal: Number(proc?.TotalLawsuits ?? 0) || 0,
+    processosComoReu: Number(proc?.TotalLawsuitsAsDefendant ?? 0) || 0,
+    processos365d: Number(proc?.Last365DaysLawsuits ?? 0) || 0,
+    temExecucao: comoReu.length > 0 && Number(proc?.TotalLawsuitsAsDefendant ?? 0) > 0,
+    naturezas,
+    dividaAtiva: Number(gov?.TotalDebtValue ?? 0) || 0,
+  };
+}
+
 /**
  * `basic_data` devolve -1200 para CPF inexistente em vez de "nao encontrado".
  * Os outros dois datasets no mesmo CPF respondem Code 0 com contadores zerados.
@@ -241,6 +293,30 @@ export interface RendaDetalhada {
   temSegmentoVip: boolean;
 }
 
+/** Score de risco da propria BigData, com o porque. */
+export interface RiscoFinanceiro {
+  score?: number;            // 0-1000, maior e melhor
+  nivel?: string;            // A (melhor) a H (pior)
+  empregado?: boolean;
+  socio?: boolean;
+  recebendoAuxilio?: boolean;
+  inicioUltimaOcupacao?: string;
+}
+
+export interface Inadimplencia {
+  emCobrancaAgora: boolean;
+  cobrancas365d: number;
+  credores365d: number;
+  mesesConsecutivos: number;
+  ultimaCobranca?: string;
+  processosTotal: number;
+  processosComoReu: number;
+  processos365d: number;
+  temExecucao: boolean;
+  naturezas: string[];
+  dividaAtiva: number;
+}
+
 export interface Identidade {
   nome?: string; nascimento?: string; idade?: number;
   nomeMae?: string; nomePai?: string; genero?: string;
@@ -254,6 +330,10 @@ export interface ResultadoConsulta {
   telefones: TelefoneDetalhado[];
   emails: string[];
   renda: RendaDetalhada;
+  risco: RiscoFinanceiro;
+  inadimplencia: Inadimplencia;
+  /** Datasets bloqueados na conta — nao sao falha, sao upgrade disponivel. */
+  datasetsIndisponiveis: string[];
   /** Payload cru da BigData, para gravar e auditar. */
   bruto: any;
   datasetsChamados: string[];
@@ -275,7 +355,12 @@ export async function consultarCpf(
         "Content-Type": "application/json", accept: "application/json",
         AccessToken: token, TokenId: tokenId,
       },
-      body: JSON.stringify({ Datasets: DATASETS.join(","), q: `doc{${cpf}}`, Limit: 1 }),
+      // Marketplace vai junto: quando bloqueado a BigData recusa com -109 antes
+      // de executar, entao nao custa nada. Habilitou no painel, passa a vir.
+      body: JSON.stringify({
+        Datasets: [...DATASETS, ...DATASETS_MARKETPLACE].join(","),
+        q: `doc{${cpf}}`, Limit: 1,
+      }),
     });
     const d: any = await r.json().catch(() => ({}));
 
@@ -299,12 +384,19 @@ export async function consultarCpf(
   const emails: string[] = (Array.isArray(R.ExtendedEmails?.Emails) ? R.ExtendedEmails.Emails : [])
     .map((e: any) => e?.EmailAddress).filter(Boolean);
 
-  const datasetsComFalha = Object.entries(d?.Status ?? {})
-    .filter(([, arr]: any) => arr?.[0]?.Code !== 0)
+  // -109 e "nao habilitado na conta", nao falha. Misturar os dois faria a tela
+  // acusar erro onde ha apenas um upgrade disponivel.
+  const status = Object.entries(d?.Status ?? {}) as Array<[string, any]>;
+  const datasetsIndisponiveis = status
+    .filter(([, arr]) => arr?.[0]?.Code === -109).map(([nome]) => nome);
+  const datasetsComFalha = status
+    .filter(([, arr]) => arr?.[0]?.Code !== 0 && arr?.[0]?.Code !== -109)
     .map(([nome]) => nome);
 
   const encontrado = !cpfNaoEncontrado(d?.Status, basic);
   const faixa = fin?.IncomeEstimates?.BIGDATA_V2 ?? fin?.IncomeEstimates?.BIGDATA;
+  const risco = R.FinancialRisk ?? {};
+  const inad = normalizarInadimplencia(R.Collections, R.Processes, R.GovernmentDebtors);
 
   // O veredito le a forma reduzida; a tela le a completa. Manter as duas
   // separadas evita que mudar a tela mexa sem querer na regra de decisao.
@@ -319,6 +411,14 @@ export async function consultarCpf(
     })),
     badAddressPassages: Number(R.ExtendedAddresses?.TotalBadAddressPassages ?? 0) || 0,
     faixaRenda: faixa,
+    emCobrancaAgora: inad.emCobrancaAgora,
+    cobrancas365d: inad.cobrancas365d,
+    credoresDistintos365d: inad.credores365d,
+    processosComoReu: inad.processosComoReu,
+    processos365d: inad.processos365d,
+    temExecucao: inad.temExecucao,
+    dividaAtiva: inad.dividaAtiva,
+    buscaCredito: R.DigitalFinanceBehaviors?.CreditSeeker,
   };
 
   return {
@@ -330,6 +430,16 @@ export async function consultarCpf(
     },
     enderecos, telefones, emails,
     renda: normalizarRenda(fin),
+    risco: {
+      score: typeof risco?.FinancialRiskScore === "number" ? risco.FinancialRiskScore : undefined,
+      nivel: risco?.FinancialRiskLevel,
+      empregado: typeof risco?.IsCurrentlyEmployed === "boolean" ? risco.IsCurrentlyEmployed : undefined,
+      socio: typeof risco?.IsCurrentlyOwner === "boolean" ? risco.IsCurrentlyOwner : undefined,
+      recebendoAuxilio: typeof risco?.IsCurrentlyReceivingAssistance === "boolean" ? risco.IsCurrentlyReceivingAssistance : undefined,
+      inicioUltimaOcupacao: risco?.LastOccupationStartDate || undefined,
+    },
+    inadimplencia: inad,
+    datasetsIndisponiveis,
     bruto: d,
     datasetsChamados: [...DATASETS],
     datasetsComFalha,
