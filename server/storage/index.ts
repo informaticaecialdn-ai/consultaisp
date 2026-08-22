@@ -84,6 +84,9 @@ export interface IStorage {
   getEquipmentByProvider(providerId: number): Promise<Equipment[]>;
   getEquipmentByCustomer(customerId: number): Promise<Equipment[]>;
   createEquipment(equipment: InsertEquipment): Promise<Equipment>;
+  getEquipmentById(id: number, providerId: number): Promise<Equipment | undefined>;
+  updateEquipment(id: number, providerId: number, data: Partial<InsertEquipment>): Promise<Equipment | undefined>;
+  removeEquipment(id: number, providerId: number): Promise<boolean>;
 
   getIspConsultationsByProvider(providerId: number): Promise<IspConsultation[]>;
   getIspConsultationsByProviderPaginated(providerId: number, page: number, limit: number): Promise<{ rows: IspConsultation[]; total: number }>;
@@ -316,6 +319,9 @@ class DatabaseStorage implements IStorage {
   getEquipmentByProvider = (providerId: number) => this._equipment.getEquipmentByProvider(providerId);
   getEquipmentByCustomer = (customerId: number) => this._equipment.getEquipmentByCustomer(customerId);
   createEquipment = (eq_data: InsertEquipment) => this._equipment.createEquipment(eq_data);
+  getEquipmentById = (id: number, providerId: number) => this._equipment.getEquipmentById(id, providerId);
+  updateEquipment = (id: number, providerId: number, data: Partial<InsertEquipment>) => this._equipment.updateEquipment(id, providerId, data);
+  removeEquipment = (id: number, providerId: number) => this._equipment.removeEquipment(id, providerId);
 
   // ERP
   getErpIntegrations = (providerId: number) => this._erp.getErpIntegrations(providerId);
