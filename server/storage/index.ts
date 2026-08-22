@@ -28,6 +28,7 @@ import { ConsultationsStorage } from "./consultations.storage";
 import { AntifraudeStorage } from "./antifraude.storage";
 import { FinancialStorage } from "./financial.storage";
 import { EquipmentStorage } from "./equipment.storage";
+import { BigdataStorage } from "./bigdata.storage";
 import { LocalizacaoStorage } from "./localizacao.storage";
 import { ErpStorage } from "./erp.storage";
 import { ChatStorage } from "./chat.storage";
@@ -82,6 +83,12 @@ export interface IStorage {
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
   getLocalizacao(providerId: number): ReturnType<LocalizacaoStorage["getLocalizacao"]>;
 
+  getBigdataIntegration(providerId: number): ReturnType<BigdataStorage["getIntegration"]>;
+  upsertBigdataIntegration(providerId: number, data: any): ReturnType<BigdataStorage["upsertIntegration"]>;
+  createBigdataConsultation(data: any): ReturnType<BigdataStorage["createConsultation"]>;
+  getBigdataConsultations(providerId: number, limite?: number): ReturnType<BigdataStorage["getConsultations"]>;
+  debitarBigdataCredito(providerId: number): Promise<boolean>;
+  estornarBigdataCredito(providerId: number): Promise<void>;
   getEquipmentByProvider(providerId: number): Promise<Equipment[]>;
   getEquipmentByCustomer(customerId: number): Promise<Equipment[]>;
   createEquipment(equipment: InsertEquipment): Promise<Equipment>;
@@ -212,6 +219,7 @@ class DatabaseStorage implements IStorage {
   private _antifraude = new AntifraudeStorage();
   private _financial = new FinancialStorage();
   private _equipment = new EquipmentStorage();
+  private _bigdata = new BigdataStorage();
   private _localizacao = new LocalizacaoStorage();
   private _erp = new ErpStorage();
   private _chat = new ChatStorage();
@@ -320,6 +328,12 @@ class DatabaseStorage implements IStorage {
 
   // Equipment
   getLocalizacao = (providerId: number) => this._localizacao.getLocalizacao(providerId);
+  getBigdataIntegration = (providerId: number) => this._bigdata.getIntegration(providerId);
+  upsertBigdataIntegration = (providerId: number, data: any) => this._bigdata.upsertIntegration(providerId, data);
+  createBigdataConsultation = (data: any) => this._bigdata.createConsultation(data);
+  getBigdataConsultations = (providerId: number, limite?: number) => this._bigdata.getConsultations(providerId, limite);
+  debitarBigdataCredito = (providerId: number) => this._bigdata.debitarCredito(providerId);
+  estornarBigdataCredito = (providerId: number) => this._bigdata.estornarCredito(providerId);
   getEquipmentByProvider = (providerId: number) => this._equipment.getEquipmentByProvider(providerId);
   getEquipmentByCustomer = (customerId: number) => this._equipment.getEquipmentByCustomer(customerId);
   createEquipment = (eq_data: InsertEquipment) => this._equipment.createEquipment(eq_data);

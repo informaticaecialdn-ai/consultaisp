@@ -9,6 +9,7 @@ import { registerImportRoutes } from "./import.routes";
 import { registerConsultasRoutes } from "./consultas.routes";
 import { registerAntiFraudeRoutes } from "./antifraude.routes";
 import { registerEquipamentosRoutes } from "./equipamentos.routes";
+import { registerBigdataRoutes } from "./bigdata.routes";
 import { registerHeatmapRoutes } from "./heatmap.routes";
 import { registerLocalizacaoRoutes } from "./localizacao.routes";
 import { registerProviderRoutes } from "./provider.routes";
@@ -37,6 +38,7 @@ export async function registerRoutes(
   app.use(registerConsultasRoutes());
   app.use(registerAntiFraudeRoutes());
   app.use(registerEquipamentosRoutes());
+  app.use(registerBigdataRoutes());
   app.use(registerHeatmapRoutes());
   app.use(registerLocalizacaoRoutes());
   app.use(registerProviderRoutes());
