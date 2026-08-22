@@ -21,12 +21,15 @@ function corDoEstado(estado: PontoMapa['estado']): string {
 const brl = (v: number) =>
   `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+export type PontoRede = { lat: number; lng: number; count: number };
+
 export default function MapaCarteira({
-  pontos, height = 520,
-}: { pontos: PontoMapa[]; height?: number }) {
+  pontos, rede, height = 520,
+}: { pontos: PontoMapa[]; rede?: PontoRede[]; height?: number }) {
   const div = useRef<HTMLDivElement>(null);
   const mapa = useRef<L.Map | null>(null);
   const camada = useRef<L.LayerGroup | null>(null);
+  const camadaRede = useRef<L.LayerGroup | null>(null);
 
   useEffect(() => {
     if (!div.current || mapa.current) return;
@@ -63,6 +66,24 @@ export default function MapaCarteira({
     const bounds = L.latLngBounds(pontos.map(p => [p.lat, p.lon] as [number, number]));
     mapa.current.fitBounds(bounds, { padding: [32, 32], maxZoom: 14 });
   }, [pontos]);
+
+  // Camada separada: liga e desliga sem redesenhar os pontos da carteira.
+  useEffect(() => {
+    if (!mapa.current) return;
+    camadaRede.current?.remove();
+    camadaRede.current = null;
+    if (!rede?.length) return;
+
+    camadaRede.current = L.layerGroup(
+      rede.map(r => L.circle([r.lat, r.lng], {
+        // Raio proporcional a concentracao, com teto para nao cobrir a cidade.
+        radius: Math.min(4000, 400 + r.count * 40),
+        weight: 0,
+        fillColor: corDoEstado('suspenso'),
+        fillOpacity: 0.14,
+      })),
+    ).addTo(mapa.current);
+  }, [rede]);
 
   return (
     <div

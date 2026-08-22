@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
-import MapaCarteira, { type PontoMapa } from "@/components/maps/MapaCarteira";
+import MapaCarteira, { type PontoMapa, type PontoRede } from "@/components/maps/MapaCarteira";
 
 type Resposta = {
   origemArea: 'cidades' | 'meso' | 'uf' | 'nenhuma';
@@ -15,6 +15,9 @@ type Resposta = {
     pctInadimplencia: number; dividaTotal: number;
   }>;
 };
+
+/** Piso de k-anonimato para a camada de rede. */
+const PISO_REDE = 5;
 
 const ESTADOS = [
   { k: 'em_dia',      label: 'Ativo em dia',          token: '--ok' },
@@ -72,6 +75,22 @@ export default function LocalizacaoPage() {
   const [fEstado, setFEstado] = useState("todos");
   const [fDivida, setFDivida] = useState("todas");
   const [ordem, setOrdem] = useState<'menor' | 'maior' | 'divida' | 'clientes'>('maior');
+
+  // Camada de rede: desligada por padrao. A leitura do dia a dia e a carteira
+  // propria; a rede e o diferencial do bureau, mas so quando pedida.
+  const [verRede, setVerRede] = useState(false);
+  const { data: rede = [], isFetching: redeCarregando } = useQuery<PontoRede[]>({
+    queryKey: ["/api/heatmap/regional"],
+    enabled: verRede,
+  });
+
+  // O endpoint agrega todos os provedores em celulas de 0,01 grau (~1km) sem piso
+  // de contagem: uma celula com 1 cliente e praticamente um endereco identificavel
+  // de outro provedor. Filtramos aqui para nao expor isso na tela.
+  const redeVisivel = useMemo(
+    () => rede.filter(r => r.count >= PISO_REDE),
+    [rede],
+  );
 
   const pontos = data?.pontos ?? [];
   const bairros = data?.bairros ?? [];
@@ -168,13 +187,40 @@ export default function LocalizacaoPage() {
                 <Chip key={f.k} ativo={fDivida === f.k} onClick={() => setFDivida(f.k)}>{f.label}</Chip>
               ))}
             </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-faint)] w-[52px]">Rede</span>
+              <Chip ativo={verRede} onClick={() => setVerRede(v => !v)}>
+                Concentração da rede
+                {verRede && (
+                  <span className="font-mono tabular-nums opacity-70">
+                    {redeCarregando ? "…" : redeVisivel.length}
+                  </span>
+                )}
+              </Chip>
+              <span className="text-[11px] text-[var(--text-faint)]">
+                {!verRede
+                  ? `agregado de todos os provedores, mínimo de ${PISO_REDE} clientes por célula`
+                  : redeCarregando
+                    ? "carregando…"
+                    : redeVisivel.length > 0
+                      ? `${redeVisivel.length} concentrações na região`
+                      : `nenhuma concentração com ${PISO_REDE}+ clientes na região`}
+              </span>
+            </div>
           </div>
 
           <div className="p-3">
-            {isLoading ? <Skeleton className="h-[520px] w-full" /> : <MapaCarteira pontos={pontosFiltrados} />}
+            {isLoading ? <Skeleton className="h-[520px] w-full" /> : <MapaCarteira pontos={pontosFiltrados} rede={verRede ? redeVisivel : undefined} />}
           </div>
 
           <div className="flex flex-wrap gap-x-5 gap-y-2 px-4 py-3 border-t border-[var(--border-faint)]">
+            {verRede && (
+              <span className="flex items-center gap-2 text-[12px] text-[var(--text-2)]">
+                <i className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--brand)", opacity: 0.28 }} />
+                Concentração da rede
+                <b className="font-mono tabular-nums text-[var(--text)]">{redeVisivel.length}</b>
+              </span>
+            )}
             {contagem.map(e => (
               <span key={e.k} className="flex items-center gap-2 text-[12px] text-[var(--text-2)]">
                 <i className="w-2 h-2 rounded-full" style={{ background: `var(${e.token})` }} />

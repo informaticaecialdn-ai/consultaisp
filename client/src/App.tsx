@@ -1,5 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from "react";
-import { Switch, Route, useLocation } from "wouter";
+import { Switch, Route, Redirect, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -24,7 +24,6 @@ const AntiFraudePage = lazy(() => import("@/pages/consulta/anti-fraude"));
 
 // Operacional
 const InadimplentesPage = lazy(() => import("@/pages/operacional/inadimplentes"));
-const MapaCalorPage = lazy(() => import("@/pages/operacional/mapa-calor"));
 const LocalizacaoPage = lazy(() => import("@/pages/operacional/localizacao"));
 const ImportacaoPage = lazy(() => import("@/pages/operacional/importacao"));
 const ImportacaoEquipamentosPage = lazy(() => import("@/pages/operacional/importacao-equipamentos"));
@@ -45,7 +44,6 @@ const PainelProvedorPage = lazy(() => import("@/pages/provedor/painel-provedor")
 const AdministracaoPage = lazy(() => import("@/pages/provedor/administracao"));
 const CreditosPage = lazy(() => import("@/pages/provedor/creditos"));
 const ConfiguracoesRegionalizacaoPage = lazy(() => import("@/pages/provedor/configuracoes-regionalizacao"));
-const BenchmarkRegionalPage = lazy(() => import("@/pages/provedor/benchmark-regional"));
 
 // Public
 const LandingPage = lazy(() => import("@/pages/public/landingpage"));
@@ -75,7 +73,8 @@ function Router() {
         <Route path="/consulta-spc" component={ConsultaSPCPage} />
         <Route path="/anti-fraude" component={AntiFraudePage} />
         <Route path="/inadimplentes" component={InadimplentesPage} />
-        <Route path="/mapa-calor" component={MapaCalorPage} />
+        {/* Consolidadas em /localizacao. Redirect preserva link salvo. */}
+        <Route path="/mapa-calor"><Redirect to="/localizacao" /></Route>
         <Route path="/localizacao" component={LocalizacaoPage} />
         <Route path="/creditos" component={CreditosPage} />
         <Route path="/nfse" component={NfsePage} />
@@ -91,7 +90,7 @@ function Router() {
         <Route path="/admin/lgpd" component={AdminLgpdPage} />
         <Route path="/lgpd" component={LgpdPage} />
         <Route path="/configuracoes/regionalizacao" component={ConfiguracoesRegionalizacaoPage} />
-        <Route path="/benchmark-regional" component={BenchmarkRegionalPage} />
+        <Route path="/benchmark-regional"><Redirect to="/localizacao" /></Route>
         <Route component={NotFound} />
       </Switch>
     </Suspense>
