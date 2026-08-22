@@ -396,19 +396,22 @@ export function AppSidebar() {
                 {itens.map(({ label, url, Icone, testId }) => {
                   const ativo = estaAtivo(url);
                   return (
-                    <Link key={url} href={url}>
-                      <a
-                        data-testid={testId}
-                        aria-current={ativo ? "page" : undefined}
-                        className={`flex items-center gap-[10px] px-2.5 py-2 rounded-lg text-[13.5px] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--brand)] motion-safe:transition-colors ${
-                          ativo
-                            ? "bg-[var(--brand-soft)] text-[var(--brand-ink)] font-semibold"
-                            : "text-[var(--text-2)] font-medium hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
-                        }`}
-                      >
-                        <Icone className="w-4 h-4 flex-none" strokeWidth={2} />
-                        <span className="truncate">{label}</span>
-                      </a>
+                    // Wouter 3 ja renderiza a propria <a>; embrulhar outra gerava
+                    // <a><a>, HTML invalido que quebra a navegacao por teclado.
+                    // As props vao direto no Link.
+                    <Link
+                      key={url}
+                      href={url}
+                      data-testid={testId}
+                      aria-current={ativo ? "page" : undefined}
+                      className={`flex items-center gap-[10px] px-2.5 py-2 rounded-lg text-[13.5px] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--brand)] motion-safe:transition-colors ${
+                        ativo
+                          ? "bg-[var(--brand-soft)] text-[var(--brand-ink)] font-semibold"
+                          : "text-[var(--text-2)] font-medium hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
+                      }`}
+                    >
+                      <Icone className="w-4 h-4 flex-none" strokeWidth={2} />
+                      <span className="truncate">{label}</span>
                     </Link>
                   );
                 })}
