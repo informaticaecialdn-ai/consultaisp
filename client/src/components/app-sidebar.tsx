@@ -76,19 +76,8 @@ const PLAN_LABELS: Record<string, string> = {
   enterprise: "Enterprise",
 };
 
-const mainMenu = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Consulta ISP", url: "/consulta-isp", icon: Search },
-  { title: "Consulta SPC", url: "/consulta-spc", icon: BarChart3 },
-  { title: "Anti-Fraude", url: "/anti-fraude", icon: ShieldAlert },
-  { title: "Meus Dados", url: "/benchmark-regional", icon: TrendingUp },
-];
 
 
-const financeMenu = [
-  { title: "Comprar Creditos", url: "/creditos", icon: CreditCard },
-  { title: "Notas Fiscais", url: "/nfse", icon: FileText },
-];
 
 const toolsMenu = [
   { title: "Importacao", url: "/importacao", icon: Upload },

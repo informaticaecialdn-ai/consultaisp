@@ -65,15 +65,11 @@ export interface IStorage {
   getCustomersByAddressHash(addressHash: string, excludeCpfCnpj?: string): Promise<Customer[]>;
   createCustomer(customer: InsertCustomer): Promise<Customer>;
   upsertFromErp(data: Parameters<CustomersStorage["upsertFromErp"]>[0]): Promise<void>;
-  getHeatmapByProvider(providerId: number): ReturnType<CustomersStorage["getHeatmapByProvider"]>;
   getHeatmapAll(): ReturnType<CustomersStorage["getHeatmapAll"]>;
   getCustomersByCepPrefix(cepPrefix: string, excludeProviderId?: number): Promise<Customer[]>;
   getCustomersByAddressForAlert(params: Parameters<CustomersStorage["getCustomersByAddressForAlert"]>[0]): ReturnType<CustomersStorage["getCustomersByAddressForAlert"]>;
-  getCepRanking(providerId: number): ReturnType<CustomersStorage["getCepRanking"]>;
   getTrend(providerId: number): ReturnType<CustomersStorage["getTrend"]>;
   getMapPoints(providerId: number): ReturnType<CustomersStorage["getMapPoints"]>;
-  getDefaultersMapPoints(providerId: number): ReturnType<CustomersStorage["getDefaultersMapPoints"]>;
-  getNeighborhoodStats(providerId: number): ReturnType<CustomersStorage["getNeighborhoodStats"]>;
 
   getContractsByCustomer(customerId: number): Promise<Contract[]>;
   getContractsByProvider(providerId: number): Promise<Contract[]>;
@@ -253,15 +249,11 @@ class DatabaseStorage implements IStorage {
   getCustomersByAddressHash = (addressHash: string, excludeCpfCnpj?: string) => this._customers.getCustomersByAddressHash(addressHash, excludeCpfCnpj);
   createCustomer = (customer: InsertCustomer) => this._customers.createCustomer(customer);
   upsertFromErp = (data: Parameters<CustomersStorage["upsertFromErp"]>[0]) => this._customers.upsertFromErp(data);
-  getHeatmapByProvider = (providerId: number) => this._customers.getHeatmapByProvider(providerId);
   getHeatmapAll = () => this._customers.getHeatmapAll();
   getCustomersByCepPrefix = (cepPrefix: string, excludeProviderId?: number) => this._customers.getCustomersByCepPrefix(cepPrefix, excludeProviderId);
   getCustomersByAddressForAlert = (params: Parameters<CustomersStorage["getCustomersByAddressForAlert"]>[0]) => this._customers.getCustomersByAddressForAlert(params);
-  getCepRanking = (providerId: number) => this._customers.getCepRanking(providerId);
   getTrend = (providerId: number) => this._customers.getTrend(providerId);
   getMapPoints = (providerId: number) => this._customers.getMapPoints(providerId);
-  getNeighborhoodStats = (providerId: number) => this._customers.getNeighborhoodStats(providerId);
-  getDefaultersMapPoints = (providerId: number) => this._customers.getDefaultersMapPoints(providerId);
 
   // Consultations
   getIspConsultationsByProvider = (providerId: number) => this._consultations.getIspConsultationsByProvider(providerId);

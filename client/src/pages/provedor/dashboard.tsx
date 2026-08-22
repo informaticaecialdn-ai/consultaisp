@@ -151,14 +151,13 @@ const FUNCIONALIDADES: Array<{ url: string; titulo: string; desc: string; Icone:
   { url: "/consulta-spc",  titulo: "Consulta SPC",  Icone: BarChart3,   desc: "Consulta oficial no SPC Brasil, com restrições e protestos" },
   { url: "/anti-fraude",   titulo: "Anti-Fraude",   Icone: ShieldAlert, desc: "Alertas de migração e ranking de clientes em risco" },
   { url: "/inadimplentes", titulo: "Inadimplentes", Icone: Users,       desc: "Sua carteira de inadimplentes sincronizada do ERP" },
-  { url: "/mapa-calor",    titulo: "Mapa de Calor", Icone: MapPin,      desc: "Concentração geográfica da inadimplência na sua região" },
+  { url: "/localizacao",   titulo: "Localização",   Icone: MapPin,      desc: "Mapa da carteira, concentração de inadimplência e ranking de bairros" },
   { url: "/importacao",    titulo: "Importação",    Icone: Upload,      desc: "Importe clientes e faturas por arquivo CSV" },
   { url: "/importacao-equipamentos", titulo: "Importar Equipamentos", Icone: Package, desc: "Cadastre ONUs e equipamentos em comodato" },
   { url: "/creditos",      titulo: "Comprar Créditos", Icone: CreditCard, desc: "Recarregue o saldo para novas consultas" },
   { url: "/nfse",          titulo: "Notas Fiscais", Icone: FileText,    desc: "Emissão e histórico de notas fiscais de serviço" },
   { url: "/painel-provedor", titulo: "Painel do Provedor", Icone: Building2, desc: "Dados cadastrais, sócios, usuários e documentos" },
   { url: "/configuracoes/regionalizacao", titulo: "Regionalização", Icone: Globe, desc: "Cidades e mesorregiões que seu provedor atende" },
-  { url: "/benchmark-regional", titulo: "Localização", Icone: MapPin, desc: "Mapa da carteira, calor de inadimplência e ranking de bairros" },
 ];
 
 function FeatureCard({ titulo, desc, Icone }: { titulo: string; desc: string; Icone: any }) {
