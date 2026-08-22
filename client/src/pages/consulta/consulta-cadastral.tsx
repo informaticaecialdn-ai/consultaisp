@@ -85,6 +85,51 @@ const telefoneFmt = (t: Telefone) => {
   return t.ddd ? `(${t.ddd}) ${corpo}` : corpo;
 };
 
+/**
+ * Pílula de fato — arredondada e com contorno, do mockup.
+ *
+ * Diverge do DESIGN_SYSTEM, que proíbe `rounded-full` em badge de STATUS. A
+ * diferença é o papel: estas não são status de linha numa tabela densa, são os
+ * três fatos que passam ou reprovam o CPF sozinhos, num cabeçalho arejado. O
+ * contorno existe porque o `-bg` sozinho some contra `--surface`.
+ */
+function Pilula({ children, tom = "neutro" }: { children: React.ReactNode; tom?: "ok" | "alerta" | "neutro" }) {
+  const cls = tom === "ok" ? "bg-[var(--ok-bg)] text-[var(--ok)] border-[var(--ok-border)]"
+    : tom === "alerta" ? "bg-[var(--gated-bg)] text-[var(--gated)] border-[var(--gated-border)]"
+    : "bg-[var(--surface-inset)] text-[var(--text-muted)] border-[var(--border)]";
+  return (
+    <span className={`inline-flex items-center text-[11.5px] font-semibold px-2.5 py-[3px] rounded-full border ${cls}`}>
+      {children}
+    </span>
+  );
+}
+
+/**
+ * Arco de score. A posição na escala se lê antes do valor — um número solto
+ * exige que o operador saiba de cabeça que 900 é bom.
+ */
+function ArcoScore({ score }: { score?: number }) {
+  const pct = Math.max(0, Math.min(1, (score ?? 0) / 1000));
+  // Comprimento do arco: raio 74, meia-volta = π·74 ≈ 232.
+  const comprimento = Math.PI * 74;
+  const cor = score == null ? "var(--text-faint)"
+    : score >= 700 ? "var(--ok)" : score >= 400 ? "var(--gated)" : "var(--danger)";
+  return (
+    <div className="relative flex flex-col items-center">
+      <svg width="180" height="100" viewBox="0 0 180 100" aria-hidden="true">
+        <path d="M16 90 A 74 74 0 0 1 164 90" fill="none"
+          stroke="var(--surface-inset)" strokeWidth="12" strokeLinecap="round" />
+        <path d="M16 90 A 74 74 0 0 1 164 90" fill="none"
+          stroke={cor} strokeWidth="12" strokeLinecap="round"
+          strokeDasharray={`${(comprimento * pct).toFixed(1)} ${comprimento.toFixed(1)}`} />
+      </svg>
+      <span className="font-mono text-[44px] font-semibold tracking-[-0.02em] leading-none tabular-nums -mt-[52px] text-[var(--text)]">
+        {score ?? "—"}
+      </span>
+    </div>
+  );
+}
+
 /** Etiqueta pequena de estado. Retangular, conforme o design system. */
 function Tag({ children, tom = "neutro" }: { children: React.ReactNode; tom?: "ok" | "alerta" | "neutro" }) {
   const cls = tom === "ok" ? "bg-[var(--ok-bg)] text-[var(--ok)]"
@@ -102,11 +147,34 @@ type Integracao = {
   isEnabled: boolean; lastCheckStatus: string | null;
 };
 
-const VEREDITO: Record<Resultado["veredito"], { rotulo: string; cls: string; borda: string; nota: string }> = {
-  APROVAR:        { rotulo: "Aprovar",        cls: "bg-[var(--ok-bg)] text-[var(--ok)]",                 borda: "border-l-[var(--ok)]",     nota: "Nenhum sinal de risco cadastral" },
-  ATENCAO:        { rotulo: "Atenção",        cls: "bg-[var(--gated-bg)] text-[var(--gated)]",           borda: "border-l-[var(--gated)]",  nota: "Contrate com cautela — veja os motivos" },
-  RECUSAR:        { rotulo: "Recusar",        cls: "bg-[var(--danger-bg)] text-[var(--danger)]",         borda: "border-l-[var(--danger)]", nota: "Impedimento cadastral na Receita Federal" },
-  NAO_ENCONTRADO: { rotulo: "Não encontrado", cls: "bg-[var(--surface-inset)] text-[var(--text-muted)]", borda: "border-l-[var(--border-strong)]", nota: "Sem registro — não é recusa, é ausência de informação" },
+/**
+ * `chamada` e o texto do chip — imperativo, do mockup: diz o que FAZER, nao
+ * classifica. "Contrate com cautela" instrui; "Atenção" so rotula.
+ */
+const VEREDITO: Record<
+  Resultado["veredito"],
+  { rotulo: string; chamada: string; cls: string; borderCls: string; borda: string; nota: string }
+> = {
+  APROVAR: {
+    rotulo: "Aprovar", chamada: "Pode contratar",
+    cls: "bg-[var(--ok-bg)] text-[var(--ok)]", borderCls: "border-[var(--ok-border)]",
+    borda: "border-l-[var(--ok)]", nota: "Nenhum sinal de risco cadastral",
+  },
+  ATENCAO: {
+    rotulo: "Atenção", chamada: "Contrate com cautela",
+    cls: "bg-[var(--gated-bg)] text-[var(--gated)]", borderCls: "border-[var(--gated-border)]",
+    borda: "border-l-[var(--gated)]", nota: "Contrate com cautela — veja os motivos",
+  },
+  RECUSAR: {
+    rotulo: "Recusar", chamada: "Não contrate",
+    cls: "bg-[var(--danger-bg)] text-[var(--danger)]", borderCls: "border-[var(--danger-border)]",
+    borda: "border-l-[var(--danger)]", nota: "Impedimento cadastral na Receita Federal",
+  },
+  NAO_ENCONTRADO: {
+    rotulo: "Não encontrado", chamada: "Sem registro",
+    cls: "bg-[var(--surface-inset)] text-[var(--text-muted)]", borderCls: "border-[var(--border)]",
+    borda: "border-l-[var(--border-strong)]", nota: "Sem registro — não é recusa, é ausência de informação",
+  },
 };
 
 /** A e o menor risco, H o maior. Do meio para baixo ja merece cautela. */
@@ -452,64 +520,83 @@ export default function ConsultaCadastralPage() {
                   <div className="space-y-4" data-testid="consultation-result">
               {/* A decisão é o produto. Barra lateral na cor do veredito dá o
                   peso que um badge de 12px não dava. */}
-              <div className={`rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden border-l-[3px] ${v.borda}`}>
-                <div className="px-5 py-4">
-                  <div className="flex items-start gap-4 flex-wrap">
-                    <div className="min-w-0 flex-1">
-                      <span className={`inline-flex items-center text-[13px] font-semibold tracking-[-0.01em] px-2.5 py-1 rounded ${v.cls}`}
-                        data-testid="veredito">
-                        {v.rotulo}
-                      </span>
-                      {/* Identidade no topo: o operador confirma que consultou a
-                          pessoa certa antes de olhar qualquer número. */}
-                      <p className="text-[17px] font-medium tracking-[-0.015em] text-[var(--text)] mt-2.5 truncate">
-                        {resultado.identidade?.nome ?? "Nome não informado"}
-                      </p>
-                      <p className="font-mono text-[12px] tabular-nums text-[var(--text-muted)] mt-0.5">
-                        {/* CPF mascarado: o número inteiro não precisa ficar na tela. */}
-                        {mascaraCpf(resultado.cpfCnpj)}
-                        {resultado.identidade?.idade ? ` · ${resultado.identidade.idade} anos` : ""}
-                        {resultado.enderecos?.[0]?.cidade
-                          ? ` · ${resultado.enderecos[0].cidade}/${resultado.enderecos[0].uf ?? ""}` : ""}
-                      </p>
-                    </div>
-                    <span className="font-mono text-[11px] text-[var(--text-faint)] tabular-nums shrink-0">
+              {/* Estrutura do mockup: conteudo a esquerda, arco de score num
+                  painel proprio a direita. O score deixa de ser mais um numero
+                  na fila e passa a ser a segunda coisa que o olho encontra. */}
+              <div className={`rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden border-l-[3px] ${v.borda} grid grid-cols-1 lg:grid-cols-[1fr_300px]`}>
+                <div className="p-6 flex flex-col gap-4">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className={`inline-flex items-center text-[11px] font-semibold uppercase tracking-[0.08em] px-2.5 py-1 rounded-full border ${v.cls} ${v.borderCls}`}
+                      data-testid="veredito">
+                      {v.chamada}
+                    </span>
+                    <span className="font-mono text-[11px] text-[var(--text-faint)] tabular-nums">
                       {resultado.latenciaMs} ms
                     </span>
                   </div>
 
-                  {/* Os três fatos que passam ou reprovam sozinhos, antes dos motivos. */}
+                  {/* Identidade grande: o operador confirma que consultou a pessoa
+                      certa antes de olhar qualquer numero. */}
+                  <div>
+                    <p className="text-[26px] font-bold tracking-[-0.02em] leading-[1.15] text-[var(--text)]">
+                      {resultado.identidade?.nome ?? "Nome não informado"}
+                    </p>
+                    <p className="font-mono text-[13px] tabular-nums text-[var(--text-muted)] mt-1">
+                      {mascaraCpf(resultado.cpfCnpj)}
+                      {resultado.identidade?.idade ? ` · ${resultado.identidade.idade} anos` : ""}
+                      {resultado.enderecos?.[0]?.cidade
+                        ? ` · ${resultado.enderecos[0].cidade}/${resultado.enderecos[0].uf ?? ""}` : ""}
+                    </p>
+                  </div>
+
                   {d?.encontrado && (
-                    <div className="flex gap-1.5 flex-wrap mt-3">
-                      <Tag tom={d.taxIdStatus?.toUpperCase() === "REGULAR" ? "ok" : "alerta"}>
+                    <div className="flex gap-2 flex-wrap">
+                      <Pilula tom={d.taxIdStatus?.toUpperCase() === "REGULAR" ? "ok" : "alerta"}>
                         {d.taxIdStatus?.toUpperCase() === "REGULAR" ? "CPF regular na Receita" : `CPF ${d.taxIdStatus}`}
-                      </Tag>
-                      <Tag tom={d.temObito ? "alerta" : "ok"}>
-                        {d.temObito ? "com indicação de óbito" : "sem indicação de óbito"}
-                      </Tag>
+                      </Pilula>
+                      <Pilula tom={d.temObito ? "alerta" : "ok"}>
+                        {d.temObito ? "Com indicação de óbito" : "Sem indicação de óbito"}
+                      </Pilula>
                       {resultado.risco.empregado != null && (
-                        <Tag tom={resultado.risco.empregado ? "ok" : "alerta"}>
-                          {resultado.risco.empregado ? "empregado" : "sem vínculo formal"}
+                        <Pilula tom={resultado.risco.empregado ? "ok" : "alerta"}>
+                          {resultado.risco.empregado ? "Empregado" : "Sem vínculo formal"}
                           {resultado.risco.socio ? " · sócio de empresa" : ""}
-                        </Tag>
+                        </Pilula>
                       )}
                     </div>
                   )}
+
+                  {resultado.motivos.length > 0 && (
+                    <div className="border-t border-[var(--border-faint)] pt-3.5">
+                      <span className="block text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)] mb-2">
+                        {resultado.veredito === "RECUSAR" ? "Por que recusar" : "Por que cautela"}
+                      </span>
+                      <div className="flex flex-col gap-1.5">
+                        {resultado.motivos.map((m, i) => (
+                          <div key={i} className="flex items-center gap-2 text-[13.5px] text-[var(--text)]">
+                            <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-[var(--gated)]" />
+                            <span>{m}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                {resultado.motivos.length > 0 && (
-                  <div className="px-5 pb-4 pt-3 border-t border-[var(--border-faint)]">
-                    <span className="block text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--text-faint)] mb-1.5">
-                      {resultado.veredito === "RECUSAR" ? "Por que recusar" : "Por que cautela"}
-                    </span>
-                    <ul className="space-y-1.5">
-                      {resultado.motivos.map((m, i) => (
-                        <li key={i} className="text-[13px] text-[var(--text-2)] flex gap-2">
-                          <span className="text-[var(--text-faint)] shrink-0">·</span>{m}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+
+                {/* Painel do score. Arco em vez de numero solto: a posicao na
+                    escala se le antes do valor. */}
+                <div className="border-t lg:border-t-0 lg:border-l border-[var(--border-faint)] bg-[var(--surface-2)] p-6 flex flex-col items-center justify-center">
+                  <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)] mb-1.5">
+                    Score de risco
+                  </span>
+                  <ArcoScore score={resultado.risco.score} />
+                  <span className="text-[11px] uppercase tracking-[0.08em] text-[var(--text-faint)] mt-0.5">
+                    de 1000{resultado.risco.nivel ? ` · nível ${resultado.risco.nivel}` : ""}
+                  </span>
+                  <p className="text-[12px] text-[var(--text-muted)] text-center mt-2.5 max-w-[220px]">
+                    Maior é melhor. A é o menor risco, H o maior.
+                  </p>
+                </div>
               </div>
 
               {/* Tira de resumo: os cinco números que decidem, numa varredura só.

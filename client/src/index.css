@@ -47,6 +47,13 @@
   --past:           #8C2F39;  --past-bg:    #F9E8EA;  /* atraso, negativacao */
   --danger:         #B3261E;  --danger-bg:  #FBE7E5;  /* alerta alto */
 
+  /* Contorno das semanticas — chip sobre fundo claro precisa de aresta propria,
+     senao o -bg some contra --surface. Meio-termo entre o texto e o fundo. */
+  --ok-border:      #B9DECB;
+  --gated-border:   #E8D2A3;
+  --past-border:    #E4BCC1;
+  --danger-border:  #F0C4BF;
+
   /* ── Proveniencia do dado ─────────────────────────────────── */
   --mock:           #6B6878;  --mock-bg:    #F1F1F5;  /* dado simulado */
   --wire:           #1F6F7A;  --wire-bg:    #E4F1F3;  /* dado real do ERP */
@@ -213,6 +220,12 @@
   --gated:          #D9A441;  --gated-bg:   #332711;
   --past:           #DE8A93;  --past-bg:    #331A1D;
   --danger:         #F0716A;  --danger-bg:  #351917;
+
+  /* No escuro o contorno CLAREIA em relacao ao -bg, ao contrario do claro. */
+  --ok-border:      #235539;
+  --gated-border:   #57431D;
+  --past-border:    #572E32;
+  --danger-border:  #5A2C28;
 
   --mock:           #918DA1;  --mock-bg:    #26242F;
   --wire:           #56AEB8;  --wire-bg:    #14302F;
