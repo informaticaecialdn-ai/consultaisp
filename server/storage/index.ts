@@ -28,6 +28,7 @@ import { ConsultationsStorage } from "./consultations.storage";
 import { AntifraudeStorage } from "./antifraude.storage";
 import { FinancialStorage } from "./financial.storage";
 import { EquipmentStorage } from "./equipment.storage";
+import { LocalizacaoStorage } from "./localizacao.storage";
 import { ErpStorage } from "./erp.storage";
 import { ChatStorage } from "./chat.storage";
 import { DashboardStorage } from "./dashboard.storage";
@@ -82,6 +83,7 @@ export interface IStorage {
   getInvoicesByCustomer(customerId: number): Promise<Invoice[]>;
   getOverdueInvoicesByProvider(providerId: number): Promise<Invoice[]>;
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
+  getLocalizacao(providerId: number): ReturnType<LocalizacaoStorage["getLocalizacao"]>;
 
   getEquipmentByProvider(providerId: number): Promise<Equipment[]>;
   getEquipmentByCustomer(customerId: number): Promise<Equipment[]>;
@@ -208,6 +210,7 @@ class DatabaseStorage implements IStorage {
   private _antifraude = new AntifraudeStorage();
   private _financial = new FinancialStorage();
   private _equipment = new EquipmentStorage();
+  private _localizacao = new LocalizacaoStorage();
   private _erp = new ErpStorage();
   private _chat = new ChatStorage();
   private _dashboard = new DashboardStorage();
@@ -317,6 +320,7 @@ class DatabaseStorage implements IStorage {
   updateProviderDocumentStatus = (id: number, status: string, reviewedById: number, reviewerName: string, rejectionReason?: string) => this._financial.updateProviderDocumentStatus(id, status, reviewedById, reviewerName, rejectionReason);
 
   // Equipment
+  getLocalizacao = (providerId: number) => this._localizacao.getLocalizacao(providerId);
   getEquipmentByProvider = (providerId: number) => this._equipment.getEquipmentByProvider(providerId);
   getEquipmentByCustomer = (customerId: number) => this._equipment.getEquipmentByCustomer(customerId);
   createEquipment = (eq_data: InsertEquipment) => this._equipment.createEquipment(eq_data);
