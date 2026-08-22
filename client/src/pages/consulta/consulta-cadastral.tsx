@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   IdCard, Search, MapPin, Wallet, ShieldCheck, Settings2, Phone, Mail,
-  Gauge, AlertTriangle,
+  Gauge, AlertTriangle, Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,6 +54,14 @@ type Resultado = {
     processosTotal: number; processosComoReu: number; processos365d: number;
     temExecucao: boolean; naturezas: string[]; dividaAtiva: number;
   };
+  rastro: {
+    consultas30d: number; consultas365d: number; passagensRuins: number;
+    primeiraPassagem?: string; ultimaPassagem?: string;
+    buscaCredito?: string; usoCartao?: string; usoBancoDigital?: string;
+    mudancasNome: number; mudancasStatus: number;
+  };
+  patrimonio: { veiculos: number; recebeAuxilio: boolean; auxiliosAtivos: number; valorAuxilio: number };
+  riscoArea: Array<{ endereco: string; ponto?: number; raio100m?: number }>;
   datasetsIndisponiveis: string[];
   dados: {
     encontrado: boolean; taxIdStatus?: string; temObito?: boolean;
@@ -102,6 +110,23 @@ const NIVEL_TOM = (n: string): "ok" | "alerta" | "neutro" => {
   if (["C", "D"].includes(c)) return "neutro";
   return "alerta";
 };
+
+/** A e altissima intensidade, H e ausencia de rastro. */
+const ESCALA = (c?: string) => {
+  if (!c) return "—";
+  const l = c.trim().toUpperCase();
+  const rotulos: Record<string, string> = {
+    A: "A · muito alta", B: "B · alta", C: "C · média-alta", D: "D · média",
+    E: "E · média-baixa", F: "F · baixa", G: "G · muito baixa", H: "H · nenhuma",
+  };
+  return rotulos[l] ?? l;
+};
+
+/** 1 = comunidade setorizada, 2 = nao setorizada, 3 = sem comunidade delimitada. */
+const AREA_ROTULO = (p?: number) =>
+  p === 1 ? "comunidade setorizada" : p === 2 ? "comunidade" : p === 3 ? "sem comunidade" : "—";
+const AREA_TOM = (p?: number): "ok" | "alerta" | "neutro" =>
+  p === 1 ? "alerta" : p === 2 ? "neutro" : "ok";
 
 const soDigitos = (v: string) => v.replace(/\D/g, "").slice(0, 11);
 const formataCpf = (v: string) =>
@@ -390,6 +415,44 @@ export default function ConsultaCadastralPage() {
                       </div>
                     </Bloco>
                   </div>
+
+                  <Bloco titulo="Rastro no mercado" Icone={Activity}>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-2">
+                      <Linha rotulo="Consultas em 30 dias" valor={resultado.rastro.consultas30d}
+                        alerta={resultado.rastro.consultas30d >= 10} />
+                      <Linha rotulo="Consultas em 12 meses" valor={resultado.rastro.consultas365d} />
+                      <Linha rotulo="Alterações de nome" valor={resultado.rastro.mudancasNome}
+                        alerta={resultado.rastro.mudancasNome > 0} />
+                      <Linha rotulo="Veículos" valor={resultado.patrimonio.veiculos} />
+                      <Linha rotulo="Busca por crédito" valor={ESCALA(resultado.rastro.buscaCredito)}
+                        alerta={["A","B"].includes((resultado.rastro.buscaCredito||"").toUpperCase())} />
+                      <Linha rotulo="Uso de cartão" valor={ESCALA(resultado.rastro.usoCartao)} />
+                      <Linha rotulo="Banco digital" valor={ESCALA(resultado.rastro.usoBancoDigital)} />
+                      <Linha rotulo="Recebe auxílio"
+                        valor={resultado.patrimonio.recebeAuxilio ? "Sim" : "Não"} />
+                    </div>
+                    {/* Consulta demais em 30 dias é o padrão do migrador serial —
+                        o mesmo sinal que o score ISP persegue dentro da rede. */}
+                    <p className="text-[11px] text-[var(--text-faint)] pt-1">
+                      Escala de intensidade: A é a mais alta, H é ausência de rastro.
+                    </p>
+                  </Bloco>
+
+                  {resultado.riscoArea?.length > 0 && (
+                    <Bloco titulo="Risco da área · segurança da instalação" Icone={MapPin}>
+                      {resultado.riscoArea.map((a, i) => (
+                        <div key={i} className="flex items-center justify-between gap-3 text-[13px] py-0.5">
+                          <span className="text-[var(--text-2)] min-w-0 truncate">{a.endereco}</span>
+                          <Tag tom={AREA_TOM(a.ponto)}>{AREA_ROTULO(a.ponto)}</Tag>
+                        </div>
+                      ))}
+                      {/* Nenhum bureau responde isso: é risco operacional, não de crédito. */}
+                      <p className="text-[11px] text-[var(--text-faint)] pt-1 leading-relaxed">
+                        Classificação territorial da coordenada. Não entra no veredito de
+                        crédito — serve para planejar a visita técnica e o comodato.
+                      </p>
+                    </Bloco>
+                  )}
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                   <Bloco titulo="Identidade" Icone={ShieldCheck}>

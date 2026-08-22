@@ -46,6 +46,10 @@ export interface DadosCadastrais {
   dividaAtiva?: number;
   /** Intensidade de busca por credito: A e altissima, H e nenhuma. */
   buscaCredito?: string;
+  /** Trocas de nome no CPF ao longo da vida. */
+  mudancasNome?: number;
+  /** Vezes que o CPF foi consultado no mercado nos ultimos 30 dias. */
+  consultas30d?: number;
 }
 
 export interface OpcoesVeredito {
@@ -73,6 +77,13 @@ const HOMONIMOS_DEMAIS = 100;
  * Quem responde a muitos processos tem historico de conflito contratual.
  */
 const PROCESSOS_DEMAIS = 5;
+
+/**
+ * Consultas no mercado em 30 dias acima disso indica alguem contratando em
+ * varios lugares ao mesmo tempo — o padrao do migrador serial que o score ISP
+ * ja persegue dentro da rede, aqui visto no mercado inteiro.
+ */
+const CONSULTAS_DEMAIS_30D = 10;
 
 /** Status da Receita que impedem contratacao. Qualquer coisa fora de REGULAR. */
 const STATUS_OK = "REGULAR";
@@ -216,6 +227,16 @@ export function decidirVeredito(
   // costuma anteceder o aperto. So os dois primeiros niveis alertam.
   if (d.buscaCredito && ["A", "B"].includes(d.buscaCredito.trim().toUpperCase())) {
     motivos.push("Busca intensa por crédito no mercado");
+  }
+
+  if ((d.consultas30d ?? 0) >= CONSULTAS_DEMAIS_30D) {
+    motivos.push(`CPF consultado ${d.consultas30d} vezes no mercado em 30 dias`);
+  }
+
+  // Trocar de nome e legitimo — casamento, adocao, retificacao. Vira alerta de
+  // conferencia documental, nunca de recusa.
+  if ((d.mudancasNome ?? 0) > 0) {
+    motivos.push(`${d.mudancasNome} alteração(ões) de nome no CPF — confira o documento`);
   }
 
   if (recusar) return { veredito: "RECUSAR", motivos };

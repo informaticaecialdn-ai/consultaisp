@@ -182,3 +182,45 @@ describe("faixaRendaEmReais", () => {
     expect(faixaRendaEmReais("QUALQUER COISA")).toBeNull();
   });
 });
+
+describe("decidirVeredito — rastro de mercado", () => {
+  it("alerta quando o CPF e consultado demais em 30 dias", () => {
+    const v = decidirVeredito(bom({ consultas30d: 15 }));
+    expect(v.veredito).toBe("ATENCAO");
+    expect(v.motivos.join(" ")).toMatch(/15 vezes/);
+  });
+
+  it("nao alerta com consulta em volume normal", () => {
+    expect(decidirVeredito(bom({ consultas30d: 4 })).veredito).toBe("APROVAR");
+  });
+
+  it("alerta em mudanca de nome, mas nao recusa", () => {
+    const v = decidirVeredito(bom({ mudancasNome: 1 }));
+    expect(v.veredito).toBe("ATENCAO");
+    expect(v.motivos.join(" ")).toMatch(/documento/);
+  });
+
+  it("cobranca ativa pesa mais que historico e aparece sozinha", () => {
+    const v = decidirVeredito(bom({ emCobrancaAgora: true, cobrancas365d: 3 }));
+    expect(v.motivos.filter(m => /cobran/i.test(m))).toHaveLength(1);
+  });
+
+  it("execucao como reu alerta; sem execucao, so o volume de processos", () => {
+    expect(decidirVeredito(bom({ temExecucao: true })).motivos.join(" ")).toMatch(/Execução/);
+    expect(decidirVeredito(bom({ processosComoReu: 6 })).motivos.join(" ")).toMatch(/6 processos/);
+    expect(decidirVeredito(bom({ processosComoReu: 2 })).veredito).toBe("APROVAR");
+  });
+
+  it("divida ativa entra com o valor formatado", () => {
+    const v = decidirVeredito(bom({ dividaAtiva: 15000 }));
+    expect(v.motivos.join(" ")).toMatch(/15.000,00/);
+  });
+
+  it("nenhum sinal de inadimplencia recusa sozinho", () => {
+    const v = decidirVeredito(bom({
+      emCobrancaAgora: true, temExecucao: true, dividaAtiva: 99999,
+      consultas30d: 50, buscaCredito: "A",
+    }));
+    expect(v.veredito).toBe("ATENCAO");
+  });
+});

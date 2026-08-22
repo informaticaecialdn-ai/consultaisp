@@ -50,6 +50,10 @@ export const DATASETS = [
   "financial_data", "financial_risk",
   // Inadimplencia
   "collections", "processes", "government_debtors",
+  // Comportamento e rastro
+  "digital_finance_behaviors", "passages", "historical_basic_data",
+  // Patrimonio e beneficio — calibram a faixa de plano
+  "vehicles", "social_assistance_extended",
 ] as const;
 
 /**
@@ -227,6 +231,45 @@ function normalizarRenda(fin: any): RendaDetalhada {
   };
 }
 
+/**
+ * Risco de area pela coordenada. Chamada separada, na API de enderecos.
+ * Nao e risco de credito: e risco OPERACIONAL — seguranca do tecnico e chance
+ * de o equipamento nao voltar. Nenhum bureau responde essa pergunta.
+ *
+ * O parametro exige COLCHETES: latlong[lat,lon]. Com chaves a API devolve -131.
+ */
+async function consultarRiscoArea(
+  headers: Record<string, string>, enderecos: EnderecoDetalhado[],
+): Promise<RiscoArea[]> {
+  // So os tres primeiros: cada coordenada e uma chamada, e o operador decide
+  // pelo endereco de instalacao, que esta no topo da lista.
+  const comCoord = enderecos.filter(e => e.lat != null && e.lon != null).slice(0, 3);
+  const saida: RiscoArea[] = [];
+
+  for (const e of comCoord) {
+    try {
+      const r = await fetch(`${BASE_URL}/enderecos`, {
+        method: "POST", headers,
+        body: JSON.stringify({
+          Datasets: "address_risk", q: `latlong[${e.lat},${e.lon}]`, Limit: 1,
+        }),
+      });
+      const d: any = await r.json();
+      const bloco = d?.Result?.[0]?.AddressRiskData;
+      if (d?.Status?.address_risk?.[0]?.Code === 0 && bloco) {
+        saida.push({
+          endereco: [e.logradouro, e.numero, e.cidade].filter(Boolean).join(", "),
+          ponto: bloco.Point,
+          raio100m: bloco.Radius100m,
+        });
+      }
+    } catch {
+      // Melhor esforco: risco de area e complemento, nao pode derrubar a consulta.
+    }
+  }
+  return saida;
+}
+
 /** Naturezas processuais que significam cobranca judicial de divida. */
 const NATUREZAS_EXECUCAO = ["EXECUCAO", "EXECUÇÃO", "MONITORIA", "MONITÓRIA", "BUSCA E APREENSAO"];
 
@@ -303,6 +346,36 @@ export interface RiscoFinanceiro {
   inicioUltimaOcupacao?: string;
 }
 
+/** Rastro do CPF no mercado. Consulta recente demais e sinal de quem esta rodando. */
+export interface Rastro {
+  consultas30d: number;
+  consultas365d: number;
+  passagensRuins: number;
+  primeiraPassagem?: string;
+  ultimaPassagem?: string;
+  /** Comportamento financeiro digital: A e altissima intensidade, H e nenhuma. */
+  buscaCredito?: string;
+  usoCartao?: string;
+  usoBancoDigital?: string;
+  /** Mudancas de nome e de status na Receita ao longo da vida do CPF. */
+  mudancasNome: number;
+  mudancasStatus: number;
+}
+
+/** Area do endereco: 1 e comunidade setorizada, 3 e sem comunidade delimitada. */
+export interface RiscoArea {
+  endereco: string;
+  ponto?: number;
+  raio100m?: number;
+}
+
+export interface Patrimonio {
+  veiculos: number;
+  recebeAuxilio: boolean;
+  auxiliosAtivos: number;
+  valorAuxilio: number;
+}
+
 export interface Inadimplencia {
   emCobrancaAgora: boolean;
   cobrancas365d: number;
@@ -332,6 +405,10 @@ export interface ResultadoConsulta {
   renda: RendaDetalhada;
   risco: RiscoFinanceiro;
   inadimplencia: Inadimplencia;
+  rastro: Rastro;
+  patrimonio: Patrimonio;
+  /** Preenchido em chamada separada a /enderecos; vazio quando falha. */
+  riscoArea: RiscoArea[];
   /** Datasets bloqueados na conta — nao sao falha, sao upgrade disponivel. */
   datasetsIndisponiveis: string[];
   /** Payload cru da BigData, para gravar e auditar. */
@@ -347,8 +424,14 @@ export async function consultarCpf(
 ): Promise<ResultadoConsulta> {
   const t0 = Date.now();
 
+  let headersUsados: Record<string, string> = {};
+
   const executar = async () => {
     const { token, tokenId } = await obterToken(providerId, cred);
+    headersUsados = {
+      "Content-Type": "application/json", accept: "application/json",
+      AccessToken: token, TokenId: tokenId,
+    };
     const r = await fetch(`${BASE_URL}/pessoas`, {
       method: "POST",
       headers: {
@@ -396,6 +479,31 @@ export async function consultarCpf(
   const encontrado = !cpfNaoEncontrado(d?.Status, basic);
   const faixa = fin?.IncomeEstimates?.BIGDATA_V2 ?? fin?.IncomeEstimates?.BIGDATA;
   const risco = R.FinancialRisk ?? {};
+  const dfb = R.DigitalFinanceBehaviors ?? {};
+  const pas = R.Passages ?? {};
+  const hist = R.HistoricalBasicData ?? {};
+  const aux = R.ExtendedSocialAssistancePrograms ?? {};
+  const veic = R.Vehicles ?? {};
+
+  const rastro: Rastro = {
+    consultas30d: Number(pas?.Last30DaysTotalPassages ?? 0) || 0,
+    consultas365d: Number(pas?.Last365DaysTotalPassages ?? 0) || 0,
+    passagensRuins: Number(pas?.BadPassages ?? 0) || 0,
+    primeiraPassagem: pas?.FirstPassageDate || undefined,
+    ultimaPassagem: pas?.LastPassageDate || undefined,
+    buscaCredito: dfb?.CreditSeeker,
+    usoCartao: dfb?.CreditCardScore,
+    usoBancoDigital: dfb?.OnlineBankingUser,
+    mudancasNome: Number(hist?.NameChangesTotal ?? 0) || 0,
+    mudancasStatus: Number(hist?.StatusChangesTotal ?? 0) || 0,
+  };
+
+  const patrimonio: Patrimonio = {
+    veiculos: Array.isArray(veic?.Vehicles) ? veic.Vehicles.length : 0,
+    recebeAuxilio: !!aux?.IsReceivingAssistance,
+    auxiliosAtivos: Number(aux?.TotalActiveAssistances ?? 0) || 0,
+    valorAuxilio: Number(aux?.TotalIncome ?? 0) || 0,
+  };
   const inad = normalizarInadimplencia(R.Collections, R.Processes, R.GovernmentDebtors);
 
   // O veredito le a forma reduzida; a tela le a completa. Manter as duas
@@ -418,7 +526,9 @@ export async function consultarCpf(
     processos365d: inad.processos365d,
     temExecucao: inad.temExecucao,
     dividaAtiva: inad.dividaAtiva,
-    buscaCredito: R.DigitalFinanceBehaviors?.CreditSeeker,
+    buscaCredito: dfb?.CreditSeeker,
+    mudancasNome: rastro.mudancasNome,
+    consultas30d: rastro.consultas30d,
   };
 
   return {
@@ -439,6 +549,9 @@ export async function consultarCpf(
       inicioUltimaOcupacao: risco?.LastOccupationStartDate || undefined,
     },
     inadimplencia: inad,
+    rastro,
+    patrimonio,
+    riscoArea: await consultarRiscoArea(headersUsados, enderecos),
     datasetsIndisponiveis,
     bruto: d,
     datasetsChamados: [...DATASETS],
