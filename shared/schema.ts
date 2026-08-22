@@ -17,6 +17,7 @@ export const providers = pgTable("providers", {
   verificationStatus: text("verification_status").notNull().default("pending"),
   ispCredits: integer("isp_credits").notNull().default(50),
   spcCredits: integer("spc_credits").notNull().default(0),
+  bigdataCredits: integer("bigdata_credits").notNull().default(0),
   contactEmail: text("contact_email"),
   contactPhone: text("contact_phone"),
   website: text("website"),
@@ -212,6 +213,38 @@ export const spcConsultations = pgTable("spc_consultations", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+/**
+ * Credencial da BigDataCorp por provedor. Um usuario de integracao por tenant:
+ * consumo e custo aparecem separados tambem do lado do bureau.
+ * login e password sao gravados com encryptField (ver server/utils/crypto.ts) e
+ * nunca saem do servidor — a rota devolve a senha mascarada.
+ */
+export const bigdataIntegrations = pgTable("bigdata_integrations", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  login: text("login"),
+  password: text("password"),
+  isEnabled: boolean("is_enabled").notNull().default(false),
+  lastCheckAt: timestamp("last_check_at"),
+  lastCheckStatus: text("last_check_status"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+/**
+ * Consulta cadastral. datasets[] registra quais foram chamados naquela consulta —
+ * sem isso, quando o custo subir ninguem sabe qual dataset e o caro.
+ */
+export const bigdataConsultations = pgTable("bigdata_consultations", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  userId: integer("user_id").notNull().references(() => users.id),
+  cpfCnpj: text("cpf_cnpj").notNull(),
+  result: jsonb("result"),
+  datasets: text("datasets").array(),
+  veredito: text("veredito"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const supportThreads = pgTable("support_threads", {
   id: serial("id").primaryKey(),
   providerId: integer("provider_id").notNull().references(() => providers.id),
@@ -239,6 +272,7 @@ export const planChanges = pgTable("plan_changes", {
   newPlan: text("new_plan"),
   ispCreditsAdded: integer("isp_credits_added").default(0),
   spcCreditsAdded: integer("spc_credits_added").default(0),
+  bigdataCreditsAdded: integer("bigdata_credits_added").default(0),
   changedById: integer("changed_by_id").references(() => users.id),
   changedByName: text("changed_by_name"),
   notes: text("notes"),
@@ -278,6 +312,7 @@ export const providerInvoices = pgTable("provider_invoices", {
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   ispCreditsIncluded: integer("isp_credits_included").notNull().default(0),
   spcCreditsIncluded: integer("spc_credits_included").notNull().default(0),
+  bigdataCreditsIncluded: integer("bigdata_credits_included").notNull().default(0),
   status: text("status").notNull().default("pending"),
   dueDate: timestamp("due_date").notNull(),
   paidDate: timestamp("paid_date"),
@@ -329,6 +364,8 @@ export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true 
 export const insertEquipmentSchema = createInsertSchema(equipment).omit({ id: true });
 export const insertIspConsultationSchema = createInsertSchema(ispConsultations).omit({ id: true, createdAt: true });
 export const insertSpcConsultationSchema = createInsertSchema(spcConsultations).omit({ id: true, createdAt: true });
+export const insertBigdataIntegrationSchema = createInsertSchema(bigdataIntegrations).omit({ id: true, createdAt: true });
+export const insertBigdataConsultationSchema = createInsertSchema(bigdataConsultations).omit({ id: true, createdAt: true });
 export const insertAntiFraudAlertSchema = createInsertSchema(antiFraudAlerts).omit({ id: true, createdAt: true });
 
 export type Provider = typeof providers.$inferSelect;
@@ -347,6 +384,10 @@ export type IspConsultation = typeof ispConsultations.$inferSelect;
 export type InsertIspConsultation = z.infer<typeof insertIspConsultationSchema>;
 export type SpcConsultation = typeof spcConsultations.$inferSelect;
 export type InsertSpcConsultation = z.infer<typeof insertSpcConsultationSchema>;
+export type BigdataIntegration = typeof bigdataIntegrations.$inferSelect;
+export type InsertBigdataIntegration = z.infer<typeof insertBigdataIntegrationSchema>;
+export type BigdataConsultation = typeof bigdataConsultations.$inferSelect;
+export type InsertBigdataConsultation = z.infer<typeof insertBigdataConsultationSchema>;
 export type AntiFraudAlert = typeof antiFraudAlerts.$inferSelect;
 export type InsertAntiFraudAlert = z.infer<typeof insertAntiFraudAlertSchema>;
 
