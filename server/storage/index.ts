@@ -87,6 +87,8 @@ export interface IStorage {
   getEquipmentById(id: number, providerId: number): Promise<Equipment | undefined>;
   updateEquipment(id: number, providerId: number, data: Partial<InsertEquipment>): Promise<Equipment | undefined>;
   removeEquipment(id: number, providerId: number): Promise<boolean>;
+  syncEquipmentFromErp(providerId: number, customerId: number, detalhes: any[]): Promise<{ inseridos: number; devolvidos: number }>;
+  contarEquipamentoRetido(customerIds: number[]): Promise<Map<number, { count: number; value: number }>>;
 
   getIspConsultationsByProvider(providerId: number): Promise<IspConsultation[]>;
   getIspConsultationsByProviderPaginated(providerId: number, page: number, limit: number): Promise<{ rows: IspConsultation[]; total: number }>;
@@ -322,6 +324,8 @@ class DatabaseStorage implements IStorage {
   getEquipmentById = (id: number, providerId: number) => this._equipment.getEquipmentById(id, providerId);
   updateEquipment = (id: number, providerId: number, data: Partial<InsertEquipment>) => this._equipment.updateEquipment(id, providerId, data);
   removeEquipment = (id: number, providerId: number) => this._equipment.removeEquipment(id, providerId);
+  syncEquipmentFromErp = (providerId: number, customerId: number, detalhes: any[]) => this._equipment.syncEquipmentFromErp(providerId, customerId, detalhes);
+  contarEquipamentoRetido = (customerIds: number[]) => this._equipment.contarEquipamentoRetido(customerIds);
 
   // ERP
   getErpIntegrations = (providerId: number) => this._erp.getErpIntegrations(providerId);
