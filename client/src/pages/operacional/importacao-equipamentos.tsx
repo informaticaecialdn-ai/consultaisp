@@ -17,6 +17,39 @@ import {
 } from "lucide-react";
 import Papa from "papaparse";
 
+/**
+ * Hoje so o conector IXC busca comodato do ERP. Sem este aviso o provedor de MK,
+ * SGP ou Hubsoft configura a integracao e fica esperando o equipamento aparecer
+ * sozinho — e nao aparece.
+ */
+function AvisoCapacidadeErp() {
+  const { data: integracoes = [] } = useQuery<Array<{ erpSource: string; isEnabled: boolean }>>({
+    queryKey: ["/api/provider/erp-integrations"],
+  });
+  const { data: conectores = [] } = useQuery<Array<{ name: string; label: string; supportsEquipment: boolean }>>({
+    queryKey: ["/api/erp-connectors"],
+  });
+
+  // Só as integrações realmente ligadas: a lista traz uma linha por ERP
+  // suportado, ligada ou não.
+  const ativas = integracoes.filter(i => i.isEnabled);
+  if (ativas.length === 0 || conectores.length === 0) return null;
+
+  const semSuporte = ativas
+    .map(i => conectores.find(c => c.name === i.erpSource))
+    .filter((c): c is NonNullable<typeof c> => !!c && !c.supportsEquipment);
+  if (semSuporte.length === 0) return null;
+
+  return (
+    <div className="rounded-lg bg-[var(--gated-bg)] px-4 py-3 text-[13px] text-[var(--gated)]">
+      {semSuporte.length === 1
+        ? `${semSuporte[0].label} ainda não sincroniza cadastro de comodato.`
+        : "Seus ERPs ainda não sincronizam cadastro de comodato."}{" "}
+      Importe por planilha aqui ou cadastre manualmente em Equipamentos.
+    </div>
+  );
+}
+
 const TIPOS_CONFIG = [
   { id: "ONU/ONT", label: "ONU / ONT", icon: Zap, desc: "Fibra optica GPON/EPON", color: "blue" },
   { id: "Roteador Wi-Fi", label: "Roteador Wi-Fi", icon: Router, desc: "Equipamento sem fio", color: "violet" },
@@ -250,6 +283,8 @@ export default function ImportacaoEquipamentosPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50 via-slate-50 to-orange-50 p-6">
       <div className="max-w-5xl mx-auto space-y-6">
+
+        <AvisoCapacidadeErp />
 
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-4">

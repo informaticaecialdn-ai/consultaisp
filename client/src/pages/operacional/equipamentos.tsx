@@ -1,6 +1,19 @@
-import { useQuery } from "@tanstack/react-query";
-import { Package } from "lucide-react";
+import { useState } from "react";
+import { Link } from "wouter";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { Package, Plus, Check } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 type Equipamento = {
   id: number; customerId: number | null; type: string;
@@ -36,8 +49,43 @@ function Kpi({ label, valor, sub }: { label: string; valor: string; sub?: string
   );
 }
 
+const VAZIO = { type: "ONU", brand: "", model: "", serialNumber: "", value: "", status: "installed" };
+
 export default function EquipamentosPage() {
   const { data = [], isLoading } = useQuery<Equipamento[]>({ queryKey: ["/api/equipment"] });
+  const { toast } = useToast();
+  const [aberto, setAberto] = useState(false);
+  const [form, setForm] = useState({ ...VAZIO });
+
+  const criar = useMutation({
+    mutationFn: async (dados: Record<string, any>) => {
+      const res = await apiRequest("POST", "/api/equipment", dados);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
+      toast({ title: "Equipamento cadastrado" });
+      setForm({ ...VAZIO });
+      setAberto(false);
+    },
+    onError: (e: any) =>
+      toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  const devolver = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("PATCH", `/api/equipment/${id}`, {
+        status: "devolvido", inRecoveryProcess: false,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/equipment"] });
+      toast({ title: "Marcado como devolvido" });
+    },
+    onError: (e: any) =>
+      toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
 
   const emRisco = data.filter(e => EM_RISCO.includes(e.status));
   const retidos = data.filter(e => e.status === "retido" || e.status === "em_cobranca");
@@ -55,7 +103,83 @@ export default function EquipamentosPage() {
             Comodato em campo e equipamento não devolvido
           </p>
         </div>
+        <Button onClick={() => setAberto(true)} data-testid="botao-cadastrar-equipamento">
+          <Plus className="w-4 h-4 mr-1.5" />
+          Cadastrar equipamento
+        </Button>
       </div>
+
+      <Dialog open={aberto} onOpenChange={setAberto}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle>Cadastrar equipamento</DialogTitle>
+          </DialogHeader>
+          <form
+            className="space-y-3"
+            onSubmit={e => {
+              e.preventDefault();
+              // Campos vazios saem do payload: string vazia gravaria "" no lugar
+              // de null e sujaria a busca por serie.
+              const limpo = Object.fromEntries(
+                Object.entries(form).filter(([, v]) => String(v).trim() !== ""),
+              );
+              criar.mutate(limpo);
+            }}
+          >
+            <div>
+              <Label htmlFor="type">Tipo</Label>
+              <Input id="type" value={form.type} required
+                onChange={e => setForm(f => ({ ...f, type: e.target.value }))}
+                placeholder="ONU, roteador, rádio…" data-testid="campo-tipo" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="brand">Marca</Label>
+                <Input id="brand" value={form.brand}
+                  onChange={e => setForm(f => ({ ...f, brand: e.target.value }))} />
+              </div>
+              <div>
+                <Label htmlFor="model">Modelo</Label>
+                <Input id="model" value={form.model}
+                  onChange={e => setForm(f => ({ ...f, model: e.target.value }))} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="serialNumber">Número de série</Label>
+                <Input id="serialNumber" value={form.serialNumber} className="font-mono"
+                  onChange={e => setForm(f => ({ ...f, serialNumber: e.target.value }))}
+                  data-testid="campo-serie" />
+              </div>
+              <div>
+                <Label htmlFor="value">Valor (R$)</Label>
+                <Input id="value" value={form.value} inputMode="decimal" className="font-mono tabular-nums"
+                  onChange={e => setForm(f => ({ ...f, value: e.target.value }))}
+                  placeholder="290" />
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="status">Situação</Label>
+              <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v }))}>
+                <SelectTrigger id="status"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.entries(STATUS).map(([k, s]) => (
+                    <SelectItem key={k} value={k}>{s.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <DialogFooter className="pt-2">
+              <Button type="button" variant="ghost" onClick={() => setAberto(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={criar.isPending} data-testid="botao-salvar-equipamento">
+                {criar.isPending ? "Salvando…" : "Cadastrar"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {isLoading ? (
         <div className="space-y-2">
@@ -69,6 +193,15 @@ export default function EquipamentosPage() {
             Se o seu ERP tem cadastro de comodato, o equipamento aparece aqui após a
             sincronização. Caso contrário, importe por planilha ou cadastre manualmente.
           </p>
+          <div className="flex items-center justify-center gap-2">
+            <Button onClick={() => setAberto(true)} data-testid="botao-cadastrar-vazio">
+              <Plus className="w-4 h-4 mr-1.5" />
+              Cadastrar equipamento
+            </Button>
+            <Link href="/importacao-equipamentos">
+              <Button variant="ghost">Importar planilha</Button>
+            </Link>
+          </div>
         </div>
       ) : (
         <>
@@ -84,8 +217,8 @@ export default function EquipamentosPage() {
               <table className="w-full text-[13px] min-w-[640px]">
                 <thead>
                   <tr>
-                    {["Tipo", "Marca / Modelo", "Série", "Valor", "Status"].map(h => (
-                      <th key={h} className="text-left text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)] px-4 py-2 border-b border-[var(--border-faint)]">
+                    {["Tipo", "Marca / Modelo", "Série", "Valor", "Status", ""].map((h, i) => (
+                      <th key={h || i} className="text-left text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)] px-4 py-2 border-b border-[var(--border-faint)]">
                         {h}
                       </th>
                     ))}
@@ -106,6 +239,21 @@ export default function EquipamentosPage() {
                           <span className={`inline-flex items-center text-[10px] font-medium tracking-[0.04em] px-2 py-0.5 rounded ${s.cls}`}>
                             {s.label}
                           </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          {/* Devolvido e baixado nao tem para onde voltar. */}
+                          {e.status !== "devolvido" && e.status !== "baixado" && (
+                            <button
+                              type="button"
+                              onClick={() => devolver.mutate(e.id)}
+                              disabled={devolver.isPending}
+                              data-testid={`devolver-${e.id}`}
+                              className="inline-flex items-center gap-1 text-[12px] text-[var(--text-muted)] hover:text-[var(--ok)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand)] motion-safe:transition-colors disabled:opacity-50"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              Devolvido
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
