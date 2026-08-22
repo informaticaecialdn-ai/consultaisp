@@ -70,7 +70,7 @@ A BigData oferece dezenas. A maioria não serve para ISP. O corte:
 
 | Dataset | Campos que importam | Por quê |
 |---|---|---|
-| `basic_data` | `TaxIdStatus`, `HasObitIndication`, `Name`, `BirthDate`, `MotherName` | CPF cancelado/suspenso/falecido é veto, não ponderação |
+| `basic_data` | `TaxIdStatus`, `HasObitIndication`, `Name`, `BirthDate`, `MotherName`, `IsValidBirthDateInRFSource`, `NumberOfFullNameNamesakes`, `NameUniquenessScore` | CPF cancelado/suspenso/falecido é veto, não ponderação. Os três últimos não estão na doc e apareceram no teste real: data de nascimento conferida na Receita, e contagem de homônimos — nome muito comum é vetor de confusão de identidade na instalação |
 | `addresses_extended` | `IsRatified`, `IsActive`, `EntityLastPassageDate`, `TotalBadAddressPassages`, `ZipCode`, `City` | responde "mora aí?" antes de a equipe sair |
 | `financial_data` | `IncomeEstimates.BIGDATA_V2`, `TotalAssets` | renda em faixa de SM, cruzada com o valor do plano |
 
@@ -128,16 +128,27 @@ server/services/bigdata-veredito.ts       ← função pura, testável
 bigdata_consultations (result jsonb + datasets[])
 ```
 
-### Variáveis de ambiente
+### Autenticação — o serviço gera o token, não aceita token colado
+
+Medido em 2026-08-22 contra a API real. O header `TokenId` **não é o `jti` do
+JWT**: é um identificador de 24 hex que só existe na resposta de
+`POST /tokens/gerar`. Um token copiado do painel nunca autentica sozinho,
+porque falta um dado que não está dentro dele.
 
 ```env
-BIGDATA_ACCESS_TOKEN=
-BIGDATA_TOKEN_ID=
 BIGDATA_BASE_URL=https://plataforma.bigdatacorp.com.br
+BIGDATA_LOGIN=consultaisp
+BIGDATA_PASSWORD=
 ```
 
-Sem as duas primeiras, o serviço fica desligado e a tela diz isso — mesmo
-comportamento de `SPC_ENABLED` em `spc.service.ts`.
+O serviço chama `/tokens/gerar` e guarda `token` + `tokenID` em memória,
+renovando quando faltar menos de 24h para expirar. Sem `BIGDATA_PASSWORD` o
+serviço fica desligado e a tela diz isso — mesmo comportamento de `SPC_ENABLED`.
+
+```
+POST /tokens/gerar  { login, password, expires: 8760 }
+  -> { success, token, tokenID, expiration }
+```
 
 ## Escopo
 
@@ -167,7 +178,8 @@ comportamento de `SPC_ENABLED` em `spc.service.ts`.
 | BigData fora do ar / timeout | circuit breaker abre, 503, **crédito não é debitado** |
 | CPF não encontrado na base | resultado válido com `notFound`, crédito **é** debitado — a consulta foi feita |
 | Saldo zerado | 402 com link para compra de créditos |
-| Dataset retorna `Status.Code != 0` | grava o que veio, marca o dataset como falho no `result`, não invalida os outros |
+| Dataset retorna `Status.Code != 0` | grava o que veio, marca o dataset como falho no `result`, não invalida os outros — **medido**: `basic_data` falhou e os outros dois vieram normais na mesma resposta |
+| `basic_data` retorna `-1200` | **é CPF inexistente, não erro de sistema.** A BigData erra em vez de devolver "não encontrado"; `addresses_extended` e `financial_data` no mesmo CPF devolvem `Code 0` com contadores zerados. Traduzir para "CPF não encontrado na Receita" — deixar vazar como erro faria o operador achar que o sistema quebrou |
 
 O caso que mais importa: **falha de rede não cobra, CPF inexistente cobra.** A
 diferença é se a BigData executou a busca.
@@ -186,16 +198,12 @@ Sem teste de integração com banco — o repo não tem essa camada.
 
 ## Riscos
 
-**1. Custo por consulta é desconhecido.** A doc não diz se pedir três datasets
-numa chamada cobra uma consulta ou três. Isso muda o preço por CPF e o desenho
-de créditos. **Confirmar com o gerente de conta antes de precificar** — o
-código deve funcionar dos dois jeitos, gravando `datasets[]` para permitir
-auditoria depois.
+**1. ~~Custo por consulta desconhecido~~ — resolvido.** Medido: os três datasets
+numa única requisição, 516ms para CPF existente. Uma consulta, não três.
+`datasets[]` continua sendo gravado para auditoria.
 
-**2. A conta do provedor pode não ter os datasets liberados.** O painel da
-BigData mostra "Nenhum dataset disponível para esta API" quando o admin do
-domínio não habilitou. A tela precisa distinguir isso de "CPF não encontrado",
-senão o provedor conclui que o bureau é ruim.
+**2. ~~Datasets podem não estar liberados~~ — verificado.** Os três respondem
+`Code 0` na conta `consultaisp` do domínio PKS SISTEMAS.
 
 **3. Renda presumida erra.** `IncomeEstimates` é estimativa estatística, não
 holerite. Usar como `ATENÇÃO` e nunca como `RECUSAR` é proposital — negar
