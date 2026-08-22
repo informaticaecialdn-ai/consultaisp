@@ -72,14 +72,9 @@ export function registerDashboardRoutes(): Router {
     }
   });
 
-  router.get("/api/equipment", requireAuth, async (req, res) => {
-    try {
-      const eqs = await storage.getEquipmentByProvider(req.session.providerId!);
-      return res.json(eqs);
-    } catch (error: any) {
-      return res.status(500).json({ message: getSafeErrorMessage(error) });
-    }
-  });
+  // GET /api/equipment mora em equipamentos.routes.ts. Estava registrado aqui
+  // tambem, e como este router e montado antes, o de equipamentos nunca
+  // respondia — o CRUD novo ficaria inalcancavel.
 
   router.get("/api/contracts", requireAuth, async (req, res) => {
     try {
