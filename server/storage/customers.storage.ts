@@ -52,6 +52,17 @@ export class CustomersStorage {
   }
 
   /** Upsert cliente do ERP — atualiza se cpfCnpj+providerId ja existe, senao insere */
+  /** Agregado lido pela consulta em rede — evita join de equipamento por busca. */
+  async updateCustomerEquipmentAggregate(
+    customerId: number,
+    count: number,
+    value: string,
+  ): Promise<void> {
+    await db.update(customers)
+      .set({ equipmentCount: count, equipmentEstimatedValue: value })
+      .where(eq(customers.id, customerId));
+  }
+
   async upsertFromErp(data: {
     providerId: number;
     cpfCnpj: string;
@@ -84,7 +95,7 @@ export class CustomersStorage {
      * fica intacta — estado seguro.
      */
     skipPaymentStatus?: boolean;
-  }): Promise<void> {
+  }): Promise<Customer> {
     const existing = await db.select().from(customers)
       .where(and(
         eq(customers.cpfCnpj, data.cpfCnpj),
@@ -119,17 +130,20 @@ export class CustomersStorage {
         updateFields.totalOverdueAmount = String(data.totalOverdueAmount);
         updateFields.maxDaysOverdue = data.maxDaysOverdue;
         updateFields.overdueInvoicesCount = data.overdueInvoicesCount;
-        updateFields.equipmentCount = 1;
-        updateFields.equipmentEstimatedValue = "290";
+        // equipmentCount/equipmentEstimatedValue NAO entram aqui. Antes o sync
+        // reescrevia 1 e "290" a cada passada, apagando o agregado real que o
+        // sync de equipamento acabara de calcular.
         updateFields.status = customerStatus;
         updateFields.paymentStatus = data.totalOverdueAmount > 0 ? "overdue" : "current";
         updateFields.riskTier = riskTier;
       }
-      await db.update(customers)
+      const [atualizado] = await db.update(customers)
         .set(updateFields)
-        .where(eq(customers.id, existing[0].id));
+        .where(eq(customers.id, existing[0].id))
+        .returning();
+      return atualizado;
     } else {
-      await db.insert(customers).values({
+      const [criado] = await db.insert(customers).values({
         providerId: data.providerId,
         cpfCnpj: data.cpfCnpj,
         name: data.name,
@@ -147,14 +161,15 @@ export class CustomersStorage {
         totalOverdueAmount: String(data.totalOverdueAmount),
         maxDaysOverdue: data.maxDaysOverdue,
         overdueInvoicesCount: data.overdueInvoicesCount,
-        equipmentCount: 1,
-        equipmentEstimatedValue: "290",
+        // Sem equipamento conhecido nao se inventa um: o agregado real e escrito
+        // depois, quando o conector traz equipmentDetails.
         status: customerStatus,
         paymentStatus: data.totalOverdueAmount > 0 ? "overdue" : "current",
         riskTier,
         erpSource: data.erpSource,
         lastSyncAt: now,
-      });
+      }).returning();
+      return criado;
     }
   }
 

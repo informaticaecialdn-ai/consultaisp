@@ -64,7 +64,8 @@ export interface IStorage {
   getCustomersByExactAddress(address: string, city: string, state: string | null, cep: string | null, excludeCpfCnpj: string): Promise<Customer[]>;
   getCustomersByAddressHash(addressHash: string, excludeCpfCnpj?: string): Promise<Customer[]>;
   createCustomer(customer: InsertCustomer): Promise<Customer>;
-  upsertFromErp(data: Parameters<CustomersStorage["upsertFromErp"]>[0]): Promise<void>;
+  upsertFromErp(data: Parameters<CustomersStorage["upsertFromErp"]>[0]): Promise<Customer>;
+  updateCustomerEquipmentAggregate(customerId: number, count: number, value: string): Promise<void>;
   getHeatmapAll(): ReturnType<CustomersStorage["getHeatmapAll"]>;
   getCustomersByCepPrefix(cepPrefix: string, excludeProviderId?: number): Promise<Customer[]>;
   getCustomersByAddressForAlert(params: Parameters<CustomersStorage["getCustomersByAddressForAlert"]>[0]): ReturnType<CustomersStorage["getCustomersByAddressForAlert"]>;
@@ -254,6 +255,7 @@ class DatabaseStorage implements IStorage {
   getCustomersByAddressHash = (addressHash: string, excludeCpfCnpj?: string) => this._customers.getCustomersByAddressHash(addressHash, excludeCpfCnpj);
   createCustomer = (customer: InsertCustomer) => this._customers.createCustomer(customer);
   upsertFromErp = (data: Parameters<CustomersStorage["upsertFromErp"]>[0]) => this._customers.upsertFromErp(data);
+  updateCustomerEquipmentAggregate = (customerId: number, count: number, value: string) => this._customers.updateCustomerEquipmentAggregate(customerId, count, value);
   getHeatmapAll = () => this._customers.getHeatmapAll();
   getCustomersByCepPrefix = (cepPrefix: string, excludeProviderId?: number) => this._customers.getCustomersByCepPrefix(cepPrefix, excludeProviderId);
   getCustomersByAddressForAlert = (params: Parameters<CustomersStorage["getCustomersByAddressForAlert"]>[0]) => this._customers.getCustomersByAddressForAlert(params);
