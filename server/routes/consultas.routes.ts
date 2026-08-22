@@ -182,6 +182,10 @@ export function registerConsultasRoutes(): Router {
           }))
         );
 
+        // Contagem real de equipamento retido — uma query para todos os clientes.
+        const idsClientes = allCustomers.map((c: any) => c.id).filter(Boolean);
+        const equipPorCliente = await storage.contarEquipamentoRetido(idsClientes);
+
         // Build provider details with LGPD masking
         const providerDetails = allCustomers.map(c => {
           const paymentStatus = c.maxDaysOverdue > 90 ? "Inadimplente (90+ dias)"
@@ -210,8 +214,20 @@ export function registerConsultasRoutes(): Router {
             cep: c.cep || undefined,
             latitude: (c as any).latitude || undefined,
             longitude: (c as any).longitude || undefined,
-            hasUnreturnedEquipment: c.hasUnreturnedEquipment || false,
-            unreturnedEquipmentCount: 0,
+            // O flag do conector cobre o ERP que so diz "tem pendencia"; o
+            // agregado cobre o que foi cadastrado a mao ou por planilha.
+            hasUnreturnedEquipment:
+              c.hasUnreturnedEquipment || (equipPorCliente.get((c as any).id)?.count ?? 0) > 0,
+            unreturnedEquipmentCount: equipPorCliente.get((c as any).id)?.count ?? 0,
+            // LGPD: contagem e valor atravessam provedor; serie, MAC e modelo nao.
+            equipmentPendingSummary: (() => {
+              const e = equipPorCliente.get((c as any).id);
+              if (!e || e.count === 0) return undefined;
+              const valor = e.value.toLocaleString("pt-BR", {
+                minimumFractionDigits: 2, maximumFractionDigits: 2,
+              });
+              return `${e.count} equipamento${e.count > 1 ? "s" : ""} · R$ ${valor}`;
+            })(),
             planName: c.planName,
             phone: c.phone,
             email: c.email,
