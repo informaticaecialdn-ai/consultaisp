@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/collapsible";
 import {
   ScanSearch,
+  IdCard,
   LayoutDashboard,
   Search,
   BarChart3,
@@ -305,6 +306,7 @@ export function AppSidebar() {
       itens: [
         { label: "Dashboard",     url: "/",            Icone: LayoutDashboard, testId: "link-dashboard" },
         { label: "Consulta ISP",  url: "/consulta-isp", Icone: ScanSearch,     testId: "link-consulta-isp" },
+        { label: "Consulta Cadastral", url: "/consulta-cadastral", Icone: IdCard, testId: "link-consulta-cadastral" },
         { label: "Consulta SPC",  url: "/consulta-spc", Icone: BarChart3,      testId: "link-consulta-spc" },
         { label: "Anti-Fraude",   url: "/anti-fraude",  Icone: ShieldAlert,    testId: "link-anti-fraude" },
         // Antes chamava "Meus Dados" e apontava para /benchmark-regional (territorio).

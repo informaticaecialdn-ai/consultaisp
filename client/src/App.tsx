@@ -19,6 +19,7 @@ const VerificarEmailPage = lazy(() => import("@/pages/auth/verificar-email"));
 
 // Consulta
 const ConsultaISPPage = lazy(() => import("@/pages/consulta/consulta-isp"));
+const ConsultaCadastralPage = lazy(() => import("@/pages/consulta/consulta-cadastral"));
 const ConsultaSPCPage = lazy(() => import("@/pages/consulta/consulta-spc"));
 const AntiFraudePage = lazy(() => import("@/pages/consulta/anti-fraude"));
 
@@ -71,6 +72,7 @@ function Router() {
       <Switch>
         <Route path="/" component={DashboardPage} />
         <Route path="/consulta-isp" component={ConsultaISPPage} />
+        <Route path="/consulta-cadastral" component={ConsultaCadastralPage} />
         <Route path="/consulta-spc" component={ConsultaSPCPage} />
         <Route path="/anti-fraude" component={AntiFraudePage} />
         <Route path="/inadimplentes" component={InadimplentesPage} />
@@ -100,7 +102,7 @@ function Router() {
 }
 
 const PROVIDER_ONLY_PATHS = [
-  "/", "/consulta-isp", "/consulta-spc", "/anti-fraude",
+  "/", "/consulta-isp", "/consulta-cadastral", "/consulta-spc", "/anti-fraude",
   "/inadimplentes", "/mapa-calor", "/localizacao", "/creditos", "/nfse", "/importacao",
   "/importacao-equipamentos", "/equipamentos", "/administracao", "/painel-provedor",
   "/benchmark-regional",
