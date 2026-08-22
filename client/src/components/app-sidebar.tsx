@@ -329,7 +329,7 @@ export function AppSidebar() {
         // O handoff Sidebar.md listava /meus-dados — rota do prototipo — e seguir
         // aquilo ao pe da letra repontou o item para a pagina de LGPD do titular,
         // deixando a de territorio orfa no menu. Nome e destino corrigidos aqui.
-        { label: "Localização",   url: "/benchmark-regional", Icone: MapPin,   testId: "link-localizacao" },
+        { label: "Localização",   url: "/localizacao", Icone: MapPin,   testId: "link-localizacao" },
       ],
     },
     {

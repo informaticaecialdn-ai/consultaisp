@@ -25,6 +25,7 @@ const AntiFraudePage = lazy(() => import("@/pages/consulta/anti-fraude"));
 // Operacional
 const InadimplentesPage = lazy(() => import("@/pages/operacional/inadimplentes"));
 const MapaCalorPage = lazy(() => import("@/pages/operacional/mapa-calor"));
+const LocalizacaoPage = lazy(() => import("@/pages/operacional/localizacao"));
 const ImportacaoPage = lazy(() => import("@/pages/operacional/importacao"));
 const ImportacaoEquipamentosPage = lazy(() => import("@/pages/operacional/importacao-equipamentos"));
 
@@ -75,6 +76,7 @@ function Router() {
         <Route path="/anti-fraude" component={AntiFraudePage} />
         <Route path="/inadimplentes" component={InadimplentesPage} />
         <Route path="/mapa-calor" component={MapaCalorPage} />
+        <Route path="/localizacao" component={LocalizacaoPage} />
         <Route path="/creditos" component={CreditosPage} />
         <Route path="/nfse" component={NfsePage} />
         <Route path="/importacao" component={ImportacaoPage} />
@@ -98,7 +100,7 @@ function Router() {
 
 const PROVIDER_ONLY_PATHS = [
   "/", "/consulta-isp", "/consulta-spc", "/anti-fraude",
-  "/inadimplentes", "/mapa-calor", "/creditos", "/nfse", "/importacao",
+  "/inadimplentes", "/mapa-calor", "/localizacao", "/creditos", "/nfse", "/importacao",
   "/importacao-equipamentos", "/administracao", "/painel-provedor",
   "/benchmark-regional",
 ];
