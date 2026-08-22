@@ -22,16 +22,19 @@ export function registerCreditsRoutes(): Router {
     try {
       if (!req.session.providerId) return res.status(403).json({ message: "Somente provedores" });
       const { packageId, billingType } = req.body;
-      const { ISP_CREDIT_PACKAGES, SPC_CREDIT_PACKAGES } = await import("@shared/schema");
+      const { ISP_CREDIT_PACKAGES, SPC_CREDIT_PACKAGES, BIGDATA_CREDIT_PACKAGES } =
+        await import("@shared/schema");
 
       const ispPkg = ISP_CREDIT_PACKAGES.find(p => p.id === packageId);
       const spcPkg = SPC_CREDIT_PACKAGES.find(p => p.id === packageId);
-      const pkg = ispPkg || spcPkg;
+      const bigPkg = BIGDATA_CREDIT_PACKAGES.find(p => p.id === packageId);
+      const pkg = ispPkg || spcPkg || bigPkg;
       if (!pkg) return res.status(400).json({ message: "Pacote invalido" });
 
-      const creditType = ispPkg ? "isp" : "spc";
+      const creditType = ispPkg ? "isp" : spcPkg ? "spc" : "bigdata";
       const ispCredits = ispPkg ? pkg.credits : 0;
       const spcCredits = spcPkg ? pkg.credits : 0;
+      const bigdataCredits = bigPkg ? pkg.credits : 0;
 
       const provider = await storage.getProvider(req.session.providerId);
       if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
@@ -40,7 +43,7 @@ export function registerCreditsRoutes(): Router {
       const orderNumber = await storage.getNextOrderNumber();
       const order = await storage.createCreditOrder({
         orderNumber, providerId: provider.id, providerName: provider.name,
-        packageName: pkg.name, ispCredits, spcCredits,
+        packageName: pkg.name, ispCredits, spcCredits, bigdataCredits,
         amount: (pkg.price / 100).toFixed(2), status: "pending",
         creditType,
         createdById: req.session.userId!, createdByName: me?.name || "Provedor",

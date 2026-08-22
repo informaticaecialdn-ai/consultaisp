@@ -174,12 +174,13 @@ export class FinancialStorage {
     const order = await this.getCreditOrder(id);
     if (!order) throw new Error("Pedido nao encontrado");
     if (order.status === "paid") throw new Error("Creditos ja foram liberados para este pedido");
-    await db.execute(sql`UPDATE providers SET isp_credits = isp_credits + ${order.ispCredits}, spc_credits = spc_credits + ${order.spcCredits} WHERE id = ${order.providerId}`);
+    await db.execute(sql`UPDATE providers SET isp_credits = isp_credits + ${order.ispCredits}, spc_credits = spc_credits + ${order.spcCredits}, bigdata_credits = bigdata_credits + ${order.bigdataCredits ?? 0} WHERE id = ${order.providerId}`);
     const [updated] = await db.update(creditOrders).set({ status: "paid", creditedAt: new Date() }).where(eq(creditOrders.id, id)).returning();
     await db.insert(planChanges).values({
       providerId: order.providerId,
       ispCreditsAdded: order.ispCredits,
       spcCreditsAdded: order.spcCredits,
+      bigdataCreditsAdded: order.bigdataCredits ?? 0,
       notes: `Creditos liberados via pedido ${order.orderNumber} (${order.packageName})`,
     });
 

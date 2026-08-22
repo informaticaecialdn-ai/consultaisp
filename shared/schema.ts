@@ -338,6 +338,7 @@ export const creditOrders = pgTable("credit_orders", {
   packageName: text("package_name").notNull(),
   ispCredits: integer("isp_credits").notNull().default(0),
   spcCredits: integer("spc_credits").notNull().default(0),
+  bigdataCredits: integer("bigdata_credits").notNull().default(0),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   status: text("status").notNull().default("pending"),
   paymentMethod: text("payment_method"),
@@ -451,7 +452,27 @@ export const SPC_CREDIT_PACKAGES = [
   { id: "spc-100",  name: "100 Consultas SPC",  credits: 100,  price: 34990, priceLabel: "R$ 349,90", perUnit: "R$ 3,50/consulta" },
 ];
 
-export const CREDIT_PACKAGES = [...ISP_CREDIT_PACKAGES.map(p => ({ ...p, creditType: "isp" as const })), ...SPC_CREDIT_PACKAGES.map(p => ({ ...p, creditType: "spc" as const }))];
+/**
+ * Consulta Cadastral (BigDataCorp). Custo medido na API de precos da conta em
+ * 2026-08-22: R$ 0,77 por consulta com o combo completo de 14 datasets mais o
+ * risco de area. A R$ 1,00 a margem e de R$ 0,23 — e a BigData ainda da 500
+ * consultas gratis por mes, que no comeco cobrem o custo inteiro.
+ *
+ * Ao mexer no combo em server/services/bigdata.service.ts, revise estes precos:
+ * cada dataset e cobrado a parte, entao tirar um economiza de verdade.
+ */
+export const BIGDATA_CREDIT_PACKAGES = [
+  { id: "bigdata-50",  name: "50 Consultas Cadastrais",  credits: 50,  price: 4990,  priceLabel: "R$ 49,90",  perUnit: "R$ 1,00/consulta" },
+  { id: "bigdata-100", name: "100 Consultas Cadastrais", credits: 100, price: 8990,  priceLabel: "R$ 89,90",  perUnit: "R$ 0,90/consulta", popular: true },
+  { id: "bigdata-250", name: "250 Consultas Cadastrais", credits: 250, price: 19990, priceLabel: "R$ 199,90", perUnit: "R$ 0,80/consulta" },
+  { id: "bigdata-500", name: "500 Consultas Cadastrais", credits: 500, price: 34990, priceLabel: "R$ 349,90", perUnit: "R$ 0,70/consulta" },
+];
+
+export const CREDIT_PACKAGES = [
+  ...ISP_CREDIT_PACKAGES.map(p => ({ ...p, creditType: "isp" as const })),
+  ...SPC_CREDIT_PACKAGES.map(p => ({ ...p, creditType: "spc" as const })),
+  ...BIGDATA_CREDIT_PACKAGES.map(p => ({ ...p, creditType: "bigdata" as const })),
+];
 
 export const PLAN_PRICES: Record<string, number> = {
   free: 0,
