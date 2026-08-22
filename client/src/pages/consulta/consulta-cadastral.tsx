@@ -223,7 +223,6 @@ function Configuracao({ integracao }: { integracao?: Integracao }) {
 export default function ConsultaCadastralPage() {
   const { toast } = useToast();
   const [cpf, setCpf] = useState("");
-  const [valorPlano, setValorPlano] = useState("");
   const [lgpd, setLgpd] = useState(false);
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [verConfig, setVerConfig] = useState(false);
@@ -237,7 +236,6 @@ export default function ConsultaCadastralPage() {
       const r = await apiRequest("POST", "/api/bigdata-consultations", {
         cpfCnpj: soDigitos(cpf),
         lgpdAccepted: lgpd,
-        valorPlano: valorPlano ? Number(valorPlano.replace(",", ".")) : undefined,
       });
       return r.json();
     },
@@ -288,18 +286,7 @@ export default function ConsultaCadastralPage() {
                   placeholder="000.000.000-00" className="font-mono tabular-nums"
                   data-testid="campo-cpf" />
               </div>
-              <div className="w-[150px]">
-                <Label htmlFor="plano">Mensalidade (R$)</Label>
-                <Input id="plano" value={valorPlano} inputMode="decimal"
-                  onChange={e => setValorPlano(e.target.value)} placeholder="120"
-                  className="font-mono tabular-nums" data-testid="campo-plano" />
-              </div>
             </div>
-            {/* Sem mensalidade a renda não é avaliada — dizer isso evita o operador
-                achar que o sistema ignorou o dado. */}
-            <p className="text-[12px] text-[var(--text-faint)]">
-              A mensalidade é opcional. Sem ela, a renda estimada não é comparada.
-            </p>
             <label className="flex items-start gap-2 text-[13px] text-[var(--text-2)] cursor-pointer">
               <input type="checkbox" checked={lgpd} onChange={e => setLgpd(e.target.checked)}
                 className="mt-0.5" data-testid="campo-lgpd" />

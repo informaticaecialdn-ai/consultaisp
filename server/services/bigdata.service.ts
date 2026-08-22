@@ -241,9 +241,11 @@ function normalizarRenda(fin: any): RendaDetalhada {
 async function consultarRiscoArea(
   headers: Record<string, string>, enderecos: EnderecoDetalhado[],
 ): Promise<RiscoArea[]> {
-  // So os tres primeiros: cada coordenada e uma chamada, e o operador decide
-  // pelo endereco de instalacao, que esta no topo da lista.
-  const comCoord = enderecos.filter(e => e.lat != null && e.lon != null).slice(0, 3);
+  // So o principal. Cada coordenada custa R$ 0,07 (medido na API de precos da
+  // conta), entao tres enderecos triplicariam esse pedaco da consulta. O
+  // principal e o mais provavel de ser o de instalacao; subir para 2 ou 3 e
+  // mudar este slice.
+  const comCoord = enderecos.filter(e => e.lat != null && e.lon != null).slice(0, 1);
   const saida: RiscoArea[] = [];
 
   for (const e of comCoord) {
