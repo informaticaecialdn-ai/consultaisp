@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { IdCard, Search, MapPin, Wallet, ShieldCheck, Settings2 } from "lucide-react";
+import { IdCard, Search, MapPin, Wallet, ShieldCheck, Settings2, Phone, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,7 +8,21 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
-type Endereco = { ratificado: boolean; ativo: boolean; ultimaPassagem?: string | null };
+type Endereco = {
+  logradouro: string; numero?: string; complemento?: string; bairro?: string;
+  cidade?: string; uf?: string; cep?: string;
+  ratificado: boolean; ativo: boolean; principal: boolean; naReceita: boolean;
+  ultimaPassagem?: string | null; passagens: number; passagensRuins: number;
+};
+type Telefone = {
+  numero: string; ddd?: string; tipo?: string; operadora?: string;
+  ativo: boolean; principal: boolean; prioridade?: number;
+  naoPerturbe: boolean; ultimaPassagem?: string | null; passagensRuins: number;
+};
+type Identidade = {
+  nome?: string; nascimento?: string; idade?: number; nomeMae?: string;
+  situacaoReceita?: string; dataSituacao?: string;
+};
 
 type Resultado = {
   id: number; cpfCnpj: string;
@@ -16,12 +30,44 @@ type Resultado = {
   motivos: string[];
   latenciaMs: number;
   datasetsComFalha: string[];
+  identidade: Identidade;
+  enderecos: Endereco[];
+  telefones: Telefone[];
+  emails: string[];
+  renda: {
+    faixa?: string; emReais: string | null; patrimonio?: string;
+    fontes: Array<{ fonte: string; faixa: string; emReais: string | null; formal: boolean }>;
+    rendaFormal: { fonte: string; faixa: string; emReais: string | null } | null;
+    declaracoesIR: Array<{ ano: string; status?: string; banco?: string; agencia?: string; segmentoVip: boolean }>;
+    declaraIrRecorrente: boolean; temSegmentoVip: boolean;
+  };
   dados: {
     encontrado: boolean; taxIdStatus?: string; temObito?: boolean;
     nascimentoValidadoNaReceita?: boolean; homonimos?: number;
-    enderecos?: Endereco[]; badAddressPassages?: number; faixaRenda?: string;
+    badAddressPassages?: number; faixaRenda?: string;
   };
 };
+
+const data = (s?: string | null) =>
+  s ? new Date(s).toLocaleDateString("pt-BR") : "—";
+
+const telefoneFmt = (t: Telefone) => {
+  const n = t.numero.replace(/\D/g, "");
+  const corpo = n.length >= 9 ? `${n.slice(0, n.length - 4)}-${n.slice(-4)}` : n;
+  return t.ddd ? `(${t.ddd}) ${corpo}` : corpo;
+};
+
+/** Etiqueta pequena de estado. Retangular, conforme o design system. */
+function Tag({ children, tom = "neutro" }: { children: React.ReactNode; tom?: "ok" | "alerta" | "neutro" }) {
+  const cls = tom === "ok" ? "bg-[var(--ok-bg)] text-[var(--ok)]"
+    : tom === "alerta" ? "bg-[var(--gated-bg)] text-[var(--gated)]"
+    : "bg-[var(--surface-inset)] text-[var(--text-muted)]";
+  return (
+    <span className={`inline-flex items-center text-[10px] font-medium tracking-[0.04em] px-1.5 py-0.5 rounded ${cls}`}>
+      {children}
+    </span>
+  );
+}
 
 type Integracao = {
   configurado: boolean; login: string | null; senhaMascarada: string | null;
@@ -263,33 +309,164 @@ export default function ConsultaCadastralPage() {
               </div>
 
               {d?.encontrado && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                   <Bloco titulo="Identidade" Icone={ShieldCheck}>
-                    <Linha rotulo="Situação na Receita" valor={d.taxIdStatus ?? "—"}
-                      alerta={!!d.taxIdStatus && d.taxIdStatus.toUpperCase() !== "REGULAR"} />
+                    <Linha rotulo="Nome" valor={resultado.identidade.nome ?? "—"} />
+                    <Linha rotulo="Nascimento" valor={
+                      data(resultado.identidade.nascimento) +
+                      (resultado.identidade.idade ? " · " + resultado.identidade.idade + " anos" : "")
+                    } />
+                    <Linha rotulo="Nome da mãe" valor={resultado.identidade.nomeMae ?? "—"} />
+                    <Linha rotulo="Situação na Receita" valor={
+                      (resultado.identidade.situacaoReceita ?? "—") + " · " + data(resultado.identidade.dataSituacao)
+                    } alerta={!!d.taxIdStatus && d.taxIdStatus.toUpperCase() !== "REGULAR"} />
                     <Linha rotulo="Indicação de óbito" valor={d.temObito ? "Sim" : "Não"} alerta={d.temObito} />
                     <Linha rotulo="Nascimento confere" valor={d.nascimentoValidadoNaReceita === false ? "Não" : "Sim"}
                       alerta={d.nascimentoValidadoNaReceita === false} />
                     <Linha rotulo="Homônimos" valor={d.homonimos ?? 0} alerta={(d.homonimos ?? 0) >= 100} />
                   </Bloco>
 
-                  <Bloco titulo="Endereços" Icone={MapPin}>
-                    <Linha rotulo="Encontrados" valor={d.enderecos?.length ?? 0} />
-                    <Linha rotulo="Ratificados nos Correios"
-                      valor={d.enderecos?.filter(e => e.ratificado).length ?? 0}
-                      alerta={!d.enderecos?.some(e => e.ratificado)} />
-                    <Linha rotulo="Ativos" valor={d.enderecos?.filter(e => e.ativo).length ?? 0} />
-                    <Linha rotulo="Passagens suspeitas" valor={d.badAddressPassages ?? 0}
-                      alerta={(d.badAddressPassages ?? 0) > 0} />
-                  </Bloco>
+                  <Bloco titulo="Renda e patrimônio" Icone={Wallet}>
+                    {/* A faixa em salários mínimos não diz nada a quem decide um plano
+                        de R$ 120 — o valor em reais é o que se compara. */}
+                    <p className="font-mono text-[19px] font-medium tracking-[-0.02em] text-[var(--text)] tabular-nums">
+                      {resultado.renda.emReais ?? "sem informação"}
+                    </p>
+                    {resultado.renda.faixa && resultado.renda.emReais && (
+                      <p className="text-[12px] text-[var(--text-muted)]">
+                        Faixa BigDataCorp: {resultado.renda.faixa}
+                      </p>
+                    )}
+                    {/* MTE vem de registro do Ministério do Trabalho: é vínculo formal,
+                        não estimativa. Quando existe, é o número mais confiável. */}
+                    {resultado.renda.rendaFormal && (
+                      <div className="rounded bg-[var(--ok-bg)] px-2.5 py-2 mt-1">
+                        <span className="text-[11px] font-medium text-[var(--ok)]">
+                          {resultado.renda.rendaFormal.fonte}
+                        </span>
+                        <p className="font-mono text-[13px] tabular-nums text-[var(--ok)]">
+                          {resultado.renda.rendaFormal.emReais ?? resultado.renda.rendaFormal.faixa}
+                        </p>
+                      </div>
+                    )}
 
-                  <Bloco titulo="Financeiro" Icone={Wallet}>
-                    <Linha rotulo="Renda estimada" valor={d.faixaRenda ?? "sem informação"} />
-                    <p className="text-[11px] text-[var(--text-faint)] pt-1">
+                    {resultado.renda.fontes.length > 1 && (
+                      <div className="pt-1 space-y-1">
+                        {resultado.renda.fontes.filter(f => !f.formal).map((f, i) => (
+                          <Linha key={i} rotulo={f.fonte} valor={f.emReais ?? f.faixa} />
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="pt-1">
+                      <Linha rotulo="Patrimônio estimado" valor={
+                        resultado.renda.patrimonio && resultado.renda.patrimonio !== "SEM INFORMACAO"
+                          ? resultado.renda.patrimonio : "sem informação"} />
+                      <Linha rotulo="Declarações de IR" valor={
+                        resultado.renda.declaracoesIR.length > 0
+                          ? resultado.renda.declaracoesIR.length + " anos · desde " +
+                            resultado.renda.declaracoesIR[resultado.renda.declaracoesIR.length - 1].ano
+                          : "nenhuma"} />
+                    </div>
+
+                    <div className="flex gap-1.5 flex-wrap pt-1">
+                      {/* Quem some da Receita costuma ser quem some da cobrança. */}
+                      {resultado.renda.declaraIrRecorrente && <Tag tom="ok">declara IR com recorrência</Tag>}
+                      {resultado.renda.temSegmentoVip && <Tag tom="ok">segmento premium no banco</Tag>}
+                      {resultado.renda.declaracoesIR[0]?.banco && (
+                        <Tag>{resultado.renda.declaracoesIR[0].banco}</Tag>
+                      )}
+                    </div>
+
+                    <p className="text-[11px] text-[var(--text-faint)] pt-1 leading-relaxed">
                       Estimativa estatística, não comprovação de renda. Nunca gera recusa —
                       apenas alerta quando não cobre a mensalidade.
                     </p>
                   </Bloco>
+                  </div>
+
+                  <Bloco titulo={"Endereços · " + resultado.enderecos.length} Icone={MapPin}>
+                    {resultado.enderecos.length === 0 ? (
+                      <p className="text-[13px] text-[var(--text-muted)]">
+                        Nenhum endereço vinculado a este CPF.
+                      </p>
+                    ) : (
+                      <ul className="divide-y divide-[var(--border-faint)] -my-1">
+                        {resultado.enderecos.map((e, i) => (
+                          <li key={i} data-testid={"endereco-" + i}
+                            className="py-2.5 flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-[13px] text-[var(--text)]">
+                                {e.logradouro}{e.numero ? ", " + e.numero : ""}
+                                {e.complemento ? " — " + e.complemento : ""}
+                              </p>
+                              <p className="text-[12px] text-[var(--text-muted)]">
+                                {[e.bairro, e.cidade, e.uf].filter(Boolean).join(" · ")}
+                                {e.cep ? " · CEP " + e.cep : ""}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                              {e.principal && <Tag>principal</Tag>}
+                              <Tag tom={e.ratificado ? "ok" : "alerta"}>
+                                {e.ratificado ? "ratificado" : "não ratificado"}
+                              </Tag>
+                              {e.naReceita && <Tag tom="ok">na Receita</Tag>}
+                              {e.passagensRuins > 0 && <Tag tom="alerta">{e.passagensRuins} suspeita(s)</Tag>}
+                              <span className="font-mono text-[11px] text-[var(--text-faint)] tabular-nums">
+                                visto {data(e.ultimaPassagem)}
+                              </span>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </Bloco>
+
+                  <Bloco titulo={"Telefones · " + resultado.telefones.length} Icone={Phone}>
+                    {resultado.telefones.length === 0 ? (
+                      <p className="text-[13px] text-[var(--text-muted)]">
+                        Nenhum telefone vinculado a este CPF.
+                      </p>
+                    ) : (
+                      <ul className="divide-y divide-[var(--border-faint)] -my-1">
+                        {resultado.telefones.map((t, i) => (
+                          <li key={i} data-testid={"telefone-" + i}
+                            className="py-2.5 flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-baseline gap-2 min-w-0">
+                              <span className="font-mono text-[13px] tabular-nums text-[var(--text)]">
+                                {telefoneFmt(t)}
+                              </span>
+                              <span className="text-[12px] text-[var(--text-muted)]">
+                                {[t.tipo === "MOBILE" ? "celular" : t.tipo === "HOME" ? "fixo" : t.tipo?.toLowerCase(),
+                                  t.operadora].filter(Boolean).join(" · ")}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                              {t.principal && <Tag>principal</Tag>}
+                              {t.ativo && <Tag tom="ok">ativo</Tag>}
+                              {/* Ligar para quem está no não-perturbe expõe o provedor. */}
+                              {t.naoPerturbe && <Tag tom="alerta">não perturbe</Tag>}
+                              {t.passagensRuins > 0 && <Tag tom="alerta">{t.passagensRuins} suspeita(s)</Tag>}
+                              <span className="font-mono text-[11px] text-[var(--text-faint)] tabular-nums">
+                                visto {data(t.ultimaPassagem)}
+                              </span>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </Bloco>
+
+                  {resultado.emails.length > 0 && (
+                    <Bloco titulo={"E-mails · " + resultado.emails.length} Icone={Mail}>
+                      <ul className="space-y-1.5">
+                        {resultado.emails.map((e, i) => (
+                          <li key={i} className="font-mono text-[13px] text-[var(--text-2)] break-all">{e}</li>
+                        ))}
+                      </ul>
+                    </Bloco>
+                  )}
                 </div>
               )}
 

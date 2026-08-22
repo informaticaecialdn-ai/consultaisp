@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { decidirVeredito, rendaMinimaMensal, type DadosCadastrais } from "./bigdata-veredito";
+import { decidirVeredito, rendaMinimaMensal, faixaRendaEmReais, type DadosCadastrais } from "./bigdata-veredito";
 
 /** Payload normalizado de um CPF sem nenhum sinal ruim. */
 const bom = (o: Partial<DadosCadastrais> = {}): DadosCadastrais => ({
@@ -160,5 +160,25 @@ describe("decidirVeredito — payload incompleto", () => {
       const v = decidirVeredito(c);
       expect(v.motivos.length, `veredito ${v.veredito} sem motivo`).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("faixaRendaEmReais", () => {
+  it("traduz intervalo para reais por mes", () => {
+    expect(faixaRendaEmReais("3 A 5 SM")).toMatch(/R\$ 4\.554.*R\$ 7\.590.*mês/);
+  });
+
+  it("traduz o teto aberto", () => {
+    expect(faixaRendaEmReais("ACIMA DE 20 SM")).toMatch(/acima de R\$ 30\.360/);
+  });
+
+  it("traduz o piso aberto", () => {
+    expect(faixaRendaEmReais("ATE 2 SM")).toMatch(/até R\$ 3\.036/);
+  });
+
+  it("devolve null quando nao ha informacao", () => {
+    expect(faixaRendaEmReais("SEM INFORMACAO")).toBeNull();
+    expect(faixaRendaEmReais(undefined)).toBeNull();
+    expect(faixaRendaEmReais("QUALQUER COISA")).toBeNull();
   });
 });

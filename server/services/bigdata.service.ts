@@ -15,12 +15,32 @@
 
 import { logger } from "../logger";
 import { CircuitBreaker, withResilience } from "../erp/resilience";
-import type { DadosCadastrais, EnderecoCadastral } from "./bigdata-veredito";
+import { faixaRendaEmReais, type DadosCadastrais, type EnderecoCadastral } from "./bigdata-veredito";
+
+/** Endereco completo para exibir — o operador precisa ver, nao so contar. */
+export interface EnderecoDetalhado {
+  logradouro: string; numero?: string; complemento?: string;
+  bairro?: string; cidade?: string; uf?: string; cep?: string;
+  ratificado: boolean; ativo: boolean; principal: boolean;
+  naReceita: boolean;
+  ultimaPassagem?: string | null; passagens: number; passagensRuins: number;
+  lat?: number; lon?: number;
+}
+
+export interface TelefoneDetalhado {
+  numero: string; ddd?: string; tipo?: string; operadora?: string;
+  ativo: boolean; principal: boolean; prioridade?: number;
+  naoPerturbe: boolean;
+  ultimaPassagem?: string | null; passagensRuins: number;
+}
 
 const BASE_URL = process.env.BIGDATA_BASE_URL || "https://plataforma.bigdatacorp.com.br";
 
 /** Os tres datasets cabem numa requisicao — medido em 516ms para CPF existente. */
-export const DATASETS = ["basic_data", "addresses_extended", "financial_data"] as const;
+export const DATASETS = [
+  "basic_data", "addresses_extended", "phones_extended",
+  "emails_extended", "financial_data",
+] as const;
 
 /** Circuito por provedor: a credencial de um nao deve derrubar a consulta de outro. */
 const circuitos = new Map<number, CircuitBreaker>();
@@ -92,15 +112,97 @@ export async function testarCredencial(
 
 // ── Normalizacao ─────────────────────────────────────────────────────────────
 
-function normalizarEnderecos(bloco: any): { enderecos: EnderecoCadastral[]; bad: number } {
+/** Mais recente primeiro, principal na frente: e a ordem que o operador le. */
+function ordenarPorRelevancia<T extends { principal: boolean; ultimaPassagem?: string | null }>(l: T[]): T[] {
+  return [...l].sort((a, b) => {
+    if (a.principal !== b.principal) return a.principal ? -1 : 1;
+    return String(b.ultimaPassagem ?? "").localeCompare(String(a.ultimaPassagem ?? ""));
+  });
+}
+
+function normalizarEnderecos(bloco: any): EnderecoDetalhado[] {
   const lista: any[] = Array.isArray(bloco?.Addresses) ? bloco.Addresses : [];
+  return ordenarPorRelevancia(lista.map(a => ({
+    logradouro: [a?.Typology, a?.AddressMain].filter(Boolean).join(" ").trim() || "Sem logradouro",
+    numero: a?.Number || undefined,
+    complemento: a?.Complement || undefined,
+    bairro: a?.Neighborhood || undefined,
+    cidade: a?.City || undefined,
+    uf: a?.State || undefined,
+    cep: a?.ZipCode || undefined,
+    ratificado: !!a?.IsRatified,
+    ativo: !!a?.IsActive,
+    principal: !!a?.IsMainForEntity,
+    naReceita: !!a?.AddressCurrentlyInRFSite,
+    ultimaPassagem: a?.EntityLastPassageDate ?? null,
+    passagens: Number(a?.AddressEntityTotalPassages ?? 0) || 0,
+    passagensRuins: Number(a?.AddressEntityBadPassages ?? 0) || 0,
+    lat: typeof a?.Latitude === "number" ? a.Latitude : undefined,
+    lon: typeof a?.Longitude === "number" ? a.Longitude : undefined,
+  })));
+}
+
+function normalizarTelefones(bloco: any): TelefoneDetalhado[] {
+  const lista: any[] = Array.isArray(bloco?.Phones) ? bloco.Phones : [];
+  return ordenarPorRelevancia(lista.map(t => ({
+    numero: String(t?.Number ?? ""),
+    ddd: t?.AreaCode || undefined,
+    tipo: t?.Type || undefined,
+    operadora: t?.CurrentCarrier || undefined,
+    ativo: !!t?.IsActive,
+    principal: !!t?.IsMainForEntity,
+    prioridade: Number(t?.Priority ?? 0) || undefined,
+    naoPerturbe: !!t?.IsInDoNotCallList,
+    ultimaPassagem: t?.EntityLastPassageDate ?? null,
+    passagensRuins: Number(t?.PhoneEntityBadPassages ?? 0) || 0,
+  })));
+}
+
+/** Rotulo legivel de cada fonte de renda, e se ela vem de registro formal. */
+const FONTES_RENDA: Record<string, { rotulo: string; formal: boolean }> = {
+  MTE: { rotulo: "Vínculo formal (MTE)", formal: true },
+  "COMPANY OWNERSHIP": { rotulo: "Participação societária", formal: true },
+  BIGDATA_V2: { rotulo: "Estimativa BigData v2", formal: false },
+  BIGDATA: { rotulo: "Estimativa BigData", formal: false },
+  IBGE: { rotulo: "Média IBGE da região", formal: false },
+};
+
+function normalizarRenda(fin: any): RendaDetalhada {
+  const est = fin?.IncomeEstimates ?? {};
+  const fontes: FonteRenda[] = Object.entries(est)
+    .filter(([, v]) => v && String(v).toUpperCase() !== "SEM INFORMACAO")
+    .map(([k, v]) => ({
+      fonte: FONTES_RENDA[k]?.rotulo ?? k,
+      faixa: String(v),
+      emReais: faixaRendaEmReais(String(v)),
+      formal: FONTES_RENDA[k]?.formal ?? false,
+    }));
+
+  const rendaFormal = fontes.find(f => f.formal) ?? null;
+
+  const declaracoesIR: DeclaracaoIR[] = (Array.isArray(fin?.TaxReturns) ? fin.TaxReturns : [])
+    .map((t: any) => ({
+      ano: String(t?.Year ?? ""),
+      status: t?.Status || undefined,
+      banco: t?.Bank || undefined,
+      agencia: t?.Branch || undefined,
+      segmentoVip: !!t?.IsVipBranch,
+    }))
+    .filter((t: DeclaracaoIR) => t.ano)
+    .sort((a: DeclaracaoIR, b: DeclaracaoIR) => b.ano.localeCompare(a.ano));
+
   return {
-    enderecos: lista.map(a => ({
-      ratificado: !!a?.IsRatified,
-      ativo: !!a?.IsActive,
-      ultimaPassagem: a?.EntityLastPassageDate ?? null,
-    })),
-    bad: Number(bloco?.TotalBadAddressPassages ?? 0) || 0,
+    // A faixa que decide continua sendo a BIGDATA_V2: e a que cobre mais gente.
+    faixa: est.BIGDATA_V2 ?? est.BIGDATA,
+    emReais: faixaRendaEmReais(est.BIGDATA_V2 ?? est.BIGDATA),
+    patrimonio: fin?.TotalAssets,
+    fontes,
+    rendaFormal,
+    // Tres anos ou mais de declaracao indica renda estavel e rastreavel — quem
+    // some da Receita costuma ser quem some da cobranca.
+    declaraIrRecorrente: declaracoesIR.length >= 3,
+    temSegmentoVip: declaracoesIR.some(d => d.segmentoVip),
+    declaracoesIR,
   };
 }
 
@@ -115,8 +217,43 @@ function cpfNaoEncontrado(status: any, basic: any): boolean {
   return code !== 0 && !temNome;
 }
 
+/**
+ * As cinco fontes de renda nao valem o mesmo.
+ * MTE vem de registro do Ministerio do Trabalho — e vinculo formal, nao
+ * estimativa estatistica. Quando existe, e o numero mais confiavel dos cinco.
+ */
+export interface FonteRenda { fonte: string; faixa: string; emReais: string | null; formal: boolean }
+
+export interface DeclaracaoIR {
+  ano: string; status?: string; banco?: string; agencia?: string; segmentoVip: boolean;
+}
+
+export interface RendaDetalhada {
+  faixa?: string;
+  emReais: string | null;
+  patrimonio?: string;
+  fontes: FonteRenda[];
+  /** Renda de vinculo formal (MTE), quando existir. */
+  rendaFormal: FonteRenda | null;
+  declaracoesIR: DeclaracaoIR[];
+  /** Declara IR de forma recorrente — sinal de renda estavel e rastreavel. */
+  declaraIrRecorrente: boolean;
+  temSegmentoVip: boolean;
+}
+
+export interface Identidade {
+  nome?: string; nascimento?: string; idade?: number;
+  nomeMae?: string; nomePai?: string; genero?: string;
+  situacaoReceita?: string; dataSituacao?: string;
+}
+
 export interface ResultadoConsulta {
   dados: DadosCadastrais;
+  identidade: Identidade;
+  enderecos: EnderecoDetalhado[];
+  telefones: TelefoneDetalhado[];
+  emails: string[];
+  renda: RendaDetalhada;
   /** Payload cru da BigData, para gravar e auditar. */
   bruto: any;
   datasetsChamados: string[];
@@ -157,27 +294,43 @@ export async function consultarCpf(
   const R = d?.Result?.[0] ?? {};
   const basic = R.BasicData ?? {};
   const fin = R.FinantialData ?? {};
-  const { enderecos, bad } = normalizarEnderecos(R.ExtendedAddresses);
+  const enderecos = normalizarEnderecos(R.ExtendedAddresses);
+  const telefones = normalizarTelefones(R.ExtendedPhones);
+  const emails: string[] = (Array.isArray(R.ExtendedEmails?.Emails) ? R.ExtendedEmails.Emails : [])
+    .map((e: any) => e?.EmailAddress).filter(Boolean);
 
   const datasetsComFalha = Object.entries(d?.Status ?? {})
     .filter(([, arr]: any) => arr?.[0]?.Code !== 0)
     .map(([nome]) => nome);
 
   const encontrado = !cpfNaoEncontrado(d?.Status, basic);
+  const faixa = fin?.IncomeEstimates?.BIGDATA_V2 ?? fin?.IncomeEstimates?.BIGDATA;
 
+  // O veredito le a forma reduzida; a tela le a completa. Manter as duas
+  // separadas evita que mudar a tela mexa sem querer na regra de decisao.
   const dados: DadosCadastrais = {
     encontrado,
     taxIdStatus: basic.TaxIdStatus,
     temObito: !!basic.HasObitIndication,
     nascimentoValidadoNaReceita: basic.IsValidBirthDateInRFSource,
     homonimos: Number(basic.NumberOfFullNameNamesakes ?? 0) || 0,
-    enderecos,
-    badAddressPassages: bad,
-    faixaRenda: fin?.IncomeEstimates?.BIGDATA_V2 ?? fin?.IncomeEstimates?.BIGDATA,
+    enderecos: enderecos.map<EnderecoCadastral>(e => ({
+      ratificado: e.ratificado, ativo: e.ativo, ultimaPassagem: e.ultimaPassagem,
+    })),
+    badAddressPassages: Number(R.ExtendedAddresses?.TotalBadAddressPassages ?? 0) || 0,
+    faixaRenda: faixa,
   };
 
   return {
-    dados, bruto: d,
+    dados,
+    identidade: {
+      nome: basic.Name, nascimento: basic.BirthDate, idade: basic.Age,
+      nomeMae: basic.MotherName, nomePai: basic.FatherName, genero: basic.Gender,
+      situacaoReceita: basic.TaxIdStatus, dataSituacao: basic.TaxIdStatusDate,
+    },
+    enderecos, telefones, emails,
+    renda: normalizarRenda(fin),
+    bruto: d,
     datasetsChamados: [...DATASETS],
     datasetsComFalha,
     latenciaMs: Date.now() - t0,

@@ -77,6 +77,34 @@ export function rendaMinimaMensal(faixa?: string | null): number | null {
   return null;
 }
 
+/**
+ * Traduz a faixa de salarios minimos para reais.
+ * "ACIMA DE 20 SM" nao diz nada a quem esta no balcao decidindo se aprova um
+ * plano de R$ 120 — precisa virar dinheiro.
+ */
+export function faixaRendaEmReais(faixa?: string | null): string | null {
+  if (!faixa) return null;
+  const f = faixa.trim().toUpperCase();
+  if (f === "SEM INFORMACAO") return null;
+
+  const brl = (v: number) =>
+    `R$ ${Math.round(v).toLocaleString("pt-BR")}`;
+
+  const acima = f.match(/^ACIMA DE\s+([\d.,]+)\s*SM$/);
+  if (acima) return `acima de ${brl(parseFloat(acima[1].replace(",", ".")) * SALARIO_MINIMO)}/mês`;
+
+  const ate = f.match(/^ATE\s+([\d.,]+)\s*SM$/);
+  if (ate) return `até ${brl(parseFloat(ate[1].replace(",", ".")) * SALARIO_MINIMO)}/mês`;
+
+  const intervalo = f.match(/^([\d.,]+)\s*A\s*([\d.,]+)\s*SM$/);
+  if (intervalo) {
+    const de = parseFloat(intervalo[1].replace(",", ".")) * SALARIO_MINIMO;
+    const ate2 = parseFloat(intervalo[2].replace(",", ".")) * SALARIO_MINIMO;
+    return `${brl(de)} a ${brl(ate2)}/mês`;
+  }
+  return null;
+}
+
 export function decidirVeredito(
   d: DadosCadastrais,
   opcoes: OpcoesVeredito = {},
