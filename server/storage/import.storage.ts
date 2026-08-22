@@ -5,10 +5,16 @@ import {
   type InsertCustomer, type InsertContract, type InsertInvoice, type InsertEquipment,
 } from "@shared/schema";
 
+import { EquipmentStorage } from "./equipment.storage";
+import { CustomersStorage } from "./customers.storage";
+
 type ValidationError = { row: number; message: string };
 type ImportResult = { imported: number; errors: ValidationError[] };
 
 export class ImportStorage {
+  private _equipment = new EquipmentStorage();
+  private _customers = new CustomersStorage();
+
   async bulkImportCustomers(
     rows: Record<string, string>[],
     providerId: number,
@@ -181,7 +187,9 @@ export class ImportStorage {
     }
 
     // ── Phase 2: Atomic transaction — any DB error rolls back everything ──
-    return db.transaction(async (tx) => {
+    const clientesAfetados = new Set<number>();
+
+    const resultado = await db.transaction(async (tx) => {
       let imported = 0;
 
       for (const { tipo, cpfCnpj, raw: r } of validRows) {
@@ -198,6 +206,7 @@ export class ImportStorage {
             } as InsertCustomer).returning();
             customerId = created.id;
           }
+          if (customerId) clientesAfetados.add(customerId);
         }
 
         const valorStr = (r.valor || r.value || "").replace(",", ".");
@@ -217,5 +226,22 @@ export class ImportStorage {
       }
       return { imported, errors: [] };
     });
+
+    // A consulta em rede le o agregado em customers, nao a tabela de equipamento.
+    // Sem este recalculo, equipamento importado por planilha nao apareceria la.
+    // Fora da transacao de proposito: segurar o lock durante o recalculo
+    // bloquearia a tabela por toda a duracao de uma planilha grande.
+    if (clientesAfetados.size > 0) {
+      const ids = Array.from(clientesAfetados);
+      const agregado = await this._equipment.contarEquipamentoRetido(ids);
+      for (const id of ids) {
+        const a = agregado.get(id);
+        await this._customers.updateCustomerEquipmentAggregate(
+          id, a?.count ?? 0, String(a?.value ?? 0),
+        );
+      }
+    }
+
+    return resultado;
   }
 }
