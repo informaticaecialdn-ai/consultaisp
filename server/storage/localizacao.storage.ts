@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { customers } from "@shared/schema";
-import { resolverAreaAtendida, type OrigemArea } from "../services/area-atendida";
+import { resolverAreaAtendida, normalizarCidade, type OrigemArea } from "../services/area-atendida";
 import { estadoDoPonto, type EstadoPonto } from "../services/estado-ponto";
 
 export interface LocalizacaoPonto {
@@ -37,12 +37,12 @@ export class LocalizacaoStorage {
       .where(eq(customers.providerId, providerId));
 
     const cidadesAlvo = area.cidades
-      ? new Set(area.cidades.map(c => c.trim().toLowerCase()))
+      ? new Set(area.cidades.map(normalizarCidade))
       : null;
     const ufAlvo = area.uf ? area.uf.toUpperCase() : null;
 
     const naArea = todos.filter(c => {
-      if (cidadesAlvo) return cidadesAlvo.has((c.city || "").trim().toLowerCase());
+      if (cidadesAlvo) return cidadesAlvo.has(normalizarCidade(c.city));
       if (ufAlvo) return (c.state || "").toUpperCase() === ufAlvo;
       return true;
     });
