@@ -30,35 +30,54 @@ export type CidadeMapa = {
 
 export type ModoMapa = 'carteira' | 'regionalizacao';
 
-/** Escala de inadimplencia da cidade — mesma leitura semantica dos pontos. */
+/** Escala de inadimplencia da cidade — mesma leitura semantica dos pontos.
+ *  Quebras em 10% e 25%: para ISP regional, inadimplencia de um digito e
+ *  saudavel e 25% ja e sangria. As quebras anteriores (20/40) vinham de nenhum
+ *  lugar e pintavam qualquer cidade real de vermelho. */
 function corDaTaxa(pct: number): string {
-  const token = pct >= 40 ? '--danger' : pct >= 20 ? '--gated' : '--ok';
+  const token = pct >= 25 ? '--danger' : pct >= 10 ? '--gated' : '--ok';
   const v = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
   return v || '#6B6878';
 }
 
+export type SedeMapa = { cidade: string; uf: string | null; lat: number; lon: number };
+
 export default function MapaCarteira({
-  pontos, cidades = [], modo = 'carteira', rede, height = 520,
+  pontos, cidades = [], sede, modo = 'carteira', rede, height,
 }: {
   pontos: PontoMapa[];
   cidades?: CidadeMapa[];
+  sede?: SedeMapa | null;
   modo?: ModoMapa;
   rede?: PontoRede[];
+  /** Altura fixa em px. Sem ela, a altura acompanha a largura (ver abaixo). */
   height?: number;
 }) {
   const div = useRef<HTMLDivElement>(null);
   const mapa = useRef<L.Map | null>(null);
   const camada = useRef<L.LayerGroup | null>(null);
   const camadaRede = useRef<L.LayerGroup | null>(null);
+  const ultimoBounds = useRef<L.LatLngBounds | null>(null);
+  const reenquadrar = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!div.current || mapa.current) return;
-    mapa.current = L.map(div.current, { zoomControl: true }).setView([-23.31, -50.16], 9);
+    // zoomSnap padrao e 1: o fitBounds so pode parar em zoom inteiro, e cada
+    // passo dobra a escala, entao sobra ate 40% de folga e a carteira fica
+    // pequena no meio do mapa. Com 0.1 o quadro encosta na regiao.
+    mapa.current = L.map(div.current, { zoomControl: true, zoomSnap: 0.1 })
+      .setView([-23.31, -50.16], 9);
     L.tileLayer("/api/tiles/{z}/{x}/{y}.png", {
       attribution: '&copy; OpenStreetMap contributors', maxZoom: 18,
     }).addTo(mapa.current);
     camada.current = L.layerGroup().addTo(mapa.current);
-    return () => { mapa.current?.remove(); mapa.current = null; };
+
+    // Com altura amarrada a largura, redimensionar a janela muda o quadro. Sem
+    // avisar o Leaflet, ele segue com o tamanho antigo e o mapa fica cortado.
+    const ro = new ResizeObserver(() => reenquadrar.current?.());
+    ro.observe(div.current);
+
+    return () => { ro.disconnect(); mapa.current?.remove(); mapa.current = null; };
   }, []);
 
   useEffect(() => {
@@ -107,12 +126,61 @@ export default function MapaCarteira({
       }
     }
 
-    // Enquadra pelo que esta plotado: cidades-brasil.json nao tem coordenada.
-    const bounds = L.latLngBounds(
-      plotaveis.map(p => [p.lat as number, ('lon' in p ? p.lon : 0) as number] as [number, number]),
+    // Sede: losango vazado, forma distinta dos circulos da carteira — ela nao e
+    // um cliente e nao pode ser lida como um.
+    if (sede) {
+      L.marker([sede.lat, sede.lon], {
+        icon: L.divIcon({
+          className: "",
+          iconSize: [18, 18],
+          iconAnchor: [9, 9],
+          html:
+            `<div style="width:14px;height:14px;transform:rotate(45deg);` +
+            `background:var(--surface);border:2.5px solid var(--brand);` +
+            `box-shadow:0 0 0 2px var(--surface)"></div>`,
+        }),
+        // Acima dos pontos: e a referencia, nao pode ficar soterrada.
+        zIndexOffset: 1000,
+      })
+        .bindPopup(`<b>Sede</b><br>${sede.cidade}${sede.uf ? ` · ${sede.uf}` : ""}`)
+        .bindTooltip(`Sede · ${sede.cidade}`, { direction: "top", offset: [0, -10] })
+        .addTo(camada.current!);
+    }
+
+    // No modo carteira o quadro fecha nos clientes: a sede fica fora da area
+    // atendida e puxaria o mapa para longe de quem paga. Na regionalizacao ela
+    // entra, porque ali a pergunta e "onde eu atuo" e a matriz faz parte disso.
+    const coords: Array<[number, number]> = plotaveis.map(
+      p => [p.lat as number, ('lon' in p ? p.lon : 0) as number],
     );
-    mapa.current.fitBounds(bounds, { padding: [32, 32], maxZoom: 14 });
-  }, [pontos, cidades, modo]);
+    if (sede && modo === 'regionalizacao') coords.push([sede.lat, sede.lon]);
+    ultimoBounds.current = L.latLngBounds(coords);
+
+    // O dado chega antes de a altura por proporcao se resolver, entao o Leaflet
+    // enquadrava para um container menor e ficava com zoom baixo demais — a
+    // carteira parecia um punhado de pontos num mapa vazio. invalidateSize
+    // atualiza o tamanho antes de medir, e o rAF repete depois do layout final.
+    const enquadrar = () => {
+      if (!mapa.current || !ultimoBounds.current) return;
+      mapa.current.invalidateSize({ animate: false });
+      // setView em vez de fitBounds: o fitBounds soma o padding dos dois lados
+      // antes de medir e ainda arredonda por dentro, e sobrava ~40% de folga —
+      // a carteira ficava pequena no meio de um mapa vazio. Calculando o zoom
+      // aqui, o padding e exatamente o que esta escrito. Medido: a carteira
+      // passou a ocupar 76% da largura e 95% da altura do quadro.
+      const zoom = mapa.current.getBoundsZoom(ultimoBounds.current, false, L.point(24, 24));
+      mapa.current.setView(
+        ultimoBounds.current.getCenter(),
+        Math.min(zoom, 14),
+        { animate: false },
+      );
+    };
+    reenquadrar.current = enquadrar;
+    enquadrar();
+    // O dado chega antes de a altura por proporcao se resolver; a segunda
+    // passada pega o layout ja assentado.
+    requestAnimationFrame(enquadrar);
+  }, [pontos, cidades, modo, sede]);
 
   // Camada separada: liga e desliga sem redesenhar os pontos da carteira.
   useEffect(() => {
@@ -132,10 +200,17 @@ export default function MapaCarteira({
     ).addTo(mapa.current);
   }, [rede]);
 
+  // Altura fixa deixava o mapa em faixa larga no monitor grande: fitBounds
+  // preenche a altura e sobra vazio nas laterais, dando a impressao de que a
+  // carteira e um punhado de pontos perdidos. Amarrando altura a largura, a
+  // proporcao do quadro fica perto da proporcao da regiao e a area atendida
+  // ocupa o mapa. Os limites evitam faixa fina no celular e mapa gigante no 4K.
   return (
     <div
       ref={div}
-      style={{ height }}
+      style={height
+        ? { height }
+        : { aspectRatio: "3 / 2", minHeight: 420, maxHeight: 680 }}
       className="w-full rounded-lg overflow-hidden"
       data-testid="mapa-carteira"
     />

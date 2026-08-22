@@ -1,9 +1,10 @@
 import { eq } from "drizzle-orm";
 import { db } from "../db";
-import { customers } from "@shared/schema";
+import { customers, providers } from "@shared/schema";
 import { resolverAreaAtendida, normalizarCidade, type OrigemArea } from "../services/area-atendida";
 import { estadoDoPonto, type EstadoPonto } from "../services/estado-ponto";
 import { separarCoordenadasSuspeitas, centroMediano } from "../services/coordenada-suspeita";
+import { geocodeAddress } from "../services/geocoding";
 
 export interface LocalizacaoPonto {
   id: number; lat: number; lon: number;
@@ -27,8 +28,19 @@ export interface LocalizacaoCidade {
   lon: number | null;
 }
 
+export interface LocalizacaoSede {
+  cidade: string;
+  uf: string | null;
+  lat: number | null;
+  lon: number | null;
+  /** A sede fica fora das cidades atendidas — comum, a matriz costuma ser numa capital regional. */
+  foraDaArea: boolean;
+}
+
 export interface LocalizacaoResposta {
   origemArea: OrigemArea;
+  /** Endereco cadastrado do provedor: ancora o mapa e marca o ponto de partida. */
+  sede: LocalizacaoSede | null;
   semCoordenada: number;
   /** Coordenada incoerente com a cidade declarada — fica fora do mapa. */
   coordenadaSuspeita: Array<{ id: number; cidade: string; lat: number; lon: number }>;
@@ -41,12 +53,45 @@ export interface LocalizacaoResposta {
 
 export class LocalizacaoStorage {
   /**
-   * Uma varredura da carteira produz os quatro conjuntos que a tela precisa.
+   * Endereco cadastrado do provedor, geocodificado. Vale a pena mesmo quando a
+   * sede esta fora das cidades atendidas — e o ponto de referencia que o
+   * operador conhece, e ancora a leitura do mapa.
+   * geocodeAddress ja tem cache em memoria; falha de rede devolve null e a tela
+   * segue sem a sede, nunca quebra por causa dela.
+   */
+  private async buscarSede(providerId: number, area: Awaited<ReturnType<typeof resolverAreaAtendida>>) {
+    const [p] = await db.select().from(providers).where(eq(providers.id, providerId));
+    if (!p?.addressCity) return null;
+
+    const uf = p.addressState || null;
+    const coords = await geocodeAddress(
+      [p.addressStreet, p.addressNumber].filter(Boolean).join(", "),
+      p.addressCity,
+      uf || "",
+      p.addressZip || undefined,
+    ).catch(() => null);
+
+    const naArea = (area.cidades ?? []).some(
+      c => normalizarCidade(c) === normalizarCidade(p.addressCity),
+    );
+
+    return {
+      cidade: p.addressCity,
+      uf,
+      lat: coords ? coords[0] : null,
+      lon: coords ? coords[1] : null,
+      foraDaArea: (area.cidades?.length ?? 0) > 0 && !naArea,
+    };
+  }
+
+  /**
+   * Uma varredura da carteira produz os conjuntos que a tela precisa.
    * O recorte territorial vem da cascata — nunca mais de providers.addressState
    * sozinho, que nao filtrava nada quando a UF era nula.
    */
   async getLocalizacao(providerId: number): Promise<LocalizacaoResposta> {
     const area = await resolverAreaAtendida(providerId);
+    const sede = await this.buscarSede(providerId, area);
 
     const todos = await db.select().from(customers)
       .where(eq(customers.providerId, providerId));
@@ -154,6 +199,7 @@ export class LocalizacaoStorage {
 
     return {
       origemArea: area.origem,
+      sede,
       semCoordenada,
       coordenadaSuspeita: suspeitos.map(p => ({ id: p.id, cidade: p.cidade, lat: p.lat, lon: p.lon })),
       cidades: Array.from(porCidade.values()).sort((a, b) => b.clientes - a.clientes),

@@ -3,11 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
 import MapaCarteira, {
-  type PontoMapa, type PontoRede, type CidadeMapa, type ModoMapa,
+  type PontoMapa, type PontoRede, type CidadeMapa, type ModoMapa, type SedeMapa,
 } from "@/components/maps/MapaCarteira";
+
+type Sede = { cidade: string; uf: string | null; lat: number | null; lon: number | null; foraDaArea: boolean };
 
 type Resposta = {
   origemArea: 'cidades' | 'meso' | 'uf' | 'nenhuma';
+  sede: Sede | null;
   semCoordenada: number;
   coordenadaSuspeita: Array<{ id: number; cidade: string; lat: number; lon: number }>;
   cidades: CidadeMapa[];
@@ -41,9 +44,9 @@ const FAIXAS: Array<{ k: string; label: string; teste: (v: number) => boolean }>
 
 /** Espelha corDaTaxa() do MapaCarteira — mesma quebra, mesma cor. */
 const FAIXAS_TAXA = [
-  { label: 'até 20% inadimplência', token: '--ok',     teste: (p: number) => p < 20 },
-  { label: '20–40%',                token: '--gated',  teste: (p: number) => p >= 20 && p < 40 },
-  { label: '40%+',                  token: '--danger', teste: (p: number) => p >= 40 },
+  { label: 'até 10% inadimplência', token: '--ok',     teste: (p: number) => p < 10 },
+  { label: '10–25%',                token: '--gated',  teste: (p: number) => p >= 10 && p < 25 },
+  { label: '25%+',                  token: '--danger', teste: (p: number) => p >= 25 },
 ];
 
 const brl = (v: number) =>
@@ -115,6 +118,14 @@ export default function LocalizacaoPage() {
   const cidadesPlotaveis = cidades.filter(c => c.lat !== null && c.lon !== null);
   const cidadesAtendidas = cidades.length + semCliente.length;
 
+  // So vai ao mapa se a geocodificacao resolveu; sem coordenada, a sede ainda
+  // aparece no cabecalho como texto.
+  const sede = data?.sede ?? null;
+  const sedeNoMapa: SedeMapa | null =
+    sede && sede.lat !== null && sede.lon !== null
+      ? { cidade: sede.cidade, uf: sede.uf, lat: sede.lat, lon: sede.lon }
+      : null;
+
   const faixa = FAIXAS.find(f => f.k === fDivida) ?? FAIXAS[0];
   const pontosFiltrados = pontos.filter(p =>
     (fCidade === "todas" || p.cidade === fCidade) &&
@@ -184,7 +195,7 @@ export default function LocalizacaoPage() {
           <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-[var(--border-faint)]">
             <div className="flex items-center gap-2">
               <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-                OpenStreetMap
+                {modo === 'carteira' ? 'Sua carteira' : 'Sua região'} · OpenStreetMap
               </span>
               <div className="flex gap-1">
                 <Chip ativo={modo === 'carteira'} onClick={() => setModo('carteira')}>Carteira</Chip>
@@ -199,6 +210,7 @@ export default function LocalizacaoPage() {
           </div>
 
           <div className="px-4 py-3 space-y-2 border-b border-[var(--border-faint)]">
+            {modo === 'carteira' && (
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-faint)] w-[52px]">Cidade</span>
               <Chip ativo={fCidade === "todas"} onClick={() => setFCidade("todas")}>Todas</Chip>
@@ -208,6 +220,7 @@ export default function LocalizacaoPage() {
                 </Chip>
               ))}
             </div>
+            )}
             {modo === 'carteira' && (
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-faint)] w-[52px]">Estado</span>
@@ -248,9 +261,10 @@ export default function LocalizacaoPage() {
           </div>
 
           <div className="p-3">
-            {isLoading ? <Skeleton className="h-[520px] w-full" /> : <MapaCarteira
+            {isLoading ? <Skeleton className="h-[480px] w-full" /> : <MapaCarteira
                 pontos={pontosFiltrados}
                 cidades={cidades}
+                sede={sedeNoMapa}
                 modo={modo}
                 rede={verRede ? redeVisivel : undefined}
               />}
@@ -281,6 +295,18 @@ export default function LocalizacaoPage() {
                     <b className="font-mono tabular-nums text-[var(--text)]">{e.n}</b>
                   </span>
                 ))}
+            {sedeNoMapa && (
+              <span className="flex items-center gap-2 text-[12px] text-[var(--text-2)]">
+                <i
+                  className="w-2.5 h-2.5 rotate-45 border-2 border-[var(--brand)] bg-[var(--surface)]"
+                  aria-hidden="true"
+                />
+                Sede · {sedeNoMapa.cidade}{" "}
+                {sede?.foraDaArea && (
+                  <span className="text-[var(--text-muted)]">(fora da área atendida)</span>
+                )}
+              </span>
+            )}
             {modo === 'regionalizacao' && semCliente.length > 0 && (
               <span className="text-[12px] text-[var(--text-muted)]">
                 {semCliente.length} cidades atendidas ainda sem cliente
