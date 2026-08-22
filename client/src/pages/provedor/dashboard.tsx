@@ -158,7 +158,7 @@ const FUNCIONALIDADES: Array<{ url: string; titulo: string; desc: string; Icone:
   { url: "/nfse",          titulo: "Notas Fiscais", Icone: FileText,    desc: "Emissão e histórico de notas fiscais de serviço" },
   { url: "/painel-provedor", titulo: "Painel do Provedor", Icone: Building2, desc: "Dados cadastrais, sócios, usuários e documentos" },
   { url: "/configuracoes/regionalizacao", titulo: "Regionalização", Icone: Globe, desc: "Cidades e mesorregiões que seu provedor atende" },
-  { url: "/meus-dados",    titulo: "Meus Dados",    Icone: Shield,      desc: "Seus dados pessoais e direitos previstos na LGPD" },
+  { url: "/benchmark-regional", titulo: "Localização", Icone: MapPin, desc: "Mapa da carteira, calor de inadimplência e ranking de bairros" },
 ];
 
 function FeatureCard({ titulo, desc, Icone }: { titulo: string; desc: string; Icone: any }) {

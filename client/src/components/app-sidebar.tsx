@@ -325,7 +325,11 @@ export function AppSidebar() {
         { label: "Consulta ISP",  url: "/consulta-isp", Icone: ScanSearch,     testId: "link-consulta-isp" },
         { label: "Consulta SPC",  url: "/consulta-spc", Icone: BarChart3,      testId: "link-consulta-spc" },
         { label: "Anti-Fraude",   url: "/anti-fraude",  Icone: ShieldAlert,    testId: "link-anti-fraude" },
-        { label: "Meus Dados",    url: "/meus-dados",   Icone: TrendingUp,     testId: "link-meus-dados" },
+        // Antes chamava "Meus Dados" e apontava para /benchmark-regional (territorio).
+        // O handoff Sidebar.md listava /meus-dados — rota do prototipo — e seguir
+        // aquilo ao pe da letra repontou o item para a pagina de LGPD do titular,
+        // deixando a de territorio orfa no menu. Nome e destino corrigidos aqui.
+        { label: "Localização",   url: "/benchmark-regional", Icone: MapPin,   testId: "link-localizacao" },
       ],
     },
     {
