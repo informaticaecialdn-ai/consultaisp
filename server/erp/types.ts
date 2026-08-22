@@ -147,6 +147,14 @@ export interface ErpConnector {
   readonly label: string;
   readonly configFields: ErpConfigField[];
 
+  /**
+   * Se o conector busca comodato/ativos do ERP.
+   * false = o provedor precisa usar planilha ou formulario.
+   * Ao implementar equipamento para um ERP novo, vire para true aqui e
+   * preencha equipmentDetails em NormalizedErpCustomer.
+   */
+  readonly supportsEquipment?: boolean;
+
   /** Test connectivity to the ERP API */
   testConnection(config: ErpConnectionConfig): Promise<ErpTestResult>;
 

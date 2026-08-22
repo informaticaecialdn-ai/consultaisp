@@ -169,6 +169,7 @@ export function registerErpRoutes(): Router {
       name: c.name,
       label: c.label,
       configFields: c.configFields,
+      supportsEquipment: !!c.supportsEquipment,
     }));
     return res.json(meta);
   });

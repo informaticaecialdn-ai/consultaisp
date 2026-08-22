@@ -62,6 +62,9 @@ export class IxcConnector implements ErpConnector {
   readonly name = "ixc";
   readonly label = "IXC Soft";
 
+  /** Unico conector que hoje traz comodato: fn_radpop_radio_cliente + fn_areceber. */
+  readonly supportsEquipment = true;
+
   readonly configFields: ErpConfigField[] = [
     { key: "apiUser", label: "ID do Usuario (numerico)", type: "text", required: true, placeholder: "45" },
     { key: "apiToken", label: "Token do Usuario", type: "password", required: true },
