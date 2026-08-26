@@ -50,6 +50,28 @@ export interface DadosCadastrais {
   mudancasNome?: number;
   /** Vezes que o CPF foi consultado no mercado nos ultimos 30 dias. */
   consultas30d?: number;
+
+  // ── Bureau de mercado (marketplace) ────────────────────────────────────────
+  // Ficam undefined enquanto o provedor nao habilita os datasets no BDC Center.
+  // undefined nunca gera motivo: ausencia de dado nao e sinal de risco.
+  /** Indicio de negativacao no mercado, fora da rede de provedores. */
+  negativadoNoMercado?: boolean;
+  /** Score 0-999 de probabilidade de inadimplencia. Maior e melhor. */
+  scoreMercado?: number;
+  /** Soma devida no mercado, em reais. */
+  dividaMercado?: number;
+  /** Negativacoes ativas. Quitadas nao contam: sao historico, nao pendencia. */
+  negativacoesAtivas?: number;
+  /** Protestos em cartorio — mais grave que negativacao simples. */
+  protestos?: number;
+  /** Consultas de credito feitas por credores em 30 dias. */
+  consultasCredito30d?: number;
+
+  // ── Estabilidade de renda ──────────────────────────────────────────────────
+  /** Trocas de vinculo de trabalho nos ultimos 5 anos. */
+  trocasEmprego5Anos?: number;
+  /** Media de anos entre trocas de vinculo. Abaixo de 1 e rotatividade alta. */
+  mediaAnosPorVinculo?: number;
 }
 
 export interface OpcoesVeredito {
@@ -87,6 +109,28 @@ const CONSULTAS_DEMAIS_30D = 10;
 
 /** Status da Receita que impedem contratacao. Qualquer coisa fora de REGULAR. */
 const STATUS_OK = "REGULAR";
+
+/**
+ * Score de mercado (0-999) abaixo disso vira alerta. 300 e o piso da faixa que
+ * a propria BigData trata como risco alto, e espelha o corte de 301-500 que o
+ * DESIGN_SYSTEM ja usa para pintar score baixo na tela.
+ */
+const SCORE_MERCADO_BAIXO = 300;
+
+/**
+ * Trocas de emprego em 5 anos acima disso indica renda instavel. Contrato de
+ * internet dura 12 meses; quem trocou quatro vezes em cinco anos tem chance
+ * real de estar sem renda em algum mes do contrato. Numero por ordem de
+ * grandeza, nao por estudo — se gerar ruido na operacao, sobe.
+ */
+const TROCAS_EMPREGO_DEMAIS = 4;
+
+/**
+ * Consultas de credito por credores em 30 dias acima disso alerta. Corte mais
+ * baixo que o de passagens na web (10) porque consulta de bureau e um sinal
+ * mais forte: alguem esta avaliando conceder credito, nao apenas navegando.
+ */
+const CONSULTAS_CREDITO_DEMAIS_30D = 5;
 
 /**
  * Piso em reais de uma faixa de renda da BigData.
@@ -221,6 +265,47 @@ export function decidirVeredito(
     motivos.push(
       `Dívida ativa da União: R$ ${(d.dividaAtiva as number).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`,
     );
+  }
+
+  // ── Bureau de mercado ─────────────────────────────────────────────────────
+  // Negativacao vista fora da rede de provedores. Nao recusa sozinha, pelo
+  // mesmo motivo das cobrancas: e historico, nao impedimento — e o titular tem
+  // direito de contestar a anotacao. Mas e o sinal mais forte da lista.
+  // Quando o detalhe existe, ele descreve melhor que o booleano: dizer
+  // "2 negativações ativas, R$ 1.240,00" da ao operador o que negociar.
+  if ((d.negativacoesAtivas ?? 0) > 0) {
+    const valor = d.dividaMercado
+      ? ` — R$ ${d.dividaMercado.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+      : "";
+    motivos.push(`${d.negativacoesAtivas} negativação(ões) ativa(s) no mercado${valor}`);
+  } else if (d.negativadoNoMercado === true) {
+    motivos.push("Indício de negativação em bureau de mercado");
+  }
+
+  // Protesto e cobranca levada a cartorio: um degrau acima da negativacao.
+  if ((d.protestos ?? 0) > 0) {
+    motivos.push(`${d.protestos} protesto(s) em cartório`);
+  }
+
+  if (d.scoreMercado != null && d.scoreMercado < SCORE_MERCADO_BAIXO) {
+    motivos.push(`Score de crédito de mercado baixo (${d.scoreMercado} de 999)`);
+  }
+
+  // Consulta de bureau e mais forte que passagem na web: significa que outro
+  // credor esta avaliando dar credito a esta pessoa AGORA. Muitas em 30 dias e
+  // o padrao do migrador serial, visto fora da rede de provedores.
+  if ((d.consultasCredito30d ?? 0) >= CONSULTAS_CREDITO_DEMAIS_30D) {
+    motivos.push(`${d.consultasCredito30d} consultas de crédito por credores em 30 dias`);
+  }
+
+  // ── Estabilidade de renda ─────────────────────────────────────────────────
+  // Estar empregado hoje nao diz nada sobre estar empregado no mes 8 do
+  // contrato. Alerta de conferencia, nunca de recusa: trocar de emprego e
+  // legitimo e recusar por isso puniria trabalhador de setor rotativo.
+  if ((d.trocasEmprego5Anos ?? 0) > TROCAS_EMPREGO_DEMAIS) {
+    motivos.push(`${d.trocasEmprego5Anos} trocas de emprego em 5 anos — renda instável`);
+  } else if (d.mediaAnosPorVinculo != null && d.mediaAnosPorVinculo < 1 && (d.trocasEmprego5Anos ?? 0) > 0) {
+    motivos.push("Vínculos de trabalho curtos — renda instável");
   }
 
   // A e H sao os extremos: A significa procurar credito o tempo todo, o que

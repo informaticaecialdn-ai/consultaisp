@@ -4,7 +4,10 @@ import { requireAuth } from "../auth";
 import { storage } from "../storage";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { validarCPF } from "../utils/cpf-cnpj-validator";
-import { consultarCpf, testarCredencial, invalidarToken, DATASETS } from "../services/bigdata.service";
+import {
+  consultarCpf, testarCredencial, invalidarToken, DATASETS,
+  NIVEIS, NIVEL_PADRAO, extrasDoNivel,
+} from "../services/bigdata.service";
 import { decidirVeredito } from "../services/bigdata-veredito";
 
 /**
@@ -24,6 +27,10 @@ const consultaSchema = z.object({
   cpfCnpj: z.string({ required_error: "Informe o CPF" }).min(1, "Informe o CPF"),
   lgpdAccepted: z.boolean().optional(),
   valorPlano: z.number().positive().optional(),
+  // O nivel vem do cliente, mas o custo NUNCA: quantos creditos cada um consome
+  // e lido de NIVEIS no servidor. Aceitar preco do cliente deixaria qualquer um
+  // rodar uma Premium por 1 credito.
+  nivel: z.enum(["padrao", "completa"]).optional(),
 });
 
 export function registerBigdataRoutes(): Router {
@@ -97,6 +104,9 @@ export function registerBigdataRoutes(): Router {
       const consultations = brutas.map(c => ({
         id: c.id, cpfCnpj: c.cpfCnpj, veredito: c.veredito, createdAt: c.createdAt,
         consultasRealizadas: c.datasets?.length ?? 0,
+        // Consultas antigas nao tem nivel gravado; sao todas do combo padrao.
+        nivel: (c.result as any)?.nivel ?? NIVEL_PADRAO,
+        creditosCobrados: (c.result as any)?.creditosCobrados ?? 1,
       }));
       const provider = await storage.getProvider(providerId);
 
@@ -109,6 +119,14 @@ export function registerBigdataRoutes(): Router {
         credits: provider?.bigdataCredits ?? 0,
         todayCount: consultations.filter(c => em(c.createdAt, hoje)).length,
         monthCount: consultations.filter(c => em(c.createdAt, inicioMes)).length,
+        // Catalogo dos niveis para a tela montar o seletor. `custoBrl` fica no
+        // servidor: e o que a BigData cobra de nos, nao do provedor.
+        niveis: (Object.keys(NIVEIS) as Array<keyof typeof NIVEIS>).map(k => ({
+          id: k,
+          rotulo: NIVEIS[k].rotulo,
+          descricao: NIVEIS[k].descricao,
+          creditos: NIVEIS[k].creditos,
+        })),
       });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
@@ -118,6 +136,9 @@ export function registerBigdataRoutes(): Router {
   router.post("/api/bigdata-consultations", requireAuth, async (req, res) => {
     const providerId = req.session.providerId!;
     let debitou = false;
+    // Fora do try porque o catch precisa estornar a MESMA quantidade debitada.
+    // Uma Premium que falha tem de devolver 17 creditos, nao 1.
+    let custoCreditos = NIVEIS[NIVEL_PADRAO].creditos;
     try {
       const parsed = consultaSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
@@ -135,13 +156,43 @@ export function registerBigdataRoutes(): Router {
         });
       }
 
-      debitou = await storage.debitarBigdataCredito(providerId);
+      const nivel = parsed.data.nivel ?? NIVEL_PADRAO;
+      custoCreditos = NIVEIS[nivel].creditos;
+
+      debitou = await storage.debitarBigdataCredito(providerId, custoCreditos);
       if (!debitou) {
-        return res.status(402).json({ message: "Sem créditos de consulta cadastral" });
+        const provider = await storage.getProvider(providerId);
+        return res.status(402).json({
+          message: `Saldo insuficiente: a consulta ${NIVEIS[nivel].rotulo} custa `
+            + `${custoCreditos} crédito(s) e você tem ${provider?.bigdataCredits ?? 0}`,
+          creditosNecessarios: custoCreditos,
+          creditosDisponiveis: provider?.bigdataCredits ?? 0,
+        });
       }
 
-      const r = await consultarCpf(providerId, { login: integ.login, password: integ.password }, cpf);
+      const r = await consultarCpf(
+        providerId, { login: integ.login, password: integ.password }, cpf, nivel,
+      );
       const v = decidirVeredito(r.dados, { valorPlano: parsed.data.valorPlano });
+
+      // Cobrar 4 creditos e entregar so o combo padrao e o que o provedor viu
+      // como "nao veio nada". Se NENHUM bureau do nivel respondeu — nao
+      // habilitado (-109) OU fora do ar (falha) — estorna a diferenca e
+      // registra a consulta pelo que ela de fato foi: uma Padrao.
+      const extras = extrasDoNivel(nivel);
+      const bloqueados = extras.filter(d =>
+        r.datasetsIndisponiveis.includes(d) || r.datasetsComFalha.includes(d));
+      const bureauIndisponivel = extras.length > 0 && bloqueados.length === extras.length;
+
+      let nivelCobrado = nivel;
+      if (bureauIndisponivel) {
+        const estorno = custoCreditos - NIVEIS[NIVEL_PADRAO].creditos;
+        if (estorno > 0) {
+          await storage.estornarBigdataCredito(providerId, estorno).catch(() => {});
+        }
+        custoCreditos = NIVEIS[NIVEL_PADRAO].creditos;
+        nivelCobrado = NIVEL_PADRAO;
+      }
 
       const salva = await storage.createBigdataConsultation({
         providerId, userId: req.session.userId!, cpfCnpj: cpf,
@@ -154,21 +205,33 @@ export function registerBigdataRoutes(): Router {
           renda: r.renda,
           risco: r.risco,
           inadimplencia: r.inadimplencia,
+        processos: r.processos,
           rastro: r.rastro,
           patrimonio: r.patrimonio,
+          ocupacao: r.ocupacao,
+          perfil: r.perfil,
+          mercado: r.mercado,
           riscoArea: r.riscoArea,
+        validacaoTelefone: r.validacaoTelefone,
+        imovel: r.imovel,
           datasetsIndisponiveis: r.datasetsIndisponiveis,
           veredito: v.veredito,
           motivos: v.motivos,
           datasetsComFalha: r.datasetsComFalha,
           latenciaMs: r.latenciaMs,
           bruto: r.bruto,
+          // Nivel e custo ficam gravados: sem isso nao da para auditar depois
+          // por que uma consulta gastou 4 creditos e outra gastou 1.
+          nivel: nivelCobrado,
+          nivelPedido: nivel,
+          creditosCobrados: custoCreditos,
+          bureauIndisponivel,
           // Mesmo padrao LGPD da consulta ISP
           baseLegal: "Legítimo interesse (LGPD Art. 7, IX)",
           finalidadeConsulta: "Análise de risco de crédito para contratação de serviço",
           lgpdAccepted: parsed.data.lgpdAccepted === true,
         } as any,
-        datasets: [...DATASETS],
+        datasets: [...r.datasetsChamados],
         veredito: v.veredito,
       } as any);
 
@@ -185,18 +248,30 @@ export function registerBigdataRoutes(): Router {
         renda: r.renda,
         risco: r.risco,
         inadimplencia: r.inadimplencia,
+        processos: r.processos,
         rastro: r.rastro,
         patrimonio: r.patrimonio,
+        ocupacao: r.ocupacao,
+        perfil: r.perfil,
+        mercado: r.mercado,
         riscoArea: r.riscoArea,
+        validacaoTelefone: r.validacaoTelefone,
+        imovel: r.imovel,
         // Contagem, nao nome: "partner_quod_..." identificaria o fornecedor.
         consultasIndisponiveis: r.datasetsIndisponiveis.length,
         consultasComFalha: r.datasetsComFalha.length,
         latenciaMs: r.latenciaMs,
+        nivel: nivelCobrado,
+        nivelPedido: nivel,
+        creditosCobrados: custoCreditos,
+        // A tela precisa explicar por que o bloco de mercado nao apareceu — sem
+        // isso o operador conclui que o CPF esta limpo, e nao que ninguem olhou.
+        bureauIndisponivel,
         createdAt: salva.createdAt,
       });
     } catch (error: any) {
       // Falha nossa ou do bureau nao cobra: a busca nao foi executada.
-      if (debitou) await storage.estornarBigdataCredito(providerId).catch(() => {});
+      if (debitou) await storage.estornarBigdataCredito(providerId, custoCreditos).catch(() => {});
       const credencialRuim = error?.codigo === -111;
       return res.status(credencialRuim ? 400 : 503).json({
         message: credencialRuim

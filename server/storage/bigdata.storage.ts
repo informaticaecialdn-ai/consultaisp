@@ -67,22 +67,28 @@ export class BigdataStorage {
   }
 
   /**
-   * Debito atomico: o WHERE exige saldo > 0, entao duas consultas simultaneas
-   * nao conseguem gastar o mesmo credito. Ler-depois-gravar deixaria essa
-   * brecha aberta.
+   * Debito atomico: o WHERE exige saldo suficiente, entao duas consultas
+   * simultaneas nao conseguem gastar o mesmo credito. Ler-depois-gravar
+   * deixaria essa brecha aberta.
+   *
+   * `quantidade` vem do nivel escolhido — a Premium custa 17 creditos, e o
+   * WHERE precisa exigir os 17, nao apenas saldo > 0. Sem isso um provedor com
+   * 3 creditos rodaria uma Premium e ficaria com saldo negativo.
    */
-  async debitarCredito(providerId: number): Promise<boolean> {
+  async debitarCredito(providerId: number, quantidade = 1): Promise<boolean> {
+    const n = Math.max(1, Math.trunc(quantidade));
     const linhas = await db.update(providers)
-      .set({ bigdataCredits: sql`${providers.bigdataCredits} - 1` })
-      .where(and(eq(providers.id, providerId), sql`${providers.bigdataCredits} > 0`))
+      .set({ bigdataCredits: sql`${providers.bigdataCredits} - ${n}` })
+      .where(and(eq(providers.id, providerId), sql`${providers.bigdataCredits} >= ${n}`))
       .returning({ id: providers.id });
     return linhas.length > 0;
   }
 
-  /** Devolve o credito quando a consulta falha por culpa nossa ou do bureau. */
-  async estornarCredito(providerId: number): Promise<void> {
+  /** Devolve os creditos quando a consulta falha por culpa nossa ou do bureau. */
+  async estornarCredito(providerId: number, quantidade = 1): Promise<void> {
+    const n = Math.max(1, Math.trunc(quantidade));
     await db.update(providers)
-      .set({ bigdataCredits: sql`${providers.bigdataCredits} + 1` })
+      .set({ bigdataCredits: sql`${providers.bigdataCredits} + ${n}` })
       .where(eq(providers.id, providerId));
   }
 }
