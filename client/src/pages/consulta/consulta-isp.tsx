@@ -48,9 +48,6 @@ export default function ConsultaISPPage() {
   const avgScore = consultations.length > 0
     ? Math.round(consultations.reduce((acc: number, c: any) => acc + (c.score || 0), 0) / consultations.length)
     : 0;
-  const approvalRate = consultations.length > 0
-    ? Math.round((approvedCount / consultations.length) * 100)
-    : 0;
 
   const timelineCpf = result?.cpfCnpj?.replace(/\D/g, "") || "";
   const { data: timelineData, isLoading: timelineLoading } = useQuery<{ timeline: Array<{ date: string; score: number | null; decision: string | null; searchType: string; provider: string; alerts: string[]; isSameProvider: boolean }> }>({
@@ -199,15 +196,12 @@ export default function ConsultaISPPage() {
 
             {mutation.isPending && <LoadingCard />}
 
+            {/* Sem a tira de métricas — mesma decisão da Consulta Cadastral:
+                saldo já está no topo; contagens e score médio vivem nas abas
+                Histórico e Relatórios. */}
             {!mutation.isPending && !result && (
               <ConsultaIdleState
                 totalConsultas={consultations.length}
-                metrics={[
-                  { label: "Consultas hoje", value: data?.todayCount ?? 0, testId: "text-isp-today" },
-                  { label: "No mês", value: data?.monthCount ?? 0, testId: "text-isp-month" },
-                  { label: "Taxa de aprovação", value: approvalRate, suffix: "%", testId: "text-isp-approval" },
-                  { label: "Score médio", value: avgScore, suffix: "/1000", testId: "text-isp-avg-score" },
-                ]}
                 emptyTitle="Nenhuma consulta ainda"
                 emptyDescription="Digite o CPF de um candidato antes de liberar a instalação. Você recebe o score de risco e o histórico dele em toda a rede de provedores."
                 emptyCta="FAZER PRIMEIRA CONSULTA"

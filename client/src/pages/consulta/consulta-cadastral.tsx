@@ -1,9 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import {
-  IdCard, Search, MapPin, Wallet, ShieldCheck, Settings2, Phone, Mail,
-  Gauge, AlertTriangle, Activity, CreditCard,
-} from "lucide-react";
+import { IdCard, Settings2, AlertTriangle, CreditCard } from "lucide-react";
 import LoadingCard from "@/components/consulta/LoadingCard";
 import ConsultaIdleState from "@/components/consulta/ConsultaIdleState";
 import ConsultaSearchBar from "@/components/consulta/ConsultaSearchBar";
@@ -37,6 +34,11 @@ type Resultado = {
   motivos: string[];
   latenciaMs: number;
   consultasComFalha: number;
+  /** Nível consultado. Ausente nas consultas gravadas antes do seletor existir. */
+  nivel?: string;
+  creditosCobrados?: number;
+  /** Carimbo do relatório — vem do registro salvo no servidor. */
+  createdAt?: string;
   identidade: Identidade;
   enderecos: Endereco[];
   telefones: Telefone[];
@@ -58,6 +60,11 @@ type Resultado = {
     processosTotal: number; processosComoReu: number; processos365d: number;
     temExecucao: boolean; naturezas: string[]; dividaAtiva: number;
   };
+  /** Processos individuais — a tabela de ocorrências do modelo de bureau. */
+  processos?: Array<{
+    data?: string; tipo?: string; assunto?: string; tribunal?: string;
+    uf?: string; status?: string; valor?: number; papel: "réu" | "autor" | "outro";
+  }>;
   rastro: {
     consultas30d: number; consultas365d: number; passagensRuins: number;
     primeiraPassagem?: string; ultimaPassagem?: string;
@@ -65,7 +72,38 @@ type Resultado = {
     mudancasNome: number; mudancasStatus: number;
   };
   patrimonio: { veiculos: number; recebeAuxilio: boolean; auxiliosAtivos: number; valorAuxilio: number };
+  ocupacao?: {
+    empregadoAgora?: boolean; empreendedor?: boolean;
+    trocasTotal: number; trocas5Anos: number; trocas10Anos: number;
+    mediaAnosPorVinculo?: number; idadePrimeiroEmprego?: number; primeiroVinculo?: string;
+    setorPublico?: boolean; setorPrivado?: boolean; totalEmpregadores: number;
+  };
+  perfil?: { classeSocial?: string; faixaRenda?: string; escolaridade?: string; origem?: string };
+  /** true quando o nível pedido tinha bureau e nenhum estava habilitado na conta. */
+  bureauIndisponivel?: boolean;
+  nivelPedido?: string;
+  /** Vem vazio enquanto os datasets de bureau não estiverem habilitados. */
+  mercado?: {
+    score?: number; scoreExplicacao?: string; scoreProbabilidade?: string;
+    negativado?: boolean; temRegistroMinimo?: boolean; consultouCredito?: boolean;
+    dividaTotal?: number; negativacoesAtivas?: number; negativacoesInativas?: number;
+    protestos?: number; apontamentosJudiciais?: number; ultimaNegativacao?: string;
+    negativacoes: Array<{ credor: string; valor: number; ocorrencias: number; primeira?: string; ultima?: string }>;
+    consultas30d?: number; consultas60d?: number; consultas90d?: number;
+    consultasPorSegmento?: Record<string, number>;
+    quemConsultou: Array<{ empresa: string; data?: string; cidadeUf?: string }>;
+    classeCadastral?: string; classeCadastralDescricao?: string;
+  };
   riscoArea: Array<{ endereco: string; ponto?: number; raio100m?: number }>;
+  /** Sondas da Completa — null quando o nível não inclui ou o bureau falhou. */
+  validacaoTelefone?: {
+    numero: string; tipo?: string; operadoraAtual?: string;
+    bloqueado?: boolean; cidade?: string;
+  } | null;
+  imovel?: {
+    endereco: string; tipologia?: string; uso?: string;
+    areaM2?: number; comodos?: number; correspondenciaExata?: boolean;
+  } | null;
   consultasIndisponiveis: number;
   dados: {
     encontrado: boolean; taxIdStatus?: string; temObito?: boolean;
@@ -74,10 +112,23 @@ type Resultado = {
   };
 };
 
-/** Formatador de data. Nome distinto de `data` para nao colidir com o
- *  `const { data }` do useQuery dentro do componente. */
-const fmtData = (s?: string | null) =>
-  s ? new Date(s).toLocaleDateString("pt-BR") : "—";
+/**
+ * Formatador de data. Nome distinto de `data` para nao colidir com o
+ * `const { data }` do useQuery dentro do componente.
+ *
+ * A BigData devolve tanto "2026-03-18" quanto "2026-03-18T00:00:00Z". `new
+ * Date()` lê os dois como meia-noite UTC, e o Brasil (UTC-3) renderizava o dia
+ * anterior — uma negativação de 18/03 aparecia como 17/03. Com data de
+ * negativação e de consulta na tela isso deixou de ser cosmético, então a parte
+ * de data é lida literalmente, sem passar por fuso.
+ */
+const fmtData = (s?: string | null) => {
+  if (!s) return "—";
+  const soData = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (soData) return `${soData[3]}/${soData[2]}/${soData[1]}`;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString("pt-BR");
+};
 
 const telefoneFmt = (t: Telefone) => {
   const n = t.numero.replace(/\D/g, "");
@@ -85,20 +136,26 @@ const telefoneFmt = (t: Telefone) => {
   return t.ddd ? `(${t.ddd}) ${corpo}` : corpo;
 };
 
+type Tom = "ok" | "alerta" | "perigo" | "marca" | "neutro";
+
 /**
- * Pílula de fato — arredondada e com contorno, do mockup.
+ * Pílula de fato — arredondada e sem contorno, exatamente como no mockup.
  *
  * Diverge do DESIGN_SYSTEM, que proíbe `rounded-full` em badge de STATUS. A
- * diferença é o papel: estas não são status de linha numa tabela densa, são os
- * três fatos que passam ou reprovam o CPF sozinhos, num cabeçalho arejado. O
- * contorno existe porque o `-bg` sozinho some contra `--surface`.
+ * diferença é o papel: não são status de linha numa tabela densa, são fatos
+ * avulsos num cabeçalho arejado e em fim de linha de lista.
  */
-function Pilula({ children, tom = "neutro" }: { children: React.ReactNode; tom?: "ok" | "alerta" | "neutro" }) {
-  const cls = tom === "ok" ? "bg-[var(--ok-bg)] text-[var(--ok)] border-[var(--ok-border)]"
-    : tom === "alerta" ? "bg-[var(--gated-bg)] text-[var(--gated)] border-[var(--gated-border)]"
-    : "bg-[var(--surface-inset)] text-[var(--text-muted)] border-[var(--border)]";
+const CHIP_TOM: Record<Tom, string> = {
+  ok: "bg-[var(--ok-bg)] text-[var(--ok)]",
+  alerta: "bg-[var(--gated-bg)] text-[var(--gated)]",
+  perigo: "bg-[var(--past-bg)] text-[var(--past)]",
+  marca: "bg-[var(--brand-soft)] text-[var(--brand-ink)]",
+  neutro: "bg-[var(--surface-inset)] text-[var(--text-muted)]",
+};
+
+function Chip({ children, tom = "neutro" }: { children: React.ReactNode; tom?: Tom }) {
   return (
-    <span className={`inline-flex items-center text-[11.5px] font-semibold px-2.5 py-[3px] rounded-full border ${cls}`}>
+    <span className={`inline-flex items-center text-[11.5px] font-semibold px-2.5 py-[3px] rounded-full ${CHIP_TOM[tom]}`}>
       {children}
     </span>
   );
@@ -130,15 +187,568 @@ function ArcoScore({ score }: { score?: number }) {
   );
 }
 
-/** Etiqueta pequena de estado. Retangular, conforme o design system. */
-function Tag({ children, tom = "neutro" }: { children: React.ReactNode; tom?: "ok" | "alerta" | "neutro" }) {
-  const cls = tom === "ok" ? "bg-[var(--ok-bg)] text-[var(--ok)]"
-    : tom === "alerta" ? "bg-[var(--gated-bg)] text-[var(--gated)]"
-    : "bg-[var(--surface-inset)] text-[var(--text-muted)]";
+const TEXTO_TOM: Record<Tom, string> = {
+  ok: "text-[var(--ok)]",
+  alerta: "text-[var(--gated)]",
+  perigo: "text-[var(--past)]",
+  marca: "text-[var(--brand-ink)]",
+  neutro: "text-[var(--text)]",
+};
+
+/**
+ * Uma linha do Resumo da consulta.
+ *
+ * `nada` — verificado, nada consta (o estado que constrói confiança);
+ * `consta` — verificado, há ocorrência;
+ * `atencao` — verificado, ocorrência que pede cautela mas não trava;
+ * `fora` — a verificação existe, mas o nível consultado não a cobre.
+ * O quarto estado é o que a tela antiga não tinha: ausência de dado e
+ * "não perguntei" apareciam iguais.
+ */
+type LinhaResumo = {
+  categoria: string;
+  estado: "nada" | "consta" | "atencao" | "fora";
+  resultado: string;
+  valor?: string;
+  ultimo?: string;
+};
+
+const RESUMO_TOM: Record<LinhaResumo["estado"], string> = {
+  nada: "text-[var(--ok)]",
+  consta: "text-[var(--past)]",
+  atencao: "text-[var(--gated)]",
+  fora: "text-[var(--text-faint)]",
+};
+
+/**
+ * Resumo da consulta — o esqueleto de relatório de bureau (padrão Serasa):
+ * TODA verificação executada aparece, inclusive as que deram "Nada consta".
+ * Listar só o que constou parece um alerta; listar tudo prova o que foi
+ * checado — é isso que faz um relatório valer o que custou.
+ */
+function ResumoConsulta({ linhas }: { linhas: LinhaResumo[] }) {
   return (
-    <span className={`inline-flex items-center text-[10px] font-medium tracking-[0.04em] px-1.5 py-0.5 rounded ${cls}`}>
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden"
+      data-testid="resumo-consulta">
+      <div className="flex items-center justify-between gap-3 px-5 py-2.5 bg-[var(--surface-2)] border-b border-[var(--border-faint)]">
+        <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+          Resumo da consulta
+        </span>
+        <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--text-faint)]">
+          {linhas.filter(l => l.estado === "nada").length} nada consta ·{" "}
+          {linhas.filter(l => l.estado === "consta" || l.estado === "atencao").length} com ocorrência
+        </span>
+      </div>
+      {linhas.map((l, i) => (
+        <div key={i} data-testid={`resumo-${i}`}
+          className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 px-5 py-[9px] border-b border-[var(--border-faint)] last:border-b-0">
+          <span className="text-[13px] text-[var(--text-2)] min-w-[14ch]">{l.categoria}</span>
+          <span className={`text-[13px] font-semibold ${RESUMO_TOM[l.estado]}`}>
+            {l.resultado}
+          </span>
+          <span className="ml-auto flex items-baseline gap-4 shrink-0">
+            {l.valor && (
+              <span className="font-mono text-[13px] font-semibold tabular-nums text-[var(--past)]">
+                {l.valor}
+              </span>
+            )}
+            {l.ultimo && (
+              <span className="font-mono text-[11px] tabular-nums text-[var(--text-faint)]">
+                último em {l.ultimo}
+              </span>
+            )}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Monta as linhas do resumo a partir do resultado. Fica fora do JSX porque a
+ * regra de três estados (consta / nada consta / fora do nível) é lógica, não
+ * apresentação — e muda quando um nível novo entrar.
+ */
+function montarResumo(r: Resultado): LinhaResumo[] {
+  const inad = r.inadimplencia;
+  const m = r.mercado;
+  const brl = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+
+  // Bureau consultado de verdade? Distingue "0 negativações" de "não olhei".
+  const temBureau = m != null && (m.negativacoesAtivas != null || m.protestos != null);
+  const foraTexto = r.bureauIndisponivel
+    ? "Bureaus não habilitados na conta"
+    : "Não incluído — disponível no nível Completa";
+
+  const linhas: LinhaResumo[] = [
+    {
+      categoria: "Situação na Receita Federal",
+      estado: r.dados.taxIdStatus?.toUpperCase() === "REGULAR" ? "nada" : "consta",
+      resultado: r.dados.taxIdStatus?.toUpperCase() === "REGULAR"
+        ? "Regular" : `${r.dados.taxIdStatus ?? "Não informada"}`,
+      ultimo: r.identidade.dataSituacao ? fmtData(r.identidade.dataSituacao) : undefined,
+    },
+    {
+      categoria: "Indicação de óbito",
+      estado: r.dados.temObito ? "consta" : "nada",
+      resultado: r.dados.temObito ? "Consta indicação" : "Nada consta",
+    },
+    {
+      categoria: "Pendências de cobrança",
+      estado: inad.emCobrancaAgora ? "consta" : inad.cobrancas365d > 0 ? "atencao" : "nada",
+      resultado: inad.emCobrancaAgora
+        ? "Em cobrança neste momento"
+        : inad.cobrancas365d > 0
+          ? `${inad.cobrancas365d} ocorrência(s) em 12 meses`
+          : "Nada consta",
+      ultimo: inad.cobrancas365d > 0 ? fmtData(inad.ultimaCobranca) : undefined,
+    },
+    {
+      categoria: "Processos como réu",
+      estado: inad.temExecucao ? "consta" : inad.processosComoReu > 0 ? "atencao" : "nada",
+      resultado: inad.processosComoReu > 0
+        ? `${inad.processosComoReu} de ${inad.processosTotal} processos`
+          + (inad.temExecucao ? " · com execução" : "")
+        : "Nada consta",
+    },
+    {
+      categoria: "Dívida ativa da União",
+      estado: inad.dividaAtiva > 0 ? "consta" : "nada",
+      resultado: inad.dividaAtiva > 0 ? "Inscrição ativa" : "Nada consta",
+      valor: inad.dividaAtiva > 0 ? brl(inad.dividaAtiva) : undefined,
+    },
+    {
+      categoria: "Negativações no mercado",
+      estado: !temBureau ? "fora"
+        : (m!.negativacoesAtivas ?? 0) > 0 ? "consta" : "nada",
+      resultado: !temBureau ? foraTexto
+        : (m!.negativacoesAtivas ?? 0) > 0
+          ? `${m!.negativacoesAtivas} ativa(s)`
+            + (m!.negativacoesInativas ? ` · ${m!.negativacoesInativas} quitada(s)` : "")
+          : "Nada consta",
+      valor: temBureau && (m!.dividaTotal ?? 0) > 0 ? brl(m!.dividaTotal!) : undefined,
+      ultimo: temBureau && m!.ultimaNegativacao ? fmtData(m!.ultimaNegativacao) : undefined,
+    },
+    {
+      categoria: "Protestos em cartório",
+      estado: !temBureau ? "fora" : (m!.protestos ?? 0) > 0 ? "consta" : "nada",
+      resultado: !temBureau ? foraTexto
+        : (m!.protestos ?? 0) > 0 ? `${m!.protestos} protesto(s)` : "Nada consta",
+    },
+  ];
+  return linhas;
+}
+
+/**
+ * Card de painel. O título leva ponto final — é uma afirmação sobre o CPF, não
+ * o nome de uma gaveta.
+ */
+function Painel({ titulo, sub, children }: {
+  titulo: string; sub?: string; children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
+      <p className="text-[14px] font-bold tracking-[-0.02em] text-[var(--text)]">{titulo}</p>
+      {sub && <p className="text-[12px] text-[var(--text-muted)] mt-1">{sub}</p>}
+      <div className={sub ? "mt-[18px]" : "mt-3"}>{children}</div>
+    </div>
+  );
+}
+
+/** Card de lista com cabeçalho próprio e contagem à direita. */
+function PainelLista({ titulo, meta, children }: {
+  titulo: string; meta: React.ReactNode; children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
+      <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[var(--border-faint)]">
+        <span className="text-[14px] font-bold tracking-[-0.02em] text-[var(--text)]">{titulo}</span>
+        <span className="font-mono text-[12px] tabular-nums text-[var(--text-muted)] shrink-0">{meta}</span>
+      </div>
       {children}
-    </span>
+    </div>
+  );
+}
+
+/** Faixa de rodapé do card de lista — o fato que não cabe numa linha da lista. */
+function RodapeFato({ titulo, sub, children }: {
+  titulo: string; sub: string; children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 px-5 py-3 bg-[var(--surface-2)]">
+      <div className="min-w-0">
+        <p className="text-[12.5px] font-semibold text-[var(--text)]">{titulo}</p>
+        <p className="text-[11.5px] text-[var(--text-muted)]">{sub}</p>
+      </div>
+      <span className="shrink-0">{children}</span>
+    </div>
+  );
+}
+
+/** Par rótulo/valor com filete embaixo, do card de renda. */
+function ParFilete({ rotulo, valor }: { rotulo: string; valor: React.ReactNode }) {
+  return (
+    <div className="flex justify-between gap-3 py-[9px] border-b border-[var(--border-faint)] text-[13px]">
+      <span className="text-[var(--text-muted)]">{rotulo}</span>
+      <span className="font-mono font-semibold tabular-nums text-[var(--text)] text-right">{valor}</span>
+    </div>
+  );
+}
+
+/**
+ * Barra de intensidade A–H. Oito segmentos: A acende os oito, H nenhum.
+ * A letra sozinha exige que o operador saiba a escala de cabeça.
+ */
+function BarraIntensidade({ rotulo, letra }: { rotulo: string; letra?: string }) {
+  const c = (letra ?? "").trim().toUpperCase();
+  const acesos = /^[A-H]$/.test(c) ? 9 - (c.charCodeAt(0) - 64) : 0;
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3 mb-[5px]">
+        <span className="text-[13px] text-[var(--text-2)]">{rotulo}</span>
+        <span className="font-mono text-[12px] font-semibold text-[var(--text-muted)]">{ESCALA(letra)}</span>
+      </div>
+      <div className="flex gap-[3px]">
+        {Array.from({ length: 8 }, (_, i) => (
+          <div key={i}
+            className={`flex-1 h-1.5 rounded-[2px] ${i < acesos ? "bg-[var(--brand)]" : "bg-[var(--surface-inset)]"}`} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Bureau de mercado. Só existe quando o provedor habilita os datasets de
+ * parceiro; enquanto não habilita, o card inteiro some e a nota de rodapé
+ * continua sendo a única menção. Nunca renderize "—" aqui: campo vazio dá a
+ * entender que o bureau respondeu "não há", quando ele nem foi consultado.
+ */
+function PainelMercado({ mercado }: { mercado: NonNullable<Resultado["mercado"]> }) {
+  const temScore = mercado.score != null;
+  const temFlags = mercado.negativado != null || mercado.temRegistroMinimo != null;
+  const temDetalhe = mercado.negativacoesAtivas != null || mercado.negativacoes.length > 0;
+  if (!temScore && !temFlags && !temDetalhe && !mercado.classeCadastral) return null;
+
+  // Mesmas faixas do arco de score, mas sobre 999 em vez de 1000.
+  const tom: Tom = !temScore ? "neutro"
+    : mercado.score! >= 700 ? "ok" : mercado.score! >= 300 ? "alerta" : "perigo";
+
+  const ativas = mercado.negativacoesAtivas ?? 0;
+  const segmentos = Object.entries(mercado.consultasPorSegmento ?? {})
+    .sort((a, b) => b[1] - a[1]);
+
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden"
+      data-testid="painel-mercado">
+      <div className="px-5 pt-5 pb-4">
+        <p className="text-[14px] font-bold tracking-[-0.02em] text-[var(--text)]">
+          Fora da rede de provedores.
+        </p>
+        <p className="text-[12px] text-[var(--text-muted)] mt-1">
+          Histórico de crédito deste CPF no mercado inteiro, não só entre provedores.
+        </p>
+
+        <div className="flex flex-wrap items-start gap-x-10 gap-y-4 mt-[18px]">
+          {temScore && (
+            <div className="min-w-0">
+              <span className="block text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                Score de crédito
+              </span>
+              <p className={`font-mono text-[30px] font-semibold tabular-nums leading-none mt-1.5 ${TEXTO_TOM[tom]}`}>
+                {mercado.score}
+                <span className="text-[13px] font-normal text-[var(--text-muted)]"> de 999</span>
+              </p>
+              {/* A frase do bureau em português vale mais que o número: o
+                  operador de balcão não precisa saber ler escala de score. */}
+              {mercado.scoreExplicacao && (
+                <p className="text-[12px] text-[var(--text-muted)] mt-2 max-w-[46ch] leading-relaxed">
+                  {mercado.scoreExplicacao}
+                </p>
+              )}
+            </div>
+          )}
+
+          {temDetalhe && (
+            <div>
+              <span className="block text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+                Dívida em aberto
+              </span>
+              <p className={`font-mono text-[30px] font-semibold tabular-nums leading-none mt-1.5 ${
+                (mercado.dividaTotal ?? 0) > 0 ? "text-[var(--past)]" : "text-[var(--ok)]"}`}>
+                {mercado.dividaTotal != null
+                  ? `R$ ${mercado.dividaTotal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+                  : "—"}
+              </p>
+              <p className="text-[12px] text-[var(--text-muted)] mt-2">
+                {ativas > 0 ? `${ativas} negativação(ões) ativa(s)` : "nenhuma negativação ativa"}
+                {mercado.negativacoesInativas ? ` · ${mercado.negativacoesInativas} quitada(s)` : ""}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-1.5 flex-wrap mt-4">
+          {mercado.negativado != null && ativas === 0 && (
+            <Chip tom={mercado.negativado ? "perigo" : "ok"}>
+              {mercado.negativado ? "Indício de negativação" : "Sem indício de negativação"}
+            </Chip>
+          )}
+          {(mercado.protestos ?? 0) > 0 && (
+            <Chip tom="perigo">{mercado.protestos} protesto(s) em cartório</Chip>
+          )}
+          {(mercado.apontamentosJudiciais ?? 0) > 0 && (
+            <Chip tom="alerta">{mercado.apontamentosJudiciais} apontamento(s) judicial(is)</Chip>
+          )}
+          {/* Quem não tem cadastro mínimo não tem histórico — não é bom nem
+              ruim, é ausência. Por isso tom neutro, nunca verde. */}
+          {mercado.temRegistroMinimo === false && (
+            <Chip tom="neutro">Sem cadastro nos bureaus</Chip>
+          )}
+          {mercado.classeCadastral && (
+            <Chip tom={["A", "B"].includes(mercado.classeCadastral.toUpperCase()) ? "ok" : "alerta"}>
+              Ficha classe {mercado.classeCadastral}
+              {mercado.classeCadastralDescricao ? ` · ${mercado.classeCadastralDescricao.toLowerCase()}` : ""}
+            </Chip>
+          )}
+          {mercado.ultimaNegativacao && (
+            <Chip tom="neutro">última em {fmtData(mercado.ultimaNegativacao)}</Chip>
+          )}
+        </div>
+      </div>
+
+      {/* Quem cobrou, quanto e quando. Só o birô devolve o nome do credor —
+          sem ele o operador vê um número e não tem o que negociar. */}
+      {mercado.negativacoes.length > 0 && (
+        <div className="border-t border-[var(--border-faint)]">
+          <div className="px-5 py-2.5 bg-[var(--surface-2)]">
+            <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+              Quem está cobrando
+            </span>
+          </div>
+          {mercado.negativacoes.map((n, i) => (
+            <div key={i} data-testid={"negativacao-" + i}
+              className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-5 py-3 border-t border-[var(--border-faint)]">
+              <span className="text-[13.5px] font-semibold text-[var(--text)] min-w-0">{n.credor}</span>
+              {n.ocorrencias > 1 && (
+                <span className="text-[12px] text-[var(--text-muted)]">{n.ocorrencias} ocorrências</span>
+              )}
+              <span className="ml-auto flex items-baseline gap-3 shrink-0">
+                {n.ultima && (
+                  <span className="font-mono text-[11px] tabular-nums text-[var(--text-faint)]">
+                    {fmtData(n.ultima)}
+                  </span>
+                )}
+                <span className="font-mono text-[13.5px] font-semibold tabular-nums text-[var(--past)]">
+                  R$ {n.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* O dado mais revelador para um bureau de provedores: os concorrentes
+          que já avaliaram este mesmo CPF, com nome e cidade. */}
+      {mercado.quemConsultou.length > 0 && (
+        <div className="border-t border-[var(--border-faint)]">
+          <div className="flex items-center justify-between gap-3 px-5 py-2.5 bg-[var(--surface-2)]">
+            <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+              Quem já consultou este CPF
+            </span>
+            <span className="font-mono text-[11px] tabular-nums text-[var(--text-muted)]">
+              {mercado.consultas30d != null ? `${mercado.consultas30d} em 30 dias` : mercado.quemConsultou.length}
+            </span>
+          </div>
+          {mercado.quemConsultou.slice(0, 6).map((c, i) => (
+            <div key={i} data-testid={"consulta-anterior-" + i}
+              className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-5 py-2.5 border-t border-[var(--border-faint)]">
+              <span className="text-[13px] text-[var(--text)] min-w-0">{c.empresa}</span>
+              {c.cidadeUf && <span className="text-[12px] text-[var(--text-muted)]">{c.cidadeUf}</span>}
+              {c.data && (
+                <span className="ml-auto font-mono text-[11px] tabular-nums text-[var(--text-faint)] shrink-0">
+                  {fmtData(c.data)}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Consulta por ramo: "Telecomunicações: 4" é o migrador serial escrito
+          por extenso — quatro concorrentes avaliaram este CPF. */}
+      {segmentos.length > 0 && (
+        <div className="border-t border-[var(--border-faint)] px-5 py-3 bg-[var(--surface-2)]">
+          <span className="block text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)] mb-2">
+            Consultas por ramo
+          </span>
+          <div className="flex gap-1.5 flex-wrap">
+            {segmentos.map(([ramo, n]) => (
+              <Chip key={ramo} tom="neutro">{ramo.toLowerCase()} · {n}</Chip>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type Processo = NonNullable<Resultado["processos"]>[number];
+
+/**
+ * Tabela de processos no formato do relatório de bureau: barra de título,
+ * uma linha por ocorrência, "NÃO CONSTAM OCORRÊNCIAS" ocupando a linha
+ * inteira quando vazio — listar o vazio é o que prova que a checagem rodou —
+ * e rodapé com o total, como nas tabelas de Pendências/Protesto da Serasa.
+ */
+function TabelaProcessos({ processos }: { processos: Processo[] }) {
+  const comoReu = processos.filter(p => p.papel === "réu").length;
+  const valorTotal = processos.reduce((s, p) => s + (p.valor ?? 0), 0);
+
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden"
+      data-testid="tabela-processos">
+      <div className="flex items-center justify-between gap-3 px-5 py-2.5 bg-[var(--surface-2)] border-b border-[var(--border-faint)]">
+        <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+          Processos judiciais e administrativos
+        </span>
+        {processos.length > 0 && (
+          <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--text-faint)]">
+            fonte pública · tribunais
+          </span>
+        )}
+      </div>
+
+      {processos.length === 0 ? (
+        <p className="px-5 py-3.5 text-[13px] font-semibold text-[var(--ok)]">
+          Não constam ocorrências
+        </p>
+      ) : (
+        <>
+          {/* Tabela real com rolagem própria: 6 colunas não cabem em 375px, e o
+              design system manda a rolagem ficar no container, nunca na página. */}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-[13px]">
+              <thead>
+                <tr>
+                  {["Data", "Tipo", "Assunto", "Tribunal", "Situação", "Papel", "Valor"].map(h => (
+                    <th key={h}
+                      className={`text-[9.5px] font-medium uppercase tracking-[0.1em] text-[var(--text-muted)] px-4 py-2 border-b border-[var(--border)] ${h === "Valor" ? "text-right" : "text-left"}`}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {processos.map((p, i) => (
+                  <tr key={i} data-testid={`processo-${i}`}
+                    className="border-b border-[var(--border-faint)] last:border-b-0">
+                    <td className="px-4 py-2.5 font-mono tabular-nums text-[var(--text-2)] whitespace-nowrap">
+                      {fmtData(p.data)}
+                    </td>
+                    <td className="px-4 py-2.5 text-[var(--text)]">{p.tipo?.toLowerCase() ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-[var(--text-muted)]">{p.assunto?.toLowerCase() ?? "—"}</td>
+                    <td className="px-4 py-2.5 font-mono text-[12px] text-[var(--text-muted)] whitespace-nowrap">
+                      {[p.tribunal, p.uf].filter(Boolean).join(" · ") || "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-[12px] text-[var(--text-muted)]">{p.status?.toLowerCase() ?? "—"}</td>
+                    <td className="px-4 py-2.5">
+                      {/* Só o polo passivo pesa: ser autor não diz nada sobre pagar. */}
+                      <Chip tom={p.papel === "réu" ? "perigo" : "neutro"}>{p.papel}</Chip>
+                    </td>
+                    <td className="px-4 py-2.5 font-mono tabular-nums text-right text-[var(--text)] whitespace-nowrap">
+                      {p.valor != null
+                        ? `R$ ${p.valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+                        : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 px-5 py-2.5 bg-[var(--surface-2)] border-t border-[var(--border-faint)] text-[12px] text-[var(--text-muted)]">
+            <span>
+              Total de ocorrências:{" "}
+              <span className="font-mono font-semibold tabular-nums text-[var(--text)]">{processos.length}</span>
+              {" "}· como réu:{" "}
+              <span className="font-mono font-semibold tabular-nums text-[var(--past)]">{comoReu}</span>
+            </span>
+            {valorTotal > 0 && (
+              <span className="ml-auto">
+                Valor total informado:{" "}
+                <span className="font-mono font-semibold tabular-nums text-[var(--text)]">
+                  R$ {valorTotal.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                </span>
+              </span>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Salário mínimo de referência — mesmo valor usado no veredito do servidor. */
+const SALARIO_MINIMO = 1518;
+/** Teto da régua de renda. R$ 35.000 ≈ 23 SM; acima disso nada muda na decisão. */
+const TETO_RENDA = 35000;
+
+/** "ACIMA DE 20 SM" · "3 A 5 SM" · "ATE 2 SM" → intervalo em reais. */
+function faixaEmReais(faixa?: string | null): { de: number; ate: number | null } | null {
+  if (!faixa) return null;
+  const f = faixa.trim().toUpperCase();
+  if (f === "SEM INFORMACAO") return null;
+  const sm = (s: string) => parseFloat(s.replace(",", ".")) * SALARIO_MINIMO;
+
+  let m = f.match(/^ACIMA DE\s+([\d.,]+)\s*SM$/);
+  if (m) return { de: sm(m[1]), ate: null };
+  m = f.match(/^ATE\s+([\d.,]+)\s*SM$/);
+  if (m) return { de: 0, ate: sm(m[1]) };
+  m = f.match(/^([\d.,]+)\s*A\s*([\d.,]+)\s*SM$/);
+  if (m) return { de: sm(m[1]), ate: sm(m[2]) };
+  return null;
+}
+
+const pctRenda = (v: number) => Math.max(0, Math.min(100, (v / TETO_RENDA) * 100));
+
+/**
+ * Régua de renda: onde este CPF cai contra a média da própria região.
+ * "R$ 3.000" sozinho não diz se é muito ou pouco para o bairro dele — a
+ * comparação é que informa, e ela já vem na resposta (fonte IBGE).
+ */
+function BarraRenda({ faixa, fontes }: {
+  faixa?: string;
+  fontes: Array<{ fonte: string; faixa: string; emReais: string | null; formal: boolean }>;
+}) {
+  const alvo = faixaEmReais(faixa);
+  if (!alvo) return null;
+  // "acima de N SM" não tem topo: o próprio piso é a posição.
+  const ponto = alvo.ate == null ? alvo.de : (alvo.de + alvo.ate) / 2;
+
+  const fonteIbge = fontes.find(f => f.fonte === "Média IBGE da região");
+  const ibge = faixaEmReais(fonteIbge?.faixa);
+  const ibgeDe = ibge ? pctRenda(ibge.de) : 0;
+  const ibgeAte = ibge ? pctRenda(ibge.ate ?? TETO_RENDA) : 0;
+
+  return (
+    <div className="mt-5">
+      <div className="relative h-2 rounded-full bg-[var(--surface-inset)]">
+        {ibge && (
+          <div className="absolute top-0 bottom-0 rounded-full bg-[var(--border-strong)]"
+            style={{ left: `${ibgeDe}%`, width: `${Math.max(1.5, ibgeAte - ibgeDe)}%` }} />
+        )}
+        <div className="absolute -top-1 -bottom-1 w-[3px] rounded-full bg-[var(--ok)]"
+          style={{ left: `${pctRenda(ponto)}%` }} />
+      </div>
+      <div className="flex justify-between gap-3 mt-2 text-[11.5px] text-[var(--text-muted)]">
+        <span>
+          {fonteIbge
+            ? `Média IBGE da região · ${(fonteIbge.emReais ?? fonteIbge.faixa).replace("/mês", "")}`
+            : "Sem média regional para comparar"}
+        </span>
+        <span className="text-[var(--ok)] font-semibold shrink-0">Este CPF</span>
+      </div>
+    </div>
   );
 }
 
@@ -175,14 +785,6 @@ const VEREDITO: Record<
     cls: "bg-[var(--surface-inset)] text-[var(--text-muted)]", borderCls: "border-[var(--border)]",
     borda: "border-l-[var(--border-strong)]", nota: "Sem registro — não é recusa, é ausência de informação",
   },
-};
-
-/** A e o menor risco, H o maior. Do meio para baixo ja merece cautela. */
-const NIVEL_TOM = (n: string): "ok" | "alerta" | "neutro" => {
-  const c = n.trim().toUpperCase();
-  if (["A", "B"].includes(c)) return "ok";
-  if (["C", "D"].includes(c)) return "neutro";
-  return "alerta";
 };
 
 /** A e altissima intensidade, H e ausencia de rastro. */
@@ -224,23 +826,6 @@ const soDigitos = (v: string) => v.replace(/\D/g, "").slice(0, 11);
 const formataCpf = (v: string) =>
   soDigitos(v).replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d{1,2})$/, "$1-$2");
 
-function Bloco({
-  titulo, Icone, children, acao,
-}: { titulo: string; Icone: any; children: React.ReactNode; acao?: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--border-faint)]">
-        <Icone className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-        <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-          {titulo}
-        </span>
-        {acao && <span className="ml-auto">{acao}</span>}
-      </div>
-      <div className="px-4 py-3">{children}</div>
-    </div>
-  );
-}
-
 /**
  * Grade de pares rotulo/valor. Duas colunas a partir de sm.
  *
@@ -270,24 +855,79 @@ function Linha({ rotulo, valor, alerta }: { rotulo: string; valor: React.ReactNo
   );
 }
 
-/** Número que decide, na tira de resumo. Mono e tabular, conforme o sistema. */
-function Metrica({
-  rotulo, valor, sub, tom = "neutro",
-}: { rotulo: string; valor: React.ReactNode; sub?: string; tom?: "ok" | "alerta" | "perigo" | "neutro" }) {
-  const cor = tom === "ok" ? "text-[var(--ok)]"
-    : tom === "alerta" ? "text-[var(--gated)]"
-    : tom === "perigo" ? "text-[var(--danger)]"
-    : "text-[var(--text)]";
+type Nivel = { id: string; rotulo: string; descricao: string; creditos: number };
+
+/** Fallback: se a lista não vier da API, a tela ainda oferece o nível básico. */
+const NIVEIS_PADRAO: Nivel[] = [
+  { id: "padrao", rotulo: "Padrão", descricao: "Receita, endereço, renda, cobranças e processos", creditos: 1 },
+];
+
+/**
+ * Escolha do nível, antes da busca. Cada nível consulta mais bases e custa mais
+ * créditos — a decisão é do provedor a cada consulta, não uma configuração da
+ * conta: instalar um plano de R$ 80 e um de R$ 800 não merecem a mesma
+ * profundidade de checagem.
+ */
+function SeletorNivel({ niveis, valor, onChange, saldo, desabilitado }: {
+  niveis: Nivel[]; valor: string; onChange: (id: string) => void;
+  saldo: number; desabilitado?: boolean;
+}) {
   return (
-    <div className="px-4 py-3 min-w-0">
-      <span className="block text-[10px] font-semibold uppercase tracking-[0.09em] text-[var(--text-faint)] truncate">
-        {rotulo}
-      </span>
-      <p className={`mt-1 font-mono text-[19px] font-medium tracking-[-0.02em] tabular-nums truncate ${cor}`}>
-        {valor}
-      </p>
-      {sub && <p className="text-[11px] text-[var(--text-muted)] truncate">{sub}</p>}
-    </div>
+    <fieldset className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4"
+      disabled={desabilitado} data-testid="seletor-nivel">
+      <legend className="sr-only">Profundidade da consulta</legend>
+      <div className="flex items-baseline justify-between gap-3 mb-3">
+        <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
+          Profundidade da consulta
+        </span>
+        <span className="font-mono text-[11px] tabular-nums text-[var(--text-muted)]">
+          saldo {saldo} crédito{saldo === 1 ? "" : "s"}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        {niveis.map(n => {
+          const ativo = n.id === valor;
+          // Sem saldo o nível continua visível: esconder faria o provedor achar
+          // que a Premium não existe, em vez de saber que precisa comprar.
+          const semSaldo = saldo < n.creditos;
+          return (
+            <label key={n.id}
+              data-testid={`nivel-${n.id}`}
+              className={`relative flex flex-col gap-1 rounded-md border p-3 cursor-pointer transition-colors
+                ${ativo
+                  ? "border-[var(--color-brand)] bg-[var(--brand-soft)]"
+                  : "border-[var(--border)] hover:border-[var(--border-strong)]"}
+                ${semSaldo ? "opacity-55" : ""}`}>
+              <input
+                type="radio" name="nivel-consulta" value={n.id} checked={ativo}
+                onChange={() => onChange(n.id)}
+                className="sr-only peer"
+              />
+              {/* O anel de foco tem que aparecer no card, não no input escondido. */}
+              <span className="absolute inset-0 rounded-md pointer-events-none peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[hsl(var(--ring))]" />
+              <span className="flex items-baseline justify-between gap-2">
+                <span className={`text-[13px] font-semibold ${ativo ? "text-[var(--brand-ink)]" : "text-[var(--text)]"}`}>
+                  {n.rotulo}
+                </span>
+                <span className={`font-mono text-[12px] font-semibold tabular-nums shrink-0
+                  ${ativo ? "text-[var(--brand-ink)]" : "text-[var(--text-muted)]"}`}>
+                  {n.creditos} cr
+                </span>
+              </span>
+              <span className="text-[11.5px] leading-snug text-[var(--text-muted)]">
+                {n.descricao}
+              </span>
+              {semSaldo && (
+                <span className="text-[11px] font-semibold text-[var(--gated)]">
+                  saldo insuficiente
+                </span>
+              )}
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
   );
 }
 
@@ -360,6 +1000,12 @@ export default function ConsultaCadastralPage() {
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [activeTab, setActiveTab] = useState<"nova" | "historico" | "info">("nova");
   const [verConfig, setVerConfig] = useState(false);
+  // A lista de contato mostra 4 telefones; o resto fica atrás de um clique,
+  // como no mockup — nove linhas de telefone empurram o resto da tela pra baixo.
+  const [verTodosFones, setVerTodosFones] = useState(false);
+  // Nível escolhido para a próxima busca. Volta ao padrão a cada carga da tela:
+  // deixar Premium "grudado" faria o operador gastar 17 créditos sem perceber.
+  const [nivel, setNivel] = useState("padrao");
 
   // LGPD — mesmo fluxo de modal da Consulta ISP: o aceite vale para a sessao,
   // nao para cada busca. Checkbox no formulario pedia confirmacao repetida.
@@ -379,6 +1025,8 @@ export default function ConsultaCadastralPage() {
       const r = await apiRequest("POST", "/api/bigdata-consultations", {
         cpfCnpj: soDigitos(payload.cpfCnpj),
         lgpdAccepted: true,
+        // O servidor decide quantos créditos isso custa — aqui só vai o nome.
+        nivel: payload.nivel ?? nivel,
       });
       return r.json();
     },
@@ -395,6 +1043,9 @@ export default function ConsultaCadastralPage() {
   const executeSearch = (payload: any) => mutation.mutate(payload);
 
   const handleSearch = (payload: any) => {
+    // Congela o nível aqui: entre abrir o modal de LGPD e aceitar, o operador
+    // pode mexer no seletor, e o que ele viu ao clicar em Consultar é o que vale.
+    payload = { ...payload, nivel };
     if (!lgpdSessionAccepted) {
       setPendingSearchPayload(payload);
       setLgpdAccepted(false);
@@ -418,10 +1069,6 @@ export default function ConsultaCadastralPage() {
   const configurado = integracao?.configurado;
   const v = resultado ? VEREDITO[resultado.veredito] : null;
   const d = resultado?.dados;
-
-  const aprovados = consultations.filter((c: any) => c.veredito === "APROVAR").length;
-  const taxaAprovacao = consultations.length > 0
-    ? Math.round((aprovados / consultations.length) * 100) : 0;
 
   return (
     <div className="bg-[var(--color-bg)] p-4 lg:p-5" data-testid="consulta-cadastral-page">
@@ -485,6 +1132,14 @@ export default function ConsultaCadastralPage() {
               <Configuracao integracao={integracao} />
             ) : (
               <>
+                <SeletorNivel
+                  niveis={data?.niveis ?? NIVEIS_PADRAO}
+                  valor={nivel}
+                  onChange={setNivel}
+                  saldo={data?.credits ?? 0}
+                  desabilitado={mutation.isPending}
+                />
+
                 <ConsultaSearchBar
                   onSearch={handleSearch}
                   isLoading={mutation.isPending}
@@ -500,15 +1155,11 @@ export default function ConsultaCadastralPage() {
                   />
                 )}
 
+                {/* Sem a tira de métricas: saldo já aparece no seletor de nível
+                    e no topo; contagem do dia/mês vive no Histórico. */}
                 {!mutation.isPending && !resultado && (
                   <ConsultaIdleState
                     totalConsultas={consultations.length}
-                    metrics={[
-                      { label: "Consultas hoje", value: data?.todayCount ?? 0, testId: "text-cadastral-today" },
-                      { label: "No mês", value: data?.monthCount ?? 0, testId: "text-cadastral-month" },
-                      { label: "Taxa de aprovação", value: taxaAprovacao, suffix: "%", testId: "text-cadastral-approval" },
-                      { label: "Créditos", value: data?.credits ?? 0, testId: "text-cadastral-saldo" },
-                    ]}
                     emptyTitle="Nenhuma consulta ainda"
                     emptyDescription="Digite o CPF do candidato antes de liberar a instalação. Você recebe a situação na Receita, o vínculo com o endereço, a renda estimada e o histórico de inadimplência."
                     emptyCta="FAZER PRIMEIRA CONSULTA"
@@ -518,11 +1169,10 @@ export default function ConsultaCadastralPage() {
 
                 {!mutation.isPending && resultado && v && (
                   <div className="space-y-4" data-testid="consultation-result">
-              {/* A decisão é o produto. Barra lateral na cor do veredito dá o
-                  peso que um badge de 12px não dava. */}
-              {/* Estrutura do mockup: conteudo a esquerda, arco de score num
-                  painel proprio a direita. O score deixa de ser mais um numero
-                  na fila e passa a ser a segunda coisa que o olho encontra. */}
+
+              {/* VEREDITO — a decisão é o produto. Conteúdo à esquerda, arco de
+                  score em painel próprio à direita: o score deixa de ser mais um
+                  número na fila e vira a segunda coisa que o olho encontra. */}
               <div className={`rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden border-l-[3px] ${v.borda} grid grid-cols-1 lg:grid-cols-[1fr_300px]`}>
                 <div className="p-6 flex flex-col gap-4">
                   <div className="flex items-center gap-2.5 flex-wrap">
@@ -533,10 +1183,26 @@ export default function ConsultaCadastralPage() {
                     <span className="font-mono text-[11px] text-[var(--text-faint)] tabular-nums">
                       {resultado.latenciaMs} ms
                     </span>
+                    {/* Sem isto o operador não sabe se a ausência de negativação
+                        é "não deve nada" ou "não perguntei". */}
+                    {resultado.nivel && (
+                      <Chip tom="neutro">
+                        consulta {(data?.niveis ?? NIVEIS_PADRAO).find((n: Nivel) => n.id === resultado.nivel)?.rotulo ?? resultado.nivel}
+                        {resultado.creditosCobrados ? ` · ${resultado.creditosCobrados} cr` : ""}
+                      </Chip>
+                    )}
+                    {/* Protocolo do relatório — bureau emite documento, não tela.
+                        Dá ao operador o que citar num contrato ou contestação. */}
+                    <span className="ml-auto font-mono text-[11px] tabular-nums text-[var(--text-faint)]">
+                      Nº {String(resultado.id).padStart(6, "0")}
+                      {resultado.createdAt
+                        ? ` · ${new Date(resultado.createdAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}`
+                        : ""}
+                    </span>
                   </div>
 
                   {/* Identidade grande: o operador confirma que consultou a pessoa
-                      certa antes de olhar qualquer numero. */}
+                      certa antes de olhar qualquer número. */}
                   <div>
                     <p className="text-[26px] font-bold tracking-[-0.02em] leading-[1.15] text-[var(--text)]">
                       {resultado.identidade?.nome ?? "Nome não informado"}
@@ -547,21 +1213,36 @@ export default function ConsultaCadastralPage() {
                       {resultado.enderecos?.[0]?.cidade
                         ? ` · ${resultado.enderecos[0].cidade}/${resultado.enderecos[0].uf ?? ""}` : ""}
                     </p>
+                    {/* Nascimento e filiação — o que o balcão confere contra o
+                        documento com foto. O relatório da Serasa abre com isso. */}
+                    {(resultado.identidade?.nascimento || resultado.identidade?.nomeMae) && (
+                      <p className="font-mono text-[12px] tabular-nums text-[var(--text-faint)] mt-0.5">
+                        {resultado.identidade?.nascimento ? `nascimento ${fmtData(resultado.identidade.nascimento)}` : ""}
+                        {resultado.identidade?.nascimento && resultado.identidade?.nomeMae ? " · " : ""}
+                        {resultado.identidade?.nomeMae ? `mãe ${resultado.identidade.nomeMae}` : ""}
+                      </p>
+                    )}
                   </div>
 
                   {d?.encontrado && (
                     <div className="flex gap-2 flex-wrap">
-                      <Pilula tom={d.taxIdStatus?.toUpperCase() === "REGULAR" ? "ok" : "alerta"}>
+                      <Chip tom={d.taxIdStatus?.toUpperCase() === "REGULAR" ? "ok" : "alerta"}>
                         {d.taxIdStatus?.toUpperCase() === "REGULAR" ? "CPF regular na Receita" : `CPF ${d.taxIdStatus}`}
-                      </Pilula>
-                      <Pilula tom={d.temObito ? "alerta" : "ok"}>
+                      </Chip>
+                      <Chip tom={d.temObito ? "alerta" : "ok"}>
                         {d.temObito ? "Com indicação de óbito" : "Sem indicação de óbito"}
-                      </Pilula>
+                      </Chip>
                       {resultado.risco.empregado != null && (
-                        <Pilula tom={resultado.risco.empregado ? "ok" : "alerta"}>
+                        <Chip tom={resultado.risco.empregado ? "ok" : "alerta"}>
                           {resultado.risco.empregado ? "Empregado" : "Sem vínculo formal"}
                           {resultado.risco.socio ? " · sócio de empresa" : ""}
-                        </Pilula>
+                        </Chip>
+                      )}
+                      {/* Não está no mockup: o bloco de identidade saiu e levou junto
+                          a validação de nascimento, que é sinal de fraude. Entra aqui
+                          só quando há divergência. */}
+                      {d.nascimentoValidadoNaReceita === false && (
+                        <Chip tom="alerta">Nascimento não confere na Receita</Chip>
                       )}
                     </div>
                   )}
@@ -583,8 +1264,8 @@ export default function ConsultaCadastralPage() {
                   )}
                 </div>
 
-                {/* Painel do score. Arco em vez de numero solto: a posicao na
-                    escala se le antes do valor. */}
+                {/* Painel do score. Arco em vez de número solto: a posição na
+                    escala se lê antes do valor. */}
                 <div className="border-t lg:border-t-0 lg:border-l border-[var(--border-faint)] bg-[var(--surface-2)] p-6 flex flex-col items-center justify-center">
                   <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)] mb-1.5">
                     Score de risco
@@ -599,314 +1280,300 @@ export default function ConsultaCadastralPage() {
                 </div>
               </div>
 
-              {/* Tira de resumo: os cinco números que decidem, numa varredura só.
-                  Sem ela o operador tinha que ler sete cards para formar o quadro. */}
               {d?.encontrado && (
-                <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 divide-x divide-y lg:divide-y-0 divide-[var(--border-faint)]">
-                  <Metrica
-                    rotulo="Score de risco"
-                    valor={resultado.risco.score != null ? resultado.risco.score : "—"}
-                    sub={resultado.risco.nivel ? `nível ${resultado.risco.nivel} de A–H` : undefined}
-                    tom={resultado.risco.score == null ? "neutro"
-                      : resultado.risco.score >= 700 ? "ok"
-                      : resultado.risco.score >= 400 ? "alerta" : "perigo"}
-                  />
-                  <Metrica
-                    rotulo="Cobranças 12m"
-                    valor={resultado.inadimplencia.cobrancas365d}
-                    sub={resultado.inadimplencia.emCobrancaAgora ? "em cobrança agora"
-                      : resultado.inadimplencia.credores365d > 1
-                        ? `${resultado.inadimplencia.credores365d} credores` : "nenhuma ativa"}
-                    tom={resultado.inadimplencia.emCobrancaAgora ? "perigo"
-                      : resultado.inadimplencia.cobrancas365d > 0 ? "alerta" : "ok"}
-                  />
-                  <Metrica
-                    rotulo="Processos como réu"
-                    valor={resultado.inadimplencia.processosComoReu}
-                    sub={resultado.inadimplencia.temExecucao ? "com execução judicial"
-                      : `${resultado.inadimplencia.processos365d} no último ano`}
-                    tom={resultado.inadimplencia.temExecucao ? "perigo"
-                      : resultado.inadimplencia.processosComoReu > 0 ? "alerta" : "ok"}
-                  />
-                  <Metrica
-                    rotulo="Renda estimada"
-                    valor={resultado.renda.emReais?.replace("/mês", "") ?? "—"}
-                    sub={resultado.risco.empregado ? "com vínculo formal" : "sem vínculo formal"}
-                    tom={resultado.risco.empregado === false ? "alerta" : "neutro"}
-                  />
-                  <Metrica
-                    rotulo="Consultas 30d"
-                    valor={resultado.rastro.consultas30d}
-                    sub="no mercado inteiro"
-                    tom={resultado.rastro.consultas30d >= 10 ? "alerta" : "ok"}
-                  />
-                </div>
-              )}
+                <>
+                  {/* RESUMO DA CONSULTA — o esqueleto do relatório de bureau:
+                      toda verificação listada, inclusive as "Nada consta". */}
+                  <ResumoConsulta linhas={montarResumo(resultado)} />
 
-              {d?.encontrado && (
-                <div className="space-y-3">
-                  {/* Score e inadimplência vêm antes do cadastro: é o que decide. */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                    <Bloco titulo="Capacidade de pagamento" Icone={Gauge}>
-                      {resultado.risco.score != null ? (
-                        <>
-                          <div className="flex items-baseline gap-2">
-                            <span className="font-mono text-[28px] font-medium tracking-[-0.02em] text-[var(--text)] tabular-nums">
-                              {resultado.risco.score}
-                            </span>
-                            <span className="text-[13px] text-[var(--text-muted)]">/ 1000</span>
-                            {resultado.risco.nivel && (
-                              <Tag tom={NIVEL_TOM(resultado.risco.nivel)}>nível {resultado.risco.nivel}</Tag>
-                            )}
-                          </div>
-                          <p className="text-[11px] text-[var(--text-faint)]">
-                            Maior é melhor. Nível A é o menor risco, H o maior.
-                          </p>
-                          <Pares cols={1}>
-                            <Linha rotulo="Empregado atualmente"
-                              valor={resultado.risco.empregado == null ? "—" : resultado.risco.empregado ? "Sim" : "Não"}
-                              alerta={resultado.risco.empregado === false} />
-                            <Linha rotulo="Sócio de empresa"
-                              valor={resultado.risco.socio == null ? "—" : resultado.risco.socio ? "Sim" : "Não"} />
-                            <Linha rotulo="Recebe auxílio"
-                              valor={resultado.risco.recebendoAuxilio == null ? "—" : resultado.risco.recebendoAuxilio ? "Sim" : "Não"} />
-                          </Pares>
-                        </>
-                      ) : (
-                        <p className="text-[13px] text-[var(--text-muted)]">Sem score para este CPF.</p>
-                      )}
-                    </Bloco>
-
-                    <Bloco titulo="Inadimplência e judicial" Icone={AlertTriangle}>
-                      <Pares>
-                        <Linha rotulo="Em cobrança agora"
-                          valor={resultado.inadimplencia.emCobrancaAgora ? "Sim" : "Não"}
-                          alerta={resultado.inadimplencia.emCobrancaAgora} />
-                        <Linha rotulo="Cobranças em 12 meses"
-                          valor={resultado.inadimplencia.cobrancas365d +
-                            (resultado.inadimplencia.credores365d > 1
-                              ? " · " + resultado.inadimplencia.credores365d + " credores" : "")}
-                          alerta={resultado.inadimplencia.cobrancas365d > 0} />
-                        <Linha rotulo="Processos como réu"
-                          valor={resultado.inadimplencia.processosComoReu + " de " + resultado.inadimplencia.processosTotal}
-                          alerta={resultado.inadimplencia.temExecucao} />
-                        <Linha rotulo="Processos no último ano"
-                          valor={resultado.inadimplencia.processos365d}
-                          alerta={resultado.inadimplencia.processos365d > 0} />
-                        <Linha rotulo="Dívida ativa da União"
-                          valor={resultado.inadimplencia.dividaAtiva > 0
-                            ? "R$ " + resultado.inadimplencia.dividaAtiva.toLocaleString("pt-BR", { minimumFractionDigits: 2 })
-                            : "nenhuma"}
-                          alerta={resultado.inadimplencia.dividaAtiva > 0} />
-                        <Linha rotulo="Última cobrança" valor={fmtData(resultado.inadimplencia.ultimaCobranca)} />
-                      </Pares>
-                      {(resultado.inadimplencia.temExecucao || resultado.inadimplencia.naturezas.length > 0) && (
-                        <div className="flex gap-1.5 flex-wrap pt-2.5 mt-2.5 border-t border-[var(--border-faint)]">
-                          {resultado.inadimplencia.temExecucao && <Tag tom="alerta">execução judicial</Tag>}
-                          {resultado.inadimplencia.naturezas.map((n, i) => <Tag key={i}>{n.toLowerCase()}</Tag>)}
-                        </div>
-                      )}
-                    </Bloco>
-                  </div>
-
-                  <Bloco titulo="Rastro no mercado" Icone={Activity}>
-                    <Pares cols={3}>
-                      <Linha rotulo="Consultas em 30 dias" valor={resultado.rastro.consultas30d}
-                        alerta={resultado.rastro.consultas30d >= 10} />
-                      <Linha rotulo="Consultas em 12 meses" valor={resultado.rastro.consultas365d} />
-                      <Linha rotulo="Alterações de nome" valor={resultado.rastro.mudancasNome}
-                        alerta={resultado.rastro.mudancasNome > 0} />
-                      <Linha rotulo="Veículos" valor={resultado.patrimonio.veiculos} />
-                      <Linha rotulo="Busca por crédito" valor={ESCALA(resultado.rastro.buscaCredito)}
-                        alerta={["A","B"].includes((resultado.rastro.buscaCredito||"").toUpperCase())} />
-                      <Linha rotulo="Uso de cartão" valor={ESCALA(resultado.rastro.usoCartao)} />
-                      <Linha rotulo="Banco digital" valor={ESCALA(resultado.rastro.usoBancoDigital)} />
-                      <Linha rotulo="Recebe auxílio"
-                        valor={resultado.patrimonio.recebeAuxilio ? "Sim" : "Não"} />
-                    </Pares>
-                    {/* Consulta demais em 30 dias é o padrão do migrador serial —
-                        o mesmo sinal que o score ISP persegue dentro da rede. */}
-                    <p className="text-[11px] text-[var(--text-faint)] pt-1">
-                      Escala de intensidade: A é a mais alta, H é ausência de rastro.
-                    </p>
-                  </Bloco>
-
-                  {resultado.riscoArea?.length > 0 && (
-                    <Bloco titulo="Risco da área · segurança da instalação" Icone={MapPin}>
-                      {resultado.riscoArea.map((a, i) => (
-                        <div key={i} className="flex items-center justify-between gap-3 text-[13px] py-0.5">
-                          <span className="text-[var(--text-2)] min-w-0 truncate">{a.endereco}</span>
-                          <Tag tom={AREA_TOM(a.ponto)}>{AREA_ROTULO(a.ponto)}</Tag>
-                        </div>
-                      ))}
-                      {/* Nenhum bureau responde isso: é risco operacional, não de crédito. */}
-                      <p className="text-[11px] text-[var(--text-faint)] pt-1 leading-relaxed">
-                        Classificação territorial da coordenada. Não entra no veredito de
-                        crédito — serve para planejar a visita técnica e o comodato.
-                      </p>
-                    </Bloco>
-                  )}
-
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                  <Bloco titulo="Identidade" Icone={ShieldCheck}>
-                    <Pares>
-                    <Linha rotulo="Nome" valor={resultado.identidade.nome ?? "—"} />
-                    <Linha rotulo="Nascimento" valor={
-                      fmtData(resultado.identidade.nascimento) +
-                      (resultado.identidade.idade ? " · " + resultado.identidade.idade + " anos" : "")
-                    } />
-                    <Linha rotulo="Nome da mãe" valor={resultado.identidade.nomeMae ?? "—"} />
-                    <Linha rotulo="Situação na Receita" valor={
-                      (resultado.identidade.situacaoReceita ?? "—") + " · " + fmtData(resultado.identidade.dataSituacao)
-                    } alerta={!!d.taxIdStatus && d.taxIdStatus.toUpperCase() !== "REGULAR"} />
-                    <Linha rotulo="Indicação de óbito" valor={d.temObito ? "Sim" : "Não"} alerta={d.temObito} />
-                    <Linha rotulo="Nascimento confere" valor={d.nascimentoValidadoNaReceita === false ? "Não" : "Sim"}
-                      alerta={d.nascimentoValidadoNaReceita === false} />
-                    <Linha rotulo="Homônimos" valor={d.homonimos ?? 0} alerta={(d.homonimos ?? 0) >= 100} />
-                    </Pares>
-                  </Bloco>
-
-                  <Bloco titulo="Renda e patrimônio" Icone={Wallet}>
-                    {/* A faixa em salários mínimos não diz nada a quem decide um plano
-                        de R$ 120 — o valor em reais é o que se compara. */}
-                    <p className="font-mono text-[19px] font-medium tracking-[-0.02em] text-[var(--text)] tabular-nums">
-                      {resultado.renda.emReais ?? "sem informação"}
-                    </p>
-                    {resultado.renda.faixa && resultado.renda.emReais && (
-                      <p className="text-[12px] text-[var(--text-muted)]">
-                        Faixa de referência: {resultado.renda.faixa}
-                      </p>
-                    )}
-                    {/* MTE vem de registro do Ministério do Trabalho: é vínculo formal,
-                        não estimativa. Quando existe, é o número mais confiável. */}
-                    {resultado.renda.rendaFormal && (
-                      <div className="rounded bg-[var(--ok-bg)] px-2.5 py-2 mt-1">
-                        <span className="text-[11px] font-medium text-[var(--ok)]">
-                          {resultado.renda.rendaFormal.fonte}
-                        </span>
-                        <p className="font-mono text-[13px] tabular-nums text-[var(--ok)]">
-                          {resultado.renda.rendaFormal.emReais ?? resultado.renda.rendaFormal.faixa}
+                  {/* Bureau pedido e não entregue. Sem este aviso o operador lê
+                      a ausência do painel como "CPF limpo no mercado", quando na
+                      verdade ninguém consultou. */}
+                  {resultado.bureauIndisponivel && (
+                    <div className="rounded-lg border border-[var(--gated-border)] bg-[var(--gated-bg)] px-4 py-3 flex gap-2.5"
+                      data-testid="aviso-bureau-indisponivel">
+                      <AlertTriangle className="w-4 h-4 shrink-0 mt-px text-[var(--gated)]" />
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-semibold text-[var(--gated)]">
+                          Consulta {(data?.niveis ?? NIVEIS_PADRAO).find((n: Nivel) => n.id === resultado.nivelPedido)?.rotulo ?? "Completa"} pedida, mas os bureaus não retornaram dados
+                        </p>
+                        <p className="text-[12.5px] text-[var(--text-muted)] mt-0.5 leading-relaxed">
+                          Negativação, dívida, protestos e score de mercado não vieram
+                          nesta consulta — bureau ainda não liberado ou fora do ar. Você
+                          foi cobrado apenas {resultado.creditosCobrados ?? 1} crédito;
+                          a diferença voltou para o saldo. Tente novamente mais tarde ou
+                          confirme a liberação no BDC Center.
                         </p>
                       </div>
-                    )}
-
-                    {resultado.renda.fontes.length > 1 && (
-                      <div className="pt-1 space-y-1">
-                        {resultado.renda.fontes.filter(f => !f.formal).map((f, i) => (
-                          <Linha key={i} rotulo={f.fonte} valor={f.emReais ?? f.faixa} />
-                        ))}
-                      </div>
-                    )}
-
-                    <Pares cols={1}>
-                      <Linha rotulo="Patrimônio estimado" valor={
-                        resultado.renda.patrimonio && resultado.renda.patrimonio !== "SEM INFORMACAO"
-                          ? resultado.renda.patrimonio : "sem informação"} />
-                      <Linha rotulo="Declarações de IR" valor={
-                        resultado.renda.declaracoesIR.length > 0
-                          ? resultado.renda.declaracoesIR.length + " anos · desde " +
-                            resultado.renda.declaracoesIR[resultado.renda.declaracoesIR.length - 1].ano
-                          : "nenhuma"} />
-                    </Pares>
-
-                    <div className="flex gap-1.5 flex-wrap pt-1">
-                      {/* Quem some da Receita costuma ser quem some da cobrança. */}
-                      {resultado.renda.declaraIrRecorrente && <Tag tom="ok">declara IR com recorrência</Tag>}
-                      {resultado.renda.temSegmentoVip && <Tag tom="ok">segmento premium no banco</Tag>}
-                      {resultado.renda.declaracoesIR[0]?.banco && (
-                        <Tag>{resultado.renda.declaracoesIR[0].banco}</Tag>
-                      )}
                     </div>
+                  )}
 
-                    <p className="text-[11px] text-[var(--text-faint)] pt-1 leading-relaxed">
-                      Estimativa estatística, não comprovação de renda. Nunca gera recusa —
-                      apenas alerta quando não cobre a mensalidade.
-                    </p>
-                  </Bloco>
+                  {/* Só aparece com os datasets de bureau habilitados. */}
+                  {resultado.mercado && <PainelMercado mercado={resultado.mercado} />}
+
+                  {/* Capacidade à esquerda, comportamento à direita. */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+                    <Painel titulo="Renda e patrimônio." sub="Estimativa estatística, não comprovação de renda.">
+                      <p className="font-mono text-[26px] font-semibold tracking-[-0.02em] tabular-nums leading-none text-[var(--text)]">
+                        {resultado.renda.emReais
+                          ? <>
+                              {resultado.renda.emReais.replace("/mês", "")}
+                              <span className="text-[14px] font-normal text-[var(--text-muted)]">/mês</span>
+                            </>
+                          : "sem informação"}
+                      </p>
+                      <p className="text-[12px] text-[var(--text-muted)] mt-1">
+                        {resultado.renda.faixa
+                          // A faixa vem em caixa alta do bureau; só a sigla SM fica.
+                          ? `Faixa de referência · ${resultado.renda.faixa.toLowerCase().replace(/\bsm\b/g, "SM")}`
+                          : "Sem faixa de referência para este CPF"}
+                      </p>
+
+                      <BarraRenda faixa={resultado.renda.faixa} fontes={resultado.renda.fontes} />
+
+                      <div className="mt-5 border-t border-[var(--border-faint)]">
+                        {/* MTE é registro do Ministério do Trabalho: vínculo formal,
+                            não estimativa. Quando existe, é o número confiável. */}
+                        {resultado.renda.rendaFormal && (
+                          <ParFilete
+                            rotulo={resultado.renda.rendaFormal.fonte}
+                            valor={(resultado.renda.rendaFormal.emReais ?? resultado.renda.rendaFormal.faixa).replace("/mês", "")}
+                          />
+                        )}
+                        {resultado.renda.fontes
+                          .filter(f => !f.formal && f.fonte !== "Média IBGE da região")
+                          .map((f, i) => (
+                            <ParFilete key={i} rotulo={f.fonte}
+                              valor={(f.emReais ?? f.faixa).replace("/mês", "")} />
+                          ))}
+                        <ParFilete rotulo="Patrimônio estimado" valor={
+                          resultado.renda.patrimonio && resultado.renda.patrimonio !== "SEM INFORMACAO"
+                            ? resultado.renda.patrimonio : "sem informação"} />
+                        <ParFilete rotulo="Declarações de IR" valor={
+                          resultado.renda.declaracoesIR.length > 0
+                            ? `desde ${resultado.renda.declaracoesIR[resultado.renda.declaracoesIR.length - 1].ano}`
+                            : "nenhuma"} />
+                        {/* Estabilidade mora aqui e não num card próprio: a
+                            pergunta não é quanto a pessoa ganha, é se ela vai
+                            continuar ganhando durante os 12 meses do contrato. */}
+                        {resultado.ocupacao && resultado.ocupacao.trocasTotal > 0 && (
+                          <>
+                            <ParFilete rotulo="Trocas de emprego em 5 anos"
+                              valor={resultado.ocupacao.trocas5Anos} />
+                            {resultado.ocupacao.mediaAnosPorVinculo != null && (
+                              <ParFilete rotulo="Tempo médio por vínculo" valor={
+                                `${resultado.ocupacao.mediaAnosPorVinculo.toLocaleString("pt-BR", { maximumFractionDigits: 1 })} anos`} />
+                            )}
+                          </>
+                        )}
+                        {/* SocialClass costuma vir vazia; escolaridade e faixa
+                            por setor censitário quase sempre vêm. */}
+                        {resultado.perfil?.classeSocial && (
+                          <ParFilete rotulo="Classe social estimada"
+                            valor={resultado.perfil.classeSocial} />
+                        )}
+                        {resultado.perfil?.escolaridade && (
+                          <ParFilete rotulo="Escolaridade estimada"
+                            valor={resultado.perfil.escolaridade.toLowerCase()} />
+                        )}
+                        {resultado.perfil?.faixaRenda && (
+                          <ParFilete
+                            rotulo={`Renda da região${resultado.perfil.origem ? ` · ${resultado.perfil.origem}` : ""}`}
+                            valor={resultado.perfil.faixaRenda.toLowerCase()} />
+                        )}
+                      </div>
+
+                      <div className="flex gap-1.5 flex-wrap mt-3.5">
+                        {/* Quem some da Receita costuma ser quem some da cobrança. */}
+                        {resultado.renda.declaraIrRecorrente && (
+                          <Chip tom="ok">
+                            Declara IR com recorrência · {resultado.renda.declaracoesIR.length} anos
+                          </Chip>
+                        )}
+                        {resultado.renda.temSegmentoVip && <Chip tom="ok">Segmento premium no banco</Chip>}
+                        {/* Vínculo longo é o melhor sinal de que a renda dura
+                            mais que o contrato. Só entra quando é bom notícia. */}
+                        {resultado.ocupacao?.empregadoAgora &&
+                          (resultado.ocupacao.mediaAnosPorVinculo ?? 0) >= 3 && (
+                          <Chip tom="ok">Vínculo de trabalho estável</Chip>
+                        )}
+                        {resultado.ocupacao?.setorPublico && <Chip tom="ok">Já foi servidor público</Chip>}
+                      </div>
+                    </Painel>
+
+                    <div className="flex flex-col gap-4">
+                      <Painel titulo="Rastro no mercado." sub="Intensidade de A (mais alta) a H (ausência de rastro).">
+                        <div className="flex flex-col gap-3">
+                          <BarraIntensidade rotulo="Uso de cartão" letra={resultado.rastro.usoCartao} />
+                          <BarraIntensidade rotulo="Banco digital" letra={resultado.rastro.usoBancoDigital} />
+                          <BarraIntensidade rotulo="Busca por crédito" letra={resultado.rastro.buscaCredito} />
+                        </div>
+                        {/* Consultar demais em 30 dias é o padrão do migrador serial —
+                            o mesmo sinal que o score ISP persegue dentro da rede. */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-2 mt-[18px] pt-3.5 border-t border-[var(--border-faint)]">
+                          {([
+                            ["Consultas em 30 dias", resultado.rastro.consultas30d],
+                            ["Consultas em 12 meses", resultado.rastro.consultas365d],
+                            ["Alterações de nome", resultado.rastro.mudancasNome],
+                            ["Veículos", resultado.patrimonio.veiculos],
+                          ] as Array<[string, number]>).map(([rotulo, valor]) => (
+                            <div key={rotulo} className="flex justify-between gap-2 text-[13px]">
+                              <span className="text-[var(--text-muted)]">{rotulo}</span>
+                              <span className="font-mono font-semibold tabular-nums text-[var(--text)]">{valor}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </Painel>
+
+                    </div>
                   </div>
 
-                  <Bloco titulo={"Endereços · " + resultado.enderecos.length} Icone={MapPin}>
-                    {resultado.enderecos.length === 0 ? (
-                      <p className="text-[13px] text-[var(--text-muted)]">
-                        Nenhum endereço vinculado a este CPF.
-                      </p>
-                    ) : (
-                      <ul className="divide-y divide-[var(--border-faint)] -my-1">
-                        {resultado.enderecos.map((e, i) => (
-                          <li key={i} data-testid={"endereco-" + i}
-                            className="py-2.5 flex flex-wrap items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="text-[13px] text-[var(--text)]">
-                                {e.logradouro}{e.numero ? ", " + e.numero : ""}
-                                {e.complemento ? " — " + e.complemento : ""}
-                              </p>
-                              <p className="text-[12px] text-[var(--text-muted)]">
-                                {[e.bairro, e.cidade, e.uf].filter(Boolean).join(" · ")}
-                                {e.cep ? " · CEP " + e.cep : ""}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                              {e.principal && <Tag>principal</Tag>}
-                              <Tag tom={e.ratificado ? "ok" : "alerta"}>
-                                {e.ratificado ? "ratificado" : "não ratificado"}
-                              </Tag>
-                              {e.naReceita && <Tag tom="ok">na Receita</Tag>}
-                              {e.passagensRuins > 0 && <Tag tom="alerta">{e.passagensRuins} suspeita(s)</Tag>}
-                              <span className="font-mono text-[11px] text-[var(--text-faint)] tabular-nums">
-                                visto {fmtData(e.ultimaPassagem)}
-                              </span>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </Bloco>
+                  {/* TABELA DE PROCESSOS — modelo de relatório de bureau: cada
+                      ocorrência é uma linha com data, tipo, assunto e valor,
+                      como as tabelas de Pendências/Protesto do relatório Serasa. */}
+                  <TabelaProcessos processos={resultado.processos ?? []} />
 
-                  <Bloco titulo={"Telefones · " + resultado.telefones.length} Icone={Phone}>
-                    {resultado.telefones.length === 0 ? (
-                      <p className="text-[13px] text-[var(--text-muted)]">
-                        Nenhum telefone vinculado a este CPF.
-                      </p>
-                    ) : (
-                      <ul className="divide-y divide-[var(--border-faint)] -my-1">
-                        {resultado.telefones.map((t, i) => (
-                          <li key={i} data-testid={"telefone-" + i}
-                            className="py-2.5 flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex items-baseline gap-2 min-w-0">
-                              <span className="font-mono text-[13px] tabular-nums text-[var(--text)]">
-                                {telefoneFmt(t)}
-                              </span>
-                              <span className="text-[12px] text-[var(--text-muted)]">
-                                {[t.tipo === "MOBILE" ? "celular" : t.tipo === "HOME" ? "fixo" : t.tipo?.toLowerCase(),
-                                  t.operadora].filter(Boolean).join(" · ")}
-                              </span>
-                            </div>
+                  {/* Vínculo: onde essa pessoa mora e por onde se fala com ela. */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+                    <PainelLista titulo="Endereços" meta={resultado.enderecos.length}>
+                      {resultado.enderecos.length === 0 ? (
+                        <p className="px-5 py-4 text-[13px] text-[var(--text-muted)]">
+                          Nenhum endereço vinculado a este CPF.
+                        </p>
+                      ) : resultado.enderecos.map((e, i) => (
+                        <div key={i} data-testid={"endereco-" + i}
+                          className="flex items-start gap-3 px-5 py-3 border-b border-[var(--border-faint)]">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[13.5px] font-semibold text-[var(--text)]">
+                              {e.logradouro}{e.numero ? ", " + e.numero : ""}
+                              {e.complemento ? " — " + e.complemento : ""}
+                            </p>
+                            <p className="text-[12px] text-[var(--text-muted)] mt-px">
+                              {[e.bairro, [e.cidade, e.uf].filter(Boolean).join("/")]
+                                .filter(Boolean).join(" · ")}
+                              {e.cep ? " · " + e.cep : ""}
+                              {e.naReceita ? " · na Receita" : ""}
+                            </p>
+                          </div>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
                             <div className="flex items-center gap-1.5 flex-wrap justify-end">
-                              {t.principal && <Tag>principal</Tag>}
-                              {t.ativo && <Tag tom="ok">ativo</Tag>}
-                              {/* Ligar para quem está no não-perturbe expõe o provedor. */}
-                              {t.naoPerturbe && <Tag tom="alerta">não perturbe</Tag>}
-                              {t.passagensRuins > 0 && <Tag tom="alerta">{t.passagensRuins} suspeita(s)</Tag>}
-                              <span className="font-mono text-[11px] text-[var(--text-faint)] tabular-nums">
-                                visto {fmtData(t.ultimaPassagem)}
-                              </span>
+                              <Chip tom={e.principal ? "marca" : e.ratificado ? "ok" : "alerta"}>
+                                {e.principal ? "principal" : e.ratificado ? "ratificado" : "não ratificado"}
+                              </Chip>
+                              {e.passagensRuins > 0 && (
+                                <Chip tom="alerta">{e.passagensRuins} suspeita(s)</Chip>
+                              )}
                             </div>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </Bloco>
+                            <span className="font-mono text-[11px] tabular-nums text-[var(--text-faint)]">
+                              visto {fmtData(e.ultimaPassagem)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                      {/* Nenhum bureau responde isso: é risco operacional, não de
+                          crédito. Fica fora do veredito, no rodapé do card. */}
+                      <RodapeFato
+                        titulo="Risco da área · instalação"
+                        sub="Planejamento da visita técnica, fora do veredito"
+                      >
+                        <Chip tom={AREA_TOM(resultado.riscoArea?.[0]?.ponto)}>
+                          {AREA_ROTULO(resultado.riscoArea?.[0]?.ponto)}
+                        </Chip>
+                      </RodapeFato>
+                      {/* Imóvel do endereço principal (só na Completa). Casa
+                          térrea e apartamento são visitas técnicas diferentes —
+                          e CEP+número que não bate com imóvel nenhum é alerta
+                          de endereço inventado. */}
+                      {resultado.imovel && (
+                        <RodapeFato
+                          titulo="Imóvel no endereço principal"
+                          sub={[
+                            resultado.imovel.tipologia?.toLowerCase(),
+                            resultado.imovel.uso?.toLowerCase(),
+                            resultado.imovel.areaM2 ? `${resultado.imovel.areaM2} m²` : null,
+                            resultado.imovel.comodos ? `${resultado.imovel.comodos} cômodos` : null,
+                          ].filter(Boolean).join(" · ") || "sem detalhe do imóvel"}
+                        >
+                          <Chip tom={resultado.imovel.correspondenciaExata === false ? "alerta" : "ok"}>
+                            {resultado.imovel.correspondenciaExata === false
+                              ? "endereço não confere"
+                              : "endereço confere"}
+                          </Chip>
+                        </RodapeFato>
+                      )}
+                    </PainelLista>
 
-                  {resultado.emails.length > 0 && (
-                    <Bloco titulo={"E-mails · " + resultado.emails.length} Icone={Mail}>
-                      <ul className="space-y-1.5">
-                        {resultado.emails.map((e, i) => (
-                          <li key={i} className="font-mono text-[13px] text-[var(--text-2)] break-all">{e}</li>
-                        ))}
-                      </ul>
-                    </Bloco>
-                  )}
-                </div>
+                    <PainelLista
+                      titulo="Contato"
+                      meta={`${resultado.telefones.length} telefones · ${resultado.emails.length} e-mails`}
+                    >
+                      {resultado.telefones.length === 0 && resultado.emails.length === 0 && (
+                        <p className="px-5 py-4 text-[13px] text-[var(--text-muted)]">
+                          Nenhum contato vinculado a este CPF.
+                        </p>
+                      )}
+                      {(verTodosFones ? resultado.telefones : resultado.telefones.slice(0, 4)).map((t, i) => (
+                        <div key={i} data-testid={"telefone-" + i}
+                          // Linha única no desktop, como no mockup; no celular as
+                          // pílulas caem para a segunda linha em vez de estourar o card.
+                          className="flex flex-wrap items-center gap-x-2.5 gap-y-1 px-5 py-[11px] border-b border-[var(--border-faint)]">
+                          <span className="font-mono text-[13.5px] font-semibold tabular-nums text-[var(--text)]">
+                            {telefoneFmt(t)}
+                          </span>
+                          <span className="min-w-0 truncate text-[12px] text-[var(--text-muted)]">
+                            {[t.tipo === "MOBILE" ? "celular" : t.tipo === "HOME" ? "fixo" : t.tipo?.toLowerCase(),
+                              t.operadora].filter(Boolean).join(" · ")}
+                          </span>
+                          <span className="ml-auto flex items-center gap-1.5 shrink-0">
+                            {t.principal && <Chip tom="marca">principal</Chip>}
+                            {/* Validação viva da linha principal (só na Completa):
+                                operadora AGORA, pós-portabilidade, e bloqueio.
+                                Linha bloqueada = cadastro que não atende cobrança. */}
+                            {t.principal && resultado.validacaoTelefone && (
+                              resultado.validacaoTelefone.bloqueado
+                                ? <Chip tom="perigo">linha bloqueada</Chip>
+                                : resultado.validacaoTelefone.bloqueado === false
+                                  ? <Chip tom="ok">
+                                      linha ativa
+                                      {resultado.validacaoTelefone.operadoraAtual
+                                        ? ` · ${resultado.validacaoTelefone.operadoraAtual.split(" ")[0]}`
+                                        : ""}
+                                    </Chip>
+                                  : null
+                            )}
+                            {/* Ligar para quem está no não-perturbe expõe o provedor. */}
+                            {t.naoPerturbe && <Chip tom="alerta">não perturbe</Chip>}
+                            {t.passagensRuins > 0 && <Chip tom="alerta">{t.passagensRuins} suspeita(s)</Chip>}
+                            <span className="font-mono text-[11px] tabular-nums text-[var(--text-faint)]">
+                              {fmtData(t.ultimaPassagem)}
+                            </span>
+                          </span>
+                        </div>
+                      ))}
+                      {resultado.telefones.length > 4 && (
+                        <div className="px-5 py-[11px] border-b border-[var(--border-faint)]">
+                          <button type="button" onClick={() => setVerTodosFones(x => !x)}
+                            className="text-[12.5px] font-semibold text-[var(--brand)] hover:underline"
+                            data-testid="botao-ver-telefones">
+                            {verTodosFones ? "Ver menos" : `Ver todos os ${resultado.telefones.length} telefones`}
+                          </button>
+                        </div>
+                      )}
+                      {resultado.emails.map((em, i) => (
+                        <div key={i} data-testid={"email-" + i}
+                          className="px-5 py-[11px] border-b border-[var(--border-faint)] font-mono text-[13px] text-[var(--text-2)] break-all">
+                          {em}
+                        </div>
+                      ))}
+                      <div className="flex flex-wrap justify-between gap-x-3 gap-y-1 px-5 py-[11px] text-[13px] bg-[var(--surface-2)]">
+                        <span className="text-[var(--text-muted)] shrink-0">Nome da mãe · homônimos</span>
+                        <span className="font-mono font-semibold text-[var(--text)] sm:text-right">
+                          {resultado.identidade.nomeMae ?? "—"} · {d.homonimos ?? 0}
+                        </span>
+                      </div>
+                    </PainelLista>
+                  </div>
+                </>
               )}
 
               {resultado.consultasIndisponiveis > 0 && (
@@ -923,6 +1590,18 @@ export default function ConsultaCadastralPage() {
                   resultado é válido.
                 </p>
               )}
+
+              {/* Rodapé de relatório. O disclaimer não é enfeite: a LGPD dá ao
+                  titular o direito de rever decisão automatizada, e o texto
+                  deixa claro que quem decide é o provedor, não o sistema. */}
+              <p className="text-[11px] leading-relaxed text-[var(--text-faint)] border-t border-[var(--border-faint)] pt-3">
+                Consulta registrada sob o protocolo{" "}
+                <span className="font-mono tabular-nums">Nº {String(resultado.id).padStart(6, "0")}</span>
+                {" "}· Base legal: legítimo interesse para análise de risco de crédito
+                (LGPD, art. 7º, IX). As informações são subsidiárias à decisão de
+                contratação, que é de exclusiva responsabilidade do provedor — o
+                titular pode solicitar revisão da decisão.
+              </p>
                   </div>
                 )}
               </>
