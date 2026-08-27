@@ -42,6 +42,14 @@ export interface LocalizacaoResposta {
   /** Endereco cadastrado do provedor: ancora o mapa e marca o ponto de partida. */
   sede: LocalizacaoSede | null;
   semCoordenada: number;
+  /**
+   * Subconjunto de semCoordenada que a plotagem automatica consegue resolver —
+   * tem cidade ou CEP no cadastro. O resto so o provedor corrige no ERP.
+   * Sai da MESMA varredura que semCoordenada de proposito: contar isto noutra
+   * query, com outro recorte territorial, punha dois numeros discordantes na
+   * mesma tela.
+   */
+  plotaveis: number;
   /** Coordenada incoerente com a cidade declarada — fica fora do mapa. */
   coordenadaSuspeita: Array<{ id: number; cidade: string; lat: number; lon: number }>;
   cidades: LocalizacaoCidade[];
@@ -124,6 +132,7 @@ export class LocalizacaoStorage {
 
     const pontos: LocalizacaoPonto[] = [];
     let semCoordenada = 0;
+    let plotaveis = 0;
     const porCidade = new Map<string, LocalizacaoCidade>();
     const porBairro = new Map<string, LocalizacaoBairro>();
 
@@ -157,7 +166,13 @@ export class LocalizacaoStorage {
       // no golfo da Guine, entao nunca e um cliente real. Conta como sem
       // coordenada; a checagem dupla preserva lat 0 legitima (o equador corta
       // o Amapa) desde que a longitude seja brasileira.
-      if (Number.isNaN(lat) || Number.isNaN(lon) || (lat === 0 && lon === 0)) { semCoordenada++; continue; }
+      if (Number.isNaN(lat) || Number.isNaN(lon) || (lat === 0 && lon === 0)) {
+        semCoordenada++;
+        // Mesmo criterio de TEM_ENDERECO no backfill: cidade ou CEP resolvem;
+        // rua sozinha existe em mil cidades e nao geocodifica.
+        if ((c.city || "").trim() || (c.cep || "").trim()) plotaveis++;
+        continue;
+      }
 
       // LGPD: sem nome e sem CPF — a tela nao precisa deles.
       pontos.push({
@@ -205,6 +220,7 @@ export class LocalizacaoStorage {
       origemArea: area.origem,
       sede,
       semCoordenada,
+      plotaveis,
       coordenadaSuspeita: suspeitos.map(p => ({ id: p.id, cidade: p.cidade, lat: p.lat, lon: p.lon })),
       cidades: Array.from(porCidade.values()).sort((a, b) => b.clientes - a.clientes),
       cidadesSemCliente,

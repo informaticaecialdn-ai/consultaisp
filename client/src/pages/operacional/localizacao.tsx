@@ -1,7 +1,10 @@
-import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Skeleton } from "@/components/ui/skeleton";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/auth";
 import MapaCarteira, {
   type PontoMapa, type PontoRede, type CidadeMapa, type ModoMapa, type SedeMapa,
 } from "@/components/maps/MapaCarteira";
@@ -12,6 +15,8 @@ type Resposta = {
   origemArea: 'cidades' | 'meso' | 'uf' | 'nenhuma';
   sede: Sede | null;
   semCoordenada: number;
+  /** Subconjunto de semCoordenada que a plotagem automática resolve sozinha. */
+  plotaveis: number;
   coordenadaSuspeita: Array<{ id: number; cidade: string; lat: number; lon: number }>;
   cidades: CidadeMapa[];
   cidadesSemCliente: string[];
@@ -82,8 +87,47 @@ function Kpi({ label, valor, sub }: { label: string; valor: string; sub?: string
   );
 }
 
+/** Só o estado do trabalho; as contagens vêm de /api/localizacao. */
+type Plotagem = {
+  emAndamento: boolean;
+  geocoderIndisponivel: boolean;
+  terminadoEm: string | null;
+};
+
 export default function LocalizacaoPage() {
-  const { data, isLoading } = useQuery<Resposta>({ queryKey: ["/api/localizacao"] });
+  const { user } = useAuth();
+  const { toast } = useToast();
+
+  const { data: plotagem } = useQuery<Plotagem>({
+    queryKey: ["/api/localizacao/plotagem"],
+    refetchInterval: q => ((q.state.data as Plotagem | undefined)?.emAndamento ? 5000 : false),
+  });
+  const plotando = plotagem?.emAndamento ?? false;
+
+  // Enquanto a varredura roda os pontos vão nascendo no banco, então o mapa se
+  // atualiza sozinho; o efeito abaixo garante a última busca depois do fim,
+  // que nenhum intervalo pegaria.
+  const { data, isLoading } = useQuery<Resposta>({
+    queryKey: ["/api/localizacao"],
+    refetchInterval: plotando ? 15000 : false,
+  });
+
+  const rodavaAntes = useRef(false);
+  useEffect(() => {
+    if (rodavaAntes.current && !plotando) {
+      queryClient.invalidateQueries({ queryKey: ["/api/localizacao"] });
+    }
+    rodavaAntes.current = plotando;
+  }, [plotando]);
+
+  const plotarAgora = useMutation({
+    mutationFn: async () => (await apiRequest("POST", "/api/localizacao/plotagem")).json(),
+    onSuccess: (r: { iniciado: boolean; mensagem: string }) => {
+      toast({ title: r.iniciado ? "Plotagem iniciada" : "Já em andamento", description: r.mensagem });
+      queryClient.invalidateQueries({ queryKey: ["/api/localizacao/plotagem"] });
+    },
+    onError: (e: Error) => toast({ title: "Não foi possível iniciar", description: e.message, variant: "destructive" }),
+  });
 
   const [fCidade, setFCidade] = useState("todas");
   const [fEstado, setFEstado] = useState("todos");
@@ -109,6 +153,11 @@ export default function LocalizacaoPage() {
     () => rede.filter(r => r.count >= PISO_REDE),
     [rede],
   );
+
+  // Quem a plotagem consegue resolver (tem cidade ou CEP) e quem depende do
+  // provedor corrigir o cadastro. Ambos saem da mesma varredura do KPI.
+  const naFila = data?.plotaveis ?? 0;
+  const foraDaFila = (data?.semCoordenada ?? 0) - naFila;
 
   const pontos = data?.pontos ?? [];
   const bairros = data?.bairros ?? [];
@@ -184,10 +233,62 @@ export default function LocalizacaoPage() {
             valor={String((data?.semCoordenada ?? 0) + suspeitas.length)}
             sub={suspeitas.length > 0
               ? `${data?.semCoordenada ?? 0} sem coordenada · ${suspeitas.length} coordenada suspeita`
-              : (data?.semCoordenada ?? 0) > 0
-                ? "sem coordenada — plotagem automática em andamento"
-                : "sem coordenada no cadastro"}
+              : "sem coordenada"}
           />
+        </div>
+      )}
+
+      {/* Situação da plotagem. Antes esta linha afirmava "plotagem automática
+          em andamento" sempre que faltava coordenada — e quando a varredura
+          estava parada ou o geocoder fora do ar, a tela mentia para o operador.
+          O número é o mesmo do KPI ao lado: sai da mesma varredura. */}
+      {plotagem && naFila > 0 && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 text-[13px]"
+          style={plotagem.geocoderIndisponivel
+            ? { background: "var(--danger-bg)", borderColor: "var(--danger-border)", color: "var(--danger)" }
+            : { background: "var(--surface)", borderColor: "var(--border)", color: "var(--text-2)" }}
+          data-testid="status-plotagem"
+        >
+          <span className="min-w-0 flex-1">
+            {plotando ? (
+              <>
+                Plotando agora — {naFila === 1 ? "falta" : "faltam"}{" "}
+                <span className="font-mono tabular-nums">{naFila}</span>{" "}
+                {naFila === 1 ? "cliente" : "clientes"} na sua carteira.
+              </>
+            ) : plotagem.geocoderIndisponivel ? (
+              <>
+                O serviço de geocodificação não respondeu na última varredura.{" "}
+                {naFila === 1 ? "O cliente continua" : (<>Os <span className="font-mono tabular-nums">{naFila}</span> clientes continuam</>)}{" "}
+                na fila.
+              </>
+            ) : (
+              <>
+                <span className="font-mono tabular-nums">{naFila}</span>{" "}
+                {naFila === 1 ? "cliente espera" : "clientes esperam"} plotagem. A varredura roda sozinha a cada
+                6 horas.
+                {foraDaFila > 0 && (foraDaFila === 1
+                  ? <> Outro cliente não tem cidade nem CEP no cadastro.</>
+                  : <> Outros <span className="font-mono tabular-nums">{foraDaFila}</span> não têm cidade nem CEP no cadastro.</>
+                )}
+              </>
+            )}
+          </span>
+          {user?.role !== "user" && !plotando && (
+            <button
+              type="button"
+              onClick={() => plotarAgora.mutate()}
+              disabled={plotarAgora.isPending}
+              className="ds-ctl rounded px-3 py-2 text-[12.5px] font-medium disabled:opacity-60"
+              style={{ background: "var(--action)", color: "var(--text-on-brand)", minHeight: 36 }}
+              data-testid="botao-plotar-agora"
+            >
+              {plotarAgora.isPending ? "Iniciando…" : "Plotar agora"}
+            </button>
+          )}
         </div>
       )}
 

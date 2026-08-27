@@ -72,7 +72,9 @@ if pm2 describe consulta-isp-worker > /dev/null 2>&1; then
   pm2 restart consulta-isp-worker
 else
   echo "→ Iniciando worker..."
-  pm2 start dist/worker.cjs --name consulta-isp-worker --env production
+  # Pelo ecosystem, nao pelo caminho cru: e ele que carrega o .env e define
+  # limite de memoria, atraso de restart e os arquivos de log do worker.
+  pm2 start ecosystem.config.cjs --only consulta-isp-worker
   pm2 save
 fi
 
