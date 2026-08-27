@@ -188,8 +188,21 @@ export const NIVEIS: Record<NivelConsulta, {
     datasets: DATASETS,
     sondas: false,
     creditos: 1,
-    // Preco DA CONTA (API de Precos, 2026-08-26): R$ 0,80 + R$ 0,08 address_risk.
-    custoBrl: 0.88,
+    /**
+     * R$ 1,61 dos 22 datasets + R$ 0,08 do address_risk (chamada a /enderecos).
+     *
+     * Tabela PUBLICA da BigData, faixa 1-10 mil consultas/mes, lida da doc em
+     * 27/08/2026. A conta tinha desconto de ~14% sobre ela na medicao anterior
+     * (pagava R$ 0,80 onde a tabela dizia R$ 0,93), entao o custo real deve
+     * ficar por volta de R$ 1,47. Confirme no BDC Center antes de precificar.
+     *
+     * ATENCAO A MARGEM: o credito e vendido de R$ 1,00 (pacote de 50) a R$ 0,70
+     * (pacote de 500), e a consulta custa 1 credito. Com este combo TODA
+     * consulta sai no prejuizo — e ja saia antes, no pacote de 500, quando o
+     * custo era R$ 0,88. Quem decide isso e BIGDATA_CREDIT_PACKAGES em
+     * shared/schema.ts, nao esta constante.
+     */
+    custoBrl: 1.69,
   },
   completa: {
     rotulo: "Completa",
