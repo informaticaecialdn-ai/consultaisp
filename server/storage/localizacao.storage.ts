@@ -5,7 +5,8 @@ import { resolverAreaAtendida, normalizarCidade, type OrigemArea } from "../serv
 import { estadoDoPonto, type EstadoPonto } from "../services/estado-ponto";
 import { separarCoordenadasSuspeitas, centroMediano } from "../services/coordenada-suspeita";
 import { coordenadaValida } from "../services/coordenada";
-import { criarAgrupadorDeBairro } from "../services/localidade";
+import { criarAgrupadorDeBairro, criarCasadorDeBairro, normalizarLocalidade } from "../services/localidade";
+import { carregarTerritorio } from "../services/geo-bases.service";
 import { geocodeAddress } from "../services/geocoding";
 
 export interface LocalizacaoPonto {
@@ -111,6 +112,59 @@ export class LocalizacaoStorage {
       lon: coords ? coords[1] : null,
       foraDaArea: (area.cidades?.length ?? 0) > 0 && !naArea,
     };
+  }
+
+  /**
+   * Preenche o território de cada bairro a partir das bases públicas.
+   *
+   * O bairro do ERP é texto livre e o do censo é oficial — o casamento vai por
+   * cascata (exato → núcleo sem prefixo de loteamento → fuzzy), a mesma do
+   * agrupamento do ranking.
+   *
+   * A regra que sustenta o bloco inteiro: **penetração acima de 100% não é
+   * dado, é erro de casamento**, e é suprimida aqui, no servidor. Bairro do ERP
+   * que casou com um recorte diferente do censo produziria "250% de penetração"
+   * — o operador precisa ver "—", não um número que o faria desistir de vender
+   * numa rua onde ele tem dois clientes. HPs e UCs continuam aparecendo: é o que
+   * permite reconhecer o match divergente na tela.
+   */
+  private async aplicarTerritorio(bairros: LocalizacaoBairro[]): Promise<void> {
+    if (bairros.length === 0) return;
+
+    const cidades = Array.from(new Set(bairros.map(b => normalizarLocalidade(b.cidade)))).filter(Boolean);
+    const territorio = await carregarTerritorio(cidades);
+    if (territorio.size === 0) return;
+
+    const casadores = new Map<string, { hps: ReturnType<typeof criarCasadorDeBairro>; ucs: ReturnType<typeof criarCasadorDeBairro> }>();
+
+    for (const b of bairros) {
+      const cidadeNorm = normalizarLocalidade(b.cidade);
+      const t = territorio.get(cidadeNorm);
+      if (!t) continue;
+
+      let c = casadores.get(cidadeNorm);
+      if (!c) {
+        // Ordenado por tamanho: em empate no fuzzy, vence o bairro dominante.
+        const ordenar = (m: Map<string, number>) =>
+          Array.from(m.entries()).sort((x, y) => y[1] - x[1]).map(([k]) => k);
+        c = { hps: criarCasadorDeBairro(ordenar(t.hps)), ucs: criarCasadorDeBairro(ordenar(t.ucs)) };
+        casadores.set(cidadeNorm, c);
+      }
+
+      // As duas bases são casadas de forma independente: bater no CNEFE não
+      // garante bater na ANEEL, e vice-versa.
+      const mHps = c.hps(b.bairro);
+      const mUcs = c.ucs(b.bairro);
+      if (mHps) b.hps = t.hps.get(mHps.canonico) ?? null;
+      if (mUcs) b.ucsVivas = t.ucs.get(mUcs.canonico) ?? null;
+
+      // UC energizada é o denominador que importa; o censo entra como reserva.
+      const denominador = b.ucsVivas ?? b.hps;
+      if (denominador !== null && denominador > 0) {
+        const bruta = (b.atuais / denominador) * 100;
+        b.pctPenetracao = bruta <= 100 ? Math.round(bruta * 10) / 10 : null;
+      }
+    }
   }
 
   /**
@@ -231,6 +285,8 @@ export class LocalizacaoStorage {
       pctInadimplencia: b.clientes > 0 ? Math.round((b.inadimplentes / b.clientes) * 1000) / 10 : 0,
       dividaTotal: Math.round(b.dividaTotal * 100) / 100,
     }));
+
+    await this.aplicarTerritorio(bairros);
 
     // Um ponto errado a centenas de km estica o enquadramento e a tela abre
     // numa regiao onde o provedor nao atende. Fora do mapa, mas contado — e

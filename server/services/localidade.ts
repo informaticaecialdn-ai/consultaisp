@@ -94,6 +94,43 @@ export function levenshtein(a: string, b: string): number {
 export type TierBairro = "exato" | "nucleo" | "fuzzy";
 
 /**
+ * Casador contra uma lista canônica — o bairro do ERP procurando o seu par nas
+ * bases públicas do IBGE e da ANEEL.
+ *
+ * Diferente do agrupador abaixo, aqui existe uma verdade externa: a lista do
+ * censo. Em empate vence o primeiro da lista, então passe-a ordenada por
+ * tamanho decrescente para preferir o bairro dominante.
+ */
+export function criarCasadorDeBairro(canonicos: string[]) {
+  const norm = canonicos.map(normalizarLocalidade).filter(b => b.length > 0);
+  const exatos = new Set(norm);
+  const candidatos = norm.map(loc => {
+    const nucleo = nucleoLocalidade(loc);
+    return { loc, nucleo, nucleoSq: nucleo.replace(/ /g, "") };
+  });
+
+  return (bairro: string | null | undefined): { canonico: string; tier: TierBairro } | null => {
+    const nb = normalizarLocalidade(bairro);
+    if (!nb) return null;
+    if (exatos.has(nb)) return { canonico: nb, tier: "exato" };
+
+    const nucleo = nucleoLocalidade(nb);
+    const nucleoSq = nucleo.replace(/ /g, "");
+
+    const porNucleo = candidatos.find(c => c.nucleo === nucleo);
+    if (porNucleo) return { canonico: porNucleo.loc, tier: "nucleo" };
+
+    const porFuzzy = candidatos.find(c =>
+      levenshtein(c.nucleoSq, nucleoSq) <= 2 ||
+      (nucleo.length >= 6 && (c.nucleo.includes(nucleo) || (nucleo.includes(c.nucleo) && c.nucleo.length >= 6))),
+    );
+    if (porFuzzy) return { canonico: porFuzzy.loc, tier: "fuzzy" };
+
+    return null;
+  };
+}
+
+/**
  * Agrupador de bairros de uma carteira.
  *
  * Diferente do matcher do Provedor.ai, que casa contra uma lista canônica do

@@ -611,6 +611,41 @@ export const insertProactiveAlertSchema = createInsertSchema(proactiveAlerts).om
 export type ProactiveAlert = typeof proactiveAlerts.$inferSelect;
 export type InsertProactiveAlert = z.infer<typeof insertProactiveAlertSchema>;
 
+/**
+ * Bases geográficas públicas — denominador do território.
+ *
+ * Diferente de todas as outras tabelas do sistema, esta NÃO tem providerId, e
+ * é de propósito: IBGE e ANEEL descrevem o município, não a carteira de
+ * ninguém. Quantos domicílios existem no Jardim Bandeirantes é o mesmo número
+ * para todo provedor que atende ali — é justamente por ser comum que ele serve
+ * de denominador da penetração de cada um.
+ *
+ * Duas fontes convivem na mesma tabela, separadas por `fonte`:
+ *   CNEFE2022        — domicílios contados pelo IBGE (HPs, "homes passed")
+ *   ANEEL_BDGD_2024  — unidades consumidoras residenciais com energia ligada
+ *
+ * A UC viva é o denominador melhor: domicílio sem luz não compra internet. O
+ * CNEFE entra como reserva quando a ANEEL não cobre o bairro.
+ *
+ * `cidade_norm` + `uf` existem porque o cadastro do ERP guarda a cidade como
+ * texto, não como código IBGE — é por esse par que o cliente encontra o seu
+ * município aqui.
+ */
+export const geoHpsBairro = pgTable("geo_hps_bairro", {
+  id: serial("id").primaryKey(),
+  municipioIbge: text("municipio_ibge").notNull(),
+  /** Nome do município sem acento e em caixa alta: LONDRINA. */
+  cidadeNorm: text("cidade_norm").notNull(),
+  uf: text("uf").notNull(),
+  /** Bairro normalizado pela mesma cascata do ranking (server/services/localidade.ts). */
+  bairroNorm: text("bairro_norm").notNull(),
+  fonte: text("fonte").notNull(),
+  hps: integer("hps").notNull(),
+  atualizadoEm: timestamp("atualizado_em").defaultNow(),
+});
+
+export type GeoHpsBairro = typeof geoHpsBairro.$inferSelect;
+
 export const PLAN_CREDITS: Record<string, { isp: number; spc: number }> = {
   free: { isp: 50, spc: 0 },
   basic: { isp: 200, spc: 50 },
