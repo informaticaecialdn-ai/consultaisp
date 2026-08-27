@@ -139,16 +139,22 @@ const limpar = (v: string | null | undefined) => (v || "").trim();
 /**
  * Clientes que precisam ser desempilhados de uma coordenada repetida.
  *
- * Coordenada IDÊNTICA em muitos clientes é, por construção, um ponto de
- * fallback: centroide de bairro ou centro de cidade gravado quando o endereço
- * não resolveu. GPS de instalação nunca repete casa a casa. É esse rastro que
- * permite achar e consertar a "bola" de pontos empilhados sem precisar de uma
- * coluna que diga de onde veio cada coordenada.
+ * Coordenada idêntica em muitos clientes COM ENDEREÇOS DIFERENTES é, por
+ * construção, um ponto de fallback: centroide de bairro ou centro de cidade
+ * gravado quando o endereço não resolveu.
  *
- * O piso é alto de propósito: um prédio pode ter vários clientes no mesmo
- * ponto, e ninguém quer espalhar um condomínio pelo bairro por engano.
+ * A segunda metade da frase é o que separa defeito de dado correto, e custou
+ * uma medição em produção para aparecer: 22 clientes no mesmo ponto eram um
+ * prédio — todos na Avenida Américo Deolindo Garla, 224. Mesmo endereço, mesma
+ * coordenada, e espalhá-los pelo bairro seria estragar o que estava certo.
+ * Só é pilha quando o mesmo ponto reúne endereços que deveriam estar em
+ * lugares diferentes.
  */
 const MIN_PARA_DESEMPILHAR = 12;
+
+/** Chave de endereço para decidir se a pilha é legítima. */
+const CHAVE_ENDERECO_SQL =
+  `upper(btrim(coalesce(address, ''))) || '|' || btrim(coalesce(address_number, ''))`;
 
 async function buscarEmpilhados(providerId: number | null, limite: number) {
   const filtro = providerId === null ? "" : "AND provider_id = $2";
@@ -164,6 +170,7 @@ async function buscarEmpilhados(providerId: number | null, limite: number) {
           ${filtro}
         GROUP BY latitude, longitude, provider_id
        HAVING count(*) >= $1
+          AND count(DISTINCT ${CHAVE_ENDERECO_SQL}) > 1
      )
      SELECT c.id, c.address, c.address_number, c.neighborhood, c.city, c.state, c.cep
        FROM customers c

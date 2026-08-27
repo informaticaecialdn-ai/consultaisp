@@ -67,18 +67,36 @@ async function coordenadas() {
   else if (c.sem === c.sem_endereco) console.log(AVISO + `Os ${n(c.sem)} sem coordenada também não têm cidade nem CEP — só o ERP resolve.`);
   else console.log(ERRO + `${n(c.sem - c.sem_endereco)} clientes TÊM endereço e mesmo assim não foram plotados.`);
 
+  // Só é pilha quando o mesmo ponto reúne endereços DIFERENTES. Vários clientes
+  // no mesmo endereço é um prédio, e a coordenada repetida está certa.
   const { rows: pilhas } = await pool.query(
-    `SELECT latitude::text lat, longitude::text lon, provider_id, count(*)::int n
+    `SELECT latitude::text lat, longitude::text lon, provider_id, count(*)::int n,
+            count(DISTINCT upper(btrim(coalesce(address,''))) || '|' || btrim(coalesce(address_number,'')))::int enderecos
        FROM customers
       WHERE latitude IS NOT NULL AND longitude IS NOT NULL
         AND NOT (latitude = 0 AND longitude = 0)
-      GROUP BY 1,2,3 HAVING count(*) >= 12 ORDER BY n DESC LIMIT 5`);
+      GROUP BY 1,2,3
+     HAVING count(*) >= 12
+        AND count(DISTINCT upper(btrim(coalesce(address,''))) || '|' || btrim(coalesce(address_number,''))) > 1
+      ORDER BY n DESC LIMIT 5`);
+  const { rows: [predios] } = await pool.query(
+    `SELECT count(*)::int q FROM (
+       SELECT 1 FROM customers
+        WHERE latitude IS NOT NULL AND NOT (latitude = 0 AND longitude = 0)
+        GROUP BY latitude, longitude, provider_id
+       HAVING count(*) >= 12
+          AND count(DISTINCT upper(btrim(coalesce(address,''))) || '|' || btrim(coalesce(address_number,''))) = 1
+     ) x`);
+
   if (pilhas.length === 0) {
     console.log(OK + "Nenhuma pilha de coordenada repetida.");
   } else {
     const soma = pilhas.reduce((s, p) => s + p.n, 0);
-    console.log(ERRO + `${pilhas.length} pilha(s) de coordenada repetida — a maior com ${n(pilhas[0].n)} clientes no mesmo ponto (${n(soma)} nas 5 maiores).`);
+    console.log(ERRO + `${pilhas.length} pilha(s) com endereços DIFERENTES no mesmo ponto — a maior com ${n(pilhas[0].n)} clientes (${n(soma)} nas 5 maiores).`);
     console.log("       É a 'bola' no mapa. O botão Plotar agora desempilha.");
+  }
+  if (predios.q > 0) {
+    console.log(OK + `${n(predios.q)} ponto(s) com 12+ clientes no MESMO endereço — prédio, não defeito.`);
   }
   return c;
 }
