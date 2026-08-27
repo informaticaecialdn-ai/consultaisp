@@ -1,9 +1,12 @@
-import { Lock, AlertTriangle, CornerDownRight, Download, Save, RotateCcw, CheckCircle, AlertCircle, XCircle } from "lucide-react";
+import { Lock, AlertTriangle, CornerDownRight, Download, Save, CheckCircle, AlertCircle, XCircle } from "lucide-react";
 import AddressMapMini from "@/components/consulta/AddressMapMini";
 import AiAnalysisSection from "./AiAnalysisSection";
 import AddressRiskAlert from "./AddressRiskAlert";
 import type { ConsultaResult, ProviderDetail } from "./types";
 import { formatCpfCnpj } from "./utils";
+import {
+  derivarRelatorio, isDelinquent, brl, fmtCep, situacaoCurta,
+} from "./relatorio-dados";
 import {
   Kicker, pillStyle, ReportSection, ScoreBar, ProvTag, Th,
   bandOf, ReportButton, type Tone,
@@ -14,68 +17,11 @@ interface Props {
   /** Registro gravado da consulta — origem do protocolo e do hash de auditoria. */
   consultation?: { id?: number; cpfCnpjHash?: string; createdAt?: string } | null;
   onShowDetail: (idx: number) => void;
-  onNewConsulta: () => void;
   onSave: () => void;
   onGeneratePDF: () => void;
 }
 
 /* ── Leitura dos dados ──────────────────────────────────────── */
-
-function isDelinquent(d: ProviderDetail): boolean {
-  return d.daysOverdue > 0
-    || (!d.isSameProvider && !!d.overdueAmountRange)
-    || !!d.status?.toLowerCase().includes("inadimplente");
-}
-
-function brl(v: number): string {
-  return `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
-}
-
-function fmtCep(cep: string): string {
-  const d = (cep || "").replace(/\D/g, "");
-  return d.length === 8 ? `${d.slice(0, 5)}-${d.slice(5)}` : cep;
-}
-
-/**
- * Situação para o pill da tabela 03. O status do ERP é mais rico que um
- * binário ("Cancelado (débito)"), mas quando o parêntese só repete o atraso —
- * "Inadimplente (90+ dias)" ao lado da coluna Atraso "90+ dias" — ele vira
- * redundância que estoura o pill. Cai o parêntese de dias; os demais ficam.
- */
-function situacaoCurta(status: string | undefined, fallback: string): string {
-  if (!status) return fallback;
-  return status.replace(/\s*\([^)]*dias?[^)]*\)\s*$/i, "").trim() || fallback;
-}
-
-/**
- * A frase que sustenta a decisão — escrita a partir dos sinais que pesaram,
- * nunca o eco de um alerta que já aparece na seção 07.
- */
-function decisionSubtitle(result: ConsultaResult, ativas: number, equipamentos: number): string {
-  const partes: string[] = [];
-
-  if (ativas > 0) {
-    const comValor = result.providerDetails.find(d => isDelinquent(d) && (d.overdueAmountRange || d.overdueAmount != null));
-    const valor = comValor?.isSameProvider && comValor.overdueAmount != null
-      ? brl(comValor.overdueAmount)
-      : comValor?.overdueAmountRange;
-    partes.push(
-      `${ativas} ocorrência${ativas > 1 ? "s" : ""} de inadimplência ativa na rede`
-      + (valor ? `, com débito de ${valor}` : ""),
-    );
-  }
-  if (equipamentos > 0) {
-    partes.push(`${equipamentos} equipamento${equipamentos > 1 ? "s" : ""} em comodato não devolvido`);
-  }
-  if (result.migratorAlert?.detected) {
-    partes.push("padrão de migração entre provedores");
-  }
-
-  if (partes.length === 0) {
-    return "Sem restrições na rede ISP colaborativa: nenhuma ocorrência de inadimplência, de equipamento ou de endereço registrada pelos provedores consultados.";
-  }
-  return partes.join(" · ") + ". A decisão considera o seu apetite de risco e as garantias que você pode exigir na ativação.";
-}
 
 /* Linha da tabela de ocorrências (03). */
 interface OcorrenciaRow {
@@ -83,7 +29,7 @@ interface OcorrenciaRow {
   sub?: string;
   fonte: string;
   situacao: string;
-  situacaoTone: Tone;
+  situacaoTom: Tone;
   atraso: string;
   valor: string;
   valorNegativo: boolean;
@@ -95,7 +41,7 @@ interface FonteRow {
   kicker: string;
   fonte: string;
   chip: string;
-  chipTone: Tone;
+  chipTom: Tone;
   nome: string;
   linha: string;
 }
@@ -107,22 +53,26 @@ const GRID_FONTE = "minmax(140px, 1.2fr) 170px 2fr";
    RELATÓRIO DE CRÉDITO v2 — um card, seções numeradas por hairline.
    ════════════════════════════════════════════════════════════ */
 export default function ConsultaResultSummary({
-  result, consultation, onNewConsulta, onSave, onGeneratePDF,
+  result, consultation, onSave, onGeneratePDF,
 }: Props) {
-  const score = Math.max(0, Math.min(1000, result.score));
+  // Todas as contas vêm de relatorio-dados.ts — o MESMO módulo que o PDF usa.
+  // Estavam aqui dentro, e o gerador de PDF tinha a sua própria cópia: o papel
+  // saía dizendo outra coisa que a tela. Aqui fica só o desenho.
+  const d = derivarRelatorio(result);
+  const {
+    score, proprios, parceiros, ativas, equipamentos,
+    provedoresConsultados, parceirosConsultados,
+    ocorrencias: rows, equipamentoLinhas: equipRows, enderecoLinhas: addrRows,
+    cepUsado,
+  } = d;
   const band = bandOf(score);
+  const debitoEstimado = d.debito.texto;
+  const temDebito = d.debito.temDebito;
+  const subtitulo = d.subtitulo;
 
-  const proprios = result.providerDetails.filter(d => d.isSameProvider);
-  const parceiros = result.providerDetails.filter(d => !d.isSameProvider);
-  const ativas = result.providerDetails.filter(isDelinquent).length;
-  const equipamentos = result.providerDetails.reduce(
-    (s, d) => s + (d.hasUnreturnedEquipment ? d.unreturnedEquipmentCount : 0), 0,
-  );
-
-  // erpSummary.total conta todos os ERPs varridos na mesorregião, o seu incluído
-  // SE você tiver um. O rótulo diz o que o número é: provedores consultados.
-  const provedoresConsultados = result.erpSummary?.total ?? result.erpLatencies?.length ?? 0;
-  const parceirosConsultados = Math.max(0, provedoresConsultados - (proprios.length > 0 ? 1 : 0));
+  // O pill da secao 04 depende do parceiro com equipamento — mesmo criterio
+  // usado pelo modulo para montar a linha.
+  const equipParceiro = parceiros.find(x => x.hasUnreturnedEquipment);
 
   const dt = consultation?.createdAt ? new Date(consultation.createdAt) : new Date();
   const dataHora = dt.toLocaleDateString("pt-BR") + " " + dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -142,171 +92,14 @@ export default function ConsultaResultSummary({
     custoLabel,
   ].join(" · ");
 
-  /* ── 02 · Sugestão ── */
-  const decisao = result.decisionReco === "Accept"
-    ? { short: "Aprovar", tone: "ok" as Tone, Icon: CheckCircle, title: "Aprovar ativação." }
-    : result.decisionReco === "Reject"
-    ? { short: "Rejeitar", tone: "danger" as Tone, Icon: XCircle, title: "Rejeitar ou exigir caução integral." }
-    : { short: "Analisar", tone: "gated" as Tone, Icon: AlertCircle, title: "Analisar manualmente antes de ativar." };
-
-  /* Débito estimado: o TOTAL em risco, não um recorte.
-     O seu ERP dá valor exato; parceiros dão faixa (LGPD). Quando os dois
-     existem, os limites das faixas são somados ao valor próprio e o resultado
-     continua sendo faixa — descartar um dos lados subestimava o risco. Faixa
-     que não parseia derruba a soma para o comportamento conservador. */
-  const debitoProprio = proprios.reduce((s, d) => s + (d.overdueAmount ?? 0), 0);
-  const faixasParceiros = parceiros.map(d => d.overdueAmountRange).filter(Boolean) as string[];
-  const parseFaixa = (f: string): [number, number] | null => {
-    const nums = f.match(/[\d.,]+/g)?.map(n => parseFloat(n.replace(/\./g, "").replace(",", ".")))
-      .filter(n => Number.isFinite(n)) ?? [];
-    if (nums.length === 2) return [nums[0], nums[1]];
-    if (nums.length === 1) return [nums[0], nums[0]];
-    return null;
+  /* 02 · Sugestão — o ícone é assunto da tela; o texto vem do módulo. */
+  const ICONE = { Aprovar: CheckCircle, Rejeitar: XCircle, Analisar: AlertCircle } as const;
+  const decisao = {
+    short: d.decisao.curto,
+    tone: d.decisao.tom as Tone,
+    Icon: ICONE[d.decisao.curto as keyof typeof ICONE] ?? AlertCircle,
+    title: d.decisao.titulo,
   };
-  const brlCurto = (v: number) => `R$ ${Math.round(v).toLocaleString("pt-BR")}`;
-  let debitoEstimado: string;
-  const parsed = faixasParceiros.map(parseFaixa);
-  if (faixasParceiros.length > 0 && parsed.every(Boolean)) {
-    const min = (parsed as [number, number][]).reduce((s, [a]) => s + a, debitoProprio);
-    const max = (parsed as [number, number][]).reduce((s, [, b]) => s + b, debitoProprio);
-    debitoEstimado = min === max ? brlCurto(min) : `${brlCurto(min)} – ${brlCurto(max)}`;
-  } else if (faixasParceiros.length > 0) {
-    debitoEstimado = faixasParceiros[0];
-  } else {
-    debitoEstimado = debitoProprio > 0 ? brl(debitoProprio) : "R$ 0,00";
-  }
-  const temDebito = faixasParceiros.length > 0 || debitoProprio > 0;
-
-  /* ── 03 · Ocorrências: seu ERP primeiro, depois cada parceiro ── */
-  const rows: OcorrenciaRow[] = [];
-
-  if (proprios.length > 0) {
-    for (const d of proprios) {
-      const mau = isDelinquent(d);
-      rows.push({
-        cliente: d.customerName || "— nada consta —",
-        sub: d.hasUnreturnedEquipment
-          ? `${d.unreturnedEquipmentCount} equipamento${d.unreturnedEquipmentCount > 1 ? "s" : ""} em comodato pendente`
-          : undefined,
-        fonte: `Seu ERP · ${d.providerName}`,
-        // O status do ERP é mais rico que um binário: "Cancelado (débito)" e
-        // "Inadimplente (90+ dias)" contam histórias diferentes.
-        situacao: situacaoCurta(d.status, mau ? "Inadimplente" : "Em dia"),
-        situacaoTone: mau ? "past" : "ok",
-        atraso: d.daysOverdue > 0 ? `${d.daysOverdue} dias` : "—",
-        valor: d.overdueAmount != null && d.overdueAmount > 0 ? brl(d.overdueAmount) : "—",
-        valorNegativo: mau,
-        custo: "grátis",
-      });
-    }
-  } else {
-    rows.push({
-      cliente: "— nada consta —",
-      fonte: "Seu ERP",
-      situacao: "Sem registro",
-      situacaoTone: "neutral",
-      atraso: "—", valor: "—", valorNegativo: false, custo: "grátis",
-    });
-  }
-
-  if (parceiros.length > 0) {
-    for (const d of parceiros) {
-      const mau = isDelinquent(d);
-      const local = d.addressCity ? ` · ${d.addressCity}${d.addressState ? "/" + d.addressState : ""}` : "";
-      rows.push({
-        cliente: d.customerName || "Dados restritos",
-        sub: d.hasUnreturnedEquipment
-          ? `${d.unreturnedEquipmentCount >= 2 ? "2+" : d.unreturnedEquipmentCount} equipamento${d.unreturnedEquipmentCount > 1 ? "s" : ""} retido${d.unreturnedEquipmentCount > 1 ? "s" : ""}${d.equipmentSignalValidated ? " · ocorrência validada" : ""}`
-          : undefined,
-        fonte: `${d.providerName}${local}`,
-        situacao: situacaoCurta(d.status, mau ? "Inadimplente" : "Em dia"),
-        situacaoTone: mau ? "past" : "ok",
-        atraso: d.daysOverdueRange || (d.daysOverdue > 0 ? `${d.daysOverdue} dias` : "—"),
-        valor: d.overdueAmountRange || "—",
-        valorNegativo: mau,
-        custo: "1 crédito",
-      });
-    }
-  } else {
-    rows.push({
-      cliente: "— nada consta na rede —",
-      fonte: `Rede ISP · ${parceirosConsultados} parceiro${parceirosConsultados === 1 ? "" : "s"}`,
-      situacao: "Sem registro",
-      situacaoTone: "neutral",
-      atraso: "—", valor: "—", valorNegativo: false, custo: "grátis",
-    });
-  }
-
-  /* ── 04 · Equipamento ── */
-  const equipProprio = proprios.find(d => d.hasUnreturnedEquipment);
-  const equipParceiro = parceiros.find(d => d.hasUnreturnedEquipment);
-  const equipRows: FonteRow[] = [
-    equipProprio
-      ? {
-          kicker: "Seu provedor", fonte: `Seu ERP · ${equipProprio.providerName}`,
-          chip: "Ocorrência ativa", chipTone: "danger",
-          nome: `${equipProprio.unreturnedEquipmentCount} equipamento${equipProprio.unreturnedEquipmentCount > 1 ? "s" : ""} não devolvido${equipProprio.unreturnedEquipmentCount > 1 ? "s" : ""}`,
-          linha: equipProprio.equipmentValueRange || equipProprio.equipmentPendingSummary || "Comodato pendente no seu ERP",
-        }
-      : {
-          kicker: "Seu provedor", fonte: "Seu ERP",
-          chip: "Sem ocorrência", chipTone: "ok",
-          nome: "Nenhum equipamento retido",
-          linha: "Sem registro de comodato pendente no seu ERP",
-        },
-    equipParceiro
-      ? {
-          kicker: "Provedor parceiro", fonte: `Rede ISP · ${parceirosConsultados} parceiro${parceirosConsultados === 1 ? "" : "s"}`,
-          chip: equipParceiro.equipmentSignalValidated ? "Ocorrência validada" : "Sinal não validado",
-          chipTone: equipParceiro.equipmentSignalValidated ? "gated" : "neutral",
-          nome: `${equipParceiro.unreturnedEquipmentCount >= 2 ? "2+" : equipParceiro.unreturnedEquipmentCount} equipamento${equipParceiro.unreturnedEquipmentCount > 1 ? "s" : ""} retido${equipParceiro.unreturnedEquipmentCount > 1 ? "s" : ""}`,
-          linha: [
-            equipParceiro.equipmentSignalValidated ? "Ocorrência validada" : "Pendência operacional",
-            equipParceiro.equipmentValueRange ? `${equipParceiro.equipmentValueRange} em risco` : null,
-          ].filter(Boolean).join(" · "),
-        }
-      : {
-          kicker: "Provedor parceiro", fonte: `Rede ISP · ${parceirosConsultados} parceiro${parceirosConsultados === 1 ? "" : "s"}`,
-          chip: "Sem ocorrência", chipTone: "ok",
-          nome: "Nenhum equipamento retido",
-          linha: "Sem ocorrência validada no bureau",
-        },
-  ];
-
-  /* ── 05 · Endereço ── */
-  const matchesProprios = result.addressMatches?.filter(m => m.isSameProvider) ?? [];
-  const matchesParceiros = result.addressMatches?.filter(m => !m.isSameProvider) ?? [];
-  const inadProprios = matchesProprios.filter(m => m.hasDebt).length;
-  const inadParceiros = matchesParceiros.filter(m => m.hasDebt).length;
-  const cepUsado = result.addressUsed || proprios[0]?.cep || "";
-  const cruzou = result.autoAddressCrossRef === true || !!result.addressSearch;
-
-  const addrRows: FonteRow[] = [
-    {
-      kicker: "Seu provedor", fonte: `Seu ERP${cepUsado ? " · CEP " + fmtCep(cepUsado) : ""}`,
-      chip: inadProprios > 0 ? `${inadProprios} inadimplente${inadProprios > 1 ? "s" : ""}` : "Nada consta",
-      chipTone: inadProprios > 0 ? "danger" : "ok",
-      nome: inadProprios > 0 ? `${inadProprios} inadimplente${inadProprios > 1 ? "s" : ""} no endereço` : "Nada consta",
-      linha: inadProprios > 0
-        ? "Possível fraude por troca de documento"
-        : matchesProprios.length > 0
-          ? `${matchesProprios.length} cadastro${matchesProprios.length > 1 ? "s" : ""} ativo${matchesProprios.length > 1 ? "s" : ""} na sua base · em dia`
-          : "Nenhum outro cadastro seu neste endereço",
-    },
-    {
-      kicker: "Provedor parceiro", fonte: `Rede ISP${cepUsado ? " · CEP " + fmtCep(cepUsado) : ""}`,
-      chip: inadParceiros > 0 ? `${inadParceiros} inadimplente${inadParceiros > 1 ? "s" : ""}` : cruzou ? "Nada consta" : "Indisponível",
-      chipTone: inadParceiros > 0 ? "danger" : cruzou ? "ok" : "neutral",
-      nome: inadParceiros > 0
-        ? `${inadParceiros} inadimplente${inadParceiros > 1 ? "s" : ""} no endereço`
-        : cruzou ? "Nada consta" : "Cruzamento não realizado",
-      linha: inadParceiros > 0
-        ? "Possível fraude por troca de documento"
-        : cruzou
-          ? `${matchesParceiros.length} cadastro${matchesParceiros.length === 1 ? "" : "s"} em parceiros · nenhum inadimplente`
-          : "Faltam CEP e número para cruzar o imóvel na rede",
-    },
-  ];
 
   const linhasEndereco = (result.addressMatches ?? []).filter(m => m.hasDebt);
   const temMapa = !!(cepUsado || proprios[0]?.address || proprios[0]?.latitude);
@@ -349,11 +142,12 @@ export default function ConsultaResultSummary({
           <ReportButton onClick={onGeneratePDF} testId="button-generate-pdf">
             <Download size={14} /> PDF
           </ReportButton>
+          {/* "Nova consulta" saiu daqui: a aba de mesmo nome, no topo, ja faz
+              isso — dois caminhos para a mesma acao a dois centimetros um do
+              outro. O que sobra e o que so existe aqui: levar o relatorio
+              embora (PDF) e guarda-lo (Salvar). */}
           <ReportButton onClick={onSave} testId="button-save-consulta">
             <Save size={14} /> Salvar
-          </ReportButton>
-          <ReportButton onClick={onNewConsulta} variant="primary" testId="button-nova-consulta">
-            <RotateCcw size={14} /> Nova consulta
           </ReportButton>
         </div>
       </div>
@@ -403,7 +197,7 @@ export default function ConsultaResultSummary({
             </span>
           </div>
           <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginTop: 10, maxWidth: 520 }}>
-            {decisionSubtitle(result, ativas, equipamentos)}
+            {subtitulo}
           </div>
           <div style={{ flex: 1 }} />
           <div style={{
@@ -483,7 +277,7 @@ export default function ConsultaResultSummary({
                 )}
               </div>
               <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{row.fonte}</div>
-              <div><span style={pillStyle(row.situacaoTone)}>{row.situacao}</span></div>
+              <div><span style={pillStyle(row.situacaoTom)}>{row.situacao}</span></div>
               <div style={{
                 fontFamily: "var(--font-mono)", fontSize: 12,
                 fontVariantNumeric: "tabular-nums", color: "var(--text-2)",
@@ -540,7 +334,7 @@ export default function ConsultaResultSummary({
                 <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{c.kicker}</div>
                 <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{c.fonte}</div>
               </div>
-              <div><span style={pillStyle(c.chipTone)}>{c.chip}</span></div>
+              <div><span style={pillStyle(c.chipTom)}>{c.chip}</span></div>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{c.nome}</div>
                 <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{c.linha}</div>
@@ -582,7 +376,7 @@ export default function ConsultaResultSummary({
               <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{c.kicker}</div>
               <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{c.fonte}</div>
             </div>
-            <div><span style={pillStyle(c.chipTone)}>{c.chip}</span></div>
+            <div><span style={pillStyle(c.chipTom)}>{c.chip}</span></div>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{c.nome}</div>
               <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{c.linha}</div>

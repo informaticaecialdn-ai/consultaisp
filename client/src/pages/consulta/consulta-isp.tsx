@@ -141,14 +141,29 @@ toast({ title: "Não foi possível consultar", description: err.message, variant
 
   const handleGeneratePDF = () => {
     if (!result) return;
-    const html = generatePDF(result);
+    // `consultation` entra: e dela que saem o protocolo (#CI-ano-id), a data da
+    // consulta e o hash de auditoria. Sem passa-la, o papel carimbava a hora da
+    // IMPRESSAO como se fosse a da consulta.
+    const html = generatePDF(result, consultation);
     if (!html) return;
     const w = window.open("", "_blank", "width=900,height=700");
     if (!w) { toast({ title: "Relatório não abriu", description: "Permita pop-ups neste site para gerar o PDF.", variant: "destructive" }); return; }
     w.document.write(html);
     w.document.close();
     w.focus();
-    setTimeout(() => { w.print(); }, 400);
+
+    // Espera as fontes carregarem antes do dialogo. Com o `setTimeout` fixo de
+    // 400ms a impressao disparava antes de Inter e IBM Plex Mono chegarem, e o
+    // documento saia em fonte de sistema — sem o mono tabular, que e o que
+    // alinha as colunas de numero. `document.fonts.ready` resolve quando as
+    // duas familias estao prontas; o timeout vira so a rede de seguranca.
+    const imprimir = () => { try { w.focus(); w.print(); } catch { /* janela fechada */ } };
+    const fontes = (w.document as Document & { fonts?: FontFaceSet }).fonts;
+    if (fontes?.ready) {
+      Promise.race([fontes.ready, new Promise(r => setTimeout(r, 3000))]).then(imprimir);
+    } else {
+      setTimeout(imprimir, 400);
+    }
   };
 
   const handleClear = () => { setResult(null); setConsultation(null); };
@@ -311,9 +326,7 @@ toast({ title: "Não foi possível consultar", description: err.message, variant
                   <ConsultaResultSummary
                     result={result}
                     consultation={consultation}
-                    onShowDetail={() => {}}
-                    onNewConsulta={handleClear}
-                    onSave={handleSaveConsulta}
+                    onShowDetail={() => {}}                    onSave={handleSaveConsulta}
                     onGeneratePDF={handleGeneratePDF}
                   />
                 )}

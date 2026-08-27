@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { faixaDoScore } from "./relatorio-dados";
 
 /**
  * Primitivas do relatório de crédito — o vocabulário visual do handoff
@@ -77,12 +78,21 @@ export function ReportSection({ title, trailing, children, style }: {
    distinguir "Bom" de "Excelente" na leitura — sem mudar decisão nenhuma. */
 export interface Band { label: string; color: string; tone: Tone; index: number }
 
+/** O tom de cada faixa vira a variável CSS correspondente. */
+const COR_DA_FAIXA: Record<string, string> = {
+  danger: "var(--danger)", past: "var(--past)", gated: "var(--gated)",
+  info: "var(--now)", ok: "var(--ok)", neutral: "var(--text-muted)",
+};
+
+/**
+ * As fronteiras vêm de `faixaDoScore`, em relatorio-dados.ts — o mesmo módulo
+ * que o PDF usa. Estavam duplicadas aqui, e uma régua de score com duas cópias
+ * é uma régua que um dia mede diferente na tela e no papel. Aqui fica só a
+ * tradução de tom para variável CSS, que é assunto de pintura.
+ */
 export function bandOf(score: number): Band {
-  if (score <= 300) return { label: "Crítico", color: "var(--danger)", tone: "danger", index: 0 };
-  if (score <= 500) return { label: "Risco alto", color: "var(--past)", tone: "past", index: 1 };
-  if (score <= 700) return { label: "Risco médio", color: "var(--gated)", tone: "gated", index: 2 };
-  if (score <= 850) return { label: "Bom", color: "var(--now)", tone: "info", index: 3 };
-  return { label: "Excelente", color: "var(--ok)", tone: "ok", index: 4 };
+  const f = faixaDoScore(score);
+  return { label: f.label, color: COR_DA_FAIXA[f.tom] ?? "var(--text-muted)", tone: f.tom as Tone, index: f.indice };
 }
 
 /**
