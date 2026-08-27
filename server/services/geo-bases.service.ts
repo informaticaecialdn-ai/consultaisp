@@ -257,14 +257,25 @@ export async function carregarCnefe(caminho: string): Promise<ResultadoCarga> {
 
   // latin1: o CNEFE não é UTF-8, e lido como UTF-8 "IBIPORÃ" vira caractere
   // inválido e o bairro deixa de casar com o do ERP.
-  const conteudo = readFileSync(caminho, "latin1");
-  const { municipioIbge, porBairro } = agregarCnefe(conteudo);
-
   // "4113700_LONDRINA.csv" → LONDRINA
   const nomeArquivo = basename(caminho).replace(/\.csv$/i, "");
-  const cidadeNorm = normalizarLocalidade(nomeArquivo.replace(/^\d+[_-]?/, "").replace(/_/g, " "));
+  const cidade = normalizarLocalidade(nomeArquivo.replace(/^\d+[_-]?/, "").replace(/_/g, " "));
+  if (!cidade) throw new Error(`Não deu para extrair a cidade do nome do arquivo: ${nomeArquivo}`);
+  return carregarCnefeDoConteudo(readFileSync(caminho, "latin1"), cidade);
+}
+
+/**
+ * Carrega o CNEFE a partir do conteúdo já em memória — é por aqui que entra o
+ * arquivo baixado do IBGE, sem passar pelo disco.
+ */
+export async function carregarCnefeDoConteudo(
+  conteudo: string,
+  nomeCidade: string,
+): Promise<ResultadoCarga> {
+  const { municipioIbge, porBairro } = agregarCnefe(conteudo);
+  const cidadeNorm = normalizarLocalidade(nomeCidade);
   const uf = UF_POR_CODIGO[municipioIbge.slice(0, 2)] ?? "";
-  if (!cidadeNorm) throw new Error(`Não deu para extrair a cidade do nome do arquivo: ${nomeArquivo}`);
+  if (!cidadeNorm) throw new Error("Nome de cidade vazio");
 
   const r = await gravar(municipioIbge, cidadeNorm, uf, FONTE_CNEFE, porBairro);
 

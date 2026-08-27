@@ -1,7 +1,10 @@
 /**
  * Carga das bases geográficas públicas.
  *
- *   npx tsx script/ingest-geo.ts cnefe .data/cnefe/4113700_LONDRINA.csv
+ *   npx tsx script/ingest-geo.ts cnefe Londrina            # baixa do IBGE
+ *   npx tsx script/ingest-geo.ts cnefe "Bom Jesus - PR"    # UF desempata homonimas
+ *   npx tsx script/ingest-geo.ts cnefe 4113700             # ou o codigo IBGE
+ *   npx tsx script/ingest-geo.ts cnefe ./4113700_LONDRINA.csv  # arquivo ja baixado
  *   npx tsx script/ingest-geo.ts aneel .data/aneel/ucbt_por_bairro.csv
  *   npx tsx script/ingest-geo.ts status
  *
@@ -20,7 +23,8 @@
  */
 import "dotenv/config";
 import { pool } from "../server/db";
-import { carregarCnefe, carregarAneel, garantirTabelasGeo, FONTE_CNEFE, FONTE_ANEEL } from "../server/services/geo-bases.service";
+import { carregarCnefe, carregarCnefeDoConteudo, carregarAneel, garantirTabelasGeo, FONTE_CNEFE, FONTE_ANEEL } from "../server/services/geo-bases.service";
+import { baixarCnefe } from "../server/services/cnefe-download.service";
 
 async function status() {
   await garantirTabelasGeo();
@@ -53,9 +57,21 @@ async function main() {
   if (!comando || comando === "status") {
     await status();
   } else if (comando === "cnefe") {
-    if (!caminho) throw new Error("Informe o caminho do CSV do CNEFE");
-    const r = await carregarCnefe(caminho);
-    console.log(`IBGE CNEFE · ${r.cidade}/${r.uf} (${r.municipio}): ${r.total.toLocaleString("pt-BR")} domicílios em ${r.bairros} bairros`);
+    if (!caminho) throw new Error("Informe a cidade (ou o caminho de um CSV já baixado)");
+
+    // Caminho de arquivo ou nome de cidade — o segundo é o caso normal, e evita
+    // o operador ter de achar e mover um arquivo de 47MB.
+    const pareceArquivo = /[\\/]/.test(caminho) || /\.csv$/i.test(caminho);
+    let r;
+    if (pareceArquivo) {
+      r = await carregarCnefe(caminho);
+    } else {
+      const { municipio, csv } = await baixarCnefe(caminho);
+      r = await carregarCnefeDoConteudo(csv, municipio.nome);
+    }
+
+    console.log(`IBGE CNEFE · ${r.cidade}/${r.uf} (${r.municipio}): ${r.total.toLocaleString("pt-BR")} domicílios em ${r.bairros} bairros` +
+      (r.enderecos ? ` · ${r.enderecos.toLocaleString("pt-BR")} endereços com coordenada` : ""));
   } else if (comando === "aneel") {
     if (!caminho) throw new Error("Informe o caminho do CSV da ANEEL");
     const rs = await carregarAneel(caminho);
