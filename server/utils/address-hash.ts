@@ -21,6 +21,16 @@ import { createHash } from 'crypto'
 
 let NETWORK_SALT: string | undefined
 
+/**
+ * Exposto para o cruzamento por endereco completo (services/endereco-chave.ts),
+ * que hasheia outra chave mas precisa do MESMO salt — dois salts fariam o mesmo
+ * imovel gerar hashes distintos conforme o caminho, e o cruzamento silenciosamente
+ * deixaria de casar.
+ */
+export function saltDeRede(): string {
+  return getSalt()
+}
+
 function getSalt(): string {
   if (!NETWORK_SALT) {
     NETWORK_SALT = process.env.NETWORK_CPF_SALT

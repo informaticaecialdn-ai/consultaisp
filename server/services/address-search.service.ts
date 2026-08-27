@@ -1,5 +1,6 @@
 import type { RealtimeQueryResult } from "./realtime-query.service";
-import { hashAddressForNetwork } from "../utils/address-hash";
+import { saltDeRede } from "../utils/address-hash";
+import { agruparPorEndereco, hashEndereco } from "./endereco-chave";
 import { maskCrossProviderDetail } from "./lgpd-masking";
 
 export interface AddressRiskScore {
@@ -15,6 +16,9 @@ export interface AddressGroupEntry {
   cep: string;
   numero: string;
   complemento?: string;
+  logradouro?: string;
+  bairro?: string;
+  cidade?: string;
   customers: Array<{
     cpfCnpj: string;
     name: string;
@@ -43,48 +47,63 @@ export interface AddressSearchResult {
   };
 }
 
+/**
+ * Agrupa os cadastros por IMOVEL — logradouro, numero, bairro e cidade.
+ *
+ * Era chaveado por CEP (`sha256(cep:numero)`) e descartava, em silencio, todo
+ * cadastro sem CEP de 8 digitos. Medido em producao em 27/08/2026: 1.237 dos
+ * 3.214 clientes da NsLink, 39% da carteira, nunca entravam no cruzamento. E
+ * CEP errado e pior que ausente — em cidade pequena metade do cadastro carrega
+ * o CEP geral do municipio, o que juntaria imoveis diferentes num grupo so.
+ *
+ * O endereco por extenso resolve os dois lados: "Av. Tiradentes" e "AVENIDA
+ * TIRADENTES" casam, o numero grudado no logradouro ("Rua Mato Grosso, 1435 -
+ * Centro, Londrina", como o MK devolve) e separado antes, e o CEP deixa de ser
+ * requisito. Ver `endereco-chave.ts` para a regra do bairro.
+ */
 export function groupCustomersByAddress(
   erpResults: RealtimeQueryResult[],
   consultingProviderId: number,
-): Map<string, Omit<AddressGroupEntry, "addressHash"> & { addressHash: string }> {
-  const groups = new Map<string, AddressGroupEntry>();
+): Map<string, AddressGroupEntry> {
+  type Linha = {
+    c: RealtimeQueryResult["customers"][0];
+    providerName: string;
+    providerId: number;
+  };
 
+  const linhas: Linha[] = [];
   for (const erp of erpResults) {
     if (!erp.ok) continue;
     for (const c of erp.customers) {
-      const cep = c.cep?.replace(/\D/g, "");
-      const numero = c.addressNumber;
-      if (!cep || cep.length !== 8 || !numero) continue;
-
-      let hash: string;
-      try {
-        hash = hashAddressForNetwork(cep, numero, c.complement);
-      } catch {
-        continue;
-      }
-
-      if (!groups.has(hash)) {
-        groups.set(hash, {
-          addressHash: hash,
-          cep,
-          numero,
-          complemento: c.complement,
-          customers: [],
-        });
-      }
-
-      groups.get(hash)!.customers.push({
-        cpfCnpj: c.cpfCnpj,
-        name: c.name,
-        providerName: erp.providerName,
-        providerId: erp.providerId,
-        isSameProvider: erp.providerId === consultingProviderId,
-        maxDaysOverdue: c.maxDaysOverdue,
-        totalOverdueAmount: c.totalOverdueAmount,
-        overdueInvoicesCount: c.overdueInvoicesCount,
-        status: c.status,
-      });
+      linhas.push({ c, providerName: erp.providerName, providerId: erp.providerId });
     }
+  }
+
+  const salt = saltDeRede();
+  const groups = new Map<string, AddressGroupEntry>();
+
+  for (const grupo of agruparPorEndereco(linhas, l => l.c)) {
+    const hash = hashEndereco(grupo.chave, salt);
+    groups.set(hash, {
+      addressHash: hash,
+      cep: grupo.itens[0].c.cep?.replace(/\D/g, "") ?? "",
+      numero: String(grupo.chave.numero),
+      complemento: grupo.itens[0].c.complement,
+      logradouro: grupo.chave.logradouro,
+      bairro: grupo.chave.bairro || undefined,
+      cidade: grupo.chave.cidade,
+      customers: grupo.itens.map(l => ({
+        cpfCnpj: l.c.cpfCnpj,
+        name: l.c.name,
+        providerName: l.providerName,
+        providerId: l.providerId,
+        isSameProvider: l.providerId === consultingProviderId,
+        maxDaysOverdue: l.c.maxDaysOverdue,
+        totalOverdueAmount: l.c.totalOverdueAmount,
+        overdueInvoicesCount: l.c.overdueInvoicesCount,
+        status: l.c.status,
+      })),
+    });
   }
 
   return groups;
