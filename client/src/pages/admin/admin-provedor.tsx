@@ -22,15 +22,15 @@ import {
 
 const PLAN_CONFIG: Record<string, { label: string; color: string; isp: number; spc: number; price: number }> = {
   free:       { label: "Gratuito",   color: "bg-[var(--color-tag-bg)] text-gray-700",   isp: 50,   spc: 0,   price: 0 },
-  basic:      { label: "Basico",     color: "bg-blue-100 text-blue-700",   isp: 200,  spc: 50,  price: 199 },
+  basic:      { label: "Basico",     color: "bg-[var(--color-brand-bg)] text-[var(--color-brand)]",   isp: 200,  spc: 50,  price: 199 },
   pro:        { label: "Pro",        color: "bg-indigo-100 text-indigo-700", isp: 500, spc: 150, price: 399 },
   enterprise: { label: "Enterprise", color: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]", isp: 1500, spc: 500, price: 799 },
 };
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  active:    { label: "Ativo",     color: "bg-green-100 text-green-700" },
+  active:    { label: "Ativo",     color: "bg-[var(--color-success-bg)] text-[var(--color-success)]" },
   inactive:  { label: "Inativo",   color: "bg-[var(--color-tag-bg)] text-gray-500" },
-  suspended: { label: "Suspenso",  color: "bg-red-100 text-red-700" },
+  suspended: { label: "Suspenso",  color: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" },
 };
 
 function fmt(n: number) {
@@ -66,9 +66,9 @@ function StatCard({ icon: Icon, label, value, sub, color = "text-blue-600" }: {
 
 function InvoiceStatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
-    pending:   { label: "Pendente",   cls: "bg-[var(--color-gold-bg)] text-yellow-700" },
-    paid:      { label: "Paga",       cls: "bg-green-100 text-green-700" },
-    overdue:   { label: "Vencida",    cls: "bg-red-100 text-red-700" },
+    pending:   { label: "Pendente",   cls: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" },
+    paid:      { label: "Paga",       cls: "bg-[var(--color-success-bg)] text-[var(--color-success)]" },
+    overdue:   { label: "Vencida",    cls: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" },
     cancelled: { label: "Cancelada",  cls: "bg-[var(--color-tag-bg)] text-gray-500" },
   };
   const s = map[status] || { label: status, cls: "bg-[var(--color-tag-bg)] text-[var(--color-muted)]" };
@@ -90,7 +90,7 @@ export default function AdminProvedorPage() {
   const [showCreditsModal, setShowCreditsModal] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [planForm, setPlanForm] = useState({ plan: "", notes: "" });
-  const [creditsForm, setCreditsForm] = useState({ ispCredits: "", spcCredits: "", notes: "" });
+  const [creditsForm, setCreditsForm] = useState({ ispCredits: "", spcCredits: "", bigdataCredits: "", notes: "" });
   const [invoiceForm, setInvoiceForm] = useState({ period: "", amount: "", planAtTime: "basic", ispCreditsIncluded: "", spcCreditsIncluded: "", dueDate: "", notes: "" });
   const [editingEmailUser, setEditingEmailUser] = useState<{ id: number; name: string; email: string } | null>(null);
   const [newEmail, setNewEmail] = useState("");
@@ -353,8 +353,9 @@ export default function AdminProvedorPage() {
         <StatCard icon={Activity} label="Equipamentos" value={stats.equipment} sub="ativos" color="text-indigo-600" />
         <StatCard icon={BarChart3} label="Consultas ISP" value={stats.ispConsultations} sub={`${stats.ispConsultationsMonth} este mes`} color="text-violet-600" />
         <StatCard icon={TrendingUp} label="Consultas SPC" value={stats.spcConsultations} sub={`${stats.spcConsultationsMonth} este mes`} color="text-purple-600" />
-        <StatCard icon={Zap} label="Creditos ISP" value={provider.ispCredits} sub={`de ${plan.isp} do plano`} color="text-orange-500" />
-        <StatCard icon={CreditCard} label="Creditos SPC" value={provider.spcCredits} sub={`de ${plan.spc} do plano`} color="text-pink-500" />
+        <StatCard icon={Zap} label="Creditos ISP" value={provider.ispCredits} sub={`de ${plan.isp} do plano`} color="text-[var(--color-gold)]" />
+        <StatCard icon={CreditCard} label="Creditos SPC" value={provider.spcCredits} sub={`de ${plan.spc} do plano`} color="text-[var(--color-brand)]" />
+        <StatCard icon={CreditCard} label="Creditos Cadastral" value={provider.bigdataCredits ?? 0} sub="consulta cadastral" color="text-[var(--color-steel)]" />
       </div>
 
       {/* Main Tabs */}
@@ -516,7 +517,7 @@ export default function AdminProvedorPage() {
                   </div>
                   <div className="text-center p-3 bg-yellow-50 rounded-lg">
                     <p className="text-xs text-muted-foreground mb-1">Em Aberto</p>
-                    <p className="text-lg font-bold text-yellow-700">{fmt(financial.totalPending)}</p>
+                    <p className="text-lg font-bold text-[var(--color-gold)]">{fmt(financial.totalPending)}</p>
                   </div>
                   <div className="text-center p-3 bg-red-50 rounded-lg">
                     <p className="text-xs text-muted-foreground mb-1">Vencido</p>
@@ -661,7 +662,7 @@ export default function AdminProvedorPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <Badge className={`border-0 text-xs ${u.role === "admin" ? "bg-blue-100 text-blue-700" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>
+                      <Badge className={`border-0 text-xs ${u.role === "admin" ? "bg-[var(--color-brand-bg)] text-[var(--color-brand)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>
                         {u.role === "admin" ? "Admin" : "Usuario"}
                       </Badge>
                       {u.emailVerified ? (
@@ -848,8 +849,8 @@ export default function AdminProvedorPage() {
                 <p className="text-xs text-blue-600 mb-1">Atual ISP</p>
                 <p className="text-xl font-bold text-blue-700">{provider.ispCredits}</p>
               </div>
-              <div className="p-3 bg-purple-50 rounded-lg">
-                <p className="text-xs text-purple-600 mb-1">Atual SPC</p>
+              <div className="p-3 bg-[var(--color-tag-bg)] rounded-lg">
+                <p className="text-xs text-[var(--color-muted)] mb-1">Atual SPC</p>
                 <p className="text-xl font-bold text-[var(--color-brand)]">{provider.spcCredits}</p>
               </div>
             </div>
@@ -875,6 +876,16 @@ export default function AdminProvedorPage() {
                 />
               </div>
               <div className="space-y-1.5">
+                <Label>Creditos Consulta Cadastral a adicionar</Label>
+                <Input
+                  type="number"
+                  value={creditsForm.bigdataCredits}
+                  onChange={e => setCreditsForm(f => ({ ...f, bigdataCredits: e.target.value }))}
+                  placeholder="0"
+                  data-testid="input-bigdata-credits"
+                />
+              </div>
+              <div className="space-y-1.5">
                 <Label>Observacao (opcional)</Label>
                 <Input
                   value={creditsForm.notes}
@@ -890,6 +901,7 @@ export default function AdminProvedorPage() {
                 onClick={() => creditsMutation.mutate({
                   ispCredits: parseInt(creditsForm.ispCredits) || 0,
                   spcCredits: parseInt(creditsForm.spcCredits) || 0,
+                  bigdataCredits: parseInt(creditsForm.bigdataCredits) || 0,
                   notes: creditsForm.notes,
                 })}
                 disabled={creditsMutation.isPending}
@@ -1099,7 +1111,7 @@ function IntegracaoTab({ providerId, erpSource, erpEnabled }: { providerId: numb
               const status = intg?.lastSyncStatus ?? null;
               return (
                 <div key={erp.key} className="px-5 py-4 flex items-center gap-3" data-testid={`row-erp-${erp.key}`}>
-                  <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${erp.grad} flex items-center justify-center flex-shrink-0`}>
+                  <div className={`w-10 h-10 rounded-lg bg-[var(--color-ink)] flex items-center justify-center flex-shrink-0`}>
                     <Wifi className="w-5 h-5 text-white" />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -1111,7 +1123,7 @@ function IntegracaoTab({ providerId, erpSource, erpEnabled }: { providerId: numb
                       {hasCredentials && status && (
                         <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
                           status === "success" ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" :
-                          status === "error" ? "bg-red-100 text-red-700" :
+                          status === "error" ? "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" :
                           "bg-[var(--color-gold-bg)] text-[var(--color-gold)]"
                         }`}>{status === "success" ? "Sucesso" : status === "error" ? "Erro" : "Parcial"}</span>
                       )}
@@ -1161,7 +1173,7 @@ function IntegracaoTab({ providerId, erpSource, erpEnabled }: { providerId: numb
                   <tr key={log.id} data-testid={`row-synclog-${log.id}`}>
                     <td className="px-4 py-2 font-medium">{ERP_NAMES[log.erpSource] || log.erpSource}</td>
                     <td className="px-4 py-2">
-                      <Badge className={`text-xs border-0 ${log.status === "success" ? "bg-green-100 text-green-700" : log.status === "error" ? "bg-red-100 text-red-700" : "bg-[var(--color-gold-bg)] text-yellow-700"}`}>
+                      <Badge className={`text-xs border-0 ${log.status === "success" ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : log.status === "error" ? "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" : "bg-[var(--color-gold-bg)] text-[var(--color-gold)]"}`}>
                         {log.status === "success" ? "Sucesso" : log.status === "error" ? "Erro" : log.status}
                       </Badge>
                     </td>

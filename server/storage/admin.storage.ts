@@ -24,11 +24,12 @@ export class AdminStorage {
     return updated;
   }
 
-  async addCredits(providerId: number, ispCredits: number, spcCredits: number): Promise<Provider> {
+  async addCredits(providerId: number, ispCredits: number, spcCredits: number, bigdataCredits = 0): Promise<Provider> {
     const [updated] = await db.update(providers)
       .set({
         ispCredits: sql`${providers.ispCredits} + ${ispCredits}`,
         spcCredits: sql`${providers.spcCredits} + ${spcCredits}`,
+        bigdataCredits: sql`${providers.bigdataCredits} + ${bigdataCredits}`,
       })
       .where(eq(providers.id, providerId))
       .returning();

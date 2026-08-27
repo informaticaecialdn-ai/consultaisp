@@ -143,7 +143,7 @@ export interface IStorage {
   adminUpdateProvider(id: number, data: Partial<Provider>): Promise<Provider>;
   adminDeactivateProvider(id: number): Promise<void>;
   updateProviderPlan(id: number, plan: string): Promise<Provider>;
-  addCredits(providerId: number, ispCredits: number, spcCredits: number): Promise<Provider>;
+  addCredits(providerId: number, ispCredits: number, spcCredits: number, bigdataCredits?: number): Promise<Provider>;
   getSystemStats(): Promise<any>;
 
   getPlanChanges(providerId?: number): Promise<PlanChange[]>;
@@ -406,7 +406,7 @@ class DatabaseStorage implements IStorage {
   adminUpdateProvider = (id: number, data: Partial<Provider>) => this._admin.adminUpdateProvider(id, data);
   adminDeactivateProvider = (id: number) => this._admin.adminDeactivateProvider(id);
   updateProviderPlan = (id: number, plan: string) => this._admin.updateProviderPlan(id, plan);
-  addCredits = (providerId: number, ispCredits: number, spcCredits: number) => this._admin.addCredits(providerId, ispCredits, spcCredits);
+  addCredits = (providerId: number, ispCredits: number, spcCredits: number, bigdataCredits?: number) => this._admin.addCredits(providerId, ispCredits, spcCredits, bigdataCredits);
   getSystemStats = () => this._admin.getSystemStats();
   getPlanChanges = (providerId?: number) => this._admin.getPlanChanges(providerId);
   createPlanChange = (change: InsertPlanChange) => this._admin.createPlanChange(change);

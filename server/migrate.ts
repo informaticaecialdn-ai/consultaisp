@@ -26,6 +26,22 @@ export async function runMigrations(): Promise<void> {
     )
   `);
 
+  // A tabela de sessao NAO esta no shared/schema.ts (e infraestrutura do
+  // connect-pg-simple, nao dominio), entao todo `drizzle-kit push --force` a
+  // enxerga como sobra e DERRUBA — foi assim que o login de producao quebrou
+  // em 2026-08-26. E o fallback do proprio connect-pg-simple nao funciona em
+  // producao: ele le um table.sql interno do pacote que o esbuild nao empacota.
+  // Garantir aqui, a cada boot, fecha os dois buracos de uma vez.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS "session" (
+      "sid" varchar NOT NULL COLLATE "default",
+      "sess" json NOT NULL,
+      "expire" timestamp(6) NOT NULL,
+      CONSTRAINT "session_pkey" PRIMARY KEY ("sid")
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire")`);
+
   if (!fs.existsSync(MIGRATIONS_DIR)) {
     log("No migrations directory found, skipping");
     return;

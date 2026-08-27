@@ -300,16 +300,22 @@ export function registerAdminRoutes(): Router {
   router.post("/api/admin/providers/:id/credits", requireSuperAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const { ispCredits = 0, spcCredits = 0, notes } = req.body;
+      const { ispCredits = 0, spcCredits = 0, bigdataCredits = 0, notes } = req.body;
       const provider = await storage.getProvider(id);
       if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
-      const updated = await storage.addCredits(id, ispCredits, spcCredits);
-      if (ispCredits !== 0 || spcCredits !== 0) {
+      const updated = await storage.addCredits(id, ispCredits, spcCredits, bigdataCredits);
+      if (ispCredits !== 0 || spcCredits !== 0 || bigdataCredits !== 0) {
+        const partes = [
+          ispCredits !== 0 ? `ISP +${ispCredits}` : null,
+          spcCredits !== 0 ? `SPC +${spcCredits}` : null,
+          bigdataCredits !== 0 ? `Cadastral +${bigdataCredits}` : null,
+        ].filter(Boolean).join(", ");
         await storage.createPlanChange({
           providerId: id, oldPlan: null, newPlan: null,
           ispCreditsAdded: ispCredits, spcCreditsAdded: spcCredits,
+          bigdataCreditsAdded: bigdataCredits,
           changedById: req.session.userId, changedByName: "Administrador do Sistema",
-          notes: notes || `Creditos adicionados: ISP +${ispCredits}, SPC +${spcCredits}`,
+          notes: notes || `Creditos adicionados: ${partes}`,
         });
       }
       return res.json(updated);
