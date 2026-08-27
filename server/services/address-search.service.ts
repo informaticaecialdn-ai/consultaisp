@@ -121,17 +121,31 @@ function chaveDoGrupo(g: AddressGroupEntry): ChaveEndereco | null {
   });
 }
 
+/**
+ * @param documentoConsultado Excluído da conta.
+ *
+ *   O cruzamento responde "há MAIS alguém devendo neste endereço", e o titular
+ *   não é "mais alguém": a dívida dele já entra no score pelo caminho próprio, e
+ *   contá-la de novo aqui a pesaria duas vezes. Medido em produção em
+ *   27/08/2026: consultando a Rua Mato Grosso, 1435, o único inadimplente do
+ *   imóvel era o próprio consultado, e sem esta exclusão o endereço dele seria
+ *   marcado como de risco por causa dele mesmo.
+ */
 export function calculateAddressRisk(
   groups: Map<string, AddressGroupEntry>,
+  documentoConsultado?: string,
 ): AddressRiskScore {
   const delinquentCpfs = new Set<string>();
   let totalOcorrencias = 0;
   const alertas: string[] = [];
+  const titular = (documentoConsultado ?? "").replace(/\D/g, "");
 
   groups.forEach((group) => {
     for (const c of group.customers) {
+      const doc = c.cpfCnpj.replace(/\D/g, "");
+      if (titular && doc === titular) continue;
       if (c.maxDaysOverdue > 0) {
-        delinquentCpfs.add(c.cpfCnpj.replace(/\D/g, ""));
+        delinquentCpfs.add(doc);
         totalOcorrencias++;
       }
     }
@@ -184,6 +198,7 @@ export function buildAddressSearchResult(
   erpResults: RealtimeQueryResult[],
   consultingProviderId: number,
   alvo?: ChaveEndereco,
+  documentoConsultado?: string,
 ): AddressSearchResult {
   const todos = groupCustomersByAddress(erpResults, consultingProviderId);
 
@@ -194,7 +209,7 @@ export function buildAddressSearchResult(
         chaveDoGrupo(g) !== null && mesmoEndereco(chaveDoGrupo(g)!, alvo)))
     : todos;
 
-  const risk = calculateAddressRisk(groups);
+  const risk = calculateAddressRisk(groups, documentoConsultado);
 
   const addressGroups: AddressGroupEntry[] = [];
   groups.forEach((group) => {

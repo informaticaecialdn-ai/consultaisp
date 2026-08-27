@@ -77,3 +77,33 @@ describe("buildAddressSearchResult — recorte pelo imovel", () => {
     expect(r.risk.cpfsDistintosInadimplentes).toBe(0);
   });
 });
+
+describe("o titular nao conta contra si mesmo", () => {
+  const doc = (numero: string, dias: number) => `${numero}${dias}00000000`.slice(0, 11);
+
+  it("o proprio consultado, devedor, NAO vira risco de endereco", () => {
+    const consultado = cli("Consultado", "1435", 902);
+    const r = buildAddressSearchResult("x", erp([consultado]), 4, alvo, consultado.cpfCnpj);
+    expect(r.risk.cpfsDistintosInadimplentes).toBe(0);
+    expect(r.risk.riskLevel).toBe("baixo");
+  });
+
+  it("mas OUTRO devedor no mesmo imovel conta", () => {
+    const consultado = cli("Consultado", "1435", 902);
+    const outro = cli("Coabitante", "1435", 120);
+    const r = buildAddressSearchResult("x", erp([consultado, outro]), 4, alvo, consultado.cpfCnpj);
+    expect(r.risk.cpfsDistintosInadimplentes).toBe(1);
+  });
+
+  it("sem o documento, mantem o comportamento antigo", () => {
+    const consultado = cli("Consultado", "1435", 902);
+    const r = buildAddressSearchResult("x", erp([consultado]), 4, alvo);
+    expect(r.risk.cpfsDistintosInadimplentes).toBe(1);
+  });
+
+  it("compara so digitos — pontuacao nao escapa da exclusao", () => {
+    const consultado = { ...cli("Consultado", "1435", 902), cpfCnpj: "111.222.333-44" };
+    const r = buildAddressSearchResult("x", erp([consultado]), 4, alvo, "11122233344");
+    expect(r.risk.cpfsDistintosInadimplentes).toBe(0);
+  });
+});
