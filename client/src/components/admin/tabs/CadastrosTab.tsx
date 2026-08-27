@@ -16,7 +16,7 @@ import { PLAN_LABELS } from "../constants";
 const VERIFICATION_LABELS: Record<string, { label: string; color: string; icon: any }> = {
   pending: { label: "Pendente", color: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]", icon: Clock },
   approved: { label: "Aprovado", color: "bg-[var(--color-success-bg)] text-[var(--color-success)]", icon: CheckCircle },
-  rejected: { label: "Rejeitado", color: "bg-red-100 text-[var(--color-danger)] dark:bg-red-900 dark:text-red-300", icon: XCircle },
+  rejected: { label: "Rejeitado", color: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]", icon: XCircle },
 };
 
 export default function CadastrosTab() {
@@ -95,9 +95,9 @@ export default function CadastrosTab() {
         {(["all", "pending", "approved", "rejected"] as const).map((f) => {
           const labels: Record<string, { label: string; color: string; activeColor: string }> = {
             all: { label: "Todos", color: "text-[var(--color-muted)]", activeColor: "bg-gray-900 text-white dark:bg-[var(--color-tag-bg)] dark:text-gray-900" },
-            pending: { label: "Pendentes", color: "text-[var(--color-gold)]", activeColor: "bg-amber-600 text-white" },
+            pending: { label: "Pendentes", color: "text-[var(--color-gold)]", activeColor: "bg-[var(--color-gold)] text-white" },
             approved: { label: "Aprovados", color: "text-[var(--color-success)]", activeColor: "bg-[var(--color-success)] text-white" },
-            rejected: { label: "Rejeitados", color: "text-[var(--color-danger)]", activeColor: "bg-red-600 text-white" },
+            rejected: { label: "Rejeitados", color: "text-[var(--color-danger)]", activeColor: "bg-[var(--color-danger)] text-white" },
           };
           const l = labels[f];
           const isActive = cadastroFilter === f;
@@ -146,7 +146,7 @@ export default function CadastrosTab() {
               return (
                 <div key={p.id} className="px-5 py-4" data-testid={`cadastro-row-${p.id}`}>
                   <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 rounded from-amber-500 to-orange-600 flex items-center justify-center text-sm font-bold text-white flex-shrink-0">
+                    <div className="w-10 h-10 rounded bg-[var(--color-ink)] flex items-center justify-center text-sm font-bold text-white flex-shrink-0">
                       {p.name?.charAt(0)}
                     </div>
                     <div className="flex-1 min-w-0">

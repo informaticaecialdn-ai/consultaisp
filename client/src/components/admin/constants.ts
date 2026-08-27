@@ -1,6 +1,6 @@
 import {
   BarChart3, Activity, Building2, Users, Database, DollarSign,
-  MessageSquare, RefreshCw, Settings, ClipboardList, Target,
+  MessageSquare, RefreshCw, Settings, ClipboardList,
 } from "lucide-react";
 
 export const VALID_TABS = [
@@ -10,31 +10,38 @@ export const VALID_TABS = [
   "financeiro",
   "suporte",
   "configuracoes",
-  "crm",
 ] as const;
 
 export type AdminTabKey = (typeof VALID_TABS)[number];
 
-export const PAGE_META: Record<string, { title: string; desc: string; icon: any; color: string }> = {
-  painel: { title: "Painel Geral", desc: "Visao geral do sistema", icon: BarChart3, color: "from-red-600 to-rose-700" },
-  cadastros: { title: "Cadastros", desc: "Cadastros realizados pela landing page", icon: Activity, color: "from-amber-600 to-orange-700" },
-  provedores: { title: "Provedores", desc: "Gerencie todos os provedores", icon: Building2, color: "from-blue-600 to-indigo-700" },
-  financeiro: { title: "Faturas e Cobrancas", desc: "Receita, faturas e pagamentos", icon: DollarSign, color: "from-emerald-600 to-teal-700" },
-  suporte: { title: "Suporte", desc: "Chat direto com provedores e visitantes", icon: MessageSquare, color: "from-orange-500 to-amber-600" },
-  configuracoes: { title: "Configuracoes", desc: "Catalogo de ERPs e configuracoes do sistema", icon: Settings, color: "from-teal-600 to-emerald-700" },
-  crm: { title: "CRM Vendas", desc: "Gestao de leads, pipeline e agentes de vendas", icon: Target, color: "from-pink-600 to-rose-700" },
+/**
+ * Meta das abas do admin. Sem cor por aba: no Bureau a identidade vem da
+ * tipografia, e sete gradientes diferentes eram exatamente a bagunca.
+ */
+export const PAGE_META: Record<string, { title: string; desc: string; icon: any }> = {
+  painel: { title: "Painel Geral", desc: "Visao geral do sistema", icon: BarChart3 },
+  cadastros: { title: "Cadastros", desc: "Cadastros realizados pela landing page", icon: Activity },
+  provedores: { title: "Provedores", desc: "Gerencie todos os provedores", icon: Building2 },
+  financeiro: { title: "Faturas e Cobrancas", desc: "Receita, faturas e pagamentos", icon: DollarSign },
+  suporte: { title: "Suporte", desc: "Chat direto com provedores e visitantes", icon: MessageSquare },
+  configuracoes: { title: "Configuracoes", desc: "Catalogo de ERPs e configuracoes do sistema", icon: Settings },
   // Legacy aliases (still referenced by deep links / internals)
-  usuarios: { title: "Usuarios", desc: "Contas e acessos do sistema", icon: Users, color: "from-violet-600 to-purple-700" },
-  erps: { title: "ERPs Cadastrados", desc: "Gerencie os sistemas ERP suportados", icon: Database, color: "from-teal-600 to-emerald-700" },
-  integracoes: { title: "Integracoes", desc: "Configuracao ERP por provedor", icon: Database, color: "from-blue-500 to-violet-600" },
-  sincronizacao: { title: "Sincronizacao Automatica", desc: "Agendamento e monitoramento do auto-sync de ERPs", icon: RefreshCw, color: "from-cyan-600 to-teal-700" },
+  usuarios: { title: "Usuarios", desc: "Contas e acessos do sistema", icon: Users },
+  erps: { title: "ERPs Cadastrados", desc: "Gerencie os sistemas ERP suportados", icon: Database },
+  integracoes: { title: "Integracoes", desc: "Configuracao ERP por provedor", icon: Database },
+  sincronizacao: { title: "Sincronizacao Automatica", desc: "Agendamento e monitoramento do auto-sync de ERPs", icon: RefreshCw },
 };
 
+/**
+ * Badge de plano no padrao Bureau: retangular, tokens do sistema, mesmos pares
+ * nos dois temas. Gratuito e neutro; pago sobe em intensidade de marca; o
+ * Enterprise leva gold por ser o unico que merece destaque de receita.
+ */
 export const PLAN_LABELS: Record<string, { label: string; color: string }> = {
-  free: { label: "Gratuito", color: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" },
-  basic: { label: "Basico", color: "bg-[var(--color-brand-bg)] text-[var(--color-brand)] dark:bg-blue-900 dark:text-blue-300" },
-  pro: { label: "Pro", color: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300" },
-  enterprise: { label: "Enterprise", color: "bg-amber-100 text-[var(--color-gold)] dark:bg-amber-900 dark:text-amber-300" },
+  free: { label: "Gratuito", color: "bg-[var(--color-tag-bg)] text-[var(--color-muted)]" },
+  basic: { label: "Basico", color: "bg-[var(--color-brand-bg)] text-[var(--color-brand)]" },
+  pro: { label: "Pro", color: "bg-[var(--color-brand-bg)] text-[var(--color-steel)] font-semibold" },
+  enterprise: { label: "Enterprise", color: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" },
 };
 
 export const ERP_OPTIONS = [

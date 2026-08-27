@@ -89,7 +89,7 @@ export default function ProvedoresTab() {
                 data-testid={`admin-provider-row-${p.id}`}
                 onClick={() => openDrawer(p.id)}
               >
-                <div className="w-10 h-10 rounded from-blue-500 to-indigo-600 flex items-center justify-center text-sm font-bold text-white flex-shrink-0">
+                <div className="w-10 h-10 rounded bg-[var(--color-ink)] flex items-center justify-center text-sm font-bold text-white flex-shrink-0">
                   {p.name?.charAt(0)}
                 </div>
                 <div className="flex-1 min-w-0">

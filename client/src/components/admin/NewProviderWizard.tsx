@@ -175,7 +175,7 @@ export default function NewProviderWizard({ open, onOpenChange }: { open: boolea
         {step === 2 && (
           <div className="space-y-4 py-2">
             {cnpjData?.situacao && cnpjData.situacao !== "ATIVA" && (
-              <div className="flex items-center gap-2 bg-[var(--color-gold-bg)] dark:bg-amber-950/30 text-[var(--color-gold)] dark:text-amber-400 rounded px-3 py-2 text-sm">
+              <div className="flex items-center gap-2 bg-[var(--color-gold-bg)] text-[var(--color-gold)] rounded px-3 py-2 text-sm">
                 <AlertTriangle className="w-4 h-4 flex-shrink-0" />
                 Situacao cadastral: <strong>{cnpjData.situacao}</strong>
               </div>
@@ -286,7 +286,7 @@ export default function NewProviderWizard({ open, onOpenChange }: { open: boolea
         {step === 3 && (
           <div className="space-y-4 py-2">
             <div className="text-center space-y-1 py-2">
-              <Crown className="w-8 h-8 mx-auto text-amber-500" />
+              <Crown className="w-8 h-8 mx-auto text-[var(--color-gold)]" />
               <p className="text-sm font-medium">Administrador do Provedor</p>
               <p className="text-xs text-[var(--color-muted)]">Este usuario tera acesso total ao painel do provedor</p>
             </div>

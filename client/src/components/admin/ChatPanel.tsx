@@ -174,7 +174,7 @@ export default function ChatPanel({
             const displayName = getDisplayName(t);
             const initial = isProvider ? providerInitials(displayName) : displayName.charAt(0).toUpperCase();
             const baseColor = isProvider
-              ? (t.status === "open" ? "from-blue-500 to-indigo-600" : "bg-[var(--color-muted)]")
+              ? (t.status === "open" ? "bg-[var(--color-brand)]" : "bg-[var(--color-muted)]")
               : (t.status === "open" ? "bg-[var(--color-success)]" : "bg-[var(--color-muted)]");
             return (
               <button
@@ -222,7 +222,7 @@ export default function ChatPanel({
       <div className="flex-1 border rounded flex flex-col overflow-hidden bg-background">
         {!activeThread ? (
           <div className="flex-1 flex flex-col items-center justify-center text-[var(--color-muted)] gap-4">
-            <div className="w-16 h-16 rounded from-blue-500/10 to-indigo-500/10 flex items-center justify-center">
+            <div className="w-16 h-16 rounded bg-[var(--color-tag-bg)] flex items-center justify-center">
               <MessageSquare className="w-8 h-8 text-blue-400 opacity-60" />
             </div>
             <div className="text-center">
@@ -239,7 +239,7 @@ export default function ChatPanel({
               <div className="flex items-center gap-3">
                 <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 ${
                   isProvider
-                    ? (activeThread.status === "open" ? "from-blue-500 to-indigo-600" : "bg-[var(--color-muted)]")
+                    ? (activeThread.status === "open" ? "bg-[var(--color-brand)]" : "bg-[var(--color-muted)]")
                     : (activeThread.status === "open" ? "bg-[var(--color-success)]" : "bg-[var(--color-muted)]")
                 }`}>
                   {isProvider ? providerInitials(getDisplayName(activeThread)) : getDisplayName(activeThread).charAt(0).toUpperCase()}
@@ -318,7 +318,7 @@ export default function ChatPanel({
                   {group.messages.map((m: any) => (
                     <div key={m.id} className={`flex items-end gap-2 ${m.isFromAdmin ? "justify-end" : "justify-start"}`}>
                       {!m.isFromAdmin && (
-                        <div className="w-7 h-7 rounded-full from-slate-400 to-slate-500 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
+                        <div className="w-7 h-7 rounded-full bg-[var(--color-muted)] flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
                           {(m.senderName || getDisplayName(activeThread) || "?").charAt(0).toUpperCase()}
                         </div>
                       )}

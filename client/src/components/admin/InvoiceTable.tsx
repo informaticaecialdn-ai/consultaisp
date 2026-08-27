@@ -30,7 +30,7 @@ export default function InvoiceTable({
   const STATUS_STYLE: Record<string, string> = {
     pending: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]",
     paid: "bg-[var(--color-success-bg)] text-[var(--color-success)]",
-    overdue: "bg-red-100 text-[var(--color-danger)] dark:bg-red-900/40 dark:text-red-300",
+    overdue: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]",
     cancelled: "bg-[var(--color-tag-bg)] text-[var(--color-muted)]",
   };
   const STATUS_LABEL: Record<string, string> = {

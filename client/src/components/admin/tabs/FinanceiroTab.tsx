@@ -150,7 +150,7 @@ export default function FinanceiroTab() {
     <div className="space-y-5">
       {/* Asaas Status Bar */}
       {asaasStatus && (
-        <Card className={`p-4 flex items-center justify-between gap-4 ${asaasStatus.configured ? "border-[var(--color-success)] bg-[var(--color-success-bg)]" : "border-amber-200 bg-[var(--color-gold-bg)]/50 dark:border-amber-800 dark:bg-amber-950/20"}`}>
+        <Card className={`p-4 flex items-center justify-between gap-4 ${asaasStatus.configured ? "border-[var(--color-success)] bg-[var(--color-success-bg)]" : "border-[var(--color-gold)] bg-[var(--color-gold-bg)]"}`}>
           <div className="flex items-center gap-3">
             <div className={`w-8 h-8 rounded-full flex items-center justify-center ${asaasStatus.configured ? "bg-[var(--color-success-bg)]" : "bg-[var(--color-gold-bg)]"}`}>
               <Wallet className={`w-4 h-4 ${asaasStatus.configured ? "text-[var(--color-success)]" : "text-[var(--color-gold)]"}`} />
@@ -177,10 +177,10 @@ export default function FinanceiroTab() {
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: "MRR", value: `R$ ${(financialSummary?.mrr || 0).toLocaleString("pt-BR")}`, sub: "Receita mensal recorrente", icon: TrendingUp, color: "from-emerald-500 to-emerald-600", testId: "kpi-mrr" },
-          { label: "ARR", value: `R$ ${(financialSummary?.arr || 0).toLocaleString("pt-BR")}`, sub: "Receita anual recorrente", icon: DollarSign, color: "from-blue-500 to-blue-600", testId: "kpi-arr" },
-          { label: "Em Aberto", value: `R$ ${(financialSummary?.pendingRevenue || 0).toLocaleString("pt-BR")}`, sub: `${financialSummary?.pendingCount || 0} faturas pendentes`, icon: AlertCircle, color: "from-amber-500 to-amber-600", testId: "kpi-pending" },
-          { label: "Em Atraso", value: `R$ ${(financialSummary?.overdueRevenue || 0).toLocaleString("pt-BR")}`, sub: `${financialSummary?.overdueCount || 0} faturas vencidas`, icon: TrendingDown, color: "from-rose-500 to-rose-600", testId: "kpi-overdue" },
+          { label: "MRR", value: `R$ ${(financialSummary?.mrr || 0).toLocaleString("pt-BR")}`, sub: "Receita mensal recorrente", icon: TrendingUp, color: "bg-[var(--color-success)]", testId: "kpi-mrr" },
+          { label: "ARR", value: `R$ ${(financialSummary?.arr || 0).toLocaleString("pt-BR")}`, sub: "Receita anual recorrente", icon: DollarSign, color: "bg-[var(--color-ink)]", testId: "kpi-arr" },
+          { label: "Em Aberto", value: `R$ ${(financialSummary?.pendingRevenue || 0).toLocaleString("pt-BR")}`, sub: `${financialSummary?.pendingCount || 0} faturas pendentes`, icon: AlertCircle, color: "bg-[var(--color-gold)]", testId: "kpi-pending" },
+          { label: "Em Atraso", value: `R$ ${(financialSummary?.overdueRevenue || 0).toLocaleString("pt-BR")}`, sub: `${financialSummary?.overdueCount || 0} faturas vencidas`, icon: TrendingDown, color: "bg-[var(--color-danger)]", testId: "kpi-overdue" },
         ].map((card) => (
           <Card key={card.label} className="overflow-hidden" data-testid={card.testId}>
             <div className={`h-1.5 ${card.color}`} />
@@ -214,7 +214,7 @@ export default function FinanceiroTab() {
               return (
                 <div key={m.period} className="flex flex-col items-center flex-1 gap-1">
                   <span className="text-xs text-[var(--color-muted)]">{m.revenue > 0 ? `R$${m.revenue}` : ""}</span>
-                  <div className="w-full rounded-t-sm from-blue-500 to-indigo-400 transition-all" style={{ height: `${Math.max(pct, 4)}%` }} />
+                  <div className="w-full rounded-t-sm bg-[var(--color-brand)] transition-all" style={{ height: `${Math.max(pct, 4)}%` }} />
                   <span className="text-xs text-[var(--color-muted)]">{label}</span>
                 </div>
               );
@@ -224,7 +224,7 @@ export default function FinanceiroTab() {
 
         <Card className="p-5">
           <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
-            <Crown className="w-4 h-4 text-amber-500" />Distribuicao de Planos
+            <Crown className="w-4 h-4 text-[var(--color-gold)]" />Distribuicao de Planos
           </h3>
           <div className="space-y-2">
             {Object.entries(financialSummary?.planDistribution || {}).map(([plan, count]: any) => {
@@ -237,7 +237,7 @@ export default function FinanceiroTab() {
                     <span className="text-[var(--color-muted)]">{count} ({pct}%)</span>
                   </div>
                   <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div className="h-full from-blue-500 to-indigo-500 rounded-full" style={{ width: `${pct}%` }} />
+                    <div className="h-full bg-[var(--color-brand)] rounded-full" style={{ width: `${pct}%` }} />
                   </div>
                 </div>
               );

@@ -48,7 +48,7 @@ import {
   ClipboardList,
   Package,
   RefreshCw,
-  Target,
+
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -132,20 +132,6 @@ const ADMIN_GROUPS = [
     collapsible: false,
     items: [
       { title: "Configuracoes", hash: "configuracoes", icon: Settings, testId: "link-admin-configuracoes" },
-    ],
-  },
-  {
-    label: "CRM Vendas",
-    key: "crm",
-    collapsible: true,
-    items: [
-      { title: "Dashboard", hash: "crm-dashboard", icon: Target, testId: "link-crm-dashboard" },
-      { title: "Leads", hash: "crm-leads", icon: Target, testId: "link-crm-leads" },
-      { title: "Pipeline", hash: "crm-pipeline", icon: Target, testId: "link-crm-pipeline" },
-      { title: "Conversas", hash: "crm-conversas", icon: Target, testId: "link-crm-conversas" },
-      { title: "Agentes", hash: "crm-agentes", icon: Target, testId: "link-crm-agentes" },
-      { title: "Prospeccao", hash: "crm-prospeccao", icon: Target, testId: "link-crm-prospeccao" },
-      { title: "Treinamento", hash: "crm-treinamento", icon: Target, testId: "link-crm-treinamento" },
     ],
   },
 ];
@@ -256,12 +242,14 @@ export function AppSidebar() {
         <SidebarHeader className="p-4 pb-3">
           <button onClick={() => handleAdminNavigate("painel")} className="w-full text-left">
             <div className="flex items-center gap-3 cursor-pointer">
-              <div className="w-9 h-9 rounded bg-[var(--color-danger)] flex items-center justify-center flex-shrink-0">
-                <Shield className="w-5 h-5 text-white" />
+              {/* Logo em navy, não vermelho: o admin é instrumento, não alarme.
+                  O vermelho fica reservado para o que é de fato perigoso. */}
+              <div className="w-9 h-9 rounded bg-[var(--color-ink)] flex items-center justify-center flex-shrink-0">
+                <Shield className="w-5 h-5 text-[var(--color-surface)]" />
               </div>
               <div className="flex flex-col">
-                <span className="text-sm font-bold leading-tight">Consulta ISP</span>
-                <span className="text-xs text-[var(--color-muted)] leading-tight">Sistema Admin</span>
+                <span className="text-sm font-semibold tracking-[-0.01em] leading-tight text-[var(--color-ink)]">Consulta ISP</span>
+                <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--color-muted)] leading-tight">Sistema Admin</span>
               </div>
             </div>
           </button>

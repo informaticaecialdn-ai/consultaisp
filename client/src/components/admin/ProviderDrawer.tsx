@@ -197,7 +197,7 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
       <SheetContent className="w-full sm:max-w-2xl overflow-y-auto" data-testid="provider-drawer">
         <SheetHeader className="pb-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded from-blue-500 to-indigo-600 flex items-center justify-center text-sm font-bold text-white">
+            <div className="w-10 h-10 rounded bg-[var(--color-ink)] flex items-center justify-center text-sm font-bold text-white">
               {provider.name?.charAt(0)}
             </div>
             <div className="flex-1 min-w-0">
@@ -356,7 +356,7 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
                 {(erpCatalogList.length > 0 ? erpCatalogList.filter((e: any) => e.active) : ERP_OPTIONS).map((erp: any) => {
                   const isSelected = erpForm.erpProvider === erp.key;
-                  const grad = erp.gradient ?? erp.grad ?? "from-slate-500 to-slate-600";
+                  const grad = "bg-[var(--color-ink)]";
                   return (
                     <button
                       key={erp.key}
@@ -371,7 +371,7 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
                         setErpTestResult(null);
                       }}
                       className={`flex flex-col items-center gap-1 p-2 rounded border transition-colors text-center ${
-                        isSelected ? "border-[var(--color-brand)] bg-[var(--color-brand-bg)]" : "border-transparent bg-[var(--color-surface)] hover:bg-slate-100"
+                        isSelected ? "border-[var(--color-brand)] bg-[var(--color-brand-bg)]" : "border-transparent bg-[var(--color-surface)] hover:bg-[var(--color-tag-bg)]"
                       }`}
                       data-testid={`drawer-erp-option-${erp.key}`}
                     >
