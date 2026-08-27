@@ -17,6 +17,38 @@ export function isSyncing(): boolean {
   return _syncing;
 }
 
+/**
+ * Junta as duas listas de inadimplente em uma so, deduplicada por documento.
+ *
+ * Quem aparece nas duas fica com a entrada de CANCELADO: ela carrega o status
+ * do contrato — o sinal que o anti-fraude usa para separar ex-cliente de cliente
+ * em fuga — e e o calculo que ja rodava em producao. A lista de ativos em atraso
+ * entra para cobrir quem a outra nao devolve.
+ *
+ * Documento vazio ou so com pontuacao e descartado: sem chave nao ha como
+ * deduplicar, e um upsert por CPF em branco colidiria com outro.
+ */
+export function mesclarInadimplentes<T extends { cpfCnpj: string }>(
+  cancelados: T[],
+  emAtraso: T[],
+): { customers: T[]; somenteAtivos: number } {
+  const chave = (d: string) => (d || "").replace(/\D/g, "");
+  const porDoc = new Map<string, T>();
+
+  for (const c of emAtraso) {
+    const k = chave(c.cpfCnpj);
+    if (k) porDoc.set(k, c);
+  }
+  let somenteAtivos = porDoc.size;
+  for (const c of cancelados) {
+    const k = chave(c.cpfCnpj);
+    if (!k) continue;
+    if (porDoc.has(k)) somenteAtivos--;
+    porDoc.set(k, c);
+  }
+  return { customers: Array.from(porDoc.values()), somenteAtivos };
+}
+
 export async function syncProviderToDb(
   providerId: number,
   providerName: string,
@@ -147,23 +179,56 @@ export async function syncProviderToDb(
     }
   }
 
-  // 2. Buscar inadimplentes (sobrescreve os ativos com dados de divida + geocoding)
+  // 2. Inadimplentes — CANCELADOS *e* ATIVOS.
+  //
+  // Ate aqui, quando o conector tinha `fetchCancelledDelinquents`, so ele rodava
+  // e `fetchDelinquents` nunca era chamado. No IXC da O L I isso significava
+  // gravar divida de 6.038 pessoas enquanto a base deles tinha 42.883 faturas em
+  // aberto: cliente ATIVO inadimplente jamais tinha o valor atualizado, porque o
+  // passo 1 varre a carteira inteira com `skipPaymentStatus: true` e nao toca em
+  // divida. Para um bureau esse e justamente o dado central — quem deve AGORA no
+  // provedor vizinho —, e ele estava congelado no que veio do backup antigo.
+  //
+  // As duas fontes se somam, deduplicadas por documento. A entrada de cancelado
+  // tem prioridade quando o mesmo CPF aparece nas duas: ela carrega o status do
+  // contrato, e e o calculo que ja rodava em producao. `fetchDelinquents` entra
+  // para cobrir quem ela nao devolve, que e o ativo em atraso.
   const hasCancelled = typeof (connector as any).fetchCancelledDelinquents === "function";
-  // O tipo anotado importa: o ramo `as any` do ternario fazia o limiter devolver
-  // `unknown`, e todo acesso a `result.ok` / `.customers` virava erro de tsc —
-  // seis dos ~110 erros pre-existentes do projeto saiam daqui.
-  const result: ErpFetchResult = await limiter(() =>
-    hasCancelled
-      ? (connector as any).fetchCancelledDelinquents(config)
-      : connector.fetchDelinquents(config)
-  );
-  console.log(`[ERPSync] ${providerName}: usando ${hasCancelled ? "fetchCancelledDelinquents" : "fetchDelinquents"}`);
+  const chaveDoc = (d: string) => (d || "").replace(/\D/g, "");
 
-  if (!result.ok) {
-    console.warn(`[ERPSync] Erro ao buscar ${providerName}: ${result.message}`);
-    await registrar("error", 0, 1, `ERP recusou a busca: ${result.message}`);
+  const buscar = async (nome: string, fn: () => Promise<ErpFetchResult>): Promise<ErpFetchResult> => {
+    try {
+      // O tipo anotado importa: sem ele o limiter devolve `unknown` e todo
+      // acesso a `.ok`/`.customers` vira erro de tsc.
+      const r: ErpFetchResult = await limiter(fn);
+      console.log(`[ERPSync] ${providerName}: ${nome} -> ${r.ok ? `${r.customers.length} registros` : `FALHOU (${r.message})`}`);
+      return r;
+    } catch (err: any) {
+      console.warn(`[ERPSync] ${providerName}: ${nome} lancou: ${err.message}`);
+      return { ok: false, message: err.message, customers: [] };
+    }
+  };
+
+  const cancelados = hasCancelled
+    ? await buscar("fetchCancelledDelinquents", () => (connector as any).fetchCancelledDelinquents(config))
+    : { ok: true, message: "", customers: [] } as ErpFetchResult;
+  const emAtraso = await buscar("fetchDelinquents", () => connector.fetchDelinquents(config));
+
+  // So aborta se NENHUMA fonte respondeu. Uma das duas falhando ainda atualiza a
+  // parte que veio — melhor do que descartar tudo e deixar a base envelhecer.
+  if (!cancelados.ok && !emAtraso.ok) {
+    const msg = `ERP recusou a busca: ${cancelados.message || emAtraso.message}`;
+    console.warn(`[ERPSync] Erro ao buscar ${providerName}: ${msg}`);
+    await registrar("error", 0, 1, msg);
     return { upserted: 0, errors: 1 };
   }
+
+  const mesclado = mesclarInadimplentes(
+    cancelados.ok ? cancelados.customers : [],
+    emAtraso.ok ? emAtraso.customers : [],
+  );
+  const result: ErpFetchResult = { ok: true, message: "", customers: mesclado.customers };
+  console.log(`[ERPSync] ${providerName}: ${mesclado.customers.length} inadimplentes unicos (${mesclado.somenteAtivos} que so aparecem como ativos em atraso)`);
 
   let upserted = 0;
   let errors = 0;
@@ -303,6 +368,7 @@ export async function syncProviderToDb(
   }
 
   console.log(`[ERPSync] ${providerName}: ${upserted} upserted, ${errors} erros de ${result.customers.length} inadimplentes`);
+
   // "success" so quando nada falhou. Um sync que grava 900 de 1000 e "partial":
   // atualizou a base, mas nao inteira — e essa diferenca precisa aparecer.
   await registrar(

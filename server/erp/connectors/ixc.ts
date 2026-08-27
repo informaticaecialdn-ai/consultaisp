@@ -141,6 +141,19 @@ export class IxcConnector implements ErpConnector {
 
       if (allRows.length >= total || registros.length < rp) break;
       page++;
+
+      // Teto de paginas alcancado com o IXC ainda tendo o que entregar.
+      //
+      // Isto retornava em silencio: quem chamava recebia uma lista parcial
+      // indistinguivel de uma completa. Com rp=200 e maxPages=50 o teto era
+      // 10.000 linhas, e a O L I tem 42.883 faturas em aberto — a conta de
+      // divida sairia truncada sem uma linha de log dizendo isso.
+      if (page > maxPages) {
+        console.warn(
+          `[IXC] ${tabela}: TRUNCADO em ${allRows.length} de ${total} registros ` +
+          `(teto de ${maxPages} paginas x ${rp}). O resultado esta INCOMPLETO.`,
+        );
+      }
     } while (page <= maxPages);
 
     return allRows;
@@ -200,16 +213,35 @@ export class IxcConnector implements ErpConnector {
    * Agrupa por CPF/CNPJ: soma valor, conta faturas, pega max dias atraso.
    * Cruza com tabela "cliente" para obter endereco (cidade, uf, cep).
    */
-  async fetchDelinquents(config: ErpConnectionConfig, lastDays = 365): Promise<ErpFetchResult> {
+  /**
+   * Inadimplentes pelas faturas em aberto e vencidas.
+   *
+   * `lastDays` NAO tem mais valor padrao: sem ele, nao ha recorte de data e o
+   * valor devolvido e a divida inteira. O padrao de 365 dias descartava toda
+   * fatura vencida ha mais de um ano — justamente a do devedor antigo, que e
+   * quem mais importa para o bureau. Medido na base da O L I: ha atraso chegando
+   * a 6.397 dias, ou seja 17 anos, que o recorte jogava fora. Quem quiser a
+   * janela curta passa `lastDays` explicitamente.
+   *
+   * A paginacao tambem sobe para rp=500 x 200 paginas (100.000 faturas), a mesma
+   * de `fetchCancelledDelinquents`. Com o default de 200 x 50 o teto era 10.000,
+   * e so a O L I tem 42.883 faturas em aberto — a divida sairia truncada.
+   */
+  async fetchDelinquents(config: ErpConnectionConfig, lastDays?: number): Promise<ErpFetchResult> {
     try {
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - lastDays);
-      const cutoff = cutoffDate.toISOString().split("T")[0]; // YYYY-MM-DD
-
-      const allRows = await this.listWithFilter(config, "fn_areceber", [
+      const filtros: IxcFilter[] = [
         { TB: "fn_areceber.status", OP: "=", P: "A", C: "AND", G: "" },
-        { TB: "fn_areceber.data_vencimento", OP: ">=", P: cutoff, C: "AND", G: "" },
-      ]);
+      ];
+      if (lastDays && lastDays > 0) {
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - lastDays);
+        filtros.push({
+          TB: "fn_areceber.data_vencimento", OP: ">=",
+          P: cutoffDate.toISOString().split("T")[0], C: "AND", G: "",
+        });
+      }
+
+      const allRows = await this.listWithFilter(config, "fn_areceber", filtros, 500, 200);
 
       const now = new Date();
       const overdueRows = allRows.filter((row: any) => {
