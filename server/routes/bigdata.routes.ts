@@ -156,7 +156,20 @@ export function registerBigdataRoutes(): Router {
         });
       }
 
-      const nivel = parsed.data.nivel ?? NIVEL_PADRAO;
+      // A Completa esta DESLIGADA — o nivel pedido e ignorado.
+      //
+      // Medido contra a API da BigDataCorp em 27/08/2026: os quatro datasets que
+      // ela promete (quod_credit_risk_details, quantum_custom_score,
+      // telesign_phone_id, rede_vistorias_address) respondem -109 DATASET NOT
+      // AVAILABLE — nao estao habilitados no BDC Center desta conta. O estorno
+      // logo abaixo devolvia a diferenca, entao ninguem foi cobrado a mais; mas
+      // o provedor escolhia um nivel que nao existia e esperava um dado que
+      // nunca vinha. Melhor nao oferecer do que oferecer vazio.
+      //
+      // O `nivel` continua no schema para nao quebrar chamador antigo, e NIVEIS
+      // segue com a Completa definida: habilitados os datasets no BDC Center,
+      // basta remover esta linha e voltar o seletor na tela.
+      const nivel = NIVEL_PADRAO;
       custoCreditos = NIVEIS[nivel].creditos;
 
       debitou = await storage.debitarBigdataCredito(providerId, custoCreditos);

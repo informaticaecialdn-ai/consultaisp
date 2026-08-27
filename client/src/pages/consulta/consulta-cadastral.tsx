@@ -862,76 +862,6 @@ const NIVEIS_PADRAO: Nivel[] = [
   { id: "padrao", rotulo: "Padrão", descricao: "Receita, endereço, renda, cobranças e processos", creditos: 1 },
 ];
 
-/**
- * Escolha do nível, antes da busca. Cada nível consulta mais bases e custa mais
- * créditos — a decisão é do provedor a cada consulta, não uma configuração da
- * conta: instalar um plano de R$ 80 e um de R$ 800 não merecem a mesma
- * profundidade de checagem.
- */
-function SeletorNivel({ niveis, valor, onChange, saldo, desabilitado }: {
-  niveis: Nivel[]; valor: string; onChange: (id: string) => void;
-  saldo: number; desabilitado?: boolean;
-}) {
-  return (
-    <fieldset className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4"
-      disabled={desabilitado} data-testid="seletor-nivel">
-      <legend className="sr-only">Profundidade da consulta</legend>
-      <div className="flex items-baseline justify-between gap-3 mb-3">
-        <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-          Profundidade da consulta
-        </span>
-        <span className="font-mono text-[11px] tabular-nums text-[var(--text-muted)]">
-          saldo {saldo} crédito{saldo === 1 ? "" : "s"}
-        </span>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-        {niveis.map(n => {
-          const ativo = n.id === valor;
-          // Sem saldo o nível continua visível: esconder faria o provedor achar
-          // que a Premium não existe, em vez de saber que precisa comprar.
-          const semSaldo = saldo < n.creditos;
-          return (
-            <label key={n.id}
-              data-testid={`nivel-${n.id}`}
-              className={`relative flex flex-col gap-1 rounded-md border p-3 cursor-pointer transition-colors
-                ${ativo
-                  ? "border-[var(--color-brand)] bg-[var(--brand-soft)]"
-                  : "border-[var(--border)] hover:border-[var(--border-strong)]"}
-                ${semSaldo ? "opacity-55" : ""}`}>
-              <input
-                type="radio" name="nivel-consulta" value={n.id} checked={ativo}
-                onChange={() => onChange(n.id)}
-                className="sr-only peer"
-              />
-              {/* O anel de foco tem que aparecer no card, não no input escondido. */}
-              <span className="absolute inset-0 rounded-md pointer-events-none peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[hsl(var(--ring))]" />
-              <span className="flex items-baseline justify-between gap-2">
-                <span className={`text-[13px] font-semibold ${ativo ? "text-[var(--brand-ink)]" : "text-[var(--text)]"}`}>
-                  {n.rotulo}
-                </span>
-                <span className={`font-mono text-[12px] font-semibold tabular-nums shrink-0
-                  ${ativo ? "text-[var(--brand-ink)]" : "text-[var(--text-muted)]"}`}>
-                  {n.creditos} cr
-                </span>
-              </span>
-              <span className="text-[11.5px] leading-snug text-[var(--text-muted)]">
-                {n.descricao}
-              </span>
-              {semSaldo && (
-                <span className="text-[11px] font-semibold text-[var(--gated)]">
-                  saldo insuficiente
-                </span>
-              )}
-            </label>
-          );
-        })}
-      </div>
-    </fieldset>
-  );
-}
-
-/** Formulário de credencial — cada provedor usa o próprio usuário de integração. */
 function Configuracao({ integracao }: { integracao?: Integracao }) {
   const { toast } = useToast();
   const [login, setLogin] = useState(integracao?.login ?? "");
@@ -1132,13 +1062,16 @@ export default function ConsultaCadastralPage() {
               <Configuracao integracao={integracao} />
             ) : (
               <>
-                <SeletorNivel
-                  niveis={data?.niveis ?? NIVEIS_PADRAO}
-                  valor={nivel}
-                  onChange={setNivel}
-                  saldo={data?.credits ?? 0}
-                  desabilitado={mutation.isPending}
-                />
+                {/* O seletor de profundidade saiu.
+                    A Completa cobrava 4 créditos por quatro datasets de parceiro
+                    que a conta NÃO tem habilitados — medido contra a API da
+                    BigDataCorp em 27/08/2026, os quatro respondem -109 DATASET
+                    NOT AVAILABLE. O provedor pagava o quádruplo e recebia
+                    exatamente o mesmo que na Padrão.
+                    Para reativar: habilitar os datasets no BDC Center, tirar o
+                    `const nivel = NIVEL_PADRAO` de server/routes/bigdata.routes.ts
+                    e voltar o seletor (está no git, neste commit). A tabela
+                    NIVEIS do backend continua com a Completa definida. */}
 
                 {/* Copy própria: a barra é compartilhada com a Consulta ISP, e os
                     textos padrão dela falam de rede ISP e ERP de parceiros — que
@@ -1152,7 +1085,7 @@ export default function ConsultaCadastralPage() {
                   inputTestId="input-consulta-search"
                   kicker="Nova consulta · CPF ou CNPJ"
                   selo="Bureau de dados cadastrais"
-                  custos={["Consulta padrão · 1 crédito", "Consulta completa · 4 créditos"]}
+                  custos={["Consulta · 1 crédito"]}
                   notaLegal="Consulta registrada para auditoria · LGPD art. 7º, X — proteção ao crédito"
                 />
 
