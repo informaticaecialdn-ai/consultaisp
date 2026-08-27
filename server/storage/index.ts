@@ -87,8 +87,8 @@ export interface IStorage {
   upsertBigdataIntegration(providerId: number, data: any): ReturnType<BigdataStorage["upsertIntegration"]>;
   createBigdataConsultation(data: any): ReturnType<BigdataStorage["createConsultation"]>;
   getBigdataConsultations(providerId: number, limite?: number): ReturnType<BigdataStorage["getConsultations"]>;
-  debitarBigdataCredito(providerId: number): Promise<boolean>;
-  estornarBigdataCredito(providerId: number): Promise<void>;
+  debitarBigdataCredito(providerId: number, quantidade?: number): Promise<boolean>;
+  estornarBigdataCredito(providerId: number, quantidade?: number): Promise<void>;
   getEquipmentByProvider(providerId: number): Promise<Equipment[]>;
   getEquipmentByCustomer(customerId: number, providerId: number): Promise<Equipment[]>;
   createEquipment(equipment: InsertEquipment): Promise<Equipment>;
@@ -342,8 +342,8 @@ class DatabaseStorage implements IStorage {
   upsertBigdataIntegration = (providerId: number, data: any) => this._bigdata.upsertIntegration(providerId, data);
   createBigdataConsultation = (data: any) => this._bigdata.createConsultation(data);
   getBigdataConsultations = (providerId: number, limite?: number) => this._bigdata.getConsultations(providerId, limite);
-  debitarBigdataCredito = (providerId: number) => this._bigdata.debitarCredito(providerId);
-  estornarBigdataCredito = (providerId: number) => this._bigdata.estornarCredito(providerId);
+  debitarBigdataCredito = (providerId: number, quantidade?: number) => this._bigdata.debitarCredito(providerId, quantidade);
+  estornarBigdataCredito = (providerId: number, quantidade?: number) => this._bigdata.estornarCredito(providerId, quantidade);
   getEquipmentByProvider = (providerId: number) => this._equipment.getEquipmentByProvider(providerId);
   getEquipmentByCustomer = (customerId: number, providerId: number) => this._equipment.getEquipmentByCustomer(customerId, providerId);
   createEquipment = (eq_data: InsertEquipment) => this._equipment.createEquipment(eq_data);

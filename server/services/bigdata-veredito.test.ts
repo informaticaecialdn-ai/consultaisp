@@ -224,3 +224,93 @@ describe("decidirVeredito — rastro de mercado", () => {
     expect(v.veredito).toBe("ATENCAO");
   });
 });
+
+describe("bureau de mercado", () => {
+  it("negativacao no mercado alerta, mas nao recusa sozinha", () => {
+    const v = decidirVeredito(bom({ negativadoNoMercado: true }));
+    expect(v.veredito).toBe("ATENCAO");
+    expect(v.motivos.join(" ")).toMatch(/negativação/i);
+  });
+
+  it("negativado false nao gera motivo", () => {
+    expect(decidirVeredito(bom({ negativadoNoMercado: false })).veredito).toBe("APROVAR");
+  });
+
+  it("dataset nao habilitado (undefined) nao gera motivo", () => {
+    const v = decidirVeredito(bom({ negativadoNoMercado: undefined, scoreMercado: undefined }));
+    expect(v.veredito).toBe("APROVAR");
+    expect(v.motivos).toEqual([]);
+  });
+
+  it("score de mercado baixo alerta; score alto passa", () => {
+    expect(decidirVeredito(bom({ scoreMercado: 180 })).motivos.join(" ")).toMatch(/180 de 999/);
+    expect(decidirVeredito(bom({ scoreMercado: 700 })).veredito).toBe("APROVAR");
+  });
+
+  it("score zero e dado valido, nao ausencia de dado", () => {
+    expect(decidirVeredito(bom({ scoreMercado: 0 })).veredito).toBe("ATENCAO");
+  });
+});
+
+describe("estabilidade de renda", () => {
+  it("muitas trocas de emprego em 5 anos alertam", () => {
+    const v = decidirVeredito(bom({ trocasEmprego5Anos: 6 }));
+    expect(v.veredito).toBe("ATENCAO");
+    expect(v.motivos.join(" ")).toMatch(/6 trocas de emprego/);
+  });
+
+  it("vinculos curtos alertam mesmo com poucas trocas", () => {
+    const v = decidirVeredito(bom({ trocasEmprego5Anos: 2, mediaAnosPorVinculo: 0.5 }));
+    expect(v.motivos.join(" ")).toMatch(/Vínculos de trabalho curtos/);
+  });
+
+  it("carreira estavel nao gera motivo", () => {
+    const v = decidirVeredito(bom({ trocasEmprego5Anos: 1, mediaAnosPorVinculo: 8 }));
+    expect(v.veredito).toBe("APROVAR");
+  });
+
+  it("media curta sem nenhuma troca recente nao alerta", () => {
+    const v = decidirVeredito(bom({ trocasEmprego5Anos: 0, mediaAnosPorVinculo: 0.5 }));
+    expect(v.veredito).toBe("APROVAR");
+  });
+});
+
+describe("detalhe da negativacao", () => {
+  it("negativacoes ativas descrevem melhor que o booleano", () => {
+    const v = decidirVeredito(bom({
+      negativadoNoMercado: true, negativacoesAtivas: 2, dividaMercado: 1240,
+    }));
+    const txt = v.motivos.join(" ");
+    expect(txt).toMatch(/2 negativação\(ões\) ativa\(s\)/);
+    expect(txt).toMatch(/1\.240,00/);
+    // Nao repete o motivo generico quando ja deu o especifico.
+    expect(txt).not.toMatch(/Indício de negativação/);
+  });
+
+  it("negativacao quitada nao vira pendencia", () => {
+    const v = decidirVeredito(bom({ negativacoesAtivas: 0, negativadoNoMercado: false }));
+    expect(v.veredito).toBe("APROVAR");
+  });
+
+  it("protesto em cartorio alerta", () => {
+    expect(decidirVeredito(bom({ protestos: 3 })).motivos.join(" ")).toMatch(/3 protesto/);
+  });
+
+  it("muitas consultas de credito em 30 dias alertam", () => {
+    const v = decidirVeredito(bom({ consultasCredito30d: 12 }));
+    expect(v.motivos.join(" ")).toMatch(/12 consultas de crédito/);
+  });
+
+  it("poucas consultas de credito nao alertam", () => {
+    expect(decidirVeredito(bom({ consultasCredito30d: 2 })).veredito).toBe("APROVAR");
+  });
+
+  it("nada de bureau habilitado continua sem motivo", () => {
+    const v = decidirVeredito(bom({
+      negativacoesAtivas: undefined, protestos: undefined,
+      consultasCredito30d: undefined, dividaMercado: undefined,
+    }));
+    expect(v.veredito).toBe("APROVAR");
+    expect(v.motivos).toEqual([]);
+  });
+});
