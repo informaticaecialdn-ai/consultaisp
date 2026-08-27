@@ -7,6 +7,7 @@
 
 import { storage } from "../storage";
 import { getConnector, buildConnectorConfig, getProviderLimiter } from "../erp";
+import type { ErpFetchResult } from "../erp/types";
 import { geocodeCity, geocodeCep, geocodeAddress, resolveIbgeCode } from "./geocoding";
 import { coordenadaValida } from "./coordenada";
 
@@ -28,10 +29,46 @@ export async function syncProviderToDb(
     clientSecret?: string | null;
     extraConfig?: Record<string, string> | null;
   },
+  syncType: "auto" | "manual" = "auto",
 ): Promise<{ upserted: number; errors: number }> {
+  const inicioMs = Date.now();
+
+  /**
+   * Toda saida desta funcao passa por aqui. Antes, os tres desfechos de falha
+   * (conector ausente, credencial recusada, excecao) saiam por `return`/`throw`
+   * sem gravar nada, e a unica pista era um console.warn perdido no journal.
+   * Uma integracao que falhava todo dia as 03:00 era indistinguivel, na tela,
+   * de uma que nunca tinha sido configurada.
+   */
+  const registrar = async (
+    status: "success" | "partial" | "error",
+    upserted: number,
+    errors: number,
+    mensagem?: string,
+    recordsProcessed?: number,
+  ) => {
+    try {
+      await storage.registrarResultadoSync(providerId, erpSource, {
+        status, upserted, errors, recordsProcessed, syncType, mensagem,
+        duracaoMs: Date.now() - inicioMs,
+      });
+      if (status === "error") {
+        const seguidas = await storage.contarFalhasConsecutivas(providerId, erpSource);
+        if (seguidas >= 3) {
+          console.error(`[ERPSync] ${providerName} (${erpSource}): ${seguidas} falhas CONSECUTIVAS — ${mensagem ?? "sem detalhe"}`);
+        }
+      }
+    } catch (e: any) {
+      // Registrar e o que torna a falha visivel; falhar ao registrar nao pode
+      // derrubar um sync que deu certo.
+      console.warn(`[ERPSync] nao consegui registrar o resultado: ${e.message}`);
+    }
+  };
+
   const connector = getConnector(erpSource);
   if (!connector) {
     console.warn(`[ERPSync] Conector nao encontrado para ${erpSource}`);
+    await registrar("error", 0, 0, `Conector "${erpSource}" nao existe no registry`);
     return { upserted: 0, errors: 0 };
   }
 
@@ -106,7 +143,10 @@ export async function syncProviderToDb(
 
   // 2. Buscar inadimplentes (sobrescreve os ativos com dados de divida + geocoding)
   const hasCancelled = typeof (connector as any).fetchCancelledDelinquents === "function";
-  const result = await limiter(() =>
+  // O tipo anotado importa: o ramo `as any` do ternario fazia o limiter devolver
+  // `unknown`, e todo acesso a `result.ok` / `.customers` virava erro de tsc —
+  // seis dos ~110 erros pre-existentes do projeto saiam daqui.
+  const result: ErpFetchResult = await limiter(() =>
     hasCancelled
       ? (connector as any).fetchCancelledDelinquents(config)
       : connector.fetchDelinquents(config)
@@ -115,6 +155,7 @@ export async function syncProviderToDb(
 
   if (!result.ok) {
     console.warn(`[ERPSync] Erro ao buscar ${providerName}: ${result.message}`);
+    await registrar("error", 0, 1, `ERP recusou a busca: ${result.message}`);
     return { upserted: 0, errors: 1 };
   }
 
@@ -256,6 +297,15 @@ export async function syncProviderToDb(
   }
 
   console.log(`[ERPSync] ${providerName}: ${upserted} upserted, ${errors} erros de ${result.customers.length} inadimplentes`);
+  // "success" so quando nada falhou. Um sync que grava 900 de 1000 e "partial":
+  // atualizou a base, mas nao inteira — e essa diferenca precisa aparecer.
+  await registrar(
+    errors === 0 ? "success" : upserted > 0 ? "partial" : "error",
+    upserted,
+    errors,
+    errors === 0 ? undefined : `${errors} de ${total} registros falharam no upsert`,
+    total,
+  );
   return { upserted, errors };
 }
 
@@ -268,6 +318,15 @@ export async function syncAllProviders(): Promise<void> {
 
   try {
     const integrations = await storage.getAllEnabledErpIntegrationsWithCredentials();
+    if (integrations.length === 0) {
+      // Nao e "tudo certo, nada a fazer": e o desfecho mais comum de uma base
+      // restaurada de backup, onde as integracoes vieram com is_enabled = false
+      // ou sem token. Sem esta linha o sync passa em silencio e a base envelhece
+      // sem nenhum sinal.
+      console.warn("[ERPSync] Nenhuma integracao habilitada COM url e token — nada foi sincronizado.");
+      return;
+    }
+    console.log(`[ERPSync] ${integrations.length} integracao(oes) a sincronizar`);
     for (const intg of integrations) {
       if (!intg.apiUrl || !intg.apiToken) continue;
       try {
@@ -286,8 +345,23 @@ export async function syncAllProviders(): Promise<void> {
         );
       } catch (err: any) {
         console.warn(`[ERPSync] Erro no provider ${intg.providerId}: ${err.message}`);
+        // A excecao ja saiu do syncProviderToDb sem passar pelo `registrar` dele,
+        // entao o registro tem que ser feito aqui — senao o unico desfecho que
+        // some do historico e justamente o pior.
+        try {
+          await storage.registrarResultadoSync(intg.providerId, intg.erpSource, {
+            status: "error", upserted: 0, errors: 1,
+            syncType: "auto", mensagem: err?.message || "excecao nao tratada",
+          });
+        } catch {}
       }
     }
+  } catch (err: any) {
+    // Sem este catch, uma falha na LEITURA das integracoes escapava por um
+    // try/finally sem catch e virava um `console.warn` de uma linha no
+    // agendador. Era o modo de falha mais silencioso que existia: nenhum
+    // provedor sincronizava e nada no sistema dizia por que.
+    console.error(`[ERPSync] Sync abortado antes de comecar: ${err?.message}`);
   } finally {
     _syncing = false;
   }

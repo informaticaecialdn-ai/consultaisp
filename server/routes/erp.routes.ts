@@ -108,7 +108,7 @@ export function registerErpRoutes(): Router {
         clientId: (intg as any).clientId ?? null,
         clientSecret: (intg as any).clientSecret ?? null,
         extraConfig: (intg as any).extraConfig ?? null,
-      });
+      }, "manual");
       return res.json({ ok: true, ...result });
     } catch (error: any) {
       return res.status(500).json({ ok: false, message: getSafeErrorMessage(error) });
@@ -132,7 +132,7 @@ export function registerErpRoutes(): Router {
         clientId: (intg as any).clientId ?? null,
         clientSecret: (intg as any).clientSecret ?? null,
         extraConfig: (intg as any).extraConfig ?? null,
-      });
+      }, "manual");
       return res.json({ ok: true, ...result });
     } catch (error: any) {
       return res.status(500).json({ ok: false, message: getSafeErrorMessage(error) });

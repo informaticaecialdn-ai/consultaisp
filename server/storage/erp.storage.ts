@@ -6,6 +6,7 @@ import {
   type ErpCatalog, type InsertErpCatalog,
 } from "@shared/schema";
 import { encryptField, decryptField } from "../utils/crypto";
+import { logger } from "../logger";
 
 const SENSITIVE_FIELDS = ["apiToken", "apiUser", "clientSecret", "mkContraSenha"] as const;
 
@@ -29,6 +30,26 @@ function decryptIntegration(row: ErpIntegration): ErpIntegration {
   return result;
 }
 
+/**
+ * Decifra sem deixar uma linha ruim derrubar as outras.
+ *
+ * A chave sai do SESSION_SECRET (ver server/utils/crypto.ts). Se ele mudar —
+ * troca de servidor, restauracao de backup de outro ambiente — o AES-GCM nao
+ * so devolve lixo: ele LANCA na verificacao da tag. Como a leitura era um
+ * `rows.map(decryptIntegration)` cru, a primeira credencial ilegivel abortava a
+ * lista inteira, e o sync de TODOS os provedores morria por causa de um.
+ * Agora a linha problematica sai da lista e diz qual e, no log.
+ */
+function decryptIntegrationSafe(
+  row: ErpIntegration,
+): { ok: true; value: ErpIntegration } | { ok: false; motivo: string } {
+  try {
+    return { ok: true, value: decryptIntegration(row) };
+  } catch (err: any) {
+    return { ok: false, motivo: err?.message || "falha ao decifrar" };
+  }
+}
+
 export class ErpStorage {
   async getErpIntegrations(providerId: number): Promise<ErpIntegration[]> {
     const rows = await db.select().from(erpIntegrations)
@@ -50,7 +71,20 @@ export class ErpStorage {
         )
       )
       .orderBy(erpIntegrations.providerId, erpIntegrations.erpSource);
-    return rows.map(r => ({ ...decryptIntegration(r.erp_integrations), providerName: r.providers.name }));
+
+    const saida: Array<ErpIntegration & { providerName: string }> = [];
+    for (const r of rows) {
+      const d = decryptIntegrationSafe(r.erp_integrations);
+      if (!d.ok) {
+        logger.error(
+          { providerId: r.erp_integrations.providerId, erpSource: r.erp_integrations.erpSource, motivo: d.motivo },
+          "[ERP] credencial ilegivel — integracao ignorada. Reconfigure o token: a chave deriva do SESSION_SECRET e ele mudou desde que o token foi salvo.",
+        );
+        continue;
+      }
+      saida.push({ ...d.value, providerName: r.providers.name });
+    }
+    return saida;
   }
 
   async upsertErpIntegration(providerId: number, erpSource: string, data: Partial<ErpIntegration>): Promise<ErpIntegration> {
@@ -78,6 +112,73 @@ export class ErpStorage {
           total_errors = total_errors + ${errors}
       WHERE provider_id = ${providerId} AND erp_source = ${erpSource}
     `);
+  }
+
+  /**
+   * Grava o desfecho de UMA sincronizacao: carimba a integracao e deixa a linha
+   * no historico, numa transacao so.
+   *
+   * Existe porque ate aqui nada registrava sync nenhum — `erp_sync_logs` e os
+   * contadores de `erp_integrations` estavam no schema e sem um unico chamador.
+   * A tela mostrava "0 registros · Nunca" por construcao, entao um sync que
+   * falhava todo dia era indistinguivel de um sync que nunca tinha sido
+   * configurado. Sem isto nao ha como responder "o ERP atualizou hoje?".
+   */
+  async registrarResultadoSync(
+    providerId: number,
+    erpSource: string,
+    r: {
+      status: "success" | "partial" | "error";
+      upserted: number;
+      errors: number;
+      recordsProcessed?: number;
+      syncType?: "auto" | "manual";
+      mensagem?: string;
+      duracaoMs?: number;
+    },
+  ): Promise<void> {
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`
+        UPDATE erp_integrations
+           SET total_synced     = total_synced + ${r.upserted},
+               total_errors     = total_errors + ${r.errors},
+               last_sync_at     = NOW(),
+               last_sync_status = ${r.status},
+               status           = ${r.status === "error" ? "error" : "idle"}
+         WHERE provider_id = ${providerId} AND erp_source = ${erpSource}
+      `);
+      await tx.insert(erpSyncLogs).values({
+        providerId,
+        erpSource,
+        status: r.status,
+        upserted: r.upserted,
+        errors: r.errors,
+        recordsProcessed: r.recordsProcessed ?? r.upserted + r.errors,
+        recordsFailed: r.errors,
+        syncType: r.syncType ?? "auto",
+        payload: { mensagem: r.mensagem ?? null, duracaoMs: r.duracaoMs ?? null },
+      } as any);
+    });
+  }
+
+  /**
+   * Falhas CONSECUTIVAS de uma integracao — quantas vezes seguidas, contando da
+   * mais recente para tras, o sync terminou em erro. Uma falha isolada e ruido
+   * de rede; trinta seguidas e uma integracao morta que ninguem viu, porque
+   * cada log e igual ao anterior e some no meio dos outros.
+   */
+  async contarFalhasConsecutivas(providerId: number, erpSource: string): Promise<number> {
+    const linhas = await db.select({ status: erpSyncLogs.status })
+      .from(erpSyncLogs)
+      .where(and(eq(erpSyncLogs.providerId, providerId), eq(erpSyncLogs.erpSource, erpSource)))
+      .orderBy(desc(erpSyncLogs.syncedAt))
+      .limit(100);
+    let n = 0;
+    for (const l of linhas) {
+      if (l.status !== "error") break;
+      n++;
+    }
+    return n;
   }
 
   async getErpSyncLogs(providerId: number, erpSource?: string, limit = 50): Promise<ErpSyncLog[]> {

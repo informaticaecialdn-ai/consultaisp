@@ -9,6 +9,7 @@
  */
 
 import { getConnector } from "../erp/registry.js";
+import { buildConnectorConfig } from "../erp/config.js";
 import "../erp/index.js"; // ensure connectors are registered
 import type { ErpConnectionConfig, ErpFetchResult } from "../erp/types.js";
 import type { ErpIntegration } from "@shared/schema";
@@ -54,11 +55,21 @@ export interface RealtimeQueryResult {
   latencyMs: number;
 }
 
+/**
+ * Monta a config do conector para a consulta ao vivo.
+ *
+ * Usa o MESMO `buildConnectorConfig` do sync, e não uma cópia. A cópia que
+ * existia aqui fixava `clientId`/`clientSecret` em `undefined` e montava
+ * `extra` só com o providerId, jogando fora `mkContraSenha`, `extra.clientId`,
+ * `extra.clientSecret`, `extra.sgpApp` e `extra.voalleClientId`. O efeito era
+ * silencioso e por ERP: MK autenticava sem contra-senha, Hubsoft pedia OAuth
+ * sem client_id e SGP ia sem nome de app — os três recusavam a credencial, e a
+ * consulta reportava "ERP falhou" como se fosse indisponibilidade do provedor.
+ * Só IXC e RBX passavam, porque precisam apenas de url + token (+ usuário).
+ */
 function buildErpConfig(intg: ErpIntegration): ErpConnectionConfig {
   const apiUrl = (intg.apiUrl || "").replace(/\/+$/, "");
-  const apiToken = intg.apiToken || "";
 
-  // Step 8: Validate ERP config
   if (!apiUrl) {
     throw new Error(`URL do ERP nao configurada para o provedor ${intg.providerId}`);
   }
@@ -67,18 +78,14 @@ function buildErpConfig(intg: ErpIntegration): ErpConnectionConfig {
   } catch {
     throw new Error(`URL do ERP invalida para o provedor ${intg.providerId}: ${apiUrl}`);
   }
-  if (!apiToken) {
+  if (!intg.apiToken) {
     throw new Error(`Token do ERP nao configurado para o provedor ${intg.providerId}`);
   }
 
-  return {
-    apiUrl,
-    apiToken,
-    apiUser: intg.apiUser || undefined,
-    clientId: undefined,
-    clientSecret: undefined,
-    extra: { providerId: String(intg.providerId) },
-  };
+  const config = buildConnectorConfig({ ...intg, apiUrl });
+  // O rate limiter e alguns conectores leem o provedor de dentro do extra.
+  config.extra = { ...config.extra, providerId: String(intg.providerId) };
+  return config;
 }
 
 /**

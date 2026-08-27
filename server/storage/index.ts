@@ -191,6 +191,16 @@ export interface IStorage {
   getAllEnabledErpIntegrationsWithCredentials(): Promise<Array<ErpIntegration & { providerName: string }>>;
   upsertErpIntegration(providerId: number, erpSource: string, data: Partial<ErpIntegration>): Promise<ErpIntegration>;
   incrementErpIntegrationCounters(providerId: number, erpSource: string, upserted: number, errors: number): Promise<void>;
+  registrarResultadoSync(providerId: number, erpSource: string, r: {
+    status: "success" | "partial" | "error";
+    upserted: number;
+    errors: number;
+    recordsProcessed?: number;
+    syncType?: "auto" | "manual";
+    mensagem?: string;
+    duracaoMs?: number;
+  }): Promise<void>;
+  contarFalhasConsecutivas(providerId: number, erpSource: string): Promise<number>;
   getErpSyncLogs(providerId: number, erpSource?: string, limit?: number): Promise<ErpSyncLog[]>;
   createErpSyncLog(log: Omit<ErpSyncLog, "id" | "syncedAt">): Promise<ErpSyncLog>;
   getErpIntegrationStats(providerId?: number): Promise<any>;
@@ -368,6 +378,8 @@ class DatabaseStorage implements IStorage {
   getAllEnabledErpIntegrationsWithCredentials = () => this._erp.getAllEnabledErpIntegrationsWithCredentials();
   upsertErpIntegration = (providerId: number, erpSource: string, data: Partial<ErpIntegration>) => this._erp.upsertErpIntegration(providerId, erpSource, data);
   incrementErpIntegrationCounters = (providerId: number, erpSource: string, upserted: number, errors: number) => this._erp.incrementErpIntegrationCounters(providerId, erpSource, upserted, errors);
+  registrarResultadoSync = (providerId: number, erpSource: string, r: Parameters<ErpStorage["registrarResultadoSync"]>[2]) => this._erp.registrarResultadoSync(providerId, erpSource, r);
+  contarFalhasConsecutivas = (providerId: number, erpSource: string) => this._erp.contarFalhasConsecutivas(providerId, erpSource);
   getErpSyncLogs = (providerId: number, erpSource?: string, limit?: number) => this._erp.getErpSyncLogs(providerId, erpSource, limit);
   createErpSyncLog = (log: Omit<ErpSyncLog, "id" | "syncedAt">) => this._erp.createErpSyncLog(log);
   getErpIntegrationStats = (providerId?: number) => this._erp.getErpIntegrationStats(providerId);
