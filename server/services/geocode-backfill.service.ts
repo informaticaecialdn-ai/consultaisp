@@ -152,9 +152,21 @@ const limpar = (v: string | null | undefined) => (v || "").trim();
  */
 const MIN_PARA_DESEMPILHAR = 12;
 
-/** Chave de endereço para decidir se a pilha é legítima. */
-const CHAVE_ENDERECO_SQL =
-  `upper(btrim(coalesce(address, ''))) || '|' || btrim(coalesce(address_number, ''))`;
+/**
+ * Predicado da pilha suspeita.
+ *
+ * Compara LOGRADOURO, não o endereço completo: no mesmo prédio parte do
+ * cadastro tem o número e parte não, e comparar "Rua X|1055" com "Rua X|"
+ * fazia um prédio parecer duas casas distintas — foi o que continuou alarmando
+ * depois da primeira correção.
+ *
+ * Duas ruas diferentes no mesmo ponto é fallback. Todo mundo sem rua nenhuma
+ * também: a coordenada não veio de endereço nenhum.
+ */
+const PILHA_SUSPEITA_SQL = `(
+  count(DISTINCT nullif(upper(btrim(coalesce(address, ''))), '')) > 1
+  OR count(DISTINCT nullif(upper(btrim(coalesce(address, ''))), '')) = 0
+)`;
 
 async function buscarEmpilhados(providerId: number | null, limite: number) {
   const filtro = providerId === null ? "" : "AND provider_id = $2";
@@ -170,7 +182,7 @@ async function buscarEmpilhados(providerId: number | null, limite: number) {
           ${filtro}
         GROUP BY latitude, longitude, provider_id
        HAVING count(*) >= $1
-          AND count(DISTINCT ${CHAVE_ENDERECO_SQL}) > 1
+          AND ${PILHA_SUSPEITA_SQL}
      )
      SELECT c.id, c.address, c.address_number, c.neighborhood, c.city, c.state, c.cep
        FROM customers c

@@ -71,13 +71,13 @@ async function coordenadas() {
   // no mesmo endereço é um prédio, e a coordenada repetida está certa.
   const { rows: pilhas } = await pool.query(
     `SELECT latitude::text lat, longitude::text lon, provider_id, count(*)::int n,
-            count(DISTINCT upper(btrim(coalesce(address,''))) || '|' || btrim(coalesce(address_number,'')))::int enderecos
+            count(DISTINCT nullif(upper(btrim(coalesce(address,''))),''))::int enderecos
        FROM customers
       WHERE latitude IS NOT NULL AND longitude IS NOT NULL
         AND NOT (latitude = 0 AND longitude = 0)
       GROUP BY 1,2,3
      HAVING count(*) >= 12
-        AND count(DISTINCT upper(btrim(coalesce(address,''))) || '|' || btrim(coalesce(address_number,''))) > 1
+        AND count(DISTINCT nullif(upper(btrim(coalesce(address,''))),'')) > 1 OR count(DISTINCT nullif(upper(btrim(coalesce(address,''))),'')) = 0
       ORDER BY n DESC LIMIT 5`);
   const { rows: [predios] } = await pool.query(
     `SELECT count(*)::int q FROM (
@@ -85,7 +85,7 @@ async function coordenadas() {
         WHERE latitude IS NOT NULL AND NOT (latitude = 0 AND longitude = 0)
         GROUP BY latitude, longitude, provider_id
        HAVING count(*) >= 12
-          AND count(DISTINCT upper(btrim(coalesce(address,''))) || '|' || btrim(coalesce(address_number,''))) = 1
+          AND count(DISTINCT nullif(upper(btrim(coalesce(address,''))),'')) = 1
      ) x`);
 
   if (pilhas.length === 0) {
