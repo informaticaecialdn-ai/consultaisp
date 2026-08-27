@@ -22,13 +22,29 @@ const httpServer = createServer(app);
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
+      // Cada host aqui e uma porta aberta: so entra o que o NAVEGADOR de fato
+      // acessa. Google Maps, Azure Maps e Bing sairam junto com os tres
+      // componentes de heatmap que ninguem renderizava — o mapa em uso e
+      // Leaflet sobre tiles do OpenStreetMap, servidos pelo proxy /api/tiles,
+      // da propria origem. `fonts.googleapis.com` e `fonts.gstatic.com` ficam:
+      // sao o Google Fonts do index.html, outro servico e sem cobranca.
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://maps.googleapis.com", "https://maps.gstatic.com"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://maps.googleapis.com", "https://maps.gstatic.com"],
-      imgSrc: ["'self'", "data:", "blob:", "https://*.googleapis.com", "https://*.gstatic.com", "https://*.google.com", "https://*.openstreetmap.org", "https://viacep.com.br"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      imgSrc: ["'self'", "data:", "blob:", "https://*.openstreetmap.org", "https://viacep.com.br"],
       fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
-      connectSrc: ["'self'", "https://maps.googleapis.com", "https://viacep.com.br", "https://nominatim.openstreetmap.org", "https://*.google.com", "wss:", "ws:"],
-      frameSrc: ["'self'", "https://www.google.com", "https://maps.google.com"],
+      // `brasilapi.com.br` FALTAVA e o navegador chama: o preenchimento
+      // automatico por CNPJ (client/src/pages/auth/login.tsx e o painel do
+      // provedor) fazia fetch direto e o CSP barrava. O campo simplesmente nao
+      // preenchia, e o unico sinal era no console do navegador do usuario.
+      connectSrc: [
+        "'self'",
+        "https://viacep.com.br",
+        "https://brasilapi.com.br",
+        "https://nominatim.openstreetmap.org",
+        "wss:", "ws:",
+      ],
+      frameSrc: ["'self'"],
       workerSrc: ["'self'", "blob:"],
     },
   },

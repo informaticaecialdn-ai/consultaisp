@@ -29,15 +29,13 @@ export function registerHeatmapRoutes(): Router {
     }
   });
 
-  router.get("/api/config/maps-key", requireAuth, async (_req, res) => {
-    const key = process.env.GOOGLE_MAPS_API_KEY || "";
-    return res.json({ key });
-  });
-
-  router.get("/api/config/azure-maps-key", requireAuth, async (_req, res) => {
-    const key = process.env.AZURE_MAPS_KEY || "";
-    return res.json({ key });
-  });
+  // As rotas /api/config/maps-key e /api/config/azure-maps-key sairam junto com
+  // os componentes que as consumiam (GoogleHeatMap, AzureHeatMap, BingHeatMap —
+  // nenhum era renderizado). Entregar chave de API ao navegador e superficie
+  // exposta; sem consumidor, e superficie exposta a toa.
+  //
+  // O mapa em uso e Leaflet sobre tiles do OpenStreetMap, servidos pelo proxy
+  // /api/tiles acima — nao depende de chave nenhuma.
 
   // Dados regionais agregados de todos os provedores (anonimizado)
   router.get("/api/heatmap/regional", requireAuth, async (_req, res) => {
