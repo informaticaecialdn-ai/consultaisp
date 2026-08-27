@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import "leaflet.heat";
 
 export type PontoMapa = {
   id: number; lat: number; lon: number;
@@ -65,6 +66,7 @@ export type SedeMapa = { cidade: string; uf: string | null; lat: number; lon: nu
 
 export default function MapaCarteira({
   pontos, cidades = [], sede, modo = 'carteira', rede, height,
+  calor = false, bairroFoco = null,
 }: {
   pontos: PontoMapa[];
   cidades?: CidadeMapa[];
@@ -73,6 +75,10 @@ export default function MapaCarteira({
   rede?: PontoRede[];
   /** Altura fixa em px. Sem ela, a altura acompanha a largura (ver abaixo). */
   height?: number;
+  /** Troca os marcadores por mancha de calor ponderada pela divida em aberto. */
+  calor?: boolean;
+  /** Bairro selecionado no ranking — o quadro fecha nele. */
+  bairroFoco?: string | null;
 }) {
   const div = useRef<HTMLDivElement>(null);
   const mapa = useRef<L.Map | null>(null);
@@ -83,6 +89,7 @@ export default function MapaCarteira({
   const renderer = useRef<L.Canvas | null>(null);
   const camada = useRef<L.LayerGroup | null>(null);
   const camadaRede = useRef<L.LayerGroup | null>(null);
+  const camadaCalor = useRef<L.Layer | null>(null);
   const ultimoBounds = useRef<L.LatLngBounds | null>(null);
   const reenquadrar = useRef<(() => void) | null>(null);
 
@@ -104,12 +111,22 @@ export default function MapaCarteira({
     const ro = new ResizeObserver(() => reenquadrar.current?.());
     ro.observe(div.current);
 
-    return () => { ro.disconnect(); mapa.current?.remove(); mapa.current = null; renderer.current = null; };
+    return () => {
+      ro.disconnect();
+      // O calor sai ANTES do mapa: o plugin desenha no canvas do proprio mapa.
+      camadaCalor.current?.remove();
+      camadaCalor.current = null;
+      mapa.current?.remove();
+      mapa.current = null;
+      renderer.current = null;
+    };
   }, []);
 
   useEffect(() => {
     if (!mapa.current || !camada.current) return;
     camada.current.clearLayers();
+    camadaCalor.current?.remove();
+    camadaCalor.current = null;
 
     const plotaveis = modo === 'regionalizacao'
       ? cidades.filter(c => c.lat !== null && c.lon !== null)
@@ -118,7 +135,23 @@ export default function MapaCarteira({
     // um mapa vazio custaria uma volta de rede sem entregar nada.
     if (plotaveis.length === 0) return;
 
-    if (modo === 'regionalizacao') {
+    // Calor e marcador nunca coexistem: sobrepostos, o marcador esconde
+    // justamente a mancha que o operador ligou para ver.
+    if (calor && modo === 'carteira') {
+      const comDivida = pontos.filter(p => p.emAberto > 0);
+      if (comDivida.length > 0) {
+        const maior = Math.max(...comDivida.map(p => p.emAberto));
+        camadaCalor.current = L.heatLayer(
+          comDivida.map(p => [p.lat, p.lon, maior > 0 ? p.emAberto / maior : 1] as [number, number, number]),
+          { radius: 28, blur: 22, maxZoom: 16, max: 1, minOpacity: 0.25 },
+        );
+        // O leaflet.heat dimensiona o canvas no onAdd: container ainda sem
+        // medida produz mancha invisivel.
+        const tam = mapa.current.getSize();
+        if (tam.x === 0 || tam.y === 0) mapa.current.invalidateSize({ animate: false });
+        camadaCalor.current.addTo(mapa.current);
+      }
+    } else if (modo === 'regionalizacao') {
       // Uma bolha por cidade, area proporcional a carteira. Area e nao raio:
       // o olho compara area, e escalar o raio exagera a cidade grande.
       const maior = Math.max(...cidades.map(c => c.clientes));
@@ -179,10 +212,18 @@ export default function MapaCarteira({
     // No modo carteira o quadro fecha nos clientes: a sede fica fora da area
     // atendida e puxaria o mapa para longe de quem paga. Na regionalizacao ela
     // entra, porque ali a pergunta e "onde eu atuo" e a matriz faz parte disso.
-    const coords: Array<[number, number]> = plotaveis.map(
+    // Bairro selecionado no ranking: o quadro fecha nele. Sem isto, clicar
+    // numa linha mudava a lista e deixava o mapa exatamente onde estava — o
+    // operador nao via para onde olhar.
+    const doFoco = bairroFoco
+      ? pontos.filter(p => p.bairro === bairroFoco)
+      : [];
+    const base = doFoco.length > 0 ? doFoco : plotaveis;
+
+    const coords: Array<[number, number]> = base.map(
       p => [p.lat as number, ('lon' in p ? p.lon : 0) as number],
     );
-    if (sede && modo === 'regionalizacao') coords.push([sede.lat, sede.lon]);
+    if (sede && modo === 'regionalizacao' && doFoco.length === 0) coords.push([sede.lat, sede.lon]);
     ultimoBounds.current = L.latLngBounds(coords);
 
     // O dado chega antes de a altura por proporcao se resolver, entao o Leaflet
@@ -209,7 +250,7 @@ export default function MapaCarteira({
     // O dado chega antes de a altura por proporcao se resolver; a segunda
     // passada pega o layout ja assentado.
     requestAnimationFrame(enquadrar);
-  }, [pontos, cidades, modo, sede]);
+  }, [pontos, cidades, modo, sede, calor, bairroFoco]);
 
   // Camada separada: liga e desliga sem redesenhar os pontos da carteira.
   useEffect(() => {

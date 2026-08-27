@@ -562,6 +562,48 @@
   }
 }
 
+/* Funil territorial do raio-X: caixa · seta · caixa · seta · caixa · seta ·
+   caixa. As setas sao estreitas de proposito — a leitura e das caixas. Abaixo
+   de 1100px vira duas colunas e as setas somem: seta apontando para baixo numa
+   coluna nao descreve uma divisao. */
+.ds-funil {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1.15fr) minmax(72px, 0.8fr)
+    minmax(0, 1.15fr) minmax(84px, 0.95fr)
+    minmax(0, 1.15fr) minmax(78px, 0.9fr)
+    minmax(0, 1.15fr);
+  align-items: center;
+  gap: 8px;
+}
+@media (max-width: 1100px) {
+  .ds-funil { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .ds-funil > div:nth-child(even) { text-align: left; }
+}
+@media (max-width: 620px) {
+  .ds-funil { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Os quatro KPIs sob o funil. */
+.ds-quadra {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+@media (max-width: 1100px) { .ds-quadra { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 620px)  { .ds-quadra { grid-template-columns: minmax(0, 1fr); } }
+
+/* Mapa a esquerda, ranking de bairros a direita; empilha no estreito. */
+.ds-mapa-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .ds-mapa-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
 @layer utilities {
 
   /* Hide ugly search cancel button in Chrome until we can style it properly */

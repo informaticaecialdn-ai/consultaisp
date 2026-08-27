@@ -5,6 +5,7 @@ import { resolverAreaAtendida, normalizarCidade, type OrigemArea } from "../serv
 import { estadoDoPonto, type EstadoPonto } from "../services/estado-ponto";
 import { separarCoordenadasSuspeitas, centroMediano } from "../services/coordenada-suspeita";
 import { coordenadaValida } from "../services/coordenada";
+import { criarAgrupadorDeBairro } from "../services/localidade";
 import { geocodeAddress } from "../services/geocoding";
 
 export interface LocalizacaoPonto {
@@ -17,6 +18,19 @@ export interface LocalizacaoBairro {
   bairro: string; cidade: string;
   clientes: number; inadimplentes: number; exComDivida: number;
   pctInadimplencia: number; dividaTotal: number;
+  /** Clientes que ainda sao seus: ativos + suspensos. Numerador da penetracao. */
+  atuais: number;
+  /**
+   * Territorio — vem das bases publicas (IBGE CNEFE, ANEEL BDGD). Enquanto elas
+   * nao estiverem carregadas, os quatro sao null e a tela mostra "—" em vez de
+   * um numero inventado. E a mesma doutrina da referencia: numero impossivel de
+   * calcular e suprimido no servidor, nunca fabricado no cliente.
+   */
+  hps: number | null;
+  ucsVivas: number | null;
+  pctPenetracao: number | null;
+  /** Inadimplencia media da regiao entre provedores. So sai com k-anonimato >= 3. */
+  benchmarkPct: number | null;
 }
 
 export interface LocalizacaoCidade {
@@ -58,6 +72,12 @@ export interface LocalizacaoResposta {
   cidadesSemCliente: string[];
   pontos: LocalizacaoPonto[];
   bairros: LocalizacaoBairro[];
+  /** Carteira por estado — alimenta a legenda sobre o mapa. Conta a carteira
+   *  inteira da area, inclusive quem esta sem coordenada. */
+  porEstado: Record<EstadoPonto, number>;
+  /** Quando a carteira foi lida do ERP pela ultima vez. A tela mostra numeros
+   *  derivados desta data; sem dizer isso, o operador le como tempo real. */
+  sincronizadoEm: string | null;
 }
 
 export class LocalizacaoStorage {
@@ -134,8 +154,18 @@ export class LocalizacaoStorage {
     const pontos: LocalizacaoPonto[] = [];
     let semCoordenada = 0;
     let plotaveis = 0;
+    let sincronizadoEm: Date | null = null;
+    const porEstado: Record<EstadoPonto, number> = {
+      em_dia: 0, em_cobranca: 0, suspenso: 0, ex_divida: 0,
+    };
     const porCidade = new Map<string, LocalizacaoCidade>();
     const porBairro = new Map<string, LocalizacaoBairro>();
+    // O bairro chega do ERP como texto livre. Sem agrupar as variacoes,
+    // "Jd. Bandeirantes" e "JARDIM BANDEIRANTES" viram duas linhas do ranking,
+    // cada uma com metade da carteira — e a metade menor sobe ao topo com uma
+    // taxa de inadimplencia que nao descreve lugar nenhum. Um agrupador POR
+    // CIDADE: bairros homonimos em cidades diferentes sao lugares diferentes.
+    const agrupadores = new Map<string, ReturnType<typeof criarAgrupadorDeBairro>>();
 
     for (const c of naArea) {
       const cidade = canonizar(c.city);
@@ -145,17 +175,29 @@ export class LocalizacaoStorage {
       ct.clientes++;
 
       const estado = estadoDoPonto(c);
+      porEstado[estado]++;
+      if (c.lastSyncAt && (!sincronizadoEm || c.lastSyncAt > sincronizadoEm)) {
+        sincronizadoEm = c.lastSyncAt;
+      }
       const emAberto = Number(c.totalOverdueAmount || 0) || 0;
-      const bairro = (c.neighborhood || "").trim() || "Sem bairro";
 
-      const chave = `${cidade.toUpperCase()}||${bairro.toUpperCase()}`;
+      let agrupador = agrupadores.get(cidade);
+      if (!agrupador) { agrupador = criarAgrupadorDeBairro(); agrupadores.set(cidade, agrupador); }
+      const grupo = agrupador.agrupar(c.neighborhood);
+      const bairro = grupo?.rotulo || "Sem bairro";
+
+      const chave = `${cidade.toUpperCase()}||${grupo?.chave ?? "SEM BAIRRO"}`;
       const b = porBairro.get(chave) || {
         bairro, cidade, clientes: 0, inadimplentes: 0, exComDivida: 0,
-        pctInadimplencia: 0, dividaTotal: 0,
+        pctInadimplencia: 0, dividaTotal: 0, atuais: 0,
+        hps: null, ucsVivas: null, pctPenetracao: null, benchmarkPct: null,
       };
       b.clientes++;
       if (emAberto > 0) { b.inadimplentes++; b.dividaTotal += emAberto; }
       if (estado === 'ex_divida') b.exComDivida++;
+      // "Atuais" e quem ainda e seu: ativo ou suspenso por atraso. Ex-cliente
+      // com divida nao entra — ele nao ocupa mais um ponto de presenca.
+      if (estado !== 'ex_divida') b.atuais++;
       porBairro.set(chave, b);
 
       if (emAberto > 0) { ct.inadimplentes++; ct.dividaTotal += emAberto; }
@@ -174,15 +216,20 @@ export class LocalizacaoStorage {
       }
 
       // LGPD: sem nome e sem CPF — a tela nao precisa deles.
+      // O bairro sai agrupado, o mesmo rotulo do ranking: clicar numa linha do
+      // ranking e ver o mapa destacar outro conjunto seria mentir sobre o filtro.
       pontos.push({
         id: c.id, lat: valida.lat, lon: valida.lng, estado, emAberto,
-        atraso: c.maxDaysOverdue || 0, bairro: c.neighborhood, cidade,
+        atraso: c.maxDaysOverdue || 0, bairro: grupo ? bairro : null, cidade,
       });
     }
 
+    // Uma casa decimal, arredondada AQUI: o cliente so formata. Duas telas
+    // arredondando o mesmo numero por conta propria acabam discordando.
     const bairros = Array.from(porBairro.values()).map(b => ({
       ...b,
-      pctInadimplencia: b.clientes > 0 ? (b.inadimplentes / b.clientes) * 100 : 0,
+      pctInadimplencia: b.clientes > 0 ? Math.round((b.inadimplentes / b.clientes) * 1000) / 10 : 0,
+      dividaTotal: Math.round(b.dividaTotal * 100) / 100,
     }));
 
     // Um ponto errado a centenas de km estica o enquadramento e a tela abre
@@ -224,7 +271,12 @@ export class LocalizacaoStorage {
       cidades: Array.from(porCidade.values()).sort((a, b) => b.clientes - a.clientes),
       cidadesSemCliente,
       pontos: coerentes,
-      bairros,
+      // Ordem de chegada do ranking: pior taxa primeiro, e em empate a maior
+      // divida. E a ordem que o "bairro campeao" assume ao desempatar.
+      bairros: bairros.sort((a, b) =>
+        b.pctInadimplencia - a.pctInadimplencia || b.dividaTotal - a.dividaTotal),
+      porEstado,
+      sincronizadoEm: sincronizadoEm ? (sincronizadoEm as Date).toISOString() : null,
     };
   }
 }

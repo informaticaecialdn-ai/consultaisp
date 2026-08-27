@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Link } from "wouter";
+import { MapPin, Banknote, Users, Satellite, Map as MapIcon } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -8,8 +9,14 @@ import { useAuth } from "@/lib/auth";
 import MapaCarteira, {
   type PontoMapa, type PontoRede, type CidadeMapa, type ModoMapa, type SedeMapa,
 } from "@/components/maps/MapaCarteira";
+import { Chip, Kicker, Kpi, MONO, CARD, brl, num, pct, TRACO } from "@/components/localizacao/ui";
+import RankingBairros, {
+  MIN_CLIENTES_RANKING, type BairroRanking, type OrdemRanking,
+} from "@/components/localizacao/RankingBairros";
+import RaioXBairro from "@/components/localizacao/RaioXBairro";
 
 type Sede = { cidade: string; uf: string | null; lat: number | null; lon: number | null; foraDaArea: boolean };
+type EstadoCliente = PontoMapa["estado"];
 
 type Resposta = {
   origemArea: 'cidades' | 'meso' | 'uf' | 'nenhuma';
@@ -21,22 +28,27 @@ type Resposta = {
   cidades: CidadeMapa[];
   cidadesSemCliente: string[];
   pontos: PontoMapa[];
-  bairros: Array<{
-    bairro: string; cidade: string; clientes: number;
-    inadimplentes: number; exComDivida: number;
-    pctInadimplencia: number; dividaTotal: number;
-  }>;
+  bairros: BairroRanking[];
+  porEstado: Record<EstadoCliente, number>;
+  sincronizadoEm: string | null;
+};
+
+/** Só o estado do trabalho; as contagens vêm de /api/localizacao. */
+type Plotagem = {
+  emAndamento: boolean;
+  geocoderIndisponivel: boolean;
+  terminadoEm: string | null;
 };
 
 /** Piso de k-anonimato para a camada de rede. */
 const PISO_REDE = 5;
 
-const ESTADOS = [
+const ESTADOS: Array<{ k: EstadoCliente; label: string; token: string }> = [
   { k: 'em_dia',      label: 'Ativo em dia',          token: '--ok' },
   { k: 'em_cobranca', label: 'Em cobrança',           token: '--gated' },
   { k: 'suspenso',    label: 'Suspenso',              token: '--brand' },
   { k: 'ex_divida',   label: 'Ex-cliente com dívida', token: '--danger' },
-] as const;
+];
 
 const FAIXAS: Array<{ k: string; label: string; teste: (v: number) => boolean }> = [
   { k: 'todas',      label: 'Todas',        teste: () => true },
@@ -54,45 +66,17 @@ const FAIXAS_TAXA = [
   { label: '25%+',                  token: '--danger', teste: (p: number) => p >= 25 },
 ];
 
-const brl = (v: number) =>
-  `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const dataCurta = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" }) : null;
 
-function Chip({ ativo, onClick, children }: { ativo: boolean; onClick: () => void; children: React.ReactNode }) {
+function LinhaFiltro({ rotulo, children }: { rotulo: string; children: React.ReactNode }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`text-[12px] px-2.5 py-1 rounded border motion-safe:transition-colors ${
-        ativo
-          ? "border-[var(--brand)] text-[var(--brand-ink)] bg-[var(--brand-soft)] font-medium"
-          : "border-[var(--border)] text-[var(--text-2)] hover:border-[var(--border-strong)]"
-      }`}
-    >
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <Kicker style={{ width: 52, flexShrink: 0, color: "var(--text-faint)" }}>{rotulo}</Kicker>
       {children}
-    </button>
-  );
-}
-
-function Kpi({ label, valor, sub }: { label: string; valor: string; sub?: string }) {
-  return (
-    <div className="bg-[var(--surface)] rounded-lg px-[14px] py-3 border border-[var(--border)]">
-      <span className="block text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-        {label}
-      </span>
-      <p className="mt-1.5 font-mono text-[21px] font-medium tracking-[-0.02em] text-[var(--text)] tabular-nums">
-        {valor}
-      </p>
-      {sub && <p className="text-[12px] text-[var(--text-muted)] mt-0.5 truncate">{sub}</p>}
     </div>
   );
 }
-
-/** Só o estado do trabalho; as contagens vêm de /api/localizacao. */
-type Plotagem = {
-  emAndamento: boolean;
-  geocoderIndisponivel: boolean;
-  terminadoEm: string | null;
-};
 
 export default function LocalizacaoPage() {
   const { user } = useAuth();
@@ -104,9 +88,6 @@ export default function LocalizacaoPage() {
   });
   const plotando = plotagem?.emAndamento ?? false;
 
-  // Enquanto a varredura roda os pontos vão nascendo no banco, então o mapa se
-  // atualiza sozinho; o efeito abaixo garante a última busca depois do fim,
-  // que nenhum intervalo pegaria.
   const { data, isLoading } = useQuery<Resposta>({
     queryKey: ["/api/localizacao"],
     refetchInterval: plotando ? 15000 : false,
@@ -125,26 +106,20 @@ export default function LocalizacaoPage() {
     onSuccess: (r: { iniciado: boolean; mensagem: string }) => {
       toast({ title: r.iniciado ? "Plotagem iniciada" : "Já em andamento", description: r.mensagem });
       queryClient.invalidateQueries({ queryKey: ["/api/localizacao/plotagem"] });
-      // A fase que puxa as coordenadas do ERP resolve em segundos, antes de o
-      // acompanhamento de 5s começar. Sem isto o mapa só refletiria isso na
-      // próxima passada.
       queryClient.invalidateQueries({ queryKey: ["/api/localizacao"] });
     },
     onError: (e: Error) => toast({ title: "Não foi possível iniciar", description: e.message, variant: "destructive" }),
   });
 
-  const [fCidade, setFCidade] = useState("todas");
-  const [fEstado, setFEstado] = useState("todos");
+  const [fCidade, setFCidade] = useState<string | null>(null);
+  const [fEstado, setFEstado] = useState<EstadoCliente | "todos">("todos");
   const [fDivida, setFDivida] = useState("todas");
-  const [ordem, setOrdem] = useState<'menor' | 'maior' | 'divida' | 'clientes'>('maior');
-
-  // Camada de rede: desligada por padrao. A leitura do dia a dia e a carteira
-  // propria; a rede e o diferencial do bureau, mas so quando pedida.
-  // Carteira mostra cliente a cliente; regionalizacao agrega por cidade e
-  // responde "onde eu atuo", que e uma pergunta diferente de "quem devo".
+  const [ordem, setOrdem] = useState<OrdemRanking>("maior");
+  const [bairroSel, setBairroSel] = useState<string | null>(null);
+  const [calor, setCalor] = useState(false);
   const [modo, setModo] = useState<ModoMapa>('carteira');
-
   const [verRede, setVerRede] = useState(false);
+
   const { data: rede = [], isFetching: redeCarregando } = useQuery<PontoRede[]>({
     queryKey: ["/api/heatmap/regional"],
     enabled: verRede,
@@ -153,26 +128,31 @@ export default function LocalizacaoPage() {
   // O endpoint agrega todos os provedores em celulas de 0,01 grau (~1km) sem piso
   // de contagem: uma celula com 1 cliente e praticamente um endereco identificavel
   // de outro provedor. Filtramos aqui para nao expor isso na tela.
-  const redeVisivel = useMemo(
-    () => rede.filter(r => r.count >= PISO_REDE),
-    [rede],
-  );
+  const redeVisivel = useMemo(() => rede.filter(r => r.count >= PISO_REDE), [rede]);
 
-  // Quem a plotagem consegue resolver (tem cidade ou CEP) e quem depende do
-  // provedor corrigir o cadastro. Ambos saem da mesma varredura do KPI.
   const naFila = data?.plotaveis ?? 0;
   const foraDaFila = (data?.semCoordenada ?? 0) - naFila;
 
-  const pontos = data?.pontos ?? [];
-  const bairros = data?.bairros ?? [];
+  const todosPontos = data?.pontos ?? [];
+  const todosBairros = data?.bairros ?? [];
   const cidades = data?.cidades ?? [];
-  const suspeitas = data?.coordenadaSuspeita ?? [];
   const semCliente = data?.cidadesSemCliente ?? [];
   const cidadesPlotaveis = cidades.filter(c => c.lat !== null && c.lon !== null);
   const cidadesAtendidas = cidades.length + semCliente.length;
+  const totalCarteira = cidades.reduce((s, c) => s + c.clientes, 0);
 
-  // So vai ao mapa se a geocodificacao resolveu; sem coordenada, a sede ainda
-  // aparece no cabecalho como texto.
+  /* O recorte de cidade vale para TUDO: mapa, ranking e raio-X respondem ao
+     mesmo universo. Os filtros de estado e dívida, não — eles são lentes sobre
+     o mapa, e o ranking anuncia que conta a carteira inteira. */
+  const pontos = useMemo(
+    () => (fCidade ? todosPontos.filter(p => p.cidade === fCidade) : todosPontos),
+    [todosPontos, fCidade],
+  );
+  const bairros = useMemo(
+    () => (fCidade ? todosBairros.filter(b => b.cidade === fCidade) : todosBairros),
+    [todosBairros, fCidade],
+  );
+
   const sede = data?.sede ?? null;
   const sedeNoMapa: SedeMapa | null =
     sede && sede.lat !== null && sede.lon !== null
@@ -180,34 +160,71 @@ export default function LocalizacaoPage() {
       : null;
 
   const faixa = FAIXAS.find(f => f.k === fDivida) ?? FAIXAS[0];
-  const pontosFiltrados = pontos.filter(p =>
-    (fCidade === "todas" || p.cidade === fCidade) &&
-    (fEstado === "todos" || p.estado === fEstado) &&
-    faixa.teste(p.emAberto)
+  const filtrados = useMemo(
+    () => pontos.filter(p =>
+      (fEstado === "todos" || p.estado === fEstado) &&
+      faixa.teste(p.emAberto) &&
+      (bairroSel === null || p.bairro === bairroSel)),
+    [pontos, fEstado, faixa, bairroSel],
   );
 
-  const contagem = ESTADOS.map(e => ({ ...e, n: pontosFiltrados.filter(p => p.estado === e.k).length }));
-  const totalVencido = bairros.reduce((s, b) => s + b.dividaTotal, 0);
-  const totalDevedores = bairros.reduce((s, b) => s + b.inadimplentes, 0);
-  const campeao = [...bairros].filter(b => b.clientes > 0)
-    .sort((a, b) => b.pctInadimplencia - a.pctInadimplencia)[0];
+  /* KPIs 1 e 2 leem a CARTEIRA do recorte, não o subconjunto filtrado: trocar a
+     lente do mapa não pode mudar quanto o provedor tem a receber. */
+  const campeao = useMemo(() => {
+    const elegiveis = bairros.filter(b => b.clientes >= MIN_CLIENTES_RANKING);
+    return elegiveis.reduce<BairroRanking | null>(
+      (m, b) => (m === null || b.pctInadimplencia > m.pctInadimplencia ? b : m), null,
+    );
+  }, [bairros]);
 
-  const bairrosOrdenados = [...bairros].sort((a, b) => {
-    if (ordem === 'menor') return a.pctInadimplencia - b.pctInadimplencia;
-    if (ordem === 'maior') return b.pctInadimplencia - a.pctInadimplencia;
-    if (ordem === 'divida') return b.dividaTotal - a.dividaTotal;
-    return b.clientes - a.clientes;
-  });
+  const vencidoNoMapa = useMemo(() => pontos.reduce((s, p) => s + p.emAberto, 0), [pontos]);
+  const devedoresPlotados = useMemo(() => pontos.filter(p => p.emAberto > 0).length, [pontos]);
+
+  /* A legenda conta a carteira INTEIRA do recorte, inclusive quem está fora do
+     mapa: a pergunta "quantos ex-clientes com dívida eu tenho" não muda porque
+     o cadastro de alguns não tem coordenada. */
+  const porEstado = useMemo(() => {
+    if (!fCidade) return data?.porEstado ?? { em_dia: 0, em_cobranca: 0, suspenso: 0, ex_divida: 0 };
+    const acc: Record<EstadoCliente, number> = { em_dia: 0, em_cobranca: 0, suspenso: 0, ex_divida: 0 };
+    for (const p of pontos) acc[p.estado]++;
+    return acc;
+  }, [data?.porEstado, fCidade, pontos]);
+
+  const trocarCidade = (c: string | null) => { setFCidade(c); setBairroSel(null); };
+  const sincronizado = dataCurta(data?.sincronizadoEm ?? null);
 
   return (
     <div className="p-4 lg:p-6 space-y-4" data-testid="localizacao-page">
-      <div>
-        <h1 className="text-[19px] font-medium tracking-[-0.02em] text-[var(--text)] leading-tight">
-          Localização
-        </h1>
-        <p className="text-[13px] text-[var(--text-muted)] mt-0.5">
-          Mapa da carteira, calor de inadimplência e ranking de bairros
-        </p>
+      {/* ── Cabeçalho ── */}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-[21px] font-medium tracking-[-0.02em] text-[var(--text)] leading-tight">
+            Localização &amp; mapa de inadimplência
+          </h1>
+          <p className="text-[13px] text-[var(--text-muted)] mt-1">
+            Geomarketing territorial da carteira — pontos reais geocodificados, calor de dívida e
+            ranking de bairros.
+          </p>
+        </div>
+
+        {cidades.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Kicker style={{ marginRight: 2 }}>Cidade</Kicker>
+            <Chip ativo={fCidade === null} onClick={() => trocarCidade(null)} contagem={totalCarteira}>
+              Todas
+            </Chip>
+            {cidades.map(c => (
+              <Chip
+                key={c.cidade}
+                ativo={fCidade === c.cidade}
+                onClick={() => trocarCidade(c.cidade)}
+                contagem={c.clientes}
+              >
+                {c.cidade}
+              </Chip>
+            ))}
+          </div>
+        )}
       </div>
 
       {data?.origemArea === 'nenhuma' && (
@@ -219,33 +236,51 @@ export default function LocalizacaoPage() {
         </div>
       )}
 
+      {/* ── Os quatro KPIs ── */}
       {isLoading ? (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-          {[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-[74px]" />)}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[0, 1, 2, 3].map(i => <Skeleton key={i} className="h-[82px]" />)}
         </div>
       ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <Kpi
-            label="Bairro campeão"
-            valor={campeao ? `${campeao.pctInadimplencia.toFixed(1)}%` : "—"}
-            sub={campeao ? `${campeao.bairro} · ${campeao.cidade}` : undefined}
+            icone={<MapPin size={16} strokeWidth={1.5} />}
+            iconeCor="var(--danger)" iconeBg="var(--danger-bg)"
+            rotulo="Bairro campeão · inadimplência"
+            valor={campeao?.bairro ?? TRACO}
+            valorMono={false}
+            titulo={`Campeão só entre bairros com ${MIN_CLIENTES_RANKING}+ clientes — 100% com 1 cliente é ruído, não bússola.`}
+            sub={campeao
+              ? `${pct(campeao.pctInadimplencia)} · ${brl(campeao.dividaTotal)} · ${num(campeao.clientes)} clientes`
+              : `sem bairro com ${MIN_CLIENTES_RANKING}+ clientes`}
+            subMono={!!campeao}
           />
-          <Kpi label="R$ vencido no mapa" valor={brl(totalVencido)} sub={`${totalDevedores} devedores`} />
-          <Kpi label="Clientes plotados" valor={String(pontosFiltrados.length)} sub={`de ${pontos.length} com coordenada`} />
           <Kpi
-            label="Fora do mapa"
-            valor={String((data?.semCoordenada ?? 0) + suspeitas.length)}
-            sub={suspeitas.length > 0
-              ? `${data?.semCoordenada ?? 0} sem coordenada · ${suspeitas.length} coordenada suspeita`
-              : "sem coordenada"}
+            icone={<Banknote size={16} strokeWidth={1.5} />}
+            iconeCor="var(--ok)" iconeBg="var(--ok-bg)"
+            rotulo="R$ vencido no mapa"
+            valor={brl(vencidoNoMapa)} valorCor="var(--money-neg)"
+            sub={`${num(devedoresPlotados)} devedores plotados`} subMono
+          />
+          <Kpi
+            icone={<Users size={16} strokeWidth={1.5} />}
+            iconeCor="var(--info)" iconeBg="var(--info-bg)"
+            rotulo="Clientes plotados"
+            valor={num(pontos.length)}
+            sub={`${num(filtrados.length)} visíveis com os filtros atuais`} subMono
+          />
+          <Kpi
+            icone={<Satellite size={16} strokeWidth={1.5} />}
+            iconeCor="var(--text-muted)" iconeBg="var(--surface-2)"
+            rotulo="Sem coordenada"
+            valor={num(data?.semCoordenada ?? 0)}
+            sub="carteira sem geocodificação — fora do mapa"
           />
         </div>
       )}
 
-      {/* Situação da plotagem. Antes esta linha afirmava "plotagem automática
-          em andamento" sempre que faltava coordenada — e quando a varredura
-          estava parada ou o geocoder fora do ar, a tela mentia para o operador.
-          O número é o mesmo do KPI ao lado: sai da mesma varredura. */}
+      {/* Situação da plotagem: a tela diz o que está de fato acontecendo, e o
+          número é o mesmo do KPI ao lado — sai da mesma varredura. */}
       {plotagem && naFila > 0 && (
         <div
           role="status"
@@ -296,62 +331,70 @@ export default function LocalizacaoPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-4 items-start">
-        {/* Mapa */}
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden">
-          <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-[var(--border-faint)]">
-            <div className="flex items-center gap-2">
-              <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-                {modo === 'carteira' ? 'Sua carteira' : 'Sua região'} · OpenStreetMap
-              </span>
-              <div className="flex gap-1">
-                <Chip ativo={modo === 'carteira'} onClick={() => setModo('carteira')}>Carteira</Chip>
-                <Chip ativo={modo === 'regionalizacao'} onClick={() => setModo('regionalizacao')}>Regionalização</Chip>
-              </div>
-            </div>
-            <span className="font-mono text-[11px] text-[var(--text-muted)] tabular-nums">
-              {modo === 'regionalizacao'
-                ? `${cidadesPlotaveis.length} de ${cidadesAtendidas} cidades`
-                : `${pontosFiltrados.length} de ${pontos.length} pontos`}
+      {/* ── Mapa + ranking ── */}
+      <div className="ds-mapa-grid">
+        <div style={{ ...CARD, overflow: "hidden" }}>
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 border-b border-[var(--border-faint)]">
+            <span className="flex items-center gap-2">
+              <MapIcon size={14} strokeWidth={1.5} style={{ color: "var(--text-muted)" }} />
+              <Kicker>
+                {modo === 'carteira' ? 'Mapa real da carteira' : 'Sua região'} · OpenStreetMap
+              </Kicker>
             </span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Chip ativo={modo === 'carteira'} onClick={() => setModo('carteira')}>Carteira</Chip>
+              <Chip ativo={modo === 'regionalizacao'} onClick={() => setModo('regionalizacao')}>Regionalização</Chip>
+              <Chip
+                ativo={calor}
+                onClick={() => setCalor(v => !v)}
+                desabilitado={modo !== 'carteira'}
+                titulo="Mancha ponderada pelo valor em aberto de cada cliente"
+              >
+                Mapa de calor
+              </Chip>
+              {/* As duas camadas de território dependem de bases públicas que
+                  ainda não foram carregadas. Ficam à vista e desabilitadas: o
+                  operador precisa saber que a camada existe e o que falta para
+                  ela aparecer — some da tela seria pior. */}
+              <Chip ativo={false} desabilitado titulo="Requer a base de endereços do IBGE (CNEFE 2022) carregada para os municípios atendidos.">
+                Endereços IBGE
+              </Chip>
+              <Chip ativo={false} desabilitado titulo="Requer a base de unidades consumidoras da ANEEL (BDGD) carregada para a área atendida.">
+                UCs ANEEL
+              </Chip>
+              {sincronizado && (
+                <span title="A tela mostra a carteira como estava na última sincronização com o ERP." style={{
+                  ...MONO, fontSize: 10, padding: "3px 7px", borderRadius: 4,
+                  background: "var(--surface-inset)", color: "var(--text-muted)",
+                }}>
+                  ERP · {sincronizado}
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="px-4 py-3 space-y-2 border-b border-[var(--border-faint)]">
             {modo === 'carteira' && (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-faint)] w-[52px]">Cidade</span>
-              <Chip ativo={fCidade === "todas"} onClick={() => setFCidade("todas")}>Todas</Chip>
-              {(data?.cidades ?? []).map(c => (
-                <Chip key={c.cidade} ativo={fCidade === c.cidade} onClick={() => setFCidade(c.cidade)}>
-                  {c.cidade} <span className="font-mono tabular-nums opacity-70">{c.clientes}</span>
-                </Chip>
-              ))}
-            </div>
+              <>
+                <LinhaFiltro rotulo="Estado">
+                  <Chip ativo={fEstado === "todos"} onClick={() => setFEstado("todos")}>Todos</Chip>
+                  {ESTADOS.map(e => (
+                    <Chip key={e.k} ativo={fEstado === e.k} onClick={() => setFEstado(e.k)}>{e.label}</Chip>
+                  ))}
+                </LinhaFiltro>
+                <LinhaFiltro rotulo="Dívida">
+                  {FAIXAS.map(f => (
+                    <Chip key={f.k} ativo={fDivida === f.k} onClick={() => setFDivida(f.k)}>{f.label}</Chip>
+                  ))}
+                </LinhaFiltro>
+              </>
             )}
-            {modo === 'carteira' && (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-faint)] w-[52px]">Estado</span>
-              <Chip ativo={fEstado === "todos"} onClick={() => setFEstado("todos")}>Todos</Chip>
-              {ESTADOS.map(e => (
-                <Chip key={e.k} ativo={fEstado === e.k} onClick={() => setFEstado(e.k)}>{e.label}</Chip>
-              ))}
-            </div>
-            )}
-            {modo === 'carteira' && (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-faint)] w-[52px]">Dívida</span>
-              {FAIXAS.map(f => (
-                <Chip key={f.k} ativo={fDivida === f.k} onClick={() => setFDivida(f.k)}>{f.label}</Chip>
-              ))}
-            </div>
-            )}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-faint)] w-[52px]">Rede</span>
+            <LinhaFiltro rotulo="Rede">
               <Chip ativo={verRede} onClick={() => setVerRede(v => !v)}>
                 Concentração da rede
                 {verRede && (
-                  <span className="font-mono tabular-nums opacity-70">
-                    {redeCarregando ? "…" : redeVisivel.length}
+                  <span style={{ ...MONO, opacity: 0.7 }}>
+                    {redeCarregando ? "…" : num(redeVisivel.length)}
                   </span>
                 )}
               </Chip>
@@ -361,112 +404,128 @@ export default function LocalizacaoPage() {
                   : redeCarregando
                     ? "carregando…"
                     : redeVisivel.length > 0
-                      ? `${redeVisivel.length} concentrações na região`
+                      ? `${num(redeVisivel.length)} concentrações na região`
                       : `nenhuma concentração com ${PISO_REDE}+ clientes na região`}
+              </span>
+            </LinhaFiltro>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              {bairroSel ? (
+                <Chip ativo onClick={() => setBairroSel(null)} titulo="Clique para voltar à carteira inteira">
+                  Bairro: {bairroSel} ✕
+                </Chip>
+              ) : <span />}
+              <span style={{ ...MONO, fontSize: 11, color: "var(--text-muted)" }}>
+                {modo === 'regionalizacao'
+                  ? `${num(cidadesPlotaveis.length)} de ${num(cidadesAtendidas)} cidades`
+                  : `${num(filtrados.length)} de ${num(pontos.length)} pontos`}
               </span>
             </div>
           </div>
 
-          <div className="p-3">
-            {isLoading ? <Skeleton className="h-[480px] w-full" /> : <MapaCarteira
-                pontos={pontosFiltrados}
-                cidades={cidades}
-                sede={sedeNoMapa}
-                modo={modo}
-                rede={verRede ? redeVisivel : undefined}
-              />}
-          </div>
-
-          <div className="flex flex-wrap gap-x-5 gap-y-2 px-4 py-3 border-t border-[var(--border-faint)]">
-            {verRede && (
-              <span className="flex items-center gap-2 text-[12px] text-[var(--text-2)]">
-                <i className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--brand)", opacity: 0.28 }} />
-                Concentração da rede
-                <b className="font-mono tabular-nums text-[var(--text)]">{redeVisivel.length}</b>
-              </span>
-            )}
-            {modo === 'regionalizacao'
-              ? FAIXAS_TAXA.map(f => (
-                  <span key={f.label} className="flex items-center gap-2 text-[12px] text-[var(--text-2)]">
-                    <i className="w-2.5 h-2.5 rounded-full" style={{ background: `var(${f.token})` }} />
-                    {f.label}
-                    <b className="font-mono tabular-nums text-[var(--text)]">
-                      {cidadesPlotaveis.filter(c => f.teste(c.clientes ? (c.inadimplentes / c.clientes) * 100 : 0)).length}
-                    </b>
-                  </span>
-                ))
-              : contagem.map(e => (
-                  <span key={e.k} className="flex items-center gap-2 text-[12px] text-[var(--text-2)]">
-                    <i className="w-2 h-2 rounded-full" style={{ background: `var(${e.token})` }} />
-                    {e.label}
-                    <b className="font-mono tabular-nums text-[var(--text)]">{e.n}</b>
-                  </span>
-                ))}
-            {sedeNoMapa && (
-              <span className="flex items-center gap-2 text-[12px] text-[var(--text-2)]">
-                <i
-                  className="w-2.5 h-2.5 rotate-45 border-2 border-[var(--brand)] bg-[var(--surface)]"
-                  aria-hidden="true"
+          <div className="p-3 relative">
+            {isLoading ? <Skeleton className="h-[480px] w-full" /> : (
+              <>
+                <MapaCarteira
+                  pontos={filtrados}
+                  cidades={cidades}
+                  sede={sedeNoMapa}
+                  modo={modo}
+                  rede={verRede ? redeVisivel : undefined}
+                  calor={calor}
+                  bairroFoco={bairroSel}
                 />
-                Sede · {sedeNoMapa.cidade}{" "}
-                {sede?.foraDaArea && (
-                  <span className="text-[var(--text-muted)]">(fora da área atendida)</span>
-                )}
-              </span>
-            )}
-            {modo === 'regionalizacao' && semCliente.length > 0 && (
-              <span className="text-[12px] text-[var(--text-muted)]">
-                {semCliente.length} cidades atendidas ainda sem cliente
-              </span>
+                {/* Legenda sobre o mapa: quem olha o mapa não deveria ter de
+                    procurar a chave das cores fora dele. */}
+                <div
+                  className="absolute left-6 bottom-6 pointer-events-none"
+                  style={{
+                    ...CARD, background: "var(--surface)", padding: "9px 11px",
+                    boxShadow: "0 0 0 1px var(--ring-subtle)", zIndex: 500,
+                  }}
+                >
+                  <Kicker>
+                    {modo === 'regionalizacao' ? 'Inadimplência da cidade'
+                      : calor ? 'Calor de dívida' : 'Estado do cliente'}
+                  </Kicker>
+                  <div className="mt-2 space-y-1">
+                    {/* Com o calor ligado não existe marcador por estado — manter
+                        a chave dos estados descreveria um desenho que não está
+                        na tela. */}
+                    {calor && modo === 'carteira' ? (
+                      <div style={{ width: 148 }}>
+                        <div style={{
+                          height: 7, borderRadius: 4,
+                          background: "linear-gradient(90deg, #2b6cb0 0%, #38a169 40%, #ecc94b 70%, #e53e3e 100%)",
+                        }} />
+                        <p style={{ ...MONO, fontSize: 10, color: "var(--text-muted)", marginTop: 5 }}>
+                          densidade ∝ R$ vencido
+                        </p>
+                        <p style={{ ...MONO, fontSize: 10, color: "var(--text-faint)", marginTop: 3 }}>
+                          {num(devedoresPlotados)} devedores no mapa
+                        </p>
+                      </div>
+                    ) : modo === 'regionalizacao'
+                      ? FAIXAS_TAXA.map(f => (
+                          <span key={f.label} className="flex items-center gap-2 text-[11.5px] text-[var(--text-2)]">
+                            <i className="w-2 h-2 rounded-full flex-none" style={{ background: `var(${f.token})` }} />
+                            <span className="flex-1">{f.label}</span>
+                            <b style={{ ...MONO, fontWeight: 500, color: "var(--text)" }}>
+                              {num(cidadesPlotaveis.filter(c => f.teste(c.clientes ? (c.inadimplentes / c.clientes) * 100 : 0)).length)}
+                            </b>
+                          </span>
+                        ))
+                      : ESTADOS.map(e => (
+                          <span key={e.k} className="flex items-center gap-2 text-[11.5px] text-[var(--text-2)]">
+                            <i className="w-2 h-2 rounded-full flex-none" style={{ background: `var(${e.token})` }} />
+                            <span className="flex-1 pr-3">{e.label}</span>
+                            <b style={{ ...MONO, fontWeight: 500, color: "var(--text)" }}>{num(porEstado[e.k])}</b>
+                          </span>
+                        ))}
+                    {sedeNoMapa && (
+                      <span className="flex items-center gap-2 text-[11.5px] text-[var(--text-2)]">
+                        <i className="w-2 h-2 rotate-45 border-2 border-[var(--brand)] bg-[var(--surface)] flex-none" aria-hidden="true" />
+                        <span className="flex-1">
+                          Sede · {sedeNoMapa.cidade}
+                          {sede?.foraDaArea && <span className="text-[var(--text-muted)]"> (fora da área)</span>}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </div>
 
-        {/* Ranking de bairros */}
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] overflow-hidden flex flex-col">
-          <div className="px-4 py-2.5 border-b border-[var(--border-faint)]">
-            <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)]">
-              Bairros por inadimplência
-            </span>
-            <p className="text-[11px] text-[var(--text-muted)] mt-1">
-              Universo = carteira na área atendida, incluindo quem está sem coordenada.
-            </p>
-          </div>
-          <div className="flex gap-1.5 px-4 py-2 border-b border-[var(--border-faint)] flex-wrap">
-            <Chip ativo={ordem === 'menor'} onClick={() => setOrdem('menor')}>Menor %</Chip>
-            <Chip ativo={ordem === 'maior'} onClick={() => setOrdem('maior')}>Maior %</Chip>
-            <Chip ativo={ordem === 'divida'} onClick={() => setOrdem('divida')}>Dívida</Chip>
-            <Chip ativo={ordem === 'clientes'} onClick={() => setOrdem('clientes')}>Clientes</Chip>
-          </div>
-          <ul className="overflow-y-auto max-h-[620px]">
-            {bairrosOrdenados.map((b, i) => (
-              <li key={`${b.cidade}-${b.bairro}`} className="px-4 py-3 border-b border-[var(--border-faint)] last:border-b-0">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="flex items-center gap-2 min-w-0">
-                    <span className="font-mono text-[11px] text-[var(--text-faint)] tabular-nums">
-                      {String(i + 1).padStart(2, '0')}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-[13.5px] font-medium text-[var(--text)] truncate">{b.bairro}</span>
-                      <span className="block text-[11px] text-[var(--text-muted)] truncate">{b.cidade}</span>
-                    </span>
-                  </span>
-                  <span className={`font-mono text-[11px] tabular-nums px-2 py-0.5 rounded flex-none ${
-                    b.pctInadimplencia >= 18 ? "bg-[var(--danger-bg)] text-[var(--danger)]"
-                    : b.pctInadimplencia >= 8 ? "bg-[var(--gated-bg)] text-[var(--gated)]"
-                    : "bg-[var(--ok-bg)] text-[var(--ok)]"
-                  }`}>
-                    {b.pctInadimplencia.toFixed(1)}%
-                  </span>
-                </div>
-                <p className="mt-1 font-mono text-[11px] text-[var(--text-muted)] tabular-nums">
-                  {brl(b.dividaTotal)} · {b.clientes} clientes · {b.inadimplentes} inad. · {b.exComDivida} ex
-                </p>
-              </li>
-            ))}
-          </ul>
-        </div>
+        {isLoading
+          ? <Skeleton className="h-[560px] w-full" />
+          : (
+            <RankingBairros
+              bairros={bairros}
+              selecionado={bairroSel}
+              onSelect={setBairroSel}
+              ordem={ordem}
+              onOrdem={setOrdem}
+            />
+          )}
       </div>
+
+      {/* ── Raio-X do bairro ── */}
+      {!isLoading && (
+        <RaioXBairro
+          bairros={bairros}
+          selecionado={bairroSel}
+          onSelect={setBairroSel}
+          cidade={fCidade}
+        />
+      )}
+
+      {modo === 'regionalizacao' && semCliente.length > 0 && (
+        <p className="text-[12px] text-[var(--text-muted)]">
+          {num(semCliente.length)} cidades atendidas ainda sem cliente.
+        </p>
+      )}
     </div>
   );
 }
