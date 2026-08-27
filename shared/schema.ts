@@ -129,6 +129,18 @@ export const erpIntegrations = pgTable("erp_integrations", {
   apiUrl: text("api_url"),
   apiToken: text("api_token"),
   apiUser: text("api_user"),
+  // Credenciais que 4 dos 6 conectores exigem e que ate aqui nao tinham onde
+  // morar. O codigo inteiro ja as lia — buildConnectorConfig, SENSITIVE_FIELDS,
+  // o Zod da rota, o handleSave da tela — mas a tabela nao as declarava, entao o
+  // Drizzle montava `set "api_token" = $1` e descartava o resto sem erro: a tela
+  // aceitava a contra-senha do MK, dizia "salvo", e o valor sumia.
+  // mkContraSenha e clientSecret entram criptografados (ver SENSITIVE_FIELDS em
+  // server/storage/erp.storage.ts); clientId e identificador, nao segredo.
+  mkContraSenha: text("mk_contra_senha"),
+  clientId: text("client_id"),
+  clientSecret: text("client_secret"),
+  // Extras nao-secretos por ERP: sgpApp (SGP), voalleClientId (Voalle).
+  extraConfig: jsonb("extra_config"),
   syncIntervalHours: integer("sync_interval_hours").notNull().default(24),
   createdAt: timestamp("created_at").defaultNow(),
 });

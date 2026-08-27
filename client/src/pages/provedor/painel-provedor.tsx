@@ -1560,8 +1560,13 @@ export default function PainelProvedorPage() {
                         if (key === "apiUrl") return record?.apiUrl ?? "";
                         if (key === "apiToken") return record?.apiToken ?? "";
                         if (key === "apiUser") return record?.apiUser ?? "";
+                        if (key === "mkContraSenha") return record?.mkContraSenha ?? "";
                         if (key === "extra.clientId") return record?.clientId ?? "";
                         if (key === "extra.clientSecret") return record?.clientSecret ?? "";
+                        // Espelha o handleSave: o que ele grava em extraConfig, este
+                        // le de volta. Sem isto, reabrir a integracao mostrava o
+                        // campo vazio e um Salvar seguido apagava o valor salvo.
+                        if (key.startsWith("extra.")) return record?.extraConfig?.[key.slice(6)] ?? "";
                         return "";
                       };
 
@@ -1577,14 +1582,25 @@ export default function PainelProvedorPage() {
 
                       const handleSave = () => {
                         const body: Record<string, any> = {};
+                        const extra: Record<string, string> = {};
                         connector.configFields.forEach(f => {
                           const val = erpFormData[f.key] ?? "";
                           if (f.key === "apiUrl") body.apiUrl = val;
                           else if (f.key === "apiToken") body.apiToken = val;
                           else if (f.key === "apiUser") body.apiUser = val;
+                          else if (f.key === "mkContraSenha") body.mkContraSenha = val;
                           else if (f.key === "extra.clientId") body.clientId = val;
                           else if (f.key === "extra.clientSecret") body.clientSecret = val;
+                          // Qualquer outro "extra.*" declarado pelo conector vai
+                          // inteiro no extraConfig. Antes esta cadeia de ifs era a
+                          // lista fechada do que sobrevivia ao Salvar: o campo era
+                          // renderizado, o operador digitava, e o que nao estivesse
+                          // aqui era descartado antes de virar requisicao. Era o
+                          // caso da contra-senha do MK e do nome do app do SGP —
+                          // os dois obrigatorios, os dois perdidos em silencio.
+                          else if (f.key.startsWith("extra.")) extra[f.key.slice(6)] = val;
                         });
+                        if (Object.keys(extra).length > 0) body.extraConfig = extra;
                         saveErpConfigMutation.mutate({ source: connector.name, data: body });
                       };
 
