@@ -1,6 +1,6 @@
 import type { RealtimeQueryResult } from "./realtime-query.service";
 import { saltDeRede } from "../utils/address-hash";
-import { agruparPorEndereco, hashEndereco } from "./endereco-chave";
+import { agruparPorEndereco, hashEndereco, chaveDeEndereco, mesmoEndereco, type ChaveEndereco } from "./endereco-chave";
 import { maskCrossProviderDetail } from "./lgpd-masking";
 
 export interface AddressRiskScore {
@@ -109,6 +109,18 @@ export function groupCustomersByAddress(
   return groups;
 }
 
+
+/** Reconstroi a chave de endereco a partir de um grupo ja montado. */
+function chaveDoGrupo(g: AddressGroupEntry): ChaveEndereco | null {
+  return chaveDeEndereco({
+    address: g.logradouro,
+    addressNumber: g.numero,
+    neighborhood: g.bairro,
+    city: g.cidade,
+    cep: g.cep,
+  });
+}
+
 export function calculateAddressRisk(
   groups: Map<string, AddressGroupEntry>,
 ): AddressRiskScore {
@@ -155,12 +167,33 @@ export function calculateAddressRisk(
   };
 }
 
+/**
+ * @param alvo Endereço consultado. Quando informado, o risco é calculado SÓ
+ *   sobre o imóvel dele.
+ *
+ *   Isto não é detalhe. A busca no ERP é por LOGRADOURO — precisa ser, porque
+ *   filtrar por número no servidor perde metade dos vizinhos —, então volta a
+ *   rua inteira. Sem recortar, o risco somava os inadimplentes de toda a rua e
+ *   anunciava "3 CPFs com inadimplência NESTE ENDEREÇO". Medido em produção em
+ *   27/08/2026 consultando a Rua Mato Grosso, 1435: os três devedores estavam
+ *   nos números 590 e vizinhos, e o 1435 saía como "endereço de alto risco".
+ *   Alarme falso numa decisão de crédito é tão caro quanto o alarme que falta.
+ */
 export function buildAddressSearchResult(
   cep: string,
   erpResults: RealtimeQueryResult[],
   consultingProviderId: number,
+  alvo?: ChaveEndereco,
 ): AddressSearchResult {
-  const groups = groupCustomersByAddress(erpResults, consultingProviderId);
+  const todos = groupCustomersByAddress(erpResults, consultingProviderId);
+
+  // Só o imóvel consultado entra no risco. Os demais da rua continuam na
+  // resposta como contexto, mas não pontuam.
+  const groups = alvo
+    ? new Map(Array.from(todos.entries()).filter(([, g]) =>
+        chaveDoGrupo(g) !== null && mesmoEndereco(chaveDoGrupo(g)!, alvo)))
+    : todos;
+
   const risk = calculateAddressRisk(groups);
 
   const addressGroups: AddressGroupEntry[] = [];

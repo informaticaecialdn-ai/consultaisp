@@ -409,7 +409,7 @@ export function registerConsultasRoutes(): Router {
               addressUsed = chave
                 ? `${chave.logradouro}, ${chave.numero}${chave.bairro ? ` — ${chave.bairro}` : ""}`
                 : cepCandidato;
-              addressSearchResult = buildAddressSearchResult(addressUsed, cruzamento, providerId);
+              addressSearchResult = buildAddressSearchResult(addressUsed, cruzamento, providerId, chave ?? undefined);
               autoAddressCrossRef = true;
             } catch (err) {
               logger.warn({ err }, "CONSULTA auto address search error (non-blocking)");

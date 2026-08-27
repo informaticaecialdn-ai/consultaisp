@@ -63,9 +63,17 @@ export function chaveDeEndereco(e: EnderecoBruto): ChaveEndereco | null {
   };
 }
 
-/** A parte que define o imóvel. O bairro fica de fora — ver `mesmoEndereco`. */
+/**
+ * A parte que define o imóvel: logradouro, número e cidade.
+ *
+ * Bairro e UF ficam de fora — os dois são frequentemente ausentes no cadastro, e
+ * só servem para DESEMPATAR quando ambos os lados os declaram (ver
+ * `mesmoEndereco`). Pô-los aqui separaria "Rua X, 100, Londrina" de
+ * "Rua X, 100, Londrina/PR" só porque um dos cadastros não preencheu o estado —
+ * exatamente o falso negativo que esconde uma pendência.
+ */
 function raiz(k: ChaveEndereco): string {
-  return `${k.logradouro}|${k.numero}|${k.cidade}|${k.uf}`;
+  return `${k.logradouro}|${k.numero}|${k.cidade}`;
 }
 
 /**
@@ -82,6 +90,9 @@ function raiz(k: ChaveEndereco): string {
 export function mesmoEndereco(a: ChaveEndereco, b: ChaveEndereco): boolean {
   if (raiz(a) !== raiz(b)) return false;
   if (a.bairro && b.bairro && a.bairro !== b.bairro) return false;
+  // UF segue a mesma regra do bairro: separa quando os dois declaram e
+  // discordam, nunca por ausência.
+  if (a.uf && b.uf && a.uf !== b.uf) return false;
   return true;
 }
 

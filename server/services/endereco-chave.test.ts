@@ -139,3 +139,26 @@ describe("hashEndereco", () => {
     expect(hashEndereco(a, "sal1")).not.toBe(hashEndereco(a, "sal2"));
   });
 });
+
+describe("UF segue a regra do bairro", () => {
+  const base = { address: "Rua Mato Grosso", addressNumber: "1435", neighborhood: "Centro", city: "Londrina" };
+
+  it("UF ausente de um lado NAO separa", () => {
+    const comUf = chaveDeEndereco({ ...base, state: "PR" })!;
+    const semUf = chaveDeEndereco(base)!;
+    expect(mesmoEndereco(comUf, semUf)).toBe(true);
+    expect(mesmoEndereco(semUf, comUf)).toBe(true);
+  });
+
+  it("UF declarada e DIFERENTE separa", () => {
+    const pr = chaveDeEndereco({ ...base, state: "PR" })!;
+    const sp = chaveDeEndereco({ ...base, state: "SP" })!;
+    expect(mesmoEndereco(pr, sp)).toBe(false);
+  });
+
+  it("o hash reflete a mesma regra: com e sem UF batem", () => {
+    const comUf = chaveDeEndereco({ ...base, state: "PR" })!;
+    const semUf = chaveDeEndereco(base)!;
+    expect(hashEndereco(comUf, "sal")).toBe(hashEndereco(semUf, "sal"));
+  });
+});

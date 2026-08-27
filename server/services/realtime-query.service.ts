@@ -225,7 +225,10 @@ async function querySingleErp(
 }
 
 function normalizeCustomer(c: any): RealtimeQueryResult["customers"][0] {
-  console.log(`[RT] normalizeCustomer: name=${c.name}, maxDaysOverdue=${c.maxDaysOverdue}, totalOverdueAmount=${c.totalOverdueAmount}, overdueInvoicesCount=${c.overdueInvoicesCount}`);
+  // Sem log por cliente aqui. Esta linha imprimia NOME e divida de cada pessoa
+  // devolvida pelo ERP — no cruzamento de endereco, uma consulta enchia o log de
+  // dados pessoais de vizinhos que nem foram consultados. Log de diagnostico
+  // agregado fica em queryRegionalErps/queryRegionalErpsByAddress.
   return {
     cpfCnpj: c.cpfCnpj || "",
     name: c.name || "",
