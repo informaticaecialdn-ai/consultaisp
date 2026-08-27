@@ -136,6 +136,48 @@ type Desfecho = "plotado" | "sem-endereco" | "indisponivel";
 
 const limpar = (v: string | null | undefined) => (v || "").trim();
 
+/**
+ * Clientes que precisam ser desempilhados de uma coordenada repetida.
+ *
+ * Coordenada IDÊNTICA em muitos clientes é, por construção, um ponto de
+ * fallback: centroide de bairro ou centro de cidade gravado quando o endereço
+ * não resolveu. GPS de instalação nunca repete casa a casa. É esse rastro que
+ * permite achar e consertar a "bola" de pontos empilhados sem precisar de uma
+ * coluna que diga de onde veio cada coordenada.
+ *
+ * O piso é alto de propósito: um prédio pode ter vários clientes no mesmo
+ * ponto, e ninguém quer espalhar um condomínio pelo bairro por engano.
+ */
+const MIN_PARA_DESEMPILHAR = 12;
+
+async function buscarEmpilhados(providerId: number | null, limite: number) {
+  const filtro = providerId === null ? "" : "AND provider_id = $2";
+  const params: any[] = [MIN_PARA_DESEMPILHAR];
+  if (providerId !== null) params.push(providerId);
+
+  const { rows } = await pool.query<{ id: number; address: string | null; address_number: string | null; neighborhood: string | null; city: string | null; state: string | null; cep: string | null }>(
+    `WITH pilhas AS (
+       SELECT latitude, longitude, provider_id
+         FROM customers
+        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+          AND NOT (latitude = 0 AND longitude = 0)
+          ${filtro}
+        GROUP BY latitude, longitude, provider_id
+       HAVING count(*) >= $1
+     )
+     SELECT c.id, c.address, c.address_number, c.neighborhood, c.city, c.state, c.cep
+       FROM customers c
+       JOIN pilhas p ON p.latitude = c.latitude AND p.longitude = c.longitude
+                    AND p.provider_id = c.provider_id
+      LIMIT ${limite}`,
+    params,
+  );
+  return rows.map(r => ({
+    id: r.id, address: r.address, addressNumber: r.address_number,
+    neighborhood: r.neighborhood, city: r.city, state: r.state, cep: r.cep,
+  }));
+}
+
 /** Resolve e grava a coordenada de um cliente. Não decide nada sobre a
  *  varredura — quem lê o desfecho é o laço. */
 async function plotarCliente(
@@ -337,6 +379,32 @@ export async function runGeocodeBackfill(providerIdPrioritario?: number): Promis
       );
     } catch (err) {
       logger.warn({ err }, "Geocode backfill: base local de endereços indisponível — seguindo pela rede");
+    }
+
+    // FASE C — desempilhar. Coordenada repetida em muitos clientes é o
+    // centroide que uma versão anterior gravou; espalhar sobre endereços reais
+    // do mesmo bairro conserta a "bola" sem perder precisão nenhuma, porque
+    // centroide e endereço do bairro dizem exatamente a mesma coisa.
+    if (local) {
+      try {
+        const empilhados = await buscarEmpilhados(providerIdPrioritario ?? null, 20_000);
+        let desempilhados = 0;
+        for (const c of empilhados) {
+          const acerto = local.resolver(c);
+          // Só reescreve quando a base local dá um ponto DIFERENTE — resolver
+          // no mesmo centroide seria trocar seis por meia dúzia.
+          if (!acerto) continue;
+          await db.update(customers)
+            .set({ latitude: String(acerto.lat), longitude: String(acerto.lon) })
+            .where(eq(customers.id, c.id));
+          desempilhados++;
+        }
+        if (desempilhados > 0) {
+          logger.info({ desempilhados, piso: MIN_PARA_DESEMPILHAR }, "Geocode backfill: coordenadas empilhadas espalhadas");
+        }
+      } catch (err) {
+        logger.warn({ err }, "Geocode backfill: desempilhamento falhou — segue para a fila de pendentes");
+      }
     }
 
     // Quem clicou "Plotar agora" quer ver a PRÓPRIA carteira no mapa. A
