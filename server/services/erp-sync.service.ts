@@ -27,6 +27,12 @@ export async function syncProviderToDb(
     apiUser?: string | null;
     clientId?: string | null;
     clientSecret?: string | null;
+    // Sem este campo, o sync do MK dependia do conector cair em `apiUser`
+    // (server/erp/connectors/mk.ts:82). Funcionava enquanto a contra-senha
+    // morava la; depois da migracao 0006 ela tem coluna propria, e omitir aqui
+    // faria "Testar Conexao" usar a contra-senha nova e "Sincronizar Agora"
+    // usar a velha — duas telas discordando sobre a mesma credencial.
+    mkContraSenha?: string | null;
     extraConfig?: Record<string, string> | null;
   },
   syncType: "auto" | "manual" = "auto",
@@ -338,6 +344,7 @@ export async function syncAllProviders(): Promise<void> {
             apiUrl: intg.apiUrl,
             apiToken: intg.apiToken,
             apiUser: intg.apiUser,
+            mkContraSenha: (intg as any).mkContraSenha ?? null,
             clientId: intg.clientId,
             clientSecret: intg.clientSecret,
             extraConfig: intg.extraConfig as Record<string, string> | null,

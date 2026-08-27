@@ -27,7 +27,12 @@ async function anonymizeOldConsultations(): Promise<number> {
     .set({
       cpfCnpj: "ANONIMIZADO",
       cpfCnpjHash: null,
-      result: sql`jsonb_build_object('anonimizado', true, 'score', ${ispConsultations.score}, 'decisionReco', ${ispConsultations.decisionReco}, 'retentionDate', ${new Date().toISOString()})`,
+      // O `::text` nao e enfeite. `jsonb_build_object` e VARIADIC "any": o
+      // Postgres nao tem como inferir o tipo de um parametro nessa posicao e
+      // recusa a query inteira com 42P18 "could not determine data type of
+      // parameter $3". A anonimizacao por retencao falhava TODA execucao, e o
+      // unico sinal era uma linha de erro no log do worker.
+      result: sql`jsonb_build_object('anonimizado', true, 'score', ${ispConsultations.score}, 'decisionReco', ${ispConsultations.decisionReco}, 'retentionDate', ${new Date().toISOString()}::text)`,
     })
     .where(sql`${ispConsultations.createdAt} < ${cutoffDate} AND ${ispConsultations.cpfCnpj} != 'ANONIMIZADO'`)
     .returning({ id: ispConsultations.id });
@@ -36,7 +41,7 @@ async function anonymizeOldConsultations(): Promise<number> {
   const spcResult = await db.update(spcConsultations)
     .set({
       cpfCnpj: "ANONIMIZADO",
-      result: sql`jsonb_build_object('anonimizado', true, 'retentionDate', ${new Date().toISOString()})`,
+      result: sql`jsonb_build_object('anonimizado', true, 'retentionDate', ${new Date().toISOString()}::text)`,
     })
     .where(sql`${spcConsultations.createdAt} < ${cutoffDate} AND ${spcConsultations.cpfCnpj} != 'ANONIMIZADO'`)
     .returning({ id: spcConsultations.id });

@@ -37,6 +37,10 @@ export async function refreshProviderCache(
     apiUrl: string | null;
     apiToken: string | null;
     apiUser?: string | null;
+    // O MK exige a contra-senha do webservice; sem ela aqui, o mapa de calor
+    // dependia do conector cair em `apiUser` e divergiria do sync depois da
+    // migracao 0006, que deu coluna propria ao valor.
+    mkContraSenha?: string | null;
     clientId?: string | null;
     clientSecret?: string | null;
     extraConfig?: Record<string, string> | null;
@@ -210,6 +214,7 @@ export async function refreshAllProviders(): Promise<void> {
           apiUrl: intg.apiUrl,
           apiToken: intg.apiToken,
           apiUser: intg.apiUser,
+          mkContraSenha: (intg as any).mkContraSenha ?? null,
           clientId: intg.clientId,
           clientSecret: intg.clientSecret,
           extraConfig: intg.extraConfig as Record<string, string> | null,
@@ -237,6 +242,7 @@ export async function refreshProviderIfStale(providerId: number): Promise<void> 
       apiUrl: intg.apiUrl,
       apiToken: intg.apiToken,
       apiUser: intg.apiUser,
+      mkContraSenha: (intg as any).mkContraSenha ?? null,
       clientId: intg.clientId,
       clientSecret: intg.clientSecret,
       extraConfig: intg.extraConfig as Record<string, string> | null,

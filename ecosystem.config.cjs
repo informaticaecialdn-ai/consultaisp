@@ -26,6 +26,9 @@ module.exports = {
       script: "dist/index.cjs",
       exec_mode: "fork",
       max_memory_restart: "512M",
+      // pm2 manda SIGKILL 1600ms depois do SIGTERM por padrao — curto demais
+      // para qualquer encerramento ordenado.
+      kill_timeout: 35000,
       env: { ...env, NODE_ENV: "production" },
       error_file: "/root/.pm2/logs/consulta-isp-error.log",
       out_file: "/root/.pm2/logs/consulta-isp-out.log",
@@ -37,6 +40,12 @@ module.exports = {
       script: "dist/worker.cjs",
       exec_mode: "fork",
       max_memory_restart: "1G",
+      // O worker drena o sync em voo por ate 30s antes de fechar o pool
+      // (server/worker.ts). Sem esta linha o pm2 manda SIGKILL 1600ms depois do
+      // SIGTERM e o dreno NUNCA transcorre: pool.end() nem chega a ser chamado
+      // e as escritas em voo somem. Era o que produzia "Cannot use a pool after
+      // calling end on the pool" no log — e o proprio dreno seria inerte.
+      kill_timeout: 35000,
       // Restart com delay pra nao martelar ERPs em caso de crash loop
       restart_delay: 10000,
       min_uptime: "60s",
