@@ -11,6 +11,7 @@
 import "dotenv/config";
 import { pool } from "../server/db";
 import { abrirGeocodificadorLocal } from "../server/services/geocode-local.service";
+import { chaveLogradouro } from "../server/services/logradouro";
 
 const OK = "  [ok] ";
 const AVISO = "  [!]  ";
@@ -67,36 +68,42 @@ async function coordenadas() {
   else if (c.sem === c.sem_endereco) console.log(AVISO + `Os ${n(c.sem)} sem coordenada também não têm cidade nem CEP — só o ERP resolve.`);
   else console.log(ERRO + `${n(c.sem - c.sem_endereco)} clientes TÊM endereço e mesmo assim não foram plotados.`);
 
-  // Só é pilha quando o mesmo ponto reúne endereços DIFERENTES. Vários clientes
-  // no mesmo endereço é um prédio, e a coordenada repetida está certa.
-  const { rows: pilhas } = await pool.query(
-    `SELECT latitude::text lat, longitude::text lon, provider_id, count(*)::int n,
-            count(DISTINCT nullif(upper(btrim(coalesce(address,''))),''))::int enderecos
-       FROM customers
-      WHERE latitude IS NOT NULL AND longitude IS NOT NULL
-        AND NOT (latitude = 0 AND longitude = 0)
-      GROUP BY 1,2,3
-     HAVING count(*) >= 12
-        AND count(DISTINCT nullif(upper(btrim(coalesce(address,''))),'')) > 1 OR count(DISTINCT nullif(upper(btrim(coalesce(address,''))),'')) = 0
-      ORDER BY n DESC LIMIT 5`);
-  const { rows: [predios] } = await pool.query(
-    `SELECT count(*)::int q FROM (
-       SELECT 1 FROM customers
-        WHERE latitude IS NOT NULL AND NOT (latitude = 0 AND longitude = 0)
-        GROUP BY latitude, longitude, provider_id
-       HAVING count(*) >= 12
-          AND count(DISTINCT nullif(upper(btrim(coalesce(address,''))),'')) = 1
-     ) x`);
+  // Pilha suspeita é decidida com a MESMA régua do geocodificador: o SQL
+  // compararia texto cru e faria "Av. Tiradentes" e "Avenida Tiradentes"
+  // parecerem duas ruas, transformando uma avenida em defeito.
+  const { rows: agrupados } = await pool.query<{ grupo: string; address: string | null; n: number }>(
+    `SELECT c.latitude::text || '|' || c.longitude::text || '|' || c.provider_id AS grupo,
+            c.address, count(*)::int n
+       FROM customers c
+       JOIN (SELECT latitude, longitude, provider_id
+               FROM customers
+              WHERE latitude IS NOT NULL AND NOT (latitude = 0 AND longitude = 0)
+              GROUP BY 1,2,3 HAVING count(*) >= 12) p
+         ON p.latitude = c.latitude AND p.longitude = c.longitude AND p.provider_id = c.provider_id
+      GROUP BY 1,2`);
 
-  if (pilhas.length === 0) {
+  const porGrupo = new Map<string, { ruas: Set<string>; total: number }>();
+  for (const r of agrupados) {
+    const g = porGrupo.get(r.grupo) ?? { ruas: new Set<string>(), total: 0 };
+    const rua = chaveLogradouro(r.address);
+    if (rua) g.ruas.add(rua);
+    g.total += r.n;
+    porGrupo.set(r.grupo, g);
+  }
+  const suspeitas = Array.from(porGrupo.values())
+    .filter(g => g.ruas.size > 1 || g.ruas.size === 0)
+    .sort((a, b) => b.total - a.total);
+  const legitimos = porGrupo.size - suspeitas.length;
+
+  if (suspeitas.length === 0) {
     console.log(OK + "Nenhuma pilha de coordenada repetida.");
   } else {
-    const soma = pilhas.reduce((s, p) => s + p.n, 0);
-    console.log(ERRO + `${pilhas.length} pilha(s) com endereços DIFERENTES no mesmo ponto — a maior com ${n(pilhas[0].n)} clientes (${n(soma)} nas 5 maiores).`);
+    const soma = suspeitas.slice(0, 5).reduce((s, g) => s + g.total, 0);
+    console.log(ERRO + `${suspeitas.length} pilha(s) com logradouros DIFERENTES no mesmo ponto — a maior com ${n(suspeitas[0].total)} clientes (${n(soma)} nas 5 maiores).`);
     console.log("       É a 'bola' no mapa. O botão Plotar agora desempilha.");
   }
-  if (predios.q > 0) {
-    console.log(OK + `${n(predios.q)} ponto(s) com 12+ clientes no MESMO endereço — prédio, não defeito.`);
+  if (legitimos > 0) {
+    console.log(OK + `${n(legitimos)} ponto(s) com 12+ clientes no MESMO logradouro — prédio ou mesma rua, não defeito.`);
   }
   return c;
 }

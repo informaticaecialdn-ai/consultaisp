@@ -44,6 +44,7 @@ import {
 } from "./geocoding";
 import { puxarCoordenadasDoErp } from "./coords-erp.service";
 import { abrirGeocodificadorLocal, type GeocodificadorLocal } from "./geocode-local.service";
+import { chaveLogradouro } from "./logradouro";
 import { logger } from "../logger";
 
 const LOTE = 200;
@@ -153,27 +154,31 @@ const limpar = (v: string | null | undefined) => (v || "").trim();
 const MIN_PARA_DESEMPILHAR = 12;
 
 /**
- * Predicado da pilha suspeita.
+ * Decide se um ponto com muitos clientes é fallback ou dado correto.
  *
- * Compara LOGRADOURO, não o endereço completo: no mesmo prédio parte do
- * cadastro tem o número e parte não, e comparar "Rua X|1055" com "Rua X|"
- * fazia um prédio parecer duas casas distintas — foi o que continuou alarmando
- * depois da primeira correção.
+ * O SQL não serve para esta pergunta, e isso custou duas correções para
+ * aparecer: comparando o texto cru, "Avenida Tiradentes", "Av. Tiradentes" e
+ * "avenida Tiradentes" contam como três ruas, e uma avenida vira uma pilha
+ * falsa. A régua tem que ser a MESMA que o geocodificador usa para decidir a
+ * coordenada — se ele considera o mesmo logradouro, a coordenada repetida está
+ * certa e não há o que desempilhar.
  *
- * Duas ruas diferentes no mesmo ponto é fallback. Todo mundo sem rua nenhuma
- * também: a coordenada não veio de endereço nenhum.
+ * Sobra suspeito o que é de fato suspeito: logradouros diferentes de verdade no
+ * mesmo ponto, ou ninguém com logradouro nenhum.
  */
-const PILHA_SUSPEITA_SQL = `(
-  count(DISTINCT nullif(upper(btrim(coalesce(address, ''))), '')) > 1
-  OR count(DISTINCT nullif(upper(btrim(coalesce(address, ''))), '')) = 0
-)`;
+export function pilhaSuspeita(clientes: Array<{ address?: string | null }>): boolean {
+  const ruas = new Set(
+    clientes.map(c => chaveLogradouro(c.address)).filter(Boolean),
+  );
+  return ruas.size > 1 || ruas.size === 0;
+}
 
 async function buscarEmpilhados(providerId: number | null, limite: number) {
   const filtro = providerId === null ? "" : "AND provider_id = $2";
   const params: any[] = [MIN_PARA_DESEMPILHAR];
   if (providerId !== null) params.push(providerId);
 
-  const { rows } = await pool.query<{ id: number; address: string | null; address_number: string | null; neighborhood: string | null; city: string | null; state: string | null; cep: string | null }>(
+  const { rows } = await pool.query<{ id: number; address: string | null; address_number: string | null; neighborhood: string | null; city: string | null; state: string | null; cep: string | null; grupo: string }>(
     `WITH pilhas AS (
        SELECT latitude, longitude, provider_id
          FROM customers
@@ -182,19 +187,29 @@ async function buscarEmpilhados(providerId: number | null, limite: number) {
           ${filtro}
         GROUP BY latitude, longitude, provider_id
        HAVING count(*) >= $1
-          AND ${PILHA_SUSPEITA_SQL}
      )
-     SELECT c.id, c.address, c.address_number, c.neighborhood, c.city, c.state, c.cep
+     SELECT c.id, c.address, c.address_number, c.neighborhood, c.city, c.state, c.cep,
+            c.latitude::text || '|' || c.longitude::text || '|' || c.provider_id AS grupo
        FROM customers c
        JOIN pilhas p ON p.latitude = c.latitude AND p.longitude = c.longitude
                     AND p.provider_id = c.provider_id
       LIMIT ${limite}`,
     params,
   );
-  return rows.map(r => ({
-    id: r.id, address: r.address, addressNumber: r.address_number,
-    neighborhood: r.neighborhood, city: r.city, state: r.state, cep: r.cep,
-  }));
+
+  const porGrupo = new Map<string, typeof rows>();
+  for (const r of rows) {
+    const g = porGrupo.get(r.grupo);
+    if (g) g.push(r); else porGrupo.set(r.grupo, [r]);
+  }
+
+  return Array.from(porGrupo.values())
+    .filter(pilhaSuspeita)
+    .flat()
+    .map(r => ({
+      id: r.id, address: r.address, addressNumber: r.address_number,
+      neighborhood: r.neighborhood, city: r.city, state: r.state, cep: r.cep,
+    }));
 }
 
 /** Resolve e grava a coordenada de um cliente. Não decide nada sobre a
