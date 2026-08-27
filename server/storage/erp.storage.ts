@@ -87,12 +87,41 @@ export class ErpStorage {
     return saida;
   }
 
+  /**
+   * Campo de segredo em branco significa "nao mexe", nunca "apaga".
+   *
+   * A tela renderiza os segredos em campo `type=password`. Quando um deles chega
+   * vazio — porque o valor estava guardado sob outro nome, porque o navegador
+   * nao preencheu, ou porque o operador so queria trocar o campo ao lado — o
+   * Salvar mandava string vazia e zerava a credencial que estava funcionando.
+   * O estrago aparece so no proximo sync, horas depois, como falha de
+   * autenticacao sem causa aparente.
+   *
+   * Para limpar uma credencial de proposito, desabilite a integracao.
+   */
+  private preservarSegredosVazios(
+    data: Partial<ErpIntegration>,
+    atual: ErpIntegration,
+  ): Partial<ErpIntegration> {
+    const saida = { ...data };
+    for (const campo of SENSITIVE_FIELDS) {
+      const novo = (saida as any)[campo];
+      const tinha = (atual as any)[campo];
+      if (campo in saida && (novo === "" || novo === null) && tinha) {
+        delete (saida as any)[campo];
+      }
+    }
+    return saida;
+  }
+
   async upsertErpIntegration(providerId: number, erpSource: string, data: Partial<ErpIntegration>): Promise<ErpIntegration> {
-    const encrypted = encryptSensitiveFields(data);
     const existing = await db.select().from(erpIntegrations)
       .where(and(eq(erpIntegrations.providerId, providerId), eq(erpIntegrations.erpSource, erpSource)))
       .limit(1);
     if (existing.length > 0) {
+      const encrypted = encryptSensitiveFields(
+        this.preservarSegredosVazios(data, existing[0]),
+      );
       const [updated] = await db.update(erpIntegrations)
         .set(encrypted as any)
         .where(and(eq(erpIntegrations.providerId, providerId), eq(erpIntegrations.erpSource, erpSource)))
@@ -100,7 +129,7 @@ export class ErpStorage {
       return decryptIntegration(updated);
     }
     const [created] = await db.insert(erpIntegrations)
-      .values({ providerId, erpSource, ...encrypted } as any)
+      .values({ providerId, erpSource, ...encryptSensitiveFields(data) } as any)
       .returning();
     return decryptIntegration(created);
   }
