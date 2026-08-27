@@ -69,6 +69,38 @@ export const DATASETS = [
   // Estabilidade de renda e perfil. Renda em faixa diz QUANTO a pessoa ganha;
   // rotatividade diz se ela vai continuar ganhando nos 12 meses do contrato.
   "professional_turnover", "demographic_data",
+
+  // ── Medidos contra a conta em 27/08/2026: os quatro respondem com dado. ──
+  //
+  // `security_data` e o unico que responde a pergunta que so um ISP faz: qual a
+  // chance de o EQUIPAMENTO sumir. Devolve HousingSecurityScore e, por endereco,
+  // RobberyRisk / ViolenceRisk / NarcotrafficRisk / CarTheftRisk. Nenhum dado de
+  // credito cobre isso — uma pessoa que paga em dia num lugar onde o roubo e
+  // alto ainda e um comodato em risco.
+  "security_data",
+  // `related_people` traz TotalHousehold e TotalNeighbors: quantas pessoas vivem
+  // com o titular. E a fraude classica do setor — o parente que reinstala no
+  // mesmo imovel depois do calote, com outro CPF.
+  "related_people",
+  // `family_financial_risk` da o score da CASA, nao da pessoa, com a
+  // distribuicao A-H dos membros. Titular B numa casa com dois E le diferente.
+  "family_financial_risk",
+  // `registration_data` consolida identidade, endereco, telefone e email
+  // (principal E secundario) num bloco so, com NameUniquenessScore,
+  // TaxIdStatus e PhoneNumberOfEntities — quantas pessoas usam aquele telefone,
+  // que e sinal de linha compartilhada ou de cadastro montado.
+  "registration_data",
+  // `family_financial_data` responde a pergunta que o provedor de fato faz:
+  // sobra dinheiro para a mensalidade? Devolve MonthlyFreeBudgetRange (o que
+  // sobra depois das despesas), MonthlyExpenseRange, DependentsNumber,
+  // IsHouseholder e MainIncomeSource. Renda bruta diz quanto entra; isto diz
+  // quanto resta — e e o que decide um plano de R$ 100.
+  "family_financial_data",
+  // `family_social_assistance` completa `social_assistance_extended`: o
+  // individual so diz SE recebe beneficio, este diz QUANTO da renda da casa vem
+  // dele (AssistanceIncomePercentageRange). Renda 100% de beneficio e uma
+  // capacidade de pagamento diferente de renda 10%.
+  "family_social_assistance",
 ] as const;
 
 /**
@@ -578,6 +610,130 @@ const GRANULARIDADE = ["CENSUS SECTOR", "NEIGHBORHOOD", "CITY", "STATE", "COUNTR
  * Os valores vem com codigo na frente ("2 - 2 A 4 SM", "05 - FUND COMPL"), que
  * e ruido de catalogo e nao entra na tela.
  */
+/**
+ * Domicilio a partir de `related_people`.
+ *
+ * @param revelarNomes libera a lista nominal. Chame com `true` SOMENTE quando
+ *   houver ocorrencia entre os relacionados — hoje isso vem de
+ *   `family_financial_risk.MembersCurrentlyOnCollection > 0`, que e a leitura
+ *   honesta de "ocorrencia no endereco" com o dado que a API entrega. Sem
+ *   ocorrencia, nome de terceiro nao muda decisao: so expoe alguem.
+ */
+function normalizarDomicilio(rel: any, revelarNomes: boolean): Domicilio {
+  const b = rel?.RelatedPeople ?? rel ?? {};
+  const lista: any[] = Array.isArray(b.PersonalRelationships) ? b.PersonalRelationships : [];
+  const n = (v: any) => Number(v) || 0;
+
+  return {
+    totalRelacionados: n(b.TotalRelationships),
+    noDomicilio: n(b.TotalHousehold),
+    vizinhos: n(b.TotalNeighbors),
+    parentes: n(b.TotalRelatives),
+    conjuges: n(b.TotalSpouses),
+    socios: n(b.TotalPartners),
+    colegasTrabalho: n(b.TotalCoworkers),
+    nomes: revelarNomes
+      ? lista
+          .filter(r => r?.RelatedEntityName)
+          .map(r => ({
+            nome: String(r.RelatedEntityName),
+            vinculo: String(r.RelationshipType ?? ""),
+            nivel: String(r.RelationshipLevel ?? ""),
+          }))
+      : [],
+    nomesLiberados: revelarNomes,
+  };
+}
+
+/**
+ * Capacidade de pagar, juntando os tres datasets que falam de dinheiro da casa.
+ *
+ * "SEM INFORMACAO" e "SEM CONTRIBUICAO" sao os literais que a BigData devolve
+ * quando nao apurou — viram `undefined` aqui, para a tela mostrar travessao em
+ * vez de repetir um rotulo que o operador leria como conclusao.
+ */
+function normalizarCapacidade(ffd: any, fsa: any, sae: any): Capacidade {
+  const f = ffd?.FamilyFinancialData ?? ffd ?? {};
+  const s = fsa?.FamilySocialAssistance ?? fsa ?? {};
+  const i = sae?.ExtendedSocialAssistancePrograms ?? sae ?? {};
+  const n = (v: any) => Number(v) || 0;
+  const txt = (v: any) => {
+    const t = String(v ?? "").trim();
+    return !t || /^SEM (INFORMACAO|CONTRIBUICAO)$/i.test(t) ? undefined : t;
+  };
+
+  return {
+    sobraMensal: txt(f.MonthlyFreeBudgetRange),
+    despesaMensal: txt(f.MonthlyExpenseRange),
+    rendaFamiliar: txt(f.TotalIncomeRange),
+    dependentes: n(f.DependentsNumber),
+    ehResponsavel: typeof f.IsHouseholder === "boolean" ? f.IsHouseholder : undefined,
+    ehDependente: typeof f.IsLikelyDependent === "boolean" ? f.IsLikelyDependent : undefined,
+    origemRenda: txt(f.MainIncomeSource),
+    // A do familiar tem prioridade: ela mede a casa, que e a unidade que paga.
+    percentualBeneficio: txt(s.AssistanceIncomePercentageRange) ?? txt(f.AssistanceIncomePercentageRange),
+    recebeBeneficio: !!i.IsReceivingAssistance,
+    beneficiosAtivos: n(i.TotalActiveAssistances),
+    beneficiariosNaFamilia: n(s.TotalCurrentBeneficiaries),
+  };
+}
+
+/** Risco da familia a partir de `family_financial_risk`. */
+function normalizarRiscoFamiliar(fam: any): RiscoFamiliar {
+  const b = fam?.FamilyFinancialRisk ?? fam ?? {};
+  const dist = b.FinancialRiskLevelDistribution ?? {};
+  const distribuicao: Record<string, number> = {};
+  for (const [faixa, qtd] of Object.entries(dist)) {
+    const q = Number(qtd) || 0;
+    if (q > 0) distribuicao[faixa] = q;
+  }
+  // A pior faixa PRESENTE, nao a media: uma casa A,A,E e uma casa com um E.
+  const ordem = ["H", "G", "F", "E", "D", "C", "B", "A"];
+  const piorFaixa = ordem.find(f => (distribuicao[f] ?? 0) > 0);
+
+  const n = (v: any) => Number(v) || 0;
+  return {
+    score: b.FamilyFinancialRiskScore != null ? n(b.FamilyFinancialRiskScore) : undefined,
+    nivel: b.FamilyFinancialRiskLevel || undefined,
+    membros: n(b.TotalMembers),
+    empregados: n(b.TotalCurrentlyEmployedMembers),
+    emCobranca: n(b.MembersCurrentlyOnCollection),
+    ocorrencias365d: n(b.Last365DaysTotalCollectionOccurrences),
+    distribuicao,
+    piorFaixa,
+  };
+}
+
+/**
+ * Seguranca do endereco a partir de `security_data`.
+ *
+ * Usa o endereco marcado como principal (`IsMainForEntity`); sem ele, o
+ * primeiro. Instalar e um ato num lugar so — media de varios enderecos
+ * diluiria justamente o que interessa.
+ */
+function normalizarSeguranca(sec: any): SegurancaEndereco | null {
+  const b = sec?.SecurityData ?? sec;
+  if (!b || typeof b !== "object") return null;
+  const lista: any[] = Array.isArray(b.Addresses) ? b.Addresses : [];
+  const a = lista.find(x => x?.IsMainForEntity) ?? lista[0] ?? {};
+  const n = (v: any) => (v == null ? undefined : Number(v) || 0);
+
+  return {
+    score: n(b.HousingSecurityScore),
+    nivel: b.HousingSecurityLevel || undefined,
+    cidade: a.City || undefined,
+    uf: a.State || undefined,
+    roubo: n(a.RobberyRisk),
+    violencia: n(a.ViolenceRisk),
+    narcotrafico: n(a.NarcotrafficRisk),
+    furtoVeiculo: n(a.CarTheftRisk),
+    ocorrenciasPorMes: n(a.AverageOccurrencesByMonth ?? b.AverageTotalOccurrencesByMonth),
+    crimes360d: n(a.Last360DaysCrimes ?? b.TotalLast360DaysCrimes),
+    totalEnderecos: Number(b.TotalAddresses) || 0,
+    totalCidades: Number(b.TotalDistinctCities) || 0,
+  };
+}
+
 export function normalizarPerfil(demo: any): Perfil {
   const entradas: any[] = Array.isArray(demo) ? demo : demo ? [demo] : [];
   if (entradas.length === 0) return {};
@@ -742,6 +898,94 @@ export interface Rastro {
   /** Mudancas de nome e de status na Receita ao longo da vida do CPF. */
   mudancasNome: number;
   mudancasStatus: number;
+}
+
+/**
+ * Domicilio e rede proxima do titular.
+ *
+ * LGPD: aqui o dado e de TERCEIROS que nunca pediram nada ao provedor, e o
+ * proprio titular ainda nao e cliente dele. Por isso o padrao e CONTAGEM, sem
+ * nome. Os nomes so entram quando ha ocorrencia entre os relacionados — e o
+ * gatilho que justifica identificar alguem: sem ocorrencia, saber o nome da mae
+ * do candidato nao muda decisao nenhuma, so expoe uma pessoa.
+ */
+export interface Domicilio {
+  totalRelacionados: number;
+  /** Quantos vivem no mesmo domicilio — o numero que importa contra a fraude. */
+  noDomicilio: number;
+  vizinhos: number;
+  parentes: number;
+  conjuges: number;
+  socios: number;
+  colegasTrabalho: number;
+  /**
+   * Preenchido SO quando `revelarNomes` — ver `normalizarDomicilio`. Vazio e o
+   * estado normal, nao ausencia de dado.
+   */
+  nomes: Array<{ nome: string; vinculo: string; nivel: string }>;
+  /** true quando os nomes foram liberados, para a tela poder explicar por que. */
+  nomesLiberados: boolean;
+}
+
+/**
+ * Capacidade de pagar a mensalidade — o que sobra, nao o que entra.
+ *
+ * Renda bruta responde "quanto ganha"; um plano de R$ 100 se decide por quanto
+ * RESTA depois das despesas da casa e por quantos dependem daquela renda.
+ */
+export interface Capacidade {
+  /** Faixa do que sobra por mes, depois das despesas. */
+  sobraMensal?: string;
+  despesaMensal?: string;
+  rendaFamiliar?: string;
+  dependentes: number;
+  ehResponsavel?: boolean;
+  ehDependente?: boolean;
+  /** PRIVATE SECTOR, PUBLIC SECTOR, SOCIAL ASSISTANCE... */
+  origemRenda?: string;
+  /** Quanto da renda da casa vem de beneficio social, em faixa. */
+  percentualBeneficio?: string;
+  /** Individual: recebe beneficio agora? */
+  recebeBeneficio: boolean;
+  beneficiosAtivos: number;
+  /** Familiar: quantos na casa recebem. */
+  beneficiariosNaFamilia: number;
+}
+
+/** Risco financeiro da FAMILIA — o score da casa, nao o da pessoa. */
+export interface RiscoFamiliar {
+  score?: number;
+  nivel?: string;
+  membros: number;
+  empregados: number;
+  emCobranca: number;
+  ocorrencias365d: number;
+  /** Quantos membros em cada faixa A (melhor) a H (pior). */
+  distribuicao: Record<string, number>;
+  /** A pior faixa presente na casa. E ela que muda a leitura de um titular bom. */
+  piorFaixa?: string;
+}
+
+/**
+ * Seguranca do endereco de instalacao — a chance de o equipamento sumir.
+ *
+ * Os quatro riscos vem do proprio bureau por endereco, em escala propria (quanto
+ * MAIOR, pior). Nao e sobre a pessoa: e sobre o lugar onde a ONU vai ficar.
+ */
+export interface SegurancaEndereco {
+  score?: number;
+  nivel?: string;
+  cidade?: string;
+  uf?: string;
+  roubo?: number;
+  violencia?: number;
+  narcotrafico?: number;
+  furtoVeiculo?: number;
+  ocorrenciasPorMes?: number;
+  crimes360d?: number;
+  /** Quantos enderecos distintos o titular tem — mudanca frequente e sinal. */
+  totalEnderecos: number;
+  totalCidades: number;
 }
 
 /** Area do endereco: 1 e comunidade setorizada, 3 e sem comunidade delimitada. */
@@ -959,6 +1203,14 @@ export interface ResultadoConsulta {
   perfil: Perfil;
   /** Vazio quando os datasets de bureau nao estao habilitados na conta. */
   mercado: Mercado;
+  /** Domicilio e rede proxima — contagem por padrao, nomes so com ocorrencia. */
+  domicilio: Domicilio;
+  /** Score financeiro da FAMILIA, com a distribuicao A-H dos membros. */
+  riscoFamiliar: RiscoFamiliar;
+  /** O que sobra para a mensalidade, e quanto disso vem de beneficio. */
+  capacidade: Capacidade;
+  /** Risco de crime no endereco de instalacao. null quando o dataset nao veio. */
+  seguranca: SegurancaEndereco | null;
   /** Preenchido em chamada separada a /enderecos; vazio quando falha. */
   riscoArea: RiscoArea[];
   /** Sondas da Completa. null quando o nivel nao as inclui ou o bureau falhou. */
@@ -1074,6 +1326,13 @@ export async function consultarCpf(
   const ocupacao = normalizarOcupacao(R.ProfessionalTurnover);
   const perfil = normalizarPerfil(R.DemographicData);
   const mercado = normalizarMercado(R);
+  // Risco da familia primeiro: e ele que decide se os nomes do domicilio podem
+  // ser revelados. Sem ocorrencia entre os relacionados, a lista fica em
+  // contagem — ver normalizarDomicilio.
+  const riscoFamiliar = normalizarRiscoFamiliar(R.FamilyFinancialRisk);
+  const domicilio = normalizarDomicilio(R.RelatedPeople, riscoFamiliar.emCobranca > 0);
+  const seguranca = normalizarSeguranca(R.SecurityData);
+  const capacidade = normalizarCapacidade(R.FamilyFinancialData, R.FamilySocialAssistance, R.ExtendedSocialAssistancePrograms);
 
   const rastro: Rastro = {
     consultas30d: Number(pas?.Last30DaysTotalPassages ?? 0) || 0,
@@ -1141,6 +1400,7 @@ export async function consultarCpf(
       situacaoReceita: basic.TaxIdStatus, dataSituacao: basic.TaxIdStatusDate,
     },
     enderecos, telefones, emails,
+    domicilio, riscoFamiliar, seguranca, capacidade,
     renda: normalizarRenda(fin),
     risco: {
       score: typeof risco?.FinancialRiskScore === "number" ? risco.FinancialRiskScore : undefined,
