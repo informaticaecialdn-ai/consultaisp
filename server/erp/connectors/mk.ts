@@ -24,6 +24,7 @@ import type {
   NormalizedErpCustomer,
 } from "../types.js";
 import { CircuitBreaker, withResilience } from "../resilience.js";
+import { agregarEquipamentosCobrados } from "../equipamento-na-fatura.js";
 import { cleanCpfCnpj, cleanPhone, calculateDaysOverdue, aggregateByCustomer } from "../normalize.js";
 
 // Token cache for MK auth
@@ -146,6 +147,71 @@ export class MkConnector implements ErpConnector {
     }
   }
 
+  /**
+   * Inventario de equipamentos em comodato com o cliente.
+   *
+   * Endpoint da documentacao do MK (release 74):
+   *   GET /pessoas/inventory?token=&id=
+   *
+   * Duas ressalvas que moldam o codigo:
+   *
+   * 1. E da "core-api" do MK — Node.js instalado no servidor do provedor, um
+   *    pre-requisito que a propria documentacao destaca. Nem toda instalacao
+   *    tem. Por isso a falha e SILENCIOSA e devolve lista vazia: o provedor que
+   *    nao expoe o inventario nao pode ver a consulta inteira falhar por causa
+   *    disso.
+   * 2. A documentacao nao fixa o prefixo — ela mostra `/pessoas/...` e
+   *    `/core-api/pessoas/...` em paginas diferentes. Tenta os dois.
+   *
+   * "Retido" e o item ainda em posse do cliente. Sem um campo de devolucao
+   * explicito, item presente no inventario conta como retido — que e a leitura
+   * conservadora certa aqui: o inventario lista o que esta COM o cliente.
+   */
+  private async buscarInventario(
+    base: string,
+    tokenAuth: string,
+    cdCliente: string,
+  ): Promise<{ itens: NonNullable<NormalizedErpCustomer["equipmentDetails"]>; retidos: number }> {
+    const vazio = { itens: [] as NonNullable<NormalizedErpCustomer["equipmentDetails"]>, retidos: 0 };
+    const caminhos = ["/core-api/pessoas/inventory", "/pessoas/inventory"];
+
+    for (const caminho of caminhos) {
+      try {
+        const url = `${base}${caminho}?token=${encodeURIComponent(tokenAuth)}&id=${encodeURIComponent(cdCliente)}`;
+        const resp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(10000) });
+        if (!resp.ok) continue;
+
+        const json: any = await resp.json();
+        const lista: any[] = Array.isArray(json) ? json
+          : json?.inventory ?? json?.Inventario ?? json?.itens ?? json?.data ?? [];
+        if (!Array.isArray(lista) || lista.length === 0) continue;
+
+        // "Devolvido" e o unico estado que tira o item da conta. Sem campo de
+        // status, item presente no inventario conta como retido: o inventario
+        // lista o que esta COM o cliente, e a leitura conservadora e a certa
+        // num bureau — nao afirmar devolucao sem prova dela.
+        const devolvido = (e: any) =>
+          String(e.status ?? e.situacao ?? "").toLowerCase().includes("devolv");
+
+        const itens = lista.map((e: any) => ({
+          type: String(e.tipo ?? e.type ?? e.descricao ?? e.produto ?? "EQUIPAMENTO"),
+          brand: String(e.marca ?? e.brand ?? ""),
+          model: String(e.modelo ?? e.model ?? ""),
+          serialNumber: String(e.numero_serie ?? e.serial ?? e.serialNumber ?? e.mac ?? ""),
+          value: String(Number(e.valor ?? e.value ?? e.preco ?? 0) || 0),
+          inRecoveryProcess: !devolvido(e),
+        }));
+        const retidos = lista.filter(e => !devolvido(e)).length;
+
+        console.log(`[MK] Inventario de ${cdCliente}: ${itens.length} item(ns), ${retidos} retido(s) — via ${caminho}`);
+        return { itens, retidos };
+      } catch {
+        // Proximo caminho.
+      }
+    }
+    return vazio;
+  }
+
   async fetchCustomerByCpf(config: ErpConnectionConfig, cpfCnpj: string): Promise<ErpFetchResult> {
     try {
       const tokenAuth = await this.authenticate(config);
@@ -240,6 +306,9 @@ export class MkConnector implements ErpConnector {
       let totalOverdueAmount = 0;
       let maxDaysOverdue = 0;
       let overdueInvoicesCount = 0;
+      // A descricao da fatura e onde o equipamento retido aparece nesta
+      // instalacao — ver equipamento-na-fatura.ts.
+      const descricoesDeFatura: Array<string | null> = [];
 
       if (cdCliente) {
         const faturasUrl = `${base}/mk/WSMKFaturasPendentes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdCliente)}`;
@@ -280,6 +349,10 @@ export class MkConnector implements ErpConnector {
               console.log(`[MK] Primeira fatura completa:`, JSON.stringify(faturas[0]).substring(0, 500));
             }
             console.log(`[MK] ${faturas.length} fatura(s) pendente(s) encontrada(s)`);
+
+            for (const f of faturas) {
+              descricoesDeFatura.push(f.descricao ?? f.Descricao ?? f.contas ?? f.Contas ?? null);
+            }
 
             for (const f of faturas) {
               const valor = pickAmount(f);
@@ -487,6 +560,37 @@ export class MkConnector implements ErpConnector {
         }
       }
 
+      // ── EQUIPAMENTO EM COMODATO ─────────────────────────────────────────
+      // O conector do MK nao trazia NADA de equipamento — medido contra a API
+      // deles em 27/08/2026, `hasUnreturnedEquipment` voltava `undefined` em
+      // toda consulta a NsLink, enquanto o IXC ja devolvia o dado. Numa decisao
+      // de credito de ISP o equipamento retido costuma valer mais que a divida:
+      // uma ONU nao devolvida e R$ 200-800 de prejuizo direto.
+      // Duas fontes, nesta ordem:
+      //  1. o inventario da core-api, quando o provedor a tem instalada;
+      //  2. a DESCRICAO DA FATURA, que e onde o dado realmente esta na
+      //     instalacao medida — o provedor cobra o equipamento retido como item
+      //     da fatura de rescisao ("roteador 800,00 + smart box 250,00").
+      // A segunda nao substitui a primeira: ela cobre o caso, comum, de a
+      // core-api nao existir.
+      let inventario = cdCliente
+        ? await this.buscarInventario(base, tokenAuth, String(cdCliente))
+        : { itens: [] as NonNullable<NormalizedErpCustomer["equipmentDetails"]>, retidos: 0 };
+
+      if (inventario.itens.length === 0 && descricoesDeFatura.length > 0) {
+        const cobrados = agregarEquipamentosCobrados(descricoesDeFatura);
+        if (cobrados.itens.length > 0) {
+          console.log(`[MK] Equipamento lido da fatura: ${cobrados.itens.map(e => `${e.tipo} R$${e.valor}`).join(", ")}`);
+          inventario = {
+            itens: cobrados.itens.map(e => ({
+              type: e.tipo, brand: "", model: "", serialNumber: "",
+              value: String(e.valor), inRecoveryProcess: true,
+            })),
+            retidos: cobrados.itens.length,
+          };
+        }
+      }
+
       const customer: NormalizedErpCustomer = {
         cpfCnpj: cleanDoc,
         name: nome,
@@ -511,6 +615,9 @@ export class MkConnector implements ErpConnector {
         contractStatus,
         contractStartDate,
         contractPlan,
+        hasUnreturnedEquipment: inventario.itens.length > 0 ? inventario.retidos > 0 : undefined,
+        unreturnedEquipmentCount: inventario.itens.length > 0 ? inventario.retidos : undefined,
+        equipmentDetails: inventario.itens.length > 0 ? inventario.itens : undefined,
         erpSource: "mk",
       };
 
