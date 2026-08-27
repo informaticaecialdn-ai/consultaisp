@@ -1,15 +1,3 @@
-/** Rótulos do motor de score legado (0-100, seis fatores). Lidos apenas pelo
- *  ramo FatoresLegado do ScoreBreakdownPanel, para consultas gravadas antes do
- *  motor v2. Sem ícone: o design system não usa emoji. */
-export const FATOR_LABELS: Record<string, { icon: string; label: string }> = {
-  f1_historicoPagamento: { icon: "", label: "Histórico de pagamento" },
-  f2_tempoSetor: { icon: "", label: "Tempo no setor ISP" },
-  f3_inadimplenciaAtiva: { icon: "", label: "Inadimplência ativa" },
-  f4_padraoConsultas: { icon: "", label: "Padrão de consultas" },
-  f5_riscoEndereco: { icon: "", label: "Risco do endereço" },
-  f6_consistenciaCadastral: { icon: "", label: "Consistência cadastral" },
-};
-
 /**
  * Passos da espera. Os rótulos descrevem o que o backend REALMENTE faz na
  * ordem em que faz — consultar os ERPs da mesorregião, cruzar o endereço,

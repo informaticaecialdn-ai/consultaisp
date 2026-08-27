@@ -1,6 +1,5 @@
 import { Lock, AlertTriangle, CornerDownRight, Download, Save, RotateCcw, CheckCircle, AlertCircle, XCircle } from "lucide-react";
 import AddressMapMini from "@/components/consulta/AddressMapMini";
-import ScoreBreakdownPanel from "./ScoreBreakdownPanel";
 import AiAnalysisSection from "./AiAnalysisSection";
 import AddressRiskAlert from "./AddressRiskAlert";
 import type { ConsultaResult, ProviderDetail } from "./types";
@@ -35,6 +34,17 @@ function brl(v: number): string {
 function fmtCep(cep: string): string {
   const d = (cep || "").replace(/\D/g, "");
   return d.length === 8 ? `${d.slice(0, 5)}-${d.slice(5)}` : cep;
+}
+
+/**
+ * Situação para o pill da tabela 03. O status do ERP é mais rico que um
+ * binário ("Cancelado (débito)"), mas quando o parêntese só repete o atraso —
+ * "Inadimplente (90+ dias)" ao lado da coluna Atraso "90+ dias" — ele vira
+ * redundância que estoura o pill. Cai o parêntese de dias; os demais ficam.
+ */
+function situacaoCurta(status: string | undefined, fallback: string): string {
+  if (!status) return fallback;
+  return status.replace(/\s*\([^)]*dias?[^)]*\)\s*$/i, "").trim() || fallback;
 }
 
 /**
@@ -181,7 +191,7 @@ export default function ConsultaResultSummary({
         fonte: `Seu ERP · ${d.providerName}`,
         // O status do ERP é mais rico que um binário: "Cancelado (débito)" e
         // "Inadimplente (90+ dias)" contam histórias diferentes.
-        situacao: d.status || (mau ? "Inadimplente" : "Em dia"),
+        situacao: situacaoCurta(d.status, mau ? "Inadimplente" : "Em dia"),
         situacaoTone: mau ? "past" : "ok",
         atraso: d.daysOverdue > 0 ? `${d.daysOverdue} dias` : "—",
         valor: d.overdueAmount != null && d.overdueAmount > 0 ? brl(d.overdueAmount) : "—",
@@ -209,7 +219,7 @@ export default function ConsultaResultSummary({
           ? `${d.unreturnedEquipmentCount >= 2 ? "2+" : d.unreturnedEquipmentCount} equipamento${d.unreturnedEquipmentCount > 1 ? "s" : ""} retido${d.unreturnedEquipmentCount > 1 ? "s" : ""}${d.equipmentSignalValidated ? " · ocorrência validada" : ""}`
           : undefined,
         fonte: `${d.providerName}${local}`,
-        situacao: d.status || (mau ? "Inadimplente" : "Em dia"),
+        situacao: situacaoCurta(d.status, mau ? "Inadimplente" : "Em dia"),
         situacaoTone: mau ? "past" : "ok",
         atraso: d.daysOverdueRange || (d.daysOverdue > 0 ? `${d.daysOverdue} dias` : "—"),
         valor: d.overdueAmountRange || "—",
@@ -429,22 +439,10 @@ export default function ConsultaResultSummary({
         </div>
       </div>
 
-      {/* ═══ COMPOSIÇÃO DO SCORE ═══
-          O handoff manda a composição para a aba Informações. Aqui ela fica:
-          um score que decide contrato mostra a conta ao lado do número — foi o
-          furo que o motor v2 corrigiu. Sem número de seção de propósito: é um
-          anexo do 01, não um passo da leitura. */}
-      {(result.composicaoScore || result.fatoresScore) && result.searchType !== "cep" && (
-        <ReportSection>
-          <ScoreBreakdownPanel
-            composicao={result.composicaoScore}
-            fatores={result.fatoresScore}
-            score={result.score}
-          />
-        </ReportSection>
-      )}
-
-      {/* ═══ 03 · OCORRÊNCIAS NA REDE ISP ═══ */}
+      {/* ═══ 03 · OCORRÊNCIAS NA REDE ISP ═══
+          A composição do score (extrato de deduções) NÃO aparece aqui, por
+          decisão do dono do produto: o relatório entrega o número e a decisão;
+          o MÉTODO do cálculo vive documentado na aba Informações. */}
       {result.searchType !== "cep" && (
         <ReportSection
           title="03 · Ocorrências na rede ISP"

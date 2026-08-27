@@ -33,7 +33,7 @@ type Aba = (typeof ABAS)[number][0];
 /** O que a Consulta ISP entrega — fica visível enquanto não há resultado. */
 const CARDS_OCIOSO = [
   { icon: Network, title: "Rede colaborativa.", text: "Ocorrências reais dos ERPs de provedores parceiros, anonimizadas." },
-  { icon: BarChart3, title: "Score 0–1000.", text: "Base 700 e deduções nomeadas, com a conta aberta no relatório." },
+  { icon: BarChart3, title: "Score 0–1000.", text: "Base 700 e deduções por sinal — o método completo está na aba Informações." },
   { icon: Router, title: "Equipamentos retidos.", text: "Ocorrências de comodato não devolvido, validadas no bureau." },
   { icon: MapPin, title: "Cruzamento por endereço.", text: "Inadimplência no mesmo imóvel, mesmo com CPF limpo." },
 ];
