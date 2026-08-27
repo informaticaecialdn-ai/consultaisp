@@ -25,6 +25,8 @@ import type {
 } from "../types.js";
 import { CircuitBreaker, withResilience } from "../resilience.js";
 import { agregarEquipamentosCobrados } from "../equipamento-na-fatura.js";
+import { chaveLogradouro } from "../../services/logradouro.js";
+import { normalizarLocalidade } from "../../services/localidade.js";
 import { cleanCpfCnpj, cleanPhone, calculateDaysOverdue, aggregateByCustomer } from "../normalize.js";
 
 // Token cache for MK auth
@@ -1340,15 +1342,26 @@ export class MkConnector implements ErpConnector {
     };
   }
 
-  async fetchCustomersByCep(config: ErpConnectionConfig, cep: string): Promise<ErpFetchResult> {
+  /**
+   * Lista clientes que casam um predicado, com a divida agregada.
+   *
+   * O MK nao filtra no servidor — `WSMKConsultaClientes` devolve a base e o
+   * corte e feito aqui. Por isso o predicado e parametro: busca por CEP e por
+   * endereco compartilham a mesma varredura e o mesmo calculo de divida, em vez
+   * de duas copias que divergiriam com o tempo.
+   */
+  private async clientesPorFiltro(
+    config: ErpConnectionConfig,
+    filtro: (linha: any) => boolean,
+    rotulo: string,
+  ): Promise<ErpFetchResult> {
     try {
       const tokenAuth = await this.authenticate(config);
       const base = this.baseUrl(config);
-      const cleanCepValue = cep.replace(/\D/g, "");
 
       // Step 1: Get all customers
       const url = `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}`;
-      console.log(`[MK] Buscando clientes por CEP ${cleanCepValue} via WSMKConsultaClientes`);
+      console.log(`[MK] Buscando clientes (${rotulo}) via WSMKConsultaClientes`);
 
       const response = await withResilience(
         () => fetch(url, { method: "GET", signal: AbortSignal.timeout(30000) }),
@@ -1362,18 +1375,14 @@ export class MkConnector implements ErpConnector {
       const json: any = await response.json();
       const rows: any[] = Array.isArray(json) ? json : json?.registros || json?.data || [];
 
-      // Step 2: Filter by CEP prefix in code (MK may return PascalCase or lowercase)
-      const matchingClientes = rows.filter((r: any) => {
-        const customerCep = (r.CEP || r.cep || "").replace(/\D/g, "");
-        return customerCep.startsWith(cleanCepValue);
-      });
+      const matchingClientes = rows.filter(filtro);
 
       // Limit to 50 to avoid excessive API calls
       const limitedClientes = matchingClientes.slice(0, 50);
-      console.log(`[MK] ${matchingClientes.length} clientes com CEP ${cleanCepValue}, processando ${limitedClientes.length}`);
+      console.log(`[MK] ${matchingClientes.length} clientes casam ${rotulo}, processando ${limitedClientes.length}`);
 
       if (limitedClientes.length === 0) {
-        return { ok: true, message: "Nenhum cliente encontrado com este CEP", customers: [], totalRecords: 0 };
+        return { ok: true, message: `Nenhum cliente encontrado (${rotulo})`, customers: [], totalRecords: 0 };
       }
 
       // Step 3: For matches, fetch overdue data
@@ -1459,7 +1468,7 @@ export class MkConnector implements ErpConnector {
 
       return {
         ok: true,
-        message: `${results.length} cliente(s) encontrado(s) no CEP ${cleanCepValue}`,
+        message: `${results.length} cliente(s) encontrado(s) (${rotulo})`,
         customers: results,
         totalRecords: results.length,
       };
@@ -1468,4 +1477,57 @@ export class MkConnector implements ErpConnector {
       return { ok: false, message: `Erro: ${msg}`, customers: [] };
     }
   }
+  async fetchCustomersByCep(config: ErpConnectionConfig, cep: string): Promise<ErpFetchResult> {
+    const alvo = cep.replace(/\D/g, "");
+    return this.clientesPorFiltro(
+      config,
+      (r: any) => (r.CEP || r.cep || "").replace(/\D/g, "").startsWith(alvo),
+      `CEP ${alvo}`,
+    );
+  }
+
+  /**
+   * Busca clientes por ENDERECO — o cruzamento da consulta.
+   *
+   * O MK devolve o endereco de formas diferentes conforme o endpoint: as vezes
+   * campos separados, as vezes tudo num texto so ("Rua Mato Grosso, 1435 -
+   * Centro, Londrina", medido contra a instalacao da NsLink). `chaveLogradouro`
+   * poe os dois na mesma regua, junto com "Av." vs "Avenida".
+   *
+   * Casa por LOGRADOURO e cidade, sem exigir numero: o numero e o bairro ficam
+   * para `services/endereco-chave.ts`, que aplica a mesma regra a todos os ERPs.
+   * Devolver a mais e deixar o casador cortar; devolver a menos esconde
+   * pendencia.
+   */
+  async fetchCustomersByAddress(
+    config: ErpConnectionConfig,
+    endereco: { logradouro: string; numero?: string; bairro?: string; cidade?: string; uf?: string; cep?: string },
+  ): Promise<ErpFetchResult> {
+    const ruaAlvo = chaveLogradouro(endereco.logradouro);
+    if (!ruaAlvo) {
+      return { ok: false, message: "Endereco sem logradouro utilizavel", customers: [] };
+    }
+    const cidadeAlvo = normalizarLocalidade(endereco.cidade);
+
+    return this.clientesPorFiltro(
+      config,
+      (r: any) => {
+        const bruto = r.Endereco || r.endereco || r.Logradouro || r.logradouro || "";
+        // O logradouro pode vir com o numero grudado; corta no primeiro
+        // separador antes de comparar.
+        const rua = chaveLogradouro(String(bruto).split(/[,\-]/)[0]);
+        if (!rua || rua !== ruaAlvo) return false;
+
+        if (!cidadeAlvo) return true;
+        const cidade = normalizarLocalidade(
+          r.Cidade || r.cidade || r.Municipio || r.municipio || "",
+        );
+        // Cidade ausente no cadastro nao descarta: cadastro incompleto nao e
+        // prova de que e outra cidade.
+        return !cidade || cidade === cidadeAlvo;
+      },
+      `${ruaAlvo}${cidadeAlvo ? ` / ${cidadeAlvo}` : ""}`,
+    );
+  }
+
 }

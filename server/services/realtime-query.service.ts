@@ -271,6 +271,95 @@ function normalizeCustomer(c: any): RealtimeQueryResult["customers"][0] {
  * Query multiple ERPs in parallel for a document (CPF/CNPJ/CEP).
  * Each ERP has its own timeout. Failed ERPs don't block others.
  */
+export interface EnderecoConsulta {
+  logradouro: string;
+  numero?: string;
+  bairro?: string;
+  cidade?: string;
+  uf?: string;
+  cep?: string;
+}
+
+/**
+ * Consulta os ERPs da regiao por ENDERECO — o cruzamento da consulta.
+ *
+ * O insumo vem do proprio resultado do CPF/CNPJ: achou o titular, tem o
+ * endereco dele, e a pergunta seguinte e "quem mais neste imovel tem
+ * pendencia". O operador nao digita nada.
+ *
+ * Substitui a busca por CEP, que era a unica forma e deixava de fora 39% da
+ * carteira da NsLink (medido em 27/08/2026) por falta de CEP de 8 digitos.
+ * Conector que ainda nao implementa `fetchCustomersByAddress` cai no CEP quando
+ * ha um; sem CEP, ele fica de fora daquele cruzamento — e aparece no `error`,
+ * em vez de sumir.
+ */
+export async function queryRegionalErpsByAddress(
+  integrations: Array<ErpIntegration & { providerName: string }>,
+  endereco: EnderecoConsulta,
+): Promise<RealtimeQueryResult[]> {
+  if (integrations.length === 0) return [];
+
+  logger.info(
+    { count: integrations.length, cidade: endereco.cidade, temCep: !!endereco.cep },
+    "RT-QUERY cruzando endereco nos ERPs",
+  );
+
+  const um = async (intg: ErpIntegration & { providerName: string }): Promise<RealtimeQueryResult> => {
+    const start = Date.now();
+    const base = {
+      providerId: intg.providerId,
+      providerName: intg.providerName,
+      erpSource: intg.erpSource,
+    };
+    try {
+      const config = buildErpConfig(intg);
+      const connector = getConnector(intg.erpSource);
+      if (!connector) {
+        return { ...base, ok: false, error: `Conector ${intg.erpSource} nao disponivel`, customers: [], latencyMs: Date.now() - start };
+      }
+
+      const comTimeout = <T>(p: Promise<T>) => Promise.race([
+        p,
+        new Promise<never>((_, rej) => setTimeout(() => rej(new Error("Timeout")), ERP_QUERY_TIMEOUT_MS)),
+      ]);
+
+      let resultado: ErpFetchResult;
+      if (typeof connector.fetchCustomersByAddress === "function") {
+        resultado = await comTimeout(connector.fetchCustomersByAddress(config, endereco));
+      } else if (endereco.cep && typeof connector.fetchCustomersByCep === "function") {
+        resultado = await comTimeout(connector.fetchCustomersByCep(config, endereco.cep));
+      } else {
+        return {
+          ...base, ok: false,
+          error: `${intg.erpSource} nao busca por endereco e o cadastro nao tem CEP`,
+          customers: [], latencyMs: Date.now() - start,
+        };
+      }
+
+      if (!resultado.ok) {
+        return { ...base, ok: false, error: resultado.message, customers: [], latencyMs: Date.now() - start };
+      }
+      return { ...base, ok: true, customers: resultado.customers.map(normalizeCustomer), latencyMs: Date.now() - start };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      const isTimeout = msg === "Timeout" || msg.includes("timeout");
+      logger.warn({ providerId: intg.providerId, erpSource: intg.erpSource, error: msg }, "RT-QUERY endereco falhou");
+      return { ...base, ok: false, error: isTimeout ? `Timeout (${ERP_QUERY_TIMEOUT_MS / 1000}s)` : msg, timedOut: isTimeout, customers: [], latencyMs: Date.now() - start };
+    }
+  };
+
+  const results = await Promise.allSettled(integrations.map(um));
+  return results.map((r, i) => r.status === "fulfilled" ? r.value : {
+    providerId: integrations[i].providerId,
+    providerName: integrations[i].providerName,
+    erpSource: integrations[i].erpSource,
+    ok: false,
+    error: (r.reason as any)?.message || "Promise rejected",
+    customers: [],
+    latencyMs: 0,
+  });
+}
+
 export async function queryRegionalErps(
   integrations: Array<ErpIntegration & { providerName: string }>,
   document: string,

@@ -672,62 +672,57 @@ export class IxcConnector implements ErpConnector {
    * Tabela: cliente com filtro por cep ou endereco (like)
    * Usado para verificacao de risco por endereco.
    */
-  async fetchCustomersByAddress(config: ErpConnectionConfig, options: {
-    cep?: string;
-    street?: string;
-    city?: string;
-  }): Promise<{
-    ok: boolean;
-    message: string;
-    customers: Array<{
-      cpfCnpj: string;
-      name: string;
-      address: string;
-      number: string;
-      city: string;
-      state: string;
-      cep: string;
-      status: string;
-      customerId: string;
-    }>;
-  }> {
+  /**
+   * Busca clientes por ENDERECO, com a divida em aberto agregada.
+   *
+   * Substitui uma versao anterior deste metodo que devolvia so o cadastro, sem
+   * divida, e que nao tinha um unico chamador — para o cruzamento da consulta,
+   * saber QUEM mora no endereco sem saber quem deve nao responde nada.
+   *
+   * O filtro e deliberadamente FROUXO: logradouro por LIKE, sem numero. O
+   * numero no IXC as vezes vem grudado no campo `endereco` e as vezes no campo
+   * `numero`, e filtra-lo no servidor perderia metade dos vizinhos. O casamento
+   * fino fica com `services/endereco-chave.ts`, que aplica a mesma regua a todos
+   * os ERPs. Devolver a mais e deixar o casador cortar; devolver a menos esconde
+   * pendencia.
+   */
+  async fetchCustomersByAddress(
+    config: ErpConnectionConfig,
+    endereco: { logradouro: string; numero?: string; bairro?: string; cidade?: string; uf?: string; cep?: string },
+  ): Promise<ErpFetchResult> {
     try {
       const filters: IxcFilter[] = [];
 
-      if (options.cep) {
-        filters.push({ TB: "cliente.cep", OP: "=", P: cleanCep(options.cep), C: "AND", G: "" });
-      }
-      if (options.street) {
-        filters.push({ TB: "cliente.endereco", OP: "L", P: `%${options.street}%`, C: "AND", G: "" });
-      }
-      if (options.city) {
-        filters.push({ TB: "cliente.cidade", OP: "=", P: options.city, C: "AND", G: "" });
+      // O logradouro do ERP costuma trazer o tipo ("Rua", "Av.") e as vezes o
+      // numero. Busca pelo nucleo do nome, sem o tipo, para casar as grafias.
+      const nucleo = endereco.logradouro
+        .replace(/^\s*(r\.?|rua|av\.?|avenida|tv\.?|travessa|al\.?|alameda|pc\.?|praca)\s+/i, "")
+        .replace(/[,\d].*$/, "")
+        .trim();
+
+      if (nucleo.length >= 3) {
+        filters.push({ TB: "cliente.endereco", OP: "L", P: `%${nucleo}%`, C: "AND", G: "" });
+      } else if (endereco.cep) {
+        filters.push({ TB: "cliente.cep", OP: "L", P: `${cleanCep(endereco.cep).slice(0, 5)}%`, C: "AND", G: "" });
+      } else {
+        return { ok: false, message: "Endereco sem logradouro utilizavel", customers: [] };
       }
 
-      if (filters.length === 0) {
-        return { ok: false, message: "Informe CEP, endereco ou cidade para buscar", customers: [] };
+      if (endereco.bairro) {
+        filters.push({ TB: "cliente.bairro", OP: "L", P: `%${endereco.bairro}%`, C: "AND", G: "" });
       }
 
-      const rows = await this.listWithFilter(config, "cliente", filters);
+      const clienteRows = await this.listWithFilter(config, "cliente", filters, 500, 20);
+      if (clienteRows.length === 0) {
+        return { ok: true, message: "Nenhum cliente encontrado neste endereco", customers: [], totalRecords: 0 };
+      }
 
-      const customers = rows
-        .map((r: any) => ({
-          cpfCnpj: cleanCpfCnpj(r.cpf_cnpj || r.documento || ""),
-          name: r.razao || r.nome || "",
-          address: r.endereco || r.logradouro || "",
-          number: r.numero || "",
-          city: r.cidade || "",
-          state: r.uf || r.estado || "",
-          cep: r.cep ? cleanCep(r.cep) : "",
-          status: r.status || "",
-          customerId: String(r.id || ""),
-        }))
-        .filter(c => c.cpfCnpj);
-
+      const customers = await this.enriquecerComDivida(config, clienteRows);
       return {
         ok: true,
-        message: `${customers.length} clientes encontrados no endereco`,
+        message: `${customers.length} cliente(s) no logradouro`,
         customers,
+        totalRecords: customers.length,
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
@@ -972,6 +967,89 @@ export class IxcConnector implements ErpConnector {
    * depois busca faturas vencidas para cada cliente encontrado.
    * Retorna ErpFetchResult compativel com a interface ErpConnector.
    */
+  /**
+   * Dado um conjunto de linhas da tabela `cliente`, agrega a divida em aberto
+   * de cada uma e devolve no formato normalizado.
+   *
+   * Extraido de `fetchCustomersByCep` para servir tambem a busca por endereco:
+   * as duas fazem a mesma coisa depois de escolher QUAIS clientes olhar, e
+   * duplicar o calculo de divida seria pedir para os dois caminhos divergirem.
+   */
+  private async enriquecerComDivida(
+    config: ErpConnectionConfig,
+    clienteRows: any[],
+  ): Promise<NormalizedErpCustomer[]> {
+    const customerIds = clienteRows.map((r: any) => String(r.id)).filter(Boolean);
+    const customerIdSet = new Set(customerIds);
+    const now = new Date();
+
+    // Lotes para nao montar um filtro gigante numa requisicao so.
+    const BATCH_SIZE = 50;
+    const overdueByCustomer = new Map<string, { totalAmount: number; maxDays: number; count: number }>();
+
+    for (let i = 0; i < customerIds.length; i += BATCH_SIZE) {
+      const batch = customerIds.slice(i, i + BATCH_SIZE);
+
+      const filters: IxcFilter[] = [];
+      for (let j = 0; j < batch.length; j++) {
+        filters.push({
+          TB: "fn_areceber.id_cliente",
+          OP: "=",
+          P: batch[j],
+          C: j === 0 ? "AND" : "OR",
+          G: "invoiceCustomers",
+        });
+      }
+      filters.push({ TB: "fn_areceber.status", OP: "=", P: "A", C: "AND", G: "" });
+
+      const invoiceRows = await this.listWithFilter(config, "fn_areceber", filters, 200, 10);
+
+      for (const inv of invoiceRows) {
+        const dueDate = inv.data_vencimento;
+        if (!dueDate || new Date(dueDate) >= now) continue;
+        const custId = String(inv.id_cliente || "");
+        if (!custId || !customerIdSet.has(custId)) continue;
+
+        const amount = parseFloat(inv.valor || inv.valor_original || "0") || 0;
+        const days = calculateDaysOverdue(dueDate);
+        const existing = overdueByCustomer.get(custId);
+        if (existing) {
+          existing.totalAmount += amount;
+          if (days > existing.maxDays) existing.maxDays = days;
+          existing.count++;
+        } else {
+          overdueByCustomer.set(custId, { totalAmount: amount, maxDays: days, count: 1 });
+        }
+      }
+    }
+
+    return clienteRows
+      .map((r: any) => {
+        const cpfCnpj = cleanCpfCnpj(r.cpf_cnpj || r.documento || "");
+        if (!cpfCnpj) return null;
+        const custId = String(r.id || "");
+        const overdue = overdueByCustomer.get(custId);
+        return {
+          cpfCnpj,
+          name: r.razao || r.nome || "",
+          email: r.email || undefined,
+          phone: r.fone || r.celular ? cleanPhone(r.fone || r.celular) : undefined,
+          address: r.endereco || r.logradouro || undefined,
+          addressNumber: extractNumberFromAddress(r.endereco, r.numero),
+          complement: r.complemento || undefined,
+          neighborhood: r.bairro || undefined,
+          city: r.cidade || undefined,
+          state: r.uf || r.estado || undefined,
+          cep: r.cep ? cleanCep(r.cep) : undefined,
+          totalOverdueAmount: overdue?.totalAmount ?? 0,
+          maxDaysOverdue: overdue?.maxDays ?? 0,
+          overdueInvoicesCount: overdue?.count ?? 0,
+          erpSource: "ixc" as const,
+        };
+      })
+      .filter((c): c is NonNullable<typeof c> => c !== null);
+  }
+
   async fetchCustomersByCep(config: ErpConnectionConfig, cep: string): Promise<ErpFetchResult> {
     try {
       const cepPrefix = cleanCep(cep).slice(0, 5);
@@ -988,78 +1066,7 @@ export class IxcConnector implements ErpConnector {
         return { ok: true, message: "Nenhum cliente encontrado para este CEP", customers: [], totalRecords: 0 };
       }
 
-      // Busca faturas vencidas em aberto apenas para os clientes encontrados por CEP
-      const customerIds = clienteRows.map((r: any) => String(r.id)).filter(Boolean);
-      const customerIdSet = new Set(customerIds);
-      const now = new Date();
-
-      // Batch customer IDs to avoid overly large filters — query invoices per batch
-      const BATCH_SIZE = 50;
-      const overdueByCustomer = new Map<string, { totalAmount: number; maxDays: number; count: number }>();
-
-      for (let i = 0; i < customerIds.length; i += BATCH_SIZE) {
-        const batch = customerIds.slice(i, i + BATCH_SIZE);
-
-        // Build OR-grouped filters for each customer ID in the batch
-        const filters: IxcFilter[] = [];
-        for (let j = 0; j < batch.length; j++) {
-          filters.push({
-            TB: "fn_areceber.id_cliente",
-            OP: "=",
-            P: batch[j],
-            C: j === 0 ? "AND" : "OR",
-            G: "invoiceCustomers",
-          });
-        }
-        filters.push({ TB: "fn_areceber.status", OP: "=", P: "A", C: "AND", G: "" });
-
-        const invoiceRows = await this.listWithFilter(config, "fn_areceber", filters, 200, 10);
-
-        for (const inv of invoiceRows) {
-          const dueDate = inv.data_vencimento;
-          if (!dueDate || new Date(dueDate) >= now) continue;
-          const custId = String(inv.id_cliente || "");
-          if (!custId || !customerIdSet.has(custId)) continue;
-
-          const amount = parseFloat(inv.valor || inv.valor_original || "0") || 0;
-          const days = calculateDaysOverdue(dueDate);
-          const existing = overdueByCustomer.get(custId);
-          if (existing) {
-            existing.totalAmount += amount;
-            if (days > existing.maxDays) existing.maxDays = days;
-            existing.count++;
-          } else {
-            overdueByCustomer.set(custId, { totalAmount: amount, maxDays: days, count: 1 });
-          }
-        }
-      }
-
-      // Monta resultado normalizado
-      const customers: NormalizedErpCustomer[] = clienteRows
-        .map((r: any) => {
-          const cpfCnpj = cleanCpfCnpj(r.cpf_cnpj || r.documento || "");
-          if (!cpfCnpj) return null;
-          const custId = String(r.id || "");
-          const overdue = overdueByCustomer.get(custId);
-          return {
-            cpfCnpj,
-            name: r.razao || r.nome || "",
-            email: r.email || undefined,
-            phone: r.fone || r.celular ? cleanPhone(r.fone || r.celular) : undefined,
-            address: r.endereco || r.logradouro || undefined,
-            addressNumber: extractNumberFromAddress(r.endereco, r.numero),
-            complement: r.complemento || undefined,
-            neighborhood: r.bairro || undefined,
-            city: r.cidade || undefined,
-            state: r.uf || r.estado || undefined,
-            cep: r.cep ? cleanCep(r.cep) : undefined,
-            totalOverdueAmount: overdue?.totalAmount ?? 0,
-            maxDaysOverdue: overdue?.maxDays ?? 0,
-            overdueInvoicesCount: overdue?.count ?? 0,
-            erpSource: "ixc" as const,
-          };
-        })
-        .filter((c): c is NonNullable<typeof c> => c !== null);
+      const customers = await this.enriquecerComDivida(config, clienteRows);
 
       return {
         ok: true,

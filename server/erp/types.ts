@@ -175,4 +175,23 @@ export interface ErpConnector {
 
   /** Fetch customers by CEP prefix with overdue data aggregated (optional) */
   fetchCustomersByCep?(config: ErpConnectionConfig, cep: string): Promise<ErpFetchResult>;
+
+  /**
+   * Busca por ENDERECO, para o cruzamento da consulta (opcional).
+   *
+   * Existe porque o CEP nao serve como chave: medido em producao em
+   * 27/08/2026, 39% da carteira da NsLink nao tem CEP de 8 digitos, e em cidade
+   * pequena boa parte do cadastro carrega o CEP geral do municipio — que
+   * juntaria imoveis diferentes no mesmo grupo.
+   *
+   * O conector deve filtrar pelo que conseguir (logradouro e cidade costumam
+   * bastar) e devolver os candidatos; o casamento fino por numero e bairro fica
+   * com `services/endereco-chave.ts`, que aplica a mesma regua para todos os
+   * ERPs. Melhor devolver a mais e deixar o casador cortar do que devolver a
+   * menos e esconder uma pendencia.
+   */
+  fetchCustomersByAddress?(
+    config: ErpConnectionConfig,
+    endereco: { logradouro: string; numero?: string; bairro?: string; cidade?: string; uf?: string; cep?: string },
+  ): Promise<ErpFetchResult>;
 }

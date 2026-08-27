@@ -5,7 +5,8 @@ import { maskCrossProviderDetail, maskName, maskCpfCnpj, maskOverdueAmount, mask
 import { getProviderDisplayName } from "../utils/provider-anonymizer";
 import { hashCPFForNetwork } from "../utils/cpf-hash";
 import { getRegionalProviderIds } from "../services/regional.service";
-import { queryRegionalErps, type RealtimeQueryResult } from "../services/realtime-query.service";
+import { queryRegionalErps, queryRegionalErpsByAddress, type RealtimeQueryResult } from "../services/realtime-query.service";
+import { chaveDeEndereco } from "../services/endereco-chave";
 import { calcularScoreISP, type ISPScoreInput } from "../utils/isp-score";
 import { consultationCache } from "../services/consultation-cache.service";
 import { buildAddressSearchResult } from "../services/address-search.service";
@@ -354,12 +355,23 @@ export function registerConsultasRoutes(): Router {
             return digits.length === 8;
           };
 
+          // O insumo do cruzamento e o endereco que a propria consulta do
+          // documento devolveu — o operador nao digita nada.
+          //
+          // O criterio deixou de ser CEP. Exigir CEP de 8 digitos descartava 39%
+          // da carteira da NsLink (medido em 27/08/2026), e em cidade pequena
+          // boa parte do cadastro carrega o CEP geral do municipio, que juntaria
+          // imoveis diferentes. Agora basta logradouro + cidade; o numero entra
+          // no casamento fino, em endereco-chave.ts.
+          const temEnderecoUtil = (c: typeof allCustomers[0]) =>
+            chaveDeEndereco(c) !== null || (isValidCep(c.cep) && !!c.addressNumber);
+
           let addressCandidate: typeof allCustomers[0] | undefined;
-          if (isValidCep(ownCustomer?.cep) && ownCustomer?.addressNumber) {
+          if (ownCustomer && temEnderecoUtil(ownCustomer)) {
             addressCandidate = ownCustomer;
             addressSource = "own";
           } else {
-            addressCandidate = allCustomers.find(c => isValidCep(c.cep) && c.addressNumber);
+            addressCandidate = allCustomers.find(temEnderecoUtil);
             if (addressCandidate) {
               addressSource = addressCandidate.isSameProvider ? "own" : "network";
             }
@@ -367,23 +379,37 @@ export function registerConsultasRoutes(): Router {
 
           if (addressCandidate) {
             try {
-              const candidateCep = addressCandidate.cep!.replace(/\D/g, "");
-              // Secondary query: fetch all customers at this CEP for real cross-referencing
-              let cepErpResults: RealtimeQueryResult[];
+              const chave = chaveDeEndereco(addressCandidate);
+              const cepCandidato = (addressCandidate.cep || "").replace(/\D/g, "");
+
+              let cruzamento: RealtimeQueryResult[];
               try {
-                const cepQueryStart = Date.now();
-                cepErpResults = await queryRegionalErps(erpIntegrations as any, candidateCep, "cep");
-                logger.info({ cep: candidateCep.slice(0, 5) + "***", results: cepErpResults.filter(r => r.ok).length, latencyMs: Date.now() - cepQueryStart }, "CONSULTA secondary CEP query completed");
-              } catch (cepErr) {
-                logger.warn({ err: cepErr }, "CONSULTA secondary CEP query failed, using CPF results as fallback");
-                cepErpResults = erpResults;
+                const inicio = Date.now();
+                cruzamento = chave
+                  ? await queryRegionalErpsByAddress(erpIntegrations as any, {
+                      logradouro: chave.logradouro,
+                      numero: String(chave.numero),
+                      bairro: chave.bairro || undefined,
+                      cidade: addressCandidate.city || undefined,
+                      uf: addressCandidate.state || undefined,
+                      cep: cepCandidato || undefined,
+                    })
+                  : await queryRegionalErps(erpIntegrations as any, cepCandidato, "cep");
+                logger.info(
+                  { por: chave ? "endereco" : "cep", ok: cruzamento.filter(r => r.ok).length, latencyMs: Date.now() - inicio },
+                  "CONSULTA cruzamento de endereco concluido",
+                );
+              } catch (err) {
+                // O cruzamento e complemento, nao a resposta: se ele falha, a
+                // consulta ainda vale. Cai no que ja foi trazido pelo documento.
+                logger.warn({ err }, "CONSULTA cruzamento falhou; usando o resultado do documento");
+                cruzamento = erpResults;
               }
-              addressSearchResult = buildAddressSearchResult(
-                candidateCep,
-                cepErpResults,
-                providerId,
-              );
-              addressUsed = candidateCep;
+
+              addressUsed = chave
+                ? `${chave.logradouro}, ${chave.numero}${chave.bairro ? ` — ${chave.bairro}` : ""}`
+                : cepCandidato;
+              addressSearchResult = buildAddressSearchResult(addressUsed, cruzamento, providerId);
               autoAddressCrossRef = true;
             } catch (err) {
               logger.warn({ err }, "CONSULTA auto address search error (non-blocking)");
