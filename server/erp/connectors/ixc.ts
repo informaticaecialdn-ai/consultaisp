@@ -575,6 +575,43 @@ export class IxcConnector implements ErpConnector {
   }
 
   /** Resolve FK cidade/uf de um row cliente usando cidadeMap */
+  /**
+   * Resolve UMA cidade pelo id interno do IXC, com cache.
+   *
+   * O campo `cliente.cidade` guarda o id da cidade, nao o nome — medido contra a
+   * API em 27/08/2026, um cliente de Londrina volta com `cidade: "4101"`. Os
+   * caminhos em lote ja resolviam isso com `bulkResolveCidadeUf`, mas a consulta
+   * de UM cliente (`fetchCustomerByCpf`) devolvia o numero cru. O efeito ia
+   * longe: esse "4101" virava a cidade da chave de endereco e o cruzamento
+   * comparava "4101" com "Londrina" nos outros ERPs, sem casar nada.
+   *
+   * Uma cidade por requisicao, em vez das 5.579 do bulk: a consulta e de um
+   * cliente so, e puxar o municipio inteiro do estado para descobrir um nome
+   * seria caro no caminho que precisa ser rapido.
+   */
+  private async resolverCidadePorId(
+    config: ErpConnectionConfig,
+    id: string,
+  ): Promise<{ nome: string; uf: string } | null> {
+    const chave = `${this.baseUrl(config)}::${id}`;
+    if (IxcConnector.cacheCidade.has(chave)) return IxcConnector.cacheCidade.get(chave)!;
+    try {
+      const linhas = await this.listAll(config, "cidade", {
+        qtype: "cidade.id", query: id, oper: "=",
+      }, 1, 1);
+      const c = linhas[0];
+      const nome = c ? String(c.nome || c.cidade || "") : "";
+      const resultado = nome ? { nome, uf: String(c.uf || c.sigla || "") } : null;
+      IxcConnector.cacheCidade.set(chave, resultado);
+      return resultado;
+    } catch {
+      // Sem o nome, segue com o id — pior que resolver, melhor que falhar.
+      return null;
+    }
+  }
+
+  private static cacheCidade = new Map<string, { nome: string; uf: string } | null>();
+
   private resolveCityState(c: any, cidadeMap: Map<string, { nome: string; uf: string }>): { city?: string; state?: string } {
     const rawCidade = c?.cidade;
     const rawUf = c?.uf || c?.estado;
@@ -923,6 +960,19 @@ export class IxcConnector implements ErpConnector {
         }
       }
 
+      // `cliente.cidade` guarda o ID da cidade, nao o nome. Sem resolver, o
+      // "4101" seguia como cidade ate a chave de endereco e o cruzamento
+      // comparava numero com nome, sem casar nada.
+      let cidadeNome = r.cidade ? String(r.cidade) : undefined;
+      let ufSigla = r.uf || r.estado || undefined;
+      if (cidadeNome && /^\d+$/.test(cidadeNome)) {
+        const resolvida = await this.resolverCidadePorId(config, cidadeNome);
+        if (resolvida) {
+          cidadeNome = resolvida.nome;
+          if (!ufSigla || /^\d+$/.test(String(ufSigla))) ufSigla = resolvida.uf || ufSigla;
+        }
+      }
+
       const customer: NormalizedErpCustomer = {
         cpfCnpj: clean,
         name: r.razao || r.nome || "",
@@ -932,8 +982,8 @@ export class IxcConnector implements ErpConnector {
         addressNumber: extractNumberFromAddress(r.endereco, r.numero),
         complement: r.complemento || undefined,
         neighborhood: r.bairro || undefined,
-        city: r.cidade || undefined,
-        state: r.uf || r.estado || undefined,
+        city: cidadeNome,
+        state: ufSigla,
         cep: r.cep ? cleanCep(r.cep) : undefined,
         totalOverdueAmount,
         maxDaysOverdue,
@@ -1025,7 +1075,15 @@ export class IxcConnector implements ErpConnector {
 
     return clienteRows
       .map((r: any) => {
-        const cpfCnpj = cleanCpfCnpj(r.cpf_cnpj || r.documento || "");
+        // `cnpj_cpf` — nessa ordem — e o nome REAL do campo na tabela `cliente`
+        // do IXC, verificado contra a API em 27/08/2026. Esta linha tentava so
+        // `cpf_cnpj || documento`, os dois inexistentes, e portanto descartava
+        // TODOS os clientes: `fetchCustomersByCep` devolvia zero desde sempre e
+        // o cruzamento de endereco da consulta nunca produziu nada — sem erro,
+        // sem log, so uma lista vazia que parecia "ninguem mais neste endereco".
+        // As outras tres montagens do arquivo (linhas 287, 450, 516) ja tinham
+        // o `cnpj_cpf`; esta ficou para tras.
+        const cpfCnpj = cleanCpfCnpj(r.cnpj_cpf || r.cpf_cnpj || r.documento || "");
         if (!cpfCnpj) return null;
         const custId = String(r.id || "");
         const overdue = overdueByCustomer.get(custId);
