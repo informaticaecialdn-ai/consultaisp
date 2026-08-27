@@ -54,13 +54,14 @@ export class CustomersStorage {
   /** Upsert cliente do ERP — atualiza se cpfCnpj+providerId ja existe, senao insere */
   /** Agregado lido pela consulta em rede — evita join de equipamento por busca. */
   async updateCustomerEquipmentAggregate(
+    providerId: number,
     customerId: number,
     count: number,
     value: string,
   ): Promise<void> {
     await db.update(customers)
       .set({ equipmentCount: count, equipmentEstimatedValue: value })
-      .where(eq(customers.id, customerId));
+      .where(and(eq(customers.id, customerId), eq(customers.providerId, providerId)));
   }
 
   async upsertFromErp(data: {

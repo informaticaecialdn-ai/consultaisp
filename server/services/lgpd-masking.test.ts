@@ -57,11 +57,11 @@ describe('maskAddress', () => {
     expect(maskAddress('Rua das Flores, 123', true)).toBe('Rua das Flores, 123');
   });
 
-  it('strips house number for cross provider', () => {
+  it('masks street partially and hides house number entirely for cross provider', () => {
     const result = maskAddress('Rua das Flores, 123', false);
-    expect(result).toContain('Rua das Flores');
-    expect(result).toContain('***');
+    expect(result).toBe('Rua da***, ***');
     expect(result).not.toContain('123');
+    expect(result).not.toContain('12');
   });
 });
 
@@ -209,6 +209,11 @@ describe('maskCrossProviderDetail', () => {
     hasUnreturnedEquipment: true,
     unreturnedEquipmentCount: 1,
     equipmentPendingSummary: '1 ONU',
+    equipmentStatus: 'validated_pending',
+    equipmentSignalValidated: true,
+    equipmentCategories: ['ONU'],
+    equipmentOccurrenceAgeRange: '16-30 dias',
+    equipmentValueRange: 'R$ 200 - R$ 500',
     contractStatus: 'active',
     phone: '43999998888',
     email: 'maria@email.com',
@@ -246,7 +251,7 @@ describe('maskCrossProviderDetail', () => {
 
   it('masks CEP for cross provider', () => {
     const result = maskCrossProviderDetail(sampleDetail, false);
-    expect(result.cep).toBe('86000-***');
+    expect(result.cep).toBeUndefined();
   });
 
   it('sets overdueAmount to undefined and adds range for cross provider', () => {
@@ -268,9 +273,10 @@ describe('maskCrossProviderDetail', () => {
 
   it('preserves non-sensitive fields for cross provider', () => {
     const result = maskCrossProviderDetail(sampleDetail, false);
-    // LGPD: providerName is anonymized for cross-provider display
-    expect(result.providerName).toMatch(/^Provedor Parceiro #[A-F0-9]{4}$/);
+    // LGPD: providerName vira codigo parceiro ISP-#XXXXL (4 chars do charset sem I/O + inicial do nome)
+    expect(result.providerName).toMatch(/^Provedor Parceiro ISP-#[0-9A-HJ-NP-Z]{4}[A-Z]$/);
     expect(result.providerName).not.toBe('ISP Alpha');
+    expect(result.providerName).not.toContain('Alpha');
     expect(result.status).toBe('Inadimplente');
     // LGPD: exact daysOverdue is stripped for cross-provider, replaced with qualitative range
     expect(result.daysOverdue).toBeUndefined();
@@ -282,7 +288,26 @@ describe('maskCrossProviderDetail', () => {
     expect(result.hasUnreturnedEquipment).toBe(true);
     expect(result.unreturnedEquipmentCount).toBe(1);
     expect(result.equipmentPendingSummary).toBe('1 ONU');
+    expect(result.equipmentStatus).toBe('validated_pending');
+    expect(result.equipmentSignalValidated).toBe(true);
+    expect(result.equipmentCategories).toEqual(['ONU']);
+    expect(result.equipmentOccurrenceAgeRange).toBe('16-30 dias');
+    expect(result.equipmentValueRange).toBe('R$ 200 - R$ 500');
     expect(result.contractStatus).toBe('active');
     expect(result.contractStartDate).toBe('2024-01-01');
+  });
+
+  it('nao copia detalhes de equipamento desconhecidos para outro provedor', () => {
+    const result = maskCrossProviderDetail({
+      ...sampleDetail,
+      equipmentDetails: [{ serialNumber: 'SN-123', mac: 'AA:BB', model: 'XPTO' }],
+      serialNumber: 'SN-123',
+      mac: 'AA:BB',
+      proofReference: 'OS-99',
+    }, false);
+    expect(result.equipmentDetails).toBeUndefined();
+    expect(result.serialNumber).toBeUndefined();
+    expect(result.mac).toBeUndefined();
+    expect(result.proofReference).toBeUndefined();
   });
 });

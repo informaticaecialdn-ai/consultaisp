@@ -153,7 +153,7 @@ const FUNCIONALIDADES: Array<{ url: string; titulo: string; desc: string; Icone:
   { url: "/inadimplentes", titulo: "Inadimplentes", Icone: Users,       desc: "Sua carteira de inadimplentes sincronizada do ERP" },
   { url: "/localizacao",   titulo: "Localização",   Icone: MapPin,      desc: "Mapa da carteira, concentração de inadimplência e ranking de bairros" },
   { url: "/importacao",    titulo: "Importação",    Icone: Upload,      desc: "Importe clientes e faturas por arquivo CSV" },
-  { url: "/importacao-equipamentos", titulo: "Importar Equipamentos", Icone: Package, desc: "Cadastre ONUs e equipamentos em comodato" },
+  { url: "/equipamentos", titulo: "Equipamentos", Icone: Package, desc: "Comodato, recuperação após rescisão e ocorrências validadas" },
   { url: "/creditos",      titulo: "Comprar Créditos", Icone: CreditCard, desc: "Recarregue o saldo para novas consultas" },
   { url: "/nfse",          titulo: "Notas Fiscais", Icone: FileText,    desc: "Emissão e histórico de notas fiscais de serviço" },
   { url: "/painel-provedor", titulo: "Painel do Provedor", Icone: Building2, desc: "Dados cadastrais, sócios, usuários e documentos" },

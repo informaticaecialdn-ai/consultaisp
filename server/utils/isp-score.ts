@@ -24,7 +24,7 @@ export interface ISPScoreInput {
     diasAtrasoAtual: number
     faturasAtrasadasTotal: number
     faturasTotal: number
-    equipamentosDevolvidos: boolean
+    equipamentosDevolvidos?: boolean
     statusContrato: 'ativo' | 'cancelado' | 'suspenso' | 'nunca_teve'
   }
   rede?: {
@@ -130,8 +130,10 @@ export function calcularScoreISP(input: ISPScoreInput): ISPScoreResult {
     else if (input.proprio.mesesComoCliente >= 6) f1 += 10
   }
 
-  // Equipment return bonus: if ALL occurrences in the network returned equipment
-  const allEquipmentReturned = todasOcorrencias.length > 0 && todasOcorrencias.every(oc => oc.equipamentosDevolvidos !== false)
+  // Ausencia de informacao nao e devolucao confirmada. O bonus so existe quando
+  // todas as ocorrencias possuem confirmacao positiva explicita.
+  const allEquipmentReturned = todasOcorrencias.length > 0
+    && todasOcorrencias.every(oc => oc.equipamentosDevolvidos === true)
   if (allEquipmentReturned) f1 += 15
   f1 = Math.max(0, Math.min(300, f1))
 
@@ -275,6 +277,16 @@ export function calcularScoreISP(input: ISPScoreInput): ISPScoreResult {
     if (!condicoesSugeridas.some(s => s.includes('pendencia'))) {
       condicoesSugeridas.push('Cliente com pendencia financeira na rede ISP — monitorar')
     }
+  }
+
+  const hasValidatedEquipmentOccurrence = todasOcorrencias.some(oc => oc.equipamentosDevolvidos === false)
+  if (hasValidatedEquipmentOccurrence) {
+    if (sugestaoIA === 'APROVAR') {
+      sugestaoIA = 'APROVAR COM ATENCAO'
+      corIndicador = 'amarelo'
+      nivelRisco = 'moderado'
+    }
+    condicoesSugeridas.push('Revisar a ocorrencia validada de equipamento antes de fornecer novo comodato')
   }
 
   const score100 = Math.round(score / 10)

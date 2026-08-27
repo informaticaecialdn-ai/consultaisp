@@ -1,6 +1,6 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, CreditCard, Clock, Router, AlertTriangle, Lock, Info } from "lucide-react";
+import { CheckCircle, CreditCard, Clock, Router, AlertTriangle, Lock, Info, HelpCircle, ShieldAlert } from "lucide-react";
 import type { ProviderDetail } from "./types";
 import { getInitials } from "./utils";
 
@@ -116,7 +116,7 @@ function DetailGrid({ d, isOwn }: { d: ProviderDetail; isOwn: boolean }) {
           </div>
         </div>
 
-        {/* Equipamentos */}
+        {/* Equipamentos — tri-state: ocorrencia validada / pendencia operacional / sem informacao */}
         <div className={`p-4 ${d.hasUnreturnedEquipment ? "bg-[var(--color-gold-bg)]" : ""}`}>
           <div className="flex items-center gap-1.5 mb-3">
             <Router className={`w-3.5 h-3.5 ${d.hasUnreturnedEquipment ? "text-[var(--color-gold)]" : "text-[var(--color-muted)]"}`} />
@@ -124,10 +124,17 @@ function DetailGrid({ d, isOwn }: { d: ProviderDetail; isOwn: boolean }) {
           </div>
           {d.hasUnreturnedEquipment ? (
             <div className="space-y-2">
-              <div className="flex items-center gap-1">
-                <AlertTriangle className="w-3.5 h-3.5 text-[var(--color-gold)]" />
-                <p className="text-xs font-bold text-[var(--color-gold)]">{d.unreturnedEquipmentCount} nao devolvido(s)</p>
-              </div>
+              {d.equipmentSignalValidated ? (
+                <div className="flex items-center gap-1">
+                  <ShieldAlert className="w-3.5 h-3.5 text-[var(--color-gold)]" />
+                  <p className="text-xs font-bold text-[var(--color-gold)]">Ocorrencia validada de retirada pendente</p>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5 text-[var(--color-gold)]" />
+                  <p className="text-xs font-bold text-[var(--color-gold)]">{d.unreturnedEquipmentCount} com retirada pendente</p>
+                </div>
+              )}
               {isOwn && d.equipmentDetails ? (
                 <div className="space-y-1.5 mt-2">
                   {d.equipmentDetails.map((eq: any, j: number) => (
@@ -146,15 +153,26 @@ function DetailGrid({ d, isOwn }: { d: ProviderDetail; isOwn: boolean }) {
                   </div>
                 </div>
               ) : !isOwn ? (
-                <span className="flex items-center gap-1 text-xs text-[var(--color-muted)] mt-1"><Lock className="w-3 h-3" /> Detalhes restritos</span>
+                <div className="space-y-1 mt-1">
+                  {d.equipmentPendingSummary && (
+                    <p className="text-xs text-[var(--color-ink)]">{d.equipmentPendingSummary}</p>
+                  )}
+                  {d.equipmentSignalValidated && d.equipmentOccurrenceAgeRange && (
+                    <p className="text-xs text-[var(--color-muted)]">Idade da ocorrencia: {d.equipmentOccurrenceAgeRange}</p>
+                  )}
+                  <span className="flex items-center gap-1 text-xs text-[var(--color-muted)]"><Lock className="w-3 h-3" /> Serie, modelo e endereco restritos</span>
+                  {d.equipmentSignalValidated && (
+                    <p className="text-xs text-[var(--color-gold)] font-medium">Recomendacao: realizar revisao humana antes de novo comodato</p>
+                  )}
+                </div>
               ) : (
                 <p className="text-xs text-[var(--color-muted)]">{d.equipmentPendingSummary}</p>
               )}
             </div>
           ) : (
             <div className="flex items-center gap-1.5">
-              <CheckCircle className="w-4 h-4 text-[var(--color-success)]" />
-              <span className="text-sm text-[var(--color-success)] font-medium">Todos devolvidos</span>
+              <HelpCircle className="w-4 h-4 text-[var(--color-muted)]" />
+              <span className="text-sm text-[var(--color-muted)]">Sem ocorrencia registrada</span>
             </div>
           )}
         </div>

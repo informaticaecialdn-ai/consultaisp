@@ -16,6 +16,7 @@ import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { logger } from "../logger";
 import { isSpcConfigured, consultarSpc } from "../services/spc.service";
 import { notifyOwnerProviders } from "../services/proactive-alert.service";
+import { faixaIdadeOcorrencia, faixaValorEquipamento } from "../services/equipment-recovery-rules";
 
 export function registerConsultasRoutes(): Router {
   const router = Router();
@@ -153,8 +154,21 @@ export function registerConsultasRoutes(): Router {
           }
         }
 
+        // Um sinal patrimonial so entra na rede depois de prova, notificacao,
+        // evidencia operacional e revisao administrativa. O ERP isolado nao
+        // basta para publicar uma ocorrencia contra o titular.
+        const recoverySignals = (searchType === "cpf" || searchType === "cnpj")
+          ? await storage.getValidatedRecoverySignals(cleaned, Array.from(allowedProviderIds))
+          : [];
+        const signalByProvider = new Map(recoverySignals.map(signal => [signal.providerId, signal]));
+
         // Flatten all customers from all ERPs
-        const allCustomers: Array<RealtimeQueryResult["customers"][0] & { providerName: string; providerId: number; isSameProvider: boolean }> = [];
+        const allCustomers: Array<RealtimeQueryResult["customers"][0] & {
+          providerName: string;
+          providerId: number;
+          isSameProvider: boolean;
+          recoverySignal?: typeof recoverySignals[number];
+        }> = [];
         for (const erpResult of erpResults) {
           if (!erpResult.ok || erpResult.customers.length === 0) continue;
           for (const c of erpResult.customers) {
@@ -163,28 +177,35 @@ export function registerConsultasRoutes(): Router {
               providerName: erpResult.providerName,
               providerId: erpResult.providerId,
               isSameProvider: erpResult.providerId === providerId,
+              recoverySignal: signalByProvider.get(erpResult.providerId),
             });
           }
         }
 
+        // Cadastro manual/CSV pode conter uma ocorrencia validada mesmo quando o
+        // ERP nao devolve mais o contrato cancelado. Inclui uma linha sintetica,
+        // com o minimo necessario e sem inventar inadimplencia financeira.
+        for (const signal of recoverySignals) {
+          if (allCustomers.some(customer => customer.providerId === signal.providerId)) continue;
+          allCustomers.push({
+            cpfCnpj: cleaned,
+            name: signal.customerName,
+            totalOverdueAmount: 0,
+            maxDaysOverdue: 0,
+            overdueInvoicesCount: 0,
+            hasUnreturnedEquipment: true,
+            unreturnedEquipmentCount: signal.count,
+            equipmentCategories: signal.categories,
+            equipmentPendingValue: signal.totalValue,
+            providerName: signal.providerName,
+            providerId: signal.providerId,
+            isSameProvider: signal.providerId === providerId,
+            recoverySignal: signal,
+          });
+        }
+
         const notFound = allCustomers.length === 0;
         const isOwnCustomer = allCustomers.some(c => c.isSameProvider);
-
-        // DEBUG: log what we received from ERPs before mapping
-        console.log(`[CONSULTA] allCustomers (${allCustomers.length}):`,
-          allCustomers.map(c => ({
-            providerId: c.providerId,
-            isSameProvider: c.isSameProvider,
-            name: c.name,
-            address: c.address,
-            city: c.city,
-            cep: c.cep,
-          }))
-        );
-
-        // Contagem real de equipamento retido — uma query para todos os clientes.
-        const idsClientes = allCustomers.map((c: any) => c.id).filter(Boolean);
-        const equipPorCliente = await storage.contarEquipamentoRetido(idsClientes);
 
         // Build provider details with LGPD masking
         const providerDetails = allCustomers.map(c => {
@@ -196,6 +217,14 @@ export function registerConsultasRoutes(): Router {
 
           const addrParts = [c.address, c.addressNumber, c.complement, c.neighborhood, c.city, c.state, c.cep].filter(Boolean);
 
+          const signal = c.recoverySignal;
+          const operationalPending = c.isSameProvider && c.hasUnreturnedEquipment === true;
+          const hasUnreturnedEquipment = !!signal || operationalPending;
+          // Entre provedores a quantidade viaja em faixa (1 ou 2+), como o resto
+          // do sinal; a contagem exata fica restrita ao provedor de origem.
+          const unreturnedEquipmentCount = signal
+            ? (c.isSameProvider ? signal.count : Math.min(signal.count, 2))
+            : (operationalPending ? (c.unreturnedEquipmentCount ?? 1) : 0);
           const rawDetail: Record<string, any> = {
             providerName: c.providerName,
             providerId: c.providerId,
@@ -214,20 +243,30 @@ export function registerConsultasRoutes(): Router {
             cep: c.cep || undefined,
             latitude: (c as any).latitude || undefined,
             longitude: (c as any).longitude || undefined,
-            // O flag do conector cobre o ERP que so diz "tem pendencia"; o
-            // agregado cobre o que foi cadastrado a mao ou por planilha.
-            hasUnreturnedEquipment:
-              c.hasUnreturnedEquipment || (equipPorCliente.get((c as any).id)?.count ?? 0) > 0,
-            unreturnedEquipmentCount: equipPorCliente.get((c as any).id)?.count ?? 0,
-            // LGPD: contagem e valor atravessam provedor; serie, MAC e modelo nao.
-            equipmentPendingSummary: (() => {
-              const e = equipPorCliente.get((c as any).id);
-              if (!e || e.count === 0) return undefined;
-              const valor = e.value.toLocaleString("pt-BR", {
-                minimumFractionDigits: 2, maximumFractionDigits: 2,
-              });
-              return `${e.count} equipamento${e.count > 1 ? "s" : ""} · R$ ${valor}`;
-            })(),
+            hasUnreturnedEquipment,
+            unreturnedEquipmentCount,
+            equipmentStatus: signal
+              ? "validated_pending"
+              : operationalPending
+                ? "operational_pending"
+                : "unknown",
+            equipmentSignalValidated: !!signal,
+            equipmentCategories: signal?.categories ?? (operationalPending ? c.equipmentCategories : undefined),
+            equipmentOccurrenceAgeRange: signal
+              ? faixaIdadeOcorrencia(signal.terminationDate)
+              : undefined,
+            equipmentValueRange: signal
+              ? faixaValorEquipamento(signal.totalValue)
+              : undefined,
+            // LGPD: o outro provedor recebe faixa de valor, nunca serie, MAC,
+            // modelo, endereco, texto de atendimento ou valor exato.
+            equipmentPendingSummary: signal
+              ? c.isSameProvider
+                ? `${signal.count} equipamento${signal.count > 1 ? "s" : ""} · R$ ${signal.totalValue.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                : `${signal.count === 1 ? "1 equipamento" : "2+ equipamentos"} · ${faixaValorEquipamento(signal.totalValue)} · ${faixaIdadeOcorrencia(signal.terminationDate)}`
+              : operationalPending
+                ? `${unreturnedEquipmentCount} equipamento${unreturnedEquipmentCount > 1 ? "s" : ""} pendente${unreturnedEquipmentCount > 1 ? "s" : ""} no seu ERP`
+                : undefined,
             planName: c.planName,
             phone: c.phone,
             email: c.email,
@@ -250,6 +289,11 @@ export function registerConsultasRoutes(): Router {
             alerts.push(`[${c.providerName}] Inadimplente: ${c.maxDaysOverdue} dias em atraso`);
           }
         }
+        for (const signal of recoverySignals) {
+          alerts.push(signal.providerId === providerId
+            ? "Ocorrência patrimonial validada pelo seu provedor"
+            : "[Rede ISP] Ocorrência validada de equipamento com retirada pendente");
+        }
 
         // Recent consultations for F4 (padrao de consultas) — single DB call for 90d, filter 30d in code
         const recentConsultations90 = await storage.getRecentConsultationsForDocument(cleaned, 90);
@@ -268,7 +312,7 @@ export function registerConsultasRoutes(): Router {
             faturasAtraso: c.overdueInvoicesCount || 0,
             statusContrato: c.status || "unknown",
             mesesComoCliente: c.serviceAgeMonths,
-            equipamentosDevolvidos: c.hasUnreturnedEquipment === false,
+            equipamentosDevolvidos: c.recoverySignal ? false : undefined,
           }));
 
         // ── ADDRESS SEARCH — automatic for CPF when ERP returns address ──
@@ -335,7 +379,9 @@ export function registerConsultasRoutes(): Router {
             diasAtrasoAtual: ownCustomer.maxDaysOverdue,
             faturasAtrasadasTotal: ownCustomer.overdueInvoicesCount || 0,
             faturasTotal: 0,
-            equipamentosDevolvidos: ownCustomer.hasUnreturnedEquipment !== true,
+            equipamentosDevolvidos: ownCustomer.recoverySignal || ownCustomer.hasUnreturnedEquipment === true
+              ? false
+              : undefined,
             statusContrato: ownCustomer.maxDaysOverdue > 0 ? "suspenso" : "ativo",
           } : undefined,
           rede: {

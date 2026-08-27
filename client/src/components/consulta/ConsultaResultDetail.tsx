@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import {
   CheckCircle, AlertCircle, XCircle, AlertTriangle, Lightbulb,
   CreditCard, Clock, Building2, Router, Lock, MapPin,
-  ArrowRight, RotateCcw, Download, Save,
+  ArrowRight, RotateCcw, Download, Save, HelpCircle, ShieldAlert,
 } from "lucide-react";
 import ScoreGaugeSvg from "./ScoreGaugeSvg";
 import AiAnalysisSection from "./AiAnalysisSection";
@@ -306,7 +306,7 @@ function ProviderDetailSection({ detail, idx }: { detail: any; idx: number }) {
             </div>
           </div>
 
-          {/* Equipamentos */}
+          {/* Equipamentos — tri-state: ocorrencia validada / pendencia operacional / sem informacao */}
           <div className={`p-4 ${detail.hasUnreturnedEquipment ? "bg-[var(--color-gold-bg)]" : ""}`}>
             <div className="flex items-center gap-1.5 mb-3">
               <Router className={`w-4 h-4 ${detail.hasUnreturnedEquipment ? "text-[var(--color-gold)]" : "text-[var(--color-muted)]"}`} />
@@ -314,10 +314,17 @@ function ProviderDetailSection({ detail, idx }: { detail: any; idx: number }) {
             </div>
             {detail.hasUnreturnedEquipment ? (
               <div className="space-y-2">
-                <div className="flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5 text-[var(--color-gold)]" />
-                  <p className="text-xs font-bold text-[var(--color-gold)]">{detail.unreturnedEquipmentCount} nao devolvido(s)</p>
-                </div>
+                {detail.equipmentSignalValidated ? (
+                  <div className="flex items-center gap-1">
+                    <ShieldAlert className="w-3.5 h-3.5 text-[var(--color-gold)]" />
+                    <p className="text-xs font-bold text-[var(--color-gold)]">Ocorrencia validada de retirada pendente</p>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5 text-[var(--color-gold)]" />
+                    <p className="text-xs font-bold text-[var(--color-gold)]">{detail.unreturnedEquipmentCount} com retirada pendente</p>
+                  </div>
+                )}
                 {detail.equipmentDetails ? (
                   <div className="space-y-1.5 mt-2">
                     {detail.equipmentDetails.map((eq: any, j: number) => (
@@ -338,11 +345,24 @@ function ProviderDetailSection({ detail, idx }: { detail: any; idx: number }) {
                 ) : (
                   <p className="text-xs text-[var(--color-muted)]">{detail.equipmentPendingSummary}</p>
                 )}
+                {detail.equipmentSignalValidated && (
+                  <>
+                    {detail.equipmentCategories && detail.equipmentCategories.length > 0 && (
+                      <p className="text-xs text-[var(--color-muted)]">Categoria: {detail.equipmentCategories.join(", ")}</p>
+                    )}
+                    {detail.equipmentOccurrenceAgeRange && (
+                      <p className="text-xs text-[var(--color-muted)]">Idade da ocorrencia: {detail.equipmentOccurrenceAgeRange}</p>
+                    )}
+                    {!isOwn && (
+                      <p className="text-xs text-[var(--color-gold)] font-medium">Recomendacao: realizar revisao humana antes de novo comodato</p>
+                    )}
+                  </>
+                )}
               </div>
             ) : (
               <div className="flex items-center gap-1.5">
-                <CheckCircle className="w-4 h-4 text-[var(--color-success)]" />
-                <span className="text-sm text-[var(--color-success)] font-medium">Todos devolvidos</span>
+                <HelpCircle className="w-4 h-4 text-[var(--color-muted)]" />
+                <span className="text-sm text-[var(--color-muted)]">Sem ocorrencia registrada</span>
               </div>
             )}
           </div>

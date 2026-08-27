@@ -27,7 +27,6 @@ const AntiFraudePage = lazy(() => import("@/pages/consulta/anti-fraude"));
 const InadimplentesPage = lazy(() => import("@/pages/operacional/inadimplentes"));
 const LocalizacaoPage = lazy(() => import("@/pages/operacional/localizacao"));
 const ImportacaoPage = lazy(() => import("@/pages/operacional/importacao"));
-const ImportacaoEquipamentosPage = lazy(() => import("@/pages/operacional/importacao-equipamentos"));
 const EquipamentosPage = lazy(() => import("@/pages/operacional/equipamentos"));
 
 // Financeiro
@@ -82,7 +81,7 @@ function Router() {
         <Route path="/creditos" component={CreditosPage} />
         <Route path="/nfse" component={NfsePage} />
         <Route path="/importacao" component={ImportacaoPage} />
-        <Route path="/importacao-equipamentos" component={ImportacaoEquipamentosPage} />
+        <Route path="/importacao-equipamentos"><Redirect to="/equipamentos?importar=1" /></Route>
         <Route path="/equipamentos" component={EquipamentosPage} />
         <Route path="/administracao" component={AdministracaoPage} />
         <Route path="/painel-provedor" component={PainelProvedorPage} />

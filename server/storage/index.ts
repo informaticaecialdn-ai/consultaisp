@@ -4,7 +4,7 @@ import type {
   Customer, InsertCustomer,
   Contract, InsertContract,
   Invoice, InsertInvoice,
-  Equipment, InsertEquipment,
+  Equipment, InsertEquipment, EquipmentRecoveryCase, EquipmentRecoveryEvent, InsertEquipmentRecoveryCase,
   IspConsultation, InsertIspConsultation,
   SpcConsultation, InsertSpcConsultation,
   AntiFraudAlert, InsertAntiFraudAlert,
@@ -27,7 +27,7 @@ import { CustomersStorage } from "./customers.storage";
 import { ConsultationsStorage } from "./consultations.storage";
 import { AntifraudeStorage } from "./antifraude.storage";
 import { FinancialStorage } from "./financial.storage";
-import { EquipmentStorage } from "./equipment.storage";
+import { EquipmentStorage, type RecoveryCaseWithDetails, type ValidatedRecoverySignal } from "./equipment.storage";
 import { BigdataStorage } from "./bigdata.storage";
 import { LocalizacaoStorage } from "./localizacao.storage";
 import { ErpStorage } from "./erp.storage";
@@ -66,7 +66,7 @@ export interface IStorage {
   getCustomersByAddressHash(addressHash: string, excludeCpfCnpj?: string): Promise<Customer[]>;
   createCustomer(customer: InsertCustomer): Promise<Customer>;
   upsertFromErp(data: Parameters<CustomersStorage["upsertFromErp"]>[0]): Promise<Customer>;
-  updateCustomerEquipmentAggregate(customerId: number, count: number, value: string): Promise<void>;
+  updateCustomerEquipmentAggregate(providerId: number, customerId: number, count: number, value: string): Promise<void>;
   getHeatmapAll(): ReturnType<CustomersStorage["getHeatmapAll"]>;
   getCustomersByCepPrefix(cepPrefix: string, excludeProviderId?: number): Promise<Customer[]>;
   getCustomersByAddressForAlert(params: Parameters<CustomersStorage["getCustomersByAddressForAlert"]>[0]): ReturnType<CustomersStorage["getCustomersByAddressForAlert"]>;
@@ -90,13 +90,23 @@ export interface IStorage {
   debitarBigdataCredito(providerId: number): Promise<boolean>;
   estornarBigdataCredito(providerId: number): Promise<void>;
   getEquipmentByProvider(providerId: number): Promise<Equipment[]>;
-  getEquipmentByCustomer(customerId: number): Promise<Equipment[]>;
+  getEquipmentByCustomer(customerId: number, providerId: number): Promise<Equipment[]>;
   createEquipment(equipment: InsertEquipment): Promise<Equipment>;
   getEquipmentById(id: number, providerId: number): Promise<Equipment | undefined>;
   updateEquipment(id: number, providerId: number, data: Partial<InsertEquipment>): Promise<Equipment | undefined>;
   removeEquipment(id: number, providerId: number): Promise<boolean>;
   syncEquipmentFromErp(providerId: number, customerId: number, detalhes: any[]): Promise<{ inseridos: number; devolvidos: number }>;
-  contarEquipamentoRetido(customerIds: number[]): Promise<Map<number, { count: number; value: number }>>;
+  contarEquipamentoRetido(providerId: number, customerIds: number[]): Promise<Map<number, { count: number; value: number }>>;
+  recalculateCustomerEquipmentAggregate(providerId: number, customerId: number): Promise<void>;
+  getRecoveryCases(providerId: number): Promise<RecoveryCaseWithDetails[]>;
+  getRecoveryCaseById(id: number, providerId: number): Promise<EquipmentRecoveryCase | undefined>;
+  getRecoveryEvents(caseId: number, providerId: number): Promise<EquipmentRecoveryEvent[]>;
+  createRecoveryCase(data: InsertEquipmentRecoveryCase): Promise<EquipmentRecoveryCase>;
+  updateRecoveryCase(id: number, providerId: number, userId: number, data: Partial<InsertEquipmentRecoveryCase>): Promise<EquipmentRecoveryCase | undefined>;
+  addRecoveryAttempt(input: Parameters<EquipmentStorage["addRecoveryAttempt"]>[0]): Promise<EquipmentRecoveryEvent | undefined>;
+  validateRecoverySignal(input: Parameters<EquipmentStorage["validateRecoverySignal"]>[0]): Promise<{ case?: EquipmentRecoveryCase; message?: string }>;
+  expireRecoveryCases(providerId: number): Promise<number>;
+  getValidatedRecoverySignals(cpfCnpj: string, providerIds: number[]): Promise<ValidatedRecoverySignal[]>;
 
   getIspConsultationsByProvider(providerId: number): Promise<IspConsultation[]>;
   getIspConsultationsByProviderPaginated(providerId: number, page: number, limit: number): Promise<{ rows: IspConsultation[]; total: number }>;
@@ -263,7 +273,7 @@ class DatabaseStorage implements IStorage {
   getCustomersByAddressHash = (addressHash: string, excludeCpfCnpj?: string) => this._customers.getCustomersByAddressHash(addressHash, excludeCpfCnpj);
   createCustomer = (customer: InsertCustomer) => this._customers.createCustomer(customer);
   upsertFromErp = (data: Parameters<CustomersStorage["upsertFromErp"]>[0]) => this._customers.upsertFromErp(data);
-  updateCustomerEquipmentAggregate = (customerId: number, count: number, value: string) => this._customers.updateCustomerEquipmentAggregate(customerId, count, value);
+  updateCustomerEquipmentAggregate = (providerId: number, customerId: number, count: number, value: string) => this._customers.updateCustomerEquipmentAggregate(providerId, customerId, count, value);
   getHeatmapAll = () => this._customers.getHeatmapAll();
   getCustomersByCepPrefix = (cepPrefix: string, excludeProviderId?: number) => this._customers.getCustomersByCepPrefix(cepPrefix, excludeProviderId);
   getCustomersByAddressForAlert = (params: Parameters<CustomersStorage["getCustomersByAddressForAlert"]>[0]) => this._customers.getCustomersByAddressForAlert(params);
@@ -335,13 +345,23 @@ class DatabaseStorage implements IStorage {
   debitarBigdataCredito = (providerId: number) => this._bigdata.debitarCredito(providerId);
   estornarBigdataCredito = (providerId: number) => this._bigdata.estornarCredito(providerId);
   getEquipmentByProvider = (providerId: number) => this._equipment.getEquipmentByProvider(providerId);
-  getEquipmentByCustomer = (customerId: number) => this._equipment.getEquipmentByCustomer(customerId);
+  getEquipmentByCustomer = (customerId: number, providerId: number) => this._equipment.getEquipmentByCustomer(customerId, providerId);
   createEquipment = (eq_data: InsertEquipment) => this._equipment.createEquipment(eq_data);
   getEquipmentById = (id: number, providerId: number) => this._equipment.getEquipmentById(id, providerId);
   updateEquipment = (id: number, providerId: number, data: Partial<InsertEquipment>) => this._equipment.updateEquipment(id, providerId, data);
   removeEquipment = (id: number, providerId: number) => this._equipment.removeEquipment(id, providerId);
   syncEquipmentFromErp = (providerId: number, customerId: number, detalhes: any[]) => this._equipment.syncEquipmentFromErp(providerId, customerId, detalhes);
-  contarEquipamentoRetido = (customerIds: number[]) => this._equipment.contarEquipamentoRetido(customerIds);
+  contarEquipamentoRetido = (providerId: number, customerIds: number[]) => this._equipment.contarEquipamentoRetido(providerId, customerIds);
+  recalculateCustomerEquipmentAggregate = (providerId: number, customerId: number) => this._equipment.recalculateCustomerEquipmentAggregate(providerId, customerId);
+  getRecoveryCases = (providerId: number) => this._equipment.getRecoveryCases(providerId);
+  getRecoveryCaseById = (id: number, providerId: number) => this._equipment.getRecoveryCaseById(id, providerId);
+  getRecoveryEvents = (caseId: number, providerId: number) => this._equipment.getRecoveryEvents(caseId, providerId);
+  createRecoveryCase = (data: InsertEquipmentRecoveryCase) => this._equipment.createRecoveryCase(data);
+  updateRecoveryCase = (id: number, providerId: number, userId: number, data: Partial<InsertEquipmentRecoveryCase>) => this._equipment.updateRecoveryCase(id, providerId, userId, data);
+  addRecoveryAttempt = (input: Parameters<EquipmentStorage["addRecoveryAttempt"]>[0]) => this._equipment.addRecoveryAttempt(input);
+  validateRecoverySignal = (input: Parameters<EquipmentStorage["validateRecoverySignal"]>[0]) => this._equipment.validateRecoverySignal(input);
+  expireRecoveryCases = (providerId: number) => this._equipment.expireRecoveryCases(providerId);
+  getValidatedRecoverySignals = (cpfCnpj: string, providerIds: number[]) => this._equipment.getValidatedRecoverySignals(cpfCnpj, providerIds);
 
   // ERP
   getErpIntegrations = (providerId: number) => this._erp.getErpIntegrations(providerId);

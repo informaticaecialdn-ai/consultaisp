@@ -31,7 +31,10 @@ export interface EquipamentoErp {
 }
 
 /** Vocabularios de devolucao que os ERPs usam; nenhum deles padroniza isso. */
-const STATUS_DEVOLVIDO = ['devolvido', 'returned', 'baixa', 'baixado'];
+const STATUS_DEVOLVIDO = [
+  'devolvido', 'returned', 'recuperado', 'recuperado_triagem',
+  'disponivel_reuso', 'baixa', 'baixado',
+];
 
 export function ehDevolvido(status?: string | null): boolean {
   if (!status) return false;

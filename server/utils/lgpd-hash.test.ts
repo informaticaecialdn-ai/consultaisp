@@ -88,7 +88,8 @@ describe('provider-anonymizer', () => {
     const id1 = anonymizeProvider('NG Telecom');
     const id2 = anonymizeProvider('NG Telecom');
     expect(id1).toBe(id2);
-    expect(id1).toMatch(/^Provedor Parceiro #[A-F0-9]{4}$/);
+    // Formato ISP-#XXXXL: 4 chars do charset sem I/O + inicial do provedor
+    expect(id1).toMatch(/^Provedor Parceiro ISP-#[0-9A-HJ-NP-Z]{4}[A-Z]$/);
   });
 
   it('produces different IDs for different providers', async () => {
@@ -113,7 +114,7 @@ describe('provider-anonymizer', () => {
   it('getProviderDisplayName returns anonymous for cross-provider', async () => {
     const { getProviderDisplayName } = await import('./provider-anonymizer');
     const name = getProviderDisplayName('NG Telecom', false);
-    expect(name).toMatch(/^Provedor Parceiro #[A-F0-9]{4}$/);
+    expect(name).toMatch(/^Provedor Parceiro ISP-#[0-9A-HJ-NP-Z]{4}[A-Z]$/);
     expect(name).not.toContain('NG');
   });
 });

@@ -95,7 +95,9 @@ function ProviderRow({ detail, globalIdx, onShowDetail }: { detail: ProviderDeta
         {detail.hasUnreturnedEquipment && (
           <p className="text-xs font-bold flex items-center justify-end gap-0.5" style={{ color: "var(--color-gold)" }}>
             <Router className="w-2.5 h-2.5" />
-            {detail.unreturnedEquipmentCount} equip.
+            {detail.equipmentSignalValidated
+              ? `${!isOwn && detail.unreturnedEquipmentCount >= 2 ? "2+" : detail.unreturnedEquipmentCount} equip. · validada`
+              : `${detail.unreturnedEquipmentCount} equip.`}
           </p>
         )}
       </div>

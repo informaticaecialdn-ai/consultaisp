@@ -188,6 +188,11 @@ export class ConsultationCache {
     });
   }
 
+  invalidateAll(): void {
+    this.cache.clear();
+    this.regionalCache.clear();
+  }
+
   destroy(): void {
     this.cache.destroy();
     this.regionalCache.destroy();

@@ -54,7 +54,7 @@ describe('maskAlertForProvider', () => {
     it('anonymizes consultingProviderName when not the requesting provider', () => {
       const alert = makeAlert({ consultingProviderId: PROVIDER_B });
       const result = maskAlertForProvider(alert, PROVIDER_A);
-      expect(result.consultingProviderName).toMatch(/^Provedor Parceiro #[A-F0-9]{4}$/);
+      expect(result.consultingProviderName).toMatch(/^Provedor Parceiro ISP-#[0-9A-HJ-NP-Z]{4}[A-Z]$/);
       expect(result.consultingProviderName).not.toBe("ISP Beta Telecom");
     });
 

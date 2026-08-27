@@ -178,14 +178,61 @@ export const equipment = pgTable("equipment", {
   id: serial("id").primaryKey(),
   customerId: integer("customer_id").references(() => customers.id),
   providerId: integer("provider_id").notNull().references(() => providers.id),
+  assetTag: text("asset_tag"),
   type: text("type").notNull(),
   brand: text("brand"),
   model: text("model"),
   serialNumber: text("serial_number"),
   mac: text("mac"),
-  status: text("status").notNull().default("installed"),
+  status: text("status").notNull().default("em_comodato"),
   inRecoveryProcess: boolean("in_recovery_process").default(false),
   value: decimal("value", { precision: 10, scale: 2 }),
+  source: text("source").notNull().default("manual"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const equipmentRecoveryCases = pgTable("equipment_recovery_cases", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  equipmentId: integer("equipment_id").notNull().references(() => equipment.id),
+  customerId: integer("customer_id").notNull().references(() => customers.id),
+  status: text("status").notNull().default("pre_recuperacao"),
+  priority: text("priority").notNull().default("normal"),
+  terminationDate: timestamp("termination_date").notNull(),
+  deadlineAt: timestamp("deadline_at").notNull(),
+  scheduledAt: timestamp("scheduled_at"),
+  collectionMethod: text("collection_method"),
+  assignedToUserId: integer("assigned_to_user_id").references(() => users.id),
+  proofReference: text("proof_reference"),
+  customerNotifiedAt: timestamp("customer_notified_at"),
+  notificationProtocol: text("notification_protocol"),
+  evidenceValidatedAt: timestamp("evidence_validated_at"),
+  evidenceValidatedById: integer("evidence_validated_by_id").references(() => users.id),
+  bureauStatus: text("bureau_status").notNull().default("candidato"),
+  disputedAt: timestamp("disputed_at"),
+  disputeReason: text("dispute_reason"),
+  closedAt: timestamp("closed_at"),
+  notes: text("notes"),
+  createdById: integer("created_by_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const equipmentRecoveryEvents = pgTable("equipment_recovery_events", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  caseId: integer("case_id").notNull().references(() => equipmentRecoveryCases.id),
+  userId: integer("user_id").references(() => users.id),
+  type: text("type").notNull(),
+  channel: text("channel"),
+  result: text("result"),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status"),
+  notes: text("notes"),
+  metadata: jsonb("metadata"),
+  occurredAt: timestamp("occurred_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const ispConsultations = pgTable("isp_consultations", {
@@ -363,6 +410,8 @@ export const insertCustomerSchema = createInsertSchema(customers).omit({ id: tru
 export const insertContractSchema = createInsertSchema(contracts).omit({ id: true });
 export const insertInvoiceSchema = createInsertSchema(invoices).omit({ id: true });
 export const insertEquipmentSchema = createInsertSchema(equipment).omit({ id: true });
+export const insertEquipmentRecoveryCaseSchema = createInsertSchema(equipmentRecoveryCases).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertEquipmentRecoveryEventSchema = createInsertSchema(equipmentRecoveryEvents).omit({ id: true, createdAt: true });
 export const insertIspConsultationSchema = createInsertSchema(ispConsultations).omit({ id: true, createdAt: true });
 export const insertSpcConsultationSchema = createInsertSchema(spcConsultations).omit({ id: true, createdAt: true });
 export const insertBigdataIntegrationSchema = createInsertSchema(bigdataIntegrations).omit({ id: true, createdAt: true });
@@ -381,6 +430,10 @@ export type Invoice = typeof invoices.$inferSelect;
 export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
 export type Equipment = typeof equipment.$inferSelect;
 export type InsertEquipment = z.infer<typeof insertEquipmentSchema>;
+export type EquipmentRecoveryCase = typeof equipmentRecoveryCases.$inferSelect;
+export type InsertEquipmentRecoveryCase = z.infer<typeof insertEquipmentRecoveryCaseSchema>;
+export type EquipmentRecoveryEvent = typeof equipmentRecoveryEvents.$inferSelect;
+export type InsertEquipmentRecoveryEvent = z.infer<typeof insertEquipmentRecoveryEventSchema>;
 export type IspConsultation = typeof ispConsultations.$inferSelect;
 export type InsertIspConsultation = z.infer<typeof insertIspConsultationSchema>;
 export type SpcConsultation = typeof spcConsultations.$inferSelect;

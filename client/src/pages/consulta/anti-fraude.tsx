@@ -78,7 +78,6 @@ function timeAgo(dateStr: string | null): string {
 
 // Custo de instalacao padrao (configuravel futuramente pelo provedor)
 const CUSTO_INSTALACAO = 150;
-const CUSTO_EQUIP_ESTIMADO = 290;
 
 export default function AntiFraudePage() {
   const { toast } = useToast();
@@ -116,9 +115,9 @@ export default function AntiFraudePage() {
       )
     : displayAlerts;
 
-  // KPIs
+  // KPIs — equipamento entra pelo valor registrado, nunca por estimativa fixa
   const totalDivida = activeAlerts.reduce((s, a) => s + parseFloat(a.overdueAmount || "0"), 0);
-  const totalEquip = activeAlerts.length * CUSTO_EQUIP_ESTIMADO;
+  const totalEquip = activeAlerts.reduce((s, a) => s + parseFloat(a.equipmentValue || "0"), 0);
   const totalInstalacao = activeAlerts.length * CUSTO_INSTALACAO;
   const totalPrejuizo = totalDivida + totalEquip + totalInstalacao;
 
@@ -329,7 +328,8 @@ function AlertCard({ alert, onResolve, onDismiss }: {
 }) {
   const daysOverdue = alert.daysOverdue || 0;
   const overdueAmt = parseFloat(alert.overdueAmount || "0");
-  const equipValue = parseFloat(alert.equipmentValue || "0") || CUSTO_EQUIP_ESTIMADO;
+  const equipCount = alert.equipmentNotReturned || 0;
+  const equipValue = parseFloat(alert.equipmentValue || "0");
   const totalPrejuizo = overdueAmt + equipValue + CUSTO_INSTALACAO;
   const isResolved = alert.status === "resolved" || alert.status === "dismissed";
 
@@ -383,8 +383,14 @@ function AlertCard({ alert, onResolve, onDismiss }: {
               <Package className="w-3 h-3" />
               Equipamento
             </div>
-            <p className="font-bold">{alert.equipmentNotReturned || 1} un.</p>
-            <p className="text-xs text-muted-foreground">{fmt(equipValue)} (estimado)</p>
+            {equipCount > 0 ? (
+              <>
+                <p className="font-bold">{equipCount} un.</p>
+                <p className="text-xs text-muted-foreground">{fmt(equipValue)}</p>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">Sem registro</p>
+            )}
           </div>
           <div className="bg-muted/40 rounded-lg p-3">
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">

@@ -328,8 +328,7 @@ export function AppSidebar() {
       // rede: merece grupo proprio, nao um item solto dentro de Gestao.
       grupo: "Equipamentos",
       itens: [
-        { label: "Equipamentos", url: "/equipamentos",            Icone: Package, testId: "link-equipamentos" },
-        { label: "Importar",     url: "/importacao-equipamentos", Icone: Upload,  testId: "link-importacao-equipamentos" },
+        { label: "Equipamentos", url: "/equipamentos", Icone: Package, testId: "link-equipamentos" },
       ],
     },
     {

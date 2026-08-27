@@ -86,6 +86,12 @@ export async function verifySchema(): Promise<void> {
     { table: "erp_integrations", column: "id" },
     { table: "erp_integrations", column: "provider_id" },
     { table: "erp_integrations", column: "erp_source" },
+    { table: "equipment", column: "provider_id" },
+    { table: "equipment", column: "source" },
+    { table: "equipment_recovery_cases", column: "provider_id" },
+    { table: "equipment_recovery_cases", column: "deadline_at" },
+    { table: "equipment_recovery_cases", column: "bureau_status" },
+    { table: "equipment_recovery_events", column: "case_id" },
   ];
 
   const optionalColumns: Array<{ table: string; column: string }> = [

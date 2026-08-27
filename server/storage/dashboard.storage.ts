@@ -33,7 +33,7 @@ export class DashboardStorage {
       .where(and(
         eq(equipment.providerId, providerId),
         sql`${customers.paymentStatus} != 'current'`,
-        sql`${equipment.status} != 'returned'`,
+        sql`lower(${equipment.status}) in ('retirada_pendente', 'nao_localizado', 'retido', 'em_cobranca', 'not_returned')`,
       ));
 
     const overdueInvoicesCount = await db.select({ count: count() }).from(invoices)
@@ -140,7 +140,7 @@ export class DashboardStorage {
       .where(and(
         eq(equipment.providerId, providerId),
         inArray(equipment.customerId, ids),
-        sql`${equipment.status} != 'returned'`,
+        sql`lower(${equipment.status}) in ('retirada_pendente', 'nao_localizado', 'retido', 'em_cobranca', 'not_returned')`,
       ))
       .groupBy(equipment.customerId);
 

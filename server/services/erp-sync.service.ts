@@ -211,9 +211,10 @@ export async function syncProviderToDb(
         try {
           await storage.syncEquipmentFromErp(providerId, clienteSalvo.id, detalhes);
 
-          const agregado = await storage.contarEquipamentoRetido([clienteSalvo.id]);
+          const agregado = await storage.contarEquipamentoRetido(providerId, [clienteSalvo.id]);
           const a = agregado.get(clienteSalvo.id);
           await storage.updateCustomerEquipmentAggregate(
+            providerId,
             clienteSalvo.id,
             a?.count ?? 0,
             String(a?.value ?? 0),

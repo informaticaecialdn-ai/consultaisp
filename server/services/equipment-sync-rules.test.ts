@@ -12,7 +12,7 @@ const base = (o: Record<string, any> = {}) => ({
 });
 
 describe('ehDevolvido', () => {
-  it.each(['devolvido', 'DEVOLVIDO', 'returned', 'baixa', 'baixado'])(
+  it.each(['devolvido', 'DEVOLVIDO', 'returned', 'recuperado_triagem', 'disponivel_reuso', 'baixa', 'baixado'])(
     'reconhece "%s" como devolvido', (s) => {
       expect(ehDevolvido(s)).toBe(true);
     });

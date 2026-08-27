@@ -4,6 +4,7 @@ import { storage } from "../storage";
 import { maskAlertForProvider } from "../utils/mask-alert";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { logger } from "../logger";
+import { equipamentoTemRetiradaPendente } from "../services/equipment-recovery-rules";
 
 export function registerAntiFraudeRoutes(): Router {
   const router = Router();
@@ -47,8 +48,8 @@ export function registerAntiFraudeRoutes(): Router {
               customerName = ownCustomer.name;
               daysOverdue = ownCustomer.maxDaysOverdue || 0;
               overdueAmount = ownCustomer.totalOverdueAmount || "0";
-              equipCount = (ownCustomer as any).equipmentCount || 1;
-              equipValue = (ownCustomer as any).equipmentEstimatedValue || "290";
+              equipCount = (ownCustomer as any).equipmentCount ?? 0;
+              equipValue = (ownCustomer as any).equipmentEstimatedValue ?? "0";
             }
           } catch {}
         }
@@ -131,8 +132,8 @@ export function registerAntiFraudeRoutes(): Router {
       const allCustomers = await storage.getCustomersByProvider(providerId);
       const customerRisk = [];
       for (const customer of allCustomers) {
-        const customerEquipment = await storage.getEquipmentByCustomer(customer.id);
-        const unreturnedEquipment = customerEquipment.filter(eq => eq.status === "not_returned");
+        const customerEquipment = await storage.getEquipmentByCustomer(customer.id, providerId);
+        const unreturnedEquipment = customerEquipment.filter(eq => equipamentoTemRetiradaPendente(eq.status));
         const equipmentValue = unreturnedEquipment.reduce((sum, eq) => sum + parseFloat(eq.value || "0"), 0);
         const overdueAmount = parseFloat(customer.totalOverdueAmount || "0");
         const daysOverdue = customer.maxDaysOverdue || 0;

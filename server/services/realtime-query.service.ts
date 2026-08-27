@@ -44,6 +44,9 @@ export interface RealtimeQueryResult {
     serviceAgeMonths?: number;
     planName?: string;
     hasUnreturnedEquipment?: boolean;
+    unreturnedEquipmentCount?: number;
+    equipmentCategories?: string[];
+    equipmentPendingValue?: number;
     registrationDate?: string;
   }>;
   latencyMs: number;
@@ -233,7 +236,18 @@ function normalizeCustomer(c: any): RealtimeQueryResult["customers"][0] {
     overdueInvoicesCount: c.overdueInvoicesCount || 0,
     serviceAgeMonths: c.serviceAgeMonths || undefined,
     planName: c.planName || undefined,
-    hasUnreturnedEquipment: c.hasUnreturnedEquipment || false,
+    hasUnreturnedEquipment: typeof c.hasUnreturnedEquipment === "boolean"
+      ? c.hasUnreturnedEquipment
+      : undefined,
+    unreturnedEquipmentCount: Number.isFinite(Number(c.unreturnedEquipmentCount))
+      ? Number(c.unreturnedEquipmentCount)
+      : undefined,
+    equipmentCategories: Array.isArray(c.equipmentDetails)
+      ? Array.from(new Set(c.equipmentDetails.map((item: any) => item.type).filter(Boolean))) as string[]
+      : undefined,
+    equipmentPendingValue: Array.isArray(c.equipmentDetails)
+      ? c.equipmentDetails.reduce((total: number, item: any) => total + Number(item.value || 0), 0)
+      : undefined,
   };
 }
 

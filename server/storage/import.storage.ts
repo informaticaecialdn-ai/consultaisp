@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../db";
 import {
   customers, contracts, invoices, equipment,
@@ -171,14 +171,51 @@ export class ImportStorage {
   ): Promise<ImportResult> {
     // ── Phase 1: Validate all rows before touching the database ──
     const validationErrors: ValidationError[] = [];
-    const validRows: Array<{ index: number; tipo: string; cpfCnpj: string; raw: Record<string, string> }> = [];
+    const validRows: Array<{ index: number; tipo: string; cpfCnpj: string; status: string; raw: Record<string, string> }> = [];
+    const seriesNoArquivo = new Set<string>();
 
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       const tipo = (r.tipo || r.type || "").trim();
       if (!tipo) { validationErrors.push({ row: i + 1, message: "Tipo de equipamento obrigatorio" }); continue; }
       const cpfCnpj = (r.cpf_cnpj || r.cpfCnpj || "").replace(/\D/g, "");
-      validRows.push({ index: i, tipo, cpfCnpj, raw: r });
+      if (cpfCnpj.length !== 11 && cpfCnpj.length !== 14) {
+        validationErrors.push({ row: i + 1, message: "CPF/CNPJ obrigatorio e invalido" });
+        continue;
+      }
+      const statusOriginal = (r.status || "em_comodato").trim().toLowerCase();
+      const statusMap: Record<string, string> = {
+        installed: "em_comodato",
+        em_comodato: "em_comodato",
+        returned: "recuperado_triagem",
+        devolvido: "recuperado_triagem",
+        recuperado: "recuperado_triagem",
+        recuperado_triagem: "recuperado_triagem",
+        lost: "retirada_pendente",
+        not_returned: "retirada_pendente",
+        retido: "retirada_pendente",
+        em_cobranca: "retirada_pendente",
+        retirada_pendente: "retirada_pendente",
+        baixado: "baixado",
+      };
+      const status = statusMap[statusOriginal];
+      if (!status) {
+        validationErrors.push({ row: i + 1, message: `Status de equipamento invalido: ${statusOriginal}` });
+        continue;
+      }
+      const serie = (r.numero_serie || r.serialNumber || "").trim().toLowerCase();
+      if (serie && seriesNoArquivo.has(serie)) {
+        validationErrors.push({ row: i + 1, message: "Numero de serie duplicado no arquivo" });
+        continue;
+      }
+      if (serie) seriesNoArquivo.add(serie);
+      const valorStr = (r.valor || r.value || "").replace(",", ".");
+      const valor = valorStr ? Number(valorStr) : 0;
+      if (!Number.isFinite(valor) || valor < 0) {
+        validationErrors.push({ row: i + 1, message: "Valor do equipamento invalido" });
+        continue;
+      }
+      validRows.push({ index: i, tipo, cpfCnpj, status, raw: r });
     }
 
     // If any validation errors, reject the entire batch
@@ -192,13 +229,15 @@ export class ImportStorage {
     const resultado = await db.transaction(async (tx) => {
       let imported = 0;
 
-      for (const { tipo, cpfCnpj, raw: r } of validRows) {
+      for (const { tipo, cpfCnpj, status, raw: r } of validRows) {
         let customerId: number | null = null;
         if (cpfCnpj) {
-          const existing = await tx.select().from(customers).where(eq(customers.cpfCnpj, cpfCnpj));
-          const providerCustomers = existing.filter(c => c.providerId === providerId);
-          if (providerCustomers.length > 0) {
-            customerId = providerCustomers[0].id;
+          const existing = await tx.select().from(customers).where(and(
+            eq(customers.cpfCnpj, cpfCnpj),
+            eq(customers.providerId, providerId),
+          ));
+          if (existing.length > 0) {
+            customerId = existing[0].id;
           } else {
             const name = (r.nome_cliente || r.customerName || cpfCnpj).trim();
             const [created] = await tx.insert(customers).values({
@@ -219,8 +258,9 @@ export class ImportStorage {
           model: r.modelo || r.model || null,
           serialNumber: r.numero_serie || r.serialNumber || null,
           mac: r.mac || null,
-          status: (r.status || "installed") as string,
+          status,
           value: valor ? String(valor) : null,
+          source: "import",
         } as InsertEquipment);
         imported++;
       }
@@ -233,11 +273,11 @@ export class ImportStorage {
     // bloquearia a tabela por toda a duracao de uma planilha grande.
     if (clientesAfetados.size > 0) {
       const ids = Array.from(clientesAfetados);
-      const agregado = await this._equipment.contarEquipamentoRetido(ids);
+      const agregado = await this._equipment.contarEquipamentoRetido(providerId, ids);
       for (const id of ids) {
         const a = agregado.get(id);
         await this._customers.updateCustomerEquipmentAggregate(
-          id, a?.count ?? 0, String(a?.value ?? 0),
+          providerId, id, a?.count ?? 0, String(a?.value ?? 0),
         );
       }
     }

@@ -72,9 +72,10 @@ export function maskAddress(address: string, isSameProvider: boolean): string {
   // Split address by comma and mask each part partially
   const segments = address.split(',').map(s => s.trim()).filter(Boolean);
   for (const seg of segments) {
-    // If it's a number-only segment (house number), mask partially
+    // Numero da casa nunca cruza provedor — a politica e "endereco sem numero",
+    // entao ocultamos por inteiro em vez de revelar os primeiros digitos.
     if (/^\d+$/.test(seg)) {
-      parts.push(seg.length > 2 ? seg.substring(0, 2) + '**' : '**');
+      parts.push('***');
     } else {
       parts.push(partialMask(seg, Math.min(6, Math.ceil(seg.length * 0.5))));
     }
@@ -149,14 +150,20 @@ const PRESERVED_FIELDS: string[] = [
   'status',
   'contractStartDate',
   'contractAgeDays',
+  // Geografia grossa e permitida pela politica ("endereco sem numero"); a
+  // linha de resultado usa cidade/UF para contexto.
+  'addressCity',
+  'addressState',
   'hasUnreturnedEquipment',
   'unreturnedEquipmentCount',
   'equipmentPendingSummary',
+  'equipmentStatus',
+  'equipmentSignalValidated',
+  'equipmentCategories',
+  'equipmentOccurrenceAgeRange',
+  'equipmentValueRange',
   'contractStatus',
 ];
-
-const PRESERVED_SET: Record<string, boolean> = {};
-PRESERVED_FIELDS.forEach((k) => { PRESERVED_SET[k] = true; });
 
 /** Fields stripped entirely from cross-provider detail */
 const STRIPPED_FIELDS: string[] = [
@@ -169,10 +176,19 @@ const STRIPPED_FIELDS: string[] = [
   'openItems',
   'daysOverdue',
   'overdueInvoicesCount',
+  'equipmentDetails',
+  'serialNumber',
+  'mac',
+  'model',
+  'assetTag',
+  'addressNumber',
+  'latitude',
+  'longitude',
+  'notificationProtocol',
+  'proofReference',
+  'disputeReason',
+  'notes',
 ];
-
-const STRIPPED_SET: Record<string, boolean> = {};
-STRIPPED_FIELDS.forEach((k) => { STRIPPED_SET[k] = true; });
 
 /**
  * Masks an entire cross-provider detail object in one call.
@@ -241,16 +257,6 @@ export function maskCrossProviderDetail(
   // Stripped fields are explicitly set to undefined (not included)
   STRIPPED_FIELDS.forEach((key) => {
     result[key] = undefined;
-  });
-
-  // Copy any other fields not handled above (except stripped ones)
-  const maskedKeys: Record<string, boolean> = {
-    customerName: true, cpfCnpj: true, address: true, cep: true, city: true, state: true, overdueAmount: true, providerName: true, serviceAgeMonths: true, daysOverdue: true, overdueInvoicesCount: true,
-  };
-  Object.keys(detail).forEach((key) => {
-    if (!(key in result) && !STRIPPED_SET[key] && !PRESERVED_SET[key] && !maskedKeys[key]) {
-      result[key] = detail[key];
-    }
   });
 
   return result;

@@ -11,6 +11,12 @@ export interface ProviderDetail {
   contractAgeDays: number;
   hasUnreturnedEquipment: boolean;
   unreturnedEquipmentCount: number;
+  /** validated_pending = ocorrencia validada no bureau; operational_pending = pendencia so no ERP proprio; unknown = sem informacao (nunca exibir como "devolvido") */
+  equipmentStatus?: "validated_pending" | "operational_pending" | "unknown";
+  equipmentSignalValidated?: boolean;
+  equipmentCategories?: string[];
+  equipmentOccurrenceAgeRange?: string;
+  equipmentValueRange?: string;
   equipmentDetails?: { type: string; brand: string; model: string; value: string; inRecoveryProcess: boolean }[];
   equipmentPendingSummary?: string;
   cancelledDate?: string;

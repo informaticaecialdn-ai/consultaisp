@@ -20,7 +20,9 @@ export function generatePDF(result: ConsultaResult): string | null {
       <td style="color:${d.contractStatus === "active" ? "#16a34a" : d.contractStatus === "cancelled" ? "#dc2626" : "#92400e"}">${cStatus}</td>
       <td style="color:${d.daysOverdue === 0 ? "#16a34a" : "#dc2626"}">${pStatus}</td>
       <td>${debtStr}</td>
-      <td>${d.hasUnreturnedEquipment ? `${d.unreturnedEquipmentCount} pendente(s)` : "Devolvidos"}</td>
+      <td>${d.hasUnreturnedEquipment
+        ? `${d.unreturnedEquipmentCount} pendente(s)${d.equipmentSignalValidated ? " (ocorrencia validada)" : ""}`
+        : "Sem ocorrencia"}</td>
     </tr>`;
   }).join("");
 
