@@ -534,18 +534,21 @@ export const BIGDATA_CREDIT_PACKAGES = [
   // tinha. Nos precos anteriores TODA consulta saia no prejuizo: o pacote de
   // 500 recebia R$ 0,70 por algo que custa R$ 1,69.
   //
-  // A curva de desconto por volume ficou RASA de proposito. Com custo de
-  // R$ 1,69 e entrada de R$ 2,00 nao ha espaco para o degrau antigo de 30% —
-  // um pacote a R$ 1,40 voltaria a vender abaixo do custo. O que sustenta o
-  // desconto e a propria escada da BigData, que baixa ~5% na faixa seguinte, e
-  // 500 consultas ja levam a conta para la (22 datasets x 500 = 11 mil).
+  // A entrada em R$ 2,50 e o que compra o desconto por volume: da R$ 0,81 de
+  // margem no pacote pequeno, e essa folga permite descer 20% ate o de 500 sem
+  // que o maior deles chegue perto do custo. A R$ 2,00 de entrada o desconto
+  // teria de ficar em 7,5%, porque abaixo de R$ 1,85 a margem some.
   //
-  // Margem sobre a tabela publica: R$ 0,31 / 0,26 / 0,21 / 0,16 por consulta.
-  // Ver NIVEIS em server/services/bigdata.service.ts para a conta do custo.
-  { id: "bigdata-50",  name: "50 Consultas Cadastrais",  credits: 50,  price: 9990,  priceLabel: "R$ 99,90",  perUnit: "R$ 2,00/consulta" },
-  { id: "bigdata-100", name: "100 Consultas Cadastrais", credits: 100, price: 19490, priceLabel: "R$ 194,90", perUnit: "R$ 1,95/consulta", popular: true },
-  { id: "bigdata-250", name: "250 Consultas Cadastrais", credits: 250, price: 47490, priceLabel: "R$ 474,90", perUnit: "R$ 1,90/consulta" },
-  { id: "bigdata-500", name: "500 Consultas Cadastrais", credits: 500, price: 92490, priceLabel: "R$ 924,90", perUnit: "R$ 1,85/consulta" },
+  // O piso e R$ 2,00: 18% acima do custo publico de R$ 1,69. Nao descer dele
+  // sem antes recalcular NIVEIS em server/services/bigdata.service.ts — cada
+  // dataset acrescentado ao combo empurra esse piso para cima.
+  //
+  // Margem sobre a tabela publica: R$ 0,81 / 0,66 / 0,51 / 0,31 por consulta
+  // (32% / 28% / 23% / 15%). Com o desconto de conta vai a 26-41%.
+  { id: "bigdata-50",  name: "50 Consultas Cadastrais",  credits: 50,  price: 12490, priceLabel: "R$ 124,90", perUnit: "R$ 2,50/consulta" },
+  { id: "bigdata-100", name: "100 Consultas Cadastrais", credits: 100, price: 23490, priceLabel: "R$ 234,90", perUnit: "R$ 2,35/consulta", popular: true },
+  { id: "bigdata-250", name: "250 Consultas Cadastrais", credits: 250, price: 54990, priceLabel: "R$ 549,90", perUnit: "R$ 2,20/consulta" },
+  { id: "bigdata-500", name: "500 Consultas Cadastrais", credits: 500, price: 99990, priceLabel: "R$ 999,90", perUnit: "R$ 2,00/consulta" },
 ];
 
 export const CREDIT_PACKAGES = [
