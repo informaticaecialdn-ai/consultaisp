@@ -10,6 +10,7 @@ import { pool } from "./db";
 import { logger } from "./logger";
 import { getSafeErrorMessage } from "./utils/safe-error";
 import { runMigrations, verifySchema } from "./migrate";
+import { sanitizeForLog } from "./utils/sanitize-log";
 
 const app = express();
 // trust proxy: expects exactly 1 reverse proxy (Nginx/Caddy) in front of the app.
@@ -68,25 +69,8 @@ const SENSITIVE_ROUTES = [
   "/api/public/titular-request",
 ];
 
-/** Redact sensitive fields from a response body before logging */
-function sanitizeForLog(body: Record<string, any>): Record<string, any> {
-  const sensitiveKeys = new Set([
-    "cpfCnpj", "customerName", "nome", "email", "phone", "telefone",
-    "address", "cep", "nomeMae", "dataNascimento", "cpf_cnpj",
-    "providerDetails", "addressMatches", "cadastralData", "restrictions",
-  ]);
-  const sanitized: Record<string, any> = {};
-  for (const key of Object.keys(body)) {
-    if (sensitiveKeys.has(key)) {
-      sanitized[key] = "[REDACTED]";
-    } else if (typeof body[key] === "object" && body[key] !== null && !Array.isArray(body[key])) {
-      sanitized[key] = sanitizeForLog(body[key]);
-    } else {
-      sanitized[key] = body[key];
-    }
-  }
-  return sanitized;
-}
+// A regra de censura vive em utils/sanitize-log.ts — importar este arquivo sobe
+// o servidor, e o que decide o que e segredo precisa de teste.
 
 app.use((req, res, next) => {
   const start = Date.now();
