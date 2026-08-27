@@ -17,13 +17,23 @@ describe("o caso que motivou a correcao — devedor cronico nao e fuga", () => {
   // A tela mostrava dois registros com 2786 e 1640 dias de atraso rotulados
   // "DEVEDOR CRONICO". Sete e quatro anos de atraso nao descrevem um cliente
   // ativo prestes a migrar: descrevem baixa contabil que ficou na base.
-  it("2786 dias de atraso sem status de contrato nao gera alerta", () => {
+  it("2786 dias sem status de contrato nao gera alerta", () => {
     const r = avaliarRiscoDeFuga(
       cliente({ totalOverdueAmount: 4644.71, maxDaysOverdue: 2786 }),
       outro,
     );
     expect(r.alerta).toBe(false);
-    expect(r.descartadoPor).toBe("atraso_incompativel_com_cliente_ativo");
+    // Sem prova de que ainda e cliente, nem se chega a olhar o atraso.
+    expect(r.descartadoPor).toBe("status_desconhecido");
+  });
+
+  it("status ausente nunca vira alerta — nao se presume que e cliente", () => {
+    const r = avaliarRiscoDeFuga(
+      cliente({ totalOverdueAmount: 800, maxDaysOverdue: 40 }),
+      outro,
+    );
+    expect(r.alerta).toBe(false);
+    expect(r.descartadoPor).toBe("status_desconhecido");
   });
 
   it("nem se o ERP jurar que esta ativo — ninguem fica 7 anos conectado sem pagar", () => {
@@ -35,13 +45,22 @@ describe("o caso que motivou a correcao — devedor cronico nao e fuga", () => {
     expect(r.descartadoPor).toBe("atraso_incompativel_com_cliente_ativo");
   });
 
-  it("atraso longo mas dentro da janela ainda e fuga — 6 meses devendo e o perfil classico", () => {
+  it("207 dias nao e cliente ativo, mesmo o ERP dizendo que e", () => {
     const r = avaliarRiscoDeFuga(
-      cliente({ totalOverdueAmount: 600, maxDaysOverdue: 180, contractStatus: "suspended" }),
+      cliente({ totalOverdueAmount: 1531, maxDaysOverdue: 207, contractStatus: "active" }),
       outro,
     );
-    expect(r.alerta).toBe(true);
-    expect(r.motivos).toEqual(["divida_ativa"]);
+    expect(r.alerta).toBe(false);
+    expect(r.descartadoPor).toBe("atraso_incompativel_com_cliente_ativo");
+  });
+
+  it("a janela de fuga vai ate 90 dias — 90 entra, 91 nao", () => {
+    const dentro = avaliarRiscoDeFuga(
+      cliente({ totalOverdueAmount: 400, maxDaysOverdue: 90, contractStatus: "suspended" }), outro);
+    const fora = avaliarRiscoDeFuga(
+      cliente({ totalOverdueAmount: 400, maxDaysOverdue: 91, contractStatus: "suspended" }), outro);
+    expect(dentro.alerta).toBe(true);
+    expect(fora.alerta).toBe(false);
   });
 
   it("consulta do proprio dono nunca e fuga", () => {

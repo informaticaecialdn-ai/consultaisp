@@ -8,8 +8,10 @@
  *
  * Dispara quando TODAS forem verdadeiras:
  *   1. quem consultou NÃO é o dono do cliente;
- *   2. o cliente ainda é do dono (contrato não cancelado);
- *   3. E pelo menos uma:
+ *   2. o cliente é comprovadamente ATIVO (ou suspenso por atraso) na base do
+ *      dono — cancelado sai, e status desconhecido também;
+ *   3. o atraso está dentro da janela de fuga (até 90 dias);
+ *   4. E pelo menos uma:
  *      (a) tem dívida ativa material, ou
  *      (b) o contrato tem menos de 90 dias.
  *
@@ -24,6 +26,7 @@ export type MotivoFuga = "divida_ativa" | "contrato_recente";
 export type MotivoDescarte =
   | "consulta_do_proprio_dono"
   | "contrato_cancelado"
+  | "status_desconhecido"
   | "sem_divida_nem_contrato_novo"
   | "atraso_incompativel_com_cliente_ativo";
 
@@ -50,13 +53,18 @@ export const DIAS_MINIMOS_ATRASO = 15;
 /** Instalação recém-paga que ainda não se pagou. */
 export const DIAS_CONTRATO_NOVO = 90;
 /**
- * Teto de sanidade — e o teto vale mesmo quando o ERP jura que o contrato está
- * ativo. Nenhum provedor mantém alguém conectado um ano inteiro sem pagar: essa
- * combinação descreve base desatualizada, não cliente. Passado esse ponto o caso
- * é de recuperação e bureau, não de prevenção de fuga — o cliente já foi.
- * Foi o que encheu a tela de "devedor crônico" com 2.786 e 1.640 dias.
+ * Teto de atraso — e vale MESMO quando o ERP jura que o contrato está ativo.
+ *
+ * Provedor corta quem não paga: aviso por volta de 15 dias, bloqueio em 30-45,
+ * cancelamento em 60-90. Alguém "ativo" com 200 dias de atraso não está
+ * conectado — a base é que não foi atualizada. Passado esse ponto o caso é de
+ * recuperação de equipamento e bureau, não de prevenção de fuga: não há mais
+ * serviço a perder, então não há o que impedir.
+ *
+ * A janela de fuga é curta de propósito. É ela que separa "meu cliente está
+ * saindo, posso agir" de "meu ex-cliente me deve".
  */
-export const DIAS_ATRASO_TETO = 365;
+export const DIAS_ATRASO_TETO = 90;
 
 /** Aceita "2026-08-27", "27/08/2026" e "27/08/2026 14:30". */
 export function parseDataContrato(valor?: string): Date | null {
@@ -97,16 +105,24 @@ export function avaliarRiscoDeFuga(
     return { alerta: false, motivos: [], descartadoPor: "consulta_do_proprio_dono" };
   }
 
-  if (cliente.contractStatus === "cancelled") {
-    return { alerta: false, motivos: [], descartadoPor: "contrato_cancelado" };
+  /* "Somente clientes ativos." Cancelado sai — e desconhecido também.
+     Ausência de prova de que o cliente é ativo não é prova de que é: sem o
+     sinal do contrato não dá para afirmar que há uma fuga acontecendo, e um
+     alerta que o provedor não consegue verificar é ruído. Tratar undefined
+     como "provavelmente ativo" era o que deixava ex-cliente passar. */
+  if (cliente.contractStatus !== "active" && cliente.contractStatus !== "suspended") {
+    return {
+      alerta: false,
+      motivos: [],
+      descartadoPor: cliente.contractStatus === "cancelled" ? "contrato_cancelado" : "status_desconhecido",
+    };
   }
 
   const inicio = parseDataContrato(cliente.contractStartDate);
   const diasDeContrato = inicio ? diasDesde(inicio, opcoes.agora) : undefined;
 
-  // Atraso de mais de um ano não descreve cliente ativo, diga o ERP o que
-  // disser. Suspenso por falta de pagamento DENTRO da janela continua sendo
-  // cliente — e é justamente o perfil que migra, então não entra neste corte.
+  // Suspenso por falta de pagamento DENTRO da janela continua sendo cliente —
+  // e é justamente o perfil que migra. Fora da janela, não.
   if (cliente.maxDaysOverdue > DIAS_ATRASO_TETO) {
     return {
       alerta: false,

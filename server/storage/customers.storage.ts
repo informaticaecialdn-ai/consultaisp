@@ -1,4 +1,4 @@
-import { eq, and, gte, sql, ne } from "drizzle-orm";
+import { eq, and, or, gte, sql, ne } from "drizzle-orm";
 import { db } from "../db";
 import {
   customers,
@@ -11,8 +11,27 @@ export class CustomersStorage {
     return db.select().from(customers).where(eq(customers.providerId, providerId));
   }
 
+  /**
+   * Busca por documento comparando SO os digitos.
+   *
+   * Antes era igualdade crua: "123.283.950-74" nao encontrava "12328395074".
+   * O ERP grava em um formato, o alerta em outro, e o lookup falhava em
+   * silencio — quem chamava recebia lista vazia e concluia que o cliente nao
+   * existia. No anti-fraude isso apagava o status do contrato e deixava passar
+   * alerta de ex-cliente.
+   *
+   * A igualdade direta vem primeiro para aproveitar o indice quando o valor ja
+   * esta limpo, que e o caso da maioria das linhas.
+   */
   async getCustomerByCpfCnpj(cpfCnpj: string): Promise<Customer[]> {
-    return db.select().from(customers).where(eq(customers.cpfCnpj, cpfCnpj));
+    const limpo = (cpfCnpj || "").replace(/\D/g, "");
+    if (!limpo) return [];
+    return db.select().from(customers).where(
+      or(
+        eq(customers.cpfCnpj, limpo),
+        sql`regexp_replace(${customers.cpfCnpj}, '[^0-9]', '', 'g') = ${limpo}`,
+      ),
+    );
   }
 
   async getCustomersByAddressHash(addressHash: string, excludeCpfCnpj?: string): Promise<Customer[]> {

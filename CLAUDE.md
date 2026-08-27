@@ -553,13 +553,19 @@ A carteira inteira vive em `/inadimplentes`.
 **A regra** (`server/services/antifraude-rules.ts`, com testes). Dispara quando
 TODAS forem verdadeiras:
 1. quem consultou **não** é o dono do cliente;
-2. o cliente ainda é do dono (contrato não cancelado);
-3. E pelo menos uma:
+2. o cliente é **comprovadamente ativo** (ou suspenso por atraso) na base do
+   dono — cancelado sai, e **status desconhecido também**: ausência de prova de
+   que é cliente não é prova de que é;
+3. o atraso está **dentro da janela de fuga (até 90 dias)**;
+4. E pelo menos uma:
    - **(a)** dívida ativa material (≥ R$ 50 e ≥ 15 dias), ou
    - **(b)** contrato com menos de 90 dias.
 
-Teto de sanidade: atraso acima de 365 dias não descreve cliente ativo, e sim
-baixa contábil — vira caso de recuperação, não de prevenção de fuga.
+A janela de 90 dias é curta de propósito. Provedor avisa por volta de 15 dias,
+bloqueia em 30-45 e cancela em 60-90 — quem está "ativo" com 200 dias de atraso
+não está conectado, é a base que não foi atualizada. Passado esse ponto o caso
+é de recuperação de equipamento e bureau: não há mais serviço a perder, então
+não há fuga a impedir.
 
 A regra roda nos DOIS pontos: ao criar o alerta (`proactive-alert.service.ts`)
 e ao listar (`GET /api/anti-fraud/alerts`), porque o estado do cliente muda

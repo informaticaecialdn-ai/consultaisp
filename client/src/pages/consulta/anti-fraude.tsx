@@ -236,21 +236,11 @@ export default function AntiFraudePage() {
         </div>
       )}
 
-      {/* O ranking de devedores foi removido daqui.
-          Ele listava TODOS os clientes do provedor ordenados por divida — o
-          oposto do que esta tela e. Anti-fraude mostra so quem esta fugindo;
-          a carteira inteira vive em /inadimplentes. Tirar tambem eliminou a
-          chamada a /api/anti-fraud/customer-risk, que fazia 1+3N queries
-          sequenciais sobre a base inteira a cada abertura da pagina. */}
-      <Card className="p-4 flex items-center gap-3 flex-wrap">
-        <Users className="w-4 h-4 text-[var(--color-muted)]" />
-        <span className="text-sm text-[var(--color-muted)]">
-          Procurando a carteira inteira de inadimplentes, e nao so quem esta migrando?
-        </span>
-        <Link href="/inadimplentes" className="ml-auto">
-          <Button variant="outline" size="sm">Ver inadimplentes</Button>
-        </Link>
-      </Card>
+      {/* Aqui havia um ranking com TODOS os clientes do provedor ordenados por
+          dívida — o oposto do que esta tela é. Removido junto com a chamada a
+          /api/anti-fraud/customer-risk, que fazia 1+3N queries sequenciais
+          sobre a base inteira a cada abertura. A carteira de inadimplentes tem
+          página própria; a sidebar já leva até ela. */}
     </div>
   );
 }
