@@ -346,37 +346,48 @@ export async function runGeocodeBackfill(providerIdPrioritario?: number): Promis
       .where(and(SEM_COORDENADA, TEM_ENDERECO));
     status.total = n;
 
-    if (n === 0) {
-      logger.info("Geocode backfill: nada a plotar");
-      return finalizar();
-    }
-
+    // A fila vazia NÃO encerra a passada: desempilhar é trabalho independente
+    // de plotar. Enquanto este `return` estava aqui em cima, produção ficou com
+    // zero pendentes e cinco pilhas intactas — o job saía dizendo "nada a
+    // plotar" e nunca chegava na fase que conserta a bola.
     logger.info({ total: n, viaNominatim: usandoNominatim(), cursor: status.cursor }, "Geocode backfill iniciado");
 
     // FASE A — o que o ERP já sabe. Uma varredura da carteira resolve a maioria
     // sem nenhuma chamada de geocodificação, e com coordenada melhor. Só o que
-    // sobrar daqui paga rede na fase B.
-    try {
-      const doErp = await puxarCoordenadasDoErp(providerIdPrioritario);
-      status.plotados += doErp.atualizados;
-      if (doErp.atualizados > 0) {
-        status.total = Math.max(0, status.total - doErp.atualizados);
+    // sobrar daqui paga rede na fase B. Sem fila, não há o que ela preencha.
+    if (n > 0) {
+      try {
+        const doErp = await puxarCoordenadasDoErp(providerIdPrioritario);
+        status.plotados += doErp.atualizados;
+        if (doErp.atualizados > 0) {
+          status.total = Math.max(0, status.total - doErp.atualizados);
+        }
+      } catch (err) {
+        logger.warn({ err }, "Geocode backfill: fase de coordenadas do ERP falhou — segue para a geocodificação");
       }
-    } catch (err) {
-      logger.warn({ err }, "Geocode backfill: fase de coordenadas do ERP falhou — segue para a geocodificação");
+    }
+
+    const empilhados = await buscarEmpilhados(providerIdPrioritario ?? null, 20_000);
+    if (n === 0 && empilhados.length === 0) {
+      logger.info("Geocode backfill: nada a plotar nem a desempilhar");
+      return finalizar();
     }
 
     // FASE B — a base de endereços do IBGE, se estiver carregada. Resolve na
-    // memória do processo, então o que ela cobre nunca chega à rede.
+    // memória do processo, então o que ela cobre nunca chega à rede. As cidades
+    // carregadas são as de quem precisa de trabalho — pendentes e empilhados —,
+    // e não a base inteira: cada município custa memória.
     let local: GeocodificadorLocal | null = null;
     try {
-      const cidades = await db
+      const pendentes = await db
         .selectDistinct({ cidade: customers.city })
         .from(customers)
         .where(and(SEM_COORDENADA, TEM_ENDERECO));
-      local = await abrirGeocodificadorLocal(
-        cidades.map(c => ({ cidade: c.cidade ?? "" })).filter(c => c.cidade),
-      );
+      const cidades = Array.from(new Set([
+        ...pendentes.map(c => c.cidade ?? ""),
+        ...empilhados.map(c => c.city ?? ""),
+      ].filter(Boolean)));
+      local = await abrirGeocodificadorLocal(cidades.map(cidade => ({ cidade })));
     } catch (err) {
       logger.warn({ err }, "Geocode backfill: base local de endereços indisponível — seguindo pela rede");
     }
@@ -385,9 +396,8 @@ export async function runGeocodeBackfill(providerIdPrioritario?: number): Promis
     // centroide que uma versão anterior gravou; espalhar sobre endereços reais
     // do mesmo bairro conserta a "bola" sem perder precisão nenhuma, porque
     // centroide e endereço do bairro dizem exatamente a mesma coisa.
-    if (local) {
+    if (local && empilhados.length > 0) {
       try {
-        const empilhados = await buscarEmpilhados(providerIdPrioritario ?? null, 20_000);
         let desempilhados = 0;
         for (const c of empilhados) {
           const acerto = local.resolver(c);
@@ -406,6 +416,9 @@ export async function runGeocodeBackfill(providerIdPrioritario?: number): Promis
         logger.warn({ err }, "Geocode backfill: desempilhamento falhou — segue para a fila de pendentes");
       }
     }
+
+    // Desempilhou e não há fila: a passada cumpriu o que tinha a cumprir.
+    if (n === 0) return finalizar();
 
     // Quem clicou "Plotar agora" quer ver a PRÓPRIA carteira no mapa. A
     // varredura é uma só para toda a base, então sem esta etapa o admin
