@@ -6,7 +6,6 @@ import { getProviderDisplayName } from "../utils/provider-anonymizer";
 import { hashCPFForNetwork } from "../utils/cpf-hash";
 import { getRegionalProviderIds } from "../services/regional.service";
 import { queryRegionalErps, type RealtimeQueryResult } from "../services/realtime-query.service";
-import { montarConsultaLocal, descreverIdade, type ConsultaLocal } from "../services/consulta-local.service";
 import { calcularScoreISP, type ISPScoreInput } from "../utils/isp-score";
 import { consultationCache } from "../services/consultation-cache.service";
 import { buildAddressSearchResult } from "../services/address-search.service";
@@ -137,7 +136,6 @@ export function registerConsultasRoutes(): Router {
         // ── REGIONAL CACHE CHECK (CACHE-03) ─────────────────────────
         let erpResults: RealtimeQueryResult[];
         let regionalCacheHit = false;
-        let origemLocal: ConsultaLocal | null = null;
         const cachedRegional = mesoregiao
           ? consultationCache.getRawResult(cleaned, mesoregiao, searchType)
           : undefined;
@@ -147,40 +145,27 @@ export function registerConsultasRoutes(): Router {
           regionalCacheHit = true;
           logger.info({ providerId, doc: cleaned.slice(0, 4) + "***", mesoregiao }, "CONSULTA regional cache hit");
         } else {
-          // ── BASE LOCAL PRIMEIRO ─────────────────────────────────────────
-          // A base local so responde se o sync a deixou recente (ver
-          // consulta-local.service.ts). Enquanto o sync estiver quebrado isto
-          // da falso e a consulta segue ao vivo como sempre foi — de proposito:
-          // o pior desfecho possivel aqui seria responder rapido com o dado
-          // congelado do backup antigo e ninguem perceber.
-          const locais = (searchType === "cpf" || searchType === "cnpj")
-            ? (await storage.getCustomerByCpfCnpj(cleaned))
-                .filter(c => allowedProviderIds.has(c.providerId))
-            : [];
-          const meta = new Map(
-            erpIntegrations.map(i => [i.providerId, { nome: i.providerName, erpSource: i.erpSource }]),
+          // ── CONSULTA E SEMPRE AO VIVO ───────────────────────────────────
+          //
+          // A base local NAO responde consulta. Ela existe para a Localizacao e
+          // o mapa de calor, e e atualizada em varredura completa 3x por semana
+          // — entao um valor dela pode ter dias. Numa decisao de credito isso e
+          // inaceitavel: o produto e um bureau, e a pergunta que ele responde e
+          // "quanto esta devendo AGORA", nao "quanto devia na ultima varredura".
+          //
+          // Por isso a consulta vai ao ERP de todos os provedores da regiao,
+          // buscando SO o documento consultado — uma chamada barata e pontual,
+          // diferente da varredura noturna. O cache regional acima evita repetir
+          // a mesma pergunta em minutos.
+          logger.info(
+            { providerId, doc: cleaned.slice(0, 4) + "***", erps: erpIntegrations.length },
+            "CONSULTA ao vivo nos ERPs da regiao",
           );
-          const local = montarConsultaLocal(locais, meta);
+          erpResults = await queryRegionalErps(erpIntegrations as any, cleaned, searchType);
 
-          if (local.estaFresca) {
-            erpResults = local.resultados;
-            origemLocal = local;
-            logger.info(
-              { providerId, doc: cleaned.slice(0, 4) + "***", idadeHoras: Math.round(local.idadeHoras ?? 0) },
-              "CONSULTA respondida pela base local",
-            );
-          } else {
-            // ── DIRECT ERP QUERY ────────────────────────────────────────────
-            logger.info(
-              { providerId, doc: cleaned.slice(0, 4) + "***", motivo: local.motivo },
-              "CONSULTA indo ao vivo nos ERPs",
-            );
-            erpResults = await queryRegionalErps(erpIntegrations as any, cleaned, searchType);
-
-            // Store raw ERP results in regional cache for reuse by other providers
-            if (mesoregiao) {
-              consultationCache.setRawResult(cleaned, mesoregiao, searchType, erpResults);
-            }
+          // Store raw ERP results in regional cache for reuse by other providers
+          if (mesoregiao) {
+            consultationCache.setRawResult(cleaned, mesoregiao, searchType, erpResults);
           }
         }
 
@@ -560,19 +545,16 @@ export function registerConsultasRoutes(): Router {
           addressSource,
           addressUsed,
           autoAddressCrossRef,
-          source: origemLocal ? "base_local" : "erp_direct",
-          // De quando e o dado que o operador esta lendo. Sem isto, "local
-          // primeiro" e indistinguivel na tela de "ao vivo" — e a diferenca
-          // entre decidir com o dado de hoje e decidir com o de anteontem
-          // muda a decisao de credito.
-          frescor: origemLocal
-            ? {
-                origem: "base_local" as const,
-                sincronizadoEm: origemLocal.sincronizadoEm?.toISOString() ?? null,
-                idadeHoras: Math.round((origemLocal.idadeHoras ?? 0) * 10) / 10,
-                descricao: descreverIdade(origemLocal.sincronizadoEm),
-              }
-            : { origem: "erp_ao_vivo" as const, sincronizadoEm: new Date().toISOString(), idadeHoras: 0, descricao: "consultado ao vivo no ERP" },
+          source: "erp_direct",
+          // De quando e o dado que o operador esta lendo. A consulta e sempre ao
+          // vivo, entao a resposta e sempre "agora" — mas o campo fica, porque e
+          // o que deixa isso explicito na tela em vez de subentendido.
+          frescor: {
+            origem: "erp_ao_vivo" as const,
+            sincronizadoEm: new Date().toISOString(),
+            idadeHoras: 0,
+            descricao: "consultado ao vivo no ERP",
+          },
           // V-02 LGPD fix: anonymize provider names in erpLatencies
           erpLatencies: erpResults.map(r => ({ provider: getProviderDisplayName(r.providerName, r.providerId === providerId, r.providerId), erp: r.erpSource, ok: r.ok, ms: r.latencyMs, error: r.error })),
           erpSummary: {

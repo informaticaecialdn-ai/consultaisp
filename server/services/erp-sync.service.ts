@@ -8,6 +8,7 @@
 import { storage } from "../storage";
 import { getConnector, buildConnectorConfig, getProviderLimiter } from "../erp";
 import type { ErpFetchResult } from "../erp/types";
+import { agendaDoAmbiente, proximaExecucao, ultimaExecucaoAgendada, descreverAgenda } from "./erp-agenda";
 import { geocodeCity, geocodeCep, geocodeAddress, resolveIbgeCode } from "./geocoding";
 import { coordenadaValida } from "./coordenada";
 
@@ -369,13 +370,40 @@ export async function syncProviderToDb(
 
   console.log(`[ERPSync] ${providerName}: ${upserted} upserted, ${errors} erros de ${result.customers.length} inadimplentes`);
 
+  // 3. Quem QUITOU sai da inadimplencia na base local.
+  //
+  // A varredura acabou de ler do ERP a lista completa de quem tem fatura vencida
+  // em aberto. Quem esta na carteira e nao esta nessa lista nao tem fatura
+  // vencida segundo o ERP — e leitura, nao deducao. Sem este passo a base so
+  // acumula: a Localizacao seguiria pintando de vermelho bairro ja resolvido.
+  //
+  // So roda quando o passo 2 terminou inteiro: uma lista incompleta baixaria a
+  // divida de quem de fato deve.
+  let quitados = 0;
+  if (errors === 0 && result.customers.length > 0) {
+    try {
+      quitados = await storage.baixarDividaQuitada(
+        providerId,
+        result.customers.map(c => c.cpfCnpj),
+        new Date(inicioMs),
+      );
+      if (quitados > 0) {
+        console.log(`[ERPSync] ${providerName}: ${quitados} cliente(s) quitaram desde a ultima varredura`);
+      }
+    } catch (e: any) {
+      console.warn(`[ERPSync] ${providerName}: falha ao baixar divida quitada: ${e.message}`);
+    }
+  }
+
   // "success" so quando nada falhou. Um sync que grava 900 de 1000 e "partial":
   // atualizou a base, mas nao inteira — e essa diferenca precisa aparecer.
   await registrar(
     errors === 0 ? "success" : upserted > 0 ? "partial" : "error",
     upserted,
     errors,
-    errors === 0 ? undefined : `${errors} de ${total} registros falharam no upsert`,
+    errors === 0
+      ? (quitados > 0 ? `${quitados} quitaram desde a ultima varredura` : undefined)
+      : `${errors} de ${total} registros falharam no upsert`,
     total,
   );
   return { upserted, errors };
@@ -440,30 +468,37 @@ export async function syncAllProviders(): Promise<void> {
   }
 }
 
-/** Janela em que um sync recente dispensa o sync de boot. */
-const HORAS_PARA_DISPENSAR_BOOT = Number(process.env.ERP_SYNC_BOOT_SKIP_HORAS ?? 12);
-
 /**
- * O sync de boot so roda se ninguem sincronizou ha pouco.
+ * O boot so sincroniza se a ultima janela agendada foi PERDIDA.
  *
- * Medido em producao em 27/08/2026: o worker reiniciou 14 vezes num dia e cada
- * restart disparava "sync inicial em 15s" — 11 varreduras COMPLETAS da carteira,
- * 29.124 clientes puxados do IXC por vez, ~35 min cada. Isso nao atualiza nada
- * que o sync das 03:00 nao tivesse atualizado, e martela a API do ERP do
- * provedor o dia inteiro. Um deploy vira uma carga que o provedor sente.
+ * Comparar com "sincronizou nas ultimas N horas" errava dos dois lados agora que
+ * a varredura e 3x por semana: um restart um dia depois do sync dispararia uma
+ * varredura nova sem necessidade, e um processo que ficou fora do ar na
+ * madrugada agendada so voltaria a rodar na janela seguinte, dias depois.
+ * Comparando com a agenda, o comportamento e o do `Persistent=true` do systemd.
  *
- * A primeira execucao apos esta versao nao encontra historico e sincroniza —
- * que e o desejado: e ela que grava a primeira linha de erp_sync_logs.
+ * Medido em producao em 27/08/2026, antes desta trava: o worker reiniciou 14
+ * vezes num dia e cada restart disparava o sync de boot — 11 varreduras
+ * completas, 29.124 clientes puxados do IXC por vez, ~30 min cada, martelando a
+ * API do provedor o dia inteiro. Um deploy virava carga que o provedor sente.
+ *
+ * A primeira execucao apos esta versao nao encontra historico e sincroniza — e
+ * ela que grava a primeira linha de erp_sync_logs.
  */
-async function precisaSincronizarNoBoot(): Promise<boolean> {
+async function precisaSincronizarNoBoot(dias: number[], hora: number): Promise<boolean> {
   try {
     const ultimo = await storage.ultimoSyncBemSucedido();
     if (!ultimo) return true;
-    const horas = (Date.now() - ultimo.getTime()) / 3_600_000;
-    if (horas < HORAS_PARA_DISPENSAR_BOOT) {
-      console.log(`[ERPSync] Sync de boot dispensado — houve sync ha ${horas.toFixed(1)}h. Proximo as 03:00.`);
+    const janela = ultimaExecucaoAgendada(new Date(), dias, hora);
+    if (ultimo >= janela) {
+      console.log(
+        `[ERPSync] Sync de boot dispensado — a varredura de ${janela.toLocaleString("pt-BR")} ja foi feita.`,
+      );
       return false;
     }
+    console.log(
+      `[ERPSync] Janela de ${janela.toLocaleString("pt-BR")} foi perdida (ultimo sync ${ultimo.toLocaleString("pt-BR")}) — recuperando agora.`,
+    );
     return true;
   } catch (err: any) {
     // Sem conseguir consultar o historico, sincroniza: perder uma atualizacao e
@@ -474,36 +509,34 @@ async function precisaSincronizarNoBoot(): Promise<boolean> {
 }
 
 export function startErpSyncScheduler(): void {
-  console.log("[ERPSync] Scheduler iniciado — sync inicial em 15s, depois todo dia as 03:00");
+  const { dias, hora } = agendaDoAmbiente();
+  console.log(`[ERPSync] Scheduler iniciado — varredura da base local: ${descreverAgenda(dias, hora)}`);
 
-  // Sync inicial 15s apos boot
+  // Sync de boot 15s apos subir, so se a janela agendada foi perdida.
   setTimeout(async () => {
     try {
-      if (!(await precisaSincronizarNoBoot())) return;
-      console.log("[ERPSync] Sync inicial...");
+      if (!(await precisaSincronizarNoBoot(dias, hora))) return;
+      console.log("[ERPSync] Sync de recuperacao...");
       await syncAllProviders();
     } catch (err: any) {
       console.warn("[ERPSync] Erro na sync inicial:", err.message);
     }
   }, 15000);
 
-  // Agendar proximo sync para 03:00 da madrugada
   const scheduleNext = () => {
-    const now = new Date();
-    const next = new Date(now);
-    next.setHours(3, 0, 0, 0);
-    if (next <= now) next.setDate(next.getDate() + 1);
-    const ms = next.getTime() - now.getTime();
-    console.log(`[ERPSync] Proximo sync agendado para ${next.toLocaleString("pt-BR")} (em ${Math.round(ms / 60000)} min)`);
+    const agora = new Date();
+    const proxima = proximaExecucao(agora, dias, hora);
+    const ms = proxima.getTime() - agora.getTime();
+    console.log(`[ERPSync] Proxima varredura em ${proxima.toLocaleString("pt-BR")} (em ${Math.round(ms / 3_600_000)}h)`);
 
     setTimeout(async () => {
       try {
-        console.log("[ERPSync] Sync diario das 03:00 iniciado...");
+        console.log("[ERPSync] Varredura agendada da base local iniciada...");
         await syncAllProviders();
       } catch (err: any) {
-        console.warn("[ERPSync] Erro no sync diario:", err.message);
+        console.warn("[ERPSync] Erro na varredura agendada:", err.message);
       }
-      scheduleNext(); // Agendar proximo dia
+      scheduleNext();
     }, ms);
   };
 

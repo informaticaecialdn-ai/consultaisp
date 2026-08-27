@@ -23,6 +23,52 @@ export class CustomersStorage {
    * A igualdade direta vem primeiro para aproveitar o indice quando o valor ja
    * esta limpo, que e o caso da maioria das linhas.
    */
+  /**
+   * Baixa a divida de quem QUITOU, na varredura da base local.
+   *
+   * `upsertFromErp` so roda para quem esta na lista de inadimplentes, entao quem
+   * pagava nunca mais era tocado: o valor ficava parado no ultimo conhecido, e a
+   * Localizacao seguia pintando de vermelho um bairro ja resolvido.
+   *
+   * O valor nao e inventado. A varredura acabou de ler do ERP a lista completa
+   * de quem tem fatura vencida em aberto; quem esta na carteira e nao esta nessa
+   * lista nao tem fatura vencida SEGUNDO O ERP. E leitura, nao deducao.
+   *
+   * Isto vale para a base da Localizacao e do mapa de calor. A decisao de
+   * credito NAO passa por aqui: a consulta vai ao ERP ao vivo, por documento
+   * (server/routes/consultas.routes.ts).
+   *
+   * Tres travas para nao apagar dado bom:
+   *  - lista vazia nao limpa nada. Lista vazia costuma ser fetch que falhou, e
+   *    nao carteira inteira em dia;
+   *  - so mexe em quem o ERP acabou de confirmar que existe (`last_sync_at >=`
+   *    inicio da varredura), entao cliente que o ERP nao devolveu fica intocado;
+   *  - so mexe em quem esta marcado como `overdue`.
+   */
+  async baixarDividaQuitada(
+    providerId: number,
+    docsAindaDevendo: string[],
+    inicioDaVarredura: Date,
+  ): Promise<number> {
+    const docs = Array.from(new Set(
+      docsAindaDevendo.map(d => (d || "").replace(/\D/g, "")).filter(Boolean),
+    ));
+    if (docs.length === 0) return 0;
+
+    const r = await db.execute(sql`
+      UPDATE customers
+         SET total_overdue_amount   = '0',
+             max_days_overdue       = 0,
+             overdue_invoices_count = 0,
+             payment_status         = 'current'
+       WHERE provider_id     = ${providerId}
+         AND payment_status  = 'overdue'
+         AND last_sync_at    >= ${inicioDaVarredura}
+         AND regexp_replace(cpf_cnpj, '[^0-9]', '', 'g') <> ALL(${docs})
+    `);
+    return (r as any).rowCount ?? 0;
+  }
+
   async getCustomerByCpfCnpj(cpfCnpj: string): Promise<Customer[]> {
     const limpo = (cpfCnpj || "").replace(/\D/g, "");
     if (!limpo) return [];
