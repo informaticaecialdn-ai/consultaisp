@@ -63,6 +63,7 @@ export interface ConsultaResult {
   nivelRisco?: string;
   corIndicador?: string;
   sugestaoIA?: string;
+  /** Formato antigo (consultas gravadas antes do motor v2). */
   fatoresScore?: {
     f1_historicoPagamento: ScoreFator;
     f2_tempoSetor: ScoreFator;
@@ -70,6 +71,13 @@ export interface ConsultaResult {
     f4_padraoConsultas: ScoreFator;
     f5_riscoEndereco: ScoreFator;
     f6_consistenciaCadastral: ScoreFator;
+  };
+  /** Motor v2: a conta do score — base, deduções nomeadas, bônus e teto. */
+  composicaoScore?: {
+    base: number;
+    deducoes: Array<{ pontos: number; motivo: string; detalhe?: string }>;
+    bonus: Array<{ pontos: number; motivo: string; detalhe?: string }>;
+    teto?: { valor: number; motivo: string };
   };
   riskTier: string;
   riskLabel: string;

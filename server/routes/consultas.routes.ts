@@ -309,6 +309,9 @@ export function registerConsultasRoutes(): Router {
           .filter(c => !c.isSameProvider)
           .map(c => ({
             diasAtraso: c.maxDaysOverdue,
+            // O motor v2 pesa o VALOR da divida — antes R$ 100 e R$ 10.000
+            // pontuavam igual porque este campo nunca chegava ao score.
+            valorAtraso: c.totalOverdueAmount ?? undefined,
             faturasAtraso: c.overdueInvoicesCount || 0,
             statusContrato: c.status || "unknown",
             mesesComoCliente: c.serviceAgeMonths,
@@ -377,6 +380,7 @@ export function registerConsultasRoutes(): Router {
           proprio: ownCustomer ? {
             mesesComoCliente: ownCustomer.serviceAgeMonths || 0,
             diasAtrasoAtual: ownCustomer.maxDaysOverdue,
+            valorAtrasoAtual: ownCustomer.totalOverdueAmount ?? undefined,
             faturasAtrasadasTotal: ownCustomer.overdueInvoicesCount || 0,
             faturasTotal: 0,
             equipamentosDevolvidos: ownCustomer.recoverySignal || ownCustomer.hasUnreturnedEquipment === true
@@ -472,7 +476,7 @@ export function registerConsultasRoutes(): Router {
           nivelRisco: scoreResult.nivelRisco,
           corIndicador: scoreResult.corIndicador,
           sugestaoIA: scoreResult.sugestaoIA,
-          fatoresScore: scoreResult.fatores,
+          composicaoScore: scoreResult.composicao,
           riskTier: scoreResult.nivelRisco,
           riskLabel: scoreResult.faixa === "excelente" ? "RISCO BAIXO" : scoreResult.faixa === "bom" ? "RISCO MODERADO" : scoreResult.faixa === "baixo" ? "RISCO ALTO" : "RISCO CRITICO",
           recommendation: scoreResult.sugestaoIA,

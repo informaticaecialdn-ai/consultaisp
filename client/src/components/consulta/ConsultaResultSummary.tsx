@@ -356,10 +356,14 @@ export default function ConsultaResultSummary({ result, onShowDetail, onNewConsu
       )}
 
       {/* ═══ SECTION 2: SCORE BREAKDOWN ═══ */}
-      {result.fatoresScore && result.searchType !== "cep" && (
+      {(result.composicaoScore || result.fatoresScore) && result.searchType !== "cep" && (
         <Section>
           <div className="p-5">
-            <ScoreBreakdownPanel fatores={result.fatoresScore} />
+            <ScoreBreakdownPanel
+              composicao={result.composicaoScore}
+              fatores={result.fatoresScore}
+              score={result.score}
+            />
           </div>
         </Section>
       )}

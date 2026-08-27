@@ -5,15 +5,18 @@ interface Props {
   size?: "sm" | "md" | "lg";
 }
 
+// Limites espelham as faixas do motor (server/utils/isp-score.ts):
+// 0-300 rejeitar · 301-500 analise manual · 501-700 atencao · 701+ aprovar.
+// Teto superior INCLUSIVO — score 300 e "Muito Alto", nao "Alto".
 const ZONES = [
   { min: 0, max: 300, label: "Muito Alto", color: "#B53333" },
-  { min: 300, max: 500, label: "Alto", color: "#D97A2B" },
-  { min: 500, max: 700, label: "Moderado", color: "#B8860B" },
-  { min: 700, max: 1000, label: "Baixo", color: "#4A6B3E" },
+  { min: 301, max: 500, label: "Alto", color: "#D97A2B" },
+  { min: 501, max: 700, label: "Moderado", color: "#B8860B" },
+  { min: 701, max: 1000, label: "Baixo", color: "#4A6B3E" },
 ];
 
 function getZone(score: number) {
-  return ZONES.find(z => score >= z.min && score < z.max) || ZONES[ZONES.length - 1];
+  return ZONES.find(z => score >= z.min && score <= z.max) || ZONES[ZONES.length - 1];
 }
 
 export default function ScoreGaugeSvg({ score, size = "md" }: Props) {
