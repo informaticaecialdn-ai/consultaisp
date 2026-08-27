@@ -48,6 +48,8 @@ export interface RealtimeQueryResult {
     equipmentCategories?: string[];
     equipmentPendingValue?: number;
     registrationDate?: string;
+    /** Inicio do contrato como o ERP devolve — ISO ou DD/MM/AAAA. */
+    contractStartDate?: string;
   }>;
   latencyMs: number;
 }
@@ -234,8 +236,15 @@ function normalizeCustomer(c: any): RealtimeQueryResult["customers"][0] {
     totalOverdueAmount: c.totalOverdueAmount || 0,
     maxDaysOverdue: c.maxDaysOverdue || 0,
     overdueInvoicesCount: c.overdueInvoicesCount || 0,
+    /* Sinais de CONTRATO. Ficavam de fora e morriam aqui: o conector podia
+       preencher, mas nada chegava do outro lado. Sem eles o anti-fraude nao
+       distingue cliente ativo de ex-cliente, e `statusContrato` chegava
+       "unknown" no motor de score. */
+    status: c.contractStatus || c.status || undefined,
+    contractStartDate: c.contractStartDate || undefined,
+    registrationDate: c.contractStartDate || c.registrationDate || undefined,
     serviceAgeMonths: c.serviceAgeMonths || undefined,
-    planName: c.planName || undefined,
+    planName: c.contractPlan || c.planName || undefined,
     hasUnreturnedEquipment: typeof c.hasUnreturnedEquipment === "boolean"
       ? c.hasUnreturnedEquipment
       : undefined,

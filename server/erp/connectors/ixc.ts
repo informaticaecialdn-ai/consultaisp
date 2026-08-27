@@ -418,6 +418,16 @@ export class IxcConnector implements ErpConnector {
           const cpfCnpj = c ? cleanCpfCnpj(c.cpf_cnpj || c.cnpj_cpf || c.documento || "") : "";
           if (!cpfCnpj) return null;
           const loc = this.resolveCityState(c, cidadeMap);
+          const contrato = contractMap.get(cid);
+          // status_internet FA = bloqueado por atraso, mas AINDA e cliente.
+          // I/N = inativo/negativado, ou seja, ex-cliente.
+          // Sem isto o sync gravava `status: "active"` para TODO mundo desta
+          // funcao — que busca justamente contratos cancelados. Era o dado
+          // invertido que enchia o anti-fraude de "devedor cronico" de anos.
+          const contractStatus: NormalizedErpCustomer["contractStatus"] =
+            contrato?.statusInternet === "FA" && contrato?.status === "A"
+              ? "suspended"
+              : "cancelled";
           return {
             cpfCnpj,
             name: c?.razao || c?.nome || "",
@@ -432,6 +442,9 @@ export class IxcConnector implements ErpConnector {
             totalOverdueAmount: overdue.totalAmount,
             maxDaysOverdue: overdue.maxDays,
             overdueInvoicesCount: overdue.count,
+            contractStatus,
+            contractStartDate: contrato?.startDate || undefined,
+            contractPlan: contrato?.plan || undefined,
             erpSource: "ixc" as const,
           };
         })
@@ -848,6 +861,41 @@ export class IxcConnector implements ErpConnector {
         }
       }
 
+      // ── CONTRATO: status e data de inicio ───────────────────────────────
+      // O anti-fraude precisa saber se o cliente AINDA e do provedor e ha
+      // quanto tempo. Sem isto o alerta de fuga nao consegue distinguir um
+      // cliente ativo prestes a migrar de uma baixa contabil de anos atras.
+      // Custo: uma query por consulta, filtrada por id_cliente.
+      let contractStatus: NormalizedErpCustomer["contractStatus"];
+      let contractStartDate: string | undefined;
+      let contractPlan: string | undefined;
+
+      if (customerId) {
+        try {
+          const contratos = await this.listWithFilter(config, "cliente_contrato", [
+            { TB: "cliente_contrato.id_cliente", OP: "=", P: customerId, C: "AND", G: "" },
+          ], 50, 1);
+
+          if (contratos.length > 0) {
+            // Status IXC: A=ativo, I=inativo, N=negativado, D=desistiu.
+            // status_internet FA = financeiro em atraso (bloqueado, mas AINDA cliente).
+            const ativo = contratos.find((c: any) => String(c.status || "").toUpperCase() === "A");
+            const escolhido = ativo || contratos[0];
+            const st = String(escolhido.status || "").toUpperCase();
+            const stInternet = String(escolhido.status_internet || "").toUpperCase();
+
+            contractStatus = st === "A"
+              ? (stInternet === "FA" ? "suspended" : "active")
+              : "cancelled";
+            contractStartDate = escolhido.data_ativacao || escolhido.data_inicio || undefined;
+            contractPlan = escolhido.contrato || escolhido.descricao || undefined;
+          }
+        } catch {
+          // Instancia sem a tabela ou sem permissao: segue sem o sinal de
+          // contrato. A regra do anti-fraude trata undefined explicitamente.
+        }
+      }
+
       const customer: NormalizedErpCustomer = {
         cpfCnpj: clean,
         name: r.razao || r.nome || "",
@@ -866,6 +914,9 @@ export class IxcConnector implements ErpConnector {
         hasUnreturnedEquipment,
         unreturnedEquipmentCount,
         equipmentDetails: equipmentDetails.length > 0 ? equipmentDetails : undefined,
+        contractStatus,
+        contractStartDate,
+        contractPlan,
         erpSource: "ixc",
       };
 

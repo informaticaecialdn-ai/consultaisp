@@ -1,6 +1,7 @@
 import { storage } from "../storage";
 import { sendProactiveAlertEmail } from "./email";
 import { logger } from "../logger";
+import { avaliarRiscoDeFuga, rotuloDoAlerta } from "./antifraude-rules";
 
 interface ProviderDetail {
   isSameProvider: boolean;
@@ -32,11 +33,19 @@ function maskNameForAlert(name: string): string {
 
 export async function notifyOwnerProviders(
   cpfCnpj: string,
-  allCustomers: Array<{ providerId: number; providerName: string; isSameProvider: boolean; name?: string }>,
+  allCustomers: Array<{
+    providerId: number;
+    providerName: string;
+    isSameProvider: boolean;
+    name?: string;
+    contractStatus?: "active" | "cancelled" | "suspended";
+    contractStartDate?: string;
+    totalOverdueAmount?: number;
+    maxDaysOverdue?: number;
+  }>,
   consultingProviderId: number,
 ): Promise<void> {
-  // Find providers that own this customer (isSameProvider = true from their perspective)
-  // but are NOT the one doing the consultation
+  // Alerta de fuga so existe para quem NAO consultou. O dono e o outro lado.
   const ownerCustomers = allCustomers.filter(
     c => c.providerId !== consultingProviderId
   );
@@ -55,6 +64,32 @@ export async function notifyOwnerProviders(
 
   for (const ownerCustomer of uniqueOwners) {
     try {
+      // ── PORTAO DA REGRA ────────────────────────────────────────────────
+      // Antes daqui, QUALQUER consulta a QUALQUER cliente virava alerta — foi
+      // o que encheu a tela de ex-clientes com anos de atraso. O alerta so faz
+      // sentido para quem ainda e cliente e ainda tem o que perder.
+      const avaliacao = avaliarRiscoDeFuga(
+        {
+          contractStatus: ownerCustomer.contractStatus,
+          contractStartDate: ownerCustomer.contractStartDate,
+          totalOverdueAmount: ownerCustomer.totalOverdueAmount ?? 0,
+          maxDaysOverdue: ownerCustomer.maxDaysOverdue ?? 0,
+        },
+        { consultanteEhDono: false },
+      );
+
+      if (!avaliacao.alerta) {
+        logger.debug(
+          {
+            providerId: ownerCustomer.providerId,
+            cpfCnpj: maskCpfForAlert(cpfCnpj),
+            descartadoPor: avaliacao.descartadoPor,
+          },
+          "Alerta de fuga descartado pela regra",
+        );
+        continue;
+      }
+
       const ownerProvider = await storage.getProvider(ownerCustomer.providerId);
       if (!ownerProvider) continue;
 
@@ -105,6 +140,11 @@ export async function notifyOwnerProviders(
             maskedCpf,
             maskedCustomerName: maskedName,
             message: "Seu cliente foi consultado por outro provedor da rede ISP",
+            // Diz POR QUE o alerta existe — sem isso o provedor recebe um aviso
+            // sem criterio e volta a tratar todos como iguais.
+            motivo: rotuloDoAlerta(avaliacao.motivos),
+            motivos: avaliacao.motivos,
+            diasDeContrato: avaliacao.diasDeContrato ?? null,
             timestamp: new Date().toISOString(),
           };
 

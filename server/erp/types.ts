@@ -125,6 +125,12 @@ export interface NormalizedErpCustomer {
   contractStatus?: "active" | "cancelled" | "suspended";
   /** Nome do plano contratado (se ativo) — ex "Combo 800MB + Deezer". */
   contractPlan?: string;
+  /**
+   * Data de inicio do contrato, como o ERP devolve — ISO (YYYY-MM-DD) ou BR
+   * (DD/MM/AAAA). E o unico jeito de saber que o contrato tem menos de 90 dias,
+   * condicao (b) do anti-fraude. Nem todo conector consegue informar.
+   */
+  contractStartDate?: string;
   erpSource: string;
 }
 

@@ -544,11 +544,40 @@ Analista de crédito ISP brasileiro. Seções: RESUMO EXECUTIVO, PRINCIPAIS FATO
 ### Anti-Fraude — System Prompt
 Especialista em fraude por migração serial ISP. Contexto: cliente contrata, não paga 1-3 mensalidades, migra. Prejuízo: instalação + equipamento (R$200-800) + mensalidades. Seções: CENÁRIO DE MIGRAÇÃO, PERFIS DE MAIOR RISCO, PADRÃO DE FRAUDE, AÇÕES URGENTES, PREVENÇÃO FUTURA. Max 600 palavras.
 
-### Tipos de Alerta Anti-Fraude
-- `defaulter_consulted` — Tentativa de Fuga
-- `multiple_consultations` — Migrador Serial (3+ provedores em 30 dias)
-- `equipment_risk` — Risco de Equipamento
-- `recent_contract` — Contrato Recente (<90 dias tentando migrar)
+### Anti-Fraude — detector de FUGA
+
+**O conceito:** avisar o provedor que um cliente que ele **ainda tem** está
+procurando outro provedor. Não é lista de inadimplentes nem log de consultas.
+A carteira inteira vive em `/inadimplentes`.
+
+**A regra** (`server/services/antifraude-rules.ts`, com testes). Dispara quando
+TODAS forem verdadeiras:
+1. quem consultou **não** é o dono do cliente;
+2. o cliente ainda é do dono (contrato não cancelado);
+3. E pelo menos uma:
+   - **(a)** dívida ativa material (≥ R$ 50 e ≥ 15 dias), ou
+   - **(b)** contrato com menos de 90 dias.
+
+Teto de sanidade: atraso acima de 365 dias não descreve cliente ativo, e sim
+baixa contábil — vira caso de recuperação, não de prevenção de fuga.
+
+A regra roda nos DOIS pontos: ao criar o alerta (`proactive-alert.service.ts`)
+e ao listar (`GET /api/anti-fraud/alerts`), porque o estado do cliente muda
+depois que o alerta foi gravado.
+
+**Origens que alimentam a lista** (as duas passam pela mesma regra e são
+deduplicadas por CPF + provedor consulente):
+- `defaulter_consulted` — alerta proativo: alguém consultou seu cliente.
+- `migrador_serial` — contrato cancelado em provedor da rede + dívida ativa.
+
+`equipment_risk` e `recent_contract` **não existem como tipo gravado** — o
+segundo virou o motivo `contrato_recente` dentro da regra acima.
+
+**Pendência conhecida:** o motivo do alerta não é persistido, e `customers` não
+guarda data de início de contrato. Por isso a condição (b) dispara na criação
+(e-mail/webhook) mas não sobrevive à reavaliação da listagem. Uma coluna
+`contract_start_date` em `customers` resolveria isso e também o
+`mesesComoCliente` do motor de score, que hoje é sempre 0.
 
 ---
 

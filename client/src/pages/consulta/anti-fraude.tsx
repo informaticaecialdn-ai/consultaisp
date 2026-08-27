@@ -6,11 +6,11 @@ import { Button } from "@/components/ui/button";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
+import { Link } from "wouter";
 import {
   ShieldAlert, AlertTriangle, DollarSign,
   CheckCircle, XCircle,
-  Search, Clock, Phone, Package, Users,
-  RefreshCw, Wifi, FileText,
+  Search, Clock, Package, Users, RefreshCw,
 } from "lucide-react";
 
 type AntiFraudAlert = {
@@ -36,21 +36,11 @@ type AntiFraudAlert = {
   resolved: boolean;
   status: string;
   createdAt: string | null;
-};
-
-type CustomerRisk = {
-  id: number;
-  name: string;
-  cpfCnpj: string;
-  riskScore: number;
-  riskLevel: string;
-  riskFactors: string[];
-  daysOverdue: number;
-  overdueAmount: number;
-  equipmentNotReturned: number;
-  equipmentValue: number;
-  recentConsultations: number;
-  alertCount: number;
+  /* Vem da regra de fuga (server/services/antifraude-rules.ts). O rótulo do
+     card sai daqui, não de uma contagem de dias de atraso. */
+  motivos?: string[];
+  motivoLabel?: string;
+  diasDeContrato?: number | null;
 };
 
 const fmt = (v: number | string | null | undefined): string => {
@@ -89,11 +79,6 @@ export default function AntiFraudePage() {
     staleTime: 30000,
   });
 
-  const { data: customerRisks = [], isLoading: risksLoading } = useQuery<CustomerRisk[]>({
-    queryKey: ["/api/anti-fraud/customer-risk"],
-    staleTime: 60000,
-  });
-
   const resolveMutation = useMutation({
     mutationFn: (id: number) => apiRequest("PATCH", `/api/anti-fraud/alerts/${id}/status`, { status: "resolved" }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/anti-fraud/alerts"] }); toast({ title: "Alerta resolvido" }); },
@@ -115,16 +100,16 @@ export default function AntiFraudePage() {
       )
     : displayAlerts;
 
-  // KPIs — equipamento entra pelo valor registrado, nunca por estimativa fixa
-  const totalDivida = activeAlerts.reduce((s, a) => s + parseFloat(a.overdueAmount || "0"), 0);
-  const totalEquip = activeAlerts.reduce((s, a) => s + parseFloat(a.equipmentValue || "0"), 0);
-  const totalInstalacao = activeAlerts.length * CUSTO_INSTALACAO;
+  /* KPIs — só somam o que é MEU e está em risco de fugir agora.
+     Antes entrava qualquer alerta da lista, inclusive dívida de cliente de
+     outro provedor: o total dizia "prejuízo" sobre dinheiro que não era do
+     provedor que estava olhando a tela. */
+  const emRisco = activeAlerts.filter(a => a.customerProviderId === undefined || a.customerProviderId === a.providerId);
+  const totalDivida = emRisco.reduce((s, a) => s + parseFloat(a.overdueAmount || "0"), 0);
+  const totalEquip = emRisco.reduce((s, a) => s + parseFloat(a.equipmentValue || "0"), 0);
+  const qtdEquip = emRisco.reduce((s, a) => s + (a.equipmentNotReturned || 0), 0);
+  const totalInstalacao = emRisco.length * CUSTO_INSTALACAO;
   const totalPrejuizo = totalDivida + totalEquip + totalInstalacao;
-
-  // Top devedores
-  const topDevedores = [...customerRisks]
-    .sort((a, b) => b.overdueAmount - a.overdueAmount || b.daysOverdue - a.daysOverdue)
-    .slice(0, 20);
 
   return (
     <div className="p-4 lg:p-6 space-y-6">
@@ -137,7 +122,7 @@ export default function AntiFraudePage() {
             Protecao Anti-Fraude
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Clientes inadimplentes sendo consultados por outros provedores
+            Clientes ativos seus, com dívida ou contrato novo, sendo consultados por outro provedor
           </p>
         </div>
         <Button variant="outline" size="sm" className="gap-2" onClick={() => refetch()}>
@@ -153,29 +138,31 @@ export default function AntiFraudePage() {
             <AlertTriangle className="w-5 h-5 text-[var(--color-danger)]" />
             <span className="text-sm font-medium text-[var(--color-muted)] uppercase">Alertas Ativos</span>
           </div>
-          <p className="text-2xl font-bold text-[var(--color-danger)]">{activeAlerts.length}</p>
+          <p className="text-2xl font-bold text-[var(--color-danger)] tabular-nums">{emRisco.length}</p>
         </Card>
         <Card className="p-5 bg-[var(--color-gold-bg)]">
           <div className="flex items-center gap-2 mb-3">
             <DollarSign className="w-5 h-5 text-[var(--color-gold)]" />
             <span className="text-sm font-medium text-[var(--color-muted)] uppercase">Dívidas em Risco</span>
           </div>
-          <p className="text-2xl font-bold text-[var(--color-gold)]">{fmt(totalDivida)}</p>
+          <p className="text-2xl font-bold text-[var(--color-gold)] tabular-nums">{fmt(totalDivida)}</p>
         </Card>
         <Card className="p-5 bg-[var(--color-gold-bg)]">
           <div className="flex items-center gap-2 mb-3">
             <Package className="w-5 h-5 text-[var(--color-gold)]" />
             <span className="text-sm font-medium text-[var(--color-muted)] uppercase">Equipamentos</span>
           </div>
-          <p className="text-2xl font-bold text-[var(--color-gold)]">{activeAlerts.length}</p>
-          <p className="text-sm text-[var(--color-muted)]">{fmt(totalEquip)} (valor estimado)</p>
+          {/* Era activeAlerts.length: mostrava a contagem de ALERTAS no card de
+              equipamentos, então 8 alertas viravam "8 equipamentos". */}
+          <p className="text-2xl font-bold text-[var(--color-gold)] tabular-nums">{qtdEquip}</p>
+          <p className="text-sm text-[var(--color-muted)] tabular-nums">{fmt(totalEquip)} em comodato</p>
         </Card>
         <Card className="p-5 bg-[var(--color-danger-bg)] border-[var(--color-danger)]/20">
           <div className="flex items-center gap-2 mb-3">
             <AlertTriangle className="w-5 h-5 text-[var(--color-danger)]" />
             <span className="text-sm font-medium text-[var(--color-muted)] uppercase">Prejuízo Total Estimado</span>
           </div>
-          <p className="text-2xl font-bold text-[var(--color-danger)]">{fmt(totalPrejuizo)}</p>
+          <p className="text-2xl font-bold text-[var(--color-danger)] tabular-nums">{fmt(totalPrejuizo)}</p>
           <p className="text-sm text-[var(--color-muted)]">dívida + equip + instalação</p>
         </Card>
       </div>
@@ -249,73 +236,20 @@ export default function AntiFraudePage() {
         </div>
       )}
 
-      {/* Ranking dos Piores Devedores */}
-      <Card className="p-0 overflow-hidden">
-        <div className="p-4 border-b flex items-center gap-2">
-          <DollarSign className="w-4 h-4 text-[var(--score-low)]" />
-          <h2 className="font-semibold">Ranking de Risco — Seus Clientes</h2>
-          <span className="ml-auto text-xs text-muted-foreground">{topDevedores.length} clientes</span>
-        </div>
-        {risksLoading ? (
-          <div className="p-4 space-y-3" data-testid="risks-loading">
-            {[0, 1, 2].map(i => (
-              <div key={i} className="flex items-center gap-3">
-                <Skeleton className="w-6 h-6 rounded" />
-                <Skeleton className="h-4 flex-1 max-w-[220px]" />
-                <Skeleton className="h-4 w-16 ml-auto" />
-              </div>
-            ))}
-          </div>
-        ) : topDevedores.length === 0 ? (
-          <div className="px-6 py-12 text-center" data-testid="risks-empty">
-            <DollarSign className="w-8 h-8 mx-auto mb-4 text-[var(--color-muted)] opacity-50" />
-            <h3 className="font-display font-semibold text-base text-[var(--color-ink)]">
-              Nenhum cliente em risco
-            </h3>
-            <p className="mt-2 mx-auto max-w-[46ch] text-sm text-[var(--color-muted)]">
-              O ranking aparece quando houver inadimplência registrada — por importação de
-              CSV ou sincronização com seu ERP.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/40">
-                  <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">#</th>
-                  <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Cliente</th>
-                  <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Divida</th>
-                  <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Atraso</th>
-                  <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Consultas</th>
-                  <th className="text-left px-4 py-2.5 text-xs text-muted-foreground font-medium">Risco</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {topDevedores.map((c, i) => (
-                  <tr key={c.id} className="hover:bg-muted/30">
-                    <td className="px-4 py-3 text-muted-foreground font-mono text-xs">{i + 1}</td>
-                    <td className="px-4 py-3">
-                      <p className="font-medium">{c.name}</p>
-                      <p className="text-xs text-muted-foreground font-mono">{fmtCpf(c.cpfCnpj)}</p>
-                    </td>
-                    <td className="px-4 py-3 font-semibold text-[var(--color-danger)]">{fmt(c.overdueAmount)}</td>
-                    <td className="px-4 py-3">
-                      <span className={c.daysOverdue > 90 ? "text-[var(--color-danger)] font-semibold" : ""}>{c.daysOverdue}d</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {c.recentConsultations > 0 ? (
-                        <Badge className="bg-[var(--color-gold-bg)] text-[var(--score-low)] text-xs">
-                          {c.recentConsultations}x
-                        </Badge>
-                      ) : "—"}
-                    </td>
-                    <td className="px-4 py-3"><RiskBadge level={c.riskLevel} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+      {/* O ranking de devedores foi removido daqui.
+          Ele listava TODOS os clientes do provedor ordenados por divida — o
+          oposto do que esta tela e. Anti-fraude mostra so quem esta fugindo;
+          a carteira inteira vive em /inadimplentes. Tirar tambem eliminou a
+          chamada a /api/anti-fraud/customer-risk, que fazia 1+3N queries
+          sequenciais sobre a base inteira a cada abertura da pagina. */}
+      <Card className="p-4 flex items-center gap-3 flex-wrap">
+        <Users className="w-4 h-4 text-[var(--color-muted)]" />
+        <span className="text-sm text-[var(--color-muted)]">
+          Procurando a carteira inteira de inadimplentes, e nao so quem esta migrando?
+        </span>
+        <Link href="/inadimplentes" className="ml-auto">
+          <Button variant="outline" size="sm">Ver inadimplentes</Button>
+        </Link>
       </Card>
     </div>
   );
@@ -347,7 +281,7 @@ function AlertCard({ alert, onResolve, onDismiss }: {
         <div className="flex items-center gap-2">
           <AlertTriangle className="w-4 h-4" />
           <span className="font-semibold text-sm">
-            {daysOverdue <= 90 ? "CONTRATO RECENTE" : "DEVEDOR CRONICO"}
+            {(alert.motivoLabel || "Fuga · dívida ativa").toUpperCase()}
           </span>
         </div>
         <span className="text-xs opacity-90">
@@ -453,11 +387,15 @@ function AlertCard({ alert, onResolve, onDismiss }: {
             <Button size="sm" variant="outline" className="gap-1.5 flex-1" onClick={() => onDismiss(alert.id)}>
               <XCircle className="w-3.5 h-3.5" /> Ignorar
             </Button>
-            <a href={`tel:${(alert.customerCpfCnpj || "").replace(/\D/g, "")}`} className="flex-1">
-              <Button size="sm" variant="outline" className="gap-1.5 w-full border-[var(--color-success)] text-[var(--color-success)] hover:bg-[var(--color-success-bg)]">
-                <Phone className="w-3.5 h-3.5" /> Ligar
+            {/* Havia aqui um botão "Ligar" com href={`tel:${CPF}`}: discava o
+                documento do cliente como se fosse telefone. O alerta não traz
+                telefone, então o caminho honesto é levar para a consulta do
+                documento, onde o cadastro está. */}
+            <Link href={`/consulta-isp?doc=${(alert.customerCpfCnpj || "").replace(/\D/g, "")}`} className="flex-1">
+              <Button size="sm" variant="outline" className="gap-1.5 w-full">
+                <Search className="w-3.5 h-3.5" /> Abrir consulta
               </Button>
-            </a>
+            </Link>
           </div>
         )}
         {isResolved && (

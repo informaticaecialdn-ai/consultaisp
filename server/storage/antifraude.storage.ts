@@ -1,4 +1,4 @@
-import { eq, and, or, desc, sql } from "drizzle-orm";
+import { eq, and, ne, desc } from "drizzle-orm";
 import { db } from "../db";
 import {
   antiFraudAlerts, customers,
@@ -9,9 +9,14 @@ export type AlertWithOwnership = AntiFraudAlert & { customerProviderId: number |
 
 export class AntifraudeStorage {
   /**
-   * Returns alerts where the provider owns the customer OR was the consulting provider.
-   * Joins with customers table to derive authoritative customerProviderId (ground truth
-   * for who owns the customer), falling back to alert.providerId when customerId is null.
+   * Alertas em que ESTE provedor e o DONO do cliente — ou seja, o cliente dele
+   * esta sendo procurado por outro provedor.
+   *
+   * Antes havia tambem `OR consultingProviderId = providerId`, que devolvia os
+   * alertas que o proprio provedor GEROU ao consultar clientes alheios. Como a
+   * mascara revela o nome do consulente quando ele e voce mesmo, a tela exibia
+   * "Consultado por <seu proprio nome>" — um alerta de fuga apontando para o
+   * dono. Fuga so existe do ponto de vista de quem tem o cliente a perder.
    */
   async getAlertsByProvider(providerId: number): Promise<AlertWithOwnership[]> {
     const rows = await db
@@ -22,9 +27,11 @@ export class AntifraudeStorage {
       })
       .from(antiFraudAlerts)
       .leftJoin(customers, eq(antiFraudAlerts.customerId, customers.id))
-      .where(or(
+      .where(and(
         eq(antiFraudAlerts.providerId, providerId),
-        eq(antiFraudAlerts.consultingProviderId, providerId),
+        // Blindagem: um registro legado onde dono e consulente coincidem nao
+        // descreve fuga nenhuma e nao pode voltar para a tela.
+        ne(antiFraudAlerts.consultingProviderId, providerId),
       ))
       .orderBy(desc(antiFraudAlerts.createdAt));
 

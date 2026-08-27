@@ -5,89 +5,207 @@ import { maskAlertForProvider } from "../utils/mask-alert";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { logger } from "../logger";
 import { equipamentoTemRetiradaPendente } from "../services/equipment-recovery-rules";
+import { avaliarRiscoDeFuga, rotuloDoAlerta, severidadeDoAlerta } from "../services/antifraude-rules";
+import { anonymizeProvider } from "../utils/provider-anonymizer";
 
 export function registerAntiFraudeRoutes(): Router {
   const router = Router();
 
+  /**
+   * Alertas de FUGA: clientes deste provedor que outro provedor consultou.
+   *
+   * Duas origens alimentam a mesma lista — o alerta proativo (alguem consultou
+   * seu cliente) e o alerta de migrador (contrato cancelado + divida na rede).
+   * As duas passam pela MESMA regra, senao uma volta a mostrar o que a outra
+   * filtra. E as duas sao deduplicadas: o mesmo CPF consultado tres vezes pelo
+   * mesmo provedor e UM caso a tratar, nao tres cards iguais.
+   */
   router.get("/api/anti-fraud/alerts", requireAuth, async (req, res) => {
     try {
       const currentProviderId = req.session.providerId!;
 
-      // 1. Migrator alerts (antiFraudAlerts) — only where THIS provider had the cancelled contract
-      const migratorAlerts = await storage.getAlertsByProvider(currentProviderId);
-      const maskedMigrator = migratorAlerts.map((alert: any) => maskAlertForProvider(alert, currentProviderId));
+      const [migratorAlerts, proactiveRaw] = await Promise.all([
+        storage.getAlertsByProvider(currentProviderId),
+        storage.getProactiveAlertsByProvider(currentProviderId, 200),
+      ]);
 
-      // 2. Proactive alerts — when another provider consulted THIS provider's client
-      const proactiveRaw = await storage.getProactiveAlertsByProvider(currentProviderId, 100);
+      // ── Snapshot atual dos clientes citados ───────────────────────────
+      // Um lookup por CPF distinto, nao um por alerta: antes eram N queries
+      // sequenciais dentro do map.
+      const documentos = Array.from(new Set([
+        ...proactiveRaw.map(p => p.cpfCnpj),
+        ...migratorAlerts.map((a: any) => a.customerCpfCnpj),
+      ].filter(Boolean) as string[]));
 
-      // Convert proactive alerts to same format as anti-fraud alerts for unified display
-      const consultingProviderNames = new Map<number, string>();
+      const snapshot = new Map<string, {
+        name: string | null;
+        daysOverdue: number;
+        overdueAmount: string;
+        equipCount: number;
+        equipValue: string;
+        contractStatus?: "active" | "cancelled" | "suspended";
+      }>();
+
+      await Promise.all(documentos.map(async (doc) => {
+        try {
+          const encontrados = await storage.getCustomerByCpfCnpj(doc);
+          const meu = encontrados.find(c => c.providerId === currentProviderId);
+          if (!meu) return;
+          snapshot.set(doc.replace(/\D/g, ""), {
+            name: meu.name,
+            daysOverdue: meu.maxDaysOverdue || 0,
+            overdueAmount: meu.totalOverdueAmount || "0",
+            equipCount: (meu as any).equipmentCount ?? 0,
+            equipValue: (meu as any).equipmentEstimatedValue ?? "0",
+            // customers.status espelha o contrato no ERP na ultima sincronia.
+            contractStatus: meu.status === "cancelled" || meu.status === "inactive"
+              ? "cancelled"
+              : meu.status === "suspended" ? "suspended" : "active",
+          });
+        } catch { /* sem snapshot, a regra decide com o que o alerta trouxe */ }
+      }));
+
+      const nomesConsulentes = new Map<number, string>();
       for (const pa of proactiveRaw) {
-        if (pa.consultingProviderId && !consultingProviderNames.has(pa.consultingProviderId)) {
+        if (pa.consultingProviderId && !nomesConsulentes.has(pa.consultingProviderId)) {
           try {
             const p = await storage.getProvider(pa.consultingProviderId);
-            if (p) consultingProviderNames.set(pa.consultingProviderId, p.name);
-          } catch {}
+            if (p) nomesConsulentes.set(pa.consultingProviderId, p.name);
+          } catch { /* nome ausente vira "Provedor da rede" */ }
         }
       }
 
-      // Enriquecer alertas proativos com dados do cliente do banco local
-      const proactiveAsAlerts = await Promise.all(proactiveRaw.map(async (pa) => {
-        // Buscar dados do cliente no banco local
-        let customerName: string | null = null;
-        let daysOverdue: number | null = null;
-        let overdueAmount: string | null = null;
-        let equipCount = 0;
-        let equipValue = "0";
+      type Candidato = {
+        alerta: Record<string, any>;
+        avaliacao: ReturnType<typeof avaliarRiscoDeFuga>;
+        chave: string;
+        quando: number;
+      };
 
-        if (pa.cpfCnpj) {
-          try {
-            const customers = await storage.getCustomerByCpfCnpj(pa.cpfCnpj);
-            const ownCustomer = customers.find(c => c.providerId === currentProviderId);
-            if (ownCustomer) {
-              customerName = ownCustomer.name;
-              daysOverdue = ownCustomer.maxDaysOverdue || 0;
-              overdueAmount = ownCustomer.totalOverdueAmount || "0";
-              equipCount = (ownCustomer as any).equipmentCount ?? 0;
-              equipValue = (ownCustomer as any).equipmentEstimatedValue ?? "0";
-            }
-          } catch {}
-        }
+      const avaliar = (
+        doc: string | null,
+        consultanteId: number | null,
+        brutos: { daysOverdue: number; overdueAmount: string },
+      ) => {
+        const snap = doc ? snapshot.get(doc.replace(/\D/g, "")) : undefined;
+        return avaliarRiscoDeFuga(
+          {
+            contractStatus: snap?.contractStatus,
+            totalOverdueAmount: parseFloat(snap?.overdueAmount ?? brutos.overdueAmount) || 0,
+            maxDaysOverdue: snap?.daysOverdue ?? brutos.daysOverdue,
+          },
+          { consultanteEhDono: consultanteId === currentProviderId },
+        );
+      };
 
-        return {
-          id: pa.id + 1_000_000,
-          providerId: pa.providerId,
-          customerId: null,
-          customerProviderId: currentProviderId, // e cliente proprio
-          consultingProviderId: pa.consultingProviderId,
-          consultingProviderName: pa.consultingProviderId ? (consultingProviderNames.get(pa.consultingProviderId) || "Provedor da rede") : null,
-          customerName,
-          customerCpfCnpj: pa.cpfCnpj,
-          type: "defaulter_consulted",
-          severity: (daysOverdue || 0) > 90 ? "high" : "medium",
-          message: `Seu cliente foi consultado por outro provedor da rede ISP`,
-          riskScore: (daysOverdue || 0) > 90 ? 80 : 50,
-          riskLevel: (daysOverdue || 0) > 90 ? "high" : "medium",
-          riskFactors: ["consulta_outro_provedor"],
-          daysOverdue,
-          overdueAmount,
-          equipmentNotReturned: equipCount,
-          equipmentValue: equipValue,
-          recentConsultations: 1,
-          resolved: pa.acknowledged || false,
-          status: pa.acknowledged ? "resolved" : "new",
-          createdAt: pa.sentAt,
-          _source: "proactive" as const,
-        };
-      }));
+      const candidatos: Candidato[] = [];
 
-      // Combine both sources, sort by date descending
-      const all = [...maskedMigrator.map((a: any) => ({ ...a, _source: "migrator" as const })), ...proactiveAsAlerts]
-        .sort((a, b) => {
-          const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const db = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          return db - da;
+      for (const pa of proactiveRaw) {
+        const snap = snapshot.get((pa.cpfCnpj || "").replace(/\D/g, ""));
+        const avaliacao = avaliar(pa.cpfCnpj, pa.consultingProviderId, { daysOverdue: 0, overdueAmount: "0" });
+        const dias = snap?.daysOverdue ?? 0;
+        const valor = snap?.overdueAmount ?? "0";
+        candidatos.push({
+          chave: (pa.cpfCnpj || "").replace(/\D/g, "") + "|" + (pa.consultingProviderId ?? 0),
+          quando: pa.sentAt ? new Date(pa.sentAt).getTime() : 0,
+          avaliacao,
+          alerta: {
+            id: pa.id + 1_000_000,
+            providerId: pa.providerId,
+            customerId: null,
+            customerProviderId: currentProviderId,
+            consultingProviderId: pa.consultingProviderId,
+            // Anonimizado como no caminho de migrador: o dono precisa saber QUE
+            // consultaram, nao qual concorrente esta prospectando.
+            consultingProviderName: pa.consultingProviderId
+              ? anonymizeProvider(nomesConsulentes.get(pa.consultingProviderId) || "Provedor da rede", pa.consultingProviderId)
+              : null,
+            customerName: snap?.name ?? null,
+            customerCpfCnpj: pa.cpfCnpj,
+            type: "defaulter_consulted",
+            severity: severidadeDoAlerta(avaliacao.motivos, {
+              totalOverdueAmount: parseFloat(valor) || 0,
+              maxDaysOverdue: dias,
+            }),
+            message: "Seu cliente foi consultado por outro provedor da rede ISP",
+            motivos: avaliacao.motivos,
+            motivoLabel: rotuloDoAlerta(avaliacao.motivos),
+            diasDeContrato: avaliacao.diasDeContrato ?? null,
+            riskScore: dias > 90 ? 80 : 50,
+            riskLevel: dias > 90 ? "high" : "medium",
+            riskFactors: ["consulta_outro_provedor", ...avaliacao.motivos],
+            daysOverdue: dias,
+            overdueAmount: valor,
+            equipmentNotReturned: snap?.equipCount ?? 0,
+            equipmentValue: snap?.equipValue ?? "0",
+            recentConsultations: 1,
+            resolved: pa.acknowledged || false,
+            status: pa.acknowledged ? "resolved" : "new",
+            createdAt: pa.sentAt,
+            _source: "proactive" as const,
+          },
         });
+      }
+
+      for (const bruto of migratorAlerts as any[]) {
+        const mascarado = maskAlertForProvider(bruto, currentProviderId);
+        const avaliacao = avaliar(bruto.customerCpfCnpj, bruto.consultingProviderId, {
+          daysOverdue: bruto.daysOverdue ?? 0,
+          overdueAmount: bruto.overdueAmount ?? "0",
+        });
+        const snap = snapshot.get((bruto.customerCpfCnpj || "").replace(/\D/g, ""));
+        candidatos.push({
+          chave: (bruto.customerCpfCnpj || "").replace(/\D/g, "") + "|" + (bruto.consultingProviderId ?? 0),
+          quando: bruto.createdAt ? new Date(bruto.createdAt).getTime() : 0,
+          avaliacao,
+          alerta: {
+            ...mascarado,
+            customerName: mascarado.customerName ?? snap?.name ?? null,
+            motivos: avaliacao.motivos,
+            motivoLabel: rotuloDoAlerta(avaliacao.motivos),
+            diasDeContrato: avaliacao.diasDeContrato ?? null,
+            severity: severidadeDoAlerta(avaliacao.motivos, {
+              totalOverdueAmount: parseFloat(snap?.overdueAmount ?? bruto.overdueAmount ?? "0") || 0,
+              maxDaysOverdue: snap?.daysOverdue ?? bruto.daysOverdue ?? 0,
+            }),
+            _source: "migrator" as const,
+          },
+        });
+      }
+
+      /* Um alerta ja tratado continua visivel na aba "Resolvidos" — o provedor
+         precisa do proprio historico. O que a regra remove e o alerta ABERTO
+         que nunca deveria ter existido, inclusive o passivo criado sob a regra
+         antiga, que disparava para qualquer consulta a qualquer cliente. */
+      const descartados: Record<string, number> = {};
+      const qualificados = candidatos.filter(({ alerta, avaliacao }) => {
+        if (avaliacao.alerta || alerta.resolved) return true;
+        const k = avaliacao.descartadoPor ?? "desconhecido";
+        descartados[k] = (descartados[k] ?? 0) + 1;
+        return false;
+      });
+
+      // Dedup: mesmo CPF + mesmo consulente = um caso. Fica o mais recente.
+      const porChave = new Map<string, Candidato>();
+      for (const c of qualificados) {
+        const atual = porChave.get(c.chave);
+        if (!atual || c.quando > atual.quando) porChave.set(c.chave, c);
+      }
+
+      if (Object.keys(descartados).length > 0 || porChave.size < qualificados.length) {
+        logger.info(
+          {
+            providerId: currentProviderId,
+            descartados,
+            duplicatasRemovidas: qualificados.length - porChave.size,
+          },
+          "Alertas de fuga filtrados pela regra",
+        );
+      }
+
+      const all = Array.from(porChave.values())
+        .sort((a, b) => b.quando - a.quando)
+        .map(c => c.alerta);
 
       return res.json(all);
     } catch (error: any) {

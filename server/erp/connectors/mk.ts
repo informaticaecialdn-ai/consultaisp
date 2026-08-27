@@ -458,6 +458,35 @@ export class MkConnector implements ErpConnector {
 
       console.log(`[MK] RESULTADO FINAL fetchCustomerByCpf: overdue=${overdueInvoicesCount}, maxDays=${maxDaysOverdue}, totalAmount=${totalOverdueAmount}, addr="${streetPart}", num=${addressNumber}, bairro=${neighborhood}, cidade=${cityFromAddr}, cep=${customerData?.CEP || customerData?.cep}, lat=${rawLat}, lng=${rawLng}`);
 
+      // ── CONTRATO: status e data de inicio ───────────────────────────────
+      // Mesmo motivo do IXC: o anti-fraude so distingue fuga de baixa antiga se
+      // souber que o contrato esta vigente e ha quanto tempo. O fetchDelinquents
+      // ja fazia esta chamada; o caminho de consulta em tempo real nao fazia.
+      let contractStatus: NormalizedErpCustomer["contractStatus"];
+      let contractStartDate: string | undefined;
+      let contractPlan: string | undefined;
+
+      if (cdCliente) {
+        try {
+          const ctUrl = `${base}/mk/WSMKContratosPorCliente.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdCliente)}`;
+          const ctResp = await fetch(ctUrl, { method: "GET", signal: AbortSignal.timeout(10000) });
+          if (ctResp.ok) {
+            const ctJson: any = await ctResp.json();
+            const ativos: any[] = ctJson?.ContratosAtivos ?? [];
+            const inativos: any[] = ctJson?.ContratosInativos ?? ctJson?.ContratosCancelados ?? [];
+            const escolhido = ativos[0] ?? inativos[0];
+            contractStatus = ativos.length > 0 ? "active" : (inativos.length > 0 ? "cancelled" : undefined);
+            if (escolhido) {
+              contractStartDate = escolhido.data_ativacao || escolhido.DataAtivacao
+                || escolhido.data_contrato || escolhido.DataContrato || undefined;
+              contractPlan = escolhido.plano_acesso || escolhido.PlanoAcesso || undefined;
+            }
+          }
+        } catch {
+          // Sem o endpoint de contratos, segue sem o sinal — a regra trata undefined.
+        }
+      }
+
       const customer: NormalizedErpCustomer = {
         cpfCnpj: cleanDoc,
         name: nome,
@@ -479,6 +508,9 @@ export class MkConnector implements ErpConnector {
         totalOverdueAmount,
         maxDaysOverdue,
         overdueInvoicesCount,
+        contractStatus,
+        contractStartDate,
+        contractPlan,
         erpSource: "mk",
       };
 
