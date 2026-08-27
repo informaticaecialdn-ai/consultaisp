@@ -224,6 +224,14 @@ export function registerBigdataRoutes(): Router {
           ocupacao: r.ocupacao,
           perfil: r.perfil,
           mercado: r.mercado,
+          capacidade: r.capacidade,
+
+          domicilio: r.domicilio,
+
+          riscoFamiliar: r.riscoFamiliar,
+
+          seguranca: r.seguranca,
+
           riscoArea: r.riscoArea,
         validacaoTelefone: r.validacaoTelefone,
         imovel: r.imovel,
@@ -267,6 +275,14 @@ export function registerBigdataRoutes(): Router {
         ocupacao: r.ocupacao,
         perfil: r.perfil,
         mercado: r.mercado,
+        capacidade: r.capacidade,
+
+        domicilio: r.domicilio,
+
+        riscoFamiliar: r.riscoFamiliar,
+
+        seguranca: r.seguranca,
+
         riscoArea: r.riscoArea,
         validacaoTelefone: r.validacaoTelefone,
         imovel: r.imovel,

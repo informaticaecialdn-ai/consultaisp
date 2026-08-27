@@ -50,6 +50,33 @@ type Resultado = {
     declaracoesIR: Array<{ ano: string; status?: string; banco?: string; agencia?: string; segmentoVip: boolean }>;
     declaraIrRecorrente: boolean; temSegmentoVip: boolean;
   };
+  /** O que sobra para a mensalidade, e quanto disso vem de beneficio. */
+  capacidade?: {
+    sobraMensal?: string; despesaMensal?: string; rendaFamiliar?: string;
+    dependentes: number; ehResponsavel?: boolean; ehDependente?: boolean;
+    origemRenda?: string; percentualBeneficio?: string;
+    recebeBeneficio: boolean; beneficiosAtivos: number; beneficiariosNaFamilia: number;
+  };
+  /** Contagem por padrao; nomes so quando ha ocorrencia entre os relacionados. */
+  domicilio?: {
+    totalRelacionados: number; noDomicilio: number; vizinhos: number;
+    parentes: number; conjuges: number; socios: number; colegasTrabalho: number;
+    nomes: Array<{ nome: string; vinculo: string; nivel: string }>;
+    nomesLiberados: boolean;
+  };
+  /** Score da CASA, com a distribuicao A-H dos membros. */
+  riscoFamiliar?: {
+    score?: number; nivel?: string; membros: number; empregados: number;
+    emCobranca: number; ocorrencias365d: number;
+    distribuicao: Record<string, number>; piorFaixa?: string;
+  };
+  /** Risco de crime no endereco de instalacao. */
+  seguranca?: {
+    score?: number; nivel?: string; cidade?: string; uf?: string;
+    roubo?: number; violencia?: number; narcotrafico?: number; furtoVeiculo?: number;
+    ocorrenciasPorMes?: number; crimes360d?: number;
+    totalEnderecos: number; totalCidades: number;
+  };
   risco: {
     score?: number; nivel?: string; empregado?: boolean; socio?: boolean;
     recebendoAuxilio?: boolean; inicioUltimaOcupacao?: string;
@@ -601,6 +628,180 @@ type Processo = NonNullable<Resultado["processos"]>[number];
  * inteira quando vazio — listar o vazio é o que prova que a checagem rodou —
  * e rodapé com o total, como nas tabelas de Pendências/Protesto da Serasa.
  */
+/**
+ * Capacidade de pagar — o que SOBRA, não o que entra.
+ *
+ * Renda bruta já tem card próprio. Este responde outra pergunta: depois das
+ * despesas da casa, resta dinheiro para a mensalidade? É o número que decide um
+ * plano de R$ 100, e nenhum score de crédito o entrega.
+ */
+function PainelCapacidade({ c }: { c: NonNullable<Resultado["capacidade"]> }) {
+  const temAlgo = c.sobraMensal || c.despesaMensal || c.rendaFamiliar
+    || c.recebeBeneficio || c.percentualBeneficio || c.dependentes > 0;
+  if (!temAlgo) return null;
+
+  const sm = (v?: string) => v?.toLowerCase().replace(/\bsm\b/g, "SM");
+
+  return (
+    <Painel titulo="Capacidade de pagar." sub="Faixas estatísticas da renda da casa, não comprovação.">
+      <Pares cols={2}>
+        <Linha rotulo="Sobra por mês" valor={sm(c.sobraMensal) ?? "—"} />
+        <Linha rotulo="Despesa mensal" valor={sm(c.despesaMensal) ?? "—"} />
+        <Linha rotulo="Renda da casa" valor={sm(c.rendaFamiliar) ?? "—"} />
+        <Linha rotulo="Dependentes" valor={c.dependentes} />
+      </Pares>
+
+      <div className="flex flex-wrap gap-1.5 mt-3">
+        {c.ehResponsavel && <Chip tom="neutro">Responsável pelo domicílio</Chip>}
+        {c.ehDependente && <Chip tom="alerta">Provável dependente</Chip>}
+        {c.origemRenda && <Chip tom="neutro">Renda: {c.origemRenda.toLowerCase()}</Chip>}
+        {/* Benefício não é demérito — é origem de renda, e origem de renda muda
+            a leitura de estabilidade. Por isso tom neutro, nunca alerta. */}
+        {c.recebeBeneficio && (
+          <Chip tom="neutro">
+            Recebe benefício social{c.beneficiosAtivos > 1 ? ` · ${c.beneficiosAtivos} ativos` : ""}
+          </Chip>
+        )}
+        {c.beneficiariosNaFamilia > 0 && (
+          <Chip tom="neutro">{c.beneficiariosNaFamilia} beneficiário(s) na casa</Chip>
+        )}
+      </div>
+
+      {c.percentualBeneficio && (
+        <p className="text-[12px] text-[var(--text-muted)] mt-3">
+          Participação do benefício na renda da casa:{" "}
+          <span className="font-mono tabular-nums text-[var(--text-2)]">
+            {c.percentualBeneficio.toLowerCase()}
+          </span>
+        </p>
+      )}
+    </Painel>
+  );
+}
+
+/**
+ * Domicílio e rede próxima.
+ *
+ * LGPD: por padrão só CONTAGEM. Os nomes são de terceiros que nunca pediram
+ * nada ao provedor, e o próprio titular ainda não é cliente dele — sem
+ * ocorrência entre os relacionados, saber o nome de um parente não muda decisão
+ * nenhuma, só expõe uma pessoa. O servidor decide (`nomesLiberados`); a tela
+ * apenas explica ao operador por que os nomes apareceram.
+ */
+function PainelDomicilio({ d }: { d: NonNullable<Resultado["domicilio"]> }) {
+  if (d.totalRelacionados === 0 && d.noDomicilio === 0) return null;
+
+  return (
+    <PainelLista
+      titulo="Domicílio e rede próxima."
+      meta={`${d.totalRelacionados} vínculo${d.totalRelacionados === 1 ? "" : "s"}`}
+    >
+      <div className="px-5 py-4">
+        <Pares cols={2}>
+          <Linha rotulo="No mesmo domicílio" valor={d.noDomicilio} alerta={d.noDomicilio > 0} />
+          <Linha rotulo="Vizinhos" valor={d.vizinhos} />
+          <Linha rotulo="Parentes" valor={d.parentes} />
+          <Linha rotulo="Cônjuge" valor={d.conjuges} />
+          <Linha rotulo="Sócios" valor={d.socios} />
+          <Linha rotulo="Colegas de trabalho" valor={d.colegasTrabalho} />
+        </Pares>
+
+        {d.nomesLiberados && d.nomes.length > 0 ? (
+          <div className="mt-4">
+            <p className="text-[11.5px] text-[var(--text-muted)] mb-2">
+              Nomes exibidos porque há ocorrência de cobrança entre os relacionados.
+            </p>
+            <div className="divide-y divide-[var(--border-faint)]">
+              {d.nomes.map((n, i) => (
+                <div key={i} className="flex items-center justify-between gap-3 py-2">
+                  <span className="text-[13px] text-[var(--text)] truncate">{n.nome}</span>
+                  <span className="font-mono text-[11px] uppercase tracking-[0.06em] text-[var(--text-muted)] shrink-0">
+                    {n.vinculo}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-[11.5px] text-[var(--text-muted)] mt-3">
+            Identificação dos relacionados fica oculta: sem ocorrência no endereço,
+            o nome de terceiro não entra na consulta (LGPD).
+          </p>
+        )}
+      </div>
+
+      {d.noDomicilio > 0 && (
+        <RodapeFato
+          titulo={`${d.noDomicilio} pessoa${d.noDomicilio === 1 ? "" : "s"} no mesmo domicílio`}
+          sub="Reinstalação no mesmo imóvel com outro CPF é o padrão de fraude mais comum do setor."
+        >
+          <Chip tom="alerta">verificar</Chip>
+        </RodapeFato>
+      )}
+    </PainelLista>
+  );
+}
+
+/**
+ * Segurança do endereço — a chance de o equipamento sumir.
+ *
+ * Não fala da pessoa: fala do lugar onde a ONU vai ficar. Um titular que paga
+ * em dia num endereço de roubo alto continua sendo um comodato em risco, e
+ * nenhum dado de crédito responde isso.
+ */
+function PainelSeguranca({ s }: { s: NonNullable<Resultado["seguranca"]> }) {
+  if (s.score == null && s.roubo == null) return null;
+
+  const riscos: Array<[string, number | undefined]> = [
+    ["Roubo", s.roubo],
+    ["Violência", s.violencia],
+    ["Narcotráfico", s.narcotrafico],
+    ["Furto de veículo", s.furtoVeiculo],
+  ];
+  const pior = Math.max(...riscos.map(([, v]) => v ?? 0));
+  // A escala do bureau é aberta: comparo os quatro entre si em vez de cravar um
+  // teto que a fonte não define.
+  const tom: Tom = pior >= 30 ? "perigo" : pior >= 15 ? "alerta" : "ok";
+
+  return (
+    <Painel
+      titulo="Segurança do endereço."
+      sub={[s.cidade, s.uf].filter(Boolean).join("/") || "Endereço principal do titular."}
+    >
+      <div className="flex items-baseline gap-2">
+        <span className="font-mono text-[26px] font-semibold tabular-nums leading-none text-[var(--text)]">
+          {s.score ?? "—"}
+        </span>
+        {s.nivel && (
+          <span className="font-mono text-[12px] text-[var(--text-muted)]">
+            nível {s.nivel}
+          </span>
+        )}
+      </div>
+
+      <div className="mt-4">
+        <Pares cols={2}>
+          {riscos.map(([rotulo, v]) => (
+            <Linha key={rotulo} rotulo={rotulo} valor={v ?? "—"} alerta={(v ?? 0) >= 15} />
+          ))}
+        </Pares>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5 mt-3">
+        <Chip tom={tom}>
+          {tom === "ok" ? "Área tranquila" : tom === "alerta" ? "Atenção ao comodato" : "Comodato em risco"}
+        </Chip>
+        {s.ocorrenciasPorMes != null && s.ocorrenciasPorMes > 0 && (
+          <Chip tom="neutro">{s.ocorrenciasPorMes} ocorrências/mês na região</Chip>
+        )}
+        {s.totalEnderecos > 1 && (
+          <Chip tom="alerta">{s.totalEnderecos} endereços · {s.totalCidades} cidade(s)</Chip>
+        )}
+      </div>
+    </Painel>
+  );
+}
+
 function TabelaProcessos({ processos }: { processos: Processo[] }) {
   const comoReu = processos.filter(p => p.papel === "réu").length;
   const valorTotal = processos.reduce((s, p) => s + (p.valor ?? 0), 0);
@@ -1252,6 +1453,16 @@ export default function ConsultaCadastralPage() {
 
                   {/* Só aparece com os datasets de bureau habilitados. */}
                   {resultado.mercado && <PainelMercado mercado={resultado.mercado} />}
+
+                  {/* Capacidade e segurança lado a lado: um diz se PODE pagar,
+                      o outro se o equipamento volta. São as duas perguntas que o
+                      provedor faz antes de mandar o técnico. */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+                    {resultado.capacidade && <PainelCapacidade c={resultado.capacidade} />}
+                    {resultado.seguranca && <PainelSeguranca s={resultado.seguranca} />}
+                  </div>
+
+                  {resultado.domicilio && <PainelDomicilio d={resultado.domicilio} />}
 
                   {/* Capacidade à esquerda, comportamento à direita. */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
