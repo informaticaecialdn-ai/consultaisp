@@ -201,6 +201,7 @@ export interface IStorage {
     duracaoMs?: number;
   }): Promise<void>;
   contarFalhasConsecutivas(providerId: number, erpSource: string): Promise<number>;
+  ultimoSyncBemSucedido(): Promise<Date | null>;
   getErpSyncLogs(providerId: number, erpSource?: string, limit?: number): Promise<ErpSyncLog[]>;
   createErpSyncLog(log: Omit<ErpSyncLog, "id" | "syncedAt">): Promise<ErpSyncLog>;
   getErpIntegrationStats(providerId?: number): Promise<any>;
@@ -380,6 +381,7 @@ class DatabaseStorage implements IStorage {
   incrementErpIntegrationCounters = (providerId: number, erpSource: string, upserted: number, errors: number) => this._erp.incrementErpIntegrationCounters(providerId, erpSource, upserted, errors);
   registrarResultadoSync = (providerId: number, erpSource: string, r: Parameters<ErpStorage["registrarResultadoSync"]>[2]) => this._erp.registrarResultadoSync(providerId, erpSource, r);
   contarFalhasConsecutivas = (providerId: number, erpSource: string) => this._erp.contarFalhasConsecutivas(providerId, erpSource);
+  ultimoSyncBemSucedido = () => this._erp.ultimoSyncBemSucedido();
   getErpSyncLogs = (providerId: number, erpSource?: string, limit?: number) => this._erp.getErpSyncLogs(providerId, erpSource, limit);
   createErpSyncLog = (log: Omit<ErpSyncLog, "id" | "syncedAt">) => this._erp.createErpSyncLog(log);
   getErpIntegrationStats = (providerId?: number) => this._erp.getErpIntegrationStats(providerId);

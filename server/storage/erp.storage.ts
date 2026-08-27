@@ -181,6 +181,26 @@ export class ErpStorage {
     return n;
   }
 
+  /**
+   * Quando alguem sincronizou com sucesso pela ultima vez, em toda a plataforma.
+   *
+   * Serve ao scheduler para nao repetir a varredura completa a cada restart do
+   * worker, e — pelo mesmo criterio, de graca — para recuperar a noite em que o
+   * processo estava fora do ar as 03:00: nesse caso o ultimo sucesso tem mais de
+   * 24h e o boot sincroniza.
+   *
+   * "partial" conta como sucesso: gravou a maior parte da carteira, e repetir a
+   * varredura inteira por causa de algumas linhas custa mais do que corrige.
+   */
+  async ultimoSyncBemSucedido(): Promise<Date | null> {
+    const [linha] = await db.select({ quando: erpSyncLogs.syncedAt })
+      .from(erpSyncLogs)
+      .where(sql`${erpSyncLogs.status} IN ('success','partial')`)
+      .orderBy(desc(erpSyncLogs.syncedAt))
+      .limit(1);
+    return linha?.quando ?? null;
+  }
+
   async getErpSyncLogs(providerId: number, erpSource?: string, limit = 50): Promise<ErpSyncLog[]> {
     const conditions = [eq(erpSyncLogs.providerId, providerId)];
     if (erpSource) conditions.push(eq(erpSyncLogs.erpSource, erpSource));

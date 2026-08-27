@@ -52,8 +52,30 @@ import { logger } from "./logger";
     logger.warn({ err }, "[Worker] Geocode backfill failed to start");
   }
 
+  /**
+   * Espera o sync em voo antes de fechar o pool.
+   *
+   * Sem isto o restart do pm2 fechava a conexao no meio da varredura e o log
+   * enchia de "Erro ao upsert <cpf>: Cannot use a pool after calling end on the
+   * pool" — cada linha um cliente cuja atualizacao foi perdida. Como cada
+   * restart tambem disparava um sync novo, a janela para isso acontecer era
+   * grande. Trinta segundos cobre o upsert corrente com folga; passar disso, o
+   * sync e abandonado de proposito, porque segurar o desligamento indefinidamente
+   * faria o pm2 matar o processo do mesmo jeito, so que mais tarde.
+   */
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "[Worker] Shutdown signal received");
+    try {
+      const { isSyncing } = await import("./services/erp-sync.service");
+      const limite = Date.now() + 30_000;
+      if (isSyncing()) logger.info("[Worker] Sync em andamento — aguardando ate 30s");
+      while (isSyncing() && Date.now() < limite) {
+        await new Promise(r => setTimeout(r, 500));
+      }
+      if (isSyncing()) logger.warn("[Worker] Sync ainda rodando apos 30s — encerrando mesmo assim");
+    } catch (err) {
+      logger.warn({ err }, "[Worker] Nao consegui verificar o sync em andamento");
+    }
     await pool.end();
     logger.info("[Worker] Database pool closed");
     process.exit(0);

@@ -367,12 +367,46 @@ export async function syncAllProviders(): Promise<void> {
   }
 }
 
+/** Janela em que um sync recente dispensa o sync de boot. */
+const HORAS_PARA_DISPENSAR_BOOT = Number(process.env.ERP_SYNC_BOOT_SKIP_HORAS ?? 12);
+
+/**
+ * O sync de boot so roda se ninguem sincronizou ha pouco.
+ *
+ * Medido em producao em 27/08/2026: o worker reiniciou 14 vezes num dia e cada
+ * restart disparava "sync inicial em 15s" — 11 varreduras COMPLETAS da carteira,
+ * 29.124 clientes puxados do IXC por vez, ~35 min cada. Isso nao atualiza nada
+ * que o sync das 03:00 nao tivesse atualizado, e martela a API do ERP do
+ * provedor o dia inteiro. Um deploy vira uma carga que o provedor sente.
+ *
+ * A primeira execucao apos esta versao nao encontra historico e sincroniza —
+ * que e o desejado: e ela que grava a primeira linha de erp_sync_logs.
+ */
+async function precisaSincronizarNoBoot(): Promise<boolean> {
+  try {
+    const ultimo = await storage.ultimoSyncBemSucedido();
+    if (!ultimo) return true;
+    const horas = (Date.now() - ultimo.getTime()) / 3_600_000;
+    if (horas < HORAS_PARA_DISPENSAR_BOOT) {
+      console.log(`[ERPSync] Sync de boot dispensado — houve sync ha ${horas.toFixed(1)}h. Proximo as 03:00.`);
+      return false;
+    }
+    return true;
+  } catch (err: any) {
+    // Sem conseguir consultar o historico, sincroniza: perder uma atualizacao e
+    // pior do que repetir uma.
+    console.warn(`[ERPSync] Nao consegui ler o historico (${err.message}); sincronizando por precaucao.`);
+    return true;
+  }
+}
+
 export function startErpSyncScheduler(): void {
   console.log("[ERPSync] Scheduler iniciado — sync inicial em 15s, depois todo dia as 03:00");
 
   // Sync inicial 15s apos boot
   setTimeout(async () => {
     try {
+      if (!(await precisaSincronizarNoBoot())) return;
       console.log("[ERPSync] Sync inicial...");
       await syncAllProviders();
     } catch (err: any) {
