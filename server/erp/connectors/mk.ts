@@ -1058,6 +1058,20 @@ export class MkConnector implements ErpConnector {
           let city: string | undefined;
           let state: string | undefined;
           let cep: string | undefined;
+          // A coordenada da INSTALACAO e o melhor ponto que existe: e onde o
+          // tecnico montou o servico. O MK a devolve no proprio endereco, e as
+          // vezes na raiz do cliente. Este caminho — a carteira inteira — nao a
+          // lia, entao so os inadimplentes chegavam ao mapa.
+          let latitude: string | undefined;
+          let longitude: string | undefined;
+          const coord = (o: any) => {
+            const la = o?.latitude ?? o?.Latitude;
+            const lo = o?.longitude ?? o?.Longitude;
+            if (la != null && String(la).trim() && lo != null && String(lo).trim()) {
+              latitude = String(la).trim();
+              longitude = String(lo).trim();
+            }
+          };
 
           if (Array.isArray(enderecos) && enderecos.length > 0) {
             const p = enderecos.find((e: any) => String(e.tipo || "").toUpperCase() === "INSTALACAO") || enderecos[0];
@@ -1067,13 +1081,16 @@ export class MkConnector implements ErpConnector {
             city = p.cidade || p.Cidade;
             state = p.estado || p.Estado || p.uf;
             cep = p.cep || p.CEP;
+            coord(p);
           } else if (enderecos && typeof enderecos === "object" && !Array.isArray(enderecos)) {
             address = enderecos.logradouro || enderecos.Logradouro;
             neighborhood = enderecos.bairro || enderecos.Bairro;
             city = enderecos.cidade || enderecos.Cidade;
             state = enderecos.estado || enderecos.Estado;
             cep = enderecos.cep || enderecos.CEP;
+            coord(enderecos);
           }
+          if (!latitude) coord(row);
 
           return {
             cpfCnpj,
@@ -1086,6 +1103,8 @@ export class MkConnector implements ErpConnector {
             city,
             state,
             cep,
+            latitude,
+            longitude,
             totalOverdueAmount: 0,
             maxDaysOverdue: 0,
             overdueInvoicesCount: 0,

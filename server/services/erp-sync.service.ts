@@ -8,6 +8,7 @@
 import { storage } from "../storage";
 import { getConnector, buildConnectorConfig, getProviderLimiter } from "../erp";
 import { geocodeCity, geocodeCep, geocodeAddress, resolveIbgeCode } from "./geocoding";
+import { coordenadaValida } from "./coordenada";
 
 let _syncing = false;
 
@@ -63,6 +64,12 @@ export async function syncProviderToDb(
               if (loc) { if (!city) city = loc.city; if (!state) state = loc.state; }
             }
 
+            // A coordenada que o ERP já tem entra AQUI, no passo que varre a
+            // carteira inteira — é o que faz o mapa nascer cheio no primeiro
+            // sync. Não custa rede: veio junto do cadastro. Só isso; nada de
+            // geocodificar no passo 1, que percorre milhares de clientes.
+            const doErp = coordenadaValida(customer.latitude, customer.longitude);
+
             // Spec 012.5/fix atomicidade — skipPaymentStatus impede que esse
             // passo 1 zere paymentStatus de inadimplentes caso passo 2 falhe.
             // Só atualiza identidade (nome, endereco, telefone, etc).
@@ -79,6 +86,8 @@ export async function syncProviderToDb(
               city,
               state,
               cep: customer.cep,
+              latitude: doErp ? String(doErp.lat) : undefined,
+              longitude: doErp ? String(doErp.lng) : undefined,
               totalOverdueAmount: 0,
               maxDaysOverdue: 0,
               overdueInvoicesCount: 0,
@@ -160,11 +169,23 @@ export async function syncProviderToDb(
         } catch {}
       }
 
-      // Geocodificar por ENDERECO (rua + cidade + estado) — cache por rua unica.
+      // 1. A COORDENADA DO PROPRIO ERP vem primeiro. O MK guarda a latitude e a
+      // longitude da instalacao por cliente — ponto exato, custo zero, sem rede.
+      // O conector ja normalizava esses campos (server/erp/types.ts) e o sync os
+      // descartava: geocodificava o endereco a 1 req/s para chegar a uma
+      // aproximacao PIOR do mesmo lugar. Numa carteira de mil clientes isso e a
+      // diferenca entre plotar tudo no sync e nao plotar quase nada.
+      const doErp = coordenadaValida(customer.latitude, customer.longitude);
+      if (doErp) {
+        lat = String(doErp.lat);
+        lng = String(doErp.lng);
+      }
+
+      // 2. Geocodificar por ENDERECO (rua + cidade + estado) — cache por rua unica.
       // Londrina tem ~300 ruas unicas de inadimplentes, nao 3928.
       // Fallback: cidade-level com jitter.
       // LGPD: jitter ±100m no endereco, ±2km na cidade.
-      if (address && city && state) {
+      if (!lat && address && city && state) {
         const addrCoords = await geocodeAddress(address, city, state, customer.cep);
         if (addrCoords) {
           lat = String(addrCoords[0] + (Math.random() - 0.5) * 0.002);

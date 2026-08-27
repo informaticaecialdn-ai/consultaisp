@@ -21,6 +21,27 @@ function corDoEstado(estado: PontoMapa['estado']): string {
 const brl = (v: number) =>
   `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+/* Blindagem de um bug do próprio Leaflet 1.9, que só aparece com renderer de
+   canvas: `Canvas._updatePaths` roda `_redraw` síncrono no moveend e zera
+   `_redrawRequest` SEM cancelar o requestAnimationFrame já agendado. Se o mapa
+   for desmontado nesse intervalo — trocar de aba enquanto o fitBounds anima —,
+   o frame órfão dispara com `_ctx` já apagado e estoura
+   "Cannot read properties of undefined (reading 'save')".
+   O guard é idempotente e vive no prototype: frame que chega depois do destroy
+   vira no-op. */
+const canvasProto = L.Canvas.prototype as unknown as {
+  _redraw(this: { _ctx?: CanvasRenderingContext2D }): void;
+  __redrawSeguro?: true;
+};
+if (!canvasProto.__redrawSeguro) {
+  const redrawOriginal = canvasProto._redraw;
+  canvasProto._redraw = function (this: { _ctx?: CanvasRenderingContext2D }) {
+    if (!this._ctx) return;
+    redrawOriginal.call(this);
+  };
+  canvasProto.__redrawSeguro = true;
+}
+
 export type PontoRede = { lat: number; lng: number; count: number };
 
 export type CidadeMapa = {
@@ -55,6 +76,11 @@ export default function MapaCarteira({
 }) {
   const div = useRef<HTMLDivElement>(null);
   const mapa = useRef<L.Map | null>(null);
+  // Renderer de canvas. Sem ele o Leaflet desenha um <path> SVG por ponto: com
+  // a carteira inteira plotada são milhares de nós no DOM, e o mapa engasga a
+  // cada zoom. Em canvas é um elemento só, e o custo para de crescer com o
+  // número de clientes.
+  const renderer = useRef<L.Canvas | null>(null);
   const camada = useRef<L.LayerGroup | null>(null);
   const camadaRede = useRef<L.LayerGroup | null>(null);
   const ultimoBounds = useRef<L.LatLngBounds | null>(null);
@@ -70,6 +96,7 @@ export default function MapaCarteira({
     L.tileLayer("/api/tiles/{z}/{x}/{y}.png", {
       attribution: '&copy; OpenStreetMap contributors', maxZoom: 18,
     }).addTo(mapa.current);
+    renderer.current = L.canvas({ padding: 0.5 });
     camada.current = L.layerGroup().addTo(mapa.current);
 
     // Com altura amarrada a largura, redimensionar a janela muda o quadro. Sem
@@ -77,7 +104,7 @@ export default function MapaCarteira({
     const ro = new ResizeObserver(() => reenquadrar.current?.());
     ro.observe(div.current);
 
-    return () => { ro.disconnect(); mapa.current?.remove(); mapa.current = null; };
+    return () => { ro.disconnect(); mapa.current?.remove(); mapa.current = null; renderer.current = null; };
   }, []);
 
   useEffect(() => {
@@ -99,6 +126,7 @@ export default function MapaCarteira({
         if (c.lat === null || c.lon === null) continue;
         const taxa = c.clientes > 0 ? (c.inadimplentes / c.clientes) * 100 : 0;
         L.circleMarker([c.lat, c.lon], {
+          renderer: renderer.current!,
           radius: 7 + Math.sqrt(c.clientes / maior) * 17,
           weight: 1.5, color: "#fff",
           fillColor: corDaTaxa(taxa), fillOpacity: 0.75,
@@ -113,6 +141,7 @@ export default function MapaCarteira({
     } else {
       for (const p of pontos) {
         L.circleMarker([p.lat, p.lon], {
+          renderer: renderer.current!,
           radius: 5, weight: 1, color: "#fff",
           fillColor: corDoEstado(p.estado), fillOpacity: 0.9,
         })

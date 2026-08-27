@@ -125,6 +125,10 @@ export default function LocalizacaoPage() {
     onSuccess: (r: { iniciado: boolean; mensagem: string }) => {
       toast({ title: r.iniciado ? "Plotagem iniciada" : "Já em andamento", description: r.mensagem });
       queryClient.invalidateQueries({ queryKey: ["/api/localizacao/plotagem"] });
+      // A fase que puxa as coordenadas do ERP resolve em segundos, antes de o
+      // acompanhamento de 5s começar. Sem isto o mapa só refletiria isso na
+      // próxima passada.
+      queryClient.invalidateQueries({ queryKey: ["/api/localizacao"] });
     },
     onError: (e: Error) => toast({ title: "Não foi possível iniciar", description: e.message, variant: "destructive" }),
   });

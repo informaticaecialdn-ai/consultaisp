@@ -42,6 +42,7 @@ import {
   geocodeAddressDetalhado, geocodeCityDetalhado, geocodeCepDetalhado,
   usandoNominatim,
 } from "./geocoding";
+import { puxarCoordenadasDoErp } from "./coords-erp.service";
 import { logger } from "../logger";
 
 const LOTE = 200;
@@ -168,12 +169,19 @@ async function plotarCliente(c: Pendente): Promise<{ desfecho: Desfecho; motivo?
   }
 
   if (coords) {
+    // `SEM_COORDENADA` no WHERE, e não só o id: entre a leitura do lote e este
+    // UPDATE cabem os segundos que a geocodificação levou, e nesse intervalo um
+    // sync pode ter gravado a coordenada EXATA que o ERP tem do cliente.
+    // Escrever por cima dela um centro de cidade com jitter de ±2km seria
+    // trocar a casa pelo município.
+    // Se o UPDATE não pegou, é porque o cliente já ganhou coordenada melhor no
+    // meio do caminho — o desfecho para ele continua sendo "plotado".
     await db.update(customers)
       .set({
         latitude: String(coords[0] + (Math.random() - 0.5) * jitter),
         longitude: String(coords[1] + (Math.random() - 0.5) * jitter),
       })
-      .where(eq(customers.id, c.id));
+      .where(and(eq(customers.id, c.id), SEM_COORDENADA));
     return { desfecho: "plotado" };
   }
   // Geocoder fora do ar: o endereço não tem culpa, não grava nada e tenta
@@ -286,6 +294,19 @@ export async function runGeocodeBackfill(providerIdPrioritario?: number): Promis
     }
 
     logger.info({ total: n, viaNominatim: usandoNominatim(), cursor: status.cursor }, "Geocode backfill iniciado");
+
+    // FASE A — o que o ERP já sabe. Uma varredura da carteira resolve a maioria
+    // sem nenhuma chamada de geocodificação, e com coordenada melhor. Só o que
+    // sobrar daqui paga rede na fase B.
+    try {
+      const doErp = await puxarCoordenadasDoErp(providerIdPrioritario);
+      status.plotados += doErp.atualizados;
+      if (doErp.atualizados > 0) {
+        status.total = Math.max(0, status.total - doErp.atualizados);
+      }
+    } catch (err) {
+      logger.warn({ err }, "Geocode backfill: fase de coordenadas do ERP falhou — segue para a geocodificação");
+    }
 
     // Quem clicou "Plotar agora" quer ver a PRÓPRIA carteira no mapa. A
     // varredura é uma só para toda a base, então sem esta etapa o admin

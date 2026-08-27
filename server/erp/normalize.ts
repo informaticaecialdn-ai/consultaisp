@@ -66,6 +66,8 @@ export function aggregateByCustomer(
     city?: string;
     state?: string;
     cep?: string;
+    latitude?: string;
+    longitude?: string;
     amount: number;
     daysOverdue: number;
     erpSource: string;
@@ -81,6 +83,13 @@ export function aggregateByCustomer(
       existing.totalOverdueAmount += inv.amount;
       existing.maxDaysOverdue = Math.max(existing.maxDaysOverdue, inv.daysOverdue);
       existing.overdueInvoicesCount = (existing.overdueInvoicesCount ?? 0) + 1;
+      // Nem toda fatura do mesmo cliente carrega a coordenada da instalacao.
+      // A primeira que carregar vale — descartar por chegar na segunda linha
+      // deixaria o cliente fora do mapa por acidente de ordenacao.
+      if (!existing.latitude && inv.latitude && inv.longitude) {
+        existing.latitude = inv.latitude;
+        existing.longitude = inv.longitude;
+      }
     } else {
       map.set(key, {
         cpfCnpj: inv.cpfCnpj,
@@ -93,6 +102,8 @@ export function aggregateByCustomer(
         city: inv.city,
         state: inv.state,
         cep: inv.cep,
+        latitude: inv.latitude,
+        longitude: inv.longitude,
         totalOverdueAmount: inv.amount,
         maxDaysOverdue: inv.daysOverdue,
         overdueInvoicesCount: 1,

@@ -4,6 +4,7 @@ import { customers, providers } from "@shared/schema";
 import { resolverAreaAtendida, normalizarCidade, type OrigemArea } from "../services/area-atendida";
 import { estadoDoPonto, type EstadoPonto } from "../services/estado-ponto";
 import { separarCoordenadasSuspeitas, centroMediano } from "../services/coordenada-suspeita";
+import { coordenadaValida } from "../services/coordenada";
 import { geocodeAddress } from "../services/geocoding";
 
 export interface LocalizacaoPonto {
@@ -160,13 +161,11 @@ export class LocalizacaoStorage {
       if (emAberto > 0) { ct.inadimplentes++; ct.dividaTotal += emAberto; }
       porCidade.set(cidade, ct);
 
-      const lat = c.latitude ? parseFloat(c.latitude) : NaN;
-      const lon = c.longitude ? parseFloat(c.longitude) : NaN;
-      // (0,0) e a sentinela do backfill para "geocoder nao resolveu" — e fica
-      // no golfo da Guine, entao nunca e um cliente real. Conta como sem
-      // coordenada; a checagem dupla preserva lat 0 legitima (o equador corta
-      // o Amapa) desde que a longitude seja brasileira.
-      if (Number.isNaN(lat) || Number.isNaN(lon) || (lat === 0 && lon === 0)) {
+      // Mesma regua da escrita (server/services/coordenada.ts). Antes a leitura
+      // tinha a sua propria: coordenada fora do Brasil era barrada na gravacao
+      // e aceita aqui, entao entrava no mapa por uma porta que a outra fechava.
+      const valida = coordenadaValida(c.latitude, c.longitude);
+      if (!valida) {
         semCoordenada++;
         // Mesmo criterio de TEM_ENDERECO no backfill: cidade ou CEP resolvem;
         // rua sozinha existe em mil cidades e nao geocodifica.
@@ -176,7 +175,7 @@ export class LocalizacaoStorage {
 
       // LGPD: sem nome e sem CPF — a tela nao precisa deles.
       pontos.push({
-        id: c.id, lat, lon, estado, emAberto,
+        id: c.id, lat: valida.lat, lon: valida.lng, estado, emAberto,
         atraso: c.maxDaysOverdue || 0, bairro: c.neighborhood, cidade,
       });
     }

@@ -29,6 +29,22 @@ import {
 import { registerConnector } from "../registry.js";
 
 /** Default timeout for API calls */
+/**
+ * O RBX guarda o pino do mapa do cliente em MapsMarkLat/MapsMarkLng, no mesmo
+ * registro de ConsultaClientes. E a coordenada da instalacao: melhor do que
+ * qualquer endereco geocodificado, e nao custa uma chamada a mais. Os aliases
+ * minusculos cobrem instalacoes que devolvem o JSON em outra caixa.
+ */
+function coordenadaRbx(rec: any): { latitude?: string; longitude?: string } {
+  const lat = rec?.MapsMarkLat ?? rec?.mapsmarklat ?? rec?.latitude;
+  const lng = rec?.MapsMarkLng ?? rec?.mapsmarklng ?? rec?.longitude;
+  if (lat == null || lng == null) return {};
+  const sLat = String(lat).trim();
+  const sLng = String(lng).trim();
+  if (!sLat || !sLng) return {};
+  return { latitude: sLat, longitude: sLng };
+}
+
 const API_TIMEOUT_MS = 8_000;
 
 /** Data fetch timeout */
@@ -205,6 +221,7 @@ class RbxConnector implements ErpConnector {
       city: rec.cidade ? String(rec.cidade) : undefined,
       state: rec.uf ?? rec.estado ? String(rec.uf ?? rec.estado) : undefined,
       cep: rec.cep ? cleanCep(String(rec.cep)) : undefined,
+      ...coordenadaRbx(rec),
       amount: parseFloat(rec.valor ?? rec.valor_total ?? rec.valor_aberto ?? "0") || 0,
       daysOverdue: calculateDaysOverdue(rec.data_vencimento ?? rec.vencimento ?? null),
       erpSource: "rbx" as const,
@@ -265,6 +282,7 @@ class RbxConnector implements ErpConnector {
               city: rec.cidade ? String(rec.cidade) : undefined,
               state: rec.uf ?? rec.estado ? String(rec.uf ?? rec.estado) : undefined,
               cep: rec.cep ? cleanCep(String(rec.cep)) : undefined,
+      ...coordenadaRbx(rec),
               totalOverdueAmount: 0,
               maxDaysOverdue: 0,
               erpSource: "rbx",
@@ -314,6 +332,7 @@ class RbxConnector implements ErpConnector {
         city: rec.cidade ? String(rec.cidade) : undefined,
         state: rec.uf ?? rec.estado ? String(rec.uf ?? rec.estado) : undefined,
         cep: rec.cep ? cleanCep(String(rec.cep)) : undefined,
+      ...coordenadaRbx(rec),
         totalOverdueAmount: 0,
         maxDaysOverdue: 0,
         erpSource: "rbx",

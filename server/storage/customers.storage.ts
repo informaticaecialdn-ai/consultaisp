@@ -134,18 +134,40 @@ export class CustomersStorage {
         name: data.name,
         email: data.email || null,
         phone: data.phone || null,
-        address: data.address || null,
-        addressNumber: data.addressNumber || null,
         complement: data.complement || null,
-        neighborhood: data.neighborhood || null,
-        city: data.city || null,
-        state: data.state || null,
-        cep: data.cep || null,
-        latitude: data.latitude || null,
-        longitude: data.longitude || null,
         erpSource: data.erpSource,
         lastSyncAt: now,
       };
+
+      // ── Campos que só são ESCRITOS, nunca apagados ────────────────────────
+      //
+      // Antes todos eram `data.X || null`. Duas passadas do sync leem o mesmo
+      // cliente por caminhos diferentes — o passo 1 varre a carteira, o passo 2
+      // detalha os inadimplentes — e cada um parseia o endereço do payload do
+      // ERP à sua maneira. Quando um deles não conseguia extrair o endereço,
+      // gravava null por cima do que o outro tinha enriquecido. Cliente sem
+      // endereço sai da fila de plotagem e nunca mais volta ao mapa por
+      // caminho nenhum.
+      //
+      // Com a coordenada era pior ainda: um sync em que a geocodificação
+      // falhou zerava o ponto que a plotagem tinha resolvido, e a carteira
+      // saía do mapa a cada passada. Ausência de dado novo não é apagamento —
+      // o dado antigo continua valendo até que outro o substitua.
+      const preservar: Array<[string, string | undefined]> = [
+        ["address", data.address],
+        ["addressNumber", data.addressNumber],
+        ["neighborhood", data.neighborhood],
+        ["city", data.city],
+        ["state", data.state],
+        ["cep", data.cep],
+      ];
+      for (const [campo, valor] of preservar) {
+        if (valor && String(valor).trim()) updateFields[campo] = valor;
+      }
+      if (data.latitude && data.longitude) {
+        updateFields.latitude = data.latitude;
+        updateFields.longitude = data.longitude;
+      }
       if (!data.skipPaymentStatus) {
         updateFields.totalOverdueAmount = String(data.totalOverdueAmount);
         updateFields.maxDaysOverdue = data.maxDaysOverdue;

@@ -37,6 +37,30 @@ interface TokenEntry {
 const TOKEN_EXPIRY_BUFFER_MS = 60_000;
 
 /** Default timeout for API calls */
+/**
+ * O Hubsoft aninha a coordenada dentro do endereco, como objeto e em numero —
+ * `endereco.coordenadas: { latitude, longitude }` — e nao como campo plano de
+ * string igual aos outros ERPs. Aceita tambem o registro na raiz, que e como
+ * alguns endpoints do financeiro devolvem.
+ */
+function coordenadaHubsoft(rec: any): { latitude?: string; longitude?: string } {
+  const fontes = [
+    rec?.coordenadas,
+    rec?.endereco?.coordenadas,
+    rec?.endereco_instalacao?.coordenadas,
+    rec,
+  ];
+  for (const f of fontes) {
+    const lat = f?.latitude;
+    const lng = f?.longitude;
+    if (lat == null || lng == null) continue;
+    const sLat = String(lat).trim();
+    const sLng = String(lng).trim();
+    if (sLat && sLng) return { latitude: sLat, longitude: sLng };
+  }
+  return {};
+}
+
 const API_TIMEOUT_MS = 8_000;
 
 class HubsoftConnector implements ErpConnector {
@@ -244,6 +268,7 @@ class HubsoftConnector implements ErpConnector {
         city: rec.cidade ? String(rec.cidade) : undefined,
         state: rec.uf ?? rec.estado ? String(rec.uf ?? rec.estado) : undefined,
         cep: rec.cep ? cleanCep(String(rec.cep)) : undefined,
+        ...coordenadaHubsoft(rec),
         amount: parseFloat(rec.valor ?? rec.valor_total ?? rec.valor_aberto ?? "0") || 0,
         daysOverdue: calculateDaysOverdue(rec.data_vencimento ?? rec.vencimento ?? null),
         erpSource: "hubsoft" as const,
@@ -286,6 +311,7 @@ class HubsoftConnector implements ErpConnector {
           city: rec.cidade ? String(rec.cidade) : undefined,
           state: rec.uf ?? rec.estado ? String(rec.uf ?? rec.estado) : undefined,
           cep: rec.cep ? cleanCep(String(rec.cep)) : undefined,
+        ...coordenadaHubsoft(rec),
           amount: parseFloat(rec.valor ?? rec.valor_total ?? rec.valor_aberto ?? "0") || 0,
           daysOverdue: calculateDaysOverdue(rec.data_vencimento ?? rec.vencimento ?? null),
           erpSource: "hubsoft" as const,
@@ -322,6 +348,7 @@ class HubsoftConnector implements ErpConnector {
         city: rec.cidade ? String(rec.cidade) : undefined,
         state: rec.uf ?? rec.estado ? String(rec.uf ?? rec.estado) : undefined,
         cep: rec.cep ? cleanCep(String(rec.cep)) : undefined,
+        ...coordenadaHubsoft(rec),
         totalOverdueAmount: 0,
         maxDaysOverdue: 0,
         erpSource: "hubsoft",
