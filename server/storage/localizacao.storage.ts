@@ -153,7 +153,11 @@ export class LocalizacaoStorage {
 
       const lat = c.latitude ? parseFloat(c.latitude) : NaN;
       const lon = c.longitude ? parseFloat(c.longitude) : NaN;
-      if (Number.isNaN(lat) || Number.isNaN(lon)) { semCoordenada++; continue; }
+      // (0,0) e a sentinela do backfill para "geocoder nao resolveu" — e fica
+      // no golfo da Guine, entao nunca e um cliente real. Conta como sem
+      // coordenada; a checagem dupla preserva lat 0 legitima (o equador corta
+      // o Amapa) desde que a longitude seja brasileira.
+      if (Number.isNaN(lat) || Number.isNaN(lon) || (lat === 0 && lon === 0)) { semCoordenada++; continue; }
 
       // LGPD: sem nome e sem CPF — a tela nao precisa deles.
       pontos.push({

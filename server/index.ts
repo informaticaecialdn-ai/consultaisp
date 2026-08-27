@@ -168,6 +168,12 @@ app.use((req, res, next) => {
     } catch (err) {
       logger.warn({ err }, "ERP sync scheduler failed to start");
     }
+    try {
+      const { startGeocodeBackfill } = await import("./services/geocode-backfill.service");
+      startGeocodeBackfill();
+    } catch (err) {
+      logger.warn({ err }, "Geocode backfill failed to start");
+    }
   }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

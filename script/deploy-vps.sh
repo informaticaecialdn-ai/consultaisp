@@ -64,6 +64,18 @@ else
   pm2 startup | tail -1 | bash 2>/dev/null || true
 fi
 
+# O worker (dist/worker.cjs) roda os jobs de fundo: sync do ERP, LGPD e o
+# backfill de geocodificacao. Sem este restart, todo deploy deixava o worker
+# executando o CODIGO ANTERIOR — a API subia nova e os jobs ficavam velhos.
+if pm2 describe consulta-isp-worker > /dev/null 2>&1; then
+  echo "→ Reiniciando worker..."
+  pm2 restart consulta-isp-worker
+else
+  echo "→ Iniciando worker..."
+  pm2 start dist/worker.cjs --name consulta-isp-worker --env production
+  pm2 save
+fi
+
 # 7. Health check
 echo "→ Verificando saude..."
 sleep 3

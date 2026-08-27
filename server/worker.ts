@@ -44,6 +44,14 @@ import { logger } from "./logger";
     logger.warn({ err }, "[Worker] LGPD titular processor failed to start");
   }
 
+  try {
+    const { startGeocodeBackfill } = await import("./services/geocode-backfill.service");
+    startGeocodeBackfill();
+    logger.info("[Worker] Geocode backfill scheduler started");
+  } catch (err) {
+    logger.warn({ err }, "[Worker] Geocode backfill failed to start");
+  }
+
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "[Worker] Shutdown signal received");
     await pool.end();

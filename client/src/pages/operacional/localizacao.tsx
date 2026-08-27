@@ -184,7 +184,9 @@ export default function LocalizacaoPage() {
             valor={String((data?.semCoordenada ?? 0) + suspeitas.length)}
             sub={suspeitas.length > 0
               ? `${data?.semCoordenada ?? 0} sem coordenada · ${suspeitas.length} coordenada suspeita`
-              : "sem coordenada no cadastro"}
+              : (data?.semCoordenada ?? 0) > 0
+                ? "sem coordenada — plotagem automática em andamento"
+                : "sem coordenada no cadastro"}
           />
         </div>
       )}
