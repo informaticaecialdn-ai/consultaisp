@@ -1,6 +1,5 @@
 import { AlertTriangle } from "lucide-react";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { pillStyle } from "./report-ui";
 
 interface AddressRiskAlertProps {
   data: {
@@ -15,35 +14,77 @@ interface AddressRiskAlertProps {
   };
 }
 
+/**
+ * Inadimplência de OUTROS documentos no mesmo imóvel.
+ *
+ * O sinal mais forte contra fraude por troca de documento: o CPF consultado
+ * pode estar limpo e o endereço não estar. Por isso este bloco vive dentro da
+ * seção de endereço do relatório, com a tinta do risco — não como card solto.
+ */
 export default function AddressRiskAlert({ data }: AddressRiskAlertProps) {
   return (
-    <Card className="border-orange-300 bg-orange-50 dark:bg-orange-950/20 dark:border-orange-800 p-4 space-y-3">
-      <div className="flex items-center gap-2">
-        <AlertTriangle className="w-5 h-5 text-orange-600" />
-        <h3 className="font-semibold text-sm text-orange-800 dark:text-orange-300">
-          Alerta de Endereco
-        </h3>
-        <Badge className="bg-orange-200 text-orange-800 dark:bg-orange-900 dark:text-orange-300 text-xs ml-auto">
-          {data.matches.length} registro(s)
-        </Badge>
+    <div
+      style={{
+        marginTop: 12, borderRadius: 10, padding: "14px 16px",
+        background: "var(--danger-bg)", border: "1px solid var(--danger-border)",
+      }}
+      data-testid="address-risk-alert"
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <AlertTriangle size={14} style={{ color: "var(--danger)", flexShrink: 0 }} />
+        <span style={{
+          fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700,
+          textTransform: "uppercase", letterSpacing: "var(--track-wide)",
+          color: "var(--danger)",
+        }}>
+          Alerta de endereço
+        </span>
+        <span style={{ marginLeft: "auto", ...pillStyle("danger") }}>
+          {data.matches.length} {data.matches.length === 1 ? "registro" : "registros"}
+        </span>
       </div>
-      <p className="text-sm text-orange-700 dark:text-orange-400">{data.message}</p>
-      <div className="space-y-2">
+
+      <p style={{ fontSize: 12.5, color: "var(--text-2)", lineHeight: 1.55, marginTop: 8 }}>
+        {data.message}
+      </p>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
         {data.matches.map((match, i) => (
-          <div key={i} className="flex items-center justify-between text-sm bg-white/60 dark:bg-black/20 rounded px-3 py-2">
-            <div className="flex items-center gap-3">
-              <span className="font-mono text-xs text-muted-foreground">{match.cpfMasked}</span>
-              <Badge variant="outline" className="text-xs">
-                {match.status}
-              </Badge>
+          <div
+            key={i}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              gap: 10, flexWrap: "wrap",
+              background: "var(--surface)", border: "1px solid var(--danger-border)",
+              borderRadius: 8, padding: "8px 12px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{
+                fontFamily: "var(--font-mono)", fontSize: 12,
+                fontVariantNumeric: "tabular-nums", color: "var(--text)",
+              }}>
+                {match.cpfMasked}
+              </span>
+              <span style={pillStyle("past")}>{match.status}</span>
             </div>
-            <div className="flex items-center gap-3 text-right">
-              <span className="text-xs text-muted-foreground">{match.maxDaysOverdue}d atraso</span>
-              <span className="font-semibold text-sm">{match.overdueRange}</span>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+              <span style={{
+                fontFamily: "var(--font-mono)", fontSize: 11,
+                fontVariantNumeric: "tabular-nums", color: "var(--text-muted)",
+              }}>
+                {match.maxDaysOverdue}d em atraso
+              </span>
+              <span style={{
+                fontFamily: "var(--font-mono)", fontSize: 12.5, fontWeight: 600,
+                fontVariantNumeric: "tabular-nums", color: "var(--money-neg)",
+              }}>
+                {match.overdueRange}
+              </span>
             </div>
           </div>
         ))}
       </div>
-    </Card>
+    </div>
   );
 }

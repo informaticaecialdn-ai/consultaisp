@@ -1,497 +1,558 @@
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  CheckCircle, Shield, AlertTriangle, XCircle,
-  Lock, MapPin, Router, User, RotateCcw, Save, Download,
-  FileText, Home, Globe, ChevronDown, AlertCircle, Info,
-} from "lucide-react";
-import { useState } from "react";
+import { Search, Lock, AlertTriangle, CornerDownRight, Download, Save, RotateCcw } from "lucide-react";
 import AddressMapMini from "@/components/consulta/AddressMapMini";
-import AddressRiskAlert from "./AddressRiskAlert";
-import ScoreGaugeSvg from "./ScoreGaugeSvg";
 import ScoreBreakdownPanel from "./ScoreBreakdownPanel";
-import type { ConsultaResult, ProviderDetail, AddressMatch } from "./types";
+import AiAnalysisSection from "./AiAnalysisSection";
+import AddressRiskAlert from "./AddressRiskAlert";
+import type { ConsultaResult, ProviderDetail } from "./types";
 import { formatCpfCnpj } from "./utils";
+import {
+  Kicker, Pill, pillStyle, ReportSection, TintCard, DuoGrid, ScoreRing,
+  bandOf, ReportButton, type TintCardData, type Tone,
+} from "./report-ui";
 
 interface Props {
   result: ConsultaResult;
+  /** Registro gravado da consulta — origem do protocolo e do hash de auditoria. */
+  consultation?: { id?: number; cpfCnpjHash?: string; createdAt?: string } | null;
   onShowDetail: (idx: number) => void;
   onNewConsulta: () => void;
   onSave: () => void;
   onGeneratePDF: () => void;
 }
 
-/* ── Provider Row ─────────────────────────────────────────── */
-function ProviderRow({ detail, globalIdx, onShowDetail }: { detail: ProviderDetail; globalIdx: number; onShowDetail: (idx: number) => void }) {
-  const isOwn = detail.isSameProvider;
-  // For external providers, daysOverdue is undefined (LGPD) — use overdueAmountRange or status as fallback
-  const isDelinquent = detail.daysOverdue > 0
-    || (!isOwn && !!detail.overdueAmountRange)
-    || (detail.status?.toLowerCase().includes("inadimplente"));
-  const debtStr = isOwn && detail.overdueAmount != null
-    ? `R$ ${detail.overdueAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
-    : detail.overdueAmountRange || null;
-  const maskedName = !isOwn
-    ? (() => { const p = detail.customerName.split(" "); return p[0] + (p[1] ? " " + p[1][0] + "." : "") + (p.length > 2 ? " " + p[p.length - 1][0] + "***" : "***"); })()
-    : detail.customerName;
-  const locationStr = isOwn
-    ? detail.address || (detail.addressCity ? `${detail.addressCity}${detail.addressState ? "/" + detail.addressState : ""}` : null)
-    : detail.addressCity ? `${detail.addressCity}${detail.addressState ? "/" + detail.addressState : ""}` : null;
+/* ── Leitura dos dados ──────────────────────────────────────── */
 
-  return (
-    <div
-      className="flex items-center gap-3 py-3 px-4 transition-colors hover:bg-[var(--color-tag-bg)] cursor-pointer group"
-      onClick={() => onShowDetail(globalIdx)}
-      data-testid={`provider-card-${globalIdx}`}
-    >
-      {/* Status indicator */}
-      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${isDelinquent ? "bg-[#B53333]" : "bg-[#4A6B3E]"}`} />
-
-      {/* Provider info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-semibold truncate" style={{ color: "var(--color-ink)" }} data-testid={`customer-name-${globalIdx}`}>
-            {maskedName}
-          </span>
-          {isOwn ? (
-            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-success-bg)", color: "var(--color-success)" }}>
-              Seu provedor
-            </span>
-          ) : (
-            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-0.5" style={{ backgroundColor: "var(--color-tag-bg)", color: "var(--color-muted)" }}>
-              <Lock className="w-2.5 h-2.5" /> Parceiro
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2 mt-0.5">
-          {detail.providerName && (
-            <span className="text-xs" style={{ color: "var(--color-muted)" }}>{detail.providerName}</span>
-          )}
-          {locationStr && (
-            <span className="text-xs flex items-center gap-0.5" style={{ color: "var(--color-muted)" }}>
-              <MapPin className="w-2.5 h-2.5" /> {locationStr}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Status + debt */}
-      <div className="text-right flex-shrink-0 space-y-0.5">
-        <span
-          className="inline-block text-xs font-bold px-2 py-0.5 rounded"
-          style={{
-            backgroundColor: isDelinquent ? "var(--color-danger-bg)" : "var(--color-success-bg)",
-            color: isDelinquent ? "var(--color-danger)" : "var(--color-success)",
-          }}
-          data-testid={`contract-status-${globalIdx}`}
-        >
-          {isDelinquent
-            ? (detail.daysOverdue > 0 ? `${detail.daysOverdue}d em atraso` : "Inadimplente")
-            : "Em dia"}
-        </span>
-        {debtStr && (
-          <p className="text-sm font-semibold" style={{ color: "var(--color-danger)" }} data-testid={`debt-value-${globalIdx}`}>{debtStr}</p>
-        )}
-        {detail.hasUnreturnedEquipment && (
-          <p className="text-xs font-bold flex items-center justify-end gap-0.5" style={{ color: "var(--color-gold)" }}>
-            <Router className="w-2.5 h-2.5" />
-            {detail.equipmentSignalValidated
-              ? `${!isOwn && detail.unreturnedEquipmentCount >= 2 ? "2+" : detail.unreturnedEquipmentCount} equip. · validada`
-              : `${detail.unreturnedEquipmentCount} equip.`}
-          </p>
-        )}
-      </div>
-
-      {/* Cost badge */}
-      <span
-        className="text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0"
-        style={{
-          backgroundColor: isOwn ? "var(--color-success-bg)" : "var(--color-brand-bg)",
-          color: isOwn ? "var(--color-success)" : "var(--color-brand)",
-        }}
-        data-testid={`cost-badge-${globalIdx}`}
-      >
-        {isOwn ? "Gratis" : "1 cred."}
-      </span>
-    </div>
-  );
+/** Máscara do documento consultado: mostra o suficiente para conferir, esconde o resto. */
+function maskDoc(doc: string, searchType: string): string {
+  const d = doc.replace(/\D/g, "");
+  if (searchType === "cep") return d.replace(/^(\d{5})(\d{3})$/, "$1-$2");
+  if (d.length === 11) return `${d.slice(0, 3)}.${d.slice(3, 6)}.***-${d.slice(9)}`;
+  if (d.length === 14) return `${d.slice(0, 2)}.${d.slice(2, 5)}.***/${d.slice(8, 12)}-${d.slice(12)}`;
+  return formatCpfCnpj(doc);
 }
 
-/* ── Address Match Row ────────────────────────────────────── */
-function AddressRow({ match, idx }: { match: AddressMatch; idx: number }) {
-  return (
-    <div
-      className="flex items-center gap-3 py-2.5 px-4"
-      data-testid={`address-match-${idx}`}
-    >
-      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${match.hasDebt ? "bg-[#B53333]" : "bg-[#4A6B3E]"}`} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-semibold" style={{ color: "var(--color-ink)" }} data-testid={`address-match-name-${idx}`}>
-            {match.customerName}
-          </span>
-          {match.isSameProvider && (
-            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-brand-bg)", color: "var(--color-brand)" }}>Seu cliente</span>
-          )}
-          {match.hasDebt && (
-            <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-danger-bg)", color: "var(--color-danger)" }}>Inadimplente</span>
-          )}
-        </div>
-        <p className="text-xs mt-0.5 flex items-center gap-1" style={{ color: "var(--color-muted)" }}>
-          {match.isSameProvider ? (
-            <>{match.cpfCnpj} · {match.providerName}</>
-          ) : (
-            <span className="flex items-center gap-0.5">••••••••••• <Lock className="w-2.5 h-2.5" /> · {match.providerName}</span>
-          )}
-        </p>
-      </div>
-      <div className="text-right flex-shrink-0">
-        <span
-          className="text-xs font-bold px-2 py-0.5 rounded"
-          style={{
-            backgroundColor: match.hasDebt ? "var(--color-danger-bg)" : "var(--color-success-bg)",
-            color: match.hasDebt ? "var(--color-danger)" : "var(--color-success)",
-          }}
-        >
-          {match.status}
-        </span>
-        {match.isSameProvider && match.totalOverdue !== undefined && match.totalOverdue > 0 && (
-          <p className="text-xs font-medium mt-0.5" style={{ color: "var(--color-danger)" }}>
-            R$ {match.totalOverdue.toFixed(2)}
-          </p>
-        )}
-        {!match.isSameProvider && match.totalOverdueRange && (
-          <p className="text-xs font-medium mt-0.5" style={{ color: "var(--color-danger)" }}>
-            {match.totalOverdueRange}
-          </p>
-        )}
-      </div>
-    </div>
-  );
+function isDelinquent(d: ProviderDetail): boolean {
+  return d.daysOverdue > 0
+    || (!d.isSameProvider && !!d.overdueAmountRange)
+    || !!d.status?.toLowerCase().includes("inadimplente");
 }
 
-/* ── Section wrapper ──────────────────────────────────────── */
-function Section({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`bg-[var(--color-surface)] rounded-lg border border-[var(--color-border)] overflow-hidden ${className}`}>
-      {children}
-    </div>
-  );
+function brl(v: number): string {
+  return `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
 }
 
-function SectionHeader({ icon: Icon, title, trailing }: { icon: React.ComponentType<any>; title: string; trailing?: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--color-border)]">
-      <div className="flex items-center gap-2">
-        <Icon className="w-4 h-4" style={{ color: "var(--color-muted)" }} />
-        <span className="text-sm font-bold uppercase tracking-wider" style={{ color: "var(--color-ink)" }}>{title}</span>
-      </div>
-      {trailing}
-    </div>
-  );
+function fmtCep(cep: string): string {
+  const d = (cep || "").replace(/\D/g, "");
+  return d.length === 8 ? `${d.slice(0, 5)}-${d.slice(5)}` : cep;
 }
 
-/* ── Collapsible group ────────────────────────────────────── */
-function CollapsibleGroup({ label, icon: Icon, count, badge, defaultOpen = false, children }: {
-  label: string;
-  icon: React.ComponentType<any>;
-  count: number;
-  badge?: React.ReactNode;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div>
-      <button
-        className="w-full flex items-center gap-2 px-5 py-2.5 hover:bg-[var(--color-tag-bg)] transition-colors"
-        onClick={() => setOpen(!open)}
-      >
-        <Icon className="w-3.5 h-3.5" style={{ color: "var(--color-muted)" }} />
-        <span className="text-xs font-bold" style={{ color: "var(--color-ink)" }}>{label}</span>
-        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-tag-bg)", color: "var(--color-muted)" }}>{count}</span>
-        {badge}
-        <ChevronDown className={`w-3.5 h-3.5 ml-auto transition-transform duration-200 ${open ? "rotate-180" : ""}`} style={{ color: "var(--color-muted)" }} />
-      </button>
-      {open && <div className="divide-y divide-[var(--color-border)]">{children}</div>}
-    </div>
-  );
+/**
+ * A frase que sustenta a decisão. O backend manda `recommendation` como um
+ * verbo solto ("REJEITAR") — sozinho não justifica nada, e repetir aqui o
+ * primeiro alerta duplicaria a seção de Alertas logo abaixo. A frase é
+ * escrita a partir dos sinais que realmente pesaram.
+ */
+function decisionSubtitle(result: ConsultaResult, ativas: number, equipamentos: number): string {
+  const partes: string[] = [];
+
+  if (ativas > 0) {
+    const comValor = result.providerDetails.find(d => isDelinquent(d) && (d.overdueAmountRange || d.overdueAmount != null));
+    const valor = comValor?.isSameProvider && comValor.overdueAmount != null
+      ? brl(comValor.overdueAmount)
+      : comValor?.overdueAmountRange;
+    partes.push(
+      `${ativas} ocorrência${ativas > 1 ? "s" : ""} de inadimplência ativa na rede`
+      + (valor ? `, com débito de ${valor}` : ""),
+    );
+  }
+  if (equipamentos > 0) {
+    partes.push(`${equipamentos} equipamento${equipamentos > 1 ? "s" : ""} em comodato não devolvido`);
+  }
+  if (result.migratorAlert?.detected) {
+    partes.push("padrão de migração entre provedores");
+  }
+
+  if (partes.length === 0) {
+    return "Sem restrições na rede ISP colaborativa: nenhuma ocorrência de inadimplência, de equipamento ou de endereço registrada pelos provedores consultados.";
+  }
+  return partes.join(" · ") + ". A decisão final considera o seu apetite de risco e as garantias que você pode exigir na ativação.";
+}
+
+/** Cards "Seu provedor" / "Provedor parceiro" da seção de registros. */
+function registroCard(d: ProviderDetail, parceirosConsultados: number): TintCardData {
+  const own = d.isSameProvider;
+  const mau = isDelinquent(d);
+
+  if (own) {
+    const valor = d.overdueAmount != null ? brl(d.overdueAmount) : null;
+    const dias = d.daysOverdue > 0 ? `${d.daysOverdue} dias` : null;
+    return {
+      kicker: "Seu provedor",
+      tone: mau ? "danger" : "ok",
+      nome: d.customerName || "Nada consta",
+      linha: [dias, valor].filter(Boolean).join(" · ") || d.status || "Em dia",
+      linhaNegativa: mau,
+      sub: d.hasUnreturnedEquipment
+        ? `${d.unreturnedEquipmentCount} equipamento${d.unreturnedEquipmentCount > 1 ? "s" : ""} em comodato pendente`
+        : undefined,
+      chip: "Grátis",
+      chipTone: "ok",
+      fonte: `Seu ERP · ${d.providerName}`,
+    };
+  }
+
+  const local = d.addressCity ? ` · ${d.addressCity}${d.addressState ? "/" + d.addressState : ""}` : "";
+  return {
+    kicker: "Provedor parceiro",
+    tone: "neutral",
+    nome: "Dados restritos",
+    linha: [d.daysOverdueRange, d.overdueAmountRange].filter(Boolean).join(" · ")
+      || d.status
+      || `${parceirosConsultados} parceiros consultados · nada consta`,
+    linhaNegativa: mau,
+    chip: "1 crédito",
+    chipTone: "neutral",
+    fonte: `${d.providerName}${local}`,
+  };
 }
 
 /* ════════════════════════════════════════════════════════════
-   MAIN COMPONENT
+   RELATÓRIO DE CRÉDITO — um card, seções separadas por hairline.
    ════════════════════════════════════════════════════════════ */
-export default function ConsultaResultSummary({ result, onShowDetail, onNewConsulta, onSave, onGeneratePDF }: Props) {
-  const isNotFoundWithAddressDebt = result.notFound && result.addressMatches?.some(m => m.hasDebt);
-  const dc = result.decisionReco;
+export default function ConsultaResultSummary({
+  result, consultation, onNewConsulta, onSave, onGeneratePDF,
+}: Props) {
   const score = Math.max(0, Math.min(1000, result.score));
-  const totalEquipPending = result.providerDetails.reduce((s, d) => s + (d.hasUnreturnedEquipment ? d.unreturnedEquipmentCount : 0), 0);
-  const externalProviders = result.providerDetails.filter(d => !d.isSameProvider);
-  const hasExternalDelinquent = externalProviders.some(d => d.daysOverdue > 0 || !!d.overdueAmountRange || d.status?.toLowerCase().includes("inadimplente"));
-  const ownProviders = result.providerDetails.filter(d => d.isSameProvider);
-  const now = new Date();
-  const consultedAt = now.toLocaleDateString("pt-BR") + " " + now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const band = bandOf(score);
 
-  const hasDebtMatches = result.addressMatches?.some(m => m.hasDebt) ?? false;
-  const debtCount = result.addressMatches?.filter(m => m.hasDebt).length ?? 0;
-  const cleanCross = result.autoAddressCrossRef === true && !hasDebtMatches;
-  const unavailable = !result.autoAddressCrossRef && !hasDebtMatches;
-  const addressOwnMatches = result.addressMatches?.filter(m => m.isSameProvider) ?? [];
-  const addressExtMatches = result.addressMatches?.filter(m => !m.isSameProvider) ?? [];
+  const proprios = result.providerDetails.filter(d => d.isSameProvider);
+  const parceiros = result.providerDetails.filter(d => !d.isSameProvider);
+  const ativas = result.providerDetails.filter(isDelinquent).length;
+  const equipamentos = result.providerDetails.reduce(
+    (s, d) => s + (d.hasUnreturnedEquipment ? d.unreturnedEquipmentCount : 0), 0,
+  );
 
-  const decisionCfg = dc === "Accept"
-    ? { color: "#4A6B3E", bg: "#4A6B3E", label: "APROVAR", icon: CheckCircle, sub: "Sem restricoes na rede ISP" }
-    : dc === "Reject"
-    ? { color: "#B53333", bg: "#B53333", label: "REJEITAR", icon: XCircle, sub: result.recommendation }
-    : { color: "#B8860B", bg: "#B8860B", label: "ANALISAR", icon: AlertCircle, sub: result.recommendation };
+  // erpSummary.total conta todos os ERPs varridos na mesorregião — o seu incluído,
+  // SE você tiver um. Não dá para subtrair 1 às cegas: um provedor sem integração
+  // própria consulta N parceiros e o total já é N. Então o rótulo diz o que o
+  // número realmente é: provedores consultados.
+  const provedoresConsultados = result.erpSummary?.total ?? result.erpLatencies?.length ?? 0;
+  // Para a copy dos cards, "parceiros" é o que existe fora da sua própria base.
+  const parceirosConsultados = Math.max(0, provedoresConsultados - (proprios.length > 0 ? 1 : 0));
+
+  const dt = consultation?.createdAt ? new Date(consultation.createdAt) : new Date();
+  const dataHora = dt.toLocaleDateString("pt-BR") + " " + dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const protocolo = consultation?.id
+    ? `#CI-${dt.getFullYear()}-${String(consultation.id).padStart(5, "0")}`
+    : null;
+  const origemDado = result.source === "cache" ? "dado em cache"
+    : result.source === "no_erp" ? "sem ERP na região"
+    : "dado REAL";
+  const custoLabel = result.creditsCost > 0
+    ? `custo ${result.creditsCost} crédito${result.creditsCost > 1 ? "s" : ""}`
+    : "sem custo";
+
+  const meta = [
+    protocolo,
+    dataHora,
+    "rede ISP colaborativa",
+    `${provedoresConsultados} provedor${provedoresConsultados === 1 ? "" : "es"} consultado${provedoresConsultados === 1 ? "" : "s"}`,
+    origemDado,
+    custoLabel,
+  ].filter(Boolean).join(" · ");
+
+  // O bloco é preenchimento sólido, não texto: usa os tokens -solid, que são
+  // escurecidos o bastante para o texto por cima passar em AA.
+  const decisao = result.decisionReco === "Accept"
+    ? { short: "Aprovar", color: "var(--ok-solid)" }
+    : result.decisionReco === "Reject"
+    ? { short: "Rejeitar", color: "var(--danger-solid)" }
+    : { short: "Analisar", color: "var(--gated-solid)" };
+
+  /* ── Cards de registro ── */
+  const registros: TintCardData[] = [
+    proprios.length > 0
+      ? registroCard(proprios[0], parceirosConsultados)
+      : {
+          kicker: "Seu provedor", tone: "ok" as Tone, nome: "Nada consta",
+          linha: "Sem registro no seu ERP", chip: "Grátis", chipTone: "ok" as Tone,
+          fonte: "Seu ERP",
+        },
+    ...(parceiros.length > 0
+      ? parceiros.map(d => registroCard(d, parceirosConsultados))
+      : [{
+          kicker: "Provedor parceiro", tone: "ok" as Tone, nome: "Nada consta na rede",
+          linha: `${parceirosConsultados} parceiro${parceirosConsultados === 1 ? "" : "s"} consultado${parceirosConsultados === 1 ? "" : "s"} · nada consta`,
+          chip: "Grátis", chipTone: "ok" as Tone, fonte: "Rede ISP colaborativa",
+        }]),
+    ...proprios.slice(1).map(d => registroCard(d, parceirosConsultados)),
+  ];
+
+  /* ── Cards de equipamento ──
+     "unknown" nunca vira "devolvido": ausência de sinal não é prova de devolução. */
+  const equipProprio = proprios.find(d => d.hasUnreturnedEquipment);
+  const equipParceiro = parceiros.find(d => d.hasUnreturnedEquipment);
+  const equipCards: TintCardData[] = [
+    equipProprio
+      ? {
+          kicker: "Seu provedor", tone: "danger",
+          nome: `${equipProprio.unreturnedEquipmentCount} equipamento${equipProprio.unreturnedEquipmentCount > 1 ? "s" : ""} não devolvido${equipProprio.unreturnedEquipmentCount > 1 ? "s" : ""}`,
+          linha: equipProprio.equipmentValueRange || equipProprio.equipmentPendingSummary || "Comodato pendente no seu ERP",
+          chip: "Ocorrência ativa", chipTone: "danger",
+          fonte: `Seu ERP · ${equipProprio.providerName}`,
+        }
+      : {
+          kicker: "Seu provedor", tone: "ok", nome: "Nenhum equipamento retido",
+          linha: "Sem registro de comodato pendente no seu ERP",
+          chip: "Sem ocorrência", chipTone: "ok", fonte: "Seu ERP",
+        },
+    equipParceiro
+      ? {
+          kicker: "Provedor parceiro",
+          tone: equipParceiro.equipmentSignalValidated ? "gated" : "neutral",
+          nome: `${equipParceiro.unreturnedEquipmentCount >= 2 ? "2+" : equipParceiro.unreturnedEquipmentCount} equipamento${equipParceiro.unreturnedEquipmentCount > 1 ? "s" : ""} retido${equipParceiro.unreturnedEquipmentCount > 1 ? "s" : ""}`,
+          linha: [
+            equipParceiro.equipmentSignalValidated ? "Ocorrência validada" : "Pendência operacional",
+            equipParceiro.equipmentValueRange,
+          ].filter(Boolean).join(" · "),
+          chip: equipParceiro.equipmentSignalValidated ? "Ocorrência validada" : "Sinal não validado",
+          chipTone: equipParceiro.equipmentSignalValidated ? "gated" : "neutral",
+          fonte: equipParceiro.providerName,
+        }
+      : {
+          kicker: "Provedor parceiro", tone: "ok", nome: "Nenhum equipamento retido",
+          linha: "Sem ocorrência validada no bureau",
+          chip: "Sem ocorrência", chipTone: "ok", fonte: "Rede ISP colaborativa",
+        },
+  ];
+
+  /* ── Cards de endereço ── */
+  const matchesProprios = result.addressMatches?.filter(m => m.isSameProvider) ?? [];
+  const matchesParceiros = result.addressMatches?.filter(m => !m.isSameProvider) ?? [];
+  const inadProprios = matchesProprios.filter(m => m.hasDebt).length;
+  const inadParceiros = matchesParceiros.filter(m => m.hasDebt).length;
+  const cepUsado = result.addressUsed || proprios[0]?.cep || "";
+  const cruzou = result.autoAddressCrossRef === true || !!result.addressSearch;
+
+  const addrCards: TintCardData[] = [
+    {
+      kicker: "Seu provedor",
+      tone: inadProprios > 0 ? "danger" : "ok",
+      nome: inadProprios > 0 ? `${inadProprios} inadimplente${inadProprios > 1 ? "s" : ""} no endereço` : "Nada consta",
+      linha: inadProprios > 0
+        ? "Possível fraude por troca de documento"
+        : matchesProprios.length > 0
+          ? `${matchesProprios.length} cadastro${matchesProprios.length > 1 ? "s" : ""} ativo${matchesProprios.length > 1 ? "s" : ""} na sua base · em dia`
+          : "Nenhum outro cadastro seu neste endereço",
+      chip: inadProprios > 0 ? `${inadProprios} inadimplentes` : "Nada consta",
+      chipTone: inadProprios > 0 ? "danger" : "ok",
+      fonte: `Seu ERP${cepUsado ? " · CEP " + fmtCep(cepUsado) : ""}`,
+    },
+    {
+      kicker: "Provedor parceiro",
+      tone: inadParceiros > 0 ? "danger" : cruzou ? "ok" : "neutral",
+      nome: inadParceiros > 0
+        ? `${inadParceiros} inadimplente${inadParceiros > 1 ? "s" : ""} no endereço`
+        : cruzou ? "Nada consta" : "Cruzamento não realizado",
+      linha: inadParceiros > 0
+        ? "Possível fraude por troca de documento"
+        : cruzou
+          ? `${matchesParceiros.length} cadastro${matchesParceiros.length === 1 ? "" : "s"} em parceiros · nenhum inadimplente`
+          : "Faltam CEP e número para cruzar o imóvel na rede",
+      chip: inadParceiros > 0 ? `${inadParceiros} inadimplentes` : cruzou ? "Nada consta" : "Indisponível",
+      chipTone: inadParceiros > 0 ? "danger" : cruzou ? "ok" : "neutral",
+      fonte: `Rede ISP${cepUsado ? " · CEP " + fmtCep(cepUsado) : ""}`,
+    },
+  ];
+
+  const linhasEndereco = (result.addressMatches ?? []).filter(m => m.hasDebt);
+  const temMapa = !!(cepUsado || proprios[0]?.address || proprios[0]?.latitude);
 
   return (
-    <div className="space-y-4" data-testid="consultation-result-cards">
-
-      {/* ═══ SECTION 1: SCORE HERO ═══ */}
-      {!isNotFoundWithAddressDebt && (
-        <Section>
-          {/* Top bar */}
-          <div className="px-5 pt-4 pb-3 flex items-center justify-between">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "var(--color-muted)" }}>
-                Relatorio de Credito ISP
-              </p>
-              <p className="text-xl font-bold tracking-tight mt-0.5 tabular-nums" style={{ color: "var(--color-ink)", fontFamily: "'Inter', system-ui, sans-serif" }} data-testid="text-consulted-doc">
-                {result.searchType === "cep"
-                  ? result.cpfCnpj.replace(/^(\d{5})(\d{3})$/, "$1-$2")
-                  : formatCpfCnpj(result.cpfCnpj)}
-              </p>
-              <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>
-                {result.searchType === "cep" ? "CEP" : result.searchType === "cnpj" ? "CNPJ" : "CPF"} · {consultedAt}
-              </p>
+    <div
+      style={{
+        background: "var(--surface)", border: "1px solid var(--border)",
+        borderRadius: 10, overflow: "hidden",
+      }}
+      data-testid="consultation-result-cards"
+    >
+      {/* ═══ 1 · CABEÇALHO ═══ */}
+      <div style={{
+        padding: "18px 24px", display: "flex", alignItems: "center",
+        justifyContent: "space-between", gap: 16, flexWrap: "wrap",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: 10, background: "var(--surface-2)",
+            border: "1px solid var(--border)", display: "flex", alignItems: "center",
+            justifyContent: "center", color: "var(--text-2)", flexShrink: 0,
+          }}>
+            <Search size={17} />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              {result.searchType.toUpperCase()} consultado · {meta}
             </div>
-            <div className="flex items-center gap-1.5">
-              <Shield className="w-3.5 h-3.5" style={{ color: "var(--color-brand)" }} />
-              <span className="text-xs font-semibold" style={{ color: "var(--color-brand)" }}>Rede ISP Colaborativa</span>
+            <div style={{
+              fontFamily: "var(--font-mono)", fontSize: 22, fontWeight: 700,
+              fontVariantNumeric: "tabular-nums", letterSpacing: "0.01em",
+              marginTop: 2, color: "var(--text)",
+            }} data-testid="text-consulted-doc">
+              {maskDoc(result.cpfCnpj, result.searchType)}
             </div>
           </div>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+          <span style={{
+            fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700,
+            textTransform: "uppercase", letterSpacing: "var(--track-wide)",
+            padding: "5px 12px", borderRadius: 7, whiteSpace: "nowrap",
+            background: `var(--${band.tone === "info" ? "now" : band.tone}-bg)`,
+            color: band.color,
+            border: `1px solid var(--${band.tone === "info" ? "now" : band.tone}-border)`,
+          }} data-testid="badge-faixa-score">
+            {band.label}
+          </span>
+          <ReportButton onClick={onGeneratePDF} testId="button-generate-pdf">
+            <Download size={14} /> PDF
+          </ReportButton>
+          <ReportButton onClick={onSave} testId="button-save-consulta">
+            <Save size={14} /> Salvar
+          </ReportButton>
+          <ReportButton onClick={onNewConsulta} variant="primary" testId="button-nova-consulta">
+            <RotateCcw size={14} /> Nova consulta
+          </ReportButton>
+        </div>
+      </div>
 
-          {/* Score gauge centered */}
-          <div className="flex justify-center py-2">
-            <ScoreGaugeSvg score={score} size="lg" />
+      {/* ═══ 2 · SCORE E SUGESTÃO ═══ */}
+      <div style={{ borderTop: "1px solid var(--border)", padding: "16px 24px 18px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+          <ScoreRing score={score} />
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
+              Score ISP <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>/ 1000</span>
+            </div>
+            <div style={{ display: "flex", gap: 6, marginTop: 7, flexWrap: "wrap" }}>
+              <Pill tone={ativas > 0 ? "past" : "ok"}>
+                {result.providersFound || result.providerDetails.length} provedores
+              </Pill>
+              <Pill tone={ativas > 0 ? "danger" : "ok"}>
+                {ativas} {ativas === 1 ? "ocorrência ativa" : "ocorrências ativas"}
+              </Pill>
+              <Pill tone={equipamentos > 0 ? "gated" : "neutral"}>
+                {equipamentos} equip. retidos
+              </Pill>
+            </div>
           </div>
-
-          {/* Decision banner */}
-          <div className="mx-5 mb-4 rounded-lg px-4 py-3 flex items-center gap-3" style={{ backgroundColor: decisionCfg.bg }} data-testid="ai-suggestion-banner">
-            <decisionCfg.icon className="w-6 h-6 text-white flex-shrink-0" />
-            <div className="flex-1">
-              <p className="text-[10px] font-bold text-white/60 uppercase tracking-widest">Sugestao IA</p>
-              <p className="text-lg font-bold text-white leading-tight" data-testid="text-ai-recommendation">{decisionCfg.label}</p>
+          <div style={{ flex: 1 }} />
+          <div style={{
+            background: decisao.color, color: "var(--text-on-brand)", borderRadius: 9,
+            padding: "10px 20px", textAlign: "center", minWidth: 120,
+          }} data-testid="ai-suggestion-banner">
+            {/* Sem opacity: 9px já é pequeno, e .78 derrubava o contraste abaixo de AA. */}
+            <div style={{
+              fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 600,
+              textTransform: "uppercase", letterSpacing: "var(--track-wide)",
+            }}>
+              Sugestão
             </div>
-            <p className="text-xs text-white/80 max-w-[160px] text-right leading-snug">{decisionCfg.sub}</p>
-          </div>
-
-          {/* Quick stats row */}
-          <div className="grid grid-cols-3 border-t border-[var(--color-border)]">
-            <div className="text-center py-3 border-r border-[var(--color-border)]">
-              <p className="text-xl font-bold tabular-nums" style={{ color: "var(--color-ink)" }}>{result.providersFound || result.providerDetails.length}</p>
-              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-muted)" }}>Provedores</p>
-            </div>
-            <div className="text-center py-3 border-r border-[var(--color-border)]">
-              <p className="text-xl font-bold tabular-nums" style={{ color: totalEquipPending > 0 ? "var(--color-gold)" : "var(--color-ink)" }}>{totalEquipPending}</p>
-              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-muted)" }}>Equip. retidos</p>
-            </div>
-            <div className="text-center py-3">
-              <p className="text-xl font-bold tabular-nums" style={{ color: externalProviders.length > 0 ? "var(--color-danger)" : "var(--color-ink)" }}>{externalProviders.length}</p>
-              <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-muted)" }}>Externos</p>
+            <div style={{
+              fontSize: 16, fontWeight: 700, textTransform: "uppercase",
+              letterSpacing: "0.02em", marginTop: 2,
+            }} data-testid="text-ai-recommendation">
+              {decisao.short}
             </div>
           </div>
+        </div>
+        <div style={{
+          fontSize: 12.5, color: "var(--text-2)", lineHeight: 1.55, marginTop: 14,
+          display: "flex", alignItems: "baseline", justifyContent: "space-between",
+          gap: 14, flexWrap: "wrap",
+        }}>
+          <span style={{ maxWidth: 640 }}>{decisionSubtitle(result, ativas, equipamentos)}</span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, textTransform: "uppercase", letterSpacing: "var(--track-wide)", color: "var(--text-faint)", whiteSpace: "nowrap" }}>Gate · decisão final é sua</span>
+        </div>
+      </div>
 
-          {/* ── ADDRESS RISK ALERT ── */}
-          {result.addressRiskAlerts && (
-            <AddressRiskAlert data={result.addressRiskAlerts} />
-          )}
-
-          {/* ── PROVIDER RESULTS (inline, not separate section) ── */}
-          {result.searchType !== "cep" && result.providerDetails.length > 0 && !isNotFoundWithAddressDebt && (
-            <div className="border-t border-[var(--color-border)]">
-              {ownProviders.length > 0 && (
-                <CollapsibleGroup label="Seu Provedor" icon={Home} count={ownProviders.length} defaultOpen={true}
-                  badge={
-                    ownProviders.some(d => d.daysOverdue > 0)
-                      ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-danger-bg)", color: "var(--color-danger)" }}>Inadimplente</span>
-                      : <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-success-bg)", color: "var(--color-success)" }}>Em dia</span>
-                  }
-                >
-                  {ownProviders.map((detail, i) => {
-                    const globalIdx = result.providerDetails.indexOf(detail);
-                    return <ProviderRow key={i} detail={detail} globalIdx={globalIdx} onShowDetail={onShowDetail} />;
-                  })}
-                </CollapsibleGroup>
-              )}
-              {externalProviders.length > 0 && (
-                <CollapsibleGroup
-                  label="Outros Provedores"
-                  icon={Globe}
-                  count={externalProviders.length}
-                  defaultOpen={true}
-                  badge={
-                    <>
-                      {hasExternalDelinquent && (
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-danger-bg)", color: "var(--color-danger)" }}>
-                          Inadimplente
-                        </span>
-                      )}
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-brand-bg)", color: "var(--color-brand)" }}>
-                        {externalProviders.length} credito{externalProviders.length !== 1 ? "s" : ""}
-                      </span>
-                    </>
-                  }
-                >
-                  {externalProviders.map((detail, i) => {
-                    const globalIdx = result.providerDetails.indexOf(detail);
-                    return <ProviderRow key={i} detail={detail} globalIdx={globalIdx} onShowDetail={onShowDetail} />;
-                  })}
-                </CollapsibleGroup>
-              )}
-            </div>
-          )}
-        </Section>
-      )}
-
-      {/* ═══ SECTION 2: SCORE BREAKDOWN ═══ */}
+      {/* ═══ 3 · COMPOSIÇÃO DO SCORE ═══
+          O handoff manda a composição para a aba Informações. Aqui ela fica:
+          um score que decide contrato precisa mostrar a conta no mesmo lugar
+          em que mostra o número — foi exatamente o furo que o motor v2 corrigiu. */}
       {(result.composicaoScore || result.fatoresScore) && result.searchType !== "cep" && (
-        <Section>
-          <div className="p-5">
-            <ScoreBreakdownPanel
-              composicao={result.composicaoScore}
-              fatores={result.fatoresScore}
-              score={result.score}
-            />
-          </div>
-        </Section>
+        <ReportSection>
+          <ScoreBreakdownPanel
+            composicao={result.composicaoScore}
+            fatores={result.fatoresScore}
+            score={result.score}
+          />
+        </ReportSection>
       )}
 
-      {/* ═══ SECTION 4: POR ENDERECO ═══ */}
-      <Section>
-        <SectionHeader
-          icon={MapPin}
-          title="Verificacao por Endereco"
+      {/* ═══ 4 · REGISTROS POR PROVEDOR ═══ */}
+      {result.searchType !== "cep" && (
+        <ReportSection
+          title="Registros por provedor"
           trailing={
-            <div className="flex items-center gap-1.5">
-              {debtCount > 0 ? (
-                <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ backgroundColor: "var(--color-danger-bg)", color: "var(--color-danger)" }}>
-                  {debtCount} inadimpl.
-                </span>
-              ) : cleanCross ? (
-                <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ backgroundColor: "var(--color-success-bg)", color: "var(--color-success)" }}>Limpo</span>
-              ) : (
-                <span className="text-xs font-bold px-2 py-0.5 rounded" style={{ backgroundColor: "var(--color-tag-bg)", color: "var(--color-muted)" }}>N/D</span>
-              )}
-              {result.autoAddressCrossRef === true && (
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--color-brand-bg)", color: "var(--color-brand)" }}>AUTO</span>
-              )}
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "var(--text-faint)" }}>
+              <Lock size={10} />
+              <span style={{ fontSize: 10 }}>Terceiros anonimizados · valores em faixa (LGPD)</span>
             </div>
           }
-        />
+        >
+          <DuoGrid>
+            {registros.map((c, i) => <TintCard key={i} data={c} />)}
+          </DuoGrid>
+        </ReportSection>
+      )}
 
-        {/* Status alert */}
-        <div className="p-4">
-          {hasDebtMatches ? (
-            <div className="rounded-lg p-4 flex items-start gap-3" style={{ backgroundColor: "var(--color-danger-bg)" }}>
-              <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: "var(--color-danger)" }} />
-              <div>
-                <p className="text-sm font-bold" style={{ color: "var(--color-danger)" }}>
-                  {debtCount} inadimplente{debtCount !== 1 ? "s" : ""} neste endereco
-                </p>
-                {isNotFoundWithAddressDebt && (
-                  <p className="text-xs mt-1" style={{ color: "var(--color-danger)" }}>
-                    CPF limpo, mas endereco comprometido — possivel fraude por troca de documento.
-                  </p>
-                )}
-              </div>
-            </div>
-          ) : cleanCross ? (
-            <div className="rounded-lg p-4 flex items-center gap-3" style={{ backgroundColor: "var(--color-success-bg)" }}>
-              <CheckCircle className="w-5 h-5 flex-shrink-0" style={{ color: "var(--color-success)" }} />
-              <div>
-                <p className="text-sm font-semibold" style={{ color: "var(--color-success)" }}>Nenhuma inadimplencia neste endereco</p>
-                {result.addressUsed && (
-                  <p className="text-xs mt-0.5" style={{ color: "var(--color-success)" }}>
-                    CEP: {result.addressUsed}
-                    {result.addressSource && (
-                      <span> (fonte: {result.addressSource === "own" ? "seu cadastro" : "rede ISP"})</span>
-                    )}
-                  </p>
-                )}
-              </div>
-            </div>
-          ) : unavailable ? (
-            <div className="rounded-lg p-4 flex items-center gap-3" style={{ backgroundColor: "var(--color-tag-bg)" }}>
-              <MapPin className="w-5 h-5 flex-shrink-0" style={{ color: "var(--color-muted)" }} />
-              <div>
-                <p className="text-sm font-semibold" style={{ color: "var(--color-muted)" }}>Cruzamento por endereco nao realizado</p>
-                <p className="text-xs mt-0.5" style={{ color: "var(--color-muted)" }}>
-                  {ownProviders[0]?.address
-                    ? "Cliente tem endereco no ERP, mas faltam CEP/numero para buscar outras inadimplencias no mesmo imovel."
-                    : "Cliente sem endereco cadastrado no ERP. Use a busca manual por CEP."}
-                </p>
-              </div>
-            </div>
-          ) : null}
-        </div>
+      {/* ═══ 5 · EQUIPAMENTO EM COMODATO ═══ */}
+      {result.searchType !== "cep" && (
+        <ReportSection
+          title="Equipamento em comodato"
+          trailing={
+            <Pill tone={equipamentos > 0 ? "gated" : "ok"}>
+              {equipamentos === 0 ? "Sem ocorrência" : equipParceiro?.equipmentSignalValidated ? "Ocorrência validada" : "Ocorrência registrada"}
+            </Pill>
+          }
+        >
+          <DuoGrid>
+            {equipCards.map((c, i) => <TintCard key={i} data={c} />)}
+          </DuoGrid>
+        </ReportSection>
+      )}
 
-        {/* Map */}
-        {(result.addressUsed || ownProviders[0]?.cep || ownProviders[0]?.address || ownProviders[0]?.latitude) && (
-          <div className="px-4 pb-3">
+      {/* ═══ 6 · VERIFICAÇÃO POR ENDEREÇO ═══ */}
+      <ReportSection
+        title="Verificação por endereço"
+        trailing={
+          result.autoAddressCrossRef === true ? (
+            <span style={{
+              fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 600,
+              textTransform: "uppercase", letterSpacing: "var(--track-wide)",
+              color: "var(--brand-ink)", background: "var(--brand-soft)",
+              padding: "3px 7px", borderRadius: 5,
+            }}>
+              Cruzamento automático
+            </span>
+          ) : undefined
+        }
+      >
+        <DuoGrid>
+          {addrCards.map((c, i) => <TintCard key={i} data={c} />)}
+        </DuoGrid>
+
+        {/* Outros documentos inadimplentes no mesmo imóvel — o backend calcula
+            e ninguém mais mostra. É o sinal de fraude por troca de documento. */}
+        {result.addressRiskAlerts && <AddressRiskAlert data={result.addressRiskAlerts} />}
+
+        {temMapa && (
+          <div style={{ position: "relative", marginTop: 12 }}>
             <AddressMapMini
-              cep={result.addressUsed || ownProviders[0]?.cep || ""}
-              address={ownProviders[0]?.address}
-              city={ownProviders[0]?.addressCity}
-              state={ownProviders[0]?.addressState}
-              neighborhood={ownProviders[0]?.neighborhood}
-              addressNumber={ownProviders[0]?.addressNumber}
-              latitude={ownProviders[0]?.latitude}
-              longitude={ownProviders[0]?.longitude}
+              cep={cepUsado}
+              address={proprios[0]?.address}
+              city={proprios[0]?.addressCity}
+              state={proprios[0]?.addressState}
+              neighborhood={proprios[0]?.neighborhood}
+              addressNumber={proprios[0]?.addressNumber}
+              latitude={proprios[0]?.latitude}
+              longitude={proprios[0]?.longitude}
             />
-          </div>
-        )}
-
-        {/* Address matches */}
-        {result.addressMatches && result.addressMatches.length > 0 && (
-          <div className="border-t border-[var(--color-border)]">
-            {addressOwnMatches.length > 0 && (
-              <CollapsibleGroup label="Seu Provedor" icon={Home} count={addressOwnMatches.length} defaultOpen={true}>
-                {addressOwnMatches.map((match, i) => <AddressRow key={i} match={match} idx={i} />)}
-              </CollapsibleGroup>
-            )}
-            {addressExtMatches.length > 0 && (
-              <CollapsibleGroup label="Outros Provedores" icon={Globe} count={addressExtMatches.length} defaultOpen={addressExtMatches.some(m => m.hasDebt)}>
-                {addressExtMatches.map((match, i) => <AddressRow key={i} match={match} idx={addressOwnMatches.length + i} />)}
-              </CollapsibleGroup>
+            {cepUsado && (
+              <span style={{
+                position: "absolute", left: 10, bottom: 10,
+                fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600,
+                background: "var(--surface)", border: "1px solid var(--border)",
+                borderRadius: 6, padding: "4px 9px", color: "var(--text)",
+                boxShadow: "0 1px 4px rgba(12,17,26,.12)", pointerEvents: "none",
+              }}>
+                CEP {fmtCep(cepUsado)}
+                {proprios[0]?.addressCity ? ` · ${proprios[0].addressCity}/${proprios[0].addressState ?? ""}` : ""}
+              </span>
             )}
           </div>
         )}
 
-        {/* LGPD footer */}
-        <div className="px-5 py-2.5 border-t border-[var(--color-border)] flex items-center gap-2">
-          <Lock className="w-3 h-3" style={{ color: "var(--color-muted)" }} />
-          <p className="text-[10px]" style={{ color: "var(--color-muted)" }}>Dados de terceiros anonimizados conforme LGPD</p>
-        </div>
-      </Section>
+        {linhasEndereco.length > 0 && (
+          <div style={{ marginTop: 4 }}>
+            {linhasEndereco.map((m, i) => (
+              <div key={i} style={{
+                display: "grid", gridTemplateColumns: "1.5fr 1.3fr 140px 170px",
+                gap: 10, alignItems: "center", padding: "10px 0",
+                borderBottom: "1px solid var(--border-faint)",
+              }} data-testid={`address-match-${i}`}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{m.customerName}</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{m.providerName}</div>
+                <div><span style={pillStyle("past")}>{m.status}</span></div>
+                <div style={{
+                  fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600,
+                  fontVariantNumeric: "tabular-nums", color: "var(--money-neg)", textAlign: "right",
+                }}>
+                  {m.isSameProvider && m.totalOverdue != null ? brl(m.totalOverdue) : m.totalOverdueRange || "—"}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </ReportSection>
 
-      {/* ═══ ACTIONS ═══ */}
-      <div className="flex items-center justify-between gap-3 flex-wrap pt-1">
-        <Button variant="outline" className="gap-2" onClick={onNewConsulta} data-testid="button-nova-consulta">
-          <RotateCcw className="w-4 h-4" />
-          Nova Consulta
-        </Button>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={onSave} data-testid="button-save-consulta">
-            <Save className="w-3.5 h-3.5" />
-            Salvar
-          </Button>
-          <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={onGeneratePDF} data-testid="button-generate-pdf">
-            <Download className="w-3.5 h-3.5" />
-            PDF
-          </Button>
+      {/* ═══ 7 · ALERTAS | AÇÕES ═══ */}
+      {((result.alerts?.length ?? 0) > 0 || (result.recommendedActions?.length ?? 0) > 0) && (
+        <div style={{
+          borderTop: "1px solid var(--border)", padding: "18px 24px",
+          display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 28,
+        }}>
+          <div>
+            <Kicker>Alertas</Kicker>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+              {(result.alerts?.length ?? 0) > 0
+                ? result.alerts.map((a, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                      <AlertTriangle size={13} style={{ color: "var(--gated)", flexShrink: 0, marginTop: 1 }} />
+                      <span style={{ fontSize: 12.5, color: "var(--text-2)", lineHeight: 1.5 }}>{a}</span>
+                    </div>
+                  ))
+                : <span style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Nenhum alerta ativo para este documento.</span>}
+            </div>
+          </div>
+          <div>
+            <Kicker>Ações recomendadas</Kicker>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+              {(result.recommendedActions?.length ?? 0) > 0
+                ? result.recommendedActions.map((a, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                      <CornerDownRight size={13} style={{ color: "var(--brand-ink)", flexShrink: 0, marginTop: 1 }} />
+                      <span style={{ fontSize: 12.5, color: "var(--text-2)", lineHeight: 1.5 }}>{a}</span>
+                    </div>
+                  ))
+                : <span style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Prosseguir conforme a política do provedor.</span>}
+            </div>
+          </div>
         </div>
+      )}
+
+      {/* ═══ 8 · PARECER DO AGENTE ═══ */}
+      {result.searchType !== "cep" && <AiAnalysisSection result={result} />}
+
+      {/* ═══ 9 · RODAPÉ DE AUDITORIA ═══ */}
+      <div style={{
+        borderTop: "1px solid var(--border)", background: "var(--surface-2)",
+        padding: "12px 24px", display: "flex", alignItems: "center",
+        justifyContent: "space-between", gap: 12, flexWrap: "wrap",
+      }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 7, color: "var(--text-muted)" }}>
+          <Lock size={11} />
+          <span style={{ fontSize: 11 }}>
+            Dados de terceiros anonimizados conforme LGPD
+            {result.controlador ? ` · Controlador: ${result.controlador}` : ""}
+            {" · Finalidade: proteção ao crédito"}
+          </span>
+        </div>
+        {consultation?.cpfCnpjHash && (
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-faint)" }}>
+            hash de auditoria {consultation.cpfCnpjHash.slice(0, 4)}…{consultation.cpfCnpjHash.slice(-4)}
+          </span>
+        )}
       </div>
     </div>
   );

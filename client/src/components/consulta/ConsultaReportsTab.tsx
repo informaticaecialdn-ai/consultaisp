@@ -1,5 +1,5 @@
-import { Card } from "@/components/ui/card";
 import { BarChart3 } from "lucide-react";
+import { Kicker } from "./report-ui";
 
 interface Props {
   consultations: any[];
@@ -8,74 +8,111 @@ interface Props {
   avgScore: number;
 }
 
-export default function ConsultaReportsTab({ consultations, approvedCount, rejectedCount, avgScore }: Props) {
+function Metrica({ label, valor, cor }: { label: string; valor: string | number; cor?: string }) {
   return (
-    <Card className="rounded overflow-hidden">
-      <div className="bg-[var(--color-bg)] border-b border-[var(--color-border)] px-6 py-4 flex items-center gap-3">
-        <BarChart3 className="w-5 h-5 text-[var(--color-muted)]" />
-        <h2 className="text-lg font-semibold text-[var(--color-ink)]">Resumo de Consultas</h2>
+    <div style={{
+      background: "var(--surface)", border: "1px solid var(--border)",
+      borderRadius: 10, padding: "12px 14px",
+    }}>
+      <Kicker style={{ color: "var(--text-muted)" }}>{label}</Kicker>
+      <div style={{
+        marginTop: 6, fontFamily: "var(--font-mono)", fontSize: 21, fontWeight: 500,
+        letterSpacing: "var(--track-tight)", fontVariantNumeric: "tabular-nums",
+        color: cor ?? "var(--text)",
+      }}>
+        {valor}
       </div>
-      <div className="p-6">
-        {consultations.length === 0 ? (
-          <div className="text-center py-12">
-            <BarChart3 className="w-12 h-12 mx-auto mb-3 text-[var(--color-muted)]" />
-            <p className="text-[var(--color-muted)]">Realize consultas para ver o resumo</p>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[
-                { label: "Total Consultas", value: consultations.length, color: "text-[var(--color-ink)]" },
-                { label: "Aprovadas", value: approvedCount, color: "text-[var(--color-success)]" },
-                { label: "Rejeitadas", value: rejectedCount, color: "text-[var(--color-danger)]" },
-                { label: "Score Medio", value: `${avgScore}/100`, color: "text-[var(--color-brand)]" },
-              ].map(s => (
-                <div key={s.label} className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded p-4 text-center">
-                  <p className="text-xs text-[var(--color-muted)] mb-1">{s.label}</p>
-                  <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
-                </div>
-              ))}
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-[var(--color-ink)] mb-3">Distribuicao por Sugestao de Decisao</h3>
-              <div className="flex gap-1 h-4 rounded-sm overflow-hidden bg-[var(--color-tag-bg)]">
-                {approvedCount > 0 && (
-                  <div className="bg-[var(--color-success)]" style={{ width: `${(approvedCount / consultations.length) * 100}%` }} />
-                )}
-                {rejectedCount > 0 && (
-                  <div className="bg-[var(--color-danger)]" style={{ width: `${(rejectedCount / consultations.length) * 100}%` }} />
-                )}
-              </div>
-              <div className="flex justify-between mt-2 text-xs text-[var(--color-muted)]">
-                <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[var(--color-success)]" />Aprovadas ({approvedCount})</span>
-                <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-[var(--color-danger)]" />Rejeitadas ({rejectedCount})</span>
-              </div>
-            </div>
-            {(() => {
-              const freeCount = consultations.filter((c: any) => c.cost === 0).length;
-              const paidCount = consultations.filter((c: any) => c.cost > 0).length;
-              const totalSpent = consultations.reduce((s: number, c: any) => s + (c.cost || 0), 0);
-              const withAlerts = consultations.filter((c: any) => (c.result as any)?.alerts?.length > 0).length;
-              return (
-                <div className="space-y-2">
-                  <h3 className="text-sm font-semibold text-[var(--color-ink)]">Creditos e Alertas</h3>
-                  {[
-                    { label: "Consultas gratuitas", value: freeCount, color: "text-[var(--color-success)]", bg: "bg-[var(--color-surface)]" },
-                    { label: "Consultas pagas", value: paidCount, color: "text-[var(--color-brand)]", bg: "bg-[var(--color-surface)]" },
-                    { label: "Total creditos consumidos", value: totalSpent, color: "text-[var(--color-brand)]", bg: "bg-[var(--color-brand-bg)]" },
-                    { label: "Consultas com alertas anti-fraude", value: withAlerts, color: "text-[var(--color-gold)]", bg: "bg-[var(--color-gold-bg)]" },
-                  ].map(r => (
-                    <div key={r.label} className={`flex justify-between p-3 ${r.bg} border border-[var(--color-border)] rounded text-sm`}>
-                      <span className="text-[var(--color-ink)]">{r.label}</span>
-                      <span className={`font-semibold ${r.color}`}>{r.value}</span>
-                    </div>
-                  ))}
-                </div>
-              );
-            })()}
-          </div>
-        )}
+    </div>
+  );
+}
+
+function LinhaResumo({ label, valor, cor }: { label: string; valor: number; cor?: string }) {
+  return (
+    <div style={{
+      display: "flex", justifyContent: "space-between", alignItems: "center",
+      padding: "10px 14px", background: "var(--surface)",
+      border: "1px solid var(--border)", borderRadius: 8,
+    }}>
+      <span style={{ fontSize: 12.5, color: "var(--text-2)" }}>{label}</span>
+      <span style={{
+        fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600,
+        fontVariantNumeric: "tabular-nums", color: cor ?? "var(--text)",
+      }}>
+        {valor}
+      </span>
+    </div>
+  );
+}
+
+export default function ConsultaReportsTab({ consultations, approvedCount, rejectedCount, avgScore }: Props) {
+  if (consultations.length === 0) {
+    return (
+      <div style={{
+        background: "var(--surface)", border: "1px solid var(--border)",
+        borderRadius: 10, padding: "48px 24px", textAlign: "center",
+      }}>
+        <BarChart3 size={28} style={{ margin: "0 auto 12px", color: "var(--text-faint)" }} />
+        <p style={{ fontSize: 13, color: "var(--text-muted)" }}>Realize consultas para ver o resumo</p>
       </div>
-    </Card>
+    );
+  }
+
+  const freeCount = consultations.filter((c: any) => c.cost === 0).length;
+  const paidCount = consultations.filter((c: any) => c.cost > 0).length;
+  const totalSpent = consultations.reduce((s: number, c: any) => s + (c.cost || 0), 0);
+  const withAlerts = consultations.filter((c: any) => (c.result as any)?.alerts?.length > 0).length;
+  const pctAprov = (approvedCount / consultations.length) * 100;
+  const pctRejei = (rejectedCount / consultations.length) * 100;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+        <Metrica label="Total de consultas" valor={consultations.length} />
+        <Metrica label="Aprovadas" valor={approvedCount} cor="var(--ok)" />
+        <Metrica label="Rejeitadas" valor={rejectedCount} cor="var(--danger)" />
+        {/* Escala do motor é 0-1000; o "/100" daqui vinha da versão antiga. */}
+        <Metrica label="Score médio" valor={`${avgScore}/1000`} />
+      </div>
+
+      <div style={{
+        background: "var(--surface)", border: "1px solid var(--border)",
+        borderRadius: 10, padding: "18px 20px",
+      }}>
+        <Kicker>Distribuição por sugestão de decisão</Kicker>
+        <div style={{
+          display: "flex", gap: 2, height: 8, borderRadius: 4, overflow: "hidden",
+          background: "var(--surface-inset)", marginTop: 12,
+        }}>
+          {approvedCount > 0 && <div style={{ background: "var(--ok)", width: `${pctAprov}%` }} />}
+          {rejectedCount > 0 && <div style={{ background: "var(--danger)", width: `${pctRejei}%` }} />}
+        </div>
+        <div style={{
+          display: "flex", justifyContent: "space-between", marginTop: 10,
+          fontSize: 12, color: "var(--text-muted)",
+        }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 7, height: 7, borderRadius: 999, background: "var(--ok)" }} />
+            Aprovadas ({approvedCount})
+          </span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span style={{ width: 7, height: 7, borderRadius: 999, background: "var(--danger)" }} />
+            Rejeitadas ({rejectedCount})
+          </span>
+        </div>
+      </div>
+
+      <div style={{
+        background: "var(--surface)", border: "1px solid var(--border)",
+        borderRadius: 10, padding: "18px 20px",
+      }}>
+        <Kicker>Créditos e alertas</Kicker>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+          <LinhaResumo label="Consultas gratuitas" valor={freeCount} cor="var(--ok)" />
+          <LinhaResumo label="Consultas pagas" valor={paidCount} />
+          <LinhaResumo label="Total de créditos consumidos" valor={totalSpent} />
+          <LinhaResumo label="Consultas com alerta anti-fraude" valor={withAlerts} cor="var(--gated)" />
+        </div>
+      </div>
+    </div>
   );
 }

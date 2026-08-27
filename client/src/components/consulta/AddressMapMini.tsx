@@ -118,49 +118,61 @@ export default function AddressMapMini({ cep, addressNumber, address, city, stat
       interactive: false,
     });
 
-    new maplibregl.Marker({ color: "#B53333" })
+    // O maplibre exige uma cor real, nao var(). Lemos o token computado para o
+    // marcador acompanhar o tema em vez de carregar um hex do palette antigo.
+    const corMarcador = getComputedStyle(document.documentElement)
+      .getPropertyValue("--danger").trim() || "#B3261E";
+    new maplibregl.Marker({ color: corMarcador })
       .setLngLat(coords)
       .addTo(map);
 
     mapRef.current = map;
 
-    return () => { map.remove(); mapRef.current = null; };
+    // O container e medido no momento da criacao. Dentro do relatorio ele ainda
+    // esta assentando (fonte carregando, secao acima crescendo), entao o mapa
+    // nascia com altura quase zero e pintava so uma tira de tiles no topo.
+    // O observer devolve o tamanho real assim que ele existe.
+    const ro = new ResizeObserver(() => map.resize());
+    ro.observe(containerRef.current);
+    map.once("load", () => map.resize());
+
+    return () => { ro.disconnect(); map.remove(); mapRef.current = null; };
   }, [coords]);
 
   if (!searchQuery) {
     return (
-      <div className="relative rounded-lg overflow-hidden border border-[var(--color-border)] bg-[var(--color-bg)] flex flex-col items-center justify-center gap-2" style={{ height: "220px" }}>
-        <MapPin className="w-8 h-8 text-[var(--color-muted)]" />
-        <span className="text-sm text-[var(--color-muted)] font-medium">Localizacao indisponivel</span>
-        {cep && <span className="text-xs text-[var(--color-muted)]">CEP {cep}</span>}
+      <div style={{ height: 230, borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface-2)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
+        <MapPin size={26} style={{ color: "var(--text-faint)" }} />
+        <span style={{ fontSize: 13, color: "var(--text-muted)", fontWeight: 500 }}>Localização indisponível</span>
+        {cep && <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-faint)" }}>CEP {cep}</span>}
       </div>
     );
   }
 
   if (loading) {
     return (
-      <div className="relative rounded-lg overflow-hidden border border-[var(--color-border)] bg-[var(--color-bg)] flex items-center justify-center" style={{ height: "220px" }}>
-        <div className="w-5 h-5 border-2 border-[var(--color-brand)] border-t-transparent rounded-full animate-spin" />
+      <div style={{ height: 230, borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface-2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ width: 14, height: 14, borderRadius: 999, boxSizing: "border-box", border: "2px solid var(--action)", borderTopColor: "transparent", animation: "ci-spin .7s linear infinite" }} />
       </div>
     );
   }
 
   if (!coords) {
     return (
-      <div className="relative rounded-lg overflow-hidden border border-[var(--color-border)] bg-[var(--color-bg)] flex flex-col items-center justify-center gap-2" style={{ height: "220px" }}>
-        <MapPin className="w-8 h-8 text-[var(--color-muted)]" />
-        <span className="text-sm text-[var(--color-muted)] font-medium">Endereco nao encontrado</span>
-        <span className="text-xs text-[var(--color-muted)]">{city && state ? `${city}, ${state}` : cep || ""}</span>
+      <div style={{ height: 230, borderRadius: 10, border: "1px solid var(--border)", background: "var(--surface-2)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
+        <MapPin size={26} style={{ color: "var(--text-faint)" }} />
+        <span style={{ fontSize: 13, color: "var(--text-muted)", fontWeight: 500 }}>Endereço não encontrado</span>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-faint)" }}>{city && state ? `${city}, ${state}` : cep || ""}</span>
       </div>
     );
   }
 
   return (
-    <div className="relative rounded-lg overflow-hidden border border-[var(--color-border)]">
-      <div ref={containerRef} style={{ height: 220 }} />
-      <div className="absolute bottom-2 left-2 bg-white/90 dark:bg-black/70 rounded px-2 py-1 text-xs text-gray-700 dark:text-gray-300">
-        {city && state ? `${city}, ${state}` : cep || ""}
-      </div>
+    <div
+      className="relative overflow-hidden"
+      style={{ borderRadius: 10, border: "1px solid var(--border)" }}
+    >
+      <div ref={containerRef} style={{ height: 230 }} />
     </div>
   );
 }

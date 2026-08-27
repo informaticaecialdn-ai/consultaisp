@@ -1140,11 +1140,20 @@ export default function ConsultaCadastralPage() {
                   desabilitado={mutation.isPending}
                 />
 
+                {/* Copy própria: a barra é compartilhada com a Consulta ISP, e os
+                    textos padrão dela falam de rede ISP e ERP de parceiros — que
+                    não é a origem de nada aqui. Sem isto a tela mentiria sobre a
+                    procedência do dado e sobre o preço. */}
                 <ConsultaSearchBar
                   onSearch={handleSearch}
                   isLoading={mutation.isPending}
                   hasResult={!!resultado}
                   onClear={handleClear}
+                  inputTestId="input-consulta-search"
+                  kicker="Nova consulta · CPF ou CNPJ"
+                  selo="Bureau de dados cadastrais"
+                  custos={["Consulta padrão · 1 crédito", "Consulta completa · 4 créditos"]}
+                  notaLegal="Consulta registrada para auditoria · LGPD art. 7º, X — proteção ao crédito"
                 />
 
                 {mutation.isPending && (

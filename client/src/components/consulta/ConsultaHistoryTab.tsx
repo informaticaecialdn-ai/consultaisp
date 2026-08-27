@@ -1,61 +1,114 @@
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Search, Clock } from "lucide-react";
-import { formatCpfCnpj, riskDecisionBadge } from "./utils";
+import { Search } from "lucide-react";
+import { formatCpfCnpj } from "./utils";
+import { Kicker, pillStyle, type Tone } from "./report-ui";
 
 interface Props {
   consultations: any[];
 }
 
+const COLUNAS = "minmax(96px, 120px) minmax(120px, 1.4fr) 56px 64px minmax(90px, 120px) 70px";
+
+function parecer(decisionReco: string): { label: string; tone: Tone } {
+  if (decisionReco === "Accept") return { label: "Aprovar", tone: "ok" };
+  if (decisionReco === "Reject") return { label: "Rejeitar", tone: "danger" };
+  return { label: "Analisar", tone: "gated" };
+}
+
+function Cabecalho({ children, alinharDireita }: { children: React.ReactNode; alinharDireita?: boolean }) {
+  return (
+    <span style={{
+      fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 600,
+      textTransform: "uppercase", letterSpacing: "var(--track-wide)",
+      color: "var(--text-muted)", textAlign: alinharDireita ? "right" : "left",
+    }}>
+      {children}
+    </span>
+  );
+}
+
 export default function ConsultaHistoryTab({ consultations }: Props) {
   return (
-    <Card className="rounded overflow-hidden">
-      <div className="bg-[var(--color-bg)] border-b border-[var(--color-border)] px-6 py-4 flex items-center gap-3">
-        <Clock className="w-5 h-5 text-[var(--color-muted)]" />
-        <h2 className="text-lg font-semibold text-[var(--color-ink)]">Historico de Consultas</h2>
+    <div style={{
+      background: "var(--surface)", border: "1px solid var(--border)",
+      borderRadius: 10, padding: "18px 24px 10px",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <Kicker>Consultas recentes</Kicker>
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)" }}>
+          {consultations.length} registro{consultations.length === 1 ? "" : "s"}
+        </span>
       </div>
-      <div className="p-6">
-        {consultations.length === 0 ? (
-          <div className="text-center py-12">
-            <Search className="w-12 h-12 mx-auto mb-3 text-[var(--color-muted)]" />
-            <p className="text-[var(--color-muted)]">Nenhuma consulta realizada ainda</p>
+
+      {consultations.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "48px 0" }}>
+          <Search size={28} style={{ margin: "0 auto 12px", color: "var(--text-faint)" }} />
+          <p style={{ fontSize: 13, color: "var(--text-muted)" }}>Nenhuma consulta realizada ainda</p>
+        </div>
+      ) : (
+        <>
+          <div style={{
+            display: "grid", gridTemplateColumns: COLUNAS, gap: 10,
+            padding: "12px 0 8px", borderBottom: "1px solid var(--border-faint)",
+          }}>
+            <Cabecalho>Data</Cabecalho>
+            <Cabecalho>Documento</Cabecalho>
+            <Cabecalho>Tipo</Cabecalho>
+            <Cabecalho alinharDireita>Score</Cabecalho>
+            <Cabecalho>Parecer</Cabecalho>
+            <Cabecalho alinharDireita>Custo</Cabecalho>
           </div>
-        ) : (
-          <div className="space-y-2">
-            {consultations.map((c: any) => {
-              const resultData = c.result as any;
-              const customerName = resultData?.providerDetails?.[0]?.customerName;
-              const providersFound = resultData?.providersFound || 0;
-              return (
-                <div key={c.id} className="flex items-center justify-between p-3.5 bg-[var(--color-surface)] rounded border border-[var(--color-border)] hover:border-[var(--color-brand)] transition-colors" data-testid={`consultation-${c.id}`}>
-                  <div className="flex items-center gap-3">
-                    <div className={`w-2.5 h-2.5 rounded-full ${c.approved ? "bg-[var(--color-success)]" : "bg-[var(--color-danger)]"}`} />
-                    <div>
-                      <span className="text-sm font-medium text-[var(--color-ink)]">{formatCpfCnpj(c.cpfCnpj)}</span>
-                      {customerName && <span className="text-xs text-[var(--color-muted)] ml-2">{customerName}</span>}
-                      {!customerName && resultData?.notFound && <span className="text-xs text-[var(--color-muted)] ml-2">Nao encontrado</span>}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 flex-wrap justify-end">
-                    {providersFound > 0 && <span className="text-xs text-[var(--color-muted)]">{providersFound} prov.</span>}
-                    <span className="text-sm font-medium text-[var(--color-ink)]">Score: {c.score}/100</span>
-                    <Badge className={`${riskDecisionBadge(c.decisionReco)} border-0 text-xs`}>
-                      {c.decisionReco === "Accept" ? "Aprovar" : c.decisionReco === "Review" ? "Revisar" : "Rejeitar"}
-                    </Badge>
-                    {c.cost === 0
-                      ? <Badge variant="secondary" className="text-xs">Gratis</Badge>
-                      : <Badge variant="outline" className="text-xs">-{c.cost} cred.</Badge>
-                    }
-                    <span className="text-xs text-[var(--color-muted)]">
-                      {c.createdAt ? new Date(c.createdAt).toLocaleDateString("pt-BR") : ""}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </Card>
+
+          {consultations.map((c: any) => {
+            const p = parecer(c.decisionReco);
+            const dt = c.createdAt ? new Date(c.createdAt) : null;
+            return (
+              <div
+                key={c.id}
+                data-testid={`consultation-${c.id}`}
+                style={{
+                  display: "grid", gridTemplateColumns: COLUNAS, gap: 10, alignItems: "center",
+                  padding: "10px 0", borderBottom: "1px solid var(--border-faint)",
+                }}
+              >
+                <span style={{
+                  fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-2)",
+                  fontVariantNumeric: "tabular-nums",
+                }}>
+                  {dt ? dt.toLocaleDateString("pt-BR").slice(0, 5) + " " + dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "—"}
+                </span>
+                <span style={{
+                  fontFamily: "var(--font-mono)", fontSize: 12,
+                  fontVariantNumeric: "tabular-nums", color: "var(--text)",
+                }}>
+                  {formatCpfCnpj(c.cpfCnpj)}
+                </span>
+                <span style={{
+                  fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase",
+                  letterSpacing: "var(--track-wide)", color: "var(--text-muted)",
+                }}>
+                  {(c.searchType || "cpf").toUpperCase()}
+                </span>
+                {/* O motor devolve 0-1000. O "/100" que ficava aqui vinha da escala
+                    antiga e fazia 300 parecer nota fora do intervalo. */}
+                <span style={{
+                  fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600,
+                  fontVariantNumeric: "tabular-nums", textAlign: "right", color: "var(--text)",
+                }}>
+                  {c.score ?? "—"}
+                </span>
+                <span style={pillStyle(p.tone)}>{p.label}</span>
+                <span style={{
+                  fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase",
+                  letterSpacing: "var(--track-wide)", color: "var(--text-muted)", textAlign: "right",
+                }}>
+                  {c.cost === 0 ? "grátis" : `${c.cost} cred.`}
+                </span>
+              </div>
+            );
+          })}
+          <div style={{ height: 10 }} />
+        </>
+      )}
+    </div>
   );
 }

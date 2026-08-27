@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { Card } from "@/components/ui/card";
 import { LOADING_STEPS } from "./constants";
+import { Kicker } from "./report-ui";
 
 interface Etapa { id: number; label: string; detail: string; duration: number }
 
@@ -14,20 +14,25 @@ interface Props {
    * do operador.
    */
   etapas?: Etapa[];
+  /** Documento consultado, para o kicker "CONSULTANDO 078.594.556-33". */
+  documento?: string;
 }
 
-export default function LoadingCard({ titulo, subtitulo, etapas }: Props = {}) {
+/**
+ * Espera da consulta — lista de passos, não barra de progresso.
+ *
+ * A barra de percentual anterior era ficção: o número subia por temporizador,
+ * sem relação com o que os ERPs estavam devolvendo. Uma lista de passos diz o
+ * que está acontecendo sem prometer um prazo que ninguém pode cumprir.
+ */
+export default function LoadingCard({ titulo, subtitulo, etapas, documento }: Props = {}) {
   const PASSOS: Etapa[] = etapas ?? LOADING_STEPS;
   const [currentStep, setCurrentStep] = useState(0);
-  const [progress, setProgress] = useState(0);
 
   useEffect(() => {
     let elapsed = 0;
-    const totalDur = PASSOS.reduce((s, st) => s + st.duration, 0);
     const tick = setInterval(() => {
       elapsed += 100;
-      const pct = Math.min((elapsed / totalDur) * 90, 90);
-      setProgress(Math.floor(pct));
       let cum = 0;
       for (let i = 0; i < PASSOS.length; i++) {
         cum += PASSOS[i].duration;
@@ -39,53 +44,59 @@ export default function LoadingCard({ titulo, subtitulo, etapas }: Props = {}) {
   }, []);
 
   return (
-    <Card className="p-8 shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] rounded-lg">
-      <div className="flex flex-col gap-6">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-full border-4 border-blue-200 border-t-blue-600 animate-spin flex-shrink-0" />
-          <div>
-            <p className="text-lg font-semibold text-slate-900">
-              {titulo ?? "Consultando rede ISP colaborativa..."}
-            </p>
-            <p className="text-sm text-slate-500">
-              {subtitulo ?? "Aguarde, buscando em multiplos provedores simultaneamente"}
-            </p>
-          </div>
-        </div>
+    <div
+      style={{
+        background: "var(--surface)", border: "1px solid var(--border)",
+        borderRadius: 10, padding: "22px 24px",
+        display: "flex", flexDirection: "column", gap: 4,
+      }}
+      role="status"
+      aria-live="polite"
+      data-testid="consulta-loading-card"
+    >
+      <Kicker style={{ marginBottom: 10 }}>
+        {titulo ?? (documento ? `Consultando ${documento}` : "Consultando rede ISP colaborativa")}
+      </Kicker>
 
-        <div className="space-y-3">
-          {PASSOS.map((step, i) => {
-            const done = i < currentStep;
-            const active = i === currentStep;
-            return (
-              <div key={step.id} className={`flex items-start gap-3 p-3 rounded-lg transition-all duration-500 ${active ? "bg-blue-50 border border-blue-200" : done ? "opacity-60" : "opacity-30"}`}>
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${done ? "bg-[var(--color-success)]" : active ? "bg-[var(--color-brand)]" : "bg-[var(--color-tag-bg)]"}`}>
-                  {done ? (
-                    <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  ) : active ? (
-                    <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
-                  ) : (
-                    <span className="text-xs font-bold text-[var(--color-muted)]">{step.id}</span>
-                  )}
-                </div>
-                <div>
-                  <p className={`text-sm font-semibold ${active ? "text-[var(--color-brand)]" : done ? "text-[var(--color-success)]" : "text-[var(--color-muted)]"}`}>{step.label}</p>
-                  {active && <p className="text-xs text-blue-600 mt-0.5">{step.detail}</p>}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      {subtitulo && (
+        <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: -6, marginBottom: 8 }}>
+          {subtitulo}
+        </p>
+      )}
 
-        <div className="space-y-1">
-          <div className="h-2 bg-blue-100 rounded-full overflow-hidden">
-            <div className="h-full bg-[var(--color-brand)] rounded-full transition-all duration-300" style={{ width: `${progress}%` }} />
+      {PASSOS.map((step, i) => {
+        const done = i < currentStep;
+        const active = i === currentStep;
+        return (
+          <div key={step.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0" }}>
+            <div style={
+              done
+                ? { width: 8, height: 8, borderRadius: 999, background: "var(--ok)", flexShrink: 0 }
+                : active
+                  ? {
+                      width: 10, height: 10, borderRadius: 999, boxSizing: "border-box", flexShrink: 0,
+                      border: "2px solid var(--action)", borderTopColor: "transparent",
+                      animation: "ci-spin .7s linear infinite",
+                    }
+                  : { width: 8, height: 8, borderRadius: 999, background: "var(--border-strong)", flexShrink: 0 }
+            } />
+            <span style={{
+              fontSize: 13, flex: 1,
+              color: done ? "var(--text-2)" : active ? "var(--text)" : "var(--text-faint)",
+              fontWeight: active ? 600 : 400,
+            }}>
+              {step.label}
+            </span>
+            <span style={{
+              fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase",
+              letterSpacing: "var(--track-wide)",
+              color: done ? "var(--ok)" : "var(--text-faint)",
+            }}>
+              {done ? "ok" : active ? "…" : ""}
+            </span>
           </div>
-          <p className="text-xs text-slate-500 text-right">{progress}%</p>
-        </div>
-      </div>
-    </Card>
+        );
+      })}
+    </div>
   );
 }

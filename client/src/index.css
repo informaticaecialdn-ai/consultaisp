@@ -25,7 +25,10 @@
   /* ── Texto ────────────────────────────────────────────────── */
   --ink:            #1F1D29;  /* quase preto com fundo violeta */
   --ink-2:          #45414F;
-  --muted:          #6B6878;
+  /* NAO redeclarar --muted aqui: mais abaixo neste mesmo :root ele e a ponte
+     HSL do shadcn (`240 17% 95%`), e a ultima declaracao vence. Um hex aqui
+     fica morto e vira armadilha — quem escrever `color: var(--muted)` recebe
+     um triplete HSL cru. Para texto auxiliar use --text-muted. */
 
   /* ── Marca / acao: berinjela, a cor-heroi do modulo ───────── */
   --brand:          #4A4670;
@@ -33,13 +36,17 @@
   --brand-hover:    #3C3860;
   --brand-bg:       #EDECF3;  /* item ativo de sidebar, badge de credito */
   --brand-soft:     #EDECF3;
-  --brand-ink:      #4A4670;
+  /* Um passo mais escuro que --brand de proposito: --brand-ink e sempre texto
+     ou icone SOBRE --brand-soft. Igualar as duas cores apagava o nivel. */
+  --brand-ink:      #3A3658;
 
   /* Escala de texto com os nomes do handoff */
   --text:           #1F1D29;
   --text-2:         #45414F;
   --text-muted:     #6B6878;
-  --text-faint:     #918EA0;  /* rotulo de grupo — um passo alem do muted */
+  /* AA sobre branco (4,93:1). O #918EA0 anterior dava 3,19:1 e este token veste
+     kicker de 10px, rodape LGPD e fonte de card — texto pequeno de verdade. */
+  --text-faint:     #726E80;
 
   /* ── Semanticas de status ─────────────────────────────────── */
   --ok:             #1F7A4C;  --ok-bg:      #E6F3EC;  /* em dia, risco baixo */
@@ -57,6 +64,37 @@
   /* ── Proveniencia do dado ─────────────────────────────────── */
   --mock:           #6B6878;  --mock-bg:    #F1F1F5;  /* dado simulado */
   --wire:           #1F6F7A;  --wire-bg:    #E4F1F3;  /* dado real do ERP */
+
+  /* ── Completando a pele Razao (handoff Provedor.AI) ───────── */
+  /* Azure: informacao neutra, sem juizo de valor — painel de CEP, chip
+     "cruzamento automatico", faixa de score "Bom". --now e o mesmo azure
+     na semantica de tempo (presente/ativo); no handoff sao o mesmo valor. */
+  --info:           #3B6E96;  --info-bg:    #E9EFF5;  --info-border: #C3D5E4;
+  --now:            #3B6E96;  --now-bg:     #E9EFF5;  --now-border:  #C3D5E4;
+
+  /* Quarto nivel de superficie — botao desabilitado, poco dentro de poco. */
+  --surface-3:      #EAEAF0;
+
+  /* Texto sobre a marca solida (botao primario, bloco de decisao). */
+  --text-on-brand:  #FFFFFF;
+  --action-hover:   #3C3860;
+
+  /* Valor negativo em dado numerico: sempre a cor do passado/divida. */
+  --money-neg:      #8C2F39;
+
+  /* PREENCHIMENTO solido de bloco de decisao. NAO e a mesma cor do texto:
+     --gated (#A9741B) atras de texto branco da 4,04:1, abaixo do minimo AA.
+     Estes tres valores dao 6,5-7,5:1 com --text-on-brand nos dois temas. */
+  --ok-solid:       #1A6B42;
+  --gated-solid:    #7A520A;
+  --danger-solid:   #A3231C;
+
+  /* Tracking nomeado — o mockup referencia por token, nao por valor. */
+  --track-wide:     0.06em;
+  --track-tight:    -0.02em;
+
+  --overlay:        rgba(20, 19, 26, .48);
+  --focus-ring:     0 0 0 3px rgba(74, 70, 112, .30);
 
   /* ── Ponte para a API antiga (--color-*) ──────────────────── */
   --color-bg:         #F6F6F9;
@@ -202,7 +240,7 @@
 
   --ink:            #ECEBF1;
   --ink-2:          #C3C0CE;
-  --muted:          #918DA1;
+  /* mesma armadilha do :root — --muted e a ponte HSL do shadcn, mais abaixo */
 
   --brand:          #A9A2D8;  /* berinjela clareada para AA sobre escuro */
   --action:         #A9A2D8;
@@ -214,7 +252,7 @@
   --text:           #ECEBF1;
   --text-2:         #C3C0CE;
   --text-muted:     #918DA1;
-  --text-faint:     #78748A;
+  --text-faint:     #918DA6;  /* 5,44:1 sobre --surface */
 
   --ok:             #58C48C;  --ok-bg:      #14301F;
   --gated:          #D9A441;  --gated-bg:   #332711;
@@ -229,6 +267,21 @@
 
   --mock:           #918DA1;  --mock-bg:    #26242F;
   --wire:           #56AEB8;  --wire-bg:    #14302F;
+
+  /* Pele Razao no escuro — semanticas CLAREIAM, nunca reusam o hex do claro. */
+  --info:           #7FA9CC;  --info-bg:    #1B2634;  --info-border: #2C3E52;
+  --now:            #7FA9CC;  --now-bg:     #1B2634;  --now-border:  #2C3E52;
+  --surface-3:      #2F2D3A;
+  --text-on-brand:  #1A1922;  /* a marca clareia no escuro: o texto sobre ela escurece */
+  --action-hover:   #BDB6E6;
+  --money-neg:      #DE8A93;
+  /* No escuro o preenchimento CLAREIA e o texto sobre ele escurece
+     (--text-on-brand vira #1A1922): 6,0-8,0:1. */
+  --ok-solid:       #58C48C;
+  --gated-solid:    #D9A441;
+  --danger-solid:   #F0716A;
+  --overlay:        rgba(0, 0, 0, .62);
+  --focus-ring:     0 0 0 3px rgba(169, 162, 216, .38);
 
   --color-bg:         #131219;
   --color-surface:    #1A1922;
@@ -450,6 +503,40 @@
  * Even without handling focused or not, this is six possible combinations that
  * need to be distinguished from eachother visually.
  */
+/* Giro do passo ativo do loading e do parecer em streaming.
+   Fora de @layer para nao ser purgado — o consumo e via style inline. */
+@keyframes ci-spin { to { transform: rotate(360deg); } }
+
+/* As telas de consulta desenham os controles com estilo inline para bater 1:1
+   com o handoff de design. Estilo inline nao expressa :focus-visible nem
+   :focus — sem estas duas regras a navegacao por Tab fica CEGA, o que o
+   DESIGN_SYSTEM.md secao 7 trata como nao negociavel. */
+.ds-ctl:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 2px;
+}
+/* A borda base do campo mora aqui, nao no style inline, para que o estado de
+   foco consiga sobrescreve-la — inline sempre venceria uma regra de :focus. */
+.ds-input {
+  border: 1px solid var(--border-strong);
+}
+.ds-input:focus {
+  border-color: var(--action);
+  box-shadow: var(--focus-ring);
+}
+
+/* Par "Seu provedor / Provedor parceiro" do relatorio: duas colunas fixas,
+   uma no celular. Media query nao existe em style inline — por isso classe. */
+.ds-duo {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+@media (max-width: 720px) {
+  .ds-duo { grid-template-columns: minmax(0, 1fr); }
+}
+
 @layer utilities {
 
   /* Hide ugly search cancel button in Chrome until we can style it properly */

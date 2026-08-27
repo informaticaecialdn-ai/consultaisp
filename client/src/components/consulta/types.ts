@@ -7,6 +7,10 @@ export interface ProviderDetail {
   overdueAmount?: number;
   overdueAmountRange?: string;
   overdueInvoicesCount: number;
+  /* Terceiros nunca recebem o numero exato — a rota manda faixa (LGPD). Os
+     campos existiam na resposta antes de existirem aqui. */
+  daysOverdueRange?: string;
+  overdueInvoicesCountRange?: string;
   contractStartDate: string;
   contractAgeDays: number;
   hasUnreturnedEquipment: boolean;
@@ -102,6 +106,12 @@ export interface ConsultaResult {
   finalidadeConsulta?: string;
   controlador?: string;
   migratorAlert?: { detected: boolean; severity: string; message: string; riskFactors: string[] } | null;
+  /** Outros documentos inadimplentes no MESMO imovel — sinal de troca de CPF. */
+  addressRiskAlerts?: {
+    type: string;
+    message: string;
+    matches: { cpfMasked: string; overdueRange: string; maxDaysOverdue: number; status: string }[];
+  } | null;
   erpSummary?: { total: number; responded: number; failed: number; timedOut: number };
 }
 

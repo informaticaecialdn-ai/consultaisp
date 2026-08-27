@@ -3,41 +3,41 @@
 > Leia este arquivo ANTES de gerar qualquer componente, tela ou estilo.
 > Qualquer desvio dos tokens abaixo é inaceitável.
 
-**Versão 4.0 — "Bureau"** · alinhada a `client/src/index.css`.
+**Versão 5.0 — "Provedor.AI · pele Razão · voz do módulo Consulta"**
+· alinhada a `client/src/index.css`, que é a fonte da verdade.
 
 ---
 
-## 0. Por que a v4.0 existe
+## 0. Por que a v5.0 existe
 
-A v3.0 documentava um sistema **warm parchment + terracota**, derivado de
-`references/claude.md`: fundo bege, título em serifa, sombras em anel quente.
-Estava fielmente implementado — o problema não era coerência, era **adequação**.
+A v4.0 documentava a paleta do Stripe: ground `#F7F9FC`, navy `#061B31`, roxo
+`#533AFD`. **Nada disso está no código.** O `index.css` implementa outro sistema —
+o handoff **Provedor.AI**, pele *Razão*, voz do módulo *Consulta*: fundo
+cinza-violeta `#F6F6F9`, tinta `#1F1D29`, marca **berinjela `#4A4670`**.
 
-O produto é um **bureau de crédito**. O trabalho dele é transmitir rigor, dado e
-autoridade. A v3.0 se descrevia como *"editorial quente e humano — papel envelhecido,
-pense num ensaio impresso"*. Isso é estética de revista numa ferramenta de análise de
-risco. Bege e serifa leem como acolhimento; o produto precisa ler como **medição**.
+O documento tinha drifted de novo, e da mesma forma que a v3.0: descrevendo uma
+intenção em vez do que existe. A v5.0 corrige os fatos.
 
-| v3.0 (Claude / parchment) | v4.0 (Bureau) |
+| v4.0 (documentada, nunca implementada) | v5.0 (o que o código faz) |
 |---|---|
-| Fundo Parchment `#F5F4ED` | Ground `#F7F9FC` — neutro frio |
-| Surface Ivory `#FAF9F5` | Pure White `#FFFFFF` |
-| Texto Near Black `#141413` | Deep Navy `#061B31` |
-| Marca Terracota `#C96442` | Purple `#533AFD` |
-| Título Fraunces serifa | Inter, tracking −0.02em |
-| Dado em DM Mono | IBM Plex Mono, `tabular-nums` |
-| Profundidade: ring shadow quente | Borda de 1px, neutro frio |
-| Botão 8px | Botão 4px |
+| Ground `#F7F9FC` — neutro frio azul | Ground `#F6F6F9` — neutro frio **violeta** |
+| Texto Deep Navy `#061B31` | Tinta `#1F1D29` — quase-preto violeta |
+| Marca Stripe Purple `#533AFD` | Marca **berinjela `#4A4670`** |
+| Borda `#E5EDF5` | Borda `#EAEAF0` |
+| Semânticas Stripe | `--ok` `#1F7A4C` · `--gated` `#A9741B` · `--past` `#8C2F39` · `--danger` `#B3261E` |
 
-**A v2.0 estava certa e foi descartada por engano.** Ela dizia *"Finança editorial
-europeia — pense no FT ou Bloomberg"*. Aquela intuição servia ao produto. O código
-tinha derivado para a paleta quente e a v3.0 alinhou o documento ao código, em vez de
-perguntar qual dos dois estava certo. A v4.0 retoma a intenção da v2.0 com referências
-melhores.
+**O que NÃO mudou:** tipografia (Inter + IBM Plex Mono, `tabular-nums` em todo
+número), a geometria seca, profundidade por hairline de 1px, e a lista negra da
+seção 7. A v5.0 troca os hexes, não a filosofia.
 
-**Migração sem quebra:** os **nomes** das variáveis foram mantidos. `--color-brand`
-continua sendo o acento; só o valor mudou de terracota para roxo. Nenhum dos 100+
-arquivos consumidores precisou de edição de cor.
+**Dois vocabulários de token convivem, de propósito:**
+- `--color-*` — a API antiga, consumida por 100+ arquivos. Mantida.
+- `--bg` `--surface` `--text` `--brand` `--ok` `--past`… — os nomes canônicos do
+  handoff. **Use estes em código novo.** Os `--color-*` apontam para eles.
+
+**Armadilha real:** `--muted` NÃO é cor de texto. Dentro do `:root` ele é a ponte
+HSL do shadcn (`240 17% 95%`), e a última declaração vence. Para texto auxiliar
+use `--text-muted`.
 
 ---
 
@@ -47,25 +47,28 @@ arquivos consumidores precisou de edição de cor.
 **Palavra-chave:** confiança, rigor, organização, precisão.
 **NÃO É:** papel envelhecido, ensaio editorial, SaaS colorido, dashboard com gradiente.
 
-O sistema é um **híbrido de duas referências**:
+A referência é **um handoff só**: o design system **Provedor.AI**, na pele
+**Razão** (fintech densa, número é o herói) com a voz do módulo **Consulta**
+(verbo: *Decidir*, cor-herói berinjela).
 
-- **Neutros, semânticas e hierarquia tipográfica** de `references/stripe.md`
-  (fintech, B2B profissional, light-first).
-- **Geometria e profundidade** de `references/intercom.md` — 4px seco em botão,
-  sombra praticamente ausente, profundidade por borda.
+O handoff vive em `Redesign Consulta ISP SaaS/handoff-consulta-isp/`:
+`Consulta ISP.dc.html` é a referência viva da tela de Consulta ISP — HTML com
+estilo inline por token, legível como spec. `SPEC-consulta-isp.md` é o texto.
 
-Ao consultar as referências: cor e tipografia em `stripe.md`, raio e elevação em
-`intercom.md`. Não misture uma terceira.
+Não misture uma segunda referência. As antigas (`stripe.md`, `intercom.md`,
+`claude.md`) descrevem sistemas que este produto não usa mais.
 
 ### Duas derivações declaradas
 
-Nem tudo saiu literal das referências. Estas duas foram **derivadas**, e é
-intencional que estejam registradas:
+Nem tudo saiu literal do handoff. Estas duas foram **derivadas**:
 
-1. `--color-bg: #F7F9FC` — tint da família da borda Stripe (`#E5EDF5`). O Stripe usa
-   branco puro de fundo; aqui um ground levemente tingido separa o canvas do card.
-2. `--score-low: #C43D02` — Intercom Report Orange (`#fe4c02`) escurecido para passar
-   AA sobre branco. O valor original é vivo demais para texto.
+1. **Os valores são os do projeto, não os do handoff.** O handoff traz um neutro
+   frio *azul* (família `--n-*`); o `index.css` usa um neutro frio *violeta*, que
+   é o que ancora a berinjela como cor de marca em vez de acidente. Adotamos os
+   **nomes** do handoff, não os hexes.
+2. `--info` / `--now` `#3B6E96` — o azure do handoff (`#205AB8`) colidiria com
+   `--wire`, o selo de proveniência "dado real do ERP". Escurecido e dessaturado
+   para a família do projeto.
 
 ---
 
@@ -99,86 +102,112 @@ Dados / Labels:     IBM Plex Mono, weight 400-600
 - **Todo número é mono e tabular.** Score, valor, CPF, data, contagem, percentual.
   Sem `tabular-nums` as colunas desalinham e a tela parece descuidada.
 - Display grande usa peso **300**, não bold. Autoridade vem do tamanho e do tracking
-  apertado, não do peso — é o gesto de `stripe.md`.
-- Label mono em caixa alta com tracking aberto (`0.1em`), 10px.
+  apertado, não do peso.
+- Label mono em caixa alta com tracking aberto — use o token `var(--track-wide)`
+  (`0.06em`), 10px. Não crave o valor: kicker, pill e cabeçalho de tabela têm que
+  abrir na mesma medida, senão dois estilos de label convivem no mesmo card.
 
-> **Nota de fidelidade:** `stripe.md` especifica **Sohne** e `intercom.md` especifica
-> **Saans**. Ambas são proprietárias e não existem no Google Fonts. Inter é o
-> substituto padrão da Sohne e preserva a silhueta (neo-grotesca, tracking negativo,
-> pesos leves). Não troque por outra sem revisar este documento.
+> **Nota de fidelidade:** a pele Razão do handoff especifica **Inter** + **IBM Plex
+> Mono**, e é exatamente o que o projeto carrega. A pele Linha (Manrope + JetBrains
+> Mono) existe no handoff mas NÃO é usada aqui. Não troque de família sem revisar
+> este documento.
 
 ---
 
 ## 3. Paleta
 
+Uma cor de marca só (berinjela). Saturação apenas quando significa risco.
+Os nomes curtos (`--brand`, `--ok`, `--past`…) são os canônicos; os `--color-*`
+apontam para eles e existem só por compatibilidade.
+
 ### 3.1 Light (`:root`)
 
 ```css
 :root {
-  /* Superfícies */
-  --color-bg:         #F7F9FC;  /* Ground — tint da borda Stripe (derivado) */
-  --color-surface:    #FFFFFF;  /* Stripe Pure White */
-  --color-border:     #E5EDF5;  /* Stripe Border Default */
-  --color-tag-bg:     #EFF4F9;  /* Tint neutro — chip e botão neutro */
+  /* Superfícies — quatro níveis */
+  --bg:             #F6F6F9;  /* canvas */
+  --surface:        #FFFFFF;  /* card */
+  --surface-2:      #FAFAFC;  /* card aninhado, cabeçalho de tabela */
+  --surface-3:      #EAEAF0;  /* botão desabilitado, poço dentro de poço */
+  --surface-inset:  #F1F1F5;  /* campo, poço, trilha de barra */
+
+  /* Hairlines */
+  --border-faint:   #F2F2F6;  /* separador interno */
+  --border:         #EAEAF0;  /* estrutural */
+  --border-strong:  #D9D9E2;  /* só input — precisa ler como área editável */
 
   /* Texto */
-  --color-ink:        #061B31;  /* Stripe Deep Navy */
-  --color-muted:      #64748D;  /* Stripe Body */
+  --text:           #1F1D29;  /* quase-preto violeta */
+  --text-2:         #45414F;
+  --text-muted:     #6B6878;
+  --text-faint:     #918EA0;  /* rótulo de grupo, metadata */
+  --text-on-brand:  #FFFFFF;
 
-  /* Marca */
-  --color-brand:      #533AFD;  /* Stripe Purple — CTA, link, ativo */
-  --color-steel:      #4434D4;  /* Stripe Purple Hover */
-  --color-brand-bg:   #EEECFF;
+  /* Marca / ação — berinjela, a cor-herói do módulo Consulta */
+  --brand:          #4A4670;
+  --action:         #4A4670;
+  --action-hover:   #3C3860;
+  --brand-soft:     #EDECF3;  /* item ativo de nav, chip de marca */
+  --brand-ink:      #3A3658;  /* texto/ícone SOBRE --brand-soft */
 
-  /* Semânticas — todas com contraste AA sobre branco */
-  --color-success:    #108C3D;  --color-success-bg: #E4F6EA;
-  --color-gold:       #9B6829;  --color-gold-bg:    #FBF1E2;
-  --color-danger:     #C41C1C;  --color-danger-bg:  #FDE9E9;
+  /* Semânticas — cada uma com par -bg e -border, todas AA sobre branco */
+  --ok:      #1F7A4C;  --ok-bg:      #E6F3EC;  --ok-border:      #B9DECB;
+  --gated:   #A9741B;  --gated-bg:   #FBF1DF;  --gated-border:   #E8D2A3;
+  --past:    #8C2F39;  --past-bg:    #F9E8EA;  --past-border:    #E4BCC1;
+  --danger:  #B3261E;  --danger-bg:  #FBE7E5;  --danger-border:  #F0C4BF;
+  --info:    #3B6E96;  --info-bg:    #E9EFF5;  --info-border:    #C3D5E4;
+  --now:     #3B6E96;  --now-bg:     #E9EFF5;  --now-border:     #C3D5E4;
 
-  /* Anéis de 1px — nome herdado, valor agora neutro frio */
-  --ring-warm:        #D3DFEC;
-  --ring-subtle:      #E5EDF5;
-  --ring-deep:        #C2D2E3;
+  /* Proveniência do dado */
+  --mock:    #6B6878;  --mock-bg:    #F1F1F5;  /* simulado */
+  --wire:    #1F6F7A;  --wire-bg:    #E4F1F3;  /* real, vindo do ERP */
+
+  /* Sinal de valor */
+  --money-neg:      #8C2F39;  /* = --past. Todo número negativo. */
 
   /* Score — faixas espelhadas de server/utils/isp-score.ts */
-  --score-high:       var(--color-success);  /* 701-1000 */
-  --score-medium:     var(--color-gold);     /* 501-700  */
-  --score-low:        #C43D02;               /* 301-500  */
-  --score-critical:   var(--color-danger);   /* 0-300    */
+  --score-high:     #1F7A4C;  /* 701-1000 */
+  --score-medium:   #A9741B;  /* 501-700  */
+  --score-low:      #8C2F39;  /* 301-500  */
+  --score-critical: #B3261E;  /* 0-300    */
+
+  /* Tracking e foco, por nome */
+  --track-wide:     0.06em;   /* kicker, pill, label mono */
+  --track-tight:    -0.02em;  /* título e nome de card */
+  --overlay:        rgba(20, 19, 26, .48);
+  --focus-ring:     0 0 0 3px rgba(74, 70, 112, .30);
 }
 ```
 
-> **Armadilha herdada:** os tokens `--ring-*` ainda se chamam *warm*, mas os valores
-> são neutros frios. O nome sobreviveu para não quebrar os consumidores. Não deduza
-> a cor pelo nome — leia o valor.
+> **Armadilha herdada:** os tokens `--ring-*` ainda se chamam *warm*, mas os
+> valores são neutros. Leia o valor, não deduza pelo nome.
 
 ### 3.2 Dark (`.dark`)
 
-Base: Stripe Dark Navy `#0D253D`.
+Escuro com fundo violeta (`#131219`), não cinza neutro — é o que mantém a
+berinjela coerente nos dois temas.
 
 ```css
 .dark {
-  --color-bg:         #071726;
-  --color-surface:    #0D253D;
-  --color-border:     #1E3B58;
-  --color-tag-bg:     #12304C;
-  --color-ink:        #EAF2FA;
-  --color-muted:      #8AA2BC;
-  --color-brand:      #8B7CFF;  /* clareado para AA sobre escuro */
-  --color-steel:      #A197FF;
-  --color-success:    #4FD07E;  --color-success-bg: #10331F;
-  --color-gold:       #D8A24A;  --color-gold-bg:    #33270F;
-  --color-danger:     #FF6E6E;  --color-danger-bg:  #3A1616;
-  --score-low:        #F0763A;
-  --ring-warm:        #2A4C6E;
-  --ring-subtle:      #1E3B58;
-  --ring-deep:        #3A628A;
+  --bg: #131219;  --surface: #1A1922;  --surface-2: #201F2A;  --surface-3: #2F2D3A;
+  --border: #2F2D3A;  --border-strong: #423F51;  --border-faint: #24222D;
+  --text: #ECEBF1;  --text-2: #C3C0CE;  --text-muted: #918DA1;  --text-faint: #78748A;
+  --brand: #A9A2D8;  --action: #A9A2D8;  --brand-soft: #2A2740;  --brand-ink: #C5BFEA;
+  --text-on-brand: #1A1922;  /* a marca clareia: o texto sobre ela escurece */
+  --ok:     #58C48C;  --ok-bg:     #14301F;  --ok-border:     #235539;
+  --gated:  #D9A441;  --gated-bg:  #332711;  --gated-border:  #57431D;
+  --past:   #DE8A93;  --past-bg:   #331A1D;  --past-border:   #572E32;
+  --danger: #F0716A;  --danger-bg: #351917;  --danger-border: #5A2C28;
+  --info:   #7FA9CC;  --info-bg:   #1B2634;  --info-border:   #2C3E52;
+  --overlay: rgba(0,0,0,.62);
+  --focus-ring: 0 0 0 3px rgba(169, 162, 216, .38);
 }
 ```
 
 **Regra do dark:** semânticas **clareiam**. Nunca reuse o hex do light.
 
 ### 3.3 Foco
+
 
 ```css
 --ring: 249 97% 61%;  /* = --color-brand */
@@ -203,13 +232,13 @@ e um token a menos.
 ### 3.5 Paleta categórica — identidade, não status
 
 Para dados que são **identidade** (qual ERP, qual agente, qual etapa) e não estado.
-Derivada da report palette do `intercom.md`, escurecida para AA sobre branco.
+Escurecida e dessaturada para a família violeta do projeto e para passar AA sobre branco.
 
 ```css
---cat-blue:  #1E6FBF;   --cat-indigo: #533AFD;  --cat-violet: #6B4FD8;
---cat-teal:  #10707A;   --cat-green:  #0B8A32;  --cat-lime:   #6E8A0F;
---cat-amber: #9B6829;   --cat-orange: #C43D02;  --cat-red:    #C41C1C;
---cat-pink:  #C4155A;   --cat-slate:  #64748D;  --cat-navy:   #273951;
+--cat-blue:  #3B6E96;   --cat-indigo: #4A4670;  --cat-violet: #6A5C86;
+--cat-teal:  #1F6F7A;   --cat-green:  #1F7A4C;  --cat-lime:   #63783A;
+--cat-amber: #A9741B;   --cat-orange: #A85A2A;  --cat-red:    #B3261E;
+--cat-pink:  #97456A;   --cat-slate:  #6B6878;  --cat-navy:   #35405C;
 ```
 
 **Regra:** chip neutro + dot categórico. O fundo do chip é sempre
@@ -225,7 +254,7 @@ e **nunca** para significar bom/ruim — isso é papel das semânticas.
 
 ```
 Base: 4px
-Escala: 4 · 8 · 12 · 16 · 20 · 24 · 32 · 40 · 48 · 64 · 80   (intercom.md)
+Escala: 4 · 8 · 12 · 16 · 20 · 24 · 32 · 40 · 48 · 64 · 80
 
 Gap entre cards:         10–16px
 Padding de card:         12px 14px  (denso) · 16px 20px (padrão)
@@ -239,7 +268,7 @@ espaçoso demais reduz quantas linhas cabem na tela e piora o trabalho.
 
 ## 5. Geometria e Profundidade
 
-### 5.1 Raio — `intercom.md`
+### 5.1 Raio
 
 ```
 Botões, inputs, badges:   4px   (rounded / rounded-sm)
@@ -253,7 +282,7 @@ de 8px. `rounded-full` em **badge de status** continua proibido.
 
 ### 5.2 Profundidade — borda, não sombra
 
-`intercom.md`: *"Minimal shadows. Depth through warm border colors and surface tints."*
+Sombra mínima. Profundidade por cor de borda e tint de superfície.
 
 ```css
 /* Repouso */          box-shadow: 0 0 0 1px var(--ring-subtle);
@@ -324,10 +353,10 @@ Pares: `--color-success-bg` + `--color-success`, e assim por diante.
                box-shadow: 0 0 0 1px var(--ring-warm); }
 ```
 
-Botão primário é **roxo** (`--color-brand`). É o que `stripe.md` determina: o Stripe
-Purple é *"Primary brand color, CTA backgrounds, link text, interactive highlights"* —
-uma cor só que ancora ação, link e estado ativo. O token `--primary` do shadcn aponta
-para ele, então todo `<Button>` já sai correto sem classe extra.
+Botão primário é **berinjela** (`--action`, mesmo valor de `--brand`). Uma cor só
+ancora ação, link e estado ativo — é a voz do módulo Consulta no handoff. O token
+`--primary` do shadcn aponta para ela, então todo `<Button>` já sai correto sem
+classe extra.
 
 `.btn-neutral` (navy) existe para ação secundária forte — exportar, sincronizar —
 onde o roxo roubaria atenção do CTA principal da tela.
@@ -404,15 +433,22 @@ ACESSIBILIDADE — NÃO NEGOCIÁVEL
 
 | # | Dívida | Volume |
 |---|---|---|
-| 1 | Classes da paleta default do Tailwind ainda espalhadas | ~1190 ocorrências, 47 dos 119 arquivos |
-| 2 | Gradientes `from-X to-Y` (subconjunto de #1) | 278 paradas, 37 call sites |
-| 3 | 112 erros de TypeScript pré-existentes | maioria em `server/services/*` |
+| 1 | Classes da paleta default do Tailwind ainda espalhadas | 424 ocorrências em 29 arquivos |
+| 2 | Gradientes `from-X to-Y` (subconjunto de #1) | ver `grep -rn "from-.* to-"` |
+| 3 | ~110 erros de TypeScript pré-existentes | maioria em `server/*`, nenhum no client de consulta |
 | 4 | Dark mode definido mas nunca ativado — falta o toggle | `next-themes` está nas deps |
 | 5 | `CLAUDE.md` documenta `isp_consultations.score` como 0–100; é **0–1000** | corrigir na fonte |
+| 6 | `consulta-spc.tsx` ainda no visual antigo (cards coloridos, abas em pill) | 1 tela |
+| 7 | `utils.ts` da pasta consulta devolve classe Tailwind crua em 5 helpers | `getPaymentStatusColor`, `riskDecisionBadge`, `scoreColor`, `scoreBg`, `decisionCardStyle` |
 
 A #1 não é trabalho de `sed`: cada ocorrência precisa de julgamento sobre o papel
 (informativo, decorativo ou categórico). Deve ser feita tela a tela.
 
+**Já quitado nesta versão:** a Consulta ISP inteira (formulário, estado ocioso,
+loading, modal LGPD, relatório e as 5 abas) foi reescrita em token puro contra o
+handoff. As primitivas vivem em `client/src/components/consulta/report-ui.tsx` —
+reaproveite-as antes de escrever card, pill ou kicker novo.
+
 ---
 
-*Versão 4.0 · Consulta ISP · base: `client/src/index.css` + `stripe.md` + `intercom.md`*
+*Versão 5.0 · Consulta ISP · base: `client/src/index.css` + handoff Provedor.AI (pele Razão · voz Consulta)*

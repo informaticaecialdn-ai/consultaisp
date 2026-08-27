@@ -1,47 +1,57 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Search, Activity, Calendar, CheckCircle, BarChart3,
-  CreditCard, Shield,
+  CreditCard, CheckCircle, AlertTriangle, Network, BarChart3, Router, MapPin, Shield,
 } from "lucide-react";
 
 import type { ConsultaResult } from "@/components/consulta/types";
 import { formatCpfCnpj } from "@/components/consulta/utils";
 import { generatePDF } from "@/components/consulta/PdfReportGenerator";
+import { Kicker } from "@/components/consulta/report-ui";
 import LoadingCard from "@/components/consulta/LoadingCard";
 import ConsultaIdleState from "@/components/consulta/ConsultaIdleState";
 import ConsultaSearchBar from "@/components/consulta/ConsultaSearchBar";
 import ConsultaResultSummary from "@/components/consulta/ConsultaResultSummary";
-import ConsultaResultDetail from "@/components/consulta/ConsultaResultDetail";
 import ConsultaHistoryTab from "@/components/consulta/ConsultaHistoryTab";
 import TimelineTab from "@/components/consulta/TimelineTab";
 import ConsultaReportsTab from "@/components/consulta/ConsultaReportsTab";
 import ConsultaInfoTab from "@/components/consulta/ConsultaInfoTab";
 import LgpdDisclaimerModal from "@/components/consulta/LgpdDisclaimerModal";
-import ProviderDetailModals from "@/components/consulta/ProviderDetailModals";
+
+const ABAS = [
+  ["nova", "Nova consulta"],
+  ["historico", "Histórico"],
+  ["timeline", "Timeline"],
+  ["relatorios", "Relatórios"],
+  ["info", "Informações"],
+] as const;
+
+type Aba = (typeof ABAS)[number][0];
+
+/** O que a Consulta ISP entrega — fica visível enquanto não há resultado. */
+const CARDS_OCIOSO = [
+  { icon: Network, title: "Rede colaborativa.", text: "Ocorrências reais dos ERPs de provedores parceiros, anonimizadas." },
+  { icon: BarChart3, title: "Score 0–1000.", text: "Base 700 e deduções nomeadas, com a conta aberta no relatório." },
+  { icon: Router, title: "Equipamentos retidos.", text: "Ocorrências de comodato não devolvido, validadas no bureau." },
+  { icon: MapPin, title: "Cruzamento por endereço.", text: "Inadimplência no mesmo imóvel, mesmo com CPF limpo." },
+];
 
 export default function ConsultaISPPage() {
   const { toast } = useToast();
   const [result, setResult] = useState<ConsultaResult | null>(null);
-  const [activeTab, setActiveTab] = useState<"nova" | "historico" | "timeline" | "relatorios" | "info">("nova");
-  const [selectedProviderIdx, setSelectedProviderIdx] = useState<number | null>(0);
-  const [showFullResult, setShowFullResult] = useState(false);
-  const [freeDialogOpen, setFreeDialogOpen] = useState(false);
-  const [paidDialogOpen, setPaidDialogOpen] = useState(false);
-  const [selectedFreeDetail, setSelectedFreeDetail] = useState<any>(null);
-  const [selectedPaidDetail, setSelectedPaidDetail] = useState<any>(null);
+  const [consultation, setConsultation] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<Aba>("nova");
+  const [documentoEmConsulta, setDocumentoEmConsulta] = useState("");
 
   // LGPD
   const [lgpdDisclaimerOpen, setLgpdDisclaimerOpen] = useState(false);
   const [lgpdAccepted, setLgpdAccepted] = useState(false);
-  const [lgpdSessionAccepted, setLgpdSessionAccepted] = useState(false);
   const [pendingSearchPayload, setPendingSearchPayload] = useState<any>(null);
 
   // Queries
-  const { data, isLoading } = useQuery<any>({ queryKey: ["/api/isp-consultations"] });
+  const { data } = useQuery<any>({ queryKey: ["/api/isp-consultations"] });
   const consultations = data?.consultations || [];
   const approvedCount = consultations.filter((c: any) => c.approved).length;
   const rejectedCount = consultations.filter((c: any) => !c.approved).length;
@@ -64,51 +74,59 @@ export default function ConsultaISPPage() {
   // Mutation
   const mutation = useMutation({
     mutationFn: async (payload: any) => {
-      const res = await apiRequest("POST", "/api/isp-consultations", { ...payload, lgpdAccepted: payload.lgpdAccepted ?? lgpdSessionAccepted });
+      const res = await apiRequest("POST", "/api/isp-consultations", { ...payload, lgpdAccepted: payload.lgpdAccepted ?? false });
       return res.json();
     },
     onSuccess: (data) => {
       setResult(data.result);
-      setShowFullResult(false);
-      setSelectedProviderIdx(0);
+      setConsultation(data.consultation ?? null);
       queryClient.invalidateQueries({ queryKey: ["/api/isp-consultations"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+
       const ownCount = (data.result?.providerDetails || []).filter((d: any) => d.isSameProvider).length;
       const otherCount = (data.result?.providerDetails || []).filter((d: any) => !d.isSameProvider).length;
 
       if (data.result?.notFound) {
-        toast({ title: "Nada consta", description: <span>Nenhum registro encontrado. <span className="font-bold text-[var(--color-success)]">Gratuita.</span></span> });
-      } else if (ownCount > 0 && otherCount > 0) {
-        toast({ title: "Consulta gratuita", description: <span>{ownCount} registro{ownCount > 1 ? "s" : ""} do seu provedor. <span className="font-bold text-[var(--color-success)]">Gratuita.</span></span> });
-        setTimeout(() => {
-          toast({ title: "Consulta paga", description: <span>{otherCount} Em outros provedores: <span className="font-bold text-red-600">{otherCount} Credito{otherCount > 1 ? "s" : ""}.</span></span> });
-        }, 3500);
-      } else if (ownCount > 0) {
-        toast({ title: "Consulta gratuita", description: <span>{ownCount} registro{ownCount > 1 ? "s" : ""} do seu provedor. <span className="font-bold text-[var(--color-success)]">Gratuita.</span></span> });
+        toast(data.result?.source === "no_erp"
+          ? { title: "Sem cobertura na região", description: "Nenhum ERP ativo para consultar. Nada foi varrido." }
+          : { title: "Nada consta", description: "Nenhum registro na rede ISP. Consulta gratuita." });
       } else if (otherCount > 0) {
-        toast({ title: "Consulta paga", description: <span>{otherCount} Em outros provedores: <span className="font-bold text-red-600">{otherCount} Credito{otherCount > 1 ? "s" : ""}.</span></span> });
+        toast({
+          title: "Consulta registrada",
+          description: `${ownCount > 0 ? `${ownCount} registro do seu ERP (grátis) · ` : ""}${otherCount} em parceiro${otherCount > 1 ? "s" : ""} · ${otherCount} crédito${otherCount > 1 ? "s" : ""}.`,
+        });
+      } else if (ownCount > 0) {
+        toast({ title: "Consulta gratuita", description: `${ownCount} registro${ownCount > 1 ? "s" : ""} do seu próprio ERP.` });
       }
     },
     onError: (err: any) => {
-      toast({ title: "Erro", description: err.message, variant: "destructive" });
+toast({ title: "Não foi possível consultar", description: err.message, variant: "destructive" });
     },
   });
 
   // Handlers
-  const executeSearch = (payload: any) => mutation.mutate(payload);
+  const executeSearch = (payload: any) => {
+    const dig = (payload.cpfCnpj || "").replace(/\D/g, "");
+    setDocumentoEmConsulta(
+      dig.length === 8
+        ? `${dig.slice(0, 5)}-${dig.slice(5)}`   // formatCpfCnpj não sabe CEP
+        : formatCpfCnpj(payload.cpfCnpj || ""),
+    );
+    mutation.mutate(payload);
+  };
 
+  /* O aceite vale para UMA consulta, não para a sessão.
+     Antes, o primeiro "declaro" liberava todas as consultas seguintes até o
+     próximo F5 — o registro de auditoria do servidor recebia lgpdAccepted:true
+     em buscas que o operador nunca declarou. Cada consulta é um tratamento de
+     dado de um titular diferente e pede o seu próprio aceite. */
   const handleSearch = (payload: any) => {
-    if (!lgpdSessionAccepted) {
-      setPendingSearchPayload(payload);
-      setLgpdAccepted(false);
-      setLgpdDisclaimerOpen(true);
-      return;
-    }
-    executeSearch(payload);
+    setPendingSearchPayload(payload);
+    setLgpdAccepted(false);
+    setLgpdDisclaimerOpen(true);
   };
 
   const handleLgpdAcceptAndSearch = () => {
-    setLgpdSessionAccepted(true);
     setLgpdDisclaimerOpen(false);
     if (pendingSearchPayload) {
       executeSearch({ ...pendingSearchPayload, lgpdAccepted: true });
@@ -117,7 +135,7 @@ export default function ConsultaISPPage() {
   };
 
   const handleSaveConsulta = () => {
-    toast({ title: "Consulta salva", description: "Esta consulta foi registrada automaticamente no historico." });
+    toast({ title: "Consulta salva", description: "Esta consulta foi registrada automaticamente no histórico." });
     setTimeout(() => setActiveTab("historico"), 1200);
   };
 
@@ -126,66 +144,97 @@ export default function ConsultaISPPage() {
     const html = generatePDF(result);
     if (!html) return;
     const w = window.open("", "_blank", "width=900,height=700");
-    if (!w) { toast({ title: "Erro", description: "Permita pop-ups para gerar o relatorio.", variant: "destructive" }); return; }
+    if (!w) { toast({ title: "Relatório não abriu", description: "Permita pop-ups neste site para gerar o PDF.", variant: "destructive" }); return; }
     w.document.write(html);
     w.document.close();
     w.focus();
     setTimeout(() => { w.print(); }, 400);
   };
 
-  const handleClear = () => { setResult(null); setShowFullResult(false); };
+  const handleClear = () => { setResult(null); setConsultation(null); };
+
+  /* "Nada consta" tem card próprio: sem ocorrência não há o que compor, e um
+     relatório completo cheio de zeros faria o operador procurar problema onde
+     não tem. Ainda assim não é aprovação automática — o texto diz isso. */
+  const nadaConsta = result?.notFound && !(result.addressMatches?.some(m => m.hasDebt));
+  /* Sem ERP na regiao a rede nao foi varrida: nao e "nada consta", e ausencia
+     de cobertura. Verde aqui seria um falso alivio. */
+  const semCobertura = result?.source === "no_erp";
 
   return (
-    <div className="bg-[var(--color-bg)] p-4 lg:p-5" data-testid="consulta-isp-page">
-      <div className="space-y-4">
+    <div style={{ background: "var(--bg)", minHeight: "100%" }} data-testid="consulta-isp-page">
+      <div style={{
+        maxWidth: 1080, margin: "0 auto", padding: "26px 32px 56px",
+        display: "flex", flexDirection: "column", gap: 18,
+      }}>
 
-        {/* HEADER — compact */}
-        <div className="flex items-center justify-between gap-3">
-          {/* Sem quadrado de icone: a sidebar ja marca onde voce esta.
-              Titulo em 19px com tracking apertado — autoridade vem da forma, nao do tamanho. */}
+        {/* ── CABEÇALHO ── */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
           <div>
             <h1
-              className="text-[19px] font-medium tracking-[-0.02em] text-[var(--color-ink)] leading-tight"
+              style={{ fontSize: 19, fontWeight: 600, letterSpacing: "var(--track-tight)", lineHeight: 1.2, color: "var(--text)" }}
               data-testid="text-consulta-isp-title"
             >
               Consulta ISP
             </h1>
-            <p className="text-[13px] text-[var(--color-muted)] mt-0.5">
+            <p style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 3 }}>
               Análise de crédito colaborativa entre provedores
             </p>
           </div>
-          <div className="flex items-center gap-4">
-            {/* Metricas migraram para ConsultaIdleState — estavam comprimidas aqui e
-                deixavam o corpo da aba vazio. Cabecalho fica so com os creditos. */}
-            {/* Credits */}
-            <div className="border border-[var(--border)] rounded px-3 py-1.5 flex items-center gap-2">
-              <CreditCard className="w-4 h-4 text-[var(--color-brand)]" />
-              <span className={`font-mono text-sm font-semibold ${(data?.credits ?? 1) === 0 ? "text-[var(--color-danger)]" : "text-[var(--color-ink)]"}`} data-testid="text-isp-credits">
-                {data?.credits ?? "..."}
-              </span>
-            </div>
+          <div style={{
+            display: "inline-flex", alignItems: "center", gap: 8,
+            border: "1px solid var(--border)", background: "var(--surface)",
+            borderRadius: 8, padding: "7px 12px",
+          }}>
+            <CreditCard size={15} style={{ color: "var(--text-2)" }} />
+            <span
+              style={{
+                fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 600,
+                fontVariantNumeric: "tabular-nums",
+                color: (data?.credits ?? 1) === 0 ? "var(--danger)" : "var(--text)",
+              }}
+              data-testid="text-isp-credits"
+            >
+              {data?.credits ?? "…"}
+            </span>
+            <span style={{
+              fontFamily: "var(--font-mono)", fontSize: 9, textTransform: "uppercase",
+              letterSpacing: "var(--track-wide)", color: "var(--text-muted)",
+            }}>
+              créditos
+            </span>
           </div>
         </div>
 
-        {/* TABS */}
-        <div className="flex gap-0 border-b border-[var(--border)] w-fit">
-          {(["nova", "historico", "timeline", "relatorios", "info"] as const).map(tab => (
+        {/* ── ABAS ── */}
+        <div role="tablist" aria-label="Seções da Consulta ISP" style={{ display: "flex", gap: 2, borderBottom: "1px solid var(--border)", width: "100%", flexWrap: "wrap" }}>
+          {ABAS.map(([id, label]) => (
             <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              data-testid={`tab-${tab}`}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
-                activeTab === tab ? "border-b-2 border-[var(--color-brand)] text-[var(--color-ink)]" : "text-[var(--color-muted)] hover:text-[var(--color-ink)]"
-              }`}
+              key={id}
+              type="button"
+              role="tab"
+              id={`aba-${id}`}
+              aria-selected={activeTab === id}
+              aria-controls={`painel-${id}`}
+              onClick={() => setActiveTab(id)}
+              className="ds-ctl"
+              data-testid={`tab-${id}`}
+              style={{
+                padding: "9px 14px", fontSize: 13, cursor: "pointer", marginBottom: -1,
+                background: "none", fontFamily: "var(--font-sans)",
+                border: "none", borderBottom: `2px solid ${activeTab === id ? "var(--action)" : "transparent"}`,
+                color: activeTab === id ? "var(--text)" : "var(--text-muted)",
+                fontWeight: activeTab === id ? 600 : 500,
+              }}
             >
-              {tab === "nova" ? "Nova Consulta" : tab === "historico" ? "Histórico" : tab === "timeline" ? "Timeline" : tab === "relatorios" ? "Relatórios" : "Informações"}
+              {label}
             </button>
           ))}
         </div>
 
-        {/* TAB: NOVA CONSULTA */}
+        {/* ── ABA: NOVA CONSULTA ── */}
         {activeTab === "nova" && (
-          <div className="space-y-5">
+          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
             <ConsultaSearchBar
               onSearch={handleSearch}
               isLoading={mutation.isPending}
@@ -194,76 +243,78 @@ export default function ConsultaISPPage() {
               onClear={handleClear}
             />
 
-            {mutation.isPending && <LoadingCard />}
+            {mutation.isPending && <LoadingCard documento={documentoEmConsulta} />}
 
-            {/* Sem a tira de métricas — mesma decisão da Consulta Cadastral:
-                saldo já está no topo; contagens e score médio vivem nas abas
-                Histórico e Relatórios. */}
             {!mutation.isPending && !result && (
               <ConsultaIdleState
                 totalConsultas={consultations.length}
+                cards={CARDS_OCIOSO}
                 emptyTitle="Nenhuma consulta ainda"
                 emptyDescription="Digite o CPF de um candidato antes de liberar a instalação. Você recebe o score de risco e o histórico dele em toda a rede de provedores."
-                emptyCta="FAZER PRIMEIRA CONSULTA"
+                emptyCta="Fazer primeira consulta"
                 searchInputTestId="input-isp-search"
               />
             )}
 
             {!mutation.isPending && result && (
-              <div className="space-y-4" data-testid="consultation-result">
-                {/* Nada Consta CEP */}
-                {result.notFound && result.searchType === "cep" ? (
-                  <Card className="overflow-hidden">
-                    <div className="bg-[var(--color-success-bg)] border-b border-[var(--border-faint)] px-6 py-4 flex items-center gap-3">
-                      <CheckCircle className="w-6 h-6 text-[var(--color-success)]" />
+              <div data-testid="consultation-result">
+                {nadaConsta ? (
+                  <div style={{
+                    background: "var(--surface)", border: "1px solid var(--border)",
+                    borderRadius: 10, overflow: "hidden",
+                  }}>
+                    <div style={{
+                      padding: "18px 24px", display: "flex", alignItems: "center", gap: 14,
+                      background: semCobertura ? "var(--gated-bg)" : "var(--ok-bg)",
+                      borderBottom: `1px solid ${semCobertura ? "var(--gated-border)" : "var(--ok-border)"}`,
+                    }}>
+                      {semCobertura
+                        ? <AlertTriangle size={20} style={{ color: "var(--gated)", flexShrink: 0 }} />
+                        : <CheckCircle size={20} style={{ color: "var(--ok)", flexShrink: 0 }} />}
                       <div>
-                        <h3 className="text-lg font-display font-semibold text-[var(--color-ink)]">Nenhum Resultado para este CEP</h3>
-                        <p className="text-sm text-[var(--color-muted)]">CEP: {result.cpfCnpj.replace(/^(\d{5})(\d{3})$/, "$1-$2")}</p>
+                        <Kicker style={{ color: semCobertura ? "var(--gated)" : "var(--ok)" }}>
+                          {semCobertura ? "Sem cobertura na região" : "Nada consta"}
+                        </Kicker>
+                        <div style={{
+                          fontFamily: "var(--font-mono)", fontSize: 20, fontWeight: 700,
+                          fontVariantNumeric: "tabular-nums", marginTop: 2, color: "var(--text)",
+                        }}>
+                          {result.searchType === "cep"
+                            ? result.cpfCnpj.replace(/^(\d{5})(\d{3})$/, "$1-$2")
+                            : formatCpfCnpj(result.cpfCnpj)}
+                        </div>
                       </div>
                     </div>
-                    <div className="p-6">
-                      <div className="bg-[var(--color-success-bg)] rounded-lg p-4 flex items-center gap-3">
-                        <Shield className="w-5 h-5 text-[var(--color-success)] flex-shrink-0" />
-                        <p className="text-sm text-[var(--color-success)]">Nenhum cliente encontrado nesse CEP na rede ISP colaborativa.</p>
-                      </div>
-                    </div>
-                  </Card>
-                ) : result.notFound && !(result.addressMatches?.some(m => m.hasDebt)) ? (
-                  <Card className="overflow-hidden">
-                    <div className="bg-[var(--color-success-bg)] border-b border-[var(--border-faint)] px-6 py-4 flex items-center gap-3">
-                      <CheckCircle className="w-6 h-6 text-[var(--color-success)]" />
-                      <div>
-                        <h3 className="text-lg font-display font-semibold text-[var(--color-ink)]">Nada Consta</h3>
-                        <p className="text-sm text-[var(--color-muted)]">Documento: {formatCpfCnpj(result.cpfCnpj)}</p>
-                      </div>
-                    </div>
-                    <div className="p-6">
-                      <div className="bg-[var(--color-success-bg)] rounded-lg p-4 flex items-center gap-3">
-                        <Shield className="w-5 h-5 text-[var(--color-success)] flex-shrink-0" />
-                        <p className="text-sm text-[var(--color-success)]">Nenhum cliente encontrado na base de dados. Documento sem restricoes na rede ISP colaborativa.</p>
-                      </div>
-                      <p className="text-xs text-[var(--color-muted)] mt-3 text-center">
-                        Sugestao de Decisao: Aprovar — Prosseguir para Consulta SPC para verificacao completa
+                    <div style={{ padding: "18px 24px", display: "flex", flexDirection: "column", gap: 12 }}>
+                      {/* Sem ERP na região, ninguém foi consultado — dizer "nada
+                          consta na rede" seria afirmar uma varredura que não houve. */}
+                      <p style={{ fontSize: 12.5, color: "var(--text-2)", lineHeight: 1.55 }}>
+                        {semCobertura
+                          ? "Nenhum provedor da sua região tem integração de ERP ativa, então não houve o que consultar. Isto não é um \"nada consta\": a rede não foi varrida. Configure a integração em Painel do Provedor para que a consulta passe a valer."
+                          : "Nenhum registro na rede ISP colaborativa: nem no seu ERP, nem nos provedores parceiros da sua região. Ausência de ocorrência não é histórico de bom pagamento — significa apenas que a rede não tem o que informar sobre este documento."}
                       </p>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <span style={{
+                          display: "inline-flex", alignItems: "center", gap: 6,
+                          fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 600,
+                          textTransform: "uppercase", letterSpacing: "var(--track-wide)",
+                          padding: "3px 9px", borderRadius: 6, background: "var(--ok-bg)",
+                          color: "var(--ok)", border: "1px solid var(--ok-border)",
+                        }}>
+                          <Shield size={11} /> Consulta gratuita
+                        </span>
+                        <Kicker>Gate · decisão final é sua</Kicker>
+                      </div>
                     </div>
-                  </Card>
-                ) : !showFullResult ? (
+                  </div>
+                ) : (
                   <ConsultaResultSummary
                     result={result}
-                    onShowDetail={(idx) => { setShowFullResult(true); setSelectedProviderIdx(idx); }}
+                    consultation={consultation}
+                    onShowDetail={() => {}}
                     onNewConsulta={handleClear}
                     onSave={handleSaveConsulta}
                     onGeneratePDF={handleGeneratePDF}
-                  />
-                ) : (
-                  <ConsultaResultDetail
-                    result={result}
-                    selectedProviderIdx={selectedProviderIdx ?? 0}
-                    onBack={() => setShowFullResult(false)}
-                    onNewConsulta={handleClear}
-                    onSave={handleSaveConsulta}
-                    onGeneratePDF={handleGeneratePDF}
-                    onShowHistory={() => setActiveTab("historico")}
                   />
                 )}
               </div>
@@ -271,10 +322,10 @@ export default function ConsultaISPPage() {
           </div>
         )}
 
-        {activeTab === "historico" && <ConsultaHistoryTab consultations={consultations} />}
-        {activeTab === "timeline" && <TimelineTab timelineData={timelineData} cpfCnpj={timelineCpf} isLoading={timelineLoading} />}
-        {activeTab === "relatorios" && <ConsultaReportsTab consultations={consultations} approvedCount={approvedCount} rejectedCount={rejectedCount} avgScore={avgScore} />}
-        {activeTab === "info" && <ConsultaInfoTab />}
+        {activeTab === "historico" && <div role="tabpanel" id="painel-historico" aria-labelledby="aba-historico"><ConsultaHistoryTab consultations={consultations} /></div>}
+        {activeTab === "timeline" && <div role="tabpanel" id="painel-timeline" aria-labelledby="aba-timeline"><TimelineTab timelineData={timelineData} cpfCnpj={timelineCpf} isLoading={timelineLoading} /></div>}
+        {activeTab === "relatorios" && <div role="tabpanel" id="painel-relatorios" aria-labelledby="aba-relatorios"><ConsultaReportsTab consultations={consultations} approvedCount={approvedCount} rejectedCount={rejectedCount} avgScore={avgScore} /></div>}
+        {activeTab === "info" && <div role="tabpanel" id="painel-info" aria-labelledby="aba-info"><ConsultaInfoTab /></div>}
 
         <LgpdDisclaimerModal
           open={lgpdDisclaimerOpen}
@@ -283,16 +334,6 @@ export default function ConsultaISPPage() {
           onCancel={() => { setLgpdDisclaimerOpen(false); setPendingSearchPayload(null); }}
           onToggle={setLgpdAccepted}
         />
-
-        <ProviderDetailModals
-          freeDialogOpen={freeDialogOpen}
-          paidDialogOpen={paidDialogOpen}
-          selectedFreeDetail={selectedFreeDetail}
-          selectedPaidDetail={selectedPaidDetail}
-          onCloseFree={() => setFreeDialogOpen(false)}
-          onClosePaid={() => setPaidDialogOpen(false)}
-        />
-
       </div>
     </div>
   );
