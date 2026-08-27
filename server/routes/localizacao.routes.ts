@@ -3,7 +3,7 @@ import { requireAuth, requireAdmin } from "../auth";
 import { storage } from "../storage";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { getBackfillStatus, runGeocodeBackfill, varreduraAtiva } from "../services/geocode-backfill.service";
-import { pontosDaRede, MIN_POR_CELULA } from "../services/rede-regional.service";
+import { bairrosDaRede, MIN_POR_BAIRRO } from "../services/rede-regional.service";
 import { resolverAreaAtendida } from "../services/area-atendida";
 import { logger } from "../logger";
 
@@ -43,10 +43,10 @@ export function registerLocalizacaoRoutes(): Router {
       if (cidades.length === 0) {
         // Sem area declarada nao ha recorte, e varrer o Brasil inteiro nao e
         // "a rede na cidade" — e a base toda.
-        return res.json({ pontos: [], ocultas: 0, semArea: true, minPorCelula: MIN_POR_CELULA });
+        return res.json({ bairros: [], ocultas: 0, semArea: true, minPorBairro: MIN_POR_BAIRRO });
       }
-      const r = await pontosDaRede(cidades);
-      return res.json({ ...r, semArea: false, minPorCelula: MIN_POR_CELULA });
+      const r = await bairrosDaRede(cidades);
+      return res.json({ ...r, semArea: false, minPorBairro: MIN_POR_BAIRRO });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }

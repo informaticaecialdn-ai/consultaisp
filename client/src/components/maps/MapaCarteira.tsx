@@ -45,23 +45,26 @@ if (!canvasProto.__redrawSeguro) {
 
 export type PontoRede = { lat: number; lng: number; count: number };
 
-/** Ex-cliente com dívida de qualquer provedor. Sem nome, sem documento, sem
- *  provedor, sem valor exato — e com a coordenada deslocada no servidor. */
-export type PontoRedeRegional = {
-  ref: string; lat: number; lon: number; cidade: string;
-  faixa: 'ate300' | 'de300a1000' | 'acima1000';
-  atraso: 'ate6m' | 'de6ma1a' | 'acima1a';
+/** Bairro agregado da rede — nunca um cliente. Sem nome, sem documento e sem
+ *  dizer de qual provedor veio cada ocorrência. */
+export type BairroRede = {
+  bairro: string; cidade: string;
+  ocorrencias: number; dividaTotal: number; provedores: number;
+  lat: number | null; lon: number | null;
 };
 
-export const FAIXA_REDE: Record<PontoRedeRegional['faixa'], { label: string; token: string }> = {
-  ate300:      { label: 'até R$ 300',     token: '--gated' },
-  de300a1000:  { label: 'R$ 300–1.000',   token: '--past' },
-  acima1000:   { label: 'R$ 1.000+',      token: '--danger' },
-};
+/** Escala de concentração da rede no bairro. */
+export const FAIXAS_OCORRENCIA = [
+  { label: '3 a 9 casos',   token: '--gated',  teste: (n: number) => n < 10 },
+  { label: '10 a 24 casos', token: '--past',   teste: (n: number) => n >= 10 && n < 25 },
+  { label: '25+ casos',     token: '--danger', teste: (n: number) => n >= 25 },
+];
 
-const ATRASO_REDE: Record<PontoRedeRegional['atraso'], string> = {
-  ate6m: 'até 6 meses', de6ma1a: '6 meses a 1 ano', acima1a: 'mais de 1 ano',
-};
+function corDaOcorrencia(n: number): string {
+  const f = FAIXAS_OCORRENCIA.find(x => x.teste(n)) ?? FAIXAS_OCORRENCIA[0];
+  const v = getComputedStyle(document.documentElement).getPropertyValue(f.token).trim();
+  return v || '#8C2F39';
+}
 
 export type CidadeMapa = {
   cidade: string; clientes: number; inadimplentes: number;
@@ -74,11 +77,11 @@ export type SedeMapa = { cidade: string; uf: string | null; lat: number; lon: nu
 
 export default function MapaCarteira({
   pontos, cidades = [], sede, modo = 'carteira', rede, height,
-  calor = false, bairroFoco = null, pontosRede = [],
+  calor = false, bairroFoco = null, bairrosRede = [],
 }: {
   pontos: PontoMapa[];
-  /** Ex-clientes com dívida de toda a rede — o desenho do modo regionalização. */
-  pontosRede?: PontoRedeRegional[];
+  /** Bairros agregados da rede — o desenho do modo regionalização. */
+  bairrosRede?: BairroRede[];
   cidades?: CidadeMapa[];
   sede?: SedeMapa | null;
   modo?: ModoMapa;
@@ -139,7 +142,7 @@ export default function MapaCarteira({
     camadaCalor.current = null;
 
     const plotaveis: Array<{ lat: number | null; lon: number | null }> = modo === 'regionalizacao'
-      ? pontosRede
+      ? bairrosRede.filter(b => b.lat !== null && b.lon !== null)
       : pontos;
     // Sem ponto, mantem o enquadramento atual: geocodificar so para posicionar
     // um mapa vazio custaria uma volta de rede sem entregar nada.
@@ -147,13 +150,22 @@ export default function MapaCarteira({
 
     // Calor e marcador nunca coexistem: sobrepostos, o marcador esconde
     // justamente a mancha que o operador ligou para ver.
-    if (calor && modo === 'carteira') {
-      const comDivida = pontos.filter(p => p.emAberto > 0);
-      if (comDivida.length > 0) {
-        const maior = Math.max(...comDivida.map(p => p.emAberto));
+    if (calor) {
+      // Na carteira o peso é o valor em aberto de cada cliente; na rede é
+      // quantos casos o bairro acumulou. Os dois desenham a mesma pergunta —
+      // onde dói mais — com o dado que cada visão tem.
+      const fonte: Array<[number, number, number]> = modo === 'regionalizacao'
+        ? bairrosRede
+            .filter(b => b.lat !== null && b.lon !== null)
+            .map(b => [b.lat as number, b.lon as number, b.ocorrencias])
+        : pontos.filter(p => p.emAberto > 0).map(p => [p.lat, p.lon, p.emAberto]);
+      if (fonte.length > 0) {
+        const maior = Math.max(...fonte.map(f => f[2]));
         camadaCalor.current = L.heatLayer(
-          comDivida.map(p => [p.lat, p.lon, maior > 0 ? p.emAberto / maior : 1] as [number, number, number]),
-          { radius: 28, blur: 22, maxZoom: 16, max: 1, minOpacity: 0.25 },
+          fonte.map(([la, lo, peso]) => [la, lo, maior > 0 ? peso / maior : 1] as [number, number, number]),
+          // Raio maior na rede: cada ponto representa um bairro inteiro, não
+          // uma casa, e um borrão apertado mentiria sobre a área coberta.
+          { radius: modo === 'regionalizacao' ? 42 : 28, blur: modo === 'regionalizacao' ? 34 : 22, maxZoom: 16, max: 1, minOpacity: 0.25 },
         );
         // O leaflet.heat dimensiona o canvas no onAdd: container ainda sem
         // medida produz mancha invisivel.
@@ -162,21 +174,26 @@ export default function MapaCarteira({
         camadaCalor.current.addTo(mapa.current);
       }
     } else if (modo === 'regionalizacao') {
-      // A rede: um ponto por ex-cliente com dívida, de qualquer provedor. Sem
-      // contorno branco — não é um cliente seu, e a distinção visual importa.
-      for (const p of pontosRede) {
-        const token = FAIXA_REDE[p.faixa].token;
-        const cor = getComputedStyle(document.documentElement).getPropertyValue(token).trim() || '#8C2F39';
-        L.circleMarker([p.lat, p.lon], {
+      // A rede: uma bolha por BAIRRO, área proporcional ao número de casos.
+      // Área e não raio — o olho compara área, e escalar o raio exagera o
+      // bairro grande. Nenhum ponto individual: o centroide de três ou mais
+      // ocorrências não é a casa de ninguém.
+      const maior = Math.max(...bairrosRede.map(b => b.ocorrencias), 1);
+      for (const b of bairrosRede) {
+        if (b.lat === null || b.lon === null) continue;
+        L.circleMarker([b.lat, b.lon], {
           renderer: renderer.current!,
-          radius: 4.5, weight: 0,
-          fillColor: cor, fillOpacity: 0.7,
+          radius: 7 + Math.sqrt(b.ocorrencias / maior) * 16,
+          weight: 1.5, color: "#fff",
+          fillColor: corDaOcorrencia(b.ocorrencias), fillOpacity: 0.7,
         })
           .bindPopup(
-            `<b>Ex-cliente com dívida</b><br>${p.cidade}<br>` +
-            `${FAIXA_REDE[p.faixa].label} · atraso de ${ATRASO_REDE[p.atraso]}<br>` +
-            `<span style="opacity:.7">local aproximado · provedor não identificado</span>`,
+            `<b>${b.bairro}</b><br>${b.cidade}<br>` +
+            `${b.ocorrencias} ${b.ocorrencias === 1 ? "caso" : "casos"} · ${brl(b.dividaTotal)} em aberto<br>` +
+            `<span style="opacity:.7">${b.provedores} ${b.provedores === 1 ? "provedor" : "provedores"} · ` +
+            `sem identificação de cliente</span>`,
           )
+          .bindTooltip(`${b.bairro} · ${b.ocorrencias}`, { direction: 'top', offset: [0, -6] })
           .addTo(camada.current!);
       }
     } else {
@@ -258,7 +275,7 @@ export default function MapaCarteira({
     // O dado chega antes de a altura por proporcao se resolver; a segunda
     // passada pega o layout ja assentado.
     requestAnimationFrame(enquadrar);
-  }, [pontos, pontosRede, cidades, modo, sede, calor, bairroFoco]);
+  }, [pontos, bairrosRede, cidades, modo, sede, calor, bairroFoco]);
 
   // Camada separada: liga e desliga sem redesenhar os pontos da carteira.
   useEffect(() => {

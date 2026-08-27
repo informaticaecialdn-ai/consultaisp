@@ -7,7 +7,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import MapaCarteira, {
-  type PontoMapa, type PontoRede, type PontoRedeRegional, type CidadeMapa,
+  type PontoMapa, type PontoRede, type BairroRede, type CidadeMapa,
   type ModoMapa, type SedeMapa,
 } from "@/components/maps/MapaCarteira";
 import { Chip, Kicker, Kpi, MONO, CARD, brl, num, pct, TRACO } from "@/components/localizacao/ui";
@@ -15,6 +15,7 @@ import RankingBairros, {
   MIN_CLIENTES_RANKING, type BairroRanking, type OrdemRanking,
 } from "@/components/localizacao/RankingBairros";
 import RaioXBairro from "@/components/localizacao/RaioXBairro";
+import RankingRede from "@/components/localizacao/RankingRede";
 
 type Sede = { cidade: string; uf: string | null; lat: number | null; lon: number | null; foraDaArea: boolean };
 type EstadoCliente = PontoMapa["estado"];
@@ -60,10 +61,11 @@ const FAIXAS: Array<{ k: string; label: string; teste: (v: number) => boolean }>
   { k: 'acima1000',  label: 'R$ 1.000+',    teste: v => v > 1000 },
 ];
 
-const FAIXAS_REDE: Array<{ k: PontoRedeRegional["faixa"]; label: string; token: string }> = [
-  { k: 'ate300',     label: 'até R$ 300',   token: '--gated' },
-  { k: 'de300a1000', label: 'R$ 300–1.000', token: '--past' },
-  { k: 'acima1000',  label: 'R$ 1.000+',    token: '--danger' },
+/** Escala de concentração da rede no bairro — espelha FAIXAS_OCORRENCIA do mapa. */
+const FAIXAS_REDE: Array<{ label: string; token: string; teste: (n: number) => boolean }> = [
+  { label: '3 a 9 casos',   token: '--gated',  teste: n => n < 10 },
+  { label: '10 a 24 casos', token: '--past',   teste: n => n >= 10 && n < 25 },
+  { label: '25+ casos',     token: '--danger', teste: n => n >= 25 },
 ];
 
 const dataCurta = (iso: string | null) =>
@@ -129,15 +131,17 @@ export default function LocalizacaoPage() {
   // provedor atende. É o desenho do modo regionalização, e só é buscado quando
   // esse modo está ligado.
   const { data: redeRegional, isFetching: redeRegionalCarregando } = useQuery<{
-    pontos: PontoRedeRegional[]; ocultas: number; semArea: boolean; minPorCelula: number;
+    bairros: BairroRede[]; ocultas: number; semArea: boolean; minPorBairro: number;
   }>({
     queryKey: ["/api/localizacao/rede"],
     enabled: modo === 'regionalizacao',
   });
-  const pontosRede = useMemo(() => {
-    const todos = redeRegional?.pontos ?? [];
-    return fCidade ? todos.filter(p => p.cidade === fCidade) : todos;
+  const bairrosRede = useMemo(() => {
+    const todos = redeRegional?.bairros ?? [];
+    return fCidade ? todos.filter(b => b.cidade === fCidade) : todos;
   }, [redeRegional, fCidade]);
+  const casosNaRede = useMemo(
+    () => bairrosRede.reduce((s, b) => s + b.ocorrencias, 0), [bairrosRede]);
 
   // O endpoint agrega todos os provedores em celulas de 0,01 grau (~1km) sem piso
   // de contagem: uma celula com 1 cliente e praticamente um endereco identificavel
@@ -361,8 +365,9 @@ export default function LocalizacaoPage() {
               <Chip
                 ativo={calor}
                 onClick={() => setCalor(v => !v)}
-                desabilitado={modo !== 'carteira'}
-                titulo="Mancha ponderada pelo valor em aberto de cada cliente"
+                titulo={modo === 'regionalizacao'
+                  ? "Mancha ponderada pelo número de casos de cada bairro"
+                  : "Mancha ponderada pelo valor em aberto de cada cliente"}
               >
                 Mapa de calor
               </Chip>
@@ -404,18 +409,11 @@ export default function LocalizacaoPage() {
                   </>
                 ) : (
                   <>
-                    Ex-clientes com dívida de <strong>todos os provedores</strong> nas suas cidades.
-                    Sem nome, sem documento, sem valor exato e sem dizer de quem era o cliente.
-                    O ponto é aproximado — a coordenada é deslocada em até ~150m, e um local só
-                    aparece com {num(redeRegional?.minPorCelula ?? 3)} ou mais ocorrências por perto.
-                    {(redeRegional?.ocultas ?? 0) > 0 && (
-                      <>
-                        {" "}Hoje{" "}
-                        <strong className="font-mono tabular-nums">{num(redeRegional!.ocultas)}</strong>{" "}
-                        {redeRegional!.ocultas === 1 ? "ocorrência ficou" : "ocorrências ficaram"} de fora
-                        por estarem isoladas demais para aparecer sem apontar uma casa.
-                      </>
-                    )}
+                    Ex-clientes com dívida de <strong>todos os provedores</strong> nas suas cidades,
+                    somados <strong>por bairro</strong>. Nenhum cliente aparece sozinho: cada bolha é o
+                    conjunto do bairro, e um bairro só entra com{" "}
+                    {num(redeRegional?.minPorBairro ?? 3)} ou mais casos. Sem nome, sem documento e sem
+                    dizer de qual provedor veio cada ocorrência.
                   </>
                 )}
               </p>
@@ -463,7 +461,7 @@ export default function LocalizacaoPage() {
               ) : <span />}
               <span style={{ ...MONO, fontSize: 11, color: "var(--text-muted)" }}>
                 {modo === 'regionalizacao'
-                  ? redeRegionalCarregando ? "carregando…" : `${num(pontosRede.length)} ocorrências na rede`
+                  ? redeRegionalCarregando ? "carregando…" : `${num(casosNaRede)} casos em ${num(bairrosRede.length)} bairros`
                   : `${num(filtrados.length)} de ${num(pontos.length)} pontos`}
               </span>
             </div>
@@ -474,7 +472,7 @@ export default function LocalizacaoPage() {
               <>
                 <MapaCarteira
                   pontos={filtrados}
-                  pontosRede={pontosRede}
+                  bairrosRede={bairrosRede}
                   cidades={cidades}
                   sede={sedeNoMapa}
                   modo={modo}
@@ -492,33 +490,34 @@ export default function LocalizacaoPage() {
                   }}
                 >
                   <Kicker>
-                    {modo === 'regionalizacao' ? 'Dívida na rede'
-                      : calor ? 'Calor de dívida' : 'Estado do cliente'}
+                    {calor ? (modo === 'regionalizacao' ? 'Calor da rede' : 'Calor de dívida')
+                      : modo === 'regionalizacao' ? 'Casos na rede' : 'Estado do cliente'}
                   </Kicker>
                   <div className="mt-2 space-y-1">
-                    {/* Com o calor ligado não existe marcador por estado — manter
-                        a chave dos estados descreveria um desenho que não está
-                        na tela. */}
-                    {calor && modo === 'carteira' ? (
+                    {/* Com o calor ligado não existe marcador — manter a chave
+                        das bolhas descreveria um desenho que não está na tela. */}
+                    {calor ? (
                       <div style={{ width: 148 }}>
                         <div style={{
                           height: 7, borderRadius: 4,
                           background: "linear-gradient(90deg, #2b6cb0 0%, #38a169 40%, #ecc94b 70%, #e53e3e 100%)",
                         }} />
                         <p style={{ ...MONO, fontSize: 10, color: "var(--text-muted)", marginTop: 5 }}>
-                          densidade ∝ R$ vencido
+                          {modo === 'regionalizacao' ? "densidade ∝ casos" : "densidade ∝ R$ vencido"}
                         </p>
                         <p style={{ ...MONO, fontSize: 10, color: "var(--text-faint)", marginTop: 3 }}>
-                          {num(devedoresPlotados)} devedores no mapa
+                          {modo === 'regionalizacao'
+                            ? `${num(casosNaRede)} casos em ${num(bairrosRede.length)} bairros`
+                            : `${num(devedoresPlotados)} devedores no mapa`}
                         </p>
                       </div>
                     ) : modo === 'regionalizacao'
                       ? FAIXAS_REDE.map(f => (
-                          <span key={f.k} className="flex items-center gap-2 text-[11.5px] text-[var(--text-2)]">
+                          <span key={f.label} className="flex items-center gap-2 text-[11.5px] text-[var(--text-2)]">
                             <i className="w-2 h-2 rounded-full flex-none" style={{ background: `var(${f.token})` }} />
                             <span className="flex-1 pr-3">{f.label}</span>
                             <b style={{ ...MONO, fontWeight: 500, color: "var(--text)" }}>
-                              {num(pontosRede.filter(p => p.faixa === f.k).length)}
+                              {num(bairrosRede.filter(b => f.teste(b.ocorrencias)).length)}
                             </b>
                           </span>
                         ))
@@ -545,17 +544,29 @@ export default function LocalizacaoPage() {
           </div>
         </div>
 
-        {isLoading
-          ? <Skeleton className="h-[560px] w-full" />
-          : (
-            <RankingBairros
-              bairros={bairros}
-              selecionado={bairroSel}
-              onSelect={setBairroSel}
-              ordem={ordem}
-              onOrdem={setOrdem}
-            />
-          )}
+        {/* O painel acompanha o mapa: na carteira, os seus bairros com taxa de
+            inadimplência; na rede, os bairros da cidade por número de casos. */}
+        {isLoading ? (
+          <Skeleton className="h-[560px] w-full" />
+        ) : modo === 'regionalizacao' ? (
+          <RankingRede
+            bairros={bairrosRede}
+            selecionado={bairroSel}
+            onSelect={setBairroSel}
+            ocultas={redeRegional?.ocultas ?? 0}
+            minPorBairro={redeRegional?.minPorBairro ?? 3}
+            carregando={redeRegionalCarregando && !redeRegional}
+            semArea={redeRegional?.semArea ?? false}
+          />
+        ) : (
+          <RankingBairros
+            bairros={bairros}
+            selecionado={bairroSel}
+            onSelect={setBairroSel}
+            ordem={ordem}
+            onOrdem={setOrdem}
+          />
+        )}
       </div>
 
       {/* ── Raio-X do bairro ── */}
