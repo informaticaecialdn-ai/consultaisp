@@ -7,7 +7,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import MapaCarteira, {
-  type PontoMapa, type PontoRede, type CidadeMapa, type ModoMapa, type SedeMapa,
+  type PontoMapa, type PontoRede, type PontoRedeRegional, type CidadeMapa,
+  type ModoMapa, type SedeMapa,
 } from "@/components/maps/MapaCarteira";
 import { Chip, Kicker, Kpi, MONO, CARD, brl, num, pct, TRACO } from "@/components/localizacao/ui";
 import RankingBairros, {
@@ -59,11 +60,10 @@ const FAIXAS: Array<{ k: string; label: string; teste: (v: number) => boolean }>
   { k: 'acima1000',  label: 'R$ 1.000+',    teste: v => v > 1000 },
 ];
 
-/** Espelha corDaTaxa() do MapaCarteira — mesma quebra, mesma cor. */
-const FAIXAS_TAXA = [
-  { label: 'até 10% inadimplência', token: '--ok',     teste: (p: number) => p < 10 },
-  { label: '10–25%',                token: '--gated',  teste: (p: number) => p >= 10 && p < 25 },
-  { label: '25%+',                  token: '--danger', teste: (p: number) => p >= 25 },
+const FAIXAS_REDE: Array<{ k: PontoRedeRegional["faixa"]; label: string; token: string }> = [
+  { k: 'ate300',     label: 'até R$ 300',   token: '--gated' },
+  { k: 'de300a1000', label: 'R$ 300–1.000', token: '--past' },
+  { k: 'acima1000',  label: 'R$ 1.000+',    token: '--danger' },
 ];
 
 const dataCurta = (iso: string | null) =>
@@ -124,6 +124,20 @@ export default function LocalizacaoPage() {
     queryKey: ["/api/heatmap/regional"],
     enabled: verRede,
   });
+
+  // A rede: ex-clientes com dívida de TODOS os provedores nas cidades que este
+  // provedor atende. É o desenho do modo regionalização, e só é buscado quando
+  // esse modo está ligado.
+  const { data: redeRegional, isFetching: redeRegionalCarregando } = useQuery<{
+    pontos: PontoRedeRegional[]; ocultas: number; semArea: boolean; minPorCelula: number;
+  }>({
+    queryKey: ["/api/localizacao/rede"],
+    enabled: modo === 'regionalizacao',
+  });
+  const pontosRede = useMemo(() => {
+    const todos = redeRegional?.pontos ?? [];
+    return fCidade ? todos.filter(p => p.cidade === fCidade) : todos;
+  }, [redeRegional, fCidade]);
 
   // O endpoint agrega todos os provedores em celulas de 0,01 grau (~1km) sem piso
   // de contagem: uma celula com 1 cliente e praticamente um endereco identificavel
@@ -374,6 +388,38 @@ export default function LocalizacaoPage() {
           </div>
 
           <div className="px-4 py-3 space-y-2 border-b border-[var(--border-faint)]">
+            {/* O modo rede mostra gente que não é sua. Dizer exatamente o que
+                está no mapa e o que foi omitido não é rodapé jurídico: é o que
+                permite ao provedor usar a informação sem achar que pode bater
+                na porta de alguém. */}
+            {modo === 'regionalizacao' && (
+              <p className="text-[11.5px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
+                {redeRegional?.semArea ? (
+                  <>
+                    Configure as cidades atendidas para ver a rede — sem recorte, isto
+                    seria a base inteira do país, não a sua região.{" "}
+                    <Link href="/configuracoes/regionalizacao" className="underline font-medium">
+                      Configurar Regionalização
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    Ex-clientes com dívida de <strong>todos os provedores</strong> nas suas cidades.
+                    Sem nome, sem documento, sem valor exato e sem dizer de quem era o cliente.
+                    O ponto é aproximado — a coordenada é deslocada em até ~150m, e um local só
+                    aparece com {num(redeRegional?.minPorCelula ?? 3)} ou mais ocorrências por perto.
+                    {(redeRegional?.ocultas ?? 0) > 0 && (
+                      <>
+                        {" "}Hoje{" "}
+                        <strong className="font-mono tabular-nums">{num(redeRegional!.ocultas)}</strong>{" "}
+                        {redeRegional!.ocultas === 1 ? "ocorrência ficou" : "ocorrências ficaram"} de fora
+                        por estarem isoladas demais para aparecer sem apontar uma casa.
+                      </>
+                    )}
+                  </>
+                )}
+              </p>
+            )}
             {modo === 'carteira' && (
               <>
                 <LinhaFiltro rotulo="Estado">
@@ -417,7 +463,7 @@ export default function LocalizacaoPage() {
               ) : <span />}
               <span style={{ ...MONO, fontSize: 11, color: "var(--text-muted)" }}>
                 {modo === 'regionalizacao'
-                  ? `${num(cidadesPlotaveis.length)} de ${num(cidadesAtendidas)} cidades`
+                  ? redeRegionalCarregando ? "carregando…" : `${num(pontosRede.length)} ocorrências na rede`
                   : `${num(filtrados.length)} de ${num(pontos.length)} pontos`}
               </span>
             </div>
@@ -428,6 +474,7 @@ export default function LocalizacaoPage() {
               <>
                 <MapaCarteira
                   pontos={filtrados}
+                  pontosRede={pontosRede}
                   cidades={cidades}
                   sede={sedeNoMapa}
                   modo={modo}
@@ -445,7 +492,7 @@ export default function LocalizacaoPage() {
                   }}
                 >
                   <Kicker>
-                    {modo === 'regionalizacao' ? 'Inadimplência da cidade'
+                    {modo === 'regionalizacao' ? 'Dívida na rede'
                       : calor ? 'Calor de dívida' : 'Estado do cliente'}
                   </Kicker>
                   <div className="mt-2 space-y-1">
@@ -466,12 +513,12 @@ export default function LocalizacaoPage() {
                         </p>
                       </div>
                     ) : modo === 'regionalizacao'
-                      ? FAIXAS_TAXA.map(f => (
-                          <span key={f.label} className="flex items-center gap-2 text-[11.5px] text-[var(--text-2)]">
+                      ? FAIXAS_REDE.map(f => (
+                          <span key={f.k} className="flex items-center gap-2 text-[11.5px] text-[var(--text-2)]">
                             <i className="w-2 h-2 rounded-full flex-none" style={{ background: `var(${f.token})` }} />
-                            <span className="flex-1">{f.label}</span>
+                            <span className="flex-1 pr-3">{f.label}</span>
                             <b style={{ ...MONO, fontWeight: 500, color: "var(--text)" }}>
-                              {num(cidadesPlotaveis.filter(c => f.teste(c.clientes ? (c.inadimplentes / c.clientes) * 100 : 0)).length)}
+                              {num(pontosRede.filter(p => p.faixa === f.k).length)}
                             </b>
                           </span>
                         ))

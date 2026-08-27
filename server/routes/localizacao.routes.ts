@@ -3,6 +3,8 @@ import { requireAuth, requireAdmin } from "../auth";
 import { storage } from "../storage";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { getBackfillStatus, runGeocodeBackfill, varreduraAtiva } from "../services/geocode-backfill.service";
+import { pontosDaRede, MIN_POR_CELULA } from "../services/rede-regional.service";
+import { resolverAreaAtendida } from "../services/area-atendida";
 import { logger } from "../logger";
 
 /**
@@ -19,6 +21,32 @@ export function registerLocalizacaoRoutes(): Router {
     try {
       const data = await storage.getLocalizacao(req.session.providerId!);
       return res.json(data);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  /**
+   * Mapa da rede — ex-clientes com divida de TODOS os provedores, nas cidades
+   * que este provedor atende.
+   *
+   * E a pergunta que so o bureau responde, e por isso e a que mais exige
+   * cuidado: o mascaramento (deslocamento da coordenada, faixa em vez de valor,
+   * k-anonimato por celula, zero identificacao de cliente ou de provedor) esta
+   * inteiro em rede-regional.service.ts, e e la que ele deve ficar — nunca no
+   * cliente, que qualquer um inspeciona.
+   */
+  router.get("/api/localizacao/rede", requireAuth, async (req, res) => {
+    try {
+      const area = await resolverAreaAtendida(req.session.providerId!);
+      const cidades = area.cidades ?? [];
+      if (cidades.length === 0) {
+        // Sem area declarada nao ha recorte, e varrer o Brasil inteiro nao e
+        // "a rede na cidade" — e a base toda.
+        return res.json({ pontos: [], ocultas: 0, semArea: true, minPorCelula: MIN_POR_CELULA });
+      }
+      const r = await pontosDaRede(cidades);
+      return res.json({ ...r, semArea: false, minPorCelula: MIN_POR_CELULA });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }

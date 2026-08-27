@@ -45,6 +45,24 @@ if (!canvasProto.__redrawSeguro) {
 
 export type PontoRede = { lat: number; lng: number; count: number };
 
+/** Ex-cliente com dívida de qualquer provedor. Sem nome, sem documento, sem
+ *  provedor, sem valor exato — e com a coordenada deslocada no servidor. */
+export type PontoRedeRegional = {
+  ref: string; lat: number; lon: number; cidade: string;
+  faixa: 'ate300' | 'de300a1000' | 'acima1000';
+  atraso: 'ate6m' | 'de6ma1a' | 'acima1a';
+};
+
+export const FAIXA_REDE: Record<PontoRedeRegional['faixa'], { label: string; token: string }> = {
+  ate300:      { label: 'até R$ 300',     token: '--gated' },
+  de300a1000:  { label: 'R$ 300–1.000',   token: '--past' },
+  acima1000:   { label: 'R$ 1.000+',      token: '--danger' },
+};
+
+const ATRASO_REDE: Record<PontoRedeRegional['atraso'], string> = {
+  ate6m: 'até 6 meses', de6ma1a: '6 meses a 1 ano', acima1a: 'mais de 1 ano',
+};
+
 export type CidadeMapa = {
   cidade: string; clientes: number; inadimplentes: number;
   dividaTotal: number; lat: number | null; lon: number | null;
@@ -52,23 +70,15 @@ export type CidadeMapa = {
 
 export type ModoMapa = 'carteira' | 'regionalizacao';
 
-/** Escala de inadimplencia da cidade — mesma leitura semantica dos pontos.
- *  Quebras em 10% e 25%: para ISP regional, inadimplencia de um digito e
- *  saudavel e 25% ja e sangria. As quebras anteriores (20/40) vinham de nenhum
- *  lugar e pintavam qualquer cidade real de vermelho. */
-function corDaTaxa(pct: number): string {
-  const token = pct >= 25 ? '--danger' : pct >= 10 ? '--gated' : '--ok';
-  const v = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
-  return v || '#6B6878';
-}
-
 export type SedeMapa = { cidade: string; uf: string | null; lat: number; lon: number };
 
 export default function MapaCarteira({
   pontos, cidades = [], sede, modo = 'carteira', rede, height,
-  calor = false, bairroFoco = null,
+  calor = false, bairroFoco = null, pontosRede = [],
 }: {
   pontos: PontoMapa[];
+  /** Ex-clientes com dívida de toda a rede — o desenho do modo regionalização. */
+  pontosRede?: PontoRedeRegional[];
   cidades?: CidadeMapa[];
   sede?: SedeMapa | null;
   modo?: ModoMapa;
@@ -128,8 +138,8 @@ export default function MapaCarteira({
     camadaCalor.current?.remove();
     camadaCalor.current = null;
 
-    const plotaveis = modo === 'regionalizacao'
-      ? cidades.filter(c => c.lat !== null && c.lon !== null)
+    const plotaveis: Array<{ lat: number | null; lon: number | null }> = modo === 'regionalizacao'
+      ? pontosRede
       : pontos;
     // Sem ponto, mantem o enquadramento atual: geocodificar so para posicionar
     // um mapa vazio custaria uma volta de rede sem entregar nada.
@@ -152,23 +162,21 @@ export default function MapaCarteira({
         camadaCalor.current.addTo(mapa.current);
       }
     } else if (modo === 'regionalizacao') {
-      // Uma bolha por cidade, area proporcional a carteira. Area e nao raio:
-      // o olho compara area, e escalar o raio exagera a cidade grande.
-      const maior = Math.max(...cidades.map(c => c.clientes));
-      for (const c of cidades) {
-        if (c.lat === null || c.lon === null) continue;
-        const taxa = c.clientes > 0 ? (c.inadimplentes / c.clientes) * 100 : 0;
-        L.circleMarker([c.lat, c.lon], {
+      // A rede: um ponto por ex-cliente com dívida, de qualquer provedor. Sem
+      // contorno branco — não é um cliente seu, e a distinção visual importa.
+      for (const p of pontosRede) {
+        const token = FAIXA_REDE[p.faixa].token;
+        const cor = getComputedStyle(document.documentElement).getPropertyValue(token).trim() || '#8C2F39';
+        L.circleMarker([p.lat, p.lon], {
           renderer: renderer.current!,
-          radius: 7 + Math.sqrt(c.clientes / maior) * 17,
-          weight: 1.5, color: "#fff",
-          fillColor: corDaTaxa(taxa), fillOpacity: 0.75,
+          radius: 4.5, weight: 0,
+          fillColor: cor, fillOpacity: 0.7,
         })
           .bindPopup(
-            `<b>${c.cidade}</b><br>${c.clientes} clientes · ${c.inadimplentes} inad. ` +
-            `(${taxa.toFixed(1)}%)<br>${brl(c.dividaTotal)} em aberto`,
+            `<b>Ex-cliente com dívida</b><br>${p.cidade}<br>` +
+            `${FAIXA_REDE[p.faixa].label} · atraso de ${ATRASO_REDE[p.atraso]}<br>` +
+            `<span style="opacity:.7">local aproximado · provedor não identificado</span>`,
           )
-          .bindTooltip(c.cidade, { direction: 'top', offset: [0, -6] })
           .addTo(camada.current!);
       }
     } else {
@@ -250,7 +258,7 @@ export default function MapaCarteira({
     // O dado chega antes de a altura por proporcao se resolver; a segunda
     // passada pega o layout ja assentado.
     requestAnimationFrame(enquadrar);
-  }, [pontos, cidades, modo, sede, calor, bairroFoco]);
+  }, [pontos, pontosRede, cidades, modo, sede, calor, bairroFoco]);
 
   // Camada separada: liga e desliga sem redesenhar os pontos da carteira.
   useEffect(() => {
