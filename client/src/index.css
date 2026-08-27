@@ -525,6 +525,17 @@
   box-shadow: var(--focus-ring);
 }
 
+/* Hover dos botoes do relatorio — components.css do handoff: ghost ganha
+   --surface-2, primario escurece para --action-hover. Inline nao expressa
+   pseudo-classe, dai a variante por atributo. */
+.ds-ctl[data-variant="ghost"]:hover {
+  background: var(--surface-2) !important;
+  color: var(--text) !important;
+}
+.ds-ctl[data-variant="primary"]:hover {
+  background: var(--action-hover) !important;
+}
+
 /* Par "Seu provedor / Provedor parceiro" do relatorio: duas colunas fixas,
    uma no celular. Media query nao existe em style inline — por isso classe. */
 .ds-duo {
@@ -535,6 +546,20 @@
 }
 @media (max-width: 720px) {
   .ds-duo { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Grid 01·Score | 02·Sugestao do relatorio (handoff v2): coluna fixa de 380px
+   com hairline vertical; empilha no estreito e a hairline vira horizontal. */
+.ds-score-grid {
+  display: grid;
+  grid-template-columns: 380px minmax(0, 1fr);
+}
+@media (max-width: 860px) {
+  .ds-score-grid { grid-template-columns: minmax(0, 1fr); }
+  .ds-score-grid > div:first-child {
+    border-right: none !important;
+    border-bottom: 1px solid var(--border);
+  }
 }
 
 @layer utilities {

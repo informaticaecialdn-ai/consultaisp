@@ -1,4 +1,4 @@
-import { Search, Lock, AlertTriangle, CornerDownRight, Download, Save, RotateCcw } from "lucide-react";
+import { Lock, AlertTriangle, CornerDownRight, Download, Save, RotateCcw, CheckCircle, AlertCircle, XCircle } from "lucide-react";
 import AddressMapMini from "@/components/consulta/AddressMapMini";
 import ScoreBreakdownPanel from "./ScoreBreakdownPanel";
 import AiAnalysisSection from "./AiAnalysisSection";
@@ -6,8 +6,8 @@ import AddressRiskAlert from "./AddressRiskAlert";
 import type { ConsultaResult, ProviderDetail } from "./types";
 import { formatCpfCnpj } from "./utils";
 import {
-  Kicker, Pill, pillStyle, ReportSection, TintCard, DuoGrid, ScoreRing,
-  bandOf, ReportButton, type TintCardData, type Tone,
+  Kicker, pillStyle, ReportSection, ScoreBar, ProvTag, Th,
+  bandOf, ReportButton, type Tone,
 } from "./report-ui";
 
 interface Props {
@@ -21,15 +21,6 @@ interface Props {
 }
 
 /* ── Leitura dos dados ──────────────────────────────────────── */
-
-/** Máscara do documento consultado: mostra o suficiente para conferir, esconde o resto. */
-function maskDoc(doc: string, searchType: string): string {
-  const d = doc.replace(/\D/g, "");
-  if (searchType === "cep") return d.replace(/^(\d{5})(\d{3})$/, "$1-$2");
-  if (d.length === 11) return `${d.slice(0, 3)}.${d.slice(3, 6)}.***-${d.slice(9)}`;
-  if (d.length === 14) return `${d.slice(0, 2)}.${d.slice(2, 5)}.***/${d.slice(8, 12)}-${d.slice(12)}`;
-  return formatCpfCnpj(doc);
-}
 
 function isDelinquent(d: ProviderDetail): boolean {
   return d.daysOverdue > 0
@@ -47,10 +38,8 @@ function fmtCep(cep: string): string {
 }
 
 /**
- * A frase que sustenta a decisão. O backend manda `recommendation` como um
- * verbo solto ("REJEITAR") — sozinho não justifica nada, e repetir aqui o
- * primeiro alerta duplicaria a seção de Alertas logo abaixo. A frase é
- * escrita a partir dos sinais que realmente pesaram.
+ * A frase que sustenta a decisão — escrita a partir dos sinais que pesaram,
+ * nunca o eco de um alerta que já aparece na seção 07.
  */
 function decisionSubtitle(result: ConsultaResult, ativas: number, equipamentos: number): string {
   const partes: string[] = [];
@@ -75,49 +64,37 @@ function decisionSubtitle(result: ConsultaResult, ativas: number, equipamentos: 
   if (partes.length === 0) {
     return "Sem restrições na rede ISP colaborativa: nenhuma ocorrência de inadimplência, de equipamento ou de endereço registrada pelos provedores consultados.";
   }
-  return partes.join(" · ") + ". A decisão final considera o seu apetite de risco e as garantias que você pode exigir na ativação.";
+  return partes.join(" · ") + ". A decisão considera o seu apetite de risco e as garantias que você pode exigir na ativação.";
 }
 
-/** Cards "Seu provedor" / "Provedor parceiro" da seção de registros. */
-function registroCard(d: ProviderDetail, parceirosConsultados: number): TintCardData {
-  const own = d.isSameProvider;
-  const mau = isDelinquent(d);
-
-  if (own) {
-    const valor = d.overdueAmount != null ? brl(d.overdueAmount) : null;
-    const dias = d.daysOverdue > 0 ? `${d.daysOverdue} dias` : null;
-    return {
-      kicker: "Seu provedor",
-      tone: mau ? "danger" : "ok",
-      nome: d.customerName || "Nada consta",
-      linha: [dias, valor].filter(Boolean).join(" · ") || d.status || "Em dia",
-      linhaNegativa: mau,
-      sub: d.hasUnreturnedEquipment
-        ? `${d.unreturnedEquipmentCount} equipamento${d.unreturnedEquipmentCount > 1 ? "s" : ""} em comodato pendente`
-        : undefined,
-      chip: "Grátis",
-      chipTone: "ok",
-      fonte: `Seu ERP · ${d.providerName}`,
-    };
-  }
-
-  const local = d.addressCity ? ` · ${d.addressCity}${d.addressState ? "/" + d.addressState : ""}` : "";
-  return {
-    kicker: "Provedor parceiro",
-    tone: "neutral",
-    nome: "Dados restritos",
-    linha: [d.daysOverdueRange, d.overdueAmountRange].filter(Boolean).join(" · ")
-      || d.status
-      || `${parceirosConsultados} parceiros consultados · nada consta`,
-    linhaNegativa: mau,
-    chip: "1 crédito",
-    chipTone: "neutral",
-    fonte: `${d.providerName}${local}`,
-  };
+/* Linha da tabela de ocorrências (03). */
+interface OcorrenciaRow {
+  cliente: string;
+  sub?: string;
+  fonte: string;
+  situacao: string;
+  situacaoTone: Tone;
+  atraso: string;
+  valor: string;
+  valorNegativo: boolean;
+  custo: string;
 }
+
+/* Linha das tabelas de 3 colunas (04 e 05). */
+interface FonteRow {
+  kicker: string;
+  fonte: string;
+  chip: string;
+  chipTone: Tone;
+  nome: string;
+  linha: string;
+}
+
+const GRID_OCORRENCIAS = "minmax(110px, 1.5fr) minmax(110px, 1.3fr) 120px 90px minmax(120px, 150px) 70px";
+const GRID_FONTE = "minmax(140px, 1.2fr) 170px 2fr";
 
 /* ════════════════════════════════════════════════════════════
-   RELATÓRIO DE CRÉDITO — um card, seções separadas por hairline.
+   RELATÓRIO DE CRÉDITO v2 — um card, seções numeradas por hairline.
    ════════════════════════════════════════════════════════════ */
 export default function ConsultaResultSummary({
   result, consultation, onNewConsulta, onSave, onGeneratePDF,
@@ -132,12 +109,9 @@ export default function ConsultaResultSummary({
     (s, d) => s + (d.hasUnreturnedEquipment ? d.unreturnedEquipmentCount : 0), 0,
   );
 
-  // erpSummary.total conta todos os ERPs varridos na mesorregião — o seu incluído,
-  // SE você tiver um. Não dá para subtrair 1 às cegas: um provedor sem integração
-  // própria consulta N parceiros e o total já é N. Então o rótulo diz o que o
-  // número realmente é: provedores consultados.
+  // erpSummary.total conta todos os ERPs varridos na mesorregião, o seu incluído
+  // SE você tiver um. O rótulo diz o que o número é: provedores consultados.
   const provedoresConsultados = result.erpSummary?.total ?? result.erpLatencies?.length ?? 0;
-  // Para a copy dos cards, "parceiros" é o que existe fora da sua própria base.
   const parceirosConsultados = Math.max(0, provedoresConsultados - (proprios.length > 0 ? 1 : 0));
 
   const dt = consultation?.createdAt ? new Date(consultation.createdAt) : new Date();
@@ -145,88 +119,151 @@ export default function ConsultaResultSummary({
   const protocolo = consultation?.id
     ? `#CI-${dt.getFullYear()}-${String(consultation.id).padStart(5, "0")}`
     : null;
-  const origemDado = result.source === "cache" ? "dado em cache"
-    : result.source === "no_erp" ? "sem ERP na região"
-    : "dado REAL";
+  const provKind = result.source === "cache" ? "cache" : result.source === "no_erp" ? "sem-rede" : "real";
   const custoLabel = result.creditsCost > 0
     ? `custo ${result.creditsCost} crédito${result.creditsCost > 1 ? "s" : ""}`
     : "sem custo";
 
   const meta = [
-    protocolo,
+    result.searchType.toUpperCase(),
     dataHora,
-    "rede ISP colaborativa",
+    "Rede ISP colaborativa",
     `${provedoresConsultados} provedor${provedoresConsultados === 1 ? "" : "es"} consultado${provedoresConsultados === 1 ? "" : "s"}`,
-    origemDado,
     custoLabel,
-  ].filter(Boolean).join(" · ");
+  ].join(" · ");
 
-  // O bloco é preenchimento sólido, não texto: usa os tokens -solid, que são
-  // escurecidos o bastante para o texto por cima passar em AA.
+  /* ── 02 · Sugestão ── */
   const decisao = result.decisionReco === "Accept"
-    ? { short: "Aprovar", color: "var(--ok-solid)" }
+    ? { short: "Aprovar", tone: "ok" as Tone, Icon: CheckCircle, title: "Aprovar ativação." }
     : result.decisionReco === "Reject"
-    ? { short: "Rejeitar", color: "var(--danger-solid)" }
-    : { short: "Analisar", color: "var(--gated-solid)" };
+    ? { short: "Rejeitar", tone: "danger" as Tone, Icon: XCircle, title: "Rejeitar ou exigir caução integral." }
+    : { short: "Analisar", tone: "gated" as Tone, Icon: AlertCircle, title: "Analisar manualmente antes de ativar." };
 
-  /* ── Cards de registro ── */
-  const registros: TintCardData[] = [
-    proprios.length > 0
-      ? registroCard(proprios[0], parceirosConsultados)
-      : {
-          kicker: "Seu provedor", tone: "ok" as Tone, nome: "Nada consta",
-          linha: "Sem registro no seu ERP", chip: "Grátis", chipTone: "ok" as Tone,
-          fonte: "Seu ERP",
-        },
-    ...(parceiros.length > 0
-      ? parceiros.map(d => registroCard(d, parceirosConsultados))
-      : [{
-          kicker: "Provedor parceiro", tone: "ok" as Tone, nome: "Nada consta na rede",
-          linha: `${parceirosConsultados} parceiro${parceirosConsultados === 1 ? "" : "s"} consultado${parceirosConsultados === 1 ? "" : "s"} · nada consta`,
-          chip: "Grátis", chipTone: "ok" as Tone, fonte: "Rede ISP colaborativa",
-        }]),
-    ...proprios.slice(1).map(d => registroCard(d, parceirosConsultados)),
-  ];
+  /* Débito estimado: o TOTAL em risco, não um recorte.
+     O seu ERP dá valor exato; parceiros dão faixa (LGPD). Quando os dois
+     existem, os limites das faixas são somados ao valor próprio e o resultado
+     continua sendo faixa — descartar um dos lados subestimava o risco. Faixa
+     que não parseia derruba a soma para o comportamento conservador. */
+  const debitoProprio = proprios.reduce((s, d) => s + (d.overdueAmount ?? 0), 0);
+  const faixasParceiros = parceiros.map(d => d.overdueAmountRange).filter(Boolean) as string[];
+  const parseFaixa = (f: string): [number, number] | null => {
+    const nums = f.match(/[\d.,]+/g)?.map(n => parseFloat(n.replace(/\./g, "").replace(",", ".")))
+      .filter(n => Number.isFinite(n)) ?? [];
+    if (nums.length === 2) return [nums[0], nums[1]];
+    if (nums.length === 1) return [nums[0], nums[0]];
+    return null;
+  };
+  const brlCurto = (v: number) => `R$ ${Math.round(v).toLocaleString("pt-BR")}`;
+  let debitoEstimado: string;
+  const parsed = faixasParceiros.map(parseFaixa);
+  if (faixasParceiros.length > 0 && parsed.every(Boolean)) {
+    const min = (parsed as [number, number][]).reduce((s, [a]) => s + a, debitoProprio);
+    const max = (parsed as [number, number][]).reduce((s, [, b]) => s + b, debitoProprio);
+    debitoEstimado = min === max ? brlCurto(min) : `${brlCurto(min)} – ${brlCurto(max)}`;
+  } else if (faixasParceiros.length > 0) {
+    debitoEstimado = faixasParceiros[0];
+  } else {
+    debitoEstimado = debitoProprio > 0 ? brl(debitoProprio) : "R$ 0,00";
+  }
+  const temDebito = faixasParceiros.length > 0 || debitoProprio > 0;
 
-  /* ── Cards de equipamento ──
-     "unknown" nunca vira "devolvido": ausência de sinal não é prova de devolução. */
+  /* ── 03 · Ocorrências: seu ERP primeiro, depois cada parceiro ── */
+  const rows: OcorrenciaRow[] = [];
+
+  if (proprios.length > 0) {
+    for (const d of proprios) {
+      const mau = isDelinquent(d);
+      rows.push({
+        cliente: d.customerName || "— nada consta —",
+        sub: d.hasUnreturnedEquipment
+          ? `${d.unreturnedEquipmentCount} equipamento${d.unreturnedEquipmentCount > 1 ? "s" : ""} em comodato pendente`
+          : undefined,
+        fonte: `Seu ERP · ${d.providerName}`,
+        // O status do ERP é mais rico que um binário: "Cancelado (débito)" e
+        // "Inadimplente (90+ dias)" contam histórias diferentes.
+        situacao: d.status || (mau ? "Inadimplente" : "Em dia"),
+        situacaoTone: mau ? "past" : "ok",
+        atraso: d.daysOverdue > 0 ? `${d.daysOverdue} dias` : "—",
+        valor: d.overdueAmount != null && d.overdueAmount > 0 ? brl(d.overdueAmount) : "—",
+        valorNegativo: mau,
+        custo: "grátis",
+      });
+    }
+  } else {
+    rows.push({
+      cliente: "— nada consta —",
+      fonte: "Seu ERP",
+      situacao: "Sem registro",
+      situacaoTone: "neutral",
+      atraso: "—", valor: "—", valorNegativo: false, custo: "grátis",
+    });
+  }
+
+  if (parceiros.length > 0) {
+    for (const d of parceiros) {
+      const mau = isDelinquent(d);
+      const local = d.addressCity ? ` · ${d.addressCity}${d.addressState ? "/" + d.addressState : ""}` : "";
+      rows.push({
+        cliente: d.customerName || "Dados restritos",
+        sub: d.hasUnreturnedEquipment
+          ? `${d.unreturnedEquipmentCount >= 2 ? "2+" : d.unreturnedEquipmentCount} equipamento${d.unreturnedEquipmentCount > 1 ? "s" : ""} retido${d.unreturnedEquipmentCount > 1 ? "s" : ""}${d.equipmentSignalValidated ? " · ocorrência validada" : ""}`
+          : undefined,
+        fonte: `${d.providerName}${local}`,
+        situacao: d.status || (mau ? "Inadimplente" : "Em dia"),
+        situacaoTone: mau ? "past" : "ok",
+        atraso: d.daysOverdueRange || (d.daysOverdue > 0 ? `${d.daysOverdue} dias` : "—"),
+        valor: d.overdueAmountRange || "—",
+        valorNegativo: mau,
+        custo: "1 crédito",
+      });
+    }
+  } else {
+    rows.push({
+      cliente: "— nada consta na rede —",
+      fonte: `Rede ISP · ${parceirosConsultados} parceiro${parceirosConsultados === 1 ? "" : "s"}`,
+      situacao: "Sem registro",
+      situacaoTone: "neutral",
+      atraso: "—", valor: "—", valorNegativo: false, custo: "grátis",
+    });
+  }
+
+  /* ── 04 · Equipamento ── */
   const equipProprio = proprios.find(d => d.hasUnreturnedEquipment);
   const equipParceiro = parceiros.find(d => d.hasUnreturnedEquipment);
-  const equipCards: TintCardData[] = [
+  const equipRows: FonteRow[] = [
     equipProprio
       ? {
-          kicker: "Seu provedor", tone: "danger",
+          kicker: "Seu provedor", fonte: `Seu ERP · ${equipProprio.providerName}`,
+          chip: "Ocorrência ativa", chipTone: "danger",
           nome: `${equipProprio.unreturnedEquipmentCount} equipamento${equipProprio.unreturnedEquipmentCount > 1 ? "s" : ""} não devolvido${equipProprio.unreturnedEquipmentCount > 1 ? "s" : ""}`,
           linha: equipProprio.equipmentValueRange || equipProprio.equipmentPendingSummary || "Comodato pendente no seu ERP",
-          chip: "Ocorrência ativa", chipTone: "danger",
-          fonte: `Seu ERP · ${equipProprio.providerName}`,
         }
       : {
-          kicker: "Seu provedor", tone: "ok", nome: "Nenhum equipamento retido",
+          kicker: "Seu provedor", fonte: "Seu ERP",
+          chip: "Sem ocorrência", chipTone: "ok",
+          nome: "Nenhum equipamento retido",
           linha: "Sem registro de comodato pendente no seu ERP",
-          chip: "Sem ocorrência", chipTone: "ok", fonte: "Seu ERP",
         },
     equipParceiro
       ? {
-          kicker: "Provedor parceiro",
-          tone: equipParceiro.equipmentSignalValidated ? "gated" : "neutral",
+          kicker: "Provedor parceiro", fonte: `Rede ISP · ${parceirosConsultados} parceiro${parceirosConsultados === 1 ? "" : "s"}`,
+          chip: equipParceiro.equipmentSignalValidated ? "Ocorrência validada" : "Sinal não validado",
+          chipTone: equipParceiro.equipmentSignalValidated ? "gated" : "neutral",
           nome: `${equipParceiro.unreturnedEquipmentCount >= 2 ? "2+" : equipParceiro.unreturnedEquipmentCount} equipamento${equipParceiro.unreturnedEquipmentCount > 1 ? "s" : ""} retido${equipParceiro.unreturnedEquipmentCount > 1 ? "s" : ""}`,
           linha: [
             equipParceiro.equipmentSignalValidated ? "Ocorrência validada" : "Pendência operacional",
-            equipParceiro.equipmentValueRange,
+            equipParceiro.equipmentValueRange ? `${equipParceiro.equipmentValueRange} em risco` : null,
           ].filter(Boolean).join(" · "),
-          chip: equipParceiro.equipmentSignalValidated ? "Ocorrência validada" : "Sinal não validado",
-          chipTone: equipParceiro.equipmentSignalValidated ? "gated" : "neutral",
-          fonte: equipParceiro.providerName,
         }
       : {
-          kicker: "Provedor parceiro", tone: "ok", nome: "Nenhum equipamento retido",
+          kicker: "Provedor parceiro", fonte: `Rede ISP · ${parceirosConsultados} parceiro${parceirosConsultados === 1 ? "" : "s"}`,
+          chip: "Sem ocorrência", chipTone: "ok",
+          nome: "Nenhum equipamento retido",
           linha: "Sem ocorrência validada no bureau",
-          chip: "Sem ocorrência", chipTone: "ok", fonte: "Rede ISP colaborativa",
         },
   ];
 
-  /* ── Cards de endereço ── */
+  /* ── 05 · Endereço ── */
   const matchesProprios = result.addressMatches?.filter(m => m.isSameProvider) ?? [];
   const matchesParceiros = result.addressMatches?.filter(m => !m.isSameProvider) ?? [];
   const inadProprios = matchesProprios.filter(m => m.hasDebt).length;
@@ -234,23 +271,22 @@ export default function ConsultaResultSummary({
   const cepUsado = result.addressUsed || proprios[0]?.cep || "";
   const cruzou = result.autoAddressCrossRef === true || !!result.addressSearch;
 
-  const addrCards: TintCardData[] = [
+  const addrRows: FonteRow[] = [
     {
-      kicker: "Seu provedor",
-      tone: inadProprios > 0 ? "danger" : "ok",
+      kicker: "Seu provedor", fonte: `Seu ERP${cepUsado ? " · CEP " + fmtCep(cepUsado) : ""}`,
+      chip: inadProprios > 0 ? `${inadProprios} inadimplente${inadProprios > 1 ? "s" : ""}` : "Nada consta",
+      chipTone: inadProprios > 0 ? "danger" : "ok",
       nome: inadProprios > 0 ? `${inadProprios} inadimplente${inadProprios > 1 ? "s" : ""} no endereço` : "Nada consta",
       linha: inadProprios > 0
         ? "Possível fraude por troca de documento"
         : matchesProprios.length > 0
           ? `${matchesProprios.length} cadastro${matchesProprios.length > 1 ? "s" : ""} ativo${matchesProprios.length > 1 ? "s" : ""} na sua base · em dia`
           : "Nenhum outro cadastro seu neste endereço",
-      chip: inadProprios > 0 ? `${inadProprios} inadimplentes` : "Nada consta",
-      chipTone: inadProprios > 0 ? "danger" : "ok",
-      fonte: `Seu ERP${cepUsado ? " · CEP " + fmtCep(cepUsado) : ""}`,
     },
     {
-      kicker: "Provedor parceiro",
-      tone: inadParceiros > 0 ? "danger" : cruzou ? "ok" : "neutral",
+      kicker: "Provedor parceiro", fonte: `Rede ISP${cepUsado ? " · CEP " + fmtCep(cepUsado) : ""}`,
+      chip: inadParceiros > 0 ? `${inadParceiros} inadimplente${inadParceiros > 1 ? "s" : ""}` : cruzou ? "Nada consta" : "Indisponível",
+      chipTone: inadParceiros > 0 ? "danger" : cruzou ? "ok" : "neutral",
       nome: inadParceiros > 0
         ? `${inadParceiros} inadimplente${inadParceiros > 1 ? "s" : ""} no endereço`
         : cruzou ? "Nada consta" : "Cruzamento não realizado",
@@ -259,9 +295,6 @@ export default function ConsultaResultSummary({
         : cruzou
           ? `${matchesParceiros.length} cadastro${matchesParceiros.length === 1 ? "" : "s"} em parceiros · nenhum inadimplente`
           : "Faltam CEP e número para cruzar o imóvel na rede",
-      chip: inadParceiros > 0 ? `${inadParceiros} inadimplentes` : cruzou ? "Nada consta" : "Indisponível",
-      chipTone: inadParceiros > 0 ? "danger" : cruzou ? "ok" : "neutral",
-      fonte: `Rede ISP${cepUsado ? " · CEP " + fmtCep(cepUsado) : ""}`,
     },
   ];
 
@@ -276,43 +309,33 @@ export default function ConsultaResultSummary({
       }}
       data-testid="consultation-result-cards"
     >
-      {/* ═══ 1 · CABEÇALHO ═══ */}
+      {/* ═══ CABEÇALHO ═══ */}
       <div style={{
-        padding: "18px 24px", display: "flex", alignItems: "center",
+        padding: "20px 24px 18px", display: "flex", alignItems: "flex-start",
         justifyContent: "space-between", gap: 16, flexWrap: "wrap",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <Kicker>Relatório de crédito ISP</Kicker>
+            {protocolo && (
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)" }}>
+                {protocolo}
+              </span>
+            )}
+            <ProvTag kind={provKind} />
+          </div>
           <div style={{
-            width: 40, height: 40, borderRadius: 10, background: "var(--surface-2)",
-            border: "1px solid var(--border)", display: "flex", alignItems: "center",
-            justifyContent: "center", color: "var(--text-2)", flexShrink: 0,
-          }}>
-            <Search size={17} />
+            fontFamily: "var(--font-mono)", fontSize: 28, fontWeight: 600,
+            fontVariantNumeric: "tabular-nums", letterSpacing: "0.01em",
+            marginTop: 6, color: "var(--text)",
+          }} data-testid="text-consulted-doc">
+            {result.searchType === "cep"
+              ? fmtCep(result.cpfCnpj)
+              : formatCpfCnpj(result.cpfCnpj)}
           </div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-              {result.searchType.toUpperCase()} consultado · {meta}
-            </div>
-            <div style={{
-              fontFamily: "var(--font-mono)", fontSize: 22, fontWeight: 700,
-              fontVariantNumeric: "tabular-nums", letterSpacing: "0.01em",
-              marginTop: 2, color: "var(--text)",
-            }} data-testid="text-consulted-doc">
-              {maskDoc(result.cpfCnpj, result.searchType)}
-            </div>
-          </div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>{meta}</div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
-          <span style={{
-            fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 700,
-            textTransform: "uppercase", letterSpacing: "var(--track-wide)",
-            padding: "5px 12px", borderRadius: 7, whiteSpace: "nowrap",
-            background: `var(--${band.tone === "info" ? "now" : band.tone}-bg)`,
-            color: band.color,
-            border: `1px solid var(--${band.tone === "info" ? "now" : band.tone}-border)`,
-          }} data-testid="badge-faixa-score">
-            {band.label}
-          </span>
           <ReportButton onClick={onGeneratePDF} testId="button-generate-pdf">
             <Download size={14} /> PDF
           </ReportButton>
@@ -325,60 +348,92 @@ export default function ConsultaResultSummary({
         </div>
       </div>
 
-      {/* ═══ 2 · SCORE E SUGESTÃO ═══ */}
-      <div style={{ borderTop: "1px solid var(--border)", padding: "16px 24px 18px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
-          <ScoreRing score={score} />
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
-              Score ISP <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>/ 1000</span>
-            </div>
-            <div style={{ display: "flex", gap: 6, marginTop: 7, flexWrap: "wrap" }}>
-              <Pill tone={ativas > 0 ? "past" : "ok"}>
-                {result.providersFound || result.providerDetails.length} provedores
-              </Pill>
-              <Pill tone={ativas > 0 ? "danger" : "ok"}>
-                {ativas} {ativas === 1 ? "ocorrência ativa" : "ocorrências ativas"}
-              </Pill>
-              <Pill tone={equipamentos > 0 ? "gated" : "neutral"}>
-                {equipamentos} equip. retidos
-              </Pill>
-            </div>
+      {/* ═══ 01 · SCORE | 02 · SUGESTÃO ═══ */}
+      <div className="ds-score-grid" style={{ borderTop: "1px solid var(--border)" }}>
+        <div style={{ padding: "20px 24px", borderRight: "1px solid var(--border)" }}>
+          <Kicker>01 · Score de crédito</Kicker>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 12 }}>
+            <span style={{
+              fontFamily: "var(--font-mono)", fontSize: 46, fontWeight: 600,
+              lineHeight: 1, fontVariantNumeric: "tabular-nums", color: "var(--text)",
+            }} data-testid="score-numero">
+              {score}
+            </span>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 14, color: "var(--text-muted)" }}>/1000</span>
+          </div>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 7, marginTop: 10 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 999, background: band.color }} />
+            <span style={{
+              fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600,
+              textTransform: "uppercase", letterSpacing: "var(--track-wide)", color: band.color,
+            }} data-testid="score-faixa">
+              {band.label}
+            </span>
+          </div>
+          <ScoreBar score={score} />
+        </div>
+
+        <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <Kicker>02 · Sugestão de ação</Kicker>
+            <span style={{
+              fontFamily: "var(--font-mono)", fontSize: 9, textTransform: "uppercase",
+              letterSpacing: "var(--track-wide)", color: "var(--text-faint)", whiteSpace: "nowrap",
+            }}>
+              A decisão final é sua
+            </span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
+            <span style={{ ...pillStyle(decisao.tone), fontSize: 11, padding: "5px 11px" }} data-testid="text-ai-recommendation">
+              <decisao.Icon size={14} />
+              {decisao.short}
+            </span>
+            <span style={{ fontSize: 16, fontWeight: 600, letterSpacing: "var(--track-tight)", color: "var(--text)" }}>
+              {decisao.title}
+            </span>
+          </div>
+          <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginTop: 10, maxWidth: 520 }}>
+            {decisionSubtitle(result, ativas, equipamentos)}
           </div>
           <div style={{ flex: 1 }} />
           <div style={{
-            background: decisao.color, color: "var(--text-on-brand)", borderRadius: 9,
-            padding: "10px 20px", textAlign: "center", minWidth: 120,
-          }} data-testid="ai-suggestion-banner">
-            {/* Sem opacity: 9px já é pequeno, e .78 derrubava o contraste abaixo de AA. */}
-            <div style={{
-              fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 600,
-              textTransform: "uppercase", letterSpacing: "var(--track-wide)",
-            }}>
-              Sugestão
-            </div>
-            <div style={{
-              fontSize: 16, fontWeight: 700, textTransform: "uppercase",
-              letterSpacing: "0.02em", marginTop: 2,
-            }} data-testid="text-ai-recommendation">
-              {decisao.short}
-            </div>
+            display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+            borderTop: "1px solid var(--border-faint)", marginTop: 16, paddingTop: 14, gap: 12,
+          }}>
+            {[
+              { valor: String(result.providersFound || result.providerDetails.length), rotulo: "Provedores com registro", ruim: false, mono18: true },
+              { valor: String(ativas), rotulo: "Ocorrências ativas", ruim: ativas > 0, mono18: true },
+              { valor: String(equipamentos), rotulo: "Equip. retidos", ruim: equipamentos > 0, mono18: true },
+              { valor: debitoEstimado, rotulo: "Débito estimado", ruim: temDebito, mono18: false },
+            ].map(sin => (
+              <div key={sin.rotulo}>
+                <div style={{
+                  fontFamily: "var(--font-mono)", fontSize: sin.mono18 ? 18 : 15, fontWeight: 600,
+                  fontVariantNumeric: "tabular-nums", overflowWrap: "anywhere" as const,
+                  paddingTop: sin.mono18 ? 0 : 3,
+                  // Contagem ruim em --past (mockup); só o débito, que é
+                  // dinheiro, leva --money-neg.
+                  color: sin.ruim ? (sin.mono18 ? "var(--past)" : "var(--money-neg)") : "var(--text)",
+                }}>
+                  {sin.valor}
+                </div>
+                <div style={{
+                  fontFamily: "var(--font-mono)", fontSize: 9, textTransform: "uppercase",
+                  letterSpacing: "var(--track-wide)", color: "var(--text-muted)", marginTop: 2,
+                }}>
+                  {sin.rotulo}
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
-        <div style={{
-          fontSize: 12.5, color: "var(--text-2)", lineHeight: 1.55, marginTop: 14,
-          display: "flex", alignItems: "baseline", justifyContent: "space-between",
-          gap: 14, flexWrap: "wrap",
-        }}>
-          <span style={{ maxWidth: 640 }}>{decisionSubtitle(result, ativas, equipamentos)}</span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 9, textTransform: "uppercase", letterSpacing: "var(--track-wide)", color: "var(--text-faint)", whiteSpace: "nowrap" }}>Gate · decisão final é sua</span>
         </div>
       </div>
 
-      {/* ═══ 3 · COMPOSIÇÃO DO SCORE ═══
+      {/* ═══ COMPOSIÇÃO DO SCORE ═══
           O handoff manda a composição para a aba Informações. Aqui ela fica:
-          um score que decide contrato precisa mostrar a conta no mesmo lugar
-          em que mostra o número — foi exatamente o furo que o motor v2 corrigiu. */}
+          um score que decide contrato mostra a conta ao lado do número — foi o
+          furo que o motor v2 corrigiu. Sem número de seção de propósito: é um
+          anexo do 01, não um passo da leitura. */}
       {(result.composicaoScore || result.fatoresScore) && result.searchType !== "cep" && (
         <ReportSection>
           <ScoreBreakdownPanel
@@ -389,42 +444,117 @@ export default function ConsultaResultSummary({
         </ReportSection>
       )}
 
-      {/* ═══ 4 · REGISTROS POR PROVEDOR ═══ */}
+      {/* ═══ 03 · OCORRÊNCIAS NA REDE ISP ═══ */}
       {result.searchType !== "cep" && (
         <ReportSection
-          title="Registros por provedor"
+          title="03 · Ocorrências na rede ISP"
           trailing={
             <div style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "var(--text-faint)" }}>
               <Lock size={10} />
               <span style={{ fontSize: 10 }}>Terceiros anonimizados · valores em faixa (LGPD)</span>
             </div>
           }
+          style={{ paddingBottom: 6 }}
         >
-          <DuoGrid>
-            {registros.map((c, i) => <TintCard key={i} data={c} />)}
-          </DuoGrid>
+          {/* Seis colunas não cabem num celular: a tabela rola dentro do
+              próprio contêiner — a página nunca rola na horizontal. */}
+          <div style={{ overflowX: "auto" }}>
+          <div style={{ minWidth: 640 }}>
+          <div style={{
+            display: "grid", gridTemplateColumns: GRID_OCORRENCIAS, gap: 10,
+            padding: "12px 0 8px", borderBottom: "1px solid var(--border-faint)",
+          }}>
+            <Th>Cliente</Th><Th>Fonte</Th><Th>Situação</Th><Th>Atraso</Th>
+            <Th right>Em aberto</Th><Th right>Custo</Th>
+          </div>
+          {rows.map((row, i) => (
+            <div key={i} style={{
+              display: "grid", gridTemplateColumns: GRID_OCORRENCIAS, gap: 10,
+              alignItems: "center", padding: "11px 0",
+              borderBottom: "1px solid var(--border-faint)",
+            }} data-testid={`ocorrencia-row-${i}`}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{
+                  fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
+                  overflow: "hidden", textOverflow: "ellipsis", color: "var(--text)",
+                }}>
+                  {row.cliente}
+                </div>
+                {row.sub && (
+                  <div style={{ fontSize: 11, color: "var(--gated)", marginTop: 2 }}>{row.sub}</div>
+                )}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{row.fonte}</div>
+              <div><span style={pillStyle(row.situacaoTone)}>{row.situacao}</span></div>
+              <div style={{
+                fontFamily: "var(--font-mono)", fontSize: 12,
+                fontVariantNumeric: "tabular-nums", color: "var(--text-2)",
+              }}>
+                {row.atraso}
+              </div>
+              <div style={{
+                fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600,
+                fontVariantNumeric: "tabular-nums", textAlign: "right",
+                color: row.valorNegativo ? "var(--money-neg)" : "var(--text-2)",
+              }}>
+                {row.valor}
+              </div>
+              <div style={{
+                fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase",
+                letterSpacing: "var(--track-wide)", color: "var(--text-muted)", textAlign: "right",
+              }}>
+                {row.custo}
+              </div>
+            </div>
+          ))}
+          </div>
+          </div>
+          <div style={{ height: 12 }} />
         </ReportSection>
       )}
 
-      {/* ═══ 5 · EQUIPAMENTO EM COMODATO ═══ */}
+      {/* ═══ 04 · EQUIPAMENTO EM COMODATO ═══ */}
       {result.searchType !== "cep" && (
         <ReportSection
-          title="Equipamento em comodato"
+          title="04 · Equipamento em comodato"
           trailing={
-            <Pill tone={equipamentos > 0 ? "gated" : "ok"}>
-              {equipamentos === 0 ? "Sem ocorrência" : equipParceiro?.equipmentSignalValidated ? "Ocorrência validada" : "Ocorrência registrada"}
-            </Pill>
+            <span style={pillStyle(equipamentos > 0
+              ? (equipParceiro?.equipmentSignalValidated ? "gated" : "danger")
+              : "ok")}>
+              {equipamentos === 0 ? "Sem ocorrência"
+                : equipParceiro?.equipmentSignalValidated ? "Ocorrência validada" : "Ocorrência registrada"}
+            </span>
           }
         >
-          <DuoGrid>
-            {equipCards.map((c, i) => <TintCard key={i} data={c} />)}
-          </DuoGrid>
+          <div style={{
+            display: "grid", gridTemplateColumns: GRID_FONTE, gap: 10,
+            padding: "12px 0 8px", borderBottom: "1px solid var(--border-faint)",
+          }}>
+            <Th>Fonte</Th><Th>Situação</Th><Th>Registro</Th>
+          </div>
+          {equipRows.map((c, i) => (
+            <div key={i} style={{
+              display: "grid", gridTemplateColumns: GRID_FONTE, gap: 10,
+              alignItems: "center", padding: "11px 0",
+              borderBottom: "1px solid var(--border-faint)",
+            }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{c.kicker}</div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{c.fonte}</div>
+              </div>
+              <div><span style={pillStyle(c.chipTone)}>{c.chip}</span></div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{c.nome}</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{c.linha}</div>
+              </div>
+            </div>
+          ))}
         </ReportSection>
       )}
 
-      {/* ═══ 6 · VERIFICAÇÃO POR ENDEREÇO ═══ */}
+      {/* ═══ 05 · VERIFICAÇÃO POR ENDEREÇO ═══ */}
       <ReportSection
-        title="Verificação por endereço"
+        title="05 · Verificação por endereço"
         trailing={
           result.autoAddressCrossRef === true ? (
             <span style={{
@@ -438,12 +568,31 @@ export default function ConsultaResultSummary({
           ) : undefined
         }
       >
-        <DuoGrid>
-          {addrCards.map((c, i) => <TintCard key={i} data={c} />)}
-        </DuoGrid>
+        <div style={{
+          display: "grid", gridTemplateColumns: GRID_FONTE, gap: 10,
+          padding: "12px 0 8px", borderBottom: "1px solid var(--border-faint)",
+        }}>
+          <Th>Fonte</Th><Th>Situação</Th><Th>Cadastros no endereço</Th>
+        </div>
+        {addrRows.map((c, i) => (
+          <div key={i} style={{
+            display: "grid", gridTemplateColumns: GRID_FONTE, gap: 10,
+            alignItems: "center", padding: "11px 0",
+            borderBottom: "1px solid var(--border-faint)",
+          }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{c.kicker}</div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{c.fonte}</div>
+            </div>
+            <div><span style={pillStyle(c.chipTone)}>{c.chip}</span></div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{c.nome}</div>
+              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{c.linha}</div>
+            </div>
+          </div>
+        ))}
 
-        {/* Outros documentos inadimplentes no mesmo imóvel — o backend calcula
-            e ninguém mais mostra. É o sinal de fraude por troca de documento. */}
+        {/* Inadimplência de OUTROS documentos no mesmo imóvel — sinal de troca de CPF. */}
         {result.addressRiskAlerts && <AddressRiskAlert data={result.addressRiskAlerts} />}
 
         {temMapa && (
@@ -467,7 +616,9 @@ export default function ConsultaResultSummary({
                 boxShadow: "0 1px 4px rgba(12,17,26,.12)", pointerEvents: "none",
               }}>
                 CEP {fmtCep(cepUsado)}
-                {proprios[0]?.addressCity ? ` · ${proprios[0].addressCity}/${proprios[0].addressState ?? ""}` : ""}
+                {proprios[0]?.addressCity
+                  ? ` · ${proprios[0].addressCity}${proprios[0].addressState ? "/" + proprios[0].addressState : ""}`
+                  : ""}
               </span>
             )}
           </div>
@@ -496,14 +647,14 @@ export default function ConsultaResultSummary({
         )}
       </ReportSection>
 
-      {/* ═══ 7 · ALERTAS | AÇÕES ═══ */}
+      {/* ═══ 06 · ALERTAS | 07 · AÇÕES RECOMENDADAS ═══ */}
       {((result.alerts?.length ?? 0) > 0 || (result.recommendedActions?.length ?? 0) > 0) && (
-        <div style={{
+        <div className="ds-duo" style={{
           borderTop: "1px solid var(--border)", padding: "18px 24px",
-          display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 28,
+          marginTop: 0, gap: 28,
         }}>
           <div>
-            <Kicker>Alertas</Kicker>
+            <Kicker>06 · Alertas</Kicker>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
               {(result.alerts?.length ?? 0) > 0
                 ? result.alerts.map((a, i) => (
@@ -516,7 +667,7 @@ export default function ConsultaResultSummary({
             </div>
           </div>
           <div>
-            <Kicker>Ações recomendadas</Kicker>
+            <Kicker>07 · Ações recomendadas</Kicker>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
               {(result.recommendedActions?.length ?? 0) > 0
                 ? result.recommendedActions.map((a, i) => (
@@ -531,10 +682,10 @@ export default function ConsultaResultSummary({
         </div>
       )}
 
-      {/* ═══ 8 · PARECER DO AGENTE ═══ */}
+      {/* ═══ PARECER DO AGENTE ═══ */}
       {result.searchType !== "cep" && <AiAnalysisSection result={result} />}
 
-      {/* ═══ 9 · RODAPÉ DE AUDITORIA ═══ */}
+      {/* ═══ RODAPÉ DE AUDITORIA ═══ */}
       <div style={{
         borderTop: "1px solid var(--border)", background: "var(--surface-2)",
         padding: "12px 24px", display: "flex", alignItems: "center",

@@ -38,10 +38,6 @@ export function pillStyle(tone: Tone): CSSProperties {
   };
 }
 
-export function Pill({ tone, children }: { tone: Tone; children: ReactNode }) {
-  return <span style={pillStyle(tone)}>{children}</span>;
-}
-
 /** Rótulo de seção: mono 10px, caixa alta, tracking aberto, cor faint. */
 export function Kicker({ children, style }: { children: ReactNode; style?: CSSProperties }) {
   return (
@@ -75,114 +71,94 @@ export function ReportSection({ title, trailing, children, style }: {
   );
 }
 
-export interface TintCardData {
-  kicker: string;
-  tone: Tone;
-  nome: string;
-  linha: string;
-  /** Segunda linha opcional, sempre em --gated: um agravante que não cabe na linha principal. */
-  sub?: string;
-  chip: string;
-  chipTone?: Tone;
-  fonte: string;
-  /** Linha em --money-neg em vez da cor do tom — usado quando o número é dívida. */
-  linhaNegativa?: boolean;
+/* ── Faixas do score ──────────────────────────────────────────
+   Espelham server/utils/isp-score.ts. O motor decide em quatro faixas
+   (701+ / 501+ / 301+ / <=300); o relatório abre a faixa alta em duas para
+   distinguir "Bom" de "Excelente" na leitura — sem mudar decisão nenhuma. */
+export interface Band { label: string; color: string; tone: Tone; index: number }
+
+export function bandOf(score: number): Band {
+  if (score <= 300) return { label: "Crítico", color: "var(--danger)", tone: "danger", index: 0 };
+  if (score <= 500) return { label: "Risco alto", color: "var(--past)", tone: "past", index: 1 };
+  if (score <= 700) return { label: "Risco médio", color: "var(--gated)", tone: "gated", index: 2 };
+  if (score <= 850) return { label: "Bom", color: "var(--now)", tone: "info", index: 3 };
+  return { label: "Excelente", color: "var(--ok)", tone: "ok", index: 4 };
 }
 
 /**
- * Card tintado do relatório. O par "Seu provedor / Provedor parceiro" é a
- * unidade de leitura do bureau: o operador compara as duas colunas de relance.
+ * Barra segmentada do score — as cinco faixas em linha, a ativa acesa e as
+ * demais apagadas, com o marcador na posição exata do score e a régua embaixo.
+ *
+ * Substituiu o anel do handoff v1: o anel dizia "quanto", a barra diz "quanto E
+ * onde isso cai nas faixas de decisão" — que é a pergunta que o operador faz.
  */
-export function TintCard({ data }: { data: TintCardData }) {
-  const t = TONE[data.tone];
+export function ScoreBar({ score }: { score: number }) {
+  const clamped = Math.max(0, Math.min(1000, score));
+  const band = bandOf(clamped);
+  const cores = ["var(--danger)", "var(--past)", "var(--gated)", "var(--now)", "var(--ok)"];
+  const larguras = [30, 20, 20, 15, 15];
+  const regua = ["0", "300", "500", "700", "850", "1000"];
+
   return (
-    <div style={{
-      background: t.bg, border: `1px solid ${t.border}`,
-      borderRadius: 10, padding: "14px 16px",
-    }}>
-      <div style={{
-        fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 700,
-        textTransform: "uppercase", letterSpacing: "var(--track-wide)", color: t.fg,
-      }}>
-        {data.kicker}
+    <div style={{ position: "relative", marginTop: 18 }}>
+      <div style={{ display: "flex", gap: 2 }}>
+        {cores.map((c, i) => (
+          <div key={i} style={{
+            height: 6, borderRadius: 3, background: c,
+            width: `${larguras[i]}%`,
+            opacity: i === band.index ? 1 : 0.22,
+          }} />
+        ))}
       </div>
       <div style={{
-        fontSize: 14.5, fontWeight: 700, marginTop: 6,
-        letterSpacing: "var(--track-tight)", color: "var(--text)",
-      }}>
-        {data.nome}
-      </div>
-      <div style={{
-        fontFamily: "var(--font-mono)", fontSize: 12.5, fontWeight: 600,
-        fontVariantNumeric: "tabular-nums", marginTop: 4,
-        color: data.linhaNegativa ? "var(--money-neg)"
-          : data.tone === "ok" || data.tone === "neutral" ? "var(--text-muted)" : t.fg,
-      }}>
-        {data.linha}
-      </div>
-      {data.sub && (
-        <div style={{ fontSize: 11, color: "var(--gated)", marginTop: 3 }}>{data.sub}</div>
-      )}
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        gap: 8, marginTop: 10,
-      }}>
-        <span style={pillStyle(data.chipTone ?? data.tone)}>{data.chip}</span>
-        <span style={{ fontSize: 10.5, color: "var(--text-faint)" }}>{data.fonte}</span>
+        position: "absolute", top: -4, left: `${clamped / 10}%`,
+        transform: "translateX(-50%)", width: 2, height: 14,
+        background: "var(--text)", borderRadius: 1,
+      }} />
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+        {regua.map(v => (
+          <span key={v} style={{
+            fontFamily: "var(--font-mono)", fontSize: 9,
+            fontVariantNumeric: "tabular-nums", color: "var(--text-faint)",
+          }}>
+            {v}
+          </span>
+        ))}
       </div>
     </div>
   );
 }
 
-/**
- * Grade do par "Seu provedor / Provedor parceiro" — SEMPRE 2 colunas.
- *
- * Com auto-fit, três ou mais parceiros viravam três colunas e a leitura por
- * coluna se perdia: o operador deixa de comparar sua base contra a rede e passa
- * a ler cards soltos. A quebra para 1 coluna no celular mora na classe .ds-duo.
- */
-export function DuoGrid({ children }: { children: ReactNode }) {
-  return <div className="ds-duo">{children}</div>;
-}
-
-/* ── Faixas do score ──────────────────────────────────────────
-   Espelham server/utils/isp-score.ts. O motor decide em quatro faixas
-   (701+ / 501+ / 301+ / <=300); o relatório abre a faixa alta em duas para
-   distinguir "Bom" de "Excelente" na leitura — sem mudar decisão nenhuma. */
-export interface Band { label: string; color: string; tone: Tone }
-
-export function bandOf(score: number): Band {
-  if (score <= 300) return { label: "Crítico", color: "var(--danger)", tone: "danger" };
-  if (score <= 500) return { label: "Risco alto", color: "var(--past)", tone: "past" };
-  if (score <= 700) return { label: "Risco médio", color: "var(--gated)", tone: "gated" };
-  if (score <= 850) return { label: "Bom", color: "var(--now)", tone: "info" };
-  return { label: "Excelente", color: "var(--ok)", tone: "ok" };
-}
-
-/** Anel do score — 60px, raio 25, stroke 7, aberto a partir do topo. */
-export function ScoreRing({ score }: { score: number }) {
-  const clamped = Math.max(0, Math.min(1000, score));
-  const band = bandOf(clamped);
-  const CIRC = 157.1; // 2·π·25
+/** Selo de proveniência do dado — REAL (consulta ao vivo) / CACHE / SEM REDE. */
+export function ProvTag({ kind }: { kind: "real" | "cache" | "sem-rede" }) {
+  const cfg = kind === "real"
+    ? { label: "REAL", fg: "var(--ok)", bg: "var(--ok-bg)", border: "var(--ok-border)" }
+    : kind === "cache"
+    ? { label: "CACHE", fg: "var(--info)", bg: "var(--info-bg)", border: "var(--info-border)" }
+    : { label: "SEM REDE", fg: "var(--text-muted)", bg: "var(--surface-inset)", border: "var(--border)" };
   return (
-    <div style={{ position: "relative", width: 60, height: 60, flexShrink: 0 }}>
-      <svg width="60" height="60" viewBox="0 0 60 60" style={{ transform: "rotate(-90deg)" }}>
-        <circle cx="30" cy="30" r="25" fill="none" stroke="var(--surface-inset)" strokeWidth="7" />
-        <circle
-          cx="30" cy="30" r="25" fill="none"
-          stroke={band.color} strokeWidth="7" strokeLinecap="round"
-          strokeDasharray={`${((clamped / 1000) * CIRC).toFixed(1)} ${CIRC}`}
-        />
-      </svg>
-      <div style={{
-        position: "absolute", inset: 0, display: "flex",
-        alignItems: "center", justifyContent: "center",
-        fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 700,
-        fontVariantNumeric: "tabular-nums", color: "var(--text)",
-      }}>
-        {clamped}
-      </div>
-    </div>
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 6,
+      fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 600,
+      letterSpacing: "0.05em", padding: "3px 8px", borderRadius: 6,
+      color: cfg.fg, background: cfg.bg, border: `1px solid ${cfg.border}`,
+    }}>
+      <span style={{ width: 5, height: 5, borderRadius: 999, background: "currentColor" }} />
+      {cfg.label}
+    </span>
+  );
+}
+
+/** Cabeçalho de coluna das tabelas do relatório — mono 9px caixa alta. */
+export function Th({ children, right }: { children: ReactNode; right?: boolean }) {
+  return (
+    <span style={{
+      fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 600,
+      textTransform: "uppercase", letterSpacing: "var(--track-wide)",
+      color: "var(--text-muted)", textAlign: right ? "right" : "left",
+    }}>
+      {children}
+    </span>
   );
 }
 
@@ -199,6 +175,7 @@ export function ReportButton({ onClick, variant = "ghost", children, testId }: {
       type="button"
       onClick={onClick}
       data-testid={testId}
+      data-variant={primary ? "primary" : "ghost"}
       className="ds-ctl"
       style={{
         display: "inline-flex", alignItems: "center", gap: 7,
