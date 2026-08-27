@@ -179,6 +179,22 @@ export class ErpStorage {
       await tx.insert(erpSyncLogs).values({
         providerId,
         erpSource,
+        // `syncedAt` explicito, e nao o defaultNow() da coluna.
+        //
+        // As colunas sao `timestamp` SEM fuso. O Drizzle serializa um Date de JS
+        // como hora UTC e rele como UTC — fecha certo. Ja o defaultNow() grava a
+        // hora LOCAL do Postgres (America/Sao_Paulo), que o Drizzle depois
+        // interpreta como UTC: o valor volta 3 horas no passado.
+        //
+        // Medido na VPS em 27/08/2026, a mesma linha pelos dois caminhos:
+        //   drizzle (defaultNow): 2026-08-27T16:43:16Z -> "ha 3.05h"
+        //   pg cru              : 2026-08-27T19:43:16Z -> "ha 0.05h"
+        // Um sync recem-terminado aparecia com 3h de idade, e a janela de 12h
+        // do `precisaSincronizarNoBoot` valia 9h na pratica.
+        //
+        // customers.lastSyncAt nao tem o problema porque e escrito por JS
+        // (`lastSyncAt: now`). Escrever igual aqui alinha os dois.
+        syncedAt: new Date(),
         status: r.status,
         upserted: r.upserted,
         errors: r.errors,
