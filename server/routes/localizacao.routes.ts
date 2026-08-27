@@ -43,7 +43,7 @@ export function registerLocalizacaoRoutes(): Router {
       if (cidades.length === 0) {
         // Sem area declarada nao ha recorte, e varrer o Brasil inteiro nao e
         // "a rede na cidade" — e a base toda.
-        return res.json({ bairros: [], ocultas: 0, semArea: true, minPorBairro: MIN_POR_BAIRRO });
+        return res.json({ bairros: [], pontos: [], ocultas: 0, semArea: true, minPorBairro: MIN_POR_BAIRRO });
       }
       const r = await bairrosDaRede(cidades);
       return res.json({ ...r, semArea: false, minPorBairro: MIN_POR_BAIRRO });

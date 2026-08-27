@@ -43,6 +43,7 @@ import {
   usandoNominatim,
 } from "./geocoding";
 import { puxarCoordenadasDoErp } from "./coords-erp.service";
+import { abrirGeocodificadorLocal, type GeocodificadorLocal } from "./geocode-local.service";
 import { logger } from "../logger";
 
 const LOTE = 200;
@@ -137,11 +138,26 @@ const limpar = (v: string | null | undefined) => (v || "").trim();
 
 /** Resolve e grava a coordenada de um cliente. Não decide nada sobre a
  *  varredura — quem lê o desfecho é o laço. */
-async function plotarCliente(c: Pendente): Promise<{ desfecho: Desfecho; motivo?: string }> {
+async function plotarCliente(
+  c: Pendente,
+  local: GeocodificadorLocal | null,
+): Promise<{ desfecho: Desfecho; motivo?: string }> {
   const rua = [limpar(c.address), limpar(c.addressNumber)].filter(Boolean).join(", ");
   const cep = limpar(c.cep);
   let cidade = limpar(c.city);
   let uf = limpar(c.state);
+
+  // 1. Base local do IBGE. Sem rede, sem quota, e com a coordenada da própria
+  // casa quando o número bate. Só o que ela não resolver paga rede.
+  if (local) {
+    const acerto = local.resolver(c);
+    if (acerto) {
+      await db.update(customers)
+        .set({ latitude: String(acerto.lat), longitude: String(acerto.lon) })
+        .where(and(eq(customers.id, c.id), SEM_COORDENADA));
+      return { desfecho: "plotado" };
+    }
+  }
 
   let coords: [number, number] | null = null;
   let jitter = 0.002;      // ±~100m — precisão de rua
@@ -308,6 +324,21 @@ export async function runGeocodeBackfill(providerIdPrioritario?: number): Promis
       logger.warn({ err }, "Geocode backfill: fase de coordenadas do ERP falhou — segue para a geocodificação");
     }
 
+    // FASE B — a base de endereços do IBGE, se estiver carregada. Resolve na
+    // memória do processo, então o que ela cobre nunca chega à rede.
+    let local: GeocodificadorLocal | null = null;
+    try {
+      const cidades = await db
+        .selectDistinct({ cidade: customers.city })
+        .from(customers)
+        .where(and(SEM_COORDENADA, TEM_ENDERECO));
+      local = await abrirGeocodificadorLocal(
+        cidades.map(c => ({ cidade: c.cidade ?? "" })).filter(c => c.cidade),
+      );
+    } catch (err) {
+      logger.warn({ err }, "Geocode backfill: base local de endereços indisponível — seguindo pela rede");
+    }
+
     // Quem clicou "Plotar agora" quer ver a PRÓPRIA carteira no mapa. A
     // varredura é uma só para toda a base, então sem esta etapa o admin
     // esperaria a fila inteira enquanto o job geocodifica clientes de outro
@@ -345,7 +376,7 @@ export async function runGeocodeBackfill(providerIdPrioritario?: number): Promis
           if (etapa === null) status.cursor = cursor;
           status.processados++;
 
-          const r = await plotarCliente(c);
+          const r = await plotarCliente(c, local);
           if (r.desfecho === "plotado") {
             status.plotados++;
             falhasSeguidasDeRede = 0;

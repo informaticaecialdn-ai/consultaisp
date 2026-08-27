@@ -646,6 +646,35 @@ export const geoHpsBairro = pgTable("geo_hps_bairro", {
 
 export type GeoHpsBairro = typeof geoHpsBairro.$inferSelect;
 
+/**
+ * Endereços do CNEFE com coordenada — o geocodificador local.
+ *
+ * O censo de endereços do IBGE traz latitude e longitude de CADA endereço do
+ * município. Com essa tabela na base, geocodificar deixa de ser uma chamada de
+ * rede por cliente e vira uma consulta: instantânea, sem quota, sem depender de
+ * um serviço de terceiro estar de pé.
+ *
+ * É a diferença entre plotar uma carteira em minutos e plotar em horas — e
+ * entre a coordenada da casa e o centro da cidade com 2km de erro, que é o que
+ * sobrava quando a rua não resolvia.
+ *
+ * Como `geo_hps_bairro`, não tem providerId: o endereço de uma rua é o mesmo
+ * para todo provedor que atende ali.
+ */
+export const geoEndereco = pgTable("geo_endereco", {
+  id: serial("id").primaryKey(),
+  municipioIbge: text("municipio_ibge").notNull(),
+  /** Logradouro na régua de comparação: "RUA DEZENOVE DE DEZEMBRO". */
+  logradouroNorm: text("logradouro_norm").notNull(),
+  numero: integer("numero"),
+  cep: text("cep"),
+  bairroNorm: text("bairro_norm"),
+  latitude: decimal("latitude", { precision: 10, scale: 7 }).notNull(),
+  longitude: decimal("longitude", { precision: 10, scale: 7 }).notNull(),
+});
+
+export type GeoEndereco = typeof geoEndereco.$inferSelect;
+
 export const PLAN_CREDITS: Record<string, { isp: number; spc: number }> = {
   free: { isp: 50, spc: 0 },
   basic: { isp: 200, spc: 50 },

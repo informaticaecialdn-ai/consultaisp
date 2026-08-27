@@ -7,7 +7,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import MapaCarteira, {
-  type PontoMapa, type PontoRede, type BairroRede, type CidadeMapa,
+  FAIXAS_PONTO_REDE,
+  type PontoMapa, type PontoRede, type BairroRede, type PontoRedeItem, type CidadeMapa,
   type ModoMapa, type SedeMapa,
 } from "@/components/maps/MapaCarteira";
 import { Chip, Kicker, Kpi, MONO, CARD, brl, num, pct, TRACO } from "@/components/localizacao/ui";
@@ -121,6 +122,9 @@ export default function LocalizacaoPage() {
   const [calor, setCalor] = useState(false);
   const [modo, setModo] = useState<ModoMapa>('carteira');
   const [verRede, setVerRede] = useState(false);
+  // Duas leituras da mesma rede: a bolha diz quanto o bairro pesa, o ponto diz
+  // como os casos se espalham dentro dele.
+  const [redePorPonto, setRedePorPonto] = useState(false);
 
   const { data: rede = [], isFetching: redeCarregando } = useQuery<PontoRede[]>({
     queryKey: ["/api/heatmap/regional"],
@@ -131,7 +135,7 @@ export default function LocalizacaoPage() {
   // provedor atende. É o desenho do modo regionalização, e só é buscado quando
   // esse modo está ligado.
   const { data: redeRegional, isFetching: redeRegionalCarregando } = useQuery<{
-    bairros: BairroRede[]; ocultas: number; semArea: boolean; minPorBairro: number;
+    bairros: BairroRede[]; pontos: PontoRedeItem[]; ocultas: number; semArea: boolean; minPorBairro: number;
   }>({
     queryKey: ["/api/localizacao/rede"],
     enabled: modo === 'regionalizacao',
@@ -142,6 +146,10 @@ export default function LocalizacaoPage() {
   }, [redeRegional, fCidade]);
   const casosNaRede = useMemo(
     () => bairrosRede.reduce((s, b) => s + b.ocorrencias, 0), [bairrosRede]);
+  const pontosRede = useMemo(() => {
+    const todos = redeRegional?.pontos ?? [];
+    return fCidade ? todos.filter(p => p.cidade === fCidade) : todos;
+  }, [redeRegional, fCidade]);
 
   // O endpoint agrega todos os provedores em celulas de 0,01 grau (~1km) sem piso
   // de contagem: uma celula com 1 cliente e praticamente um endereco identificavel
@@ -362,6 +370,15 @@ export default function LocalizacaoPage() {
             <div className="flex flex-wrap items-center gap-1.5">
               <Chip ativo={modo === 'carteira'} onClick={() => setModo('carteira')}>Carteira</Chip>
               <Chip ativo={modo === 'regionalizacao'} onClick={() => setModo('regionalizacao')}>Regionalização</Chip>
+              {modo === 'regionalizacao' && !calor && (
+                <Chip
+                  ativo={redePorPonto}
+                  onClick={() => setRedePorPonto(v => !v)}
+                  titulo="A bolha diz quanto o bairro pesa; o ponto diz como os casos se espalham dentro dele."
+                >
+                  {redePorPonto ? "Por ponto" : "Por bairro"}
+                </Chip>
+              )}
               <Chip
                 ativo={calor}
                 onClick={() => setCalor(v => !v)}
@@ -409,11 +426,21 @@ export default function LocalizacaoPage() {
                   </>
                 ) : (
                   <>
-                    Ex-clientes com dívida de <strong>todos os provedores</strong> nas suas cidades,
-                    somados <strong>por bairro</strong>. Nenhum cliente aparece sozinho: cada bolha é o
-                    conjunto do bairro, e um bairro só entra com{" "}
-                    {num(redeRegional?.minPorBairro ?? 3)} ou mais casos. Sem nome, sem documento e sem
-                    dizer de qual provedor veio cada ocorrência.
+                    Ex-clientes com dívida de <strong>todos os provedores</strong> nas suas cidades.
+                    Sem nome, sem documento e sem dizer de qual provedor veio cada ocorrência.{" "}
+                    {redePorPonto && !calor ? (
+                      <>
+                        Cada ponto é uma ocorrência, com o local <strong>aproximado</strong> — a coordenada
+                        é deslocada em até ~150m, o bastante para tirar o número da casa e manter a quadra.
+                        Só aparecem bairros com {num(redeRegional?.minPorBairro ?? 3)} ou mais casos.
+                      </>
+                    ) : (
+                      <>
+                        Somados <strong>por bairro</strong>: cada bolha é o conjunto do bairro, nenhum
+                        cliente aparece sozinho, e um bairro só entra com{" "}
+                        {num(redeRegional?.minPorBairro ?? 3)} ou mais casos.
+                      </>
+                    )}
                   </>
                 )}
               </p>
@@ -461,7 +488,10 @@ export default function LocalizacaoPage() {
               ) : <span />}
               <span style={{ ...MONO, fontSize: 11, color: "var(--text-muted)" }}>
                 {modo === 'regionalizacao'
-                  ? redeRegionalCarregando ? "carregando…" : `${num(casosNaRede)} casos em ${num(bairrosRede.length)} bairros`
+                  ? redeRegionalCarregando ? "carregando…"
+                    : redePorPonto && !calor
+                      ? `${num(pontosRede.length)} ocorrências no mapa`
+                      : `${num(casosNaRede)} casos em ${num(bairrosRede.length)} bairros`
                   : `${num(filtrados.length)} de ${num(pontos.length)} pontos`}
               </span>
             </div>
@@ -473,6 +503,8 @@ export default function LocalizacaoPage() {
                 <MapaCarteira
                   pontos={filtrados}
                   bairrosRede={bairrosRede}
+                  pontosRede={pontosRede}
+                  redePorPonto={redePorPonto}
                   cidades={cidades}
                   sede={sedeNoMapa}
                   modo={modo}
@@ -491,7 +523,9 @@ export default function LocalizacaoPage() {
                 >
                   <Kicker>
                     {calor ? (modo === 'regionalizacao' ? 'Calor da rede' : 'Calor de dívida')
-                      : modo === 'regionalizacao' ? 'Casos na rede' : 'Estado do cliente'}
+                      : modo === 'regionalizacao'
+                        ? (redePorPonto ? 'Dívida na rede' : 'Casos na rede')
+                        : 'Estado do cliente'}
                   </Kicker>
                   <div className="mt-2 space-y-1">
                     {/* Com o calor ligado não existe marcador — manter a chave
@@ -511,7 +545,17 @@ export default function LocalizacaoPage() {
                             : `${num(devedoresPlotados)} devedores no mapa`}
                         </p>
                       </div>
-                    ) : modo === 'regionalizacao'
+                    ) : modo === 'regionalizacao' && redePorPonto
+                      ? (Object.entries(FAIXAS_PONTO_REDE) as Array<[PontoRedeItem["faixa"], { label: string; token: string }]>).map(([k, f]) => (
+                          <span key={k} className="flex items-center gap-2 text-[11.5px] text-[var(--text-2)]">
+                            <i className="w-2 h-2 rounded-full flex-none" style={{ background: `var(${f.token})` }} />
+                            <span className="flex-1 pr-3">{f.label}</span>
+                            <b style={{ ...MONO, fontWeight: 500, color: "var(--text)" }}>
+                              {num(pontosRede.filter(p => p.faixa === k).length)}
+                            </b>
+                          </span>
+                        ))
+                      : modo === 'regionalizacao'
                       ? FAIXAS_REDE.map(f => (
                           <span key={f.label} className="flex items-center gap-2 text-[11.5px] text-[var(--text-2)]">
                             <i className="w-2 h-2 rounded-full flex-none" style={{ background: `var(${f.token})` }} />

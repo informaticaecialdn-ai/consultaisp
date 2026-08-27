@@ -28,6 +28,8 @@ import { readFileSync, existsSync } from "fs";
 import { basename } from "path";
 import { pool } from "../db";
 import { normalizarLocalidade } from "./localidade";
+import { chaveLogradouro, numeroDoEndereco } from "./logradouro";
+import { garantirTabelaEnderecos } from "./geocode-local.service";
 import { logger } from "../logger";
 
 export const FONTE_CNEFE = "CNEFE2022";
@@ -40,6 +42,8 @@ export interface ResultadoCarga {
   uf: string;
   bairros: number;
   total: number;
+  /** Endereços com coordenada extraídos do mesmo arquivo (só no CNEFE). */
+  enderecos?: number;
 }
 
 const DDL = `
@@ -168,6 +172,82 @@ export function agregarAneel(conteudo: string): Map<string, Map<string, number>>
   return porMunicipio;
 }
 
+export interface EnderecoCnefe {
+  logradouroNorm: string;
+  numero: number | null;
+  cep: string | null;
+  bairroNorm: string | null;
+  lat: number;
+  lon: number;
+}
+
+/**
+ * Endereços com coordenada, a partir do conteúdo do CSV. Puro.
+ *
+ * Deduplicado por (logradouro, número): um prédio de cem apartamentos tem cem
+ * linhas no censo e uma única porta na rua. Sem isso, Londrina sozinha traria
+ * centenas de milhares de linhas redundantes para responder a mesma pergunta.
+ */
+export function extrairEnderecosCnefe(conteudo: string): EnderecoCnefe[] {
+  const linhas = conteudo.split(/\r?\n/);
+  if (linhas.length < 2) throw new Error("CSV vazio");
+
+  const cab = linhas[0].split(";").map(c => c.trim().toUpperCase());
+  const idx = (nome: string) => cab.indexOf(nome);
+  const iTipo = idx("NOM_TIPO_SEGLOGR");
+  const iTitulo = idx("NOM_TITULO_SEGLOGR");
+  const iNome = idx("NOM_SEGLOGR");
+  const iNumero = idx("NUM_ENDERECO");
+  const iCep = idx("CEP");
+  const iLocalidade = idx("DSC_LOCALIDADE");
+  const iLat = idx("LATITUDE");
+  const iLon = idx("LONGITUDE");
+  if (iNome < 0 || iLat < 0 || iLon < 0) {
+    throw new Error("Cabeçalho do CNEFE sem NOM_SEGLOGR, LATITUDE ou LONGITUDE");
+  }
+
+  const vistos = new Set<string>();
+  const saida: EnderecoCnefe[] = [];
+
+  for (let i = 1; i < linhas.length; i++) {
+    const l = linhas[i];
+    if (!l) continue;
+    const f = l.split(";");
+
+    const lat = parseFloat((f[iLat] || "").trim());
+    const lon = parseFloat((f[iLon] || "").trim());
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    if (lat === 0 && lon === 0) continue;
+
+    // O logradouro do censo vem em três campos: tipo, título e nome. Juntos
+    // formam a mesma string que a normalização do ERP produz.
+    const partes = [
+      iTipo >= 0 ? f[iTipo] : "",
+      iTitulo >= 0 ? f[iTitulo] : "",
+      f[iNome],
+    ].map(p => (p || "").trim()).filter(Boolean);
+    const logradouroNorm = chaveLogradouro(partes.join(" "));
+    if (!logradouroNorm) continue;
+
+    const numero = iNumero >= 0 ? numeroDoEndereco(f[iNumero]) : null;
+    const chave = `${logradouroNorm}|${numero ?? ""}`;
+    if (vistos.has(chave)) continue;
+    vistos.add(chave);
+
+    const cepBruto = iCep >= 0 ? (f[iCep] || "").replace(/\D/g, "") : "";
+    saida.push({
+      logradouroNorm,
+      numero,
+      cep: cepBruto.length === 8 ? cepBruto : null,
+      bairroNorm: iLocalidade >= 0 ? normalizarLocalidade(f[iLocalidade]) || null : null,
+      lat,
+      lon,
+    });
+  }
+
+  return saida;
+}
+
 /**
  * Carrega um CSV do CNEFE. O município e o nome saem do próprio arquivo — o
  * código está em toda linha, e o nome no nome do arquivo.
@@ -177,7 +257,8 @@ export async function carregarCnefe(caminho: string): Promise<ResultadoCarga> {
 
   // latin1: o CNEFE não é UTF-8, e lido como UTF-8 "IBIPORÃ" vira caractere
   // inválido e o bairro deixa de casar com o do ERP.
-  const { municipioIbge, porBairro } = agregarCnefe(readFileSync(caminho, "latin1"));
+  const conteudo = readFileSync(caminho, "latin1");
+  const { municipioIbge, porBairro } = agregarCnefe(conteudo);
 
   // "4113700_LONDRINA.csv" → LONDRINA
   const nomeArquivo = basename(caminho).replace(/\.csv$/i, "");
@@ -186,8 +267,48 @@ export async function carregarCnefe(caminho: string): Promise<ResultadoCarga> {
   if (!cidadeNorm) throw new Error(`Não deu para extrair a cidade do nome do arquivo: ${nomeArquivo}`);
 
   const r = await gravar(municipioIbge, cidadeNorm, uf, FONTE_CNEFE, porBairro);
-  logger.info(r, "CNEFE carregado");
-  return r;
+
+  // O mesmo arquivo alimenta o geocodificador local. Ler duas vezes o CSV de
+  // 47MB para separar as duas cargas seria desperdício.
+  const enderecos = extrairEnderecosCnefe(conteudo);
+  await gravarEnderecos(municipioIbge, enderecos);
+  logger.info({ ...r, enderecos: enderecos.length }, "CNEFE carregado");
+  return { ...r, enderecos: enderecos.length };
+}
+
+/** Substitui os endereços do município — recarregar não duplica. */
+async function gravarEnderecos(municipioIbge: string, enderecos: EnderecoCnefe[]): Promise<void> {
+  await garantirTabelaEnderecos();
+  const conn = await pool.connect();
+  try {
+    await conn.query("BEGIN");
+    await conn.query("DELETE FROM geo_endereco WHERE municipio_ibge = $1", [municipioIbge]);
+
+    // Em lotes: um INSERT por endereço seriam centenas de milhares de idas ao
+    // banco, e um INSERT único estouraria o limite de parâmetros do protocolo.
+    const LOTE = 1000;
+    for (let i = 0; i < enderecos.length; i += LOTE) {
+      const fatia = enderecos.slice(i, i + LOTE);
+      const valores: any[] = [];
+      const marcadores = fatia.map((e, k) => {
+        const b = k * 7;
+        valores.push(municipioIbge, e.logradouroNorm, e.numero, e.cep, e.bairroNorm, String(e.lat), String(e.lon));
+        return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7})`;
+      });
+      await conn.query(
+        `INSERT INTO geo_endereco
+           (municipio_ibge, logradouro_norm, numero, cep, bairro_norm, latitude, longitude)
+         VALUES ${marcadores.join(",")}`,
+        valores,
+      );
+    }
+    await conn.query("COMMIT");
+  } catch (err) {
+    await conn.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    conn.release();
+  }
 }
 
 /**

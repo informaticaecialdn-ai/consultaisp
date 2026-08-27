@@ -53,6 +53,18 @@ export type BairroRede = {
   lat: number | null; lon: number | null;
 };
 
+/** Ponto individual da rede — coordenada deslocada no servidor. */
+export type PontoRedeItem = {
+  ref: string; lat: number; lon: number; bairro: string; cidade: string;
+  faixa: 'ate300' | 'de300a1000' | 'acima1000';
+};
+
+export const FAIXAS_PONTO_REDE: Record<PontoRedeItem['faixa'], { label: string; token: string }> = {
+  ate300:     { label: 'até R$ 300',   token: '--gated' },
+  de300a1000: { label: 'R$ 300–1.000', token: '--past' },
+  acima1000:  { label: 'R$ 1.000+',    token: '--danger' },
+};
+
 /** Escala de concentração da rede no bairro. */
 export const FAIXAS_OCORRENCIA = [
   { label: '3 a 9 casos',   token: '--gated',  teste: (n: number) => n < 10 },
@@ -77,11 +89,15 @@ export type SedeMapa = { cidade: string; uf: string | null; lat: number; lon: nu
 
 export default function MapaCarteira({
   pontos, cidades = [], sede, modo = 'carteira', rede, height,
-  calor = false, bairroFoco = null, bairrosRede = [],
+  calor = false, bairroFoco = null, bairrosRede = [], pontosRede = [], redePorPonto = false,
 }: {
   pontos: PontoMapa[];
-  /** Bairros agregados da rede — o desenho do modo regionalização. */
+  /** Bairros agregados da rede — o desenho padrão do modo regionalização. */
   bairrosRede?: BairroRede[];
+  /** Pontos individuais da rede, para quem quer ver a distribuição interna. */
+  pontosRede?: PontoRedeItem[];
+  /** Alterna o desenho da rede entre bolha por bairro e ponto por ocorrência. */
+  redePorPonto?: boolean;
   cidades?: CidadeMapa[];
   sede?: SedeMapa | null;
   modo?: ModoMapa;
@@ -142,7 +158,7 @@ export default function MapaCarteira({
     camadaCalor.current = null;
 
     const plotaveis: Array<{ lat: number | null; lon: number | null }> = modo === 'regionalizacao'
-      ? bairrosRede.filter(b => b.lat !== null && b.lon !== null)
+      ? (redePorPonto ? pontosRede : bairrosRede.filter(b => b.lat !== null && b.lon !== null))
       : pontos;
     // Sem ponto, mantem o enquadramento atual: geocodificar so para posicionar
     // um mapa vazio custaria uma volta de rede sem entregar nada.
@@ -172,6 +188,25 @@ export default function MapaCarteira({
         const tam = mapa.current.getSize();
         if (tam.x === 0 || tam.y === 0) mapa.current.invalidateSize({ animate: false });
         camadaCalor.current.addTo(mapa.current);
+      }
+    } else if (modo === 'regionalizacao' && redePorPonto) {
+      // Um ponto por ocorrência: mostra como os casos se distribuem DENTRO do
+      // bairro, que a bolha agregada esconde. Sem contorno branco — não é um
+      // cliente seu, e a distinção visual importa.
+      for (const p of pontosRede) {
+        const token = FAIXAS_PONTO_REDE[p.faixa].token;
+        const cor = getComputedStyle(document.documentElement).getPropertyValue(token).trim() || '#8C2F39';
+        L.circleMarker([p.lat, p.lon], {
+          renderer: renderer.current!,
+          radius: 4.5, weight: 0,
+          fillColor: cor, fillOpacity: 0.7,
+        })
+          .bindPopup(
+            `<b>Ex-cliente com dívida</b><br>${p.bairro} · ${p.cidade}<br>` +
+            `${FAIXAS_PONTO_REDE[p.faixa].label}<br>` +
+            `<span style="opacity:.7">local aproximado · sem identificação de cliente ou provedor</span>`,
+          )
+          .addTo(camada.current!);
       }
     } else if (modo === 'regionalizacao') {
       // A rede: uma bolha por BAIRRO, área proporcional ao número de casos.
@@ -275,7 +310,7 @@ export default function MapaCarteira({
     // O dado chega antes de a altura por proporcao se resolver; a segunda
     // passada pega o layout ja assentado.
     requestAnimationFrame(enquadrar);
-  }, [pontos, bairrosRede, cidades, modo, sede, calor, bairroFoco]);
+  }, [pontos, bairrosRede, pontosRede, redePorPonto, cidades, modo, sede, calor, bairroFoco]);
 
   // Camada separada: liga e desliga sem redesenhar os pontos da carteira.
   useEffect(() => {
