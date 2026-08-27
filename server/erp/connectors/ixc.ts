@@ -1073,6 +1073,20 @@ export class IxcConnector implements ErpConnector {
       }
     }
 
+    // As cidades vem como ID e precisam virar nome, senao a chave de endereco
+    // deste caminho ("4101") nunca casa com a do `fetchCustomerByCpf`
+    // ("LONDRINA") e o cruzamento devolve o imovel certo sem reconhece-lo.
+    // Resolve so os IDs distintos — uma rua costuma ter um municipio so — em vez
+    // do bulk de 5.579 linhas.
+    const idsCidade = Array.from(new Set(
+      clienteRows.map((r: any) => String(r.cidade ?? "")).filter(id => /^\d+$/.test(id)),
+    ));
+    const nomesCidade = new Map<string, { nome: string; uf: string }>();
+    for (const id of idsCidade) {
+      const c = await this.resolverCidadePorId(config, id);
+      if (c) nomesCidade.set(id, c);
+    }
+
     return clienteRows
       .map((r: any) => {
         // `cnpj_cpf` — nessa ordem — e o nome REAL do campo na tabela `cliente`
@@ -1096,8 +1110,8 @@ export class IxcConnector implements ErpConnector {
           addressNumber: extractNumberFromAddress(r.endereco, r.numero),
           complement: r.complemento || undefined,
           neighborhood: r.bairro || undefined,
-          city: r.cidade || undefined,
-          state: r.uf || r.estado || undefined,
+          city: nomesCidade.get(String(r.cidade ?? ""))?.nome ?? (r.cidade || undefined),
+          state: nomesCidade.get(String(r.cidade ?? ""))?.uf || r.uf || r.estado || undefined,
           cep: r.cep ? cleanCep(r.cep) : undefined,
           totalOverdueAmount: overdue?.totalAmount ?? 0,
           maxDaysOverdue: overdue?.maxDays ?? 0,
