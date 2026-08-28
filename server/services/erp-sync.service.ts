@@ -387,6 +387,7 @@ export async function syncProviderToDb(
   // So roda quando o passo 2 terminou inteiro: uma lista incompleta baixaria a
   // divida de quem de fato deve.
   let quitados = 0;
+  let falhaNaBaixa: string | undefined;
   if (errors === 0 && result.customers.length > 0) {
     try {
       quitados = await storage.baixarDividaQuitada(
@@ -399,18 +400,26 @@ export async function syncProviderToDb(
       }
     } catch (e: any) {
       console.warn(`[ERPSync] ${providerName}: falha ao baixar divida quitada: ${e.message}`);
+      falhaNaBaixa = e.message;
     }
   }
 
   // "success" so quando nada falhou. Um sync que grava 900 de 1000 e "partial":
   // atualizou a base, mas nao inteira — e essa diferenca precisa aparecer.
+  //
+  // A baixa de divida quitada conta aqui pelo mesmo motivo. Ela nasceu quebrada
+  // por um bind de array e ninguem soube: o erro so ia para o console, e a tela
+  // dizia "sucesso". Divida ja paga seguia constando no bureau.
+  const problema = errors > 0 || falhaNaBaixa;
   await registrar(
-    errors === 0 ? "success" : upserted > 0 ? "partial" : "error",
+    !problema ? "success" : upserted > 0 ? "partial" : "error",
     upserted,
     errors,
-    errors === 0
-      ? (quitados > 0 ? `${quitados} quitaram desde a ultima varredura` : undefined)
-      : `${errors} de ${total} registros falharam no upsert`,
+    errors > 0
+      ? `${errors} de ${total} registros falharam no upsert`
+      : falhaNaBaixa
+        ? `divida quitada nao pode ser baixada: ${falhaNaBaixa}`
+        : quitados > 0 ? `${quitados} quitaram desde a ultima varredura` : undefined,
     total,
   );
   return { upserted, errors };

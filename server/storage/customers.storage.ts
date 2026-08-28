@@ -76,6 +76,14 @@ export class CustomersStorage {
     ));
     if (docs.length === 0) return 0;
 
+    // `ALL(${docs})` nao funciona: o template do Drizzle expande um array JS
+    // como lista de parametros, e o Postgres respondia "op ANY/ALL (array)
+    // requires array on right side". Como o UPDATE inteiro estava num try/catch
+    // que so logava, a baixa falhava em silencio a cada sync — divida quitada
+    // continuava no bureau. Montar o ARRAY[] explicitamente resolve e mantem
+    // cada documento como parametro ligado.
+    const listaDocs = sql`ARRAY[${sql.join(docs.map(d => sql`${d}`), sql`, `)}]::text[]`;
+
     const r = await db.execute(sql`
       UPDATE customers
          SET total_overdue_amount   = '0',
@@ -86,7 +94,7 @@ export class CustomersStorage {
          AND payment_status  = 'overdue'
          AND last_sync_at    >= ${inicioDaVarredura}
          AND coalesce(status, 'active') NOT IN ('cancelled', 'inactive')
-         AND regexp_replace(cpf_cnpj, '[^0-9]', '', 'g') <> ALL(${docs})
+         AND regexp_replace(cpf_cnpj, '[^0-9]', '', 'g') <> ALL(${listaDocs})
     `);
     return (r as any).rowCount ?? 0;
   }
