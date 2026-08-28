@@ -141,8 +141,7 @@ export interface ErpFetchResult {
   customers: NormalizedErpCustomer[];
   totalRecords?: number;
   /**
-   * Quantos clientes o conector NAO conseguiu ler nesta passada — timeout, HTTP
-   * de erro, resposta ilegivel.
+   * Quantos clientes o conector NAO conseguiu ler, e nem sequer identificar.
    *
    * `ok: true` sozinho nao distingue "li a base inteira e estes sao os
    * inadimplentes" de "li metade dela". A diferenca importa porque o sync usa a
@@ -151,10 +150,37 @@ export interface ErpFetchResult {
    * "nada consta" para devedor real e o erro que entrega o caloteiro limpo ao
    * provedor vizinho.
    *
-   * Ausente ou zero significa leitura completa. Conector que nao sabe informar
-   * deve deixar ausente — e a mesma regra de nao afirmar o que nao se provou.
+   * Use `docsNaoLidos` sempre que o documento for conhecido — la a falha custa
+   * um cliente, aqui custa a limpeza do provedor inteiro. Este contador e para
+   * o que nem da para nomear.
    */
   leiturasFalhas?: number;
+
+  /**
+   * Documentos que o conector NAO conseguiu ler nesta passada, mas sabe quem
+   * sao.
+   *
+   * O sync os trata como "ainda devendo": nao entram na lista de inadimplentes,
+   * mas tambem nao tem a divida baixada. E a leitura certa de "nao sei" —
+   * preserva o que ja havia sobre eles e deixa a limpeza rodar normalmente para
+   * todo o resto, em vez de desligar a baixa do provedor inteiro por causa de um
+   * timeout em 3.226 clientes.
+   */
+  docsNaoLidos?: string[];
+
+  /**
+   * `true` quando o conector SABE que esta lista nao cobre a base inteira, sem
+   * conseguir dizer quem ficou de fora.
+   *
+   * O caso concreto e o caminho legado do MK: `WSMKFaturasAbertas` devolve
+   * FATURAS num periodo, nao clientes, e por isso nunca pode provar que fulano
+   * NAO deve. Usar essa lista como prova negativa apagaria divida de quem o
+   * endpoint simplesmente nao mencionou.
+   *
+   * Ausente significa "nao informado", que o sync le como cobertura completa —
+   * e o comportamento que os demais conectores ja tinham. Sinalizar e opt-in.
+   */
+  leituraParcial?: boolean;
 }
 
 /**

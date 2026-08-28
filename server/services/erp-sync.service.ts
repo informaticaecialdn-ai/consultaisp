@@ -327,14 +327,33 @@ async function syncProviderToDbInterno(
   // a base inteira. Uma fonte recusada, ou clientes que o ERP nao conseguiu
   // responder, tornam a lista curta — e baixar divida com lista curta apaga o
   // debito de quem de fato deve.
+  //
+  // Sao dois desfechos diferentes, e so um deles precisa parar tudo:
+  //
+  //   - o conector SABE quem nao leu (`docsNaoLidos`) — esses ficam protegidos
+  //     um a um, e a limpeza roda normal para o resto. Um timeout em 3.226
+  //     clientes nao pode desligar a limpeza do provedor inteiro; a base ficaria
+  //     pintando de vermelho bairro ja resolvido por causa de um blip.
+  //   - o conector NAO sabe o que perdeu (`leiturasFalhas`, `leituraParcial`) —
+  //     ai nao ha quem proteger, e a baixa nao roda.
   const fonteRecusada = tentadas.find(r => !r.ok);
-  const naoLidos = tentadas.reduce((s, r) => s + (r.leiturasFalhas ?? 0), 0);
-  const leituraCompleta = !fonteRecusada && naoLidos === 0;
+  const naoLidosAnonimos = tentadas.reduce((s, r) => s + (r.leiturasFalhas ?? 0), 0);
+  const naoCobre = tentadas.find(r => r.leituraParcial);
+  const docsProtegidos = tentadas.flatMap(r => r.docsNaoLidos ?? []);
+  const leituraCompleta = !fonteRecusada && !naoCobre && naoLidosAnonimos === 0;
+
   if (!leituraCompleta) {
     console.warn(
       `[ERPSync] ${providerName}: leitura incompleta — `
       + `${fonteRecusada ? `fonte recusada (${fonteRecusada.message}); ` : ""}`
-      + `${naoLidos} cliente(s) nao lidos. A baixa de divida quitada nao vai rodar.`,
+      + `${naoCobre ? "a fonte nao cobre a base inteira; " : ""}`
+      + `${naoLidosAnonimos} cliente(s) nao lidos e nao identificados. `
+      + `A baixa de divida quitada nao vai rodar.`,
+    );
+  } else if (docsProtegidos.length > 0) {
+    console.log(
+      `[ERPSync] ${providerName}: ${docsProtegidos.length} cliente(s) nao lidos — `
+      + `divida deles preservada, limpeza segue para o resto`,
     );
   }
 
@@ -501,7 +520,10 @@ async function syncProviderToDbInterno(
     try {
       quitados = await storage.baixarDividaQuitada(
         providerId,
-        result.customers.map(c => c.cpfCnpj),
+        // Quem nao foi lido entra na lista de "ainda devendo": nao aparece como
+        // inadimplente, mas tambem nao tem a divida baixada. "Nao sei" preserva
+        // o que ja havia, em vez de virar "nada consta".
+        [...result.customers.map(c => c.cpfCnpj), ...docsProtegidos],
         new Date(inicioMs),
       );
       if (quitados > 0) {
@@ -533,7 +555,9 @@ async function syncProviderToDbInterno(
       : !leituraCompleta
       ? (fonteRecusada
           ? `leitura incompleta: ${fonteRecusada.message}`
-          : `leitura incompleta: ${naoLidos} cliente(s) o ERP nao respondeu`)
+          : naoCobre
+          ? "leitura incompleta: a fonte usada nao cobre a base inteira"
+          : `leitura incompleta: ${naoLidosAnonimos} cliente(s) o ERP nao respondeu`)
       : falhaNaBaixa
         ? `divida quitada nao pode ser baixada: ${falhaNaBaixa}`
         : falhaNaCarteira

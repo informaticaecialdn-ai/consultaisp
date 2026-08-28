@@ -241,7 +241,15 @@ app.use((req, res, next) => {
     } catch (err) {
       logger.warn({ err }, "Nao consegui verificar o sync em andamento");
     }
-    await pool.end();
+    // `pool.end()` espera TODO cliente ser devolvido, e a varredura em voo
+    // segura um: a trava do sync e um advisory lock preso a uma conexao, que
+    // so e liberada no `finally`. Depois dos 30s de dreno, esperar por ela
+    // indefinidamente entrega o desligamento ao SIGKILL do pm2 — que fecha o
+    // socket do mesmo jeito, so que sem log e sem ordem.
+    await Promise.race([
+      pool.end().catch(() => {}),
+      new Promise(r => setTimeout(r, 3_000)),
+    ]);
     logger.info("Database pool closed");
     process.exit(0);
   };

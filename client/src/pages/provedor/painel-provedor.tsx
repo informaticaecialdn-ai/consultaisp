@@ -186,6 +186,21 @@ export default function PainelProvedorPage() {
   };
 
   /**
+   * Temporizadores do acompanhamento, por ERP.
+   *
+   * Sem eles, cada clique deixava um `setInterval` de 15 minutos solto: sair da
+   * tela nao o parava, e clicar duas vezes no mesmo ERP acumulava dois. Guardar
+   * por `source` permite trocar o anterior e limpar tudo na desmontagem.
+   */
+  const acompanhamentoRef = useRef<Record<string, { intervalo: number; teto: number }>>({});
+  useEffect(() => () => {
+    for (const t of Object.values(acompanhamentoRef.current)) {
+      window.clearInterval(t.intervalo);
+      window.clearTimeout(t.teto);
+    }
+  }, []);
+
+  /**
    * Dispara a varredura e volta na hora.
    *
    * A rota agora responde 202 assim que enfileira: a sincronizacao leva
@@ -220,8 +235,21 @@ export default function PainelProvedorPage() {
       refetchErpList();
       refetchSyncLogs();
       // A varredura leva minutos; relê o histórico até ele registrar o desfecho.
-      const ateTerminar = window.setInterval(() => refetchSyncLogs(), 15000);
-      window.setTimeout(() => window.clearInterval(ateTerminar), 15 * 60 * 1000);
+      // Só quando ela de fato começou — em 409 já saímos acima, e num erro não
+      // há o que acompanhar.
+      if (data.ok) {
+        const anterior = acompanhamentoRef.current[source];
+        if (anterior) {
+          window.clearInterval(anterior.intervalo);
+          window.clearTimeout(anterior.teto);
+        }
+        const intervalo = window.setInterval(() => refetchSyncLogs(), 15000);
+        const teto = window.setTimeout(() => {
+          window.clearInterval(intervalo);
+          delete acompanhamentoRef.current[source];
+        }, 15 * 60 * 1000);
+        acompanhamentoRef.current[source] = { intervalo, teto };
+      }
     } catch {
       setErpSyncResults(r => ({ ...r, [source]: { ok: false, msg: "Nao consegui falar com o servidor." } }));
     } finally {

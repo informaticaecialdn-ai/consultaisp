@@ -226,3 +226,65 @@ describe("varredura abortada nao vira fallback silencioso", () => {
     expect(chamadas).not.toContain("WSMKFaturasAbertas");
   });
 });
+
+/**
+ * Quem não pôde ser lido é NOMEADO, não só contado.
+ *
+ * A primeira versão devolvia só uma contagem, e o sync usava isso como um
+ * portão: um timeout em 3.226 clientes desligava a baixa de dívida do provedor
+ * inteiro, e a base seguia pintando de vermelho bairro já resolvido por causa de
+ * um blip. Com o documento em mãos, o sync protege esse cliente sozinho e limpa
+ * o resto.
+ */
+describe("cliente nao lido volta identificado", () => {
+  it("documento conhecido vai em docsNaoLidos, nao no contador cego", async () => {
+    globalThis.fetch = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("WSAutenticacao")) {
+        return { ok: true, status: 200, json: async () => ({ Token: "sessao-fake" }) } as any;
+      }
+      if (u.includes("WSMKConsultaClientes")) {
+        const ini = Number(new URL(u).searchParams.get("cd_cliente_inicio"));
+        return { ok: true, status: 200, json: async () => ({ Clientes: ini === 1 ? [cliente(1), cliente(2)] : [] }) } as any;
+      }
+      if (u.includes("WSMKFaturasPendentes")) {
+        const cd = new URL(u).searchParams.get("cd_cliente");
+        // O cliente 2 nao responde; o 1 responde e nao deve nada.
+        if (cd === "2") return { ok: false, status: 504, json: async () => ({}) } as any;
+        return { ok: true, status: 200, json: async () => ({ FaturasPendentes: [] }) } as any;
+      }
+      return { ok: true, status: 200, json: async () => ({ ContratosAtivos: [] }) } as any;
+    }) as any;
+
+    const r: any = await new MkConnector().fetchDelinquents(CONFIG);
+
+    expect(r.ok).toBe(true);
+    expect(r.docsNaoLidos).toEqual([String(10000000000 + 2)]);
+    // Zero no contador cego: o sync nao precisa desligar a limpeza inteira.
+    expect(r.leiturasFalhas).toBe(0);
+  });
+
+  it("corpo de ERRO com HTTP 200 tambem conta como nao lido", async () => {
+    // O MK responde erro com status 200; `FaturasPendentes ?? []` lia isso como
+    // "cliente sem fatura" e o sync baixava a divida dele.
+    globalThis.fetch = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("WSAutenticacao")) {
+        return { ok: true, status: 200, json: async () => ({ Token: "sessao-fake" }) } as any;
+      }
+      if (u.includes("WSMKConsultaClientes")) {
+        const ini = Number(new URL(u).searchParams.get("cd_cliente_inicio"));
+        return { ok: true, status: 200, json: async () => ({ Clientes: ini === 1 ? [cliente(7)] : [] }) } as any;
+      }
+      if (u.includes("WSMKFaturasPendentes")) {
+        return { ok: true, status: 200, json: async () => ({ CODIGO_ERRO: "004", status: "ERRO" }) } as any;
+      }
+      return { ok: true, status: 200, json: async () => ({ ContratosAtivos: [] }) } as any;
+    }) as any;
+
+    const r: any = await new MkConnector().fetchDelinquents(CONFIG);
+
+    expect(r.docsNaoLidos).toEqual([String(10000000000 + 7)]);
+    expect(r.customers).toHaveLength(0);
+  });
+});

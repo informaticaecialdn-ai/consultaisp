@@ -599,10 +599,22 @@ export class MkConnector implements ErpConnector {
           const ctResp = await fetch(ctUrl, { method: "GET", signal: AbortSignal.timeout(10000) });
           if (ctResp.ok) {
             const ctJson: any = await ctResp.json();
-            const ativos: any[] = ctJson?.ContratosAtivos ?? [];
+            // Mesma leitura de `contratosPorCliente`, e pelo mesmo motivo.
+            //
+            // O envelope precisa ESTAR la: o MK responde erro com HTTP 200, e
+            // `?? []` lia esse corpo como "zero contratos". E a ausencia de
+            // contrato ativo ja e a resposta — a instalacao da NsLink nao
+            // devolve `ContratosInativos` (as chaves sao CodigoPessoa,
+            // ContratosAtivos, Nome, status), entao esperar por ela fazia
+            // `cancelled` nunca acontecer na consulta ao vivo: ex-cliente
+            // aparecia sem sinal de contrato, e o rotulo "Contrato encerrado"
+            // do relatorio era inalcancavel por este caminho.
+            const ativos: any[] = Array.isArray(ctJson?.ContratosAtivos) ? ctJson.ContratosAtivos : [];
             const inativos: any[] = ctJson?.ContratosInativos ?? ctJson?.ContratosCancelados ?? [];
             const escolhido = ativos[0] ?? inativos[0];
-            contractStatus = ativos.length > 0 ? "active" : (inativos.length > 0 ? "cancelled" : undefined);
+            contractStatus = !Array.isArray(ctJson?.ContratosAtivos)
+              ? undefined
+              : ativos.length > 0 ? "active" : "cancelled";
             if (escolhido) {
               contractStartDate = escolhido.data_ativacao || escolhido.DataAtivacao
                 || escolhido.data_contrato || escolhido.DataContrato || undefined;
@@ -725,34 +737,44 @@ export class MkConnector implements ErpConnector {
     let withPending = 0;
     let semDataIgnoradas = 0;
     // Clientes cuja fatura nao pode ser lida. Sair da lista por nao dever e sair
-    // por o MK nao ter respondido davam o mesmo `null`, e quem chama nao tinha
-    // como separar os dois — o sync tratava silencio como "esta em dia" e a
-    // baixa de divida quitada apagava o debito de quem so nao foi lido.
+    // Quem nao pode ser lido. Sair da lista por nao dever e sair por o MK nao
+    // ter respondido davam o mesmo `null`, e quem chama nao tinha como separar
+    // os dois — o sync tratava silencio como "esta em dia" e a baixa apagava o
+    // debito de quem so nao foi lido.
+    //
+    // Quando o documento e conhecido ele vai para `naoLidos` e o sync o protege
+    // individualmente; so o que nem da para nomear entra no contador, que
+    // desliga a limpeza inteira.
+    const naoLidos = new Set<string>();
     let leiturasFalhas = 0;
+    const naoLi = (cliente: any) => {
+      const doc = String(cliente?.CPF_CNPJ ?? cliente?.cpf_cnpj ?? cliente?.CPF ?? cliente?.cpf ?? "").replace(/[^0-9]/g, "");
+      if (doc) naoLidos.add(doc); else leiturasFalhas++;
+      return null;
+    };
 
     for (let i = 0; i < clientes.length; i += CONCURRENCY) {
       const batch = clientes.slice(i, i + CONCURRENCY);
       const batchResults = await Promise.all(
         batch.map(async (cliente: any) => {
           const cdPessoa = String(cliente.CodigoPessoa ?? cliente.codigopessoa ?? cliente.cd_pessoa ?? "");
-          if (!cdPessoa) { leiturasFalhas++; return null; }
+          if (!cdPessoa) return naoLi(cliente);
 
           // 1. Faturas pendentes
           let faturas: any[] = [];
           try {
             const fpUrl = `${base}/mk/WSMKFaturasPendentes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`;
             const fpResp = await fetch(fpUrl, { method: "GET", signal: AbortSignal.timeout(15000) });
-            if (!fpResp.ok) { leiturasFalhas++; return null; }
+            if (!fpResp.ok) return naoLi(cliente);
             const fpJson: any = await fpResp.json().catch(() => null);
             // Envelope ausente e resposta ilegivel, nao "cliente sem fatura":
             // o MK devolve erro com HTTP 200.
-            if (!fpJson || typeof fpJson !== "object") { leiturasFalhas++; return null; }
+            if (!fpJson || typeof fpJson !== "object") return naoLi(cliente);
             const pendentes = fpJson.FaturasPendentes ?? fpJson.faturas_pendentes;
-            if (!Array.isArray(pendentes)) { leiturasFalhas++; return null; }
+            if (!Array.isArray(pendentes)) return naoLi(cliente);
             faturas = pendentes;
           } catch {
-            leiturasFalhas++;
-            return null;
+            return naoLi(cliente);
           }
 
           if (faturas.length === 0) return null; // nao deve nada — resposta boa
@@ -872,15 +894,20 @@ export class MkConnector implements ErpConnector {
       // aqui — silenciar seria esconder inadimplente de verdade.
       console.log(`[MK v2] ${semDataIgnoradas} faturas ignoradas por vencimento ilegivel`);
     }
-    if (leiturasFalhas > 0) {
-      console.log(`[MK v2] ${leiturasFalhas} clientes nao puderam ser lidos — leitura incompleta`);
+    const totalNaoLidos = naoLidos.size + leiturasFalhas;
+    if (totalNaoLidos > 0) {
+      console.log(
+        `[MK v2] ${totalNaoLidos} clientes nao puderam ser lidos `
+        + `(${naoLidos.size} identificados, ${leiturasFalhas} sem documento)`,
+      );
     }
     return {
       ok: true,
-      message: leiturasFalhas > 0
-        ? `${results.length} inadimplentes encontrados (v2), ${leiturasFalhas} clientes nao lidos`
+      message: totalNaoLidos > 0
+        ? `${results.length} inadimplentes encontrados (v2), ${totalNaoLidos} clientes nao lidos`
         : `${results.length} inadimplentes encontrados (v2 per-customer)`,
       customers: results,
+      docsNaoLidos: Array.from(naoLidos),
       leiturasFalhas,
       totalRecords: results.length,
     };
@@ -1207,6 +1234,16 @@ export class MkConnector implements ErpConnector {
       return {
         ok: true,
         message: `${customers.length} inadimplentes encontrados via WSMKFaturasAbertas`,
+        // LEITURA PARCIAL, declarada.
+        //
+        // `WSMKFaturasAbertas` devolve FATURAS de um periodo, nao clientes.
+        // Por isso ela nao serve de prova NEGATIVA: o sync nao pode baixar a
+        // divida de quem nao aparece aqui, porque "nao aparece" nao significa
+        // "nao deve". Sem esta marca, qualquer queda para o legado devolvia
+        // `ok: true` sem sinal de incompletude e a baixa apagava debito real —
+        // a mesma falha que o abort da varredura evita no caminho principal,
+        // entrando por aqui.
+        leituraParcial: true,
         customers,
         totalRecords: customers.length,
       };
@@ -1582,6 +1619,16 @@ export class MkConnector implements ErpConnector {
     return {
       ok: true,
       message: `${customers.length} inadimplentes encontrados (fallback)`,
+      // LEITURA PARCIAL, declarada.
+      //
+      // Este caminho descarta cliente em silencio quando a fatura nao responde.
+      // Por isso ela nao serve de prova NEGATIVA: o sync nao pode baixar a
+      // divida de quem nao aparece aqui, porque "nao aparece" nao significa
+      // "nao deve". Sem esta marca, qualquer queda para o legado devolvia
+      // `ok: true` sem sinal de incompletude e a baixa apagava debito real —
+      // a mesma falha que o abort da varredura evita no caminho principal,
+      // entrando por aqui.
+      leituraParcial: true,
       customers,
       totalRecords: customers.length,
     };
