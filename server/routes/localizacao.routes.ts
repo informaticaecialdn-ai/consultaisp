@@ -4,7 +4,7 @@ import { storage } from "../storage";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { getBackfillStatus, runGeocodeBackfill, varreduraAtiva } from "../services/geocode-backfill.service";
 import { bairrosDaRede, MIN_POR_BAIRRO } from "../services/rede-regional.service";
-import { resolverAreaAtendida } from "../services/area-atendida";
+import { resolverAreaAtendida, normalizarCidade } from "../services/area-atendida";
 import { logger } from "../logger";
 
 /**
@@ -21,6 +21,41 @@ export function registerLocalizacaoRoutes(): Router {
     try {
       const data = await storage.getLocalizacao(req.session.providerId!);
       return res.json(data);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  /**
+   * Tira ou devolve uma cidade ao mapa da carteira.
+   *
+   * O corte automatico e por massa (20 clientes), e ele erra num caso comum: o
+   * endereco de cobranca numa capital junta dezenas de clientes, passa o piso e
+   * nao e praca. Aqui o provedor corrige na mao.
+   *
+   * Guarda o NOME como veio da tela, e a comparacao normaliza dos dois lados —
+   * "Curitiba", "curitiba" e "Curitiba - PR" sao a mesma cidade. Guardar
+   * normalizado faria a lista aparecer sem acento na tela de configuracao.
+   */
+  router.patch("/api/localizacao/cidades/:cidade", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const cidade = String(req.params.cidade || "").trim();
+      if (!cidade) return res.status(400).json({ message: "Informe a cidade" });
+      const excluir = req.body?.excluir === true;
+
+      const providerId = req.session.providerId!;
+      const provider = await storage.getProvider(providerId);
+      const atual = provider?.cidadesExcluidasDoMapa ?? [];
+      const alvo = normalizarCidade(cidade);
+
+      const nova = excluir
+        ? (atual.some(c => normalizarCidade(c) === alvo) ? atual : [...atual, cidade])
+        : atual.filter(c => normalizarCidade(c) !== alvo);
+
+      // updateProviderProfile e o caminho que a Regionalizacao ja usa para
+      // gravar cidadesAtendidas; updateProvider e estreito de proposito.
+      await storage.updateProviderProfile(providerId, { cidadesExcluidasDoMapa: nova } as any);
+      return res.json({ cidade, excluida: excluir, cidadesExcluidasDoMapa: nova });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }

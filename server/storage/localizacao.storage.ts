@@ -63,6 +63,16 @@ export interface LocalizacaoSede {
  */
 export const MIN_CLIENTES_CIDADE = 20;
 
+/** Uma cidade da carteira e a razao de ela estar ou nao no mapa. */
+export interface LocalizacaoCidadeCatalogo {
+  cidade: string;
+  clientes: number;
+  inadimplentes: number;
+  noMapa: boolean;
+  /** massa = passou o piso · poucos = abaixo dele · excluida = o provedor tirou. */
+  motivo: 'massa' | 'poucos' | 'excluida';
+}
+
 export interface LocalizacaoResposta {
   origemArea: OrigemArea;
   /** Endereco cadastrado do provedor: ancora o mapa e marca o ponto de partida. */
@@ -91,6 +101,14 @@ export interface LocalizacaoResposta {
   foraDoMapa: number;
   /** As cidades desses clientes, da maior para a menor. */
   cidadesForaDoMapa: Array<{ cidade: string; clientes: number; inadimplentes: number }>;
+  /**
+   * Toda cidade da carteira, com o porque de estar ou nao no mapa.
+   *
+   * E o que permite a tela oferecer a acao certa em cada linha: "remover" para
+   * quem esta no mapa, "voltar ao mapa" para quem o provedor tirou, e nada para
+   * quem tem cliente de menos — ali nao ha o que decidir.
+   */
+  catalogoCidades: LocalizacaoCidadeCatalogo[];
   pontos: LocalizacaoPonto[];
   bairros: LocalizacaoBairro[];
   /** Carteira por estado — alimenta a legenda sobre o mapa. Conta a carteira
@@ -194,6 +212,7 @@ export class LocalizacaoStorage {
    */
   async getLocalizacao(providerId: number): Promise<LocalizacaoResposta> {
     const area = await resolverAreaAtendida(providerId);
+    const [prov] = await db.select().from(providers).where(eq(providers.id, providerId));
     const sede = await this.buscarSede(providerId, area);
 
     const todos = await db.select().from(customers)
@@ -245,15 +264,33 @@ export class LocalizacaoStorage {
      * clientes espalhados por 37 cidades esticaria o mapa do Parana a Brasilia
      * e afundaria a praca real em zoom.
      */
-    const porCidadeBruta = new Map<string, number>();
+    const porCidadeBruta = new Map<string, { nome: string; clientes: number; inadimplentes: number }>();
     for (const c of todos) {
       const k = normalizarCidade(c.city);
       if (!k) continue;
-      porCidadeBruta.set(k, (porCidadeBruta.get(k) ?? 0) + 1);
+      const e = porCidadeBruta.get(k) ?? { nome: (c.city || "").trim(), clientes: 0, inadimplentes: 0 };
+      e.clientes++;
+      if (c.paymentStatus === "overdue") e.inadimplentes++;
+      porCidadeBruta.set(k, e);
     }
+
+    /*
+     * A ESCOLHA DO PROVEDOR VENCE O CORTE AUTOMATICO.
+     *
+     * O piso de massa acerta na maioria, mas erra num caso comum: o endereco de
+     * cobranca numa capital junta dezenas de clientes, passa o piso e nao e
+     * praca. Na NsLink e Curitiba — 43 clientes, zero inadimplentes.
+     *
+     * Regra so no servidor, nunca no cliente: cidade entra no mapa se tiver
+     * massa E nao estiver na lista de excluidas.
+     */
+    const excluidas = new Set(
+      (prov?.cidadesExcluidasDoMapa ?? []).map(normalizarCidade).filter(Boolean),
+    );
+
     const cidadesDoMapa = new Set(
       Array.from(porCidadeBruta.entries())
-        .filter(([, n]) => n >= MIN_CLIENTES_CIDADE)
+        .filter(([k, v]) => v.clientes >= MIN_CLIENTES_CIDADE && !excluidas.has(k))
         .map(([k]) => k),
     );
 
@@ -261,29 +298,31 @@ export class LocalizacaoStorage {
     const naArea = todos.filter(noMapa);
 
     /*
-     * O QUE O RECORTE ESCONDE — e por que isto precisa sair daqui.
+     * O CATALOGO DE CIDADES — o que a tela precisa para deixar escolher.
      *
-     * A NsLink tinha uma cidade declarada (Londrina) e 1.667 clientes em
-     * Ibipora. A tela mostrava "1.272 de 1.272 pontos", afirmando estar
-     * completa, e o provedor concluiu que nao tinha cliente em Ibipora. Tinha
-     * mais la do que em Londrina.
-     *
-     * Filtro silencioso e pior que filtro errado: o errado se percebe, o
-     * silencioso vira conclusao de negocio. A contagem sai da MESMA varredura,
-     * por subtracao — nao custa query nenhuma.
+     * Sai da MESMA varredura, por classificacao: `motivo` diz POR QUE a cidade
+     * esta ou nao no mapa, e e o que permite a tela oferecer a acao certa —
+     * "remover" para quem esta, "voltar ao mapa" para quem o provedor tirou, e
+     * nada para quem tem cliente de menos, porque nao ha o que decidir ali.
      */
-    const foraLista = todos.filter(c => !noMapa(c));
-    const foraPorCidade = new Map<string, { cidade: string; clientes: number; inadimplentes: number }>();
-    for (const c of foraLista) {
-      const nome = (c.city || "").trim() || "Sem cidade";
-      const chave = normalizarCidade(nome);
-      const e = foraPorCidade.get(chave) ?? { cidade: nome, clientes: 0, inadimplentes: 0 };
-      e.clientes++;
-      if (c.paymentStatus === "overdue") e.inadimplentes++;
-      foraPorCidade.set(chave, e);
-    }
-    const cidadesForaDoMapa = Array.from(foraPorCidade.values())
+    const catalogoCidades: LocalizacaoCidadeCatalogo[] = Array.from(porCidadeBruta.entries())
+      .map(([k, v]) => ({
+        cidade: v.nome || "Sem cidade",
+        clientes: v.clientes,
+        inadimplentes: v.inadimplentes,
+        noMapa: cidadesDoMapa.has(k),
+        motivo: excluidas.has(k)
+          ? ("excluida" as const)
+          : v.clientes < MIN_CLIENTES_CIDADE
+            ? ("poucos" as const)
+            : ("massa" as const),
+      }))
       .sort((a, b) => b.clientes - a.clientes);
+
+    const foraLista = todos.filter(c => !noMapa(c));
+    const cidadesForaDoMapa = catalogoCidades
+      .filter(c => !c.noMapa)
+      .map(({ cidade, clientes, inadimplentes }) => ({ cidade, clientes, inadimplentes }));
 
     const pontos: LocalizacaoPonto[] = [];
     let semCoordenada = 0;
@@ -408,6 +447,7 @@ export class LocalizacaoStorage {
       cidadesSemCliente,
       foraDoMapa: foraLista.length,
       cidadesForaDoMapa,
+      catalogoCidades,
       pontos: coerentes,
       // Ordem de chegada do ranking: pior taxa primeiro, e em empate a maior
       // divida. E a ordem que o "bairro campeao" assume ao desempatar.

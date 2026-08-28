@@ -33,6 +33,15 @@ export const providers = pgTable("providers", {
   proactiveAlertWebhookUrl: text("proactive_alert_webhook_url"),
   cidadesAtendidas: text("cidades_atendidas").array().default(sql`'{}'::text[]`),
   mesorregioes: text("mesorregioes").array().default(sql`'{}'::text[]`),
+  /**
+   * Cidades que o provedor tirou do mapa da carteira na mao.
+   *
+   * NAO e o contrario de `cidadesAtendidas`: aquela declara onde ele vende e
+   * governa o modo Regionalizacao, que traz dado de outros provedores. Esta
+   * so esconde ponto no mapa dele mesmo — para o caso do endereco de cobranca
+   * numa capital, que passa o corte de 20 clientes e nao e praca.
+   */
+  cidadesExcluidasDoMapa: text("cidades_excluidas_do_mapa").array().default(sql`'{}'::text[]`),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

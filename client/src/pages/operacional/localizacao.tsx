@@ -33,6 +33,11 @@ type Resposta = {
   /** Clientes que o recorte territorial deixou de fora do mapa. */
   foraDoMapa: number;
   cidadesForaDoMapa: Array<{ cidade: string; clientes: number; inadimplentes: number }>;
+  /** Toda cidade da carteira, com o porque de estar ou nao no mapa. */
+  catalogoCidades: Array<{
+    cidade: string; clientes: number; inadimplentes: number;
+    noMapa: boolean; motivo: 'massa' | 'poucos' | 'excluida';
+  }>;
   pontos: PontoMapa[];
   bairros: BairroRanking[];
   porEstado: Record<EstadoCliente, number>;
@@ -123,6 +128,22 @@ export default function LocalizacaoPage() {
     onError: (e: Error) => toast({ title: "Não foi possível iniciar", description: e.message, variant: "destructive" }),
   });
 
+  // Só admin muda o recorte do mapa: é configuração da conta, não filtro de
+  // sessão — o que um operador tira some para todos.
+  const podeAdministrar = user?.role === 'admin' || user?.role === 'superadmin';
+  const [cidadeMexendo, setCidadeMexendo] = useState<string | null>(null);
+
+  const alternarCidade = useMutation({
+    mutationFn: async ({ cidade, excluir }: { cidade: string; excluir: boolean }) =>
+      (await apiRequest("PATCH", `/api/localizacao/cidades/${encodeURIComponent(cidade)}`, { excluir })).json(),
+    onSuccess: (_r, v) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/localizacao"] });
+      toast({ title: v.excluir ? `${v.cidade} saiu do mapa` : `${v.cidade} voltou ao mapa` });
+    },
+    onError: (e: Error) => toast({ title: "Não foi possível alterar", description: e.message, variant: "destructive" }),
+    onSettled: () => setCidadeMexendo(null),
+  });
+
   const [fCidade, setFCidade] = useState<string | null>(null);
   const [fEstado, setFEstado] = useState<EstadoCliente | "todos">("todos");
   const [fDivida, setFDivida] = useState("todas");
@@ -172,6 +193,8 @@ export default function LocalizacaoPage() {
   const todosBairros = data?.bairros ?? [];
   const cidades = data?.cidades ?? [];
   const semCliente = data?.cidadesSemCliente ?? [];
+  const noMapa = (data?.catalogoCidades ?? []).filter(c => c.noMapa);
+  const foraDoMapa = (data?.catalogoCidades ?? []).filter(c => !c.noMapa);
   const cidadesPlotaveis = cidades.filter(c => c.lat !== null && c.lon !== null);
   const cidadesAtendidas = cidades.length + semCliente.length;
   const totalCarteira = cidades.reduce((s, c) => s + c.clientes, 0);
@@ -277,40 +300,90 @@ export default function LocalizacaoPage() {
         </div>
       )}
 
-      {/* Cidade com punhado de cliente fica fora do mapa, e a tela diz isso.
-          Não é área de atuação — é endereço avulso: cliente que mudou, cobrança
-          com endereço de escritório, capital digitada por engano. Plotar seis
-          clientes espalhados por 37 cidades esticaria o mapa até Brasília e
-          afundaria a praça real em zoom. */}
-      {(data?.foraDoMapa ?? 0) > 0 && (
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3">
-          <p className="text-[12.5px] text-[var(--text-muted)] leading-relaxed">
-            <strong className="font-semibold text-[var(--text-2)]">
-              {num(data!.foraDoMapa)} cliente{data!.foraDoMapa === 1 ? "" : "s"} fora do mapa
-            </strong>
-            {" "}— em {data!.cidadesForaDoMapa.length} cidade
-            {data!.cidadesForaDoMapa.length === 1 ? "" : "s"} com menos de {MIN_CLIENTES_CIDADE} clientes
-            cada. Endereço avulso não é praça: plotar espalharia o mapa e afundaria
-            a sua região em zoom.
-          </p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {(data?.cidadesForaDoMapa ?? []).slice(0, 8).map(c => (
-              <span
-                key={c.cidade}
-                className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 font-mono text-[10px] tabular-nums text-[var(--text-muted)]"
-                title={`${c.inadimplentes} inadimplente(s)`}
-              >
-                {c.cidade}
-                <strong className="font-semibold text-[var(--text-2)]">{num(c.clientes)}</strong>
-              </span>
-            ))}
-            {(data?.cidadesForaDoMapa?.length ?? 0) > 8 && (
-              <span className="inline-flex items-center px-2 py-0.5 font-mono text-[10px] text-[var(--text-faint)]">
-                +{(data!.cidadesForaDoMapa.length - 8)}
-              </span>
-            )}
+      {/* CIDADES NO MAPA — o corte automático, e a correção dele na mão.
+          O piso de 20 clientes acerta na maioria e erra num caso comum: o
+          endereço de cobrança numa capital junta dezenas de clientes, passa o
+          piso e não é praça. Por isso a lista é operável, não só informativa. */}
+      {(data?.catalogoCidades?.length ?? 0) > 1 && (
+        <details className="rounded-lg border border-[var(--border)] bg-[var(--surface)]" data-testid="painel-cidades">
+          <summary className="cursor-pointer list-none px-4 py-3 flex items-center justify-between gap-3">
+            <span className="text-[12.5px] text-[var(--text-2)]">
+              <strong className="font-semibold text-[var(--text)]">
+                {noMapa.length} cidade{noMapa.length === 1 ? "" : "s"} no mapa
+              </strong>
+              {foraDoMapa.length > 0 && (
+                <span className="text-[var(--text-muted)]">
+                  {" "}· {foraDoMapa.length} fora ({num(data!.foraDoMapa)} cliente{data!.foraDoMapa === 1 ? "" : "s"})
+                </span>
+              )}
+            </span>
+            <span className="font-mono text-[10px] uppercase tracking-[0.06em] text-[var(--text-faint)]">
+              escolher
+            </span>
+          </summary>
+
+          <div className="border-t border-[var(--border-faint)] px-4 py-3">
+            <p className="text-[11.5px] text-[var(--text-muted)] leading-relaxed mb-3">
+              Cidade com menos de {MIN_CLIENTES_CIDADE} clientes fica fora sozinha —
+              endereço avulso não é praça. As demais você escolhe.
+            </p>
+
+            <div className="flex flex-col">
+              {(data?.catalogoCidades ?? []).map(c => {
+                const podeMexer = c.motivo !== 'poucos';
+                const emAndamento = alternarCidade.isPending && cidadeMexendo === c.cidade;
+                return (
+                  <div
+                    key={c.cidade}
+                    className="flex items-center justify-between gap-3 py-2 border-b border-[var(--border-faint)] last:border-b-0"
+                    data-testid={`cidade-${c.cidade}`}
+                  >
+                    <div className="min-w-0 flex items-baseline gap-2">
+                      <span className={`text-[13px] ${c.noMapa ? "text-[var(--text)]" : "text-[var(--text-muted)]"}`}>
+                        {c.cidade}
+                      </span>
+                      <span className="font-mono text-[11px] tabular-nums text-[var(--text-muted)]">
+                        {num(c.clientes)}
+                      </span>
+                      {c.inadimplentes > 0 && (
+                        <span className="font-mono text-[10.5px] tabular-nums text-[var(--past)]">
+                          {num(c.inadimplentes)} inad.
+                        </span>
+                      )}
+                    </div>
+
+                    {c.motivo === 'poucos' ? (
+                      <span className="font-mono text-[9.5px] uppercase tracking-[0.06em] text-[var(--text-faint)] shrink-0">
+                        poucos clientes
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={!podeAdministrar || emAndamento}
+                        onClick={() => {
+                          setCidadeMexendo(c.cidade);
+                          alternarCidade.mutate({ cidade: c.cidade, excluir: c.noMapa });
+                        }}
+                        className="ds-ctl shrink-0 rounded border px-2 py-1 font-mono text-[9.5px] uppercase tracking-[0.06em] disabled:opacity-50"
+                        style={{
+                          borderColor: c.noMapa ? "var(--border)" : "var(--brand)",
+                          color: c.noMapa ? "var(--text-muted)" : "var(--brand)",
+                          background: "var(--surface)",
+                        }}
+                        title={podeAdministrar
+                          ? (c.noMapa ? "Tirar do mapa" : "Voltar ao mapa")
+                          : "Só administradores mudam isto"}
+                        data-testid={`toggle-cidade-${c.cidade}`}
+                      >
+                        {emAndamento ? "…" : c.noMapa ? "tirar do mapa" : "voltar ao mapa"}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        </details>
       )}
 
       {/* ── Os quatro KPIs ── */}
