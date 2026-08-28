@@ -15,9 +15,12 @@ import { describe, it, expect } from "vitest";
 import { situacaoParaStatus } from "./mk";
 
 describe("situacaoParaStatus", () => {
-  it("reconhece as formas de ativo", () => {
+  it("\"Ativo\" NAO vira contrato ativo — e o ponto da funcao", () => {
+    // Medido em 28/08/2026: dos 754 cadastros "Ativo" do MK da NsLink, 560 nao
+    // tem contrato nenhum. "Ativo" descreve o CADASTRO, nao o vinculo. Quem
+    // afirma contrato vigente e WSMKContratosPorCliente, e so ele.
     for (const s of ["Ativo", "ATIVO", "ativo", "Ativa", " ativo "]) {
-      expect(situacaoParaStatus(s)).toBe("active");
+      expect(situacaoParaStatus(s)).toBeUndefined();
     }
   });
 

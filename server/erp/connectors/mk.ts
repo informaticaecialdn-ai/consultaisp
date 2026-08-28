@@ -33,26 +33,37 @@ import { cleanCpfCnpj, cleanPhone, calculateDaysOverdue, aggregateByCustomer } f
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
 /**
- * `Situacao` do cliente no MK -> status do contrato.
+ * `Situacao` do CLIENTE no MK -> status do contrato. Assimetrica de proposito.
  *
- * Devolve `undefined` quando nao reconhece, e isso importa: o upsert so escreve
- * `status` quando ele vem preenchido. Chutar "ativo" para uma situacao
- * desconhecida foi o que deixou ex-cliente cortado por calote passando por
- * cliente em dia — no bureau, o erro mais caro que existe.
+ * ── O QUE A MEDICAO MOSTROU (28/08/2026, base da NsLink) ───────────────────
  *
- * A lista de rotulos saiu do payload real do WSMKConsultaClientes. Se aparecer
- * um valor novo, ele cai em `undefined` e o status anterior fica de pe, que e o
- * desfecho seguro: nao saber nao e motivo para reescrever.
+ * `WSMKConsultaClientes` devolve 785 cadastros: 754 "Ativo" e 31 "Inativo".
+ * Desses 754 "Ativo", 560 NAO TEM CONTRATO NENHUM e 194 tem contratos sem
+ * nenhum ativo. Ou seja: "Ativo" ali descreve o CADASTRO da pessoa, nao o
+ * vinculo. O provedor cancela o contrato e o cadastro segue ativo para
+ * cobranca, historico e recontratacao.
+ *
+ * Por isso "Ativo" devolve `undefined` — nao e evidencia de contrato vigente.
+ * Tratar como se fosse carimbaria `active` em 560 ex-clientes, incluindo os
+ * cortados por calote, que e exatamente o defeito que se quer corrigir. Quem
+ * afirma contrato ativo e `WSMKContratosPorCliente` (ContratosAtivos), e so ele.
+ *
+ * "Inativo" no cadastro, ao contrario, E evidencia: ninguem inativa cadastro de
+ * cliente que esta na base. Esse lado vale.
+ *
+ * A assimetria e a decisao central desta funcao: no bureau, afirmar vinculo sem
+ * prova entrega caloteiro como cliente limpo ao provedor vizinho; afirmar
+ * ex-cliente a mais custa uma conferencia.
  */
 export function situacaoParaStatus(
   situacao: unknown,
-): "active" | "cancelled" | "suspended" | undefined {
+): "cancelled" | "suspended" | undefined {
   const s = String(situacao ?? "").trim().toLowerCase();
   if (!s) return undefined;
-  if (s.startsWith("ativ")) return "active";
   if (s.startsWith("suspens") || s.startsWith("bloque")) return "suspended";
   if (s.startsWith("cancel") || s.startsWith("inativ") || s.startsWith("desativ")
       || s.startsWith("desabilit") || s.startsWith("encerrad")) return "cancelled";
+  // "Ativo" cai aqui, e e o ponto: cadastro ativo nao prova contrato vigente.
   return undefined;
 }
 
@@ -1227,7 +1238,12 @@ export class MkConnector implements ErpConnector {
 
           return {
             cpfCnpj,
-            // A SITUACAO do cliente vinha no payload e ninguem a lia.
+            // A SITUACAO do cliente vinha no payload e ninguem a lia — mas ela
+            // so vale para o lado NEGATIVO. Ver situacaoParaStatus: "Ativo" no
+            // cadastro nao prova contrato vigente (560 dos 754 "Ativo" da
+            // NsLink nao tem contrato nenhum), entao "Ativo" devolve undefined
+            // e nada e escrito. "Inativo" sim: ninguem inativa cadastro de
+            // cliente que esta na base.
             //
             // Sem ela, `status` so era escrito para quem aparecia na lista de
             // inadimplentes, e ninguem podia ser REBAIXADO para cancelado:
