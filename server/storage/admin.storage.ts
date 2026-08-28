@@ -24,13 +24,19 @@ export class AdminStorage {
     return updated;
   }
 
+  /**
+   * Concede credito ao provedor. O credito e UNICO: os tres argumentos sao
+   * somados e entram todos em `isp_credits`, que virou o saldo universal.
+   *
+   * A assinatura de tres campos ficou por compatibilidade com o formulario do
+   * admin e com chamadores antigos. Manter tres colunas separadas fazia o
+   * credito concedido como "bigdata" cair num bolso que nenhuma tela mostra e
+   * nenhuma compra alimenta — ver migration 0008.
+   */
   async addCredits(providerId: number, ispCredits: number, spcCredits: number, bigdataCredits = 0): Promise<Provider> {
+    const total = (ispCredits || 0) + (spcCredits || 0) + (bigdataCredits || 0);
     const [updated] = await db.update(providers)
-      .set({
-        ispCredits: sql`${providers.ispCredits} + ${ispCredits}`,
-        spcCredits: sql`${providers.spcCredits} + ${spcCredits}`,
-        bigdataCredits: sql`${providers.bigdataCredits} + ${bigdataCredits}`,
-      })
+      .set({ ispCredits: sql`${providers.ispCredits} + ${total}` })
       .where(eq(providers.id, providerId))
       .returning();
     return updated;

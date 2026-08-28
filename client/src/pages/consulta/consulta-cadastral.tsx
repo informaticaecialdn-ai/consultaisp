@@ -7,6 +7,7 @@ import ConsultaSearchBar from "@/components/consulta/ConsultaSearchBar";
 import LgpdDisclaimerModal from "@/components/consulta/LgpdDisclaimerModal";
 import CadastralResultReport from "@/components/consulta/CadastralResultReport";
 import type { ResultadoCadastral } from "@/components/consulta/cadastral-tipos";
+import { CUSTO_EM_CREDITOS } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -417,7 +418,7 @@ export default function ConsultaCadastralPage() {
                   inputTestId="input-consulta-search"
                   kicker="Nova consulta · CPF ou CNPJ"
                   selo="Bureau de dados cadastrais"
-                  custos={["Consulta · 1 crédito"]}
+                  custos={[`Consulta · ${CUSTO_EM_CREDITOS.cadastral} créditos · R$ ${CUSTO_EM_CREDITOS.cadastral},00`]}
                   notaLegal="Consulta registrada para auditoria · LGPD art. 7º, X — proteção ao crédito"
                 />
 
@@ -531,7 +532,7 @@ export default function ConsultaCadastralPage() {
               <p className="text-[13px] text-[var(--text-muted)] mt-1 leading-relaxed">
 Bases públicas e cadastrais consolidadas, com credencial própria do seu
                 provedor — o consumo e o custo ficam separados por provedor. Cada
-                consulta usa 1 crédito.
+                consulta usa {CUSTO_EM_CREDITOS.cadastral} créditos.
               </p>
             </div>
           </div>

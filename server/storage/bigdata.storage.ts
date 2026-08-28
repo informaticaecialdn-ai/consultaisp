@@ -75,11 +75,22 @@ export class BigdataStorage {
    * WHERE precisa exigir os 17, nao apenas saldo > 0. Sem isso um provedor com
    * 3 creditos rodaria uma Premium e ficaria com saldo negativo.
    */
+  /**
+   * Debita do SALDO UNICO, em `isp_credits`.
+   *
+   * Debitava de `bigdata_credits`, um bolso separado que a tela de compra nunca
+   * alimentou — ela sempre vendeu "creditos universais" e gravou tudo em
+   * `isp_credits`. O provedor via 187 creditos de saldo e a Consulta Cadastral
+   * respondia "saldo insuficiente, voce tem 0". Nao era erro de conta: eram
+   * dois cofres, e o dinheiro estava no outro.
+   *
+   * A migration 0008 somou os saldos antigos de spc e bigdata em isp_credits.
+   */
   async debitarCredito(providerId: number, quantidade = 1): Promise<boolean> {
     const n = Math.max(1, Math.trunc(quantidade));
     const linhas = await db.update(providers)
-      .set({ bigdataCredits: sql`${providers.bigdataCredits} - ${n}` })
-      .where(and(eq(providers.id, providerId), sql`${providers.bigdataCredits} >= ${n}`))
+      .set({ ispCredits: sql`${providers.ispCredits} - ${n}` })
+      .where(and(eq(providers.id, providerId), sql`${providers.ispCredits} >= ${n}`))
       .returning({ id: providers.id });
     return linhas.length > 0;
   }
@@ -88,7 +99,7 @@ export class BigdataStorage {
   async estornarCredito(providerId: number, quantidade = 1): Promise<void> {
     const n = Math.max(1, Math.trunc(quantidade));
     await db.update(providers)
-      .set({ bigdataCredits: sql`${providers.bigdataCredits} + ${n}` })
+      .set({ ispCredits: sql`${providers.ispCredits} + ${n}` })
       .where(eq(providers.id, providerId));
   }
 }

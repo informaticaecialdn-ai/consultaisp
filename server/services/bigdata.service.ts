@@ -13,6 +13,7 @@
  * por tenant, para consumo e custo aparecerem separados tambem no bureau.
  */
 
+import { CUSTO_EM_CREDITOS } from "@shared/schema";
 import { logger } from "../logger";
 import { CircuitBreaker, withResilience } from "../erp/resilience";
 import { faixaRendaEmReais, type DadosCadastrais, type EnderecoCadastral } from "./bigdata-veredito";
@@ -228,7 +229,10 @@ export const NIVEIS: Record<NivelConsulta, {
     descricao: "Receita, endereço, renda, cobranças e processos",
     datasets: DATASETS,
     sondas: false,
-    creditos: 1,
+    // R$ 2,00, porque o credito vale R$ 1,00. Vem de CUSTO_EM_CREDITOS e nao de
+    // um literal aqui: numero de preco duplicado e numero que um dia diverge, e
+    // divergir aqui significa cobrar diferente do que a tela anunciou.
+    creditos: CUSTO_EM_CREDITOS.cadastral,
     /**
      * R$ 1,14 dos 19 datasets + R$ 0,07 do address_risk (chamada a /enderecos).
      *

@@ -503,59 +503,53 @@ export type InsertProviderPartner = z.infer<typeof insertProviderPartnerSchema>;
 export type ProviderDocument = typeof providerDocuments.$inferSelect;
 export type InsertProviderDocument = z.infer<typeof insertProviderDocumentSchema>;
 
-export const ISP_CREDIT_PACKAGES = [
-  { id: "isp-50",   name: "50 Consultas ISP",   credits: 50,   price: 4990,  priceLabel: "R$ 49,90",  perUnit: "R$ 1,00/consulta" },
-  { id: "isp-100",  name: "100 Consultas ISP",  credits: 100,  price: 8990,  priceLabel: "R$ 89,90",  perUnit: "R$ 0,90/consulta", popular: true },
-  { id: "isp-250",  name: "250 Consultas ISP",  credits: 250,  price: 19990, priceLabel: "R$ 199,90", perUnit: "R$ 0,80/consulta" },
-  { id: "isp-500",  name: "500 Consultas ISP",  credits: 500,  price: 34990, priceLabel: "R$ 349,90", perUnit: "R$ 0,70/consulta" },
-];
-
-export const SPC_CREDIT_PACKAGES = [
-  { id: "spc-10",   name: "10 Consultas SPC",   credits: 10,   price: 4990,  priceLabel: "R$ 49,90",  perUnit: "R$ 4,99/consulta" },
-  { id: "spc-30",   name: "30 Consultas SPC",   credits: 30,   price: 12990, priceLabel: "R$ 129,90", perUnit: "R$ 4,33/consulta", popular: true },
-  { id: "spc-50",   name: "50 Consultas SPC",   credits: 50,   price: 19990, priceLabel: "R$ 199,90", perUnit: "R$ 4,00/consulta" },
-  { id: "spc-100",  name: "100 Consultas SPC",  credits: 100,  price: 34990, priceLabel: "R$ 349,90", perUnit: "R$ 3,50/consulta" },
+/**
+ * CREDITO UNICO, VALIDO PARA TODA CONSULTA DO SISTEMA.
+ *
+ * Antes existiam tres bolsos separados — isp_credits, spc_credits e
+ * bigdata_credits — cada um com o proprio pacote e a propria tabela de preco.
+ * Na pratica isso produzia o defeito que o provedor via na tela: saldo de 187
+ * creditos e a Consulta Cadastral respondendo "saldo insuficiente, voce tem 0",
+ * porque ela debitava de um bolso que ninguem nunca comprou.
+ *
+ * Agora ha um saldo so. O que varia e QUANTOS creditos cada consulta consome,
+ * nao de onde ela tira. O saldo vive em `providers.isp_credits`, que virou o
+ * campo universal — as outras duas colunas foram zeradas e somadas nela pela
+ * migration 0008; ficam no schema porque `credit_orders` e `provider_invoices`
+ * as referenciam em registros historicos.
+ */
+export const CREDIT_PACKAGES = [
+  { id: "credits-50",  name: "50 créditos",  credits: 50,  price: 5000,  priceLabel: "R$ 50,00",  perUnit: "R$ 1,00/crédito" },
+  { id: "credits-100", name: "100 créditos", credits: 100, price: 10000, priceLabel: "R$ 100,00", perUnit: "R$ 1,00/crédito", popular: true },
+  { id: "credits-250", name: "250 créditos", credits: 250, price: 25000, priceLabel: "R$ 250,00", perUnit: "R$ 1,00/crédito" },
+  { id: "credits-500", name: "500 créditos", credits: 500, price: 50000, priceLabel: "R$ 500,00", perUnit: "R$ 1,00/crédito" },
 ];
 
 /**
- * Consulta Cadastral (BigDataCorp). Custo medido na API de precos da conta em
- * 2026-08-22: R$ 0,77 por consulta com o combo completo de 14 datasets mais o
- * risco de area. A R$ 1,00 a margem e de R$ 0,23 — e a BigData ainda da 500
- * consultas gratis por mes, que no comeco cobrem o custo inteiro.
+ * Quanto cada consulta consome do saldo. Credito vale R$ 1,00, entao o numero
+ * aqui e o preco em reais.
  *
- * Ao mexer no combo em server/services/bigdata.service.ts, revise estes precos:
- * cada dataset e cobrado a parte, entao tirar um economiza de verdade.
+ * SEM DESCONTO POR VOLUME, de proposito: o pacote maior nao barateia a consulta,
+ * so evita recarga. Preco de consulta que muda conforme o tamanho da compra e
+ * dificil de explicar no suporte e impossivel de conferir numa fatura.
+ *
+ * - `isp` (R$ 1,00): consulta a rede colaborativa. Custo nosso e proximo de
+ *   zero — e banco proprio, sem bureau externo.
+ * - `cadastral` (R$ 2,00): BigDataCorp. Custa R$ 1,21 de 19 datasets mais o
+ *   risco de area (preco DA CONTA, medido em POST /precos em 28/08/2026).
+ *   Margem de R$ 0,79, 40%. Ao mexer no combo em
+ *   server/services/bigdata.service.ts, refaca essa conta: cada dataset e
+ *   cobrado a parte.
+ * - `spc` (R$ 4,00): SPC Brasil. O mais caro dos tres porque o bureau cobra
+ *   mais e a consulta e negativacao formal.
  */
-export const BIGDATA_CREDIT_PACKAGES = [
-  // Repreçado em 27/08/2026, de R$ 1,00 para R$ 2,00 na entrada.
-  //
-  // A consulta passou a somar 22 datasets e custa R$ 1,69 pela tabela publica
-  // da BigData (faixa 1-10 mil/mes), ou ~R$ 1,47 com o desconto que a conta
-  // tinha. Nos precos anteriores TODA consulta saia no prejuizo: o pacote de
-  // 500 recebia R$ 0,70 por algo que custa R$ 1,69.
-  //
-  // A entrada em R$ 2,50 e o que compra o desconto por volume: da R$ 0,81 de
-  // margem no pacote pequeno, e essa folga permite descer 20% ate o de 500 sem
-  // que o maior deles chegue perto do custo. A R$ 2,00 de entrada o desconto
-  // teria de ficar em 7,5%, porque abaixo de R$ 1,85 a margem some.
-  //
-  // O piso e R$ 2,00: 18% acima do custo publico de R$ 1,69. Nao descer dele
-  // sem antes recalcular NIVEIS em server/services/bigdata.service.ts — cada
-  // dataset acrescentado ao combo empurra esse piso para cima.
-  //
-  // Margem sobre a tabela publica: R$ 0,81 / 0,66 / 0,51 / 0,31 por consulta
-  // (32% / 28% / 23% / 15%). Com o desconto de conta vai a 26-41%.
-  { id: "bigdata-50",  name: "50 Consultas Cadastrais",  credits: 50,  price: 12490, priceLabel: "R$ 124,90", perUnit: "R$ 2,50/consulta" },
-  { id: "bigdata-100", name: "100 Consultas Cadastrais", credits: 100, price: 23490, priceLabel: "R$ 234,90", perUnit: "R$ 2,35/consulta", popular: true },
-  { id: "bigdata-250", name: "250 Consultas Cadastrais", credits: 250, price: 54990, priceLabel: "R$ 549,90", perUnit: "R$ 2,20/consulta" },
-  { id: "bigdata-500", name: "500 Consultas Cadastrais", credits: 500, price: 99990, priceLabel: "R$ 999,90", perUnit: "R$ 2,00/consulta" },
-];
+export const CUSTO_EM_CREDITOS = {
+  isp: 1,
+  cadastral: 2,
+  spc: 4,
+} as const;
 
-export const CREDIT_PACKAGES = [
-  ...ISP_CREDIT_PACKAGES.map(p => ({ ...p, creditType: "isp" as const })),
-  ...SPC_CREDIT_PACKAGES.map(p => ({ ...p, creditType: "spc" as const })),
-  ...BIGDATA_CREDIT_PACKAGES.map(p => ({ ...p, creditType: "bigdata" as const })),
-];
+export type TipoConsultaCobravel = keyof typeof CUSTO_EM_CREDITOS;
 
 export const PLAN_PRICES: Record<string, number> = {
   free: 0,

@@ -608,7 +608,7 @@ export default function PainelProvedorPage() {
                 </div>
                 <div className="flex justify-between items-center py-2">
                   <span className="text-sm text-muted-foreground">Creditos</span>
-                  <span className="font-semibold" data-testid="text-isp-credits">{(provider?.ispCredits ?? 0) + (provider?.spcCredits ?? 0)}</span>
+                  <span className="font-semibold" data-testid="text-isp-credits">{(provider?.ispCredits ?? 0)}</span>
                 </div>
               </div>
             </Card>
@@ -1429,7 +1429,7 @@ export default function PainelProvedorPage() {
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Saldo de Creditos</p>
-                    <p className="text-3xl font-bold" data-testid="text-isp-credits-tab">{(provider?.ispCredits ?? 0) + (provider?.spcCredits ?? 0)}</p>
+                    <p className="text-3xl font-bold" data-testid="text-isp-credits-tab">{(provider?.ispCredits ?? 0)}</p>
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">

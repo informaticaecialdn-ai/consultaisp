@@ -22,19 +22,18 @@ export function registerCreditsRoutes(): Router {
     try {
       if (!req.session.providerId) return res.status(403).json({ message: "Somente provedores" });
       const { packageId, billingType } = req.body;
-      const { ISP_CREDIT_PACKAGES, SPC_CREDIT_PACKAGES, BIGDATA_CREDIT_PACKAGES } =
-        await import("@shared/schema");
+      const { CREDIT_PACKAGES } = await import("@shared/schema");
 
-      const ispPkg = ISP_CREDIT_PACKAGES.find(p => p.id === packageId);
-      const spcPkg = SPC_CREDIT_PACKAGES.find(p => p.id === packageId);
-      const bigPkg = BIGDATA_CREDIT_PACKAGES.find(p => p.id === packageId);
-      const pkg = ispPkg || spcPkg || bigPkg;
-      if (!pkg) return res.status(400).json({ message: "Pacote invalido" });
+      const pkg = CREDIT_PACKAGES.find(p => p.id === packageId);
+      if (!pkg) return res.status(400).json({ message: "Pacote inválido" });
 
-      const creditType = ispPkg ? "isp" : spcPkg ? "spc" : "bigdata";
-      const ispCredits = ispPkg ? pkg.credits : 0;
-      const spcCredits = spcPkg ? pkg.credits : 0;
-      const bigdataCredits = bigPkg ? pkg.credits : 0;
+      // Credito e UNICO: tudo entra em ispCredits, que virou o saldo universal.
+      // As outras duas colunas seguem no schema por causa dos pedidos antigos
+      // gravados, mas nenhuma compra nova as alimenta.
+      const creditType = "universal";
+      const ispCredits = pkg.credits;
+      const spcCredits = 0;
+      const bigdataCredits = 0;
 
       const provider = await storage.getProvider(req.session.providerId);
       if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
@@ -108,29 +107,26 @@ export function registerCreditsRoutes(): Router {
 
   router.post("/api/admin/credit-orders", requireSuperAdmin, async (req, res) => {
     try {
-      const { providerId, packageId, creditType: reqCreditType, customCredits, customAmount, notes, billingType } = req.body;
-      const { ISP_CREDIT_PACKAGES, SPC_CREDIT_PACKAGES } = await import("@shared/schema");
+      const { providerId, packageId, customCredits, customAmount, notes, billingType } = req.body;
+      const { CREDIT_PACKAGES } = await import("@shared/schema");
       const provider = await storage.getProvider(parseInt(providerId));
-      if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
+      if (!provider) return res.status(404).json({ message: "Provedor não encontrado" });
       const me = await storage.getUser(req.session.userId!);
 
-      let ispCredits: number, spcCredits: number, amount: string, packageName: string, creditType: string;
+      // Credito unico: o admin nao escolhe mais o tipo, so a quantidade.
+      const creditType = "universal";
+      const spcCredits = 0;
+      let ispCredits: number, amount: string, packageName: string;
       if (packageId && packageId !== "custom") {
-        const ispPkg = ISP_CREDIT_PACKAGES.find(p => p.id === packageId);
-        const spcPkg = SPC_CREDIT_PACKAGES.find(p => p.id === packageId);
-        const pkg = ispPkg || spcPkg;
-        if (!pkg) return res.status(400).json({ message: "Pacote invalido" });
-        creditType = ispPkg ? "isp" : "spc";
-        ispCredits = ispPkg ? pkg.credits : 0;
-        spcCredits = spcPkg ? pkg.credits : 0;
-        amount = (pkg.price / 100).toFixed(2); packageName = pkg.name;
+        const pkg = CREDIT_PACKAGES.find(p => p.id === packageId);
+        if (!pkg) return res.status(400).json({ message: "Pacote inválido" });
+        ispCredits = pkg.credits;
+        amount = (pkg.price / 100).toFixed(2);
+        packageName = pkg.name;
       } else {
-        creditType = reqCreditType || "isp";
-        const credits = parseInt(customCredits) || 0;
-        ispCredits = creditType === "isp" ? credits : 0;
-        spcCredits = creditType === "spc" ? credits : 0;
+        ispCredits = parseInt(customCredits) || 0;
         amount = parseFloat(customAmount || "0").toFixed(2);
-        packageName = `Personalizado ${creditType.toUpperCase()}`;
+        packageName = `Personalizado · ${ispCredits} créditos`;
       }
 
       const orderNumber = await storage.getNextOrderNumber();

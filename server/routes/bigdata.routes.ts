@@ -135,7 +135,7 @@ export function registerBigdataRoutes(): Router {
 
       return res.json({
         consultations,
-        credits: provider?.bigdataCredits ?? 0,
+        credits: provider?.ispCredits ?? 0,
         todayCount: consultations.filter(c => em(c.createdAt, hoje)).length,
         monthCount: consultations.filter(c => em(c.createdAt, inicioMes)).length,
         // Catalogo dos niveis para a tela montar o seletor. `custoBrl` fica no
@@ -198,9 +198,9 @@ export function registerBigdataRoutes(): Router {
           const provider = await storage.getProvider(providerId);
           return res.status(402).json({
             message: `Saldo insuficiente: a consulta custa ${custoCreditos} crédito(s) `
-              + `e você tem ${provider?.bigdataCredits ?? 0}`,
+              + `e você tem ${provider?.ispCredits ?? 0}`,
             creditosNecessarios: custoCreditos,
-            creditosDisponiveis: provider?.bigdataCredits ?? 0,
+            creditosDisponiveis: provider?.ispCredits ?? 0,
           });
         }
 
@@ -282,9 +282,9 @@ export function registerBigdataRoutes(): Router {
         const provider = await storage.getProvider(providerId);
         return res.status(402).json({
           message: `Saldo insuficiente: a consulta ${NIVEIS[nivel].rotulo} custa `
-            + `${custoCreditos} crédito(s) e você tem ${provider?.bigdataCredits ?? 0}`,
+            + `${custoCreditos} crédito(s) e você tem ${provider?.ispCredits ?? 0}`,
           creditosNecessarios: custoCreditos,
-          creditosDisponiveis: provider?.bigdataCredits ?? 0,
+          creditosDisponiveis: provider?.ispCredits ?? 0,
         });
       }
 
