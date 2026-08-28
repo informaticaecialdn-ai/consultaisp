@@ -56,15 +56,22 @@ export function diasDesdeVencimento(dueDate: string | Date | null | undefined): 
     // meia-noite UTC, que em Brasilia ja e dia 26 — a fatura nascia com um dia
     // de atraso a mais. Sem regex de proposito: partir na barra e no traco le
     // melhor e nao esconde escape.
-    const barra = dueDate.split("/");
-    const traco = dueDate.split("-");
+    // Componente de hora e cortado antes de partir. O ramo ISO ja tolerava o
+    // sufixo (`new Date` cuida dele), mas o ramo BR exigia ano de 4 digitos
+    // no ultimo pedaco, entao "20/08/2026 14:30" caia em `new Date(...)` e
+    // virava Invalid Date. Enquanto o codigo transformava data ilegivel em
+    // "1 dia de atraso" isso passava despercebido; agora ilegivel e
+    // DESCARTADO, e a fatura do inadimplente sumiria da conta.
+    const soData = dueDate.trim().split("T")[0].split(" ")[0];
+    const barra = soData.split("/");
+    const traco = soData.split("-");
     let montada: Date | null;
     if (barra.length === 3 && barra[0].length === 2 && barra[2].length === 4) {
       montada = dataLocal(Number(barra[2]), Number(barra[1]), Number(barra[0]));
     } else if (traco.length === 3 && traco[0].length === 4) {
       montada = dataLocal(Number(traco[0]), Number(traco[1]), Number(traco[2].slice(0, 2)));
     } else {
-      montada = new Date(dueDate);
+      montada = new Date(dueDate);  // formato desconhecido: entrega ao motor do V8
     }
     if (!montada) return null;
     due = montada;

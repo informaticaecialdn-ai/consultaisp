@@ -33,7 +33,7 @@ import type {
   NormalizedErpCustomer,
 } from "../types.js";
 import { CircuitBreaker, withResilience } from "../resilience.js";
-import { cleanCpfCnpj, cleanCep, cleanPhone, calculateDaysOverdue, aggregateByCustomer } from "../normalize.js";
+import { cleanCpfCnpj, cleanCep, cleanPhone, calculateDaysOverdue, diasDesdeVencimento, aggregateByCustomer } from "../normalize.js";
 
 /**
  * Extracts address number from the endereco field when numero is empty.
@@ -243,10 +243,14 @@ export class IxcConnector implements ErpConnector {
 
       const allRows = await this.listWithFilter(config, "fn_areceber", filtros, 500, 200);
 
-      const now = new Date();
       const overdueRows = allRows.filter((row: any) => {
         const dueDate = row.data_vencimento;
-        return dueDate && new Date(dueDate) < now;
+        // Vencida = ao menos UM DIA de atraso, contado por dia de calendario.
+        // `new Date(dueDate) < now` sobre o AAAA-MM-DD do IXC comparava meia-noite
+        // UTC com o instante local: em Brasilia isso e 21h do dia ANTERIOR, entao a
+        // fatura que vence HOJE ja contava como inadimplencia — o mesmo defeito que
+        // punha 641 clientes do MK com "1 dia de atraso" que nao existia.
+        return (diasDesdeVencimento(dueDate) ?? -1) > 0;
       });
 
       // Coletar id_cliente unicos para buscar enderecos na tabela "cliente"
@@ -367,7 +371,6 @@ export class IxcConnector implements ErpConnector {
       // 4. BULK FETCH: buscar todas as faturas abertas (status=A) de uma vez,
       // filtrar localmente pelos clientes cancelados. Antes era 1 query per cliente
       // (15326 x 0.18s = 46 min). Agora e ~10-20 paginas de 500.
-      const now = new Date();
       const overdueByClient = new Map<string, { totalAmount: number; maxDays: number; count: number }>();
       const clienteIdArray = Array.from(cancelledClientIds);
 
@@ -392,7 +395,12 @@ export class IxcConnector implements ErpConnector {
         const cid = String(inv.id_cliente || "");
         if (!cid || !cancelledClientIds.has(cid)) continue;
         const dueDate = inv.data_vencimento;
-        if (!dueDate || new Date(dueDate) >= now) continue; // so vencidas
+        // Vencida = ao menos UM DIA de atraso, contado por dia de calendario.
+        // `new Date(dueDate) < now` sobre o AAAA-MM-DD do IXC comparava meia-noite
+        // UTC com o instante local: em Brasilia isso e 21h do dia ANTERIOR, entao a
+        // fatura que vence HOJE ja contava como inadimplencia — o mesmo defeito que
+        // punha 641 clientes do MK com "1 dia de atraso" que nao existia.
+        if ((diasDesdeVencimento(dueDate) ?? -1) <= 0) continue;  // so vencidas
         const amount = parseFloat(inv.valor || inv.valor_original || "0") || 0;
         const days = calculateDaysOverdue(dueDate);
         const existing = overdueByClient.get(cid);
@@ -860,7 +868,6 @@ export class IxcConnector implements ErpConnector {
       let overdueInvoicesCount = 0;
 
       if (customerId) {
-        const now = new Date();
         const invoiceRows = await this.listWithFilter(config, "fn_areceber", [
           { TB: "fn_areceber.id_cliente", OP: "=", P: customerId, C: "AND", G: "" },
           { TB: "fn_areceber.status", OP: "=", P: "A", C: "AND", G: "" },
@@ -868,7 +875,12 @@ export class IxcConnector implements ErpConnector {
 
         for (const inv of invoiceRows) {
           const dueDate = inv.data_vencimento;
-          if (dueDate && new Date(dueDate) < now) {
+          // Vencida = ao menos UM DIA de atraso, contado por dia de calendario.
+          // `new Date(dueDate) < now` sobre o AAAA-MM-DD do IXC comparava meia-noite
+          // UTC com o instante local: em Brasilia isso e 21h do dia ANTERIOR, entao a
+          // fatura que vence HOJE ja contava como inadimplencia — o mesmo defeito que
+          // punha 641 clientes do MK com "1 dia de atraso" que nao existia.
+          if ((diasDesdeVencimento(dueDate) ?? -1) > 0) {
             const amount = parseFloat(inv.valor || inv.valor_original || "0") || 0;
             const days = calculateDaysOverdue(dueDate);
             totalOverdueAmount += amount;
@@ -1031,7 +1043,6 @@ export class IxcConnector implements ErpConnector {
   ): Promise<NormalizedErpCustomer[]> {
     const customerIds = clienteRows.map((r: any) => String(r.id)).filter(Boolean);
     const customerIdSet = new Set(customerIds);
-    const now = new Date();
 
     // Lotes para nao montar um filtro gigante numa requisicao so.
     const BATCH_SIZE = 50;
@@ -1056,7 +1067,12 @@ export class IxcConnector implements ErpConnector {
 
       for (const inv of invoiceRows) {
         const dueDate = inv.data_vencimento;
-        if (!dueDate || new Date(dueDate) >= now) continue;
+        // Vencida = ao menos UM DIA de atraso, contado por dia de calendario.
+        // `new Date(dueDate) < now` sobre o AAAA-MM-DD do IXC comparava meia-noite
+        // UTC com o instante local: em Brasilia isso e 21h do dia ANTERIOR, entao a
+        // fatura que vence HOJE ja contava como inadimplencia — o mesmo defeito que
+        // punha 641 clientes do MK com "1 dia de atraso" que nao existia.
+        if ((diasDesdeVencimento(dueDate) ?? -1) <= 0) continue;
         const custId = String(inv.id_cliente || "");
         if (!custId || !customerIdSet.has(custId)) continue;
 

@@ -385,9 +385,15 @@ export class LocalizacaoStorage {
       b.clientes++;
       if (emAberto > 0) { b.inadimplentes++; b.dividaTotal += emAberto; }
       if (estado === 'ex_divida') b.exComDivida++;
-      // "Atuais" e quem ainda e seu: ativo ou suspenso por atraso. Ex-cliente
-      // com divida nao entra — ele nao ocupa mais um ponto de presenca.
-      if (estado !== 'ex_divida') b.atuais++;
+      // "Atuais" e quem ainda e seu: ativo ou suspenso por atraso.
+      //
+      // A conta olha o STATUS, nao o estado do ponto. `ex_divida` so existe
+      // quando ha cancelamento E divida > 0, entao `estado !== 'ex_divida'`
+      // contava como atual todo ex-cliente que ja quitou — 1.380 dos 2.633
+      // cancelados da NsLink em 28/08/2026. A penetracao por bairro saia inflada
+      // justamente onde o provedor mais perdeu cliente.
+      const situacao = (c.status || "").toLowerCase();
+      if (situacao !== 'cancelled' && situacao !== 'inactive') b.atuais++;
       porBairro.set(chave, b);
 
       if (emAberto > 0) { ct.inadimplentes++; ct.dividaTotal += emAberto; }

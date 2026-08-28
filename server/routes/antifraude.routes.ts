@@ -58,9 +58,20 @@ export function registerAntiFraudeRoutes(): Router {
             equipCount: (meu as any).equipmentCount ?? 0,
             equipValue: (meu as any).equipmentEstimatedValue ?? "0",
             // customers.status espelha o contrato no ERP na ultima sincronia.
-            contractStatus: meu.status === "cancelled" || meu.status === "inactive"
+            //
+            // O mapeamento e EXAUSTIVO e o default e `undefined`, nao "active".
+            // Qualquer valor que a lista nao reconheca — inclusive o default da
+            // coluna, para quem nunca foi sincronizado — virava "ativo" e abria
+            // o portao da regra de fuga para ex-cliente. Undefined faz a regra
+            // descartar por "status_desconhecido", que e a resposta certa: nao
+            // saber se e cliente nao e o mesmo que saber que e.
+            contractStatus: meu.status === "active"
+              ? "active"
+              : meu.status === "suspended"
+              ? "suspended"
+              : meu.status === "cancelled" || meu.status === "inactive"
               ? "cancelled"
-              : meu.status === "suspended" ? "suspended" : "active",
+              : undefined,
           });
         } catch { /* sem snapshot, a regra decide com o que o alerta trouxe */ }
       }));
