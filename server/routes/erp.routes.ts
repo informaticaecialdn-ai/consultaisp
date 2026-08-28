@@ -101,7 +101,7 @@ export function registerErpRoutes(): Router {
         return res.status(400).json({ ok: false, message: "Configure a URL e o token antes de sincronizar" });
       }
       const provider = await storage.getProvider(providerId);
-      if (sincronizacaoEmAndamento(providerId, source)) {
+      if (await sincronizacaoEmAndamento(providerId, source)) {
         return res.status(409).json({
           ok: false,
           emAndamento: true,
@@ -151,7 +151,7 @@ export function registerErpRoutes(): Router {
         return res.status(400).json({ ok: false, message: "Provedor nao tem URL/token configurados" });
       }
       const provider = await storage.getProvider(providerId);
-      if (sincronizacaoEmAndamento(providerId, source)) {
+      if (await sincronizacaoEmAndamento(providerId, source)) {
         return res.status(409).json({
           ok: false,
           emAndamento: true,

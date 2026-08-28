@@ -6,6 +6,8 @@
  */
 
 import { storage } from "../storage";
+import { pool } from "../db";
+import type { PoolClient } from "pg";
 import { getConnector, buildConnectorConfig, getProviderLimiter } from "../erp";
 import type { ErpFetchResult } from "../erp/types";
 import { agendaDoAmbiente, proximaExecucao, ultimaExecucaoAgendada, descreverAgenda } from "./erp-agenda";
@@ -15,14 +17,10 @@ import { coordenadaValida } from "./coordenada";
 let _syncing = false;
 
 /**
- * Syncs em voo, por `providerId:erpSource`.
+ * Syncs em voo NESTE processo, por `providerId:erpSource`.
  *
- * `_syncing` protege apenas `syncAllProviders` — a rota manual chamava
- * `syncProviderToDb` direto e nao passava por ele, entao o botao do painel podia
- * disparar uma varredura em cima da agendada. Cada uma faz 3.226 chamadas a API
- * do provedor; duas ao mesmo tempo derrubam o ERP dele, e as duas gravam na
- * mesma carteira. E o botao convidava a isso: o proxy corta em 60s, a tela
- * mostra erro, e o operador clica de novo num sync que esta rodando.
+ * Serve so para o dreno do shutdown, que e local por natureza. A exclusao entre
+ * chamadores mora no Postgres — ver `tentarTravar`.
  */
 const _emVoo = new Set<string>();
 
@@ -30,9 +28,67 @@ export function isSyncing(): boolean {
   return _syncing || _emVoo.size > 0;
 }
 
-/** Ha varredura em andamento para este provedor/ERP? */
-export function sincronizacaoEmAndamento(providerId: number, erpSource: string): boolean {
-  return _emVoo.has(`${providerId}:${erpSource}`);
+/**
+ * Trava de varredura, por `providerId:erpSource`, no BANCO.
+ *
+ * Precisa ser no banco porque os dois chamadores vivem em processos pm2
+ * SEPARADOS: o scheduler roda no `consulta-isp-worker` e o botao "Sincronizar
+ * Agora" roda no `consulta-isp`. Um Set em memoria — que foi a primeira versao
+ * disto — impede o duplo clique e nao impede o que realmente importa: a
+ * varredura agendada e a manual rodando juntas. Sao milhares de chamadas
+ * simultaneas na API do provedor, as duas gravando na mesma carteira.
+ *
+ * `pg_try_advisory_lock` nao espera: ou pega, ou diz que ja tem alguem. E o
+ * mesmo padrao do backfill de geocodificacao
+ * (server/services/geocode-backfill.service.ts). A trava e da CONEXAO, entao ela
+ * fica segurada ate `liberar()` — e se o processo morrer, o Postgres a solta
+ * sozinho ao fechar a conexao, que e a razao de nao usar uma linha de tabela.
+ */
+const CHAVE_SYNC = 4820_2001;
+
+function chaveDoSync(providerId: number, erpSource: string): number {
+  // Segunda chave do par: `providerId` e o ERP cabem num int32 com folga.
+  let h = 0;
+  for (const ch of erpSource) h = (h * 31 + ch.charCodeAt(0)) | 0;
+  return ((providerId * 1_000_003) ^ h) | 0;
+}
+
+async function tentarTravar(providerId: number, erpSource: string) {
+  let conn: PoolClient | null = null;
+  try {
+    conn = await pool.connect();
+    const k2 = chaveDoSync(providerId, erpSource);
+    const r = await conn.query<{ ok: boolean }>(
+      "select pg_try_advisory_lock($1, $2) as ok", [CHAVE_SYNC, k2],
+    );
+    if (!r.rows[0]?.ok) {
+      conn.release();
+      return { obtida: false, liberar: async () => {} };
+    }
+    const c = conn;
+    return {
+      obtida: true,
+      liberar: async () => {
+        try { await c.query("select pg_advisory_unlock($1, $2)", [CHAVE_SYNC, k2]); } catch {}
+        c.release();
+      },
+    };
+  } catch (err) {
+    // Sem banco nao ha sync nenhum para proteger; deixa passar e falhar adiante
+    // com a mensagem de verdade, em vez de virar "ja em andamento".
+    conn?.release();
+    console.warn(`[ERPSync] nao consegui travar (${(err as Error).message}) — seguindo sem trava`);
+    return { obtida: true, liberar: async () => {} };
+  }
+}
+
+/** Ha varredura em andamento para este provedor/ERP, em qualquer processo? */
+export async function sincronizacaoEmAndamento(providerId: number, erpSource: string): Promise<boolean> {
+  if (_emVoo.has(`${providerId}:${erpSource}`)) return true;
+  const t = await tentarTravar(providerId, erpSource);
+  if (!t.obtida) return true;
+  await t.liberar();
+  return false;
 }
 
 /**
@@ -505,7 +561,8 @@ export async function syncProviderToDb(
   syncType: "auto" | "manual" = "auto",
 ): Promise<{ upserted: number; errors: number; jaEmAndamento?: boolean }> {
   const chave = `${providerId}:${erpSource}`;
-  if (_emVoo.has(chave)) {
+  const trava = await tentarTravar(providerId, erpSource);
+  if (!trava.obtida) {
     console.log(`[ERPSync] ${providerName} (${erpSource}): ja ha varredura em andamento, ignorando`);
     return { upserted: 0, errors: 0, jaEmAndamento: true };
   }
@@ -514,6 +571,7 @@ export async function syncProviderToDb(
     return await syncProviderToDbInterno(providerId, providerName, erpSource, intg, syncType);
   } finally {
     _emVoo.delete(chave);
+    await trava.liberar();
   }
 }
 
