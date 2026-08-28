@@ -57,7 +57,12 @@ const persistMode = process.argv.includes("--persist");
         apiUser: intg.apiUser ?? null,
         clientId: null,
         clientSecret: null,
-        extraConfig: { mkContraSenha: (intg as any).mkContraSenha ?? "" },
+        // No campo proprio, nao em extraConfig: o conector le
+        // `config.mkContraSenha || config.apiUser`, entao a contra-senha
+        // escondida no extra fazia ele autenticar com o apiUser e levar
+        // "Servico nao autorizado" — um erro de credencial que nao existe.
+        mkContraSenha: (intg as any).mkContraSenha ?? null,
+        extraConfig: null,
       },
     );
     console.log(`\n>>> Sync persist concluido em ${((Date.now() - startedSync) / 1000).toFixed(1)}s`);
