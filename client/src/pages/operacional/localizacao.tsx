@@ -60,8 +60,16 @@ const MIN_CLIENTES_CIDADE = 20;
 /** Piso de k-anonimato para a camada de rede. */
 const PISO_REDE = 5;
 
+/**
+ * O mapa é de bureau: mostra quem DEVE, não a base saudável do provedor.
+ *
+ * 'em_dia' saiu daqui junto com o corte no servidor. Cliente ativo e em dia não
+ * é plotado — plotar transformaria o mapa num retrato da carteira boa, que é o
+ * ativo comercial do provedor e não tem por que existir num bureau. Deixar o
+ * rótulo na legenda com zero ao lado só faria o operador procurar um ponto que
+ * não existe.
+ */
 const ESTADOS: Array<{ k: EstadoCliente; label: string; token: string }> = [
-  { k: 'em_dia',      label: 'Ativo em dia',          token: '--ok' },
   { k: 'em_cobranca', label: 'Em cobrança',           token: '--gated' },
   { k: 'suspenso',    label: 'Suspenso',              token: '--brand' },
   { k: 'ex_divida',   label: 'Ex-cliente com dívida', token: '--danger' },
@@ -69,7 +77,8 @@ const ESTADOS: Array<{ k: EstadoCliente; label: string; token: string }> = [
 
 const FAIXAS: Array<{ k: string; label: string; teste: (v: number) => boolean }> = [
   { k: 'todas',      label: 'Todas',        teste: () => true },
-  { k: 'em_dia',     label: 'Em dia',       teste: v => v === 0 },
+  // "Em dia" saiu: nenhum ponto do mapa tem dívida zero, então o filtro só
+  // devolvia tela vazia. As faixas restantes descrevem tamanho de dívida.
   { k: 'ate100',     label: 'até R$ 100',   teste: v => v > 0 && v <= 100 },
   { k: 'de100a300',  label: 'R$ 100–300',   teste: v => v > 100 && v <= 300 },
   { k: 'de300a1000', label: 'R$ 300–1.000', teste: v => v > 300 && v <= 1000 },
@@ -197,7 +206,18 @@ export default function LocalizacaoPage() {
   const foraDoMapa = (data?.catalogoCidades ?? []).filter(c => !c.noMapa);
   const cidadesPlotaveis = cidades.filter(c => c.lat !== null && c.lon !== null);
   const cidadesAtendidas = cidades.length + semCliente.length;
-  const totalCarteira = cidades.reduce((s, c) => s + c.clientes, 0);
+
+  /* O chip de cidade conta DEVEDORES, não a carteira.
+     O chip é um filtro do mapa, e o mapa só tem quem deve: "Londrina 161" com
+     40 pontos aparecendo faria o operador procurar 121 pontos que não existem.
+     A carteira por cidade continua visível — no painel "cidades no mapa", onde
+     ela é a informação certa, porque é ela que decide o corte de 20. */
+  const devedoresPorCidade = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of todosPontos) m.set(p.cidade, (m.get(p.cidade) ?? 0) + 1);
+    return m;
+  }, [todosPontos]);
+  const totalCarteira = todosPontos.length;
 
   /* O recorte de cidade vale para TUDO: mapa, ranking e raio-X respondem ao
      mesmo universo. Os filtros de estado e dívida, não — eles são lentes sobre
@@ -260,8 +280,9 @@ export default function LocalizacaoPage() {
             Localização &amp; mapa de inadimplência
           </h1>
           <p className="text-[13px] text-[var(--text-muted)] mt-1">
-            Geomarketing territorial da carteira — pontos reais geocodificados, calor de dívida e
-            ranking de bairros.
+            Só quem tem fatura em aberto entra no mapa — cliente em dia não é
+            plotado. As estatísticas de bairro usam a carteira inteira como
+            denominador.
           </p>
         </div>
 
@@ -276,7 +297,7 @@ export default function LocalizacaoPage() {
                 key={c.cidade}
                 ativo={fCidade === c.cidade}
                 onClick={() => trocarCidade(c.cidade)}
-                contagem={c.clientes}
+                contagem={devedoresPorCidade.get(c.cidade) ?? 0}
               >
                 {c.cidade}
               </Chip>
@@ -415,7 +436,7 @@ export default function LocalizacaoPage() {
           <Kpi
             icone={<Users size={16} strokeWidth={1.5} />}
             iconeCor="var(--info)" iconeBg="var(--info-bg)"
-            rotulo="Clientes plotados"
+            rotulo="Devedores no mapa"
             valor={num(pontos.length)}
             sub={`${num(filtrados.length)} visíveis com os filtros atuais`} subMono
           />

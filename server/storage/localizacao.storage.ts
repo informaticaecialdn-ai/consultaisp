@@ -111,8 +111,15 @@ export interface LocalizacaoResposta {
   catalogoCidades: LocalizacaoCidadeCatalogo[];
   pontos: LocalizacaoPonto[];
   bairros: LocalizacaoBairro[];
-  /** Carteira por estado — alimenta a legenda sobre o mapa. Conta a carteira
-   *  inteira da area, inclusive quem esta sem coordenada. */
+  /**
+   * Legenda do mapa: SO quem tem fatura em aberto, que e o universo plotado.
+   *
+   * `em_dia` fica sempre em zero e nao aparece na tela. O mapa e de bureau —
+   * mostra quem deve, nao a base saudavel do provedor.
+   *
+   * Conta inclusive quem esta sem coordenada: "quantos ex-clientes com divida
+   * eu tenho" nao muda porque o cadastro de alguns esta incompleto.
+   */
   porEstado: Record<EstadoPonto, number>;
   /** Quando a carteira foi lida do ERP pela ultima vez. A tela mostra numeros
    *  derivados desta data; sem dizer isso, o operador le como tempo real. */
@@ -348,11 +355,19 @@ export class LocalizacaoStorage {
       ct.clientes++;
 
       const estado = estadoDoPonto(c);
-      porEstado[estado]++;
       if (c.lastSyncAt && (!sincronizadoEm || c.lastSyncAt > sincronizadoEm)) {
         sincronizadoEm = c.lastSyncAt;
       }
       const emAberto = Number(c.totalOverdueAmount || 0) || 0;
+
+      // A legenda descreve o MAPA, e o mapa so tem quem deve — ver o corte
+      // adiante. Contar a carteira inteira aqui poria "Ativo em dia 980" numa
+      // legenda de pontos onde nenhum adimplente aparece.
+      //
+      // Conta mesmo quem esta sem coordenada, de proposito: "quantos ex-clientes
+      // com divida eu tenho" nao muda porque o cadastro de alguns esta
+      // incompleto.
+      if (emAberto > 0) porEstado[estado]++;
 
       let agrupador = agrupadores.get(cidade);
       if (!agrupador) { agrupador = criarAgrupadorDeBairro(); agrupadores.set(cidade, agrupador); }
@@ -388,9 +403,30 @@ export class LocalizacaoStorage {
         continue;
       }
 
-      // LGPD: sem nome e sem CPF — a tela nao precisa deles.
-      // O bairro sai agrupado, o mesmo rotulo do ranking: clicar numa linha do
-      // ranking e ver o mapa destacar outro conjunto seria mentir sobre o filtro.
+      /*
+       * SO QUEM DEVE VAI AO MAPA — e isto e regra de bureau, nao de tela.
+       *
+       * O sistema e um bureau de credito: provedores compartilham dado de
+       * inadimplencia entre si. Plotar cliente ATIVO EM DIA transformaria o
+       * mapa noutra coisa — um retrato da base saudavel do provedor, que e o
+       * ativo comercial dele e nao tem por que existir aqui. Dono de provedor
+       * desconfia disso com razao, e a desconfianca derruba a adesao, que e o
+       * que faz o bureau valer alguma coisa.
+       *
+       * O criterio e ter fatura em aberto, nao o rotulo de estado: entra quem
+       * deve, seja ativo, suspenso ou ex-cliente. Suspenso sem divida fica de
+       * fora junto com o adimplente.
+       *
+       * As ESTATISTICAS acima continuam varrendo a carteira inteira, e tem de
+       * continuar: a taxa de inadimplencia do bairro precisa do denominador
+       * completo. Contar so os plotados daria 100% em todo lugar.
+       *
+       * LGPD: sem nome e sem CPF — a tela nao precisa deles. O bairro sai
+       * agrupado, o mesmo rotulo do ranking: clicar numa linha do ranking e ver
+       * o mapa destacar outro conjunto seria mentir sobre o filtro.
+       */
+      if (emAberto <= 0) continue;
+
       pontos.push({
         id: c.id, lat: valida.lat, lon: valida.lng, estado, emAberto,
         atraso: c.maxDaysOverdue || 0, bairro: grupo ? bairro : null, cidade,
