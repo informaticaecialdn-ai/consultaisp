@@ -253,24 +253,24 @@ describe("bureau de mercado", () => {
 });
 
 describe("estabilidade de renda", () => {
-  it("muitas trocas de emprego em 5 anos alertam", () => {
-    const v = decidirVeredito(bom({ trocasEmprego5Anos: 6 }));
+  it("muitas trocas de emprego em 10 anos alertam", () => {
+    const v = decidirVeredito(bom({ trocasEmprego10Anos: 6 }));
     expect(v.veredito).toBe("ATENCAO");
     expect(v.motivos.join(" ")).toMatch(/6 trocas de emprego/);
   });
 
   it("vinculos curtos alertam mesmo com poucas trocas", () => {
-    const v = decidirVeredito(bom({ trocasEmprego5Anos: 2, mediaAnosPorVinculo: 0.5 }));
+    const v = decidirVeredito(bom({ trocasEmprego10Anos: 2, mediaAnosPorVinculo: 0.5 }));
     expect(v.motivos.join(" ")).toMatch(/Vínculos de trabalho curtos/);
   });
 
   it("carreira estavel nao gera motivo", () => {
-    const v = decidirVeredito(bom({ trocasEmprego5Anos: 1, mediaAnosPorVinculo: 8 }));
+    const v = decidirVeredito(bom({ trocasEmprego10Anos: 1, mediaAnosPorVinculo: 8 }));
     expect(v.veredito).toBe("APROVAR");
   });
 
   it("media curta sem nenhuma troca recente nao alerta", () => {
-    const v = decidirVeredito(bom({ trocasEmprego5Anos: 0, mediaAnosPorVinculo: 0.5 }));
+    const v = decidirVeredito(bom({ trocasEmprego10Anos: 0, mediaAnosPorVinculo: 0.5 }));
     expect(v.veredito).toBe("APROVAR");
   });
 });

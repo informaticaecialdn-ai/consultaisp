@@ -110,6 +110,7 @@ export default function ConsultaResultSummary({
         background: "var(--surface)", border: "1px solid var(--border)",
         borderRadius: 10, overflow: "hidden",
       }}
+      className="ds-report-card"
       data-testid="consultation-result-cards"
     >
       {/* ═══ CABEÇALHO ═══ */}
@@ -154,7 +155,9 @@ export default function ConsultaResultSummary({
 
       {/* ═══ 01 · SCORE | 02 · SUGESTÃO ═══ */}
       <div className="ds-score-grid" style={{ borderTop: "1px solid var(--border)" }}>
-        <div style={{ padding: "20px 24px", borderRight: "1px solid var(--border)" }}>
+        {/* A hairline entre as colunas e do CSS (.ds-score-grid), nao inline:
+            inline venceria a regra que a remove quando o card empilha. */}
+        <div style={{ padding: "20px 24px" }}>
           <Kicker>01 · Score de crédito</Kicker>
           <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 12 }}>
             <span style={{

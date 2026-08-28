@@ -3,12 +3,13 @@ import { z } from "zod";
 import { requireAuth } from "../auth";
 import { storage } from "../storage";
 import { getSafeErrorMessage } from "../utils/safe-error";
-import { validarCPF } from "../utils/cpf-cnpj-validator";
+import { validarCPF, validarCNPJ } from "../utils/cpf-cnpj-validator";
 import {
   consultarCpf, testarCredencial, invalidarToken, DATASETS,
   NIVEIS, NIVEL_PADRAO, extrasDoNivel,
 } from "../services/bigdata.service";
 import { decidirVeredito } from "../services/bigdata-veredito";
+import { consultarCnpj, decidirVereditoEmpresa } from "../services/bigdata-empresa";
 
 /**
  * Consulta Cadastral (BigDataCorp).
@@ -143,9 +144,18 @@ export function registerBigdataRoutes(): Router {
       const parsed = consultaSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
 
-      const cpf = parsed.data.cpfCnpj.replace(/\D/g, "");
-      // Valida antes de chamar: CPF errado nao gasta credito nem consulta.
-      if (!validarCPF(cpf)) {
+      const doc = parsed.data.cpfCnpj.replace(/\D/g, "");
+      const ehCnpj = doc.length === 14;
+
+      // Valida antes de chamar: documento errado nao gasta credito nem consulta.
+      // A mensagem tem de descrever o documento QUE FOI DIGITADO — antes daqui
+      // um CNPJ recebia "CPF invalido: digitos verificadores incorretos", que
+      // manda o operador conferir a coisa errada.
+      if (ehCnpj) {
+        if (!validarCNPJ(doc)) {
+          return res.status(400).json({ message: "CNPJ inválido: dígitos verificadores incorretos" });
+        }
+      } else if (!validarCPF(doc)) {
         return res.status(400).json({ message: "CPF inválido: dígitos verificadores incorretos" });
       }
 
@@ -156,6 +166,83 @@ export function registerBigdataRoutes(): Router {
         });
       }
 
+      // ── CNPJ: endpoint proprio, veredito proprio ────────────────────────────
+      //
+      // Nao e o mesmo caminho com outro documento: /pessoas recusa CNPJ com
+      // -114 em todos os datasets. Empresa vai para /empresas, tem os blocos
+      // dela (situacao na Receita, idade, CNAE, quadro societario) e NAO tem os
+      // de pessoa (renda familiar, beneficio, domicilio). Custa 1 credito
+      // igual, embora saia mais barato para nos — a diferenca vira margem.
+      if (ehCnpj) {
+        custoCreditos = NIVEIS[NIVEL_PADRAO].creditos;
+        debitou = await storage.debitarBigdataCredito(providerId, custoCreditos);
+        if (!debitou) {
+          const provider = await storage.getProvider(providerId);
+          return res.status(402).json({
+            message: `Saldo insuficiente: a consulta custa ${custoCreditos} crédito(s) `
+              + `e você tem ${provider?.bigdataCredits ?? 0}`,
+            creditosNecessarios: custoCreditos,
+            creditosDisponiveis: provider?.bigdataCredits ?? 0,
+          });
+        }
+
+        const e = await consultarCnpj(
+          providerId, { login: integ.login, password: integ.password }, doc,
+        );
+        const ve = decidirVereditoEmpresa(e);
+
+        const salvaEmpresa = await storage.createBigdataConsultation({
+          providerId, userId: req.session.userId!, cpfCnpj: doc,
+          result: {
+            tipoDocumento: "cnpj",
+            empresa: e.empresa,
+            enderecos: e.enderecos,
+            telefones: e.telefones,
+            emails: e.emails,
+            inadimplencia: e.inadimplencia,
+            processos: e.processos,
+            datasetsIndisponiveis: e.datasetsIndisponiveis,
+            veredito: ve.veredito,
+            motivos: ve.motivos,
+            datasetsComFalha: e.datasetsComFalha,
+            latenciaMs: e.latenciaMs,
+            bruto: e.bruto,
+            nivel: NIVEL_PADRAO,
+            nivelPedido: NIVEL_PADRAO,
+            creditosCobrados: custoCreditos,
+            bureauIndisponivel: false,
+            baseLegal: "Legítimo interesse (LGPD Art. 7, IX)",
+            finalidadeConsulta: "Análise de risco de crédito para contratação de serviço",
+            lgpdAccepted: parsed.data.lgpdAccepted === true,
+          } as any,
+          datasets: [...e.datasetsChamados],
+          veredito: ve.veredito,
+        } as any);
+
+        return res.json({
+          id: salvaEmpresa.id,
+          cpfCnpj: doc,
+          tipoDocumento: "cnpj",
+          veredito: ve.veredito,
+          motivos: ve.motivos,
+          empresa: e.empresa,
+          enderecos: e.enderecos,
+          telefones: e.telefones,
+          emails: e.emails,
+          inadimplencia: e.inadimplencia,
+          processos: e.processos,
+          consultasIndisponiveis: e.datasetsIndisponiveis.length,
+          consultasComFalha: e.datasetsComFalha.length,
+          latenciaMs: e.latenciaMs,
+          nivel: NIVEL_PADRAO,
+          nivelPedido: NIVEL_PADRAO,
+          creditosCobrados: custoCreditos,
+          bureauIndisponivel: false,
+          createdAt: salvaEmpresa.createdAt,
+        });
+      }
+
+      const cpf = doc;
       // A Completa esta DESLIGADA — o nivel pedido e ignorado.
       //
       // Medido contra a API da BigDataCorp em 27/08/2026: os quatro datasets que
@@ -220,7 +307,6 @@ export function registerBigdataRoutes(): Router {
           inadimplencia: r.inadimplencia,
         processos: r.processos,
           rastro: r.rastro,
-          patrimonio: r.patrimonio,
           ocupacao: r.ocupacao,
           perfil: r.perfil,
           mercado: r.mercado,
@@ -230,7 +316,6 @@ export function registerBigdataRoutes(): Router {
 
           riscoFamiliar: r.riscoFamiliar,
 
-          seguranca: r.seguranca,
 
           riscoArea: r.riscoArea,
         validacaoTelefone: r.validacaoTelefone,
@@ -271,7 +356,6 @@ export function registerBigdataRoutes(): Router {
         inadimplencia: r.inadimplencia,
         processos: r.processos,
         rastro: r.rastro,
-        patrimonio: r.patrimonio,
         ocupacao: r.ocupacao,
         perfil: r.perfil,
         mercado: r.mercado,
@@ -281,7 +365,6 @@ export function registerBigdataRoutes(): Router {
 
         riscoFamiliar: r.riscoFamiliar,
 
-        seguranca: r.seguranca,
 
         riscoArea: r.riscoArea,
         validacaoTelefone: r.validacaoTelefone,

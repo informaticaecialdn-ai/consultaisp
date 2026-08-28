@@ -68,8 +68,8 @@ export interface DadosCadastrais {
   consultasCredito30d?: number;
 
   // ── Estabilidade de renda ──────────────────────────────────────────────────
-  /** Trocas de vinculo de trabalho nos ultimos 5 anos. */
-  trocasEmprego5Anos?: number;
+  /** Trocas de vinculo de trabalho nos ultimos 10 anos. */
+  trocasEmprego10Anos?: number;
   /** Media de anos entre trocas de vinculo. Abaixo de 1 e rotatividade alta. */
   mediaAnosPorVinculo?: number;
 }
@@ -118,12 +118,18 @@ const STATUS_OK = "REGULAR";
 const SCORE_MERCADO_BAIXO = 300;
 
 /**
- * Trocas de emprego em 5 anos acima disso indica renda instavel. Contrato de
- * internet dura 12 meses; quem trocou quatro vezes em cinco anos tem chance
- * real de estar sem renda em algum mes do contrato. Numero por ordem de
- * grandeza, nao por estudo — se gerar ruido na operacao, sobe.
+ * Trocas de emprego em 10 anos acima disso indica renda instavel. Contrato de
+ * internet dura 12 meses; quem trocou muito tem chance real de estar sem renda
+ * em algum mes do contrato. Numero por ordem de grandeza, nao por estudo — se
+ * gerar ruido na operacao, sobe.
+ *
+ * A JANELA ERA DE 5 ANOS e a regra nunca disparava. Medido contra a API em
+ * 27/08/2026, em 7 CPFs: `TotalProfessionalTurnoverIn5Years` teve teto de 1,
+ * enquanto `...In10Years` variou 0, 0, 5, 1, 0, 0, 6 e o total variou 0 a 9. O
+ * dado sempre chegou; a regra e que olhava a janela errada. Com 10 anos o corte
+ * sobe junto — quatro trocas em cinco anos e muito, em dez e comum.
  */
-const TROCAS_EMPREGO_DEMAIS = 4;
+const TROCAS_EMPREGO_DEMAIS = 5;
 
 /**
  * Consultas de credito por credores em 30 dias acima disso alerta. Corte mais
@@ -302,9 +308,9 @@ export function decidirVeredito(
   // Estar empregado hoje nao diz nada sobre estar empregado no mes 8 do
   // contrato. Alerta de conferencia, nunca de recusa: trocar de emprego e
   // legitimo e recusar por isso puniria trabalhador de setor rotativo.
-  if ((d.trocasEmprego5Anos ?? 0) > TROCAS_EMPREGO_DEMAIS) {
-    motivos.push(`${d.trocasEmprego5Anos} trocas de emprego em 5 anos — renda instável`);
-  } else if (d.mediaAnosPorVinculo != null && d.mediaAnosPorVinculo < 1 && (d.trocasEmprego5Anos ?? 0) > 0) {
+  if ((d.trocasEmprego10Anos ?? 0) > TROCAS_EMPREGO_DEMAIS) {
+    motivos.push(`${d.trocasEmprego10Anos} trocas de emprego em 10 anos — renda instável`);
+  } else if (d.mediaAnosPorVinculo != null && d.mediaAnosPorVinculo < 1 && (d.trocasEmprego10Anos ?? 0) > 0) {
     motivos.push("Vínculos de trabalho curtos — renda instável");
   }
 

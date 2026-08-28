@@ -549,16 +549,32 @@
 }
 
 /* Grid 01·Score | 02·Sugestao do relatorio (handoff v2): coluna fixa de 380px
-   com hairline vertical; empilha no estreito e a hairline vira horizontal. */
+   com hairline vertical; empilha no estreito e a hairline vira horizontal.
+
+   QUEBRA POR CONTAINER, NAO POR VIEWPORT. A regra media antiga (max-width:860px)
+   media a janela, mas o card vive dentro do layout com sidebar: numa janela de
+   890px — acima do corte, portanto duas colunas — o card tinha 595px e a coluna
+   da sugestao ficava com 213px, espremendo o kicker contra o "a decisao final e
+   sua" e amassando os quatro sinais do rodape. Medido no dev server em
+   28/08/2026. Quem decide o empilhamento e a largura do CARD. */
+.ds-report-card { container-type: inline-size; }
+
 .ds-score-grid {
   display: grid;
-  grid-template-columns: 380px minmax(0, 1fr);
+  /* Empilhado por padrao: o container mais estreito e o caso comum, e assim
+     nao ha flash de duas colunas antes de a container query resolver. */
+  grid-template-columns: minmax(0, 1fr);
 }
-@media (max-width: 860px) {
-  .ds-score-grid { grid-template-columns: minmax(0, 1fr); }
+.ds-score-grid > div:first-child {
+  border-right: none;
+  border-bottom: 1px solid var(--border);
+}
+
+@container (min-width: 720px) {
+  .ds-score-grid { grid-template-columns: 380px minmax(0, 1fr); }
   .ds-score-grid > div:first-child {
-    border-right: none !important;
-    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    border-bottom: none;
   }
 }
 
