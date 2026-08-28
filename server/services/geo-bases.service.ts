@@ -31,6 +31,7 @@ import { normalizarLocalidade } from "./localidade";
 import { chaveLogradouro, numeroDoEndereco } from "./logradouro";
 import { garantirTabelaEnderecos } from "./geocode-local.service";
 import { logger } from "../logger";
+import citiesData from "../../shared/data/cidades-brasil.json";
 
 export const FONTE_CNEFE = "CNEFE2022";
 export const FONTE_ANEEL = "ANEEL_BDGD_2024";
@@ -392,6 +393,77 @@ export async function carregarTerritorio(
     if (!t) { t = { hps: new Map(), ucs: new Map() }; mapa.set(r.cidade_norm, t); }
     const destino = r.fonte === FONTE_ANEEL ? t.ucs : t.hps;
     destino.set(r.bairro_norm, Number(r.hps));
+  }
+  return mapa;
+}
+
+/**
+ * Contorno real de cada municipio, a partir dos enderecos do CNEFE.
+ *
+ * POR QUE ISTO EXISTE. A deteccao de coordenada errada usava raio de 50 km em
+ * volta da mediana da cidade. E uma regua grosseira: no norte do Parana as
+ * cidades ficam a 30-45 km umas das outras, entao um cliente de Ibipora
+ * geocodificado em Primeiro de Maio — 47 km — passava como coerente e o mapa o
+ * plotava fora do municipio dele. Medido na carteira da NsLink em 28/08/2026:
+ * quatro pontos assim, invisiveis para o raio e obvios para o olho.
+ *
+ * A caixa e conservadora de proposito. E o retangulo que envolve o municipio,
+ * entao um ponto DENTRO dela pode ainda estar fora da divisa (canto do
+ * retangulo) — isso passa, e tudo bem. Mas um ponto FORA da caixa esta
+ * certamente fora do municipio. So acusa o que e certo.
+ *
+ * Cidade sem CNEFE carregado nao entra no mapa de retorno, e o chamador cai no
+ * raio da mediana. Melhor a regua grosseira que regua nenhuma.
+ */
+export interface CaixaMunicipio {
+  latMin: number; latMax: number; lonMin: number; lonMax: number;
+}
+
+/** Margem em graus (~1,1 km) para lacuna de cobertura na borda do CNEFE. */
+export const MARGEM_CAIXA_GRAUS = 0.01;
+
+export async function carregarCaixasMunicipio(
+  cidadesNorm: string[],
+): Promise<Map<string, CaixaMunicipio>> {
+  const mapa = new Map<string, CaixaMunicipio>();
+  if (cidadesNorm.length === 0) return mapa;
+
+  // Nome normalizado -> codigo IBGE. `geo_endereco` e chaveado por IBGE; o
+  // resto do sistema fala por nome.
+  const porIbge = new Map<string, string>();
+  const alvo = new Set(cidadesNorm);
+  for (const c of citiesData as Array<{ nome: string; ibge: string }>) {
+    const norm = normalizarLocalidade(c.nome);
+    if (alvo.has(norm)) porIbge.set(c.ibge, norm);
+  }
+  if (porIbge.size === 0) return mapa;
+
+  let rows: Array<{ municipio_ibge: string; la0: string; la1: string; lo0: string; lo1: string }>;
+  try {
+    ({ rows } = await pool.query(
+      `SELECT municipio_ibge,
+              MIN(latitude)  AS la0, MAX(latitude)  AS la1,
+              MIN(longitude) AS lo0, MAX(longitude) AS lo1
+         FROM geo_endereco
+        WHERE municipio_ibge = ANY($1::text[])
+        GROUP BY municipio_ibge`,
+      [Array.from(porIbge.keys())],
+    ));
+  } catch (err: any) {
+    // Base ainda nao carregada: sem caixa, o chamador usa o raio.
+    if (err?.code === "42P01") return mapa;
+    throw err;
+  }
+
+  for (const r of rows) {
+    const nome = porIbge.get(r.municipio_ibge);
+    if (!nome) continue;
+    mapa.set(nome, {
+      latMin: Number(r.la0) - MARGEM_CAIXA_GRAUS,
+      latMax: Number(r.la1) + MARGEM_CAIXA_GRAUS,
+      lonMin: Number(r.lo0) - MARGEM_CAIXA_GRAUS,
+      lonMax: Number(r.lo1) + MARGEM_CAIXA_GRAUS,
+    });
   }
   return mapa;
 }

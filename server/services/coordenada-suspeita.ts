@@ -56,14 +56,33 @@ export function centroMediano(pontos: PontoGeo[]): { lat: number; lon: number } 
   };
 }
 
+/** Retangulo que envolve o municipio, vindo dos enderecos do IBGE. */
+export interface CaixaCidade {
+  latMin: number; latMax: number; lonMin: number; lonMax: number;
+}
+
 /**
  * Separa os pontos cuja coordenada nao bate com a cidade declarada.
  * Preserva a ordem de entrada nas duas listas.
+ *
+ * DUAS REGUAS, nesta ordem:
+ *
+ * 1. A CAIXA do municipio, quando o CNEFE do IBGE esta carregado para aquela
+ *    cidade. E a regua boa: um ponto fora da caixa esta certamente fora do
+ *    municipio. Dentro da caixa pode ainda estar fora da divisa (o canto do
+ *    retangulo), e isso passa de proposito — so acusamos o que e certo.
+ *
+ * 2. O RAIO em volta da mediana, para cidade sem CNEFE. E grosseiro: no norte
+ *    do Parana as cidades ficam a 30-45 km umas das outras, entao 50 km de raio
+ *    deixa passar um cliente geocodificado na cidade vizinha. Foi assim que
+ *    quatro pontos da carteira da NsLink apareceram fora do municipio deles —
+ *    a 47 km, dentro do raio. Regua de reserva, nao regua principal.
  */
 export function separarCoordenadasSuspeitas<T extends PontoGeo>(
   pontos: T[],
   raioKm: number = RAIO_MAX_KM,
   minPontosCidade: number = MIN_PONTOS_CIDADE,
+  caixas?: Map<string, CaixaCidade>,
 ): { coerentes: T[]; suspeitos: T[] } {
   const porCidade = new Map<string, T[]>();
   for (const p of pontos) {
@@ -81,7 +100,18 @@ export function separarCoordenadasSuspeitas<T extends PontoGeo>(
   const coerentes: T[] = [];
   const suspeitos: T[] = [];
   for (const p of pontos) {
-    const centro = centros.get((p.cidade || "").trim().toUpperCase());
+    const chave = (p.cidade || "").trim().toUpperCase();
+
+    const caixa = caixas?.get(chave);
+    if (caixa) {
+      const dentro =
+        p.lat >= caixa.latMin && p.lat <= caixa.latMax &&
+        p.lon >= caixa.lonMin && p.lon <= caixa.lonMax;
+      (dentro ? coerentes : suspeitos).push(p);
+      continue;
+    }
+
+    const centro = centros.get(chave);
     if (!centro) { coerentes.push(p); continue; }
     if (distanciaKm(p.lat, p.lon, centro.lat, centro.lon) > raioKm) suspeitos.push(p);
     else coerentes.push(p);

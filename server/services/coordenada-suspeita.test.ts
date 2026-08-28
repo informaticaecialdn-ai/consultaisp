@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   distanciaKm, mediana, centroMediano, separarCoordenadasSuspeitas,
+  RAIO_MAX_KM, MIN_PONTOS_CIDADE,
 } from "./coordenada-suspeita";
 
 /** Cornelio Procopio, PR — centro da cidade. */
@@ -117,5 +118,56 @@ describe("separarCoordenadasSuspeitas", () => {
 
   it("aguenta lista vazia", () => {
     expect(separarCoordenadasSuspeitas([])).toEqual({ coerentes: [], suspeitos: [] });
+  });
+});
+
+describe("caixa do municipio · a régua boa", () => {
+  /* Caixa real de Ibiporã, do CNEFE 2022 (IBGE 4109807), com a margem de
+     0,01°. Foi ela que expôs o caso que o raio deixava passar. */
+  const IBIPORA = { latMin: -23.3575, latMax: -23.1321, lonMin: -51.1384, lonMax: -50.9587 };
+  const caixas = new Map([["IBIPORÃ", IBIPORA]]);
+
+  const dentro = { lat: -23.27, lon: -51.05, cidade: "Ibiporã" };
+  /* Primeiro de Maio: 47 km de Ibiporã — DENTRO do raio de 50 km, e fora do
+     município. É o ponto "San Rafael" que aparecia no mapa em agosto/2026. */
+  const vizinha = { lat: -22.85, lon: -51.03, cidade: "Ibiporã" };
+
+  it("o raio sozinho deixa passar o ponto da cidade vizinha", () => {
+    const massa = Array.from({ length: 6 }, (_, i) => ({ ...dentro, lat: dentro.lat + i * 0.001 }));
+    const { suspeitos } = separarCoordenadasSuspeitas([...massa, vizinha]);
+    expect(suspeitos).toHaveLength(0);
+    expect(distanciaKm(dentro.lat, dentro.lon, vizinha.lat, vizinha.lon)).toBeLessThan(RAIO_MAX_KM);
+  });
+
+  it("a caixa pega o mesmo ponto", () => {
+    const { coerentes, suspeitos } = separarCoordenadasSuspeitas(
+      [dentro, vizinha], RAIO_MAX_KM, MIN_PONTOS_CIDADE, caixas,
+    );
+    expect(suspeitos).toEqual([vizinha]);
+    expect(coerentes).toEqual([dentro]);
+  });
+
+  it("a caixa vale mesmo sem massa na cidade — não precisa de mediana", () => {
+    const { suspeitos } = separarCoordenadasSuspeitas(
+      [vizinha], RAIO_MAX_KM, MIN_PONTOS_CIDADE, caixas,
+    );
+    expect(suspeitos).toHaveLength(1);
+  });
+
+  it("cidade sem caixa carregada cai no raio, não trava", () => {
+    const outros = Array.from({ length: 6 }, (_, i) => ({ lat: -23.3 + i * 0.001, lon: -51.2, cidade: "Rolândia" }));
+    const longe = { lat: -20.0, lon: -51.2, cidade: "Rolândia" };
+    const { suspeitos } = separarCoordenadasSuspeitas(
+      [...outros, longe], RAIO_MAX_KM, MIN_PONTOS_CIDADE, caixas,
+    );
+    expect(suspeitos).toEqual([longe]);
+  });
+
+  it("ponto na borda, dentro da margem, não é acusado", () => {
+    const borda = { lat: IBIPORA.latMax - 0.001, lon: IBIPORA.lonMax - 0.001, cidade: "Ibiporã" };
+    const { suspeitos } = separarCoordenadasSuspeitas(
+      [borda], RAIO_MAX_KM, MIN_PONTOS_CIDADE, caixas,
+    );
+    expect(suspeitos).toHaveLength(0);
   });
 });

@@ -3,10 +3,12 @@ import { db } from "../db";
 import { customers, providers } from "@shared/schema";
 import { resolverAreaAtendida, normalizarCidade, type OrigemArea } from "../services/area-atendida";
 import { estadoDoPonto, type EstadoPonto } from "../services/estado-ponto";
-import { separarCoordenadasSuspeitas, centroMediano } from "../services/coordenada-suspeita";
+import {
+  separarCoordenadasSuspeitas, centroMediano, RAIO_MAX_KM, MIN_PONTOS_CIDADE,
+} from "../services/coordenada-suspeita";
 import { coordenadaValida } from "../services/coordenada";
 import { criarAgrupadorDeBairro, criarCasadorDeBairro, normalizarLocalidade } from "../services/localidade";
-import { carregarTerritorio } from "../services/geo-bases.service";
+import { carregarTerritorio, carregarCaixasMunicipio } from "../services/geo-bases.service";
 import { geocodeAddress } from "../services/geocoding";
 
 export interface LocalizacaoPonto {
@@ -446,7 +448,26 @@ export class LocalizacaoStorage {
     // Um ponto errado a centenas de km estica o enquadramento e a tela abre
     // numa regiao onde o provedor nao atende. Fora do mapa, mas contado — e
     // um defeito de cadastro que o provedor precisa ver para corrigir no ERP.
-    const { coerentes, suspeitos } = separarCoordenadasSuspeitas(pontos);
+    // A caixa do municipio vem do CNEFE do IBGE e e a regua boa; o raio da
+    // mediana fica de reserva para cidade sem base carregada. As chaves saem em
+    // caixa alta porque e assim que o detector agrupa por cidade.
+    const caixasPorNome = await carregarCaixasMunicipio(
+      Array.from(new Set(pontos.map(p => normalizarLocalidade(p.cidade)))).filter(Boolean),
+    );
+    const caixas = new Map(
+      Array.from(caixasPorNome.entries()).flatMap(([nome, cx]) => {
+        // O detector chaveia pelo rotulo exibido em caixa alta ("IBIPORÃ"),
+        // e a base normaliza sem acento ("IBIPORA"). Indexa pelos dois.
+        const exibidos = pontos
+          .map(p => (p.cidade || "").trim().toUpperCase())
+          .filter(rotulo => normalizarLocalidade(rotulo) === nome);
+        return Array.from(new Set([nome, ...exibidos])).map(k => [k, cx] as const);
+      }),
+    );
+
+    const { coerentes, suspeitos } = separarCoordenadasSuspeitas(
+      pontos, RAIO_MAX_KM, MIN_PONTOS_CIDADE, caixas,
+    );
 
     // Centro de cada cidade pela mediana dos proprios clientes — so os
     // coerentes, para o marcador da visao por cidade nao ser puxado pelo mesmo
