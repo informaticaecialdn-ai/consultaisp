@@ -11,6 +11,9 @@ interface SearchPayload {
   addressStreet?: string;
   addressCity?: string;
   addressState?: string;
+  /** Desempatam o cruzamento de endereço; nunca são requisito dele. */
+  addressNeighborhood?: string;
+  addressZip?: string;
 }
 
 interface Props {
@@ -441,6 +444,11 @@ export default function ConsultaSearchBar({
                           addressNumber: installNumber.trim(),
                           addressComplement: installComplement.trim() || undefined,
                           addressStreet: installCepData.logradouro,
+                          // Bairro e CEP não são requisito do cruzamento, mas
+                          // desempatam: a mesma cidade pode ter "Rua das
+                          // Flores, 100" no Centro e outra no Jardim Novo.
+                          addressNeighborhood: installCepData.bairro || undefined,
+                          addressZip: installCepQuery || undefined,
                           addressCity: installCepData.localidade,
                           addressState: installCepData.uf,
                         });

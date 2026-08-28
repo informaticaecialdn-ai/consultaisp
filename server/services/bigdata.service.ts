@@ -16,6 +16,8 @@
 import { logger } from "../logger";
 import { CircuitBreaker, withResilience } from "../erp/resilience";
 import { faixaRendaEmReais, type DadosCadastrais, type EnderecoCadastral } from "./bigdata-veredito";
+import { cruzarDomicilio, type CruzamentoDomicilio } from "./bigdata-domicilio";
+import type { EnderecoBruto } from "./endereco-chave";
 
 /** Endereco completo para exibir — o operador precisa ver, nao so contar. */
 export interface EnderecoDetalhado {
@@ -51,8 +53,9 @@ export const BASE_URL = process.env.BIGDATA_BASE_URL || "https://plataforma.bigd
  *   digital_finance_behaviors 0,05 · passages 0,05 · demographic_data 0,05
  *   professional_turnover 0,05
  *   basic_data 0,03 · historical_basic_data 0,03 · related_people 0,03
+ *   related_people_addresses 0,05
  *   ------------------------------------------------------------------
- *   combo = R$ 1,09   (+ R$ 0,07 do address_risk, chamada separada = R$ 1,16)
+ *   combo = R$ 1,14   (+ R$ 0,07 do address_risk, chamada separada = R$ 1,21)
  *
  * Cada dataset e cobrado a parte: tirar um economiza de verdade, adicionar um
  * encarece TODA consulta. Some antes de mexer, e confirme o preco em /precos —
@@ -95,6 +98,18 @@ export const DATASETS = [
   // rotatividade diz se ela vai continuar ganhando nos 12 meses do contrato.
   "professional_turnover", "demographic_data",
 
+  // `related_people_addresses` e a peca que faltava para a fraude que o setor
+  // de fato sofre: o parente que reinstala no mesmo imovel depois do calote,
+  // com outro CPF. Devolve o endereco de cada relacionado mais HouseholdCode
+  // — um hash do domicilio, da propria BigData — e o CPF do parente embutido
+  // no campo Type.
+  //
+  // So paga o custo porque o cruzamento existe: `cruzarDomicilio` compara
+  // esses enderecos com o endereco de INSTALACAO informado na busca, usando a
+  // mesma identidade de imovel do resto do sistema (endereco-chave.ts:
+  // logradouro + numero + cidade, com CEP como reforco e nunca requisito).
+  // Sem endereco de instalacao na consulta ele vira contagem e nada mais.
+  "related_people_addresses",
   // `related_people` NAO entra por TotalHousehold nem TotalNeighbors: os dois
   // vieram zero em 8 de 8 medicoes. Entra pelo parentesco, que chega inteiro —
   // MOTHER, FATHER, SPOUSE, BROTHER, SON, PARTNER — e pelos contadores de
@@ -215,17 +230,17 @@ export const NIVEIS: Record<NivelConsulta, {
     sondas: false,
     creditos: 1,
     /**
-     * R$ 1,09 dos 18 datasets + R$ 0,07 do address_risk (chamada a /enderecos).
+     * R$ 1,14 dos 19 datasets + R$ 0,07 do address_risk (chamada a /enderecos).
      *
      * Preco DA CONTA, medido em `POST /precos` em 28/08/2026 — nao e a tabela
      * publica. Antes deste valor havia R$ 1,69 aqui, copiado da doc: R$ 0,24
      * acima do real, o que escondia 10 pontos de margem.
      *
      * MARGEM (credito vendido de R$ 2,50 no pacote de 50 a R$ 2,00 no de 500):
-     * sobra R$ 1,34 na entrada, 54%, e R$ 0,84 no pacote maior, 42%. Confortavel
+     * sobra R$ 1,29 na entrada, 52%, e R$ 0,79 no pacote maior, 40%. Confortavel
      * — mas cada dataset acrescentado ao combo come margem de TODA consulta.
      */
-    custoBrl: 1.16,
+    custoBrl: 1.21,
   },
   completa: {
     rotulo: "Completa",
@@ -1248,6 +1263,11 @@ export interface ResultadoConsulta {
   mercado: Mercado;
   /** Domicilio e rede proxima — contagem por padrao, nomes so com ocorrencia. */
   domicilio: Domicilio;
+  /**
+   * Parente morando no endereco de INSTALACAO. Contagem por padrao; endereco e
+   * nome so aparecem quando ha coincidencia — ver bigdata-domicilio.ts.
+   */
+  cruzamentoDomicilio: CruzamentoDomicilio;
   /** Score financeiro da FAMILIA, com a distribuicao A-H dos membros. */
   riscoFamiliar: RiscoFamiliar;
   /** O que sobra para a mensalidade, e quanto disso vem de beneficio. */
@@ -1274,6 +1294,13 @@ export interface ResultadoConsulta {
 export async function consultarCpf(
   providerId: number, cred: Credencial, cpf: string,
   nivel: NivelConsulta = NIVEL_PADRAO,
+  /**
+   * Endereco onde o servico sera instalado, quando a busca o informa. E o que
+   * transforma o dataset de enderecos de relacionados de contagem em
+   * cruzamento — ver bigdata-domicilio.ts. Ausente, a consulta roda igual e
+   * devolve so contagem, sem endereco nem nome de terceiro.
+   */
+  enderecoInstalacao: EnderecoBruto | null = null,
 ): Promise<ResultadoConsulta> {
   const t0 = Date.now();
   const datasets = NIVEIS[nivel].datasets;
@@ -1373,6 +1400,12 @@ export async function consultarCpf(
   // (`TotalMembers` do bloco familiar), que o domicilio agora consome.
   const capacidade = normalizarCapacidade(R.FamilyFinancialData, R.FamilySocialAssistance);
   const domicilio = normalizarDomicilio(R.RelatedPeople, riscoFamiliar.emCobranca > 0, capacidade.pessoasNaCasa);
+  // O portao de LGPD vive DENTRO de cruzarDomicilio, nao na tela: sem
+  // coincidencia com o endereco de instalacao, nenhum logradouro e nenhum
+  // nome de terceiro sai deste servidor.
+  const cruzamentoDomicilio = cruzarDomicilio(
+    R.RelatedPeopleAddresses, R.RelatedPeople, enderecoInstalacao,
+  );
 
   const rastro: Rastro = {
     consultas30d: Number(pas?.Last30DaysTotalPassages ?? 0) || 0,
@@ -1434,7 +1467,7 @@ export async function consultarCpf(
       situacaoReceita: basic.TaxIdStatus, dataSituacao: basic.TaxIdStatusDate,
     },
     enderecos, telefones, emails,
-    domicilio, riscoFamiliar, capacidade,
+    domicilio, cruzamentoDomicilio, riscoFamiliar, capacidade,
     renda: normalizarRenda(fin),
     risco: {
       score: typeof risco?.FinancialRiskScore === "number" ? risco.FinancialRiskScore : undefined,

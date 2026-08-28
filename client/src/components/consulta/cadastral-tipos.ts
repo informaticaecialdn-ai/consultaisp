@@ -131,6 +131,34 @@ export interface ResultadoCadastral {
     nomesLiberados: boolean;
   };
 
+  /**
+   * Parente morando no endereço de INSTALAÇÃO — a fraude do imóvel que troca de
+   * CPF depois do calote.
+   *
+   * `coincidencias` vem vazio na maioria das consultas, e isso é o estado
+   * normal: sem coincidência o servidor não envia logradouro nem nome de
+   * terceiro. Quando vem preenchido, é porque houve casamento com o endereço
+   * informado na busca — o gatilho que justifica abrir o dado (LGPD).
+   * `cruzou: false` significa que a busca não trouxe endereço para comparar,
+   * não que nada foi encontrado.
+   */
+  cruzamentoDomicilio?: {
+    totalComEndereco: number;
+    naMesmaCidade: number;
+    domiciliosDistintos: number;
+    bateComInstalacao: boolean;
+    cruzou: boolean;
+    coincidencias: Array<{
+      vinculo: string;
+      cidade?: string; uf?: string;
+      codigoDomicilio?: string;
+      logradouro?: string; numero?: string; complemento?: string;
+      bairro?: string; cep?: string;
+      nome?: string;
+      documentoMascarado?: string;
+    }>;
+  };
+
   riscoFamiliar?: {
     score?: number; nivel?: string; membros: number; empregados: number;
     emCobranca: number; ocorrencias365d: number;

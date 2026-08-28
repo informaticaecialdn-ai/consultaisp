@@ -278,6 +278,17 @@ export default function ConsultaCadastralPage() {
         lgpdAccepted: true,
         // O servidor decide quantos créditos isso custa — aqui só vai o nome.
         nivel: payload.nivel ?? nivel,
+        // Endereço de instalação: a barra de busca já coletava estes campos e
+        // esta chamada não os enviava, então o painel "Verificar também por
+        // endereço de instalação" existia e não fazia nada. São eles que ligam
+        // o cruzamento de domicílio — parente morando no imóvel da instalação.
+        addressStreet: payload.addressStreet,
+        addressNumber: payload.addressNumber,
+        addressComplement: payload.addressComplement,
+        addressNeighborhood: payload.addressNeighborhood,
+        addressCity: payload.addressCity,
+        addressState: payload.addressState,
+        addressZip: payload.addressZip,
       });
       return r.json();
     },

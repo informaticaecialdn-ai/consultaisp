@@ -32,6 +32,24 @@ const consultaSchema = z.object({
   // e lido de NIVEIS no servidor. Aceitar preco do cliente deixaria qualquer um
   // rodar uma Premium por 1 credito.
   nivel: z.enum(["padrao", "completa"]).optional(),
+
+  /**
+   * Endereco de INSTALACAO. A barra de busca ja coletava estes campos e o
+   * schema os descartava em silencio — zod remove chave nao declarada, entao o
+   * painel "Verificar tambem por endereco de instalacao" existia e nao fazia
+   * nada nesta rota.
+   *
+   * Sao o que liga o cruzamento de domicilio: parente morando no imovel onde o
+   * servico vai ser instalado. Opcionais de proposito — sem eles a consulta
+   * roda igual, so nao cruza.
+   */
+  addressStreet: z.string().max(200).optional(),
+  addressNumber: z.string().max(20).optional(),
+  addressComplement: z.string().max(60).optional(),
+  addressNeighborhood: z.string().max(120).optional(),
+  addressCity: z.string().max(120).optional(),
+  addressState: z.string().max(40).optional(),
+  addressZip: z.string().max(12).optional(),
 });
 
 export function registerBigdataRoutes(): Router {
@@ -270,8 +288,22 @@ export function registerBigdataRoutes(): Router {
         });
       }
 
+      // Endereco de instalacao so vale como cruzamento se tiver o minimo para
+      // afirmar que dois cadastros sao o mesmo imovel: rua, numero e cidade.
+      // Incompleto vira null — melhor nao cruzar do que cruzar por aproximacao
+      // e apontar um parente que mora noutro lugar.
+      const p = parsed.data;
+      const enderecoInstalacao = (p.addressStreet && p.addressNumber && p.addressCity)
+        ? {
+            address: p.addressStreet, addressNumber: p.addressNumber,
+            neighborhood: p.addressNeighborhood, city: p.addressCity,
+            state: p.addressState, cep: p.addressZip,
+          }
+        : null;
+
       const r = await consultarCpf(
         providerId, { login: integ.login, password: integ.password }, cpf, nivel,
+        enderecoInstalacao,
       );
       const v = decidirVeredito(r.dados, { valorPlano: parsed.data.valorPlano });
 
@@ -313,6 +345,7 @@ export function registerBigdataRoutes(): Router {
           capacidade: r.capacidade,
 
           domicilio: r.domicilio,
+          cruzamentoDomicilio: r.cruzamentoDomicilio,
 
           riscoFamiliar: r.riscoFamiliar,
 
@@ -362,6 +395,7 @@ export function registerBigdataRoutes(): Router {
         capacidade: r.capacidade,
 
         domicilio: r.domicilio,
+        cruzamentoDomicilio: r.cruzamentoDomicilio,
 
         riscoFamiliar: r.riscoFamiliar,
 

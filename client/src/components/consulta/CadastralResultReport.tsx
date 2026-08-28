@@ -63,6 +63,7 @@ export default function CadastralResultReport({ r, onSave, onGeneratePDF }: Prop
   const socios = r.empresa?.socios ?? [];
   const sociosAtuais = socios.filter(s => s.atual);
   const processos = r.processos ?? [];
+  const cruz = r.cruzamentoDomicilio;
 
   return (
     <div
@@ -586,10 +587,90 @@ export default function CadastralResultReport({ r, onSave, onGeneratePDF }: Prop
         </ReportSection>
       )}
 
-      {/* ═══ 08 · DOMICÍLIO E REDE (CPF) ═══ */}
+      {/* ═══ 08A · PARENTE NO ENDEREÇO DE INSTALAÇÃO ═══
+          A fraude que o setor de fato sofre: o cliente leva o calote, o
+          provedor corta, e meses depois chega um pedido no MESMO imóvel com
+          outro CPF. O documento é limpo porque a dívida não é dele.
+
+          O bloco só aparece quando a busca trouxe endereço — sem endereço não
+          houve cruzamento, e dizer "nada encontrado" afirmaria uma varredura
+          que não aconteceu. */}
+      {!ehEmpresa && cruz?.cruzou && (
+        <ReportSection
+          title="08 · Cruzamento do endereço de instalação"
+          trailing={
+            <span style={pillStyle(cruz.bateComInstalacao ? "past" : "ok")}>
+              {cruz.bateComInstalacao
+                ? `${cruz.coincidencias.length} no mesmo imóvel`
+                : "nenhum parente no imóvel"}
+            </span>
+          }
+        >
+          {cruz.bateComInstalacao ? (
+            <>
+              <div style={{
+                marginTop: 12, padding: "11px 13px", borderRadius: 8,
+                background: "var(--past-bg)", border: "1px solid var(--past-border)",
+                fontSize: 13, color: "var(--past)", lineHeight: 1.5,
+              }}>
+                Há parente do titular com endereço registrado <strong>no imóvel
+                da instalação</strong>. Confira contra a sua base antes de
+                liberar: é o padrão do calote que volta com outro CPF.
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", marginTop: 12 }}>
+                {cruz.coincidencias.map((c, i) => (
+                  <div key={i} style={{
+                    display: "flex", alignItems: "flex-start", justifyContent: "space-between",
+                    gap: 12, padding: "11px 0", borderBottom: "1px solid var(--border-faint)",
+                  }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>
+                        {c.nome ?? "nome não disponível"}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 3 }}>
+                        {[
+                          c.logradouro && `${c.logradouro}${c.numero ? `, ${c.numero}` : ""}`,
+                          c.complemento, c.bairro,
+                          c.cidade && `${c.cidade}${c.uf ? `/${c.uf}` : ""}`,
+                        ].filter(Boolean).join(" — ")}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      {c.documentoMascarado && (
+                        <span style={{
+                          fontFamily: "var(--font-mono)", fontSize: 11,
+                          fontVariantNumeric: "tabular-nums", color: "var(--text-muted)",
+                        }}>
+                          {c.documentoMascarado}
+                        </span>
+                      )}
+                      <span style={pillStyle("past")}>{c.vinculo}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p style={{ fontSize: 11, color: "var(--text-faint)", lineHeight: 1.5, marginTop: 11 }}>
+                Nome e endereço só aparecem porque houve coincidência com o
+                imóvel em contratação. O CPF do parente sai mascarado — serve
+                para conferir identidade, não para alimentar outra base.
+              </p>
+            </>
+          ) : (
+            <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, marginTop: 12 }}>
+              Nenhum dos {cruz.totalComEndereco} parente(s) com endereço conhecido
+              mora no imóvel da instalação
+              {cruz.naMesmaCidade > 0
+                ? ` — ${cruz.naMesmaCidade} está na mesma cidade, em ${cruz.domiciliosDistintos} domicílio(s) distinto(s).`
+                : "."}
+            </p>
+          )}
+        </ReportSection>
+      )}
+
+      {/* ═══ 09 · DOMICÍLIO E REDE (CPF) ═══ */}
       {!ehEmpresa && r.domicilio && r.domicilio.totalRelacionados > 0 && (
         <ReportSection
-          title="08 · Domicílio e rede próxima"
+          title="09 · Domicílio e rede próxima"
           trailing={
             <div style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "var(--text-faint)" }}>
               <Lock size={10} />
@@ -651,10 +732,10 @@ export default function CadastralResultReport({ r, onSave, onGeneratePDF }: Prop
         </ReportSection>
       )}
 
-      {/* ═══ 09 · RASTRO NO MERCADO (CPF) ═══ */}
+      {/* ═══ 10 · RASTRO NO MERCADO (CPF) ═══ */}
       {!ehEmpresa && (
         <ReportSection
-          title="09 · Rastro no mercado"
+          title="10 · Rastro no mercado"
           trailing={<Kicker>Intensidade de A (alta) a H (sem rastro)</Kicker>}
         >
           <div style={{
