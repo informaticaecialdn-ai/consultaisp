@@ -71,6 +71,16 @@ export interface LocalizacaoResposta {
   cidades: LocalizacaoCidade[];
   /** Cidades na area declarada que ainda nao tem nenhum cliente. */
   cidadesSemCliente: string[];
+  /**
+   * Clientes da carteira que o recorte territorial DEIXOU DE FORA.
+   *
+   * Existe para a tela poder dizer o que nao esta mostrando. Sem isto o mapa
+   * anunciava "1.272 de 1.272 pontos" com 1.667 clientes escondidos numa cidade
+   * nao declarada, e o provedor lia aquilo como "nao tenho cliente la".
+   */
+  foraDaArea: number;
+  /** As cidades desses clientes, da maior para a menor. */
+  cidadesForaDaArea: Array<{ cidade: string; clientes: number; inadimplentes: number }>;
   pontos: LocalizacaoPonto[];
   bairros: LocalizacaoBairro[];
   /** Carteira por estado — alimenta a legenda sobre o mapa. Conta a carteira
@@ -199,11 +209,37 @@ export class LocalizacaoStorage {
       return rotuloOficial.get(normalizarCidade(limpo)) ?? limpo;
     };
 
-    const naArea = todos.filter(c => {
+    const dentroDaArea = (c: { city: string | null; state: string | null }) => {
       if (cidadesAlvo) return cidadesAlvo.has(normalizarCidade(c.city));
       if (ufAlvo) return (c.state || "").toUpperCase() === ufAlvo;
       return true;
-    });
+    };
+    const naArea = todos.filter(dentroDaArea);
+
+    /*
+     * O QUE O RECORTE ESCONDE — e por que isto precisa sair daqui.
+     *
+     * A NsLink tinha uma cidade declarada (Londrina) e 1.667 clientes em
+     * Ibipora. A tela mostrava "1.272 de 1.272 pontos", afirmando estar
+     * completa, e o provedor concluiu que nao tinha cliente em Ibipora. Tinha
+     * mais la do que em Londrina.
+     *
+     * Filtro silencioso e pior que filtro errado: o errado se percebe, o
+     * silencioso vira conclusao de negocio. A contagem sai da MESMA varredura,
+     * por subtracao — nao custa query nenhuma.
+     */
+    const foraLista = todos.filter(c => !dentroDaArea(c));
+    const foraPorCidade = new Map<string, { cidade: string; clientes: number; inadimplentes: number }>();
+    for (const c of foraLista) {
+      const nome = (c.city || "").trim() || "Sem cidade";
+      const chave = normalizarCidade(nome);
+      const e = foraPorCidade.get(chave) ?? { cidade: nome, clientes: 0, inadimplentes: 0 };
+      e.clientes++;
+      if (c.paymentStatus === "overdue") e.inadimplentes++;
+      foraPorCidade.set(chave, e);
+    }
+    const cidadesForaDaArea = Array.from(foraPorCidade.values())
+      .sort((a, b) => b.clientes - a.clientes);
 
     const pontos: LocalizacaoPonto[] = [];
     let semCoordenada = 0;
@@ -326,6 +362,8 @@ export class LocalizacaoStorage {
       coordenadaSuspeita: suspeitos.map(p => ({ id: p.id, cidade: p.cidade, lat: p.lat, lon: p.lon })),
       cidades: Array.from(porCidade.values()).sort((a, b) => b.clientes - a.clientes),
       cidadesSemCliente,
+      foraDaArea: foraLista.length,
+      cidadesForaDaArea,
       pontos: coerentes,
       // Ordem de chegada do ranking: pior taxa primeiro, e em empate a maior
       // divida. E a ordem que o "bairro campeao" assume ao desempatar.

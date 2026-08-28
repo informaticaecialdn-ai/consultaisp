@@ -30,6 +30,9 @@ type Resposta = {
   coordenadaSuspeita: Array<{ id: number; cidade: string; lat: number; lon: number }>;
   cidades: CidadeMapa[];
   cidadesSemCliente: string[];
+  /** Clientes que o recorte territorial deixou de fora do mapa. */
+  foraDaArea: number;
+  cidadesForaDaArea: Array<{ cidade: string; clientes: number; inadimplentes: number }>;
   pontos: PontoMapa[];
   bairros: BairroRanking[];
   porEstado: Record<EstadoCliente, number>;
@@ -259,6 +262,51 @@ export default function LocalizacaoPage() {
           <Link href="/configuracoes/regionalizacao" className="underline font-medium">
             Configurar Regionalização
           </Link>
+        </div>
+      )}
+
+      {/* O RECORTE TEM DE SE DECLARAR.
+          Sem este aviso o mapa dizia "1.272 de 1.272 pontos" — afirmando estar
+          completo — enquanto 1.667 clientes de uma cidade não declarada ficavam
+          de fora. O provedor leu aquilo como "não tenho cliente lá". Filtro
+          silencioso vira conclusão de negócio errada. */}
+      {(data?.foraDaArea ?? 0) > 0 && (
+        <div className="rounded-lg border border-[var(--gated-border)] bg-[var(--gated-bg)] px-4 py-3.5">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="min-w-0">
+              <p className="text-[13px] text-[var(--gated)] leading-relaxed">
+                <strong className="font-semibold">
+                  {num(data!.foraDaArea)} cliente{data!.foraDaArea === 1 ? "" : "s"} fora do mapa
+                </strong>
+                {" "}— estão em cidades que não constam da sua Regionalização, então
+                não entram em nenhum número desta tela.
+              </p>
+              <div className="mt-2.5 flex flex-wrap gap-1.5">
+                {(data?.cidadesForaDaArea ?? []).slice(0, 6).map(c => (
+                  <span
+                    key={c.cidade}
+                    className="inline-flex items-center gap-1.5 rounded border border-[var(--gated-border)] bg-[var(--surface)] px-2 py-1 font-mono text-[10.5px] tabular-nums text-[var(--text-2)]"
+                    title={`${c.inadimplentes} inadimplente(s)`}
+                  >
+                    {c.cidade}
+                    <strong className="font-semibold text-[var(--text)]">{num(c.clientes)}</strong>
+                  </span>
+                ))}
+                {(data?.cidadesForaDaArea?.length ?? 0) > 6 && (
+                  <span className="inline-flex items-center px-2 py-1 font-mono text-[10.5px] text-[var(--text-muted)]">
+                    +{(data!.cidadesForaDaArea.length - 6)} cidade(s)
+                  </span>
+                )}
+              </div>
+            </div>
+            <Link
+              href="/configuracoes/regionalizacao"
+              className="shrink-0 inline-flex items-center rounded-md border border-[var(--gated-border)] bg-[var(--surface)] px-3 py-2 text-[12.5px] font-semibold text-[var(--gated)]"
+              data-testid="link-ajustar-regionalizacao"
+            >
+              Ajustar Regionalização
+            </Link>
+          </div>
         </div>
       )}
 
