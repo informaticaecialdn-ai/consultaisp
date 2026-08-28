@@ -3,7 +3,7 @@ import { requireAuth, requireSuperAdmin } from "../auth";
 import { storage } from "../storage";
 import { getConnector, getAllConnectors, getSupportedSources, buildConnectorConfig, ERP_CONFIG_FIELDS } from "../erp";
 import { getSafeErrorMessage } from "../utils/safe-error";
-import { syncProviderToDb } from "../services/erp-sync.service";
+import { syncProviderToDb, sincronizacaoEmAndamento } from "../services/erp-sync.service";
 import { z } from "zod";
 
 const erpIntegrationUpdateSchema = z.object({
@@ -101,7 +101,25 @@ export function registerErpRoutes(): Router {
         return res.status(400).json({ ok: false, message: "Configure a URL e o token antes de sincronizar" });
       }
       const provider = await storage.getProvider(providerId);
-      const result = await syncProviderToDb(providerId, provider?.name || "Provedor", source, {
+      if (sincronizacaoEmAndamento(providerId, source)) {
+        return res.status(409).json({
+          ok: false,
+          emAndamento: true,
+          message: "Ja existe uma sincronizacao em andamento para este ERP. Acompanhe pelo historico.",
+        });
+      }
+
+      // DISPARA E RESPONDE. A varredura nao cabe num ciclo de request.
+      //
+      // A rota fazia `await` na sincronizacao inteira. Ela leva minutos — 682s
+      // medidos na NsLink — e o nginx corta em `proxy_read_timeout 60s`,
+      // devolvendo 504 em HTML. O `fetch` do painel entao estourava no
+      // `res.json()` e a tela dizia "Erro ao sincronizar" para um sync que
+      // estava rodando e ia terminar bem. Pior: convidava a clicar de novo.
+      //
+      // O resultado ja tem onde aparecer: `erp_sync_logs`, que o painel le em
+      // GET /api/provider/erp-sync-logs.
+      void syncProviderToDb(providerId, provider?.name || "Provedor", source, {
         apiUrl: intg.apiUrl,
         apiToken: intg.apiToken,
         apiUser: intg.apiUser,
@@ -109,8 +127,15 @@ export function registerErpRoutes(): Router {
         clientId: (intg as any).clientId ?? null,
         clientSecret: (intg as any).clientSecret ?? null,
         extraConfig: (intg as any).extraConfig ?? null,
-      }, "manual");
-      return res.json({ ok: true, ...result });
+      }, "manual").catch(err => {
+        console.error(`[ERPSync] sync manual de ${source} (provider ${providerId}) falhou:`, err);
+      });
+
+      return res.status(202).json({
+        ok: true,
+        iniciado: true,
+        message: "Sincronizacao iniciada. O resultado aparece no historico quando terminar.",
+      });
     } catch (error: any) {
       return res.status(500).json({ ok: false, message: getSafeErrorMessage(error) });
     }
@@ -126,7 +151,25 @@ export function registerErpRoutes(): Router {
         return res.status(400).json({ ok: false, message: "Provedor nao tem URL/token configurados" });
       }
       const provider = await storage.getProvider(providerId);
-      const result = await syncProviderToDb(providerId, provider?.name || "Provedor", source, {
+      if (sincronizacaoEmAndamento(providerId, source)) {
+        return res.status(409).json({
+          ok: false,
+          emAndamento: true,
+          message: "Ja existe uma sincronizacao em andamento para este ERP. Acompanhe pelo historico.",
+        });
+      }
+
+      // DISPARA E RESPONDE. A varredura nao cabe num ciclo de request.
+      //
+      // A rota fazia `await` na sincronizacao inteira. Ela leva minutos — 682s
+      // medidos na NsLink — e o nginx corta em `proxy_read_timeout 60s`,
+      // devolvendo 504 em HTML. O `fetch` do painel entao estourava no
+      // `res.json()` e a tela dizia "Erro ao sincronizar" para um sync que
+      // estava rodando e ia terminar bem. Pior: convidava a clicar de novo.
+      //
+      // O resultado ja tem onde aparecer: `erp_sync_logs`, que o painel le em
+      // GET /api/provider/erp-sync-logs.
+      void syncProviderToDb(providerId, provider?.name || "Provedor", source, {
         apiUrl: intg.apiUrl,
         apiToken: intg.apiToken,
         apiUser: intg.apiUser,
@@ -134,8 +177,15 @@ export function registerErpRoutes(): Router {
         clientId: (intg as any).clientId ?? null,
         clientSecret: (intg as any).clientSecret ?? null,
         extraConfig: (intg as any).extraConfig ?? null,
-      }, "manual");
-      return res.json({ ok: true, ...result });
+      }, "manual").catch(err => {
+        console.error(`[ERPSync] sync manual de ${source} (provider ${providerId}) falhou:`, err);
+      });
+
+      return res.status(202).json({
+        ok: true,
+        iniciado: true,
+        message: "Sincronizacao iniciada. O resultado aparece no historico quando terminar.",
+      });
     } catch (error: any) {
       return res.status(500).json({ ok: false, message: getSafeErrorMessage(error) });
     }

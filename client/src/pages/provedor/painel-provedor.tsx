@@ -185,17 +185,45 @@ export default function PainelProvedorPage() {
     }
   };
 
+  /**
+   * Dispara a varredura e volta na hora.
+   *
+   * A rota agora responde 202 assim que enfileira: a sincronizacao leva
+   * minutos, o proxy corta em 60s, e este `fetch` estourava no `res.json()` de
+   * um 504 em HTML — mostrando "Erro ao sincronizar" para um sync que estava
+   * rodando e ia terminar bem. A mensagem de sucesso, quando chegava, lia
+   * `data.synced` e `data.total`, campos que a rota nunca devolveu: sairia
+   * "undefined registros sincronizados".
+   *
+   * O resultado de verdade mora no historico logo abaixo, que passa a recarregar
+   * sozinho enquanto ha varredura em andamento.
+   */
   const syncNow = async (source: string) => {
     setErpPending(p => ({ ...p, [source]: { ...p[source], syncing: true } }));
     setErpSyncResults(r => ({ ...r, [source]: null }));
     try {
       const res = await fetch(`/api/provider/erp-integrations/${source}/sync`, { method: "POST" });
-      const data = await res.json();
-      setErpSyncResults(r => ({ ...r, [source]: { ok: data.ok, msg: data.ok ? `${data.synced} registros sincronizados (${data.total} processados)` : data.message } }));
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 409) {
+        setErpSyncResults(r => ({ ...r, [source]: { ok: false, msg: data.message || "Sincronizacao ja em andamento." } }));
+        return;
+      }
+      setErpSyncResults(r => ({
+        ...r,
+        [source]: {
+          ok: !!data.ok,
+          msg: data.ok
+            ? "Sincronizacao iniciada — o resultado aparece no historico ao terminar."
+            : data.message || "Nao foi possivel iniciar a sincronizacao.",
+        },
+      }));
       refetchErpList();
       refetchSyncLogs();
+      // A varredura leva minutos; relê o histórico até ele registrar o desfecho.
+      const ateTerminar = window.setInterval(() => refetchSyncLogs(), 15000);
+      window.setTimeout(() => window.clearInterval(ateTerminar), 15 * 60 * 1000);
     } catch {
-      setErpSyncResults(r => ({ ...r, [source]: { ok: false, msg: "Erro ao sincronizar" } }));
+      setErpSyncResults(r => ({ ...r, [source]: { ok: false, msg: "Nao consegui falar com o servidor." } }));
     } finally {
       setErpPending(p => ({ ...p, [source]: { ...p[source], syncing: false } }));
     }

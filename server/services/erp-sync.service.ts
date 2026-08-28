@@ -14,8 +14,25 @@ import { coordenadaValida } from "./coordenada";
 
 let _syncing = false;
 
+/**
+ * Syncs em voo, por `providerId:erpSource`.
+ *
+ * `_syncing` protege apenas `syncAllProviders` — a rota manual chamava
+ * `syncProviderToDb` direto e nao passava por ele, entao o botao do painel podia
+ * disparar uma varredura em cima da agendada. Cada uma faz 3.226 chamadas a API
+ * do provedor; duas ao mesmo tempo derrubam o ERP dele, e as duas gravam na
+ * mesma carteira. E o botao convidava a isso: o proxy corta em 60s, a tela
+ * mostra erro, e o operador clica de novo num sync que esta rodando.
+ */
+const _emVoo = new Set<string>();
+
 export function isSyncing(): boolean {
-  return _syncing;
+  return _syncing || _emVoo.size > 0;
+}
+
+/** Ha varredura em andamento para este provedor/ERP? */
+export function sincronizacaoEmAndamento(providerId: number, erpSource: string): boolean {
+  return _emVoo.has(`${providerId}:${erpSource}`);
 }
 
 /**
@@ -50,7 +67,7 @@ export function mesclarInadimplentes<T extends { cpfCnpj: string }>(
   return { customers: Array.from(porDoc.values()), somenteAtivos };
 }
 
-export async function syncProviderToDb(
+async function syncProviderToDbInterno(
   providerId: number,
   providerName: string,
   erpSource: string,
@@ -468,6 +485,36 @@ export async function syncProviderToDb(
           : quitados > 0 ? `${quitados} quitaram desde a ultima varredura` : undefined,
   );
   return { upserted, errors };
+}
+
+/**
+ * Varredura de um provedor, com trava de UMA por provedor+ERP.
+ *
+ * A trava vive aqui e nao na rota porque ha dois chamadores: o botao do painel
+ * e o scheduler. Cada rodada faz milhares de chamadas a API do provedor; duas
+ * ao mesmo tempo derrubam o ERP dele e as duas gravam na mesma carteira.
+ *
+ * Recusar e mais util do que enfileirar: quem pediu quer saber que ja esta
+ * rodando, nao esperar 11 minutos por uma segunda passada identica.
+ */
+export async function syncProviderToDb(
+  providerId: number,
+  providerName: string,
+  erpSource: string,
+  intg: Parameters<typeof syncProviderToDbInterno>[3],
+  syncType: "auto" | "manual" = "auto",
+): Promise<{ upserted: number; errors: number; jaEmAndamento?: boolean }> {
+  const chave = `${providerId}:${erpSource}`;
+  if (_emVoo.has(chave)) {
+    console.log(`[ERPSync] ${providerName} (${erpSource}): ja ha varredura em andamento, ignorando`);
+    return { upserted: 0, errors: 0, jaEmAndamento: true };
+  }
+  _emVoo.add(chave);
+  try {
+    return await syncProviderToDbInterno(providerId, providerName, erpSource, intg, syncType);
+  } finally {
+    _emVoo.delete(chave);
+  }
 }
 
 export async function syncAllProviders(): Promise<void> {

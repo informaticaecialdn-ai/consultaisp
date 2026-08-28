@@ -211,11 +211,36 @@ app.use((req, res, next) => {
     },
   );
 
+  /**
+   * Espera a varredura em voo antes de fechar o pool — o mesmo dreno que o
+   * worker ja tinha (server/worker.ts).
+   *
+   * O sync agendado roda no worker, mas o BOTAO "Sincronizar Agora" roda neste
+   * processo, e a rota agora responde na hora e deixa a varredura seguindo em
+   * background — sao 11 minutos em que um deploy fecharia o pool no meio dela.
+   * Sem o dreno o log enche de "Cannot use a pool after calling end on the
+   * pool", cada linha um cliente cuja atualizacao se perdeu.
+   *
+   * Trinta segundos cobre o upsert corrente com folga; passar disso, a varredura
+   * e abandonada de proposito — segurar o desligamento faria o pm2 matar o
+   * processo do mesmo jeito, so que mais tarde.
+   */
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "Shutdown signal received");
     httpServer.close(() => {
       logger.info("HTTP server closed");
     });
+    try {
+      const { isSyncing } = await import("./services/erp-sync.service");
+      const limite = Date.now() + 30_000;
+      if (isSyncing()) logger.info("Sync manual em andamento — aguardando ate 30s");
+      while (isSyncing() && Date.now() < limite) {
+        await new Promise(r => setTimeout(r, 500));
+      }
+      if (isSyncing()) logger.warn("Sync ainda rodando apos 30s — encerrando mesmo assim");
+    } catch (err) {
+      logger.warn({ err }, "Nao consegui verificar o sync em andamento");
+    }
     await pool.end();
     logger.info("Database pool closed");
     process.exit(0);

@@ -1570,7 +1570,15 @@ export class MkConnector implements ErpConnector {
    */
   private async clientesPorFiltro(
     config: ErpConnectionConfig,
-    filtro: (linha: any) => boolean,
+    /**
+     * Devolve O ENDERECO que casou, ou `null` quando o cliente nao serve.
+     *
+     * Nao e booleano de proposito: o predicado procura em TODOS os enderecos
+     * do cliente (instalacao e cobranca), e o mapeamento pegava sempre o
+     * `[0]`. O casamento acontecia na instalacao e a resposta saia com o
+     * endereco de cobranca — outra rua, as vezes outra cidade.
+     */
+    filtro: (linha: any) => Record<string, any> | null,
     rotulo: string,
   ): Promise<ErpFetchResult> {
     try {
@@ -1592,7 +1600,9 @@ export class MkConnector implements ErpConnector {
         return { ok: false, message: "MK nao devolveu nenhum cliente na varredura", customers: [] };
       }
 
-      const matchingClientes = rows.filter(filtro);
+      const matchingClientes = rows
+        .map(r => ({ cliente: r, enderecoCasado: filtro(r) }))
+        .filter(x => x.enderecoCasado !== null);
 
       // Limit to 50 to avoid excessive API calls
       const limitedClientes = matchingClientes.slice(0, 50);
@@ -1610,7 +1620,7 @@ export class MkConnector implements ErpConnector {
         const batch = limitedClientes.slice(i, i + CONCURRENCY);
 
         const batchResults = await Promise.all(
-          batch.map(async (cliente: any) => {
+          batch.map(async ({ cliente, enderecoCasado }: any) => {
             // `CPF_CNPJ` primeiro: e o nome do campo no MK. A lista antiga
             // (Doc/doc/cpf/cnpj/cpf_cnpj) nao continha nenhum campo existente
             // neste payload, entao todo casamento virava null — a busca por
@@ -1621,8 +1631,8 @@ export class MkConnector implements ErpConnector {
             );
             if (!cpfCnpj) return null;
 
-            // O endereco tambem vive no array, nao na raiz.
-            const end = this.enderecosDoCliente(cliente)[0] ?? {};
+            // O endereco que o predicado casou, nao o primeiro da lista.
+            const end = enderecoCasado ?? this.enderecosDoCliente(cliente)[0] ?? {};
 
             let totalOverdueAmount = 0;
             let maxDaysOverdue = 0;
@@ -1726,8 +1736,8 @@ export class MkConnector implements ErpConnector {
     const alvo = cep.replace(/\D/g, "");
     return this.clientesPorFiltro(
       config,
-      (r: any) => this.enderecosDoCliente(r).some(e =>
-        String(e.cep ?? e.CEP ?? "").replace(/[^0-9]/g, "").startsWith(alvo)),
+      (r: any) => this.enderecosDoCliente(r).find(e =>
+        String(e.cep ?? e.CEP ?? "").replace(/[^0-9]/g, "").startsWith(alvo)) ?? null,
       `CEP ${alvo}`,
     );
   }
@@ -1757,7 +1767,7 @@ export class MkConnector implements ErpConnector {
 
     return this.clientesPorFiltro(
       config,
-      (r: any) => this.enderecosDoCliente(r).some(e => {
+      (r: any) => this.enderecosDoCliente(r).find(e => {
         const bruto = e.logradouro ?? e.Logradouro ?? e.endereco ?? e.Endereco ?? "";
         // O logradouro pode vir com o numero grudado; corta no primeiro
         // separador antes de comparar.
@@ -1771,7 +1781,7 @@ export class MkConnector implements ErpConnector {
         // Cidade ausente no cadastro nao descarta: cadastro incompleto nao e
         // prova de que e outra cidade.
         return !cidade || cidade === cidadeAlvo;
-      }),
+      }) ?? null,
       `${ruaAlvo}${cidadeAlvo ? ` / ${cidadeAlvo}` : ""}`,
     );
   }
