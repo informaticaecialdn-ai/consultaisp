@@ -1501,21 +1501,20 @@ export class MkConnector implements ErpConnector {
       const tokenAuth = await this.authenticate(config);
       const base = this.baseUrl(config);
 
-      // Step 1: Get all customers
-      const url = `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}`;
-      console.log(`[MK] Buscando clientes (${rotulo}) via WSMKConsultaClientes`);
-
-      const response = await withResilience(
-        () => fetch(url, { method: "GET", signal: AbortSignal.timeout(30000) }),
-        { retries: 2, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
-      );
-
-      if (!response.ok) {
-        return { ok: false, message: `MK WSMKConsultaClientes respondeu com status ${response.status}`, customers: [] };
+      // A carteira inteira, pela varredura por faixa.
+      //
+      // O que havia aqui era `WSMKConsultaClientes.rule?sys=MK0&token=...` e mais
+      // nada. O MK recusa: HTTP 200 com corpo
+      // `{"CODIGO_ERRO":"004","Mensagem":"Pelo menos um parametro deve ser
+      // informado."}`. Como o status e 200, `response.ok` passava, o parse nao
+      // achava lista e a funcao respondia "Nenhum cliente encontrado" — uma
+      // resposta limpa, confiante e errada. Consulta por endereco e por CEP
+      // contra o MK nunca devolveram nada. Verificado na NsLink em 28/08/2026.
+      console.log(`[MK] Buscando clientes (${rotulo}) via varredura por faixa`);
+      const rows = await this.listarTodosClientes(base, tokenAuth);
+      if (rows.length === 0) {
+        return { ok: false, message: "MK nao devolveu nenhum cliente na varredura", customers: [] };
       }
-
-      const json: any = await response.json();
-      const rows: any[] = Array.isArray(json) ? json : json?.registros || json?.data || [];
 
       const matchingClientes = rows.filter(filtro);
 

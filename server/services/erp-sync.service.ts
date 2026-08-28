@@ -119,6 +119,7 @@ export async function syncProviderToDb(
   // 1. Buscar TODOS os clientes (ativos + inativos) pra ter total por bairro.
   // SEM geocoding (so inadimplentes precisam de coords pro mapa). Resolve cidade FK.
   const hasFetchCustomers = typeof connector.fetchCustomers === "function";
+  let falhaNaCarteira: string | undefined;
   if (hasFetchCustomers) {
     try {
       const allResult = await limiter(() => connector.fetchCustomers!(config));
@@ -184,6 +185,7 @@ export async function syncProviderToDb(
       }
     } catch (err: any) {
       console.warn(`[ERPSync] ${providerName}: fetchCustomers falhou: ${err.message}`);
+      falhaNaCarteira = err.message;
     }
   }
 
@@ -217,22 +219,29 @@ export async function syncProviderToDb(
     }
   };
 
-  const cancelados = hasCancelled
+  // `null` quando o conector nao tem esse metodo. O placeholder que estava aqui
+  // — `{ ok: true, customers: [] }` — era indistinguivel de "a fonte respondeu e
+  // nao havia ninguem", e com isso o aborto abaixo nunca disparava para um ERP
+  // que so tem `fetchDelinquents`: em 28/08/2026 uma sync do MK com autenticacao
+  // recusada ficou gravada como "success", 0 registros, 166ms.
+  const cancelados: ErpFetchResult | null = hasCancelled
     ? await buscar("fetchCancelledDelinquents", () => (connector as any).fetchCancelledDelinquents(config))
-    : { ok: true, message: "", customers: [] } as ErpFetchResult;
+    : null;
   const emAtraso = await buscar("fetchDelinquents", () => connector.fetchDelinquents(config));
 
-  // So aborta se NENHUMA fonte respondeu. Uma das duas falhando ainda atualiza a
-  // parte que veio — melhor do que descartar tudo e deixar a base envelhecer.
-  if (!cancelados.ok && !emAtraso.ok) {
-    const msg = `ERP recusou a busca: ${cancelados.message || emAtraso.message}`;
+  // So aborta se nenhuma fonte TENTADA respondeu. Uma das duas falhando ainda
+  // atualiza a parte que veio — melhor do que descartar tudo e deixar a base
+  // envelhecer.
+  const tentadas = [cancelados, emAtraso].filter(Boolean) as ErpFetchResult[];
+  if (tentadas.every(r => !r.ok)) {
+    const msg = `ERP recusou a busca: ${cancelados?.message || emAtraso.message}`;
     console.warn(`[ERPSync] Erro ao buscar ${providerName}: ${msg}`);
     await registrar("error", 0, 1, msg);
     return { upserted: 0, errors: 1 };
   }
 
   const mesclado = mesclarInadimplentes(
-    cancelados.ok ? cancelados.customers : [],
+    cancelados?.ok ? cancelados.customers : [],
     emAtraso.ok ? emAtraso.customers : [],
   );
   const result: ErpFetchResult = { ok: true, message: "", customers: mesclado.customers };
@@ -410,7 +419,7 @@ export async function syncProviderToDb(
   // A baixa de divida quitada conta aqui pelo mesmo motivo. Ela nasceu quebrada
   // por um bind de array e ninguem soube: o erro so ia para o console, e a tela
   // dizia "sucesso". Divida ja paga seguia constando no bureau.
-  const problema = errors > 0 || falhaNaBaixa;
+  const problema = errors > 0 || falhaNaBaixa || falhaNaCarteira;
   await registrar(
     !problema ? "success" : upserted > 0 ? "partial" : "error",
     upserted,
@@ -419,8 +428,9 @@ export async function syncProviderToDb(
       ? `${errors} de ${total} registros falharam no upsert`
       : falhaNaBaixa
         ? `divida quitada nao pode ser baixada: ${falhaNaBaixa}`
-        : quitados > 0 ? `${quitados} quitaram desde a ultima varredura` : undefined,
-    total,
+        : falhaNaCarteira
+          ? `carteira nao pode ser lida: ${falhaNaCarteira}`
+          : quitados > 0 ? `${quitados} quitaram desde a ultima varredura` : undefined,
   );
   return { upserted, errors };
 }
