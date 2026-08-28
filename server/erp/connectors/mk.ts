@@ -1444,7 +1444,12 @@ export class MkConnector implements ErpConnector {
               }
             }
 
-            const cpfCnpj = cleanCpfCnpj(cliente.Doc || cliente.doc || cliente.cpf || cliente.cnpj || cliente.cpf_cnpj || cliente.documento || "");
+            // `CPF_CNPJ` e o nome do campo no MK; o resto e tolerancia a outras
+            // instalacoes.
+            const cpfCnpj = cleanCpfCnpj(
+              cliente.CPF_CNPJ || cliente.cpf_cnpj || cliente.CPF || cliente.cpf
+              || cliente.CNPJ || cliente.cnpj || cliente.Doc || cliente.doc || cliente.documento || "",
+            );
             if (!cpfCnpj) return [];
 
             return faturas
@@ -1541,8 +1546,18 @@ export class MkConnector implements ErpConnector {
 
         const batchResults = await Promise.all(
           batch.map(async (cliente: any) => {
-            const cpfCnpj = cleanCpfCnpj(cliente.Doc || cliente.doc || cliente.cpf || cliente.cnpj || cliente.cpf_cnpj || "");
+            // `CPF_CNPJ` primeiro: e o nome do campo no MK. A lista antiga
+            // (Doc/doc/cpf/cnpj/cpf_cnpj) nao continha nenhum campo existente
+            // neste payload, entao todo casamento virava null — a busca por
+            // endereco achava gente na rua e devolvia zero.
+            const cpfCnpj = cleanCpfCnpj(
+              cliente.CPF_CNPJ || cliente.cpf_cnpj || cliente.CPF || cliente.cpf
+              || cliente.CNPJ || cliente.cnpj || cliente.Doc || cliente.doc || "",
+            );
             if (!cpfCnpj) return null;
+
+            // O endereco tambem vive no array, nao na raiz.
+            const end = this.enderecosDoCliente(cliente)[0] ?? {};
 
             let totalOverdueAmount = 0;
             let maxDaysOverdue = 0;
@@ -1569,17 +1584,12 @@ export class MkConnector implements ErpConnector {
                     const dueDate = f.DataVencimento || f.data_vencimento || f.DtVencimento || f.dt_vencimento
                       || f.Vencimento || f.vencimento || f.dt_vencto || f.DtVencto || f.vencto || f.Vencto
                       || f.data_vencto || f.DataVencto || f.dtVencimento || f.dtVencto || null;
-                    const days = calculateDaysOverdue(dueDate);
-
-                    if (days > 0) {
+                    // Mesma regra do fetchDelinquentsV2: fatura a vencer nao e
+                    // atraso, e fatura sem data legivel nao vira "1 dia".
+                    const dias = diasDesdeVencimento(dueDate);
+                    if (dias !== null && dias > 0) {
                       totalOverdueAmount += valor;
-                      maxDaysOverdue = Math.max(maxDaysOverdue, days);
-                      overdueInvoicesCount++;
-                    } else if (!dueDate) {
-                      // Pending invoice with no recognized date field — assume overdue
-                      console.log(`[MK] WARN: fatura sem data reconhecida. Campos: ${Object.keys(f).join(", ")}`);
-                      totalOverdueAmount += valor;
-                      maxDaysOverdue = Math.max(maxDaysOverdue, 1);
+                      maxDaysOverdue = Math.max(maxDaysOverdue, dias);
                       overdueInvoicesCount++;
                     }
                   }
@@ -1596,10 +1606,12 @@ export class MkConnector implements ErpConnector {
               phone: cliente.Fone || cliente.fone || cliente.Celular || cliente.celular || cliente.Telefone || cliente.telefone
                 ? cleanPhone(cliente.Fone || cliente.fone || cliente.Celular || cliente.celular || cliente.Telefone || cliente.telefone)
                 : undefined,
-              address: cliente.Endereco || cliente.endereco || cliente.Logradouro || cliente.logradouro || undefined,
-              city: cliente.Cidade || cliente.cidade || cliente.Municipio || cliente.municipio || undefined,
-              state: cliente.UF || cliente.uf || cliente.Estado || cliente.estado || undefined,
-              cep: cliente.CEP || cliente.cep || undefined,
+              address: end.logradouro ?? end.Logradouro ?? undefined,
+              addressNumber: end.numero != null && end.numero !== "" ? String(end.numero) : undefined,
+              neighborhood: end.bairro ?? end.Bairro ?? undefined,
+              city: end.cidade ?? end.Cidade ?? cliente.Cidade ?? cliente.cidade ?? undefined,
+              state: end.estado ?? end.uf ?? cliente.UF ?? cliente.uf ?? undefined,
+              cep: end.cep ?? end.CEP ?? undefined,
               totalOverdueAmount,
               maxDaysOverdue,
               overdueInvoicesCount,
