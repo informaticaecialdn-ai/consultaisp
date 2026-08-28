@@ -53,6 +53,16 @@ export interface LocalizacaoSede {
   foraDaArea: boolean;
 }
 
+/**
+ * Cidade com menos clientes que isto nao entra no mapa da carteira.
+ *
+ * Nao e area de atuacao — e endereco avulso: cliente que mudou de cidade,
+ * cobranca com endereco de escritorio, cadastro com a capital digitada por
+ * engano. Plotar os 6 clientes espalhados por 37 cidades esticaria o mapa do
+ * Parana a Brasilia e afundaria a praca real em zoom.
+ */
+export const MIN_CLIENTES_CIDADE = 20;
+
 export interface LocalizacaoResposta {
   origemArea: OrigemArea;
   /** Endereco cadastrado do provedor: ancora o mapa e marca o ponto de partida. */
@@ -78,9 +88,9 @@ export interface LocalizacaoResposta {
    * anunciava "1.272 de 1.272 pontos" com 1.667 clientes escondidos numa cidade
    * nao declarada, e o provedor lia aquilo como "nao tenho cliente la".
    */
-  foraDaArea: number;
+  foraDoMapa: number;
   /** As cidades desses clientes, da maior para a menor. */
-  cidadesForaDaArea: Array<{ cidade: string; clientes: number; inadimplentes: number }>;
+  cidadesForaDoMapa: Array<{ cidade: string; clientes: number; inadimplentes: number }>;
   pontos: LocalizacaoPonto[];
   bairros: LocalizacaoBairro[];
   /** Carteira por estado — alimenta a legenda sobre o mapa. Conta a carteira
@@ -214,7 +224,41 @@ export class LocalizacaoStorage {
       if (ufAlvo) return (c.state || "").toUpperCase() === ufAlvo;
       return true;
     };
-    const naArea = todos.filter(dentroDaArea);
+
+    /*
+     * O MAPA DA CARTEIRA MOSTRA A CARTEIRA — nao a area declarada.
+     *
+     * Filtrava por `cidades_atendidas`, e isso escondia cliente do proprio
+     * provedor. A NsLink tem 1.667 clientes em Ibipora e uma cidade declarada
+     * (Londrina): o mapa mostrava 1.272 pontos e dizia "1.272 de 1.272",
+     * afirmando completude com 60% da carteira fora. Avisar que estavam fora
+     * nao resolve — eles precisam APARECER.
+     *
+     * A area declarada continua valendo onde faz sentido: no mapa da REDE
+     * (/api/localizacao/rede), que mostra dado de OUTROS provedores e ai sim
+     * precisa de recorte, e em `cidadesSemCliente`, que e cobertura declarada
+     * sem venda.
+     *
+     * O corte aqui e por MASSA, nao por declaracao: cidade com menos de 20
+     * clientes nao entra no mapa. Nao e area de atuacao — e endereco avulso,
+     * cliente que mudou, cobranca com endereco de escritorio. Plotar os 6
+     * clientes espalhados por 37 cidades esticaria o mapa do Parana a Brasilia
+     * e afundaria a praca real em zoom.
+     */
+    const porCidadeBruta = new Map<string, number>();
+    for (const c of todos) {
+      const k = normalizarCidade(c.city);
+      if (!k) continue;
+      porCidadeBruta.set(k, (porCidadeBruta.get(k) ?? 0) + 1);
+    }
+    const cidadesDoMapa = new Set(
+      Array.from(porCidadeBruta.entries())
+        .filter(([, n]) => n >= MIN_CLIENTES_CIDADE)
+        .map(([k]) => k),
+    );
+
+    const noMapa = (c: { city: string | null }) => cidadesDoMapa.has(normalizarCidade(c.city));
+    const naArea = todos.filter(noMapa);
 
     /*
      * O QUE O RECORTE ESCONDE — e por que isto precisa sair daqui.
@@ -228,7 +272,7 @@ export class LocalizacaoStorage {
      * silencioso vira conclusao de negocio. A contagem sai da MESMA varredura,
      * por subtracao — nao custa query nenhuma.
      */
-    const foraLista = todos.filter(c => !dentroDaArea(c));
+    const foraLista = todos.filter(c => !noMapa(c));
     const foraPorCidade = new Map<string, { cidade: string; clientes: number; inadimplentes: number }>();
     for (const c of foraLista) {
       const nome = (c.city || "").trim() || "Sem cidade";
@@ -238,7 +282,7 @@ export class LocalizacaoStorage {
       if (c.paymentStatus === "overdue") e.inadimplentes++;
       foraPorCidade.set(chave, e);
     }
-    const cidadesForaDaArea = Array.from(foraPorCidade.values())
+    const cidadesForaDoMapa = Array.from(foraPorCidade.values())
       .sort((a, b) => b.clientes - a.clientes);
 
     const pontos: LocalizacaoPonto[] = [];
@@ -362,8 +406,8 @@ export class LocalizacaoStorage {
       coordenadaSuspeita: suspeitos.map(p => ({ id: p.id, cidade: p.cidade, lat: p.lat, lon: p.lon })),
       cidades: Array.from(porCidade.values()).sort((a, b) => b.clientes - a.clientes),
       cidadesSemCliente,
-      foraDaArea: foraLista.length,
-      cidadesForaDaArea,
+      foraDoMapa: foraLista.length,
+      cidadesForaDoMapa,
       pontos: coerentes,
       // Ordem de chegada do ranking: pior taxa primeiro, e em empate a maior
       // divida. E a ordem que o "bairro campeao" assume ao desempatar.

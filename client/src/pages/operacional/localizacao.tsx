@@ -31,8 +31,8 @@ type Resposta = {
   cidades: CidadeMapa[];
   cidadesSemCliente: string[];
   /** Clientes que o recorte territorial deixou de fora do mapa. */
-  foraDaArea: number;
-  cidadesForaDaArea: Array<{ cidade: string; clientes: number; inadimplentes: number }>;
+  foraDoMapa: number;
+  cidadesForaDoMapa: Array<{ cidade: string; clientes: number; inadimplentes: number }>;
   pontos: PontoMapa[];
   bairros: BairroRanking[];
   porEstado: Record<EstadoCliente, number>;
@@ -45,6 +45,12 @@ type Plotagem = {
   geocoderIndisponivel: boolean;
   terminadoEm: string | null;
 };
+
+/**
+ * Espelha MIN_CLIENTES_CIDADE de localizacao.storage.ts — quem decide o corte
+ * e o servidor; aqui e so para o texto do aviso dizer o mesmo numero.
+ */
+const MIN_CLIENTES_CIDADE = 20;
 
 /** Piso de k-anonimato para a camada de rede. */
 const PISO_REDE = 5;
@@ -256,56 +262,53 @@ export default function LocalizacaoPage() {
         )}
       </div>
 
+      {/* O texto mudou junto com o comportamento: o mapa da CARTEIRA nunca
+          dependeu da Regionalização e agora não depende mesmo — mostra a
+          carteira inteira. Quem depende dela é o modo Regionalização, que
+          traz dado de outros provedores e precisa de recorte. */}
       {data?.origemArea === 'nenhuma' && (
         <div className="rounded-lg bg-[var(--gated-bg)] px-4 py-3 text-[13px] text-[var(--gated)]">
-          Você ainda não configurou as cidades atendidas, então o mapa mostra toda a base.{" "}
+          Sem cidades atendidas configuradas, o modo <strong>Regionalização</strong>{" "}
+          — que mostra ex-clientes com dívida de outros provedores — fica vazio.
+          A sua carteira aparece normalmente.{" "}
           <Link href="/configuracoes/regionalizacao" className="underline font-medium">
             Configurar Regionalização
           </Link>
         </div>
       )}
 
-      {/* O RECORTE TEM DE SE DECLARAR.
-          Sem este aviso o mapa dizia "1.272 de 1.272 pontos" — afirmando estar
-          completo — enquanto 1.667 clientes de uma cidade não declarada ficavam
-          de fora. O provedor leu aquilo como "não tenho cliente lá". Filtro
-          silencioso vira conclusão de negócio errada. */}
-      {(data?.foraDaArea ?? 0) > 0 && (
-        <div className="rounded-lg border border-[var(--gated-border)] bg-[var(--gated-bg)] px-4 py-3.5">
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div className="min-w-0">
-              <p className="text-[13px] text-[var(--gated)] leading-relaxed">
-                <strong className="font-semibold">
-                  {num(data!.foraDaArea)} cliente{data!.foraDaArea === 1 ? "" : "s"} fora do mapa
-                </strong>
-                {" "}— estão em cidades que não constam da sua Regionalização, então
-                não entram em nenhum número desta tela.
-              </p>
-              <div className="mt-2.5 flex flex-wrap gap-1.5">
-                {(data?.cidadesForaDaArea ?? []).slice(0, 6).map(c => (
-                  <span
-                    key={c.cidade}
-                    className="inline-flex items-center gap-1.5 rounded border border-[var(--gated-border)] bg-[var(--surface)] px-2 py-1 font-mono text-[10.5px] tabular-nums text-[var(--text-2)]"
-                    title={`${c.inadimplentes} inadimplente(s)`}
-                  >
-                    {c.cidade}
-                    <strong className="font-semibold text-[var(--text)]">{num(c.clientes)}</strong>
-                  </span>
-                ))}
-                {(data?.cidadesForaDaArea?.length ?? 0) > 6 && (
-                  <span className="inline-flex items-center px-2 py-1 font-mono text-[10.5px] text-[var(--text-muted)]">
-                    +{(data!.cidadesForaDaArea.length - 6)} cidade(s)
-                  </span>
-                )}
-              </div>
-            </div>
-            <Link
-              href="/configuracoes/regionalizacao"
-              className="shrink-0 inline-flex items-center rounded-md border border-[var(--gated-border)] bg-[var(--surface)] px-3 py-2 text-[12.5px] font-semibold text-[var(--gated)]"
-              data-testid="link-ajustar-regionalizacao"
-            >
-              Ajustar Regionalização
-            </Link>
+      {/* Cidade com punhado de cliente fica fora do mapa, e a tela diz isso.
+          Não é área de atuação — é endereço avulso: cliente que mudou, cobrança
+          com endereço de escritório, capital digitada por engano. Plotar seis
+          clientes espalhados por 37 cidades esticaria o mapa até Brasília e
+          afundaria a praça real em zoom. */}
+      {(data?.foraDoMapa ?? 0) > 0 && (
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3">
+          <p className="text-[12.5px] text-[var(--text-muted)] leading-relaxed">
+            <strong className="font-semibold text-[var(--text-2)]">
+              {num(data!.foraDoMapa)} cliente{data!.foraDoMapa === 1 ? "" : "s"} fora do mapa
+            </strong>
+            {" "}— em {data!.cidadesForaDoMapa.length} cidade
+            {data!.cidadesForaDoMapa.length === 1 ? "" : "s"} com menos de {MIN_CLIENTES_CIDADE} clientes
+            cada. Endereço avulso não é praça: plotar espalharia o mapa e afundaria
+            a sua região em zoom.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {(data?.cidadesForaDoMapa ?? []).slice(0, 8).map(c => (
+              <span
+                key={c.cidade}
+                className="inline-flex items-center gap-1.5 rounded border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 font-mono text-[10px] tabular-nums text-[var(--text-muted)]"
+                title={`${c.inadimplentes} inadimplente(s)`}
+              >
+                {c.cidade}
+                <strong className="font-semibold text-[var(--text-2)]">{num(c.clientes)}</strong>
+              </span>
+            ))}
+            {(data?.cidadesForaDoMapa?.length ?? 0) > 8 && (
+              <span className="inline-flex items-center px-2 py-0.5 font-mono text-[10px] text-[var(--text-faint)]">
+                +{(data!.cidadesForaDoMapa.length - 8)}
+              </span>
+            )}
           </div>
         </div>
       )}
