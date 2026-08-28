@@ -1240,6 +1240,12 @@ export class MkConnector implements ErpConnector {
    * varredura de lote, roda 3x por semana e e o unico ponto que ve a carteira
    * inteira. A consulta ao vivo nao passa por aqui — usa `fetchCustomerByCpf`.
    *
+   * NAO troque isto pelo array `contratos` que vem embutido em cada cliente da
+   * lista — a tentacao e obvia, porque economizaria as 3.226 chamadas. Ele e
+   * incompleto: conferidos 40 clientes da NsLink contra o endpoint dedicado, 2
+   * tinham contrato ativo e array embutido vazio (544 contra 580 no total). O
+   * erro cai para o lado ruim — ex-cliente inventado a partir de quem paga.
+   *
    * Cliente sem resposta legivel fica de fora do mapa: quem chama entao mantem o
    * palpite de `situacaoParaStatus`, que erra para o lado seguro.
    */
