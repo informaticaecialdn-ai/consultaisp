@@ -1225,6 +1225,55 @@ export class MkConnector implements ErpConnector {
     return Array.from(porId.values());
   }
 
+  /**
+   * Status de contrato por cliente, perguntado um a um.
+   *
+   * `WSMKConsultaClientes` devolve `Situacao`, que descreve o CADASTRO e nao o
+   * vinculo: medido na NsLink em 28/08/2026, 560 cadastros "Ativo" nao tinham
+   * contrato nenhum. Por isso `situacaoParaStatus` se recusa a ler "Ativo" como
+   * contrato vigente — mas com isso ela tambem nao consegue AFIRMAR que alguem
+   * deixou de ser cliente, e 54 ex-clientes seguiam ativos no bureau porque nao
+   * tinham fatura pendente e por isso nunca chegavam ao passo que checa contrato.
+   *
+   * Quem responde e `WSMKContratosPorCliente`, e so ele. Uma chamada por cliente
+   * e caro (3.226 na NsLink, ~3 min a 8 de concorrencia), mas `fetchCustomers` e
+   * varredura de lote, roda 3x por semana e e o unico ponto que ve a carteira
+   * inteira. A consulta ao vivo nao passa por aqui — usa `fetchCustomerByCpf`.
+   *
+   * Cliente sem resposta legivel fica de fora do mapa: quem chama entao mantem o
+   * palpite de `situacaoParaStatus`, que erra para o lado seguro.
+   */
+  private async contratosPorCliente(
+    base: string,
+    tokenAuth: string,
+    codigos: string[],
+  ): Promise<Map<string, "active" | "cancelled">> {
+    const CONCORRENCIA = 8;
+    const mapa = new Map<string, "active" | "cancelled">();
+    let semResposta = 0;
+
+    for (let i = 0; i < codigos.length; i += CONCORRENCIA) {
+      const lote = codigos.slice(i, i + CONCORRENCIA);
+      await Promise.all(lote.map(async (cd) => {
+        try {
+          const url = `${base}/mk/WSMKContratosPorCliente.rule?sys=MK0`
+            + `&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cd)}`;
+          const resp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(15000) });
+          if (!resp.ok) { semResposta++; return; }
+          const j: any = await resp.json().catch(() => null);
+          if (!j) { semResposta++; return; }
+          const ativos: any[] = j?.ContratosAtivos ?? [];
+          mapa.set(cd, ativos.length > 0 ? "active" : "cancelled");
+        } catch {
+          semResposta++;
+        }
+      }));
+    }
+
+    console.log(`[MK] contratosPorCliente: ${mapa.size} respondidos, ${semResposta} sem resposta`);
+    return mapa;
+  }
+
   /** Buscar TODOS os clientes (ativos + inativos) para total por bairro */
   async fetchCustomers(config: ErpConnectionConfig): Promise<ErpFetchResult> {
     try {
@@ -1237,6 +1286,12 @@ export class MkConnector implements ErpConnector {
       const allClients: any[] = await this.listarTodosClientes(base, tokenAuth);
 
       console.log(`[MK] fetchCustomers: ${allClients.length} clientes totais`);
+
+      // Contrato vigente e pergunta separada — ver contratosPorCliente.
+      const codigos = allClients
+        .map(r => String(r?.CodigoPessoa ?? r?.codigopessoa ?? r?.cd_pessoa ?? r?.id ?? ""))
+        .filter(Boolean);
+      const contratos = await this.contratosPorCliente(base, tokenAuth, codigos);
 
       const customers: NormalizedErpCustomer[] = allClients
         .map(row => {
@@ -1304,7 +1359,11 @@ export class MkConnector implements ErpConnector {
             //
             // Situacao desconhecida devolve undefined de proposito: o upsert so
             // escreve status quando ele vem, e nao inventa nada.
-            contractStatus: situacaoParaStatus(row.Situacao ?? row.situacao),
+            // WSMKContratosPorCliente e a autoridade; a Situacao do cadastro
+            // e a reserva para quando ele nao respondeu — e mesmo assim so
+            // consegue dizer "cancelado", nunca "ativo".
+            contractStatus: contratos.get(String(row.CodigoPessoa ?? row.codigopessoa ?? row.cd_pessoa ?? row.id ?? ""))
+              ?? situacaoParaStatus(row.Situacao ?? row.situacao),
             name: row.Nome || row.nome || "",
             email: row.Email || row.email || undefined,
             phone: row.Fone || row.fone ? cleanPhone(row.Fone || row.fone) : undefined,
