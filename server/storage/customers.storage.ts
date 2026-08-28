@@ -44,27 +44,33 @@ export class CustomersStorage {
    *  - so mexe em quem o ERP acabou de confirmar que existe (`last_sync_at >=`
    *    inicio da varredura), entao cliente que o ERP nao devolveu fica intocado;
    *  - so mexe em quem esta marcado como `overdue`;
-   *  - NAO MEXE EM CONTRATO CANCELADO. Ver abaixo.
+   *  - quem o conector nao conseguiu ler entra na lista de "ainda devendo",
+   *    entao um timeout nao vira baixa.
    *
-   * ── POR QUE EX-CLIENTE FICA DE FORA ──────────────────────────────────────
+   * ── EX-CLIENTE SEGUE A MESMA REGUA, E ISSO FOI MEDIDO ────────────────────
    *
-   * Para quem tem contrato vigente, sumir da lista de inadimplentes significa
-   * pagou: o ERP tira a fatura de "pendente" quando ela e quitada. Para quem foi
-   * CORTADO, nao significa nada disso — o provedor baixa, cancela ou escreve
-   * como perda a fatura de quem ja foi embora, e ela some da lista sem ninguem
-   * ter pago.
+   * Esta funcao ja isentou contrato cancelado. O argumento era bom no papel:
+   * para quem tem contrato vigente, sumir da lista de pendentes significa que
+   * pagou; para quem foi CORTADO, o provedor baixa ou escreve como perda a
+   * fatura de quem ja foi embora, e ela some sem ninguem ter pago. Apagar por
+   * ausencia destruiria o ativo do bureau.
    *
-   * Aplicar a mesma regua aos dois apagava justamente o dado que este sistema
-   * existe para guardar. Medido em 28/08/2026 na NsLink: 275 clientes cortados
-   * por inadimplencia estavam com divida ZERO na base, contra R$ 128 mil ainda
-   * guardados nos 185 que o status marcava como cancelados. A divida do
-   * ex-cliente e o ativo do bureau; ela so deve sair daqui com prova de
-   * pagamento, nunca por ausencia de fatura pendente.
+   * A medicao derrubou a premissa. Em 28/08/2026, cruzando a base da NsLink
+   * com o que o MK lista AGORA como vencido: dos 1.255 ex-clientes com divida
+   * (R$ 833.779), o MK ainda confirma 1.239 deles (R$ 827.868). A isencao
+   * estava protegendo 16 clientes e R$ 5.911 — 0,7%. O ouro do bureau nao vem
+   * da isencao; vem de o ERP continuar listando a divida, que e o esperado,
+   * porque fatura de ex-cliente nao e baixada com a frequencia que se supunha.
    *
-   * O custo do outro lado e conhecido e menor: um ex-cliente que de fato quitou
-   * segue marcado como devedor ate o provedor corrigir. Errar para o lado de
-   * "ainda deve" e recuperavel; errar para "nada consta" entrega o caloteiro
-   * como cliente limpo ao provedor vizinho, que instala confiando.
+   * E o que a isencao guardava nao era divida preservada, era divida
+   * FOSSILIZADA: entre os 16 estavam os 9 com "1 dia de atraso" que o proprio
+   * codigo tinha inventado, sem nenhum caminho de correcao — ninguem some da
+   * lista de pendentes por engano duas vezes.
+   *
+   * Decisao do dono do produto: o MK e a fonte da verdade. Se la nao consta,
+   * ou se la foi atualizado, a base segue. As travas acima continuam impedindo
+   * que leitura incompleta vire baixa — e sao elas, nao a isencao por status,
+   * que protegem o dado bom.
    */
   async baixarDividaQuitada(
     providerId: number,
@@ -103,7 +109,6 @@ export class CustomersStorage {
        WHERE provider_id     = ${providerId}
          AND payment_status  = 'overdue'
          AND last_sync_at    >= ${limiar}::timestamp
-         AND coalesce(status, 'active') NOT IN ('cancelled', 'inactive')
          AND regexp_replace(cpf_cnpj, '[^0-9]', '', 'g') <> ALL(${listaDocs})
     `);
     return (r as any).rowCount ?? 0;
