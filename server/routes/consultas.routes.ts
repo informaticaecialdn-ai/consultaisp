@@ -225,10 +225,17 @@ export function registerConsultasRoutes(): Router {
 
         // Build provider details with LGPD masking
         const providerDetails = allCustomers.map(c => {
+          // "Em dia" so para quem AINDA e cliente.
+          //
+          // O rotulo saia so de `maxDaysOverdue`, entao ex-cliente sem debito
+          // aparecia no relatorio como "Em dia" — a leitura mais generosa
+          // possivel de alguem que saiu do provedor. O sinal de contrato estava
+          // na mao, no mesmo escopo, e era usado 100 linhas abaixo.
           const paymentStatus = c.maxDaysOverdue > 90 ? "Inadimplente (90+ dias)"
             : c.maxDaysOverdue > 60 ? "Inadimplente (61-90 dias)"
             : c.maxDaysOverdue > 30 ? "Inadimplente (31-60 dias)"
             : c.maxDaysOverdue > 0 ? "Inadimplente (1-30 dias)"
+            : c.contractStatus === "cancelled" ? "Contrato encerrado"
             : "Em dia";
 
           const addrParts = [c.address, c.addressNumber, c.complement, c.neighborhood, c.city, c.state, c.cep].filter(Boolean);
@@ -248,6 +255,12 @@ export function registerConsultasRoutes(): Router {
             customerName: c.name || "Desconhecido",
             cpfCnpj: c.cpfCnpj || "",
             status: paymentStatus,
+            // O sinal de contrato viaja junto: o masker ja o lista em
+            // PRESERVED_FIELDS e o tipo do client ja o declara, mas o copiador
+            // e `if (key in detail)` — nunca sendo posto aqui, ele sumia sem
+            // erro nenhum.
+            contractStatus: c.contractStatus,
+            contractStartDate: c.contractStartDate,
             daysOverdue: c.maxDaysOverdue,
             overdueAmount: c.totalOverdueAmount,
             overdueInvoicesCount: c.overdueInvoicesCount || 0,
@@ -427,7 +440,21 @@ export function registerConsultasRoutes(): Router {
             equipamentosDevolvidos: ownCustomer.recoverySignal || ownCustomer.hasUnreturnedEquipment === true
               ? false
               : undefined,
-            statusContrato: ownCustomer.maxDaysOverdue > 0 ? "suspenso" : "ativo",
+            // O contrato do ERP quando ele veio; atraso so decide o resto.
+            //
+            // Cravar "ativo" para quem nao esta em atraso fazia o ex-cliente do
+            // proprio consultante entrar na conta como cliente vigente — e o
+            // motor usa esse campo para liberar o bonus de "nunca atrasou".
+            statusContrato: ownCustomer.contractStatus === "cancelled"
+              ? "cancelado"
+              : ownCustomer.contractStatus === "suspended" || ownCustomer.maxDaysOverdue > 0
+              ? "suspenso"
+              : ownCustomer.contractStatus === "active"
+              ? "ativo"
+              // Existe na base, contrato nao comprovado. NAO use "nunca_teve"
+              // aqui: aquilo faz o motor descartar a ocorrencia e a divida dele
+              // sumir do score.
+              : "desconhecido",
           } : undefined,
           rede: {
             ocorrencias: redeOcorrencias,

@@ -385,3 +385,61 @@ describe("queryRegionalErps", () => {
     expect(connector.fetchDelinquents).toHaveBeenCalled();
   });
 });
+
+/**
+ * O sinal de contrato precisa CHEGAR do outro lado.
+ *
+ * `normalizeCustomer` renomeava `contractStatus` para `status` e nao deixava o
+ * campo tipado. O anti-fraude, do outro lado, lia `contractStatus` — sempre
+ * `undefined`. A regra de fuga descartava por "status_desconhecido" e nenhum
+ * alerta proativo era criado, para nenhum provedor, nunca. O tsc nao pegava
+ * porque o campo e opcional nos dois tipos.
+ */
+describe("o sinal de contrato atravessa a normalizacao", () => {
+  beforeEach(() => { vi.restoreAllMocks(); });
+
+  it("contractStatus do conector sobrevive como campo proprio", async () => {
+    const connector = makeMockConnector([
+      {
+        cpfCnpj: "12345678901", name: "Cliente Ativo", totalOverdueAmount: 300,
+        maxDaysOverdue: 20, contractStatus: "active", contractStartDate: "2026-06-01",
+        erpSource: "mock-erp",
+      } as any,
+    ]);
+    mockedGetConnector.mockReturnValue(connector);
+
+    const [r] = await queryRegionalErps([makeIntegration(1, "Dono")], "12345678901", "cpf");
+
+    // O que o anti-fraude le:
+    expect(r.customers[0].contractStatus).toBe("active");
+    // E o texto livre segue existindo para exibicao:
+    expect(r.customers[0].status).toBe("active");
+    expect(r.customers[0].contractStartDate).toBe("2026-06-01");
+  });
+
+  it("conector que nao sabe o contrato deixa o campo indefinido — nao inventa", async () => {
+    const connector = makeMockConnector([
+      { cpfCnpj: "12345678901", name: "Sem sinal", totalOverdueAmount: 0, maxDaysOverdue: 0, erpSource: "mock-erp" },
+    ]);
+    mockedGetConnector.mockReturnValue(connector);
+
+    const [r] = await queryRegionalErps([makeIntegration(1, "Dono")], "12345678901", "cpf");
+
+    expect(r.customers[0].contractStatus).toBeUndefined();
+  });
+
+  it("status cru do ERP nao contamina o campo tipado", async () => {
+    // `status` aceita texto livre do ERP; `contractStatus` so a uniao fechada.
+    // Sem essa separacao, a regra de fuga receberia "Ativo"/"A"/"1" e teria de
+    // adivinhar.
+    const connector = makeMockConnector([
+      { cpfCnpj: "12345678901", name: "Cru", status: "Ativo", totalOverdueAmount: 0, maxDaysOverdue: 0, erpSource: "mock-erp" } as any,
+    ]);
+    mockedGetConnector.mockReturnValue(connector);
+
+    const [r] = await queryRegionalErps([makeIntegration(1, "Dono")], "12345678901", "cpf");
+
+    expect(r.customers[0].status).toBe("Ativo");
+    expect(r.customers[0].contractStatus).toBeUndefined();
+  });
+});

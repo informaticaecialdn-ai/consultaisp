@@ -38,7 +38,23 @@ export interface RealtimeQueryResult {
     cep?: string;
     latitude?: string;
     longitude?: string;
+    /**
+     * Status como TEXTO LIVRE, para exibicao. Recebe tanto a uniao do conector
+     * quanto qualquer string crua que o ERP tenha mandado.
+     */
     status?: string;
+    /**
+     * O sinal de contrato TIPADO, do jeito que o conector o produziu.
+     *
+     * Existe separado de `status` porque quem DECIDE precisa da uniao fechada,
+     * nao de texto livre. Enquanto so havia `status`, o anti-fraude lia
+     * `ownerCustomer.contractStatus` num objeto que nunca teve esse campo: o
+     * resultado era `undefined` sempre, a regra descartava por
+     * "status_desconhecido" e NENHUM alerta proativo de fuga era criado, para
+     * nenhum provedor. Ler `status` no lugar nao resolve — ele carrega string
+     * de ERP que nao pertence a uniao e seria mal interpretada.
+     */
+    contractStatus?: "active" | "cancelled" | "suspended";
     totalOverdueAmount: number;
     maxDaysOverdue: number;
     overdueInvoicesCount: number;
@@ -251,6 +267,9 @@ function normalizeCustomer(c: any): RealtimeQueryResult["customers"][0] {
        distingue cliente ativo de ex-cliente, e `statusContrato` chegava
        "unknown" no motor de score. */
     status: c.contractStatus || c.status || undefined,
+    // O campo tipado sobrevive ao lado do texto livre. Renomear para `status` e
+    // so isso fazia o anti-fraude nunca enxergar o sinal.
+    contractStatus: c.contractStatus || undefined,
     contractStartDate: c.contractStartDate || undefined,
     registrationDate: c.contractStartDate || c.registrationDate || undefined,
     serviceAgeMonths: c.serviceAgeMonths || undefined,

@@ -115,6 +115,47 @@ describe("neutralidade e bonus", () => {
     expect(semConfirmacao.composicao.bonus.some(b => b.motivo.includes("Equipamentos"))).toBe(false);
   });
 
+  it("ex-cliente NAO ganha o bonus de bom pagador — era o furo que premiava sair", () => {
+    // O motor tinha o campo `statusContrato` na ocorrencia e nunca o lia. Um CPF
+    // que a rede so conhece como contrato CANCELADO tirava os +60 de "nunca
+    // atrasou" e fechava em 760/excelente — MELHOR que os 700 de um CPF
+    // totalmente desconhecido. Ser ex-cliente melhorava a nota.
+    const exCliente = calcularScoreISP(rede([
+      { diasAtraso: 0, faturasAtraso: 0, statusContrato: "cancelado" },
+    ]));
+    const desconhecido = calcularScoreISP(rede([]));
+
+    expect(exCliente.composicao.bonus.some(b => b.motivo.includes("Nunca atrasou"))).toBe(false);
+    // Neutro, nao penalizado: nada consta, nada comprova.
+    expect(exCliente.score).toBe(desconhecido.score);
+  });
+
+  it("contrato nao comprovado tambem e neutro, nao bonificado", () => {
+    // "unknown" e o que chega quando o ERP nao respondeu o contrato. Ausencia
+    // de prova nao vira prova de bom pagador — mesma regra do equipamento.
+    for (const status of ["unknown", "desconhecido", ""]) {
+      const r = calcularScoreISP(rede([
+        { diasAtraso: 0, faturasAtraso: 0, statusContrato: status },
+      ]));
+      expect(r.composicao.bonus.some(b => b.motivo.includes("Nunca atrasou"))).toBe(false);
+    }
+  });
+
+  it("suspenso por atraso ainda e cliente, e conta para o bonus", () => {
+    // Suspensao por falta de pagamento e um cliente que o provedor AINDA tem.
+    const r = calcularScoreISP(rede([
+      { diasAtraso: 0, faturasAtraso: 0, statusContrato: "suspenso" },
+    ]));
+    expect(r.composicao.bonus.some(b => b.motivo.includes("Nunca atrasou"))).toBe(true);
+  });
+
+  it("o bonus de tempo de casa tambem exige contrato vigente", () => {
+    const cancelado = calcularScoreISP(rede([
+      { diasAtraso: 0, faturasAtraso: 0, statusContrato: "cancelado", mesesComoCliente: 72 },
+    ]));
+    expect(cancelado.composicao.bonus.some(b => b.motivo.includes("meses de casa"))).toBe(false);
+  });
+
   it("atraso passado quitado desconta pouco e nao trava aprovacao", () => {
     const r = calcularScoreISP(rede([
       { diasAtraso: 0, faturasAtraso: 2, statusContrato: "ativo", mesesComoCliente: 30 },

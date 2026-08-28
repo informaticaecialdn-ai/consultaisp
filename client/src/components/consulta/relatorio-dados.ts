@@ -212,6 +212,16 @@ export function derivarRelatorio(result: ConsultaResult): DadosRelatorio {
   const parceirosConsultados = Math.max(0, provedoresConsultados - (proprios.length > 0 ? 1 : 0));
   const provedoresComRegistro = result.providersFound || result.providerDetails.length;
 
+  /**
+   * Verde so para quem AINDA e cliente e esta em dia.
+   *
+   * O tom saia de `mau ? "past" : "ok"`, entao ex-cliente sem debito ganhava
+   * o pill verde de bom pagador. Contrato encerrado nao e mau nem bom: e
+   * neutro, e o leitor precisa ver a diferenca.
+   */
+  const tomDaSituacao = (d: any, mau: boolean): Tom =>
+    mau ? "past" : d.contractStatus === "cancelled" ? "neutral" : "ok";
+
   const ocorrencias: LinhaOcorrencia[] = [];
   if (proprios.length > 0) {
     for (const d of proprios) {
@@ -222,8 +232,8 @@ export function derivarRelatorio(result: ConsultaResult): DadosRelatorio {
           ? `${d.unreturnedEquipmentCount} equipamento${d.unreturnedEquipmentCount > 1 ? "s" : ""} em comodato pendente`
           : undefined,
         fonte: `Seu ERP · ${d.providerName}`,
-        situacao: situacaoCurta(d.status, mau ? "Inadimplente" : "Em dia"),
-        situacaoTom: mau ? "past" : "ok",
+        situacao: situacaoCurta(d.status, mau ? "Inadimplente" : d.contractStatus === "cancelled" ? "Contrato encerrado" : "Em dia"),
+        situacaoTom: tomDaSituacao(d, mau),
         atraso: d.daysOverdue > 0 ? `${d.daysOverdue} dias` : "—",
         valor: d.overdueAmount != null && d.overdueAmount > 0 ? brl(d.overdueAmount) : "—",
         valorNegativo: mau,
@@ -247,8 +257,8 @@ export function derivarRelatorio(result: ConsultaResult): DadosRelatorio {
           ? `${d.unreturnedEquipmentCount >= 2 ? "2+" : d.unreturnedEquipmentCount} equipamento${d.unreturnedEquipmentCount > 1 ? "s" : ""} retido${d.unreturnedEquipmentCount > 1 ? "s" : ""}${d.equipmentSignalValidated ? " · ocorrência validada" : ""}`
           : undefined,
         fonte: `${d.providerName}${local}`,
-        situacao: situacaoCurta(d.status, mau ? "Inadimplente" : "Em dia"),
-        situacaoTom: mau ? "past" : "ok",
+        situacao: situacaoCurta(d.status, mau ? "Inadimplente" : d.contractStatus === "cancelled" ? "Contrato encerrado" : "Em dia"),
+        situacaoTom: tomDaSituacao(d, mau),
         atraso: d.daysOverdueRange || (d.daysOverdue > 0 ? `${d.daysOverdue} dias` : "—"),
         valor: d.overdueAmountRange || "—",
         valorNegativo: mau,

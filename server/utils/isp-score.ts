@@ -37,7 +37,14 @@ export interface ISPScoreInput {
     faturasAtrasadasTotal: number
     faturasTotal: number
     equipamentosDevolvidos?: boolean
-    statusContrato: 'ativo' | 'cancelado' | 'suspenso' | 'nunca_teve'
+    /**
+     * `nunca_teve` significa "nao e cliente do consultante" e FAZ A OCORRENCIA
+     * SUMIR da conta. `desconhecido` e diferente: o cliente existe na base do
+     * consultante, a divida dele pontua, mas o ERP nao provou o contrato — e
+     * sem prova nao ha bonus de bom pagador. Nao confunda os dois: usar
+     * `nunca_teve` para quem existe apaga a divida dele do score.
+     */
+    statusContrato: 'ativo' | 'cancelado' | 'suspenso' | 'desconhecido' | 'nunca_teve'
     valorAtrasoAtual?: number
   }
   rede?: {
@@ -141,6 +148,22 @@ const BONUS_TEMPO: Array<[mesesAcimaDe: number, pontos: number]> = [
   [60, 200], [36, 150], [24, 100], [12, 60], [6, 30],
 ]
 const BONUS_NUNCA_ATRASOU = 60
+
+/**
+ * O contrato desta ocorrencia prova relacao viva?
+ *
+ * Aceita as duas grafias que chegam: o portugues do proprio consultante
+ * (`ativo`/`suspenso`) e a uniao em ingles que vem do conector via
+ * `contractStatus` (`active`/`suspended`). Suspenso conta porque suspensao por
+ * atraso e um cliente que o provedor ainda tem.
+ *
+ * Qualquer outra coisa — cancelado, inativo, `unknown`, vazio — devolve false.
+ * Nao e "ruim": e "nao comprovado", e o que nao se comprova nao ganha bonus.
+ */
+function contratoVigente(status: unknown): boolean {
+  const s = String(status ?? '').trim().toLowerCase()
+  return s === 'ativo' || s === 'active' || s === 'suspenso' || s === 'suspended'
+}
 const BONUS_EQUIPAMENTOS_DEVOLVIDOS = 40
 const CAP_BONUS = 300 // 700 + 300 = 1000: so chega ao topo quem comprova tudo
 
@@ -288,15 +311,25 @@ export function calcularScoreISP(input: ISPScoreInput): ISPScoreResult {
   const podeBonus = ativas.length === 0 && equipamentosRetidos.length === 0
   if (podeBonus) {
     const mesesEmDia = ocorrencias
-      .filter(oc => oc.diasAtraso === 0)
+      .filter(oc => oc.diasAtraso === 0 && contratoVigente(oc.statusContrato))
       .reduce((s, oc) => s + (oc.mesesComoCliente || 0), 0)
     const bTempo = degrau(BONUS_TEMPO, mesesEmDia)
     if (bTempo) {
       bonus.push({ pontos: bTempo, motivo: `${mesesEmDia} meses de casa no setor, em dia` })
     }
 
+    /* O bonus exige RELACAO VIVA, nao so ausencia de atraso.
+       O campo `statusContrato` existia na ocorrencia e o motor nunca o lia:
+       um CPF que a rede so conhece como contrato CANCELADO tirava os +60 de
+       "nunca atrasou" e fechava em 760/excelente — melhor do que os 700 de um
+       CPF totalmente desconhecido. Ser ex-cliente melhorava a nota, que e o
+       oposto do que um bureau existe para dizer.
+       Cancelado, inativo e desconhecido agora sao NEUTROS: nada consta, nada
+       comprova. E a mesma regra que o bonus de equipamento ja aplicava ao
+       exigir `=== true`. */
     const nuncaAtrasou = ocorrencias.length > 0
-      && ocorrencias.every(oc => oc.diasAtraso === 0 && oc.faturasAtraso === 0)
+      && ocorrencias.every(oc =>
+        oc.diasAtraso === 0 && oc.faturasAtraso === 0 && contratoVigente(oc.statusContrato))
     if (nuncaAtrasou) {
       bonus.push({ pontos: BONUS_NUNCA_ATRASOU, motivo: 'Nunca atrasou em nenhum provedor da rede' })
     }
