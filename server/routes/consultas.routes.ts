@@ -255,12 +255,19 @@ export function registerConsultasRoutes(): Router {
             customerName: c.name || "Desconhecido",
             cpfCnpj: c.cpfCnpj || "",
             status: paymentStatus,
-            // O sinal de contrato viaja junto: o masker ja o lista em
-            // PRESERVED_FIELDS e o tipo do client ja o declara, mas o copiador
-            // e `if (key in detail)` — nunca sendo posto aqui, ele sumia sem
-            // erro nenhum.
+            // So o STATUS do contrato viaja — um enum grosso
+            // (active/cancelled/suspended), que e exatamente o tipo de sinal que
+            // um bureau existe para compartilhar. O copiador do masker e
+            // `if (key in detail)`, entao ele nunca chegava do outro lado.
+            //
+            // `contractStartDate` DE PROPOSITO fica de fora. Ele consta em
+            // PRESERVED_FIELDS e ha teste fixando isso — mas ninguem o
+            // preenchia, entao a data exata nunca cruzou tenant de fato. Inclui-
+            // lo aqui criaria esse vazamento pela primeira vez, e sem
+            // necessidade: nada no client renderiza o campo, e a condicao de
+            // "contrato com menos de 90 dias" do anti-fraude e avaliada no
+            // servidor, sobre o registro do proprio dono.
             contractStatus: c.contractStatus,
-            contractStartDate: c.contractStartDate,
             daysOverdue: c.maxDaysOverdue,
             overdueAmount: c.totalOverdueAmount,
             overdueInvoicesCount: c.overdueInvoicesCount || 0,

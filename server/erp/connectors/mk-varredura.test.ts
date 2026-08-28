@@ -189,3 +189,40 @@ describe("contrato vigente so e afirmado com envelope legivel", () => {
     expect(r.customers[0].contractStatus).toBe("active");
   });
 });
+
+/**
+ * O abort não pode ser lavado pelo fallback.
+ *
+ * `fetchDelinquents` captura erro do V2 e tenta o caminho legado
+ * (WSMKFaturasAbertas), que o próprio comentário do conector descreve como
+ * lixo. Para um erro comum isso é razoável; para a varredura abortada é
+ * desastroso: o legado devolve `ok: true` sem marca de incompletude, então o
+ * sync trata a lista curta como leitura boa e a baixa de dívida apaga o débito
+ * de quem ficou de fora — exatamente o que o abort existe para impedir.
+ */
+describe("varredura abortada nao vira fallback silencioso", () => {
+  it("fetchDelinquents devolve ok:false, sem tentar o legado", async () => {
+    const chamadas: string[] = [];
+    globalThis.fetch = vi.fn(async (url: string) => {
+      const u = String(url);
+      chamadas.push(u.split("/mk/")[1]?.split(".rule")[0] ?? u);
+      if (u.includes("WSAutenticacao")) {
+        return { ok: true, status: 200, json: async () => ({ Token: "sessao-fake" }) } as any;
+      }
+      if (u.includes("WSMKConsultaClientes")) {
+        const ini = Number(new URL(u).searchParams.get("cd_cliente_inicio"));
+        if (ini === 1) return { ok: true, status: 200, json: async () => ({ Clientes: [cliente(1)] }) } as any;
+        return { ok: false, status: 500, json: async () => ({}) } as any; // o MK engasga
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as any;
+    }) as any;
+
+    const r = await new MkConnector().fetchDelinquents(CONFIG);
+
+    expect(r.ok).toBe(false);
+    expect(r.customers).toHaveLength(0);
+    expect(r.message).toMatch(/parcial/i);
+    // O endpoint legado nao pode ter sido consultado.
+    expect(chamadas).not.toContain("WSMKFaturasAbertas");
+  });
+});

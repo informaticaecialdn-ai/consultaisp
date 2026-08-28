@@ -80,6 +80,23 @@ function pickAmount(row: any): number {
   return 0;
 }
 
+/**
+ * A varredura da carteira nao terminou — um lote nao respondeu.
+ *
+ * Tem tipo proprio porque precisa NAO cair no fallback. `fetchDelinquents`
+ * captura qualquer erro do V2 e tenta o caminho legado; para um erro comum isso
+ * e o certo, mas para este e desastroso: o legado devolve `ok: true` sem
+ * qualquer marca de incompletude, entao o sync trata a lista curta como leitura
+ * boa e `baixarDividaQuitada` apaga a divida de quem ficou de fora. O abort que
+ * existe justamente para impedir isso seria lavado pelo fallback.
+ */
+class VarreduraIncompleta extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "VarreduraIncompleta";
+  }
+}
+
 export class MkConnector implements ErpConnector {
   readonly name = "mk";
   readonly label = "MK Solutions";
@@ -888,6 +905,16 @@ export class MkConnector implements ErpConnector {
       }
       console.log(`[MK] V2 recusou (${v2Result.message}), caindo p/ legacy WSMKFaturasAbertas`);
     } catch (err) {
+      // Varredura abortada NAO cai no fallback.
+      //
+      // O legado devolve `ok: true` sem marca de incompletude, entao o sync
+      // trataria a lista curta como leitura boa e a baixa apagaria a divida de
+      // quem ficou de fora — o mesmo estrago que o abort existe para impedir,
+      // so que entrando pela porta dos fundos.
+      if (err instanceof VarreduraIncompleta) {
+        console.warn(`[MK] ${err.message} — nao vou tentar o legado com base parcial`);
+        return { ok: false, message: err.message, customers: [] };
+      }
       console.log(`[MK] V2 falhou: ${err instanceof Error ? err.message : err} — tentando legacy`);
     }
 
@@ -1267,7 +1294,7 @@ export class MkConnector implements ErpConnector {
       // (estava quebrado por um bind de array ate hoje), entao a combinacao e
       // nova e nao foi observada em producao; e a razao de abortar alto aqui.
       if (motivoDaFalha) {
-        throw new Error(
+        throw new VarreduraIncompleta(
           `WSMKConsultaClientes falhou na faixa ${ini}-${fim} (${motivoDaFalha}) — `
           + `varredura abortada com ${porId.size} clientes lidos, para nao passar `
           + `carteira parcial como completa`,
