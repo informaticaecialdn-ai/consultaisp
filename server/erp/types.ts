@@ -140,6 +140,21 @@ export interface ErpFetchResult {
   message: string;
   customers: NormalizedErpCustomer[];
   totalRecords?: number;
+  /**
+   * Quantos clientes o conector NAO conseguiu ler nesta passada — timeout, HTTP
+   * de erro, resposta ilegivel.
+   *
+   * `ok: true` sozinho nao distingue "li a base inteira e estes sao os
+   * inadimplentes" de "li metade dela". A diferenca importa porque o sync usa a
+   * lista como prova NEGATIVA: quem nao esta nela tem a divida baixada. Com
+   * leitura incompleta isso apaga o debito de quem so nao foi lido, e no bureau
+   * "nada consta" para devedor real e o erro que entrega o caloteiro limpo ao
+   * provedor vizinho.
+   *
+   * Ausente ou zero significa leitura completa. Conector que nao sabe informar
+   * deve deixar ausente — e a mesma regra de nao afirmar o que nao se provou.
+   */
+  leiturasFalhas?: number;
 }
 
 /**

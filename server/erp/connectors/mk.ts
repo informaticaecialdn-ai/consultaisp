@@ -707,27 +707,38 @@ export class MkConnector implements ErpConnector {
     let processed = 0;
     let withPending = 0;
     let semDataIgnoradas = 0;
+    // Clientes cuja fatura nao pode ser lida. Sair da lista por nao dever e sair
+    // por o MK nao ter respondido davam o mesmo `null`, e quem chama nao tinha
+    // como separar os dois — o sync tratava silencio como "esta em dia" e a
+    // baixa de divida quitada apagava o debito de quem so nao foi lido.
+    let leiturasFalhas = 0;
 
     for (let i = 0; i < clientes.length; i += CONCURRENCY) {
       const batch = clientes.slice(i, i + CONCURRENCY);
       const batchResults = await Promise.all(
         batch.map(async (cliente: any) => {
           const cdPessoa = String(cliente.CodigoPessoa ?? cliente.codigopessoa ?? cliente.cd_pessoa ?? "");
-          if (!cdPessoa) return null;
+          if (!cdPessoa) { leiturasFalhas++; return null; }
 
           // 1. Faturas pendentes
           let faturas: any[] = [];
           try {
             const fpUrl = `${base}/mk/WSMKFaturasPendentes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`;
             const fpResp = await fetch(fpUrl, { method: "GET", signal: AbortSignal.timeout(15000) });
-            if (!fpResp.ok) return null;
-            const fpJson: any = await fpResp.json();
-            faturas = fpJson?.FaturasPendentes ?? fpJson?.faturas_pendentes ?? [];
+            if (!fpResp.ok) { leiturasFalhas++; return null; }
+            const fpJson: any = await fpResp.json().catch(() => null);
+            // Envelope ausente e resposta ilegivel, nao "cliente sem fatura":
+            // o MK devolve erro com HTTP 200.
+            if (!fpJson || typeof fpJson !== "object") { leiturasFalhas++; return null; }
+            const pendentes = fpJson.FaturasPendentes ?? fpJson.faturas_pendentes;
+            if (!Array.isArray(pendentes)) { leiturasFalhas++; return null; }
+            faturas = pendentes;
           } catch {
+            leiturasFalhas++;
             return null;
           }
 
-          if (!Array.isArray(faturas) || faturas.length === 0) return null; // não é inadimplente
+          if (faturas.length === 0) return null; // nao deve nada — resposta boa
           processed++;
 
           // 2. Contrato vigente? So WSMKContratosPorCliente responde isso.
@@ -786,13 +797,15 @@ export class MkConnector implements ErpConnector {
             if (dias > maxDays) maxDays = dias;
           }
 
+          // Fatura ilegivel conta sempre, nao so quando derruba o cliente
+          // inteiro: quem tem uma vencida e outra sem data ficava com o valor
+          // incompleto e nada aparecia no diagnostico.
+          if (semData > 0) semDataIgnoradas += semData;
+
           // Sem nenhuma fatura vencida o cliente nao e inadimplente. Ele
           // continua sendo atualizado pelo fetchCustomers, que varre a
           // carteira inteira — some desta lista, nao da base.
-          if (vencidas === 0) {
-            if (semData > 0) semDataIgnoradas += semData;
-            return null;
-          }
+          if (vencidas === 0) return null;
 
           withPending++;
 
@@ -842,10 +855,16 @@ export class MkConnector implements ErpConnector {
       // aqui — silenciar seria esconder inadimplente de verdade.
       console.log(`[MK v2] ${semDataIgnoradas} faturas ignoradas por vencimento ilegivel`);
     }
+    if (leiturasFalhas > 0) {
+      console.log(`[MK v2] ${leiturasFalhas} clientes nao puderam ser lidos — leitura incompleta`);
+    }
     return {
       ok: true,
-      message: `${results.length} inadimplentes encontrados (v2 per-customer)`,
+      message: leiturasFalhas > 0
+        ? `${results.length} inadimplentes encontrados (v2), ${leiturasFalhas} clientes nao lidos`
+        : `${results.length} inadimplentes encontrados (v2 per-customer)`,
       customers: results,
+      leiturasFalhas,
       totalRecords: results.length,
     };
   }
@@ -856,10 +875,18 @@ export class MkConnector implements ErpConnector {
     // (Status=Cancelado, sem data) — confirmado em prod.
     try {
       const v2Result = await this.fetchDelinquentsV2(config);
-      if (v2Result.ok && v2Result.customers.length > 0) {
+      // `ok` basta: LISTA VAZIA E RESPOSTA, nao ausencia de resposta.
+      //
+      // A condicao antes exigia `customers.length > 0`, e isso era inofensivo
+      // enquanto o V2 forcava "1 dia" para qualquer fatura pendente e portanto
+      // nunca devolvia zero. Agora que fatura a vencer nao conta como atraso,
+      // uma carteira em dia devolve zero legitimamente — e cair no legado por
+      // causa disso troca a resposta certa (ninguem esta em atraso) pelo
+      // endpoint que o comentario acima descreve como lixo.
+      if (v2Result.ok) {
         return v2Result;
       }
-      console.log(`[MK] V2 retornou 0 inadimplentes, caindo p/ legacy WSMKFaturasAbertas`);
+      console.log(`[MK] V2 recusou (${v2Result.message}), caindo p/ legacy WSMKFaturasAbertas`);
     } catch (err) {
       console.log(`[MK] V2 falhou: ${err instanceof Error ? err.message : err} — tentando legacy`);
     }
@@ -1125,14 +1152,20 @@ export class MkConnector implements ErpConnector {
             for (const f of personInvoices) {
               const dueDate = f.data_vencimento || f.DataVencimento || f.dt_vencimento || f.DtVencimento
                 || f.vencimento || f.Vencimento || f.dt_venc || f.dtVenc || null;
-              const days = calculateDaysOverdue(dueDate);
-              if (days <= 0 && dueDate) continue; // not overdue yet
+              // Fatura a vencer nao e atraso, e fatura sem data legivel nao
+              // vira "1 dia". Era a fabricacao que punha 641 dos 935
+              // inadimplentes da NsLink com exatamente 1 dia — todos com a
+              // mensalidade do mes ainda no prazo. `days <= 0 && dueDate`
+              // deixava passar justamente a fatura SEM data, que e a que o
+              // WSMKFaturasAbertas mais devolve.
+              const dias = diasDesdeVencimento(dueDate);
+              if (dias === null || dias <= 0) continue;
 
               allInvoices.push({
                 ...customerData,
                 phone: customerData.phone ? cleanPhone(customerData.phone) : undefined,
                 amount: pickAmount(f),
-                daysOverdue: days > 0 ? days : 1,
+                daysOverdue: dias,
                 erpSource: "mk",
               });
             }
@@ -1181,6 +1214,10 @@ export class MkConnector implements ErpConnector {
    * O teto e generoso e o custo de exagerar e baixo: lote vazio responde rapido.
    * Para de varrer depois de VAZIOS_SEGUIDOS lotes sem nada, que e onde a base
    * acabou — sem isso, uma base pequena pagaria dezenas de chamadas inuteis.
+   *
+   * LANCA na primeira falha de lote, em vez de seguir com o que deu. Devolver
+   * carteira parcial com cara de completa e pior do que nao devolver nada — ver
+   * o comentario no corpo do laco.
    */
   private async listarTodosClientes(base: string, tokenAuth: string): Promise<any[]> {
     const LOTE = 500;
@@ -1195,10 +1232,11 @@ export class MkConnector implements ErpConnector {
       const url = `${base}/mk/WSMKConsultaClientes.rule?sys=MK0`
         + `&token=${encodeURIComponent(tokenAuth)}`
         + `&cd_cliente_inicio=${ini}&cd_cliente_fim=${fim}`;
+      let motivoDaFalha: string | undefined;
       try {
         const resp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(120000) });
         if (resp.status === 404 || resp.status === 204) { vazios++; }
-        else if (!resp.ok) { vazios++; }
+        else if (!resp.ok) { motivoDaFalha = `HTTP ${resp.status}`; }
         else {
           const cj: any = await resp.json().catch(() => null);
           const lista: any[] = Array.isArray(cj)
@@ -1213,10 +1251,27 @@ export class MkConnector implements ErpConnector {
             }
           }
         }
-      } catch {
-        // Falha de rede num lote nao derruba a varredura: o resto da base ainda
-        // vale mais do que nada. Conta como vazio para o corte de parada.
-        vazios++;
+      } catch (err: unknown) {
+        motivoDaFalha = err instanceof Error ? err.message : "erro de rede";
+      }
+
+      // Falha de lote DERRUBA a varredura, e de proposito.
+      //
+      // A primeira versao disto contava timeout e HTTP 500 no mesmo contador de
+      // "lote vazio", "porque o resto da base vale mais do que nada". Vale menos
+      // do que nada: tres blips seguidos faziam a funcao devolver meia carteira
+      // com cara de carteira inteira, e quem chama nao tinha como saber. O passo
+      // 3 do sync entao rodava `baixarDividaQuitada` com a lista curta e ZERAVA
+      // a divida de todo devedor ativo que ficou de fora — no bureau, "nada
+      // consta" para quem deve. Esse UPDATE nunca tinha rodado de verdade
+      // (estava quebrado por um bind de array ate hoje), entao a combinacao e
+      // nova e nao foi observada em producao; e a razao de abortar alto aqui.
+      if (motivoDaFalha) {
+        throw new Error(
+          `WSMKConsultaClientes falhou na faixa ${ini}-${fim} (${motivoDaFalha}) — `
+          + `varredura abortada com ${porId.size} clientes lidos, para nao passar `
+          + `carteira parcial como completa`,
+        );
       }
       if (vazios >= VAZIOS_SEGUIDOS) break;
     }
@@ -1268,7 +1323,16 @@ export class MkConnector implements ErpConnector {
           if (!resp.ok) { semResposta++; return; }
           const j: any = await resp.json().catch(() => null);
           if (!j) { semResposta++; return; }
-          const ativos: any[] = j?.ContratosAtivos ?? [];
+
+          // O envelope precisa ESTAR la. O MK responde erro com HTTP 200 —
+          // `{"CODIGO_ERRO":"004","Mensagem":"...","status":"ERRO"}` foi o que
+          // ele devolveu hoje para uma chamada sem parametro. Sem esta guarda,
+          // `?? []` transformava esse corpo de erro em "zero contratos ativos"
+          // e o sync rebaixava cliente pagante a ex-cliente com divida, que e a
+          // lista usada para negar instalacao.
+          const ativos = j?.ContratosAtivos;
+          if (!Array.isArray(ativos)) { semResposta++; return; }
+
           mapa.set(cd, ativos.length > 0 ? "active" : "cancelled");
         } catch {
           semResposta++;
@@ -1460,8 +1524,9 @@ export class MkConnector implements ErpConnector {
                   || f.dt_vencto || f.DtVencto || f.vencto || f.Vencto
                   || f.data_vencto || f.DataVencto || f.dtVencimento || f.dtVencto
                   || f.data_venc || f.DataVenc || f.dataVencimento || null;
-                const days = calculateDaysOverdue(dueDate);
-                if (days <= 0 && dueDate) return null;
+                // Mesma regra do sitio acima: nada de atraso inventado.
+                const dias = diasDesdeVencimento(dueDate);
+                if (dias === null || dias <= 0) return null;
                 return {
                   cpfCnpj,
                   name: cliente.Nome || cliente.nome || cliente.razao_social || "",
@@ -1472,7 +1537,7 @@ export class MkConnector implements ErpConnector {
                   state: cliente.uf || cliente.UF || undefined,
                   cep: cliente.CEP || cliente.cep || undefined,
                   amount: pickAmount(f),
-                  daysOverdue: days > 0 ? days : 1,
+                  daysOverdue: dias,
                   erpSource: "mk" as const,
                 };
               })

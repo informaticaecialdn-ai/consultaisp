@@ -84,6 +84,16 @@ export class CustomersStorage {
     // cada documento como parametro ligado.
     const listaDocs = sql`ARRAY[${sql.join(docs.map(d => sql`${d}`), sql`, `)}]::text[]`;
 
+    // O limiar vai como texto ISO, nao como Date.
+    //
+    // `last_sync_at` e `timestamp` SEM fuso e o Drizzle grava nele o
+    // `toISOString()` — hora UTC. Ja um `Date` passado por `db.execute` cru e
+    // serializado pelo node-postgres com o offset LOCAL. Em UTC-3 os dois
+    // espacos ficam 3h defasados e a janela abre cedo demais, alcancando linhas
+    // que a varredura desta rodada nao tocou — exatamente as que a trava existe
+    // para proteger.
+    const limiar = inicioDaVarredura.toISOString();
+
     const r = await db.execute(sql`
       UPDATE customers
          SET total_overdue_amount   = '0',
@@ -92,7 +102,7 @@ export class CustomersStorage {
              payment_status         = 'current'
        WHERE provider_id     = ${providerId}
          AND payment_status  = 'overdue'
-         AND last_sync_at    >= ${inicioDaVarredura}
+         AND last_sync_at    >= ${limiar}::timestamp
          AND coalesce(status, 'active') NOT IN ('cancelled', 'inactive')
          AND regexp_replace(cpf_cnpj, '[^0-9]', '', 'g') <> ALL(${listaDocs})
     `);

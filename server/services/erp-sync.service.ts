@@ -123,6 +123,13 @@ export async function syncProviderToDb(
   if (hasFetchCustomers) {
     try {
       const allResult = await limiter(() => connector.fetchCustomers!(config));
+      // Conector nenhum LANCA: todos terminam num catch proprio e devolvem
+      // `{ok:false, message}`. Sem esta linha, o `catch` abaixo nunca via a
+      // falha e a carteira nao lida passava por sync bem-sucedido.
+      if (!allResult.ok) {
+        falhaNaCarteira = allResult.message;
+        console.warn(`[ERPSync] ${providerName}: fetchCustomers recusou: ${allResult.message}`);
+      }
       if (allResult.ok && allResult.customers.length > 0) {
         console.log(`[ERPSync] ${providerName}: fetchCustomers retornou ${allResult.customers.length} clientes totais`);
         let activeUpserted = 0;
@@ -238,6 +245,24 @@ export async function syncProviderToDb(
     console.warn(`[ERPSync] Erro ao buscar ${providerName}: ${msg}`);
     await registrar("error", 0, 1, msg);
     return { upserted: 0, errors: 1 };
+  }
+
+  // A LEITURA FOI COMPLETA? E pergunta diferente de "alguma fonte respondeu".
+  //
+  // O passo 3 usa a lista de inadimplentes como prova NEGATIVA: quem esta na
+  // carteira e fora dela tem a divida baixada. Isso so vale se a leitura cobriu
+  // a base inteira. Uma fonte recusada, ou clientes que o ERP nao conseguiu
+  // responder, tornam a lista curta — e baixar divida com lista curta apaga o
+  // debito de quem de fato deve.
+  const fonteRecusada = tentadas.find(r => !r.ok);
+  const naoLidos = tentadas.reduce((s, r) => s + (r.leiturasFalhas ?? 0), 0);
+  const leituraCompleta = !fonteRecusada && naoLidos === 0;
+  if (!leituraCompleta) {
+    console.warn(
+      `[ERPSync] ${providerName}: leitura incompleta — `
+      + `${fonteRecusada ? `fonte recusada (${fonteRecusada.message}); ` : ""}`
+      + `${naoLidos} cliente(s) nao lidos. A baixa de divida quitada nao vai rodar.`,
+    );
   }
 
   const mesclado = mesclarInadimplentes(
@@ -394,10 +419,12 @@ export async function syncProviderToDb(
   // acumula: a Localizacao seguiria pintando de vermelho bairro ja resolvido.
   //
   // So roda quando o passo 2 terminou inteiro: uma lista incompleta baixaria a
-  // divida de quem de fato deve.
+  // divida de quem de fato deve. `errors` conta apenas falha de UPSERT — nao
+  // cobre fonte recusada nem cliente que o ERP deixou de responder, e e por isso
+  // que `leituraCompleta` existe.
   let quitados = 0;
   let falhaNaBaixa: string | undefined;
-  if (errors === 0 && result.customers.length > 0) {
+  if (leituraCompleta && errors === 0 && result.customers.length > 0) {
     try {
       quitados = await storage.baixarDividaQuitada(
         providerId,
@@ -419,13 +446,21 @@ export async function syncProviderToDb(
   // A baixa de divida quitada conta aqui pelo mesmo motivo. Ela nasceu quebrada
   // por um bind de array e ninguem soube: o erro so ia para o console, e a tela
   // dizia "sucesso". Divida ja paga seguia constando no bureau.
-  const problema = errors > 0 || falhaNaBaixa || falhaNaCarteira;
+  //
+  // Leitura incompleta tambem: uma fonte recusada ou clientes nao lidos deixam a
+  // base parcialmente atualizada, e o provedor precisa ver isso na tela para
+  // saber que o numero ainda nao e o do ERP.
+  const problema = errors > 0 || falhaNaBaixa || falhaNaCarteira || !leituraCompleta;
   await registrar(
     !problema ? "success" : upserted > 0 ? "partial" : "error",
     upserted,
     errors,
     errors > 0
       ? `${errors} de ${total} registros falharam no upsert`
+      : !leituraCompleta
+      ? (fonteRecusada
+          ? `leitura incompleta: ${fonteRecusada.message}`
+          : `leitura incompleta: ${naoLidos} cliente(s) o ERP nao respondeu`)
       : falhaNaBaixa
         ? `divida quitada nao pode ser baixada: ${falhaNaBaixa}`
         : falhaNaCarteira
