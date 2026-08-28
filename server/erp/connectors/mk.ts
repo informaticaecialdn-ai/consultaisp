@@ -32,6 +32,30 @@ import { cleanCpfCnpj, cleanPhone, calculateDaysOverdue, aggregateByCustomer } f
 // Token cache for MK auth
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
+/**
+ * `Situacao` do cliente no MK -> status do contrato.
+ *
+ * Devolve `undefined` quando nao reconhece, e isso importa: o upsert so escreve
+ * `status` quando ele vem preenchido. Chutar "ativo" para uma situacao
+ * desconhecida foi o que deixou ex-cliente cortado por calote passando por
+ * cliente em dia — no bureau, o erro mais caro que existe.
+ *
+ * A lista de rotulos saiu do payload real do WSMKConsultaClientes. Se aparecer
+ * um valor novo, ele cai em `undefined` e o status anterior fica de pe, que e o
+ * desfecho seguro: nao saber nao e motivo para reescrever.
+ */
+export function situacaoParaStatus(
+  situacao: unknown,
+): "active" | "cancelled" | "suspended" | undefined {
+  const s = String(situacao ?? "").trim().toLowerCase();
+  if (!s) return undefined;
+  if (s.startsWith("ativ")) return "active";
+  if (s.startsWith("suspens") || s.startsWith("bloque")) return "suspended";
+  if (s.startsWith("cancel") || s.startsWith("inativ") || s.startsWith("desativ")
+      || s.startsWith("desabilit") || s.startsWith("encerrad")) return "cancelled";
+  return undefined;
+}
+
 /** Pick the first non-null, non-undefined, non-empty-string value from an invoice row, preserving numeric 0. */
 function pickAmount(row: any): number {
   const fields = ["Saldo", "saldo", "ValorTotal", "valor_total", "Valor", "valor", "Total", "vl_total", "value"];
@@ -1203,6 +1227,19 @@ export class MkConnector implements ErpConnector {
 
           return {
             cpfCnpj,
+            // A SITUACAO do cliente vinha no payload e ninguem a lia.
+            //
+            // Sem ela, `status` so era escrito para quem aparecia na lista de
+            // inadimplentes, e ninguem podia ser REBAIXADO para cancelado:
+            // cliente cortado por calote cujas faturas o MK ja nao lista como
+            // pendentes ficava marcado ativo para sempre. Medido em 28/08/2026
+            // na NsLink: 659 de 870 cancelados por inadimplencia constavam como
+            // ativos, e no bureau isso inverte a leitura — "ativo devendo 3
+            // dias" no lugar de "cortado por calote".
+            //
+            // Situacao desconhecida devolve undefined de proposito: o upsert so
+            // escreve status quando ele vem, e nao inventa nada.
+            contractStatus: situacaoParaStatus(row.Situacao ?? row.situacao),
             name: row.Nome || row.nome || "",
             email: row.Email || row.email || undefined,
             phone: row.Fone || row.fone ? cleanPhone(row.Fone || row.fone) : undefined,

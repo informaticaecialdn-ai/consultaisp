@@ -38,12 +38,33 @@ export class CustomersStorage {
    * credito NAO passa por aqui: a consulta vai ao ERP ao vivo, por documento
    * (server/routes/consultas.routes.ts).
    *
-   * Tres travas para nao apagar dado bom:
+   * Quatro travas para nao apagar dado bom:
    *  - lista vazia nao limpa nada. Lista vazia costuma ser fetch que falhou, e
    *    nao carteira inteira em dia;
    *  - so mexe em quem o ERP acabou de confirmar que existe (`last_sync_at >=`
    *    inicio da varredura), entao cliente que o ERP nao devolveu fica intocado;
-   *  - so mexe em quem esta marcado como `overdue`.
+   *  - so mexe em quem esta marcado como `overdue`;
+   *  - NAO MEXE EM CONTRATO CANCELADO. Ver abaixo.
+   *
+   * ── POR QUE EX-CLIENTE FICA DE FORA ──────────────────────────────────────
+   *
+   * Para quem tem contrato vigente, sumir da lista de inadimplentes significa
+   * pagou: o ERP tira a fatura de "pendente" quando ela e quitada. Para quem foi
+   * CORTADO, nao significa nada disso — o provedor baixa, cancela ou escreve
+   * como perda a fatura de quem ja foi embora, e ela some da lista sem ninguem
+   * ter pago.
+   *
+   * Aplicar a mesma regua aos dois apagava justamente o dado que este sistema
+   * existe para guardar. Medido em 28/08/2026 na NsLink: 275 clientes cortados
+   * por inadimplencia estavam com divida ZERO na base, contra R$ 128 mil ainda
+   * guardados nos 185 que o status marcava como cancelados. A divida do
+   * ex-cliente e o ativo do bureau; ela so deve sair daqui com prova de
+   * pagamento, nunca por ausencia de fatura pendente.
+   *
+   * O custo do outro lado e conhecido e menor: um ex-cliente que de fato quitou
+   * segue marcado como devedor ate o provedor corrigir. Errar para o lado de
+   * "ainda deve" e recuperavel; errar para "nada consta" entrega o caloteiro
+   * como cliente limpo ao provedor vizinho, que instala confiando.
    */
   async baixarDividaQuitada(
     providerId: number,
@@ -64,6 +85,7 @@ export class CustomersStorage {
        WHERE provider_id     = ${providerId}
          AND payment_status  = 'overdue'
          AND last_sync_at    >= ${inicioDaVarredura}
+         AND coalesce(status, 'active') NOT IN ('cancelled', 'inactive')
          AND regexp_replace(cpf_cnpj, '[^0-9]', '', 'g') <> ALL(${docs})
     `);
     return (r as any).rowCount ?? 0;
@@ -147,7 +169,15 @@ export class CustomersStorage {
     totalOverdueAmount: number;
     maxDaysOverdue: number;
     overdueInvoicesCount: number;
-    /** Status do contrato no ERP — "active" (contrato vigente), "cancelled" (ex-cliente com cobranca rescisoria), "suspended". Default "active" se nao fornecido. */
+    /**
+     * Status do contrato no ERP — "active" (vigente), "cancelled" (ex-cliente,
+     * pode ter cobranca rescisoria), "suspended".
+     *
+     * Ausente significa "o conector nao sabe". Em cliente que ja existe, nada e
+     * escrito; so na CRIACAO cai em "active". Nao confundir com "voltou a ser
+     * ativo" — foi essa confusao que deixou 659 ex-clientes cortados por calote
+     * marcados como ativos na NsLink.
+     */
     status?: "active" | "cancelled" | "suspended";
     /** Plano do contrato ativo (ex "Combo 800MB + Deezer"). Opcional — armazenado em campo flexivel. */
     contractPlan?: string;
@@ -171,7 +201,15 @@ export class CustomersStorage {
 
     const now = new Date();
     const riskTier = data.maxDaysOverdue > 180 ? "critical" : data.maxDaysOverdue > 90 ? "high" : data.maxDaysOverdue > 60 ? "medium" : "low";
-    const customerStatus = data.status ?? "active";
+    /**
+     * "active" e default de CRIACAO, nao de atualizacao.
+     *
+     * Cliente novo sem status informado nasce ativo — e o palpite razoavel para
+     * quem acabou de aparecer no ERP. Ja num cliente que existe, ausencia de
+     * status significa "o conector nao sabe", e nao "voltou a ser ativo": ver o
+     * bloco de update adiante, que so escreve quando o valor vem.
+     */
+    const statusInicial = data.status ?? "active";
 
     if (existing.length > 0) {
       // skipPaymentStatus: passo 1 da sync (fetchCustomers) atualiza só identidade
@@ -214,6 +252,24 @@ export class CustomersStorage {
         updateFields.latitude = data.latitude;
         updateFields.longitude = data.longitude;
       }
+      /*
+       * STATUS DO CONTRATO SAI DE DENTRO DO BLOCO DA DIVIDA.
+       *
+       * Ele morava aqui dentro, junto de totalOverdueAmount e paymentStatus, e
+       * o passo 1 do sync roda com skipPaymentStatus para nao zerar divida.
+       * Consequencia: `status` so era escrito para quem a busca de
+       * inadimplentes devolvia, e NINGUEM podia ser rebaixado. Cliente cortado
+       * por calote cujas faturas o MK ja nao lista como pendentes ficava
+       * marcado ativo indefinidamente — 659 de 870 na NsLink, medido em
+       * 28/08/2026 contra o Gerenciador de Contratos do proprio MK.
+       *
+       * Divida e status sao coisas diferentes: uma e dinheiro, a outra e
+       * vinculo. Proteger a primeira nunca deveria ter congelado a segunda.
+       * Agora o status e escrito sempre que o conector o INFORMA, com ou sem
+       * skipPaymentStatus — e nunca quando ele nao informa.
+       */
+      if (data.status) updateFields.status = data.status;
+
       if (!data.skipPaymentStatus) {
         updateFields.totalOverdueAmount = String(data.totalOverdueAmount);
         updateFields.maxDaysOverdue = data.maxDaysOverdue;
@@ -221,7 +277,6 @@ export class CustomersStorage {
         // equipmentCount/equipmentEstimatedValue NAO entram aqui. Antes o sync
         // reescrevia 1 e "290" a cada passada, apagando o agregado real que o
         // sync de equipamento acabara de calcular.
-        updateFields.status = customerStatus;
         updateFields.paymentStatus = data.totalOverdueAmount > 0 ? "overdue" : "current";
         updateFields.riskTier = riskTier;
       }
@@ -251,7 +306,7 @@ export class CustomersStorage {
         overdueInvoicesCount: data.overdueInvoicesCount,
         // Sem equipamento conhecido nao se inventa um: o agregado real e escrito
         // depois, quando o conector traz equipmentDetails.
-        status: customerStatus,
+        status: statusInicial,
         paymentStatus: data.totalOverdueAmount > 0 ? "overdue" : "current",
         riskTier,
         erpSource: data.erpSource,

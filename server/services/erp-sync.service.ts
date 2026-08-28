@@ -167,6 +167,13 @@ export async function syncProviderToDb(
               totalOverdueAmount: 0,
               maxDaysOverdue: 0,
               overdueInvoicesCount: 0,
+              // O STATUS VEM POR AQUI, e e o unico caminho que alcanca a
+              // carteira inteira. O passo 2 so ve quem tem fatura pendente
+              // agora; quem foi cortado por calote e teve a fatura baixada no
+              // ERP nunca mais passava por ele, e ficava marcado ativo para
+              // sempre. `skipPaymentStatus` continua protegendo a DIVIDA, que e
+              // o ativo do bureau — status e vinculo, nao dinheiro.
+              status: customer.contractStatus,
               erpSource,
               skipPaymentStatus: true,
             });
