@@ -27,7 +27,7 @@ import { CircuitBreaker, withResilience } from "../resilience.js";
 import { agregarEquipamentosCobrados } from "../equipamento-na-fatura.js";
 import { chaveLogradouro } from "../../services/logradouro.js";
 import { normalizarLocalidade } from "../../services/localidade.js";
-import { cleanCpfCnpj, cleanPhone, calculateDaysOverdue, aggregateByCustomer } from "../normalize.js";
+import { cleanCpfCnpj, cleanPhone, calculateDaysOverdue, diasDesdeVencimento, aggregateByCustomer } from "../normalize.js";
 
 // Token cache for MK auth
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
@@ -695,15 +695,10 @@ export class MkConnector implements ErpConnector {
     const base = this.baseUrl(config);
 
     console.log(`[MK v2] Listando clientes via WSMKConsultaClientes...`);
-    const clientesUrl = `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&data_alteracao_inicio=01/01/2020`;
-    const clientesResp = await fetch(clientesUrl, { method: "GET", signal: AbortSignal.timeout(120000) });
-    if (!clientesResp.ok) {
-      return { ok: false, message: `WSMKConsultaClientes HTTP ${clientesResp.status}`, customers: [] };
+    const clientes: any[] = await this.listarTodosClientes(base, tokenAuth);
+    if (clientes.length === 0) {
+      return { ok: false, message: "WSMKConsultaClientes nao devolveu nenhum cliente", customers: [] };
     }
-    const clientesJson: any = await clientesResp.json();
-    const clientes: any[] = Array.isArray(clientesJson)
-      ? clientesJson
-      : (clientesJson?.Clientes || clientesJson?.clientes || clientesJson?.registros || clientesJson?.data || []);
 
     console.log(`[MK v2] ${clientes.length} clientes retornados. Iterando WSMKFaturasPendentes per-customer (concorrência 8)...`);
 
@@ -711,6 +706,7 @@ export class MkConnector implements ErpConnector {
     const results: NormalizedErpCustomer[] = [];
     let processed = 0;
     let withPending = 0;
+    let semDataIgnoradas = 0;
 
     for (let i = 0; i < clientes.length; i += CONCURRENCY) {
       const batch = clientes.slice(i, i + CONCURRENCY);
@@ -734,8 +730,14 @@ export class MkConnector implements ErpConnector {
           if (!Array.isArray(faturas) || faturas.length === 0) return null; // não é inadimplente
           processed++;
 
-          // 2. Contratos (status: ativo vs cancelado)
-          let contractStatus: "active" | "cancelled" = "cancelled";
+          // 2. Contrato vigente? So WSMKContratosPorCliente responde isso.
+          //
+          // O padrao NAO pode ser "cancelled": com ele, um timeout de 15s ou
+          // um 500 do MK rebaixava cliente pagante a ex-cliente com divida —
+          // exatamente a lista que o provedor usa para negar instalacao. Sem
+          // resposta legivel a resposta certa e nao afirmar nada: o upsert so
+          // grava status quando ele vem.
+          let contractStatus: "active" | "cancelled" | undefined;
           let contractPlan: string | undefined;
           try {
             const ctUrl = `${base}/mk/WSMKContratosPorCliente.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`;
@@ -746,25 +748,50 @@ export class MkConnector implements ErpConnector {
               if (ativos.length > 0) {
                 contractStatus = "active";
                 contractPlan = ativos[0]?.plano_acesso || ativos[0]?.PlanoAcesso || undefined;
+              } else {
+                // Resposta boa e sem contrato ativo: ai sim e ex-cliente, e a
+                // divida dele e o dado mais valioso que o bureau tem.
+                contractStatus = "cancelled";
               }
             }
           } catch {}
 
-          // 3. Calcula dias de atraso por fatura (formato MK: DD/MM/YYYY)
+          // 3. Atraso e valor VENCIDO — nao "em aberto".
+          //
+          // WSMKFaturasPendentes devolve tambem a fatura que ainda nem
+          // venceu: a mensalidade do mes, emitida dia 01 e com vencimento dia
+          // 20. O codigo antigo somava tudo, media 0 dia de atraso e forcava
+          // esse 0 para 1 ("pelo menos 1 dia se tem fatura pendente"), o que
+          // criava um inadimplente do nada. Medido na NsLink em 28/08/2026:
+          // 153 dos 440 inadimplentes tinham exatamente 1 dia de atraso, e a
+          // planilha do provedor mostrava essas faturas com status Normal,
+          // vencendo entre 10 e 20/08.
+          //
+          // Num bureau esse e o erro mais caro do lado de fora: o cliente em
+          // dia leva a negativa de instalacao no proximo provedor. Fatura a
+          // vencer nao entra no valor, nao entra no prazo, e sozinha nao
+          // coloca ninguem nesta lista.
           let totalAmount = 0;
           let maxDays = 0;
+          let vencidas = 0;
+          let semData = 0;
           for (const f of faturas) {
             const dueDate = f.data_vencimento || f.DataVencimento || f.vencimento || f.Vencimento || null;
             const valor = parseFloat(f.valor_total ?? f.valor ?? f.Valor ?? 0) || 0;
-            const days = calculateDaysOverdue(dueDate);
+            const dias = diasDesdeVencimento(dueDate);
+            if (dias === null) { semData++; continue; }
+            if (dias <= 0) continue;
+            vencidas++;
             totalAmount += valor;
-            if (days > maxDays) maxDays = days;
+            if (dias > maxDays) maxDays = dias;
           }
 
-          if (maxDays === 0 && faturas.length > 0) {
-            // Pelo menos 1 dia se tem fatura pendente sem data ou data futura
-            // (fatura pendente sem ser vencida ainda — esquisito mas trata)
-            maxDays = 1;
+          // Sem nenhuma fatura vencida o cliente nao e inadimplente. Ele
+          // continua sendo atualizado pelo fetchCustomers, que varre a
+          // carteira inteira — some desta lista, nao da base.
+          if (vencidas === 0) {
+            if (semData > 0) semDataIgnoradas += semData;
+            return null;
           }
 
           withPending++;
@@ -792,7 +819,7 @@ export class MkConnector implements ErpConnector {
             longitude: cliente.Longitude && String(cliente.Longitude).trim() ? String(cliente.Longitude) : undefined,
             totalOverdueAmount: totalAmount,
             maxDaysOverdue: maxDays,
-            overdueInvoicesCount: faturas.length,
+            overdueInvoicesCount: vencidas,
             contractStatus,
             contractPlan,
             erpSource: "mk" as const,
@@ -810,6 +837,11 @@ export class MkConnector implements ErpConnector {
     }
 
     console.log(`[MK v2] CONCLUIDO: ${results.length} inadimplentes reais (de ${clientes.length} clientes consultados)`);
+    if (semDataIgnoradas > 0) {
+      // Fatura sem data legivel nao da para julgar. Fica de fora e aparece
+      // aqui — silenciar seria esconder inadimplente de verdade.
+      console.log(`[MK v2] ${semDataIgnoradas} faturas ignoradas por vencimento ilegivel`);
+    }
     return {
       ok: true,
       message: `${results.length} inadimplentes encontrados (v2 per-customer)`,
@@ -890,47 +922,16 @@ export class MkConnector implements ErpConnector {
 
       console.log(`[MK] WSMKFaturasAbertas retornou ${faturas.length} faturas. Campos da primeira: ${Object.keys(faturas[0]).join(", ")}`);
 
-      // Prefetch all customers in ONE call via WSMKConsultaClientes with wide date filter.
-      // This endpoint returns CPF_CNPJ + enderecos[] (logradouro, numero, bairro, cidade, cep, estado)
-      // + Latitude/Longitude — everything we need to enrich the sparse faturas.
+      // Prefetch de TODOS os clientes: WSMKConsultaClientes devolve CPF_CNPJ +
+      // enderecos[] + Latitude/Longitude, que e o que enriquece as faturas magras.
+      // Varredura por faixa de codigo (ver listarTodosClientes) no lugar das duas
+      // tentativas que havia aqui — o filtro por data trazia 785 de 3.226.
       const clientsByCodPessoa = new Map<string, any>();
-      // Try TWO prefetches to cover both active and cancelled clients:
-      // 1) data_alteracao_inicio=01/01/2000 — returns active/recently-edited
-      // 2) cd_cliente_inicio=0&cd_cliente_fim=999999999 — range query, often bypasses status filter
-      const prefetchUrls = [
-        `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&data_alteracao_inicio=01/01/2000`,
-        `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente_inicio=0&cd_cliente_fim=999999999`,
-      ];
-      for (let idx = 0; idx < prefetchUrls.length; idx++) {
-        const url = prefetchUrls[idx];
-        try {
-          console.log(`[MK] Prefetch WSMKConsultaClientes #${idx + 1}`);
-          const clientesResp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(180000) });
-          if (!clientesResp.ok) {
-            console.log(`[MK] Prefetch #${idx + 1} retornou status ${clientesResp.status}`);
-            continue;
-          }
-          const cj: any = await clientesResp.json();
-          const list: any[] = Array.isArray(cj) ? cj
-            : cj?.Clientes || cj?.clientes || cj?.registros || cj?.data || [];
-          let added = 0;
-          for (const row of list) {
-            const cd = String(row.CodigoPessoa || row.codigopessoa || row.cd_pessoa || row.codpessoa || row.id || "");
-            if (cd && !clientsByCodPessoa.has(cd)) {
-              clientsByCodPessoa.set(cd, row);
-              added++;
-            }
-          }
-          console.log(`[MK] Prefetch #${idx + 1}: ${list.length} clientes retornados, ${added} novos adicionados (total acumulado: ${clientsByCodPessoa.size})`);
-          if (idx === 0 && list.length > 0) {
-            console.log(`[MK] Campos do primeiro cliente: ${Object.keys(list[0]).join(", ")}`);
-            const sampleEnd = list[0].endereco ?? list[0].Endereco ?? list[0].enderecos;
-            console.log(`[MK] Sample endereco: ${JSON.stringify(sampleEnd)?.slice(0, 400)}`);
-          }
-        } catch (err) {
-          console.log(`[MK] Prefetch #${idx + 1} falhou: ${err instanceof Error ? err.message : err}`);
-        }
+      for (const row of await this.listarTodosClientes(base, tokenAuth)) {
+        const cd = String(row.CodigoPessoa || row.codigopessoa || row.cd_pessoa || row.codpessoa || row.id || "");
+        if (cd && !clientsByCodPessoa.has(cd)) clientsByCodPessoa.set(cd, row);
       }
+      console.log(`[MK] Prefetch: ${clientsByCodPessoa.size} clientes indexados por CodigoPessoa`);
 
       // Helper to extract customer data from a full WSMKConsultaClientes row.
       // MK varies: `enderecos[]` array, or `endereco` object, or `endereco` flat string.
@@ -1156,36 +1157,84 @@ export class MkConnector implements ErpConnector {
     }
   }
 
+  /**
+   * TODOS os clientes, varrendo `cd_cliente` em lotes.
+   *
+   * ── POR QUE NAO O FILTRO POR DATA ──────────────────────────────────────────
+   *
+   * `data_alteracao_inicio` parece devolver a base inteira e nao devolve: medido
+   * na NsLink em 28/08/2026, ele traz SEMPRE 785 cadastros, com qualquer data —
+   * 01/01/2000 e 01/01/2020 dao o mesmo numero. A carteira tem 3.226.
+   *
+   * A consequencia era o defeito central do sync: ex-cliente cortado por calote
+   * nao estava nos 785, entao nenhuma passada o alcancava e o status dele nunca
+   * era corrigido. Do lado do provedor isso aparecia como 659 de 870 cancelados
+   * por inadimplencia constando "ativo" no bureau.
+   *
+   * A faixa unica gigante (`cd_cliente_inicio=0&cd_cliente_fim=999999999`), que
+   * o codigo tentava como alternativa, tambem nao resolve — o MK trunca. O que
+   * funciona e LOTE: 500 codigos por chamada, ate o teto.
+   *
+   * Estrategia copiada da integracao do Provedor.ai contra o mesmo ERP, onde ja
+   * estava resolvida (packages/erp-mk/src/client.ts, fetchClientes).
+   *
+   * O teto e generoso e o custo de exagerar e baixo: lote vazio responde rapido.
+   * Para de varrer depois de VAZIOS_SEGUIDOS lotes sem nada, que e onde a base
+   * acabou — sem isso, uma base pequena pagaria dezenas de chamadas inuteis.
+   */
+  private async listarTodosClientes(base: string, tokenAuth: string): Promise<any[]> {
+    const LOTE = 500;
+    const TETO = 50_000;
+    const VAZIOS_SEGUIDOS = 3;
+
+    const porId = new Map<string, any>();
+    let vazios = 0;
+
+    for (let ini = 1; ini <= TETO; ini += LOTE) {
+      const fim = ini + LOTE - 1;
+      const url = `${base}/mk/WSMKConsultaClientes.rule?sys=MK0`
+        + `&token=${encodeURIComponent(tokenAuth)}`
+        + `&cd_cliente_inicio=${ini}&cd_cliente_fim=${fim}`;
+      try {
+        const resp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(120000) });
+        if (resp.status === 404 || resp.status === 204) { vazios++; }
+        else if (!resp.ok) { vazios++; }
+        else {
+          const cj: any = await resp.json().catch(() => null);
+          const lista: any[] = Array.isArray(cj)
+            ? cj
+            : (cj?.Clientes ?? cj?.clientes ?? cj?.registros ?? cj?.data ?? []);
+          if (lista.length === 0) vazios++;
+          else {
+            vazios = 0;
+            for (const row of lista) {
+              const cd = String(row?.CodigoPessoa ?? row?.codigopessoa ?? row?.cd_pessoa ?? row?.id ?? "");
+              if (cd && !porId.has(cd)) porId.set(cd, row);
+            }
+          }
+        }
+      } catch {
+        // Falha de rede num lote nao derruba a varredura: o resto da base ainda
+        // vale mais do que nada. Conta como vazio para o corte de parada.
+        vazios++;
+      }
+      if (vazios >= VAZIOS_SEGUIDOS) break;
+    }
+
+    console.log(`[MK] listarTodosClientes: ${porId.size} clientes (varredura por faixa de codigo)`);
+    return Array.from(porId.values());
+  }
+
   /** Buscar TODOS os clientes (ativos + inativos) para total por bairro */
   async fetchCustomers(config: ErpConnectionConfig): Promise<ErpFetchResult> {
     try {
       const tokenAuth = await this.authenticate(config);
       const base = this.baseUrl(config);
 
-      // Duas chamadas: ativos (data_alteracao) + todos (range cd_cliente)
-      const allClients: any[] = [];
-      const seen = new Set<string>();
-
-      const urls = [
-        `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&data_alteracao_inicio=01/01/2000`,
-        `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente_inicio=0&cd_cliente_fim=999999999`,
-      ];
-
-      for (const url of urls) {
-        try {
-          const resp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(180000) });
-          if (!resp.ok) continue;
-          const cj: any = await resp.json();
-          const list: any[] = Array.isArray(cj) ? cj : cj?.Clientes || cj?.clientes || cj?.registros || cj?.data || [];
-          for (const row of list) {
-            const cd = String(row.CodigoPessoa || row.codigopessoa || row.id || "");
-            if (cd && !seen.has(cd)) {
-              seen.add(cd);
-              allClients.push(row);
-            }
-          }
-        } catch {}
-      }
+      // Varredura por faixa de codigo — ver listarTodosClientes. As duas
+      // chamadas que estavam aqui (data_alteracao + faixa unica gigante) davam
+      // 785 cadastros de uma carteira de 3.226.
+      const allClients: any[] = await this.listarTodosClientes(base, tokenAuth);
 
       console.log(`[MK] fetchCustomers: ${allClients.length} clientes totais`);
 
@@ -1289,38 +1338,19 @@ export class MkConnector implements ErpConnector {
 
   /** Fallback: iterate WSMKConsultaClientes + WSMKFaturasPendentes per customer. */
   private async fetchDelinquentsFallback(config: ErpConnectionConfig, tokenAuth: string, base: string): Promise<ErpFetchResult> {
-    console.log(`[MK] Fallback: buscando via WSMKConsultaClientes com data_alteracao`);
+    console.log(`[MK] Fallback: buscando via WSMKConsultaClientes (varredura por faixa)`);
 
-    // WSMKConsultaClientes requires at least one filter — use date from 10 years ago
-    const tenYearsAgo = new Date();
-    tenYearsAgo.setFullYear(tenYearsAgo.getFullYear() - 10);
-    const isoDate = tenYearsAgo.toISOString().split("T")[0];
-
-    const clientesUrl = `${base}/mk/WSMKConsultaClientes.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&data_alteracao_inicio=${isoDate}`;
-    const clientesResponse = await fetch(clientesUrl, { method: "GET", signal: AbortSignal.timeout(60000) });
-
-    if (!clientesResponse.ok) {
-      return { ok: false, message: `MK WSMKConsultaClientes status ${clientesResponse.status}`, customers: [], totalRecords: 0 };
+    const allClientes: any[] = await this.listarTodosClientes(base, tokenAuth);
+    if (allClientes.length === 0) {
+      return { ok: false, message: "MK WSMKConsultaClientes nao devolveu clientes", customers: [], totalRecords: 0 };
     }
-
-    const clientesJson: any = await clientesResponse.json();
-    let allClientes: any[] = Array.isArray(clientesJson)
-      ? clientesJson
-      : clientesJson?.Clientes || clientesJson?.registros || clientesJson?.data || [];
-
-    if ((!allClientes || allClientes.length === 0) && typeof clientesJson === "object" && clientesJson !== null) {
-      for (const val of Object.values(clientesJson)) {
-        if (Array.isArray(val) && val.length > 0) { allClientes = val; break; }
-      }
-    }
-
     console.log(`[MK] Fallback: ${allClientes.length} clientes retornados`);
     if (allClientes.length > 0) {
       console.log(`[MK] FALLBACK DIAG primeiro cliente campos: ${Object.keys(allClientes[0]).join(", ")}`);
       console.log(`[MK] FALLBACK DIAG primeiro cliente JSON: ${JSON.stringify(allClientes[0]).slice(0, 800)}`);
     }
 
-    const clientesToProcess = allClientes.slice(0, 500);
+    const clientesToProcess = allClientes;
     const CONCURRENCY = 8;
     const allInvoices: any[] = [];
     let firstFaturaDiagDumped = false;

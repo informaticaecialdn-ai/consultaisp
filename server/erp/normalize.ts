@@ -23,29 +23,69 @@ export function cleanPhone(raw: string): string {
 }
 
 /**
+ * Monta uma data local, devolvendo `null` se os numeros nao formarem esse dia.
+ *
+ * `new Date(2026, 12, 32)` nao falha: rola para 01/02/2027. Um vencimento
+ * corrompido viraria uma data futura valida e a fatura sumiria da cobranca
+ * como se estivesse no prazo.
+ */
+function dataLocal(ano: number, mes: number, dia: number): Date | null {
+  const d = new Date(ano, mes - 1, dia);
+  const bate = d.getFullYear() === ano && d.getMonth() === mes - 1 && d.getDate() === dia;
+  return bate ? d : null;
+}
+
+/**
+ * Dias decorridos desde o vencimento, COM SINAL — e `null` quando nao da para
+ * saber (data ausente ou ilegivel).
+ *
+ * Existe porque `calculateDaysOverdue` colapsa tres coisas diferentes em `0`:
+ * vence hoje, vence daqui a um mes, e nao sei quando vence. Quem so quer
+ * medir atraso pode viver com isso; quem precisa DECIDIR se ha atraso, nao —
+ * e foi assim que fatura a vencer virou inadimplencia de "1 dia".
+ */
+export function diasDesdeVencimento(dueDate: string | Date | null | undefined): number | null {
+  if (!dueDate) return null;
+
+  let due: Date;
+  if (typeof dueDate === "string") {
+    // Duas formas de data-so-dia chegam dos ERPs: DD/MM/AAAA (MK e a maioria
+    // dos brasileiros) e AAAA-MM-DD. Ambas sao montadas como meia-noite LOCAL.
+    //
+    // A ISO precisa disso tanto quanto a BR: `new Date("2026-08-27")` e
+    // meia-noite UTC, que em Brasilia ja e dia 26 — a fatura nascia com um dia
+    // de atraso a mais. Sem regex de proposito: partir na barra e no traco le
+    // melhor e nao esconde escape.
+    const barra = dueDate.split("/");
+    const traco = dueDate.split("-");
+    let montada: Date | null;
+    if (barra.length === 3 && barra[0].length === 2 && barra[2].length === 4) {
+      montada = dataLocal(Number(barra[2]), Number(barra[1]), Number(barra[0]));
+    } else if (traco.length === 3 && traco[0].length === 4) {
+      montada = dataLocal(Number(traco[0]), Number(traco[1]), Number(traco[2].slice(0, 2)));
+    } else {
+      montada = new Date(dueDate);
+    }
+    if (!montada) return null;
+    due = montada;
+  } else {
+    due = dueDate;
+  }
+  if (isNaN(due.getTime())) return null;
+
+  // Comparacao por DIA, nao por instante: uma fatura que vence hoje as 00:00
+  // nao esta "ha algumas horas em atraso".
+  const meiaNoite = (d: Date) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  const dif = meiaNoite(new Date()) - meiaNoite(due);
+  return Math.round(dif / 86_400_000);
+}
+
+/**
  * Calculate days overdue from a due date to now.
  * Returns 0 if due date is in the future or invalid.
  */
 export function calculateDaysOverdue(dueDate: string | Date | null): number {
-  if (!dueDate) return 0;
-
-  let due: Date;
-  if (typeof dueDate === "string") {
-    // Handle DD/MM/YYYY format (MK Solutions and other Brazilian ERPs)
-    const brMatch = dueDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-    due = brMatch
-      ? new Date(parseInt(brMatch[3]), parseInt(brMatch[2]) - 1, parseInt(brMatch[1]))
-      : new Date(dueDate);
-  } else {
-    due = dueDate;
-  }
-  if (isNaN(due.getTime())) return 0;
-
-  const now = new Date();
-  const diffMs = now.getTime() - due.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-  return Math.max(0, diffDays);
+  return Math.max(0, diasDesdeVencimento(dueDate) ?? 0);
 }
 
 /**
