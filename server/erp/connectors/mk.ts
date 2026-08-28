@@ -1624,11 +1624,33 @@ export class MkConnector implements ErpConnector {
       return { ok: false, message: `Erro: ${msg}`, customers: [] };
     }
   }
+  /**
+   * Os enderecos de um cliente, seja qual for a forma que o MK usou.
+   *
+   * `WSMKConsultaClientes` devolve `endereco` como ARRAY de objetos — um por
+   * tipo (INSTALACAO, COBRANCA) — com logradouro, numero, bairro, cidade, cep.
+   * Os predicados de busca liam `r.CEP` e `r.endereco` como se fossem texto na
+   * raiz, campos que nao existem nesse payload: a busca por CEP e por endereco
+   * varria os 3.226 clientes e casava zero. Outras instalacoes devolvem objeto
+   * unico ou texto corrido, entao as tres formas continuam aceitas.
+   */
+  private enderecosDoCliente(r: any): Array<Record<string, any>> {
+    const bruto = r?.endereco ?? r?.Endereco ?? r?.enderecos ?? r?.Enderecos;
+    if (Array.isArray(bruto)) return bruto.filter(e => e && typeof e === "object");
+    if (bruto && typeof bruto === "object") return [bruto];
+    // Texto corrido ("Rua Mato Grosso, 1435 - Centro, Londrina") vira um objeto
+    // so com logradouro; o resto dos campos fica indefinido de proposito.
+    if (typeof bruto === "string" && bruto.trim()) return [{ logradouro: bruto }];
+    const solto = r?.Logradouro ?? r?.logradouro;
+    return solto ? [{ logradouro: solto, cidade: r?.Cidade ?? r?.cidade, cep: r?.CEP ?? r?.cep }] : [];
+  }
+
   async fetchCustomersByCep(config: ErpConnectionConfig, cep: string): Promise<ErpFetchResult> {
     const alvo = cep.replace(/\D/g, "");
     return this.clientesPorFiltro(
       config,
-      (r: any) => (r.CEP || r.cep || "").replace(/\D/g, "").startsWith(alvo),
+      (r: any) => this.enderecosDoCliente(r).some(e =>
+        String(e.cep ?? e.CEP ?? "").replace(/[^0-9]/g, "").startsWith(alvo)),
       `CEP ${alvo}`,
     );
   }
@@ -1658,21 +1680,21 @@ export class MkConnector implements ErpConnector {
 
     return this.clientesPorFiltro(
       config,
-      (r: any) => {
-        const bruto = r.Endereco || r.endereco || r.Logradouro || r.logradouro || "";
+      (r: any) => this.enderecosDoCliente(r).some(e => {
+        const bruto = e.logradouro ?? e.Logradouro ?? e.endereco ?? e.Endereco ?? "";
         // O logradouro pode vir com o numero grudado; corta no primeiro
         // separador antes de comparar.
-        const rua = chaveLogradouro(String(bruto).split(/[,\-]/)[0]);
+        const rua = chaveLogradouro(String(bruto).split(/[,-]/)[0]);
         if (!rua || rua !== ruaAlvo) return false;
 
         if (!cidadeAlvo) return true;
         const cidade = normalizarLocalidade(
-          r.Cidade || r.cidade || r.Municipio || r.municipio || "",
+          e.cidade ?? e.Cidade ?? e.municipio ?? e.Municipio ?? r.Cidade ?? r.cidade ?? "",
         );
         // Cidade ausente no cadastro nao descarta: cadastro incompleto nao e
         // prova de que e outra cidade.
         return !cidade || cidade === cidadeAlvo;
-      },
+      }),
       `${ruaAlvo}${cidadeAlvo ? ` / ${cidadeAlvo}` : ""}`,
     );
   }
