@@ -107,3 +107,47 @@ describe("o titular nao conta contra si mesmo", () => {
     expect(r.risk.cpfsDistintosInadimplentes).toBe(0);
   });
 });
+
+/**
+ * O titular sai da LISTA, não só da conta do risco.
+ *
+ * `calculateAddressRisk` já o excluía — o cruzamento responde "há MAIS alguém
+ * devendo neste imóvel", e o titular não é "mais alguém". Mas os grupos
+ * devolvidos alimentam a seção "Verificação por endereço" do relatório, e lá ele
+ * reaparecia: contado como "1 inadimplente no endereço" e rotulado "Possível
+ * fraude por troca de documento". A própria pessoa não é troca de documento, e a
+ * dívida dela já aparece na seção de ocorrências.
+ */
+describe("buildAddressSearchResult — o titular nao entra no proprio cruzamento", () => {
+  const doc = (c: any) => c.cpfCnpj;
+
+  it("some da lista, nao so do risco", () => {
+    const titular = cli("Valdirene", "1435", 484);
+    const r = buildAddressSearchResult("x", erp([titular]), 4, alvo, doc(titular));
+
+    expect(r.risk.cpfsDistintosInadimplentes).toBe(0);
+    // O grupo ficou sem ninguem e nao deve aparecer: grupo vazio na tela le
+    // como "achei algo aqui".
+    expect(r.addressGroups).toHaveLength(0);
+    expect(r.totalCustomersFound).toBe(0);
+  });
+
+  it("o coabitante continua aparecendo", () => {
+    const titular = cli("Valdirene", "1435", 484);
+    const vizinho = cli("Coabitante", "1435", 120);
+    const r = buildAddressSearchResult("x", erp([titular, vizinho]), 4, alvo, doc(titular));
+
+    const nomes = r.addressGroups.flatMap(g => g.customers.map(c => c.name));
+    expect(nomes).toHaveLength(1);
+    expect(nomes[0]).toContain("Coabitante");
+    expect(r.risk.cpfsDistintosInadimplentes).toBe(1);
+  });
+
+  it("sem documento informado, nada e excluido", () => {
+    // Busca por endereco puro (sem CPF na mao) continua listando todo mundo.
+    const r = buildAddressSearchResult("x", erp([
+      cli("A", "1435", 30), cli("B", "1435", 60),
+    ]), 4, alvo);
+    expect(r.totalCustomersFound).toBe(2);
+  });
+});

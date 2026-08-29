@@ -9,7 +9,30 @@ import type { NormalizedErpCustomer } from "./types.js";
 
 /** Strip all non-digit characters from a CPF or CNPJ string */
 export function cleanCpfCnpj(raw: string): string {
-  return raw.replace(/\D/g, "");
+  const d = (raw ?? "").replace(/\D/g, "");
+
+  // 11 e CPF, 14 e CNPJ. O resto precisa de julgamento.
+  if (d.length === 11 || d.length === 14) return d;
+
+  /* ZERO A ESQUERDA PERDIDO. ERP que guarda documento como numero come o zero
+     inicial: "04117982940" volta como "4117982940". Ate dois zeros e o caso
+     normal, entao 9-10 digitos viram CPF e 12-13 viram CNPJ. */
+  if (d.length === 9 || d.length === 10) return d.padStart(11, "0");
+  if (d.length === 12 || d.length === 13) return d.padStart(14, "0");
+
+  /* NAO E DOCUMENTO. Devolver vazio faz quem chama descartar a linha, que e o
+     comportamento que todos os conectores ja tem para documento ausente.
+     A funcao so tirava os nao-digitos e devolvia qualquer coisa. No IXC o
+     encadeamento e `row.cpf_cnpj || row.cnpj_cpf || row.documento`, e em
+     `fn_areceber` o campo `documento` e o numero do BOLETO — entao fatura sem
+     CPF virava um "cliente" identificado pelo numero do titulo. Medido na base
+     em 29/08/2026: 8.693 linhas de `customers` com 4 a 9 digitos no campo do
+     documento, todas do IXC, todas marcadas inadimplentes, 8.692 sem nome.
+     Num bureau isso e grave duas vezes: sao devedores fantasma que ninguem
+     consegue identificar, e eles poluem o cruzamento por endereco — tres
+     faturas de R$ 122,68 do mesmo imovel apareciam como tres inadimplentes
+     diferentes, virando "possivel fraude por troca de documento". */
+  return "";
 }
 
 /** Strip non-digits from a CEP and pad to 8 characters */

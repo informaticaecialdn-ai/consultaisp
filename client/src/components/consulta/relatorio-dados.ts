@@ -191,6 +191,7 @@ export interface DadosRelatorio {
   /** Só os matches COM dívida — é o que a lista de endereço mostra. */
   enderecoComDivida: NonNullable<ConsultaResult["addressMatches"]>;
   cepUsado: string;
+  rotuloLocal: string;
   cruzou: boolean;
   /** Consulta por CEP esconde as seções 03 e 04 — não há titular para descrever. */
   ehBuscaPorCep: boolean;
@@ -313,12 +314,19 @@ export function derivarRelatorio(result: ConsultaResult): DadosRelatorio {
   const matchesParceiros = result.addressMatches?.filter(m => !m.isSameProvider) ?? [];
   const inadProprios = matchesProprios.filter(m => m.hasDebt).length;
   const inadParceiros = matchesParceiros.filter(m => m.hasDebt).length;
-  const cepUsado = result.addressUsed || proprios[0]?.cep || "";
+  const cepUsado = result.addressParts?.cep || proprios[0]?.cep || "";
+  /* O rotulo mostra o que foi de fato cruzado. Antes ele era sempre
+     `"CEP " + fmtCep(addressUsed)`, e como `addressUsed` costuma ser um
+     endereco a tela escrevia "CEP Rua Amelia Wiesel Rose, 17 — ...". */
+  const enderecoUsado = result.addressUsed || (cepUsado ? fmtCep(cepUsado) : "");
+  const rotuloLocal = result.addressParts?.logradouro
+    ? enderecoUsado
+    : cepUsado ? `CEP ${fmtCep(cepUsado)}` : "";
   const cruzou = result.autoAddressCrossRef === true || !!result.addressSearch;
 
   const enderecoLinhas: LinhaFonte[] = [
     {
-      kicker: "Seu provedor", fonte: `Seu ERP${cepUsado ? " · CEP " + fmtCep(cepUsado) : ""}`,
+      kicker: "Seu provedor", fonte: `Seu ERP${rotuloLocal ? " · " + rotuloLocal : ""}`,
       chip: inadProprios > 0 ? `${inadProprios} inadimplente${inadProprios > 1 ? "s" : ""}` : "Nada consta",
       chipTom: inadProprios > 0 ? "danger" : "ok",
       nome: inadProprios > 0 ? `${inadProprios} inadimplente${inadProprios > 1 ? "s" : ""} no endereço` : "Nada consta",
@@ -329,7 +337,7 @@ export function derivarRelatorio(result: ConsultaResult): DadosRelatorio {
           : "Nenhum outro cadastro seu neste endereço",
     },
     {
-      kicker: "Provedor parceiro", fonte: `Rede ISP${cepUsado ? " · CEP " + fmtCep(cepUsado) : ""}`,
+      kicker: "Provedor parceiro", fonte: `Rede ISP${rotuloLocal ? " · " + rotuloLocal : ""}`,
       chip: inadParceiros > 0 ? `${inadParceiros} inadimplente${inadParceiros > 1 ? "s" : ""}` : cruzou ? "Nada consta" : "Indisponível",
       chipTom: inadParceiros > 0 ? "danger" : cruzou ? "ok" : "neutral",
       nome: inadParceiros > 0
@@ -353,7 +361,7 @@ export function derivarRelatorio(result: ConsultaResult): DadosRelatorio {
     debito: debitoEstimado(proprios, parceiros),
     ocorrencias, equipamentoLinhas, enderecoLinhas,
     enderecoComDivida: (result.addressMatches ?? []).filter(m => m.hasDebt),
-    cepUsado, cruzou,
+    cepUsado, rotuloLocal, cruzou,
     ehBuscaPorCep: result.searchType === "cep",
   };
 }

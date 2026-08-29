@@ -96,7 +96,19 @@ export interface ConsultaResult {
   addressMatches?: AddressMatch[];
   addressSearch?: any;
   addressSource?: "own" | "network" | null;
+  /** Rotulo do endereco cruzado — as vezes um CEP, as vezes "Rua X, 17 — Bairro". */
   addressUsed?: string | null;
+  /**
+   * O mesmo endereco em PARTES, para quem precisa dos campos e nao do rotulo.
+   *
+   * O mapa recebia `addressUsed` no lugar do CEP, extraia os digitos ("17") e
+   * desistia de geocodificar; o cabecalho da secao escrevia "CEP Rua Amelia
+   * Wiesel Rose, 17 — ...". Rotulo e dado nao sao a mesma coisa.
+   */
+  addressParts?: {
+    logradouro?: string; numero?: string; bairro?: string;
+    cidade?: string; uf?: string; cep?: string;
+  } | null;
   autoAddressCrossRef?: boolean;
   isHistoryResult?: boolean;
   source?: string;

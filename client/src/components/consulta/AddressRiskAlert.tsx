@@ -7,6 +7,7 @@ interface AddressRiskAlertProps {
     message: string;
     matches: {
       cpfMasked: string;
+      nomeMascarado?: string;
       overdueRange: string;
       maxDaysOverdue: number;
       status: string;
@@ -60,9 +61,19 @@ export default function AddressRiskAlert({ data }: AddressRiskAlertProps) {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {/* Tres iniciais antes do documento: o provedor reconhece o
+                  vizinho de porta sem receber o nome de quem nao e cliente
+                  dele. Sozinho o CPF mascarado nao dizia nada — e quando a
+                  linha nem tinha documento valido, saia so "***". */}
               <span style={{
-                fontFamily: "var(--font-mono)", fontSize: 12,
-                fontVariantNumeric: "tabular-nums", color: "var(--text)",
+                fontFamily: "var(--font-sans)", fontSize: 12.5, fontWeight: 600,
+                color: "var(--text)",
+              }}>
+                {match.nomeMascarado || "Sem nome no cadastro"}
+              </span>
+              <span style={{
+                fontFamily: "var(--font-mono)", fontSize: 11.5,
+                fontVariantNumeric: "tabular-nums", color: "var(--text-muted)",
               }}>
                 {match.cpfMasked}
               </span>

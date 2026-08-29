@@ -364,6 +364,15 @@ export function registerConsultasRoutes(): Router {
         // Metadata for API contract: source of address used for crossing
         let addressSource: "own" | "network" | null = null;
         let addressUsed: string | null = null;
+        /* O endereco cruzado, em PARTES.
+           `addressUsed` e so um rotulo — as vezes um CEP, as vezes
+           "Rua X, 17 — Bairro". A tela tratava os dois como CEP: escrevia
+           "CEP Rua Amelia Wiesel Rose, 17 — ..." e passava a string para o
+           mapa, que extraia os digitos ("17") e desistia de geocodificar. */
+        let addressParts: {
+          logradouro?: string; numero?: string; bairro?: string;
+          cidade?: string; uf?: string; cep?: string;
+        } | null = null;
         let autoAddressCrossRef = false;
 
         if (searchType === "cpf" || searchType === "cnpj") {
@@ -429,6 +438,14 @@ export function registerConsultasRoutes(): Router {
               addressUsed = chave
                 ? `${chave.logradouro}, ${chave.numero}${chave.bairro ? ` — ${chave.bairro}` : ""}`
                 : cepCandidato;
+              addressParts = {
+                logradouro: chave?.logradouro,
+                numero: chave ? String(chave.numero) : undefined,
+                bairro: chave?.bairro || undefined,
+                cidade: addressCandidate.city || undefined,
+                uf: addressCandidate.state || undefined,
+                cep: cepCandidato || undefined,
+              };
               addressSearchResult = buildAddressSearchResult(addressUsed, cruzamento, providerId, chave ?? undefined, cleaned);
               autoAddressCrossRef = true;
             } catch (err) {
@@ -517,7 +534,7 @@ export function registerConsultasRoutes(): Router {
         const creditsCost = externalProviders.size;
 
         // Alerta de risco por endereco — cruza endereco completo com inadimplentes da rede
-        let addressRiskAlerts: { cpfMasked: string; overdueRange: string; maxDaysOverdue: number; status: string; matchType: string }[] = [];
+        let addressRiskAlerts: { cpfMasked: string; nomeMascarado: string; overdueRange: string; maxDaysOverdue: number; status: string; matchType: string }[] = [];
         try {
           // Pegar endereco do cliente proprio ou do primeiro resultado do ERP
           const addrSource = ownCustomer || allCustomers[0];
@@ -604,6 +621,7 @@ export function registerConsultasRoutes(): Router {
           migratorAlert,
           addressSource,
           addressUsed,
+          addressParts,
           autoAddressCrossRef,
           source: "erp_direct",
           // De quando e o dado que o operador esta lendo. A consulta e sempre ao
@@ -708,7 +726,7 @@ export function registerConsultasRoutes(): Router {
           decisionReco: "Review", providersFound: 0, providerDetails: [],
           alerts: ["Nenhuma integracao ERP encontrada na regiao. Configure em Integracoes."],
           recommendedActions: [], creditsCost: 0, isOwnCustomer: false,
-          addressSource: null, addressUsed: null, autoAddressCrossRef: false,
+          addressSource: null, addressUsed: null, addressParts: null, autoAddressCrossRef: false,
           source: "no_erp",
         },
       };

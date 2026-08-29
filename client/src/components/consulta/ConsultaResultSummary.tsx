@@ -64,6 +64,7 @@ export default function ConsultaResultSummary({
     provedoresConsultados, parceirosConsultados,
     ocorrencias: rows, equipamentoLinhas: equipRows, enderecoLinhas: addrRows,
     cepUsado,
+    rotuloLocal,
   } = d;
   const band = bandOf(score);
   const debitoEstimado = d.debito.texto;
@@ -102,7 +103,16 @@ export default function ConsultaResultSummary({
   };
 
   const linhasEndereco = (result.addressMatches ?? []).filter(m => m.hasDebt);
-  const temMapa = !!(cepUsado || proprios[0]?.address || proprios[0]?.latitude);
+  /* O endereco CRUZADO tambem serve ao mapa, nao so o cadastro proprio.
+     Consultando alguem que nao e cliente seu, `proprios[0]` e a linha
+     sintetica de "nada consta" — sem endereco e sem coordenada —, entao o
+     mapa nunca tinha o que mostrar justamente na consulta que mais importa:
+     a de um desconhecido. */
+  const partes = result.addressParts;
+  const temMapa = !!(
+    partes?.logradouro || partes?.cep || cepUsado
+    || proprios[0]?.address || proprios[0]?.latitude
+  );
 
   return (
     <div
@@ -393,16 +403,16 @@ export default function ConsultaResultSummary({
         {temMapa && (
           <div style={{ position: "relative", marginTop: 12 }}>
             <AddressMapMini
-              cep={cepUsado}
-              address={proprios[0]?.address}
-              city={proprios[0]?.addressCity}
-              state={proprios[0]?.addressState}
-              neighborhood={proprios[0]?.neighborhood}
-              addressNumber={proprios[0]?.addressNumber}
+              cep={partes?.cep || cepUsado}
+              address={partes?.logradouro || proprios[0]?.address}
+              addressNumber={partes?.numero || proprios[0]?.addressNumber}
+              neighborhood={partes?.bairro || proprios[0]?.neighborhood}
+              city={partes?.cidade || proprios[0]?.addressCity}
+              state={partes?.uf || proprios[0]?.addressState}
               latitude={proprios[0]?.latitude}
               longitude={proprios[0]?.longitude}
             />
-            {cepUsado && (
+            {rotuloLocal && (
               <span style={{
                 position: "absolute", left: 10, bottom: 10,
                 fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600,
@@ -410,7 +420,7 @@ export default function ConsultaResultSummary({
                 borderRadius: 6, padding: "4px 9px", color: "var(--text)",
                 boxShadow: "0 1px 4px rgba(12,17,26,.12)", pointerEvents: "none",
               }}>
-                CEP {fmtCep(cepUsado)}
+                {rotuloLocal}
                 {proprios[0]?.addressCity
                   ? ` · ${proprios[0].addressCity}${proprios[0].addressState ? "/" + proprios[0].addressState : ""}`
                   : ""}

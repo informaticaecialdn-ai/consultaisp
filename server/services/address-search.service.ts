@@ -211,10 +211,23 @@ export function buildAddressSearchResult(
 
   const risk = calculateAddressRisk(groups, documentoConsultado);
 
+  /* O titular sai da LISTA tambem, nao so da conta do risco.
+     `calculateAddressRisk` ja o excluia, mas os grupos devolvidos aqui
+     alimentam a secao "Verificacao por endereco" do relatorio — e la ele
+     reaparecia, contado como "1 inadimplente no endereco" e rotulado
+     "Possivel fraude por troca de documento". A propria pessoa nao e troca de
+     documento, e a divida dela ja aparece na secao de ocorrencias: contar de
+     novo aqui a pesa duas vezes e transforma um cliente comum em suspeito.
+     O cruzamento responde "ha MAIS alguem devendo neste imovel", e o titular
+     nao e "mais alguem". */
+  const titular = (documentoConsultado ?? "").replace(/\D/g, "");
+  const semTitular = (cs: AddressGroupEntry["customers"]) =>
+    titular ? cs.filter(c => c.cpfCnpj.replace(/\D/g, "") !== titular) : cs;
+
   const addressGroups: AddressGroupEntry[] = [];
   groups.forEach((group) => {
     // Apply LGPD masking to cross-provider customers
-    const maskedCustomers = group.customers.map((c: AddressGroupEntry["customers"][0]) => {
+    const maskedCustomers = semTitular(group.customers).map((c: AddressGroupEntry["customers"][0]) => {
       if (!c.isSameProvider) {
         const masked = maskCrossProviderDetail({
           providerName: c.providerName,
@@ -230,7 +243,11 @@ export function buildAddressSearchResult(
       }
       return c;
     });
-    addressGroups.push({ ...group, customers: maskedCustomers });
+    // Imovel que so tinha o titular deixa de ser um grupo: sem ele nao sobra
+    // nada para mostrar, e um grupo vazio na tela le como "achei algo aqui".
+    if (maskedCustomers.length > 0) {
+      addressGroups.push({ ...group, customers: maskedCustomers });
+    }
   });
 
   let totalCustomers = 0;

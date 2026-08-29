@@ -389,6 +389,7 @@ export class CustomersStorage {
     excludeCpfCnpj: string;
   }): Promise<{
     cpfMasked: string;
+    nomeMascarado: string;
     overdueRange: string;
     maxDaysOverdue: number;
     status: string;
@@ -424,7 +425,19 @@ export class CustomersStorage {
     if (!queryNum) return [];
 
     const matches = rows.filter(c => {
-      if (c.cpfCnpj.replace(/\D/g, "") === cleanExclude) return false;
+      // So conta como ocorrencia quem TEM documento.
+      //
+      // `cleanCpfCnpj` nao validava tamanho, e no IXC o encadeamento cai em
+      // `row.documento` — que em `fn_areceber` e o numero do BOLETO. Resultado:
+      // 8.693 linhas cujo "CPF" tem de 4 a 9 digitos, sem nome, todas marcadas
+      // inadimplentes. Tres faturas do mesmo imovel viravam tres inadimplentes
+      // distintos e o endereco saia como "possivel fraude por troca de
+      // documento". A raiz esta corrigida em erp/normalize.ts, mas as linhas
+      // ja gravadas so somem na proxima varredura — e ate la nao podem valer
+      // como prova contra ninguem.
+      const doc = c.cpfCnpj.replace(/[^0-9]/g, "");
+      if (doc.length !== 11 && doc.length !== 14) return false;
+      if (doc === cleanExclude) return false;
       if (!c.addressNumber) return false;
       if (normalNum(c.addressNumber) !== queryNum) return false;
 
@@ -441,6 +454,15 @@ export class CustomersStorage {
         return normalAddr === normalCAddr && normalCity === normalCCity;
       }
     });
+
+    /* Tres iniciais bastam para o provedor reconhecer o vizinho de porta sem
+       receber o nome de alguem que nao e cliente dele. E menos do que a
+       mascara de nome padrao do bureau, que devolve o primeiro nome inteiro. */
+    const maskNome = (nome: string): string => {
+      const limpo = (nome ?? "").trim();
+      if (!limpo) return "Sem nome no cadastro";
+      return limpo.slice(0, 3).toUpperCase() + "***";
+    };
 
     const maskCpf = (cpf: string): string => {
       const clean = cpf.replace(/\D/g, "");
@@ -459,6 +481,7 @@ export class CustomersStorage {
 
     return matches.map(c => ({
       cpfMasked: maskCpf(c.cpfCnpj),
+      nomeMascarado: maskNome(c.name),
       overdueRange: overdueRange(parseFloat(c.totalOverdueAmount || "0")),
       maxDaysOverdue: c.maxDaysOverdue || 0,
       status: c.status === "cancelled" ? "inativo" : "inadimplente",
