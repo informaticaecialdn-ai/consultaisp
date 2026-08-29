@@ -182,7 +182,12 @@ export default function ConsultaInfoTab() {
             </div>
           ))}
         </div>
-        <p style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.55, marginTop: 10 }}>
+        {/* Texto corrido nao acompanha a largura da tela: passando de ~75
+            caracteres por linha o olho perde o inicio da linha seguinte. Os
+            demais paragrafos desta aba ja sao contidos pelo card; este era o
+            unico solto, e ficou com 1531px quando a pagina passou a usar a
+            largura cheia. */}
+        <p style={{ fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.55, marginTop: 10, maxWidth: "75ch" }}>
           A sugestão é um gate, não uma sentença: dívida ativa nunca sai como "aprovar" puro,
           e a decisão final é sempre do provedor.
         </p>

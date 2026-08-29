@@ -6,7 +6,19 @@ interface Props {
   consultations: any[];
 }
 
-const COLUNAS = "minmax(96px, 120px) minmax(120px, 1.4fr) 56px 64px minmax(90px, 120px) 70px";
+/**
+ * A ultima faixa e uma SOBRA, nao uma coluna.
+ *
+ * Todas as colunas aqui tem conteudo de tamanho fixo — data, CPF, score,
+ * parecer, custo. Sem a sobra, a unica flexivel (o documento) engolia todo o
+ * espaco livre: 1058px para um CPF quando a pagina passou a usar a largura
+ * cheia, com um vao no meio da linha que obrigava o olho a atravessar a tela
+ * para ligar a data ao parecer.
+ *
+ * Com ela, as colunas ficam do tamanho do que carregam e o excedente vai para a
+ * direita — a linha continua compacta em qualquer monitor.
+ */
+const COLUNAS = "minmax(96px, 120px) minmax(120px, 300px) 56px 64px minmax(90px, 120px) 70px 1fr";
 
 function parecer(decisionReco: string): { label: string; tone: Tone } {
   if (decisionReco === "Accept") return { label: "Aprovar", tone: "ok" };

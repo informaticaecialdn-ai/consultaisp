@@ -178,8 +178,14 @@ toast({ title: "Não foi possível consultar", description: err.message, variant
 
   return (
     <div style={{ background: "var(--bg)", minHeight: "100%" }} data-testid="consulta-isp-page">
+      {/* Largura cheia, como o resto do app.
+          Esta tela era a unica com cap centralizado (1080px). Num monitor de
+          1900px isso deixava ~400px vazios de cada lado, e o custo nao e
+          estetico: o relatorio da consulta e feito de tabelas e grades de
+          ocorrencia, e cada pixel a menos e uma linha a menos por tela para
+          quem escaneia a carteira o dia todo. */}
       <div style={{
-        maxWidth: 1080, margin: "0 auto", padding: "26px 32px 56px",
+        padding: "26px 32px 56px",
         display: "flex", flexDirection: "column", gap: 18,
       }}>
 
