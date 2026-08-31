@@ -140,8 +140,14 @@ export default function LandingChat() {
 
   return (
     <>
+      {/* O convite so aparece a partir de 640px.
+          Ele tem 260px fixos e nasce a 24px da borda direita: num celular de
+          375px isso cobre a faixa de x=91 a x=351 — ou seja, o CTA principal do
+          hero, exatamente 3 segundos depois de a pessoa chegar. O botao
+          flutuante continua la para quem quiser conversar; o que sai e o balao
+          que se impoe sobre o conteudo. */}
       {!isOpen && showBubbleHint && (
-        <div className="fixed bottom-24 right-6 z-50 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <div className="hidden sm:block fixed bottom-24 right-6 z-50 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="bg-white rounded-lg rounded-br-md shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] border border-slate-200 p-4 max-w-[260px] relative">
             <button onClick={() => setShowBubbleHint(false)} className="absolute top-2 right-2 text-[var(--color-muted)] hover:text-slate-600" data-testid="button-close-hint">
               <X className="w-3.5 h-3.5" />

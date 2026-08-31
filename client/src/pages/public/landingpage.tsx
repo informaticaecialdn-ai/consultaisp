@@ -41,7 +41,7 @@ export default function LandingPage() {
 
       {/* NAV */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-surface)] border-b border-[var(--color-border)]">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+        <div className="max-w-[1440px] mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded bg-[var(--color-brand)] flex items-center justify-center">
               <Shield className="w-4 h-4 text-white" />
@@ -82,13 +82,18 @@ export default function LandingPage() {
 
       {/* HERO */}
       <section className="pt-16 bg-[var(--color-bg)]">
-        <div className="max-w-6xl mx-auto px-6 py-16 grid lg:grid-cols-2 gap-12 items-center">
-          <div>
+        <div className="max-w-[1440px] mx-auto px-6 py-16 grid lg:grid-cols-2 gap-12 items-center">
+          {/* `min-w-0` nao e detalhe: item de grid nasce com `min-width: auto`,
+              que o impede de encolher abaixo do proprio conteudo. Em 375px a
+              linha de botoes tem 427px de min-content e esticava a coluna
+              inteira para 407px — o titulo saia cortado, lia-se "Consulte o
+              CP". Com o zero a faixa volta aos 327px que cabem na tela. */}
+          <div className="min-w-0">
             <div className="inline-flex items-center gap-2 bg-[var(--color-brand-bg)] border border-[var(--color-border)] text-[var(--color-brand)] text-xs font-semibold px-3 py-1.5 rounded-sm mb-6">
               <div className="w-1.5 h-1.5 bg-[var(--color-brand)] rounded-full animate-pulse" />
               Plataforma Colaborativa de Credito para ISPs
             </div>
-            <h1 className="font-display font-light text-5xl text-[var(--color-ink)] leading-[1.05] tracking-tight mb-5" data-testid="text-hero-title">
+            <h1 className="font-display font-light text-3xl sm:text-4xl lg:text-5xl text-[var(--color-ink)] leading-[1.08] lg:leading-[1.05] tracking-tight text-balance mb-5" data-testid="text-hero-title">
               Consulte o CPF antes de instalar.<br/>
               <span className="text-[var(--color-brand)]">Evite perdas antes que acontecam.</span>
             </h1>
@@ -97,11 +102,11 @@ export default function LandingPage() {
             </p>
             <div className="flex flex-col sm:flex-row gap-3 mb-10">
               <Button size="lg" onClick={goRegister} data-testid="button-hero-cta"
-                className="bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-white px-8 gap-2 h-12 text-base font-bold rounded">
+                className="bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-white w-full sm:w-auto px-5 sm:px-8 gap-2 h-12 text-base font-bold rounded whitespace-normal sm:whitespace-nowrap">
                 Proteger Meu Provedor — Gratis <ArrowRight className="w-4 h-4" />
               </Button>
               <Button size="lg" variant="outline" onClick={() => document.getElementById("como-funciona")?.scrollIntoView({behavior:"smooth"})}
-                className="border-[var(--color-border)] text-[var(--color-muted)] px-8 h-12 text-base rounded" data-testid="button-hero-features">
+                className="border-[var(--color-border)] text-[var(--color-muted)] w-full sm:w-auto px-5 sm:px-8 h-12 text-base rounded" data-testid="button-hero-features">
                 Ver como funciona
               </Button>
             </div>
@@ -193,7 +198,7 @@ export default function LandingPage() {
 
       {/* BARRA ERPs */}
       <section className="bg-[var(--color-surface)] border-y border-[var(--color-border)] py-6">
-        <div className="max-w-6xl mx-auto px-6">
+        <div className="max-w-[1440px] mx-auto px-6">
           <p className="text-center font-mono text-xs uppercase tracking-[0.15em] text-[var(--color-muted)] mb-5">Integra com os principais ERPs do mercado ISP</p>
           <div className="flex items-center justify-center gap-4 flex-wrap">
             {[
@@ -217,7 +222,7 @@ export default function LandingPage() {
 
       {/* COMO FUNCIONA */}
       <section id="como-funciona" className="py-20 bg-[var(--color-bg)]">
-        <div className="max-w-6xl mx-auto px-6">
+        <div className="max-w-[1440px] mx-auto px-6">
           <div className="text-center mb-14">
             <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Simples assim</p>
             <h2 className="font-display font-light text-4xl text-[var(--color-ink)]">3 passos. Resultado em <span className="font-mono">2</span> segundos.</h2>
@@ -246,7 +251,7 @@ export default function LandingPage() {
 
       {/* FUNCIONALIDADES */}
       <section id="funcionalidades" className="py-20 bg-[var(--color-bg)]">
-        <div className="max-w-6xl mx-auto px-6">
+        <div className="max-w-[1440px] mx-auto px-6">
           <div className="text-center mb-14">
             <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Funcionalidades</p>
             <h2 className="font-display font-light text-4xl text-[var(--color-ink)]">Tudo que você precisa para proteger sua receita</h2>
@@ -275,7 +280,7 @@ export default function LandingPage() {
 
       {/* PRECOS */}
       <section id="precos" className="py-20 bg-[var(--color-bg)]">
-        <div className="max-w-6xl mx-auto px-6">
+        <div className="max-w-[1440px] mx-auto px-6">
           <div className="text-center mb-14">
             <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Preços</p>
             <h2 className="font-display font-light text-4xl text-[var(--color-ink)] mb-3">Simples, transparente, sem surpresa</h2>
@@ -360,7 +365,7 @@ export default function LandingPage() {
 
       {/* SOCIAL PROOF */}
       <section className="py-20 bg-[var(--color-bg)]">
-        <div className="max-w-6xl mx-auto px-6">
+        <div className="max-w-[1440px] mx-auto px-6">
           <div className="text-center mb-12">
             <div className="inline-flex items-center gap-2 bg-[var(--color-brand-bg)] text-[var(--color-brand)] text-xs font-semibold px-3 py-1.5 rounded-sm mb-4">
               <Star className="w-3.5 h-3.5 fill-[var(--color-brand)]" />
@@ -496,7 +501,7 @@ export default function LandingPage() {
 
       {/* FOOTER */}
       <footer className="bg-[#1A1714] py-8">
-        <div className="max-w-6xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="max-w-[1440px] mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded bg-[var(--color-brand)] flex items-center justify-center">
               <Shield className="w-3.5 h-3.5 text-white"/>
@@ -509,7 +514,7 @@ export default function LandingPage() {
             <span className="flex items-center gap-1"><Shield className="w-3 h-3"/>Privacidade LGPD</span>
           </div>
         </div>
-        <div className="max-w-6xl mx-auto px-6 mt-5 pt-5 border-t border-slate-800">
+        <div className="max-w-[1440px] mx-auto px-6 mt-5 pt-5 border-t border-slate-800">
           <p className="text-xs text-[var(--color-muted)] text-center">
             Consulta ISP — Plataforma colaborativa de análise de crédito para provedores de internet do Brasil
           </p>
