@@ -20,10 +20,29 @@ const CONFIG = {
   extra: {},
 } as any;
 
+/**
+ * CPF valido e deterministico a partir de um numero.
+ *
+ * As fixtures usavam `String(10000000000 + cd)`, que tem 11 digitos e nao
+ * fecha no digito verificador — desde que `cleanCpfCnpj` passou a conferi-lo,
+ * esses clientes eram descartados e os testes falhavam com razao.
+ */
+function cpfValido(n: number): string {
+  const base = String(100000000 + n).padStart(9, "0");
+  let s = 0;
+  for (let i = 0; i < 9; i++) s += Number(base[i]) * (10 - i);
+  let d1 = (s * 10) % 11; if (d1 === 10) d1 = 0;
+  const b = base + d1;
+  s = 0;
+  for (let i = 0; i < 10; i++) s += Number(b[i]) * (11 - i);
+  let d2 = (s * 10) % 11; if (d2 === 10) d2 = 0;
+  return b + d2;
+}
+
 /** Um cliente do jeito que o MK devolve, com o mínimo que o conector lê. */
 const cliente = (cd: number) => ({
   CodigoPessoa: cd,
-  CPF_CNPJ: String(10000000000 + cd),
+  CPF_CNPJ: cpfValido(cd),
   Nome: `Cliente ${cd}`,
   Situacao: "Ativo",
   endereco: [{ logradouro: "Rua Teste", numero: cd, cidade: "Ibiporã", estado: "PR", cep: "86200000" }],
@@ -259,7 +278,7 @@ describe("cliente nao lido volta identificado", () => {
     const r: any = await new MkConnector().fetchDelinquents(CONFIG);
 
     expect(r.ok).toBe(true);
-    expect(r.docsNaoLidos).toEqual([String(10000000000 + 2)]);
+    expect(r.docsNaoLidos).toEqual([cpfValido(2)]);
     // Zero no contador cego: o sync nao precisa desligar a limpeza inteira.
     expect(r.leiturasFalhas).toBe(0);
   });
@@ -284,7 +303,7 @@ describe("cliente nao lido volta identificado", () => {
 
     const r: any = await new MkConnector().fetchDelinquents(CONFIG);
 
-    expect(r.docsNaoLidos).toEqual([String(10000000000 + 7)]);
+    expect(r.docsNaoLidos).toEqual([cpfValido(7)]);
     expect(r.customers).toHaveLength(0);
   });
 });

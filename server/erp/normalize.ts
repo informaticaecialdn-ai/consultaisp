@@ -5,20 +5,34 @@
  * Used by all connector implementations to produce NormalizedErpCustomer records.
  */
 
+import { validarCPF, validarCNPJ } from "../utils/cpf-cnpj-validator.js";
 import type { NormalizedErpCustomer } from "./types.js";
 
 /** Strip all non-digit characters from a CPF or CNPJ string */
 export function cleanCpfCnpj(raw: string): string {
   const d = (raw ?? "").replace(/\D/g, "");
 
-  // 11 e CPF, 14 e CNPJ. O resto precisa de julgamento.
-  if (d.length === 11 || d.length === 14) return d;
-
   /* ZERO A ESQUERDA PERDIDO. ERP que guarda documento como numero come o zero
      inicial: "04117982940" volta como "4117982940". Ate dois zeros e o caso
-     normal, entao 9-10 digitos viram CPF e 12-13 viram CNPJ. */
-  if (d.length === 9 || d.length === 10) return d.padStart(11, "0");
-  if (d.length === 12 || d.length === 13) return d.padStart(14, "0");
+     normal, entao 9-10 viram CPF e 12-13 viram CNPJ. */
+  const candidato =
+    d.length === 11 || d.length === 14 ? d
+    : d.length === 9 || d.length === 10 ? d.padStart(11, "0")
+    : d.length === 12 || d.length === 13 ? d.padStart(14, "0")
+    : "";
+
+  /* O DIGITO VERIFICADOR TAMBEM E CONFERIDO.
+     Tamanho certo nao faz um documento: "12345678901" tem 11 digitos e nao
+     existe. Num bureau um documento que nao fecha nao identifica ninguem — e
+     pior, o mesmo humano pode acabar na base duas vezes, uma com o CPF certo e
+     outra com o errado, dobrando a divida dele. Foi o que aconteceu com uma
+     cliente de Mandaguari, gravada como "887712059" e "00887712059", R$ 480,60
+     em cada linha.
+     `validarCPF`/`validarCNPJ` de proposito, e nao `validarCpfCnpj`: esta
+     ultima aceita 8 digitos como CEP, que e justamente o tamanho dos numeros de
+     boleto que criaram o problema abaixo. */
+  if (candidato.length === 11) return validarCPF(candidato) ? candidato : "";
+  if (candidato.length === 14) return validarCNPJ(candidato) ? candidato : "";
 
   /* NAO E DOCUMENTO. Devolver vazio faz quem chama descartar a linha, que e o
      comportamento que todos os conectores ja tem para documento ausente.

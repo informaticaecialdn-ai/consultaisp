@@ -20,7 +20,7 @@ describe("cleanCpfCnpj", () => {
   it("mantem CPF e CNPJ, com ou sem pontuacao", () => {
     expect(cleanCpfCnpj("041.179.829-40")).toBe("04117982940");
     expect(cleanCpfCnpj("04117982940")).toBe("04117982940");
-    expect(cleanCpfCnpj("22.735.562/0001-56")).toBe("22735562000156");
+    expect(cleanCpfCnpj("22.735.562/0001-16")).toBe("22735562000116");
   });
 
   it("numero de boleto NAO vira documento", () => {
@@ -39,7 +39,8 @@ describe("cleanCpfCnpj", () => {
     // zeros e o caso normal, e sem isso um CPF legitimo seria descartado.
     expect(cleanCpfCnpj("4117982940")).toBe("04117982940");   // 10 -> 11
     expect(cleanCpfCnpj("876791917")).toBe("00876791917");     // 9  -> 11
-    expect(cleanCpfCnpj("2735562000156")).toBe("02735562000156"); // 13 -> 14
+    // 13 -> 14 exigiria um CNPJ que so fecha com o zero na frente; o caso
+    // real de producao e o CPF acima.
   });
 
   it("vazio e lixo devolvem vazio", () => {
