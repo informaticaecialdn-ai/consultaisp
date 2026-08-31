@@ -44,24 +44,24 @@ export default function LandingPage() {
         <div className="max-w-[1440px] mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded bg-[var(--color-brand)] flex items-center justify-center">
-              <Shield className="w-4 h-4 text-white" />
+              <Shield className="w-4 h-4 text-[var(--text-on-brand)]" />
             </div>
             <span className="text-base font-bold font-display text-[var(--color-ink)]">Consulta ISP</span>
           </div>
-          <div className="hidden md:flex items-center gap-7 text-sm text-[var(--color-muted)]">
+          <div className="hidden lg:flex items-center gap-7 text-sm text-[var(--color-muted)]">
             {[["Como funciona","como-funciona"],["Funcionalidades","funcionalidades"],["Preços","precos"],["FAQ","faq"]].map(([l,id]) => (
               <button key={id} onClick={() => document.getElementById(id)?.scrollIntoView({behavior:"smooth"})}
                 className="cursor-pointer hover:text-[var(--color-brand)] transition-colors font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)] focus-visible:ring-offset-2 rounded-sm">{l}</button>
             ))}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" className="hidden md:inline-flex text-[var(--color-muted)] hover:text-[var(--color-ink)] text-sm h-9"
+            <Button variant="ghost" className="hidden lg:inline-flex text-[var(--color-muted)] hover:text-[var(--color-ink)] text-sm h-9"
               onClick={goLogin} data-testid="button-landing-login">Login</Button>
-            <Button className="hidden md:inline-flex bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-white text-sm h-9 px-5 font-semibold rounded"
+            <Button className="hidden lg:inline-flex bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-[var(--text-on-brand)] text-sm h-9 px-5 font-semibold rounded"
               onClick={goRegister} data-testid="button-landing-cadastro">Começar grátis</Button>
             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
               <SheetTrigger asChild>
-                <Button variant="ghost" size="sm" className="md:hidden text-[var(--color-muted)] hover:text-[var(--color-ink)]" data-testid="button-mobile-menu">
+                <Button variant="ghost" size="sm" className="lg:hidden text-[var(--color-muted)] hover:text-[var(--color-ink)]" data-testid="button-mobile-menu">
                   <Menu className="w-5 h-5" />
                 </Button>
               </SheetTrigger>
@@ -71,7 +71,7 @@ export default function LandingPage() {
                     <button key={id} onClick={() => { setMobileMenuOpen(false); document.getElementById(id)?.scrollIntoView({behavior:"smooth"}); }}
                       className="cursor-pointer text-left text-sm font-medium text-[var(--color-ink)] hover:text-[var(--color-brand)] transition-colors py-2 border-b border-[var(--color-border)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]">{l}</button>
                   ))}
-                  <Button className="w-full bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-white text-sm h-10 font-semibold rounded mt-2"
+                  <Button className="w-full bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-[var(--text-on-brand)] text-sm h-10 font-semibold rounded mt-2"
                     onClick={() => { setMobileMenuOpen(false); goLogin(); }}>Login</Button>
                 </nav>
               </SheetContent>
@@ -82,7 +82,7 @@ export default function LandingPage() {
 
       {/* HERO */}
       <section className="pt-16 bg-[var(--color-bg)]">
-        <div className="max-w-[1440px] mx-auto px-6 py-16 grid lg:grid-cols-2 gap-12 items-center">
+        <div className="max-w-[1440px] mx-auto px-6 py-10 sm:py-14 lg:py-16 grid lg:grid-cols-2 gap-10 lg:gap-12 items-center">
           {/* `min-w-0` nao e detalhe: item de grid nasce com `min-width: auto`,
               que o impede de encolher abaixo do proprio conteudo. Em 375px a
               linha de botoes tem 427px de min-content e esticava a coluna
@@ -93,16 +93,32 @@ export default function LandingPage() {
               <div className="w-1.5 h-1.5 bg-[var(--color-brand)] rounded-full animate-pulse" />
               Plataforma Colaborativa de Credito para ISPs
             </div>
-            <h1 className="font-display font-light text-3xl sm:text-4xl lg:text-5xl text-[var(--color-ink)] leading-[1.08] lg:leading-[1.05] tracking-tight text-balance mb-5" data-testid="text-hero-title">
+            {/* Os tamanhos sao ARBITRARIOS de proposito — nao troque por
+                `text-3xl sm:text-4xl lg:text-5xl`.
+
+                `client/src/index.css` marca toda utilitaria `.text-*` com
+                `!important`, e repete o bloco com especificidade maior sob
+                `[data-testid="landing-page"]`. Como `!important` vence
+                independentemente da ordem, a classe SEM prefixo mata as
+                variantes: com os presets este titulo ficava travado em 36px de
+                768px para cima — `lg:text-5xl` nunca aplicava.
+
+                Valor arbitrario gera um seletor que aquelas regras nao casam
+                (`.lg\:text-\[3rem\]`), entao a escada volta a funcionar. Medido
+                depois da troca: 30px em 390, 36px em 768, 48px em 1440.
+
+                A raiz e o `!important` do index.css, que afeta o app inteiro e
+                merece decisao propria. */}
+            <h1 className="font-display font-light text-[1.875rem] sm:text-[2.25rem] lg:text-[3rem] text-[var(--color-ink)] leading-[1.08] lg:leading-[1.05] tracking-tight text-balance mb-5" data-testid="text-hero-title">
               Consulte o CPF antes de instalar.<br/>
               <span className="text-[var(--color-brand)]">Evite perdas antes que acontecam.</span>
             </h1>
-            <p className="text-lg text-[var(--color-muted)] leading-relaxed mb-8 max-w-lg">
+            <p className="text-lg text-[var(--color-muted)] leading-relaxed mb-8 max-w-[60ch] lg:max-w-lg">
               Score de risco em 2 segundos baseado no historico real de toda a rede de provedores. Saiba se o cliente ja deixou dividas em outro provedor antes de liberar a instalacao.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 mb-10">
               <Button size="lg" onClick={goRegister} data-testid="button-hero-cta"
-                className="bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-white w-full sm:w-auto px-5 sm:px-8 gap-2 h-12 text-base font-bold rounded whitespace-normal sm:whitespace-nowrap">
+                className="bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-[var(--text-on-brand)] w-full sm:w-auto px-5 sm:px-8 gap-2 h-12 text-base font-bold rounded whitespace-normal sm:whitespace-nowrap">
                 Proteger Meu Provedor — Gratis <ArrowRight className="w-4 h-4" />
               </Button>
               <Button size="lg" variant="outline" onClick={() => document.getElementById("como-funciona")?.scrollIntoView({behavior:"smooth"})}
@@ -119,13 +135,13 @@ export default function LandingPage() {
 
           {/* Mockup hero */}
           <div className="relative hidden lg:block">
-            <div className="bg-slate-100 rounded p-2 border border-[var(--color-border)]">
-              <div className="bg-slate-800 rounded overflow-hidden">
-                <div className="flex items-center gap-1.5 px-4 py-3 bg-slate-700">
+            <div className="bg-[var(--surface-3)] rounded p-2 border border-[var(--color-border)]">
+              <div className="bg-[#1A1922] rounded overflow-hidden">
+                <div className="flex items-center gap-1.5 px-4 py-3 bg-[#201F2A]">
                   <div className="w-3 h-3 rounded-full bg-[var(--color-danger)]"/>
                   <div className="w-3 h-3 rounded-full bg-[var(--color-gold)]"/>
                   <div className="w-3 h-3 rounded-full bg-[var(--color-success)]"/>
-                  <div className="flex-1 bg-slate-600 rounded-md mx-3 px-3 py-1 text-xs text-[var(--color-muted)]">
+                  <div className="flex-1 bg-[#2F2D3A] rounded-md mx-3 px-3 py-1 text-xs text-[#918DA1]">
                     consultaisp.com.br/consulta-isp
                   </div>
                 </div>
@@ -160,7 +176,7 @@ export default function LandingPage() {
                         <span className="text-xs bg-[var(--color-gold-bg)] text-[var(--color-gold)] font-semibold px-2 py-0.5 rounded">2 equip. retidos</span>
                       </div>
                     </div>
-                    <div className="ml-auto bg-[var(--color-danger)] text-white px-3 py-2 rounded text-center">
+                    <div className="ml-auto bg-[var(--color-danger)] text-[var(--text-on-brand)] px-3 py-2 rounded text-center">
                       <p className="font-mono text-xs opacity-80 uppercase font-semibold">Sugestão</p>
                       <p className="text-sm font-black">REJEITAR</p>
                     </div>
@@ -202,16 +218,16 @@ export default function LandingPage() {
           <p className="text-center font-mono text-xs uppercase tracking-[0.15em] text-[var(--color-muted)] mb-5">Integra com os principais ERPs do mercado ISP</p>
           <div className="flex items-center justify-center gap-4 flex-wrap">
             {[
-              { name: "IXC Soft", color: "from-blue-600 to-blue-700" },
-              { name: "MK Solutions", color: "from-green-600 to-green-700" },
-              { name: "Hubsoft", color: "from-purple-600 to-purple-700" },
-              { name: "SGP", color: "from-orange-600 to-orange-700" },
-              { name: "Voalle", color: "from-cyan-600 to-cyan-700" },
-              { name: "RBX ISP", color: "from-red-600 to-red-700" },
+              { name: "IXC Soft", color: "var(--cat-blue)" },
+              { name: "MK Solutions", color: "var(--cat-green)" },
+              { name: "Hubsoft", color: "var(--cat-violet)" },
+              { name: "SGP", color: "var(--cat-orange)" },
+              { name: "Voalle", color: "var(--cat-teal)" },
+              { name: "RBX ISP", color: "var(--cat-red)" },
             ].map(erp => (
-              <div key={erp.name} className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] hover:border-[var(--color-brand)]/30 hover:shadow-sm transition-all">
-                <div className={`w-7 h-7 rounded bg-gradient-to-br ${erp.color} flex items-center justify-center`}>
-                  <Router className="w-3.5 h-3.5 text-white" />
+              <div key={erp.name} className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] hover:border-[var(--color-brand)]/30 transition-colors">
+                <div className="w-7 h-7 rounded flex items-center justify-center" style={{ background: erp.color }}>
+                  <Router className="w-3.5 h-3.5 text-[var(--text-on-brand)]" />
                 </div>
                 <span className="text-sm font-semibold text-[var(--color-ink)]">{erp.name}</span>
               </div>
@@ -221,7 +237,7 @@ export default function LandingPage() {
       </section>
 
       {/* COMO FUNCIONA */}
-      <section id="como-funciona" className="py-20 bg-[var(--color-bg)]">
+      <section id="como-funciona" className="py-12 sm:py-16 lg:py-20 bg-[var(--color-bg)]">
         <div className="max-w-[1440px] mx-auto px-6">
           <div className="text-center mb-14">
             <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Simples assim</p>
@@ -250,7 +266,7 @@ export default function LandingPage() {
       </section>
 
       {/* FUNCIONALIDADES */}
-      <section id="funcionalidades" className="py-20 bg-[var(--color-bg)]">
+      <section id="funcionalidades" className="py-12 sm:py-16 lg:py-20 bg-[var(--color-bg)]">
         <div className="max-w-[1440px] mx-auto px-6">
           <div className="text-center mb-14">
             <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Funcionalidades</p>
@@ -279,7 +295,7 @@ export default function LandingPage() {
       </section>
 
       {/* PRECOS */}
-      <section id="precos" className="py-20 bg-[var(--color-bg)]">
+      <section id="precos" className="py-12 sm:py-16 lg:py-20 bg-[var(--color-bg)]">
         <div className="max-w-[1440px] mx-auto px-6">
           <div className="text-center mb-14">
             <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Preços</p>
@@ -309,7 +325,7 @@ export default function LandingPage() {
             </div>
             {/* Profissional */}
             <div className="rounded p-6 flex flex-col border-2 border-[var(--color-brand)] transition-all relative" data-testid="plan-1">
-              <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-[var(--color-brand)] text-white text-xs font-black px-4 py-1 rounded-sm">RECOMENDADO</div>
+              <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-[var(--color-brand)] text-[var(--text-on-brand)] text-xs font-black px-4 py-1 rounded-sm">RECOMENDADO</div>
               <h3 className="font-display font-semibold text-lg text-[var(--color-ink)] mb-1">Profissional</h3>
               <div className="mb-1 flex items-baseline gap-1">
                 <span className="text-4xl font-mono font-black text-[var(--color-ink)]">R$ 99</span>
@@ -324,7 +340,7 @@ export default function LandingPage() {
                 ))}
               </ul>
               <Button onClick={goRegister}
-                className="w-full font-bold h-11 rounded bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-white">
+                className="w-full font-bold h-11 rounded bg-[var(--color-brand)] hover:bg-[var(--color-steel)] text-[var(--text-on-brand)]">
                 Começar agora
               </Button>
             </div>
@@ -355,16 +371,16 @@ export default function LandingPage() {
             </div>
           </div>
 
-          <div className="flex items-center justify-center gap-6 mt-8 text-xs text-[var(--color-muted)]">
-            <span className="flex items-center gap-1.5"><Lock className="w-3 h-3"/>Sem contrato</span>
-            <span className="flex items-center gap-1.5"><Shield className="w-3 h-3"/>Dados LGPD</span>
-            <span className="flex items-center gap-1.5"><Zap className="w-3 h-3"/>Cancele quando quiser</span>
+          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 mt-8 text-xs text-[var(--color-muted)]">
+            <span className="flex items-center gap-1.5"><Lock className="w-3 h-3 shrink-0"/>Sem contrato</span>
+            <span className="flex items-center gap-1.5"><Shield className="w-3 h-3 shrink-0"/>Dados LGPD</span>
+            <span className="flex items-center gap-1.5"><Zap className="w-3 h-3 shrink-0"/>Cancele quando quiser</span>
           </div>
         </div>
       </section>
 
       {/* SOCIAL PROOF */}
-      <section className="py-20 bg-[var(--color-bg)]">
+      <section className="py-12 sm:py-16 lg:py-20 bg-[var(--color-bg)]">
         <div className="max-w-[1440px] mx-auto px-6">
           <div className="text-center mb-12">
             <div className="inline-flex items-center gap-2 bg-[var(--color-brand-bg)] text-[var(--color-brand)] text-xs font-semibold px-3 py-1.5 rounded-sm mb-4">
@@ -442,7 +458,7 @@ export default function LandingPage() {
       </section>
 
       {/* FAQ */}
-      <section id="faq" className="py-20 bg-[var(--color-bg)]">
+      <section id="faq" className="py-12 sm:py-16 lg:py-20 bg-[var(--color-bg)]">
         <div className="max-w-3xl mx-auto px-6">
           <div className="text-center mb-12">
             <h2 className="font-display font-light text-4xl text-[var(--color-ink)]">Perguntas frequentes</h2>
@@ -467,17 +483,17 @@ export default function LandingPage() {
       </section>
 
       {/* CTA FINAL */}
-      <section className="py-20 bg-[var(--color-brand)]">
+      <section className="py-12 sm:py-16 lg:py-20 bg-[var(--color-brand)]">
         <div className="max-w-3xl mx-auto px-6 text-center">
-          <div className="inline-flex items-center gap-2 bg-white/10 text-white text-xs font-semibold px-3 py-1.5 rounded-sm mb-8 border border-white/20">
-            <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"/>
+          <div className="inline-flex items-center gap-2 bg-[var(--text-on-brand)]/10 text-[var(--text-on-brand)] text-xs font-semibold px-3 py-1.5 rounded-sm mb-8 border border-[var(--text-on-brand)]/25">
+            <div className="w-1.5 h-1.5 bg-[var(--text-on-brand)] rounded-full animate-pulse"/>
             Começa grátis — sem cartão de crédito
           </div>
-          <h2 className="font-display font-light text-4xl sm:text-5xl text-white mb-5 leading-tight">
+          <h2 className="font-display font-light text-[2.25rem] sm:text-[3rem] text-[var(--text-on-brand)] mb-5 leading-tight">
             Saiba quem não vai pagar<br/>
-            <span className="text-blue-200">antes de instalar.</span>
+            <span className="text-[var(--text-on-brand)]/75">antes de instalar.</span>
           </h2>
-          <p className="text-blue-100 mb-10 text-lg max-w-xl mx-auto leading-relaxed">
+          <p className="text-[var(--text-on-brand)]/85 mb-10 text-lg max-w-xl mx-auto leading-relaxed">
             Cadastro em 2 minutos. 40 créditos gratuitos para testar a rede.<br/>
             Consultas na sua base sempre gratuitas.
           </p>
@@ -487,14 +503,14 @@ export default function LandingPage() {
               Criar conta grátis <ArrowRight className="w-4 h-4"/>
             </Button>
             <Button size="lg" variant="outline" onClick={goLogin} data-testid="button-login-bottom"
-              className="border-white/30 text-white hover:bg-white/10 px-8 h-12 text-base rounded">
+              className="border-[var(--text-on-brand)]/35 text-[var(--text-on-brand)] hover:bg-[var(--text-on-brand)]/10 px-8 h-12 text-base rounded">
               Já tenho conta — Login
             </Button>
           </div>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-5 text-sm text-blue-100">
-            <span className="flex items-center gap-2"><span className="text-white">✓</span>Gratuito na base própria</span>
-            <span className="flex items-center gap-2"><span className="text-white">✓</span>Sem contrato de fidelidade</span>
-            <span className="flex items-center gap-2"><span className="text-white">✓</span>LGPD compliant</span>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-5 text-sm text-[var(--text-on-brand)]/85">
+            <span className="flex items-center gap-2"><span className="text-[var(--text-on-brand)]">✓</span>Gratuito na base própria</span>
+            <span className="flex items-center gap-2"><span className="text-[var(--text-on-brand)]">✓</span>Sem contrato de fidelidade</span>
+            <span className="flex items-center gap-2"><span className="text-[var(--text-on-brand)]">✓</span>LGPD compliant</span>
           </div>
         </div>
       </section>
@@ -504,18 +520,18 @@ export default function LandingPage() {
         <div className="max-w-[1440px] mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded bg-[var(--color-brand)] flex items-center justify-center">
-              <Shield className="w-3.5 h-3.5 text-white"/>
+              <Shield className="w-3.5 h-3.5 text-[var(--text-on-brand)]"/>
             </div>
             <span className="text-white font-bold text-sm">Consulta ISP</span>
-            <span className="text-[var(--color-muted)] text-xs hidden sm:inline">Base colaborativa para provedores</span>
+            <span className="text-[#918DA1] text-xs hidden sm:inline">Base colaborativa para provedores</span>
           </div>
-          <div className="flex items-center gap-4 text-xs text-[var(--color-muted)]">
-            <span className="flex items-center gap-1"><Lock className="w-3 h-3"/>Dados criptografados</span>
-            <span className="flex items-center gap-1"><Shield className="w-3 h-3"/>Privacidade LGPD</span>
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-[#918DA1]">
+            <span className="flex items-center gap-1"><Lock className="w-3 h-3 shrink-0"/>Dados criptografados</span>
+            <span className="flex items-center gap-1"><Shield className="w-3 h-3 shrink-0"/>Privacidade LGPD</span>
           </div>
         </div>
-        <div className="max-w-[1440px] mx-auto px-6 mt-5 pt-5 border-t border-slate-800">
-          <p className="text-xs text-[var(--color-muted)] text-center">
+        <div className="max-w-[1440px] mx-auto px-6 mt-5 pt-5 border-t border-[#2F2D3A]">
+          <p className="text-xs text-[#918DA1] text-center">
             Consulta ISP — Plataforma colaborativa de análise de crédito para provedores de internet do Brasil
           </p>
         </div>
