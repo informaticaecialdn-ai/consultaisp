@@ -549,13 +549,18 @@ export const CREDIT_PACKAGES = [
  *   Margem de R$ 0,79, 40%. Ao mexer no combo em
  *   server/services/bigdata.service.ts, refaca essa conta: cada dataset e
  *   cobrado a parte.
- * - `spc` (R$ 4,00): SPC Brasil. O mais caro dos tres porque o bureau cobra
- *   mais e a consulta e negativacao formal.
+ * - `spc` (R$ 3,00): SPC Brasil. Continua o mais caro dos tres porque o bureau
+ *   cobra mais e a consulta e negativacao formal. Baixado de 4 para 3 por
+ *   decisao do dono em 31/08/2026.
+ *
+ * ESTE E O UNICO LUGAR ONDE ESSES NUMEROS EXISTEM. Nao repita nenhum deles em
+ * texto de tela: a landing anunciava "4 creditos" em quatro arquivos diferentes,
+ * e cada mudanca de preco exigia lembrar dos quatro. Importe a constante.
  */
 export const CUSTO_EM_CREDITOS = {
   isp: 1,
   cadastral: 2,
-  spc: 4,
+  spc: 3,
 } as const;
 
 export type TipoConsultaCobravel = keyof typeof CUSTO_EM_CREDITOS;

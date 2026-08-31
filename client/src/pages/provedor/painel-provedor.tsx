@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, STALE_DASHBOARD } from "@/lib/queryClient";
 import { useState, useRef, useEffect } from "react";
+import { CUSTO_EM_CREDITOS } from "@shared/schema";
 import { useLocation } from "wouter";
 import {
   Building2, Globe, Users, CreditCard, Settings, Copy, CheckCircle,
@@ -1489,7 +1490,7 @@ export default function PainelProvedorPage() {
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Consulta ISP (rede colaborativa): 1 credito. Consulta na propria base: gratuita. Consulta SPC: 4 creditos.
+                  {`Consulta ISP (rede colaborativa): ${CUSTO_EM_CREDITOS.isp} credito. Consulta na propria base: gratuita. Consulta cadastral: ${CUSTO_EM_CREDITOS.cadastral} creditos. Consulta SPC: ${CUSTO_EM_CREDITOS.spc} creditos.`}
                 </p>
               </Card>
             </div>

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import LandingChatbot from "@/components/landing-chatbot";
+import { PLAN_PRICES, PLAN_CREDITS, CUSTO_EM_CREDITOS } from "@shared/schema";
 import {
   Shield, Search, Bell, Database, CheckCircle2,
   ArrowRight, AlertTriangle, CreditCard, Lock,
@@ -114,7 +115,7 @@ export default function LandingPage() {
               <span className="text-[var(--color-brand)]">Evite perdas antes que acontecam.</span>
             </h1>
             <p className="text-lg text-[var(--color-muted)] leading-relaxed mb-8 max-w-[60ch] lg:max-w-lg">
-              Score de risco em 2 segundos baseado no historico real de toda a rede de provedores. Saiba se o cliente ja deixou dividas em outro provedor antes de liberar a instalacao.
+              Score de risco em tempo real, direto do ERP de toda a rede de provedores. Saiba se o cliente ja deixou dividas em outro provedor antes de liberar a instalacao.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 mb-10">
               <Button size="lg" onClick={goRegister} data-testid="button-hero-cta"
@@ -127,7 +128,7 @@ export default function LandingPage() {
               </Button>
             </div>
             <div className="flex items-center gap-6 pt-6 border-t border-[var(--color-border)]">
-              {[{v:"R$ 690",l:"prejuizo medio evitado"},{v:"< 2s",l:"resultado da consulta"},{v:"Gratis",l:"consultas na propria base"}].map(s => (
+              {[{v:"R$ 690",l:"prejuizo medio evitado"},{v:"ao vivo",l:"consulta direto no ERP"},{v:"Gratis",l:"consultas na propria base"}].map(s => (
                 <div key={s.l}><p className="text-xl font-mono font-black text-[var(--color-ink)]">{s.v}</p><p className="text-xs text-[var(--color-muted)] mt-0.5">{s.l}</p></div>
               ))}
             </div>
@@ -166,11 +167,11 @@ export default function LandingPage() {
                           strokeDasharray="138" strokeDashoffset="117" strokeLinecap="round"/>
                       </svg>
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-sm font-mono font-black text-[var(--color-danger)]">15</span>
+                        <span className="text-sm font-mono font-black text-[var(--color-danger)]">152</span>
                       </div>
                     </div>
                     <div>
-                      <p className="text-xs text-[var(--color-muted)] mb-1">Score ISP / 100</p>
+                      <p className="text-xs text-[var(--color-muted)] mb-1">Score ISP / 1000</p>
                       <div className="flex gap-2">
                         <span className="text-xs bg-[var(--color-danger-bg)] text-[var(--color-danger)] font-semibold px-2 py-0.5 rounded">2 provedores</span>
                         <span className="text-xs bg-[var(--color-gold-bg)] text-[var(--color-gold)] font-semibold px-2 py-0.5 rounded">2 equip. retidos</span>
@@ -205,7 +206,7 @@ export default function LandingPage() {
             <div className="absolute -bottom-3 -left-3 bg-[var(--color-surface)] border border-[var(--color-border)] rounded px-3 py-2">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-[var(--color-success)] animate-pulse"/>
-                <span className="text-xs font-semibold text-[var(--color-ink)]">Resultado em <span className="font-mono">1.8s</span></span>
+                <span className="text-xs font-semibold text-[var(--color-ink)]">Consulta ao vivo na rede</span>
               </div>
             </div>
           </div>
@@ -241,13 +242,13 @@ export default function LandingPage() {
         <div className="max-w-[1440px] mx-auto px-6">
           <div className="text-center mb-14">
             <p className="font-mono text-xs uppercase tracking-[0.12em] text-[var(--color-muted)] mb-3">Simples assim</p>
-            <h2 className="font-display font-light text-4xl text-[var(--color-ink)]">3 passos. Resultado em <span className="font-mono">2</span> segundos.</h2>
+            <h2 className="font-display font-light text-4xl text-[var(--color-ink)]">3 passos. Resposta antes de instalar.</h2>
           </div>
           <div className="grid md:grid-cols-3 gap-8">
             {[
               {n:"01",icon:Database,title:"Configure em 15 min",desc:"Conecte seu ERP (IXC, MK Solutions, SGP, Hubsoft, Voalle, RBX ISP) via API. Sem instalacao, sem tecnico.",badge:"Setup: 15 min"},
-              {n:"02",icon:Search,title:"Consulte antes de ativar",desc:"CPF, CNPJ ou endereço. Em menos de 2 segundos: score de risco, histórico na rede, equipamentos retidos e sugestão de decisão.",badge:"< 2 segundos"},
-              {n:"03",icon:Bell,title:"Receba alertas anti-fraude",desc:"Quando seu cliente inadimplente é consultado por outro provedor para migrar, você recebe alerta imediato no WhatsApp.",badge:"Tempo real"},
+              {n:"02",icon:Search,title:"Consulte antes de ativar",desc:"CPF, CNPJ ou endereço. Score de risco, histórico na rede, equipamentos retidos e sugestão de decisão — buscados ao vivo no ERP dos parceiros.",badge:"Tempo real"},
+              {n:"03",icon:Bell,title:"Receba alertas anti-fraude",desc:"Quando seu cliente inadimplente é consultado por outro provedor para migrar, você recebe alerta imediato por e-mail e webhook.",badge:"Tempo real"},
             ].map((s,i) => (
               <div key={i} className="relative bg-[var(--color-surface)] border border-[var(--border)] rounded p-6 hover:border-[var(--color-brand)] transition-all">
                 <span className="font-mono text-6xl font-black text-[var(--color-tag-bg)] absolute top-4 right-5 leading-none select-none">{s.n}</span>
@@ -275,12 +276,13 @@ export default function LandingPage() {
           </div>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
             {[
-              {icon:Search, color:"bg-[var(--color-brand-bg)]", ic:"text-[var(--color-brand)]", title:"Consulta ISP", desc:"Score de risco em 2 segundos. Histórico de inadimplência em toda a rede colaborativa, equipamentos retidos e sugestão automática de decisão."},
-              {icon:Bell, color:"bg-[var(--color-danger-bg)]", ic:"text-[var(--color-danger)]", title:"Anti-Fraude", desc:"Alerta via WhatsApp em tempo real quando seu cliente inadimplente é consultado por outro provedor. Detecta migradores seriais."},
+              {icon:Search, color:"bg-[var(--color-brand-bg)]", ic:"text-[var(--color-brand)]", title:"Consulta ISP", desc:"Score de risco 0–1000 em tempo real. Histórico de inadimplência em toda a rede colaborativa, equipamentos retidos e sugestão automática de decisão."},
+              {icon:Search, color:"bg-[var(--color-brand-bg)]", ic:"text-[var(--color-brand)]", title:"Consulta Cadastral", desc:"Dados do CPF ou CNPJ direto na fonte: nome, situação na Receita, endereços, telefones, sócios, processos e capacidade de pagamento. Serve para confirmar quem é o cliente antes de instalar."},
+              {icon:Bell, color:"bg-[var(--color-danger-bg)]", ic:"text-[var(--color-danger)]", title:"Anti-Fraude", desc:"Alerta por e-mail e webhook no instante em que seu cliente inadimplente é consultado por outro provedor. Detecta migradores seriais."},
               {icon:Router, color:"bg-[var(--color-gold-bg)]", ic:"text-[var(--color-gold)]", title:"Controle de Equipamentos", desc:"Registre ONUs por modelo, serial e status. Rastreie equipamentos em comodato e identifique retenções antes que virem prejuízo."},
               {icon:MapPin, color:"bg-[var(--color-brand-bg)]", ic:"text-[var(--color-brand)]", title:"Consulta por Endereço", desc:"Cruza CEP + número em toda a rede. Detecta inadimplência no imóvel mesmo com CPF diferente — identifica golpes de familiares."},
               {icon:CreditCard, color:"bg-[var(--color-success-bg)]", ic:"text-[var(--color-success)]", title:"SPC Integrada", desc:"Score SPC, restrições financeiras e protestos direto na plataforma. Negativação sem contrato adicional com Serasa."},
-              {icon:Zap, color:"bg-[var(--color-gold-bg)]", ic:"text-[var(--color-gold)]", title:"Análise com IA", desc:"Recomendações automáticas baseadas em inteligência artificial: APROVAR, APROVAR COM RESSALVAS ou REJEITAR."},
+              {icon:Zap, color:"bg-[var(--color-gold-bg)]", ic:"text-[var(--color-gold)]", title:"Análise com IA", desc:"Recomendação automática a partir do score: APROVAR, APROVAR COM ATENÇÃO, ANÁLISE MANUAL ou REJEITAR — com o parecer escrito por IA."},
             ].map((f,i) => (
               <div key={i} className="bg-[var(--color-surface)] border border-[var(--border)] rounded p-5 hover:border-[var(--color-brand)] transition-all">
                 <div className={`w-10 h-10 ${f.color} rounded flex items-center justify-center mb-4`}>
@@ -312,7 +314,7 @@ export default function LandingPage() {
               </div>
               <p className="text-xs text-[var(--color-muted)] mb-6">Para conhecer a plataforma</p>
               <ul className="space-y-2.5 mb-6 flex-1">
-                {["30 creditos para testar a rede","Consultas ilimitadas na sua base","Anti-fraude basico","Importacao via CSV","1 usuario"].map(f => (
+                {[`${PLAN_CREDITS.free.isp} creditos para testar a rede`,"Consultas ilimitadas na sua base","Anti-fraude basico","Importacao via CSV"].map(f => (
                   <li key={f} className="flex items-start gap-2 text-sm text-[var(--color-ink)]">
                     <CheckCircle2 className="w-4 h-4 text-[var(--color-success)] flex-shrink-0 mt-0.5"/>{f}
                   </li>
@@ -328,12 +330,12 @@ export default function LandingPage() {
               <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-[var(--color-brand)] text-[var(--text-on-brand)] text-xs font-black px-4 py-1 rounded-sm">RECOMENDADO</div>
               <h3 className="font-display font-semibold text-lg text-[var(--color-ink)] mb-1">Profissional</h3>
               <div className="mb-1 flex items-baseline gap-1">
-                <span className="text-4xl font-mono font-black text-[var(--color-ink)]">R$ 99</span>
+                <span className="text-4xl font-mono font-black text-[var(--color-ink)]">R$ {PLAN_PRICES.pro}</span>
                 <span className="text-sm text-[var(--color-muted)]">/mes</span>
               </div>
               <p className="text-xs text-[var(--color-muted)] mb-6">Acesso completo para seu provedor</p>
               <ul className="space-y-2.5 mb-6 flex-1">
-                {["Acesso completo a toda a rede","Todos os ERPs integrados","Usuarios ilimitados","Anti-fraude completo + WhatsApp","Consulta SPC integrada","Consulta em lote (ate 500 CPFs)"].map(f => (
+                {[`${PLAN_CREDITS.pro.isp} creditos ISP + ${PLAN_CREDITS.pro.spc} SPC por mes`,"Os 6 ERPs integrados","Anti-fraude por e-mail e webhook","Consulta cadastral (BigDataCorp)","Consulta SPC Brasil","Cruzamento por endereco"].map(f => (
                   <li key={f} className="flex items-start gap-2 text-sm text-[var(--color-ink)]">
                     <CheckCircle2 className="w-4 h-4 text-[var(--color-success)] flex-shrink-0 mt-0.5"/>{f}
                   </li>
@@ -360,13 +362,19 @@ export default function LandingPage() {
                 <span className="flex items-center gap-2 text-sm text-[var(--color-ink)]">
                   <CheckCircle2 className="w-4 h-4 text-[var(--color-brand)] flex-shrink-0"/>Consulta ISP (rede colaborativa)
                 </span>
-                <span className="text-sm font-bold text-[var(--color-brand)]">1 credito</span>
+                <span className="text-sm font-bold text-[var(--color-brand)]">{CUSTO_EM_CREDITOS.isp} credito por provedor com registro</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2 text-sm text-[var(--color-ink)]">
+                  <CheckCircle2 className="w-4 h-4 text-[var(--color-brand)] flex-shrink-0"/>Consulta cadastral (dados do CPF/CNPJ)
+                </span>
+                <span className="text-sm font-bold text-[var(--color-brand)]">{CUSTO_EM_CREDITOS.cadastral} creditos</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 text-sm text-[var(--color-ink)]">
                   <CheckCircle2 className="w-4 h-4 text-[var(--color-brand)] flex-shrink-0"/>Consulta SPC Brasil
                 </span>
-                <span className="text-sm font-bold text-[var(--color-brand)]">4 creditos</span>
+                <span className="text-sm font-bold text-[var(--color-brand)]">{CUSTO_EM_CREDITOS.spc} creditos</span>
               </div>
             </div>
           </div>
@@ -468,7 +476,7 @@ export default function LandingPage() {
               {q:"O que é a base de dados compartilhada?",a:"É uma base única onde todos os provedores registram seus inadimplentes. Quando você consulta um CPF, o sistema verifica em todos os provedores da rede e retorna dados anonimizados: dias de atraso, faixa de valor, equipamentos pendentes. Nunca dados pessoais identificáveis."},
               {q:"Consultas na minha própria base são cobradas?",a:"Não. Consultas de clientes do seu próprio provedor são sempre gratuitas e ilimitadas. Créditos são consumidos apenas quando a consulta retorna dados de outros provedores da rede — 1 crédito por provedor externo encontrado."},
               {q:"Como funciona a análise por endereço?",a:"Você informa o CEP e o número da residência. O sistema cruza em toda a rede de provedores e mostra o histórico de inadimplência associado àquele imóvel — independente do CPF do morador atual. Isso detecta casos onde o inadimplente usa o CPF de um parente mas mora no mesmo local."},
-              {q:"Quanto tempo leva para configurar?",a:"15 minutos para conectar um ERP (IXC, MK Solutions, SGP, Hubsoft, Voalle, RBX ISP) via API. A sincronizacao e automatica — seus dados de inadimplencia sao atualizados diariamente. Sem instalacao, sem tecnico."},
+              {q:"Quanto tempo leva para configurar?",a:"15 minutos para conectar um ERP (IXC, MK Solutions, SGP, Hubsoft, Voalle, RBX ISP) via API. A consulta vai ao ERP AO VIVO, entao o dado da decisao e sempre o de agora. Em paralelo, uma varredura completa da sua base roda tres vezes por semana e alimenta o mapa de inadimplencia. Sem instalacao, sem tecnico."},
               {q:"Compartilhar dados de inadimplentes viola a LGPD?",a:"Não. O sistema compartilha apenas indicadores anonimizados — dias de atraso, faixa de valor e se há equipamentos pendentes. Nunca nome, CPF, endereço ou dados pessoais identificáveis. O sistema foi construído em conformidade com a LGPD."},
               {q:"E a Resolução Anatel 765 — como ela afeta meu provedor?",a:"A Resolução 765 obriga a notificar o cliente em D+15 e aguardar até D+60 antes de cancelar. São 75 dias que o inadimplente pode usar para contratar outro provedor sem pagar. Com o anti-fraude, você recebe alerta em tempo real quando ele tenta migrar — e pode agir antes que a ONU saia da sua mão."},
               {q:"Quais ERPs são suportados na integração automática?",a:"IXC Soft, SGP, MK Solutions, Hubsoft, Voalle, RBX ISP e outros. Solicitações para novos ERPs são avaliadas semanalmente — basta abrir um chamado pelo painel."},
