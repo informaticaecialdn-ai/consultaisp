@@ -9,6 +9,7 @@ import { Shield, CheckCircle, Lock, Eye, EyeOff, MailCheck, RefreshCw, Globe, Bu
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { getSubdomain } from "@/lib/subdomain";
+import Marca, { SimboloConsultaISP } from "@/components/marca";
 
 function slugifySubdomain(name: string): string {
   return name
@@ -315,12 +316,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-[var(--color-bg)] flex flex-col" data-testid="login-page">
       <header className="flex items-center justify-between px-8 py-5">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded bg-[var(--color-brand)]/20 flex items-center justify-center">
-            <Shield className="w-5 h-5 text-[var(--color-brand)]" />
-          </div>
-          <span className="text-lg font-display font-semibold text-[var(--color-ink)]">Consulta ISP</span>
-        </div>
+        <Marca tamanho={32} />
         {!isSubdomainMode && (
           <button
             onClick={() => setLocation("/")}
@@ -433,9 +429,7 @@ export default function LoginPage() {
             ) : (
               <Card className="p-8 border border-[var(--border)] rounded bg-[var(--color-surface)]">
                 <div className="text-center mb-6">
-                  <div className="w-12 h-12 rounded-full bg-[var(--color-brand)]/10 flex items-center justify-center mx-auto mb-3">
-                    <Shield className="w-6 h-6 text-[var(--color-brand)]" />
-                  </div>
+                  <SimboloConsultaISP tamanho={46} className="mx-auto mb-3" />
                   <h2 className="font-display text-xl font-semibold" data-testid="text-login-title">
                     {isSubdomainMode
                       ? "Bem-vindo de volta"

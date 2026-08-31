@@ -53,6 +53,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useQuery } from "@tanstack/react-query";
+import { SimboloConsultaISP } from "@/components/marca";
 
 function TrialBanner() {
   const { data } = useQuery<any>({ queryKey: ["/api/provider/trial-status"], staleTime: 5 * 60 * 1000 });
@@ -244,9 +245,7 @@ export function AppSidebar() {
             <div className="flex items-center gap-3 cursor-pointer">
               {/* Logo em navy, não vermelho: o admin é instrumento, não alarme.
                   O vermelho fica reservado para o que é de fato perigoso. */}
-              <div className="w-9 h-9 rounded bg-[var(--color-ink)] flex items-center justify-center flex-shrink-0">
-                <Shield className="w-5 h-5 text-[var(--color-surface)]" />
-              </div>
+              <SimboloConsultaISP tamanho={34} className="flex-shrink-0" />
               <div className="flex flex-col">
                 <span className="text-sm font-semibold tracking-[-0.01em] leading-tight text-[var(--color-ink)]">Consulta ISP</span>
                 <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--color-muted)] leading-tight">Sistema Admin</span>

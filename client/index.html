@@ -5,10 +5,35 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
     <title>Consulta ISP - Sistema de Analise de Credito para Provedores</title>
     <meta name="description" content="Plataforma de analise de credito baseada em base de dados colaborativa de clientes inadimplentes de provedores de internet" />
+    <!-- Icones. O SVG e a versao simplificada da marca, desenhada para tamanho
+         pequeno: tracos laranja e miolo verde maior, porque a 16px o traco
+         escuro e o anel viram borrao. O PNG fica como reserva para navegador
+         que ainda nao le favicon vetorial. -->
+    <link rel="icon" type="image/svg+xml" href="/marca/favicon.svg" />
     <link rel="icon" type="image/png" href="/favicon.png" />
+    <!-- iOS exige opaco: PNG transparente vira icone com fundo preto. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/marca/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="theme-color" content="#F26201" />
+
+    <!-- Previa quando alguem compartilha o link. Nao existia: no WhatsApp e no
+         LinkedIn o site aparecia sem imagem nenhuma. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Consulta ISP" />
+    <meta property="og:title" content="Consulta ISP — analise de credito para provedores" />
+    <meta property="og:description" content="Consulte o CPF antes de instalar. Score de risco em tempo real, direto do ERP de toda a rede de provedores." />
+    <meta property="og:image" content="https://consultaisp.com.br/marca/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:url" content="https://consultaisp.com.br/" />
+    <meta name="twitter:card" content="summary_large_image" />
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Montserrat entra SO pela marca (brief de 31/08/2026: Bold 700 no
+         wordmark, Medium 500 na assinatura). A interface segue em Inter e IBM
+         Plex Mono; sao dois pesos a mais, nao uma terceira familia de texto. -->
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700&family=Montserrat:wght@500;700&display=swap" rel="stylesheet">
     <script>
       // Aplica o tema ANTES do primeiro paint, evitando flash de tema errado.
       // Roda antes do React: o toggle so grava a preferencia e recarrega.

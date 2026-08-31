@@ -1,0 +1,15 @@
+{
+  "name": "Consulta ISP",
+  "short_name": "Consulta ISP",
+  "description": "Analise de credito colaborativa para provedores de internet",
+  "lang": "pt-BR",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F6F6F9",
+  "theme_color": "#F26201",
+  "icons": [
+    { "src": "/marca/favicon.svg", "type": "image/svg+xml", "sizes": "any" },
+    { "src": "/marca/icone-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any" },
+    { "src": "/marca/apple-touch-icon.png", "type": "image/png", "sizes": "180x180" }
+  ]
+}

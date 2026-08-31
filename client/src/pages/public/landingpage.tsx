@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import LandingChatbot from "@/components/landing-chatbot";
+import Marca, { SimboloConsultaISP } from "@/components/marca";
 import { PLAN_PRICES, PLAN_CREDITS, CUSTO_EM_CREDITOS } from "@shared/schema";
 import {
   Shield, Search, Bell, Database, CheckCircle2,
@@ -43,12 +44,7 @@ export default function LandingPage() {
       {/* NAV */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-surface)] border-b border-[var(--color-border)]">
         <div className="max-w-[1800px] mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded bg-[var(--color-brand)] flex items-center justify-center">
-              <Shield className="w-4 h-4 text-[var(--text-on-brand)]" />
-            </div>
-            <span className="text-base font-bold font-display text-[var(--color-ink)]">Consulta ISP</span>
-          </div>
+          <Marca tamanho={30} />
           <div className="hidden lg:flex items-center gap-7 text-sm text-[var(--color-muted)]">
             {[["Como funciona","como-funciona"],["Funcionalidades","funcionalidades"],["Preços","precos"],["FAQ","faq"]].map(([l,id]) => (
               <button key={id} onClick={() => document.getElementById(id)?.scrollIntoView({behavior:"smooth"})}
@@ -527,9 +523,7 @@ export default function LandingPage() {
       <footer className="bg-[#1A1714] py-8">
         <div className="max-w-[1800px] mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded bg-[var(--color-brand)] flex items-center justify-center">
-              <Shield className="w-3.5 h-3.5 text-[var(--text-on-brand)]"/>
-            </div>
+            <SimboloConsultaISP tamanho={26} />
             <span className="text-white font-bold text-sm">Consulta ISP</span>
             <span className="text-[#918DA1] text-xs hidden sm:inline">Base colaborativa para provedores</span>
           </div>

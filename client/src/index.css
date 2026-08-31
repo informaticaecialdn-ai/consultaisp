@@ -139,6 +139,22 @@
   --cat-slate:        #6B6878;
   --cat-navy:         #35405C;
 
+  /* ── MARCA ─────────────────────────────────────────────────────────────
+     Cores do logo, do brief de marca de 31/08/2026 — sao os valores AUTORAIS.
+     Amostrar o PNG dava #FE5601 e #52C27C; a diferenca e compressao.
+     Ficam separadas dos tokens de interface DE PROPOSITO: a marca tem
+     laranja e verde que o sistema nao usa em lugar nenhum, e misturar as
+     duas paletas faria a interface herdar um laranja que ela nao quer.
+     O laranja e o verde nao mudam com o tema — leem bem nos dois. O TRACO
+     muda: #2B2938 sobre o fundo escuro (#131219) praticamente some. */
+  --marca-traco:      #2B2938;
+  --marca-no:         #F26201;
+  --marca-ok:         #58C48C;
+  --marca-check:      #FFFFFF;
+  --marca-nome:       #4A4670;
+  --marca-assinatura: #6B6878;
+  --marca-fonte:      "Montserrat", "Inter", ui-sans-serif, system-ui, sans-serif;
+
   --button-outline: rgba(0,0,0, .10);
   --badge-outline: rgba(0,0,0, .05);
   --opaque-button-border-intensity: -8;
@@ -227,6 +243,11 @@
 }
 
 .dark {
+
+  /* Marca: so o traco e o nome clareiam; laranja e verde ficam. */
+  --marca-traco:      #C3C0CE;
+  --marca-nome:       #FFFFFF;
+  --marca-assinatura: #A9A2D8;
   /* DARK — mesma pele "Razao". Escuro com fundo violeta, nao cinza neutro:
      e o que mantem a berinjela coerente nos dois temas. */
   --bg:             #131219;
