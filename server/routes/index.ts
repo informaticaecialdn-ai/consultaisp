@@ -23,6 +23,7 @@ import { registerPublicRoutes } from "./public.routes";
 import { registerRegionalRoutes } from "./regional.routes";
 import { registerNfseRoutes } from "./nfse.routes";
 import { registerCrmRoutes } from "./crm.routes";
+import { registerMarcaRoutes } from "./marca.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -52,6 +53,7 @@ export async function registerRoutes(
   app.use(registerRegionalRoutes());
   app.use(registerNfseRoutes());
   app.use(registerCrmRoutes());
+  app.use(registerMarcaRoutes());
 
   return httpServer;
 }

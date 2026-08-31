@@ -5,6 +5,8 @@ import viteConfig from "../vite.config";
 import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
+import { resolverMarcaPorHost } from "./services/marca.service";
+import { injetarMarca } from "./marca-html";
 
 const viteLogger = createLogger();
 
@@ -49,7 +51,12 @@ export async function setupVite(server: Server, app: Express) {
         `src="/src/main.tsx?v=${nanoid()}"`,
       );
       const page = await vite.transformIndexHtml(url, template);
-      res.status(200).set({ "Content-Type": "text/html" }).end(page);
+      // A marca entra DEPOIS do transform do Vite: ele reescreve os caminhos de
+      // script, e a faixa da marca nao deve passar por essa reescrita.
+      const marca = await resolverMarcaPorHost(req.hostname);
+      res.status(200)
+        .set({ "Content-Type": "text/html", "Cache-Control": "no-store" })
+        .end(injetarMarca(page, marca));
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
       next(e);

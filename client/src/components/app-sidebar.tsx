@@ -48,12 +48,14 @@ import {
   ClipboardList,
   Package,
   RefreshCw,
+  Palette,
 
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useQuery } from "@tanstack/react-query";
-import { SimboloConsultaISP } from "@/components/marca";
+import { SimboloConsultaISP, SimboloDaMarca } from "@/components/marca";
+import { useMarca } from "@/lib/marca";
 
 function TrialBanner() {
   const { data } = useQuery<any>({ queryKey: ["/api/provider/trial-status"], staleTime: 5 * 60 * 1000 });
@@ -99,6 +101,7 @@ const ADMIN_GROUPS = [
     items: [
       { title: "Cadastros", hash: "cadastros", icon: ClipboardList, testId: "link-admin-cadastros" },
       { title: "Provedores", hash: "provedores", icon: Building2, testId: "link-admin-provedores" },
+      { title: "Marcas White Label", hash: "marcas", icon: Palette, testId: "link-admin-marcas", url: "/admin/marcas" },
     ],
   },
   {
@@ -207,6 +210,7 @@ function AdminCollapsibleGroup({
 }
 
 export function AppSidebar() {
+  const marca = useMarca();
   const [location, navigate] = useLocation();
   const search = useSearch();
   const { user, provider, logout } = useAuth();
@@ -354,20 +358,30 @@ export function AppSidebar() {
                   colorido da marca, entao ele e que carrega o destaque.
                   --surface-2 em vez de branco puro porque a sidebar ja e branca —
                   um quadrado branco sumiria nela. A hairline fecha a forma. */}
-              <div className="w-[34px] h-[34px] rounded-lg bg-[var(--surface-2)] border border-[var(--border)] grid place-items-center flex-none">
-                <svg width="23" height="23" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M3.5 16.5a8.5 8.5 0 0 1 17 0" stroke="var(--brand)" strokeWidth="2.1"
-                        strokeLinecap="round" />
-                  <path d="M12 16.5l4.4-4.4" stroke="var(--brand)" strokeWidth="2.1"
-                        strokeLinecap="round" />
-                </svg>
-              </div>
+              {/* White label: a marca do revendedor entra aqui (logo por <img>,
+                  ou monograma quando ele ainda não subiu um). Sem revendedor,
+                  fica o arco de score da plataforma, intacto — white label não
+                  é desculpa para redesenhar a marca-mãe. */}
+              {marca.marcaId !== null ? (
+                <SimboloDaMarca tamanho={34} />
+              ) : (
+                <div className="w-[34px] h-[34px] rounded-lg bg-[var(--surface-2)] border border-[var(--border)] grid place-items-center flex-none">
+                  <svg width="23" height="23" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M3.5 16.5a8.5 8.5 0 0 1 17 0" stroke="var(--brand)" strokeWidth="2.1"
+                          strokeLinecap="round" />
+                    <path d="M12 16.5l4.4-4.4" stroke="var(--brand)" strokeWidth="2.1"
+                          strokeLinecap="round" />
+                  </svg>
+                </div>
+              )}
               <div className="flex flex-col min-w-0">
-                <span className="text-[14px] font-bold tracking-[-0.02em] text-[var(--text)] leading-tight">
-                  Consulta ISP
+                <span className="text-[14px] font-bold tracking-[-0.02em] text-[var(--text)] leading-tight truncate">
+                  {marca.nomeProduto}
                 </span>
-                <span className="text-[11px] text-[var(--text-muted)] leading-tight">
-                  Análise de Crédito
+                <span className="text-[11px] text-[var(--text-muted)] leading-tight truncate">
+                  {/* Sem revendedor, o texto da plataforma fica como estava —
+                      white label não é desculpa para redesenhar a marca-mãe. */}
+                  {marca.marcaId === null ? "Análise de Crédito" : (marca.assinatura ?? "")}
                 </span>
               </div>
             </div>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useMarca } from "@/lib/marca";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +23,7 @@ function chatFullTime(d: string): string {
 }
 
 export function ChatWidget() {
+  const marca = useMarca();
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const { user } = useAuth();
@@ -108,7 +110,7 @@ export function ChatWidget() {
                 <Headphones className="w-4 h-4 text-white" />
               </div>
               <div>
-                <p className="text-sm font-semibold leading-none">Suporte Consulta ISP</p>
+                <p className="text-sm font-semibold leading-none">Suporte {marca.nomeProduto}</p>
                 <div className="flex items-center gap-1.5 mt-1">
                   <span className={`w-1.5 h-1.5 rounded-full ${isClosed ? "bg-[var(--color-border)]" : "bg-[var(--color-success)]"}`} />
                   <span className="text-xs text-white/70">{isClosed ? "Conversa encerrada" : "Suporte disponivel"}</span>

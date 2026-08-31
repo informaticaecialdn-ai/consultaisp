@@ -3,6 +3,7 @@ import { requireSuperAdmin } from "../auth";
 import { storage } from "../storage";
 import { hashPassword } from "../password";
 import { sendVerificationEmail } from "../services/email";
+import { esquecerMarcas } from "../services/marca.service";
 import { getConnector, getSupportedSources } from "../erp/registry";
 import "../erp/index";
 import { getSafeErrorMessage } from "../utils/safe-error";
@@ -241,6 +242,10 @@ export function registerAdminRoutes(): Router {
         return res.status(400).json({ message: "Dados invalidos", errors: parsed.error.flatten().fieldErrors });
       }
       const updated = await storage.adminUpdateProvider(id, parsed.data);
+      // A resolucao host->marca e cacheada por subdominio. Sem esta linha, uma
+      // troca de subdominio ficava ate 5 minutos servindo a marca do dono
+      // anterior naquele endereco.
+      esquecerMarcas();
       return res.json(updated);
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });

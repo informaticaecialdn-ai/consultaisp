@@ -3,6 +3,94 @@ import { pgTable, text, varchar, integer, boolean, timestamp, decimal, serial, j
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+/**
+ * Marca white label — a "pele" que um revendedor veste sobre o mesmo bureau.
+ *
+ * NAO e um tenant. O isolamento de dados continua sendo `providerId`; a marca so
+ * decide como o sistema se APRESENTA: nome, logo, cor, dominio, remetente de
+ * e-mail. Todos os provedores, de todas as marcas, alimentam e leem a MESMA
+ * base — que e o produto. Revendedor com base propria venderia base vazia.
+ *
+ * A marca e entidade propria, e nao um punhado de colunas em `providers`,
+ * porque assim os dois casos cabem na mesma estrutura: um revendedor com 10
+ * ISPs e uma marca com 10 provedores apontando pra ela; um ISP grande que quer
+ * a propria cara e uma marca com um provedor so.
+ */
+export const marcas = pgTable("marcas", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  ativo: boolean("ativo").notNull().default(true),
+
+  // ── Identidade ───────────────────────────────────────────────────────────
+  /** Substitui "Consulta ISP" onde a string e a MARCA da plataforma. Onde ela e
+   *  o nome do TIPO DE CONSULTA (ao lado de Consulta SPC e Cadastral), fica. */
+  nomeProduto: text("nome_produto").notNull(),
+  assinatura: text("assinatura"),
+
+  // ── Dominio proprio ──────────────────────────────────────────────────────
+  /**
+   * `dominioStatus` so vira "ativo" depois que o certificado foi emitido no
+   * servidor por script/dominio-whitelabel.sh. A aplicacao NAO emite
+   * certificado — entao ela tambem nao pode afirmar que o dominio funciona.
+   */
+  dominio: text("dominio").unique(),
+  dominioStatus: text("dominio_status").notNull().default("pendente"),
+
+  // ── Visual ───────────────────────────────────────────────────────────────
+  /**
+   * SVG e o formato preferido: nitido em qualquer tamanho e colore por variavel
+   * no tema escuro. PNG e aceito, mas NAO acompanha o tema escuro — logo claro
+   * some no fundo escuro, e nao ha o que fazer sobre isso num bitmap.
+   *
+   * O SVG NUNCA e embutido na pagina: e servido por URL e carregado em <img>,
+   * onde o navegador desliga script por especificacao. Essa garantia vale mais
+   * que um sanitizador de allowlist escrito a mao, que e notoriamente furado.
+   * Ver server/routes/marca.routes.ts.
+   */
+  logoSvg: text("logo_svg"),
+  logoPng: text("logo_png"),
+  faviconSvg: text("favicon_svg"),
+
+  /**
+   * UMA cor por tema. Hover, soft e ink saem derivadas em
+   * server/utils/marca-cores.ts — pedir quatro tons harmonicos a um revendedor
+   * produz paleta ruim, e a derivacao acerta sempre.
+   *
+   * `corBrandDark` e opcional: sem ela, a clara e clareada ate passar AA sobre
+   * o fundo escuro, como manda o DESIGN_SYSTEM ("semanticas clareiam no dark;
+   * nunca reuse o hex do light").
+   */
+  corBrand: text("cor_brand").notNull().default("#4A4670"),
+  corBrandDark: text("cor_brand_dark"),
+
+  // ── E-mail ───────────────────────────────────────────────────────────────
+  /**
+   * `emailRemetente` so pode ser usado se o dominio estiver verificado no
+   * Resend. Nulo = sai do dominio verificado da plataforma, com o nome de
+   * exibicao da marca. Isso APARECE no cabecalho pro destinatario.
+   */
+  emailRemetente: text("email_remetente"),
+  emailNomeExibicao: text("email_nome_exibicao"),
+
+  // ── Suporte ──────────────────────────────────────────────────────────────
+  suporteEmail: text("suporte_email"),
+  suporteWhatsapp: text("suporte_whatsapp"),
+  site: text("site"),
+
+  // ── LGPD ─────────────────────────────────────────────────────────────────
+  /**
+   * Quem responde pelo tratamento perante o titular. Se o cliente final comprou
+   * da "CredNet" e a tela de consentimento diz outro nome, ele nao sabe a quem
+   * esta consentindo — e o consentimento e defeituoso. Por isso o white label
+   * NAO pode ser invisivel aqui: o texto nomeia o controlador de verdade, com a
+   * plataforma nomeada como operadora.
+   */
+  responsavelRazaoSocial: text("responsavel_razao_social"),
+  responsavelCnpj: text("responsavel_cnpj"),
+
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const providers = pgTable("providers", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -12,6 +100,14 @@ export const providers = pgTable("providers", {
   openingDate: text("opening_date"),
   businessSegment: text("business_segment"),
   subdomain: text("subdomain").unique(),
+  /**
+   * Marca white label que este provedor veste. Nulo = marca da plataforma.
+   *
+   * Fica ao lado de `subdomain` de proposito: sao as DUAS formas de chegar a
+   * este tenant pelo host. O login aceita as duas como prova de pertencimento
+   * (o subdominio do provedor, ou o dominio da marca dele) e NENHUMA outra.
+   */
+  marcaId: integer("marca_id").references(() => marcas.id),
   plan: text("plan").notNull().default("free"),
   status: text("status").notNull().default("active"),
   verificationStatus: text("verification_status").notNull().default("pending"),
@@ -425,6 +521,7 @@ export const creditOrders = pgTable("credit_orders", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const insertMarcaSchema = createInsertSchema(marcas).omit({ id: true, createdAt: true });
 export const insertProviderSchema = createInsertSchema(providers).omit({ id: true, createdAt: true });
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertCustomerSchema = createInsertSchema(customers).omit({ id: true, createdAt: true });
@@ -439,6 +536,8 @@ export const insertBigdataIntegrationSchema = createInsertSchema(bigdataIntegrat
 export const insertBigdataConsultationSchema = createInsertSchema(bigdataConsultations).omit({ id: true, createdAt: true });
 export const insertAntiFraudAlertSchema = createInsertSchema(antiFraudAlerts).omit({ id: true, createdAt: true });
 
+export type Marca = typeof marcas.$inferSelect;
+export type InsertMarca = z.infer<typeof insertMarcaSchema>;
 export type Provider = typeof providers.$inferSelect;
 export type InsertProvider = z.infer<typeof insertProviderSchema>;
 export type User = typeof users.$inferSelect;

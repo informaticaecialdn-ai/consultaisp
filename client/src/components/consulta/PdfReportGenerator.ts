@@ -22,11 +22,23 @@
 import type { ConsultaResult } from "./types";
 import { formatCpfCnpj, escHtml } from "./utils";
 import { derivarRelatorio, fmtCep, type Tom, type LinhaFonte } from "./relatorio-dados";
+import { marcaAtual } from "@/lib/marca";
 
 /* ── Tokens, com valor literal ──────────────────────────────────
    A janela de impressão é um documento novo: não herda o index.css, então
    var(--token) não resolve. Os hexes abaixo são os do :root, copiados na mão —
-   se o index.css mudar, este bloco muda junto. */
+   se o index.css mudar, este bloco muda junto.
+
+   EXCEÇÃO: os dois de MARCA vêm de `window.__MARCA__`. Sob white label um
+   literal aqui faria o relatório do revendedor — o artefato que vai para o
+   arquivo dele — sair com a cor da plataforma. É a paleta CLARA de propósito:
+   o papel é sempre branco, e ler a cor do documento vivo devolveria a do tema
+   ativo (no escuro, um lilás claro sobre fundo branco). Literais = fallback. */
+function daMarca(qual: "ink" | "soft", reserva: string): string {
+  const p = marcaAtual().paletaClara;
+  return p ? p[qual] : reserva;
+}
+
 const T = {
   surface: "#FFFFFF",
   surface2: "#FAFAFC",
@@ -36,8 +48,8 @@ const T = {
   text2: "#45414F",
   muted: "#6B6878",
   faint: "#726E80",
-  brandInk: "#3A3658",
-  brandSoft: "#EDECF3",
+  brandInk: daMarca("ink", "#3A3658"),
+  brandSoft: daMarca("soft", "#EDECF3"),
 } as const;
 
 /** Cada tom com a trinca cor/fundo/borda, como as pills da tela. */

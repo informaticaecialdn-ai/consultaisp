@@ -5,6 +5,8 @@ import { hashPassword, verifyPassword } from "../password";
 import { sendVerificationEmail } from "../services/email";
 import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { getSafeErrorMessage } from "../utils/safe-error";
+import { normalizarHost, extractSubdomainFromHost } from "../tenant";
+import { hostPertenceAoProvider, resolverMarcaPorHost } from "../services/marca.service";
 import crypto from "crypto";
 
 export function registerAuthRoutes(): Router {
@@ -29,28 +31,35 @@ export function registerAuthRoutes(): Router {
       if (!user.emailVerified) {
         return res.status(403).json({ message: "Email nao verificado. Verifique sua caixa de entrada.", code: "EMAIL_NOT_VERIFIED", email: user.email });
       }
-      // Validar isolamento de tenant: usuario so pode logar no subdominio do seu provedor
-      // Superadmins podem logar em qualquer subdominio (ou no dominio principal)
+      const provider = user.providerId ? await storage.getProvider(user.providerId) : null;
+
+      // Isolamento de tenant. O host precisa PROVAR que este provedor pertence
+      // aqui: subdominio dele, ou dominio da marca white label dele. Qualquer
+      // outra coisa recusa — inclusive host desconhecido.
+      //
+      // A regra anterior so agia quando conseguia extrair um subdominio, o que
+      // a tornava fail-OPEN: em host de dois rotulos ela era pulada inteira.
+      // Superadmin e da plataforma e entra por qualquer host, por desenho.
       if (user.role !== "superadmin" && user.providerId) {
-        const { extractSubdomainFromHost } = await import("../tenant");
-        const requestSubdomain = extractSubdomainFromHost(req.hostname);
-        if (requestSubdomain) {
-          const provider = await storage.getProvider(user.providerId);
-          if (provider?.subdomain && provider.subdomain !== requestSubdomain) {
-            return res.status(401).json({
-              message: "Email ou senha incorretos",
-            });
-          }
+        const pertence = await hostPertenceAoProvider(req.hostname, {
+          subdomain: provider?.subdomain ?? null,
+          marcaId: provider?.marcaId ?? null,
+        });
+        if (!pertence) {
+          // Generica de proposito: nao revela se a conta existe, nem qual seria
+          // o endereco certo.
+          return res.status(401).json({ message: "Email ou senha incorretos" });
         }
       }
 
       req.session.userId = user.id;
       req.session.providerId = user.providerId || 0;
       req.session.role = user.role;
-      // Gravar subdomain na sessao pra validacao no requireAuth
-      const { extractSubdomainFromHost } = await import("../tenant");
+      // O host inteiro, normalizado, e o que requireAuth compara depois — ver a
+      // nota de seguranca em server/auth.ts.
+      req.session.hostLogin = normalizarHost(req.hostname);
       req.session.subdomain = extractSubdomainFromHost(req.hostname) || undefined;
-      const provider = user.providerId ? await storage.getProvider(user.providerId) : null;
+      req.session.marcaId = provider?.marcaId ?? null;
       await new Promise<void>((resolve, reject) => {
         req.session.save((err) => err ? reject(err) : resolve());
       });
@@ -118,7 +127,7 @@ export function registerAuthRoutes(): Router {
       await storage.setVerificationToken(user.id, token, expiresAt);
 
       try {
-        await sendVerificationEmail(email, name, token);
+        await sendVerificationEmail(email, name, token, await resolverMarcaPorHost(req.hostname));
       } catch (emailError: any) {
         console.error("[email] Falha ao enviar email de verificacao:", emailError.message);
       }
@@ -167,7 +176,7 @@ export function registerAuthRoutes(): Router {
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
       await storage.setVerificationToken(user.id, token, expiresAt);
       try {
-        await sendVerificationEmail(email, user.name, token);
+        await sendVerificationEmail(email, user.name, token, await resolverMarcaPorHost(req.hostname));
       } catch (emailError: any) {
         console.error("[email] Falha ao reenviar email:", emailError.message);
       }
@@ -200,7 +209,7 @@ export function registerAuthRoutes(): Router {
         const { db } = await import("../db");
         await db.update(users).set({ resetToken: token, resetTokenExpiresAt: expiresAt }).where(eq(users.id, user.id));
         const { sendPasswordResetEmail } = await import("../services/email");
-        await sendPasswordResetEmail(user.email, user.name, token).catch(err =>
+        await sendPasswordResetEmail(user.email, user.name, token, await resolverMarcaPorHost(req.hostname)).catch(err =>
           console.warn(`[auth] Erro ao enviar email de reset: ${err.message}`)
         );
       }

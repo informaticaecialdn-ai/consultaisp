@@ -27,14 +27,23 @@
  * fidelidade à marca vale mais que pureza geométrica.
  */
 
+import { useMarca } from "@/lib/marca";
+
 type Props = {
   /** Só o símbolo, ou o símbolo com o nome ao lado. */
   variante?: "simbolo" | "completa";
   /** Altura do símbolo em px. A largura sai da proporção. */
   tamanho?: number;
-  /** Mostra a linha "Base colaborativa de crédito" sob o nome. */
+  /** Mostra a linha de apoio sob o nome. */
   comAssinatura?: boolean;
   className?: string;
+  /**
+   * Ignora a marca do revendedor e desenha sempre a da plataforma.
+   *
+   * Para as telas que são da PLATAFORMA e não do tenant — o painel do
+   * superadmin, por exemplo. Ali a marca de um revendedor seria mentira.
+   */
+  sempreDaPlataforma?: boolean;
 };
 
 /* Centros dos seis nós e do miolo, no sistema do arquivo original. */
@@ -92,18 +101,87 @@ export function SimboloConsultaISP({ tamanho = 32, className }: { tamanho?: numb
 }
 
 /**
+ * O símbolo da marca vigente.
+ *
+ * Com marca de revendedor, o logo dele vem por `<img>` — nunca embutido. SVG
+ * carregado como imagem tem script desligado pelo navegador, o que é garantia
+ * mais forte que qualquer sanitizador que eu escrevesse. Ver
+ * server/routes/marca.routes.ts.
+ *
+ * A contrapartida honesta: um logo em `<img>` não lê as variáveis CSS, então
+ * não acompanha o tema escuro. Vale para SVG e para PNG. O revendedor que
+ * quiser as duas versões precisa de uma marca que funcione nos dois fundos.
+ */
+export function SimboloDaMarca({ tamanho, className, sempreDaPlataforma }: {
+  tamanho: number; className?: string; sempreDaPlataforma?: boolean;
+}) {
+  const marca = useMarca();
+
+  if (!sempreDaPlataforma && marca.logoUrl) {
+    return (
+      <img
+        src={marca.logoUrl}
+        alt={marca.nomeProduto}
+        height={tamanho}
+        style={{ height: tamanho, width: "auto", maxWidth: tamanho * 4, objectFit: "contain" }}
+        className={className}
+      />
+    );
+  }
+
+  /**
+   * Revendedor cadastrado mas sem logo: monograma, nunca o hexágono da casa.
+   *
+   * Encontrado ao olhar a tela: com marca ativa e sem logo, a versão anterior
+   * caía no símbolo da plataforma — e a porta de entrada de um revendedor
+   * exibia a marca de outra empresa. Isso derruba a razão de existir da
+   * feature. O monograma usa a cor dele e não afirma nada que seja falso.
+   */
+  if (!sempreDaPlataforma && marca.marcaId !== null) {
+    const inicial = marca.nomeProduto.trim().charAt(0).toUpperCase() || "?";
+    return (
+      <span
+        className={className}
+        aria-label={marca.nomeProduto}
+        role="img"
+        style={{
+          width: tamanho, height: tamanho, flex: "none",
+          display: "grid", placeItems: "center",
+          background: "var(--brand)", color: "var(--text-on-brand)",
+          borderRadius: Math.max(4, Math.round(tamanho * 0.18)),   /* teto de 8px do design */
+          fontFamily: "var(--marca-fonte)", fontWeight: 700,
+          fontSize: Math.round(tamanho * 0.52), lineHeight: 1,
+        }}
+      >
+        {inicial}
+      </span>
+    );
+  }
+
+  return <SimboloConsultaISP tamanho={tamanho} className={className} />;
+}
+
+/**
  * Símbolo + nome. `comAssinatura` acrescenta a linha de apoio, que só cabe
  * quando a marca é grande — abaixo de ~28px ela vira borrão.
  */
-export default function Marca({ variante = "completa", tamanho = 32, comAssinatura = false, className }: Props) {
-  if (variante === "simbolo") return <SimboloConsultaISP tamanho={tamanho} className={className} />;
+export default function Marca({
+  variante = "completa", tamanho = 32, comAssinatura = false, className, sempreDaPlataforma,
+}: Props) {
+  const marca = useMarca();
+  const daPlataforma = sempreDaPlataforma || marca.marcaId === null;
+
+  if (variante === "simbolo") {
+    return <SimboloDaMarca tamanho={tamanho} className={className} sempreDaPlataforma={sempreDaPlataforma} />;
+  }
+
+  const nome = daPlataforma ? "Consulta ISP" : marca.nomeProduto;
+  const assinatura = daPlataforma ? "Base colaborativa de crédito" : marca.assinatura;
 
   return (
     <span className={`inline-flex items-center gap-2.5 ${className ?? ""}`}>
-      <SimboloConsultaISP tamanho={tamanho} />
+      <SimboloDaMarca tamanho={tamanho} sempreDaPlataforma={sempreDaPlataforma} />
       <span className="flex flex-col leading-none">
-        {/* Montserrat Bold 700, cores do brief: "Consulta" em azul-ardosia no
-            tema claro e branco no escuro; "ISP" em laranja nos dois. */}
         <span
           style={{
             fontFamily: "var(--marca-fonte)", fontWeight: 700,
@@ -111,9 +189,15 @@ export default function Marca({ variante = "completa", tamanho = 32, comAssinatu
             color: "var(--marca-nome)",
           }}
         >
-          Consulta <span style={{ color: "var(--marca-no)" }}>ISP</span>
+          {daPlataforma ? (
+            /* Montserrat Bold 700, cores do brief: "Consulta" em azul-ardósia no
+               tema claro e branco no escuro; "ISP" em laranja nos dois. O corte
+               em duas cores é ajustado à mão para ESTE nome — um nome de
+               revendedor sai numa cor só, que é o que não erra. */
+            <>Consulta <span style={{ color: "var(--marca-no)" }}>ISP</span></>
+          ) : nome}
         </span>
-        {comAssinatura && (
+        {comAssinatura && assinatura && (
           <span
             className="uppercase"
             style={{
@@ -124,7 +208,7 @@ export default function Marca({ variante = "completa", tamanho = 32, comAssinatu
               marginTop: Math.round(tamanho * 0.16),
             }}
           >
-            Base colaborativa de crédito
+            {assinatura}
           </span>
         )}
       </span>

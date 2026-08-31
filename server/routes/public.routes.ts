@@ -6,6 +6,7 @@ import { titularRequests } from "@shared/schema";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { sendConfirmationEmail } from "../services/lgpd-email.service";
+import { resolverMarcaPorHost } from "../services/marca.service";
 
 export function registerPublicRoutes(): Router {
   const router = Router();
@@ -14,11 +15,51 @@ export function registerPublicRoutes(): Router {
    * V-04 LGPD — Informações públicas de conformidade LGPD.
    * Alimenta a página /lgpd no frontend.
    */
-  router.get("/api/public/lgpd-info", async (_req, res) => {
+  router.get("/api/public/lgpd-info", async (req, res) => {
+    /**
+     * WHITE LABEL — e aqui que ele NAO pode ser invisivel.
+     *
+     * Se o titular contratou da "CredNet" e esta pagina diz outro nome, ele nao
+     * sabe a quem esta consentindo, e o consentimento fica defeituoso. Entao a
+     * marca nomeia o CONTROLADOR de verdade, e a plataforma aparece como
+     * operadora — esconde-la nao deixa o white label mais bonito, deixa o
+     * consentimento invalido.
+     */
+    const marca = await resolverMarcaPorHost(req.hostname);
+
+    /**
+     * O canal de contato faz parte do pacote, nao e opcional.
+     *
+     * Uma marca com razao social e CNPJ mas SEM e-mail de suporte produzia a
+     * pior combinacao possivel: a pagina nomeava o revendedor como controlador
+     * e mandava o titular escrever para o DPO da plataforma. Quem recebe nao
+     * tem os dados, e quem tem os dados nao recebe.
+     *
+     * Faltando qualquer uma das tres, o controlador continua sendo a
+     * plataforma — o que e a verdade enquanto o revendedor nao declarou por
+     * quem responder.
+     */
+    const temResponsavelProprio = Boolean(
+      marca.responsavelRazaoSocial && marca.responsavelCnpj && marca.suporteEmail,
+    );
+
     return res.json({
-      empresa: process.env.LGPD_EMPRESA || "Consulta ISP Tecnologia Ltda",
-      cnpj: process.env.LGPD_CNPJ || "00.000.000/0000-00",
-      encarregado: process.env.LGPD_DPO_EMAIL || "dpo@consultaisp.com.br",
+      empresa: temResponsavelProprio
+        ? marca.responsavelRazaoSocial
+        : process.env.LGPD_EMPRESA || "Consulta ISP Tecnologia Ltda",
+      cnpj: temResponsavelProprio
+        ? marca.responsavelCnpj
+        : process.env.LGPD_CNPJ || "00.000.000/0000-00",
+      /** Quem opera a infraestrutura, sempre nomeado. Ver o comentario acima. */
+      operador: temResponsavelProprio
+        ? {
+            empresa: process.env.LGPD_EMPRESA || "Consulta ISP Tecnologia Ltda",
+            cnpj: process.env.LGPD_CNPJ || null,
+            papel: "Operadora da plataforma tecnologica que processa os dados em nome do controlador.",
+          }
+        : null,
+      encarregado: (temResponsavelProprio && marca.suporteEmail)
+        || process.env.LGPD_DPO_EMAIL || "dpo@consultaisp.com.br",
       finalidade: "Analise de credito e protecao ao credito no ambito de servicos de telecomunicacoes (ISPs). " +
         "A plataforma permite que provedores de internet consultem indicadores de adimplencia anonimizados " +
         "de potenciais clientes, visando reduzir inadimplencia e fraudes por migracao serial.",
@@ -34,7 +75,8 @@ export function registerPublicRoutes(): Router {
         "Informacao sobre compartilhamento",
         "Oposicao ao tratamento",
       ],
-      canal_solicitacao: process.env.LGPD_DPO_EMAIL || "dpo@consultaisp.com.br",
+      canal_solicitacao: (temResponsavelProprio && marca.suporteEmail)
+        || process.env.LGPD_DPO_EMAIL || "dpo@consultaisp.com.br",
       prazo_resposta_dias: 15,
       tempo_retencao: "Dados de consultas de credito sao retidos por ate 5 anos, conforme legislacao fiscal e " +
         "normas do setor de protecao ao credito. Apos esse periodo, os dados sao anonimizados automaticamente. " +
@@ -109,7 +151,9 @@ export function registerPublicRoutes(): Router {
       });
 
       // Send confirmation email (non-blocking)
-      sendConfirmationEmail(email, protocol, tipoSolicitacao).catch(() => {});
+      // Mesma marca que a tela mostrou ao titular. Sem isto ele le
+      // "Controlador: CredNet" e recebe um e-mail assinado por outra empresa.
+      sendConfirmationEmail(email, protocol, tipoSolicitacao, await resolverMarcaPorHost(req.hostname)).catch(() => {});
 
       return res.json({
         protocolo: protocol,

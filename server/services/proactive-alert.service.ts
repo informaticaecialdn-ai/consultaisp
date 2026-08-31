@@ -1,5 +1,6 @@
 import { storage } from "../storage";
 import { sendProactiveAlertEmail } from "./email";
+import { resolverMarcaPorProviderId } from "./marca.service";
 import { logger } from "../logger";
 import { avaliarRiscoDeFuga, rotuloDoAlerta } from "./antifraude-rules";
 
@@ -119,7 +120,8 @@ export async function notifyOwnerProviders(
       const contactEmail = ownerProvider.contactEmail;
       if (contactEmail) {
         try {
-          await sendProactiveAlertEmail(contactEmail, ownerProvider.name, maskedCpf, maskedName);
+          await sendProactiveAlertEmail(contactEmail, ownerProvider.name, maskedCpf, maskedName,
+            await resolverMarcaPorProviderId(ownerProvider.id));
           logger.info(
             { providerId: ownerProvider.id, channel: "email" },
             "Proactive alert email sent",

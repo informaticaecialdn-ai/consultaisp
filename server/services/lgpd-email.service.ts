@@ -7,6 +7,7 @@
 
 import { Resend } from "resend";
 import { logger } from "../logger";
+import { MARCA_PLATAFORMA, type MarcaResolvida } from "./marca.service";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 const FROM_EMAIL = process.env.EMAIL_FROM || "onboarding@resend.dev";
@@ -49,7 +50,23 @@ async function safeSend(to: string, subject: string, html: string): Promise<void
   }
 }
 
-function emailTemplate(title: string, body: string): string {
+/**
+ * O e-mail que o TITULAR recebe ao exercer um direito LGPD.
+ *
+ * Precisa levar a marca por um motivo mais forte que estetica: a tela onde ele
+ * abriu a solicitacao diz que o controlador e o revendedor, e o e-mail que
+ * chega logo depois assinado por outra empresa contradiz exatamente a
+ * informacao que a LGPD exige que ele tenha.
+ *
+ * A paleta tambem mudou: saiu o gradiente azul do Tailwind (#2563eb) — que o
+ * DESIGN_SYSTEM proibe em duas linhas separadas — e entrou a cor da marca.
+ */
+function emailTemplate(title: string, body: string, marca: MarcaResolvida = MARCA_PLATAFORMA): string {
+  const acento = marca.cores?.claro.brand ?? "#4A4670";
+  const sobreAcento = marca.cores?.claro.textOnBrand ?? "#FFFFFF";
+  const nome = String(marca.nomeProduto ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
@@ -57,16 +74,16 @@ function emailTemplate(title: string, body: string): string {
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fa;padding:40px 20px;">
 <tr><td align="center">
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
-<tr><td style="background:linear-gradient(135deg,#2563eb,#4f46e5);padding:28px 40px;text-align:center;">
-  <span style="color:#fff;font-size:22px;font-weight:700;">Consulta ISP</span>
-  <p style="color:#bfdbfe;margin:4px 0 0;font-size:12px;">LGPD — Direitos do Titular</p>
+<tr><td style="background:${acento};padding:28px 40px;text-align:center;">
+  <span style="color:${sobreAcento};font-size:22px;font-weight:700;">${nome}</span>
+  <p style="color:${sobreAcento};opacity:0.78;margin:4px 0 0;font-size:12px;">LGPD — Direitos do Titular</p>
 </td></tr>
 <tr><td style="padding:36px 40px;">
   <h2 style="color:#1e293b;font-size:18px;font-weight:700;margin:0 0 16px;">${title}</h2>
   ${body}
 </td></tr>
 <tr><td style="background:#f8fafc;padding:16px 40px;border-top:1px solid #e2e8f0;text-align:center;">
-  <p style="color:#94a3b8;font-size:11px;margin:0;">Consulta ISP — Em conformidade com a LGPD (Lei 13.709/2018)</p>
+  <p style="color:#6B6878;font-size:11px;margin:0;">${nome} — Em conformidade com a LGPD (Lei 13.709/2018)</p>
 </td></tr>
 </table>
 </td></tr>
@@ -78,7 +95,7 @@ function emailTemplate(title: string, body: string): string {
 /**
  * Sent when a titular request is created.
  */
-export async function sendConfirmationEmail(to: string, protocolo: string, tipo: string): Promise<void> {
+export async function sendConfirmationEmail(to: string, protocolo: string, tipo: string, marca: MarcaResolvida = MARCA_PLATAFORMA): Promise<void> {
   const body = `
   <p style="color:#64748b;font-size:14px;line-height:1.6;margin:0 0 20px;">
     Sua solicitacao de <strong>${tipoLabel(tipo)}</strong> foi registrada com sucesso.
@@ -91,13 +108,13 @@ export async function sendConfirmationEmail(to: string, protocolo: string, tipo:
     Voce recebera uma notificacao por email quando sua solicitacao for processada.
   </p>`;
 
-  await safeSend(to, `Solicitacao LGPD registrada — ${protocolo}`, emailTemplate("Solicitacao Registrada", body));
+  await safeSend(to, `Solicitacao LGPD registrada — ${protocolo}`, emailTemplate("Solicitacao Registrada", body, marca));
 }
 
 /**
  * Sent when a titular request is completed.
  */
-export async function sendCompletionEmail(to: string, protocolo: string, tipo: string, resultSummary: string): Promise<void> {
+export async function sendCompletionEmail(to: string, protocolo: string, tipo: string, resultSummary: string, marca: MarcaResolvida = MARCA_PLATAFORMA): Promise<void> {
   const body = `
   <p style="color:#64748b;font-size:14px;line-height:1.6;margin:0 0 20px;">
     Sua solicitacao de <strong>${tipoLabel(tipo)}</strong> foi concluida.
@@ -110,7 +127,7 @@ export async function sendCompletionEmail(to: string, protocolo: string, tipo: s
     Caso tenha duvidas, entre em contato pelo canal de atendimento LGPD.
   </p>`;
 
-  await safeSend(to, `Solicitacao LGPD concluida — ${protocolo}`, emailTemplate("Solicitacao Concluida", body));
+  await safeSend(to, `Solicitacao LGPD concluida — ${protocolo}`, emailTemplate("Solicitacao Concluida", body, marca));
 }
 
 /**

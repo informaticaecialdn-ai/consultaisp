@@ -43,6 +43,29 @@ export default function LgpdPage() {
                     <Mail className="w-3.5 h-3.5" />{data?.encarregado}
                   </a>
                 </div>
+
+                {/* White label: quando o controlador é um revendedor, a
+                    plataforma que opera a infraestrutura precisa ser nomeada.
+                    Omitir não deixa o white label mais bonito — deixa o titular
+                    sem saber quem, de fato, processa os dados dele, que é
+                    exatamente o que a LGPD manda informar. */}
+                {data?.operador && (
+                  <div className="pt-3 mt-1 border-t border-[var(--border)] space-y-1.5">
+                    <p className="text-muted-foreground text-xs">
+                      Operadora (processa os dados em nome do responsável acima):
+                    </p>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Empresa:</span>
+                      <span className="font-semibold">{data.operador.empresa}</span>
+                    </div>
+                    {data.operador.cnpj && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">CNPJ:</span>
+                        <span className="font-semibold">{data.operador.cnpj}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
 

@@ -9,7 +9,8 @@ import { Shield, CheckCircle, Lock, Eye, EyeOff, MailCheck, RefreshCw, Globe, Bu
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { getSubdomain } from "@/lib/subdomain";
-import Marca, { SimboloConsultaISP } from "@/components/marca";
+import { useMarca } from "@/lib/marca";
+import Marca, { SimboloDaMarca } from "@/components/marca";
 
 function slugifySubdomain(name: string): string {
   return name
@@ -152,8 +153,17 @@ export default function LoginPage() {
   const { login, register } = useAuth();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const marca = useMarca();
   const currentSubdomain = getSubdomain();
-  const isSubdomainMode = !!currentSubdomain;
+  /**
+   * Modo tenant = só login, sem o formulário público de cadastro.
+   *
+   * Era `!!getSubdomain()`. Num domínio próprio de revendedor isso dá false, e
+   * a porta de entrada dele passaria a oferecer "criar conta" na plataforma —
+   * qualquer visitante abriria um provedor novo a partir da marca dele. Quem
+   * responde agora é o contexto que o servidor resolveu pelo host.
+   */
+  const isSubdomainMode = marca.contexto === "tenant";
 
   const { data: tenantInfo } = useQuery<{ id: number; name: string; subdomain: string }>({
     queryKey: ["/api/tenant/resolve", currentSubdomain],
@@ -162,7 +172,7 @@ export default function LoginPage() {
       if (!res.ok) return null;
       return res.json();
     },
-    enabled: isSubdomainMode,
+    enabled: !!currentSubdomain,
   });
 
   const [pageState, setPageState] = useState<PageState>(() => {
@@ -391,7 +401,7 @@ export default function LoginPage() {
 
                 <div className="bg-[var(--color-brand)]/5 rounded p-4 mb-6 space-y-2">
                   {[
-                    "Abra seu email e procure a mensagem do Consulta ISP",
+                    `Abra seu email e procure a mensagem do ${marca.nomeProduto}`,
                     "Clique no botao \"Confirmar Email\"",
                     "Voce sera redirecionado automaticamente para o sistema",
                   ].map((step, i) => (
@@ -429,7 +439,7 @@ export default function LoginPage() {
             ) : (
               <Card className="p-8 border border-[var(--border)] rounded bg-[var(--color-surface)]">
                 <div className="text-center mb-6">
-                  <SimboloConsultaISP tamanho={46} className="mx-auto mb-3" />
+                  <SimboloDaMarca tamanho={46} className="mx-auto mb-3" />
                   <h2 className="font-display text-xl font-semibold" data-testid="text-login-title">
                     {isSubdomainMode
                       ? "Bem-vindo de volta"
@@ -754,7 +764,7 @@ export default function LoginPage() {
       </div>
 
       <footer className="text-center py-4 text-[var(--color-muted)] text-xs">
-        2026 Consulta ISP - Plataforma de Analise de Credito para Provedores de Internet
+        2026 {marca.nomeProduto} — Analise de credito para provedores de internet
       </footer>
     </div>
   );

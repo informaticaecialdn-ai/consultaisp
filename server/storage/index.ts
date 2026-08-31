@@ -18,6 +18,7 @@ import type {
   ErpCatalog, InsertErpCatalog,
   VisitorChat, VisitorChatMessage,
   ProactiveAlert, InsertProactiveAlert,
+  Marca, InsertMarca,
 } from "@shared/schema";
 import type { AlertWithOwnership } from "./antifraude.storage";
 
@@ -35,6 +36,7 @@ import { ChatStorage } from "./chat.storage";
 import { DashboardStorage } from "./dashboard.storage";
 import { AdminStorage } from "./admin.storage";
 import { ImportStorage } from "./import.storage";
+import { MarcasStorage } from "./marcas.storage";
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
@@ -47,6 +49,20 @@ export interface IStorage {
   getUsersByProvider(providerId: number): Promise<User[]>;
   deleteUser(id: number): Promise<void>;
   updateUserEmail(id: number, email: string): Promise<void>;
+
+  // Marcas white label
+  getMarca(id: number): Promise<Marca | undefined>;
+  getMarcaPorSlug(slug: string): Promise<Marca | undefined>;
+  getMarcaPorDominio(host: string): Promise<Marca | undefined>;
+  getMarcaPorSubdominio(subdomain: string): Promise<Marca | undefined>;
+  getAllMarcas(): Promise<Marca[]>;
+  createMarca(data: InsertMarca): Promise<Marca>;
+  updateMarca(id: number, data: Partial<InsertMarca>): Promise<Marca>;
+  marcarDominioAtivo(id: number): Promise<Marca>;
+  deleteMarca(id: number): Promise<void>;
+  getProvidersPorMarca(marcaId: number): Promise<{ id: number; name: string; subdomain: string | null }[]>;
+  getProvidersSemMarca(): Promise<{ id: number; name: string; subdomain: string | null }[]>;
+  setMarcaDoProvider(providerId: number, marcaId: number | null): Promise<void>;
 
   getProvider(id: number): Promise<Provider | undefined>;
   getProviderByCnpj(cnpj: string): Promise<Provider | undefined>;
@@ -248,6 +264,7 @@ class DatabaseStorage implements IStorage {
   private _dashboard = new DashboardStorage();
   private _admin = new AdminStorage();
   private _import = new ImportStorage();
+  private _marcas = new MarcasStorage();
 
   // Users
   getUser = (id: number) => this._users.getUser(id);
@@ -261,6 +278,20 @@ class DatabaseStorage implements IStorage {
   deleteUser = (id: number) => this._users.deleteUser(id);
   updateUserEmail = (id: number, email: string) => this._users.updateUserEmail(id, email);
   getAllUsers = () => this._users.getAllUsers();
+
+  // Marcas white label
+  getMarca = (id: number) => this._marcas.getMarca(id);
+  getMarcaPorSlug = (slug: string) => this._marcas.getMarcaPorSlug(slug);
+  getMarcaPorDominio = (host: string) => this._marcas.getMarcaPorDominio(host);
+  getMarcaPorSubdominio = (subdomain: string) => this._marcas.getMarcaPorSubdominio(subdomain);
+  getAllMarcas = () => this._marcas.getAllMarcas();
+  createMarca = (data: InsertMarca) => this._marcas.createMarca(data);
+  updateMarca = (id: number, data: Partial<InsertMarca>) => this._marcas.updateMarca(id, data);
+  marcarDominioAtivo = (id: number) => this._marcas.marcarDominioAtivo(id);
+  deleteMarca = (id: number) => this._marcas.deleteMarca(id);
+  getProvidersPorMarca = (marcaId: number) => this._marcas.getProvidersPorMarca(marcaId);
+  getProvidersSemMarca = () => this._marcas.getProvidersSemMarca();
+  setMarcaDoProvider = (providerId: number, marcaId: number | null) => this._marcas.setMarcaDoProvider(providerId, marcaId);
 
   // Providers
   getProvider = (id: number) => this._providers.getProvider(id);

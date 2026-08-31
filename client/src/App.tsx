@@ -11,7 +11,7 @@ import ThemeToggle from "@/components/theme-toggle";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ChatWidget } from "@/components/chat-widget";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getSubdomain } from "@/lib/subdomain";
+import { useMarca } from "@/lib/marca";
 
 // Auth
 const LoginPage = lazy(() => import("@/pages/auth/login"));
@@ -38,6 +38,7 @@ const AdminProvedorPage = lazy(() => import("@/pages/admin/admin-provedor"));
 const AdminFinanceiroPage = lazy(() => import("@/pages/admin/admin-financeiro"));
 const AdminCreditosPage = lazy(() => import("@/pages/admin/admin-creditos"));
 const AdminLgpdPage = lazy(() => import("@/pages/admin/admin-lgpd"));
+const AdminMarcasPage = lazy(() => import("@/pages/admin/admin-marcas"));
 
 // Provedor
 const DashboardPage = lazy(() => import("@/pages/provedor/dashboard"));
@@ -91,6 +92,7 @@ function Router() {
         <Route path="/admin/financeiro" component={AdminFinanceiroPage} />
         <Route path="/admin/creditos" component={AdminCreditosPage} />
         <Route path="/admin/lgpd" component={AdminLgpdPage} />
+        <Route path="/admin/marcas" component={AdminMarcasPage} />
         <Route path="/lgpd" component={LgpdPage} />
         <Route path="/configuracoes/regionalizacao" component={ConfiguracoesRegionalizacaoPage} />
         <Route path="/benchmark-regional"><Redirect to="/localizacao" /></Route>
@@ -165,6 +167,7 @@ function ChangePasswordModal() {
 }
 
 function AuthenticatedApp() {
+  const marca = useMarca();
   const { user, isLoading } = useAuth();
   const [location, navigate] = useLocation();
 
@@ -217,8 +220,14 @@ function AuthenticatedApp() {
   }
 
   if (!user) {
-    const subdomain = getSubdomain();
-    if (subdomain) {
+    // Quem decide é o SERVIDOR, não o subdomínio.
+    //
+    // A regra antiga era `getSubdomain() ? login : landing`. Num domínio
+    // próprio de revendedor (app.crednet.com.br) isso dá null, e o cliente dele
+    // cairia na landing do Consulta ISP — a marca de outra empresa, na porta de
+    // entrada dele. O servidor resolve a marca pelo host e diz em qual dos dois
+    // contextos estamos (client/src/lib/marca.ts).
+    if (marca.contexto === "tenant") {
       return <Suspense fallback={<PageLoader />}><LoginPage /></Suspense>;
     }
     return <Suspense fallback={<PageLoader />}><LandingPage /></Suspense>;

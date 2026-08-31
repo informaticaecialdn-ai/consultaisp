@@ -11,6 +11,7 @@ import { apiRequest, STALE_DASHBOARD } from "@/lib/queryClient";
 import { useState, useRef, useEffect } from "react";
 import { CUSTO_EM_CREDITOS } from "@shared/schema";
 import { useLocation } from "wouter";
+import { useMarca } from "@/lib/marca";
 import {
   Building2, Globe, Users, CreditCard, Settings, Copy, CheckCircle,
   ExternalLink, Plus, Trash2, Shield, User, Mail, Phone, Link2,
@@ -94,6 +95,7 @@ function formatFileSize(bytes: number) {
 }
 
 export default function PainelProvedorPage() {
+  const marca = useMarca();
   const { user, provider } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -1297,10 +1299,10 @@ export default function PainelProvedorPage() {
           <div className="space-y-4">
             <Card className="p-6">
               <h2 className="text-lg font-semibold mb-1 flex items-center gap-2">
-                <Globe className="w-5 h-5" />Seu Subdominio no Consulta ISP
+                <Globe className="w-5 h-5" />Seu Subdominio no {marca.nomeProduto}
               </h2>
               <p className="text-sm text-muted-foreground mb-5">
-                Este e o endereco exclusivo do seu provedor na plataforma Consulta ISP.
+                Este e o endereco exclusivo do seu provedor na plataforma {marca.nomeProduto}.
               </p>
               {provider?.subdomain ? (
                 <>
@@ -1333,7 +1335,7 @@ export default function PainelProvedorPage() {
                       <ol className="space-y-1.5 text-sm text-muted-foreground list-decimal list-inside">
                         <li>Compartilhe o link com sua equipe</li>
                         <li>Faca login com suas credenciais normais</li>
-                        <li>Acesse todas as funcionalidades do Consulta ISP</li>
+                        <li>Acesse todas as funcionalidades do {marca.nomeProduto}</li>
                         <li>Seu ambiente e isolado dos outros provedores</li>
                       </ol>
                     </Card>
