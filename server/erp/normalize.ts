@@ -161,6 +161,17 @@ export function aggregateByCustomer(
 
   for (const inv of invoices) {
     const key = inv.cpfCnpj;
+
+    /* Fatura sem documento nao vira cliente.
+       O agrupamento e por documento, entao sem esta linha TODAS as faturas sem
+       CPF caem na mesma chave vazia e viram UM cliente sem identidade somando a
+       divida de todas elas. Depois que `cleanCpfCnpj` passou a devolver vazio
+       para numero de boleto, isso deixaria de ser um caso raro: seriam 8.693
+       faturas da base do IXC colapsando num unico registro de R$ 3,5 milhoes.
+       Num bureau, um devedor que ninguem consegue identificar nao e um devedor —
+       e ruido que ninguem consegue nem contestar. */
+    if (!key) continue;
+
     const existing = map.get(key);
 
     if (existing) {

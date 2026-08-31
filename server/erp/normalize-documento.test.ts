@@ -53,3 +53,38 @@ describe("cleanCpfCnpj", () => {
     expect(cleanCpfCnpj("123456789012345")).toBe("");
   });
 });
+
+/**
+ * `aggregateByCustomer` — fatura sem documento não vira cliente.
+ *
+ * O agrupamento é por documento. Sem a guarda, TODAS as faturas sem CPF caem na
+ * mesma chave vazia e viram UM cliente sem identidade somando a dívida de todas
+ * elas. Depois que `cleanCpfCnpj` passou a devolver vazio para número de boleto,
+ * isso deixaria de ser raro: seriam 8.693 faturas do IXC colapsando num único
+ * registro de R$ 3,5 milhões.
+ */
+describe("aggregateByCustomer", () => {
+  const fat = (doc: string, valor: number) => ({
+    cpfCnpj: doc, name: doc ? "Fulano" : "", amount: valor, daysOverdue: 30,
+    erpSource: "ixc",
+  });
+
+  it("descarta fatura sem documento em vez de agrupar todas numa so", async () => {
+    const { aggregateByCustomer } = await import("./normalize");
+    const r = aggregateByCustomer([
+      fat("", 100), fat("", 200), fat("", 300),
+      fat("04117982940", 50),
+    ]);
+    expect(r).toHaveLength(1);
+    expect(r[0].cpfCnpj).toBe("04117982940");
+    expect(r[0].totalOverdueAmount).toBe(50);
+  });
+
+  it("continua somando as faturas de um mesmo documento", async () => {
+    const { aggregateByCustomer } = await import("./normalize");
+    const r = aggregateByCustomer([fat("04117982940", 50), fat("04117982940", 70)]);
+    expect(r).toHaveLength(1);
+    expect(r[0].totalOverdueAmount).toBe(120);
+    expect(r[0].overdueInvoicesCount).toBe(2);
+  });
+});

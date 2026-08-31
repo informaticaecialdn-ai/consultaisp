@@ -215,6 +215,21 @@ export class CustomersStorage {
      */
     skipPaymentStatus?: boolean;
   }): Promise<Customer> {
+    /* ULTIMA PORTA: sem documento nao entra.
+       A tabela e chaveada por (providerId, cpfCnpj) e todo o bureau — consulta,
+       cruzamento por endereco, anti-fraude — pergunta por documento. Uma linha
+       com documento vazio nao responde a nenhuma dessas perguntas, e ainda
+       colide com a proxima que chegar igual, virando um cliente Frankenstein
+       que soma a divida de varias pessoas.
+       Os conectores ja descartam antes (`cleanCpfCnpj` devolve vazio para o que
+       nao e documento), e `aggregateByCustomer` tambem. Esta guarda existe
+       porque sao 31 pontos de chamada e um deles esquecer sai caro: em
+       29/08/2026 a base tinha 8.705 linhas assim, R$ 3,58 milhoes de divida
+       inexistente. */
+    if (!data.cpfCnpj?.trim()) {
+      throw new Error("upsertFromErp: cliente sem CPF/CNPJ — linha descartada");
+    }
+
     const existing = await db.select().from(customers)
       .where(and(
         eq(customers.cpfCnpj, data.cpfCnpj),

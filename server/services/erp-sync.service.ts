@@ -206,7 +206,14 @@ async function syncProviderToDbInterno(
       if (allResult.ok && allResult.customers.length > 0) {
         console.log(`[ERPSync] ${providerName}: fetchCustomers retornou ${allResult.customers.length} clientes totais`);
         let activeUpserted = 0;
+        let semDocumento = 0;
         for (const customer of allResult.customers) {
+          // Sem documento nao ha o que gravar: a tabela e chaveada por
+          // (providerId, cpfCnpj) e todo o bureau pergunta por documento.
+          // Descartado aqui, e nao no `catch`, para nao contar como erro de
+          // sync — nao e falha de leitura, e linha que o ERP mandou sem
+          // identidade.
+          if (!customer.cpfCnpj?.trim()) { semDocumento++; continue; }
           try {
             let city = customer.city || "";
             let state = customer.state || "";
@@ -262,6 +269,9 @@ async function syncProviderToDbInterno(
           } catch {}
         }
         console.log(`[ERPSync] ${providerName}: ${activeUpserted} clientes totais upserted (sem geocoding)`);
+        if (semDocumento > 0) {
+          console.warn(`[ERPSync] ${providerName}: ${semDocumento} cliente(s) do ERP sem CPF/CNPJ — nao entram na base`);
+        }
       }
     } catch (err: any) {
       console.warn(`[ERPSync] ${providerName}: fetchCustomers falhou: ${err.message}`);
