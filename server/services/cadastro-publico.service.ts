@@ -254,7 +254,26 @@ export async function buscarEmpresa(cnpjBruto: string): Promise<RespostaEmpresa>
     // ser mensuravel depois — nao entra em `bigdata_consultations`, que e o
     // historico do provedor e nao deve receber consulta de quem nem e cliente.
     logger.info({ evento: "cadastro.consulta", tipo: "cnpj", cnpj }, "onboarding consultou CNPJ na BigDataCorp");
-    const bdc = await consultarCnpj(conta.providerId, conta.cred, cnpj);
+
+    /**
+     * Teto de tempo no enriquecimento.
+     *
+     * Medido em producao: a Receita responde em ~500ms e a BigDataCorp levou
+     * 17,4s. Com duas chamadas ao mesmo tempo, o nginx cortou em 60s e a etapa
+     * 1 do cadastro devolveu 504 — quem estava se cadastrando via a tela travar.
+     *
+     * O enriquecimento e OPCIONAL por desenho: o dado da Receita ja preenche a
+     * tela inteira. Entao ele corre contra um relogio, e quem perde e ele.
+     * A chamada segue em voo (o custo ja foi), mas nao segura mais a resposta.
+     */
+    const bdc = await Promise.race([
+      consultarCnpj(conta.providerId, conta.cred, cnpj),
+      new Promise<null>(resolve => setTimeout(() => resolve(null), 6000)),
+    ]);
+    if (bdc === null) {
+      logger.warn({ cnpj }, "cadastro: BigDataCorp passou de 6s no CNPJ; seguindo com a Receita");
+      return base;
+    }
     if (bdc.encontrado) {
       return {
         ...base,
@@ -305,7 +324,18 @@ export async function buscarResponsavel(
     // R$ 1,09 — a mais cara das duas. Ja passou pelo passe da etapa 1 e pelo
     // digito verificador; e por isso que ela e a ultima da fila.
     logger.info({ evento: "cadastro.consulta", tipo: "cpf" }, "onboarding consultou CPF na BigDataCorp");
-    const r = await consultarCpf(conta.providerId, conta.cred, cpf);
+
+    // Mesmo teto do CNPJ, um pouco mais folgado: esta consulta tem mais
+    // datasets. Estourou, cai no preenchimento manual — que ja e o caminho
+    // previsto. Formulario de cadastro nao pode ficar parado esperando bureau.
+    const r = await Promise.race([
+      consultarCpf(conta.providerId, conta.cred, cpf),
+      new Promise<null>(resolve => setTimeout(() => resolve(null), 8000)),
+    ]);
+    if (r === null) {
+      logger.warn("cadastro: BigDataCorp passou de 8s no CPF; caindo no preenchimento manual");
+      return { ok: false, motivo: "nao-encontrado", mensagem: "A consulta demorou. Preencha seus dados abaixo." };
+    }
     const nome = r.identidade?.nome?.trim();
     if (!nome) {
       return {
