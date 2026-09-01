@@ -505,7 +505,10 @@ export default function LandingPage() {
             <span className="text-[var(--text-on-brand)]/75">antes de instalar.</span>
           </h2>
           <p className="text-[var(--text-on-brand)]/85 mb-10 text-lg max-w-xl mx-auto leading-relaxed">
-            Cadastro em 2 minutos. 40 créditos gratuitos para testar a rede.<br/>
+            {/* Sai da mesma constante do card do plano. Cravado, dizia 40
+                enquanto o card dizia 50 — a mesma pagina prometia dois numeros
+                diferentes, e o certo e o do schema, que e o que o sistema da. */}
+            Cadastro em 2 minutos. {PLAN_CREDITS.free.isp} créditos gratuitos para testar a rede.<br/>
             Consultas na sua base sempre gratuitas.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8">
