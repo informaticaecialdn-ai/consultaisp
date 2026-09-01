@@ -185,11 +185,28 @@ function cnpjNaoEncontrado(status: any, basic: any): boolean {
   return !basic?.OfficialName && !basic?.TaxIdStatus;
 }
 
+/**
+ * Recorte para o cadastro publico: so o que aquela tela mostra.
+ *
+ * Os 8 datasets do combo levaram mais de 60s em producao e estouraram o tempo
+ * do nginx. O bloco de bureau do cadastro exibe cobrancas, processos e divida
+ * ativa — nao precisa de endereco, telefone, e-mail nem quadro societario, que
+ * a Receita ja entrega de graca na mesma tela.
+ *
+ * Preco DA CONTA: basic_data 0,02 + collections 0,07 + processes 0,07 +
+ * government_debtors 0,05 = R$ 0,21, contra R$ 0,39 do combo.
+ */
+export const DATASETS_EMPRESA_ONBOARDING = [
+  "basic_data", "collections", "processes", "government_debtors",
+] as const;
+
 export async function consultarCnpj(
   providerId: number, cred: Credencial, cnpj: string,
+  /** Recorte opcional. Sem ele, o combo completo — o comportamento de sempre. */
+  datasetsEscolhidos: readonly string[] = DATASETS_EMPRESA,
 ): Promise<ResultadoEmpresa> {
   const t0 = Date.now();
-  const datasets = [...DATASETS_EMPRESA];
+  const datasets = [...datasetsEscolhidos];
 
   const executar = async () => {
     const { token, tokenId } = await obterToken(providerId, cred);

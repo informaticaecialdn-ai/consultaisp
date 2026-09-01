@@ -7,10 +7,9 @@
  * Mas isso significa que um formulario aberto na internet gasta dinheiro, e o
  * custo e por TENTATIVA:
  *
- *   CNPJ na BigDataCorp .... R$ 0,39   (preco da conta, /empresas)
- *   CPF  na BigDataCorp .... R$ 1,09   (preco da conta, /pessoas)
+ *   CNPJ, recorte de onboarding .... R$ 0,21   (/empresas, 4 datasets)
+ *   CPF ............................ R$ 1,09   (/pessoas)
  *
- * R$ 1,48 por cadastro completo. Dez mil requisicoes abusivas seriam R$ 14.800.
  * Entao a economia da rota e: TUDO que for de graca acontece antes, e o que
  * custa so roda depois que o barato ja aprovou.
  *
@@ -19,22 +18,28 @@
  *   3. Receita via BrasilAPI       — de graca, derruba CNPJ inexistente
  *   4. BigDataCorp                 — so aqui gasta
  *
- * O passe da etapa 1 amarra a etapa 2: nao da para bater na busca de CPF em
- * laco sem antes ter resolvido um CNPJ de verdade.
+ * O passe da etapa 1 amarra as duas rotas pagas: nao da para bater nelas em
+ * laco sem antes ter resolvido um CNPJ de verdade, e o passe vale para UM CNPJ.
+ *
+ * TEMPO. A BigDataCorp e lenta — medido em producao, o combo de 8 datasets
+ * passou de 60s e o nginx cortou a conexao. Por isso ela NAO fica no caminho da
+ * etapa 1: a Receita responde em ~500ms e o bloco de bureau vem por uma rota
+ * separada, que a tela busca depois. Toda chamada paga tem teto de tempo.
  *
  * ── DE QUEM E A CONTA ──────────────────────────────────────────────────────
- * As credenciais da BigDataCorp sao POR PROVEDOR. No cadastro ainda nao existe
- * provedor, entao a consulta roda na conta da PLATAFORMA, lida do ambiente.
- * Sem ela, as buscas pagas ficam desligadas e o formulario cai no preenchimento
- * manual — o cadastro continua funcionando, so perde o preenchimento
- * automatico. Nunca usar a credencial de um provedor aqui: faria um cliente
- * pagar o onboarding dos concorrentes dele.
+ * As credenciais da BigDataCorp sao POR PROVEDOR, e no cadastro ainda nao ha
+ * provedor. A busca roda na credencial ja cadastrada do provedor definido em
+ * `BIGDATA_PROVEDOR_ONBOARDING` (padrao 1, a NsLink — que e o provedor do DONO
+ * da plataforma, entao a conta e de quem paga a fatura da BigDataCorp).
+ * Apontar isto para o provedor de um CLIENTE faria ele pagar o onboarding dos
+ * concorrentes; e o unico jeito errado de configurar. Sem credencial, as buscas
+ * pagas ficam desligadas e o formulario cai no preenchimento manual.
  */
 import crypto from "crypto";
 import { logger } from "../logger";
 import { validarCPF, validarCNPJ } from "../utils/cpf-cnpj-validator";
 import { consultarCpf, type Credencial } from "./bigdata.service";
-import { consultarCnpj } from "./bigdata-empresa";
+import { consultarCnpj, DATASETS_EMPRESA_ONBOARDING } from "./bigdata-empresa";
 import { storage } from "../storage";
 
 /**
@@ -299,7 +304,23 @@ export async function buscarBureauEmpresa(
 
   try {
     logger.info({ evento: "cadastro.consulta", tipo: "cnpj", cnpj }, "onboarding consultou CNPJ na BigDataCorp");
-    const r = await consultarCnpj(conta.providerId, conta.cred, cnpj);
+    /**
+     * Recorte de 4 datasets, nao os 8 do combo: o bloco mostra cobrancas,
+     * processos e divida ativa, e mais nada. Medido em producao, o combo
+     * completo passou de 60s e o nginx cortou. Tambem sai mais barato —
+     * R$ 0,21 contra R$ 0,39.
+     *
+     * O teto de 25s existe porque esta e uma requisicao HTTP presa: sem ele,
+     * uma BigDataCorp lenta segura a conexao ate o nginx desistir.
+     */
+    const r = await Promise.race([
+      consultarCnpj(conta.providerId, conta.cred, cnpj, DATASETS_EMPRESA_ONBOARDING),
+      new Promise<null>(resolve => setTimeout(() => resolve(null), 25_000)),
+    ]);
+    if (r === null) {
+      logger.warn({ cnpj }, "cadastro: bureau da empresa passou de 25s; o bloco nao aparece");
+      return { ok: false };
+    }
     const i = r.inadimplencia;
     return {
       ok: true,

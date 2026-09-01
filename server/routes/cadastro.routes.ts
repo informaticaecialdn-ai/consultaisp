@@ -20,10 +20,18 @@ import {
 export function registerCadastroRoutes(): Router {
   const router = Router();
 
-  // 8 CNPJs/hora: cobre errar a digitacao varias vezes, nao cobre varredura.
-  const limiteEmpresa = createRateLimiter({ windowMs: 3_600_000, maxRequests: 8 });
-  // 5 CPFs/hora, e cada um exige um passe de CNPJ valido. O de CPF e o caro.
-  const limiteResponsavel = createRateLimiter({ windowMs: 3_600_000, maxRequests: 5 });
+  /**
+   * Limites por IP, proporcionais ao CUSTO de cada rota.
+   *
+   * A etapa 1 e so a Receita, que e gratuita — pode ser generosa. E precisa
+   * ser: um escritorio de provedor sai por um IP so, e o limite anterior de 8
+   * por hora chegou a barrar o proprio dono testando o formulario.
+   *
+   * O bureau e o CPF gastam de verdade (R$ 0,21 e R$ 1,09) e continuam curtos.
+   */
+  const limiteEmpresa = createRateLimiter({ windowMs: 3_600_000, maxRequests: 40 });
+  const limiteBureau = createRateLimiter({ windowMs: 3_600_000, maxRequests: 12 });
+  const limiteResponsavel = createRateLimiter({ windowMs: 3_600_000, maxRequests: 8 });
 
   /**
    * A tela pergunta isto antes de desenhar a etapa 2: com a busca desligada
@@ -55,7 +63,7 @@ export function registerCadastroRoutes(): Router {
    * gratuitos — sem isso seria consulta de bureau empresarial de graca para
    * qualquer visitante.
    */
-  router.get("/api/public/cadastro/empresa/:cnpj/bureau", limiteEmpresa, async (req, res) => {
+  router.get("/api/public/cadastro/empresa/:cnpj/bureau", limiteBureau, async (req, res) => {
     try {
       const r = await buscarBureauEmpresa(String(req.params.cnpj ?? ""), String(req.query.passe ?? ""));
       // Falha aqui nao e erro de tela: o bloco simplesmente nao aparece e o
