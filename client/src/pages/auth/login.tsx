@@ -356,7 +356,6 @@ export default function LoginPage() {
                 {pageState === "register" && (
                   <CadastroWizard
                     aoPrecisarVerificar={(email) => { setPendingEmail(email); setPageState("check-email"); }}
-                    aoVoltarParaLogin={() => setPageState("login")}
                   />
                 )}
 

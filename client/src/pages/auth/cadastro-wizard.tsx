@@ -147,11 +147,8 @@ function Aviso({ tom, children }: { tom: "gated" | "danger" | "info"; children: 
 
 /* ── O assistente ───────────────────────────────────────────────────────── */
 
-export default function CadastroWizard({
-  aoPrecisarVerificar, aoVoltarParaLogin,
-}: {
+export default function CadastroWizard({ aoPrecisarVerificar }: {
   aoPrecisarVerificar: (email: string) => void;
-  aoVoltarParaLogin: () => void;
 }) {
   const { register } = useAuth();
   const { toast } = useToast();
@@ -392,10 +389,9 @@ export default function CadastroWizard({
               Confirmar e continuar <ArrowRight className="w-4 h-4" />
             </Button>
           </div>
-          <button type="button" onClick={aoVoltarParaLogin}
-            className="text-[13px] text-[var(--brand)] hover:underline w-full text-center block pt-1">
-            Já tenho conta — entrar
-          </button>
+          {/* O link para "já tenho conta" fica no rodapé do cartão, que a
+              página de login já desenha. Um aqui seria o segundo, um em cima
+              do outro. */}
         </div>
       )}
 
