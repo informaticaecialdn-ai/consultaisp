@@ -348,8 +348,32 @@ export async function buscarBureauEmpresa(
 // ── Etapa 2: o responsavel ──────────────────────────────────────────────────
 
 export type RespostaResponsavel =
-  | { ok: false; motivo: "passe" | "documento" | "nao-encontrado" | "desligado"; mensagem: string }
+  | { ok: false; motivo: "passe" | "documento" | "nao-socio" | "nao-encontrado" | "desligado"; mensagem: string }
   | { ok: true; cpf: string; nome: string; nascimento: string | null; situacaoReceita: string | null };
+
+/**
+ * O CPF informado bate com a mascara de algum socio da Receita?
+ *
+ * A BrasilAPI devolve o CPF do socio parcialmente coberto — "***208668**",
+ * onde so as posicoes 3 a 8 aparecem. Nao da para descobrir o CPF por ali, mas
+ * da para CONFERIR um que foi digitado: seis digitos batendo dentro do quadro
+ * societario da mesma empresa e prova suficiente para o cadastro.
+ *
+ * Isso vale mais que economia de digitacao. E a diferenca entre "quem tiver um
+ * passe consulta qualquer CPF por R$ 1,09" e "so socio daquele CNPJ dispara a
+ * consulta" — e a checagem custa zero, porque o quadro societario ja vem junto
+ * com o CNPJ que a etapa 1 buscou.
+ */
+function cpfBateComSocio(cpf: string, mascara: string | null | undefined): boolean {
+  const m = String(mascara ?? "");
+  if (m.length !== 11 || cpf.length !== 11) return false;
+  for (let i = 0; i < 11; i++) {
+    if (m[i] === "*") continue;              // digito coberto: nada a comparar
+    if (m[i] !== cpf[i]) return false;
+  }
+  // Mascara sem digito nenhum nao prova nada.
+  return /\d/.test(m);
+}
 
 export async function buscarResponsavel(
   cpfBruto: string, passe: string | undefined,
@@ -366,6 +390,27 @@ export async function buscarResponsavel(
   const cpf = soDigitos(cpfBruto);
   if (!validarCPF(cpf)) {
     return { ok: false, motivo: "documento", mensagem: "CPF invalido. Confira os numeros." };
+  }
+
+  /**
+   * O CPF precisa pertencer ao quadro societario do CNPJ da etapa 1 — e a
+   * ultima porteira gratuita antes da consulta de R$ 1,09.
+   *
+   * Empresa SEM quadro societario (MEI, empresario individual) passa direto:
+   * nao ha contra quem conferir, e barrar fecharia a porta para metade dos
+   * provedores pequenos. Quem nao e socio tambem segue, mas pelo preenchimento
+   * manual — nao gasta consulta.
+   */
+  const receita = await daReceita(conferido.cnpj);
+  const socios: any[] = receita?.qsa ?? [];
+  if (socios.length > 0) {
+    const ehSocio = socios.some(s => cpfBateComSocio(cpf, s?.cnpj_cpf_do_socio));
+    if (!ehSocio) {
+      return {
+        ok: false, motivo: "nao-socio",
+        mensagem: "Este CPF nao consta no quadro societario da empresa. Confira os numeros ou preencha seus dados abaixo.",
+      };
+    }
   }
 
   const conta = await contaDeBusca();

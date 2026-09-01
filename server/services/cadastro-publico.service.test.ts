@@ -20,7 +20,7 @@ vi.mock("../storage", () => ({
   },
 }));
 
-import { emitirPasse, conferirPasse, contaDeBusca, buscaAutomaticaDisponivel, buscarBureauEmpresa } from "./cadastro-publico.service";
+import { emitirPasse, conferirPasse, contaDeBusca, buscaAutomaticaDisponivel, buscarBureauEmpresa, buscarResponsavel } from "./cadastro-publico.service";
 
 const CNPJ = "33000167000101";
 const segredoOriginal = process.env.SESSION_SECRET;
@@ -146,5 +146,51 @@ describe("bureau da empresa", () => {
   it("sem credencial configurada nao consulta", async () => {
     getBigdataIntegration.mockResolvedValue(undefined);
     expect(await buscarBureauEmpresa(CNPJ, emitirPasse(CNPJ))).toEqual({ ok: false });
+  });
+});
+
+/**
+ * O quadro societario da Receita e a ultima porteira GRATUITA antes da consulta
+ * de R$ 1,09. Ela transforma "quem tiver um passe consulta qualquer CPF" em
+ * "so socio daquele CNPJ dispara a consulta".
+ */
+describe("responsavel precisa constar no quadro societario", () => {
+  const CPF_DO_SOCIO = "52998224725";   // valido no digito verificador
+
+  function receitaCom(qsa: any[]) {
+    globalThis.fetch = (async () => ({
+      ok: true, status: 200,
+      json: async () => ({ razao_social: "EMPRESA TESTE", qsa }),
+    })) as any;
+  }
+
+  it("CPF fora do quadro societario NAO vira consulta paga", async () => {
+    getBigdataIntegration.mockResolvedValue({ isEnabled: true, login: "c", password: "s" });
+    // mascara de outra pessoa: os digitos do meio nao batem
+    receitaCom([{ nome_socio: "OUTRA PESSOA", cnpj_cpf_do_socio: "***111111**" }]);
+
+    const r = await buscarResponsavel(CPF_DO_SOCIO, emitirPasse(CNPJ));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivo).toBe("nao-socio");
+  });
+
+  it("empresa SEM quadro societario passa — MEI nao pode ficar de fora", async () => {
+    // Sem credencial, para o teste parar antes da BigDataCorp e provar que a
+    // porteira do QSA deixou passar.
+    getBigdataIntegration.mockResolvedValue(undefined);
+    receitaCom([]);
+
+    const r = await buscarResponsavel(CPF_DO_SOCIO, emitirPasse(CNPJ));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivo).toBe("desligado");   // e nao "nao-socio"
+  });
+
+  it("CPF invalido nem chega a consultar a Receita", async () => {
+    let chamou = false;
+    globalThis.fetch = (async () => { chamou = true; return { ok: false, status: 500, json: async () => ({}) }; }) as any;
+    const r = await buscarResponsavel("11111111111", emitirPasse(CNPJ));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivo).toBe("documento");
+    expect(chamou).toBe(false);
   });
 });

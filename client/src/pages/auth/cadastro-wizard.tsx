@@ -82,6 +82,23 @@ function dataBr(iso: string | null): string | null {
   return a && m && d ? `${d}/${m}/${a}` : iso;
 }
 
+/**
+ * O CPF digitado bate com a máscara do sócio? ("***208668**")
+ *
+ * A Receita cobre os três primeiros e os dois últimos dígitos. Os seis do meio
+ * bastam para pegar erro de digitação AQUI, na hora, sem gastar a consulta de
+ * R$ 1,09 para descobrir depois. O servidor confere de novo — esta é só a
+ * versão instantânea, para o campo poder reclamar enquanto a pessoa digita.
+ */
+function bateComMascara(cpf: string, mascara: string | null | undefined): boolean {
+  const m = String(mascara ?? "");
+  if (m.length !== 11 || cpf.length !== 11) return false;
+  for (let i = 0; i < 11; i++) {
+    if (m[i] !== "*" && m[i] !== cpf[i]) return false;
+  }
+  return true;
+}
+
 /* ── Peças da tela ──────────────────────────────────────────────────────── */
 
 function Passos({ atual }: { atual: 1 | 2 | 3 }) {
@@ -173,6 +190,8 @@ export default function CadastroWizard({ aoPrecisarVerificar }: {
 
   // etapa 2
   const [buscaAutomatica, setBuscaAutomatica] = useState(true);
+  /** Índice do sócio escolhido, "outro" para procurador, null para não escolhido. */
+  const [socioEscolhido, setSocioEscolhido] = useState<number | "outro" | null>(null);
   const [cpf, setCpf] = useState("");
   const [nome, setNome] = useState("");
   const [nascimento, setNascimento] = useState<string | null>(null);
@@ -226,6 +245,9 @@ export default function CadastroWizard({ aoPrecisarVerificar }: {
     if (d.length !== 14) {
       setEmpresa(null);
       setBureau(null);
+      setSocioEscolhido(null);
+      setNome("");
+      setCpf("");
       setBuscaEmpresa("parado");
       setErroEmpresa("");
       return;
@@ -255,11 +277,27 @@ export default function CadastroWizard({ aoPrecisarVerificar }: {
     return () => { vivo = false; };
   }, [empresa]);
 
+  /**
+   * O CPF digitado contradiz o sócio escolhido?
+   *
+   * Só reclama com os 11 dígitos completos — reclamar no meio da digitação
+   * seria ruído, já que o CPF ainda está incompleto por definição.
+   */
+  const mascaraDoSocio = typeof socioEscolhido === "number"
+    ? empresa?.socios[socioEscolhido]?.cpfMascarado ?? null
+    : null;
+  const naoBateComOSocio = Boolean(
+    mascaraDoSocio && soDigitos(cpf).length === 11 && !bateComMascara(soDigitos(cpf), mascaraDoSocio),
+  );
+
   /* ── Etapa 2: busca o responsável quando o CPF fica completo ── */
   useEffect(() => {
     const d = soDigitos(cpf);
     if (d.length !== 11 || !empresa) return;
     if (!buscaAutomatica) { setBuscaCpf("manual"); return; }
+    // CPF que não bate com o sócio escolhido não vira consulta: seria pagar
+    // R$ 1,09 para o servidor devolver exatamente o que já sabemos aqui.
+    if (naoBateComOSocio) { setBuscaCpf("parado"); return; }
 
     const t = setTimeout(async () => {
       setBuscaCpf("buscando");
@@ -291,7 +329,7 @@ export default function CadastroWizard({ aoPrecisarVerificar }: {
       }
     }, 400);
     return () => clearTimeout(t);
-  }, [cpf, empresa, buscaAutomatica, toast]);
+  }, [cpf, empresa, buscaAutomatica, naoBateComOSocio, toast]);
 
   /* ── Etapa 3: disponibilidade do subdomínio ── */
   useEffect(() => {
@@ -347,7 +385,15 @@ export default function CadastroWizard({ aoPrecisarVerificar }: {
     : null;
 
   const podeIrEtapa2 = Boolean(empresa);
-  const podeIrEtapa3 = Boolean(nome.trim().length >= 3 && soDigitos(cpf).length === 11 && soDigitos(whatsapp).length >= 10);
+  const podeIrEtapa3 = Boolean(
+    nome.trim().length >= 3 &&
+    soDigitos(cpf).length === 11 &&
+    !naoBateComOSocio &&
+    soDigitos(whatsapp).length >= 10 &&
+    // Empresa com quadro societario exige escolher quem e; sem quadro (MEI),
+    // nao ha o que escolher.
+    (empresa?.socios.length === 0 || socioEscolhido !== null),
+  );
   const podeCriar = Boolean(
     subdominio.length >= 3 && statusSub !== "ocupado" &&
     email && emailConfirma && senha.length >= 6 && senhaConfirma && lgpd,
@@ -478,49 +524,106 @@ export default function CadastroWizard({ aoPrecisarVerificar }: {
       {/* ─── ETAPA 2 · RESPONSÁVEL ────────────────────────────────────── */}
       {etapa === 2 && empresa && (
         <div className="space-y-4">
-          <div>
-            <label className="text-sm font-medium text-[var(--text)]" htmlFor="cpf">
-              CPF do responsável
-            </label>
-            <p className="text-[12px] text-[var(--text-muted)] mt-0.5 mb-2">
-              Quem responde pelo provedor e vai administrar a conta.
-            </p>
-            <div className="relative">
-              <Input
-                id="cpf" inputMode="numeric" autoFocus
-                data-testid="input-cpf"
-                placeholder="000.000.000-00"
-                value={cpf}
-                onChange={e => { setCpf(formatarCpf(e.target.value)); setBuscaCpf("parado"); setNome(""); }}
-                className="font-mono tabular-nums pr-9"
-              />
-              <span className="absolute right-3 top-1/2 -translate-y-1/2">
-                {buscaCpf === "buscando" && <RefreshCw className="w-4 h-4 animate-spin text-[var(--text-muted)]" />}
-                {buscaCpf === "achou" && <CheckCircle2 className="w-4 h-4 text-[var(--ok)]" />}
-              </span>
-            </div>
-          </div>
+          {/* A Receita já disse quem responde pela empresa. Escolher da lista é
+              melhor que digitar: o nome vem pronto, e o CPF passa a ter contra
+              quem ser conferido — o que também impede a consulta paga de ser
+              disparada por quem não é sócio. */}
+          {empresa.socios.length > 0 && (
+            <div>
+              <label className="text-sm font-medium text-[var(--text)]">Quem responde pelo provedor?</label>
+              <p className="text-[12px] text-[var(--text-muted)] mt-0.5 mb-2">
+                Selecione seu nome no quadro societário da Receita.
+              </p>
+              <div className="space-y-1.5" role="radiogroup" aria-label="Sócios da empresa">
+                {empresa.socios.map((s, i) => {
+                  const escolhido = socioEscolhido === i;
+                  return (
+                    <button
+                      key={s.nome} type="button" role="radio" aria-checked={escolhido}
+                      data-testid={`socio-${i}`}
+                      onClick={() => { setSocioEscolhido(i); setNome(s.nome); setCpf(""); setBuscaCpf("parado"); setAvisoCpf(""); }}
+                      className="w-full text-left rounded px-3 py-2.5 transition-colors"
+                      style={{
+                        background: escolhido ? "var(--brand-soft)" : "var(--surface-2)",
+                        boxShadow: `0 0 0 1px ${escolhido ? "var(--brand)" : "var(--border)"}`,
+                      }}
+                    >
+                      <span className="flex items-center gap-2">
+                        {escolhido
+                          ? <CheckCircle2 className="w-4 h-4 flex-none" style={{ color: "var(--brand)" }} />
+                          : <span className="w-4 h-4 rounded-full flex-none" style={{ boxShadow: "0 0 0 1px var(--border-strong)" }} />}
+                        <span className="min-w-0">
+                          <span className="block text-[13px] font-medium truncate"
+                                style={{ color: escolhido ? "var(--brand-ink)" : "var(--text)" }}>
+                            {s.nome}
+                          </span>
+                          <span className="block text-[11px] text-[var(--text-muted)]">
+                            {s.qualificacao ?? "Sócio"}
+                            {s.cpfMascarado && <span className="font-mono ml-1.5">{s.cpfMascarado}</span>}
+                          </span>
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
 
-          {/* Os sócios da Receita servem de referência de qual CPF usar. É dado
-              público do CNPJ que a pessoa acabou de informar. */}
-          {empresa.socios.length > 0 && buscaCpf !== "achou" && (
-            <div className="rounded p-2.5 text-[12px]"
-                 style={{ background: "var(--surface-inset)", border: "1px solid var(--border-faint)" }}>
-              <p className="text-[var(--text-muted)] mb-1">Sócios registrados na Receita:</p>
-              <ul className="space-y-0.5">
-                {empresa.socios.slice(0, 6).map(s => (
-                  <li key={s.nome} className="text-[var(--text-2)]">
-                    {s.nome}
-                    {s.cpfMascarado && (
-                      <span className="font-mono text-[var(--text-faint)] ml-1.5">{s.cpfMascarado}</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
+                <button
+                  type="button" role="radio" aria-checked={socioEscolhido === "outro"}
+                  data-testid="socio-outro"
+                  onClick={() => { setSocioEscolhido("outro"); setNome(""); setCpf(""); setBuscaCpf("manual"); setAvisoCpf(""); }}
+                  className="w-full text-left rounded px-3 py-2 text-[12px] transition-colors"
+                  style={{
+                    background: socioEscolhido === "outro" ? "var(--brand-soft)" : "transparent",
+                    boxShadow: `0 0 0 1px ${socioEscolhido === "outro" ? "var(--brand)" : "var(--border-faint)"}`,
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  Não sou nenhum destes — sou procurador ou represento a empresa
+                </button>
+              </div>
             </div>
           )}
 
-          {(buscaCpf === "achou" || buscaCpf === "manual") && (
+          {/* O CPF só entra depois de escolher quem é — ou de imediato quando a
+              empresa não tem quadro societário (MEI, empresário individual). */}
+          {(socioEscolhido !== null || empresa.socios.length === 0) && (
+            <div>
+              <label className="text-sm font-medium text-[var(--text)]" htmlFor="cpf">
+                {socioEscolhido !== null && socioEscolhido !== "outro" ? "Confirme seu CPF" : "CPF do responsável"}
+              </label>
+              <p className="text-[12px] text-[var(--text-muted)] mt-0.5 mb-2">
+                {socioEscolhido !== null && socioEscolhido !== "outro"
+                  ? `Precisa bater com ${empresa.socios[socioEscolhido]?.cpfMascarado ?? "o registro da Receita"}.`
+                  : "Quem responde pelo provedor e vai administrar a conta."}
+              </p>
+              <div className="relative">
+                <Input
+                  id="cpf" inputMode="numeric" autoFocus
+                  data-testid="input-cpf"
+                  placeholder="000.000.000-00"
+                  value={cpf}
+                  onChange={e => { setCpf(formatarCpf(e.target.value)); setBuscaCpf(socioEscolhido === "outro" ? "manual" : "parado"); setAvisoCpf(""); }}
+                  className="font-mono tabular-nums pr-9"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2">
+                  {buscaCpf === "buscando" && <RefreshCw className="w-4 h-4 animate-spin text-[var(--text-muted)]" />}
+                  {buscaCpf === "achou" && <CheckCircle2 className="w-4 h-4 text-[var(--ok)]" />}
+                </span>
+              </div>
+              {/* Conferência instantânea contra a máscara, antes de gastar
+                  consulta: erro de digitação aparece na hora, de graça. */}
+              {naoBateComOSocio && (
+                <p className="text-[12px] text-[var(--danger)] mt-1">
+                  Não bate com o CPF do sócio selecionado. Confira os números.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* O nome aparece assim que há um sócio escolhido — ele já veio da
+              Receita e a pessoa só confere. Sem sócio, aparece quando a busca
+              resolve, ou de imediato no modo manual. */}
+          {(buscaCpf === "achou" || buscaCpf === "manual" || typeof socioEscolhido === "number") && (
             <>
               {avisoCpf && buscaCpf === "manual" && <Aviso tom="info">{avisoCpf}</Aviso>}
               <div>
