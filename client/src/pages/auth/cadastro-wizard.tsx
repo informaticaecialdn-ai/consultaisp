@@ -76,10 +76,23 @@ function sugerirSubdominio(nome: string): string {
     .replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-").slice(0, 30);
 }
 
-function dataBr(iso: string | null): string | null {
+/**
+ * Data em ISO para o formato brasileiro.
+ *
+ * O `slice(0, 10)` corta o horário, e não é detalhe: as duas fontes escrevem
+ * diferente. A Receita manda "2021-01-25" e a BigDataCorp manda
+ * "1978-07-16T00:00:00Z". Partindo no hífen sem cortar antes, o dia saía com o
+ * resto grudado — "16T00:00:00Z/07/1978" apareceu na tela.
+ *
+ * O que não for data ISO volta como veio: melhor mostrar o valor cru do que
+ * inventar uma data.
+ */
+export function dataBr(iso: string | null): string | null {
   if (!iso) return null;
-  const [a, m, d] = iso.split("-");
-  return a && m && d ? `${d}/${m}/${a}` : iso;
+  const [a, m, d] = String(iso).slice(0, 10).split("-");
+  const ehData = a?.length === 4 && m?.length === 2 && d?.length === 2
+    && /^\d+$/.test(a + m + d);
+  return ehData ? `${d}/${m}/${a}` : iso;
 }
 
 /**
