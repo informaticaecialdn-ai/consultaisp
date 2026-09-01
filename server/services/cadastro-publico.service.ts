@@ -310,15 +310,20 @@ export async function buscarBureauEmpresa(
      * completo passou de 60s e o nginx cortou. Tambem sai mais barato —
      * R$ 0,21 contra R$ 0,39.
      *
-     * O teto de 25s existe porque esta e uma requisicao HTTP presa: sem ele,
-     * uma BigDataCorp lenta segura a conexao ate o nginx desistir.
+     * TETO DE 10s. Medido: empresa pequena responde em ~4,5s (NsLink, com os 8
+     * datasets); empresa gigante passa de 25s mesmo com 4 (Petrobras). O que
+     * pesa e o volume de dado da empresa, nao a quantidade de datasets.
+     *
+     * Quem se cadastra aqui e provedor regional — empresa pequena, dentro dos
+     * 10s. Esperar mais so serviria para o visitante olhar um esqueleto girando
+     * e ve-lo sumir: e melhor desistir rapido e em silencio.
      */
     const r = await Promise.race([
       consultarCnpj(conta.providerId, conta.cred, cnpj, DATASETS_EMPRESA_ONBOARDING),
-      new Promise<null>(resolve => setTimeout(() => resolve(null), 25_000)),
+      new Promise<null>(resolve => setTimeout(() => resolve(null), 10_000)),
     ]);
     if (r === null) {
-      logger.warn({ cnpj }, "cadastro: bureau da empresa passou de 25s; o bloco nao aparece");
+      logger.warn({ cnpj }, "cadastro: bureau da empresa passou de 10s; o bloco nao aparece");
       return { ok: false };
     }
     const i = r.inadimplencia;
