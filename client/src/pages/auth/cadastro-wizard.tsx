@@ -35,6 +35,14 @@ type Empresa = {
   telefone: string | null; email: string | null; socios: Socio[]; enriquecido: boolean;
 };
 
+/** O que só o bureau sabe — contagem e sinalizador, nunca o processo em si. */
+type Bureau = {
+  encontrado: boolean; emCobrancaAgora: boolean;
+  cobrancas365d: number; credores365d: number;
+  processosTotal: number; processosComoReu: number;
+  temExecucao: boolean; dividaAtiva: number; naturezas: string[];
+};
+
 const soDigitos = (v: string) => v.replace(/\D/g, "");
 
 function formatarCnpj(v: string): string {
@@ -160,6 +168,8 @@ export default function CadastroWizard({ aoPrecisarVerificar }: {
   const [empresa, setEmpresa] = useState<Empresa | null>(null);
   const [buscaEmpresa, setBuscaEmpresa] = useState<"parado" | "buscando" | "erro">("parado");
   const [erroEmpresa, setErroEmpresa] = useState("");
+  const [bureau, setBureau] = useState<Bureau | null>(null);
+  const [carregandoBureau, setCarregandoBureau] = useState(false);
 
   // etapa 2
   const [buscaAutomatica, setBuscaAutomatica] = useState(true);
@@ -215,6 +225,7 @@ export default function CadastroWizard({ aoPrecisarVerificar }: {
     const d = soDigitos(cnpj);
     if (d.length !== 14) {
       setEmpresa(null);
+      setBureau(null);
       setBuscaEmpresa("parado");
       setErroEmpresa("");
       return;
@@ -222,6 +233,27 @@ export default function CadastroWizard({ aoPrecisarVerificar }: {
     const t = setTimeout(() => procurarEmpresa(d), 300);
     return () => clearTimeout(t);
   }, [cnpj, procurarEmpresa]);
+
+  /**
+   * O bloco de bureau, DEPOIS que o cartão da empresa já apareceu.
+   *
+   * É a parte que só a BigDataCorp responde, e leva 4 a 6 segundos. Buscá-la
+   * junto com a etapa 1 fazia a primeira tela do cadastro esperar por ela — e
+   * chegou a estourar o tempo do servidor. Aqui ela chega por baixo, com o
+   * formulário já utilizável, e some sem barulho se falhar.
+   */
+  useEffect(() => {
+    if (!empresa) return;
+    let vivo = true;
+    setBureau(null);
+    setCarregandoBureau(true);
+    fetch(`/api/public/cadastro/empresa/${empresa.cnpj}/bureau?passe=${encodeURIComponent(empresa.passe)}`)
+      .then(r => r.json())
+      .then(d => { if (vivo && d?.ok) setBureau(d); })
+      .catch(() => {})
+      .finally(() => { if (vivo) setCarregandoBureau(false); });
+    return () => { vivo = false; };
+  }, [empresa]);
 
   /* ── Etapa 2: busca o responsável quando o CPF fica completo ── */
   useEffect(() => {
@@ -377,6 +409,54 @@ export default function CadastroWizard({ aoPrecisarVerificar }: {
                     aprovação da conta vai depender de regularizar a situação.
                   </Aviso>
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* O bloco que só o bureau responde. É a primeira vez que o visitante
+              vê o produto trabalhando — e é sobre a empresa dele mesmo. */}
+          {empresa && (carregandoBureau || bureau) && (
+            <div
+              className="rounded p-3.5"
+              style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}
+              data-testid="card-bureau"
+            >
+              <p className="font-mono text-[9.5px] uppercase tracking-[0.1em] text-[var(--text-faint)] mb-2">
+                Consulta na base · o que já sabemos desta empresa
+              </p>
+
+              {carregandoBureau && (
+                <div className="space-y-1.5" aria-live="polite" aria-busy="true">
+                  <div className="h-3 rounded animate-pulse" style={{ background: "var(--surface-inset)", width: "70%" }} />
+                  <div className="h-3 rounded animate-pulse" style={{ background: "var(--surface-inset)", width: "45%" }} />
+                </div>
+              )}
+
+              {bureau && !carregandoBureau && (
+                bureau.encontrado && (bureau.cobrancas365d > 0 || bureau.processosComoReu > 0 || bureau.dividaAtiva > 0) ? (
+                  <div className="space-y-0.5">
+                    <Linha rotulo="Cobranças (12 meses)" valor={String(bureau.cobrancas365d)} mono />
+                    <Linha rotulo="Credores distintos" valor={bureau.credores365d ? String(bureau.credores365d) : null} mono />
+                    <Linha rotulo="Processos como réu" valor={bureau.processosComoReu ? String(bureau.processosComoReu) : null} mono />
+                    <Linha rotulo="Dívida ativa" valor={bureau.dividaAtiva ? `R$ ${bureau.dividaAtiva.toLocaleString("pt-BR")}` : null} mono />
+                    {bureau.temExecucao && (
+                      <p className="text-[12px] text-[var(--past)] pt-1">Há execução judicial registrada.</p>
+                    )}
+                    <p className="text-[11px] text-[var(--text-muted)] pt-2 leading-relaxed">
+                      É este tipo de leitura que você vai fazer dos seus assinantes, em 2 segundos,
+                      antes de instalar.
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-[13px] text-[var(--ok)] inline-flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Nenhuma ocorrência registrada.
+                    </p>
+                    <p className="text-[11px] text-[var(--text-muted)] pt-1.5 leading-relaxed">
+                      Foi a mesma consulta que você vai fazer dos seus assinantes antes de instalar.
+                    </p>
+                  </div>
+                )
               )}
             </div>
           )}

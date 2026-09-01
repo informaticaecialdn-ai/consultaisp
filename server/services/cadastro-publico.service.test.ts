@@ -20,7 +20,7 @@ vi.mock("../storage", () => ({
   },
 }));
 
-import { emitirPasse, conferirPasse, contaDeBusca, buscaAutomaticaDisponivel } from "./cadastro-publico.service";
+import { emitirPasse, conferirPasse, contaDeBusca, buscaAutomaticaDisponivel, buscarBureauEmpresa } from "./cadastro-publico.service";
 
 const CNPJ = "33000167000101";
 const segredoOriginal = process.env.SESSION_SECRET;
@@ -121,5 +121,30 @@ describe("conta que paga as buscas do cadastro", () => {
     process.env.BIGDATA_PLATAFORMA_LOGIN = "conta-da-casa";
     process.env.BIGDATA_PLATAFORMA_SENHA = "senha-da-casa";
     expect((await contaDeBusca())!.cred).toEqual({ login: "conta-da-casa", password: "senha-da-casa" });
+  });
+});
+
+/**
+ * O bloco de bureau da empresa sai por rota PUBLICA. Sem o passe, o cadastro
+ * viraria consulta de bureau empresarial de graca para qualquer visitante que
+ * digitasse um CNPJ — e cada uma custa R$ 0,39 na conta configurada.
+ */
+describe("bureau da empresa", () => {
+  it("sem passe nao consulta", async () => {
+    getBigdataIntegration.mockResolvedValue({ isEnabled: true, login: "c", password: "s" });
+    expect(await buscarBureauEmpresa(CNPJ, undefined)).toEqual({ ok: false });
+    expect(await buscarBureauEmpresa(CNPJ, "passe-inventado")).toEqual({ ok: false });
+  });
+
+  it("passe de OUTRO CNPJ nao serve — um passe, um CNPJ", async () => {
+    // Senao bastava um passe legitimo para varrer a base de empresas do pais.
+    getBigdataIntegration.mockResolvedValue({ isEnabled: true, login: "c", password: "s" });
+    const passeDeOutro = emitirPasse("11222333000181");
+    expect(await buscarBureauEmpresa(CNPJ, passeDeOutro)).toEqual({ ok: false });
+  });
+
+  it("sem credencial configurada nao consulta", async () => {
+    getBigdataIntegration.mockResolvedValue(undefined);
+    expect(await buscarBureauEmpresa(CNPJ, emitirPasse(CNPJ))).toEqual({ ok: false });
   });
 });

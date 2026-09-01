@@ -244,51 +244,79 @@ export async function buscarEmpresa(cnpjBruto: string): Promise<RespostaEmpresa>
     enriquecido: false,
   };
 
-  // 4. so agora gasta — e a falha aqui NAO derruba a etapa, porque o dado da
-  //    Receita ja basta para o cadastro seguir.
+  /**
+   * A BigDataCorp NAO entra aqui.
+   *
+   * Ela ficava nesta funcao e o custo apareceu na medicao: 4 a 6 segundos de
+   * espera na PRIMEIRA tela do cadastro (17s com o token frio), contra 500ms da
+   * Receita. Pior, os campos que ela preenchia — fantasia, situacao, porte,
+   * telefone, e-mail — a Receita ja preenche, entao a espera nao mudava um
+   * pixel.
+   *
+   * Agora ela vive em `buscarBureauEmpresa`, chamada pela tela DEPOIS que este
+   * cartao ja apareceu. O visitante le e confere a empresa de imediato, e o
+   * bloco de bureau — que e o que so a BigDataCorp tem — chega embaixo quando
+   * fica pronto. Mesmo dado, mesma conta, sem porta travada.
+   */
+  return base;
+}
+
+/** O que so o bureau sabe. Contagem e sinalizador, nunca o dossie. */
+export type BureauEmpresa = {
+  ok: true;
+  encontrado: boolean;
+  emCobrancaAgora: boolean;
+  cobrancas365d: number;
+  credores365d: number;
+  processosTotal: number;
+  processosComoReu: number;
+  temExecucao: boolean;
+  dividaAtiva: number;
+  naturezas: string[];
+} | { ok: false };
+
+/**
+ * O bloco de bureau da empresa — a parte do cadastro que so a BigDataCorp
+ * responde. R$ 0,39 por consulta, na conta configurada em `contaDeBusca`.
+ *
+ * Devolve CONTAGEM e SINALIZADOR, nunca o processo individual nem o credor.
+ * A rota e publica: com o detalhe, o cadastro viraria consulta de bureau
+ * empresarial gratuita para qualquer visitante que digitasse um CNPJ. O resumo
+ * mostra que o produto funciona sem entregar o relatorio.
+ */
+export async function buscarBureauEmpresa(
+  cnpjBruto: string, passe: string | undefined,
+): Promise<BureauEmpresa> {
+  const conferido = conferirPasse(passe);
+  if (!conferido.ok) return { ok: false };
+
+  const cnpj = soDigitos(cnpjBruto);
+  // O passe e emitido PARA um CNPJ: usar com outro nao vale.
+  if (cnpj !== conferido.cnpj || !validarCNPJ(cnpj)) return { ok: false };
+
   const conta = await contaDeBusca();
-  if (!conta) return base;
+  if (!conta) return { ok: false };
 
   try {
-    // R$ 0,39 na fatura da BigDataCorp. Registrado para o custo do onboarding
-    // ser mensuravel depois — nao entra em `bigdata_consultations`, que e o
-    // historico do provedor e nao deve receber consulta de quem nem e cliente.
     logger.info({ evento: "cadastro.consulta", tipo: "cnpj", cnpj }, "onboarding consultou CNPJ na BigDataCorp");
-
-    /**
-     * Teto de tempo no enriquecimento.
-     *
-     * Medido em producao: a Receita responde em ~500ms e a BigDataCorp levou
-     * 17,4s. Com duas chamadas ao mesmo tempo, o nginx cortou em 60s e a etapa
-     * 1 do cadastro devolveu 504 — quem estava se cadastrando via a tela travar.
-     *
-     * O enriquecimento e OPCIONAL por desenho: o dado da Receita ja preenche a
-     * tela inteira. Entao ele corre contra um relogio, e quem perde e ele.
-     * A chamada segue em voo (o custo ja foi), mas nao segura mais a resposta.
-     */
-    const bdc = await Promise.race([
-      consultarCnpj(conta.providerId, conta.cred, cnpj),
-      new Promise<null>(resolve => setTimeout(() => resolve(null), 6000)),
-    ]);
-    if (bdc === null) {
-      logger.warn({ cnpj }, "cadastro: BigDataCorp passou de 6s no CNPJ; seguindo com a Receita");
-      return base;
-    }
-    if (bdc.encontrado) {
-      return {
-        ...base,
-        enriquecido: true,
-        nomeFantasia: base.nomeFantasia ?? bdc.empresa.nomeFantasia ?? null,
-        situacao: base.situacao ?? bdc.empresa.situacao ?? null,
-        porte: base.porte ?? bdc.empresa.porte ?? null,
-        telefone: base.telefone ?? (bdc.telefones[0]?.numero ?? null),
-        email: base.email ?? (bdc.emails[0] ?? null),
-      };
-    }
+    const r = await consultarCnpj(conta.providerId, conta.cred, cnpj);
+    const i = r.inadimplencia;
+    return {
+      ok: true,
+      encontrado: r.encontrado,
+      emCobrancaAgora: Boolean(i?.emCobrancaAgora),
+      cobrancas365d: i?.cobrancas365d ?? 0,
+      credores365d: i?.credores365d ?? 0,
+      processosTotal: i?.processosTotal ?? 0,
+      processosComoReu: i?.processosComoReu ?? 0,
+      temExecucao: Boolean(i?.temExecucao),
+      dividaAtiva: i?.dividaAtiva ?? 0,
+      naturezas: (i?.naturezas ?? []).slice(0, 4),
+    };
   } catch (erro) {
-    logger.warn({ err: erro }, "cadastro: BigDataCorp falhou no CNPJ; seguindo com a Receita");
+    logger.warn({ err: erro }, "cadastro: BigDataCorp falhou no bureau da empresa");
+    return { ok: false };
   }
-  return base;
 }
 
 // ── Etapa 2: o responsavel ──────────────────────────────────────────────────

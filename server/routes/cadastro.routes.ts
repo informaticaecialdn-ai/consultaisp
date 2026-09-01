@@ -14,7 +14,7 @@ import { z } from "zod";
 import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import {
-  buscarEmpresa, buscarResponsavel, buscaAutomaticaDisponivel,
+  buscarEmpresa, buscarBureauEmpresa, buscarResponsavel, buscaAutomaticaDisponivel,
 } from "../services/cadastro-publico.service";
 
 export function registerCadastroRoutes(): Router {
@@ -43,6 +43,26 @@ export function registerCadastroRoutes(): Router {
       return res.json(r);
     } catch (error: any) {
       return res.status(500).json({ ok: false, motivo: "indisponivel", mensagem: getSafeErrorMessage(error) });
+    }
+  });
+
+  /**
+   * O bloco de bureau da empresa. Rota separada de proposito: a consulta leva
+   * 4 a 6 segundos e a tela nao pode esperar por ela para desenhar a etapa 1.
+   * Chamada DEPOIS que o cartao da empresa ja apareceu.
+   *
+   * Exige o passe, que so e emitido para um CNPJ que passou pelos filtros
+   * gratuitos — sem isso seria consulta de bureau empresarial de graca para
+   * qualquer visitante.
+   */
+  router.get("/api/public/cadastro/empresa/:cnpj/bureau", limiteEmpresa, async (req, res) => {
+    try {
+      const r = await buscarBureauEmpresa(String(req.params.cnpj ?? ""), String(req.query.passe ?? ""));
+      // Falha aqui nao e erro de tela: o bloco simplesmente nao aparece e o
+      // cadastro segue. Por isso 200 com ok:false, e nao 4xx.
+      return res.json(r);
+    } catch {
+      return res.json({ ok: false });
     }
   });
 
