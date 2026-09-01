@@ -7,6 +7,7 @@ import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { normalizarHost, extractSubdomainFromHost } from "../tenant";
 import { hostPertenceAoProvider, resolverMarcaPorHost } from "../services/marca.service";
+import { validarCPF, validarCNPJ } from "../utils/cpf-cnpj-validator";
 import crypto from "crypto";
 
 export function registerAuthRoutes(): Router {
@@ -88,7 +89,23 @@ export function registerAuthRoutes(): Router {
       if (!parsed.success) {
         return res.status(400).json({ message: "Dados invalidos: " + parsed.error.errors.map(e => e.message).join(", ") });
       }
-      const { email, password, name, phone, providerName, cnpj, subdomain } = parsed.data;
+      const { email, password, name, phone, responsavelCpf, providerName, cnpj, subdomain } = parsed.data;
+
+      /**
+       * Digito verificador do CPF e do CNPJ.
+       *
+       * O zod so confere tamanho, e a tela pode ter caido no preenchimento
+       * manual — sem isso, "11111111111" entrava no cadastro de socios como se
+       * fosse gente. Um bureau que aceita documento invalido na propria porta
+       * de entrada nao tem como cobrar dado bom de ninguem.
+       */
+      const cpfLimpo = responsavelCpf.replace(/\D/g, "");
+      if (!validarCPF(cpfLimpo)) {
+        return res.status(400).json({ message: "CPF do responsavel invalido. Confira os numeros." });
+      }
+      if (!validarCNPJ(cnpj.replace(/\D/g, ""))) {
+        return res.status(400).json({ message: "CNPJ invalido. Confira os numeros." });
+      }
 
       const existing = await storage.getUserByEmail(email);
       if (existing) {
@@ -110,7 +127,13 @@ export function registerAuthRoutes(): Router {
         return res.status(409).json({ message: "Dados ja cadastrados. Verifique email, telefone, CNPJ ou subdominio." });
       }
 
-      const provider = await storage.createProvider({ name: providerName, cnpj, subdomain, plan: "free", status: "active" });
+      const provider = await storage.createProvider({
+        name: providerName, cnpj, subdomain, plan: "free", status: "active",
+        // O WhatsApp do responsavel tambem vira contato do provedor: e o unico
+        // canal que continua funcionando quando o e-mail nao chega.
+        contactEmail: email,
+        contactPhone: phone,
+      });
       const user = await storage.createUser({
         email,
         password: await hashPassword(password),
@@ -121,6 +144,24 @@ export function registerAuthRoutes(): Router {
         emailVerified: false,
         lgpdAcceptedAt: new Date(),
       });
+
+      /**
+       * O responsavel entra como socio do provedor.
+       *
+       * Antes o CPF de quem abria a conta simplesmente nao era guardado — a
+       * aba de socios do painel nascia vazia e a aprovacao do provedor pelo
+       * superadmin nao tinha contra quem conferir o CNPJ.
+       * Nao derruba o cadastro se falhar: a conta ja existe, e o socio pode ser
+       * lancado depois pelo painel.
+       */
+      await storage.createProviderPartner({
+        providerId: provider.id,
+        name,
+        cpf: cpfLimpo,
+        email,
+        phone,
+        role: "Responsavel pelo cadastro",
+      }).catch(err => console.error("[cadastro] socio responsavel nao gravado:", err?.message));
 
       const token = crypto.randomBytes(32).toString("hex");
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);

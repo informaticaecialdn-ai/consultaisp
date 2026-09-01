@@ -570,11 +570,22 @@ export const loginSchema = z.object({
   password: z.string().min(6),
 });
 
+/**
+ * O cadastro acontece em tres etapas na tela (empresa, responsavel, acesso),
+ * mas chega aqui de uma vez so: o POST e o ultimo passo. Etapa incompleta nao
+ * cria nada — nao existe provedor meio cadastrado no banco.
+ *
+ * `name` e `phone` sao do RESPONSAVEL: o nome vai para o usuario que loga, e o
+ * telefone e o WhatsApp dele, obrigatorio porque e o canal que funciona quando
+ * o e-mail nao chega.
+ */
 export const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
   name: z.string().min(2),
-  phone: z.string().min(10, "Telefone invalido"),
+  phone: z.string().min(10, "WhatsApp invalido"),
+  /** CPF do responsavel. Guardado em `provider_partners`, nao em `users`. */
+  responsavelCpf: z.string().min(11, "CPF invalido"),
   providerName: z.string().min(2),
   cnpj: z.string().min(14),
   subdomain: z.string().min(3).max(30).regex(/^[a-z0-9-]+$/, "Apenas letras minusculas, numeros e hifens"),

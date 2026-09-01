@@ -9,7 +9,7 @@ interface AuthState {
   mustChangePassword: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<{ code?: string; email?: string } | void>;
-  register: (data: { email: string; password: string; name: string; phone?: string; providerName: string; cnpj: string; subdomain: string; lgpdAccepted?: boolean }) => Promise<{ needsVerification: boolean; email: string }>;
+  register: (data: { email: string; password: string; name: string; phone?: string; responsavelCpf: string; providerName: string; cnpj: string; subdomain: string; lgpdAccepted?: boolean }) => Promise<{ needsVerification: boolean; email: string }>;
   logout: () => Promise<void>;
   clearMustChangePassword: () => void;
 }
@@ -62,7 +62,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setMustChangePassword(data.mustChangePassword || false);
   };
 
-  const register = async (data: { email: string; password: string; name: string; phone?: string; providerName: string; cnpj: string; subdomain: string; lgpdAccepted?: boolean }) => {
+  const register = async (data: { email: string; password: string; name: string; phone?: string; responsavelCpf: string; providerName: string; cnpj: string; subdomain: string; lgpdAccepted?: boolean }) => {
     const res = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -5,41 +5,13 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Shield, CheckCircle, Lock, Eye, EyeOff, MailCheck, RefreshCw, Globe, Building2, X, ArrowLeft } from "lucide-react";
+import { Shield, CheckCircle, Lock, Eye, EyeOff, MailCheck, RefreshCw, ArrowLeft } from "lucide-react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { getSubdomain } from "@/lib/subdomain";
 import { useMarca } from "@/lib/marca";
 import Marca, { SimboloDaMarca } from "@/components/marca";
-
-function slugifySubdomain(name: string): string {
-  return name
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9\s-]/g, "")
-    .trim()
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .slice(0, 30);
-}
-
-function formatCnpj(value: string): string {
-  const digits = value.replace(/\D/g, "").slice(0, 14);
-  if (digits.length <= 2) return digits;
-  if (digits.length <= 5) return `${digits.slice(0,2)}.${digits.slice(2)}`;
-  if (digits.length <= 8) return `${digits.slice(0,2)}.${digits.slice(2,5)}.${digits.slice(5)}`;
-  if (digits.length <= 12) return `${digits.slice(0,2)}.${digits.slice(2,5)}.${digits.slice(5,8)}/${digits.slice(8)}`;
-  return `${digits.slice(0,2)}.${digits.slice(2,5)}.${digits.slice(5,8)}/${digits.slice(8,12)}-${digits.slice(12)}`;
-}
-
-function formatPhone(value: string): string {
-  const digits = value.replace(/\D/g, "").slice(0, 11);
-  if (digits.length <= 2) return digits.length ? `(${digits}` : "";
-  if (digits.length <= 6) return `(${digits.slice(0,2)}) ${digits.slice(2)}`;
-  if (digits.length <= 10) return `(${digits.slice(0,2)}) ${digits.slice(2,6)}-${digits.slice(6)}`;
-  return `(${digits.slice(0,2)}) ${digits.slice(2,7)}-${digits.slice(7)}`;
-}
+import CadastroWizard from "@/pages/auth/cadastro-wizard";
 
 type PageState = "login" | "register" | "check-email" | "forgot" | "reset";
 
@@ -184,111 +156,34 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [pendingEmail, setPendingEmail] = useState("");
-  const [subdomainEdited, setSubdomainEdited] = useState(false);
-  const [subdomainStatus, setSubdomainStatus] = useState<"idle" | "checking" | "available" | "taken">("idle");
-  const [cnpjLookup, setCnpjLookup] = useState<"idle" | "loading" | "found" | "error">("idle");
-  const [cnpjData, setCnpjData] = useState<any>(null);
-  const [providerNameEdited, setProviderNameEdited] = useState(false);
-  const [form, setForm] = useState({
-    email: "",
-    confirmEmail: "",
-    password: "",
-    confirmPassword: "",
-    name: "",
-    phone: "",
-    providerName: "",
-    cnpj: "",
-    subdomain: "",
-    lgpdAccepted: false,
-  });
 
-  useEffect(() => {
-    if (!subdomainEdited && form.providerName) {
-      setForm(f => ({ ...f, subdomain: slugifySubdomain(f.providerName) }));
-    }
-  }, [form.providerName, subdomainEdited]);
+  /**
+   * Só o par de login. Todo o estado do cadastro — CNPJ, busca na Receita,
+   * subdomínio sugerido, confirmações — mudou para `CadastroWizard`, que é
+   * quem precisa dele. Aqui sobravam nove campos e três efeitos que nenhuma
+   * tela deste arquivo lia mais.
+   */
+  const [form, setForm] = useState({ email: "", password: "" });
 
-  useEffect(() => {
-    const digits = form.cnpj.replace(/\D/g, "");
-    if (digits.length !== 14) {
-      if (digits.length === 0) { setCnpjLookup("idle"); setCnpjData(null); }
-      return;
-    }
-    setCnpjLookup("loading");
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${digits}`);
-        if (!res.ok) throw new Error("CNPJ nao encontrado");
-        const data = await res.json();
-        setCnpjData(data);
-        setCnpjLookup("found");
-        const fantasia = data.nome_fantasia?.trim();
-        const razao = data.razao_social?.trim();
-        const nome = fantasia || razao || "";
-        if (nome && !providerNameEdited) {
-          setForm(f => ({ ...f, providerName: nome }));
-        }
-      } catch {
-        setCnpjLookup("error");
-        setCnpjData(null);
-      }
-    }, 600);
-    return () => clearTimeout(timer);
-  }, [form.cnpj]);
-
-  useEffect(() => {
-    if (!form.subdomain || form.subdomain.length < 3) {
-      setSubdomainStatus("idle");
-      return;
-    }
-    setSubdomainStatus("checking");
-    const timer = setTimeout(async () => {
-      try {
-        const res = await apiRequest("GET", `/api/auth/check-subdomain?subdomain=${encodeURIComponent(form.subdomain)}`);
-        const data = await res.json();
-        setSubdomainStatus(data.available ? "available" : "taken");
-      } catch {
-        setSubdomainStatus("idle");
-      }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [form.subdomain]);
-
+  /**
+   * Só o login. O cadastro saiu deste formulário e virou `CadastroWizard`, que
+   * pede empresa, responsável e acesso em três etapas — ver o arquivo dele.
+   */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (pageState === "register") {
-      if (form.email !== form.confirmEmail) {
-        toast({ title: "Emails nao conferem", description: "O email e a confirmacao de email devem ser identicos.", variant: "destructive" });
-        return;
-      }
-      if (form.password !== form.confirmPassword) {
-        toast({ title: "Senhas nao conferem", description: "A senha e a confirmacao de senha devem ser identicas.", variant: "destructive" });
-        return;
-      }
-    }
     setIsLoading(true);
     try {
-      if (pageState === "register") {
-        const result = await register(form);
-        if (result.needsVerification) {
-          setPendingEmail(result.email);
-          setPageState("check-email");
-        }
-      } else {
-        await login(form.email, form.password);
-      }
+      await login(form.email, form.password);
     } catch (err: any) {
       if (err.code === "EMAIL_NOT_VERIFIED") {
         setPendingEmail(err.email || form.email);
         setPageState("check-email");
         return;
       }
-      const isRegister = pageState === "register";
       toast({
-        title: isRegister ? "Nao foi possivel criar sua conta" : "Nao foi possivel entrar",
-        description: err.message || (isRegister ? "Verifique os dados e tente novamente." : "Verifique seu email e senha e tente novamente."),
+        title: "Nao foi possivel entrar",
+        description: err.message || "Verifique seu email e senha e tente novamente.",
         variant: "destructive",
       });
     } finally {
@@ -457,151 +352,16 @@ export default function LoginPage() {
                   </p>
                 </div>
 
-                {pageState !== "forgot" && pageState !== "reset" && (
+
+                {pageState === "register" && (
+                  <CadastroWizard
+                    aoPrecisarVerificar={(email) => { setPendingEmail(email); setPageState("check-email"); }}
+                    aoVoltarParaLogin={() => setPageState("login")}
+                  />
+                )}
+
+                {pageState === "login" && (
                 <form onSubmit={handleSubmit} className="space-y-4">
-                  {pageState === "register" && (
-                    <>
-                      <div>
-                        <label className="text-sm font-medium mb-1.5 block text-[var(--color-ink)]">Seu Nome Completo</label>
-                        <Input
-                          data-testid="input-name"
-                          placeholder="Seu nome completo"
-                          value={form.name}
-                          onChange={(e) => setForm({ ...form, name: e.target.value })}
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium mb-1.5 block text-[var(--color-ink)]">Telefone</label>
-                        <Input
-                          data-testid="input-phone"
-                          type="tel"
-                          placeholder="(00) 00000-0000"
-                          value={form.phone}
-                          onChange={(e) => setForm({ ...form, phone: formatPhone(e.target.value) })}
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium mb-1.5 block flex items-center gap-1.5 text-[var(--color-ink)]">
-                          <Building2 className="w-3.5 h-3.5" />CNPJ da Empresa
-                        </label>
-                        <div className="relative">
-                          <Input
-                            data-testid="input-cnpj"
-                            placeholder="00.000.000/0000-00"
-                            value={form.cnpj}
-                            onChange={(e) => setForm({ ...form, cnpj: formatCnpj(e.target.value) })}
-                            className={
-                              cnpjLookup === "found" ? "border-[var(--color-success)] pr-8" :
-                              cnpjLookup === "error" ? "border-[var(--color-danger)] pr-8" : "pr-8"
-                            }
-                            required
-                          />
-                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2">
-                            {cnpjLookup === "loading" && <RefreshCw className="w-4 h-4 animate-spin text-[var(--color-muted)]" />}
-                            {cnpjLookup === "found" && <CheckCircle className="w-4 h-4 text-[var(--color-success)]" />}
-                            {cnpjLookup === "error" && <X className="w-4 h-4 text-[var(--color-danger)]" />}
-                          </span>
-                        </div>
-                        {cnpjLookup === "loading" && (
-                          <p className="text-xs text-[var(--color-muted)] mt-1 flex items-center gap-1">
-                            <RefreshCw className="w-3 h-3 animate-spin" />Buscando dados da empresa...
-                          </p>
-                        )}
-                        {cnpjLookup === "found" && cnpjData && (
-                          <div className="mt-2 bg-[var(--color-success)]/5 border border-[var(--color-success)]/30 rounded p-3 space-y-1">
-                            <p className="text-xs font-semibold text-[var(--color-success)] flex items-center gap-1">
-                              <CheckCircle className="w-3.5 h-3.5" />Empresa encontrada
-                            </p>
-                            {cnpjData.razao_social && (
-                              <p className="text-xs text-[var(--color-ink)]">
-                                <span className="font-medium">Razao Social:</span> {cnpjData.razao_social}
-                              </p>
-                            )}
-                            {cnpjData.nome_fantasia && (
-                              <p className="text-xs text-[var(--color-ink)]">
-                                <span className="font-medium">Nome Fantasia:</span> {cnpjData.nome_fantasia}
-                              </p>
-                            )}
-                            {cnpjData.municipio && (
-                              <p className="text-xs text-[var(--color-ink)]">
-                                <span className="font-medium">Cidade:</span> {cnpjData.municipio} / {cnpjData.uf}
-                              </p>
-                            )}
-                            {cnpjData.situacao_cadastral && (
-                              <p className="text-xs text-[var(--color-ink)]">
-                                <span className="font-medium">Situacao:</span>{" "}
-                                <span className={cnpjData.situacao_cadastral === "ATIVA" ? "text-[var(--color-success)] font-semibold" : "text-[var(--color-danger)]"}>
-                                  {cnpjData.situacao_cadastral}
-                                </span>
-                              </p>
-                            )}
-                          </div>
-                        )}
-                        {cnpjLookup === "error" && (
-                          <p className="text-xs text-[var(--color-gold)] mt-1">CNPJ nao encontrado na Receita Federal. Voce pode continuar o cadastro normalmente.</p>
-                        )}
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium mb-1.5 block text-[var(--color-ink)]">
-                          Nome do Provedor
-                          {cnpjLookup === "found" && !providerNameEdited && (
-                            <span className="ml-2 text-xs text-[var(--color-success)] font-normal">(preenchido automaticamente)</span>
-                          )}
-                        </label>
-                        <Input
-                          data-testid="input-provider-name"
-                          placeholder="Nome do seu provedor"
-                          value={form.providerName}
-                          onChange={(e) => {
-                            setProviderNameEdited(true);
-                            setForm({ ...form, providerName: e.target.value });
-                          }}
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium mb-1.5 block flex items-center gap-1.5 text-[var(--color-ink)]">
-                          <Globe className="w-3.5 h-3.5" />Subdominio do Painel
-                        </label>
-                        <div className="flex items-center gap-2">
-                          <div className="relative flex-1">
-                            <Input
-                              data-testid="input-subdomain"
-                              placeholder="seuprovedor"
-                              value={form.subdomain}
-                              onChange={(e) => {
-                                setSubdomainEdited(true);
-                                const val = e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 30);
-                                setForm({ ...form, subdomain: val });
-                              }}
-                              className={
-                                subdomainStatus === "available" ? "border-[var(--color-success)] pr-8" :
-                                subdomainStatus === "taken" ? "border-[var(--color-danger)] pr-8" : "pr-8"
-                              }
-                              required
-                            />
-                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs">
-                              {subdomainStatus === "checking" && <RefreshCw className="w-3.5 h-3.5 animate-spin text-[var(--color-muted)]" />}
-                              {subdomainStatus === "available" && <CheckCircle className="w-3.5 h-3.5 text-[var(--color-success)]" />}
-                              {subdomainStatus === "taken" && <span className="text-[var(--color-danger)] font-semibold">!</span>}
-                            </span>
-                          </div>
-                          <span className="text-sm text-[var(--color-muted)] whitespace-nowrap">.consultaisp.com.br</span>
-                        </div>
-                        {subdomainStatus === "taken" && (
-                          <p className="text-xs text-[var(--color-danger)] mt-1">Subdominio ja em uso. Escolha outro.</p>
-                        )}
-                        {subdomainStatus === "available" && (
-                          <p className="text-xs text-[var(--color-success)] mt-1">Subdominio disponivel!</p>
-                        )}
-                        <p className="text-xs text-[var(--color-muted)] mt-1">
-                          Auto-gerado a partir do nome do provedor. Voce pode editar.
-                        </p>
-                      </div>
-                    </>
-                  )}
 
                   <div>
                     <label className="text-sm font-medium mb-1.5 block text-[var(--color-ink)]">Email</label>
@@ -615,26 +375,6 @@ export default function LoginPage() {
                     />
                   </div>
 
-                  {pageState === "register" && (
-                    <div>
-                      <label className="text-sm font-medium mb-1.5 block text-[var(--color-ink)]">Confirmar Email</label>
-                      <Input
-                        data-testid="input-confirm-email"
-                        type="email"
-                        placeholder="Repita seu email"
-                        value={form.confirmEmail}
-                        onChange={(e) => setForm({ ...form, confirmEmail: e.target.value })}
-                        className={form.confirmEmail && form.confirmEmail !== form.email ? "border-[var(--color-danger)]" : form.confirmEmail && form.confirmEmail === form.email ? "border-[var(--color-success)]" : ""}
-                        required
-                      />
-                      {form.confirmEmail && form.confirmEmail !== form.email && (
-                        <p className="text-xs text-[var(--color-danger)] mt-1">Os emails nao conferem</p>
-                      )}
-                      {form.confirmEmail && form.confirmEmail === form.email && (
-                        <p className="text-xs text-[var(--color-success)] mt-1 flex items-center gap-1"><CheckCircle className="w-3 h-3" />Emails conferem</p>
-                      )}
-                    </div>
-                  )}
 
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
@@ -666,65 +406,15 @@ export default function LoginPage() {
                     </div>
                   </div>
 
-                  {pageState === "register" && (
-                    <div>
-                      <label className="text-sm font-medium mb-1.5 block text-[var(--color-ink)]">Confirmar Senha</label>
-                      <div className="relative">
-                        <Input
-                          data-testid="input-confirm-password"
-                          type={showConfirmPassword ? "text" : "password"}
-                          placeholder="Repita sua senha"
-                          className={`pr-10 ${form.confirmPassword && form.confirmPassword !== form.password ? "border-[var(--color-danger)]" : form.confirmPassword && form.confirmPassword === form.password ? "border-[var(--color-success)]" : ""}`}
-                          value={form.confirmPassword}
-                          onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
-                          required
-                        />
-                        <button
-                          type="button"
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)] hover:text-[var(--color-ink)]"
-                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                          data-testid="button-toggle-confirm-password"
-                        >
-                          {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                      {form.confirmPassword && form.confirmPassword !== form.password && (
-                        <p className="text-xs text-[var(--color-danger)] mt-1">As senhas nao conferem</p>
-                      )}
-                      {form.confirmPassword && form.confirmPassword === form.password && (
-                        <p className="text-xs text-[var(--color-success)] mt-1 flex items-center gap-1"><CheckCircle className="w-3 h-3" />Senhas conferem</p>
-                      )}
-                    </div>
-                  )}
 
-                  {pageState === "register" && (
-                    <div className="flex items-start gap-2.5 p-3 bg-[var(--color-brand)]/5 border border-[var(--color-brand)]/20 rounded">
-                      <input
-                        type="checkbox"
-                        id="lgpd-register-accept"
-                        checked={form.lgpdAccepted}
-                        onChange={(e) => setForm({ ...form, lgpdAccepted: e.target.checked })}
-                        className="mt-0.5 w-4 h-4 rounded border-[var(--color-border)]"
-                        data-testid="checkbox-lgpd-accept"
-                        required
-                      />
-                      <label htmlFor="lgpd-register-accept" className="text-xs text-[var(--color-ink)] leading-relaxed cursor-pointer">
-                        Li e aceito os{" "}
-                        <a href="/lgpd" target="_blank" rel="noopener noreferrer" className="underline font-semibold text-[var(--color-brand)] hover:text-[var(--color-steel)]">
-                          Termos de Uso e a Politica de Privacidade
-                        </a>
-                        {" "}conforme a LGPD (Lei n 13.709/2018).
-                      </label>
-                    </div>
-                  )}
 
                   <Button
                     type="submit"
                     className="w-full bg-[var(--color-brand)] hover:bg-[var(--color-steel)] h-11 text-base"
-                    disabled={isLoading || (pageState === "register" && !form.lgpdAccepted)}
+                    disabled={isLoading}
                     data-testid="button-submit-login"
                   >
-                    {isLoading ? "Aguarde..." : pageState === "register" ? "Cadastrar" : "Entrar"}
+                    {isLoading ? "Aguarde..." : "Entrar"}
                     {!isLoading && <ArrowLeft className="w-4 h-4 ml-2 rotate-180" />}
                   </Button>
                 </form>

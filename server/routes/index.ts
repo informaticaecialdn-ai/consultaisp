@@ -24,6 +24,7 @@ import { registerRegionalRoutes } from "./regional.routes";
 import { registerNfseRoutes } from "./nfse.routes";
 import { registerCrmRoutes } from "./crm.routes";
 import { registerMarcaRoutes } from "./marca.routes";
+import { registerCadastroRoutes } from "./cadastro.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -54,6 +55,7 @@ export async function registerRoutes(
   app.use(registerNfseRoutes());
   app.use(registerCrmRoutes());
   app.use(registerMarcaRoutes());
+  app.use(registerCadastroRoutes());
 
   return httpServer;
 }
