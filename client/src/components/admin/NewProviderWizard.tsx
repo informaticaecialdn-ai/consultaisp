@@ -30,7 +30,7 @@ export default function NewProviderWizard({ open, onOpenChange }: { open: boolea
   const [cnpjLoading, setCnpjLoading] = useState(false);
   const [cnpjData, setCnpjData] = useState<any>(null);
   const [form, setForm] = useState({
-    name: "", tradeName: "", cnpj: "", subdomain: "", plan: "basic",
+    name: "", tradeName: "", cnpj: "", subdomain: "", plan: "free",
     contactEmail: "", contactPhone: "",
     addressZip: "", addressStreet: "", addressNumber: "",
     addressComplement: "", addressNeighborhood: "", addressCity: "", addressState: "",
@@ -60,7 +60,7 @@ export default function NewProviderWizard({ open, onOpenChange }: { open: boolea
     setCnpjData(null);
     setSubdomainEdited(false);
     setForm({
-      name: "", tradeName: "", cnpj: "", subdomain: "", plan: "basic",
+      name: "", tradeName: "", cnpj: "", subdomain: "", plan: "free",
       contactEmail: "", contactPhone: "", addressZip: "", addressStreet: "",
       addressNumber: "", addressComplement: "", addressNeighborhood: "",
       addressCity: "", addressState: "", legalType: "", openingDate: "",

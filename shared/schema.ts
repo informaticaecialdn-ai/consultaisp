@@ -664,11 +664,20 @@ export const CUSTO_EM_CREDITOS = {
 
 export type TipoConsultaCobravel = keyof typeof CUSTO_EM_CREDITOS;
 
+/**
+ * O que a fatura mensal cobra (server/routes/financeiro.routes.ts) e o que a
+ * landing exibe. Sao a MESMA fonte de proposito: preco de vitrine que diverge
+ * do preco cobrado e a forma mais rapida de perder um cliente.
+ *
+ * Vendidos hoje: `free` e `pro` — os dois cards da landing.
+ * `basic` e `enterprise` continuam aqui porque provedores podem estar neles e
+ * as consultas quebrariam sem a chave; nao sao oferecidos na pagina.
+ */
 export const PLAN_PRICES: Record<string, number> = {
   free: 0,
-  basic: 149,
-  pro: 349,
-  enterprise: 799,
+  basic: 149,      // legado, fora da vitrine
+  pro: 99,
+  enterprise: 799, // negociado fora do site
 };
 
 
@@ -812,10 +821,23 @@ export const geoEndereco = pgTable("geo_endereco", {
 
 export type GeoEndereco = typeof geoEndereco.$inferSelect;
 
+/**
+ * Creditos que a fatura declara como inclusos no plano.
+ *
+ * ATENCAO: isto e o que a fatura ESCREVE, nao um credito automatico. Nada no
+ * sistema soma esses valores a `providers.ispCredits` quando a fatura e paga —
+ * quem credita e o superadmin, ou a compra avulsa em /creditos.
+ *
+ * `pro` foi a zero junto com o preco de R$ 99: o plano passou a ser acesso, e a
+ * consulta na rede se paga por credito (e o que a landing sempre disse no
+ * subtitulo, "pague apenas pelo que usar na rede"). Antes prometia 500 ISP +
+ * 150 SPC — cerca de R$ 500 pela propria tabela de pacotes — por um valor
+ * menor que isso, e ainda dependia de alguem lancar na mao todo mes.
+ */
 export const PLAN_CREDITS: Record<string, { isp: number; spc: number }> = {
   free: { isp: 50, spc: 0 },
   basic: { isp: 200, spc: 50 },
-  pro: { isp: 500, spc: 150 },
+  pro: { isp: 0, spc: 0 },
   enterprise: { isp: 1500, spc: 500 },
 };
 

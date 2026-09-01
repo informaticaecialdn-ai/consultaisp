@@ -59,7 +59,7 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
   const [notes, setNotes] = useState("");
 
   // Plano state
-  const [plan, setPlan] = useState("basic");
+  const [plan, setPlan] = useState("free");
 
   // ERP state
   const [erpForm, setErpForm] = useState<ErpFormState>({ url: "", token: "", showToken: false, erpProvider: "" });
@@ -68,7 +68,7 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
   // Reset state when provider changes
   useEffect(() => {
     if (provider) {
-      setPlan(provider.plan || "basic");
+      setPlan(provider.plan || "free");
       setErpForm({
         url: provider.erpUrl ?? "",
         token: provider.erpToken ?? "",

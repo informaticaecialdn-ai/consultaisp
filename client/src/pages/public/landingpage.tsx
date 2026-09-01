@@ -329,9 +329,16 @@ export default function LandingPage() {
                 <span className="text-4xl font-mono font-black text-[var(--color-ink)]">R$ {PLAN_PRICES.pro}</span>
                 <span className="text-sm text-[var(--color-muted)]">/mes</span>
               </div>
-              <p className="text-xs text-[var(--color-muted)] mb-6">Acesso completo para seu provedor</p>
+              {/* O plano e ACESSO; a consulta na rede se paga por credito, na
+                  tabela logo abaixo. Dizer isso aqui evita a leitura de que o
+                  Gratuito da 50 creditos e o pago nao da nenhum. */}
+              <p className="text-xs text-[var(--color-muted)] mb-6">Acesso completo. Consultas na rede por credito.</p>
               <ul className="space-y-2.5 mb-6 flex-1">
-                {[`${PLAN_CREDITS.pro.isp} creditos ISP + ${PLAN_CREDITS.pro.spc} SPC por mes`,"Os 6 ERPs integrados","Anti-fraude por e-mail e webhook","Consulta cadastral (BigDataCorp)","Consulta SPC Brasil","Cruzamento por endereco"].map(f => (
+                {/* "Integracao com o seu ERP", nao "os 6 ERPs": o provedor usa
+                    um so. Os seis suportados aparecem na secao de integracoes.
+                    E a cadastral nao cita o fornecedor — quem compra nao compra
+                    o bureau, compra o dado. */}
+                {["Integracao com o seu ERP","Anti-fraude por e-mail e webhook","Consulta cadastral","Consulta SPC Brasil","Cruzamento por endereco"].map(f => (
                   <li key={f} className="flex items-start gap-2 text-sm text-[var(--color-ink)]">
                     <CheckCircle2 className="w-4 h-4 text-[var(--color-success)] flex-shrink-0 mt-0.5"/>{f}
                   </li>
