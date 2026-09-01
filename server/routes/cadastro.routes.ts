@@ -31,8 +31,8 @@ export function registerCadastroRoutes(): Router {
    * vez de pedir o CPF, receber "desligado" e trocar o formulario na cara do
    * usuario.
    */
-  router.get("/api/public/cadastro/recursos", (_req, res) => {
-    return res.json({ buscaAutomatica: buscaAutomaticaDisponivel() });
+  router.get("/api/public/cadastro/recursos", async (_req, res) => {
+    return res.json({ buscaAutomatica: await buscaAutomaticaDisponivel() });
   });
 
   router.get("/api/public/cadastro/empresa/:cnpj", limiteEmpresa, async (req, res) => {

@@ -38,23 +38,47 @@ import { consultarCnpj } from "./bigdata-empresa";
 import { storage } from "../storage";
 
 /**
- * Id sentinela da conta da casa. Nao existe provedor 0; serve para o cache de
- * token e o disjuntor da BigDataCorp ficarem SEPARADOS dos provedores reais —
- * um problema no onboarding nao derruba a consulta de quem esta pagando.
+ * De qual provedor sai a credencial que paga o onboarding.
+ *
+ * Padrao 1 = NsLink, que e o provedor do DONO da plataforma — a conta e a mesma
+ * pessoa que paga a fatura da BigDataCorp, entao nao ha custo cruzado. Vem de
+ * variavel de ambiente para o dia em que houver uma conta separada da casa: e
+ * so apontar para outro id, ou usar o par LOGIN/SENHA abaixo.
  */
-const PROVEDOR_PLATAFORMA = 0;
+const PROVEDOR_ONBOARDING = Number(process.env.BIGDATA_PROVEDOR_ONBOARDING || 1);
 
 const VALIDADE_PASSE_MS = 30 * 60_000;
 
-export function credencialDaPlataforma(): Credencial | null {
+export type ContaDeBusca = { providerId: number; cred: Credencial };
+
+/**
+ * A conta que roda as buscas do cadastro.
+ *
+ * Devolve TAMBEM o providerId, e ele importa: `obterToken` guarda o token da
+ * BigDataCorp por provedor. Usando o mesmo id do dono da credencial, o
+ * onboarding compartilha o token com as consultas normais daquele provedor —
+ * uma sessao so na BigDataCorp. Com um id sentinela seriam duas sessoes para a
+ * mesma conta, e se a API invalidar a anterior ao emitir a nova, as consultas
+ * pagas do provedor comecam a falhar de forma intermitente.
+ */
+export async function contaDeBusca(): Promise<ContaDeBusca | null> {
+  // Conta propria da plataforma, se um dia existir: tem precedencia.
   const login = process.env.BIGDATA_PLATAFORMA_LOGIN;
   const password = process.env.BIGDATA_PLATAFORMA_SENHA;
-  return login && password ? { login, password } : null;
+  if (login && password) return { providerId: PROVEDOR_ONBOARDING, cred: { login, password } };
+
+  try {
+    const i = await storage.getBigdataIntegration(PROVEDOR_ONBOARDING);
+    if (!i?.isEnabled || !i.login || !i.password) return null;
+    return { providerId: PROVEDOR_ONBOARDING, cred: { login: i.login, password: i.password } };
+  } catch {
+    return null;
+  }
 }
 
 /** As buscas pagas estao ligadas? A tela pergunta para saber se pede na mao. */
-export function buscaAutomaticaDisponivel(): boolean {
-  return credencialDaPlataforma() !== null;
+export async function buscaAutomaticaDisponivel(): Promise<boolean> {
+  return (await contaDeBusca()) !== null;
 }
 
 // ── Passe da etapa 1 ────────────────────────────────────────────────────────
@@ -222,11 +246,15 @@ export async function buscarEmpresa(cnpjBruto: string): Promise<RespostaEmpresa>
 
   // 4. so agora gasta — e a falha aqui NAO derruba a etapa, porque o dado da
   //    Receita ja basta para o cadastro seguir.
-  const cred = credencialDaPlataforma();
-  if (!cred) return base;
+  const conta = await contaDeBusca();
+  if (!conta) return base;
 
   try {
-    const bdc = await consultarCnpj(PROVEDOR_PLATAFORMA, cred, cnpj);
+    // R$ 0,39 na fatura da BigDataCorp. Registrado para o custo do onboarding
+    // ser mensuravel depois — nao entra em `bigdata_consultations`, que e o
+    // historico do provedor e nao deve receber consulta de quem nem e cliente.
+    logger.info({ evento: "cadastro.consulta", tipo: "cnpj", cnpj }, "onboarding consultou CNPJ na BigDataCorp");
+    const bdc = await consultarCnpj(conta.providerId, conta.cred, cnpj);
     if (bdc.encontrado) {
       return {
         ...base,
@@ -267,14 +295,17 @@ export async function buscarResponsavel(
     return { ok: false, motivo: "documento", mensagem: "CPF invalido. Confira os numeros." };
   }
 
-  const cred = credencialDaPlataforma();
-  if (!cred) {
+  const conta = await contaDeBusca();
+  if (!conta) {
     // Nao e erro: e o modo manual. A tela pede nome e segue.
     return { ok: false, motivo: "desligado", mensagem: "Preencha seus dados abaixo." };
   }
 
   try {
-    const r = await consultarCpf(PROVEDOR_PLATAFORMA, cred, cpf);
+    // R$ 1,09 — a mais cara das duas. Ja passou pelo passe da etapa 1 e pelo
+    // digito verificador; e por isso que ela e a ultima da fila.
+    logger.info({ evento: "cadastro.consulta", tipo: "cpf" }, "onboarding consultou CPF na BigDataCorp");
+    const r = await consultarCpf(conta.providerId, conta.cred, cpf);
     const nome = r.identidade?.nome?.trim();
     if (!nome) {
       return {

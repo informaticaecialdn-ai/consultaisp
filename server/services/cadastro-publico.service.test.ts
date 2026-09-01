@@ -12,14 +12,24 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-vi.mock("../storage", () => ({ storage: { getProviderByCnpj: vi.fn(async () => undefined) } }));
+const getBigdataIntegration = vi.fn();
+vi.mock("../storage", () => ({
+  storage: {
+    getProviderByCnpj: vi.fn(async () => undefined),
+    getBigdataIntegration: (id: number) => getBigdataIntegration(id),
+  },
+}));
 
-import { emitirPasse, conferirPasse, credencialDaPlataforma, buscaAutomaticaDisponivel } from "./cadastro-publico.service";
+import { emitirPasse, conferirPasse, contaDeBusca, buscaAutomaticaDisponivel } from "./cadastro-publico.service";
 
 const CNPJ = "33000167000101";
 const segredoOriginal = process.env.SESSION_SECRET;
 
-beforeEach(() => { process.env.SESSION_SECRET = "segredo-de-teste-do-cadastro"; });
+beforeEach(() => {
+  process.env.SESSION_SECRET = "segredo-de-teste-do-cadastro";
+  getBigdataIntegration.mockReset();
+  getBigdataIntegration.mockResolvedValue(undefined);
+});
 afterEach(() => {
   process.env.SESSION_SECRET = segredoOriginal;
   delete process.env.BIGDATA_PLATAFORMA_LOGIN;
@@ -75,18 +85,41 @@ describe("passe da etapa 1", () => {
   });
 });
 
-describe("credencial da plataforma", () => {
-  it("ausente = busca automatica desligada, e o cadastro cai no manual", () => {
-    expect(credencialDaPlataforma()).toBeNull();
-    expect(buscaAutomaticaDisponivel()).toBe(false);
+describe("conta que paga as buscas do cadastro", () => {
+  it("sem integracao cadastrada, a busca fica desligada e o cadastro cai no manual", async () => {
+    expect(await contaDeBusca()).toBeNull();
+    expect(await buscaAutomaticaDisponivel()).toBe(false);
   });
 
-  it("so vale com login E senha — meia credencial nao liga a busca paga", () => {
-    process.env.BIGDATA_PLATAFORMA_LOGIN = "conta-da-casa";
-    expect(credencialDaPlataforma()).toBeNull();
+  it("usa a credencial guardada do provedor de onboarding", async () => {
+    getBigdataIntegration.mockResolvedValue({ isEnabled: true, login: "conta", password: "senha" });
+    const c = await contaDeBusca();
+    expect(c).toEqual({ providerId: 1, cred: { login: "conta", password: "senha" } });
+    // O providerId acompanha a credencial de proposito: e a chave do cache de
+    // token da BigDataCorp, e uma sessao so por conta evita a anterior ser
+    // invalidada no meio das consultas pagas do provedor.
+    expect(c!.providerId).toBe(1);
+  });
 
+  it("integracao DESLIGADA nao serve — respeita o botao do painel", async () => {
+    getBigdataIntegration.mockResolvedValue({ isEnabled: false, login: "conta", password: "senha" });
+    expect(await contaDeBusca()).toBeNull();
+  });
+
+  it("integracao pela metade nao liga a busca paga", async () => {
+    getBigdataIntegration.mockResolvedValue({ isEnabled: true, login: "conta", password: null });
+    expect(await contaDeBusca()).toBeNull();
+  });
+
+  it("banco fora do ar cai no manual em vez de derrubar o cadastro", async () => {
+    getBigdataIntegration.mockRejectedValue(new Error("conexao recusada"));
+    expect(await contaDeBusca()).toBeNull();
+  });
+
+  it("conta propria no ambiente tem precedencia sobre a do provedor", async () => {
+    getBigdataIntegration.mockResolvedValue({ isEnabled: true, login: "do-provedor", password: "x" });
+    process.env.BIGDATA_PLATAFORMA_LOGIN = "conta-da-casa";
     process.env.BIGDATA_PLATAFORMA_SENHA = "senha-da-casa";
-    expect(credencialDaPlataforma()).toEqual({ login: "conta-da-casa", password: "senha-da-casa" });
-    expect(buscaAutomaticaDisponivel()).toBe(true);
+    expect((await contaDeBusca())!.cred).toEqual({ login: "conta-da-casa", password: "senha-da-casa" });
   });
 });
