@@ -9,6 +9,9 @@ import {
 import { coordenadaValida } from "../services/coordenada";
 import { criarAgrupadorDeBairro, criarCasadorDeBairro, normalizarLocalidade } from "../services/localidade";
 import { carregarTerritorio, carregarCaixasMunicipio } from "../services/geo-bases.service";
+import {
+  calcularBenchmarkBairro, benchmarkParaTela, chaveCidadeBenchmark, ordenarCanonicosPorTamanho,
+} from "../services/benchmark-bairro.service";
 import { geocodeAddress, geocodeCity } from "../services/geocoding";
 import type { GeoPrecisao } from "@shared/geo-precisao";
 
@@ -35,7 +38,15 @@ export interface LocalizacaoPonto {
 export interface LocalizacaoBairro {
   bairro: string; cidade: string;
   clientes: number; inadimplentes: number; exComDivida: number;
+  /**
+   * inadimplentes / universo, uma casa. O denominador NAO e `clientes`: e a
+   * mesma regua do benchmark e do Provedor.ai (cliente atual OU com divida),
+   * senao o proprio numero sai deflacionado pelos cancelados quitados e o
+   * "melhor/pior que o mercado" aponta para o lado errado.
+   */
   pctInadimplencia: number; dividaTotal: number;
+  /** Denominador da taxa: quem ainda e cliente ou saiu devendo. */
+  universo: number;
   /** Clientes que ainda sao seus: ativos + suspensos. Numerador da penetracao. */
   atuais: number;
   /**
@@ -194,26 +205,51 @@ export class LocalizacaoStorage {
    * numa rua onde ele tem dois clientes. HPs e UCs continuam aparecendo: é o que
    * permite reconhecer o match divergente na tela.
    */
-  private async aplicarTerritorio(bairros: LocalizacaoBairro[]): Promise<void> {
+  private async aplicarTerritorio(
+    bairros: LocalizacaoBairro[],
+    providerId: number,
+    ufDaCidade: (cidade: string) => string | null,
+  ): Promise<void> {
     if (bairros.length === 0) return;
 
-    const cidades = Array.from(new Set(bairros.map(b => normalizarLocalidade(b.cidade)))).filter(Boolean);
+    // A chave da cidade passa pelas DUAS reguas, como no benchmark: a cidade
+    // fora da area declarada chega crua do ERP ("Rolândia - PR") e so
+    // normalizarLocalidade viraria "ROLANDIA PR" — que nao existe no censo.
+    const chaveDaCidade = (cidade: string) => normalizarLocalidade(normalizarCidade(cidade));
+    const cidades = Array.from(new Set(bairros.map(b => chaveDaCidade(b.cidade)))).filter(Boolean);
     const territorio = await carregarTerritorio(cidades);
     if (territorio.size === 0) return;
+
+    // O benchmark é chaveado pelo mesmo bairro canônico do CNEFE que dá o HP —
+    // recebe o territorio ja carregado para casar contra a MESMA lista. Sem
+    // censo na cidade não há chave, e sem chave não há mercado. Falha na
+    // leitura não derruba o Raio-X — o card fica em "aguardando benchmark" —
+    // mas fica no log: silencio aqui e indistinguivel de "k nao fechou".
+    const pedidos = Array.from(new Map(bairros.map(b => {
+      const cidadeNorm = chaveDaCidade(b.cidade);
+      return [cidadeNorm, { cidadeNorm, uf: ufDaCidade(b.cidade) }] as const;
+    })).values()).filter(p => p.cidadeNorm);
+    const benchmark = await calcularBenchmarkBairro(pedidos, territorio).catch((err: unknown) => {
+      console.warn("[benchmark-bairro] falhou, card fica em aguardando:", (err as Error)?.message ?? err);
+      return null;
+    });
 
     const casadores = new Map<string, { hps: ReturnType<typeof criarCasadorDeBairro>; ucs: ReturnType<typeof criarCasadorDeBairro> }>();
 
     for (const b of bairros) {
-      const cidadeNorm = normalizarLocalidade(b.cidade);
+      const cidadeNorm = chaveDaCidade(b.cidade);
       const t = territorio.get(cidadeNorm);
       if (!t) continue;
 
       let c = casadores.get(cidadeNorm);
       if (!c) {
         // Ordenado por tamanho: em empate no fuzzy, vence o bairro dominante.
-        const ordenar = (m: Map<string, number>) =>
-          Array.from(m.entries()).sort((x, y) => y[1] - x[1]).map(([k]) => k);
-        c = { hps: criarCasadorDeBairro(ordenar(t.hps)), ucs: criarCasadorDeBairro(ordenar(t.ucs)) };
+        // A ordenação é a do benchmark, importada e não copiada: listas em
+        // ordens diferentes casariam o mesmo texto com bairros diferentes.
+        c = {
+          hps: criarCasadorDeBairro(ordenarCanonicosPorTamanho(t.hps)),
+          ucs: criarCasadorDeBairro(ordenarCanonicosPorTamanho(t.ucs)),
+        };
         casadores.set(cidadeNorm, c);
       }
 
@@ -221,7 +257,16 @@ export class LocalizacaoStorage {
       // garante bater na ANEEL, e vice-versa.
       const mHps = c.hps(b.bairro);
       const mUcs = c.ucs(b.bairro);
-      if (mHps) b.hps = t.hps.get(mHps.canonico) ?? null;
+      if (mHps) {
+        b.hps = t.hps.get(mHps.canonico) ?? null;
+        // Mercado do MESMO match do HP, calculado SEM o proprio provedor. Só
+        // sai com k >= 3 contribuintes — a trava fica em benchmarkParaTela, o
+        // único caminho até o payload.
+        b.benchmarkPct = benchmarkParaTela(
+          benchmark?.get(chaveCidadeBenchmark(ufDaCidade(b.cidade), cidadeNorm))?.get(mHps.canonico),
+          providerId,
+        );
+      }
       if (mUcs) b.ucsVivas = t.ucs.get(mUcs.canonico) ?? null;
 
       // UC energizada é o denominador que importa; o censo entra como reserva.
@@ -367,6 +412,9 @@ export class LocalizacaoStorage {
     // taxa de inadimplencia que nao descreve lugar nenhum. Um agrupador POR
     // CIDADE: bairros homonimos em cidades diferentes sao lugares diferentes.
     const agrupadores = new Map<string, ReturnType<typeof criarAgrupadorDeBairro>>();
+    // UF de cada cidade pela maioria dos cadastros: o benchmark chaveia cidade
+    // com UF, e a area declarada nem sempre tem uma.
+    const ufsPorCidade = new Map<string, Map<string, number>>();
 
     for (const c of naArea) {
       const cidade = canonizar(c.city);
@@ -398,12 +446,18 @@ export class LocalizacaoStorage {
       const chave = `${cidade.toUpperCase()}||${grupo?.chave ?? "SEM BAIRRO"}`;
       const b = porBairro.get(chave) || {
         bairro, cidade, clientes: 0, inadimplentes: 0, exComDivida: 0,
-        pctInadimplencia: 0, dividaTotal: 0, atuais: 0,
+        pctInadimplencia: 0, dividaTotal: 0, universo: 0, atuais: 0,
         hps: null, ucsVivas: null, pctPenetracao: null, benchmarkPct: null,
       };
       b.clientes++;
       if (emAberto > 0) { b.inadimplentes++; b.dividaTotal += emAberto; }
       if (estado === 'ex_divida') b.exComDivida++;
+      const uf = (c.state || "").trim().toUpperCase();
+      if (uf) {
+        const contagem = ufsPorCidade.get(cidade) ?? new Map<string, number>();
+        contagem.set(uf, (contagem.get(uf) ?? 0) + 1);
+        ufsPorCidade.set(cidade, contagem);
+      }
       // "Atuais" e quem ainda e seu: ativo ou suspenso por atraso.
       //
       // A conta olha o STATUS, nao o estado do ponto. `ex_divida` so existe
@@ -412,7 +466,12 @@ export class LocalizacaoStorage {
       // cancelados da NsLink em 28/08/2026. A penetracao por bairro saia inflada
       // justamente onde o provedor mais perdeu cliente.
       const situacao = (c.status || "").toLowerCase();
-      if (situacao !== 'cancelled' && situacao !== 'inactive') b.atuais++;
+      const atual = situacao !== 'cancelled' && situacao !== 'inactive';
+      if (atual) b.atuais++;
+      // O universo da taxa e o do benchmark (e o do Provedor.ai): quem ainda e
+      // cliente ou saiu devendo. Cancelado quitado fica em `clientes` — e
+      // carteira historica, o operador quer ve-la — mas nao no denominador.
+      if (atual || emAberto > 0) b.universo++;
       porBairro.set(chave, b);
 
       if (emAberto > 0) { ct.inadimplentes++; ct.dividaTotal += emAberto; }
@@ -467,11 +526,16 @@ export class LocalizacaoStorage {
     // arredondando o mesmo numero por conta propria acabam discordando.
     const bairros = Array.from(porBairro.values()).map(b => ({
       ...b,
-      pctInadimplencia: b.clientes > 0 ? Math.round((b.inadimplentes / b.clientes) * 1000) / 10 : 0,
+      pctInadimplencia: b.universo > 0 ? Math.round((b.inadimplentes / b.universo) * 1000) / 10 : 0,
       dividaTotal: Math.round(b.dividaTotal * 100) / 100,
     }));
 
-    await this.aplicarTerritorio(bairros);
+    const ufDaCidade = (cidade: string): string | null => {
+      const contagem = ufsPorCidade.get(cidade);
+      if (!contagem) return area.uf ?? null;
+      return Array.from(contagem.entries()).sort((x, y) => y[1] - x[1])[0][0];
+    };
+    await this.aplicarTerritorio(bairros, providerId, ufDaCidade);
 
     // Um ponto errado a centenas de km estica o enquadramento e a tela abre
     // numa regiao onde o provedor nao atende. Fora do mapa, mas contado — e

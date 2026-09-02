@@ -142,18 +142,23 @@ export function agregarCnefe(conteudo: string): { municipioIbge: string; porBair
   return { municipioIbge, porBairro };
 }
 
+/** Cabeçalho exato que o agregado do BDGD tem de trazer. */
+export const CABECALHO_ANEEL = "mun;bairro;uc_re_ativas";
+
 /** UCs vivas por município e bairro a partir do CSV da ANEEL. Puro. */
 export function agregarAneel(conteudo: string): Map<string, Map<string, number>> {
   const linhas = conteudo.split(/\r?\n/);
   if (linhas.length < 2) throw new Error("CSV vazio");
 
-  const cab = linhas[0].split(";").map(c => c.trim().toLowerCase());
-  const iMun = cab.indexOf("mun");
-  const iBairro = cab.indexOf("bairro");
-  const iUc = cab.findIndex(c => c.startsWith("uc"));
-  if (iMun < 0 || iBairro < 0 || iUc < 0) {
-    throw new Error("Cabeçalho da ANEEL sem mun, bairro ou uc_*");
+  // O cabeçalho é comparado inteiro, não por prefixo: o nome `uc_re_ativas` é
+  // a única marca de que o agregado filtrou classe residencial + situação
+  // ativa. Um export com `uc_total` (todas as classes, inativas inclusive) tem
+  // o mesmo formato e entraria como denominador inflado sem ninguém notar.
+  const cab = linhas[0].replace(/^\uFEFF/, "").trim().toLowerCase();
+  if (cab !== CABECALHO_ANEEL) {
+    throw new Error(`Cabeçalho da ANEEL "${linhas[0].trim()}" fora do esperado — precisa ser exatamente "${CABECALHO_ANEEL}" (mun, bairro, uc_re_ativas)`);
   }
+  const iMun = 0, iBairro = 1, iUc = 2;
 
   const porMunicipio = new Map<string, Map<string, number>>();
   for (let i = 1; i < linhas.length; i++) {
@@ -163,7 +168,10 @@ export function agregarAneel(conteudo: string): Map<string, Map<string, number>>
     const mun = (f[iMun] || "").trim();
     const bairro = normalizarLocalidade(f[iBairro]);
     const uc = parseInt((f[iUc] || "").trim(), 10);
-    if (!mun || !bairro || !Number.isFinite(uc)) continue;
+    // Código IBGE tem 7 dígitos; qualquer outra coisa é linha quebrada, e uma
+    // contagem negativa é sinal de agregação errada — nenhuma das duas pode
+    // entrar num denominador.
+    if (!/^\d{7}$/.test(mun) || !bairro || !Number.isFinite(uc) || uc < 0) continue;
     let m = porMunicipio.get(mun);
     if (!m) { m = new Map(); porMunicipio.set(mun, m); }
     // Duas linhas do mesmo bairro somam: a base vem por transformador, e o
@@ -171,6 +179,36 @@ export function agregarAneel(conteudo: string): Map<string, Map<string, number>>
     m.set(bairro, (m.get(bairro) ?? 0) + uc);
   }
   return porMunicipio;
+}
+
+/** Código IBGE → total de UCs vivas conferido no recon do BDGD. */
+export type TotaisEsperadosAneel = Map<string, number>;
+
+/**
+ * Confere a soma de UCs de cada município contra o recon ANTES de gravar.
+ * Puro; lança com todas as divergências de uma vez.
+ *
+ * Um CSV truncado ou agregado com o filtro errado tem o mesmo formato do
+ * certo e passa pelo parser sem reclamar. A soma é a única coisa que separa os
+ * dois, e carga errada em denominador vira penetração errada na tela do
+ * provedor. Município esperado que não aparece no CSV soma zero e diverge do
+ * mesmo jeito — arquivo do município errado não é "nada a fazer".
+ */
+export function validarTotaisAneel(
+  porMunicipio: Map<string, Map<string, number>>,
+  esperado: TotaisEsperadosAneel,
+): void {
+  const divergencias: string[] = [];
+  for (const [mun, total] of Array.from(esperado.entries())) {
+    const m = porMunicipio.get(mun);
+    const soma = m ? Array.from(m.values()).reduce((s, n) => s + n, 0) : 0;
+    if (soma !== total) divergencias.push(`${mun}: ${soma} UCs no CSV, esperado ${total}`);
+  }
+  if (divergencias.length > 0) {
+    throw new Error(
+      `Totais da ANEEL divergem do recon — carga abortada, nada gravado (CSV errado ou truncado?): ${divergencias.join("; ")}`,
+    );
+  }
 }
 
 export interface EnderecoCnefe {
@@ -324,29 +362,92 @@ async function gravarEnderecos(municipioIbge: string, enderecos: EnderecoCnefe[]
 }
 
 /**
- * Carrega o agregado da ANEEL. Um arquivo pode cobrir vários municípios, então
- * a carga é feita por município encontrado.
- *
- * O CSV não traz o nome da cidade, só o código IBGE — o nome vem do CNEFE já
- * carregado. Município sem CNEFE é ignorado com aviso: sem o nome, o cliente
- * do ERP nunca encontraria essas linhas.
+ * Nome normalizado e UF de um município pelo código IBGE, da lista oficial em
+ * shared/data/cidades-brasil.json. Índice montado uma vez: são 5.570 linhas e
+ * a carga pergunta por município, não por linha.
  */
-export async function carregarAneel(caminho: string): Promise<ResultadoCarga[]> {
-  if (!existsSync(caminho)) throw new Error(`Arquivo não encontrado: ${caminho}`);
-  await garantirTabelasGeo();
-
-  const porMunicipio = agregarAneel(readFileSync(caminho, "latin1"));
-  const resultados: ResultadoCarga[] = [];
-  for (const [mun, porBairro] of Array.from(porMunicipio.entries())) {
-    const { rows } = await pool.query<{ cidade_norm: string; uf: string }>(
-      "SELECT cidade_norm, uf FROM geo_hps_bairro WHERE municipio_ibge = $1 LIMIT 1",
-      [mun],
-    );
-    if (rows.length === 0) {
-      logger.warn({ municipio: mun }, "ANEEL: município sem CNEFE carregado — ignorado");
-      continue;
+let municipioPorIbge: Map<string, { cidadeNorm: string; uf: string }> | null = null;
+function municipioDaListaIbge(codigo: string): { cidadeNorm: string; uf: string } | null {
+  if (!municipioPorIbge) {
+    municipioPorIbge = new Map();
+    for (const c of citiesData as Array<{ nome: string; uf: string; ibge: string }>) {
+      const cidadeNorm = normalizarLocalidade(c.nome);
+      if (c.ibge && cidadeNorm) municipioPorIbge.set(c.ibge, { cidadeNorm, uf: c.uf });
     }
-    const r = await gravar(mun, rows[0].cidade_norm, rows[0].uf, FONTE_ANEEL, porBairro);
+  }
+  return municipioPorIbge.get(codigo) ?? null;
+}
+
+/**
+ * Carrega o agregado da ANEEL de um arquivo. Um arquivo pode cobrir vários
+ * municípios, então a carga é feita por município encontrado.
+ */
+export async function carregarAneel(
+  caminho: string,
+  esperado?: TotaisEsperadosAneel,
+): Promise<ResultadoCarga[]> {
+  if (!existsSync(caminho)) throw new Error(`Arquivo não encontrado: ${caminho}`);
+  return carregarAneelDoConteudo(readFileSync(caminho, "latin1"), esperado);
+}
+
+/**
+ * Carrega a ANEEL a partir do conteúdo já em memória.
+ *
+ * Os totais esperados são conferidos antes de qualquer escrita: se um município
+ * divergir, nenhum entra — carga parcial com um município certo e outro errado
+ * é pior de diagnosticar do que carga nenhuma.
+ *
+ * O CSV não traz o nome da cidade, só o código IBGE. O nome sai do CNEFE já
+ * carregado quando há, porque é a grafia que o resto do sistema usa como
+ * chave; sem CNEFE, sai da lista oficial de municípios, que produz a mesma
+ * chave normalizada. Só fica de fora o código que não existe em lugar nenhum,
+ * porque aí é o CSV que está errado.
+ */
+export async function carregarAneelDoConteudo(
+  conteudo: string,
+  esperado?: TotaisEsperadosAneel,
+): Promise<ResultadoCarga[]> {
+  const porMunicipio = agregarAneel(conteudo);
+  if (esperado && esperado.size > 0) {
+    validarTotaisAneel(porMunicipio, esperado);
+    for (const [mun, total] of Array.from(esperado.entries())) {
+      logger.info({ municipio: mun, total, bairros: porMunicipio.get(mun)?.size ?? 0 }, "ANEEL: total confere com o recon");
+    }
+  }
+
+  await garantirTabelasGeo();
+  const resultados: ResultadoCarga[] = [];
+  for (const [mun, porBairroBruto] of Array.from(porMunicipio.entries())) {
+    // Bairro com zero UC é dado real, mas `gravar` não o escreve — e o número
+    // devolvido (CLI, log "ANEEL carregada") tem de ser o que está na tabela,
+    // não o que o CSV listou.
+    const porBairro = new Map(Array.from(porBairroBruto.entries()).filter(([, n]) => n > 0));
+
+    // Filtrado pela fonte: sem isso a linha devolvida podia ser a da própria
+    // ANEEL de uma carga anterior (o DELETE só acontece dentro de `gravar`) e a
+    // "prioridade do CNEFE" prometida acima não existia de fato. Se a grafia
+    // das duas divergisse, `carregarTerritorio` chaveia por cidade_norm e
+    // separava HPs e UCs do mesmo município em entradas diferentes.
+    const { rows } = await pool.query<{ cidade_norm: string; uf: string }>(
+      "SELECT cidade_norm, uf FROM geo_hps_bairro WHERE municipio_ibge = $1 AND fonte = $2 LIMIT 1",
+      [mun, FONTE_CNEFE],
+    );
+    let cidadeNorm: string;
+    let uf: string;
+    if (rows.length > 0) {
+      cidadeNorm = rows[0].cidade_norm;
+      uf = rows[0].uf;
+    } else {
+      const m = municipioDaListaIbge(mun);
+      if (!m) {
+        logger.warn({ municipio: mun }, "ANEEL: código IBGE não existe na lista de municípios — ignorado");
+        continue;
+      }
+      cidadeNorm = m.cidadeNorm;
+      uf = m.uf || UF_POR_CODIGO[mun.slice(0, 2)] || "";
+      logger.info({ municipio: mun, cidade: cidadeNorm }, "ANEEL: sem CNEFE, nome resolvido pela lista de municípios");
+    }
+    const r = await gravar(mun, cidadeNorm, uf, FONTE_ANEEL, porBairro);
     logger.info(r, "ANEEL carregada");
     resultados.push(r);
   }

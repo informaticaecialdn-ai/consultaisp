@@ -1,6 +1,8 @@
 import { useMemo } from "react";
-import { Crosshair, TrendingDown, Banknote, Store, ScanSearch } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Crosshair, TrendingDown, Banknote, Store, ScanSearch, TriangleAlert } from "lucide-react";
 import { Kicker, MONO, CARD, brl, num, pct, TRACO } from "./ui";
+import { mostrarAvisoSetor, provedorUsaMk, type ErpIntegracaoResumo } from "@shared/bairro";
 import type { BairroRanking } from "./RankingBairros";
 
 /**
@@ -186,6 +188,11 @@ export default function RaioXBairro({
 }) {
   const validos = useMemo(() => bairros.filter(b => b.clientes > 0), [bairros]);
 
+  /* Só o MK gera "Setor N" como zona interna; noutro ERP é bairro real.
+     Mesma chave do painel do provedor e do ranking — uma requisição só. */
+  const { data: erps } = useQuery<ErpIntegracaoResumo[]>({ queryKey: ["/api/provider/erp-integrations"] });
+  const usaMk = provedorUsaMk(erps);
+
   const campeao = useMemo(() => {
     const elegiveis = validos.filter(b => b.clientes >= MIN_CLIENTES_CAMPEAO);
     return elegiveis.reduce<BairroRanking | null>(
@@ -227,6 +234,9 @@ export default function RaioXBairro({
     : null;
   const semBases = b !== null && b.hps === null && b.ucsVivas === null;
   const divergente = b !== null && b.hps !== null && b.ucsVivas !== null && b.ucsVivas > b.hps;
+  /* Só com as duas bases vazias e com MK ligado: se um "Setor N" casou com
+     alguma coisa, o funil tem número e o aviso mentiria; sem MK, é bairro real. */
+  const setorInterno = b !== null && mostrarAvisoSetor(b, usaMk);
 
   return (
     <div style={{ ...CARD, padding: "16px 18px" }} data-testid="raiox-bairro">
@@ -264,6 +274,27 @@ export default function RaioXBairro({
         </p>
       ) : (
         <>
+          {/* Aviso honesto acima do funil: a ausência de match aqui é do
+              cadastro, não das bases — "—" sozinho não conta essa diferença. */}
+          {setorInterno && (
+            <div
+              role="note"
+              data-testid="aviso-setor-interno"
+              style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "9px 13px", marginTop: 12, borderRadius: 4,
+                background: "var(--gated-bg)", border: "1px solid var(--gated-border)",
+                color: "var(--text-2)", fontSize: 12, lineHeight: 1.45,
+              }}
+            >
+              <TriangleAlert size={14} strokeWidth={1.75} style={{ color: "var(--gated)", flexShrink: 0 }} />
+              <span>
+                <b style={{ fontWeight: 600, color: "var(--gated)" }}>{b.bairro}</b> é zona interna do MK — sem
+                match territorial (IBGE/ANEEL). O pipeline abaixo mostra apenas os dados da carteira.
+              </span>
+            </div>
+          )}
+
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
             <Kicker>Território · bases públicas</Kicker>
             {semBases && (
@@ -308,7 +339,7 @@ export default function RaioXBairro({
               dot="var(--ok)" cor="var(--ok)"
             />
             <Conector
-              rotulo="inadimplência" valor={b.pctInadimplencia} formula="vencida ÷ clientes"
+              rotulo="inadimplência" valor={b.pctInadimplencia} formula="vencida ÷ (atuais + ex-clientes com dívida)"
               media={mediaInadimplencia} rotuloMedia={rotuloMedia} cor="var(--danger)"
             />
             <Caixa

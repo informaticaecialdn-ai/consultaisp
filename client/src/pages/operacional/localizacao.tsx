@@ -12,6 +12,10 @@ import MapaCarteira, {
   type ModoMapa, type SedeMapa,
 } from "@/components/maps/MapaCarteira";
 import { ESTADO_META, ESTADOS_NO_MAPA, type EstadoPonto } from "@/components/maps/estado-ponto";
+import {
+  CAMADA_META, carregarTerritorio, rotuloTerritorio, webglDisponivel,
+  type CamadaTerritorio, type OrigemTerritorio,
+} from "@/lib/territorio-dados";
 import { geoAproximada } from "@shared/geo-precisao";
 import {
   Chip, Kicker, Kpi, Camada, GrupoCamadas, Selo, MONO, CARD, brl, num, pct, TRACO,
@@ -268,6 +272,66 @@ export default function LocalizacaoPage() {
   }, [pontos]);
   /* Pontos que só afirmam o bairro — translúcidos no mapa, ditos na legenda. */
   const aproximados = useMemo(() => pontos.filter(p => geoAproximada(p.precisao)).length, [pontos]);
+
+  /* Camadas fixas do território (IBGE/ANEEL): opt-in, fundo do mapa inteiro,
+     fora dos filtros de estado e dívida mas seguindo o recorte de cidades. O
+     WebGL é sondado uma vez; sem ele as pills ficam à vista e desabilitadas. */
+  const [camadaIbge, setCamadaIbge] = useState(false);
+  const [camadaAneel, setCamadaAneel] = useState(false);
+  const [glOk] = useState(() => webglDisponivel());
+  const cidadesTerritorio = useMemo(
+    () => (fCidade ? [fCidade] : cidades.map(c => c.cidade)),
+    [fCidade, cidades],
+  );
+  const recorteTerritorio = cidadesTerritorio.join("|");
+  // Contagem da legenda — os MESMOS arquivos que o mapa usa (cache do loader,
+  // zero download extra). null = carregando; 0 = nenhuma cidade do recorte
+  // tem base, e a pill desliga sozinha dizendo o porquê.
+  const [contagemTerritorio, setContagemTerritorio] = useState<Record<CamadaTerritorio, number | null>>({
+    cnefe: null, aneel: null,
+  });
+  // A origem anda junto com a contagem: o CNEFE "de banco" não é o mesmo
+  // recorte do .bin, e o rótulo da pill e da legenda tem de dizer qual é.
+  const [origemTerritorio, setOrigemTerritorio] = useState<Record<CamadaTerritorio, OrigemTerritorio | "misto" | null>>({
+    cnefe: null, aneel: null,
+  });
+  useEffect(() => {
+    setContagemTerritorio({ cnefe: null, aneel: null });
+    setOrigemTerritorio({ cnefe: null, aneel: null });
+  }, [recorteTerritorio]);
+  useEffect(() => {
+    let vivo = true;
+    const pares: Array<[CamadaTerritorio, boolean]> = [["cnefe", camadaIbge], ["aneel", camadaAneel]];
+    for (const [nome, ligada] of pares) {
+      if (!ligada || contagemTerritorio[nome] !== null) continue;
+      carregarTerritorio(nome, cidadesTerritorio)
+        .then(({ pontos: arr, origem }) => {
+          if (!vivo) return;
+          setContagemTerritorio(c => ({ ...c, [nome]: arr.length / 2 }));
+          setOrigemTerritorio(o => ({ ...o, [nome]: origem }));
+          if (arr.length === 0) (nome === "cnefe" ? setCamadaIbge : setCamadaAneel)(false);
+        })
+        .catch(() => {
+          /* religar a pill tenta de novo — o loader esquece o arquivo que falhou */
+        });
+    }
+    return () => { vivo = false; };
+  }, [camadaIbge, camadaAneel, contagemTerritorio, recorteTerritorio]);
+  const semBaseTerritorio = (nome: CamadaTerritorio) => contagemTerritorio[nome] === 0;
+  const rotuloCamada = (nome: CamadaTerritorio) => rotuloTerritorio(nome, origemTerritorio[nome]);
+  const tituloTerritorio = (nome: CamadaTerritorio) => {
+    if (!glOk) return "WebGL indisponível neste navegador — a camada não pode ser desenhada";
+    if (cidadesTerritorio.length === 0) return "Nenhuma cidade no mapa";
+    if (semBaseTerritorio(nome)) {
+      return `Sem base ${CAMADA_META[nome].fonte} carregada para ${fCidade ? "esta cidade" : "as cidades no mapa"}`;
+    }
+    return `${rotuloCamada(nome).descricao} (${CAMADA_META[nome].fonte}) — fundo fixo, não muda com os filtros`;
+  };
+  const contagemPill = (nome: CamadaTerritorio, ligada: boolean) => ligada ? (
+    <span style={{ ...MONO, fontSize: 10, color: "var(--text-muted)" }}>
+      {contagemTerritorio[nome] === null ? "…" : num(contagemTerritorio[nome])}
+    </span>
+  ) : undefined;
 
   const trocarCidade = (c: string | null) => { setFCidade(c); setBairroSel(null); };
   const trocarModo = () => {
@@ -568,23 +632,26 @@ export default function LocalizacaoPage() {
                     ? "Mancha ponderada pelo número de casos de cada bairro"
                     : "Mancha ponderada pelo valor em aberto de cada cliente"}
                 />
-                {/* As duas camadas de território dependem de bases públicas que
-                    ainda não foram carregadas. Ficam à vista e desabilitadas: o
-                    operador precisa saber que a camada existe e o que falta para
-                    ela aparecer — sumir da tela seria pior. */}
+                {/* Camadas fixas do território. Desabilitadas sem WebGL ou sem
+                    base para o recorte — mas sempre à vista: o operador precisa
+                    saber que a camada existe e o que falta para ela aparecer. */}
                 <Camada
-                  label="Endereços IBGE"
-                  dot="var(--info)"
-                  ligada={false}
-                  desabilitada
-                  titulo="Requer a base de endereços do IBGE (CNEFE 2022) carregada para os municípios atendidos."
+                  label={rotuloCamada("cnefe").label}
+                  dot={CAMADA_META.cnefe.cor}
+                  ligada={camadaIbge && glOk}
+                  desabilitada={!glOk || cidadesTerritorio.length === 0 || semBaseTerritorio("cnefe")}
+                  titulo={tituloTerritorio("cnefe")}
+                  onToggle={() => setCamadaIbge(v => !v)}
+                  extra={contagemPill("cnefe", camadaIbge && glOk)}
                 />
                 <Camada
-                  label="UCs ANEEL"
-                  dot="var(--brand)"
-                  ligada={false}
-                  desabilitada
-                  titulo="Requer a base de unidades consumidoras da ANEEL (BDGD) carregada para a área atendida."
+                  label={rotuloCamada("aneel").label}
+                  dot={CAMADA_META.aneel.cor}
+                  ligada={camadaAneel && glOk}
+                  desabilitada={!glOk || cidadesTerritorio.length === 0 || semBaseTerritorio("aneel")}
+                  titulo={tituloTerritorio("aneel")}
+                  onToggle={() => setCamadaAneel(v => !v)}
+                  extra={contagemPill("aneel", camadaAneel && glOk)}
                 />
               </GrupoCamadas>
               {sincronizado && (
@@ -685,6 +752,9 @@ export default function LocalizacaoPage() {
                   calor={calor}
                   bairroFoco={modo === 'regionalizacao' ? null : bairroSel}
                   height={ALTURA_MAPA}
+                  camadaIbge={camadaIbge && glOk}
+                  camadaAneel={camadaAneel && glOk}
+                  cidadesTerritorio={cidadesTerritorio}
                 />
                 {/* Legenda sobre o mapa: quem olha o mapa não deveria ter de
                     procurar a chave das cores fora dele. */}
@@ -764,6 +834,35 @@ export default function LocalizacaoPage() {
                         Sede · {sedeNoMapa.cidade}
                         {sede?.foraDaArea && <span style={{ color: "var(--text-muted)" }}> (fora da área)</span>}
                       </span>
+                    </div>
+                  )}
+                  {/* Camadas fixas do território, quando ligadas: a contagem é
+                      do recorte de cidades e não muda com estado nem dívida. O
+                      swatch é liso, sem o traço branco — no mapa esses pontos
+                      não têm anel, e a legenda retrata o mapa. */}
+                  {((camadaIbge || camadaAneel) && glOk) && (
+                    <div style={{ marginTop: 8, paddingTop: 6, borderTop: "1px solid var(--border)" }}>
+                      {(["cnefe", "aneel"] as const).map(nome => {
+                        const ligada = nome === "cnefe" ? camadaIbge : camadaAneel;
+                        if (!ligada) return null;
+                        const n = contagemTerritorio[nome];
+                        return (
+                          <div
+                            key={nome}
+                            style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 4, fontSize: 11.5, color: "var(--text-2)" }}
+                            data-testid={`legenda-territorio-${nome}`}
+                          >
+                            <span style={{
+                              width: 9, height: 9, borderRadius: "50%", flexShrink: 0,
+                              background: CAMADA_META[nome].cor, opacity: 0.85,
+                            }} />
+                            <span style={{ flex: 1, minWidth: 0 }}>{rotuloCamada(nome).label}</span>
+                            <span style={{ ...MONO, color: "var(--text-muted)" }}>
+                              {n === null ? "…" : num(n)}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

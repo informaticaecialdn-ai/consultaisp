@@ -1,5 +1,17 @@
-import { describe, expect, it } from "vitest";
-import { agregarCnefe, agregarAneel } from "./geo-bases.service";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// O banco e o logger ficam de fora: o que se testa aqui é a decisão de gravar
+// ou não, e com quais nome/UF — não o Postgres.
+const bd = vi.hoisted(() => ({
+  query: vi.fn(),
+  connect: vi.fn(),
+}));
+vi.mock("../db", () => ({ pool: bd, db: {} }));
+vi.mock("../logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
+
+import {
+  agregarCnefe, agregarAneel, validarTotaisAneel, carregarAneelDoConteudo, FONTE_ANEEL, FONTE_CNEFE,
+} from "./geo-bases.service";
 
 /**
  * Parsers de dois formatos que não são nossos e não avisam quando mudam.
@@ -98,5 +110,135 @@ describe("ANEEL — UCs vivas por bairro", () => {
 
   it("cabeçalho fora do esperado é erro explícito", () => {
     expect(() => agregarAneel("a;b;c\n1;2;3")).toThrow(/mun/);
+  });
+
+  it("agregado com coluna a mais (uc_total) é recusado — o nome uc_re_ativas é a marca do filtro certo", () => {
+    // Antes o parser pegava a primeira coluna `uc*` e somava `uc_total` (todas
+    // as classes, inativas inclusive) como denominador, sem reclamar.
+    expect(() => agregarAneel("mun;bairro;uc_total;uc_re_ativas\n4109807;CENTRO;500;100"))
+      .toThrow(/uc_re_ativas/);
+    expect(() => agregarAneel("mun;bairro;uc_total\n4109807;CENTRO;500")).toThrow(/uc_re_ativas/);
+  });
+
+  it("aceita BOM e caixa alta no cabeçalho — é o que o Excel exporta", () => {
+    const m = agregarAneel(`\uFEFFMUN;BAIRRO;UC_RE_ATIVAS\n4109807;CENTRO;7`);
+    expect(m.get("4109807")!.get("CENTRO")).toBe(7);
+  });
+
+  it("código que não é IBGE de 7 dígitos e contagem negativa não entram", () => {
+    const m = agregarAneel([CAB, "41098;CENTRO;10", "4109807;CENTRO;-3", "4109807;CENTRO;7"].join("\n"));
+    expect(m.size).toBe(1);
+    expect(m.get("4109807")!.get("CENTRO")).toBe(7);
+  });
+});
+
+describe("ANEEL — totais esperados conferem antes de gravar", () => {
+  const CAB = "mun;bairro;uc_re_ativas";
+  const csv = [CAB, "4109807;CENTRO;100", "4109807;SAN RAFAEL;50", "4113700;CENTRO;900"].join("\n");
+
+  it("soma igual ao recon passa", () => {
+    const m = agregarAneel(csv);
+    expect(() => validarTotaisAneel(m, new Map([["4109807", 150], ["4113700", 900]]))).not.toThrow();
+  });
+
+  it("soma divergente lança dizendo qual município e quanto", () => {
+    const m = agregarAneel(csv);
+    expect(() => validarTotaisAneel(m, new Map([["4109807", 151]])))
+      .toThrow(/4109807: 150 UCs no CSV, esperado 151/);
+  });
+
+  it("município esperado ausente do CSV soma zero e diverge — arquivo errado não é 'nada a fazer'", () => {
+    const m = agregarAneel(csv);
+    expect(() => validarTotaisAneel(m, new Map([["3550308", 10]]))).toThrow(/3550308: 0 UCs/);
+  });
+});
+
+describe("ANEEL — carga", () => {
+  const CAB = "mun;bairro;uc_re_ativas";
+  const conn = { query: vi.fn(), release: vi.fn() };
+
+  beforeEach(() => {
+    bd.query.mockReset();
+    bd.connect.mockReset();
+    conn.query.mockReset();
+    conn.release.mockReset();
+    // Nenhum município com CNEFE: o SELECT de nome volta vazio; o DDL volta vazio também.
+    bd.query.mockResolvedValue({ rows: [] });
+    conn.query.mockResolvedValue({ rows: [] });
+    bd.connect.mockResolvedValue(conn);
+  });
+
+  it("soma divergente aborta a carga inteira sem tocar no banco", async () => {
+    const csv = [CAB, "4109807;CENTRO;100", "4113700;CENTRO;900"].join("\n");
+    await expect(carregarAneelDoConteudo(csv, new Map([["4109807", 100], ["4113700", 901]])))
+      .rejects.toThrow(/4113700: 900 UCs no CSV, esperado 901/);
+
+    // Nem o município certo entrou: a validação vem antes de qualquer escrita.
+    expect(bd.query).not.toHaveBeenCalled();
+    expect(bd.connect).not.toHaveBeenCalled();
+    expect(conn.query).not.toHaveBeenCalled();
+  });
+
+  it("município sem CNEFE carrega com nome e UF da lista oficial de municípios", async () => {
+    const csv = [CAB, "4113700;CENTRO;900", "4113700;JARDIM BANDEIRANTES;100"].join("\n");
+    const rs = await carregarAneelDoConteudo(csv, new Map([["4113700", 1000]]));
+
+    expect(rs).toHaveLength(1);
+    expect(rs[0]).toMatchObject({ municipio: "4113700", cidade: "LONDRINA", uf: "PR", fonte: FONTE_ANEEL, total: 1000, bairros: 2 });
+
+    const inserts = conn.query.mock.calls.filter(([sql]) => /INSERT INTO geo_hps_bairro/.test(String(sql)));
+    expect(inserts).toHaveLength(2);
+    // A chave gravada é a mesma que o CNEFE produziria — é o que liga o ERP à base.
+    for (const [, params] of inserts) {
+      expect(params.slice(0, 3)).toEqual(["4113700", "LONDRINA", "PR"]);
+      expect(params[4]).toBe(FONTE_ANEEL);
+    }
+  });
+
+  it("com CNEFE carregado, o nome vem dele — é a grafia que o resto do sistema usa", async () => {
+    // Só a linha do CNEFE responde: a da própria ANEEL de uma carga anterior
+    // (grafia vinda de outro lugar) não pode ser a que dá nome ao município.
+    bd.query.mockImplementation(async (sql: string, params?: unknown[]) =>
+      /SELECT cidade_norm/.test(sql) && params?.[1] === FONTE_CNEFE
+        ? { rows: [{ cidade_norm: "IBIPORA", uf: "PR" }] }
+        : { rows: [] },
+    );
+    const rs = await carregarAneelDoConteudo([CAB, "4109807;CENTRO;10"].join("\n"));
+    expect(rs[0]).toMatchObject({ cidade: "IBIPORA", uf: "PR" });
+
+    const selects = bd.query.mock.calls.filter(([sql]) => /SELECT cidade_norm/.test(String(sql)));
+    expect(selects).toHaveLength(1);
+    expect(selects[0][1]).toEqual(["4109807", FONTE_CNEFE]);
+  });
+
+  it("sem linha do CNEFE, a linha da própria ANEEL anterior não dá o nome — cai na lista oficial", async () => {
+    bd.query.mockImplementation(async (sql: string, params?: unknown[]) =>
+      /SELECT cidade_norm/.test(sql) && params?.[1] === FONTE_ANEEL
+        ? { rows: [{ cidade_norm: "IBIPORAN", uf: "PR" }] }
+        : { rows: [] },
+    );
+    const rs = await carregarAneelDoConteudo([CAB, "4109807;CENTRO;10"].join("\n"));
+    expect(rs[0]).toMatchObject({ cidade: "IBIPORA", uf: "PR" });
+  });
+
+  it("bairro com zero UC não é gravado nem contado — o número devolvido é o que está na tabela", async () => {
+    const csv = [CAB, "4113700;CENTRO;10", "4113700;VAZIO;0"].join("\n");
+    const rs = await carregarAneelDoConteudo(csv, new Map([["4113700", 10]]));
+    expect(rs[0]).toMatchObject({ total: 10, bairros: 1 });
+
+    const inserts = conn.query.mock.calls.filter(([sql]) => /INSERT INTO geo_hps_bairro/.test(String(sql)));
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0][1][3]).toBe("CENTRO");
+  });
+
+  it("código IBGE que não existe em lugar nenhum é ignorado, o resto entra", async () => {
+    const csv = [CAB, "9999999;CENTRO;5", "4113700;CENTRO;10"].join("\n");
+    const rs = await carregarAneelDoConteudo(csv);
+    expect(rs.map(r => r.municipio)).toEqual(["4113700"]);
+  });
+
+  it("sem --esperado nada é conferido e a carga segue", async () => {
+    const rs = await carregarAneelDoConteudo([CAB, "4113700;CENTRO;10"].join("\n"));
+    expect(rs[0].total).toBe(10);
   });
 });

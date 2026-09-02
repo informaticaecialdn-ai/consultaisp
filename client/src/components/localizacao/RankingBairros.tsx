@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { ListOrdered, ChevronDown, ChevronRight, X } from "lucide-react";
 import {
   Kicker, Segmentado, MONO, CARD, TRILHO_REGUA,
   brl, num, pct, zonaDaTaxa, ZONA_META, ZONAS_LEGENDA,
 } from "./ui";
+import { mostrarAvisoSetor, provedorUsaMk, type ErpIntegracaoResumo } from "@shared/bairro";
 
 /**
  * Bairros por inadimplência — o painel ao lado do mapa.
@@ -52,6 +54,8 @@ export function ordenarBairros(lista: BairroRanking[], ordem: OrdemRanking): Bai
 /* Tooltips honestos — a regra de ouro da referência: null nunca vira número. */
 const TIP_SEM_BASES =
   "Sem correspondência nas bases públicas (IBGE CNEFE 2022 / ANEEL BDGD 2024) para este bairro — nenhum número é exibido para não fabricar penetração.";
+const TIP_SETOR_INTERNO =
+  "“Setor N” é zona interna de cadastro do MK, não um bairro — nunca casa com IBGE CNEFE nem ANEEL BDGD. Corrija o bairro no ERP para ganhar o match territorial.";
 const TIP_PEN_SUPRIMIDA =
   "Penetração suprimida: o cálculo passou de 100% — o bairro do ERP casou com uma localidade menor nas bases públicas. Número impossível não é exibido.";
 const TIP_FONTES =
@@ -84,7 +88,7 @@ function TagTerritorial({
 }
 
 /** Chips CONDICIONAIS: null é omissão ou tracejado honesto, nunca "—". */
-function ChipsTerritoriais({ b }: { b: BairroRanking }) {
+function ChipsTerritoriais({ b, usaMk }: { b: BairroRanking; usaMk: boolean }) {
   const semBases = b.hps === null && b.ucsVivas === null;
   const partesBase: string[] = [];
   if (b.hps !== null) partesBase.push(`${num(b.hps)} HPs`);
@@ -101,7 +105,14 @@ function ChipsTerritoriais({ b }: { b: BairroRanking }) {
           texto={partesBase.join(" · ")}
         />
       )}
-      {semBases && <TagTerritorial tipo="none" titulo={TIP_SEM_BASES} texto="sem bases públicas" />}
+      {/* "Setor N" no MK não falhou nas bases — nunca teve como casar. Dizer só
+          "sem bases públicas" faz o operador culpar a base em vez do cadastro.
+          Sem MK, "Setor 3" pode ser bairro oficial (interior de GO/TO). */}
+      {semBases && (
+        mostrarAvisoSetor(b, usaMk)
+          ? <TagTerritorial tipo="none" titulo={TIP_SETOR_INTERNO} texto="zona interna MK · sem bases públicas" />
+          : <TagTerritorial tipo="none" titulo={TIP_SEM_BASES} texto="sem bases públicas" />
+      )}
       {b.benchmarkPct !== null && (
         <TagTerritorial tipo="base" titulo={TIP_MERCADO} texto={`mercado ${pct(b.benchmarkPct)}`} />
       )}
@@ -110,9 +121,9 @@ function ChipsTerritoriais({ b }: { b: BairroRanking }) {
 }
 
 function LinhaBairro({
-  b, pos, ativo, mostrarCidade, onClick,
+  b, pos, ativo, mostrarCidade, usaMk, onClick,
 }: {
-  b: BairroRanking; pos: number; ativo: boolean; mostrarCidade: boolean; onClick: () => void;
+  b: BairroRanking; pos: number; ativo: boolean; mostrarCidade: boolean; usaMk: boolean; onClick: () => void;
 }) {
   const zona = ZONA_META[zonaDaTaxa(b.pctInadimplencia)];
   return (
@@ -176,7 +187,7 @@ function LinhaBairro({
           </span>
         </span>
 
-        <ChipsTerritoriais b={b} />
+        <ChipsTerritoriais b={b} usaMk={usaMk} />
       </span>
     </button>
   );
@@ -194,6 +205,11 @@ export default function RankingBairros({
   cidade: string | null;
 }) {
   const [verOutros, setVerOutros] = useState(false);
+
+  /* /api/localizacao não diz qual ERP alimenta a carteira; erp_integrations
+     diz. Mesma chave do painel do provedor, então a lista já vem do cache. */
+  const { data: erps } = useQuery<ErpIntegracaoResumo[]>({ queryKey: ["/api/provider/erp-integrations"] });
+  const usaMk = provedorUsaMk(erps);
 
   const { principais, outros } = useMemo(() => {
     const validos = bairros.filter(b => b.clientes > 0);
@@ -266,6 +282,7 @@ export default function RankingBairros({
             pos={i + 1}
             ativo={selecionado === b.bairro}
             mostrarCidade={cidade === null}
+            usaMk={usaMk}
             onClick={() => alternar(b)}
           />
         ))}
@@ -304,6 +321,7 @@ export default function RankingBairros({
                 pos={principais.length + i + 1}
                 ativo={selecionado === b.bairro}
                 mostrarCidade={cidade === null}
+                usaMk={usaMk}
                 onClick={() => alternar(b)}
               />
             ))}

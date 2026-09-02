@@ -5,6 +5,7 @@ import { getSafeErrorMessage } from "../utils/safe-error";
 import { getBackfillStatus, runGeocodeBackfill, varreduraAtiva } from "../services/geocode-backfill.service";
 import { bairrosDaRede, MIN_POR_BAIRRO } from "../services/rede-regional.service";
 import { resolverAreaAtendida, normalizarCidade } from "../services/area-atendida";
+import { ehCamadaTerritorio, municipioDaCidade, pontosDoTerritorio } from "../services/territorio-pontos.service";
 import { logger } from "../logger";
 
 /**
@@ -127,6 +128,71 @@ export function registerLocalizacaoRoutes(): Router {
     runGeocodeBackfill(req.session.providerId ?? undefined)
       .catch(err => logger.error({ err }, "Plotagem manual falhou"));
     return res.json({ iniciado: true, mensagem: "Plotagem iniciada. Os pontos aparecem no mapa conforme forem resolvidos." });
+  });
+
+  /**
+   * Camada fixa de fundo do mapa — endereços do IBGE ou UCs da ANEEL de uma
+   * cidade, como Float32Array bruto [lat, lon, ...].
+   *
+   * Binário e não JSON porque são centenas de milhares de pontos que vão
+   * direto para a GPU no cliente. O cache é longo e com ETag porque a base
+   * não muda entre deploys: o navegador baixa uma vez por cidade e camada, e
+   * trocar de cidade em foco só recombina o que já tem.
+   *
+   * É base pública — nada aqui é de cliente nem de provedor. Ainda assim
+   * exige sessão: não é um asset estático, é uma rota da tela.
+   *
+   * O 400 e o 404 saem com `no-store`: o cliente pede com `force-cache`, que
+   * serve qualquer entrada guardada, e um 404 é cacheável por heurística —
+   * a base carregada hoje ficaria invisível até o operador limpar o cache.
+   *
+   * A UF desempata cidades homônimas. Vem de `?uf=` quando quem chama sabe;
+   * senão, da área atendida do provedor — a tela não a conhece, o servidor sim.
+   */
+  router.get("/api/localizacao/territorio/:camada/:cidade", requireAuth, async (req, res) => {
+    try {
+      const camada = String(req.params.camada || "");
+      if (!ehCamadaTerritorio(camada)) {
+        res.set("Cache-Control", "no-store");
+        return res.status(400).json({ message: "Camada desconhecida" });
+      }
+      const cidade = String(req.params.cidade || "").trim();
+      if (!cidade) {
+        res.set("Cache-Control", "no-store");
+        return res.status(400).json({ message: "Informe a cidade" });
+      }
+
+      const ufQuery = String(req.query.uf ?? "").trim().toUpperCase();
+      let uf: string | null = /^[A-Z]{2}$/.test(ufQuery) ? ufQuery : null;
+      if (!uf && req.session.providerId) {
+        uf = (await resolverAreaAtendida(req.session.providerId)).uf ?? null;
+      }
+
+      const municipio = await municipioDaCidade(cidade, uf);
+      if (!municipio) {
+        res.set("Cache-Control", "no-store");
+        return res.status(404).json({ message: "Sem base para esta cidade" });
+      }
+
+      const r = await pontosDoTerritorio(camada, municipio);
+      if (!r) {
+        res.set("Cache-Control", "no-store");
+        return res.status(404).json({ message: "Sem base para esta cidade" });
+      }
+
+      res.set({
+        "Cache-Control": "private, max-age=604800, immutable",
+        "ETag": r.etag,
+        "Content-Type": "application/octet-stream",
+        // O CNEFE "de banco" não é o mesmo recorte do .bin (ver o cabeçalho do
+        // serviço); a tela troca o rótulo por este cabeçalho.
+        "X-Territorio-Origem": r.origem,
+      });
+      if (req.headers["if-none-match"] === r.etag) return res.status(304).end();
+      return res.send(Buffer.from(r.pontos.buffer, r.pontos.byteOffset, r.pontos.byteLength));
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
   });
 
   return router;

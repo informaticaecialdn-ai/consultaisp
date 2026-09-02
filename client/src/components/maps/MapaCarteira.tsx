@@ -4,6 +4,8 @@ import "leaflet/dist/leaflet.css";
 import "leaflet.heat";
 import { ESTADO_META, type EstadoPonto } from "./estado-ponto";
 import { geoAproximada, GEO_PRECISAO_ROTULO, type GeoPrecisao } from "@shared/geo-precisao";
+import { PontosWebGL, garantirPaneTerritorio } from "./territorio-webgl";
+import { CAMADA_META, carregarPontosTerritorio, type CamadaTerritorio } from "@/lib/territorio-dados";
 
 export type PontoMapa = {
   id: number; nome: string; lat: number; lon: number;
@@ -112,7 +114,14 @@ function popupDoPonto(p: PontoMapa): string {
 export default function MapaCarteira({
   pontos, cidades = [], sede, modo = 'carteira', height = 480,
   calor = false, bairroFoco = null, bairrosRede = [], pontosRede = [], redePorPonto = false,
+  camadaIbge = false, camadaAneel = false, cidadesTerritorio = [],
 }: {
+  /** Camada de fundo: todos os endereços do IBGE (CNEFE) das cidades do recorte. */
+  camadaIbge?: boolean;
+  /** Camada de fundo: unidades consumidoras da ANEEL (BDGD) das cidades do recorte. */
+  camadaAneel?: boolean;
+  /** Recorte das camadas de fundo — a cidade em foco ou todas as do mapa. */
+  cidadesTerritorio?: readonly string[];
   pontos: PontoMapa[];
   /** Bairros agregados da rede — o desenho padrão do modo regionalização. */
   bairrosRede?: BairroRede[];
@@ -139,6 +148,11 @@ export default function MapaCarteira({
   const renderer = useRef<L.Canvas | null>(null);
   const camada = useRef<L.LayerGroup | null>(null);
   const camadaCalor = useRef<L.Layer | null>(null);
+  // Uma camada WebGL por base, lembrando para qual recorte foi montada: trocar
+  // a cidade em foco troca o buffer; ligar e desligar é só addTo/removeLayer.
+  const territorio = useRef<Record<CamadaTerritorio, { layer: PontosWebGL; recorte: string } | null>>({
+    cnefe: null, aneel: null,
+  });
   const ultimoBounds = useRef<L.LatLngBounds | null>(null);
   const reenquadrar = useRef<(() => void) | null>(null);
 
@@ -153,6 +167,9 @@ export default function MapaCarteira({
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       maxZoom: 18,
     }).addTo(mapa.current);
+    // O pane do território nasce aqui, entre os tiles (200) e o overlay dos
+    // clientes (400): as bases públicas são fundo, e ficam sob a carteira.
+    garantirPaneTerritorio(mapa.current);
     renderer.current = L.canvas({ padding: 0.5 });
     camada.current = L.layerGroup().addTo(mapa.current);
 
@@ -169,8 +186,68 @@ export default function MapaCarteira({
       mapa.current?.remove();
       mapa.current = null;
       renderer.current = null;
+      territorio.current = { cnefe: null, aneel: null };
     };
   }, []);
+
+  /* Camadas fixas do território — fundo do mapa inteiro, fora do ciclo dos
+     filtros de estado e dívida, mas seguindo o recorte de cidades. Enquanto o
+     buffer novo carrega, o antigo continua no mapa (sem piscar). A atribuição
+     da fonte entra e sai junto com a camada. */
+  const recorte = cidadesTerritorio.join("|");
+  useEffect(() => {
+    const m = mapa.current;
+    if (!m) return;
+    let vivo = true;
+
+    const sincronizar = (nome: CamadaTerritorio, ligada: boolean) => {
+      const meta = CAMADA_META[nome];
+      const atual = territorio.current[nome];
+      if (!ligada) {
+        if (atual && m.hasLayer(atual.layer)) {
+          m.removeLayer(atual.layer);
+          m.attributionControl?.removeAttribution(meta.fonte);
+        }
+        return;
+      }
+      if (atual && atual.recorte === recorte) {
+        if (!m.hasLayer(atual.layer)) {
+          atual.layer.addTo(m);
+          m.attributionControl?.addAttribution(meta.fonte);
+        }
+        return;
+      }
+      carregarPontosTerritorio(nome, cidadesTerritorio)
+        .then(latlons => {
+          // A pill ou a cidade podem ter mudado durante o download: não aplica.
+          if (!vivo || !mapa.current) return;
+          const anterior = territorio.current[nome];
+          if (anterior && mapa.current.hasLayer(anterior.layer)) {
+            mapa.current.removeLayer(anterior.layer);
+            mapa.current.attributionControl?.removeAttribution(meta.fonte);
+          }
+          const layer = new PontosWebGL(latlons, { cor: meta.corRgb, alpha: 0.5, tamanho: 2 });
+          // Sem base no recorte, não guarda: a pill diz o porquê, e uma camada
+          // vazia lembrada voltaria ao mapa num toggle futuro com o mesmo
+          // recorte — canvas, contexto WebGL e a fonte no rodapé por nada.
+          if (layer.contagem === 0) {
+            territorio.current[nome] = null;
+            return;
+          }
+          territorio.current[nome] = { layer, recorte };
+          layer.addTo(mapa.current);
+          mapa.current.attributionControl?.addAttribution(meta.fonte);
+        })
+        .catch(() => {
+          /* o loader esquece o arquivo que falhou — religar a pill tenta de novo */
+        });
+    };
+
+    sincronizar("cnefe", camadaIbge);
+    sincronizar("aneel", camadaAneel);
+    return () => { vivo = false; };
+    // cidadesTerritorio entra pelo `recorte`: a lista é recriada a cada render.
+  }, [camadaIbge, camadaAneel, recorte]);
 
   useEffect(() => {
     if (!mapa.current || !camada.current) return;

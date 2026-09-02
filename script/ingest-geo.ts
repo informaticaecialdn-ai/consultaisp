@@ -5,11 +5,20 @@
  *   npx tsx script/ingest-geo.ts cnefe "Bom Jesus - PR"    # UF desempata homonimas
  *   npx tsx script/ingest-geo.ts cnefe 4113700             # ou o codigo IBGE
  *   npx tsx script/ingest-geo.ts cnefe ./4113700_LONDRINA.csv  # arquivo ja baixado
- *   npx tsx script/ingest-geo.ts aneel .data/aneel/ucbt_por_bairro.csv
+ *   npx tsx script/ingest-geo.ts aneel .data/aneel/ucbt_por_bairro.csv \
+ *       --esperado 4113700=224729,4109807=20910
  *   npx tsx script/ingest-geo.ts status
  *
- * A ordem importa: o CNEFE primeiro, porque é dele que sai o nome da cidade —
- * o CSV da ANEEL só traz o código IBGE do município.
+ * A ordem entre CNEFE e ANEEL não importa: a ANEEL só traz o código IBGE, e o
+ * nome da cidade sai do CNEFE quando já está carregado ou, sem ele, da lista
+ * oficial de municípios (shared/data/cidades-brasil.json) — as duas produzem a
+ * mesma chave. A penetração, porém, precisa das duas bases.
+ *
+ * `--esperado` é o total de UCs vivas por município conferido no recon do
+ * BDGD (Copel 2024: Londrina 224.729, Ibiporã 20.910). A soma do CSV é
+ * conferida ANTES de gravar; qualquer município que divergir aborta a carga
+ * inteira, porque CSV truncado ou agregado com filtro errado tem o mesmo
+ * formato do certo e só a soma denuncia.
  *
  * As tabelas nascem na primeira carga (DDL idempotente em
  * server/services/geo-bases.service.ts). Rodar de novo o mesmo arquivo
@@ -24,7 +33,55 @@
 import "dotenv/config";
 import { pool } from "../server/db";
 import { carregarCnefe, carregarCnefeDoConteudo, carregarAneel, garantirTabelasGeo, FONTE_CNEFE, FONTE_ANEEL } from "../server/services/geo-bases.service";
+import type { TotaisEsperadosAneel } from "../server/services/geo-bases.service";
 import { baixarCnefe } from "../server/services/cnefe-download.service";
+
+/**
+ * `--esperado 4113700=224729,4109807=20910` → Map(código IBGE → total).
+ * Formato rígido de propósito: um dígito trocado no código faria a validação
+ * conferir um município que não está no CSV e abortar por um motivo errado.
+ */
+function parseEsperado(spec: string): TotaisEsperadosAneel {
+  const mapa: TotaisEsperadosAneel = new Map();
+  for (const par of spec.split(",").map(p => p.trim()).filter(Boolean)) {
+    const m = /^(\d{7})=(\d+)$/.exec(par);
+    if (!m) throw new Error(`--esperado inválido em "${par}": use <código IBGE de 7 dígitos>=<total>, separados por vírgula`);
+    mapa.set(m[1], parseInt(m[2], 10));
+  }
+  if (mapa.size === 0) throw new Error("--esperado sem nenhum município");
+  return mapa;
+}
+
+/** Únicas opções que existem. Qualquer outra é erro, não silêncio. */
+const OPCOES_CONHECIDAS = new Set(["esperado"]);
+
+/**
+ * Separa as opções `--x valor` / `--x=valor` dos argumentos posicionais.
+ *
+ * Flag desconhecida (um `--experado`) e flag sem valor derrubam o script: se
+ * passassem, a conferência de totais viraria opcional por acidente de digitação
+ * — e ninguém descobriria até a penetração aparecer errada na tela.
+ */
+function parseArgs(argv: string[]): { posicionais: string[]; opcoes: Map<string, string> } {
+  const posicionais: string[] = [];
+  const opcoes = new Map<string, string>();
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a.startsWith("--")) {
+      const igual = a.indexOf("=");
+      const nome = igual > 0 ? a.slice(2, igual) : a.slice(2);
+      if (!OPCOES_CONHECIDAS.has(nome)) throw new Error(`argumento desconhecido: ${a}`);
+      const valor = igual > 0 ? a.slice(igual + 1) : argv[++i];
+      if (valor === undefined || valor === "" || valor.startsWith("--")) {
+        throw new Error(`--${nome} sem valor`);
+      }
+      opcoes.set(nome, valor);
+    } else {
+      posicionais.push(a);
+    }
+  }
+  return { posicionais, opcoes };
+}
 
 async function status() {
   await garantirTabelasGeo();
@@ -52,7 +109,8 @@ async function status() {
 }
 
 async function main() {
-  const [comando, caminho] = process.argv.slice(2);
+  const { posicionais, opcoes } = parseArgs(process.argv.slice(2));
+  const [comando, caminho] = posicionais;
 
   if (!comando || comando === "status") {
     await status();
@@ -73,16 +131,26 @@ async function main() {
     console.log(`IBGE CNEFE · ${r.cidade}/${r.uf} (${r.municipio}): ${r.total.toLocaleString("pt-BR")} domicílios em ${r.bairros} bairros` +
       (r.enderecos ? ` · ${r.enderecos.toLocaleString("pt-BR")} endereços com coordenada` : ""));
   } else if (comando === "aneel") {
+    // ANEEL BDGD — `mun;bairro;uc_re_ativas`, um arquivo pode cobrir vários
+    // municípios. A soma por município é conferida antes de gravar e a carga
+    // inteira aborta se qualquer uma divergir. `--esperado` é obrigatório: a
+    // conferência é a única coisa que separa o CSV certo do truncado, então
+    // não pode ser opt-in.
     if (!caminho) throw new Error("Informe o caminho do CSV da ANEEL");
-    const rs = await carregarAneel(caminho);
+    const esperadoSpec = opcoes.get("esperado");
+    if (!esperadoSpec) {
+      throw new Error("Informe --esperado <ibge>=<total>,... com os totais do recon do BDGD (ex.: --esperado 4113700=224729,4109807=20910) — sem eles um CSV truncado entraria sem reclamar");
+    }
+    const esperado = parseEsperado(esperadoSpec);
+    const rs = await carregarAneel(caminho, esperado);
     if (rs.length === 0) {
-      console.log("Nenhum município aproveitado — carregue o CNEFE do município antes.");
+      console.log("Nenhum município aproveitado — nenhum código IBGE do CSV existe na lista de municípios.");
     }
     for (const r of rs) {
       console.log(`ANEEL BDGD · ${r.cidade}/${r.uf} (${r.municipio}): ${r.total.toLocaleString("pt-BR")} UCs vivas em ${r.bairros} bairros`);
     }
   } else {
-    console.log("Comandos: cnefe <arquivo> · aneel <arquivo> · status");
+    console.log("Comandos: cnefe <arquivo> · aneel <arquivo> --esperado <ibge>=<total>,... · status");
     process.exitCode = 1;
   }
 
