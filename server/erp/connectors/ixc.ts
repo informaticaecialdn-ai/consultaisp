@@ -350,16 +350,29 @@ export class IxcConnector implements ErpConnector {
       ].filter(Boolean);
       console.log(`[IXC] fetchDelinquents: ${customers.length} inadimplentes` + (notas.length ? ` (${notas.join(", ")})` : ""));
 
+      // A trava contra o que aconteceu em 31/08/2026 na O L I: 12.640 faturas
+      // vencidas de 6.383 clientes viraram ZERO inadimplentes com `ok: true`
+      // (o CPF era lido do boleto), e o sync, tomando a lista vazia por prova
+      // de que ninguem devia, baixou a divida dos ativos em atraso da base
+      // inteira. Fatura vencida sem nenhum devedor identificavel nao e "ninguem
+      // deve": e leitura que nao serviu, e nao pode servir de prova negativa.
+      const leituraParcial = porCliente.size > 0 && customers.length === 0;
+      if (leituraParcial) {
+        console.warn(`[IXC] fetchDelinquents: ${porCliente.size} clientes com fatura vencida e NENHUM identificado — leitura parcial, a baixa de divida nao pode rodar`);
+      }
+
       return {
         ok: true,
         message: `${customers.length} inadimplentes encontrados (${allRows.length} faturas abertas)`
-          + (notas.length ? `, ${notas.join(", ")}` : ""),
+          + (notas.length ? `, ${notas.join(", ")}` : "")
+          + (leituraParcial ? " — nenhum devedor identificado: leitura parcial" : ""),
         customers,
         totalRecords: customers.length,
         // Quem tem fatura vencida e cujo cadastro nao veio esta devendo — so
         // nao deu para nomear. Contado para o sync nao baixar divida com lista
         // curta.
         leiturasFalhas: semCadastro,
+        ...(leituraParcial ? { leituraParcial: true } : {}),
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Erro desconhecido";

@@ -129,3 +129,34 @@ describe("fetchCustomers — a carteira inteira, com status e sem lead", () => {
     expect(r.message).toMatch(/1 sem contrato ignorados/);
   });
 });
+
+describe("fetchDelinquents — fatura vencida sem devedor identificavel nao e prova de que ninguem deve", () => {
+  it("cadastro sem CPF para todo mundo: zero inadimplentes com leituraParcial, para o sync nao baixar a divida da base", async () => {
+    const { fetchFake } = servidorIxc({
+      ...base,
+      // O que o IXC devolvia quando o documento era lido do boleto: nenhum
+      // CPF aproveitavel para nenhum devedor.
+      cliente: () => [
+        { id: "7", razao: "Maria", cnpj_cpf: "", cidade: "4101" },
+        { id: "8", razao: "Joao", cnpj_cpf: "11497290", cidade: "4101" },
+        { id: "9", razao: "Lead", cnpj_cpf: "", cidade: "4101" },
+      ],
+    });
+    globalThis.fetch = fetchFake as any;
+
+    const r = await new IxcConnector().fetchDelinquents(CONFIG);
+    expect(r.ok).toBe(true);
+    expect(r.customers).toHaveLength(0);
+    expect(r.leituraParcial).toBe(true);
+    expect(r.message).toContain("leitura parcial");
+  });
+
+  it("com devedor identificado, a leitura e completa e o sync pode baixar quem quitou", async () => {
+    const { fetchFake } = servidorIxc(base);
+    globalThis.fetch = fetchFake as any;
+    const r = await new IxcConnector().fetchDelinquents(CONFIG);
+    expect(r.ok).toBe(true);
+    expect(r.customers.length).toBeGreaterThan(0);
+    expect(r.leituraParcial).toBeUndefined();
+  });
+});
