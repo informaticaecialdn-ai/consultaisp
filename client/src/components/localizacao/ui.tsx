@@ -4,6 +4,11 @@
  * Um lugar só para os formatadores e as escalas, porque a tela mostra o mesmo
  * número em quatro sítios — KPI, ranking, funil e mapa — e dois deles
  * arredondando por conta própria acabam discordando na frente do operador.
+ *
+ * A anatomia segue a referência (Provedor.ai · Cobrança · Localização v3):
+ * chip de filtro, pill de camada com dot, controle segmentado e a régua
+ * absoluta das zonas. A geometria é a da pele: raio 4, borda de 1px, nada de
+ * pill redondo.
  */
 import type { CSSProperties, ReactNode } from "react";
 
@@ -53,6 +58,14 @@ export const ZONAS_LEGENDA = [
   { rotulo: "≥18%",  cor: "var(--danger)" },
 ];
 
+/**
+ * Trilho da barra do ranking: régua ABSOLUTA 0–100% tingida pelas zonas de
+ * corte. 13,9% desenha 13,9% da largura sempre, e a barra cruza as faixas do
+ * trilho — o olho lê em que zona o bairro está sem consultar a legenda.
+ */
+export const TRILHO_REGUA =
+  "linear-gradient(90deg, var(--ok-bg) 0 8%, var(--gated-bg) 8% 18%, var(--danger-bg) 18% 100%)";
+
 /* ── Blocos ─────────────────────────────────────────────────────────────── */
 
 export const CARD: CSSProperties = {
@@ -90,10 +103,11 @@ export function Chip({
       onClick={onClick}
       disabled={desabilitado}
       title={titulo}
-      className="ds-ctl"
+      aria-pressed={ativo}
+      className="ds-ctl ds-chip"
       style={{
         display: "inline-flex", alignItems: "center", gap: 6,
-        minHeight: 28, padding: "0 10px", borderRadius: 4,
+        minHeight: 28, padding: "0 11px", borderRadius: 4,
         border: `1px solid ${ativo ? "var(--brand)" : "var(--border)"}`,
         background: ativo ? "var(--brand-soft)" : "var(--surface)",
         color: ativo ? "var(--brand-ink)" : "var(--text-2)",
@@ -109,6 +123,121 @@ export function Chip({
         </span>
       )}
     </button>
+  );
+}
+
+/**
+ * Grupo de camadas do cabeçalho do mapa (`.layers` da referência): um trilho
+ * rebaixado com as pills dentro. Ligada = superfície + anel; desligada =
+ * transparente com o dot cinza.
+ */
+export function GrupoCamadas({ children }: { children: ReactNode }) {
+  return (
+    <div style={{
+      display: "inline-flex", flexWrap: "wrap", gap: 4, padding: 3,
+      border: "1px solid var(--border)", borderRadius: 6, background: "var(--surface-2)",
+    }}>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Pill de camada com dot de estado. Desabilitada continua clicável para o
+ * tooltip: o operador precisa saber que a camada existe e o que falta para
+ * ela aparecer — sumir da tela seria pior. O `onClick` é guardado em vez do
+ * atributo `disabled`, que engole o title.
+ */
+export function Camada({
+  label, dot, ligada, desabilitada, titulo, onToggle, extra,
+}: {
+  label: string;
+  /** Cor do dot quando ligada. */
+  dot: string;
+  ligada: boolean;
+  desabilitada?: boolean;
+  titulo?: string;
+  onToggle?: () => void;
+  /** Contagem ou sufixo mono, opcional. */
+  extra?: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={ligada}
+      aria-disabled={desabilitada}
+      title={titulo}
+      onClick={desabilitada ? undefined : onToggle}
+      className="ds-ctl"
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 6,
+        height: 24, padding: "0 10px", border: 0, borderRadius: 4,
+        background: ligada ? "var(--surface)" : "transparent",
+        color: ligada ? "var(--text)" : desabilitada ? "var(--text-faint)" : "var(--text-muted)",
+        boxShadow: ligada ? "0 0 0 1px var(--ring-subtle)" : "none",
+        fontSize: 11, fontWeight: 500, whiteSpace: "nowrap",
+        cursor: desabilitada ? "not-allowed" : "pointer",
+      }}
+    >
+      <span style={{
+        width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
+        background: ligada ? dot : "var(--border-strong)",
+      }} />
+      {label}
+      {extra}
+    </button>
+  );
+}
+
+/** Controle segmentado (ordenação do ranking): o ativo sobe em superfície. */
+export function Segmentado<T extends string>({
+  opcoes, valor, onChange, rotulo,
+}: {
+  opcoes: Array<{ k: T; rotulo: string }>;
+  valor: T;
+  onChange: (v: T) => void;
+  rotulo: string;
+}) {
+  return (
+    <div role="radiogroup" aria-label={rotulo} style={{
+      display: "inline-flex", gap: 2, padding: 3,
+      background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 4,
+    }}>
+      {opcoes.map(o => {
+        const ativo = valor === o.k;
+        return (
+          <button
+            key={o.k}
+            type="button"
+            role="radio"
+            aria-checked={ativo}
+            onClick={() => onChange(o.k)}
+            className="ds-ctl"
+            style={{
+              height: 24, padding: "0 10px", border: 0, borderRadius: 4,
+              background: ativo ? "var(--surface)" : "transparent",
+              color: ativo ? "var(--brand-ink)" : "var(--text-muted)",
+              boxShadow: ativo ? "0 0 0 1px var(--ring-subtle)" : "none",
+              fontSize: 11, fontWeight: 500, whiteSpace: "nowrap", cursor: "pointer",
+            }}
+          >
+            {o.rotulo}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Selo mono pequeno — proveniência ou data (`ERP · 31/08/26`). */
+export function Selo({ children, titulo }: { children: ReactNode; titulo?: string }) {
+  return (
+    <span title={titulo} style={{
+      ...MONO, fontSize: 10, padding: "3px 7px", borderRadius: 4,
+      background: "var(--surface-inset)", color: "var(--text-muted)", whiteSpace: "nowrap",
+    }}>
+      {children}
+    </span>
   );
 }
 

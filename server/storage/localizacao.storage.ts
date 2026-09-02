@@ -12,7 +12,15 @@ import { carregarTerritorio, carregarCaixasMunicipio } from "../services/geo-bas
 import { geocodeAddress } from "../services/geocoding";
 
 export interface LocalizacaoPonto {
-  id: number; lat: number; lon: number;
+  id: number;
+  /**
+   * Nome do cliente, para o popup do ponto. E a carteira PROPRIA do provedor,
+   * a mesma que ele ve com nome em /inadimplentes — o mapa de cobranca sem
+   * saber quem e o ponto nao serve para cobrar. Continua sem CPF: a tela nao
+   * precisa dele.
+   */
+  nome: string;
+  lat: number; lon: number;
   estado: EstadoPonto; emAberto: number; atraso: number;
   bairro: string | null; cidade: string;
 }
@@ -436,7 +444,8 @@ export class LocalizacaoStorage {
       if (emAberto <= 0) continue;
 
       pontos.push({
-        id: c.id, lat: valida.lat, lon: valida.lng, estado, emAberto,
+        id: c.id, nome: (c.name || "").trim() || "Sem nome",
+        lat: valida.lat, lon: valida.lng, estado, emAberto,
         atraso: c.maxDaysOverdue || 0, bairro: grupo ? bairro : null, cidade,
       });
     }

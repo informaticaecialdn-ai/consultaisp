@@ -630,15 +630,65 @@
 @media (max-width: 1100px) { .ds-quadra { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 620px)  { .ds-quadra { grid-template-columns: minmax(0, 1fr); } }
 
-/* Mapa a esquerda, ranking de bairros a direita; empilha no estreito. */
+/* Mapa a esquerda, ranking de bairros a direita, na MESMA altura: a coluna do
+   ranking estica junto com o card do mapa e a lista rola por dentro. E o
+   desenho da referencia (Provedor.ai · Cobranca): a altura vem do mapa, o
+   ranking nunca estica a linha. Empilhado no estreito, o ranking volta a ter
+   altura propria, com teto na lista. */
 .ds-mapa-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
   gap: 14px;
-  align-items: start;
+  align-items: stretch;
 }
+.ds-ranking-lado { position: relative; min-height: 480px; }
+.ds-ranking-lado > * { position: absolute; inset: 0; }
+.ds-ranking-lista { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+/* Hover da linha do ranking e do chip de filtro: pseudo-classe nao sai em
+   style inline. A linha ativa (brand-soft, inline) vence o hover. */
+.ds-rk:hover { background: var(--surface-2); }
+.ds-chip:hover { border-color: var(--border-strong); }
 @media (max-width: 1100px) {
   .ds-mapa-grid { grid-template-columns: minmax(0, 1fr); }
+  .ds-ranking-lado { min-height: 0; }
+  .ds-ranking-lado > * { position: static; }
+  .ds-ranking-lista { max-height: 520px; }
+}
+
+/* Chrome do Leaflet (popup, zoom, atribuicao) nos tokens da pele. O
+   leaflet.css crava branco e #333; no escuro isso virava dois blocos brancos
+   sobre o mapa. Os tiles do OpenStreetMap sao invertidos no escuro — sem isso
+   o mapa e um retangulo claro no meio de uma tela escura. `.ds-mapa` E o
+   container (o Leaflet poe `.leaflet-container` no mesmo elemento), dai o
+   seletor composto. Portado do modulo Cobranca do Provedor.ai. */
+.ds-mapa { background: var(--surface-inset); }
+.ds-mapa.leaflet-container { font-family: var(--font-sans); }
+.ds-mapa .leaflet-popup-content-wrapper,
+.ds-mapa .leaflet-popup-tip {
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px var(--border), 0 12px 32px -14px rgba(20, 19, 26, .28);
+}
+.ds-mapa .leaflet-popup-content { margin: 12px 14px; line-height: 1.45; }
+.ds-mapa .leaflet-popup-close-button { color: var(--text-muted); }
+.ds-mapa .leaflet-bar { border: 1px solid var(--border); box-shadow: none; }
+.ds-mapa .leaflet-bar a {
+  background: var(--surface);
+  color: var(--text);
+  border-bottom-color: var(--border);
+}
+.ds-mapa .leaflet-bar a:hover,
+.ds-mapa .leaflet-bar a:focus { background: var(--surface-2); }
+.ds-mapa .leaflet-bar a.leaflet-disabled { background: var(--surface-2); color: var(--text-faint); }
+.ds-mapa.leaflet-container .leaflet-control-attribution {
+  font-size: 10px;
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  color: var(--text-2);
+}
+.ds-mapa.leaflet-container .leaflet-control-attribution a { color: var(--text); }
+.dark .ds-mapa .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9) saturate(0.6);
 }
 
 @layer utilities {

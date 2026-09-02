@@ -2,25 +2,24 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "leaflet.heat";
+import { ESTADO_META, type EstadoPonto } from "./estado-ponto";
 
 export type PontoMapa = {
-  id: number; lat: number; lon: number;
-  estado: 'em_dia' | 'em_cobranca' | 'suspenso' | 'ex_divida';
+  id: number; nome: string; lat: number; lon: number;
+  estado: EstadoPonto;
   emAberto: number; atraso: number;
   bairro: string | null; cidade: string;
 };
 
-/** Le o token da pele em runtime — o mapa acompanha a troca de tema. */
-function corDoEstado(estado: PontoMapa['estado']): string {
-  const mapa: Record<PontoMapa['estado'], string> = {
-    em_dia: '--ok', em_cobranca: '--gated', suspenso: '--brand', ex_divida: '--danger',
-  };
-  const v = getComputedStyle(document.documentElement).getPropertyValue(mapa[estado]).trim();
-  return v || '#6B6878';
-}
-
 const brl = (v: number) =>
   `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** Nome e bairro vêm do banco — escapar antes de injetar no HTML do popup.
+ *  Tolera ausência: resposta em cache de antes de o ponto carregar nome. */
+function esc(s: string | null | undefined): string {
+  return String(s ?? "").replace(/[&<>"']/g, c =>
+    c === "&" ? "&amp;" : c === "<" ? "&lt;" : c === ">" ? "&gt;" : c === '"' ? "&quot;" : "&#39;");
+}
 
 /* Blindagem de um bug do próprio Leaflet 1.9, que só aparece com renderer de
    canvas: `Canvas._updatePaths` roda `_redraw` síncrono no moveend e zera
@@ -42,8 +41,6 @@ if (!canvasProto.__redrawSeguro) {
   };
   canvasProto.__redrawSeguro = true;
 }
-
-export type PontoRede = { lat: number; lng: number; count: number };
 
 /** Bairro agregado da rede — nunca um cliente. Sem nome, sem documento e sem
  *  dizer de qual provedor veio cada ocorrência. */
@@ -72,10 +69,14 @@ export const FAIXAS_OCORRENCIA = [
   { label: '25+ casos',     token: '--danger', teste: (n: number) => n >= 25 },
 ];
 
+function corDoToken(token: string, reserva: string): string {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+  return v || reserva;
+}
+
 function corDaOcorrencia(n: number): string {
   const f = FAIXAS_OCORRENCIA.find(x => x.teste(n)) ?? FAIXAS_OCORRENCIA[0];
-  const v = getComputedStyle(document.documentElement).getPropertyValue(f.token).trim();
-  return v || '#8C2F39';
+  return corDoToken(f.token, '#8C2F39');
 }
 
 export type CidadeMapa = {
@@ -87,8 +88,28 @@ export type ModoMapa = 'carteira' | 'regionalizacao';
 
 export type SedeMapa = { cidade: string; uf: string | null; lat: number; lon: number };
 
+/** Popup do ponto da carteira: quem é, em que estado, quanto deve. */
+function popupDoPonto(p: PontoMapa): string {
+  const meta = ESTADO_META[p.estado];
+  const local = [p.bairro ? esc(p.bairro) : null, esc(p.cidade)].filter(Boolean).join(" · ");
+  return (
+    `<div style="font-family:var(--font-sans);min-width:180px">` +
+      `<div style="font-weight:600;font-size:13px;color:var(--text)">${esc(p.nome || "Sem nome")}</div>` +
+      `<div style="font-size:11px;color:var(--text-2);margin:3px 0 7px;display:flex;align-items:center;gap:5px">` +
+        `<span style="width:8px;height:8px;border-radius:50%;background:${meta.cor};display:inline-block;flex:none"></span>` +
+        `${meta.label}</div>` +
+      `<div style="font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:12px;color:var(--text)">` +
+        `Dívida vencida: <b>${brl(p.emAberto)}</b></div>` +
+      (p.atraso > 0
+        ? `<div style="font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:12px;color:var(--text-2)">Atraso: ${p.atraso} d</div>`
+        : "") +
+      `<div style="font-size:11px;color:var(--text-faint);margin-top:5px">${local}</div>` +
+    `</div>`
+  );
+}
+
 export default function MapaCarteira({
-  pontos, cidades = [], sede, modo = 'carteira', rede, height,
+  pontos, cidades = [], sede, modo = 'carteira', height = 480,
   calor = false, bairroFoco = null, bairrosRede = [], pontosRede = [], redePorPonto = false,
 }: {
   pontos: PontoMapa[];
@@ -101,8 +122,7 @@ export default function MapaCarteira({
   cidades?: CidadeMapa[];
   sede?: SedeMapa | null;
   modo?: ModoMapa;
-  rede?: PontoRede[];
-  /** Altura fixa em px. Sem ela, a altura acompanha a largura (ver abaixo). */
+  /** Altura fixa. A referência usa 480 e o ranking ao lado fecha na mesma altura. */
   height?: number;
   /** Troca os marcadores por mancha de calor ponderada pela divida em aberto. */
   calor?: boolean;
@@ -117,7 +137,6 @@ export default function MapaCarteira({
   // número de clientes.
   const renderer = useRef<L.Canvas | null>(null);
   const camada = useRef<L.LayerGroup | null>(null);
-  const camadaRede = useRef<L.LayerGroup | null>(null);
   const camadaCalor = useRef<L.Layer | null>(null);
   const ultimoBounds = useRef<L.LatLngBounds | null>(null);
   const reenquadrar = useRef<(() => void) | null>(null);
@@ -130,13 +149,14 @@ export default function MapaCarteira({
     mapa.current = L.map(div.current, { zoomControl: true, zoomSnap: 0.1 })
       .setView([-23.31, -50.16], 9);
     L.tileLayer("/api/tiles/{z}/{x}/{y}.png", {
-      attribution: '&copy; OpenStreetMap contributors', maxZoom: 18,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 18,
     }).addTo(mapa.current);
     renderer.current = L.canvas({ padding: 0.5 });
     camada.current = L.layerGroup().addTo(mapa.current);
 
-    // Com altura amarrada a largura, redimensionar a janela muda o quadro. Sem
-    // avisar o Leaflet, ele segue com o tamanho antigo e o mapa fica cortado.
+    // Redimensionar a janela muda o quadro. Sem avisar o Leaflet, ele segue
+    // com o tamanho antigo e o mapa fica cortado.
     const ro = new ResizeObserver(() => reenquadrar.current?.());
     ro.observe(div.current);
 
@@ -194,15 +214,14 @@ export default function MapaCarteira({
       // bairro, que a bolha agregada esconde. Sem contorno branco — não é um
       // cliente seu, e a distinção visual importa.
       for (const p of pontosRede) {
-        const token = FAIXAS_PONTO_REDE[p.faixa].token;
-        const cor = getComputedStyle(document.documentElement).getPropertyValue(token).trim() || '#8C2F39';
+        const cor = corDoToken(FAIXAS_PONTO_REDE[p.faixa].token, '#8C2F39');
         L.circleMarker([p.lat, p.lon], {
           renderer: renderer.current!,
           radius: 4.5, weight: 0,
           fillColor: cor, fillOpacity: 0.7,
         })
           .bindPopup(
-            `<b>Ex-cliente com dívida</b><br>${p.bairro} · ${p.cidade}<br>` +
+            `<b>Ex-cliente com dívida</b><br>${esc(p.bairro)} · ${esc(p.cidade)}<br>` +
             `${FAIXAS_PONTO_REDE[p.faixa].label}<br>` +
             `<span style="opacity:.7">local aproximado · sem identificação de cliente ou provedor</span>`,
           )
@@ -223,7 +242,7 @@ export default function MapaCarteira({
           fillColor: corDaOcorrencia(b.ocorrencias), fillOpacity: 0.7,
         })
           .bindPopup(
-            `<b>${b.bairro}</b><br>${b.cidade}<br>` +
+            `<b>${esc(b.bairro)}</b><br>${esc(b.cidade)}<br>` +
             `${b.ocorrencias} ${b.ocorrencias === 1 ? "caso" : "casos"} · ${brl(b.dividaTotal)} em aberto<br>` +
             `<span style="opacity:.7">${b.provedores} ${b.provedores === 1 ? "provedor" : "provedores"} · ` +
             `sem identificação de cliente</span>`,
@@ -232,18 +251,16 @@ export default function MapaCarteira({
           .addTo(camada.current!);
       }
     } else {
+      // Ponto FIXO de alto contraste, com traço branco — a magnitude da dívida
+      // é papel do mapa de calor, não do raio (raio ∝ dívida virava mancha na
+      // referência). A cor é o hex de ESTADO_META: o canvas não resolve var().
       for (const p of pontos) {
         L.circleMarker([p.lat, p.lon], {
           renderer: renderer.current!,
-          radius: 5, weight: 1, color: "#fff",
-          fillColor: corDoEstado(p.estado), fillOpacity: 0.9,
+          radius: 6, weight: 1.5, color: "#FFFFFF",
+          fillColor: ESTADO_META[p.estado].cor, fillOpacity: 0.95,
         })
-          .bindPopup(
-            `<b>${p.bairro || "Sem bairro"}</b><br>${p.cidade}<br>` +
-            (p.emAberto > 0
-              ? `${brl(p.emAberto)} em aberto · ${p.atraso}d`
-              : "sem dívida em aberto"),
-          )
+          .bindPopup(popupDoPonto(p), { maxWidth: 280 })
           .addTo(camada.current!);
       }
     }
@@ -264,7 +281,7 @@ export default function MapaCarteira({
         // Acima dos pontos: e a referencia, nao pode ficar soterrada.
         zIndexOffset: 1000,
       })
-        .bindPopup(`<b>Sede</b><br>${sede.cidade}${sede.uf ? ` · ${sede.uf}` : ""}`)
+        .bindPopup(`<b>Sede</b><br>${esc(sede.cidade)}${sede.uf ? ` · ${esc(sede.uf)}` : ""}`)
         .bindTooltip(`Sede · ${sede.cidade}`, { direction: "top", offset: [0, -10] })
         .addTo(camada.current!);
     }
@@ -273,8 +290,8 @@ export default function MapaCarteira({
     // atendida e puxaria o mapa para longe de quem paga. Na regionalizacao ela
     // entra, porque ali a pergunta e "onde eu atuo" e a matriz faz parte disso.
     // Bairro selecionado no ranking: o quadro fecha nele. Sem isto, clicar
-    // numa linha mudava a lista e deixava o mapa exatamente onde estava — o
-    // operador nao via para onde olhar.
+    // numa linha do ranking mudava a lista e deixava o mapa exatamente onde
+    // estava — o operador nao via para onde olhar.
     const doFoco = bairroFoco
       ? pontos.filter(p => p.bairro === bairroFoco)
       : [];
@@ -286,62 +303,31 @@ export default function MapaCarteira({
     if (sede && modo === 'regionalizacao' && doFoco.length === 0) coords.push([sede.lat, sede.lon]);
     ultimoBounds.current = L.latLngBounds(coords);
 
-    // O dado chega antes de a altura por proporcao se resolver, entao o Leaflet
-    // enquadrava para um container menor e ficava com zoom baixo demais — a
-    // carteira parecia um punhado de pontos num mapa vazio. invalidateSize
-    // atualiza o tamanho antes de medir, e o rAF repete depois do layout final.
     const enquadrar = () => {
       if (!mapa.current || !ultimoBounds.current) return;
       mapa.current.invalidateSize({ animate: false });
       // setView em vez de fitBounds: o fitBounds soma o padding dos dois lados
       // antes de medir e ainda arredonda por dentro, e sobrava ~40% de folga —
       // a carteira ficava pequena no meio de um mapa vazio. Calculando o zoom
-      // aqui, o padding e exatamente o que esta escrito. Medido: a carteira
-      // passou a ocupar 76% da largura e 95% da altura do quadro.
+      // aqui, o padding e exatamente o que esta escrito.
       const zoom = mapa.current.getBoundsZoom(ultimoBounds.current, false, L.point(24, 24));
       mapa.current.setView(
         ultimoBounds.current.getCenter(),
-        Math.min(zoom, 14),
+        Math.min(zoom, bairroFoco ? 16 : 14),
         { animate: false },
       );
     };
     reenquadrar.current = enquadrar;
     enquadrar();
-    // O dado chega antes de a altura por proporcao se resolver; a segunda
-    // passada pega o layout ja assentado.
+    // A segunda passada pega o layout ja assentado.
     requestAnimationFrame(enquadrar);
   }, [pontos, bairrosRede, pontosRede, redePorPonto, cidades, modo, sede, calor, bairroFoco]);
 
-  // Camada separada: liga e desliga sem redesenhar os pontos da carteira.
-  useEffect(() => {
-    if (!mapa.current) return;
-    camadaRede.current?.remove();
-    camadaRede.current = null;
-    if (!rede?.length) return;
-
-    camadaRede.current = L.layerGroup(
-      rede.map(r => L.circle([r.lat, r.lng], {
-        // Raio proporcional a concentracao, com teto para nao cobrir a cidade.
-        radius: Math.min(4000, 400 + r.count * 40),
-        weight: 0,
-        fillColor: corDoEstado('suspenso'),
-        fillOpacity: 0.14,
-      })),
-    ).addTo(mapa.current);
-  }, [rede]);
-
-  // Altura fixa deixava o mapa em faixa larga no monitor grande: fitBounds
-  // preenche a altura e sobra vazio nas laterais, dando a impressao de que a
-  // carteira e um punhado de pontos perdidos. Amarrando altura a largura, a
-  // proporcao do quadro fica perto da proporcao da regiao e a area atendida
-  // ocupa o mapa. Os limites evitam faixa fina no celular e mapa gigante no 4K.
   return (
     <div
       ref={div}
-      style={height
-        ? { height }
-        : { aspectRatio: "3 / 2", minHeight: 420, maxHeight: 680 }}
-      className="w-full rounded-lg overflow-hidden"
+      style={{ height }}
+      className="ds-mapa w-full rounded-lg overflow-hidden"
       data-testid="mapa-carteira"
     />
   );
