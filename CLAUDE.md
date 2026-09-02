@@ -612,6 +612,11 @@ região pequena. O id numérico de outro tenant nunca sai em payload
 do próprio ERP; o histórico gravado é limpo na leitura
 (`server/utils/historico-consulta.ts`). Só o superadmin resolve um código, por
 `POST /api/admin/partner-code/resolve` com observador, código e motivo.
+Cada provedor vê o **próprio código** no dashboard ("seu código",
+`partnerCode` em `GET /api/auth/me`), derivado em **outro domínio de chave**
+(`generateOwnCode`): serve para se identificar ao suporte e **não** é o que
+os parceiros veem para ele. Sem observador, o resolvedor trata o código como
+próprio.
 
 Linhas legadas de `proactive_alerts` sem foto continuam entrando, reavaliadas
 pela regra com a situação atual.

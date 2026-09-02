@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   generatePartnerCode, anonymizeProvider, getProviderDisplayName,
   normalizePartnerCode, resolvePartnerCode, _resetPartnerKeysForTests,
+  generateOwnCode, resolveOwnCode,
   PARTNER_CODE_REGEX, PARTNER_DISPLAY_REGEX, ROTULO_SEM_ID,
 } from "./provider-anonymizer";
 
@@ -150,6 +151,39 @@ describe("normalizacao do que o suporte ouve", () => {
     expect(normalizePartnerCode("")).toBeNull();
     expect(normalizePartnerCode("ISP-REP-CEVX")).toBeNull();
     expect(normalizePartnerCode("ISP-REU-CEV")).toBeNull();
+  });
+});
+
+describe("seu codigo — o proprio, para o suporte", () => {
+  it("e estavel e tem o mesmo formato", () => {
+    expect(generateOwnCode(42)).toBe(generateOwnCode(42));
+    expect(generateOwnCode(42)).toMatch(PARTNER_CODE_REGEX);
+    expect(generateOwnCode(42)).not.toBe(generateOwnCode(43));
+  });
+
+  it("nao e o que nenhum parceiro ve para o provedor — saber o proprio nao cruza com nada", () => {
+    const meu = generateOwnCode(42);
+    for (let viewer = 1; viewer <= 200; viewer++) {
+      if (viewer === 42) continue;
+      expect(generatePartnerCode(viewer, 42), `observador ${viewer}`).not.toBe(meu);
+    }
+  });
+
+  it("o suporte resolve o codigo proprio; um codigo pareado nao resolve como proprio, nem o contrario", () => {
+    const meu = generateOwnCode(42);
+    expect(resolveOwnCode(meu, [40, 41, 42, 43])).toEqual({ providerId: 42, keyVersion: "current" });
+    expect(resolveOwnCode(meu.toLowerCase(), [42])?.providerId).toBe(42);
+    expect(resolveOwnCode(generatePartnerCode(1, 42), [1, 42])).toBeNull();
+    expect(resolvePartnerCode(1, meu, [1, 42])).toBeNull();
+  });
+
+  it("rotacao: o codigo proprio antigo resolve pela chave anterior", () => {
+    const antiga = "a".repeat(64);
+    ambiente({ PARTNER_CODE_SECRET: antiga, SESSION_SECRET: SESSAO });
+    const meu = generateOwnCode(42);
+    ambiente({ PARTNER_CODE_SECRET: "b".repeat(64), PARTNER_CODE_SECRET_PREVIOUS: antiga, SESSION_SECRET: SESSAO });
+    expect(generateOwnCode(42)).not.toBe(meu);
+    expect(resolveOwnCode(meu, [42])).toEqual({ providerId: 42, keyVersion: "previous-0" });
   });
 });
 

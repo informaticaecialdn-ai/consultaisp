@@ -26,6 +26,11 @@
  *     Pseudonimo reversivel pelo controlador e o que a LGPD chama de
  *     pseudonimizacao (art. 13, par. 4).
  *
+ *   - "SEU CODIGO": cada provedor conhece um codigo proprio, para se
+ *     identificar ao suporte, derivado em OUTRO dominio de chave
+ *     (generateOwnCode). Nao e o que os parceiros veem para ele — logo, saber
+ *     o proprio codigo nao ajuda dois vizinhos a se reconhecerem.
+ *
  * HKDF, e nao o PBKDF2 de server/utils/crypto.ts: PBKDF2 estica senha de baixa
  * entropia; aqui o segredo e aleatorio e o que se quer e SEPARACAO DE DOMINIO
  * (info proprio), para a chave dos codigos nunca coincidir com a chave AES dos
@@ -48,6 +53,8 @@ export const ROTULO_SEM_ID = "Provedor da rede";
 
 const HKDF_SALT = "consulta-isp-partner-code";
 const HKDF_INFO = "consulta-isp/partner-code/v1";
+/** Dominio do codigo PROPRIO ("seu codigo"): outra chave, nunca coincide com a pareada. */
+const HKDF_INFO_PROPRIO = "consulta-isp/support-code/v1";
 const TAMANHO_MINIMO_DO_SEGREDO = 32;
 
 interface ChaveDeCodigo {
@@ -56,10 +63,11 @@ interface ChaveDeCodigo {
 }
 
 let chaves: ChaveDeCodigo[] | null = null;
+let chavesProprias: ChaveDeCodigo[] | null = null;
 let avisouObservadorInvalido = false;
 
-function derivar(ikm: string): Buffer {
-  return Buffer.from(hkdfSync("sha256", ikm, HKDF_SALT, HKDF_INFO, 32));
+function derivar(ikm: string, info: string): Buffer {
+  return Buffer.from(hkdfSync("sha256", ikm, HKDF_SALT, info, 32));
 }
 
 /**
@@ -69,8 +77,7 @@ function derivar(ikm: string): Buffer {
  * esteve em uso. So a primeira GERA codigos. Lida uma vez por processo, na
  * primeira chamada, nunca no import.
  */
-function getPartnerKeys(): ChaveDeCodigo[] {
-  if (chaves) return chaves;
+function carregarChaves(info: string): ChaveDeCodigo[] {
   const dedicado = (process.env.PARTNER_CODE_SECRET || "").trim();
   const sessao = (process.env.SESSION_SECRET || "").trim();
   if (!dedicado && !sessao) {
@@ -82,19 +89,29 @@ function getPartnerKeys(): ChaveDeCodigo[] {
       `Gere com: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`,
     );
   }
-  const lista: ChaveDeCodigo[] = [{ label: "current", key: derivar(dedicado || sessao) }];
+  const lista: ChaveDeCodigo[] = [{ label: "current", key: derivar(dedicado || sessao, info) }];
   (process.env.PARTNER_CODE_SECRET_PREVIOUS || "")
     .split(",")
     .map(s => s.trim())
     .filter(Boolean)
-    .forEach((s, i) => lista.push({ label: `previous-${i}`, key: derivar(s) }));
-  if (dedicado && sessao) lista.push({ label: "session-fallback", key: derivar(sessao) });
-  chaves = lista;
+    .forEach((s, i) => lista.push({ label: `previous-${i}`, key: derivar(s, info) }));
+  if (dedicado && sessao) lista.push({ label: "session-fallback", key: derivar(sessao, info) });
   return lista;
+}
+
+function getPartnerKeys(): ChaveDeCodigo[] {
+  if (!chaves) chaves = carregarChaves(HKDF_INFO);
+  return chaves;
+}
+
+function getOwnKeys(): ChaveDeCodigo[] {
+  if (!chavesProprias) chavesProprias = carregarChaves(HKDF_INFO_PROPRIO);
+  return chavesProprias;
 }
 
 export function _resetPartnerKeysForTests(): void {
   chaves = null;
+  chavesProprias = null;
   avisouObservadorInvalido = false;
 }
 
@@ -112,12 +129,26 @@ function codigoCom(key: Buffer, viewerProviderId: number, subjectProviderId: num
   return encode30(createHmac("sha256", key).update(msg).digest());
 }
 
+function codigoProprioCom(key: Buffer, providerId: number): string {
+  return encode30(createHmac("sha256", key).update(`v1:self:${providerId}`).digest());
+}
+
 const observadorValido = (v: unknown): v is number =>
   typeof v === "number" && Number.isInteger(v) && v > 0;
 
 /** O codigo que o OBSERVADOR ve para o PARCEIRO. */
 export function generatePartnerCode(viewerProviderId: number, subjectProviderId: number): string {
   return codigoCom(getPartnerKeys()[0].key, viewerProviderId, subjectProviderId);
+}
+
+/**
+ * "Seu codigo": o que o PROPRIO provedor conhece, para se identificar ao
+ * suporte da plataforma. Outro dominio de chave: nao e o que nenhum parceiro
+ * ve para ele (cada parceiro ve o codigo pareado). Cada provedor sabe o seu,
+ * e saber o seu nao ajuda dois vizinhos a se reconhecerem.
+ */
+export function generateOwnCode(providerId: number): string {
+  return codigoProprioCom(getOwnKeys()[0].key, providerId);
 }
 
 /**
@@ -183,6 +214,24 @@ export function resolvePartnerCode(
       const tentativa = Buffer.from(codigoCom(chave.key, viewerProviderId, id));
       if (tentativa.length === alvoBuf.length && timingSafeEqual(tentativa, alvoBuf)) {
         return { subjectProviderId: id, keyVersion: chave.label };
+      }
+    }
+  }
+  return null;
+}
+/** Resolve "seu codigo" (o proprio) entre os candidatos, com todas as chaves conhecidas. */
+export function resolveOwnCode(
+  code: string,
+  candidateIds: number[],
+): { providerId: number; keyVersion: string } | null {
+  const alvo = normalizePartnerCode(code);
+  if (!alvo) return null;
+  const alvoBuf = Buffer.from(alvo);
+  for (const chave of getOwnKeys()) {
+    for (const id of candidateIds) {
+      const tentativa = Buffer.from(codigoProprioCom(chave.key, id));
+      if (tentativa.length === alvoBuf.length && timingSafeEqual(tentativa, alvoBuf)) {
+        return { providerId: id, keyVersion: chave.label };
       }
     }
   }

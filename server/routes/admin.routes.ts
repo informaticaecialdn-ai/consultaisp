@@ -14,7 +14,7 @@ import { eq, desc, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { z } from "zod";
 import { sendCompletionEmail } from "../services/lgpd-email.service";
-import { normalizePartnerCode, resolvePartnerCode } from "../utils/provider-anonymizer";
+import { normalizePartnerCode, resolvePartnerCode, resolveOwnCode } from "../utils/provider-anonymizer";
 import { getRegionalProviderIds } from "../services/regional.service";
 import { logger } from "../logger";
 
@@ -841,7 +841,8 @@ export function registerAdminRoutes(): Router {
    * resolvedor um oraculo. Motivo obrigatorio e log estruturado: e a trilha.
    */
   const resolverCodigoSchema = z.object({
-    viewerProviderId: z.number().int().positive(),
+    /** Sem observador, o codigo e tratado como "seu codigo" (o proprio). */
+    viewerProviderId: z.number().int().positive().optional(),
     code: z.string().trim().min(6).max(20),
     motivo: z.string().trim().min(5).max(500),
   });
@@ -858,17 +859,28 @@ export function registerAdminRoutes(): Router {
         return res.status(400).json({ message: "Código inválido — ou do esquema anterior (ISP-#XXXXL), que não se resolve; consulte a linha gravada pelo id." });
       }
 
-      const regionais = await getRegionalProviderIds(viewerProviderId);
-      let resolvido = resolvePartnerCode(viewerProviderId, normalizado, regionais);
-      if (!resolvido) {
-        const todos = (await storage.getAllProviders()).map(p => p.id);
-        resolvido = resolvePartnerCode(viewerProviderId, normalizado, todos);
+      // Sem observador, e "seu codigo" (o proprio) que se resolve, entre todos
+      // os provedores. Com observador, e o codigo pareado que ele ve.
+      const todos = (await storage.getAllProviders()).map(p => p.id);
+      let resolvido: { subjectProviderId: number; keyVersion: string } | null = null;
+      let tipo: "proprio" | "parceiro" = "parceiro";
+      if (viewerProviderId == null) {
+        const proprio = resolveOwnCode(normalizado, todos);
+        if (proprio) {
+          resolvido = { subjectProviderId: proprio.providerId, keyVersion: proprio.keyVersion };
+          tipo = "proprio";
+        }
+      } else {
+        const regionais = await getRegionalProviderIds(viewerProviderId);
+        resolvido = resolvePartnerCode(viewerProviderId, normalizado, regionais)
+          ?? resolvePartnerCode(viewerProviderId, normalizado, todos);
       }
 
       logger.info(
         {
           superadminUserId: req.session.userId,
-          viewerProviderId,
+          viewerProviderId: viewerProviderId ?? null,
+          tipo,
           code: normalizado,
           motivo,
           resolvedProviderId: resolvido?.subjectProviderId ?? null,
@@ -878,10 +890,14 @@ export function registerAdminRoutes(): Router {
       );
 
       if (!resolvido) {
-        return res.status(404).json({ message: "Nenhum provedor corresponde a este código para este observador." });
+        return res.status(404).json({
+          message: viewerProviderId == null
+            ? "Nenhum provedor tem este código próprio."
+            : "Nenhum provedor corresponde a este código para este observador.",
+        });
       }
       const provider = await storage.getProvider(resolvido.subjectProviderId);
-      return res.json({ providerId: resolvido.subjectProviderId, name: provider?.name ?? null, keyVersion: resolvido.keyVersion });
+      return res.json({ tipo, providerId: resolvido.subjectProviderId, name: provider?.name ?? null, keyVersion: resolvido.keyVersion });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }

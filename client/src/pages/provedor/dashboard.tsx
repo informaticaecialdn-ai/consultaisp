@@ -19,6 +19,7 @@ import {
   ChevronRight,
   ScanSearch,
   BarChart3,
+  Shield,
   ShieldAlert,
   MapPin,
   Upload,
@@ -31,7 +32,7 @@ import {
 const fmt = (v: number) => v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function DashboardPage() {
-  const { provider } = useAuth();
+  const { provider, partnerCode } = useAuth();
 
   const { data: stats, isLoading } = useQuery<any>({ queryKey: ["/api/dashboard/stats"], staleTime: STALE_DASHBOARD });
 
@@ -64,6 +65,22 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
+          {partnerCode && (
+            <div
+              className="flex items-center gap-2 border border-[var(--border)] rounded-lg px-2.5 py-1.5 bg-[var(--surface)]"
+              title="Seu código para o suporte. Os provedores parceiros veem outro código para você — ninguém consegue cruzar."
+            >
+              <Shield className="w-4 h-4 flex-none text-[var(--text-faint)]" strokeWidth={2} />
+              <div>
+                <p className="font-mono text-[12px] font-medium text-[var(--text)] tabular-nums leading-none" data-testid="text-partner-code">
+                  {partnerCode}
+                </p>
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)] leading-tight mt-1">
+                  seu código
+                </p>
+              </div>
+            </div>
+          )}
           <Link href="/creditos">
             <div className="flex items-center gap-2 border border-[var(--border)] rounded-lg px-2.5 py-1.5 bg-[var(--surface)] cursor-pointer hover:border-[var(--border-strong)] motion-safe:transition-colors">
               <CreditCard className="w-4 h-4 flex-none text-[var(--brand)]" strokeWidth={2} />
