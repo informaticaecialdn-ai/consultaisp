@@ -163,16 +163,6 @@ export function registerAntiFraudeRoutes(): Router {
         } catch { /* sem snapshot, a regra decide com o que o alerta trouxe */ }
       }));
 
-      const nomesConsulentes = new Map<number, string>();
-      for (const pa of proactiveRaw) {
-        if (pa.consultingProviderId && !nomesConsulentes.has(pa.consultingProviderId)) {
-          try {
-            const p = await storage.getProvider(pa.consultingProviderId);
-            if (p) nomesConsulentes.set(pa.consultingProviderId, p.name);
-          } catch { /* nome ausente vira "Provedor da rede" */ }
-        }
-      }
-
       type Candidato = {
         alerta: Record<string, any>;
         /** Legado sem foto: a regra decide com a situacao de hoje. Gravado com foto: null. */
@@ -237,12 +227,11 @@ export function registerAntiFraudeRoutes(): Router {
             providerId: pa.providerId,
             customerId: null,
             customerProviderId: currentProviderId,
-            consultingProviderId: pa.consultingProviderId,
-            // Anonimizado como no caminho de migrador: o dono precisa saber QUE
-            // consultaram, nao qual concorrente esta prospectando.
-            consultingProviderName: pa.consultingProviderId
-              ? anonymizeProvider(nomesConsulentes.get(pa.consultingProviderId) || "Provedor da rede", pa.consultingProviderId)
-              : null,
+            // O id cru do consulente nao sai para o dono: ao lado do codigo ele
+            // desfazia a anonimizacao. O dono precisa saber QUE consultaram, nao
+            // qual concorrente esta prospectando.
+            consultingProviderId: pa.consultingProviderId === currentProviderId ? pa.consultingProviderId : null,
+            consultingProviderName: anonymizeProvider(currentProviderId, pa.consultingProviderId),
             customerName: snap?.name ?? null,
             customerCpfCnpj: pa.cpfCnpj,
             type: "defaulter_consulted",
@@ -390,7 +379,8 @@ export function registerAntiFraudeRoutes(): Router {
         if (isAck) {
           const updated = await storage.acknowledgeProactiveAlert(realId, req.session.providerId!);
           if (!updated) return res.status(404).json({ message: "Alerta nao encontrado" });
-          return res.json({ ...updated, id: alertId, status, _source: "proactive" });
+          // So o que a tela usa: a linha crua traz o id do consulente.
+          return res.json({ id: alertId, status, acknowledgedAt: updated.acknowledgedAt, _source: "proactive" });
         }
         return res.json({ id: alertId, status: "new" });
       }

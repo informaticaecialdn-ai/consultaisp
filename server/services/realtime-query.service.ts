@@ -114,7 +114,23 @@ async function querySingleErp(
   searchType: "cpf" | "cnpj" | "cep",
 ): Promise<RealtimeQueryResult> {
   const start = Date.now();
-  const config = buildErpConfig(intg);
+  let config: ErpConnectionConfig;
+  try {
+    config = buildErpConfig(intg);
+  } catch (err) {
+    // O detalhe (id do provedor, URL do ERP) fica no log. O que sai para quem
+    // consulta e um rotulo grosso — a mensagem chegava a outros provedores.
+    logger.warn({ providerId: intg.providerId, erpSource: intg.erpSource, err }, "RT-QUERY configuracao do ERP invalida");
+    return {
+      providerId: intg.providerId,
+      providerName: intg.providerName,
+      erpSource: intg.erpSource,
+      ok: false,
+      error: "configuracao_invalida",
+      customers: [],
+      latencyMs: Date.now() - start,
+    };
+  }
   const connector = getConnector(intg.erpSource);
 
   if (!connector) {

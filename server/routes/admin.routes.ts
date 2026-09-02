@@ -14,6 +14,9 @@ import { eq, desc, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { z } from "zod";
 import { sendCompletionEmail } from "../services/lgpd-email.service";
+import { normalizePartnerCode, resolvePartnerCode } from "../utils/provider-anonymizer";
+import { getRegionalProviderIds } from "../services/regional.service";
+import { logger } from "../logger";
 
 const adminUpdateProviderSchema = z.object({
   name: z.string().min(1).max(200).optional(),
@@ -826,6 +829,59 @@ export function registerAdminRoutes(): Router {
       }
 
       return res.json(updated);
+    } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  /**
+   * Resolve um codigo de parceiro de volta ao provedor — so o controlador.
+   * O codigo e pareado por observador, entao o par (observador, codigo) e o
+   * que resolve; nunca se tenta contra outros observadores, o que faria do
+   * resolvedor um oraculo. Motivo obrigatorio e log estruturado: e a trilha.
+   */
+  const resolverCodigoSchema = z.object({
+    viewerProviderId: z.number().int().positive(),
+    code: z.string().trim().min(6).max(20),
+    motivo: z.string().trim().min(5).max(500),
+  });
+
+  router.post("/api/admin/partner-code/resolve", requireSuperAdmin, async (req, res) => {
+    try {
+      const parsed = resolverCodigoSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.issues[0]?.message || "Pedido inválido" });
+      }
+      const { viewerProviderId, code, motivo } = parsed.data;
+      const normalizado = normalizePartnerCode(code);
+      if (!normalizado) {
+        return res.status(400).json({ message: "Código inválido — ou do esquema anterior (ISP-#XXXXL), que não se resolve; consulte a linha gravada pelo id." });
+      }
+
+      const regionais = await getRegionalProviderIds(viewerProviderId);
+      let resolvido = resolvePartnerCode(viewerProviderId, normalizado, regionais);
+      if (!resolvido) {
+        const todos = (await storage.getAllProviders()).map(p => p.id);
+        resolvido = resolvePartnerCode(viewerProviderId, normalizado, todos);
+      }
+
+      logger.info(
+        {
+          superadminUserId: req.session.userId,
+          viewerProviderId,
+          code: normalizado,
+          motivo,
+          resolvedProviderId: resolvido?.subjectProviderId ?? null,
+          keyVersion: resolvido?.keyVersion ?? null,
+        },
+        "partner-code resolvido",
+      );
+
+      if (!resolvido) {
+        return res.status(404).json({ message: "Nenhum provedor corresponde a este código para este observador." });
+      }
+      const provider = await storage.getProvider(resolvido.subjectProviderId);
+      return res.json({ providerId: resolvido.subjectProviderId, name: provider?.name ?? null, keyVersion: resolvido.keyVersion });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }

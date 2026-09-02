@@ -82,39 +82,3 @@ describe('address-hash', () => {
   });
 });
 
-describe('provider-anonymizer', () => {
-  it('produces consistent anonymous ID for same provider', async () => {
-    const { anonymizeProvider } = await import('./provider-anonymizer');
-    const id1 = anonymizeProvider('NG Telecom');
-    const id2 = anonymizeProvider('NG Telecom');
-    expect(id1).toBe(id2);
-    // Formato ISP-#XXXXL: 4 chars do charset sem I/O + inicial do provedor
-    expect(id1).toMatch(/^Provedor Parceiro ISP-#[0-9A-HJ-NP-Z]{4}[A-Z]$/);
-  });
-
-  it('produces different IDs for different providers', async () => {
-    const { anonymizeProvider } = await import('./provider-anonymizer');
-    const id1 = anonymizeProvider('NG Telecom');
-    const id2 = anonymizeProvider('Vivo Fibra');
-    expect(id1).not.toBe(id2);
-  });
-
-  it('does not reveal provider name', async () => {
-    const { anonymizeProvider } = await import('./provider-anonymizer');
-    const id = anonymizeProvider('NG Telecom');
-    expect(id).not.toContain('NG');
-    expect(id).not.toContain('Telecom');
-  });
-
-  it('getProviderDisplayName returns real name for own provider', async () => {
-    const { getProviderDisplayName } = await import('./provider-anonymizer');
-    expect(getProviderDisplayName('NG Telecom', true)).toBe('NG Telecom');
-  });
-
-  it('getProviderDisplayName returns anonymous for cross-provider', async () => {
-    const { getProviderDisplayName } = await import('./provider-anonymizer');
-    const name = getProviderDisplayName('NG Telecom', false);
-    expect(name).toMatch(/^Provedor Parceiro ISP-#[0-9A-HJ-NP-Z]{4}[A-Z]$/);
-    expect(name).not.toContain('NG');
-  });
-});

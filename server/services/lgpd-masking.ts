@@ -6,7 +6,7 @@
  * Same-provider data passes through unmasked.
  */
 
-import { getProviderDisplayName } from '../utils/provider-anonymizer';
+import { anonymizeProvider } from '../utils/provider-anonymizer';
 
 /**
  * Masks a full name for cross-provider display.
@@ -198,6 +198,8 @@ const STRIPPED_FIELDS: string[] = [
 export function maskCrossProviderDetail(
   detail: Record<string, any>,
   isSameProvider: boolean,
+  /** Quem esta olhando: o codigo do parceiro e pareado por observador. */
+  viewerProviderId: number,
 ): Record<string, any> {
   if (isSameProvider) return detail;
 
@@ -222,9 +224,11 @@ export function maskCrossProviderDetail(
   }
   // Cross-provider: strip CEP entirely (city/state is enough)
   result.cep = undefined;
-  // LGPD: Anonymize cross-provider name (use providerId for consistent ISP-XXXX code)
-  if (detail.providerName != null) {
-    result.providerName = getProviderDisplayName(detail.providerName, false, detail.providerId);
+  // LGPD: o parceiro vira o codigo pareado que ESTE observador ve. O nome nao
+  // participa; sem id, rotulo fixo. `providerId` fica fora de PRESERVED_FIELDS
+  // de proposito — o id cru ao lado do codigo identifica sem hash nenhum.
+  if (detail.providerName != null || detail.providerId != null) {
+    result.providerName = anonymizeProvider(viewerProviderId, detail.providerId);
   }
 
   // LGPD: daysOverdue — convert exact days to qualitative range, strip exact value

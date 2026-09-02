@@ -73,6 +73,8 @@ ASAAS_API_KEY=                      # Asaas ($aact_ = prod, $aact_test_ = sandbo
 AI_INTEGRATIONS_OPENAI_API_KEY=     # OpenAI para análise IA
 AI_INTEGRATIONS_OPENAI_BASE_URL=    # Base URL OpenAI (opcional)
 GOOGLE_MAPS_API_KEY=                # Google Maps
+PARTNER_CODE_SECRET=                # Chave do código de provedor parceiro (32+ chars; sem ela deriva do SESSION_SECRET)
+PARTNER_CODE_SECRET_PREVIOUS=       # Chaves anteriores, separadas por vírgula — só para o superadmin resolver códigos antigos
 ```
 
 ---
@@ -597,6 +599,19 @@ exigem contrato ativo ou suspenso; o provedor liga o que quer vigiar:
 Os motivos que bateram vão em `riskFactors`; o rótulo do card sai do motivo
 principal. Sem linha gravada vale o padrão. Os canais (e-mail, WhatsApp,
 webhook, liga/desliga) ficam na mesma aba.
+
+**Código de provedor parceiro** (`server/utils/provider-anonymizer.ts`): o
+nome de outro provedor nunca aparece; sai `Provedor Parceiro ISP-XXX-XXX`.
+O código é **pareado por observador** — HMAC-SHA256 com chave HKDF de
+`PARTNER_CODE_SECRET` sobre `viewer:parceiro` — e nada do nome entra. O
+provedor A vê um código para Z, o B vê outro, e A vê sempre o mesmo. O
+esquema anterior (sha256 de salt fixo no fonte + id, com a inicial do nome no
+fim) era enumerável com o fonte em mãos e a inicial isolava o parceiro numa
+região pequena. O id numérico de outro tenant nunca sai em payload
+(alertas, providerDetails, addressMatches); `erpLatencies` traz só a linha
+do próprio ERP; o histórico gravado é limpo na leitura
+(`server/utils/historico-consulta.ts`). Só o superadmin resolve um código, por
+`POST /api/admin/partner-code/resolve` com observador, código e motivo.
 
 Linhas legadas de `proactive_alerts` sem foto continuam entrando, reavaliadas
 pela regra com a situação atual.

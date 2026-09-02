@@ -12,9 +12,13 @@ import { anonymizeProvider } from "./provider-anonymizer";
 export function maskAlertForProvider(alert: any, currentProviderId: number) {
   const isOwnCustomer = alert.customerProviderId === currentProviderId;
   const isOwnConsultation = alert.consultingProviderId === currentProviderId;
+  // O id cru do consulente nunca sai para outro tenant: ao lado do codigo ele
+  // desfazia a anonimizacao sem precisar de hash nenhum.
+  const { consultingProviderId, ...resto } = alert;
 
   return {
-    ...alert,
+    ...resto,
+    consultingProviderId: isOwnConsultation ? consultingProviderId : null,
     customerName: isOwnCustomer
       ? alert.customerName
       : (alert.customerName ? maskName(alert.customerName, false) : alert.customerName),
@@ -23,6 +27,6 @@ export function maskAlertForProvider(alert: any, currentProviderId: number) {
       : (alert.customerCpfCnpj ? maskCpfCnpj(alert.customerCpfCnpj, false) : alert.customerCpfCnpj),
     consultingProviderName: isOwnConsultation
       ? alert.consultingProviderName
-      : (alert.consultingProviderName ? anonymizeProvider(alert.consultingProviderName, alert.consultingProviderId) : alert.consultingProviderName),
+      : anonymizeProvider(currentProviderId, consultingProviderId),
   };
 }

@@ -5,7 +5,6 @@ import { apiRequest } from "./queryClient";
 interface AuthState {
   user: { id: number; email: string; name: string; role: string } | null;
   provider: Provider | null;
-  partnerCode: string | null;
   mustChangePassword: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<{ code?: string; email?: string } | void>;
@@ -19,7 +18,6 @@ const AuthContext = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthState["user"]>(null);
   const [provider, setProvider] = useState<Provider | null>(null);
-  const [partnerCode, setPartnerCode] = useState<string | null>(null);
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -30,7 +28,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const data = await res.json();
         setUser(data.user);
         setProvider(data.provider);
-        setPartnerCode(data.partnerCode || null);
         setMustChangePassword(data.mustChangePassword || false);
       }
     } catch {
@@ -85,7 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const clearMustChangePassword = () => setMustChangePassword(false);
 
   return (
-    <AuthContext.Provider value={{ user, provider, partnerCode, mustChangePassword, isLoading, login, register, logout, clearMustChangePassword }}>
+    <AuthContext.Provider value={{ user, provider, mustChangePassword, isLoading, login, register, logout, clearMustChangePassword }}>
       {children}
     </AuthContext.Provider>
   );

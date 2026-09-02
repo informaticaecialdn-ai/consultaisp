@@ -301,11 +301,12 @@ export function registerAuthRoutes(): Router {
       return res.status(401).json({ message: "Nao autenticado" });
     }
     const provider = user.providerId ? await storage.getProvider(user.providerId) : null;
-    const partnerCode = provider ? (await import("../utils/provider-anonymizer.js")).generatePartnerCode(provider.id, provider.tradeName || provider.name) : null;
+    // Nao existe mais "meu codigo na rede": o codigo de parceiro e pareado por
+    // quem olha, entao cada provedor ve um diferente para o mesmo parceiro. Um
+    // codigo "proprio" so servia para dois provedores se reconhecerem.
     return res.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
       provider,
-      partnerCode,
       mustChangePassword: user.mustChangePassword || false,
     });
   });

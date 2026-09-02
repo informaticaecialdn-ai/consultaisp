@@ -23,7 +23,8 @@ export interface AddressGroupEntry {
     cpfCnpj: string;
     name: string;
     providerName: string;
-    providerId: number;
+    /** So o proprio provedor mantem o id; o do parceiro nunca sai daqui. */
+    providerId?: number;
     isSameProvider: boolean;
     maxDaysOverdue: number;
     totalOverdueAmount: number;
@@ -231,6 +232,7 @@ export function buildAddressSearchResult(
       if (!c.isSameProvider) {
         const masked = maskCrossProviderDetail({
           providerName: c.providerName,
+          providerId: c.providerId,
           isSameProvider: false,
           customerName: c.name,
           cpfCnpj: c.cpfCnpj,
@@ -238,8 +240,19 @@ export function buildAddressSearchResult(
           daysOverdue: c.maxDaysOverdue,
           overdueAmount: c.totalOverdueAmount,
           overdueInvoicesCount: c.overdueInvoicesCount,
-        }, false);
-        return { ...c, name: masked.customerName, cpfCnpj: masked.cpfCnpj, providerName: masked.providerName };
+        }, false, consultingProviderId);
+        // Campo a campo, sem `...c`: o spread levava o providerId CRU do
+        // parceiro junto com o nome ja anonimizado — e isso era gravado.
+        return {
+          cpfCnpj: masked.cpfCnpj,
+          name: masked.customerName,
+          providerName: masked.providerName,
+          isSameProvider: false,
+          maxDaysOverdue: c.maxDaysOverdue,
+          totalOverdueAmount: c.totalOverdueAmount,
+          overdueInvoicesCount: c.overdueInvoicesCount,
+          status: c.status,
+        };
       }
       return c;
     });

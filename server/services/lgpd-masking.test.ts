@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import {
   maskName,
   maskCpfCnpj,
@@ -193,6 +193,10 @@ describe('maskServiceAge', () => {
 });
 
 describe('maskCrossProviderDetail', () => {
+  // O codigo do parceiro e pareado por observador e chaveado pelo ambiente.
+  const VIEWER = 99;
+  beforeAll(() => { process.env.PARTNER_CODE_SECRET = 'p'.repeat(64); });
+
   const sampleDetail = {
     customerName: 'Maria Santos Oliveira',
     cpfCnpj: '12345678901',
@@ -200,6 +204,7 @@ describe('maskCrossProviderDetail', () => {
     cep: '86000100',
     overdueAmount: 350,
     providerName: 'ISP Alpha',
+    providerId: 7,
     isSameProvider: false,
     status: 'Inadimplente',
     daysOverdue: 45,
@@ -225,7 +230,7 @@ describe('maskCrossProviderDetail', () => {
   };
 
   it('returns object unchanged for same provider', () => {
-    const result = maskCrossProviderDetail({ ...sampleDetail, isSameProvider: true }, true);
+    const result = maskCrossProviderDetail({ ...sampleDetail, isSameProvider: true }, true, 7);
     expect(result.customerName).toBe('Maria Santos Oliveira');
     expect(result.cpfCnpj).toBe('12345678901');
     expect(result.phone).toBe('43999998888');
@@ -234,34 +239,34 @@ describe('maskCrossProviderDetail', () => {
   });
 
   it('masks name for cross provider', () => {
-    const result = maskCrossProviderDetail(sampleDetail, false);
+    const result = maskCrossProviderDetail(sampleDetail, false, VIEWER);
     expect(result.customerName).toBe('Maria ***');
   });
 
   it('masks CPF for cross provider', () => {
-    const result = maskCrossProviderDetail(sampleDetail, false);
+    const result = maskCrossProviderDetail(sampleDetail, false, VIEWER);
     expect(result.cpfCnpj).toBe('123.***.***-**');
   });
 
   it('masks address for cross provider', () => {
-    const result = maskCrossProviderDetail(sampleDetail, false);
+    const result = maskCrossProviderDetail(sampleDetail, false, VIEWER);
     expect(result.address).not.toBe(sampleDetail.address);
     expect(result.address).toContain('***');
   });
 
   it('masks CEP for cross provider', () => {
-    const result = maskCrossProviderDetail(sampleDetail, false);
+    const result = maskCrossProviderDetail(sampleDetail, false, VIEWER);
     expect(result.cep).toBeUndefined();
   });
 
   it('sets overdueAmount to undefined and adds range for cross provider', () => {
-    const result = maskCrossProviderDetail(sampleDetail, false);
+    const result = maskCrossProviderDetail(sampleDetail, false, VIEWER);
     expect(result.overdueAmount).toBeUndefined();
     expect(result.overdueAmountRange).toBe('R$ 300 - R$ 400');
   });
 
   it('strips sensitive fields for cross provider', () => {
-    const result = maskCrossProviderDetail(sampleDetail, false);
+    const result = maskCrossProviderDetail(sampleDetail, false, VIEWER);
     expect(result.phone).toBeUndefined();
     expect(result.email).toBeUndefined();
     expect(result.planName).toBeUndefined();
@@ -272,9 +277,11 @@ describe('maskCrossProviderDetail', () => {
   });
 
   it('preserves non-sensitive fields for cross provider', () => {
-    const result = maskCrossProviderDetail(sampleDetail, false);
-    // LGPD: providerName vira codigo parceiro ISP-#XXXXL (4 chars do charset sem I/O + inicial do nome)
-    expect(result.providerName).toMatch(/^Provedor Parceiro ISP-#[0-9A-HJ-NP-Z]{4}[A-Z]$/);
+    const result = maskCrossProviderDetail(sampleDetail, false, VIEWER);
+    // LGPD: providerName vira o codigo pareado ISP-XXX-XXX (Crockford, sem inicial do nome)
+    expect(result.providerName).toMatch(/^Provedor Parceiro ISP-[0-9A-HJKMNP-TV-Z]{3}-[0-9A-HJKMNP-TV-Z]{3}$/);
+    // O id cru do parceiro nunca sai: ao lado do codigo ele identificava sem hash nenhum.
+    expect(result.providerId).toBeUndefined();
     expect(result.providerName).not.toBe('ISP Alpha');
     expect(result.providerName).not.toContain('Alpha');
     expect(result.status).toBe('Inadimplente');
@@ -304,7 +311,7 @@ describe('maskCrossProviderDetail', () => {
       serialNumber: 'SN-123',
       mac: 'AA:BB',
       proofReference: 'OS-99',
-    }, false);
+    }, false, VIEWER);
     expect(result.equipmentDetails).toBeUndefined();
     expect(result.serialNumber).toBeUndefined();
     expect(result.mac).toBeUndefined();

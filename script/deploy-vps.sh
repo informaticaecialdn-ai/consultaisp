@@ -37,6 +37,7 @@ if [ ! -f .env ]; then
   echo "║  - DATABASE_URL (Supabase PostgreSQL)                   ║"
   echo "║  - SESSION_SECRET                                       ║"
   echo "║  - NETWORK_CPF_SALT (use o valor abaixo)                ║"
+  echo "║  - PARTNER_CODE_SECRET (32+ chars, gere um valor)       ║"
   echo "║                                                         ║"
   echo "║  NETWORK_CPF_SALT sugerido:                             ║"
   echo "║  e074aa5746ea6d8f619d153605a03ddd7e3f80dad84bf98b33f3524d4d39f938"

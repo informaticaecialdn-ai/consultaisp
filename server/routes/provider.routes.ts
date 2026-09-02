@@ -5,6 +5,7 @@ import { hashPassword } from "../password";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { sanitizeFilename } from "../utils/filename-sanitizer";
 import { logger } from "../logger";
+import { anonymizeProvider } from "../utils/provider-anonymizer";
 import crypto from "crypto";
 
 export function registerProviderRoutes(): Router {
@@ -327,11 +328,18 @@ export function registerProviderRoutes(): Router {
   });
 
   // ── Proactive Alerts List ──────────────────────────────
+  // O id cru do consulente nunca sai para o dono: ao lado do codigo pareado
+  // ele desfazia a anonimizacao. Mesma mascara de GET /api/anti-fraud/alerts.
   router.get("/api/providers/proactive-alerts", requireAuth, async (req, res) => {
     try {
+      const providerId = req.session.providerId!;
       const limit = Math.min(100, parseInt(req.query.limit as string) || 50);
-      const alerts = await storage.getProactiveAlertsByProvider(req.session.providerId!, limit);
-      return res.json(alerts);
+      const alerts = await storage.getProactiveAlertsByProvider(providerId, limit);
+      return res.json(alerts.map(pa => ({
+        ...pa,
+        consultingProviderId: pa.consultingProviderId === providerId ? pa.consultingProviderId : null,
+        consultingProviderName: anonymizeProvider(providerId, pa.consultingProviderId),
+      })));
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
@@ -342,7 +350,8 @@ export function registerProviderRoutes(): Router {
       const alertId = parseInt(req.params.id);
       const updated = await storage.acknowledgeProactiveAlert(alertId, req.session.providerId!);
       if (!updated) return res.status(404).json({ message: "Alerta nao encontrado" });
-      return res.json(updated);
+      // So o que mudou: a linha inteira traz o id do consulente.
+      return res.json({ id: updated.id, acknowledged: updated.acknowledged, acknowledgedAt: updated.acknowledgedAt });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }

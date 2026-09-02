@@ -2,7 +2,8 @@ import { Router } from "express";
 import { requireAuth } from "../auth";
 import { storage } from "../storage";
 import { maskCrossProviderDetail, maskName, maskCpfCnpj, maskOverdueAmount, maskDaysOverdue } from "../services/lgpd-masking";
-import { getProviderDisplayName } from "../utils/provider-anonymizer";
+import { generatePartnerCode } from "../utils/provider-anonymizer";
+import { sanitizarResultadoGravado } from "../utils/historico-consulta";
 import { hashCPFForNetwork } from "../utils/cpf-hash";
 import { getRegionalProviderIds } from "../services/regional.service";
 import { queryRegionalErps, queryRegionalErpsByAddress, type RealtimeQueryResult } from "../services/realtime-query.service";
@@ -39,7 +40,9 @@ export function registerConsultasRoutes(): Router {
       ]);
 
       return res.json({
-        consultations,
+        // O result gravado sai limpo: resultados antigos guardavam o codigo
+        // global do parceiro e o id cru dele (ver historico-consulta.ts).
+        consultations: consultations.map(c => ({ ...c, result: sanitizarResultadoGravado(c.result) })),
         total,
         page,
         pageSize: limit,
@@ -142,7 +145,12 @@ export function registerConsultasRoutes(): Router {
           : undefined;
 
         if (cachedRegional) {
-          erpResults = cachedRegional.erpResults as RealtimeQueryResult[];
+          // O cache e chaveado pela primeira mesorregiao de quem consultou
+          // antes, mas o conjunto permitido e por sobreposicao de regioes:
+          // um provedor de OUTRA regiao daquele consulente nao pode chegar a
+          // este. Filtra pelo conjunto permitido deste observador.
+          erpResults = (cachedRegional.erpResults as RealtimeQueryResult[])
+            .filter(r => allowedProviderIds.has(r.providerId));
           regionalCacheHit = true;
           logger.info({ providerId, doc: cleaned.slice(0, 4) + "***", mesoregiao }, "CONSULTA regional cache hit");
         } else {
@@ -308,8 +316,14 @@ export function registerConsultasRoutes(): Router {
             email: c.email,
             serviceAgeMonths: c.serviceAgeMonths,
           };
-          return maskCrossProviderDetail(rawDetail, c.isSameProvider);
+          return maskCrossProviderDetail(rawDetail, c.isSameProvider, providerId);
         });
+        // Proprio primeiro; parceiros na ordem do codigo, que e pseudoaleatoria
+        // por observador. A ordem de chegada seguia o id (ordem de cadastro) —
+        // mais uma pista de quem e quem.
+        providerDetails.sort((a, b) =>
+          (a.isSameProvider === b.isSameProvider ? 0 : a.isSameProvider ? -1 : 1)
+          || String(a.providerName || "").localeCompare(String(b.providerName || "")));
 
         // Build alerts — LGPD: mask exact values for cross-provider data
         const alerts: string[] = [];
@@ -584,7 +598,11 @@ export function registerConsultasRoutes(): Router {
           recommendedActions: scoreResult.condicoesSugeridas,
           creditsCost,
           isOwnCustomer,
-          addressSearch: addressSearchResult || null,
+          // Sem addressGroups: e o contexto cru, que levava o providerId do
+          // parceiro — e era gravado. A visao sanitizada e `addressMatches`.
+          addressSearch: addressSearchResult
+            ? (({ addressGroups: _grupos, ...resto }) => resto)(addressSearchResult)
+            : null,
           addressRiskAlerts: addressRiskAlerts.length > 0 ? {
             type: "address_risk",
             message: `Este endereco tem ${addressRiskAlerts.length} registro(s) de inadimplencia na rede ISP`,
@@ -602,7 +620,9 @@ export function registerConsultasRoutes(): Router {
                     address: `${g.cep}, nº ${g.numero}${g.complemento ? `, ${g.complemento}` : ""}`,
                     city: "",
                     state: undefined as string | undefined,
-                    providerName: getProviderDisplayName(c.providerName, isSame, c.providerId),
+                    // Ja mascarado pelo address-search com este observador. Anonimizar
+                    // de novo gerava um terceiro codigo, a partir do proprio codigo.
+                    providerName: c.providerName,
                     isSameProvider: isSame,
                     status: c.maxDaysOverdue > 90 ? "Inadimplente (90+ dias)"
                       : c.maxDaysOverdue > 60 ? "Inadimplente (61-90 dias)"
@@ -633,8 +653,12 @@ export function registerConsultasRoutes(): Router {
             idadeHoras: 0,
             descricao: "consultado ao vivo no ERP",
           },
-          // V-02 LGPD fix: anonymize provider names in erpLatencies
-          erpLatencies: erpResults.map(r => ({ provider: getProviderDisplayName(r.providerName, r.providerId === providerId, r.providerId), erp: r.erpSource, ok: r.ok, ms: r.latencyMs, error: r.error })),
+          // So a linha do proprio ERP. Uma linha por parceiro — ERP usado,
+          // latencia, texto de erro com hostname, ordem por id — identificava
+          // sem precisar de nome. Os parceiros ficam so nos agregados abaixo.
+          erpLatencies: erpResults
+            .filter(r => r.providerId === providerId)
+            .map(r => ({ provider: r.providerName, erp: r.erpSource, ok: r.ok, ms: r.latencyMs, error: r.error })),
           erpSummary: {
             total: erpResults.length,
             responded: erpResults.filter(r => r.ok).length,
@@ -787,17 +811,12 @@ export function registerConsultasRoutes(): Router {
 
       const consultations = await storage.getConsultationTimeline(cleaned, allProviderIds, 50);
 
-      // Batch-load provider names for all unique providerIds in results
-      const uniqueProviderIds = [...new Set(consultations.map(c => c.providerId))];
-      const providerMap = new Map<number, string>();
-      await Promise.all(uniqueProviderIds.map(async (pid) => {
-        const p = await storage.getProvider(pid);
-        if (p) providerMap.set(pid, p.name);
-      }));
+      // So o nome do PROPRIO provedor aparece; o parceiro vira o codigo pareado
+      // deste observador — nao ha por que carregar o nome de ninguem.
+      const meuNome = (await storage.getProvider(providerId))?.name || "Seu provedor";
 
       const timeline = consultations.map(c => {
         const isSameProvider = c.providerId === providerId;
-        const providerName = providerMap.get(c.providerId) || "Provedor";
         const resultData = c.result as any;
 
         const alerts: string[] = [];
@@ -813,7 +832,8 @@ export function registerConsultasRoutes(): Router {
           score: c.score,
           decision: c.decisionReco,
           searchType: c.searchType,
-          provider: getProviderDisplayName(providerName, isSameProvider, c.providerId),
+          // So o codigo: a tela ja prefixa "Provedor parceiro · ".
+          provider: isSameProvider ? meuNome : generatePartnerCode(providerId, c.providerId),
           alerts,
           isSameProvider,
         };

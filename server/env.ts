@@ -12,6 +12,15 @@ export function validateEnv(): void {
   if (!process.env.NETWORK_CPF_SALT) {
     logger.warn("NETWORK_CPF_SALT not set — CPF hashing disabled. Set a 32+ char salt for LGPD compliance.");
   }
+  const partnerSecret = (process.env.PARTNER_CODE_SECRET || "").trim();
+  if (!partnerSecret) {
+    logger.warn("PARTNER_CODE_SECRET not set — partner codes derive from SESSION_SECRET; rotating SESSION_SECRET rotates every partner code. Set a 32+ char secret.");
+  } else if (partnerSecret.length < 32) {
+    // Falhar aqui, nao na primeira consulta com parceiro — que viraria 500
+    // em toda consulta, listagem de alertas e timeline.
+    logger.fatal({ length: partnerSecret.length }, "PARTNER_CODE_SECRET must have at least 32 characters");
+    process.exit(1);
+  }
   logger.info("Environment validated");
 }
 
