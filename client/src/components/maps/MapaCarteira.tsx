@@ -45,27 +45,17 @@ if (!canvasProto.__redrawSeguro) {
   canvasProto.__redrawSeguro = true;
 }
 
-/** Bairro agregado da rede — nunca um cliente. Sem nome, sem documento e sem
- *  dizer de qual provedor veio cada ocorrência. */
+/** Bolha da rede — onde e quantos. Sem nome de bairro, valor ou provedor:
+ *  regra do dono (02/09/2026), dados da rede são só o ponto no mapa. */
 export type BairroRede = {
-  bairro: string; cidade: string;
-  ocorrencias: number; dividaTotal: number; provedores: number;
+  /** Só para o filtro de cidade; nunca exibida por ponto. */
+  cidade: string;
+  ocorrencias: number;
   lat: number | null; lon: number | null;
-  /** ibge = centro do bairro pelo censo de endereços; carteira = mediana das coordenadas confiáveis. */
-  ancora?: "ibge" | "carteira" | null;
 };
 
-/** Ponto individual da rede — coordenada deslocada no servidor. */
-export type PontoRedeItem = {
-  ref: string; lat: number; lon: number; bairro: string; cidade: string;
-  faixa: 'ate300' | 'de300a1000' | 'acima1000';
-};
-
-export const FAIXAS_PONTO_REDE: Record<PontoRedeItem['faixa'], { label: string; token: string }> = {
-  ate300:     { label: 'até R$ 300',   token: '--gated' },
-  de300a1000: { label: 'R$ 300–1.000', token: '--past' },
-  acima1000:  { label: 'R$ 1.000+',    token: '--danger' },
-};
+/** Ponto individual da rede — só a posição, já deslocada no servidor. */
+export type PontoRedeItem = { cidade: string; lat: number; lon: number };
 
 /** Escala de concentração da rede no bairro. */
 export const FAIXAS_OCORRENCIA = [
@@ -224,19 +214,16 @@ export default function MapaCarteira({
       // Um ponto por ocorrência: mostra como os casos se distribuem DENTRO do
       // bairro, que a bolha agregada esconde. Sem contorno branco — não é um
       // cliente seu, e a distinção visual importa.
+      // Só o ponto: sem popup, sem faixa de valor, sem bairro. O que não sai
+      // do servidor não pode ser lido aqui.
+      const corPonto = corDoToken('--past', '#8C2F39');
       for (const p of pontosRede) {
-        const cor = corDoToken(FAIXAS_PONTO_REDE[p.faixa].token, '#8C2F39');
         L.circleMarker([p.lat, p.lon], {
           renderer: renderer.current!,
           radius: 4.5, weight: 0,
-          fillColor: cor, fillOpacity: 0.7,
-        })
-          .bindPopup(
-            `<b>Ex-cliente com dívida</b><br>${esc(p.bairro)} · ${esc(p.cidade)}<br>` +
-            `${FAIXAS_PONTO_REDE[p.faixa].label}<br>` +
-            `<span style="opacity:.7">local aproximado · sem identificação de cliente ou provedor</span>`,
-          )
-          .addTo(camada.current!);
+          fillColor: corPonto, fillOpacity: 0.7,
+          interactive: false,
+        }).addTo(camada.current!);
       }
     } else if (modo === 'regionalizacao') {
       // A rede: uma bolha por BAIRRO, área proporcional ao número de casos.
@@ -246,22 +233,14 @@ export default function MapaCarteira({
       const maior = Math.max(...bairrosRede.map(b => b.ocorrencias), 1);
       for (const b of bairrosRede) {
         if (b.lat === null || b.lon === null) continue;
+        // Sem popup nem tooltip: a bolha é o dado inteiro — onde e quanto pesa.
         L.circleMarker([b.lat, b.lon], {
           renderer: renderer.current!,
           radius: 7 + Math.sqrt(b.ocorrencias / maior) * 16,
           weight: 1.5, color: "#fff",
           fillColor: corDaOcorrencia(b.ocorrencias), fillOpacity: 0.7,
-        })
-          .bindPopup(
-            `<b>${esc(b.bairro)}</b><br>${esc(b.cidade)}<br>` +
-            `${b.ocorrencias} ${b.ocorrencias === 1 ? "caso" : "casos"} · ${brl(b.dividaTotal)} em aberto<br>` +
-            `<span style="opacity:.7">${b.provedores} ${b.provedores === 1 ? "provedor" : "provedores"} · ` +
-            `sem identificação de cliente</span>` +
-            (b.ancora === "ibge" ? `<br><span style="opacity:.7">bolha no centro do bairro (IBGE CNEFE 2022)</span>`
-              : b.ancora === "carteira" ? `<br><span style="opacity:.7">bolha na mediana das ocorrências com endereço conhecido</span>` : ""),
-          )
-          .bindTooltip(`${b.bairro} · ${b.ocorrencias}`, { direction: 'top', offset: [0, -6] })
-          .addTo(camada.current!);
+          interactive: false,
+        }).addTo(camada.current!);
       }
     } else {
       // Ponto FIXO de alto contraste, com traço branco — a magnitude da dívida

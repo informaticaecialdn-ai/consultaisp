@@ -3,10 +3,14 @@ import { agregarRede, deslocarPonto, FUZZ_GRAUS, MIN_POR_BAIRRO, type LinhaRede 
 import type { CentroidesPorCidade } from "./geo-bases.service";
 
 /**
- * O caso real de 02/09/2026: em Londrina, 4.323 ex-clientes com dívida tinham
- * coordenada do sync antigo (sem procedência, no centro da cidade com ruído).
- * A mediana por bairro caía no mesmo quarteirão e as 206 bolhas se
- * empilhavam. A bolha tem que ficar no centro do bairro pelo censo.
+ * Duas regras do dono, ambas de 02/09/2026:
+ *
+ * 1. "Só mostrar ex-clientes com dívida; dados da rede somente o ponto no
+ *    mapa, sem informações" — o payload é posição e contagem, e nada mais.
+ * 2. A bolha fica no centro do bairro pelo censo. Em Londrina, 4.323
+ *    ex-clientes tinham coordenada do sync antigo (sem procedência, no centro
+ *    da cidade com ruído); a mediana por bairro caía no mesmo quarteirão e as
+ *    206 bolhas se empilhavam.
  */
 
 // Centro de Londrina, onde o sync antigo despejava tudo.
@@ -16,11 +20,9 @@ let seq = 1;
 function linha(over: Partial<LinhaRede> & { neighborhood: string }): LinhaRede {
   return {
     id: seq++,
-    providerId: 1,
     latitude: CENTRO.lat + (Math.sin(seq) * 0.004),
     longitude: CENTRO.lon + (Math.cos(seq) * 0.004),
     city: "Londrina",
-    totalOverdueAmount: "150.00",
     geoPrecisao: null,
     ...over,
   };
@@ -34,18 +36,32 @@ const centroides: CentroidesPorCidade = new Map([
   ]],
 ]);
 
+describe("agregarRede — só o ponto no mapa", () => {
+  it("o payload é posição e contagem: nenhum nome de bairro, valor, provedor ou referência sai do servidor", () => {
+    const linhas = [
+      ...Array.from({ length: 3 }, () => linha({ neighborhood: "Jardim União da Vitória II", geoPrecisao: "erp" })),
+    ];
+    const r = agregarRede(linhas, ["Londrina - PR"], centroides);
+    expect(r.bairros).toHaveLength(1);
+    expect(Object.keys(r.bairros[0]).sort()).toEqual(["cidade", "lat", "lon", "ocorrencias"]);
+    expect(r.pontos).toHaveLength(3);
+    expect(Object.keys(r.pontos[0]).sort()).toEqual(["cidade", "lat", "lon"]);
+    expect(JSON.stringify(r)).not.toMatch(/Vit[oó]ria|divida|provedor|faixa|ref/i);
+  });
+});
+
 describe("agregarRede — onde a bolha do bairro fica", () => {
   it("ancora no centro do bairro pelo IBGE, mesmo com todas as coordenadas da carteira empilhadas no centro da cidade", () => {
     const linhas = [
       ...Array.from({ length: 5 }, () => linha({ neighborhood: "Jardim União da Vitória II" })),
-      ...Array.from({ length: 4 }, () => linha({ neighborhood: "Califórnia", providerId: 2 })),
+      ...Array.from({ length: 4 }, () => linha({ neighborhood: "Califórnia" })),
     ];
     const r = agregarRede(linhas, ["Londrina - PR"], centroides);
 
-    expect(r.bairros.map(b => b.bairro)).toEqual(["Jardim União da Vitória II", "Califórnia"]);
+    expect(r.bairros.map(b => b.ocorrencias)).toEqual([5, 4]);
     const uniao = r.bairros[0];
-    expect(uniao).toMatchObject({ ocorrencias: 5, provedores: 1, ancora: "ibge", lat: -23.3612, lon: -51.1285 });
-    expect(r.bairros[1]).toMatchObject({ ocorrencias: 4, ancora: "ibge", lat: -23.3369, lon: -51.1352 });
+    expect(uniao).toMatchObject({ cidade: "Londrina", ocorrencias: 5, lat: -23.3612, lon: -51.1285 });
+    expect(r.bairros[1]).toMatchObject({ ocorrencias: 4, lat: -23.3369, lon: -51.1352 });
     // As duas bolhas ficam a quilômetros uma da outra — não no mesmo quarteirão.
     expect(Math.abs(uniao.lat! - r.bairros[1].lat!)).toBeGreaterThan(0.02);
   });
@@ -53,7 +69,7 @@ describe("agregarRede — onde a bolha do bairro fica", () => {
   it("coordenada sem procedência não vira ponto nem âncora: conta na bolha e em semPonto", () => {
     const linhas = Array.from({ length: 3 }, () => linha({ neighborhood: "Leonor" }));
     const r = agregarRede(linhas, ["Londrina"], centroides);
-    expect(r.bairros[0]).toMatchObject({ ocorrencias: 3, ancora: "ibge" });
+    expect(r.bairros[0]).toMatchObject({ ocorrencias: 3, lat: -23.2927, lon: -51.1976 });
     expect(r.pontos).toHaveLength(0);
     expect(r.semPonto).toBe(3);
   });
@@ -68,20 +84,17 @@ describe("agregarRede — onde a bolha do bairro fica", () => {
       linha({ neighborhood: "Chácara Fora do Censo", geoPrecisao: null, latitude: CENTRO.lat, longitude: CENTRO.lon }),
     ];
     const r = agregarRede(linhas, ["Londrina"], centroides);
-    expect(r.bairros[0]).toMatchObject({ ocorrencias: 5, ancora: "carteira", lat: -23.41, lon: -51.21 });
+    expect(r.bairros[0]).toMatchObject({ ocorrencias: 5, lat: -23.41, lon: -51.21 });
     expect(r.pontos).toHaveLength(3);
     expect(r.semPonto).toBe(2);
     // Cada ponto sai deslocado, dentro do raio prometido.
-    for (const p of r.pontos) {
-      expect(Math.abs(p.lat + 23.41)).toBeLessThan(0.02);
-      expect(p.ref).toMatch(/^r\d+$/);
-    }
+    for (const p of r.pontos) expect(Math.abs(p.lat + 23.41)).toBeLessThan(0.02);
   });
 
-  it("sem IBGE e sem coordenada confiável, o bairro entra no ranking sem posição", () => {
+  it("sem IBGE e sem coordenada confiável, o bairro conta mas não tem posição", () => {
     const linhas = Array.from({ length: 3 }, () => linha({ neighborhood: "Chácara Fora do Censo" }));
     const r = agregarRede(linhas, ["Londrina"], centroides);
-    expect(r.bairros[0]).toMatchObject({ ocorrencias: 3, lat: null, lon: null, ancora: null });
+    expect(r.bairros[0]).toMatchObject({ ocorrencias: 3, lat: null, lon: null });
   });
 
   it("piso e recorte de cidade continuam valendo", () => {
@@ -105,7 +118,7 @@ describe("agregarRede — onde a bolha do bairro fica", () => {
     ];
     const r = agregarRede(linhas, ["Londrina"], centroides);
     expect(r.bairros).toHaveLength(1);
-    expect(r.bairros[0]).toMatchObject({ ocorrencias: 3, ancora: "ibge", lat: -23.3612 });
+    expect(r.bairros[0]).toMatchObject({ ocorrencias: 3, lat: -23.3612 });
   });
 });
 

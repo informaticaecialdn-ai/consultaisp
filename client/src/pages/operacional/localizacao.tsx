@@ -7,7 +7,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import MapaCarteira, {
-  FAIXAS_PONTO_REDE, FAIXAS_OCORRENCIA,
+  FAIXAS_OCORRENCIA,
   type PontoMapa, type BairroRede, type PontoRedeItem, type CidadeMapa,
   type ModoMapa, type SedeMapa,
 } from "@/components/maps/MapaCarteira";
@@ -20,7 +20,7 @@ import RankingBairros, {
   MIN_CLIENTES_RANKING, type BairroRanking, type OrdemRanking,
 } from "@/components/localizacao/RankingBairros";
 import RaioXBairro from "@/components/localizacao/RaioXBairro";
-import RankingRede from "@/components/localizacao/RankingRede";
+import PainelRede from "@/components/localizacao/PainelRede";
 
 /**
  * Localização & mapa de inadimplência.
@@ -628,7 +628,8 @@ export default function LocalizacaoPage() {
                     ) : (
                       <>
                         Somados <strong>por bairro</strong>: cada bolha fica no <strong>centro do bairro</strong> pelo
-                        censo de endereços do IBGE, nenhum cliente aparece sozinho, e um bairro só entra com{" "}
+                        censo de endereços do IBGE, com área proporcional ao número de casos. Nenhum cliente
+                        aparece sozinho, nenhum nome ou valor sai do servidor, e um bairro só entra com{" "}
                         {num(redeRegional?.minPorBairro ?? 3)} ou mais casos.
                       </>
                     )}
@@ -682,7 +683,7 @@ export default function LocalizacaoPage() {
                   sede={sedeNoMapa}
                   modo={modo}
                   calor={calor}
-                  bairroFoco={bairroSel}
+                  bairroFoco={modo === 'regionalizacao' ? null : bairroSel}
                   height={ALTURA_MAPA}
                 />
                 {/* Legenda sobre o mapa: quem olha o mapa não deveria ter de
@@ -716,14 +717,11 @@ export default function LocalizacaoPage() {
                       </p>
                     </div>
                   ) : modo === 'regionalizacao' && redePorPonto ? (
-                    (Object.entries(FAIXAS_PONTO_REDE) as Array<[PontoRedeItem["faixa"], { label: string; token: string }]>).map(([k, f]) => (
-                      <LinhaLegenda
-                        key={k}
-                        cor={`var(${f.token})`}
-                        rotulo={f.label}
-                        n={pontosRede.filter(p => p.faixa === k).length}
-                      />
-                    ))
+                    <LinhaLegenda
+                      cor="var(--past)"
+                      rotulo="ex-cliente com dívida · local aproximado"
+                      n={pontosRede.length}
+                    />
                   ) : modo === 'regionalizacao' ? (
                     FAIXAS_OCORRENCIA.map(f => (
                       <LinhaLegenda
@@ -781,15 +779,16 @@ export default function LocalizacaoPage() {
           {isLoading ? (
             <Skeleton className="h-full w-full" />
           ) : modo === 'regionalizacao' ? (
-            <RankingRede
-              bairros={bairrosRede}
-              selecionado={bairroSel}
-              onSelect={setBairroSel}
+            <PainelRede
+              casos={casosNaRede}
+              bairros={bairrosRede.length}
+              pontos={pontosRede.length}
               ocultas={redeRegional?.ocultas ?? 0}
+              semPonto={redeRegional?.semPonto ?? 0}
               minPorBairro={redeRegional?.minPorBairro ?? 3}
               carregando={redeRegionalCarregando && !redeRegional}
               semArea={redeRegional?.semArea ?? false}
-              mostrarCidade={fCidade === null}
+              porPonto={redePorPonto && !calor}
             />
           ) : (
             <RankingBairros

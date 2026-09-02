@@ -1,34 +1,39 @@
 /**
- * Mapa da rede — ex-clientes com dívida de TODOS os provedores, POR BAIRRO.
+ * Mapa da rede — ex-clientes com dívida de TODOS os provedores, no mapa e só
+ * no mapa.
  *
- * É a pergunta que só o bureau responde: em que bairros da cidade já houve
+ * É a pergunta que só o bureau responde: em que partes da cidade já houve
  * calote, contando a experiência de todo mundo e não só a sua. Um provedor
  * sozinho vê a própria carteira; a rede vê a cidade.
  *
- * ── Por que bairro, e não ponto ──────────────────────────────────────────
- * A primeira versão devolvia um ponto por ex-cliente, com a coordenada
- * deslocada para tirar o número da casa. Funcionava, mas defendia um dado que
- * não precisava existir: o operador não decide nada com a casa específica de um
- * ex-cliente de outro provedor — ele decide com "neste bairro a rede já tomou
- * doze calotes". Agregando na origem, nenhuma posição individual sai do
- * servidor, e não há o que mascarar.
+ * ── O que sai daqui, e o que não sai ──────────────────────────────────────
+ * Regra do dono (02/09/2026): "só mostrar ex-clientes com dívida; dados da
+ * rede somente o ponto no mapa, sem informações, para não infringir a LGPD".
+ * Então o payload é geometria e contagem, nada mais:
  *
- * ── Onde a bolha do bairro fica ──────────────────────────────────────────
- * No CENTRO DO BAIRRO segundo o censo de endereços do IBGE (CNEFE, tabela
- * geo_endereco): a mediana de todos os endereços que o IBGE conhece naquele
- * bairro. É dado público, não é a casa de ninguém, e não depende da qualidade
- * da coordenada gravada no cadastro.
+ *   - bolha por BAIRRO: posição (centro do bairro pelo censo do IBGE) e
+ *     quantos casos — sem o nome do bairro, sem valor em aberto, sem quantos
+ *     provedores contribuíram;
+ *   - ponto por OCORRÊNCIA: posição deslocada em até ~150 m — sem faixa de
+ *     valor, sem bairro, sem referência.
  *
- * Até 02/09/2026 a bolha ficava na mediana das coordenadas dos ex-clientes. Em
- * Londrina isso pôs os 206 bairros no MESMO quarteirão: as coordenadas dos
- * ex-clientes vinham do sync antigo, que caía no centro da cidade com 2 km de
- * ruído, e a mediana de ruído em volta de um ponto é o próprio ponto. A
- * carteira só entra como âncora quando o IBGE não conhece o bairro — e aí só
- * com coordenada de procedência conhecida (ERP, endereço, rua ou CEP de rua).
+ * A cidade vai junto porque a tela filtra por cidade; ela nunca é exibida por
+ * ponto. O que não sai do servidor não pode vazar pelo navegador.
  *
- * Continua sem nome, sem documento, sem valor por cliente e sem dizer de qual
- * provedor veio cada ocorrência — só quantos provedores contribuíram, que é o
- * que diz se aquilo é a experiência da rede ou de um só.
+ * ── Quem entra ─────────────────────────────────────────────────────────────
+ * Só ex-cliente (contrato cancelado ou inativo) com dívida. Cliente que ainda
+ * é de alguém não entra: apontar onde mora quem está devendo ao vizinho seria
+ * lista de alvos, não informação de risco. Bairro só aparece com
+ * MIN_POR_BAIRRO ou mais casos: centroide de três casas não é a casa de
+ * ninguém.
+ *
+ * ── Onde a bolha fica ──────────────────────────────────────────────────────
+ * No centro do bairro segundo o censo de endereços do IBGE (CNEFE, tabela
+ * geo_endereco). Até 02/09/2026 era a mediana das coordenadas dos ex-clientes,
+ * e em Londrina isso pôs os 206 bairros no mesmo quarteirão: as coordenadas
+ * vinham do sync antigo, que caía no centro da cidade com ruído. A carteira só
+ * ancora quando o IBGE não conhece o bairro — e só com coordenada de
+ * procedência conhecida.
  */
 import { and, gt, inArray, isNotNull } from "drizzle-orm";
 import { db } from "../db";
@@ -49,41 +54,22 @@ export const MIN_POR_BAIRRO = 3;
  */
 const PRECISAO_CONFIAVEL = new Set(["erp", "endereco", "logradouro", "cep"]);
 
+/** Uma bolha: onde e quantos. Nada que nomeie o bairro ou valha dinheiro. */
 export interface BairroRede {
-  bairro: string;
+  /** Só para o filtro de cidade da tela; nunca aparece por ponto. */
   cidade: string;
   /** Ex-clientes com dívida no bairro, somando todos os provedores. */
   ocorrencias: number;
-  dividaTotal: number;
-  /** Quantos provedores contribuíram. Diz se é experiência da rede ou de um só. */
-  provedores: number;
-  /** Onde a bolha fica; null quando nem o IBGE nem a carteira sabem. */
+  /** Centro do bairro; null quando nem o IBGE nem a carteira sabem. */
   lat: number | null;
   lon: number | null;
-  /**
-   * De onde veio a posição: `ibge` = centro do bairro pelo censo de endereços;
-   * `carteira` = mediana das coordenadas confiáveis dos ex-clientes.
-   */
-  ancora: "ibge" | "carteira" | null;
 }
 
-/**
- * Ponto individual da rede. Existe porque o agregado por bairro esconde a
- * distribuição DENTRO do bairro — e ver que os casos se concentram numa quadra
- * é uma leitura diferente de saber que o bairro tem doze.
- *
- * Como é individual, é o único conjunto que precisa de mascaramento: sem
- * cliente, sem provedor, sem valor exato, e com a coordenada deslocada em até
- * ~150m. Coordenada exata é endereço, e entre provedores o endereço vai sem
- * número.
- */
+/** Um ponto: só a posição, já deslocada. */
 export interface PontoRede {
-  ref: string;
+  cidade: string;
   lat: number;
   lon: number;
-  bairro: string;
-  cidade: string;
-  faixa: "ate300" | "de300a1000" | "acima1000";
 }
 
 /** Raio máximo do deslocamento, em graus (~150m na latitude do Brasil). */
@@ -116,9 +102,6 @@ export function deslocarPonto(id: number, lat: number, lon: number): { lat: numb
   };
 }
 
-const faixaDivida = (v: number): PontoRede["faixa"] =>
-  v > 1000 ? "acima1000" : v > 300 ? "de300a1000" : "ate300";
-
 export interface ResultadoRede {
   bairros: BairroRede[];
   /**
@@ -144,12 +127,10 @@ export interface ResultadoRede {
 /** A linha do cadastro que a agregação precisa — o que a query devolve. */
 export interface LinhaRede {
   id: number;
-  providerId: number | null;
   latitude: string | number | null;
   longitude: string | number | null;
   city: string | null;
   neighborhood: string | null;
-  totalOverdueAmount: string | number | null;
   geoPrecisao: string | null;
 }
 
@@ -172,8 +153,9 @@ export function agregarRede(linhas: LinhaRede[], cidades: string[], centroides: 
   const alvo = new Set(cidades.map(normalizarCidade));
 
   interface Acc {
-    bairro: string; cidade: string; ocorrencias: number; divida: number;
-    provedores: Set<number>; lats: number[]; lons: number[];
+    /** Rótulo do bairro: só para casar com o censo; não sai no payload. */
+    bairro: string; cidade: string; ocorrencias: number;
+    lats: number[]; lons: number[];
     /** Guardados aqui e só liberados se o bairro passar o piso. */
     pontos: PontoRede[];
     semPonto: number;
@@ -195,29 +177,17 @@ export function agregarRede(linhas: LinhaRede[], cidades: string[], centroides: 
     const chave = `${cidadeNorm}||${grupo.chave}`;
     let a = porBairro.get(chave);
     if (!a) {
-      a = {
-        bairro: grupo.rotulo, cidade: (l.city || "").trim(),
-        ocorrencias: 0, divida: 0, provedores: new Set(), lats: [], lons: [], pontos: [], semPonto: 0,
-      };
+      a = { bairro: grupo.rotulo, cidade: (l.city || "").trim(), ocorrencias: 0, lats: [], lons: [], pontos: [], semPonto: 0 };
       porBairro.set(chave, a);
     }
-    const divida = Number(l.totalOverdueAmount || 0) || 0;
     a.ocorrencias++;
-    a.divida += divida;
-    if (l.providerId != null) a.provedores.add(l.providerId);
 
     const coord = coordenadaValida(l.latitude, l.longitude);
     if (coord && PRECISAO_CONFIAVEL.has(l.geoPrecisao ?? "")) {
       a.lats.push(coord.lat);
       a.lons.push(coord.lng);
       const d = deslocarPonto(l.id, coord.lat, coord.lng);
-      a.pontos.push({
-        // Referência opaca: o id real não sai daqui.
-        ref: `r${(l.id * 2654435761) % 100000000}`,
-        lat: d.lat, lon: d.lon,
-        bairro: a.bairro, cidade: a.cidade,
-        faixa: faixaDivida(divida),
-      });
+      a.pontos.push({ cidade: a.cidade, lat: d.lat, lon: d.lon });
     } else {
       a.semPonto++;
     }
@@ -226,7 +196,7 @@ export function agregarRede(linhas: LinhaRede[], cidades: string[], centroides: 
   // Casador por cidade contra os bairros que o IBGE conhece, do maior para o
   // menor: em empate no fuzzy vence o bairro com mais endereços.
   const casadores = new Map<string, ReturnType<typeof criarCasadorDeBairro>>();
-  const ancorar = (a: Acc): Pick<BairroRede, "lat" | "lon" | "ancora"> => {
+  const ancorar = (a: Acc): Pick<BairroRede, "lat" | "lon"> => {
     const cidadeIbge = normalizarLocalidade(a.cidade);
     const lista = centroides.get(cidadeIbge);
     if (lista && lista.length > 0) {
@@ -237,12 +207,12 @@ export function agregarRede(linhas: LinhaRede[], cidades: string[], centroides: 
       }
       const m = casar(a.bairro);
       const c = m ? lista.find(x => x.bairroNorm === m.canonico) : undefined;
-      if (c) return { lat: c.lat, lon: c.lon, ancora: "ibge" };
+      if (c) return { lat: c.lat, lon: c.lon };
     }
     // Mediana e não média: uma coordenada errada a centenas de km puxaria a
     // média para fora da cidade e levaria o bairro inteiro junto.
-    if (a.lats.length > 0) return { lat: mediana(a.lats), lon: mediana(a.lons), ancora: "carteira" };
-    return { lat: null, lon: null, ancora: null };
+    if (a.lats.length > 0) return { lat: mediana(a.lats), lon: mediana(a.lons) };
+    return { lat: null, lon: null };
   };
 
   const todos = Array.from(porBairro.values());
@@ -252,16 +222,11 @@ export function agregarRede(linhas: LinhaRede[], cidades: string[], centroides: 
     ocultas: todos.filter(a => a.ocorrencias < MIN_POR_BAIRRO)
       .reduce((s, a) => s + a.ocorrencias, 0),
     semPonto: visiveis.reduce((s, a) => s + a.semPonto, 0),
+    // Do maior para o menor, e SÓ o que o mapa desenha: cidade (filtro),
+    // contagem (tamanho da bolha) e posição.
     bairros: visiveis
-      .map(a => ({
-        bairro: a.bairro,
-        cidade: a.cidade,
-        ocorrencias: a.ocorrencias,
-        dividaTotal: Math.round(a.divida * 100) / 100,
-        provedores: a.provedores.size,
-        ...ancorar(a),
-      }))
-      .sort((x, y) => y.ocorrencias - x.ocorrencias || y.dividaTotal - x.dividaTotal),
+      .map(a => ({ cidade: a.cidade, ocorrencias: a.ocorrencias, ...ancorar(a) }))
+      .sort((x, y) => y.ocorrencias - x.ocorrencias),
     pontos: visiveis.flatMap(a => a.pontos),
   };
 }
@@ -280,12 +245,10 @@ export async function bairrosDaRede(cidades: string[]): Promise<ResultadoRede> {
     db
       .select({
         id: customers.id,
-        providerId: customers.providerId,
         latitude: customers.latitude,
         longitude: customers.longitude,
         city: customers.city,
         neighborhood: customers.neighborhood,
-        totalOverdueAmount: customers.totalOverdueAmount,
         geoPrecisao: customers.geoPrecisao,
       })
       .from(customers)
