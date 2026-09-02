@@ -1,6 +1,7 @@
 <S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/">
    <S:Body>
-      <ns2:produto xmlns:ns2="http://webservice.consulta.spcjava.spcbrasil.org/">
+      <ns2:produtos xmlns:ns2="http://webservice.consulta.spcjava.spcbrasil.org/">
+      <produto>
          <codigo>257</codigo>
          <nome>SPC MIX TOP +</nome>
          <parametro nome="codigo-insumo-opcional" obrigatorio="false"/>
@@ -15,8 +16,8 @@
          <insumo-retorno nome="consumidor" codigo="1" opcional="false"/>
          <insumo-retorno nome="protesto" codigo="17" opcional="true"/>
          <insumo-retorno nome="spc" codigo="8" opcional="false"/>
-      </ns2:produto>
-      <ns2:produto xmlns:ns2="http://webservice.consulta.spcjava.spcbrasil.org/">
+      </produto>
+      <produto>
          <codigo>634</codigo>
          <nome>SPC SÓ SCORE POSITIVO</nome>
          <parametro nome="codigo-produto" obrigatorio="true"/>
@@ -24,6 +25,7 @@
          <parametro nome="tipo-consumidor" obrigatorio="true"/>
          <insumo-retorno nome="consumidor" codigo="1" opcional="false"/>
          <insumo-retorno nome="score-cadastro-positivo" codigo="5228" opcional="false"/>
-      </ns2:produto>
+      </produto>
+      </ns2:produtos>
    </S:Body>
 </S:Envelope>

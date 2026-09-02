@@ -35,6 +35,22 @@ export const SPC_PRODUTO_PADRAO = 257;
 const NS = "http://webservice.consulta.spcjava.spcbrasil.org/";
 const TIMEOUT_MS = 30_000;
 
+/**
+ * Insumos OPCIONAIS pedidos em toda consulta (SPC_INSUMOS_OPCIONAIS, codigos
+ * separados por virgula). No produto 257 (SPC MIX TOP +), medido em
+ * 02/09/2026 com listarProdutos, o retorno padrao traz spc, cheque-lojista,
+ * ccf, contra-ordem, contumacia, credito-concedido, consulta-realizada,
+ * alerta-documento e consumidor; protesto (17), spc-score-12-meses (78),
+ * spc-score-3-meses (77), score-cadastro-positivo (5228), spc-obito (3082),
+ * renda-presumida-spc (5122) e limite-credito-sugerido (5142) so vem se
+ * pedidos — e a entidade pode cobrar cada um. Vazio por padrao: quem decide
+ * o que pagar e o dono, na env.
+ */
+export function insumosOpcionaisPadrao(): number[] {
+  return (process.env.SPC_INSUMOS_OPCIONAIS || "")
+    .split(",").map(s => parseInt(s.trim(), 10)).filter(n => Number.isInteger(n) && n > 0);
+}
+
 /** Lido a cada chamada, nao no import: o teste seta a env depois de importar. */
 function config() {
   const username = (process.env.SPC_USERNAME || "").trim();
@@ -200,10 +216,11 @@ export async function consultarSpc(
     throw new SpcError("Documento precisa ser CPF (11 dígitos) ou CNPJ (14)", "DOCUMENTO", "documento");
   }
   const produto = opcoes.codigoProduto ?? config().produto;
+  const insumos = opcoes.insumosOpcionais ?? insumosOpcionaisPadrao();
   const t0 = Date.now();
-  logger.info({ doc: doc.slice(0, 3) + "***", produto }, "[SPC] consulta iniciada");
+  logger.info({ doc: doc.slice(0, 3) + "***", produto, insumosOpcionais: insumos }, "[SPC] consulta iniciada");
 
-  const xml = await chamar(montarFiltroConsulta(produto, doc, opcoes.insumosOpcionais), "consultar");
+  const xml = await chamar(montarFiltroConsulta(produto, doc, insumos), "consultar");
   const resultado = parseRespostaConsulta(xml, doc, { guardarXml: opcoes.guardarXml });
 
   logger.info(
@@ -213,9 +230,14 @@ export async function consultarSpc(
   return resultado;
 }
 
-/** Gratuita (so em producao): os produtos que o operador pode consultar. */
+/**
+ * Gratuita (so em producao): os produtos que o operador pode consultar.
+ * A operacao NAO tem parte de entrada no WSDL: o Body vai VAZIO (e o
+ * template do SoapUI da doc). Com <web:listarProdutos/> o servidor devolve
+ * "Cannot find the declaration of element" — medido em 02/09/2026.
+ */
 export async function listarProdutosSpc(): Promise<ProdutoSpc[]> {
-  const xml = await chamar(envelope("<web:listarProdutos/>"), "listarProdutos");
+  const xml = await chamar(envelope(""), "listarProdutos");
   return parseProdutos(xml);
 }
 

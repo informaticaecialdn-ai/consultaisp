@@ -79,6 +79,7 @@ SPC_USERNAME=                       # Operador do WebService do SPC Brasil (senh
 SPC_PASSWORD=
 SPC_WSDL_URL=                       # Produção: https://api.spc.org.br/spc/remoting/ws/consulta/consultaWebService
 SPC_PRODUCT_CODE=257                # SPC MIX TOP +
+SPC_INSUMOS_OPCIONAIS=              # Insumos opcionais por consulta (ex.: 17,78,3082 = protesto, score 12 meses, obito) — a entidade pode cobrar
 ```
 
 ---
@@ -676,7 +677,7 @@ npm run db:push      # drizzle-kit push (sync schema → PostgreSQL)
 
 ### Em Aberto — Próximos Itens
 1. **NFS-e via FocusNFe** — emissão fiscal eletrônica de notas
-2. **SPC** — integrado em 02/09/2026 (`server/services/spc/`: SOAP `consultaWebService`, produto 257, parser testado com os exemplos da doc v4.3). Pendente: credencial de WebService válida — o operador recebido responde 401 em produção e em treinamento
+2. **SPC** — integrado em 02/09/2026 (`server/services/spc/`: SOAP `consultaWebService`, produto 257, parser testado com os exemplos da doc v4.3). Credencial validada com `listarProdutos` em 02/09/2026: o operador tem 257 (SPC MIX TOP +), 325, 331, 332, 1044 e 1045. O retorno padrão do 257 não traz score, protesto nem óbito — são insumos opcionais (`SPC_INSUMOS_OPCIONAIS`). Pendente: primeira consulta real com autorização do dono e a VPS ainda sem as credenciais
 3. **Paginação em `fetchCustomers`** — atualmente sem paginação em todos os conectores
 4. **Indicador de % de inadimplência** — métrica agregada por provedor no dashboard
 
