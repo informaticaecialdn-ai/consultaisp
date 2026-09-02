@@ -156,6 +156,82 @@ async function geocodificadorLocal() {
   }
 }
 
+/**
+ * A pergunta que motivou a revisão de 02/09/2026: "alguns pontos ficam muito
+ * fora do endereço". Para cada cliente plotado numa cidade com base do IBGE,
+ * compara o ponto gravado com o endereço que o censo conhece — a casa, quando
+ * o número bate; a rua, quando só ela bate — e mede a distância. É a única
+ * medição que separa "o ERP mandou errado" de "o geocoder inventou".
+ */
+async function distanciaAoEndereco() {
+  titulo("5. Distância entre o ponto gravado e o endereço do IBGE");
+  const { rows: cidades } = await pool.query(
+    `SELECT DISTINCT city FROM customers
+      WHERE nullif(btrim(coalesce(city,'')),'') IS NOT NULL
+        AND latitude IS NOT NULL AND longitude IS NOT NULL`);
+  const geo = await abrirGeocodificadorLocal(cidades.map(c => ({ cidade: c.city })));
+  if (!geo) {
+    console.log(AVISO + "Sem base do IBGE para nenhuma cidade plotada — não dá para medir. Carregue o CNEFE das cidades da carteira.");
+    return;
+  }
+  const { rows } = await pool.query<{
+    id: number; provider_id: number; address: string | null; address_number: string | null;
+    neighborhood: string | null; city: string | null; lat: string; lon: string;
+  }>(
+    `SELECT id, provider_id, address, address_number, neighborhood, city, latitude::text lat, longitude::text lon
+       FROM customers
+      WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND NOT (latitude = 0 AND longitude = 0)
+        AND nullif(btrim(coalesce(city,'')),'') IS NOT NULL`);
+
+  const rad = (g: number) => (g * Math.PI) / 180;
+  const km = (a: [number, number], b: [number, number]) => {
+    const dLat = rad(b[0] - a[0]); const dLon = rad(b[1] - a[1]);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a[0])) * Math.cos(rad(b[0])) * Math.sin(dLon / 2) ** 2;
+    return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)));
+  };
+
+  const medidos: Array<{ id: number; provider: number; cidade: string; bairro: string; precisao: string; km: number }> = [];
+  let semCobertura = 0;
+  let soBairroOuCidade = 0;
+  for (const r of rows) {
+    if (!geo.cobre(r.city)) { semCobertura++; continue; }
+    const a = geo.resolver({ id: r.id, address: r.address, addressNumber: r.address_number, neighborhood: r.neighborhood, city: r.city });
+    if (!a || (a.precisao !== "endereco" && a.precisao !== "logradouro")) { soBairroOuCidade++; continue; }
+    medidos.push({
+      id: r.id, provider: r.provider_id, cidade: r.city || "", bairro: r.neighborhood || "", precisao: a.precisao,
+      km: km([Number(r.lat), Number(r.lon)], [a.lat, a.lon]),
+    });
+  }
+
+  console.log(`  plotados: ${n(rows.length)} · comparáveis (rua ou casa no IBGE): ${n(medidos.length)} · sem base: ${n(semCobertura)} · só bairro/cidade no IBGE: ${n(soBairroOuCidade)}`);
+  if (medidos.length === 0) {
+    console.log(AVISO + "Nenhum cliente comparável — os endereços do cadastro não casam com o censo.");
+    return;
+  }
+  const ordenado = medidos.map(m => m.km).sort((a, b) => a - b);
+  const p = (q: number) => ordenado[Math.min(ordenado.length - 1, Math.floor(q * ordenado.length))];
+  const alem = (lim: number) => medidos.filter(m => m.km > lim).length;
+  console.log(`  mediana ${p(0.5).toFixed(2)} km · p90 ${p(0.9).toFixed(2)} km · máximo ${ordenado[ordenado.length - 1].toFixed(1)} km`);
+  console.log(`  a mais de 1 km do endereço: ${n(alem(1))} (${((alem(1) / medidos.length) * 100).toFixed(1)}%) · a mais de 5 km: ${n(alem(5))}`);
+  if (alem(1) === 0) console.log(OK + "Nenhum ponto a mais de 1 km do endereço que o IBGE conhece.");
+  else {
+    console.log(ERRO + "Pontos longe do próprio endereço — candidatos a replotar (npx tsx script/replotar-coordenadas.ts <providerId>):");
+    for (const m of medidos.sort((a, b) => b.km - a.km).slice(0, 12)) {
+      console.log(`       id ${m.id} · provedor ${m.provider} · ${m.cidade}${m.bairro ? " · " + m.bairro : ""} · IBGE=${m.precisao} · ${m.km.toFixed(1)} km`);
+    }
+  }
+  // Por provedor: quem mais sofre.
+  const porProv = new Map<number, { total: number; longe: number }>();
+  for (const m of medidos) {
+    const e = porProv.get(m.provider) ?? { total: 0, longe: 0 };
+    e.total++; if (m.km > 1) e.longe++;
+    porProv.set(m.provider, e);
+  }
+  for (const [prov, e] of Array.from(porProv.entries()).sort((a, b) => b[1].longe - a[1].longe)) {
+    console.log(`  provedor ${prov}: ${n(e.longe)} de ${n(e.total)} comparáveis a mais de 1 km`);
+  }
+}
+
 async function rede() {
   titulo("4. Geocoder de rede (só o resíduo depende dele)");
   const chave = (process.env.GOOGLE_MAPS_API_KEY || "").trim();
@@ -189,6 +265,7 @@ async function main() {
   await coordenadas();
   await geocodificadorLocal();
   await rede();
+  await distanciaAoEndereco();
   console.log("\nFim. Cole esta saída inteira.\n");
   await pool.end();
 }

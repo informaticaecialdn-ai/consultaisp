@@ -13,9 +13,32 @@
  *   3. cidade     — centro do município com jitter de ±2km, só situa a região
  */
 
+import { distanciaKm } from "./coordenada-suspeita";
+
 /** Brasil vai de ~5°N a ~34°S e de ~34°W a ~74°W, com folga nas bordas. */
 export function dentroDoBrasil(lat: number, lng: number): boolean {
   return lat >= -34 && lat <= 6 && lng >= -74 && lng <= -34;
+}
+
+/**
+ * Ate onde a coordenada do ERP pode estar do centro da cidade declarada e
+ * ainda ser daquela cidade. No norte do Parana as cidades vizinhas ficam a
+ * 30-45 km; alem disso e outra cidade — a matriz gravada como padrao, lat/lon
+ * de outro cliente, geocodificacao que caiu numa homonima.
+ */
+export const RAIO_COERENCIA_KM = 35;
+
+/**
+ * A coordenada combina com a cidade? Sem centro conhecido nao se acusa: a
+ * duvida fica com o ponto, e a tela tem a sua propria regua (a caixa do
+ * municipio pelo IBGE) para o que passar por aqui.
+ */
+export function coerenteComCidade(
+  lat: number, lng: number,
+  centro: { lat: number; lng: number } | null | undefined,
+): boolean {
+  if (!centro) return true;
+  return distanciaKm(lat, lng, centro.lat, centro.lng) <= RAIO_COERENCIA_KM;
 }
 
 /**

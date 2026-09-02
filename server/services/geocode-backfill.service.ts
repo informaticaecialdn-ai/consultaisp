@@ -39,7 +39,7 @@ import { sql, and, or, isNull, eq, gt, asc } from "drizzle-orm";
 import { db, pool } from "../db";
 import { customers } from "@shared/schema";
 import {
-  geocodeAddressDetalhado, geocodeCityDetalhado, geocodeCepDetalhado,
+  geocodeAddressDetalhado, geocodeCepDetalhado,
   usandoNominatim,
 } from "./geocoding";
 import { puxarCoordenadasDoErp } from "./coords-erp.service";
@@ -225,9 +225,14 @@ async function plotarCliente(
 
   // 1. Base local do IBGE. Sem rede, sem quota, e com a coordenada da própria
   // casa quando o número bate. Só o que ela não resolver paga rede.
+  //
+  // Até o bairro. A precisão "cidade" — um endereço qualquer do município —
+  // não é a localização de ninguém: era o que espalhava clientes de rua não
+  // casada por toda a cidade, a quilômetros da casa. Quem cai nela segue para
+  // a rede, que pode conhecer a rua que o censo não casou.
   if (local) {
     const acerto = local.resolver(c);
-    if (acerto) {
+    if (acerto && acerto.precisao !== "cidade") {
       await db.update(customers)
         .set({ latitude: String(acerto.lat), longitude: String(acerto.lon) })
         .where(and(eq(customers.id, c.id), SEM_COORDENADA));
@@ -236,7 +241,7 @@ async function plotarCliente(
   }
 
   let coords: [number, number] | null = null;
-  let jitter = 0.002;      // ±~100m — precisão de rua
+  const jitter = 0.002;      // ±~100m — LGPD: o ponto nunca é a porta exata
   let indisponivel = false;
   let motivo: string | undefined;
 
@@ -249,14 +254,16 @@ async function plotarCliente(
     else if (r.falha === "indisponivel") { indisponivel = true; motivo = `viacep — ${r.motivo}`; }
   }
 
-  if (rua && cidade) {
+  // Rua com número + cidade, e o CEP de logradouro de reserva. O geocoder só
+  // é aceito com precisão de rua ou melhor (ver geocodeAddressDetalhado).
+  //
+  // NÃO há queda para o centro da cidade. Havia — com 2 km de ruído — e era o
+  // ponto "muito fora do endereço": um centro de cidade vestido de cliente.
+  // Quem não resolve fica sem coordenada, contado e visível na tela, em vez
+  // de plotado no lugar errado.
+  if ((rua || cep) && cidade) {
     const r = await geocodeAddressDetalhado(rua, cidade, uf, cep || undefined);
     if (r.coords) coords = r.coords;
-    else if (r.falha === "indisponivel") { indisponivel = true; motivo = r.motivo; }
-  }
-  if (!coords && cidade) {
-    const r = await geocodeCityDetalhado(cidade, uf);
-    if (r.coords) { coords = r.coords; jitter = 0.02; }  // ±~2km — precisão de cidade
     else if (r.falha === "indisponivel") { indisponivel = true; motivo = r.motivo; }
   }
 
@@ -426,25 +433,39 @@ export async function runGeocodeBackfill(providerIdPrioritario?: number): Promis
       logger.warn({ err }, "Geocode backfill: base local de endereços indisponível — seguindo pela rede");
     }
 
-    // FASE C — desempilhar. Coordenada repetida em muitos clientes é o
-    // centroide que uma versão anterior gravou; espalhar sobre endereços reais
-    // do mesmo bairro conserta a "bola" sem perder precisão nenhuma, porque
-    // centroide e endereço do bairro dizem exatamente a mesma coisa.
-    if (local && empilhados.length > 0) {
+    // FASE C — desempilhar. Coordenada repetida em muitos clientes com ruas
+    // diferentes é, por construção, um ponto de fallback que uma versão
+    // anterior gravou: centro de cidade, centroide de CEP geral. Espalhar
+    // sobre endereços reais da rua ou do bairro conserta a "bola".
+    //
+    // O que a base local não resolve até o bairro perde a coordenada — vira
+    // pendente e vai para a fila da rede, que exige precisão de rua. Um ponto
+    // que só a cidade explica é errado com certeza (a pilha prova isso), e
+    // ficar com ele no mapa era a queixa: clientes a quilômetros da casa.
+    if (empilhados.length > 0) {
       try {
         let desempilhados = 0;
+        let devolvidosAFila = 0;
         for (const c of empilhados) {
-          const acerto = local.resolver(c);
-          // Só reescreve quando a base local dá um ponto DIFERENTE — resolver
-          // no mesmo centroide seria trocar seis por meia dúzia.
-          if (!acerto) continue;
-          await db.update(customers)
-            .set({ latitude: String(acerto.lat), longitude: String(acerto.lon) })
-            .where(eq(customers.id, c.id));
-          desempilhados++;
+          const acerto = local?.resolver(c);
+          if (acerto && acerto.precisao !== "cidade") {
+            await db.update(customers)
+              .set({ latitude: String(acerto.lat), longitude: String(acerto.lon) })
+              .where(eq(customers.id, c.id));
+            desempilhados++;
+          } else {
+            await db.update(customers)
+              .set({ latitude: null, longitude: null })
+              .where(eq(customers.id, c.id));
+            devolvidosAFila++;
+          }
         }
-        if (desempilhados > 0) {
-          logger.info({ desempilhados, piso: MIN_PARA_DESEMPILHAR }, "Geocode backfill: coordenadas empilhadas espalhadas");
+        if (desempilhados > 0 || devolvidosAFila > 0) {
+          logger.info(
+            { desempilhados, devolvidosAFila, piso: MIN_PARA_DESEMPILHAR },
+            "Geocode backfill: pilhas desfeitas — o resto volta para a fila de plotagem",
+          );
+          status.total += devolvidosAFila;
         }
       } catch (err) {
         logger.warn({ err }, "Geocode backfill: desempilhamento falhou — segue para a fila de pendentes");
@@ -452,7 +473,9 @@ export async function runGeocodeBackfill(providerIdPrioritario?: number): Promis
     }
 
     // Desempilhou e não há fila: a passada cumpriu o que tinha a cumprir.
-    if (n === 0) return finalizar();
+    // (Quem foi devolvido à fila pela fase C entra em `status.total` e segue
+    // para a rede abaixo.)
+    if (status.total === 0) return finalizar();
 
     // Quem clicou "Plotar agora" quer ver a PRÓPRIA carteira no mapa. A
     // varredura é uma só para toda a base, então sem esta etapa o admin

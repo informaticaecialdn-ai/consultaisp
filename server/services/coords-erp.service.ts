@@ -22,8 +22,37 @@ import { db } from "../db";
 import { customers } from "@shared/schema";
 import { storage } from "../storage";
 import { getConnector, buildConnectorConfig, getProviderLimiter } from "../erp";
-import { coordenadaValida } from "./coordenada";
+import { coordenadaValida, coerenteComCidade } from "./coordenada";
+import { geocodeCityDetalhado } from "./geocoding";
 import { logger } from "../logger";
+
+/**
+ * A coordenada do ERP, SE ela combina com a cidade declarada do cliente.
+ *
+ * O ERP erra coordenada com frequencia: a matriz gravada como padrao, o ponto
+ * de outro cliente copiado, lat/lon de uma cidade homonima. Uma coordenada a
+ * 200 km da cidade do cadastro nao e a casa de ninguem, e gravada como
+ * "coordenada do ERP" ela vencia qualquer outra fonte para sempre.
+ *
+ * A referencia e o centro da cidade pelo geocoder, cacheado — mil clientes da
+ * mesma cidade custam uma chamada. Sem cidade legivel (vazia, ou o codigo IBGE
+ * cru que o IXC manda) ou sem centro conhecido, a coordenada passa: sem regua
+ * nao se acusa, e a tela ainda tem a caixa do municipio para o que sobrar.
+ */
+export async function coordenadaDoErpCoerente(
+  lat: string | number | null | undefined,
+  lng: string | number | null | undefined,
+  city: string | null | undefined,
+  state: string | null | undefined,
+): Promise<{ lat: number; lng: number } | null> {
+  const c = coordenadaValida(lat, lng);
+  if (!c) return null;
+  const cidade = (city || "").trim();
+  if (!cidade || /^\d+$/.test(cidade)) return c;
+  const centro = await geocodeCityDetalhado(cidade, (state || "").trim());
+  if (!centro.coords) return c;
+  return coerenteComCidade(c.lat, c.lng, { lat: centro.coords[0], lng: centro.coords[1] }) ? c : null;
+}
 
 export interface ResultadoCoordsErp {
   /** Provedores varridos. */
@@ -61,9 +90,14 @@ async function puxarDoProvedor(providerId: number): Promise<{ comCoordenada: num
       const r = await limiter(() => connector.fetchCustomers!(buildConnectorConfig(intg)));
       if (!r.ok || r.customers.length === 0) continue;
 
+      let recusadas = 0;
       for (const c of r.customers) {
-        const coord = coordenadaValida(c.latitude, c.longitude);
-        if (!coord || !c.cpfCnpj) continue;
+        if (!c.cpfCnpj) continue;
+        const coord = await coordenadaDoErpCoerente(c.latitude, c.longitude, c.city, c.state);
+        if (!coord) {
+          if (coordenadaValida(c.latitude, c.longitude)) recusadas++;
+          continue;
+        }
         comCoordenada++;
 
         // Chave é (provedor, documento): cpf_cnpj não é único entre provedores.
@@ -78,6 +112,9 @@ async function puxarDoProvedor(providerId: number): Promise<{ comCoordenada: num
           ))
           .returning({ id: customers.id });
         atualizados += gravados.length;
+      }
+      if (recusadas > 0) {
+        logger.warn({ providerId, erp: intg.erpSource, recusadas }, "Coordenadas do ERP fora da cidade declarada — nao gravadas");
       }
     } catch (err) {
       // LGPD: só contagem e origem no log, nunca nome ou documento.

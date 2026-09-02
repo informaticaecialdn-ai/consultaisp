@@ -11,8 +11,9 @@ import type { PoolClient } from "pg";
 import { getConnector, buildConnectorConfig, getProviderLimiter } from "../erp";
 import type { ErpFetchResult } from "../erp/types";
 import { agendaDoAmbiente, proximaExecucao, ultimaExecucaoAgendada, descreverAgenda } from "./erp-agenda";
-import { geocodeCity, geocodeCep, geocodeAddress, resolveIbgeCode } from "./geocoding";
+import { geocodeCep, resolveIbgeCode } from "./geocoding";
 import { coordenadaValida } from "./coordenada";
+import { coordenadaDoErpCoerente } from "./coords-erp.service";
 
 let _syncing = false;
 
@@ -207,6 +208,7 @@ async function syncProviderToDbInterno(
         console.log(`[ERPSync] ${providerName}: fetchCustomers retornou ${allResult.customers.length} clientes totais`);
         let activeUpserted = 0;
         let semDocumento = 0;
+        let coordsForaDaCidade = 0;
         for (const customer of allResult.customers) {
           // Sem documento nao ha o que gravar: a tabela e chaveada por
           // (providerId, cpfCnpj) e todo o bureau pergunta por documento.
@@ -230,9 +232,12 @@ async function syncProviderToDbInterno(
 
             // A coordenada que o ERP já tem entra AQUI, no passo que varre a
             // carteira inteira — é o que faz o mapa nascer cheio no primeiro
-            // sync. Não custa rede: veio junto do cadastro. Só isso; nada de
-            // geocodificar no passo 1, que percorre milhares de clientes.
-            const doErp = coordenadaValida(customer.latitude, customer.longitude);
+            // sync. Não custa rede: veio junto do cadastro (a cidade é
+            // cacheada). Só isso; nada de geocodificar no passo 1, que
+            // percorre milhares de clientes. E só se ela combinar com a
+            // cidade do cadastro — ver coordenadaDoErpCoerente.
+            const doErp = await coordenadaDoErpCoerente(customer.latitude, customer.longitude, city, state);
+            if (!doErp && coordenadaValida(customer.latitude, customer.longitude)) coordsForaDaCidade++;
 
             // Spec 012.5/fix atomicidade — skipPaymentStatus impede que esse
             // passo 1 zere paymentStatus de inadimplentes caso passo 2 falhe.
@@ -271,6 +276,9 @@ async function syncProviderToDbInterno(
         console.log(`[ERPSync] ${providerName}: ${activeUpserted} clientes totais upserted (sem geocoding)`);
         if (semDocumento > 0) {
           console.warn(`[ERPSync] ${providerName}: ${semDocumento} cliente(s) do ERP sem CPF/CNPJ — nao entram na base`);
+        }
+        if (coordsForaDaCidade > 0) {
+          console.warn(`[ERPSync] ${providerName}: ${coordsForaDaCidade} coordenada(s) do ERP fora da cidade declarada — nao gravadas`);
         }
       }
     } catch (err: any) {
@@ -376,6 +384,7 @@ async function syncProviderToDbInterno(
 
   let upserted = 0;
   let errors = 0;
+  let coordsForaDaCidadeNoPasso2 = 0;
   const total = result.customers.length;
   const startMs = Date.now();
 
@@ -388,7 +397,6 @@ async function syncProviderToDbInterno(
     try {
       let city = customer.city || "";
       let state = customer.state || "";
-      let address = customer.address || "";
       let lat: string | undefined;
       let lng: string | undefined;
 
@@ -410,7 +418,6 @@ async function syncProviderToDbInterno(
         if (loc) {
           if (!city) city = loc.city;
           if (!state) state = loc.state;
-          if (!address && loc.street) address = loc.street;
         }
       }
 
@@ -425,35 +432,30 @@ async function syncProviderToDbInterno(
         } catch {}
       }
 
-      // 1. A COORDENADA DO PROPRIO ERP vem primeiro. O MK guarda a latitude e a
-      // longitude da instalacao por cliente — ponto exato, custo zero, sem rede.
-      // O conector ja normalizava esses campos (server/erp/types.ts) e o sync os
-      // descartava: geocodificava o endereco a 1 req/s para chegar a uma
-      // aproximacao PIOR do mesmo lugar. Numa carteira de mil clientes isso e a
-      // diferenca entre plotar tudo no sync e nao plotar quase nada.
-      const doErp = coordenadaValida(customer.latitude, customer.longitude);
+      /*
+       * SO A COORDENADA DO ERP ENTRA PELO SYNC.
+       *
+       * O MK guarda a latitude e a longitude da instalacao por cliente — ponto
+       * exato, custo zero, sem rede — e ela vence qualquer outra fonte, desde
+       * que combine com a cidade do cadastro (coordenadaDoErpCoerente).
+       *
+       * O que havia aqui embaixo — geocodificar a rua SEM o numero, com o CEP
+       * na frente da rua, aceitando a precisao que viesse, e cair no centro da
+       * cidade com 2 km de ruido — era a origem dos pontos a quilometros da
+       * casa. E como o upsert grava toda coordenada que recebe, cada sync
+       * regravava esse ponto por cima do endereco exato que a plotagem do IBGE
+       * tinha resolvido: o mapa piorava a cada passada.
+       *
+       * Quem nao tem coordenada no ERP fica sem ela AQUI e e resolvido pela
+       * plotagem (geocode-backfill.service.ts), que tem a base local do IBGE,
+       * exige precisao de rua e so escreve em quem esta sem ponto.
+       */
+      const doErp = await coordenadaDoErpCoerente(customer.latitude, customer.longitude, city, state);
       if (doErp) {
         lat = String(doErp.lat);
         lng = String(doErp.lng);
-      }
-
-      // 2. Geocodificar por ENDERECO (rua + cidade + estado) — cache por rua unica.
-      // Londrina tem ~300 ruas unicas de inadimplentes, nao 3928.
-      // Fallback: cidade-level com jitter.
-      // LGPD: jitter ±100m no endereco, ±2km na cidade.
-      if (!lat && address && city && state) {
-        const addrCoords = await geocodeAddress(address, city, state, customer.cep);
-        if (addrCoords) {
-          lat = String(addrCoords[0] + (Math.random() - 0.5) * 0.002);
-          lng = String(addrCoords[1] + (Math.random() - 0.5) * 0.002);
-        }
-      }
-      if (!lat && city && state) {
-        const cityCoords = await geocodeCity(city, state);
-        if (cityCoords) {
-          lat = String(cityCoords[0] + (Math.random() - 0.5) * 0.02);
-          lng = String(cityCoords[1] + (Math.random() - 0.5) * 0.02);
-        }
+      } else if (coordenadaValida(customer.latitude, customer.longitude)) {
+        coordsForaDaCidadeNoPasso2++;
       }
 
       const clienteSalvo = await storage.upsertFromErp({
@@ -512,6 +514,9 @@ async function syncProviderToDbInterno(
   }
 
   console.log(`[ERPSync] ${providerName}: ${upserted} upserted, ${errors} erros de ${result.customers.length} inadimplentes`);
+  if (coordsForaDaCidadeNoPasso2 > 0) {
+    console.warn(`[ERPSync] ${providerName}: ${coordsForaDaCidadeNoPasso2} inadimplente(s) com coordenada do ERP fora da cidade declarada — nao gravadas`);
+  }
 
   // 3. Quem QUITOU sai da inadimplencia na base local.
   //

@@ -205,34 +205,150 @@ describe("ViaCEP — a porta de entrada de quem não tem cidade no cadastro", ()
   });
 });
 
-describe("endereço com CEP — o caminho que o backfill usa primeiro", () => {
-  it("resolve pelo CEP e nem chega a consultar por rua", async () => {
+/**
+ * O endereço do cliente — a ordem e a precisão que evitam o ponto "muito fora".
+ *
+ * A versão anterior perguntava o CEP antes da rua e aceitava a resposta que
+ * viesse. Em cidade com CEP geral (Ibiporã, 86200-000) o geocoder responde ao
+ * CEP com o CENTRO DA CIDADE, e cada cliente ganhava o centro com 100 m de
+ * ruído gravado como se fosse a rua dele.
+ */
+describe("endereço do cliente — rua primeiro, precisão exigida", () => {
+  const RUA = [{ lat: "-23.3103", lon: "-51.1628", class: "highway", type: "residential" }];
+  const CASA = [{ lat: "-23.3111", lon: "-51.1633", class: "place", type: "house" }];
+  const CEP_DE_RUA = [{ lat: "-23.3120", lon: "-51.1640", class: "place", type: "postcode" }];
+  const CIDADE = [{ lat: "-23.3045", lon: "-51.1696", class: "boundary", type: "administrative" }];
+  const VIACEP_DE_RUA = { localidade: "Londrina", uf: "PR", logradouro: "Rua X", bairro: "Centro" };
+  const VIACEP_GERAL = { localidade: "Ibiporã", uf: "PR", logradouro: "", bairro: "" };
+
+  const roteador = (rotas: Array<[string, unknown]>) =>
+    fetchMock.mockImplementation(async (...args: unknown[]) => {
+      const u = urlDe(args);
+      const alvo = rotas.find(([trecho]) => u.includes(trecho));
+      return respostaGoogle(alvo ? alvo[1] : []);
+    });
+
+  it("resolve pela rua com número e nem consulta o CEP", async () => {
     const geo = await carregar();
-    fetchMock.mockResolvedValue(respostaGoogle(NOMINATIM_OK));
+    roteador([["Rua%20X%2C%20100", CASA], ["Londrina%2C%20PR%2C%20Brasil", CIDADE]]);
 
     const r = await geo.geocodeAddressDetalhado("Rua X, 100", "Londrina", "PR", "86010-000");
 
-    expect(r.coords).toEqual([-23.3103, -51.1628]);
-    // A primeira consulta é a do CEP; sem ela resolvida haveria uma segunda por rua.
-    expect(fetchMock.mock.calls.length).toBe(1);
-    expect(urlDe(fetchMock.mock.calls[0])).toContain("86010000");
+    expect(r.coords).toEqual([-23.3111, -51.1633]);
+    expect(r.precisao).toBe("endereco");
+    expect(fetchMock.mock.calls.some(c => urlDe(c).includes("86010000"))).toBe(false);
+    expect(fetchMock.mock.calls.some(c => urlDe(c).includes("viacep"))).toBe(false);
   });
 
-  it("CEP que não resolve cai para a busca por rua em vez de desistir", async () => {
+  it("geocoder que só acha a CIDADE para uma rua não posiciona — cai para o CEP de logradouro", async () => {
     const geo = await carregar();
-    fetchMock.mockImplementation(async (...args: unknown[]) =>
-      urlDe(args).includes("86010000") ? respostaGoogle([]) : respostaGoogle(NOMINATIM_OK));
+    roteador([
+      ["Rua%20Inexistente", CIDADE],
+      ["viacep.com.br/ws/86010000", VIACEP_DE_RUA],
+      ["86010000%2C", CEP_DE_RUA],
+      ["Londrina%2C%20PR%2C%20Brasil", CIDADE],
+    ]);
 
-    const r = await geo.geocodeAddressDetalhado("Rua X, 100", "Londrina", "PR", "86010-000");
-    expect(r.coords).toEqual([-23.3103, -51.1628]);
+    const r = await geo.geocodeAddressDetalhado("Rua Inexistente, 5", "Londrina", "PR", "86010-000");
+
+    expect(r.coords).toEqual([-23.312, -51.164]);
+    expect(r.precisao).toBe("cep");
   });
 
-  it("geocoder fora do ar no CEP não é confundido com endereço inexistente", async () => {
+  it("CEP geral do município não posiciona ninguém", async () => {
+    const geo = await carregar();
+    roteador([
+      ["Rua%20Sem%20Registro", CIDADE],
+      ["viacep.com.br/ws/86200000", VIACEP_GERAL],
+      ["Ibipor", CIDADE],
+    ]);
+
+    const r = await geo.geocodeAddressDetalhado("Rua Sem Registro, 9", "Ibiporã", "PR", "86200-000");
+
+    expect(r.coords).toBeUndefined();
+    expect(r.falha).toBe("nao_encontrado");
+    // O CEP geral nunca foi perguntado ao geocoder.
+    expect(fetchMock.mock.calls.some(c => urlDe(c).includes("86200000%2C"))).toBe(false);
+  });
+
+  it("rua homônima em outra cidade — resultado a 40 km — é descartado", async () => {
+    const geo = await carregar();
+    const LONGE = [{ lat: "-23.6700", lon: "-51.1628", class: "highway", type: "residential" }];
+    roteador([["Rua%20Y", LONGE], ["Londrina%2C%20PR%2C%20Brasil", CIDADE]]);
+
+    const r = await geo.geocodeAddressDetalhado("Rua Y, 10", "Londrina", "PR");
+
+    expect(r.coords).toBeUndefined();
+    expect(r.motivo).toMatch(/longe/);
+  });
+
+  it("sem número a rua ainda posiciona, com precisão de logradouro", async () => {
+    const geo = await carregar();
+    roteador([["Rua%20X%2C%20Londrina", RUA], ["Londrina%2C%20PR%2C%20Brasil", CIDADE]]);
+
+    const r = await geo.geocodeAddressDetalhado("Rua X", "Londrina", "PR");
+
+    expect(r.precisao).toBe("logradouro");
+  });
+
+  it("geocoder fora do ar não é confundido com endereço inexistente", async () => {
     const geo = await carregar();
     fetchMock.mockResolvedValue(new Response("", { status: 502 }));
 
     const r = await geo.geocodeAddressDetalhado("Rua X, 100", "Londrina", "PR", "86010-000");
     expect(r.falha).toBe("indisponivel");
+  });
+
+  it("Google que responde APPROXIMATE/locality para uma rua não vale como rua", async () => {
+    const geo = await carregar("chave-de-teste-longa-o-suficiente");
+    fetchMock.mockImplementation(async (...args: unknown[]) => {
+      const u = urlDe(args);
+      if (u.includes("googleapis") && u.includes("Rua%20Z")) {
+        return respostaGoogle({ status: "OK", results: [{
+          geometry: { location: { lat: -23.3045, lng: -51.1696 }, location_type: "APPROXIMATE" },
+          types: ["locality", "political"],
+        }] });
+      }
+      if (u.includes("googleapis")) {
+        return respostaGoogle({ status: "OK", results: [{
+          geometry: { location: { lat: -23.3045, lng: -51.1696 }, location_type: "APPROXIMATE" },
+          types: ["locality", "political"],
+        }] });
+      }
+      return respostaGoogle([]);
+    });
+
+    const r = await geo.geocodeAddressDetalhado("Rua Z, 1", "Londrina", "PR");
+
+    expect(r.coords).toBeUndefined();
+    expect(r.motivo).toMatch(/so achou cidade/);
+  });
+});
+
+describe("precisão do resultado", () => {
+  it("Google: pelos types, e pelo location_type na falta deles", async () => {
+    const geo = await carregar();
+    expect(geo.precisaoGoogle({ types: ["street_address"], geometry: { location_type: "ROOFTOP" } })).toBe("endereco");
+    expect(geo.precisaoGoogle({ types: ["route"], geometry: { location_type: "GEOMETRIC_CENTER" } })).toBe("logradouro");
+    expect(geo.precisaoGoogle({ types: ["postal_code"], geometry: { location_type: "APPROXIMATE" } })).toBe("cep");
+    expect(geo.precisaoGoogle({ types: ["sublocality", "political"], geometry: { location_type: "APPROXIMATE" } })).toBe("bairro");
+    expect(geo.precisaoGoogle({ types: ["locality", "political"], geometry: { location_type: "APPROXIMATE" } })).toBe("cidade");
+    expect(geo.precisaoGoogle({ geometry: { location_type: "RANGE_INTERPOLATED" } })).toBe("endereco");
+    expect(geo.precisaoGoogle({})).toBe("cidade");
+  });
+
+  it("Nominatim: casa, rua, CEP, bairro, cidade — e o desconhecido conta como cidade", async () => {
+    const geo = await carregar();
+    expect(geo.precisaoNominatim({ class: "place", type: "house" })).toBe("endereco");
+    expect(geo.precisaoNominatim({ class: "building", type: "yes" })).toBe("endereco");
+    expect(geo.precisaoNominatim({ class: "amenity", type: "pharmacy" })).toBe("endereco");
+    expect(geo.precisaoNominatim({ class: "highway", type: "residential" })).toBe("logradouro");
+    expect(geo.precisaoNominatim({ addresstype: "road" })).toBe("logradouro");
+    expect(geo.precisaoNominatim({ class: "place", type: "postcode" })).toBe("cep");
+    expect(geo.precisaoNominatim({ class: "place", type: "suburb" })).toBe("bairro");
+    expect(geo.precisaoNominatim({ class: "boundary", type: "administrative" })).toBe("cidade");
+    expect(geo.precisaoNominatim({ class: "place", type: "city" })).toBe("cidade");
+    expect(geo.precisaoNominatim({})).toBe("cidade");
   });
 });
 

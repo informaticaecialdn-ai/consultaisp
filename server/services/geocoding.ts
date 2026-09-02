@@ -16,13 +16,35 @@
  * existiam; quem precisa da distincao usa as versoes ...Detalhado.
  */
 import { logger } from "../logger";
+import { distanciaKm } from "./coordenada-suspeita";
 
 export type GeoFalha = "nao_encontrado" | "indisponivel";
-export type GeoResposta =
-  | { coords: [number, number]; falha?: undefined; motivo?: undefined }
-  | { coords?: undefined; falha: GeoFalha; motivo?: string };
 
-const _geoCache = new Map<string, [number, number] | null>();
+/**
+ * O que o geocoder de fato encontrou. Ele responde SEMPRE com um ponto, e o
+ * ponto nao diz a que ele se refere: perguntado por "Rua X, 100" numa rua que
+ * ele nao conhece, devolve o centro da cidade com a mesma cara de um endereco
+ * exato. Foi assim que clientes apareceram a quilometros da casa deles — o
+ * ponto era da cidade, e o sistema o gravava como se fosse da rua.
+ */
+export type Precisao = "endereco" | "logradouro" | "cep" | "bairro" | "cidade";
+
+export type GeoResposta =
+  | { coords: [number, number]; precisao: Precisao; falha?: undefined; motivo?: undefined }
+  | { coords?: undefined; precisao?: undefined; falha: GeoFalha; motivo?: string };
+
+/** O que serve para posicionar um cliente: a casa ou a rua. CEP de logradouro
+ *  tambem, porque um CEP de rua e um trecho de rua. Bairro e cidade, nao. */
+const POSICIONA: ReadonlySet<Precisao> = new Set<Precisao>(["endereco", "logradouro", "cep"]);
+
+/**
+ * Ate onde um resultado pode estar do centro da cidade declarada e ainda ser
+ * daquela cidade. No norte do Parana as cidades vizinhas ficam a 30-45 km; o
+ * limite anterior era ~100 km e deixava passar a cidade ao lado.
+ */
+export const RAIO_DA_CIDADE_KM = 35;
+
+const _geoCache = new Map<string, { coords: [number, number]; precisao: Precisao } | null>();
 const _ibgeCache = new Map<string, { city: string; state: string } | null>();
 
 const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY || "";
@@ -89,6 +111,50 @@ function isInBrazil(lat: number, lng: number): boolean {
   return lat >= -34 && lat <= 6 && lng >= -74 && lng <= -34;
 }
 
+/**
+ * Precisao de um resultado do Google, pelos `types` do lugar encontrado e,
+ * na falta deles, pelo `location_type` da geometria. `APPROXIMATE` e o que o
+ * Google devolve quando nao achou a rua e caiu na cidade.
+ */
+export function precisaoGoogle(result: any): Precisao {
+  const types: string[] = Array.isArray(result?.types) ? result.types : [];
+  const tem = (...t: string[]) => t.some(x => types.includes(x));
+  if (tem("street_address", "premise", "subpremise")) return "endereco";
+  if (tem("route", "intersection")) return "logradouro";
+  if (tem("postal_code")) return "cep";
+  if (tem("sublocality", "sublocality_level_1", "neighborhood")) return "bairro";
+  if (tem("locality", "administrative_area_level_1", "administrative_area_level_2", "country")) return "cidade";
+  const lt = String(result?.geometry?.location_type ?? "");
+  if (lt === "ROOFTOP" || lt === "RANGE_INTERPOLATED") return "endereco";
+  if (lt === "GEOMETRIC_CENTER") return "logradouro";
+  return "cidade";
+}
+
+/**
+ * Precisao de um resultado do Nominatim, por `class`/`type`/`addresstype`.
+ * Casa, predio e estabelecimento sao endereco; `highway` e rua; `postcode` e
+ * CEP; bairro e cidade ficam de fora do posicionamento. O desconhecido conta
+ * como cidade — e o lado seguro: quem nao prova que e rua nao posiciona.
+ */
+export function precisaoNominatim(r: any): Precisao {
+  const cls = String(r?.class ?? "").toLowerCase();
+  const type = String(r?.type ?? "").toLowerCase();
+  const at = String(r?.addresstype ?? "").toLowerCase();
+  if (type === "postcode" || at === "postcode") return "cep";
+  if (
+    cls === "building"
+    || (cls === "place" && ["house", "houses", "building"].includes(type))
+    || ["amenity", "shop", "office", "tourism", "leisure", "craft", "healthcare"].includes(cls)
+    || ["house", "building"].includes(at)
+  ) return "endereco";
+  if (cls === "highway" || at === "road") return "logradouro";
+  if (
+    (cls === "place" && ["suburb", "neighbourhood", "quarter", "city_block", "residential"].includes(type))
+    || ["suburb", "neighbourhood", "quarter"].includes(at)
+  ) return "bairro";
+  return "cidade";
+}
+
 async function geocodeViaGoogle(query: string): Promise<GeoResposta> {
   const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&components=country:BR&key=${GOOGLE_API_KEY}`;
   let r: Response;
@@ -109,7 +175,7 @@ async function geocodeViaGoogle(query: string): Promise<GeoResposta> {
 
   if (data.status === "OK" && data.results?.[0]) {
     const loc = data.results[0].geometry.location;
-    if (isInBrazil(loc.lat, loc.lng)) return { coords: [loc.lat, loc.lng] };
+    if (isInBrazil(loc.lat, loc.lng)) return { coords: [loc.lat, loc.lng], precisao: precisaoGoogle(data.results[0]) };
     return { falha: "nao_encontrado", motivo: "resultado fora do Brasil" };
   }
   if (data.status === "ZERO_RESULTS") return { falha: "nao_encontrado" };
@@ -147,7 +213,7 @@ async function geocodeViaNominatim(query: string): Promise<GeoResposta> {
   const lon = parseFloat(data[0].lon);
   if (Number.isNaN(lat) || Number.isNaN(lon)) return { falha: "nao_encontrado" };
   if (!isInBrazil(lat, lon)) return { falha: "nao_encontrado", motivo: "resultado fora do Brasil" };
-  return { coords: [lat, lon] };
+  return { coords: [lat, lon], precisao: precisaoNominatim(data[0]) };
 }
 
 /**
@@ -195,56 +261,101 @@ async function geocodeQuery(query: string): Promise<GeoResposta> {
 function doCache(chave: string): GeoResposta | null {
   if (!_geoCache.has(chave)) return null;
   const v = _geoCache.get(chave)!;
-  return v ? { coords: v } : { falha: "nao_encontrado" };
+  return v ? { coords: v.coords, precisao: v.precisao } : { falha: "nao_encontrado" };
 }
 function guardar(chave: string, r: GeoResposta): GeoResposta {
-  if (r.coords) _geoCache.set(chave, r.coords);
+  if (r.coords) _geoCache.set(chave, { coords: r.coords, precisao: r.precisao });
   else if (r.falha === "nao_encontrado") _geoCache.set(chave, null);
   return r;
 }
 
 /**
- * Geocodificar por endereco completo, com a distincao de falha preservada.
- * Prioridade: CEP+cidade (mais confiavel) → endereco+cidade.
- * Google Maps pode resolver nomes de rua para cidades homonimas
- * (ex: "Rua Moacyr Arcoverde" → Arcoverde-PE). CEP nunca mente.
+ * O resultado esta na cidade declarada? Sem centro conhecido nao se acusa.
+ * A cidade e cacheada, entao mil clientes da mesma cidade custam uma chamada.
+ */
+async function pertoDaCidade(coords: [number, number], city: string, state: string): Promise<boolean> {
+  const cidade = await geocodeCityDetalhado(city, state);
+  if (!cidade.coords) return true;
+  return distanciaKm(coords[0], coords[1], cidade.coords[0], cidade.coords[1]) <= RAIO_DA_CIDADE_KM;
+}
+
+/**
+ * Geocodificar um cliente pelo endereco, com a distincao de falha preservada.
+ *
+ * ORDEM: rua (com numero, quando houver) + cidade → CEP, e so CEP de
+ * logradouro. A versao anterior fazia o inverso — "CEP nunca mente" — e
+ * mentia todo dia: em cidade pequena o cadastro inteiro carrega o CEP geral
+ * do municipio (86200-000 em Ibipora), e o geocoder responde a esse CEP com
+ * o CENTRO DA CIDADE. Cada cliente ganhava o centro com 100 m de ruido,
+ * gravado como se fosse a rua dele. Era a "bola" do mapa e os pontos a
+ * quilometros da casa.
+ *
+ * Duas exigencias em cada resultado, e as duas cacheadas junto com ele:
+ *  - PRECISAO: so casa, rua ou CEP de rua posicionam alguem. O geocoder que
+ *    responde com o bairro ou a cidade para uma pergunta de rua nao achou a
+ *    rua — e nao_encontrado, nunca um ponto.
+ *  - CIDADE: o ponto tem de estar a ate RAIO_DA_CIDADE_KM do centro da cidade
+ *    declarada. Rua homonima em outra cidade ("Rua Moacyr Arcoverde" →
+ *    Arcoverde-PE) cai aqui.
+ *
+ * Nao ha queda para a cidade: um ponto que so a cidade explica nao e a
+ * localizacao de ninguem, e o mapa fica mais honesto sem ele.
  */
 export async function geocodeAddressDetalhado(
   address: string, city: string, state: string, cep?: string,
 ): Promise<GeoResposta> {
-  // 1. Por CEP + cidade
-  if (cep) {
-    const cleanCep = cep.replace(/\D/g, "");
-    if (cleanCep.length >= 8) {
-      const cepKey = `cep:${cleanCep},${city.toLowerCase()}`;
-      const emCache = doCache(cepKey);
-      const r = emCache ?? guardar(cepKey, await geocodeQuery(`${cleanCep}, ${city}, ${state}, Brasil`));
-      if (r.coords) return r;
-      if (r.falha === "indisponivel") return r;
-    }
-  }
+  const rua = (address || "").trim();
+  const cidade = (city || "").trim();
+  const uf = (state || "").trim();
+  let ultima: GeoResposta | null = null;
 
-  // 2. Por endereco + cidade
-  const q = `${address}, ${city}, ${state}, Brasil`;
-  const key = `addr:${q.toLowerCase()}`;
-  const emCache = doCache(key);
-  if (emCache) return emCache;
-
-  const r = await geocodeQuery(q);
-  if (r.falha === "indisponivel") return r; // nao cacheia, nao valida
-
-  if (r.coords) {
-    // Validar que o resultado esta perto da cidade esperada (nao em outro estado)
-    const cidade = await geocodeCityDetalhado(city, state);
-    if (cidade.coords) {
-      const dist = Math.abs(r.coords[0] - cidade.coords[0]) + Math.abs(r.coords[1] - cidade.coords[1]);
-      if (dist > 1.0) {
-        // ~100km+ da cidade — resolveu para o lugar errado. O caller cai para a cidade.
-        return guardar(key, { falha: "nao_encontrado", motivo: "resultado longe da cidade" });
+  // 1. Rua + cidade. O numero vem dentro de `address` quando o chamador o tem.
+  if (rua && cidade) {
+    const q = `${rua}, ${cidade}, ${uf}, Brasil`;
+    const key = `addr:${q.toLowerCase()}`;
+    let r = doCache(key);
+    if (!r) {
+      r = await geocodeQuery(q);
+      if (r.falha === "indisponivel") return r; // nao cacheia, nao valida
+      if (r.coords && !POSICIONA.has(r.precisao)) {
+        r = { falha: "nao_encontrado", motivo: `geocoder so achou ${r.precisao} para a rua` };
+      } else if (r.coords && !(await pertoDaCidade(r.coords, cidade, uf))) {
+        r = { falha: "nao_encontrado", motivo: "resultado longe da cidade" };
       }
+      guardar(key, r);
+    }
+    if (r.coords) return r;
+    ultima = r;
+  }
+
+  // 2. CEP — so quando os Correios dizem que ele e de um logradouro. CEP geral
+  // do municipio nao posiciona ninguem, por definicao.
+  const cepLimpo = (cep || "").replace(/\D/g, "");
+  if (cepLimpo.length === 8) {
+    const via = await geocodeCepDetalhado(cepLimpo);
+    if (via.falha === "indisponivel") return { falha: "indisponivel", motivo: `viacep — ${via.motivo}` };
+    if (via.local?.street) {
+      const q = `${cepLimpo}, ${via.local.city}, ${via.local.state}, Brasil`;
+      const key = `cep:${cepLimpo}`;
+      let r = doCache(key);
+      if (!r) {
+        r = await geocodeQuery(q);
+        if (r.falha === "indisponivel") return r;
+        if (r.coords && !POSICIONA.has(r.precisao)) {
+          r = { falha: "nao_encontrado", motivo: `geocoder so achou ${r.precisao} para o CEP` };
+        } else if (r.coords && !(await pertoDaCidade(r.coords, via.local.city, via.local.state))) {
+          r = { falha: "nao_encontrado", motivo: "CEP resolvido longe da cidade" };
+        }
+        guardar(key, r);
+      }
+      if (r.coords) return r;
+      ultima = r;
+    } else if (!ultima) {
+      ultima = { falha: "nao_encontrado", motivo: "CEP geral do municipio — nao localiza" };
     }
   }
-  return guardar(key, r);
+
+  return ultima ?? { falha: "nao_encontrado", motivo: "sem rua nem CEP de logradouro" };
 }
 
 /** Geocodificar por cidade + estado, com a distincao de falha preservada. */
@@ -271,8 +382,10 @@ export async function geocodeCity(city: string, state: string): Promise<[number,
  * Cache por CEP unico (~100 CEPs unicos pra 6000 clientes → ~100 chamadas). */
 export async function geocodeByCep(cep: string, city?: string, state?: string): Promise<[number, number] | null> {
   if (!cep) return null;
-  const cleaned = cep.replace(/\D/g, "").padEnd(8, "0").slice(0, 8);
-  if (cleaned.length < 8) return null;
+  // Sem completar com zeros: "86200" viraria o CEP geral do municipio, que e
+  // o centro da cidade — exatamente o ponto que nao posiciona ninguem.
+  const cleaned = cep.replace(/\D/g, "");
+  if (cleaned.length !== 8) return null;
   const key = `cep:${cleaned}`;
   const emCache = doCache(key);
   if (emCache) return emCache.coords ?? null;

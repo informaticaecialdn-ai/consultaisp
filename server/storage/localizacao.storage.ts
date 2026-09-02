@@ -9,7 +9,7 @@ import {
 import { coordenadaValida } from "../services/coordenada";
 import { criarAgrupadorDeBairro, criarCasadorDeBairro, normalizarLocalidade } from "../services/localidade";
 import { carregarTerritorio, carregarCaixasMunicipio } from "../services/geo-bases.service";
-import { geocodeAddress } from "../services/geocoding";
+import { geocodeAddress, geocodeCity } from "../services/geocoding";
 
 export interface LocalizacaoPonto {
   id: number;
@@ -149,12 +149,16 @@ export class LocalizacaoStorage {
     if (!p?.addressCity) return null;
 
     const uf = p.addressState || null;
+    // A sede nao e um cliente: se o endereco dela nao resolver com precisao de
+    // rua, o centro da cidade serve — o marcador diz "Sede · Londrina", e e
+    // isso que ele esta afirmando.
     const coords = await geocodeAddress(
       [p.addressStreet, p.addressNumber].filter(Boolean).join(", "),
       p.addressCity,
       uf || "",
       p.addressZip || undefined,
-    ).catch(() => null);
+    ).catch(() => null)
+      ?? await geocodeCity(p.addressCity, uf || "").catch(() => null);
 
     const naArea = (area.cidades ?? []).some(
       c => normalizarCidade(c) === normalizarCidade(p.addressCity),
