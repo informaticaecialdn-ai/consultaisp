@@ -217,7 +217,7 @@ lastSyncAt, notificacaoEnviada/Data/Canal, createdAt
 
 ### Tabelas Anti-Fraude
 - **antiFraudAlerts** — type, severity, riskScore, riskFactors(JSONB), daysOverdue, overdueAmount, equipmentNotReturned
-- **antiFraudRules** — tipo, label, ativo, valorMinimo, diasMinimo
+- **antiFraudRules** — providerId, tipo, ativo, parametros(JSONB) — regras por provedor (catálogo em `shared/antifraude-regras.ts`)
 
 ### Tabelas de Suporte
 - **supportThreads** + **supportMessages** — Chat provedor ↔ admin
@@ -463,7 +463,7 @@ GET/POST isp-consultations, POST isp-consultations/lote
 GET/POST spc-consultations
 
 ### Anti-Fraude (requireAuth)
-GET anti-fraud/alerts, PATCH alerts/:id/status, GET customer-risk, GET migradores, GET/PATCH rules
+GET anti-fraud/alerts, PATCH alerts/:id/status, GET customer-risk, GET migradores, GET/PUT anti-fraud/rules (regras + canais do provedor; PUT só admin)
 
 ### Equipamentos (requireAuth)
 GET/POST/PATCH/DELETE equipamentos, POST equipamentos/import
@@ -550,40 +550,56 @@ Especialista em fraude por migração serial ISP. Contexto: cliente contrata, n�
 procurando outro provedor. Não é lista de inadimplentes nem log de consultas.
 A carteira inteira vive em `/inadimplentes`.
 
-**A regra** (`server/services/antifraude-rules.ts`, com testes). Dispara quando
-TODAS forem verdadeiras:
+**A regra** (`server/services/antifraude-rules.ts`, com testes), nas palavras
+do dono (02/09/2026): *cliente com contrato ativo e inadimplente, consultado por
+um provedor parceiro → o dono é avisado.* Dispara quando TODAS forem verdadeiras:
 1. quem consultou **não** é o dono do cliente;
-2. o cliente é **comprovadamente ativo** (ou suspenso por atraso) na base do
-   dono — cancelado sai, e **status desconhecido também**: ausência de prova de
-   que é cliente não é prova de que é;
-3. o atraso está **dentro da janela de fuga (até 90 dias)**;
-4. E pelo menos uma:
-   - **(a)** dívida ativa material (≥ R$ 50 e ≥ 15 dias), ou
-   - **(b)** contrato com menos de 90 dias.
+2. o cliente é **comprovadamente ativo** (ou suspenso por atraso — cortado, mas
+   ainda cliente) na base do dono — cancelado sai, e **status desconhecido
+   também**: ausência de prova de que é cliente não é prova de que é;
+3. tem **fatura vencida** (≥ 1 dia, ≥ R$ 20 — abaixo disso é resíduo).
 
-A janela de 90 dias é curta de propósito. Provedor avisa por volta de 15 dias,
-bloqueia em 30-45 e cancela em 60-90 — quem está "ativo" com 200 dias de atraso
-não está conectado, é a base que não foi atualizada. Passado esse ponto o caso
-é de recuperação de equipamento e bureau: não há mais serviço a perder, então
-não há fuga a impedir.
+Não há teto de atraso nem condição de "contrato recente": os dois saíram em
+02/09/2026. O teto compensava status desatualizado; desde que o sync lê o
+contrato de verdade (V2 do MK, contratos do IXC, conexão bloqueada = suspenso),
+ativo é ativo. Contrato novo em dia não é inadimplente.
 
-A regra roda nos DOIS pontos: ao criar o alerta (`proactive-alert.service.ts`)
-e ao listar (`GET /api/anti-fraud/alerts`), porque o estado do cliente muda
-depois que o alerta foi gravado.
+**Quem é avaliado** (`proactive-alert.service.ts`): o dono que respondeu na
+consulta ao vivo e, para o provedor cujo ERP **não respondeu** (fora da região,
+fora do ar), a base sincronizada `customers`. O alerta é **gravado em
+`anti_fraud_alerts`** (tipo `defaulter_consulted`) com a foto do momento —
+dívida, dias, contrato, consulente — e é mostrado como nasceu; a situação de
+hoje vai junto (`atual`) para o provedor ver se o cliente pagou ou saiu.
+`proactive_alerts` é só log de envio e trava de 24h por CPF e dono.
 
-**Origens que alimentam a lista** (as duas passam pela mesma regra e são
-deduplicadas por CPF + provedor consulente):
-- `defaulter_consulted` — alerta proativo: alguém consultou seu cliente.
-- `migrador_serial` — contrato cancelado em provedor da rede + dívida ativa.
+**Avisos:** e-mail para o contato do provedor ou, sem ele, para os admins;
+WhatsApp pela Z-API para o telefone de contato, quando configurada; webhook.
+Na tela, o item Anti-Fraude da sidebar mostra a contagem de alertas abertos.
 
-`equipment_risk` e `recent_contract` **não existem como tipo gravado** — o
-segundo virou o motivo `contrato_recente` dentro da regra acima.
+**Só cliente ativo.** Ex-cliente não é anti-fraude: o contrato acabou, não há
+o que proteger. O sinal de migrador serial (ex-cliente que saiu devendo e foi
+consultado de novo) é papel do bureau e aparece no **resultado da consulta**
+de quem consultou; ele **não** é gravado em `anti_fraud_alerts` nem entra na
+lista do dono. Linhas `migrador_serial` anteriores a 02/09/2026 ficam no
+banco, ignoradas pela listagem.
 
-**Pendência conhecida:** o motivo do alerta não é persistido, e `customers` não
-guarda data de início de contrato. Por isso a condição (b) dispara na criação
-(e-mail/webhook) mas não sobrevive à reavaliação da listagem. Uma coluna
-`contract_start_date` em `customers` resolveria isso e também o
-`mesesComoCliente` do motor de score, que hoje é sempre 0.
+A lista é deduplicada por CPF + consulente.
+
+**Regras por provedor** (`shared/antifraude-regras.ts`, tabela `anti_fraud_rules`,
+aba Anti-Fraude do Painel do Provedor, `GET/PUT /api/anti-fraud/rules`). Todas
+exigem contrato ativo ou suspenso; o provedor liga o que quer vigiar:
+- `ativo_inadimplente` (padrão, ligada) — fatura vencida ≥ R$ 20 e ≥ 1 dia; limiares editáveis.
+- `contrato_novo` — até N dias de contrato (90), em dia ou não. Só dispara com
+  a data de contrato do ERP ao vivo; a base sincronizada não a guarda.
+- `consultas_repetidas` — N ou mais provedores diferentes do dono em 30 dias (2).
+- `ativo_qualquer` — qualquer cliente ativo consultado (retenção).
+
+Os motivos que bateram vão em `riskFactors`; o rótulo do card sai do motivo
+principal. Sem linha gravada vale o padrão. Os canais (e-mail, WhatsApp,
+webhook, liga/desliga) ficam na mesma aba.
+
+Linhas legadas de `proactive_alerts` sem foto continuam entrando, reavaliadas
+pela regra com a situação atual.
 
 ---
 

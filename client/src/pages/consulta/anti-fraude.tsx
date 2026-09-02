@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
 import { Link } from "wouter";
 import {
+  Settings2,
   ShieldAlert, AlertTriangle, DollarSign,
   CheckCircle, XCircle,
   Search, Clock, Package, Users, RefreshCw,
@@ -41,7 +42,19 @@ type AntiFraudAlert = {
   motivos?: string[];
   motivoLabel?: string;
   diasDeContrato?: number | null;
+  /* A situação de HOJE do cliente, ao lado da foto que o alerta guardou:
+     é o que diz se ele pagou ou saiu desde o aviso. */
+  atual?: {
+    contractStatus: string | null;
+    daysOverdue: number;
+    overdueAmount: string;
+    emRisco: boolean;
+  } | null;
+  _source?: "fuga" | "proactive" | "legado";
 };
+
+const rotuloContrato = (s: string | null | undefined): string =>
+  s === "active" ? "Ativo" : s === "suspended" ? "Suspenso" : s === "cancelled" ? "Encerrado" : "—";
 
 const fmt = (v: number | string | null | undefined): string => {
   const num = typeof v === "string" ? parseFloat(v) : (v || 0);
@@ -122,13 +135,22 @@ export default function AntiFraudePage() {
             Protecao Anti-Fraude
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Clientes ativos seus, com dívida ou contrato novo, sendo consultados por outro provedor
+            Cliente ativo seu que outro provedor da rede consultou — por padrão, só quem está devendo.
+            O que vigiar você escolhe em Regras.
           </p>
         </div>
-        <Button variant="outline" size="sm" className="gap-2" onClick={() => refetch()}>
-          <RefreshCw className="w-4 h-4" />
-          Atualizar
-        </Button>
+        <div className="flex items-center gap-2">
+          <Link href="/painel-provedor?tab=anti-fraude">
+            <Button variant="outline" size="sm" className="gap-2" data-testid="link-regras-anti-fraude">
+              <Settings2 className="w-4 h-4" />
+              Regras
+            </Button>
+          </Link>
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => refetch()}>
+            <RefreshCw className="w-4 h-4" />
+            Atualizar
+          </Button>
+        </div>
       </div>
 
       {/* KPIs */}
@@ -217,8 +239,8 @@ export default function AntiFraudePage() {
             Nenhum alerta ativo
           </h3>
           <p className="mt-2 mb-6 mx-auto max-w-[46ch] text-sm text-[var(--color-muted)]">
-            Nenhum cliente seu foi consultado por outro provedor. Você é avisado aqui assim
-            que alguém tentar migrar.
+            Nenhum cliente seu, ativo e com fatura vencida, foi consultado por outro provedor.
+            Você é avisado aqui, por e-mail e por WhatsApp assim que acontecer.
           </p>
           <a
             href="/inadimplentes"
@@ -256,16 +278,17 @@ function AlertCard({ alert, onResolve, onDismiss }: {
   const equipValue = parseFloat(alert.equipmentValue || "0");
   const totalPrejuizo = overdueAmt + equipValue + CUSTO_INSTALACAO;
   const isResolved = alert.status === "resolved" || alert.status === "dismissed";
-
-  // Score simplificado do cliente (0-100)
-  const score = Math.max(0, 100 - Math.min(daysOverdue / 3, 40) - Math.min(overdueAmt / 50, 40) - (daysOverdue < 90 ? 20 : 0));
+  const atual = alert.atual ?? null;
+  /* O cliente pagou ou saiu depois do aviso: a foto do alerta continua, e a
+     situação de hoje é dita ao lado — quem decide resolver é o provedor. */
+  const mudouDesdeOAviso = !isResolved && alert._source === "fuga" && atual !== null && !atual.emRisco;
 
   return (
     <Card className={`overflow-hidden ${isResolved ? "opacity-60" : ""}`}>
-      {/* Header do card */}
+      {/* Header do card — a cor é a severidade, que vem do prejuízo em jogo */}
       <div className={`px-4 py-2 flex items-center justify-between ${
-        daysOverdue > 90 ? "bg-[var(--color-danger)] text-white" :
-        daysOverdue > 30 ? "bg-[var(--score-low)] text-white" :
+        alert.severity === "critical" ? "bg-[var(--color-danger)] text-white" :
+        alert.severity === "high" ? "bg-[var(--score-low)] text-white" :
         "bg-[var(--color-gold)] text-white"
       }`}>
         <div className="flex items-center gap-2">
@@ -316,19 +339,33 @@ function AlertCard({ alert, onResolve, onDismiss }: {
               <p className="text-sm text-muted-foreground">Sem registro</p>
             )}
           </div>
+          {/* Aqui havia um "score" inventado por uma fórmula local. O que o
+              provedor precisa saber é se o contrato ainda está de pé. */}
           <div className="bg-muted/40 rounded-lg p-3">
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
               <ShieldAlert className="w-3 h-3" />
-              Score
+              Contrato
             </div>
-            <p className={`font-bold ${score < 30 ? "text-[var(--color-danger)]" : score < 60 ? "text-[var(--score-low)]" : "text-[var(--color-success)]"}`}>
-              {Math.round(score)}/100
+            <p className={`font-bold ${atual?.contractStatus === "cancelled" ? "text-muted-foreground" : ""}`}>
+              {rotuloContrato(atual?.contractStatus)}
             </p>
             <p className="text-xs text-muted-foreground">
-              {score < 30 ? "Critico" : score < 60 ? "Alto risco" : "Moderado"}
+              {atual ? "na última sincronização" : "sem sincronização"}
             </p>
           </div>
         </div>
+
+        {mudouDesdeOAviso && (
+          <div className="rounded-lg px-3 py-2 text-sm bg-[var(--surface-2)] text-[var(--text-2)]" data-testid="alerta-mudou">
+            <span className="font-semibold">Hoje:</span>{" "}
+            {atual!.contractStatus === "cancelled"
+              ? "contrato encerrado"
+              : atual!.daysOverdue > 0
+                ? `${fmt(atual!.overdueAmount)} vencidos · ${atual!.daysOverdue} dias`
+                : "sem fatura vencida"}
+            {" "}— já pode resolver o alerta.
+          </div>
+        )}
 
         {/* Quem consultou + data */}
         {alert.consultingProviderName && (
@@ -346,7 +383,7 @@ function AlertCard({ alert, onResolve, onDismiss }: {
           </div>
         )}
 
-        {/* Prejuizo estimado */}
+        {/* Prejuizo: o que se perde SE o cliente migrar */}
         <div className="bg-[var(--color-danger-bg)] border border-[var(--color-danger)] rounded-lg p-3">
           <p className="text-xs font-semibold text-[var(--color-danger)] uppercase mb-2">Prejuizo Estimado se Migrar</p>
           <div className="grid grid-cols-3 gap-2 text-center">

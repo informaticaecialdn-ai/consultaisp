@@ -1,8 +1,8 @@
 import { eq, and, ne, desc } from "drizzle-orm";
 import { db } from "../db";
 import {
-  antiFraudAlerts, customers,
-  type AntiFraudAlert, type InsertAntiFraudAlert,
+  antiFraudAlerts, antiFraudRules, customers,
+  type AntiFraudAlert, type InsertAntiFraudAlert, type AntiFraudRule,
 } from "@shared/schema";
 
 export type AlertWithOwnership = AntiFraudAlert & { customerProviderId: number | null; customerStatus: string };
@@ -70,5 +70,25 @@ export class AntifraudeStorage {
     return db.select().from(antiFraudAlerts)
       .where(eq(antiFraudAlerts.customerId, customerId))
       .orderBy(desc(antiFraudAlerts.createdAt));
+  }
+
+  /** As regras gravadas deste provedor. Vazio = tudo no padrao. */
+  async getAntiFraudRules(providerId: number): Promise<AntiFraudRule[]> {
+    return db.select().from(antiFraudRules).where(eq(antiFraudRules.providerId, providerId));
+  }
+
+  /** Uma linha por tipo — insere ou atualiza. */
+  async saveAntiFraudRules(
+    providerId: number,
+    linhas: Array<{ tipo: string; ativo: boolean; parametros: Record<string, number> }>,
+  ): Promise<void> {
+    for (const l of linhas) {
+      await db.insert(antiFraudRules)
+        .values({ providerId, tipo: l.tipo, ativo: l.ativo, parametros: l.parametros, updatedAt: new Date() })
+        .onConflictDoUpdate({
+          target: [antiFraudRules.providerId, antiFraudRules.tipo],
+          set: { ativo: l.ativo, parametros: l.parametros, updatedAt: new Date() },
+        });
+    }
   }
 }

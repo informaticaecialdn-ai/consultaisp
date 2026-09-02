@@ -288,6 +288,40 @@ export function AppSidebar() {
     );
   }
 
+  return <SidebarDoProvedor user={user} provider={provider} logout={logout} marca={marca} location={location} />;
+}
+
+/**
+ * Alertas de fuga em aberto, ao lado do item Anti-Fraude.
+ *
+ * "O provedor e avisado no anti-fraude" precisa ser verdade tambem para quem
+ * esta na tela: sem o numero aqui, o aviso so existia no e-mail e na pagina,
+ * e a pagina so e aberta por quem ja sabe que tem algo la. Componente proprio
+ * para o hook nao entrar na ordem de hooks da sidebar, que tem retorno
+ * antecipado para o superadmin.
+ */
+function ContadorDeAlertas() {
+  const { data } = useQuery<Array<{ status: string }>>({
+    queryKey: ["/api/anti-fraud/alerts"],
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+  });
+  const abertos = (data ?? []).filter(a => a.status === "new" || a.status === "active").length;
+  if (abertos === 0) return null;
+  return (
+    <span
+      className="ml-auto min-w-[20px] h-5 px-1.5 rounded grid place-items-center text-[10.5px] font-semibold font-mono tabular-nums bg-[var(--danger-bg)] text-[var(--danger)] border border-[var(--danger-border)]"
+      aria-label={`${abertos} alerta${abertos === 1 ? "" : "s"} de fuga em aberto`}
+      data-testid="badge-anti-fraude"
+    >
+      {abertos}
+    </span>
+  );
+}
+
+function SidebarDoProvedor({ user, provider, logout, marca, location }: {
+  user: any; provider: any; logout: () => void; marca: any; location: string;
+}) {
   /* ── Sidebar do provedor — implementacao 1:1 do handoff Sidebar.md ──
      Nenhuma cor hex aqui: so var(--brand), var(--brand-soft), var(--brand-ink)
      e a escala --text-*. O tema troca via data-theme no <html>. */
@@ -415,6 +449,7 @@ export function AppSidebar() {
                     >
                       <Icone className="w-4 h-4 flex-none" strokeWidth={2} />
                       <span className="truncate">{label}</span>
+                      {url === "/anti-fraude" && <ContadorDeAlertas />}
                     </Link>
                   );
                 })}

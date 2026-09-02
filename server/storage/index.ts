@@ -7,7 +7,7 @@ import type {
   Equipment, InsertEquipment, EquipmentRecoveryCase, EquipmentRecoveryEvent, InsertEquipmentRecoveryCase,
   IspConsultation, InsertIspConsultation,
   SpcConsultation, InsertSpcConsultation,
-  AntiFraudAlert, InsertAntiFraudAlert,
+  AntiFraudAlert, InsertAntiFraudAlert, AntiFraudRule,
   SupportThread, InsertSupportMessage, SupportMessage,
   PlanChange, InsertPlanChange,
   ProviderInvoice, InsertProviderInvoice,
@@ -148,6 +148,8 @@ export interface IStorage {
   createAlert(alert: InsertAntiFraudAlert): Promise<AntiFraudAlert>;
   updateAlertStatus(alertId: number, providerId: number, status: string): Promise<AlertWithOwnership | undefined>;
   getAlertsByCustomer(customerId: number): Promise<AntiFraudAlert[]>;
+  getAntiFraudRules(providerId: number): Promise<AntiFraudRule[]>;
+  saveAntiFraudRules(providerId: number, linhas: Array<{ tipo: string; ativo: boolean; parametros: Record<string, number> }>): Promise<void>;
 
   getDashboardStats(providerId: number): Promise<any>;
   getDefaultersList(providerId: number): Promise<any[]>;
@@ -348,6 +350,8 @@ class DatabaseStorage implements IStorage {
   createAlert = (alert: InsertAntiFraudAlert) => this._antifraude.createAlert(alert);
   updateAlertStatus = (alertId: number, providerId: number, status: string) => this._antifraude.updateAlertStatus(alertId, providerId, status);
   getAlertsByCustomer = (customerId: number) => this._antifraude.getAlertsByCustomer(customerId);
+  getAntiFraudRules = (providerId: number) => this._antifraude.getAntiFraudRules(providerId);
+  saveAntiFraudRules = (providerId: number, linhas: Array<{ tipo: string; ativo: boolean; parametros: Record<string, number> }>) => this._antifraude.saveAntiFraudRules(providerId, linhas);
 
   // Financial
   getContractsByCustomer = (customerId: number) => this._financial.getContractsByCustomer(customerId);

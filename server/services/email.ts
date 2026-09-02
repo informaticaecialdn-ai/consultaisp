@@ -228,7 +228,19 @@ export async function sendProactiveAlertEmail(
   maskedCpf: string,
   maskedCustomerName: string,
   marca: MarcaResolvida = MARCA_PLATAFORMA,
+  /** A foto do momento: e o que diz POR QUE o aviso existe. */
+  detalhes?: { valor: number; dias: number; contrato: string; motivo?: string; resumo?: string },
 ): Promise<void> {
+  const brl = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const situacao = detalhes
+    ? `<p style="color:${INK};font-size:14px;margin:8px 0 0;line-height:1.6;">
+         ${detalhes.motivo ? `<strong>${esc(detalhes.motivo)}</strong><br/>` : ""}Contrato <strong>${esc(detalhes.contrato)}</strong>${
+           detalhes.valor > 0
+             ? ` · <strong>${brl(detalhes.valor)}</strong> vencidos ha <strong>${detalhes.dias} dia${detalhes.dias === 1 ? "" : "s"}</strong>`
+             : " · sem fatura vencida"
+         }.
+       </p>`
+    : "";
   const html = emailTemplate(`
     <div style="background:${GOLD_BG};border:1px solid ${GOLD}30;border-radius:6px;padding:16px;margin:0 0 20px;">
       <p style="color:${GOLD};font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">
@@ -237,14 +249,15 @@ export async function sendProactiveAlertEmail(
       <p style="color:${INK};font-size:14px;margin:0;line-height:1.6;">
         Seu cliente <strong>${esc(maskedCustomerName)}</strong> (CPF: ${esc(maskedCpf)}) foi consultado por <strong>outro provedor</strong> da rede.
       </p>
+      ${situacao}
     </div>
     <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0 0 8px;">
       Ola, <strong style="color:${INK}">${esc(providerName)}</strong>
     </p>
     <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0 0 24px;">
-      Isso pode indicar uma possivel migracao. Recomendamos entrar em contato com o cliente para entender a situacao e, se necessario, negociar a retencao.
+      ${detalhes?.resumo ? esc(detalhes.resumo) : "Um cliente seu, ativo e com fatura vencida, esta sendo avaliado por outro provedor"}: e o momento de agir — cobrar, renegociar, recolher o equipamento ou reter — antes que ele instale em outro lugar.
     </p>
-    ${btnPrimary(urlDaMarca(marca), "Acessar Painel", marca)}
+    ${btnPrimary(`${urlDaMarca(marca)}/anti-fraude`, "Ver o alerta", marca)}
     <p style="color:${MUTED};font-size:12px;margin:20px 0 0;line-height:1.5;">
       A identidade do provedor que realizou a consulta e mantida em sigilo. Voce pode configurar suas preferencias de alerta no painel do provedor.
     </p>

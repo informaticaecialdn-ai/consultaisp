@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, decimal, serial, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, decimal, serial, jsonb, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -775,6 +775,24 @@ export const proactiveAlerts = pgTable("proactive_alerts", {
 export const insertProactiveAlertSchema = createInsertSchema(proactiveAlerts).omit({ id: true, sentAt: true });
 export type ProactiveAlert = typeof proactiveAlerts.$inferSelect;
 export type InsertProactiveAlert = z.infer<typeof insertProactiveAlertSchema>;
+
+/**
+ * Regras do anti-fraude por provedor — o que ele quer que a rede vigie na
+ * base dele. O catalogo, o padrao e a validacao dos parametros vivem em
+ * shared/antifraude-regras.ts. Uma linha por (provedor, tipo); o que nao
+ * esta gravado vale o padrao, por isso nao ha seed.
+ */
+export const antiFraudRules = pgTable("anti_fraud_rules", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  tipo: text("tipo").notNull(),
+  ativo: boolean("ativo").notNull().default(true),
+  parametros: jsonb("parametros").$type<Record<string, number>>().notNull().default({}),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [uniqueIndex("anti_fraud_rules_provider_tipo").on(t.providerId, t.tipo)]);
+
+export type AntiFraudRule = typeof antiFraudRules.$inferSelect;
+export type InsertAntiFraudRule = typeof antiFraudRules.$inferInsert;
 
 /**
  * Bases geográficas públicas — denominador do território.

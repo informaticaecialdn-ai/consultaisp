@@ -502,9 +502,11 @@ export function registerConsultasRoutes(): Router {
         const scoreResult = calcularScoreISP(scoreInput);
 
         // ── MIGRATOR DETECTION (MIG-01, MIG-02, MIG-03) ────────────
-        // Alert is detected here but persisted only after successful debit (inside the same transaction)
+        // Sinal de bureau para QUEM CONSULTA: vai no resultado da consulta.
+        // Nao vira alerta de anti-fraude para o ex-provedor — ex-cliente nao
+        // tem contrato a proteger, e o anti-fraude e so para cliente ativo
+        // com pendencia financeira (ver notifyOwnerProviders).
         let migratorAlert: { detected: true; severity: string; message: string; riskFactors: string[] } | null = null;
-        let pendingAlertRecord: Parameters<typeof storage.createAlert>[0] | undefined;
         if (searchType === "cpf" || searchType === "cnpj") {
           try {
             const migratorResult = detectMigrator({
@@ -521,8 +523,6 @@ export function registerConsultasRoutes(): Router {
                 message: migratorResult.message,
                 riskFactors: migratorResult.riskFactors,
               };
-              // Store alert record to persist atomically with debit
-              pendingAlertRecord = migratorResult.alertRecord;
             }
           } catch (err) {
             logger.warn({ err }, "MIGRADOR detection error (non-blocking)");
@@ -671,7 +671,7 @@ export function registerConsultasRoutes(): Router {
 
         let consultation;
         if (creditsCost > 0) {
-          const txResult = await storage.debitAndCreateIspConsultation(providerId, creditsCost, consultationPayload, pendingAlertRecord);
+          const txResult = await storage.debitAndCreateIspConsultation(providerId, creditsCost, consultationPayload);
           if (!txResult) {
             const currentProvider = await storage.getProvider(providerId);
             return res.status(402).json({
@@ -681,14 +681,6 @@ export function registerConsultasRoutes(): Router {
           consultation = txResult.consultation;
         } else {
           consultation = await storage.createIspConsultation(consultationPayload);
-          // Persist alert after consultation is created (no debit needed for free consultations)
-          if (pendingAlertRecord) {
-            try {
-              await storage.createAlert(pendingAlertRecord);
-            } catch (err) {
-              logger.warn({ err }, "MIGRADOR alert persistence error (non-blocking)");
-            }
-          }
         }
 
         // ── CACHE STORE (CACHE-01) ─────────────────────────────────
@@ -700,9 +692,32 @@ export function registerConsultasRoutes(): Router {
 
         // ── PROACTIVE ALERT (NM3) ──────────────────────────────────
         // Notify owner providers asynchronously — never block the response
-        if (allCustomers.length > 0) {
+        // Roda SEMPRE, nao so quando algum ERP trouxe o cliente: o dono cujo
+        // ERP nao respondeu (fora da regiao, fora do ar, timeout) e avisado
+        // pela base sincronizada — ver proactive-alert.service.ts.
+        if (searchType === "cpf" || searchType === "cnpj") {
+          const responderam = new Set(erpResults.filter(r => r.ok).map(r => r.providerId));
+          // O registro CRU de cada ERP, com a data de contrato — que de
+          // proposito NAO viaja no resultado da consulta. Aqui ela so serve
+          // para avaliar a regra "cliente novo" do proprio dono, no servidor.
+          const aoVivo = erpResults
+            .filter(r => r.ok)
+            .flatMap(r => r.customers
+              .filter(c => (c.cpfCnpj || "").replace(/\D/g, "") === cleaned)
+              .map(c => ({
+                providerId: r.providerId,
+                providerName: r.providerName,
+                name: c.name,
+                contractStatus: c.contractStatus,
+                contractStartDate: c.contractStartDate || c.registrationDate,
+                totalOverdueAmount: c.totalOverdueAmount,
+                maxDaysOverdue: c.maxDaysOverdue,
+              })));
+          // Quem consultou este CPF em 30 dias, incluindo agora — a regra de
+          // consultas repetidas conta provedores diferentes do dono.
+          const provedoresConsultando = Array.from(new Set([providerId, ...recentConsultations.map(c => c.providerId)]));
           setImmediate(() => {
-            notifyOwnerProviders(cleaned, allCustomers, providerId).catch(err =>
+            notifyOwnerProviders(cleaned, aoVivo, providerId, responderam, provedoresConsultando).catch(err =>
               logger.error({ err }, "Proactive alert failed"),
             );
           });
@@ -715,6 +730,21 @@ export function registerConsultasRoutes(): Router {
         }
         return res.json(response);
       }
+      // Sem ERP na regiao a consulta nao traz nada — mas ela ACONTECEU, e o
+      // dono do CPF, onde estiver, tem o direito de saber. A base sincronizada
+      // e quem decide se ha um cliente ativo e inadimplente a avisar.
+      if (searchType === "cpf" || searchType === "cnpj") {
+        setImmediate(async () => {
+          try {
+            const recentes = await storage.getRecentConsultationsForDocument(cleaned, 30);
+            const provedoresConsultando = Array.from(new Set([providerId, ...recentes.map(c => c.providerId)]));
+            await notifyOwnerProviders(cleaned, [], providerId, new Set(), provedoresConsultando);
+          } catch (err) {
+            logger.error({ err }, "Proactive alert failed");
+          }
+        });
+      }
+
       // No ERP integrations configured for this provider's region
       const noErpResponse: Record<string, any> = {
         consultation: null,

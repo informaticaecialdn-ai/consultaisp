@@ -22,6 +22,7 @@ import {
   Loader2
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { AbaAntiFraude } from "@/components/painel/AbaAntiFraude";
 
 const MAIN_DOMAIN = "consultaisp.com.br";
 
@@ -619,6 +620,9 @@ export default function PainelProvedorPage() {
           </TabsTrigger>
           <TabsTrigger value="integracao" className="gap-1.5" data-testid="tab-integracao">
             <Zap className="w-3.5 h-3.5" />Integracao
+          </TabsTrigger>
+          <TabsTrigger value="anti-fraude" className="gap-1.5" data-testid="tab-anti-fraude">
+            <Shield className="w-3.5 h-3.5" />Anti-Fraude
           </TabsTrigger>
         </TabsList>
 
@@ -1863,6 +1867,11 @@ export default function PainelProvedorPage() {
                   )}
                 </Card>
           </>
+        </TabsContent>
+
+        {/* ======================== ANTI-FRAUDE ======================== */}
+        <TabsContent value="anti-fraude">
+          <AbaAntiFraude podeEditar={user?.role === "admin"} />
         </TabsContent>
       </Tabs>
     </div>

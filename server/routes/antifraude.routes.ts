@@ -1,40 +1,127 @@
 import { Router } from "express";
-import { requireAuth } from "../auth";
+import { requireAuth, requireAdmin } from "../auth";
 import { storage } from "../storage";
 import { maskAlertForProvider } from "../utils/mask-alert";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { logger } from "../logger";
 import { equipamentoTemRetiradaPendente } from "../services/equipment-recovery-rules";
-import { avaliarRiscoDeFuga, rotuloDoAlerta, severidadeDoAlerta } from "../services/antifraude-rules";
+import { avaliarRiscoDeFuga, rotuloDoAlerta, severidadeDoAlerta, motivosGravados } from "../services/antifraude-rules";
+import { montarRegras, desmontarRegras, regrasAntiFraudeSchema } from "@shared/antifraude-regras";
+import { isZapiConfigured } from "../services/crm/zapi";
+import { z } from "zod";
 import { anonymizeProvider } from "../utils/provider-anonymizer";
 
 export function registerAntiFraudeRoutes(): Router {
   const router = Router();
 
   /**
-   * Alertas de FUGA: clientes deste provedor que outro provedor consultou.
+   * Regras e canais do anti-fraude deste provedor — o que ele quer que a
+   * rede vigie na base dele e por onde quer ser avisado. O catalogo e o
+   * padrao vivem em shared/antifraude-regras.ts; sem linha gravada vale o
+   * padrao (so cliente ativo inadimplente).
+   */
+  router.get("/api/anti-fraud/rules", requireAuth, async (req, res) => {
+    try {
+      const providerId = req.session.providerId!;
+      const [linhas, provider, usuarios] = await Promise.all([
+        storage.getAntiFraudRules(providerId),
+        storage.getProvider(providerId),
+        storage.getUsersByProvider(providerId),
+      ]);
+      if (!provider) return res.status(404).json({ message: "Provedor não encontrado" });
+
+      // Para onde o e-mail vai hoje — a mesma escolha do envio.
+      const contato = (provider.contactEmail || "").trim();
+      const emails = contato
+        ? [contato]
+        : Array.from(new Set(usuarios.filter(u => u.role === "admin" && u.email).map(u => u.email.trim().toLowerCase())));
+
+      return res.json({
+        regras: montarRegras(linhas),
+        canais: {
+          proactiveAlertsEnabled: provider.proactiveAlertsEnabled ?? true,
+          webhookUrl: provider.proactiveAlertWebhookUrl || "",
+          emails,
+          whatsapp: provider.contactPhone || null,
+          whatsappDisponivel: isZapiConfigured(),
+        },
+      });
+    } catch (error: any) {
+      logger.error({ err: error }, "Erro ao ler regras do anti-fraude");
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  const salvarRegrasSchema = z.object({
+    regras: regrasAntiFraudeSchema,
+    canais: z.object({
+      proactiveAlertsEnabled: z.boolean(),
+      webhookUrl: z.string().trim().max(500)
+        .refine(v => v === "" || /^https?:\/\//i.test(v), "O webhook precisa começar com http:// ou https://"),
+    }).optional(),
+  });
+
+  router.put("/api/anti-fraud/rules", requireAdmin, async (req, res) => {
+    try {
+      const providerId = req.session.providerId!;
+      const parsed = salvarRegrasSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: parsed.error.issues[0]?.message || "Regras inválidas" });
+      }
+      await storage.saveAntiFraudRules(providerId, desmontarRegras(parsed.data.regras));
+      if (parsed.data.canais) {
+        await storage.updateProviderProfile(providerId, {
+          proactiveAlertsEnabled: parsed.data.canais.proactiveAlertsEnabled,
+          proactiveAlertWebhookUrl: parsed.data.canais.webhookUrl || null,
+        });
+      }
+      logger.info({ providerId, regras: parsed.data.regras }, "Regras do anti-fraude salvas");
+      return res.json({ success: true, regras: parsed.data.regras });
+    } catch (error: any) {
+      logger.error({ err: error }, "Erro ao salvar regras do anti-fraude");
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  /**
+   * Alertas do anti-fraude deste provedor.
    *
-   * Duas origens alimentam a mesma lista — o alerta proativo (alguem consultou
-   * seu cliente) e o alerta de migrador (contrato cancelado + divida na rede).
-   * As duas passam pela MESMA regra, senao uma volta a mostrar o que a outra
-   * filtra. E as duas sao deduplicadas: o mesmo CPF consultado tres vezes pelo
-   * mesmo provedor e UM caso a tratar, nao tres cards iguais.
+   * Um unico conceito: `defaulter_consulted` — FUGA. Um cliente ATIVO (ou
+   * suspenso por atraso) e INADIMPLENTE deste provedor foi consultado por
+   * outro. Nasce com a foto do momento (divida, dias, contrato) e e mostrado
+   * como nasceu; a situacao de HOJE vai junto (`atual`) para o provedor ver
+   * se o cliente pagou ou saiu desde entao e resolver o alerta.
+   *
+   * Ex-cliente NAO e anti-fraude. Linhas `migrador_serial` (ex-cliente que
+   * saiu devendo e foi consultado de novo) existem no banco de antes de
+   * 02/09/2026 e sao ignoradas aqui: nao ha contrato a proteger, o caso e de
+   * bureau, e ele ja aparece no resultado da consulta de quem consultou.
+   *
+   * `proactive_alerts` e o log de envio. Linhas antigas, de antes de o alerta
+   * ser gravado com a foto, continuam entrando — reavaliadas pela regra com a
+   * situacao atual, porque nao guardam a de entao.
+   *
+   * Tudo deduplicado por tipo + CPF + consulente: o mesmo CPF consultado tres
+   * vezes pelo mesmo provedor e UM caso a tratar, nao tres cards iguais.
    */
   router.get("/api/anti-fraud/alerts", requireAuth, async (req, res) => {
     try {
       const currentProviderId = req.session.providerId!;
 
-      const [migratorAlerts, proactiveRaw] = await Promise.all([
+      const [gravados, proactiveRaw, regrasGravadas] = await Promise.all([
         storage.getAlertsByProvider(currentProviderId),
         storage.getProactiveAlertsByProvider(currentProviderId, 200),
+        storage.getAntiFraudRules(currentProviderId),
       ]);
+      // As regras DESTE provedor: e com elas que "em risco hoje" e decidido.
+      const regras = montarRegras(regrasGravadas);
 
       // ── Snapshot atual dos clientes citados ───────────────────────────
       // Um lookup por CPF distinto, nao um por alerta: antes eram N queries
       // sequenciais dentro do map.
       const documentos = Array.from(new Set([
         ...proactiveRaw.map(p => p.cpfCnpj),
-        ...migratorAlerts.map((a: any) => a.customerCpfCnpj),
+        ...gravados.map((a: any) => a.customerCpfCnpj),
       ].filter(Boolean) as string[]));
 
       const snapshot = new Map<string, {
@@ -88,7 +175,8 @@ export function registerAntiFraudeRoutes(): Router {
 
       type Candidato = {
         alerta: Record<string, any>;
-        avaliacao: ReturnType<typeof avaliarRiscoDeFuga>;
+        /** Legado sem foto: a regra decide com a situacao de hoje. Gravado com foto: null. */
+        avaliacao: ReturnType<typeof avaliarRiscoDeFuga> | null;
         chave: string;
         quando: number;
       };
@@ -105,20 +193,44 @@ export function registerAntiFraudeRoutes(): Router {
             totalOverdueAmount: parseFloat(snap?.overdueAmount ?? brutos.overdueAmount) || 0,
             maxDaysOverdue: snap?.daysOverdue ?? brutos.daysOverdue,
           },
-          { consultanteEhDono: consultanteId === currentProviderId },
+          { consultanteEhDono: consultanteId === currentProviderId, regras },
         );
+      };
+
+      /** A situacao de HOJE do cliente, ao lado da foto que o alerta guardou. */
+      const situacaoHoje = (doc: string | null) => {
+        const snap = doc ? snapshot.get(doc.replace(/\D/g, "")) : undefined;
+        if (!snap) return null;
+        return {
+          contractStatus: snap.contractStatus ?? null,
+          daysOverdue: snap.daysOverdue,
+          overdueAmount: snap.overdueAmount,
+          emRisco: avaliar(doc, null, { daysOverdue: 0, overdueAmount: "0" }).alerta,
+        };
       };
 
       const candidatos: Candidato[] = [];
 
+      // Alertas de fuga ja gravados com foto: uma linha de log de envio do
+      // mesmo CPF+consulente, nos minutos em volta, e o MESMO alerta.
+      const fugasGravadas = gravados.filter((a: any) => a.type === "defaulter_consulted");
+      const temFugaGravada = (cpf: string, consultante: number | null, quando: number) =>
+        fugasGravadas.some((a: any) =>
+          (a.customerCpfCnpj || "").replace(/\D/g, "") === cpf
+          && (a.consultingProviderId ?? 0) === (consultante ?? 0)
+          && Math.abs((a.createdAt ? new Date(a.createdAt).getTime() : 0) - quando) < 5 * 60_000);
+
       for (const pa of proactiveRaw) {
-        const snap = snapshot.get((pa.cpfCnpj || "").replace(/\D/g, ""));
+        const cpf = (pa.cpfCnpj || "").replace(/\D/g, "");
+        const quando = pa.sentAt ? new Date(pa.sentAt).getTime() : 0;
+        if (temFugaGravada(cpf, pa.consultingProviderId, quando)) continue;
+        const snap = snapshot.get(cpf);
         const avaliacao = avaliar(pa.cpfCnpj, pa.consultingProviderId, { daysOverdue: 0, overdueAmount: "0" });
         const dias = snap?.daysOverdue ?? 0;
         const valor = snap?.overdueAmount ?? "0";
         candidatos.push({
-          chave: (pa.cpfCnpj || "").replace(/\D/g, "") + "|" + (pa.consultingProviderId ?? 0),
-          quando: pa.sentAt ? new Date(pa.sentAt).getTime() : 0,
+          chave: "fuga|" + cpf + "|" + (pa.consultingProviderId ?? 0),
+          quando,
           avaliacao,
           alerta: {
             id: pa.id + 1_000_000,
@@ -153,21 +265,57 @@ export function registerAntiFraudeRoutes(): Router {
             resolved: pa.acknowledged || false,
             status: pa.acknowledged ? "resolved" : "new",
             createdAt: pa.sentAt,
+            atual: situacaoHoje(pa.cpfCnpj),
             _source: "proactive" as const,
           },
         });
       }
 
-      for (const bruto of migratorAlerts as any[]) {
+      for (const bruto of gravados as any[]) {
         const mascarado = maskAlertForProvider(bruto, currentProviderId);
+        const cpf = (bruto.customerCpfCnpj || "").replace(/\D/g, "");
+        const snap = snapshot.get(cpf);
+        const quando = bruto.createdAt ? new Date(bruto.createdAt).getTime() : 0;
+
+        if (bruto.type === "defaulter_consulted") {
+          // Gravado com a foto: e mostrado como nasceu. A regra nao e
+          // reaplicada — o alerta ja passou por ela ao nascer, e o que mudou
+          // desde entao vai em `atual` para o provedor decidir. Os motivos
+          // que bateram vieram em riskFactors; registro de antes deles e fuga
+          // por divida, a unica regra que existia.
+          const motivosDoRegistro = motivosGravados(bruto.riskFactors);
+          if (motivosDoRegistro.length === 0) motivosDoRegistro.push("divida_ativa");
+          candidatos.push({
+            chave: "fuga|" + cpf + "|" + (bruto.consultingProviderId ?? 0),
+            quando,
+            avaliacao: null,
+            alerta: {
+              ...mascarado,
+              customerName: mascarado.customerName ?? snap?.name ?? null,
+              motivos: motivosDoRegistro,
+              motivoLabel: rotuloDoAlerta(motivosDoRegistro),
+              diasDeContrato: null,
+              equipmentNotReturned: bruto.equipmentNotReturned || snap?.equipCount || 0,
+              equipmentValue: bruto.equipmentValue && bruto.equipmentValue !== "0" ? bruto.equipmentValue : (snap?.equipValue ?? "0"),
+              atual: situacaoHoje(bruto.customerCpfCnpj),
+              _source: "fuga" as const,
+            },
+          });
+          continue;
+        }
+
+        // Ex-cliente nao e anti-fraude: o contrato ja acabou, nao ha o que
+        // proteger. Linhas antigas desse tipo ficam no banco, fora da tela.
+        if (bruto.type === "migrador_serial") continue;
+
+        // Tipos legados sem foto confiavel: passam pela regra com a situacao de hoje.
         const avaliacao = avaliar(bruto.customerCpfCnpj, bruto.consultingProviderId, {
           daysOverdue: bruto.daysOverdue ?? 0,
           overdueAmount: bruto.overdueAmount ?? "0",
         });
-        const snap = snapshot.get((bruto.customerCpfCnpj || "").replace(/\D/g, ""));
         candidatos.push({
-          chave: (bruto.customerCpfCnpj || "").replace(/\D/g, "") + "|" + (bruto.consultingProviderId ?? 0),
-          quando: bruto.createdAt ? new Date(bruto.createdAt).getTime() : 0,
+          chave: "fuga|" + cpf + "|" + (bruto.consultingProviderId ?? 0),
+          quando,
           avaliacao,
           alerta: {
             ...mascarado,
@@ -179,18 +327,20 @@ export function registerAntiFraudeRoutes(): Router {
               totalOverdueAmount: parseFloat(snap?.overdueAmount ?? bruto.overdueAmount ?? "0") || 0,
               maxDaysOverdue: snap?.daysOverdue ?? bruto.daysOverdue ?? 0,
             }),
-            _source: "migrator" as const,
+            atual: situacaoHoje(bruto.customerCpfCnpj),
+            _source: "legado" as const,
           },
         });
       }
 
       /* Um alerta ja tratado continua visivel na aba "Resolvidos" — o provedor
          precisa do proprio historico. O que a regra remove e o alerta ABERTO
-         que nunca deveria ter existido, inclusive o passivo criado sob a regra
-         antiga, que disparava para qualquer consulta a qualquer cliente. */
+         legado que nunca deveria ter existido, criado sob a regra antiga, que
+         disparava para qualquer consulta a qualquer cliente. Alerta gravado
+         com foto (avaliacao null) fica como nasceu. */
       const descartados: Record<string, number> = {};
       const qualificados = candidatos.filter(({ alerta, avaliacao }) => {
-        if (avaliacao.alerta || alerta.resolved) return true;
+        if (!avaliacao || avaliacao.alerta || alerta.resolved) return true;
         const k = avaliacao.descartadoPor ?? "desconhecido";
         descartados[k] = (descartados[k] ?? 0) + 1;
         return false;
