@@ -54,6 +54,66 @@ export function produtoSpcPadrao(): number {
 
 const circuito = new CircuitBreaker({ maxFailures: 3, resetTimeMs: 60_000 });
 
+/**
+ * A camada de autenticacao do SPC responde texto puro "CS_AUT001.E1.x" —
+ * em 401 e, no caso de operador bloqueado (E1.7), em 500. Tabela da doc
+ * ("CODIGOS DE ERRO DO SISTEMA WS").
+ */
+const ERROS_AUTENTICACAO: Record<string, string> = {
+  "E1.2": "operador ou senha inválidos",
+  "E1.2.1": "caracteres informados não coincidem",
+  "E1.3": "operador não possui acesso ao dispositivo Web Service",
+  "E1.4.1": "operador inativo",
+  "E1.4.2": "operador bloqueado",
+  "E1.5.2": "associado inativo",
+  "E1.5.3": "entidade inativa",
+  "E1.5.6": "associado suspenso",
+  "E1.5.7": "entidade suspensa",
+  "E1.6": "conexão não autorizada (IP não liberado)",
+  "E1.6.1": "conexão não autorizada (IP internacional)",
+  "E1.7": "operador bloqueado por excesso de tentativas",
+  "E1.8": "operador expirou",
+  "E1.9": "senha expirou",
+  "E1.10": "fora do horário permitido para acesso",
+  "E1.12": "operador não possui acesso ao dispositivo",
+  "E1.15": "erro de autenticação",
+  "E1.17": "operador/senha inválido",
+  "E1.18": "operador/senha sem acesso",
+};
+
+export function mensagemDeAutenticacao(corpo: string): { codigo: string; mensagem: string } | null {
+  const m = corpo.match(/CS_AUT001\.(E\d+(?:\.\d+)*|E\d+\.[XY]|E[23])\b/);
+  if (!m) return null;
+  return { codigo: `CS_AUT001.${m[1]}`, mensagem: ERROS_AUTENTICACAO[m[1]] ?? `erro de autenticação ${m[1]}` };
+}
+
+/**
+ * TRAVA ANTI-BLOQUEIO. O SPC bloqueia o operador por excesso de tentativas
+ * (CS_AUT001.E1.7) — aconteceu em 02/09/2026 depois de poucas chamadas com a
+ * senha errada. Uma credencial recusada nao muda no proximo clique: depois
+ * de uma recusa, nenhuma chamada sai por TRAVA_CREDENCIAL_MS, e a rota
+ * responde 503 na hora, sem tocar o SPC.
+ */
+export const TRAVA_CREDENCIAL_MS = 15 * 60_000;
+let credencialRecusadaAte = 0;
+let motivoDaRecusa = "";
+
+function travarCredencial(motivo: string): void {
+  credencialRecusadaAte = Date.now() + TRAVA_CREDENCIAL_MS;
+  motivoDaRecusa = motivo;
+  logger.warn({ motivo, minutos: TRAVA_CREDENCIAL_MS / 60_000 }, "[SPC] credencial recusada — trava de novas tentativas");
+}
+
+export function credencialTravada(): { ate: number; motivo: string } | null {
+  return Date.now() < credencialRecusadaAte ? { ate: credencialRecusadaAte, motivo: motivoDaRecusa } : null;
+}
+
+export function _resetTravaCredencialParaTestes(): void {
+  credencialRecusadaAte = 0;
+  motivoDaRecusa = "";
+  circuito.reset();
+}
+
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 function envelope(corpo: string): string {
@@ -80,6 +140,15 @@ async function chamar(corpo: string, operacao: string): Promise<string> {
   }
   const auth = "Basic " + Buffer.from(`${username}:${password}`).toString("base64");
 
+  const trava = credencialTravada();
+  if (trava) {
+    const minutos = Math.max(1, Math.ceil((trava.ate - Date.now()) / 60_000));
+    throw new SpcError(
+      `SPC recusou a credencial de WebService há pouco (${trava.motivo}). Nova tentativa só em ${minutos} min, para não bloquear o operador.`,
+      "TRAVA_CREDENCIAL", "credencial", 401,
+    );
+  }
+
   return withResilience(
     async () => {
       let r: Response;
@@ -95,10 +164,14 @@ async function chamar(corpo: string, operacao: string): Promise<string> {
         throw new SpcError(`SPC indisponível (${motivo})`, "REDE", "indisponivel");
       }
       const xml = await r.text();
-      if (r.status === 401 || r.status === 403) {
-        // Com `status` 4xx o withResilience NAO repete: a credencial nao vai
-        // mudar no proximo segundo, e insistir pode bloquear o operador.
-        throw new SpcError("SPC recusou o operador ou a senha de WebService", `HTTP_${r.status}`, "credencial", r.status);
+      // Recusa de credencial: pelo status OU pelo codigo CS_AUT001 no corpo
+      // (E1.7 chega com HTTP 500). Com `status` 4xx o withResilience NAO
+      // repete, e a trava segura as proximas chamadas.
+      const aut = mensagemDeAutenticacao(xml);
+      if (aut || r.status === 401 || r.status === 403) {
+        const motivo = aut?.mensagem ?? "operador ou senha recusados";
+        travarCredencial(motivo);
+        throw new SpcError(`SPC recusou a credencial de WebService: ${motivo}`, aut?.codigo ?? `HTTP_${r.status}`, "credencial", 401);
       }
       if (r.status >= 500) {
         throw new SpcError(`SPC indisponível (HTTP ${r.status})`, `HTTP_${r.status}`, "indisponivel", r.status);
