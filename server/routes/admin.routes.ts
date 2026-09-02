@@ -15,6 +15,7 @@ import crypto from "crypto";
 import { z } from "zod";
 import { sendCompletionEmail } from "../services/lgpd-email.service";
 import { normalizePartnerCode, resolvePartnerCode, resolveOwnCode } from "../utils/provider-anonymizer";
+import { isSpcConfigured, listarProdutosSpc, produtoSpcPadrao, SpcError, statusHttpParaErroSpc } from "../services/spc/spc.service";
 import { getRegionalProviderIds } from "../services/regional.service";
 import { logger } from "../logger";
 
@@ -899,6 +900,32 @@ export function registerAdminRoutes(): Router {
       const provider = await storage.getProvider(resolvido.subjectProviderId);
       return res.json({ tipo, providerId: resolvido.subjectProviderId, name: provider?.name ?? null, keyVersion: resolvido.keyVersion });
     } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  /**
+   * Diagnostico da integracao SPC — operacao listarProdutos, gratuita e so
+   * em producao: prova a credencial sem gastar consulta e mostra o que o
+   * produto configurado (SPC_PRODUCT_CODE) devolve.
+   */
+  router.get("/api/admin/spc/produtos", requireSuperAdmin, async (_req, res) => {
+    try {
+      if (!isSpcConfigured()) {
+        return res.status(503).json({ configurado: false, message: "SPC_USERNAME e SPC_PASSWORD não definidos" });
+      }
+      const produtos = await listarProdutosSpc();
+      const padrao = produtoSpcPadrao();
+      return res.json({
+        configurado: true,
+        produtoPadrao: padrao,
+        produtoPadraoDisponivel: produtos.some(p => p.codigo === padrao),
+        produtos,
+      });
+    } catch (error: any) {
+      if (error instanceof SpcError) {
+        return res.status(statusHttpParaErroSpc(error)).json({ configurado: true, message: error.message, categoria: error.categoria });
+      }
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });

@@ -1,0 +1,33 @@
+<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/">
+   <S:Body>
+      <ns2:resultado restricao="false" data="2024-10-15T10:30:37.896-03:00" xmlns:ns2="http://webservice.consulta.spcjava.spcbrasil.org/">
+         <protocolo numero="14723249770" digito="10"/>
+         <operador codigo="102494488" nome="OPERADOR DE TESTE"/>
+         <consumidor>
+            <consumidor-pessoa-fisica data-nascimento="1991-12-13T00:00:00-02:00" idade="32" nome="JOAO TESTE DE SOUZA" pessoa-estrangeira="false" sexo="MASCULINO" signo="SAGITARIO">
+               <cpf regiao-origem="SAO PAULO" numero="02358474703"/>
+               <situacao-cpf descricao-situacao="REGULAR" data-situacao="2024-06-21T10:23:02-03:00"/>
+               <endereco logradouro="R AMARO DE ARAUJO" numero="129" complemento="B" bairro="VILA NOVA MAZZEI" cep="2316120">
+                  <cidade nome="SAO PAULO">
+                     <estado sigla-uf="SP"/>
+                  </cidade>
+               </endereco>
+               <telefone-celular numero-ddd="11" numero="973040000"/>
+            </consumidor-pessoa-fisica>
+         </consumidor>
+         <spc>
+            <resumo quantidade-total="0"/>
+         </spc>
+         <cheque-lojista>
+            <resumo quantidade-total="0"/>
+         </cheque-lojista>
+         <consulta-realizada quantidade-dias-consultados="90">
+            <resumo quantidade-total="0"/>
+         </consulta-realizada>
+         <score-cadastro-positivo>
+            <resumo quantidade-total="610"/>
+            <detalhe-score-cadastro-positivo indice-risco-credito-score="MEDIO" mensagem="Essa informação é confidencial."/>
+         </score-cadastro-positivo>
+      </ns2:resultado>
+   </S:Body>
+</S:Envelope>

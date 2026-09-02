@@ -1,0 +1,108 @@
+<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/">
+   <S:Body>
+      <ns2:resultado restricao="true" data="2024-03-13T10:54:08.080-03:00" xmlns:ns2="http://webservice.consulta.spcjava.spcbrasil.org/">
+         <protocolo numero="14558422729" digito="10"/>
+         <operador codigo="102494488" nome="OPERADOR DE TESTE"/>
+         <consumidor>
+            <consumidor-pessoa-fisica data-nascimento="1973-11-11T00:00:00-03:00" idade="50" nome="MARIA TESTE DA SILVA" nome-mae="ANA TESTE" numero-rg="1234567 PR" pessoa-estrangeira="false" sexo="FEMININO" signo="ESCORPIAO">
+               <cpf regiao-origem="PARANA E SANTA CATARINA" numero="00752477714"/>
+               <situacao-cpf descricao-situacao="REGULAR" data-situacao="2023-05-14T00:00:00-03:00"/>
+               <endereco logradouro="RUA DAS FLORES" numero="772" bairro="CENTRO" cep="87600000">
+                  <cidade nome="NOVA ESPERANCA">
+                     <estado sigla-uf="PR"/>
+                  </cidade>
+               </endereco>
+               <telefone-residencial numero-ddd="44" numero="32520000"/>
+               <telefone-celular numero-ddd="44" numero="998380000"/>
+            </consumidor-pessoa-fisica>
+         </consumidor>
+         <endereco-cep-consultado/>
+         <alerta-documento>
+            <resumo quantidade-total="1"/>
+            <detalhe-alerta-documento data-inclusao="2017-04-12T00:00:00-03:00" data-ocorrencia="2017-04-10T00:00:00-03:00" entidade-origem="CDL - SAO PAULO / SP" motivo="Roubo/Furto" observacao="Roubados">
+               <tipo-documento-alerta nome="RG"/>
+            </detalhe-alerta-documento>
+         </alerta-documento>
+         <spc>
+            <resumo quantidade-total="2" data-ultima-ocorrencia="2024-03-12T00:00:00-03:00" valor-total="482.51"/>
+            <detalhe-spc nome-associado="REDE BRASIL CREDIARIO" data-inclusao="2024-03-12T00:00:00-03:00" data-vencimento="2024-01-27T00:00:00-03:00" nome-entidade="SAO PAULO / SP" contrato="90020186/2462" registro-instituicao-financeira="NAO" comprador-fiador-avalista="COMPRADOR" valor="39.9">
+               <cidade-associado nome="CURITIBA">
+                  <estado sigla-uf="PR"/>
+               </cidade-associado>
+               <telefone-associado numero-ddd="41" numero="30145922"/>
+            </detalhe-spc>
+            <detalhe-spc nome-associado="BANCO EXEMPLO" data-inclusao="2023-11-30T00:00:00-03:00" data-vencimento="2023-10-27T00:00:00-03:00" nome-entidade="SAO PAULO / SP" contrato="0030100725689639" registro-instituicao-financeira="SIM" comprador-fiador-avalista="AVALISTA" valor="442.61">
+               <cidade-associado nome="OSASCO">
+                  <estado sigla-uf="SP"/>
+               </cidade-associado>
+            </detalhe-spc>
+         </spc>
+         <cheque-lojista>
+            <resumo quantidade-total="1" data-ultima-ocorrencia="2023-07-12T00:00:00-03:00" valor-total="613.85"/>
+            <detalhe-cheque-lojista nome-associado="SUPERMERCADO EXEMPLO" codigo-entidade="21008" data-inclusao="2023-07-12T00:00:00-03:00" nome-entidade="Associação Comercial - NOVA ESPERANCA / PR">
+               <alinea codigo="12" descricao="MOTIVO 12"/>
+               <cheque-inicial data-emissao="2023-05-02T00:00:00-03:00" numero="55" digito="8" valor="613.85">
+                  <dados-bancarios numero-agencia="4340">
+                     <banco codigo="756" nome="BANCO COOPERATIVO DO BRASIL S/A "/>
+                  </dados-bancarios>
+               </cheque-inicial>
+               <cheque-final numero="55"/>
+               <cidade-associado nome="NOVA ESPERANCA">
+                  <estado sigla-uf="PR"/>
+               </cidade-associado>
+            </detalhe-cheque-lojista>
+         </cheque-lojista>
+         <ccf>
+            <resumo quantidade-total="2" data-ultima-ocorrencia="2023-07-24T00:00:00-03:00"/>
+            <detalhe-ccf data-ultimo-cheque="2023-07-24T00:00:00-03:00" origem="BANCO CENTRAL DO BRASIL" quantidade="2">
+               <motivo codigo="12" descricao="MOTIVO 12"/>
+               <ultimo-cheque>
+                  <dados-bancarios numero-agencia="4340">
+                     <banco codigo="756" nome="BANCO COOPERATIVO DO BRASIL S/A "/>
+                  </dados-bancarios>
+               </ultimo-cheque>
+            </detalhe-ccf>
+         </ccf>
+         <consulta-realizada quantidade-dias-consultados="90">
+            <resumo quantidade-total="2" data-ultima-ocorrencia="2024-02-23T00:00:00-03:00"/>
+            <detalhe-consulta-realizada nome-associado="SUPERMERCADO EXEMPLO" data-consulta="2024-02-23T11:37:24-03:00" nome-entidade-origem="Associação Comercial - NOVA ESPERANCA / PR">
+               <origem-associado nome="NOVA ESPERANCA">
+                  <estado sigla-uf="PR"/>
+               </origem-associado>
+            </detalhe-consulta-realizada>
+            <detalhe-consulta-realizada nome-associado="PROVEDOR EXEMPLO TELECOM" data-consulta="2024-01-17T15:55:56-03:00" nome-entidade-origem="Associação Comercial - NOVA ESPERANCA / PR">
+               <origem-associado nome="NOVA ESPERANCA">
+                  <estado sigla-uf="PR"/>
+               </origem-associado>
+            </detalhe-consulta-realizada>
+         </consulta-realizada>
+         <pendencia-financeira>
+            <resumo quantidade-total="2" data-ultima-ocorrencia="2024-01-27T00:00:00-03:00" valor-total="482.51"/>
+            <detalhe-pendencia-financeira avalista="false" contrato="90020186/2462" data-ocorrencia="2024-01-27T00:00:00-03:00" origem="REDE BRASIL CREDIARIO LTDA" titulo-ocorrencia="OUTRAS OPER" valor-pendencia="39.9">
+               <moeda simbolo="R$"/>
+               <cidade nome="CURITIBA">
+                  <estado sigla-uf="PR"/>
+               </cidade>
+            </detalhe-pendencia-financeira>
+            <detalhe-pendencia-financeira avalista="true" contrato="0030100725689639" data-ocorrencia="2023-10-27T00:00:00-03:00" origem="BANCO EXEMPLO S/A" titulo-ocorrencia="FINANCIAMENT" valor-pendencia="442.61">
+               <moeda simbolo="R$"/>
+               <cidade nome="OSASCO">
+                  <estado sigla-uf="SP"/>
+               </cidade>
+            </detalhe-pendencia-financeira>
+         </pendencia-financeira>
+         <renda-presumida-spc>
+            <resumo quantidade-total="1" valor-total="3478"/>
+            <detalhe-renda-presumida-spc mediana="3478.0"/>
+         </renda-presumida-spc>
+         <score-cadastro-positivo>
+            <resumo quantidade-total="0"/>
+            <detalhe-score-cadastro-positivo indice-risco-credito-score="ALTO" mensagem="Essa informação é confidencial."/>
+         </score-cadastro-positivo>
+         <limite-credito-sugerido>
+            <resumo quantidade-total="1" valor-total="125"/>
+            <detalhe-limite-credito-sugerido limite-sugerido="125"/>
+         </limite-credito-sugerido>
+      </ns2:resultado>
+   </S:Body>
+</S:Envelope>

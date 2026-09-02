@@ -33,6 +33,8 @@ import {
 
 interface SpcResult {
   cpfCnpj: string;
+  protocolo?: string | null;
+  consultadoEm?: string | null;
   cadastralData: {
     nome: string;
     cpfCnpj: string;
@@ -42,8 +44,14 @@ interface SpcResult {
     situacaoRf: string;
     obitoRegistrado: boolean;
     tipo: "PF" | "PJ";
+    endereco?: string;
+    cidade?: string;
+    uf?: string;
   };
-  score: number;
+  /** null quando o produto SPC contratado não devolve score. */
+  score: number | null;
+  scoreFonte?: string;
+  scoreDetalhe?: { indiceRisco?: string; classe?: string; probabilidade?: number };
   riskLevel: string;
   riskLabel: string;
   recommendation: string;
@@ -61,9 +69,14 @@ interface SpcResult {
   previousConsultations: {
     total: number;
     last90Days: number;
+    diasConsiderados?: number | null;
     bySegment: Record<string, number>;
+    lista?: Array<{ associado: string; entidade?: string; cidade?: string; uf?: string; data: string }>;
   };
+  pendenciasFinanceiras?: Array<{ origem: string; titulo: string; contrato?: string; data: string; valor: number; cidade?: string; avalista: boolean }>;
   alerts: { type: string; message: string; severity: string }[];
+  rendaPresumida?: number | null;
+  limiteCreditoSugerido?: number | null;
 }
 
 function formatCpfCnpj(value: string): string {
@@ -329,7 +342,10 @@ export default function ConsultaSPCPage() {
                         <BarChart3 className="w-5 h-5" />
                         <div>
                           <h3 className="text-lg font-semibold">Consulta SPC - {result.cadastralData.tipo === "PF" ? "CPF" : "CNPJ"}: {formatCpfCnpj(result.cpfCnpj)}</h3>
-                          <p className="text-sm text-white/70">Servico de Protecao ao Credito</p>
+                          <p className="text-sm text-white/70">
+                            SPC Brasil{result.protocolo ? <> · protocolo <span className="font-mono tabular-nums">{result.protocolo}</span></> : null}
+                            {result.consultadoEm ? <> · {new Date(result.consultadoEm).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</> : null}
+                          </p>
                         </div>
                       </div>
                       <Badge className={`border-0 ${result.status === "clean" ? "bg-[var(--color-success)] text-white" : "bg-rose-500 text-white"}`}>
@@ -390,11 +406,23 @@ export default function ConsultaSPCPage() {
                           <BarChart3 className="w-4 h-4" />
                           Score de Credito
                         </h4>
-                        <ScoreBar score={result.score} />
-                        <div className="mt-3 flex items-center gap-2">
+                        {result.score != null ? (
+                          <ScoreBar score={result.score} />
+                        ) : (
+                          <p className="text-sm text-muted-foreground" data-testid="text-spc-sem-score">
+                            O produto contratado não devolve score. O veredito abaixo sai das restrições encontradas.
+                          </p>
+                        )}
+                        <div className="mt-3 flex items-center gap-2 flex-wrap">
                           <Badge className={`${riskColors[result.riskLevel]} border-0`} data-testid="text-spc-risk">
                             {result.riskLabel}
                           </Badge>
+                          {result.scoreDetalhe?.indiceRisco && (
+                            <span className="text-xs text-muted-foreground">índice SPC: {result.scoreDetalhe.indiceRisco}</span>
+                          )}
+                          {result.rendaPresumida != null && (
+                            <span className="text-xs text-muted-foreground">renda presumida R$ {result.rendaPresumida.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</span>
+                          )}
                         </div>
                       </Card>
 
@@ -467,15 +495,21 @@ export default function ConsultaSPCPage() {
                     <Card className="p-4">
                       <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
                         <Eye className="w-4 h-4" />
-                        Consultas Anteriores (ultimos 90 dias): {result.previousConsultations.total}
+                        Quem consultou este documento (últimos {result.previousConsultations.diasConsiderados ?? 90} dias): {result.previousConsultations.total}
                       </h4>
                       <div className="space-y-1">
-                        {Object.entries(result.previousConsultations.bySegment).map(([segment, count]) => (
-                          <div key={segment} className="flex items-center justify-between p-2 bg-muted/50 rounded text-sm">
-                            <span>{segment}</span>
-                            <span className="font-medium">{count}</span>
+                        {(result.previousConsultations.lista ?? []).map((c, i) => (
+                          <div key={i} className="flex items-center justify-between p-2 bg-muted/50 rounded text-sm" data-testid={`spc-consulta-anterior-${i}`}>
+                            <div>
+                              <span className="font-medium">{c.associado}</span>
+                              {(c.cidade || c.uf) && <span className="text-xs text-muted-foreground ml-2">{[c.cidade, c.uf].filter(Boolean).join(" / ")}</span>}
+                            </div>
+                            <span className="text-xs text-muted-foreground tabular-nums">{c.data ? new Date(c.data + "T12:00:00").toLocaleDateString("pt-BR") : ""}</span>
                           </div>
                         ))}
+                        {result.previousConsultations.total === 0 && (
+                          <p className="text-sm text-muted-foreground">Nenhuma consulta de outro associado no período.</p>
+                        )}
                       </div>
                     </Card>
 
@@ -519,7 +553,7 @@ export default function ConsultaSPCPage() {
                   return (
                     <div key={c.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg" data-testid={`spc-consultation-${c.id}`}>
                       <div className="flex items-center gap-3">
-                        <div className={`w-2.5 h-2.5 rounded-full ${(c.score || 0) >= 500 ? "bg-[var(--color-success)]" : "bg-rose-500"}`} />
+                        <div className={`w-2.5 h-2.5 rounded-full ${resultData?.status === "clean" ? "bg-[var(--color-success)]" : "bg-rose-500"}`} />
                         <div>
                           <span className="text-sm font-medium">{formatCpfCnpj(c.cpfCnpj)}</span>
                           {resultData?.cadastralData?.nome && (
@@ -528,11 +562,11 @@ export default function ConsultaSPCPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium">Score: {c.score}/1000</span>
+                        <span className="text-sm font-medium">{c.score != null ? `Score: ${c.score}/1000` : "Sem score"}</span>
                         <Badge className={`${riskColors[riskLevel] || "bg-muted"} border-0 text-xs`}>
                           {statusLabel}
                         </Badge>
-                        <Badge variant="outline" className="text-xs">-1 credito</Badge>
+                        <Badge variant="outline" className="text-xs">-{resultData?.creditosCobrados ?? CUSTO_EM_CREDITOS.spc} créditos</Badge>
                         <span className="text-xs text-muted-foreground">
                           {c.createdAt ? new Date(c.createdAt).toLocaleDateString("pt-BR") : ""}
                         </span>

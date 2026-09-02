@@ -1,0 +1,57 @@
+<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/">
+   <S:Body>
+      <ns2:resultado restricao="true" data="2025-01-21T19:23:00.133-03:00" xmlns:ns2="http://webservice.consulta.spcjava.spcbrasil.org/">
+         <protocolo numero="14803735292" digito="5"/>
+         <operador codigo="102494488" nome="OPERADOR DE TESTE"/>
+         <base-inoperante>CHEQUE ONLINE SRS</base-inoperante>
+         <consumidor>
+            <consumidor-pessoa-juridica data-fundacao="2018-01-02T00:00:00-02:00" nome-comercial="EMPRESA TESTE" razao-social="EMPRESA TESTE LTDA">
+               <cnpj numero="02178451000149"/>
+               <situacao-cnpj descricao-situacao="ATIVA" data-situacao="2025-01-07T17:38:37-03:00"/>
+               <endereco logradouro="TOCANTINS" numero="125" bairro="ALPHAVILLE" cep="6455020">
+                  <cidade nome="BARUERI">
+                     <estado sigla-uf="SP"/>
+                  </cidade>
+               </endereco>
+               <natureza-juridica descricao="SOCIEDADE EMPRESARIA LIMITADA" codigo="2062"/>
+               <atividade-economica-principal descricao="PROVEDORES DE ACESSO AS REDES DE COMUNICACOES" codigo="6190601"/>
+            </consumidor-pessoa-juridica>
+         </consumidor>
+         <grafia-pj/>
+         <spc>
+            <resumo quantidade-total="0"/>
+         </spc>
+         <protesto>
+            <resumo quantidade-total="2" data-primeira-ocorrencia="2022-05-04T00:00:00-03:00" data-ultima-ocorrencia="2022-08-02T00:00:00-03:00" valor-total="1536.09"/>
+            <detalhe-protesto data-protesto="2022-08-02T00:00:00-03:00" valor="1470.07">
+               <cartorio nome="0001">
+                  <cidade nome="CLAUDIO">
+                     <estado sigla-uf="MG"/>
+                  </cidade>
+               </cartorio>
+            </detalhe-protesto>
+            <detalhe-protesto data-protesto="2022-05-04T00:00:00-03:00" valor="66.02">
+               <cartorio nome="0002">
+                  <cidade nome="RIO DE JANEIRO">
+                     <estado sigla-uf="RJ"/>
+                  </cidade>
+               </cartorio>
+            </detalhe-protesto>
+         </protesto>
+         <acao>
+            <resumo quantidade-total="1" data-primeira-ocorrencia="2023-09-29T00:00:00-03:00" data-ultima-ocorrencia="2023-09-29T00:00:00-03:00" valor-total="9715.46"/>
+            <detalhe-acao data-acao="2023-09-29T00:00:00-03:00" valor-acao="9715.46">
+               <vara nome="0006">
+                  <comarca nome="CONTAGEM                      ">
+                     <estado sigla-uf="MG"/>
+                  </comarca>
+               </vara>
+               <tipo-acao descricao="Execução Fiscal Federal"/>
+            </detalhe-acao>
+         </acao>
+         <consulta-realizada quantidade-dias-consultados="90">
+            <resumo quantidade-total="0"/>
+         </consulta-realizada>
+      </ns2:resultado>
+   </S:Body>
+</S:Envelope>

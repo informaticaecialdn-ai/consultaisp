@@ -1,0 +1,29 @@
+<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/">
+   <S:Body>
+      <ns2:produto xmlns:ns2="http://webservice.consulta.spcjava.spcbrasil.org/">
+         <codigo>257</codigo>
+         <nome>SPC MIX TOP +</nome>
+         <parametro nome="codigo-insumo-opcional" obrigatorio="false"/>
+         <parametro nome="codigo-produto" obrigatorio="true"/>
+         <parametro nome="documento-consumidor" obrigatorio="true"/>
+         <parametro nome="tipo-consumidor" obrigatorio="true"/>
+         <insumo-opcional nome="protesto" codigo="17" opcional="true"/>
+         <insumo-retorno nome="alerta-documento" codigo="19" opcional="false"/>
+         <insumo-retorno nome="ccf" codigo="15" opcional="false"/>
+         <insumo-retorno nome="cheque-lojista" codigo="9" opcional="false"/>
+         <insumo-retorno nome="consulta-realizada" codigo="21" opcional="false"/>
+         <insumo-retorno nome="consumidor" codigo="1" opcional="false"/>
+         <insumo-retorno nome="protesto" codigo="17" opcional="true"/>
+         <insumo-retorno nome="spc" codigo="8" opcional="false"/>
+      </ns2:produto>
+      <ns2:produto xmlns:ns2="http://webservice.consulta.spcjava.spcbrasil.org/">
+         <codigo>634</codigo>
+         <nome>SPC SÓ SCORE POSITIVO</nome>
+         <parametro nome="codigo-produto" obrigatorio="true"/>
+         <parametro nome="documento-consumidor" obrigatorio="true"/>
+         <parametro nome="tipo-consumidor" obrigatorio="true"/>
+         <insumo-retorno nome="consumidor" codigo="1" opcional="false"/>
+         <insumo-retorno nome="score-cadastro-positivo" codigo="5228" opcional="false"/>
+      </ns2:produto>
+   </S:Body>
+</S:Envelope>

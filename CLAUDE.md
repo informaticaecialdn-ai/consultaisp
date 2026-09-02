@@ -75,6 +75,10 @@ AI_INTEGRATIONS_OPENAI_BASE_URL=    # Base URL OpenAI (opcional)
 GOOGLE_MAPS_API_KEY=                # Google Maps
 PARTNER_CODE_SECRET=                # Chave do código de provedor parceiro (32+ chars; sem ela deriva do SESSION_SECRET)
 PARTNER_CODE_SECRET_PREVIOUS=       # Chaves anteriores, separadas por vírgula — só para o superadmin resolver códigos antigos
+SPC_USERNAME=                       # Operador do WebService do SPC Brasil (senha de WebService ≠ senha web)
+SPC_PASSWORD=
+SPC_WSDL_URL=                       # Produção: https://api.spc.org.br/spc/remoting/ws/consulta/consultaWebService
+SPC_PRODUCT_CODE=257                # SPC MIX TOP +
 ```
 
 ---
@@ -672,7 +676,7 @@ npm run db:push      # drizzle-kit push (sync schema → PostgreSQL)
 
 ### Em Aberto — Próximos Itens
 1. **NFS-e via FocusNFe** — emissão fiscal eletrônica de notas
-2. **SPC desbloqueio** — integração real com SPC Brasil (SOAP servicos.spc.org.br, produto 257)
+2. **SPC** — integrado em 02/09/2026 (`server/services/spc/`: SOAP `consultaWebService`, produto 257, parser testado com os exemplos da doc v4.3). Pendente: credencial de WebService válida — o operador recebido responde 401 em produção e em treinamento
 3. **Paginação em `fetchCustomers`** — atualmente sem paginação em todos os conectores
 4. **Indicador de % de inadimplência** — métrica agregada por provedor no dashboard
 

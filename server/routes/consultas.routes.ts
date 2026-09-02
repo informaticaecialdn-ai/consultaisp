@@ -16,7 +16,8 @@ import { getSafeErrorMessage } from "../utils/safe-error";
 import { validarCpfCnpj } from "../utils/cpf-cnpj-validator";
 import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { logger } from "../logger";
-import { isSpcConfigured, consultarSpc } from "../services/spc.service";
+import { isSpcConfigured, consultarSpc, SpcError, statusHttpParaErroSpc } from "../services/spc/spc.service";
+import { CUSTO_EM_CREDITOS } from "@shared/schema";
 import { notifyOwnerProviders } from "../services/proactive-alert.service";
 import { faixaIdadeOcorrencia, faixaValorEquipamento } from "../services/equipment-recovery-rules";
 
@@ -904,11 +905,18 @@ export function registerConsultasRoutes(): Router {
 
   router.get("/api/spc-consultations", requireAuth, async (req, res) => {
     try {
-      const consultations = await storage.getSpcConsultationsByProvider(req.session.providerId!);
+      const brutas = await storage.getSpcConsultationsByProvider(req.session.providerId!);
+      // O XML cru fica no banco para auditoria; a tela recebe so o resultado.
+      const consultations = brutas.map(c => {
+        const r = (c.result ?? {}) as Record<string, unknown>;
+        const { rawXml: _xml, ...semXml } = r;
+        return { ...c, result: semXml };
+      });
       const today = await storage.getSpcConsultationCountToday(req.session.providerId!);
       const month = await storage.getSpcConsultationCountMonth(req.session.providerId!);
       const provider = await storage.getProvider(req.session.providerId!);
-      return res.json({ consultations, todayCount: today, monthCount: month, credits: provider?.spcCredits || 0 });
+      // Saldo unico: a consulta SPC debita de isp_credits (ver debitAndCreateSpcConsultation).
+      return res.json({ consultations, todayCount: today, monthCount: month, credits: provider?.ispCredits || 0 });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
@@ -931,41 +939,54 @@ export function registerConsultasRoutes(): Router {
         });
       }
 
-      // Check credits
+      // Saldo unico (isp_credits): e dele que debitAndCreateSpcConsultation
+      // desconta. O preco vem de CUSTO_EM_CREDITOS, o unico lugar onde existe.
+      const custo = CUSTO_EM_CREDITOS.spc;
       const provider = await storage.getProvider(req.session.providerId!);
-      if (!provider || (provider.spcCredits || 0) < 1) {
-        return res.status(402).json({ message: "Creditos SPC insuficientes. Adquira mais creditos em Comprar Creditos." });
+      if (!provider || (provider.ispCredits || 0) < custo) {
+        return res.status(402).json({
+          message: `Saldo insuficiente: a consulta SPC custa ${custo} créditos e você tem ${provider?.ispCredits ?? 0}.`,
+          creditosNecessarios: custo,
+          creditosDisponiveis: provider?.ispCredits ?? 0,
+        });
       }
 
-      // Clean CPF/CNPJ
-      const cleaned = cpfCnpj.replace(/\D/g, "");
+      const cleaned = String(cpfCnpj).replace(/\D/g, "");
       if (cleaned.length !== 11 && cleaned.length !== 14) {
-        return res.status(400).json({ message: "CPF/CNPJ invalido" });
+        return res.status(400).json({ message: "CPF/CNPJ inválido" });
       }
 
-      // Call SPC API — passa CNPJ do provedor como cnpjUsuario
-      const result = await consultarSpc(cleaned, provider?.cnpj || undefined);
+      // A consulta vem ANTES do debito: SPC fora do ar, credencial recusada ou
+      // documento invalido nao custam credito. O XML cru fica gravado para
+      // auditoria (e o que o SPC entregou, com protocolo), mas nao vai ao
+      // navegador.
+      const result = await consultarSpc(cleaned, { guardarXml: true });
+      const { rawXml, ...paraTela } = result;
 
-      // Debit credits and save consultation atomically
-      // Sistema unificado: consulta SPC consome 4 creditos do saldo unico
       const saved = await storage.debitAndCreateSpcConsultation(
         req.session.providerId!,
-        4,
+        custo,
         {
           providerId: req.session.providerId!,
           userId: req.session.userId!,
           cpfCnpj: cleaned,
-          result: result,
+          result: { ...paraTela, rawXml, creditosCobrados: custo },
           score: result.score,
-        }
+        },
       );
 
       if (!saved) {
-        return res.status(402).json({ message: "Creditos SPC insuficientes" });
+        return res.status(402).json({ message: "Saldo insuficiente para a consulta SPC" });
       }
 
-      return res.json({ result, credits: saved.provider.spcCredits });
+      return res.json({ result: paraTela, credits: saved.provider.ispCredits });
     } catch (error: any) {
+      if (error instanceof SpcError) {
+        // Nao e erro nosso: e o SPC dizendo algo. Vai com o status certo e a
+        // mensagem em portugues, sem stack.
+        logger.warn({ categoria: error.categoria, codigo: error.codigo, msg: error.message }, "SPC consultation refused");
+        return res.status(statusHttpParaErroSpc(error)).json({ message: error.message, categoria: error.categoria });
+      }
       logger.error({ err: error }, "SPC consultation error");
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
