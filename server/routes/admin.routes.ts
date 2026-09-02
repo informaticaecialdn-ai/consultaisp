@@ -378,7 +378,12 @@ export function registerAdminRoutes(): Router {
         planHistory,
         financial: { totalPaid, totalPending, totalOverdue },
         recentIsp: ispList.slice(0, 20),
-        recentSpc: spcList.slice(0, 20),
+        // O XML cru do SPC (PII de terceiros, ate MBs) fica no banco: a tela
+        // do admin mostra tres colunas.
+        recentSpc: spcList.slice(0, 20).map((c: any) => {
+          const { rawXml: _xml, ...result } = (c.result ?? {}) as Record<string, unknown>;
+          return { ...c, result };
+        }),
       });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });

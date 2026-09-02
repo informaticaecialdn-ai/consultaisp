@@ -20,7 +20,7 @@
  * circuito e classificacao de erro HTTP.
  */
 import { logger } from "../../logger";
-import { CircuitBreaker, withResilience } from "../../erp/resilience";
+import { CircuitBreaker, CircuitOpenError, withResilience } from "../../erp/resilience";
 import {
   parseRespostaConsulta, parseProdutos, SpcError,
   type SpcResult, type ProdutoSpc,
@@ -165,7 +165,8 @@ async function chamar(corpo: string, operacao: string): Promise<string> {
     );
   }
 
-  return withResilience(
+  try {
+    return await withResilience(
     async () => {
       let r: Response;
       try {
@@ -189,18 +190,29 @@ async function chamar(corpo: string, operacao: string): Promise<string> {
         travarCredencial(motivo);
         throw new SpcError(`SPC recusou a credencial de WebService: ${motivo}`, aut?.codigo ?? `HTTP_${r.status}`, "credencial", 401);
       }
+      // SOAP Fault chega com HTTP 500 (JAX-WS): e o SPC dizendo algo sobre o
+      // documento ou o produto, nao indisponibilidade. O parser classifica
+      // pelo texto, FORA do withResilience — sem repetir nem contar no circuito.
+      if (/<(\w+:)?Fault[\s>]/.test(xml)) return xml;
       if (r.status >= 500) {
         throw new SpcError(`SPC indisponível (HTTP ${r.status})`, `HTTP_${r.status}`, "indisponivel", r.status);
       }
-      // 200 com Fault e 400/404 com Fault: o parser classifica pelo texto.
-      if (r.status !== 200 && !/<(\w+:)?Fault>/.test(xml)) {
+      if (r.status !== 200) {
         throw new SpcError(`SPC respondeu HTTP ${r.status} em ${operacao}`, `HTTP_${r.status}`, "resposta", r.status);
       }
       return xml;
     },
     // So rede e 5xx repetem, uma vez; o resto sai na primeira.
     { retries: 1, minTimeout: 1500, circuit: circuito },
-  );
+    );
+  } catch (err) {
+    // Circuito aberto e indisponibilidade, com mensagem em portugues e status
+    // certo na rota — nao um 500 "erro interno" nosso.
+    if (err instanceof CircuitOpenError) {
+      throw new SpcError("SPC indisponível no momento: várias falhas seguidas, aguardando antes de tentar de novo", "CIRCUITO", "indisponivel", 503);
+    }
+    throw err;
+  }
 }
 
 /**

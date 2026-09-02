@@ -93,3 +93,15 @@ describe("indisponibilidade", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe("SOAP Fault com HTTP 500", () => {
+  it("CPF inválido (CN_INT005.E8.2) é erro de documento, sem repetir e sem contar como indisponibilidade", async () => {
+    const fault = `<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/"><S:Body><S:Fault><faultcode>S:Server</faultcode><faultstring>CN_INT005.E8.2 - CPF/CNPJ inválido</faultstring></S:Fault></S:Body></S:Envelope>`;
+    fetchMock.mockResolvedValue(resposta(500, fault));
+    const err = await consultarSpc("00752477714").catch(e => e);
+    expect(err).toBeInstanceOf(SpcError);
+    expect(err.categoria).toBe("documento");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(credencialTravada()).toBeNull();
+  });
+});

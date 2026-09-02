@@ -951,10 +951,16 @@ export function registerConsultasRoutes(): Router {
         });
       }
 
-      const cleaned = String(cpfCnpj).replace(/\D/g, "");
-      if (cleaned.length !== 11 && cleaned.length !== 14) {
-        return res.status(400).json({ message: "CPF/CNPJ inválido" });
+      // Digito verificador conferido aqui: documento digitado errado nao vai
+      // ao SPC (o Fault E8.2 nao custa credito, mas gasta chamada do operador).
+      const validacaoSpc = validarCpfCnpj(String(cpfCnpj));
+      if (!validacaoSpc.valid) {
+        return res.status(400).json({ message: validacaoSpc.error });
       }
+      if (validacaoSpc.type === "cep") {
+        return res.status(400).json({ message: "Informe um CPF ou CNPJ" });
+      }
+      const cleaned = validacaoSpc.cleaned;
 
       // A consulta vem ANTES do debito: SPC fora do ar, credencial recusada ou
       // documento invalido nao custam credito. O XML cru fica gravado para
@@ -985,7 +991,16 @@ export function registerConsultasRoutes(): Router {
         // Nao e erro nosso: e o SPC dizendo algo. Vai com o status certo e a
         // mensagem em portugues, sem stack.
         logger.warn({ categoria: error.categoria, codigo: error.codigo, msg: error.message }, "SPC consultation refused");
-        return res.status(statusHttpParaErroSpc(error)).json({ message: error.message, categoria: error.categoria });
+        // Credencial e produto sao problema da PLATAFORMA (operador do SPC),
+        // nao do provedor: ele recebe aviso generico; o motivo fica no log e
+        // em GET /api/admin/spc/produtos.
+        const daPlataforma = error.categoria === "credencial" || error.categoria === "produto";
+        return res.status(statusHttpParaErroSpc(error)).json({
+          message: daPlataforma
+            ? "Consulta SPC indisponível no momento por configuração da plataforma. Nenhum crédito foi cobrado; tente mais tarde ou fale com o suporte."
+            : error.message,
+          categoria: error.categoria,
+        });
       }
       logger.error({ err: error }, "SPC consultation error");
       return res.status(500).json({ message: getSafeErrorMessage(error) });

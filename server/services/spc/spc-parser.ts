@@ -39,7 +39,11 @@ export class SpcError extends Error {
 }
 
 export type TipoRestricao =
-  | "SPC" | "CHEQUE_LOJISTA" | "CCF" | "PROTESTO" | "ACAO_JUDICIAL" | "CHEQUE_SEM_FUNDO";
+  | "SPC" | "CHEQUE_LOJISTA" | "CCF" | "PROTESTO" | "ACAO_JUDICIAL" | "CHEQUE_SEM_FUNDO"
+  /** contra-ordem, contra-ordem em documento diferente e contumacia: cheque sustado. */
+  | "CHEQUE_SUSTADO"
+  /** informacao-poder-judiciario: divida reconhecida em processo. */
+  | "PODER_JUDICIARIO";
 
 export interface RestricaoSpc {
   type: TipoRestricao;
@@ -57,6 +61,12 @@ export interface RestricaoSpc {
   vencimento?: string;
   /** COMPRADOR, FIADOR ou AVALISTA no registro SPC. */
   papel?: string;
+  /**
+   * TODOS os dados que o SPC devolveu para esta ocorrencia, ja com rotulo
+   * em portugues e valor formatado, na ordem em que fazem sentido na tela.
+   * E o que o operador precisa para cobrar ou conferir com o cliente.
+   */
+  detalhes: Array<{ rotulo: string; valor: string }>;
 }
 
 export interface PendenciaFinanceira {
@@ -127,6 +137,7 @@ export interface SpcResult {
     protesto: ResumoBloco;
     acao: ResumoBloco;
     pendenciaFinanceira: ResumoBloco;
+    poderJudiciario: ResumoBloco;
   };
   /**
    * "Outras fontes de informacao" — costuma REPETIR os registros do SPC
@@ -186,6 +197,23 @@ const data = (v: unknown): string => {
 };
 const dinheiro = (n: number): string => n.toFixed(2);
 const limpar = (s: unknown): string => String(s ?? "").replace(/\s+/g, " ").trim();
+/** "2024-03-12" -> "12/03/2024", sem passar por Date (fuso nao entra). */
+const dataBr = (iso: string): string => (iso ? iso.split("-").reverse().join("/") : "");
+const reais = (n: number): string => `R$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** Monta a lista de detalhes pulando o que veio vazio. */
+function detalhesDe(pares: Array<[string, string | number | undefined | null]>): Array<{ rotulo: string; valor: string }> {
+  return pares
+    .map(([rotulo, v]) => ({ rotulo, valor: limpar(v == null ? "" : String(v)) }))
+    .filter(d => d.valor !== "" && d.valor !== "undefined");
+}
+
+function telefoneAssociado(d: any): string {
+  const t = d?.["telefone-associado"];
+  const ddd = attr(t, "numero-ddd"), n = attr(t, "numero");
+  // DDD "0" e como o SPC devolve 0800/4004: sai so o numero.
+  return n ? (ddd && ddd !== "0" ? `(${ddd}) ${n}` : String(n)) : "";
+}
 
 function cidadeUf(no: any): { cidade?: string; uf?: string } {
   const c = no?.cidade ?? no;
@@ -222,8 +250,10 @@ function corpo(xml: string): any {
   if (body == null) throw new SpcError("Resposta do SPC sem envelope SOAP", "SOAP", "resposta");
   const fault = body?.Fault;
   if (fault) {
-    const texto = limpar(fault.faultstring ?? fault.Reason?.Text ?? "Falha no SPC");
-    throw classificarFault(texto, limpar(fault.faultcode ?? ""));
+    // faultstring pode vir com atributo (xml:lang): o parser o entrega como objeto.
+    const txt = (v: any): string | undefined => (v && typeof v === "object" ? v["#text"] : v);
+    const texto = limpar(String(txt(fault.faultstring) ?? txt(fault.Reason?.Text) ?? "Falha no SPC"));
+    throw classificarFault(texto, limpar(String(txt(fault.faultcode) ?? "")));
   }
   return body;
 }
@@ -314,21 +344,37 @@ function restricoesSpc(bloco: any): RestricaoSpc[] {
     const valor = num(attr(d, "valor"));
     const { cidade, uf } = cidadeUf(d["cidade-associado"]);
     const papel = attr(d, "comprador-fiador-avalista");
+    const inclusao = data(attr(d, "data-inclusao"));
+    const vencimento = data(attr(d, "data-vencimento"));
+    const instituicao = attr(d, "registro-instituicao-financeira");
     return {
       type: "SPC",
       description: [
         "Registro de inadimplência",
         papel && papel !== "COMPRADOR" ? `como ${papel.toLowerCase()}` : "",
-        attr(d, "registro-instituicao-financeira") === "SIM" ? "· instituição financeira" : "",
+        instituicao === "SIM" ? "· instituição financeira" : "",
       ].filter(Boolean).join(" "),
       severity: severidadePorValor(valor),
       creditor: limpar(attr(d, "nome-associado") ?? "Associado não informado"),
       value: dinheiro(valor),
-      date: data(attr(d, "data-inclusao")),
+      date: inclusao,
       origin: [cidade, uf].filter(Boolean).join(" / ") || limpar(attr(d, "nome-entidade") ?? ""),
       contrato: attr(d, "contrato"),
-      vencimento: data(attr(d, "data-vencimento")) || undefined,
+      vencimento: vencimento || undefined,
       papel,
+      detalhes: detalhesDe([
+        ["Credor (associado)", attr(d, "nome-associado")],
+        ["Entidade", attr(d, "nome-entidade")],
+        ["Cidade", [cidade, uf].filter(Boolean).join(" / ")],
+        ["Telefone do credor", telefoneAssociado(d)],
+        ["Contrato", attr(d, "contrato")],
+        ["Valor", reais(valor)],
+        ["Vencimento", dataBr(vencimento)],
+        ["Inclusão no SPC", dataBr(inclusao)],
+        ["Papel do consultado", papel],
+        ["Instituição financeira", instituicao === "SIM" ? "sim" : instituicao === "NAO" ? "não" : instituicao],
+        ["Código da entidade", attr(d, "codigo-entidade")],
+      ]),
     };
   });
 }
@@ -336,18 +382,38 @@ function restricoesSpc(bloco: any): RestricaoSpc[] {
 function restricoesChequeLojista(bloco: any): RestricaoSpc[] {
   return lista(bloco?.["detalhe-cheque-lojista"]).map(d => {
     const ini = d["cheque-inicial"];
+    const fim = d["cheque-final"];
     const valor = num(attr(ini, "valor"));
     const banco = attr(ini?.["dados-bancarios"]?.banco, "nome");
-    const alinea = attr(d.alinea, "descricao") ?? (attr(d.alinea, "codigo") ? `alínea ${attr(d.alinea, "codigo")}` : "");
+    const codBanco = attr(ini?.["dados-bancarios"]?.banco, "codigo");
+    const agencia = attr(ini?.["dados-bancarios"], "numero-agencia");
+    const alineaCod = attr(d.alinea, "codigo");
+    const alinea = attr(d.alinea, "descricao") ?? (alineaCod ? `alínea ${alineaCod}` : "");
     const { cidade, uf } = cidadeUf(d["cidade-associado"]);
+    const inclusao = data(attr(d, "data-inclusao"));
+    const numero = [attr(ini, "numero"), attr(ini, "digito")].filter(Boolean).join("-");
+    const numeroFinal = attr(fim, "numero");
     return {
       type: "CHEQUE_LOJISTA",
       description: ["Cheque devolvido", alinea, banco ? `· ${limpar(banco)}` : ""].filter(Boolean).join(" "),
       severity: severidadePorValor(valor),
       creditor: limpar(attr(d, "nome-associado") ?? "Associado não informado"),
       value: dinheiro(valor),
-      date: data(attr(d, "data-inclusao")) || data(attr(ini, "data-emissao")),
+      date: inclusao || data(attr(ini, "data-emissao")),
       origin: [cidade, uf].filter(Boolean).join(" / "),
+      detalhes: detalhesDe([
+        ["Credor (associado)", attr(d, "nome-associado")],
+        ["Entidade", attr(d, "nome-entidade")],
+        ["Cidade", [cidade, uf].filter(Boolean).join(" / ")],
+        ["Telefone do credor", telefoneAssociado(d)],
+        ["Alínea", [alineaCod, attr(d.alinea, "descricao")].filter(Boolean).join(" · ")],
+        ["Cheque", numeroFinal && numeroFinal !== attr(ini, "numero") ? `${numero} a ${numeroFinal}` : numero],
+        ["Banco", [codBanco, banco].filter(Boolean).join(" · ")],
+        ["Agência", agencia],
+        ["Emissão", dataBr(data(attr(ini, "data-emissao")))],
+        ["Valor", reais(valor)],
+        ["Inclusão", dataBr(inclusao)],
+      ]),
     };
   });
 }
@@ -355,16 +421,26 @@ function restricoesChequeLojista(bloco: any): RestricaoSpc[] {
 function restricoesCcf(bloco: any): RestricaoSpc[] {
   return lista(bloco?.["detalhe-ccf"]).map(d => {
     const qtd = num(attr(d, "quantidade")) || 1;
-    const banco = attr(d["ultimo-cheque"]?.["dados-bancarios"]?.banco, "nome");
+    const dados = d["ultimo-cheque"]?.["dados-bancarios"];
+    const banco = attr(dados?.banco, "nome");
     const motivo = attr(d.motivo, "descricao") ?? "";
+    const ultimo = data(attr(d, "data-ultimo-cheque"));
     return {
       type: "CCF",
       description: `${qtd} cheque${qtd === 1 ? "" : "s"} sem fundo${motivo ? ` · ${motivo}` : ""}${banco ? ` · ${limpar(banco)}` : ""}`,
       severity: qtd >= 3 ? "critical" : "high",
       creditor: limpar(attr(d, "origem") ?? "Banco Central do Brasil"),
       value: dinheiro(0),
-      date: data(attr(d, "data-ultimo-cheque")),
+      date: ultimo,
       origin: "",
+      detalhes: detalhesDe([
+        ["Origem", attr(d, "origem")],
+        ["Quantidade de cheques", qtd],
+        ["Motivo", [attr(d.motivo, "codigo"), motivo].filter(Boolean).join(" · ")],
+        ["Último cheque", dataBr(ultimo)],
+        ["Banco", [attr(dados?.banco, "codigo"), banco].filter(Boolean).join(" · ")],
+        ["Agência", attr(dados, "numero-agencia")],
+      ]),
     };
   });
 }
@@ -374,14 +450,23 @@ function restricoesProtesto(bloco: any): RestricaoSpc[] {
     const valor = num(attr(d, "valor"));
     const { cidade, uf } = cidadeUf(d.cartorio);
     const cartorio = attr(d.cartorio, "nome");
+    const quando = data(attr(d, "data-protesto"));
     return {
       type: "PROTESTO",
       description: `Protesto em cartório${cartorio ? ` ${cartorio}` : ""}`,
       severity: severidadePorValor(valor, "high"),
       creditor: limpar(attr(d, "requerente-credor") ?? (cartorio ? `Cartório ${cartorio}` : "Cartório")),
       value: dinheiro(valor),
-      date: data(attr(d, "data-protesto")),
+      date: quando,
       origin: [cidade, uf].filter(Boolean).join(" / "),
+      detalhes: detalhesDe([
+        ["Credor", attr(d, "requerente-credor")],
+        ["Cartório", cartorio],
+        ["Cidade", [cidade, uf].filter(Boolean).join(" / ")],
+        ["Número do protesto", attr(d, "numero-protesto")],
+        ["Data do protesto", dataBr(quando)],
+        ["Valor", reais(valor)],
+      ]),
     };
   });
 }
@@ -392,29 +477,133 @@ function restricoesAcao(bloco: any): RestricaoSpc[] {
     const comarca = d.vara?.comarca;
     const { uf } = cidadeUf(comarca);
     const tipo = attr(d["tipo-acao"], "descricao") ?? "Ação judicial";
+    const quando = data(attr(d, "data-acao"));
     return {
       type: "ACAO_JUDICIAL",
       description: limpar(tipo),
       severity: severidadePorValor(valor, "high"),
       creditor: limpar(attr(d, "nome-autor") ?? `Vara ${attr(d.vara, "nome") ?? ""}`),
       value: dinheiro(valor),
-      date: data(attr(d, "data-acao")),
+      date: quando,
       origin: [limpar(attr(comarca, "nome") ?? ""), uf].filter(Boolean).join(" / "),
+      detalhes: detalhesDe([
+        ["Tipo de ação", tipo],
+        ["Autor", attr(d, "nome-autor")],
+        ["Vara", attr(d.vara, "nome")],
+        ["Comarca", [limpar(attr(comarca, "nome") ?? ""), uf].filter(Boolean).join(" / ")],
+        ["Distrito", attr(d, "distrito")],
+        ["Data", dataBr(quando)],
+        ["Valor", reais(valor)],
+      ]),
     };
   });
 }
 
 function restricoesChequeSemFundoVarejo(bloco: any): RestricaoSpc[] {
+  // XSD Insumo-Cheque-Sem-Fundo-Varejo: quantidade-cheques,
+  // data-ocorrencia-mais-recente, origem-ocorrencia-mais-recente, numero-loja,
+  // dados-bancarios e cidade-ocorrencia. O insumo nao traz valor.
   return lista(bloco?.["detalhe-cheque-sem-fundo-varejo"]).map(d => {
-    const valor = num(attr(d, "valor") ?? attr(d?.["cheque-inicial"], "valor"));
+    const qtd = num(attr(d, "quantidade-cheques")) || 1;
+    const dados = d?.["dados-bancarios"];
+    const banco = attr(dados?.banco, "nome");
+    const { cidade, uf } = cidadeUf(d?.["cidade-ocorrencia"]);
+    const quando = data(attr(d, "data-ocorrencia-mais-recente"));
+    const origem = attr(d, "origem-ocorrencia-mais-recente");
     return {
       type: "CHEQUE_SEM_FUNDO",
-      description: "Cheque sem fundo informado pelo comércio",
-      severity: severidadePorValor(valor),
-      creditor: limpar(attr(d, "nome-associado") ?? attr(d, "origem") ?? "Comércio"),
+      description: `${qtd} cheque${qtd === 1 ? "" : "s"} sem fundo no varejo${banco ? ` · ${limpar(banco)}` : ""}`,
+      severity: qtd >= 3 ? "critical" : "high",
+      creditor: limpar(origem ?? "Comércio"),
+      value: dinheiro(0),
+      date: quando,
+      origin: [cidade, uf].filter(Boolean).join(" / "),
+      detalhes: detalhesDe([
+        ["Quantidade de cheques", qtd],
+        ["Ocorrência mais recente", dataBr(quando)],
+        ["Origem da ocorrência", origem],
+        ["Cidade", [cidade, uf].filter(Boolean).join(" / ")],
+        ["Banco", [attr(dados?.banco, "codigo"), banco].filter(Boolean).join(" · ")],
+        ["Agência", attr(dados, "numero-agencia")],
+        ["Conta", [attr(dados, "numero-conta-corrente"), attr(dados, "digito-conta-corrente")].filter(Boolean).join("-")],
+        ["Loja", attr(d, "numero-loja")],
+      ]),
+    };
+  });
+}
+
+/**
+ * contra-ordem, contra-ordem-documento-diferente e contumacia tem a mesma
+ * estrutura (XSD Insumo-Contra-Ordem; Insumo-Contumacia a estende): motivo,
+ * cheque-inicial com dados bancarios, cheque-final, datas, origem e
+ * informante. Contumacia e a sustacao reiterada — pesa mais. Todos vem no
+ * retorno padrao do produto 257.
+ */
+function restricoesChequeSustado(bloco: any, chave: string, rotulo: string, piso: RestricaoSpc["severity"]): RestricaoSpc[] {
+  return lista(bloco?.[chave]).map(d => {
+    const ini = d?.["cheque-inicial"];
+    const fim = d?.["cheque-final"];
+    const dados = ini?.["dados-bancarios"];
+    const banco = attr(dados?.banco, "nome");
+    const motivo = attr(d?.motivo, "descricao");
+    const valor = num(attr(ini, "valor"));
+    const ocorrencia = data(attr(d, "data-ocorrencia"));
+    const inclusao = data(attr(d, "data-inclusao"));
+    const numeroIni = [attr(ini, "numero"), attr(ini, "digito")].filter(Boolean).join("-");
+    const numeroFim = attr(fim, "numero");
+    const faixa = numeroFim && numeroFim !== attr(ini, "numero") ? `${numeroIni} a ${numeroFim}` : numeroIni;
+    return {
+      type: "CHEQUE_SUSTADO",
+      description: [rotulo, motivo ? `· ${limpar(motivo)}` : "", banco ? `· ${limpar(banco)}` : ""].filter(Boolean).join(" "),
+      severity: severidadePorValor(valor, piso),
+      creditor: limpar(attr(d, "informante") ?? banco ?? "Banco não informado"),
       value: dinheiro(valor),
-      date: data(attr(d, "data-inclusao") ?? attr(d, "data-ocorrencia")),
-      origin: "",
+      date: ocorrencia || inclusao,
+      origin: limpar(attr(d, "origem") ?? ""),
+      detalhes: detalhesDe([
+        ["Motivo", [attr(d?.motivo, "codigo"), motivo].filter(Boolean).join(" · ")],
+        ["Cheque", faixa],
+        ["Banco", [attr(dados?.banco, "codigo"), banco].filter(Boolean).join(" · ")],
+        ["Agência", attr(dados, "numero-agencia")],
+        ["Conta", [attr(dados, "numero-conta-corrente"), attr(dados, "digito-conta-corrente")].filter(Boolean).join("-")],
+        ["Valor", valor ? reais(valor) : undefined],
+        ["Ocorrência", dataBr(ocorrencia)],
+        ["Inclusão", dataBr(inclusao)],
+        ["Origem", attr(d, "origem")],
+        ["Informante", attr(d, "informante")],
+        ["Documento no registro", attr(d, "documento")],
+      ]),
+    };
+  });
+}
+
+/** XSD Insumo-Informacao-Poder-Judiciario: valor, processo, entidade de origem, vara e comarca. */
+function restricoesPoderJudiciario(bloco: any): RestricaoSpc[] {
+  return lista(bloco?.["detalhe-informacao-poder-judiciario"]).map(d => {
+    const valor = num(attr(d, "valor"));
+    const comarca = d?.vara?.comarca;
+    const { uf } = cidadeUf(comarca);
+    const documento = data(attr(d, "data-documento"));
+    const inclusao = data(attr(d, "data-inclusao"));
+    const processo = attr(d, "numero-processo");
+    return {
+      type: "PODER_JUDICIARIO",
+      description: `Informação do Poder Judiciário${processo ? ` · processo ${processo}` : ""}`,
+      severity: severidadePorValor(valor, "high"),
+      creditor: limpar(attr(d, "entidade-origem") ?? attr(d?.vara, "nome") ?? "Poder Judiciário"),
+      value: dinheiro(valor),
+      date: documento || inclusao,
+      origin: [limpar(attr(comarca, "nome") ?? ""), uf].filter(Boolean).join(" / "),
+      detalhes: detalhesDe([
+        ["Número do processo", processo],
+        ["Entidade de origem", attr(d, "entidade-origem")],
+        ["Vara", attr(d?.vara, "nome")],
+        ["Comarca", [limpar(attr(comarca, "nome") ?? ""), uf].filter(Boolean).join(" / ")],
+        ["Valor", reais(valor)],
+        ["Data do documento", dataBr(documento)],
+        ["Vencimento", dataBr(data(attr(d, "data-vencimento")))],
+        ["Inclusão", dataBr(inclusao)],
+      ]),
     };
   });
 }
@@ -482,7 +671,9 @@ function lerScore(resultado: any): Pick<SpcResult, "score" | "scoreFonte" | "sco
     const bloco = resultado?.[fonte];
     if (!bloco) continue;
     const d = detalheDe(bloco);
-    const score = attr(d, "score") ?? attr(bloco?.resumo, "quantidade-total");
+    // Sem <detalhe>, o resumo com quantidade-total="0" significa "sem
+    // informacao" (manual: insumo configurado aparece com 0), nao score zero.
+    const score = attr(d, "score") ?? (d ? attr(bloco?.resumo, "quantidade-total") : undefined);
     if (score == null) continue;
     return {
       score: Math.max(0, Math.min(1000, Math.round(num(score)))),
@@ -498,7 +689,7 @@ function lerScore(resultado: any): Pick<SpcResult, "score" | "scoreFonte" | "sco
   const cp = resultado?.["score-cadastro-positivo"];
   if (cp) {
     const d = detalheDe(cp);
-    const score = attr(cp.resumo, "quantidade-total") ?? attr(d, "score");
+    const score = attr(d, "score") ?? (d ? attr(cp.resumo, "quantidade-total") : undefined);
     if (score != null) {
       return {
         score: Math.max(0, Math.min(1000, Math.round(num(score)))),
@@ -534,7 +725,11 @@ function risco(score: number | null, restricao: boolean, restricoes: RestricaoSp
 export function parseRespostaConsulta(xml: string, documento: string, opcoes: { guardarXml?: boolean } = {}): SpcResult {
   const body = corpo(xml);
   const resultado = body.resultado;
-  if (!resultado) throw new SpcError("Resposta do SPC sem o bloco <resultado>", "SEM_RESULTADO", "resposta");
+  // <resultado xsi:nil="true"/> e nillable no XSD: retorno nulo do servidor,
+  // nao consulta limpa. Sem protocolo tambem nao houve consulta.
+  if (!resultado || typeof resultado !== "object" || attr(resultado, "nil") === "true" || !resultado.protocolo) {
+    throw new SpcError("Resposta do SPC sem resultado (nula ou sem protocolo)", "SEM_RESULTADO", "resposta");
+  }
 
   const doc = documento.replace(/\D/g, "");
   const cadastral = consumidor(resultado, doc);
@@ -552,6 +747,10 @@ export function parseRespostaConsulta(xml: string, documento: string, opcoes: { 
     ...restricoesProtesto(resultado.protesto),
     ...restricoesAcao(resultado.acao),
     ...restricoesChequeSemFundoVarejo(resultado["cheque-sem-fundo-varejo"]),
+    ...restricoesChequeSustado(resultado["contra-ordem"], "detalhe-contra-ordem", "Cheque sustado (contra-ordem)", "medium"),
+    ...restricoesChequeSustado(resultado["contra-ordem-documento-diferente"], "detalhe-contra-ordem-documento-diferente", "Cheque sustado em documento diferente", "medium"),
+    ...restricoesChequeSustado(resultado.contumacia, "detalhe-contumacia", "Sustação por contumácia", "high"),
+    ...restricoesPoderJudiciario(resultado["informacao-poder-judiciario"]),
   ].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
   const resumo = {
@@ -561,6 +760,7 @@ export function parseRespostaConsulta(xml: string, documento: string, opcoes: { 
     protesto: resultado.protesto ? resumoDe(resultado.protesto) : VAZIO,
     acao: resultado.acao ? resumoDe(resultado.acao) : VAZIO,
     pendenciaFinanceira: resultado["pendencia-financeira"] ? resumoDe(resultado["pendencia-financeira"]) : VAZIO,
+    poderJudiciario: resultado["informacao-poder-judiciario"] ? resumoDe(resultado["informacao-poder-judiciario"]) : VAZIO,
   };
 
   // Total pelo resumo de cada bloco quando ele existe (e a soma oficial do
@@ -571,7 +771,9 @@ export function parseRespostaConsulta(xml: string, documento: string, opcoes: { 
     (resumo.chequeLojista.valor || somaLista("CHEQUE_LOJISTA")) +
     (resumo.protesto.valor || somaLista("PROTESTO")) +
     (resumo.acao.valor || somaLista("ACAO_JUDICIAL")) +
-    somaLista("CHEQUE_SEM_FUNDO");
+    (resumo.poderJudiciario.valor || somaLista("PODER_JUDICIARIO")) +
+    somaLista("CHEQUE_SEM_FUNDO") +
+    somaLista("CHEQUE_SUSTADO");
 
   const restricao = String(attr(resultado, "restricao") ?? "").toLowerCase() === "true";
   const { score, scoreFonte, scoreDetalhe } = lerScore(resultado);
@@ -580,7 +782,10 @@ export function parseRespostaConsulta(xml: string, documento: string, opcoes: { 
   if (cadastral.obitoRegistrado) alerts.unshift({ type: "OBITO", message: "Há registro de óbito para este documento", severity: "critical" });
   const basesInoperantes = lista(resultado["base-inoperante"]).map(b => limpar(typeof b === "string" ? b : b?.["#text"] ?? attr(b, "nome") ?? "")).filter(Boolean);
   for (const m of lista(resultado["mensagem-base-externa"])) {
-    const texto = limpar(typeof m === "string" ? m : m?.["#text"] ?? attr(m, "mensagem") ?? attr(m, "descricao") ?? "");
+    // XSD mensagemBaseExterna: atributos origem-base-externa e mensagem-base-externa.
+    const origem = attr(m, "origem-base-externa");
+    const msg = typeof m === "string" ? m : attr(m, "mensagem-base-externa") ?? m?.["#text"] ?? attr(m, "mensagem") ?? "";
+    const texto = limpar([origem, msg].filter(Boolean).join(": "));
     if (texto) alerts.push({ type: "BASE_EXTERNA", message: texto, severity: "medium" });
   }
   if (basesInoperantes.length > 0) {

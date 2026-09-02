@@ -9,6 +9,18 @@ import {
   type ProactiveAlert, type InsertProactiveAlert,
 } from "@shared/schema";
 
+/**
+ * `RETURNING *` via db.execute vem em snake_case (isp_credits); quem le e a
+ * rota, por ispCredits. Sem isto o saldo devolvido na resposta era undefined.
+ */
+function providerDaLinha(row: any): Provider {
+  return {
+    ...row,
+    ispCredits: Number(row.ispCredits ?? row.isp_credits ?? 0),
+    spcCredits: Number(row.spcCredits ?? row.spc_credits ?? 0),
+  } as Provider;
+}
+
 export class ConsultationsStorage {
   async getIspConsultationsByProvider(providerId: number): Promise<IspConsultation[]> {
     return db.select().from(ispConsultations)
@@ -202,7 +214,7 @@ export class ConsultationsStorage {
       if (rows.length === 0) return null;
 
       const [created] = await tx.insert(spcConsultations).values(consultation).returning();
-      return { provider: rows[0], consultation: created };
+      return { provider: providerDaLinha(rows[0]), consultation: created };
     });
   }
 
@@ -227,7 +239,7 @@ export class ConsultationsStorage {
         alert = createdAlert;
       }
 
-      return { provider: rows[0], consultation: created, alert };
+      return { provider: providerDaLinha(rows[0]), consultation: created, alert };
     });
   }
 

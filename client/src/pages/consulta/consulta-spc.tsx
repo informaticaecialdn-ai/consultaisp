@@ -64,6 +64,11 @@ interface SpcResult {
     value: string;
     date: string;
     origin: string;
+    contrato?: string;
+    vencimento?: string;
+    papel?: string;
+    /** Todos os dados do registro, com rótulo, na ordem da tela. */
+    detalhes?: Array<{ rotulo: string; valor: string }>;
   }[];
   totalRestrictions: number;
   previousConsultations: {
@@ -77,6 +82,13 @@ interface SpcResult {
   alerts: { type: string; message: string; severity: string }[];
   rendaPresumida?: number | null;
   limiteCreditoSugerido?: number | null;
+}
+
+/** "2024-03-12" -> "12/03/2024" sem passar por Date: new Date("2024-03-12") cai no dia anterior no fuso -3. */
+function dataBr(iso?: string | null): string {
+  if (!iso) return "";
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : String(iso);
 }
 
 function formatCpfCnpj(value: string): string {
@@ -127,6 +139,7 @@ export default function ConsultaSPCPage() {
   const { toast } = useToast();
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<SpcResult | null>(null);
+  const [aba, setAba] = useState("nova");
 
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/spc-consultations"],
@@ -144,9 +157,21 @@ export default function ConsultaSPCPage() {
       toast({ title: "Consulta realizada", description: "Consulta SPC processada com sucesso" });
     },
     onError: (err: any) => {
-      toast({ title: "Erro", description: err.message, variant: "destructive" });
+      // apiRequest lança "503: {json}": aqui sai só a mensagem em português.
+      const bruto = String(err?.message ?? "").replace(/^\d{3}:\s*/, "");
+      let msg = bruto;
+      try { msg = JSON.parse(bruto).message ?? bruto; } catch { /* texto puro */ }
+      toast({ title: "Consulta não realizada", description: msg || "Falha ao consultar o SPC", variant: "destructive" });
     },
   });
+
+  // O resultado gravado (sem o XML cru) volta à tela: o provedor pagou por ele.
+  const abrirDoHistorico = (c: any) => {
+    if (!c?.result) return;
+    setResult(c.result as SpcResult);
+    setQuery(formatCpfCnpj(c.cpfCnpj ?? ""));
+    setAba("nova");
+  };
 
   const handleSearch = () => {
     if (!query.trim()) return;
@@ -223,7 +248,7 @@ export default function ConsultaSPCPage() {
           <div className="text-2xl font-bold">
             {isLoading ? <Skeleton className="h-7 w-8" /> : (
               data?.consultations?.length > 0
-                ? Math.round((data.consultations.filter((c: any) => (c.score || 0) >= 500).length / data.consultations.length) * 100) + "%"
+                ? Math.round((data.consultations.filter((c: any) => c.result?.status === "clean").length / data.consultations.length) * 100) + "%"
                 : "0%"
             )}
           </div>
@@ -235,15 +260,18 @@ export default function ConsultaSPCPage() {
           </div>
           <div className="text-2xl font-bold">
             {isLoading ? <Skeleton className="h-7 w-8" /> : (
-              data?.consultations?.length > 0
-                ? Math.round(data.consultations.reduce((acc: number, c: any) => acc + (c.score || 0), 0) / data.consultations.length)
-                : 0
+              (() => {
+                const comScore = (data?.consultations ?? []).filter((c: any) => c.score != null);
+                return comScore.length > 0
+                  ? Math.round(comScore.reduce((acc: number, c: any) => acc + c.score, 0) / comScore.length)
+                  : "—";
+              })()
             )}
           </div>
         </Card>
       </div>
 
-      <Tabs defaultValue="nova" className="space-y-4">
+      <Tabs value={aba} onValueChange={setAba} className="space-y-4">
         <TabsList>
           <TabsTrigger value="nova" className="gap-1.5" data-testid="tab-spc-nova">
             <Search className="w-4 h-4" />
@@ -371,7 +399,7 @@ export default function ConsultaSPCPage() {
                         </div>
                         <div>
                           <span className="text-muted-foreground">{result.cadastralData.tipo === "PF" ? "Nascimento" : "Fundacao"}:</span>
-                          <p className="font-medium">{result.cadastralData.dataNascimento || result.cadastralData.dataFundacao}</p>
+                          <p className="font-medium">{dataBr(result.cadastralData.dataNascimento || result.cadastralData.dataFundacao) || "—"}</p>
                         </div>
                         {result.cadastralData.nomeMae && (
                           <div>
@@ -382,10 +410,10 @@ export default function ConsultaSPCPage() {
                         <div>
                           <span className="text-muted-foreground">Situacao RF:</span>
                           <p className="font-medium flex items-center gap-1.5">
-                            {result.cadastralData.situacaoRf === "Regular" ? (
+                            {/^(regular|ativa)$/i.test(result.cadastralData.situacaoRf ?? "") ? (
                               <><CheckCircle className="w-3.5 h-3.5 text-[var(--color-success)]" /> <span className="text-[var(--color-success)]">Regular</span></>
                             ) : (
-                              <><XCircle className="w-3.5 h-3.5 text-rose-500" /> <span className="text-[var(--color-danger)]">Irregular</span></>
+                              <><XCircle className="w-3.5 h-3.5 text-rose-500" /> <span className="text-[var(--color-danger)]">{result.cadastralData.situacaoRf || "Não informada"}</span></>
                             )}
                           </p>
                         </div>
@@ -457,23 +485,37 @@ export default function ConsultaSPCPage() {
                           {result.restrictions.map((r, i) => (
                             <div
                               key={i}
-                              className="flex items-center justify-between p-3 rounded-lg border bg-white dark:bg-slate-900"
+                              className="p-3 rounded-lg border bg-white dark:bg-slate-900 space-y-2"
                               data-testid={`restriction-${i}`}
                             >
-                              <div className="flex items-center gap-3">
-                                <Badge className={`${severityColors[r.severity]} border text-xs`}>
-                                  {r.type}
-                                </Badge>
-                                <div>
-                                  <p className="text-sm font-medium">{r.creditor}</p>
-                                  <p className="text-xs text-muted-foreground">{r.description}</p>
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  <Badge className={`${severityColors[r.severity]} border text-xs`}>
+                                    {r.type.replace(/_/g, " ")}
+                                  </Badge>
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-medium">{r.creditor}</p>
+                                    <p className="text-xs text-muted-foreground">{r.description}</p>
+                                  </div>
+                                </div>
+                                <div className="text-right shrink-0">
+                                  <p className="text-sm font-semibold tabular-nums">R$ {parseFloat(r.value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</p>
+                                  <p className="text-xs text-muted-foreground tabular-nums">{dataBr(r.date)}</p>
+                                  <Badge variant="outline" className="text-xs mt-0.5">{severityLabels[r.severity]}</Badge>
                                 </div>
                               </div>
-                              <div className="text-right">
-                                <p className="text-sm font-semibold">R$ {parseFloat(r.value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</p>
-                                <p className="text-xs text-muted-foreground">{new Date(r.date).toLocaleDateString("pt-BR")}</p>
-                                <Badge variant="outline" className="text-xs mt-0.5">{severityLabels[r.severity]}</Badge>
-                              </div>
+                              {/* Tudo que o SPC devolveu sobre o registro: e com isto que o
+                                  operador cobra ou confere com o cliente. */}
+                              {(r.detalhes?.length ?? 0) > 0 && (
+                                <dl className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1.5 text-xs border-t border-[var(--border-faint)] pt-2" data-testid={`restriction-${i}-detalhes`}>
+                                  {r.detalhes!.map((d, j) => (
+                                    <div key={j} className="min-w-0">
+                                      <dt className="text-muted-foreground">{d.rotulo}</dt>
+                                      <dd className="font-medium tabular-nums break-words">{d.valor}</dd>
+                                    </div>
+                                  ))}
+                                </dl>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -551,7 +593,16 @@ export default function ConsultaSPCPage() {
                   const riskLevel = resultData?.riskLevel || (c.score >= 700 ? "low" : c.score >= 500 ? "medium" : "high");
                   const statusLabel = resultData?.status === "clean" ? "Limpo" : resultData?.restrictions?.length > 0 ? `${resultData.restrictions.length} restricoes` : "Com restricoes";
                   return (
-                    <div key={c.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg" data-testid={`spc-consultation-${c.id}`}>
+                    <div
+                      key={c.id}
+                      role="button"
+                      tabIndex={0}
+                      title="Abrir o resultado desta consulta"
+                      className="flex items-center justify-between p-3 bg-muted/30 rounded-lg cursor-pointer hover:bg-muted/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--brand)]"
+                      onClick={() => abrirDoHistorico(c)}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); abrirDoHistorico(c); } }}
+                      data-testid={`spc-consultation-${c.id}`}
+                    >
                       <div className="flex items-center gap-3">
                         <div className={`w-2.5 h-2.5 rounded-full ${resultData?.status === "clean" ? "bg-[var(--color-success)]" : "bg-rose-500"}`} />
                         <div>
@@ -566,7 +617,9 @@ export default function ConsultaSPCPage() {
                         <Badge className={`${riskColors[riskLevel] || "bg-muted"} border-0 text-xs`}>
                           {statusLabel}
                         </Badge>
-                        <Badge variant="outline" className="text-xs">-{resultData?.creditosCobrados ?? CUSTO_EM_CREDITOS.spc} créditos</Badge>
+                        {resultData?.creditosCobrados != null && (
+                          <Badge variant="outline" className="text-xs tabular-nums">-{resultData.creditosCobrados} créditos</Badge>
+                        )}
                         <span className="text-xs text-muted-foreground">
                           {c.createdAt ? new Date(c.createdAt).toLocaleDateString("pt-BR") : ""}
                         </span>
