@@ -12,6 +12,7 @@ import MapaCarteira, {
   type ModoMapa, type SedeMapa,
 } from "@/components/maps/MapaCarteira";
 import { ESTADO_META, ESTADOS_NO_MAPA, type EstadoPonto } from "@/components/maps/estado-ponto";
+import { geoAproximada } from "@shared/geo-precisao";
 import {
   Chip, Kicker, Kpi, Camada, GrupoCamadas, Selo, MONO, CARD, brl, num, pct, TRACO,
 } from "@/components/localizacao/ui";
@@ -265,6 +266,8 @@ export default function LocalizacaoPage() {
     for (const p of pontos) acc[p.estado]++;
     return acc;
   }, [pontos]);
+  /* Pontos que só afirmam o bairro — translúcidos no mapa, ditos na legenda. */
+  const aproximados = useMemo(() => pontos.filter(p => geoAproximada(p.precisao)).length, [pontos]);
 
   const trocarCidade = (c: string | null) => { setFCidade(c); setBairroSel(null); };
   const trocarModo = () => {
@@ -727,14 +730,30 @@ export default function LocalizacaoPage() {
                       />
                     ))
                   ) : (
-                    ESTADOS_NO_MAPA.map(e => (
-                      <LinhaLegenda
-                        key={e}
-                        cor={ESTADO_META[e].cor}
-                        rotulo={ESTADO_META[e].label}
-                        n={porEstadoNoMapa[e]}
-                      />
-                    ))
+                    <>
+                      {ESTADOS_NO_MAPA.map(e => (
+                        <LinhaLegenda
+                          key={e}
+                          cor={ESTADO_META[e].cor}
+                          rotulo={ESTADO_META[e].label}
+                          n={porEstadoNoMapa[e]}
+                        />
+                      ))}
+                      {aproximados > 0 && (
+                        <div
+                          title="Ponto que só afirma o bairro: um endereço real do bairro, não a casa. Translúcido no mapa e dito no popup."
+                          style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 5, fontSize: 11, color: "var(--text-muted)" }}
+                        >
+                          <span style={{
+                            width: 9, height: 9, borderRadius: "50%", flexShrink: 0,
+                            background: "var(--text-muted)", opacity: 0.45,
+                            border: "1.5px solid #fff", boxShadow: "0 0 0 .5px var(--border-strong)",
+                          }} />
+                          <span style={{ flex: 1 }}>aproximados · bairro</span>
+                          <span style={{ ...MONO }}>{num(aproximados)}</span>
+                        </div>
+                      )}
+                    </>
                   )}
                   {sedeNoMapa && (
                     <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 5, fontSize: 11.5, color: "var(--text-2)" }}>

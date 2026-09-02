@@ -46,6 +46,7 @@ import { puxarCoordenadasDoErp } from "./coords-erp.service";
 import { abrirGeocodificadorLocal, type GeocodificadorLocal } from "./geocode-local.service";
 import { chaveLogradouro } from "./logradouro";
 import { logger } from "../logger";
+import type { GeoPrecisao } from "@shared/geo-precisao";
 
 const LOTE = 200;
 /** Falhas de rede seguidas que caracterizam geocoder fora do ar. */
@@ -234,13 +235,14 @@ async function plotarCliente(
     const acerto = local.resolver(c);
     if (acerto && acerto.precisao !== "cidade") {
       await db.update(customers)
-        .set({ latitude: String(acerto.lat), longitude: String(acerto.lon) })
+        .set({ latitude: String(acerto.lat), longitude: String(acerto.lon), geoPrecisao: acerto.precisao })
         .where(and(eq(customers.id, c.id), SEM_COORDENADA));
       return { desfecho: "plotado" };
     }
   }
 
   let coords: [number, number] | null = null;
+  let precisao: GeoPrecisao | null = null;
   const jitter = 0.002;      // ±~100m — LGPD: o ponto nunca é a porta exata
   let indisponivel = false;
   let motivo: string | undefined;
@@ -263,7 +265,11 @@ async function plotarCliente(
   // de plotado no lugar errado.
   if ((rua || cep) && cidade) {
     const r = await geocodeAddressDetalhado(rua, cidade, uf, cep || undefined);
-    if (r.coords) coords = r.coords;
+    if (r.coords) {
+      coords = r.coords;
+      // O geocoder so devolve casa, rua ou CEP de rua aqui (ver POSICIONA).
+      precisao = r.precisao === "endereco" || r.precisao === "logradouro" || r.precisao === "cep" ? r.precisao : "logradouro";
+    }
     else if (r.falha === "indisponivel") { indisponivel = true; motivo = r.motivo; }
   }
 
@@ -279,6 +285,7 @@ async function plotarCliente(
       .set({
         latitude: String(coords[0] + (Math.random() - 0.5) * jitter),
         longitude: String(coords[1] + (Math.random() - 0.5) * jitter),
+        geoPrecisao: precisao,
       })
       .where(and(eq(customers.id, c.id), SEM_COORDENADA));
     return { desfecho: "plotado" };
@@ -450,12 +457,12 @@ export async function runGeocodeBackfill(providerIdPrioritario?: number): Promis
           const acerto = local?.resolver(c);
           if (acerto && acerto.precisao !== "cidade") {
             await db.update(customers)
-              .set({ latitude: String(acerto.lat), longitude: String(acerto.lon) })
+              .set({ latitude: String(acerto.lat), longitude: String(acerto.lon), geoPrecisao: acerto.precisao })
               .where(eq(customers.id, c.id));
             desempilhados++;
           } else {
             await db.update(customers)
-              .set({ latitude: null, longitude: null })
+              .set({ latitude: null, longitude: null, geoPrecisao: null })
               .where(eq(customers.id, c.id));
             devolvidosAFila++;
           }

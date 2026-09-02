@@ -104,7 +104,7 @@ async function puxarDoProvedor(providerId: number): Promise<{ comCoordenada: num
         // O SEM_COORDENADA no WHERE mantém a operação idempotente e impede
         // sobrescrever quem já está plotado.
         const gravados = await db.update(customers)
-          .set({ latitude: String(coord.lat), longitude: String(coord.lng) })
+          .set({ latitude: String(coord.lat), longitude: String(coord.lng), geoPrecisao: "erp" })
           .where(and(
             eq(customers.providerId, providerId),
             sql`regexp_replace(coalesce(${customers.cpfCnpj}, ''), '[^0-9]', '', 'g') = ${c.cpfCnpj.replace(/\D/g, "")}`,

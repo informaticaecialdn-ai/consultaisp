@@ -10,6 +10,7 @@ import { coordenadaValida } from "../services/coordenada";
 import { criarAgrupadorDeBairro, criarCasadorDeBairro, normalizarLocalidade } from "../services/localidade";
 import { carregarTerritorio, carregarCaixasMunicipio } from "../services/geo-bases.service";
 import { geocodeAddress, geocodeCity } from "../services/geocoding";
+import type { GeoPrecisao } from "@shared/geo-precisao";
 
 export interface LocalizacaoPonto {
   id: number;
@@ -21,6 +22,12 @@ export interface LocalizacaoPonto {
    */
   nome: string;
   lat: number; lon: number;
+  /**
+   * De onde a coordenada veio (shared/geo-precisao.ts). `bairro` e
+   * aproximacao e o mapa desenha translucido; nulo e ponto de antes da
+   * coluna existir.
+   */
+  precisao: GeoPrecisao | null;
   estado: EstadoPonto; emAberto: number; atraso: number;
   bairro: string | null; cidade: string;
 }
@@ -449,7 +456,9 @@ export class LocalizacaoStorage {
 
       pontos.push({
         id: c.id, nome: (c.name || "").trim() || "Sem nome",
-        lat: valida.lat, lon: valida.lng, estado, emAberto,
+        lat: valida.lat, lon: valida.lng,
+        precisao: (c.geoPrecisao as GeoPrecisao | null) ?? null,
+        estado, emAberto,
         atraso: c.maxDaysOverdue || 0, bairro: grupo ? bairro : null, cidade,
       });
     }

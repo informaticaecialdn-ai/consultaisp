@@ -42,30 +42,39 @@ async function main() {
 
   const { rows } = await pool.query<{
     id: number; address: string | null; address_number: string | null; neighborhood: string | null;
-    city: string | null; lat: string; lon: string;
+    city: string | null; lat: string; lon: string; geo_precisao: string | null;
   }>(
-    `SELECT id, address, address_number, neighborhood, city, latitude::text lat, longitude::text lon
+    `SELECT id, address, address_number, neighborhood, city, latitude::text lat, longitude::text lon, geo_precisao
        FROM customers
       WHERE provider_id = $1
         AND latitude IS NOT NULL AND longitude IS NOT NULL AND NOT (latitude = 0 AND longitude = 0)`,
     [providerId],
   );
   console.log(`provedor ${providerId}: ${rows.length} clientes com coordenada`);
+  const porProcedencia = new Map<string, number>();
+  for (const r of rows) porProcedencia.set(r.geo_precisao ?? "(sem procedência)", (porProcedencia.get(r.geo_precisao ?? "(sem procedência)") ?? 0) + 1);
+  console.log("  por procedência: " + Array.from(porProcedencia.entries()).map(([k, v]) => `${k} ${v}`).join(" · "));
 
-  // 1. Longe do endereço que o IBGE conhece.
+  // 1. Longe do endereço que o IBGE conhece. A coordenada do ERP fica de fora
+  // do apagamento: o sync a regrava a cada passada, e apagar seria em vão —
+  // ela é contada à parte, para o dono saber que o ERP contradiz o censo.
   const geo = await abrirGeocodificadorLocal(
     Array.from(new Set(rows.map(r => r.city || "").filter(Boolean))).map(cidade => ({ cidade })),
   );
   const longe = new Set<number>();
   let comparaveis = 0;
+  let erpContradiz = 0;
   if (geo) {
     for (const r of rows) {
       const a = geo.resolver({ id: r.id, address: r.address, addressNumber: r.address_number, neighborhood: r.neighborhood, city: r.city });
       if (!a || (a.precisao !== "endereco" && a.precisao !== "logradouro")) continue;
       comparaveis++;
-      if (distanciaKm(Number(r.lat), Number(r.lon), a.lat, a.lon) * 1000 > LONGE_M) longe.add(r.id);
+      if (distanciaKm(Number(r.lat), Number(r.lon), a.lat, a.lon) * 1000 > LONGE_M) {
+        if (r.geo_precisao === "erp") erpContradiz++;
+        else longe.add(r.id);
+      }
     }
-    console.log(`  comparáveis com o IBGE: ${comparaveis} · a mais de ${LONGE_M} m do endereço: ${longe.size}`);
+    console.log(`  comparáveis com o IBGE: ${comparaveis} · a mais de ${LONGE_M} m do endereço: ${longe.size} (+ ${erpContradiz} do ERP, que não se apaga)`);
   } else {
     console.log("  sem base do IBGE para as cidades deste provedor — a medição por endereço não é possível");
   }

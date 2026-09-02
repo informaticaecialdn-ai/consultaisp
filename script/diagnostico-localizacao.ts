@@ -64,6 +64,16 @@ async function coordenadas() {
                              AND nullif(btrim(coalesce(cep,'')),'') IS NULL)::int sem_endereco
        FROM customers`);
   console.log(`  carteira: ${n(c.total)} clientes · ${n(c.sem)} sem coordenada`);
+  try {
+    const { rows: proc } = await pool.query<{ p: string | null; n: number }>(
+      `SELECT geo_precisao p, count(*)::int n FROM customers
+        WHERE latitude IS NOT NULL AND longitude IS NOT NULL AND NOT (latitude = 0 AND longitude = 0)
+        GROUP BY 1 ORDER BY 2 DESC`);
+    console.log("  procedência dos plotados: " + proc.map(r => `${r.p ?? "sem procedência (antes da coluna)"} ${n(r.n)}`).join(" · "));
+  } catch (err: any) {
+    if (err?.code === "42703") console.log(AVISO + "Coluna geo_precisao ainda não existe — a migração 0010 não rodou.");
+    else throw err;
+  }
   if (c.sem === 0) console.log(OK + "Todo mundo plotado.");
   else if (c.sem === c.sem_endereco) console.log(AVISO + `Os ${n(c.sem)} sem coordenada também não têm cidade nem CEP — só o ERP resolve.`);
   else console.log(ERRO + `${n(c.sem - c.sem_endereco)} clientes TÊM endereço e mesmo assim não foram plotados.`);

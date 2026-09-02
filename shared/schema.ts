@@ -206,6 +206,14 @@ export const customers = pgTable("customers", {
   addressHash: text("address_hash"),
   latitude: decimal("latitude", { precision: 10, scale: 7 }),
   longitude: decimal("longitude", { precision: 10, scale: 7 }),
+  /**
+   * Procedencia da coordenada — ver shared/geo-precisao.ts. `erp`, `endereco`,
+   * `logradouro`, `cep` ou `bairro` (aproximacao, desenhada translucida).
+   * Nula em ponto gravado antes da coluna existir ou de origem desconhecida.
+   * Migracao 0010. Autorizado pelo dono em 02/09/2026 ("fazer igual" ao
+   * Provedor.ai, que tem geo_precisao).
+   */
+  geoPrecisao: text("geo_precisao"),
   status: text("status").notNull().default("active"),
   paymentStatus: text("payment_status").notNull().default("current"),
   totalOverdueAmount: decimal("total_overdue_amount", { precision: 10, scale: 2 }).default("0"),

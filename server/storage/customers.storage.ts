@@ -1,5 +1,6 @@
 import { eq, and, or, gte, sql, ne } from "drizzle-orm";
 import { db } from "../db";
+import type { GeoPrecisao } from "@shared/geo-precisao";
 import {
   customers,
   providers,
@@ -189,6 +190,8 @@ export class CustomersStorage {
     cep?: string;
     latitude?: string;
     longitude?: string;
+    /** De onde a coordenada veio (shared/geo-precisao.ts). So e gravada junto com ela. */
+    geoPrecisao?: GeoPrecisao;
     totalOverdueAmount: number;
     maxDaysOverdue: number;
     overdueInvoicesCount: number;
@@ -289,6 +292,9 @@ export class CustomersStorage {
       if (data.latitude && data.longitude) {
         updateFields.latitude = data.latitude;
         updateFields.longitude = data.longitude;
+        // A procedencia acompanha a coordenada: trocar o ponto sem trocar a
+        // origem deixaria "bairro" escrito num ponto que veio do ERP.
+        updateFields.geoPrecisao = data.geoPrecisao ?? null;
       }
       /*
        * STATUS DO CONTRATO SAI DE DENTRO DO BLOCO DA DIVIDA.
@@ -339,6 +345,7 @@ export class CustomersStorage {
         cep: data.cep || null,
         latitude: data.latitude || null,
         longitude: data.longitude || null,
+        geoPrecisao: data.latitude && data.longitude ? (data.geoPrecisao ?? null) : null,
         totalOverdueAmount: String(data.totalOverdueAmount),
         maxDaysOverdue: data.maxDaysOverdue,
         overdueInvoicesCount: data.overdueInvoicesCount,

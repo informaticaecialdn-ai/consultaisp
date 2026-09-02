@@ -3,9 +3,12 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "leaflet.heat";
 import { ESTADO_META, type EstadoPonto } from "./estado-ponto";
+import { geoAproximada, GEO_PRECISAO_ROTULO, type GeoPrecisao } from "@shared/geo-precisao";
 
 export type PontoMapa = {
   id: number; nome: string; lat: number; lon: number;
+  /** Procedência da coordenada; `bairro` é aproximação (translúcido). */
+  precisao?: GeoPrecisao | null;
   estado: EstadoPonto;
   emAberto: number; atraso: number;
   bairro: string | null; cidade: string;
@@ -92,12 +95,18 @@ export type SedeMapa = { cidade: string; uf: string | null; lat: number; lon: nu
 function popupDoPonto(p: PontoMapa): string {
   const meta = ESTADO_META[p.estado];
   const local = [p.bairro ? esc(p.bairro) : null, esc(p.cidade)].filter(Boolean).join(" · ");
+  // Aproximação SEMPRE rotulada, como na referência: um endereço do bairro não
+  // é a casa, e o operador que for até lá precisa saber disso antes de sair.
+  const aproximacao = geoAproximada(p.precisao)
+    ? `<div style="font-size:11px;color:var(--gated);margin:0 0 6px">⌖ localização aproximada (${GEO_PRECISAO_ROTULO.bairro.split(" ·")[0]})</div>`
+    : "";
   return (
     `<div style="font-family:var(--font-sans);min-width:180px">` +
       `<div style="font-weight:600;font-size:13px;color:var(--text)">${esc(p.nome || "Sem nome")}</div>` +
       `<div style="font-size:11px;color:var(--text-2);margin:3px 0 7px;display:flex;align-items:center;gap:5px">` +
         `<span style="width:8px;height:8px;border-radius:50%;background:${meta.cor};display:inline-block;flex:none"></span>` +
         `${meta.label}</div>` +
+      aproximacao +
       `<div style="font-family:var(--font-mono);font-variant-numeric:tabular-nums;font-size:12px;color:var(--text)">` +
         `Dívida vencida: <b>${brl(p.emAberto)}</b></div>` +
       (p.atraso > 0
@@ -258,7 +267,10 @@ export default function MapaCarteira({
         L.circleMarker([p.lat, p.lon], {
           renderer: renderer.current!,
           radius: 6, weight: 1.5, color: "#FFFFFF",
-          fillColor: ESTADO_META[p.estado].cor, fillOpacity: 0.95,
+          fillColor: ESTADO_META[p.estado].cor,
+          // Aproximação de bairro é translúcida de propósito: rotulada, nunca
+          // disfarçada de endereço exato.
+          fillOpacity: geoAproximada(p.precisao) ? 0.55 : 0.95,
         })
           .bindPopup(popupDoPonto(p), { maxWidth: 280 })
           .addTo(camada.current!);
