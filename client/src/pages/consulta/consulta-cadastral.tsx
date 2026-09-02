@@ -395,16 +395,10 @@ export default function ConsultaCadastralPage() {
               <Configuracao integracao={integracao} />
             ) : (
               <>
-                {/* O seletor de profundidade saiu.
-                    A Completa cobrava 4 créditos por quatro datasets de parceiro
-                    que a conta NÃO tem habilitados — medido contra a API da
-                    BigDataCorp em 27/08/2026, os quatro respondem -109 DATASET
-                    NOT AVAILABLE. O provedor pagava o quádruplo e recebia
-                    exatamente o mesmo que na Padrão.
-                    Para reativar: habilitar os datasets no BDC Center, tirar o
-                    `const nivel = NIVEL_PADRAO` de server/routes/bigdata.routes.ts
-                    e voltar o seletor (está no git, neste commit). A tabela
-                    NIVEIS do backend continua com a Completa definida. */}
+                {/* Um nível só, a 1 crédito — decisão do dono em 02/09/2026
+                    ("quando tiver volume aumentamos"). O seletor de profundidade
+                    Padrão/Completa que existia está no git; a Completa saiu de
+                    NIVEIS no backend. */}
 
                 {/* Copy própria: a barra é compartilhada com a Consulta ISP, e os
                     textos padrão dela falam de rede ISP e ERP de parceiros — que
@@ -418,7 +412,7 @@ export default function ConsultaCadastralPage() {
                   inputTestId="input-consulta-search"
                   kicker="Nova consulta · CPF ou CNPJ"
                   selo="Bureau de dados cadastrais"
-                  custos={[`Consulta · ${CUSTO_EM_CREDITOS.cadastral} créditos · R$ ${CUSTO_EM_CREDITOS.cadastral},00`]}
+                  custos={[`Consulta · ${CUSTO_EM_CREDITOS.cadastral} crédito${CUSTO_EM_CREDITOS.cadastral === 1 ? "" : "s"} · R$ ${CUSTO_EM_CREDITOS.cadastral},00`]}
                   notaLegal="Consulta registrada para auditoria · LGPD art. 7º, X — proteção ao crédito"
                 />
 
@@ -532,7 +526,7 @@ export default function ConsultaCadastralPage() {
               <p className="text-[13px] text-[var(--text-muted)] mt-1 leading-relaxed">
 Bases públicas e cadastrais consolidadas, com credencial própria do seu
                 provedor — o consumo e o custo ficam separados por provedor. Cada
-                consulta usa {CUSTO_EM_CREDITOS.cadastral} créditos.
+                consulta usa {CUSTO_EM_CREDITOS.cadastral} crédito{CUSTO_EM_CREDITOS.cadastral === 1 ? "" : "s"}.
               </p>
             </div>
           </div>

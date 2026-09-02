@@ -271,9 +271,9 @@ export function registerBigdataRoutes(): Router {
       // o provedor escolhia um nivel que nao existia e esperava um dado que
       // nunca vinha. Melhor nao oferecer do que oferecer vazio.
       //
-      // O `nivel` continua no schema para nao quebrar chamador antigo, e NIVEIS
-      // segue com a Completa definida: habilitados os datasets no BDC Center,
-      // basta remover esta linha e voltar o seletor na tela.
+      // Em 02/09/2026 o dono fechou um nivel so, a 1 credito ("quando tiver
+      // volume aumentamos"): a Completa saiu de NIVEIS. O `nivel` continua no
+      // schema para nao quebrar chamador antigo; o que vale e este.
       const nivel = NIVEL_PADRAO;
       custoCreditos = NIVEIS[nivel].creditos;
 
@@ -350,7 +350,6 @@ export function registerBigdataRoutes(): Router {
           riscoFamiliar: r.riscoFamiliar,
 
 
-          riscoArea: r.riscoArea,
         validacaoTelefone: r.validacaoTelefone,
         imovel: r.imovel,
           datasetsIndisponiveis: r.datasetsIndisponiveis,
@@ -400,7 +399,6 @@ export function registerBigdataRoutes(): Router {
         riscoFamiliar: r.riscoFamiliar,
 
 
-        riscoArea: r.riscoArea,
         validacaoTelefone: r.validacaoTelefone,
         imovel: r.imovel,
         // Contagem, nao nome: "partner_quod_..." identificaria o fornecedor.

@@ -1496,7 +1496,7 @@ export default function PainelProvedorPage() {
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  {`Consulta ISP (rede colaborativa): ${CUSTO_EM_CREDITOS.isp} credito. Consulta na propria base: gratuita. Consulta cadastral: ${CUSTO_EM_CREDITOS.cadastral} creditos. Consulta SPC: ${CUSTO_EM_CREDITOS.spc} creditos.`}
+                  {`Consulta ISP (rede colaborativa): ${CUSTO_EM_CREDITOS.isp} credito. Consulta na propria base: gratuita. Consulta cadastral: ${CUSTO_EM_CREDITOS.cadastral} credito${CUSTO_EM_CREDITOS.cadastral === 1 ? "" : "s"}. Consulta SPC: ${CUSTO_EM_CREDITOS.spc} creditos.`}
                 </p>
               </Card>
             </div>

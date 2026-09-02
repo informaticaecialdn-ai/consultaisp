@@ -44,19 +44,12 @@ export const BASE_URL = process.env.BIGDATA_BASE_URL || "https://plataforma.bigd
  * Combo de credito. Uma unica requisicao traz todos — a falha de um nao
  * invalida os outros.
  *
- * PRECO POR DATASET — PRECO DA CONTA, nao o de tabela. Lido um a um da API de
- * Precos (POST /precos, gratuita) em 28/08/2026. A tabela publica cobra mais;
- * usar ela superestimava o custo em 17% e escondia margem.
- *   family_financial_risk 0,18 · family_financial_data 0,09
- *   family_social_assistance 0,09 · collections 0,07 · processes 0,07
- *   addresses_extended 0,05 · phones_extended 0,05 · emails_extended 0,05
- *   financial_data 0,05 · financial_risk 0,05 · government_debtors 0,05
- *   digital_finance_behaviors 0,05 · passages 0,05 · demographic_data 0,05
- *   professional_turnover 0,05
- *   basic_data 0,03 · historical_basic_data 0,03 · related_people 0,03
- *   related_people_addresses 0,05
- *   ------------------------------------------------------------------
- *   combo = R$ 1,14   (+ R$ 0,07 do address_risk, chamada separada = R$ 1,21)
+ * PRECO POR DATASET — PRECO DA CONTA, nao o de tabela: vive em PRECO_DA_CONTA,
+ * logo abaixo da lista, lido um a um da API de Precos (POST /precos,
+ * gratuita) em 02/09/2026. A tabela publica cobra mais; usar ela
+ * superestimava o custo em 17% e escondia margem. `custoBrl` do nivel e a
+ * SOMA dessa tabela, nao um literal — e o teste confere.
+ *   combo = R$ 0,72   (14 datasets; sem chamada separada a /enderecos)
  *
  * Cada dataset e cobrado a parte: tirar um economiza de verdade, adicionar um
  * encarece TODA consulta. Some antes de mexer, e confirme o preco em /precos —
@@ -83,21 +76,49 @@ export const BASE_URL = process.env.BIGDATA_BASE_URL || "https://plataforma.bigd
  *   8/8 e o unico historico que conhece e o auxilio emergencial de 2020-2021,
  *   extinto. O beneficio VIVO esta no bloco familiar. Ver `normalizarCapacidade`,
  *   que foi religada ANTES deste corte.
+ *
+ * ── SEIS SAIRAM EM 02/09/2026 ──────────────────────────────────────────────
+ * Varredura do catalogo inteiro da BigData contra o que o veredito e a tela
+ * de fato consomem (relatorio "Varredura BigDataCorp"). Custavam R$ 0,49 por
+ * consulta e nenhum sustentava uma decisao. O dono fechou: um nivel so, a
+ * 1 credito — "quando tiver volume aumentamos".
+ *
+ * - `address_risk` (R$ 0,07, chamada separada a /enderecos): classificacao de
+ *   comunidade do IBGE no ponto. Risco operacional do tecnico, nao de credito;
+ *   usar no veredito seria discriminacao por endereco. `riscoArea` nao tinha
+ *   consumidor no client desde 27/08.
+ * - `demographic_data` (R$ 0,05): classe social do setor censitario, nao da
+ *   pessoa. O veredito o excluia de proposito e SocialClass veio "" no payload
+ *   real. `perfil` sem consumidor no client.
+ * - `financial_data` (R$ 0,05): a faixa de renda (BIGDATA_V2) e o patrimonio
+ *   ja vem em `financial_risk.EstimatedIncomeRange` / `TotalAssets`, de onde
+ *   `renda` passa a ler. Perde-se so o historico de IR, curiosidade.
+ * - `emails_extended` (R$ 0,05): lista de e-mails sem sinal; o provedor coleta
+ *   o e-mail do lead no cadastro.
+ * - `family_financial_risk` (R$ 0,18, o mais caro do combo): score da CASA,
+ *   nao da pessoa; rendia um banner. Risco de terceiro nao pode pesar contra o
+ *   lead (LGPD art. 20). Era tambem o portao que liberava a lista nominal do
+ *   domicilio — sem ele os nomes nao sao mais liberados por esse caminho; o
+ *   que continua identificando alguem e a coincidencia com o endereco de
+ *   instalacao, em cruzarDomicilio, que e o gatilho que se justifica.
+ * - `family_social_assistance` (R$ 0,09): beneficio do domicilio em reais.
+ *   Leitura, nunca decisao; virar motivo seria discriminacao. `pessoasNaCasa`
+ *   passa a vir de `family_financial_data.TotalEntities`, melhor esforco.
  */
 export const DATASETS = [
   // Identidade
   "basic_data",
   // Contato e vinculo com endereco
-  "addresses_extended", "phones_extended", "emails_extended",
-  // Capacidade de pagar
-  "financial_data", "financial_risk",
+  "addresses_extended", "phones_extended",
+  // Capacidade de pagar: faixa de renda, patrimonio, empregado hoje, nivel A-H
+  "financial_risk",
   // Inadimplencia
   "collections", "processes", "government_debtors",
   // Comportamento e rastro
   "digital_finance_behaviors", "passages", "historical_basic_data",
   // Estabilidade de renda e perfil. Renda em faixa diz QUANTO a pessoa ganha;
   // rotatividade diz se ela vai continuar ganhando nos 12 meses do contrato.
-  "professional_turnover", "demographic_data",
+  "professional_turnover",
 
   // `related_people_addresses` e a peca que faltava para a fraude que o setor
   // de fato sofre: o parente que reinstala no mesmo imovel depois do calote,
@@ -122,45 +143,53 @@ export const DATASETS = [
   // — mais o endereco e o vinculo. Entra no dia em que houver o cruzamento do
   // CEP+numero da instalacao contra esses enderecos; antes disso e so custo.
   "related_people",
-  // `family_financial_risk` da o score da CASA, nao da pessoa, com a
-  // distribuicao A-H dos membros. Titular B numa casa com dois E le diferente.
-  // E o portao que libera a lista nominal do domicilio sob LGPD.
-  "family_financial_risk",
   // `family_financial_data` responde a pergunta que o provedor de fato faz:
   // sobra dinheiro para a mensalidade? Devolve MonthlyFreeBudgetRange (o que
   // sobra depois das despesas), MonthlyExpenseRange, DependentsNumber,
   // IsHouseholder e MainIncomeSource. Renda bruta diz quanto entra; isto diz
   // quanto resta — e e o que decide um plano de R$ 100.
   "family_financial_data",
-  // `family_social_assistance` e a UNICA fonte de beneficio social depois do
-  // corte do individual. O que vale nele nao e o
-  // AssistanceIncomePercentageRange que a justificativa antiga citava — esse
-  // veio "SEM INFORMACAO" em 8/8 — e sim AssistancesIncomeHistory, em reais
-  // (R$ 600 no trimestre, R$ 4.200 em 12 meses num domicilio de Ibipora),
-  // TotalCurrentBeneficiaries e TotalMembers, que e o tamanho do domicilio.
-  "family_social_assistance",
 ] as const;
 
 /**
- * Bureau de mercado do nivel COMPLETA. R$ 1,80 sobre a base (preco DA CONTA,
- * medido na API de Precos em 2026-08-26 — abaixo da tabela publica de R$ 3,02).
- * Estes datasets respondem SOMENTE no endpoint /marketplace.
- *
- * `..._details_person` e superconjunto de `partner_quod_credit_risk_person`
- * (R$ 1,21): os dois devolvem o envelope QUODCreditRiskPerson, e o de detalhes
- * traz valor da divida, protestos e consultas por segmento alem dos booleanos.
- * Pedir os dois pagaria duas vezes pelo mesmo envelope.
- *
- * `partner_quod_credit_score_person` (R$ 2,41) tambem ficou de fora: entrega um
- * score, e o Quantum entrega score por R$ 0,61.
+ * Preco DA CONTA de cada dataset do combo, em reais, medido um a um em
+ * POST /precos em 02/09/2026. E daqui que sai `custoBrl` — some, nao chute.
+ * Ao trocar um dataset, meca o preco e atualize esta tabela junto.
  */
-const DATASETS_COMPLETA = [
-  // R$ 2,41 — divida em reais, negativacoes ativas/quitadas, protestos,
-  // consultas em 30/60/90 dias e por segmento do mercado.
-  "partner_quod_credit_risk_details_person",
-  // R$ 0,61 — score 0-999 de inadimplencia. O mais barato do marketplace.
-  "partner_quantum_custom_score_person",
-] as const;
+export const PRECO_DA_CONTA: Record<(typeof DATASETS)[number], number> = {
+  basic_data: 0.03,
+  addresses_extended: 0.05,
+  phones_extended: 0.05,
+  financial_risk: 0.05,
+  collections: 0.07,
+  processes: 0.07,
+  government_debtors: 0.05,
+  digital_finance_behaviors: 0.05,
+  passages: 0.05,
+  historical_basic_data: 0.03,
+  professional_turnover: 0.05,
+  related_people_addresses: 0.05,
+  related_people: 0.03,
+  family_financial_data: 0.09,
+};
+
+/** Soma de PRECO_DA_CONTA, em centavos, para nao acumular erro de ponto flutuante. */
+export function custoDoCombo(datasets: readonly (keyof typeof PRECO_DA_CONTA)[]): number {
+  return datasets.reduce((c, d) => c + Math.round(PRECO_DA_CONTA[d] * 100), 0) / 100;
+}
+
+/**
+ * A COMPLETA saiu em 02/09/2026. Era Padrao + partner_quod_credit_risk_details_person
+ * (R$ 1,20) + partner_quantum_custom_score_person (R$ 0,60) + sondas de
+ * telefone e imovel: 4 creditos por datasets que a conta nunca teve
+ * habilitados (-109 desde 27/08). O dono fechou um nivel so, a 1 credito —
+ * "quando tiver volume aumentamos". Os parsers (normalizarMercado,
+ * normalizarTelefoneValidado, normalizarImovel) ficam prontos; os nomes estao
+ * em DATASETS_FORA_DE_USO para nao voltarem por acidente. Se um nivel com
+ * bureau voltar, o Quod detalhado e o que vale — e o parser precisa passar a
+ * ler NegativeAppointmentsDetails[].Nature (TI/TF/TM = divida com internet ou
+ * telefonia), que hoje ignora; o Quantum e score opaco que nao explica motivo.
+ */
 
 
 /**
@@ -188,37 +217,39 @@ export const DATASETS_FORA_DE_USO = [
   "partner_scorepositivo_individual_finance",
   "partner_boavista_one_score_person",
   "partner_boavista_credit_score_person",
+  // Eram a Completa, que saiu em 02/09/2026 (um nivel so).
+  "partner_quod_credit_risk_details_person",
+  "partner_quantum_custom_score_person",
+  // Nativos cortados em 02/09/2026 — ver o bloco "SEIS SAIRAM" acima.
+  "address_risk",
+  "demographic_data",
+  "financial_data",
+  "emails_extended",
+  "family_financial_risk",
+  "family_social_assistance",
 ] as const;
 
-export type NivelConsulta = "padrao" | "completa";
+export type NivelConsulta = "padrao";
 
 /**
- * Os tres niveis de consulta. O provedor escolhe a cada busca.
+ * Um nivel so — decisao do dono em 02/09/2026: "vamos deixar apenas esse
+ * cobrando R$ 1,00 ou 1 credito; quando tiver volume aumentamos". A tabela
+ * continua sendo um Record para o dia em que um nivel com bureau voltar.
  *
- * `creditos` e quanto sai do saldo do provedor. `custoBrl` e o que a BigData
- * cobra de nos, somando o preco de cada dataset mais R$ 0,07 do address_risk
- * (chamada separada a /enderecos).
- *
- * MEDIR, NAO ESTIMAR: `POST /precos` e gratuita e devolve o preco DA CONTA.
- * Mandar a lista de datasets em `Datasets` retorna `ComputedPrice` com o total
- * exato. Foi assim que se descobriu que a tabela publica superestimava o custo
- * em 17%. Rode ela antes de mexer aqui; nao volte a copiar preco da doc.
- *
- * A margem vive na diferenca entre o preco do credito e `custoBrl`. Quem define
- * o preco e BIGDATA_CREDIT_PACKAGES (shared/schema.ts), nao esta tabela.
+ * `creditos` e quanto sai do saldo do provedor (CUSTO_EM_CREDITOS, o unico
+ * lugar onde o preco existe). `custoBrl` e o que a BigData cobra de nos: a
+ * SOMA de PRECO_DA_CONTA, medida em POST /precos — nunca um literal copiado
+ * da doc. A margem vive na diferenca: R$ 1,00 − R$ 0,72 = R$ 0,28 (28%),
+ * apertada de proposito.
  */
 export const NIVEIS: Record<NivelConsulta, {
   rotulo: string;
   descricao: string;
   datasets: readonly string[];
   /**
-   * Sondas por entidade da Completa: validam o telefone principal
-   * (partner_telesign_phone_id_standard_person, R$ 0,10 — linha ativa,
-   * operadora real pos-portabilidade, tipo) e o imovel do endereco principal
-   * (partner_rede_vistorias_address, R$ 0,25 — tipologia, area, comodos).
-   * Ficam FORA de `datasets` porque o `q` delas nao e doc{cpf}: sao chamadas
-   * proprias ao /marketplace com phone{...} e zipcode{...},addressnumber{...},
-   * melhor-esforco como o address_risk — falha nao derruba nem estorna.
+   * Sondas por entidade (telefone principal na Telesign, imovel na Rede
+   * Vistorias). Ficam FORA de `datasets` porque o `q` delas nao e doc{cpf}.
+   * Desligadas enquanto o unico nivel nao as inclui.
    */
   sondas: boolean;
   creditos: number;
@@ -226,34 +257,11 @@ export const NIVEIS: Record<NivelConsulta, {
 }> = {
   padrao: {
     rotulo: "Padrão",
-    descricao: "Receita, endereço, renda, cobranças e processos",
+    descricao: "Receita, endereço, renda, cobranças, processos e domicílio",
     datasets: DATASETS,
     sondas: false,
-    // R$ 2,00, porque o credito vale R$ 1,00. Vem de CUSTO_EM_CREDITOS e nao de
-    // um literal aqui: numero de preco duplicado e numero que um dia diverge, e
-    // divergir aqui significa cobrar diferente do que a tela anunciou.
     creditos: CUSTO_EM_CREDITOS.cadastral,
-    /**
-     * R$ 1,14 dos 19 datasets + R$ 0,07 do address_risk (chamada a /enderecos).
-     *
-     * Preco DA CONTA, medido em `POST /precos` em 28/08/2026 — nao e a tabela
-     * publica. Antes deste valor havia R$ 1,69 aqui, copiado da doc: R$ 0,24
-     * acima do real, o que escondia 10 pontos de margem.
-     *
-     * MARGEM (credito vendido de R$ 2,50 no pacote de 50 a R$ 2,00 no de 500):
-     * sobra R$ 1,29 na entrada, 52%, e R$ 0,79 no pacote maior, 40%. Confortavel
-     * — mas cada dataset acrescentado ao combo come margem de TODA consulta.
-     */
-    custoBrl: 1.21,
-  },
-  completa: {
-    rotulo: "Completa",
-    descricao: "Padrão + negativação, dívida, protestos, score de mercado, linha do telefone e imóvel",
-    datasets: [...DATASETS, ...DATASETS_COMPLETA],
-    sondas: true,
-    creditos: 4,
-    // Padrao (0,88) + parceiros doc{cpf} (1,80) + sondas de telefone e imovel (0,35).
-    custoBrl: 3.03,
+    custoBrl: custoDoCombo(DATASETS),
   },
 };
 
@@ -438,46 +446,6 @@ function normalizarRenda(fin: any): RendaDetalhada {
   };
 }
 
-/**
- * Risco de area pela coordenada. Chamada separada, na API de enderecos.
- * Nao e risco de credito: e risco OPERACIONAL — seguranca do tecnico e chance
- * de o equipamento nao voltar. Nenhum bureau responde essa pergunta.
- *
- * O parametro exige COLCHETES: latlong[lat,lon]. Com chaves a API devolve -131.
- */
-async function consultarRiscoArea(
-  headers: Record<string, string>, enderecos: EnderecoDetalhado[],
-): Promise<RiscoArea[]> {
-  // So o principal. Cada coordenada custa R$ 0,07 (medido na API de precos da
-  // conta), entao tres enderecos triplicariam esse pedaco da consulta. O
-  // principal e o mais provavel de ser o de instalacao; subir para 2 ou 3 e
-  // mudar este slice.
-  const comCoord = enderecos.filter(e => e.lat != null && e.lon != null).slice(0, 1);
-  const saida: RiscoArea[] = [];
-
-  for (const e of comCoord) {
-    try {
-      const r = await fetch(`${BASE_URL}/enderecos`, {
-        method: "POST", headers,
-        body: JSON.stringify({
-          Datasets: "address_risk", q: `latlong[${e.lat},${e.lon}]`, Limit: 1,
-        }),
-      });
-      const d: any = await r.json();
-      const bloco = d?.Result?.[0]?.AddressRiskData;
-      if (d?.Status?.address_risk?.[0]?.Code === 0 && bloco) {
-        saida.push({
-          endereco: [e.logradouro, e.numero, e.cidade].filter(Boolean).join(", "),
-          ponto: bloco.Point,
-          raio100m: bloco.Radius100m,
-        });
-      }
-    } catch {
-      // Melhor esforco: risco de area e complemento, nao pode derrubar a consulta.
-    }
-  }
-  return saida;
-}
 
 /**
  * Valida o telefone principal no bureau de telefonia. So o principal: cada
@@ -775,7 +743,9 @@ export function normalizarCapacidade(ffd: any, fsa: any): Capacidade {
     ehDependente: typeof f.IsLikelyDependent === "boolean" ? f.IsLikelyDependent : undefined,
     origemRenda: txt(f.MainIncomeSource),
     rendaMediaFamiliar: txt(s.FamilyAvgIncomeRange),
-    pessoasNaCasa: n(s.TotalMembers),
+    // `family_social_assistance` saiu do combo em 02/09/2026; o tamanho da casa
+    // passa a vir de `family_financial_data.TotalEntities` (melhor esforco).
+    pessoasNaCasa: n(s.TotalMembers) || n(f.TotalEntities),
     recebeBeneficio: recebendoAgora > 0,
     beneficiariosNaFamilia: recebendoAgora,
     beneficiariosHistoricos: n(s.TotalBeneficiaries),
@@ -989,8 +959,9 @@ export interface Rastro {
 export interface Domicilio {
   totalRelacionados: number;
   /**
-   * Quantos vivem no mesmo domicilio. Vem de `family_social_assistance`
-   * (`TotalMembers`), NAO de `related_people.TotalHousehold` — esse veio zero
+   * Quantos vivem no mesmo domicilio. Vem de `family_financial_data`
+   * (`TotalEntities`; ate 02/09/2026 era `family_social_assistance.TotalMembers`,
+   * que saiu do combo), NAO de `related_people.TotalHousehold` — esse veio zero
    * em 8 de 8 medicoes. Ver `normalizarDomicilio`.
    */
   noDomicilio: number;
@@ -1056,13 +1027,6 @@ export interface RiscoFamiliar {
   piorFaixa?: string;
 }
 
-
-/** Area do endereco: 1 e comunidade setorizada, 3 e sem comunidade delimitada. */
-export interface RiscoArea {
-  endereco: string;
-  ponto?: number;
-  raio100m?: number;
-}
 
 /**
  * Validacao viva do telefone principal. Diferente do `phones_extended`, que e
@@ -1276,9 +1240,7 @@ export interface ResultadoConsulta {
   riscoFamiliar: RiscoFamiliar;
   /** O que sobra para a mensalidade, e quanto disso vem de beneficio. */
   capacidade: Capacidade;
-  /** Preenchido em chamada separada a /enderecos; vazio quando falha. */
-  riscoArea: RiscoArea[];
-  /** Sondas da Completa. null quando o nivel nao as inclui ou o bureau falhou. */
+  /** Sondas de telefone e imovel. null enquanto nenhum nivel as inclui. */
   validacaoTelefone: ValidacaoTelefone | null;
   imovel: Imovel | null;
   /** Tabela de processos individuais, modelo relatorio de bureau. */
@@ -1372,7 +1334,13 @@ export async function consultarCpf(
 
   const R = d?.Result?.[0] ?? {};
   const basic = R.BasicData ?? {};
-  const fin = R.FinantialData ?? {};
+  // `financial_data` saiu do combo em 02/09/2026: a faixa de renda e o
+  // patrimonio vem de `financial_risk`, que ja pagavamos. Um payload antigo
+  // (ou um combo futuro) que traga FinantialData continua valendo.
+  const fin = R.FinantialData ?? {
+    IncomeEstimates: { BIGDATA_V2: R.FinancialRisk?.EstimatedIncomeRange },
+    TotalAssets: R.FinancialRisk?.TotalAssets,
+  };
   const enderecos = normalizarEnderecos(R.ExtendedAddresses);
   const telefones = normalizarTelefones(R.ExtendedPhones);
   const emails: string[] = (Array.isArray(R.ExtendedEmails?.Emails) ? R.ExtendedEmails.Emails : [])
@@ -1396,9 +1364,10 @@ export async function consultarCpf(
   const ocupacao = normalizarOcupacao(R.ProfessionalTurnover);
   const perfil = normalizarPerfil(R.DemographicData);
   const mercado = normalizarMercado(R);
-  // Risco da familia primeiro: e ele que decide se os nomes do domicilio podem
-  // ser revelados. Sem ocorrencia entre os relacionados, a lista fica em
-  // contagem — ver normalizarDomicilio.
+  // `family_financial_risk` saiu do combo em 02/09/2026: sem ele `emCobranca`
+  // e zero e os nomes do domicilio nunca sao liberados por este caminho. O que
+  // ainda identifica alguem e a coincidencia com o endereco de instalacao, em
+  // cruzarDomicilio. O normalizador fica para payloads antigos.
   const riscoFamiliar = normalizarRiscoFamiliar(R.FamilyFinancialRisk);
   // Capacidade antes de domicilio: e dela que sai o tamanho da casa
   // (`TotalMembers` do bloco familiar), que o domicilio agora consome.
@@ -1487,15 +1456,15 @@ export async function consultarCpf(
     ocupacao,
     perfil,
     mercado,
-    // As tres sondas por entidade em paralelo: dependem dos enderecos e
-    // telefones da resposta principal, mas nao umas das outras.
+    // As duas sondas por entidade em paralelo: dependem dos enderecos e
+    // telefones da resposta principal, mas nao uma da outra. Desligadas
+    // enquanto o unico nivel nao as inclui.
     ...(await (async () => {
-      const [riscoArea, validacaoTelefone, imovel] = await Promise.all([
-        consultarRiscoArea(headersUsados, enderecos),
+      const [validacaoTelefone, imovel] = await Promise.all([
         NIVEIS[nivel].sondas ? validarTelefonePrincipal(headersUsados, telefones) : null,
         NIVEIS[nivel].sondas ? qualificarImovelPrincipal(headersUsados, enderecos) : null,
       ]);
-      return { riscoArea, validacaoTelefone, imovel };
+      return { validacaoTelefone, imovel };
     })()),
     datasetsIndisponiveis,
     bruto: d,

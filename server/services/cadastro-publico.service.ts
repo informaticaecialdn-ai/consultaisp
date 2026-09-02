@@ -8,7 +8,7 @@
  * custo e por TENTATIVA:
  *
  *   CNPJ, recorte de onboarding .... R$ 0,21   (/empresas, 4 datasets)
- *   CPF ............................ R$ 1,09   (/pessoas)
+ *   CPF ............................ R$ 0,72   (/pessoas)
  *
  * Entao a economia da rota e: TUDO que for de graca acontece antes, e o que
  * custa so roda depois que o barato ja aprovou.
@@ -360,7 +360,7 @@ export type RespostaResponsavel =
  * societario da mesma empresa e prova suficiente para o cadastro.
  *
  * Isso vale mais que economia de digitacao. E a diferenca entre "quem tiver um
- * passe consulta qualquer CPF por R$ 1,09" e "so socio daquele CNPJ dispara a
+ * passe consulta qualquer CPF por R$ 0,72" e "so socio daquele CNPJ dispara a
  * consulta" — e a checagem custa zero, porque o quadro societario ja vem junto
  * com o CNPJ que a etapa 1 buscou.
  */
@@ -394,7 +394,7 @@ export async function buscarResponsavel(
 
   /**
    * O CPF precisa pertencer ao quadro societario do CNPJ da etapa 1 — e a
-   * ultima porteira gratuita antes da consulta de R$ 1,09.
+   * ultima porteira gratuita antes da consulta de R$ 0,72.
    *
    * Empresa SEM quadro societario (MEI, empresario individual) passa direto:
    * nao ha contra quem conferir, e barrar fecharia a porta para metade dos
@@ -420,7 +420,7 @@ export async function buscarResponsavel(
   }
 
   try {
-    // R$ 1,09 — a mais cara das duas. Ja passou pelo passe da etapa 1 e pelo
+    // R$ 0,72 — a mais cara das duas. Ja passou pelo passe da etapa 1 e pelo
     // digito verificador; e por isso que ela e a ultima da fila.
     logger.info({ evento: "cadastro.consulta", tipo: "cpf" }, "onboarding consultou CPF na BigDataCorp");
 

@@ -662,11 +662,12 @@ export const CREDIT_PACKAGES = [
  *
  * - `isp` (R$ 1,00): consulta a rede colaborativa. Custo nosso e proximo de
  *   zero — e banco proprio, sem bureau externo.
- * - `cadastral` (R$ 2,00): BigDataCorp. Custa R$ 1,21 de 19 datasets mais o
- *   risco de area (preco DA CONTA, medido em POST /precos em 28/08/2026).
- *   Margem de R$ 0,79, 40%. Ao mexer no combo em
+ * - `cadastral` (R$ 1,00): BigDataCorp. Custa R$ 0,72 de 14 datasets (preco
+ *   DA CONTA, medido em POST /precos em 02/09/2026). Margem de R$ 0,28, 28%,
+ *   apertada de proposito — decisao do dono em 02/09/2026: "um nivel so,
+ *   cobrando 1 credito; quando tiver volume aumentamos". Ao mexer no combo em
  *   server/services/bigdata.service.ts, refaca essa conta: cada dataset e
- *   cobrado a parte.
+ *   cobrado a parte, e PRECO_DA_CONTA la e a fonte.
  * - `spc` (R$ 3,00): SPC Brasil. Continua o mais caro dos tres porque o bureau
  *   cobra mais e a consulta e negativacao formal. Baixado de 4 para 3 por
  *   decisao do dono em 31/08/2026.
@@ -677,7 +678,7 @@ export const CREDIT_PACKAGES = [
  */
 export const CUSTO_EM_CREDITOS = {
   isp: 1,
-  cadastral: 2,
+  cadastral: 1,
   spc: 3,
 } as const;
 

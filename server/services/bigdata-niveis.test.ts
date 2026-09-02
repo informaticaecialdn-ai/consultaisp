@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  NIVEIS, NIVEL_PADRAO, DATASETS, DATASETS_FORA_DE_USO, extrasDoNivel, normalizarPerfil, normalizarTelefoneValidado, normalizarImovel, normalizarProcessosDetalhe,
+  NIVEIS, NIVEL_PADRAO, DATASETS, DATASETS_FORA_DE_USO, PRECO_DA_CONTA, custoDoCombo, extrasDoNivel, normalizarPerfil, normalizarTelefoneValidado, normalizarImovel, normalizarProcessosDetalhe,
   type NivelConsulta,
 } from "./bigdata.service";
 
@@ -71,13 +71,14 @@ describe("níveis de consulta", () => {
     }
   });
 
-  it("extrasDoNivel isola o que cada nível cobra além do padrão", () => {
+  it("extrasDoNivel isola o que cada nível cobra além do padrão — hoje, nada", () => {
     expect(extrasDoNivel(NIVEL_PADRAO)).toEqual([]);
-    const extras = extrasDoNivel("completa");
-    expect(extras.length).toBeGreaterThan(0);
-    // Só bureau pago pode ser extra; nativo já está no padrão.
-    expect(extras.every(d => d.startsWith("partner_"))).toBe(true);
-    for (const d of extras) expect(DATASETS.includes(d as any)).toBe(false);
+    for (const id of IDS) {
+      const extras = extrasDoNivel(id);
+      // Só bureau pago pode ser extra; nativo já está no padrão.
+      expect(extras.every(d => d.startsWith("partner_"))).toBe(true);
+      for (const d of extras) expect(DATASETS.includes(d as any)).toBe(false);
+    }
   });
 
   it("os créditos cobrados cobrem o custo da BigData", () => {
@@ -95,6 +96,20 @@ describe("níveis de consulta", () => {
     for (const id of IDS) {
       expect(NIVEIS[id].rotulo.length).toBeGreaterThan(0);
       expect(NIVEIS[id].descricao.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("o custo do padrão é a soma medida dos 14 datasets — R$ 0,72 em 02/09/2026", () => {
+    expect(NIVEIS.padrao.datasets).toHaveLength(14);
+    expect(custoDoCombo(DATASETS)).toBe(0.72);
+    expect(NIVEIS.padrao.custoBrl).toBe(custoDoCombo(DATASETS));
+    for (const d of DATASETS) expect(PRECO_DA_CONTA[d], d).toBeGreaterThan(0);
+  });
+
+  it("o padrão custa 1 crédito e os seis cortados em 02/09/2026 não voltaram", () => {
+    expect(NIVEIS.padrao.creditos).toBe(1);
+    for (const fora of ["address_risk", "demographic_data", "financial_data", "emails_extended", "family_financial_risk", "family_social_assistance"]) {
+      expect(DATASETS as readonly string[], fora).not.toContain(fora);
     }
   });
 });
@@ -203,9 +218,8 @@ describe("normalizarImovel (qualificação de endereço)", () => {
 });
 
 describe("sondas por nível", () => {
-  it("só a Completa liga as sondas de telefone e imóvel", () => {
+  it("o padrão não liga as sondas de telefone e imóvel", () => {
     expect(NIVEIS.padrao.sondas).toBe(false);
-    expect(NIVEIS.completa.sondas).toBe(true);
   });
 
   it("os datasets das sondas não entram na lista principal — o q deles não é doc{cpf}", () => {

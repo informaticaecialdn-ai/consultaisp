@@ -371,7 +371,7 @@ export default function LandingPage() {
                 <span className="flex items-center gap-2 text-sm text-[var(--color-ink)]">
                   <CheckCircle2 className="w-4 h-4 text-[var(--color-brand)] flex-shrink-0"/>Consulta cadastral (dados do CPF/CNPJ)
                 </span>
-                <span className="text-sm font-bold text-[var(--color-brand)]">{CUSTO_EM_CREDITOS.cadastral} creditos</span>
+                <span className="text-sm font-bold text-[var(--color-brand)]">{CUSTO_EM_CREDITOS.cadastral} credito{CUSTO_EM_CREDITOS.cadastral === 1 ? "" : "s"}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 text-sm text-[var(--color-ink)]">
