@@ -317,7 +317,7 @@ export default function ConsultaSPCPage() {
               <Info className="w-5 h-5 text-[var(--color-brand)] mt-0.5 flex-shrink-0" />
               <p className="text-sm text-muted-foreground">
                 <span className="font-semibold text-foreground">Consulta Oficial SPC:</span> Cada consulta consome{" "}
-                <span className="font-bold text-[var(--color-brand)]">{CUSTO_EM_CREDITOS.spc} creditos</span> e retorna dados cadastrais, score, restricoes financeiras, protestos e historico de consultas.
+                <span className="font-bold text-[var(--color-brand)]">{CUSTO_EM_CREDITOS.spc} creditos</span> e retorna, pelo produto SPC MIX TOP +: situação do CPF ou CNPJ, registros de inadimplência no SPC, cheques devolvidos e CCF, alertas de documento e quem consultou o documento nos últimos 90 dias.
               </p>
             </div>
 
@@ -326,7 +326,7 @@ export default function ConsultaSPCPage() {
                 <ConsultaIdleState
                   totalConsultas={(data?.consultations ?? []).length}
                   emptyTitle="Nenhuma consulta SPC ainda"
-                  emptyDescription={`A consulta oficial no SPC Brasil retorna dados cadastrais, restrições financeiras, protestos e score. Cada consulta consome ${CUSTO_EM_CREDITOS.spc} créditos.`}
+                  emptyDescription={`A consulta oficial no SPC Brasil (produto SPC MIX TOP +) retorna situação cadastral, registros de inadimplência, cheques devolvidos, alertas de documento e quem consultou o documento. Cada consulta consome ${CUSTO_EM_CREDITOS.spc} créditos.`}
                   emptyCta="FAZER PRIMEIRA CONSULTA"
                   searchInputTestId="input-spc-search"
                 />
@@ -698,7 +698,7 @@ export default function ConsultaSPCPage() {
                     <span className="font-bold text-[var(--color-brand)]">2.</span>
                     <div>
                       <p className="font-medium text-foreground">Consulta SPC (completa)</p>
-                      <p className="text-xs">Confirma situacao financeira geral. Score + restricoes + historico.</p>
+                      <p className="text-xs">Confirma a negativação formal no SPC: registros de inadimplência, cheques devolvidos e quem consultou. Sem score neste produto.</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-3 p-3 bg-[var(--color-success-bg)] rounded-lg">
