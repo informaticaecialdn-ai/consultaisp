@@ -467,3 +467,86 @@ export async function carregarCaixasMunicipio(
   }
   return mapa;
 }
+
+/**
+ * Centro de cada bairro segundo o censo de endereços (CNEFE): a mediana da
+ * latitude e da longitude de todos os endereços do bairro.
+ *
+ * É a âncora do mapa da rede (rede-regional.service.ts). Antes a bolha do
+ * bairro ficava na mediana das coordenadas dos ex-clientes, e em Londrina os
+ * 206 bairros caíram no mesmo quarteirão — as coordenadas vinham do sync
+ * antigo, que caía no centro da cidade com ruído. O censo não tem esse
+ * problema: é público, cobre o município inteiro e não é a casa de ninguém.
+ *
+ * Chave do mapa: cidade na régua de `normalizarLocalidade` ("LONDRINA"), que
+ * é como `geo_hps_bairro.cidade_norm` liga o nome da cidade ao código IBGE.
+ * Cache em memória por 6h: o censo não muda entre duas requisições.
+ */
+export interface CentroideBairro {
+  /** Bairro na régua do CNEFE: "UNIAO DA VITORIA". */
+  bairroNorm: string;
+  lat: number;
+  lon: number;
+  /** Quantos endereços do censo sustentam o centro. */
+  enderecos: number;
+}
+export type CentroidesPorCidade = Map<string, CentroideBairro[]>;
+
+const CENTROIDES_TTL_MS = 6 * 60 * 60 * 1000;
+const centroidesCache = new Map<string, { em: number; lista: CentroideBairro[] }>();
+
+/** Só para os testes: esvazia o cache. */
+export function _limparCacheDeCentroidesParaTestes(): void {
+  centroidesCache.clear();
+}
+
+export async function carregarCentroidesDeBairro(cidadesNorm: string[]): Promise<CentroidesPorCidade> {
+  const mapa: CentroidesPorCidade = new Map();
+  const agora = Date.now();
+  const faltam: string[] = [];
+  for (const c of Array.from(new Set(cidadesNorm.filter(Boolean)))) {
+    const hit = centroidesCache.get(c);
+    if (hit && agora - hit.em < CENTROIDES_TTL_MS) mapa.set(c, hit.lista);
+    else faltam.push(c);
+  }
+  if (faltam.length === 0) return mapa;
+
+  let rows: Array<{ cidade_norm: string; bairro_norm: string; n: string; lat: string; lon: string }>;
+  try {
+    ({ rows } = await pool.query(
+      `WITH municipios AS (
+         SELECT DISTINCT cidade_norm, municipio_ibge
+           FROM geo_hps_bairro
+          WHERE cidade_norm = ANY($1::text[])
+       )
+       SELECT m.cidade_norm, e.bairro_norm, count(*) AS n,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY e.latitude::float)  AS lat,
+              percentile_cont(0.5) WITHIN GROUP (ORDER BY e.longitude::float) AS lon
+         FROM municipios m
+         JOIN geo_endereco e ON e.municipio_ibge = m.municipio_ibge
+        WHERE e.bairro_norm IS NOT NULL AND e.bairro_norm <> ''
+        GROUP BY m.cidade_norm, e.bairro_norm`,
+      [faltam],
+    ));
+  } catch (err: any) {
+    // Bases públicas ainda não carregadas: o mapa da rede cai na carteira, e a
+    // tela diz de onde veio a âncora.
+    if (err?.code === "42P01") return mapa;
+    throw err;
+  }
+
+  const porCidade = new Map<string, CentroideBairro[]>();
+  for (const r of rows) {
+    const lat = Number(r.lat), lon = Number(r.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    let lista = porCidade.get(r.cidade_norm);
+    if (!lista) { lista = []; porCidade.set(r.cidade_norm, lista); }
+    lista.push({ bairroNorm: r.bairro_norm, lat, lon, enderecos: Number(r.n) });
+  }
+  for (const c of faltam) {
+    const lista = porCidade.get(c) ?? [];
+    centroidesCache.set(c, { em: agora, lista });
+    mapa.set(c, lista);
+  }
+  return mapa;
+}

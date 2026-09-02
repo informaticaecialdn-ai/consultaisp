@@ -51,6 +51,8 @@ export type BairroRede = {
   bairro: string; cidade: string;
   ocorrencias: number; dividaTotal: number; provedores: number;
   lat: number | null; lon: number | null;
+  /** ibge = centro do bairro pelo censo de endereços; carteira = mediana das coordenadas confiáveis. */
+  ancora?: "ibge" | "carteira" | null;
 };
 
 /** Ponto individual da rede — coordenada deslocada no servidor. */
@@ -254,7 +256,9 @@ export default function MapaCarteira({
             `<b>${esc(b.bairro)}</b><br>${esc(b.cidade)}<br>` +
             `${b.ocorrencias} ${b.ocorrencias === 1 ? "caso" : "casos"} · ${brl(b.dividaTotal)} em aberto<br>` +
             `<span style="opacity:.7">${b.provedores} ${b.provedores === 1 ? "provedor" : "provedores"} · ` +
-            `sem identificação de cliente</span>`,
+            `sem identificação de cliente</span>` +
+            (b.ancora === "ibge" ? `<br><span style="opacity:.7">bolha no centro do bairro (IBGE CNEFE 2022)</span>`
+              : b.ancora === "carteira" ? `<br><span style="opacity:.7">bolha na mediana das ocorrências com endereço conhecido</span>` : ""),
           )
           .bindTooltip(`${b.bairro} · ${b.ocorrencias}`, { direction: 'top', offset: [0, -6] })
           .addTo(camada.current!);

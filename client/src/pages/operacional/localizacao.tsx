@@ -183,7 +183,7 @@ export default function LocalizacaoPage() {
   // provedor atende. É o desenho do modo regionalização, e só é buscado quando
   // esse modo está ligado.
   const { data: redeRegional, isFetching: redeRegionalCarregando } = useQuery<{
-    bairros: BairroRede[]; pontos: PontoRedeItem[]; ocultas: number; semArea: boolean; minPorBairro: number;
+    bairros: BairroRede[]; pontos: PontoRedeItem[]; ocultas: number; semPonto?: number; semArea: boolean; minPorBairro: number;
   }>({
     queryKey: ["/api/localizacao/rede"],
     enabled: modo === 'regionalizacao',
@@ -620,11 +620,15 @@ export default function LocalizacaoPage() {
                         Cada ponto é uma ocorrência, com o local <strong>aproximado</strong> — a coordenada
                         é deslocada em até ~150m, o bastante para tirar o número da casa e manter a quadra.
                         Só aparecem bairros com {num(redeRegional?.minPorBairro ?? 3)} ou mais casos.
+                        {(redeRegional?.semPonto ?? 0) > 0 && (
+                          <> {num(redeRegional!.semPonto!)} {redeRegional!.semPonto === 1 ? "ocorrência não tem" : "ocorrências não têm"} coordenada
+                          de procedência conhecida e {redeRegional!.semPonto === 1 ? "entra" : "entram"} só na bolha do bairro.</>
+                        )}
                       </>
                     ) : (
                       <>
-                        Somados <strong>por bairro</strong>: cada bolha é o conjunto do bairro, nenhum
-                        cliente aparece sozinho, e um bairro só entra com{" "}
+                        Somados <strong>por bairro</strong>: cada bolha fica no <strong>centro do bairro</strong> pelo
+                        censo de endereços do IBGE, nenhum cliente aparece sozinho, e um bairro só entra com{" "}
                         {num(redeRegional?.minPorBairro ?? 3)} ou mais casos.
                       </>
                     )}
