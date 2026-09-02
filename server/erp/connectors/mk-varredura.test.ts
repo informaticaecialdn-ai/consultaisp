@@ -70,8 +70,13 @@ function servidorFake(faixas: Record<number, any[] | "falha">) {
       return { ok: true, status: 200, json: async () => ({ Clientes: resposta }) } as any;
     }
 
+    // Todo cliente da fixture tem um contrato ativo na V2: a porteira da base
+    // (mk-contratos.test.ts) nao e o assunto deste arquivo.
+    if (u.includes("WSMKContratosPorClienteV2")) {
+      return { ok: true, status: 200, json: async () => ([{ codcontrato: 1, status_contrato: "Ativo" }]) } as any;
+    }
     if (u.includes("WSMKContratosPorCliente")) {
-      return { ok: true, status: 200, json: async () => ({ ContratosAtivos: [] }) } as any;
+      return { ok: true, status: 200, json: async () => ({ ContratosAtivos: [{ codcontrato: 1 }] }) } as any;
     }
 
     return { ok: true, status: 200, json: async () => ({}) } as any;
@@ -143,10 +148,12 @@ describe("varredura por faixa de codigo", () => {
 });
 
 describe("contrato vigente so e afirmado com envelope legivel", () => {
-  it("corpo de ERRO com HTTP 200 nao vira 'sem contrato'", async () => {
+  it("corpo de ERRO com HTTP 200 nao vira 'sem contrato' nem 'ex-cliente' — sem prova, nada e importado", async () => {
     // O MK responde erro com status 200 — foi o que ele devolveu para uma
     // chamada sem parametro. Lido como `ContratosAtivos ?? []`, esse corpo
-    // rebaixaria cliente pagante a ex-cliente com divida.
+    // rebaixaria cliente pagante a ex-cliente com divida; lido como "zero
+    // contratos", fecharia a porteira em cima de cliente de verdade. Nenhum
+    // cliente com resposta e o endpoint fora do ar: a varredura falha alto.
     globalThis.fetch = vi.fn(async (url: string) => {
       const u = String(url);
       if (u.includes("WSAutenticacao")) {
@@ -168,15 +175,26 @@ describe("contrato vigente so e afirmado com envelope legivel", () => {
 
     const r = await new MkConnector().fetchCustomers(CONFIG);
 
-    expect(r.ok).toBe(true);
-    expect(r.customers).toHaveLength(1);
-    // Sem prova, nao se afirma nada: o upsert so grava status quando ele vem.
-    // "Ativo" no cadastro nao serve de reserva porque nao prova contrato.
-    expect(r.customers[0].contractStatus).toBeUndefined();
+    expect(r.ok).toBe(false);
+    expect(r.customers).toHaveLength(0);
+    expect(r.message).toMatch(/nao respondeu/);
   });
 
-  it("lista de contratos vazia — ai sim e ex-cliente", async () => {
-    globalThis.fetch = servidorFake({ 1: [cliente(1)] }) as any;
+  it("contrato cancelado na V2 — ai sim e ex-cliente", async () => {
+    globalThis.fetch = vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes("WSAutenticacao")) {
+        return { ok: true, status: 200, json: async () => ({ Token: "sessao-fake" }) } as any;
+      }
+      if (u.includes("WSMKConsultaClientes")) {
+        const ini = Number(new URL(u).searchParams.get("cd_cliente_inicio"));
+        return { ok: true, status: 200, json: async () => ({ Clientes: ini === 1 ? [cliente(1)] : [] }) } as any;
+      }
+      if (u.includes("WSMKContratosPorClienteV2")) {
+        return { ok: true, status: 200, json: async () => ([{ codcontrato: 9, status_contrato: "Cancelado" }]) } as any;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as any;
+    }) as any;
 
     const r = await new MkConnector().fetchCustomers(CONFIG);
 

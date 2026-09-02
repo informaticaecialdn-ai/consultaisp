@@ -67,6 +67,136 @@ export function situacaoParaStatus(
   return undefined;
 }
 
+/**
+ * Os contratos de um cliente, somados: quantos existem e em que estado.
+ *
+ * `total` e o que decide a PORTEIRA DA BASE: cadastro com zero contratos — nem
+ * ativo, nem cancelado — nao e cliente nem ex-cliente, e lead ou cadastro vazio
+ * do MK, e nao entra em `customers`. Regra do dono (01/09/2026), a mesma que o
+ * Provedor.ai aplica desde o inicio por minimizacao LGPD: sem contrato nao ha
+ * execucao de contrato como base legal para reter a PII. Medido na NsLink em
+ * 28/08/2026: 560 dos 754 cadastros "Ativo" nao tinham contrato nenhum.
+ */
+export interface ContratosDoCliente {
+  total: number;
+  ativos: number;
+  suspensos: number;
+  cancelados: number;
+  /** undefined quando ha contrato mas o rotulo de estado e desconhecido. */
+  status: "active" | "suspended" | "cancelled" | undefined;
+  /** Plano do primeiro contrato ativo, ou do primeiro que houver. */
+  plano?: string;
+  /** Inicio do contrato escolhido, como o MK devolve (AAAA-MM-DD ou DD/MM/AAAA). */
+  inicio?: string;
+}
+
+/** Chaves de envelope cujo NOME ja diz o estado, para item sem campo de status. */
+const CHAVES_DE_ATIVO = new Set(["contratosativos"]);
+const CHAVES_DE_INATIVO = new Set(["contratosinativos", "contratoscancelados", "contratosencerrados"]);
+
+function estadoDoContrato(item: any, chaveDeOrigem: string | null): "ativo" | "suspenso" | "cancelado" | "outro" {
+  // A V2 da NsLink entrega o estado em `status_contrato` (confirmado por probe
+  // no Provedor.ai); `status` e `situacao` sao reserva para outras instalacoes.
+  const s = String(
+    item?.status_contrato ?? item?.StatusContrato ?? item?.status ?? item?.Status
+    ?? item?.situacao ?? item?.Situacao ?? "",
+  ).trim().toLowerCase();
+  if (s) {
+    if (s.startsWith("ativ") || s.startsWith("vigent") || s.startsWith("habilit")) return "ativo";
+    if (s.startsWith("suspens") || s.startsWith("bloque")) return "suspenso";
+    if (s.startsWith("cancel") || s.startsWith("inativ") || s.startsWith("encerr")
+        || s.startsWith("desativ") || s.startsWith("desabilit") || s.startsWith("rescind")) return "cancelado";
+    return "outro";
+  }
+  const k = (chaveDeOrigem ?? "").toLowerCase();
+  if (CHAVES_DE_ATIVO.has(k)) return "ativo";
+  if (CHAVES_DE_INATIVO.has(k)) return "cancelado";
+  return "outro";
+}
+
+/**
+ * Le a resposta de `WSMKContratosPorClienteV2` — ou de qualquer envelope da
+ * mesma familia — e devolve o resumo. `null` quando o corpo NAO E LEGIVEL:
+ * erro com HTTP 200, objeto sem nenhuma lista. Legivel e vazio e outra coisa,
+ * e e justamente o caso que a porteira precisa distinguir.
+ *
+ * Soma TODAS as listas do envelope, seja qual for a chave: a V2 pode devolver
+ * `Contratos[]` com todos os estados, ou `ContratosAtivos[]` e
+ * `ContratosCancelados[]` separados. Contar so uma chave faria um cancelado
+ * parecer "sem contrato" — e ele e o dado mais valioso que o bureau tem.
+ */
+export function classificarContratos(corpo: unknown): ContratosDoCliente | null {
+  if (!corpo || typeof corpo !== "object") return null;
+
+  const itens: Array<{ item: any; chave: string | null }> = [];
+  if (Array.isArray(corpo)) {
+    for (const it of corpo) itens.push({ item: it, chave: null });
+  } else {
+    const obj = corpo as Record<string, unknown>;
+    // O MK responde erro com HTTP 200: `{CODIGO_ERRO, Mensagem, status: "ERRO"}`.
+    if (String(obj.status ?? "").trim().toUpperCase() === "ERRO"
+        || obj.CODIGO_ERRO !== undefined || obj["Num. ERRO"] !== undefined) return null;
+    let algumaLista = false;
+    for (const [k, v] of Object.entries(obj)) {
+      if (!Array.isArray(v)) continue;
+      algumaLista = true;
+      for (const it of v) itens.push({ item: it, chave: k });
+    }
+    if (!algumaLista) return null;
+  }
+
+  const r: ContratosDoCliente = { total: 0, ativos: 0, suspensos: 0, cancelados: 0, status: undefined };
+  const vistos = new Set<string>();
+  let primeiro: any = null;
+  let primeiroAtivo: any = null;
+  for (const { item, chave } of itens) {
+    if (!item || typeof item !== "object") continue;
+    // O mesmo contrato pode vir em duas chaves; o codigo desduplica.
+    const cod = String(item.codcontrato ?? item.CodContrato ?? item.codigo_contrato ?? item.codigo ?? "").trim();
+    const marca = cod || `sem-codigo-${r.total}`;
+    if (vistos.has(marca)) continue;
+    vistos.add(marca);
+    r.total++;
+    const e = estadoDoContrato(item, chave);
+    if (e === "ativo") { r.ativos++; primeiroAtivo ??= item; }
+    else if (e === "suspenso") r.suspensos++;
+    else if (e === "cancelado") r.cancelados++;
+    primeiro ??= item;
+  }
+
+  r.status = r.ativos > 0 ? "active" : r.suspensos > 0 ? "suspended" : r.cancelados > 0 ? "cancelled" : undefined;
+  const escolhido = primeiroAtivo ?? primeiro;
+  if (escolhido) {
+    const plano = escolhido.plano_acesso ?? escolhido.PlanoAcesso ?? escolhido.plano ?? escolhido.Plano;
+    if (plano != null && String(plano).trim()) r.plano = String(plano).trim();
+    const inicio = escolhido.adesao ?? escolhido.data_adesao ?? escolhido.data_ativacao
+      ?? escolhido.DataAtivacao ?? escolhido.data_contrato ?? escolhido.DataContrato;
+    if (inicio != null && String(inicio).trim()) r.inicio = String(inicio).trim();
+  }
+  return r;
+}
+
+/** De onde veio a leitura de contratos. Importa para a porteira: so a V2 prova "nenhum contrato". */
+type LeituraDeContratos = { contratos: ContratosDoCliente; fonte: "v2" | "v1" };
+
+/**
+ * A porteira: `true` quando o cadastro NAO deve entrar na base.
+ *
+ * Exige prova positiva — a V2 respondeu e a lista veio vazia. A V1 so conhece
+ * os ativos, entao "nenhum ativo" nela nao diz nada sobre cancelados.
+ *
+ * A situacao do cadastro e a segunda tranca: "Inativo" e evidencia de que a
+ * pessoa foi cliente (ninguem inativa cadastro de quem nunca contratou), e
+ * nesse caso o ex-cliente fica, mesmo que a V2 desta instalacao nao liste
+ * contratos cancelados. Errar para o lado de manter o ex-cliente custa uma
+ * conferencia; errar para o lado de descarta-lo apaga o dado mais valioso do
+ * bureau.
+ */
+export function cadastroSemContrato(leitura: LeituraDeContratos | null | undefined, situacao: unknown): boolean {
+  if (!leitura || leitura.fonte !== "v2" || leitura.contratos.total > 0) return false;
+  return situacaoParaStatus(situacao) === undefined;
+}
+
 /** Pick the first non-null, non-undefined, non-empty-string value from an invoice row, preserving numeric 0. */
 function pickAmount(row: any): number {
   const fields = ["Saldo", "saldo", "ValorTotal", "valor_total", "Valor", "valor", "Total", "vl_total", "value"];
@@ -360,6 +490,11 @@ export class MkConnector implements ErpConnector {
       let totalOverdueAmount = 0;
       let maxDaysOverdue = 0;
       let overdueInvoicesCount = 0;
+      // Fatura sem data legivel nao vira atraso — e contada para aparecer na
+      // resposta, em vez de sumir em silencio.
+      let faturasSemData = 0;
+      // Conexao cortada: so o ESTADO, nunca uma divida inventada.
+      let conexaoBloqueada = false;
       // A descricao da fatura e onde o equipamento retido aparece nesta
       // instalacao — ver equipamento-na-fatura.ts.
       const descricoesDeFatura: Array<string | null> = [];
@@ -414,20 +549,21 @@ export class MkConnector implements ErpConnector {
               const dueDate = f.DataVencimento || f.data_vencimento || f.DtVencimento || f.dt_vencimento
                 || f.Vencimento || f.vencimento || f.dt_vencto || f.DtVencto || f.vencto || f.Vencto
                 || f.data_vencto || f.DataVencto || f.dtVencimento || f.dtVencto || null;
-              const days = calculateDaysOverdue(dueDate);
-
-              if (days > 0) {
-                totalOverdueAmount += valor;
-                maxDaysOverdue = Math.max(maxDaysOverdue, days);
-                overdueInvoicesCount++;
-              } else if (!dueDate) {
-                // WSMKFaturasPendentes only returns pending invoices — if date is unknown,
-                // assume at least 1 day overdue (the API already filtered for us)
-                console.log(`[MK] WARN: fatura sem data de vencimento reconhecida. Campos: ${Object.keys(f).join(", ")}. Valores: ${JSON.stringify(f).substring(0, 300)}`);
-                totalOverdueAmount += valor;
-                maxDaysOverdue = Math.max(maxDaysOverdue, 1);
-                overdueInvoicesCount++;
+              // Fatura a vencer nao e atraso, e fatura sem data legivel nao
+              // vira "1 dia". Esta consulta ao vivo ainda fazia o que a
+              // varredura deixou de fazer em 28/08/2026: "pelo menos 1 dia se
+              // tem fatura pendente" — a mensalidade do mes, emitida dia 01 e
+              // vencendo dia 20, virava inadimplencia na hora da consulta.
+              const dias = diasDesdeVencimento(dueDate);
+              if (dias === null) {
+                faturasSemData++;
+                console.log(`[MK] Fatura sem data de vencimento legivel, ignorada. Campos: ${Object.keys(f).join(", ")}`);
+                continue;
               }
+              if (dias <= 0) continue;
+              totalOverdueAmount += valor;
+              maxDaysOverdue = Math.max(maxDaysOverdue, dias);
+              overdueInvoicesCount++;
             }
           } else {
             console.log(`[MK] WSMKFaturasPendentes retornou status ${faturasResponse.status}`);
@@ -477,18 +613,17 @@ export class MkConnector implements ErpConnector {
                 const dueDate = f.DataVencimento || f.data_vencimento || f.DtVencimento || f.dt_vencimento
                   || f.Vencimento || f.vencimento || f.dt_vencto || f.DtVencto || f.vencto || f.Vencto
                   || f.data_vencto || f.DataVencto || f.dtVencimento || f.dtVencto || null;
-                const days = calculateDaysOverdue(dueDate);
-
-                if (days > 0) {
-                  totalOverdueAmount += valor;
-                  maxDaysOverdue = Math.max(maxDaysOverdue, days);
-                  overdueInvoicesCount++;
-                } else if (!dueDate) {
-                  console.log(`[MK] WARN WSMKFaturas: fatura sem data. Campos: ${Object.keys(f).join(", ")}`);
-                  totalOverdueAmount += valor;
-                  maxDaysOverdue = Math.max(maxDaysOverdue, 1);
-                  overdueInvoicesCount++;
+                // Mesma regra do laco acima: nada de atraso inventado.
+                const dias = diasDesdeVencimento(dueDate);
+                if (dias === null) {
+                  faturasSemData++;
+                  console.log(`[MK] WSMKFaturas: fatura sem data legivel, ignorada. Campos: ${Object.keys(f).join(", ")}`);
+                  continue;
                 }
+                if (dias <= 0) continue;
+                totalOverdueAmount += valor;
+                maxDaysOverdue = Math.max(maxDaysOverdue, dias);
+                overdueInvoicesCount++;
               }
             } else {
               console.log(`[MK] WSMKFaturas retornou status ${altResponse.status}`);
@@ -498,51 +633,16 @@ export class MkConnector implements ErpConnector {
           }
         }
 
-        // Strategy 3: Check if connection is blocked (WSMKConexoesPorCliente) — blocked = delinquent
-        if (overdueInvoicesCount === 0) {
-          try {
-            const conexoesUrl = `${base}/mk/WSMKConexoesPorCliente.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdCliente)}`;
-            console.log(`[MK] Strategy 3: verificando conexoes bloqueadas via WSMKConexoesPorCliente`);
-
-            const conexoesResponse = await withResilience(
-              () => fetch(conexoesUrl, { method: "GET", signal: AbortSignal.timeout(15000) }),
-              { retries: 1, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
-            );
-
-            if (conexoesResponse.ok) {
-              const conexoesJson: any = await conexoesResponse.json();
-              const rawConexoes = JSON.stringify(conexoesJson);
-              console.log(`[MK] WSMKConexoesPorCliente resposta (${rawConexoes.length} chars): ${rawConexoes.substring(0, 500)}`);
-
-              let conexoes: any[] = Array.isArray(conexoesJson)
-                ? conexoesJson
-                : conexoesJson?.Conexoes || conexoesJson?.conexoes || conexoesJson?.registros || conexoesJson?.data || [];
-
-              if ((!conexoes || conexoes.length === 0) && typeof conexoesJson === "object" && conexoesJson !== null && !Array.isArray(conexoesJson)) {
-                for (const val of Object.values(conexoesJson)) {
-                  if (Array.isArray(val) && val.length > 0) { conexoes = val; break; }
-                }
-              }
-
-              // Check for blocked connections — indicates financial issues
-              for (const c of conexoes) {
-                const bloqueada = c.Bloqueada || c.bloqueada || c.Bloqueado || c.bloqueado || c.blocked || "";
-                const motivoBloqueio = c.MotivoBloqueio || c.motivo_bloqueio || c.MotivoBloqueioCodigo || "";
-                console.log(`[MK] Conexao: bloqueada=${bloqueada}, motivo=${motivoBloqueio}`);
-
-                if (String(bloqueada).toUpperCase() === "S" || String(bloqueada).toUpperCase() === "SIM" || String(bloqueada) === "true" || String(bloqueada) === "1") {
-                  console.log(`[MK] Conexao BLOQUEADA detectada — marcando como inadimplente`);
-                  // Blocked connection = at least 30 days overdue (typical MK behavior: block after 30d)
-                  maxDaysOverdue = Math.max(maxDaysOverdue, 30);
-                  overdueInvoicesCount = Math.max(overdueInvoicesCount, 1);
-                  break;
-                }
-              }
-            }
-          } catch (conErr) {
-            console.log(`[MK] WSMKConexoesPorCliente erro: ${conErr instanceof Error ? conErr.message : conErr}`);
-          }
-        }
+        // Conexao bloqueada — so o ESTADO do servico. A versao anterior lia
+        // bloqueio como "inadimplente ha 30 dias" e inventava uma fatura sem
+        // valor: bloqueio pode ser a pedido, por fraude ou por outro motivo, e
+        // num bureau atraso inventado nega instalacao a quem nao deve. Quem diz
+        // se ha debito e a fatura pendente; a conexao so diz se esta cortado,
+        // que vira "suspenso" no contrato mais abaixo.
+        conexaoBloqueada = (await this.conexaoBloqueada(base, tokenAuth, String(cdCliente))) === true;
+      }
+      if (faturasSemData > 0) {
+        console.log(`[MK] ${faturasSemData} fatura(s) sem data de vencimento legivel ficaram fora da conta`);
       }
 
       // MK retorna endereco no formato: "Rua X, 123 - Bairro, Cidade"
@@ -587,44 +687,25 @@ export class MkConnector implements ErpConnector {
 
       // ── CONTRATO: status e data de inicio ───────────────────────────────
       // Mesmo motivo do IXC: o anti-fraude so distingue fuga de baixa antiga se
-      // souber que o contrato esta vigente e ha quanto tempo. O fetchDelinquents
-      // ja fazia esta chamada; o caminho de consulta em tempo real nao fazia.
+      // souber que o contrato esta vigente e ha quanto tempo. A V2 traz todos
+      // os estados e a data de adesao; a V1 e a reserva (ver
+      // lerContratosDoCliente). Cadastro sem contrato NENHUM fica sem sinal:
+      // nao e "contrato encerrado", nunca houve um.
       let contractStatus: NormalizedErpCustomer["contractStatus"];
       let contractStartDate: string | undefined;
       let contractPlan: string | undefined;
 
       if (cdCliente) {
-        try {
-          const ctUrl = `${base}/mk/WSMKContratosPorCliente.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdCliente)}`;
-          const ctResp = await fetch(ctUrl, { method: "GET", signal: AbortSignal.timeout(10000) });
-          if (ctResp.ok) {
-            const ctJson: any = await ctResp.json();
-            // Mesma leitura de `contratosPorCliente`, e pelo mesmo motivo.
-            //
-            // O envelope precisa ESTAR la: o MK responde erro com HTTP 200, e
-            // `?? []` lia esse corpo como "zero contratos". E a ausencia de
-            // contrato ativo ja e a resposta — a instalacao da NsLink nao
-            // devolve `ContratosInativos` (as chaves sao CodigoPessoa,
-            // ContratosAtivos, Nome, status), entao esperar por ela fazia
-            // `cancelled` nunca acontecer na consulta ao vivo: ex-cliente
-            // aparecia sem sinal de contrato, e o rotulo "Contrato encerrado"
-            // do relatorio era inalcancavel por este caminho.
-            const ativos: any[] = Array.isArray(ctJson?.ContratosAtivos) ? ctJson.ContratosAtivos : [];
-            const inativos: any[] = ctJson?.ContratosInativos ?? ctJson?.ContratosCancelados ?? [];
-            const escolhido = ativos[0] ?? inativos[0];
-            contractStatus = !Array.isArray(ctJson?.ContratosAtivos)
-              ? undefined
-              : ativos.length > 0 ? "active" : "cancelled";
-            if (escolhido) {
-              contractStartDate = escolhido.data_ativacao || escolhido.DataAtivacao
-                || escolhido.data_contrato || escolhido.DataContrato || undefined;
-              contractPlan = escolhido.plano_acesso || escolhido.PlanoAcesso || undefined;
-            }
-          }
-        } catch {
-          // Sem o endpoint de contratos, segue sem o sinal — a regra trata undefined.
+        const leitura = await this.lerContratosDoCliente(base, tokenAuth, String(cdCliente));
+        if (leitura) {
+          contractStatus = leitura.contratos.status;
+          contractStartDate = leitura.contratos.inicio;
+          contractPlan = leitura.contratos.plano;
         }
       }
+      // A conexao cortada e o que diz "suspenso": a Situacao do cadastro so
+      // sabe Ativo/Inativo, e o contrato segue "Ativo" enquanto esta cortado.
+      if (conexaoBloqueada && contractStatus === "active") contractStatus = "suspended";
 
       // ── EQUIPAMENTO EM COMODATO ─────────────────────────────────────────
       // O conector do MK nao trazia NADA de equipamento — medido contra a API
@@ -689,15 +770,50 @@ export class MkConnector implements ErpConnector {
 
       return {
         ok: true,
-        message: overdueInvoicesCount > 0
+        message: (overdueInvoicesCount > 0
           ? `Cliente encontrado com ${overdueInvoicesCount} fatura(s) vencida(s)`
-          : "Cliente encontrado sem inadimplencia",
+          : "Cliente encontrado sem inadimplencia")
+          + (faturasSemData > 0 ? ` (${faturasSemData} fatura(s) sem data legivel, fora da conta)` : ""),
         customers: [customer],
         totalRecords: 1,
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
       return { ok: false, message: `Erro: ${msg}`, customers: [] };
+    }
+  }
+
+  /**
+   * Alguma conexao do cliente esta bloqueada? `null` quando o MK nao respondeu
+   * de forma legivel.
+   *
+   * `WSMKConexoesPorCliente` devolve `Conexoes[]` com `bloqueada` ('Sim'/'Não')
+   * e `motivo_bloqueio`. E o que o Cobranca do Provedor.ai le para dizer
+   * "suspenso": a Situacao do cadastro so sabe Ativo/Inativo e o contrato
+   * continua "Ativo" enquanto esta cortado, entao sem isto todo devedor ativo
+   * do MK aparecia como "em cobranca", conectado ou nao.
+   *
+   * Bloqueio NAO e divida. A conexao pode estar bloqueada a pedido ou por
+   * outro motivo; quem diz se ha debito e a fatura pendente. Aqui so se le o
+   * estado do servico.
+   */
+  private async conexaoBloqueada(base: string, tokenAuth: string, cd: string): Promise<boolean | null> {
+    try {
+      const url = `${base}/mk/WSMKConexoesPorCliente.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cd)}`;
+      const resp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(15000) });
+      if (!resp.ok) return null;
+      const j: any = await resp.json().catch(() => null);
+      if (!j || typeof j !== "object") return null;
+      // Erro com HTTP 200 nao e "nenhuma conexao".
+      if (String(j.status ?? "").trim().toUpperCase() === "ERRO" || j.CODIGO_ERRO !== undefined) return null;
+      const conexoes: unknown = Array.isArray(j) ? j : (j.Conexoes ?? j.conexoes ?? j.registros ?? j.data);
+      if (!Array.isArray(conexoes)) return null;
+      return conexoes.some((c: any) => {
+        const b = String(c?.bloqueada ?? c?.Bloqueada ?? c?.bloqueado ?? c?.Bloqueado ?? c?.blocked ?? "").trim().toLowerCase();
+        return b === "sim" || b === "s" || b === "true" || b === "1";
+      });
+    } catch {
+      return null;
     }
   }
 
@@ -747,6 +863,9 @@ export class MkConnector implements ErpConnector {
     // desliga a limpeza inteira.
     const naoLidos = new Set<string>();
     let leiturasFalhas = 0;
+    // Cadastro sem contrato nenhum, mesmo com fatura pendente: nao entra na
+    // base — ver cadastroSemContrato. Contado para aparecer no log do sync.
+    let semContrato = 0;
     const naoLi = (cliente: any) => {
       const doc = String(cliente?.CPF_CNPJ ?? cliente?.cpf_cnpj ?? cliente?.CPF ?? cliente?.cpf ?? "").replace(/[^0-9]/g, "");
       if (doc) naoLidos.add(doc); else leiturasFalhas++;
@@ -780,31 +899,24 @@ export class MkConnector implements ErpConnector {
           if (faturas.length === 0) return null; // nao deve nada — resposta boa
           processed++;
 
-          // 2. Contrato vigente? So WSMKContratosPorCliente responde isso.
+          // 2. Contrato vigente? So o endpoint de contratos responde isso —
+          // a V2, com todos os estados; a V1 de reserva.
           //
           // O padrao NAO pode ser "cancelled": com ele, um timeout de 15s ou
           // um 500 do MK rebaixava cliente pagante a ex-cliente com divida —
           // exatamente a lista que o provedor usa para negar instalacao. Sem
           // resposta legivel a resposta certa e nao afirmar nada: o upsert so
           // grava status quando ele vem.
-          let contractStatus: "active" | "cancelled" | undefined;
-          let contractPlan: string | undefined;
-          try {
-            const ctUrl = `${base}/mk/WSMKContratosPorCliente.rule?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cdPessoa)}`;
-            const ctResp = await fetch(ctUrl, { method: "GET", signal: AbortSignal.timeout(15000) });
-            if (ctResp.ok) {
-              const ctJson: any = await ctResp.json();
-              const ativos: any[] = ctJson?.ContratosAtivos ?? [];
-              if (ativos.length > 0) {
-                contractStatus = "active";
-                contractPlan = ativos[0]?.plano_acesso || ativos[0]?.PlanoAcesso || undefined;
-              } else {
-                // Resposta boa e sem contrato ativo: ai sim e ex-cliente, e a
-                // divida dele e o dado mais valioso que o bureau tem.
-                contractStatus = "cancelled";
-              }
-            }
-          } catch {}
+          //
+          // E a porteira: cadastro que a V2 diz nao ter contrato NENHUM nao
+          // entra, nem devendo. Fatura pendente sem contrato e taxa de
+          // instalacao de quem desistiu, nao divida de cliente.
+          const leitura = await this.lerContratosDoCliente(base, tokenAuth, cdPessoa);
+          const situacao = cliente.Situacao ?? cliente.situacao;
+          if (cadastroSemContrato(leitura, situacao)) { semContrato++; return null; }
+          let contractStatus = leitura?.contratos.status ?? situacaoParaStatus(situacao);
+          const contractPlan = leitura?.contratos.plano;
+          const contractStartDate = leitura?.contratos.inicio;
 
           // 3. Atraso e valor VENCIDO — nao "em aberto".
           //
@@ -848,9 +960,27 @@ export class MkConnector implements ErpConnector {
 
           withPending++;
 
-          // 4. Extrai endereço (primeiro endereco[] do cliente)
-          const enderecos = cliente.endereco || cliente.enderecos || [];
-          const end = Array.isArray(enderecos) && enderecos.length > 0 ? enderecos[0] : null;
+          // 3b. Cortado ou ainda conectado? So a conexao responde. Uma chamada
+          // a mais, e so para quem deve — e a diferenca entre "em cobranca" e
+          // "suspenso" no mapa, que para quem cobra e a que importa.
+          if (contractStatus === "active") {
+            const bloqueada = await this.conexaoBloqueada(base, tokenAuth, cdPessoa);
+            if (bloqueada) contractStatus = "suspended";
+          }
+
+          // 4. Endereco de INSTALACAO — onde o servico foi montado, e o mesmo
+          // que a varredura da carteira usa. O primeiro da lista as vezes e o
+          // de COBRANCA, e o mesmo cliente mudava de bairro entre os dois
+          // passos do sync.
+          const ends = this.enderecosDoCliente(cliente);
+          const end = ends.find(e => String(e.tipo ?? e.Tipo ?? "").toUpperCase() === "INSTALACAO") ?? ends[0] ?? null;
+          const coordDe = (o: any): [string, string] | null => {
+            const la = o?.Latitude ?? o?.latitude;
+            const lo = o?.Longitude ?? o?.longitude;
+            return la != null && String(la).trim() && lo != null && String(lo).trim()
+              ? [String(la).trim(), String(lo).trim()] : null;
+          };
+          const coord = coordDe(cliente) ?? coordDe(end);
 
           const cpfCnpj = cleanCpfCnpj(cliente.CPF_CNPJ || cliente.cpf_cnpj || cliente.documento || "");
           if (!cpfCnpj) return null;
@@ -867,13 +997,14 @@ export class MkConnector implements ErpConnector {
             city: end?.cidade || cliente.cidade || undefined,
             state: end?.estado || end?.uf || cliente.UF || cliente.uf || undefined,
             cep: end?.cep || cliente.CEP || cliente.cep || undefined,
-            latitude: cliente.Latitude && String(cliente.Latitude).trim() ? String(cliente.Latitude) : undefined,
-            longitude: cliente.Longitude && String(cliente.Longitude).trim() ? String(cliente.Longitude) : undefined,
+            latitude: coord?.[0],
+            longitude: coord?.[1],
             totalOverdueAmount: totalAmount,
             maxDaysOverdue: maxDays,
             overdueInvoicesCount: vencidas,
             contractStatus,
             contractPlan,
+            contractStartDate,
             erpSource: "mk" as const,
           } as NormalizedErpCustomer;
         }),
@@ -901,11 +1032,17 @@ export class MkConnector implements ErpConnector {
         + `(${naoLidos.size} identificados, ${leiturasFalhas} sem documento)`,
       );
     }
+    if (semContrato > 0) {
+      console.log(`[MK v2] ${semContrato} cadastro(s) com fatura pendente mas sem contrato nenhum — nao entram na base`);
+    }
+    const notas = [
+      totalNaoLidos > 0 ? `${totalNaoLidos} clientes nao lidos` : "",
+      semContrato > 0 ? `${semContrato} sem contrato ignorados` : "",
+    ].filter(Boolean);
     return {
       ok: true,
-      message: totalNaoLidos > 0
-        ? `${results.length} inadimplentes encontrados (v2), ${totalNaoLidos} clientes nao lidos`
-        : `${results.length} inadimplentes encontrados (v2 per-customer)`,
+      message: `${results.length} inadimplentes encontrados (v2 per-customer)`
+        + (notas.length ? `, ${notas.join(", ")}` : ""),
       customers: results,
       docsNaoLidos: Array.from(naoLidos),
       leiturasFalhas,
@@ -1345,7 +1482,62 @@ export class MkConnector implements ErpConnector {
   }
 
   /**
-   * Status de contrato por cliente, perguntado um a um.
+   * Contratos de UM cliente: pela V2 e, se ela nao existir nesta instalacao,
+   * pela V1. `null` quando nenhuma das duas respondeu de forma legivel.
+   *
+   * A V2 (`WSMKContratosPorClienteV2`) devolve contratos de TODOS os estados
+   * com `status_contrato` — e a unica que distingue "nunca teve contrato" de
+   * "teve e cancelou". A V1 so lista os ativos: serve para afirmar "ativo" e
+   * para dizer "nenhum ativo", nunca "nenhum contrato". A porteira da base so
+   * fecha com a V2; ver `cadastroSemContrato`.
+   *
+   * O envelope precisa ESTAR la. O MK responde erro com HTTP 200 —
+   * `{"CODIGO_ERRO":"004","Mensagem":"...","status":"ERRO"}` — e ler esse corpo
+   * como "zero contratos" rebaixava cliente pagante a ex-cliente com divida,
+   * que e a lista usada para negar instalacao.
+   *
+   * `tentarV2` desliga a V2 para a passada inteira quando ela se mostrou
+   * inexistente: instalacao antiga responderia 404 para cada um dos milhares
+   * de clientes, dobrando o custo da varredura para nada.
+   */
+  private async lerContratosDoCliente(
+    base: string,
+    tokenAuth: string,
+    cd: string,
+    tentarV2 = true,
+  ): Promise<LeituraDeContratos | null> {
+    const ler = async (rule: string): Promise<unknown> => {
+      try {
+        const url = `${base}/mk/${rule}?sys=MK0&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cd)}`;
+        const resp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(15000) });
+        if (!resp.ok) return null;
+        return await resp.json().catch(() => null);
+      } catch {
+        return null;
+      }
+    };
+
+    if (tentarV2) {
+      const v2 = classificarContratos(await ler("WSMKContratosPorClienteV2.rule"));
+      if (v2) return { contratos: v2, fonte: "v2" };
+    }
+
+    const j1: any = await ler("WSMKContratosPorCliente.rule");
+    const ativos = j1?.ContratosAtivos;
+    if (!Array.isArray(ativos)) return null;
+    const plano = ativos[0]?.plano_acesso ?? ativos[0]?.PlanoAcesso;
+    return {
+      fonte: "v1",
+      contratos: {
+        total: ativos.length, ativos: ativos.length, suspensos: 0, cancelados: 0,
+        status: ativos.length > 0 ? "active" : "cancelled",
+        plano: plano != null && String(plano).trim() ? String(plano).trim() : undefined,
+      },
+    };
+  }
+
+  /**
+   * Contratos por cliente, perguntados um a um.
    *
    * `WSMKConsultaClientes` devolve `Situacao`, que descreve o CADASTRO e nao o
    * vinculo: medido na NsLink em 28/08/2026, 560 cadastros "Ativo" nao tinham
@@ -1354,7 +1546,7 @@ export class MkConnector implements ErpConnector {
    * deixou de ser cliente, e 54 ex-clientes seguiam ativos no bureau porque nao
    * tinham fatura pendente e por isso nunca chegavam ao passo que checa contrato.
    *
-   * Quem responde e `WSMKContratosPorCliente`, e so ele. Uma chamada por cliente
+   * Quem responde e o endpoint de contratos, e so ele. Uma chamada por cliente
    * e caro (3.226 na NsLink, ~3 min a 8 de concorrencia), mas `fetchCustomers` e
    * varredura de lote, roda 3x por semana e e o unico ponto que ve a carteira
    * inteira. A consulta ao vivo nao passa por aqui — usa `fetchCustomerByCpf`.
@@ -1365,46 +1557,39 @@ export class MkConnector implements ErpConnector {
    * tinham contrato ativo e array embutido vazio (544 contra 580 no total). O
    * erro cai para o lado ruim — ex-cliente inventado a partir de quem paga.
    *
-   * Cliente sem resposta legivel fica de fora do mapa: quem chama entao mantem o
-   * palpite de `situacaoParaStatus`, que erra para o lado seguro.
+   * Cliente sem resposta legivel fica de fora do mapa, e quem chama decide o
+   * que fazer com ele.
    */
   private async contratosPorCliente(
     base: string,
     tokenAuth: string,
     codigos: string[],
-  ): Promise<Map<string, "active" | "cancelled">> {
+  ): Promise<Map<string, LeituraDeContratos>> {
     const CONCORRENCIA = 8;
-    const mapa = new Map<string, "active" | "cancelled">();
+    const AMOSTRA_V2 = 16;
+    const mapa = new Map<string, LeituraDeContratos>();
     let semResposta = 0;
+    let porV2 = 0;
+    let porV1 = 0;
+    let tentarV2 = true;
 
     for (let i = 0; i < codigos.length; i += CONCORRENCIA) {
       const lote = codigos.slice(i, i + CONCORRENCIA);
       await Promise.all(lote.map(async (cd) => {
-        try {
-          const url = `${base}/mk/WSMKContratosPorCliente.rule?sys=MK0`
-            + `&token=${encodeURIComponent(tokenAuth)}&cd_cliente=${encodeURIComponent(cd)}`;
-          const resp = await fetch(url, { method: "GET", signal: AbortSignal.timeout(15000) });
-          if (!resp.ok) { semResposta++; return; }
-          const j: any = await resp.json().catch(() => null);
-          if (!j) { semResposta++; return; }
-
-          // O envelope precisa ESTAR la. O MK responde erro com HTTP 200 —
-          // `{"CODIGO_ERRO":"004","Mensagem":"...","status":"ERRO"}` foi o que
-          // ele devolveu hoje para uma chamada sem parametro. Sem esta guarda,
-          // `?? []` transformava esse corpo de erro em "zero contratos ativos"
-          // e o sync rebaixava cliente pagante a ex-cliente com divida, que e a
-          // lista usada para negar instalacao.
-          const ativos = j?.ContratosAtivos;
-          if (!Array.isArray(ativos)) { semResposta++; return; }
-
-          mapa.set(cd, ativos.length > 0 ? "active" : "cancelled");
-        } catch {
-          semResposta++;
-        }
+        const leitura = await this.lerContratosDoCliente(base, tokenAuth, cd, tentarV2);
+        if (!leitura) { semResposta++; return; }
+        if (leitura.fonte === "v2") porV2++; else porV1++;
+        mapa.set(cd, leitura);
       }));
+      // Amostra inicial sem nenhuma V2 e com V1 respondendo: esta instalacao
+      // nao tem a V2. Para de tentar.
+      if (tentarV2 && i + CONCORRENCIA >= AMOSTRA_V2 && porV2 === 0 && porV1 > 0) {
+        tentarV2 = false;
+        console.warn(`[MK] WSMKContratosPorClienteV2 indisponivel nesta instalacao — seguindo pela V1, que nao distingue cadastro sem contrato de ex-cliente`);
+      }
     }
 
-    console.log(`[MK] contratosPorCliente: ${mapa.size} respondidos, ${semResposta} sem resposta`);
+    console.log(`[MK] contratosPorCliente: ${mapa.size} respondidos (${porV2} pela V2, ${porV1} pela V1), ${semResposta} sem resposta`);
     return mapa;
   }
 
@@ -1427,10 +1612,36 @@ export class MkConnector implements ErpConnector {
         .filter(Boolean);
       const contratos = await this.contratosPorCliente(base, tokenAuth, codigos);
 
+      // Nenhum cliente com resposta de contrato e o endpoint fora do ar, nao
+      // uma carteira sem contratos. Importar tudo as cegas abriria a porteira
+      // para os cadastros sem contrato; nao importar ninguem com `ok: true`
+      // seria lido como "este provedor nao tem cliente". Falha alto.
+      if (codigos.length > 0 && contratos.size === 0) {
+        return {
+          ok: false,
+          message: `WSMKContratosPorCliente nao respondeu para nenhum dos ${codigos.length} clientes — carteira nao importada`,
+          customers: [],
+        };
+      }
+
+      let semContrato = 0;
+      let semResposta = 0;
+
       const customers: NormalizedErpCustomer[] = allClients
         .map(row => {
           const cpfCnpj = cleanCpfCnpj(row.CPF_CNPJ || row.cpf_cnpj || row.CPF || row.cpf || "");
           if (!cpfCnpj) return null;
+
+          const cd = String(row.CodigoPessoa ?? row.codigopessoa ?? row.cd_pessoa ?? row.id ?? "");
+          const leitura = contratos.get(cd);
+          const situacao = row.Situacao ?? row.situacao;
+
+          // A PORTEIRA. Cadastro sem contrato nenhum nao entra na base —
+          // ver cadastroSemContrato. E quem nao respondeu tambem fica de fora
+          // desta passada: sem prova de contrato nao ha o que importar, e a
+          // linha que ja existe nao e apagada por isso. So perde um refresh.
+          if (cadastroSemContrato(leitura, situacao)) { semContrato++; return null; }
+          if (!leitura) { semResposta++; return null; }
 
           // Extrair endereco do array endereco[]
           const enderecos = row.enderecos || row.Enderecos || row.endereco || row.Endereco;
@@ -1493,11 +1704,12 @@ export class MkConnector implements ErpConnector {
             //
             // Situacao desconhecida devolve undefined de proposito: o upsert so
             // escreve status quando ele vem, e nao inventa nada.
-            // WSMKContratosPorCliente e a autoridade; a Situacao do cadastro
-            // e a reserva para quando ele nao respondeu — e mesmo assim so
+            // O endpoint de contratos e a autoridade; a Situacao do cadastro
+            // e a reserva para quando ele nao soube dizer — e mesmo assim so
             // consegue dizer "cancelado", nunca "ativo".
-            contractStatus: contratos.get(String(row.CodigoPessoa ?? row.codigopessoa ?? row.cd_pessoa ?? row.id ?? ""))
-              ?? situacaoParaStatus(row.Situacao ?? row.situacao),
+            contractStatus: leitura.contratos.status ?? situacaoParaStatus(situacao),
+            contractPlan: leitura.contratos.plano,
+            contractStartDate: leitura.contratos.inicio,
             name: row.Nome || row.nome || "",
             email: row.Email || row.email || undefined,
             phone: row.Fone || row.fone ? cleanPhone(row.Fone || row.fone) : undefined,
@@ -1517,9 +1729,20 @@ export class MkConnector implements ErpConnector {
         })
         .filter((c): c is NonNullable<typeof c> => c !== null);
 
+      if (semContrato > 0) {
+        console.log(`[MK] fetchCustomers: ${semContrato} cadastro(s) sem contrato nenhum — nao entram na base`);
+      }
+      if (semResposta > 0) {
+        console.warn(`[MK] fetchCustomers: ${semResposta} cliente(s) sem resposta de contrato — ficam para a proxima passada`);
+      }
+      const notas = [
+        semContrato > 0 ? `${semContrato} sem contrato ignorados` : "",
+        semResposta > 0 ? `${semResposta} sem resposta de contrato` : "",
+      ].filter(Boolean);
+
       return {
         ok: true,
-        message: `${customers.length} clientes encontrados`,
+        message: `${customers.length} clientes encontrados` + (notas.length ? `, ${notas.join(", ")}` : ""),
         customers,
         totalRecords: customers.length,
       };

@@ -58,6 +58,29 @@ interface IxcFilter {
   G: string;
 }
 
+/**
+ * O que e uma fatura EM ABERTO no IXC: status A e liberada.
+ *
+ * Status: A=aberta, R=recebida, C=cancelada. O `liberado = S` veio do conector
+ * do Provedor.ai (a forma esta em tres SDKs independentes do IXC): fatura nao
+ * liberada ainda nao foi apresentada ao cliente, e contar atraso dela num
+ * bureau seria acusar sem ter cobrado.
+ */
+const FATURA_ABERTA: readonly IxcFilter[] = [
+  { TB: "fn_areceber.status", OP: "=", P: "A", C: "AND", G: "" },
+  { TB: "fn_areceber.liberado", OP: "=", P: "S", C: "AND", G: "" },
+];
+
+/** Os contratos de um cliente, resumidos — ver contratosPorClienteBulk. */
+interface ContratoResumo {
+  total: number;
+  ativos: number;
+  /** Algum contrato ativo com status_internet FA: cortado por atraso, ainda cliente. */
+  algumFA: boolean;
+  plano: string;
+  inicio: string;
+}
+
 export class IxcConnector implements ErpConnector {
   readonly name = "ixc";
   readonly label = "IXC Soft";
@@ -209,29 +232,30 @@ export class IxcConnector implements ErpConnector {
   }
 
   /**
-   * Busca inadimplentes: fn_areceber com status="A" (aberto) e vencidas.
-   * Agrupa por CPF/CNPJ: soma valor, conta faturas, pega max dias atraso.
-   * Cruza com tabela "cliente" para obter endereco (cidade, uf, cep).
-   */
-  /**
-   * Inadimplentes pelas faturas em aberto e vencidas.
+   * Inadimplentes pelas faturas em aberto e vencidas — ATIVOS e ex-clientes.
    *
-   * `lastDays` NAO tem mais valor padrao: sem ele, nao ha recorte de data e o
-   * valor devolvido e a divida inteira. O padrao de 365 dias descartava toda
-   * fatura vencida ha mais de um ano — justamente a do devedor antigo, que e
-   * quem mais importa para o bureau. Medido na base da O L I: ha atraso chegando
-   * a 6.397 dias, ou seja 17 anos, que o recorte jogava fora. Quem quiser a
-   * janela curta passa `lastDays` explicitamente.
+   * A fatura (`fn_areceber`) NAO carrega CPF nem nome: o campo `documento` e o
+   * numero do boleto. A versao anterior lia o documento DA FATURA, e desde que
+   * `cleanCpfCnpj` passou a recusar numero de boleto (29/08/2026) ela devolvia
+   * ZERO inadimplentes ativos com `ok: true` — e o passo 3 do sync, lendo a
+   * lista curta como completa, baixava a divida de quem estava gravado como
+   * devedor ativo. O devedor ainda conectado, que e o que mais interessa a
+   * quem cobra, sumia do bureau a cada sync. Agora o CPF vem do cadastro
+   * (`cliente.cnpj_cpf`), buscado em LOTE — a versao anterior fazia uma
+   * requisicao por cliente, milhares na base da O L I.
    *
-   * A paginacao tambem sobe para rp=500 x 200 paginas (100.000 faturas), a mesma
-   * de `fetchCancelledDelinquents`. Com o default de 200 x 50 o teto era 10.000,
-   * e so a O L I tem 42.883 faturas em aberto — a divida sairia truncada.
+   * `lastDays` NAO tem valor padrao: sem ele, nao ha recorte de data e o valor
+   * devolvido e a divida inteira. O padrao de 365 dias descartava toda fatura
+   * vencida ha mais de um ano — justamente a do devedor antigo, que e quem mais
+   * importa para o bureau. Medido na O L I: ha atraso chegando a 6.397 dias,
+   * ou seja 17 anos, que o recorte jogava fora.
+   *
+   * Paginacao rp=500 x 200 paginas (100.000 faturas), a mesma de
+   * `fetchCancelledDelinquents`; so a O L I tem 42.883 faturas em aberto.
    */
   async fetchDelinquents(config: ErpConnectionConfig, lastDays?: number): Promise<ErpFetchResult> {
     try {
-      const filtros: IxcFilter[] = [
-        { TB: "fn_areceber.status", OP: "=", P: "A", C: "AND", G: "" },
-      ];
+      const filtros: IxcFilter[] = [...FATURA_ABERTA];
       if (lastDays && lastDays > 0) {
         const cutoffDate = new Date();
         cutoffDate.setDate(cutoffDate.getDate() - lastDays);
@@ -243,73 +267,99 @@ export class IxcConnector implements ErpConnector {
 
       const allRows = await this.listWithFilter(config, "fn_areceber", filtros, 500, 200);
 
-      const overdueRows = allRows.filter((row: any) => {
-        const dueDate = row.data_vencimento;
-        // Vencida = ao menos UM DIA de atraso, contado por dia de calendario.
-        // `new Date(dueDate) < now` sobre o AAAA-MM-DD do IXC comparava meia-noite
-        // UTC com o instante local: em Brasilia isso e 21h do dia ANTERIOR, entao a
-        // fatura que vence HOJE ja contava como inadimplencia — o mesmo defeito que
-        // punha 641 clientes do MK com "1 dia de atraso" que nao existia.
-        return (diasDesdeVencimento(dueDate) ?? -1) > 0;
-      });
-
-      // Coletar id_cliente unicos para buscar enderecos na tabela "cliente"
-      const clienteIds = [...new Set(
-        overdueRows.map((r: any) => String(r.id_cliente || "")).filter(Boolean)
-      )];
-
-      // Buscar dados de endereco da tabela "cliente" em lotes
-      const clienteMap = new Map<string, { cidade: string; uf: string; cep: string; endereco: string; numero: string }>();
-      for (const cid of clienteIds) {
-        try {
-          const rows = await this.listAll(config, "cliente", {
-            qtype: "cliente.id",
-            query: cid,
-            oper: "=",
-          }, 1, 1);
-          if (rows.length > 0) {
-            const c = rows[0];
-            clienteMap.set(cid, {
-              cidade: c.cidade || "",
-              uf: c.uf || c.estado || "",
-              cep: c.cep || "",
-              endereco: c.endereco || c.logradouro || "",
-              numero: c.numero || "",
-            });
-          }
-        } catch {
-          // Cliente nao encontrado, seguir
+      // 1. Divida por cliente. Vencida = ao menos UM DIA de atraso, contado por
+      // dia de calendario: `new Date(dueDate) < now` sobre o AAAA-MM-DD do IXC
+      // comparava meia-noite UTC com o instante local e a fatura que vence HOJE
+      // ja contava. Fatura sem data legivel fica de fora, nunca vira "1 dia".
+      const porCliente = new Map<string, { totalAmount: number; maxDays: number; count: number }>();
+      let semData = 0;
+      for (const row of allRows) {
+        const dias = diasDesdeVencimento(row.data_vencimento);
+        if (dias === null) { semData++; continue; }
+        if (dias <= 0) continue;
+        const cid = String(row.id_cliente || "");
+        if (!cid) continue;
+        const amount = parseFloat(row.valor || row.valor_original || "0") || 0;
+        const e = porCliente.get(cid);
+        if (e) {
+          e.totalAmount += amount;
+          if (dias > e.maxDays) e.maxDays = dias;
+          e.count++;
+        } else {
+          porCliente.set(cid, { totalAmount: amount, maxDays: dias, count: 1 });
         }
       }
+      console.log(
+        `[IXC] fetchDelinquents: ${allRows.length} faturas abertas, ${porCliente.size} clientes com fatura vencida`
+        + (semData > 0 ? `, ${semData} sem data legivel` : ""),
+      );
 
-      console.log(`[IXC] fetchDelinquents: ${overdueRows.length} faturas vencidas, ${clienteMap.size} clientes com endereco de ${clienteIds.length} unicos`);
+      if (porCliente.size === 0) {
+        return { ok: true, message: `Nenhuma fatura vencida em aberto (${allRows.length} faturas abertas)`, customers: [], totalRecords: 0 };
+      }
 
-      const invoices = overdueRows.map((row: any) => {
-        const cid = String(row.id_cliente || "");
-        const cliente = clienteMap.get(cid);
-        return {
-          cpfCnpj: cleanCpfCnpj(row.cpf_cnpj || row.cnpj_cpf || row.documento || ""),
-          name: row.razao || row.nome || "",
-          email: row.email || undefined,
-          phone: row.fone || row.celular || row.fone_celular ? cleanPhone(row.fone || row.celular || row.fone_celular) : undefined,
-          address: cliente?.endereco || row.endereco || row.logradouro || undefined,
-          addressNumber: extractNumberFromAddress(cliente?.endereco || row.endereco, cliente?.numero || row.numero),
-          city: cliente?.cidade || row.cidade || undefined,
-          state: cliente?.uf || row.uf || row.estado || undefined,
-          cep: (cliente?.cep || row.cep) ? cleanCep(cliente?.cep || row.cep) : undefined,
-          amount: parseFloat(row.valor || row.valor_original || "0") || 0,
-          daysOverdue: calculateDaysOverdue(row.data_vencimento),
-          erpSource: "ixc" as const,
-        };
-      }).filter((inv) => inv.cpfCnpj.length > 0);
+      // 2. Cadastro, cidade e contratos — tudo em lote.
+      const clienteMap = await this.clientesPorId(config, new Set(porCliente.keys()), "fetchDelinquents");
+      const cidadeMap = await this.bulkResolveCidadeUf(config);
+      const contratos = await this.contratosPorClienteBulk(config);
 
-      const customers = aggregateByCustomer(invoices);
+      let semCadastro = 0;
+      let semDocumento = 0;
+      let semContrato = 0;
+      const customers: NormalizedErpCustomer[] = [];
+      for (const [cid, overdue] of Array.from(porCliente.entries())) {
+        const c = clienteMap.get(cid);
+        if (!c) { semCadastro++; continue; }
+        // `cnpj_cpf` e o nome REAL do campo na tabela `cliente` do IXC.
+        const cpfCnpj = cleanCpfCnpj(c.cnpj_cpf || c.cpf_cnpj || "");
+        if (!cpfCnpj) { semDocumento++; continue; }
+        // A porteira: cadastro sem contrato nenhum nao entra na base, nem
+        // devendo — fatura sem contrato e taxa de quem desistiu, nao divida de
+        // cliente. So com a tabela de contratos lida; sem ela nao se afirma.
+        const resumo = contratos.mapa.get(cid);
+        if (contratos.lidos && !resumo) { semContrato++; continue; }
+        const loc = this.resolveCityState(c, cidadeMap);
+        customers.push({
+          cpfCnpj,
+          name: c.razao || c.nome || "",
+          email: c.email || undefined,
+          phone: c.fone || c.celular ? cleanPhone(c.fone || c.celular) : undefined,
+          address: c.endereco || c.logradouro || undefined,
+          addressNumber: extractNumberFromAddress(c.endereco, c.numero),
+          complement: c.complemento || undefined,
+          neighborhood: c.bairro || undefined,
+          city: loc.city,
+          state: loc.state,
+          cep: c.cep ? cleanCep(c.cep) : undefined,
+          latitude: c.latitude != null && String(c.latitude).trim() ? String(c.latitude).trim() : undefined,
+          longitude: c.longitude != null && String(c.longitude).trim() ? String(c.longitude).trim() : undefined,
+          totalOverdueAmount: Math.round(overdue.totalAmount * 100) / 100,
+          maxDaysOverdue: overdue.maxDays,
+          overdueInvoicesCount: overdue.count,
+          contractStatus: this.statusDoContrato(resumo),
+          contractPlan: resumo?.plano || undefined,
+          contractStartDate: resumo?.inicio || undefined,
+          erpSource: "ixc",
+        });
+      }
+
+      const notas = [
+        semCadastro > 0 ? `${semCadastro} sem cadastro` : "",
+        semDocumento > 0 ? `${semDocumento} sem CPF/CNPJ` : "",
+        semContrato > 0 ? `${semContrato} sem contrato ignorados` : "",
+      ].filter(Boolean);
+      console.log(`[IXC] fetchDelinquents: ${customers.length} inadimplentes` + (notas.length ? ` (${notas.join(", ")})` : ""));
 
       return {
         ok: true,
-        message: `${customers.length} inadimplentes encontrados (${allRows.length} faturas processadas)`,
+        message: `${customers.length} inadimplentes encontrados (${allRows.length} faturas abertas)`
+          + (notas.length ? `, ${notas.join(", ")}` : ""),
         customers,
         totalRecords: customers.length,
+        // Quem tem fatura vencida e cujo cadastro nao veio esta devendo — so
+        // nao deu para nomear. Contado para o sync nao baixar divida com lista
+        // curta.
+        leiturasFalhas: semCadastro,
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
@@ -374,17 +424,11 @@ export class IxcConnector implements ErpConnector {
       const overdueByClient = new Map<string, { totalAmount: number; maxDays: number; count: number }>();
       const clienteIdArray = Array.from(cancelledClientIds);
 
-      console.log(`[IXC] fetchCancelledDelinquents: bulk fetch de todas faturas status=A...`);
+      console.log(`[IXC] fetchCancelledDelinquents: bulk fetch de todas faturas abertas e liberadas...`);
       const bulkStart = Date.now();
       let allInvoices: any[] = [];
       try {
-        allInvoices = await this.listAll(config, "fn_areceber", {
-          qtype: "fn_areceber.status",
-          query: "A",
-          oper: "=",
-          sortname: "fn_areceber.id",
-          sortorder: "asc",
-        }, 500, 500);
+        allInvoices = await this.listWithFilter(config, "fn_areceber", [...FATURA_ABERTA], 500, 500);
       } catch (e) {
         console.log(`[IXC] Bulk fn_areceber falhou: ${e instanceof Error ? e.message : e}`);
       }
@@ -415,34 +459,9 @@ export class IxcConnector implements ErpConnector {
 
       console.log(`[IXC] fetchCancelledDelinquents: ${overdueByClient.size} cancelados com faturas vencidas de ${clienteIdArray.length} total`);
 
-      // 5. Buscar dados cadastrais via BULK fetch (paginacao grande em vez de N requests).
-      // Antes: 1 request per client (5977 x ~100ms = 10min). Agora: ~12 paginas de 500.
+      // 5. Cadastro em LOTE — ver clientesPorId.
       const clientsWithDebt = Array.from(overdueByClient.keys());
-      const clientsWithDebtSet = new Set(clientsWithDebt);
-      const clienteMap = new Map<string, any>();
-      console.log(`[IXC] fetchCancelledDelinquents: bulk fetch de clientes...`);
-      try {
-        const allClientRows = await this.listAll(config, "cliente", {
-          qtype: "cliente.id",
-          query: "0",
-          oper: ">",
-          sortname: "cliente.id",
-          sortorder: "asc",
-        }, 500, 100);
-        for (const r of allClientRows) {
-          const id = String(r.id || "");
-          if (id && clientsWithDebtSet.has(id)) clienteMap.set(id, r);
-        }
-        console.log(`[IXC] fetchCancelledDelinquents: bulk retornou ${allClientRows.length} clientes, ${clienteMap.size} match`);
-      } catch (e) {
-        console.log(`[IXC] Bulk client fetch falhou, fallback per-client: ${e instanceof Error ? e.message : e}`);
-        for (const cid of clientsWithDebt) {
-          try {
-            const rows = await this.listAll(config, "cliente", { qtype: "cliente.id", query: cid, oper: "=" }, 1, 1);
-            if (rows.length > 0) clienteMap.set(cid, rows[0]);
-          } catch {}
-        }
-      }
+      const clienteMap = await this.clientesPorId(config, new Set(clientsWithDebt), "fetchCancelledDelinquents");
 
       // Resolver FK cidade/uf via metodos reutilizaveis
       const cidadeMap = await this.bulkResolveCidadeUf(config);
@@ -519,10 +538,20 @@ export class IxcConnector implements ErpConnector {
       // Bulk resolve cidade/uf FK (mesma logica do fetchCancelledDelinquents)
       const cidadeMap = await this.bulkResolveCidadeUf(config);
 
+      // Contratos em lote: dao o status (ativo/suspenso/cancelado) que o passo
+      // 1 do sync grava para a carteira inteira — ate aqui o IXC nao mandava
+      // status nenhum por este caminho, e ex-cliente so virava "cancelled" se
+      // aparecesse devendo — e fecham a porteira: cadastro sem contrato nenhum
+      // nao entra na base.
+      const contratos = await this.contratosPorClienteBulk(config);
+      let semContrato = 0;
+
       const customers: NormalizedErpCustomer[] = allRows
         .map((row: any) => {
-          const cpfCnpj = cleanCpfCnpj(row.cpf_cnpj || row.cnpj_cpf || row.documento || "");
+          const cpfCnpj = cleanCpfCnpj(row.cnpj_cpf || row.cpf_cnpj || row.documento || "");
           if (!cpfCnpj) return null;
+          const resumo = contratos.mapa.get(String(row.id || ""));
+          if (contratos.lidos && !resumo) { semContrato++; return null; }
           const loc = this.resolveCityState(row, cidadeMap);
           return {
             cpfCnpj,
@@ -535,17 +564,22 @@ export class IxcConnector implements ErpConnector {
             city: loc.city,
             state: loc.state,
             cep: row.cep ? cleanCep(row.cep) : undefined,
+            latitude: row.latitude != null && String(row.latitude).trim() ? String(row.latitude).trim() : undefined,
+            longitude: row.longitude != null && String(row.longitude).trim() ? String(row.longitude).trim() : undefined,
             totalOverdueAmount: 0,
             maxDaysOverdue: 0,
+            contractStatus: this.statusDoContrato(resumo),
+            contractPlan: resumo?.plano || undefined,
+            contractStartDate: resumo?.inicio || undefined,
             erpSource: "ixc",
           };
         })
         .filter((c): c is NonNullable<typeof c> => c !== null);
 
-      console.log(`[IXC] fetchCustomers: ${customers.length} clientes totais`);
+      console.log(`[IXC] fetchCustomers: ${customers.length} clientes totais` + (semContrato > 0 ? `, ${semContrato} cadastro(s) sem contrato nenhum ignorados` : ""));
       return {
         ok: true,
-        message: `${customers.length} clientes encontrados`,
+        message: `${customers.length} clientes encontrados` + (semContrato > 0 ? `, ${semContrato} sem contrato ignorados` : ""),
         customers,
         totalRecords: customers.length,
       };
@@ -553,6 +587,93 @@ export class IxcConnector implements ErpConnector {
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
       return { ok: false, message: `Erro: ${msg}`, customers: [] };
     }
+  }
+
+  /**
+   * Linhas da tabela `cliente` para um conjunto de ids, em LOTE.
+   *
+   * Uma requisicao por cliente custava milhares de idas ao IXC (5.977 x ~100ms
+   * = 10 min na O L I). Varrer a tabela em paginas de 500 e filtrar em memoria
+   * sai em ~12 paginas. Se o lote falhar, cai no um-a-um so para os ids
+   * pedidos — pior que o lote, melhor que devolver ninguem.
+   */
+  private async clientesPorId(config: ErpConnectionConfig, ids: Set<string>, rotulo: string): Promise<Map<string, any>> {
+    const mapa = new Map<string, any>();
+    if (ids.size === 0) return mapa;
+    try {
+      const rows = await this.listAll(config, "cliente", {
+        qtype: "cliente.id", query: "0", oper: ">", sortname: "cliente.id", sortorder: "asc",
+      }, 500, 200);
+      for (const r of rows) {
+        const id = String(r.id || "");
+        if (id && ids.has(id)) mapa.set(id, r);
+      }
+      console.log(`[IXC] ${rotulo}: cadastro em lote — ${rows.length} clientes lidos, ${mapa.size} de ${ids.size} casados`);
+    } catch (e) {
+      console.log(`[IXC] ${rotulo}: lote de clientes falhou, caindo no um-a-um: ${e instanceof Error ? e.message : e}`);
+      for (const cid of Array.from(ids)) {
+        try {
+          const rows = await this.listAll(config, "cliente", { qtype: "cliente.id", query: cid, oper: "=" }, 1, 1);
+          if (rows.length > 0) mapa.set(cid, rows[0]);
+        } catch {}
+      }
+    }
+    return mapa;
+  }
+
+  /** Teto da varredura de contratos: rp x paginas. Acima disso a leitura e parcial. */
+  private static readonly TETO_CONTRATOS = 500 * 400;
+
+  /**
+   * Todos os contratos, em lote, resumidos por cliente.
+   *
+   * Status IXC: A=ativo, I=inativo, N=negativado, C=cancelado, D=desistiu.
+   * `status_internet` FA = bloqueado por atraso — cortado, mas AINDA cliente.
+   *
+   * `lidos: false` quando a tabela nao pode ser lida inteira: ai nao se afirma
+   * nada sobre o contrato de ninguem, e a porteira de "sem contrato" nao fecha
+   * — errar para o lado de manter e barato, errar para o lado de descartar
+   * apaga cliente de verdade.
+   */
+  private async contratosPorClienteBulk(config: ErpConnectionConfig): Promise<{ lidos: boolean; mapa: Map<string, ContratoResumo> }> {
+    const mapa = new Map<string, ContratoResumo>();
+    try {
+      const rows = await this.listAll(config, "cliente_contrato", {
+        qtype: "cliente_contrato.id", query: "0", oper: ">", sortname: "cliente_contrato.id", sortorder: "asc",
+      }, 500, 400);
+      for (const c of rows) {
+        const cid = String(c.id_cliente || "");
+        if (!cid) continue;
+        const r = mapa.get(cid) ?? { total: 0, ativos: 0, algumFA: false, plano: "", inicio: "" };
+        r.total++;
+        const st = String(c.status || "").toUpperCase();
+        const plano = String(c.contrato || c.descricao || "").trim();
+        const inicio = String(c.data_ativacao || c.data_inicio || "").trim();
+        if (st === "A") {
+          // O contrato ativo manda no plano e na data; o primeiro ativo vence.
+          if (r.ativos === 0) { r.plano = plano; r.inicio = inicio; }
+          r.ativos++;
+          if (String(c.status_internet || "").toUpperCase() === "FA") r.algumFA = true;
+        } else if (r.ativos === 0 && !r.plano) {
+          r.plano = plano;
+          r.inicio = inicio;
+        }
+        mapa.set(cid, r);
+      }
+      const completo = rows.length < IxcConnector.TETO_CONTRATOS;
+      console.log(`[IXC] contratos em lote: ${rows.length} contratos de ${mapa.size} clientes` + (completo ? "" : " — TRUNCADO, leitura parcial"));
+      return { lidos: completo, mapa };
+    } catch (e) {
+      console.warn(`[IXC] contratos em lote falharam — sem status de contrato nesta passada: ${e instanceof Error ? e.message : e}`);
+      return { lidos: false, mapa };
+    }
+  }
+
+  /** Ativo (cortado por atraso = suspenso), ex-cliente, ou nada a afirmar. */
+  private statusDoContrato(r: ContratoResumo | undefined): NormalizedErpCustomer["contractStatus"] {
+    if (!r) return undefined;
+    if (r.ativos > 0) return r.algumFA ? "suspended" : "active";
+    return r.total > 0 ? "cancelled" : undefined;
   }
 
   /** Bulk resolve cidade/uf FK tables — reusado por fetchCustomers e fetchCancelledDelinquents */
@@ -680,7 +801,7 @@ export class IxcConnector implements ErpConnector {
       }));
 
       // Buscar CPF/nome dos clientes em lote
-      const customerIds = [...new Set(contracts.map(c => c.customerId).filter(Boolean))];
+      const customerIds = Array.from(new Set(contracts.map(c => c.customerId).filter(Boolean)));
       if (customerIds.length > 0) {
         const clienteRows = await this.listWithFilter(config, "cliente", [
           { TB: "cliente.id", OP: "=", P: customerIds.join(","), C: "AND", G: "" },
@@ -870,7 +991,7 @@ export class IxcConnector implements ErpConnector {
       if (customerId) {
         const invoiceRows = await this.listWithFilter(config, "fn_areceber", [
           { TB: "fn_areceber.id_cliente", OP: "=", P: customerId, C: "AND", G: "" },
-          { TB: "fn_areceber.status", OP: "=", P: "A", C: "AND", G: "" },
+          ...FATURA_ABERTA,
         ], 200, 5);
 
         for (const inv of invoiceRows) {
@@ -1061,7 +1182,7 @@ export class IxcConnector implements ErpConnector {
           G: "invoiceCustomers",
         });
       }
-      filters.push({ TB: "fn_areceber.status", OP: "=", P: "A", C: "AND", G: "" });
+      filters.push(...FATURA_ABERTA);
 
       const invoiceRows = await this.listWithFilter(config, "fn_areceber", filters, 200, 10);
 
