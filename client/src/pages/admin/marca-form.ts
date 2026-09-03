@@ -1,21 +1,102 @@
 /**
- * O corpo do PATCH de uma marca: a diferença entre o formulário e o que o
- * servidor tem.
+ * A lógica do formulário de marcas: o que ele mostra, quando ele nasce e o que
+ * ele envia.
  *
- * Vive fora do componente porque é aqui que estava o defeito, e defeito assim
- * merece teste. O formulário nasce da LISTA de marcas, que não carrega logo,
- * favicon, WhatsApp nem nome de exibição do e-mail — a listagem corta esses
- * campos para não trafegar três SVGs por linha. Enviando o formulário inteiro,
- * eles saíam vazios e o servidor os gravava como nulos: abrir a edição de uma
- * marca para corrigir um telefone APAGAVA o logo do revendedor, e ninguém via
- * até um cliente reclamar que a marca sumiu da tela de login.
+ * Vive fora do componente porque é aqui que estavam os dois defeitos, e defeito
+ * assim merece teste — a página é `.tsx` e este projeto não roda componente em
+ * DOM, então lógica dentro dela não é coberta por ninguém.
  *
- * A regra é uma só: o que não mudou não é enviado, e o que o formulário nunca
- * carregou não muda.
+ * 1. O formulário nascia da LISTA de marcas, que não carrega logo, favicon,
+ *    WhatsApp nem nome de exibição do e-mail. Enviando o formulário inteiro,
+ *    eles saíam vazios e o servidor os gravava como nulos: abrir a edição de uma
+ *    marca para corrigir um telefone APAGAVA o logo do revendedor, e ninguém via
+ *    até um cliente reclamar que a marca sumiu da tela de login. A regra do
+ *    PATCH é uma só: o que não mudou não é enviado, e o que o formulário nunca
+ *    carregou não muda.
+ * 2. E a hidratação com o detalhe reescrevia o que já tinha sido digitado —
+ *    ver `faseDoFormulario`.
  */
 
 /** Campos de arquivo. Vazio neles significa "não mexi", nunca "apague". */
 const ARQUIVOS = ["logoSvg", "logoPng", "faviconSvg"] as const;
+
+/**
+ * O formulário em branco — e, na prática, a lista de campos que a tela edita.
+ * Mora aqui, ao lado do diff, porque campo que existe num lugar e não no outro
+ * sai do PATCH sem ninguém perceber.
+ */
+export const FORMULARIO_VAZIO: Record<string, string> = {
+  slug: "", nomeProduto: "", assinatura: "", dominio: "", corBrand: "#4A4670",
+  corBrandDark: "", suporteEmail: "", suporteWhatsapp: "", site: "",
+  emailRemetente: "", emailNomeExibicao: "",
+  responsavelRazaoSocial: "", responsavelCnpj: "",
+  logoSvg: "", logoPng: "", faviconSvg: "",
+};
+
+/**
+ * O detalhe do servidor virando formulário.
+ *
+ * Os campos de ARQUIVOS ficam em branco de propósito, mesmo quando o servidor
+ * tem logo e favicon: branco ali é "não mexi", e é o que os mantém fora do
+ * diff — ver `corpoParcial`.
+ */
+export function camposDoDetalhe(detalhe: Record<string, any>): Record<string, string> {
+  return {
+    ...FORMULARIO_VAZIO,
+    slug: detalhe.slug ?? "",
+    nomeProduto: detalhe.nomeProduto ?? "",
+    assinatura: detalhe.assinatura ?? "",
+    dominio: detalhe.dominio ?? "",
+    corBrand: detalhe.corBrand || FORMULARIO_VAZIO.corBrand,
+    corBrandDark: detalhe.corBrandDark ?? "",
+    suporteEmail: detalhe.suporteEmail ?? "",
+    suporteWhatsapp: detalhe.suporteWhatsapp ?? "",
+    site: detalhe.site ?? "",
+    emailRemetente: detalhe.emailRemetente ?? "",
+    emailNomeExibicao: detalhe.emailNomeExibicao ?? "",
+    responsavelRazaoSocial: detalhe.responsavelRazaoSocial ?? "",
+    responsavelCnpj: detalhe.responsavelCnpj ?? "",
+  };
+}
+
+export type FaseDoFormulario =
+  | { fase: "fechado" }
+  | { fase: "aguardando" }
+  | { fase: "carregar"; campos: Record<string, string> }
+  | { fase: "pronto" };
+
+/**
+ * Em que pé está o formulário de edição — e é aqui que mora a correção do
+ * segundo defeito desta tela.
+ *
+ * Antes, o formulário abria com os campos da LISTA e um efeito o completava
+ * quando o detalhe chegasse. A trava só impedia a SEGUNDA hidratação: a
+ * primeira acontecia fosse qual fosse o estado do formulário e reescrevia tudo
+ * com o que veio do servidor. Quem clicava em "Editar" e começava a escrever no
+ * mesmo instante via o texto sumir sem aviso.
+ *
+ * A saída escolhida é NÃO EXISTIR campo antes da resposta: enquanto a fase é
+ * "aguardando", a tela mostra esqueleto, e não há digitação a perder. A
+ * alternativa — marcar o formulário como sujo e mesclar só o que a lista não
+ * trazia — deixaria de pé exatamente o caso em que o operador digita no
+ * WhatsApp de suporte ou no nome de exibição do e-mail, que são justamente os
+ * campos que só o detalhe traz.
+ *
+ * "pronto" vem ANTES de olhar o detalhe: a query do detalhe é invalidada ao
+ * vincular um provedor, e a resposta nova não pode reescrever o formulário.
+ */
+export function faseDoFormulario(
+  editando: number | "nova" | null,
+  detalhe: Record<string, any> | null | undefined,
+  jaCarregada: number | null,
+): FaseDoFormulario {
+  if (editando === null) return { fase: "fechado" };
+  if (editando === "nova") return { fase: "pronto" };
+  if (jaCarregada === editando) return { fase: "pronto" };
+  // Resposta atrasada da marca anterior não vale para esta.
+  if (!detalhe || detalhe.id !== editando) return { fase: "aguardando" };
+  return { fase: "carregar", campos: camposDoDetalhe(detalhe) };
+}
 
 export function corpoParcial(
   form: Record<string, string>,

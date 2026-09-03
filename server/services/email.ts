@@ -231,6 +231,15 @@ export async function sendPasswordResetEmail(
   await send(to, `Redefinicao de senha — ${marca.nomeProduto}`, html, marca);
 }
 
+/**
+ * `urlBase`: a outra metade do mesmo buraco do e-mail de verificacao. O botao
+ * "Ver o alerta" apontava para a base da MARCA, e sem dominio proprio ativo —
+ * praticamente a base inteira hoje — essa base e a RAIZ da plataforma. La o
+ * cookie de sessao (host-only, emitido no subdominio do provedor) nao existe e
+ * o app serve a LANDING PAGE: o dono do alerta clicava e caia numa pagina de
+ * vendas. Quem sabe por onde ESTE provedor entra e quem conhece o provedor —
+ * ver `urlDeEntrada`.
+ */
 export async function sendProactiveAlertEmail(
   to: string,
   providerName: string,
@@ -239,7 +248,9 @@ export async function sendProactiveAlertEmail(
   marca: MarcaResolvida = MARCA_PLATAFORMA,
   /** A foto do momento: e o que diz POR QUE o aviso existe. */
   detalhes?: { valor: number; dias: number; contrato: string; motivo?: string; resumo?: string },
+  urlBase?: string,
 ): Promise<void> {
+  const alertaUrl = `${urlBase || urlDaMarca(marca)}/anti-fraude`;
   const brl = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const situacao = detalhes
     ? `<p style="color:${INK};font-size:14px;margin:8px 0 0;line-height:1.6;">
@@ -266,7 +277,7 @@ export async function sendProactiveAlertEmail(
     <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0 0 24px;">
       ${detalhes?.resumo ? esc(detalhes.resumo) : "Um cliente seu, ativo e com fatura vencida, esta sendo avaliado por outro provedor"}: e o momento de agir — cobrar, renegociar, recolher o equipamento ou reter — antes que ele instale em outro lugar.
     </p>
-    ${btnPrimary(`${urlDaMarca(marca)}/anti-fraude`, "Ver o alerta", marca)}
+    ${btnPrimary(alertaUrl, "Ver o alerta", marca)}
     <p style="color:${MUTED};font-size:12px;margin:20px 0 0;line-height:1.5;">
       A identidade do provedor que realizou a consulta e mantida em sigilo. Voce pode configurar suas preferencias de alerta no painel do provedor.
     </p>

@@ -10,7 +10,7 @@ import { describe, it, expect, vi } from "vitest";
 
 vi.mock("../storage", () => ({ storage: {} }));
 vi.mock("./email", () => ({ sendProactiveAlertEmail: vi.fn() }));
-vi.mock("./marca.service", () => ({ resolverMarcaPorProviderId: vi.fn(), urlDaMarca: () => "" }));
+vi.mock("./marca.service", () => ({ resolverMarcaPorProviderId: vi.fn(), urlDeEntrada: () => "" }));
 vi.mock("./crm/zapi", () => ({ isZapiConfigured: () => false, sendText: vi.fn() }));
 
 import { escolherDonos, statusDaBase, textoDoAlerta } from "./proactive-alert.service";
