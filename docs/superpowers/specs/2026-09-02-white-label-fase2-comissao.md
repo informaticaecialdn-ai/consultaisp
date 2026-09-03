@@ -83,3 +83,37 @@ Ver a seção "Fases" do desenho. Resumo:
 ## Registro de execução
 
 - 2026-09-02: decisões respondidas; fase 0 iniciada.
+- 2026-09-03: **fase 0 concluída** em quatro frentes paralelas (financeiro,
+  autenticação, preços, marca), cada uma revisada por três lentes adversariais
+  e depois pelo conjunto integrado. Suíte de 61 arquivos/968 testes para
+  80/1202; `tsc` de 82 para 74 erros pré-existentes.
+  - A compra self-service de créditos estava quebrada desde sempre (campos
+    errados na chamada ao Asaas) e voltou a funcionar.
+  - `releaseCreditOrder` virou transação idempotente; o webhook do Asaas passou
+    a reconsultar a cobrança e conferir o valor antes de liberar.
+  - Numeração de pedido e fatura saiu de `COUNT(*)` para SEQUENCE
+    (`migrations/0012_sequences_pedidos.sql`, com `setval` a partir do maior
+    número já gravado).
+  - Prova de host virou fail-closed; `requireProvider` entrou em toda rota de
+    provedor.
+  - Tabela de preço virou fonte única em `shared/planos.ts`, servida por
+    `GET /api/credits/packages` e `GET /api/public/precos`.
+  - `hostPertenceAMarca`, `resolverMarcaPorId` e `urlDeEntrada` prontos para a
+    fase 1; `/lgpd` pública; e-mails de reenvio e reset com a marca do provedor.
+  - Correção do orquestrador: a queda do boot sem `ASAAS_WEBHOOK_TOKEN` passou a
+    depender de `ASAAS_API_KEY` estar preenchida. A VPS não tem nenhuma das duas
+    e `validateEnv` roda no servidor e no worker: do jeito original o deploy
+    poria os dois em laço de restart no pm2.
+  - `migrations/0013_white_label_revenda.sql` já escrita e validada (aplicada e
+    desfeita em transação, e depois aplicada de fato no banco local), mas
+    **fora do controle de versão** até a fase 1.
+
+### Pendente com o dono
+
+1. **CNPJ e razão social reais** para `LGPD_CNPJ` e `LGPD_EMPRESA` na VPS. Hoje
+   a política pública publica `00.000.000/0000-00`, e a fatura da fase 3 vai
+   dizer "emitido por" com esse dado.
+2. **Chave do Asaas em produção** (`ASAAS_API_KEY`) e o token do webhook
+   (`ASAAS_WEBHOOK_TOKEN`), cadastrados juntos. Sem eles a cobrança está
+   desligada em produção — e sem cobrança não há comissão a apurar na fase 4.
+3. Contador e jurídico antes da fase 4 (decisão 16).
