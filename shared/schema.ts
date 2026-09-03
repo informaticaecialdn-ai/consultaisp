@@ -370,6 +370,13 @@ export const ispConsultations = pgTable("isp_consultations", {
   result: jsonb("result"),
   score: integer("score"),
   decisionReco: text("decision_reco"),
+  /**
+   * O codigo que o provedor apresenta ao suporte: `CI-2609-K7F3M2`.
+   * Nulo nas consultas anteriores a 03/09/2026 — elas nasceram sem codigo, e
+   * inventar um retroativo diria que foram identificadas quando nao foram.
+   * Indice unico parcial na migracao 0015.
+   */
+  consultaId: text("consulta_id"),
   cost: integer("cost").default(1),
   approved: boolean("approved"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -382,6 +389,13 @@ export const spcConsultations = pgTable("spc_consultations", {
   cpfCnpj: text("cpf_cnpj").notNull(),
   result: jsonb("result"),
   score: integer("score"),
+  /**
+   * O codigo que o provedor apresenta ao suporte: `CI-2609-K7F3M2`.
+   * Nulo nas consultas anteriores a 03/09/2026 — elas nasceram sem codigo, e
+   * inventar um retroativo diria que foram identificadas quando nao foram.
+   * Indice unico parcial na migracao 0015.
+   */
+  consultaId: text("consulta_id"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -413,6 +427,13 @@ export const bigdataConsultations = pgTable("bigdata_consultations", {
   cpfCnpj: text("cpf_cnpj").notNull(),
   result: jsonb("result"),
   datasets: text("datasets").array(),
+  /**
+   * O codigo que o provedor apresenta ao suporte: `CI-2609-K7F3M2`.
+   * Nulo nas consultas anteriores a 03/09/2026 — elas nasceram sem codigo, e
+   * inventar um retroativo diria que foram identificadas quando nao foram.
+   * Indice unico parcial na migracao 0015.
+   */
+  consultaId: text("consulta_id"),
   veredito: text("veredito"),
   createdAt: timestamp("created_at").defaultNow(),
 });
