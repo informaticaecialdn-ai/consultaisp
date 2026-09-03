@@ -44,6 +44,7 @@ import { registerFinanceiroRoutes } from "./financeiro.routes";
 
 let server: Server;
 let base: string;
+let sessao: Record<string, unknown> = {};
 
 const PEDIDO = {
   id: 501, orderNumber: "CR-202609-0009", amount: "100.00",
@@ -58,7 +59,7 @@ beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
-    (req as any).session = {};
+    (req as any).session = sessao;
     next();
   });
   app.use(registerFinanceiroRoutes());
@@ -75,6 +76,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  sessao = {};
   envMock.getAsaasWebhookToken.mockReturnValue("token-do-painel");
   asaasMock.isAsaasConfigured.mockReturnValue(true);
   asaasMock.asaasStatusToLocal.mockImplementation((s: string) =>
@@ -157,6 +159,50 @@ describe("POST /api/asaas/webhook — pedido de credito", () => {
     asaasMock.getCharge.mockRejectedValue(new Error("timeout"));
     await webhook(PAGO, "token-do-painel");
     expect(storageMock.releaseCreditOrder).not.toHaveBeenCalled();
+  });
+
+  // O pagamento e real e o Asaas caiu no instante da reconsulta. Recusar esta
+  // certo; responder 200 nao — para o Asaas, 200 e "entregue, nao reenvie", e o
+  // credito de um PIX pago de verdade nunca entrava, porque ninguem reprocessa.
+  describe("Asaas indisponivel: 500 para reentregar, nao 200", () => {
+    it("queda de rede na reconsulta devolve 500", async () => {
+      asaasMock.getCharge.mockRejectedValue(new Error("fetch failed"));
+      const res = await webhook(PAGO, "token-do-painel");
+      expect(res.status).toBe(500);
+      expect(storageMock.releaseCreditOrder).not.toHaveBeenCalled();
+    });
+
+    it("502 do Asaas devolve 500", async () => {
+      asaasMock.getCharge.mockRejectedValue(Object.assign(new Error("Erro Asaas: 502"), { status: 502 }));
+      const res = await webhook(PAGO, "token-do-painel");
+      expect(res.status).toBe(500);
+    });
+
+    it("chave do Asaas ausente devolve 500", async () => {
+      asaasMock.isAsaasConfigured.mockReturnValue(false);
+      const res = await webhook(PAGO, "token-do-painel");
+      expect(res.status).toBe(500);
+      expect(storageMock.releaseCreditOrder).not.toHaveBeenCalled();
+    });
+
+    // A mensagem muda a cada tentativa (timeout, 502, 503) e `anotarRecusa` so
+    // deduplica linha identica: anotar aqui encheria as observacoes do pedido.
+    it("indisponibilidade nao escreve nas observacoes do pedido", async () => {
+      asaasMock.getCharge.mockRejectedValue(new Error("socket hang up"));
+      await webhook(PAGO, "token-do-painel");
+      expect(storageMock.updateCreditOrder).not.toHaveBeenCalled();
+    });
+
+    it("recusa por prova continua 200 e anotada — insistir nao mudaria nada", async () => {
+      asaasMock.getCharge.mockResolvedValue({
+        id: "pay_1", externalReference: "credit_order_501", status: "RECEIVED", value: 1,
+      });
+      const res = await webhook(PAGO, "token-do-painel");
+      expect(res.status).toBe(200);
+      expect(storageMock.updateCreditOrder).toHaveBeenCalledWith(501, {
+        notes: expect.stringContaining("valor divergente"),
+      });
+    });
   });
 
   it("reentrega do mesmo evento nao credita de novo e nao vira erro", async () => {
@@ -311,6 +357,65 @@ describe("POST /api/asaas/webhook — fatura do plano", () => {
     });
   });
 
+  // O ramo do pedido ganhou trava contra rebaixamento; o da fatura ficou sem.
+  // Qualquer status fora do mapa de `asaasStatusToLocal` vira "pending", e o
+  // botao "reenviar evento" do painel do Asaas reenvia OVERDUE antigo: a fatura
+  // ja quitada reaparecia como vencida e o provedor era cobrado de novo.
+  describe("fatura ja paga nao volta atras", () => {
+    it("chargeback pedido so registra o status do Asaas", async () => {
+      storageMock.getProviderInvoice.mockResolvedValue({
+        ...FATURA, status: "paid", paidDate: new Date("2026-09-02"), paidAmount: "349.00",
+      });
+      const res = await webhook(
+        { event: "PAYMENT_CHARGEBACK_REQUESTED", payment: { id: "pay_f", externalReference: "invoice_77", status: "CHARGEBACK_REQUESTED" } },
+        "token-do-painel",
+      );
+      expect(res.status).toBe(200);
+      expect(storageMock.updateProviderInvoiceAsaas).toHaveBeenCalledWith(77, { asaasStatus: "CHARGEBACK_REQUESTED" });
+      expect(storageMock.updateProviderInvoiceAsaas).not.toHaveBeenCalledWith(77, expect.objectContaining({ status: "pending" }));
+    });
+
+    it("reenvio de PAYMENT_OVERDUE antigo nao deixa a fatura paga vencida", async () => {
+      storageMock.getProviderInvoice.mockResolvedValue({
+        ...FATURA, status: "paid", paidDate: new Date("2026-09-02"), paidAmount: "349.00",
+      });
+      await webhook(
+        { event: "PAYMENT_OVERDUE", payment: { id: "pay_f", externalReference: "invoice_77", status: "OVERDUE" } },
+        "token-do-painel",
+      );
+      expect(storageMock.updateProviderInvoiceAsaas).not.toHaveBeenCalledWith(77, expect.objectContaining({ status: "overdue" }));
+    });
+
+    // A fatura tem paidDate mas o status nunca foi corrigido: a prova de que o
+    // dinheiro entrou e a data, e ela tambem tranca o rebaixamento.
+    it("paidDate preenchida sozinha ja tranca o rebaixamento", async () => {
+      storageMock.getProviderInvoice.mockResolvedValue({
+        ...FATURA, status: "pending", paidDate: new Date("2026-09-02"),
+      });
+      await webhook(
+        { event: "PAYMENT_OVERDUE", payment: { id: "pay_f", externalReference: "invoice_77", status: "OVERDUE" } },
+        "token-do-painel",
+      );
+      expect(storageMock.updateProviderInvoiceAsaas).toHaveBeenCalledWith(77, { asaasStatus: "OVERDUE" });
+    });
+
+    it("fatura que nunca foi paga continua acompanhando o Asaas", async () => {
+      storageMock.getProviderInvoice.mockResolvedValue({ ...FATURA, status: "pending", paidDate: null });
+      await webhook(
+        { event: "PAYMENT_OVERDUE", payment: { id: "pay_f", externalReference: "invoice_77", status: "OVERDUE" } },
+        "token-do-painel",
+      );
+      expect(storageMock.updateProviderInvoiceAsaas).toHaveBeenCalledWith(77, { asaasStatus: "OVERDUE", status: "overdue" });
+    });
+  });
+
+  it("Asaas indisponivel na fatura tambem devolve 500", async () => {
+    asaasMock.getCharge.mockRejectedValue(Object.assign(new Error("Erro Asaas: 503"), { status: 503 }));
+    const res = await webhook(PAGA, "token-do-painel");
+    expect(res.status).toBe(500);
+    expect(storageMock.updateProviderInvoiceAsaas).not.toHaveBeenCalled();
+  });
+
   it("referencia que nao e pedido nem fatura passa batido", async () => {
     const res = await webhook(
       { event: "PAYMENT_RECEIVED", payment: { id: "pay_z", externalReference: "outra_coisa_1", status: "RECEIVED", value: 1 } },
@@ -319,5 +424,78 @@ describe("POST /api/asaas/webhook — fatura do plano", () => {
     expect(res.status).toBe(200);
     expect(storageMock.releaseCreditOrder).not.toHaveBeenCalled();
     expect(storageMock.updateProviderInvoiceAsaas).not.toHaveBeenCalled();
+  });
+});
+
+// O botao "sincronizar" decidia pelo status cru da cobranca: nao conferia se
+// ela e desta fatura nem se cobre o valor. Era a porta dos fundos da conferencia
+// do webhook — o que o webhook recusava, um clique aprovava.
+describe("POST /api/admin/invoices/:id/asaas/sync", () => {
+  beforeEach(() => {
+    sessao = { userId: 1, role: "superadmin" };
+    asaasMock.getCharge.mockResolvedValue({
+      id: "pay_f", externalReference: "invoice_77", status: "RECEIVED", value: 349,
+      paymentDate: "2026-09-02", invoiceUrl: "https://asaas/i/f",
+    });
+  });
+
+  function sincronizar() {
+    return fetch(`${base}/api/admin/invoices/77/asaas/sync`, { method: "POST" });
+  }
+
+  it("pagamento conferido marca a fatura como paga com o valor do Asaas", async () => {
+    const res = await sincronizar();
+    expect(res.status).toBe(200);
+    expect(storageMock.updateProviderInvoiceAsaas).toHaveBeenCalledWith(77, expect.objectContaining({
+      status: "paid", paidAmount: "349.00",
+    }));
+  });
+
+  it("boleto pago a menor nao quita a fatura, e o superadmin le o motivo", async () => {
+    asaasMock.getCharge.mockResolvedValue({
+      id: "pay_f", externalReference: "invoice_77", status: "RECEIVED", value: 10, paymentDate: "2026-09-02",
+    });
+    const res = await sincronizar();
+    expect(res.status).toBe(409);
+    expect((await res.json()).message).toContain("valor divergente");
+    expect(storageMock.updateProviderInvoiceAsaas).not.toHaveBeenCalledWith(77, expect.objectContaining({ status: "paid" }));
+  });
+
+  it("cobranca de outra fatura nao quita esta", async () => {
+    asaasMock.getCharge.mockResolvedValue({
+      id: "pay_f", externalReference: "invoice_999", status: "RECEIVED", value: 349, paymentDate: "2026-09-02",
+    });
+    const res = await sincronizar();
+    expect(res.status).toBe(409);
+    expect(storageMock.updateProviderInvoiceAsaas).not.toHaveBeenCalledWith(77, expect.objectContaining({ status: "paid" }));
+  });
+
+  it("Asaas fora do ar na conferencia devolve 502, nao quitacao", async () => {
+    asaasMock.isAsaasConfigured.mockReturnValue(false);
+    const res = await sincronizar();
+    expect(res.status).toBe(502);
+    expect(storageMock.updateProviderInvoiceAsaas).not.toHaveBeenCalledWith(77, expect.objectContaining({ status: "paid" }));
+  });
+
+  it("status nao-pago nao rebaixa fatura ja paga", async () => {
+    storageMock.getProviderInvoice.mockResolvedValue({
+      ...FATURA, status: "paid", paidDate: new Date("2026-09-02"), paidAmount: "349.00",
+    });
+    asaasMock.getCharge.mockResolvedValue({
+      id: "pay_f", externalReference: "invoice_77", status: "CHARGEBACK_REQUESTED", value: 349,
+    });
+    const res = await sincronizar();
+    expect(res.status).toBe(200);
+    const [, dados] = storageMock.updateProviderInvoiceAsaas.mock.calls.at(-1)!;
+    expect((dados as any).status).toBeUndefined();
+    expect((dados as any).asaasStatus).toBe("CHARGEBACK_REQUESTED");
+  });
+
+  it("fatura que nunca foi paga continua acompanhando o status do Asaas", async () => {
+    asaasMock.getCharge.mockResolvedValue({
+      id: "pay_f", externalReference: "invoice_77", status: "OVERDUE", value: 349,
+    });
+    await sincronizar();
+    expect(storageMock.updateProviderInvoiceAsaas).toHaveBeenCalledWith(77, expect.objectContaining({ status: "overdue" }));
   });
 });
