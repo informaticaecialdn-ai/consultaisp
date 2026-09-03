@@ -11,11 +11,33 @@ const storageMock = vi.hoisted(() => ({
   getUser: vi.fn(async (): Promise<any> => null),
   getUsersByProvider: vi.fn(async (): Promise<any[]> => []),
   deleteUser: vi.fn(async () => undefined),
+  getUserByEmail: vi.fn(async (): Promise<any> => null),
+  createUser: vi.fn(async (dados: any): Promise<any> => ({ id: 99, ...dados })),
   // O requireProvider REAL le o status do provedor para barrar sessao aberta
   // de provedor suspenso. Ativo por padrao; o teste de suspensao troca.
   getProvider: vi.fn(async (): Promise<any> => ({ id: 42, name: "Provedor Teste", status: "active" })),
 }));
 vi.mock("../storage", () => ({ storage: storageMock }));
+
+/**
+ * O e-mail vira espiao; `email-destinatario` fica REAL. O que se prova sobre a
+ * inclusao de um usuario e QUEM recebe o aviso — a pessoa criada, nao o contato
+ * do provedor — e isso so aparece com o modulo de destinatario rodando.
+ */
+const emailMock = vi.hoisted(() => ({
+  sendUsuarioAdicionadoEmail: vi.fn(async () => undefined),
+}));
+vi.mock("../services/email", () => emailMock);
+
+const { MARCA_FAKE, URL_DA_MARCA } = vi.hoisted(() => ({
+  MARCA_FAKE: { marcaId: 3, nomeProduto: "CredNet", suporteEmail: null } as any,
+  URL_DA_MARCA: "https://crednet.example",
+}));
+vi.mock("../services/marca.service", () => ({
+  resolverMarcaPorId: vi.fn(async () => MARCA_FAKE),
+  urlDeEntrada: vi.fn(() => URL_DA_MARCA),
+  MARCA_PLATAFORMA: MARCA_FAKE,
+}));
 
 /**
  * `requireProvider` entra AQUI COMO O REAL, importado do modulo de verdade.
@@ -84,6 +106,12 @@ beforeEach(() => {
   // `clearAllMocks` limpa as chamadas, nao a implementacao: sem esta linha um
   // `mockRejectedValue` de um teste vazaria para os seguintes.
   storageMock.deleteUser.mockResolvedValue(undefined);
+  storageMock.getUserByEmail.mockResolvedValue(null);
+  storageMock.createUser.mockImplementation(async (dados: any) => ({ id: 99, ...dados }));
+  storageMock.getProvider.mockResolvedValue({
+    id: 42, name: "Provedor Teste", status: "active",
+    contactEmail: "contato@provedor.com.br", marcaId: 3, subdomain: "teste",
+  });
   sessao = { userId: 1, providerId: 7, role: "admin" };
 });
 
@@ -251,5 +279,86 @@ describe("requireProvider nas rotas de provedor", () => {
 
     expect(res.status).toBe(200);
     expect(storageMock.getUsersByProvider).toHaveBeenCalledWith(42);
+  });
+});
+
+/**
+ * Quem era adicionado a equipe nao recebia nada: descobria a propria conta
+ * quando alguem avisava por fora. O aviso vai para a PESSOA criada, com a marca
+ * e o endereco de entrada do provedor — e nunca com a senha.
+ */
+describe("POST /api/provider/users — aviso a quem foi adicionado", () => {
+  const convidar = (corpo: Record<string, unknown>) =>
+    fetch(`${base}/api/provider/users`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corpo),
+    });
+
+  beforeEach(() => {
+    esquecerStatusDeProvedor();
+    sessao = { userId: 1, providerId: 42, role: "admin" };
+  });
+
+  it("avisa a pessoa criada, com quem a adicionou e a marca do provedor", async () => {
+    storageMock.getUser.mockResolvedValue({ id: 1, name: "Marcos do NsLink", providerId: 42 });
+
+    const res = await convidar({ name: "Ana", email: "ana@nslink.com.br", password: "segredo-forte", role: "user" });
+
+    expect(res.status).toBe(201);
+    expect(emailMock.sendUsuarioAdicionadoEmail).toHaveBeenCalledTimes(1);
+    expect(emailMock.sendUsuarioAdicionadoEmail).toHaveBeenCalledWith(
+      "ana@nslink.com.br", "Ana", "Provedor Teste", "Marcos do NsLink",
+      "ana@nslink.com.br", MARCA_FAKE, URL_DA_MARCA,
+    );
+  });
+
+  // E-mail nao e canal para senha: fica na caixa de entrada, no backup e em
+  // todo encaminhamento.
+  it("a senha escolhida por quem convidou nao viaja no e-mail", async () => {
+    storageMock.getUser.mockResolvedValue({ id: 1, name: "Marcos do NsLink", providerId: 42 });
+
+    await convidar({ name: "Ana", email: "ana@nslink.com.br", password: "segredo-forte" });
+
+    const argumentos = JSON.stringify(emailMock.sendUsuarioAdicionadoEmail.mock.calls[0]);
+    expect(argumentos).not.toContain("segredo-forte");
+  });
+
+  it("sem conseguir ler quem convidou, assina com o nome do provedor", async () => {
+    storageMock.getUser.mockResolvedValue(null);
+
+    await convidar({ name: "Ana", email: "ana@nslink.com.br", password: "segredo-forte" });
+
+    expect(emailMock.sendUsuarioAdicionadoEmail.mock.calls[0][3]).toBe("Provedor Teste");
+  });
+
+  // A conta ja esta criada quando o aviso sai; Resend fora do ar nao a desfaz.
+  it("falha de envio nao derruba a criacao", async () => {
+    storageMock.getUser.mockResolvedValue({ id: 1, name: "Marcos do NsLink", providerId: 42 });
+    emailMock.sendUsuarioAdicionadoEmail.mockRejectedValueOnce(new Error("Resend fora do ar"));
+
+    const res = await convidar({ name: "Ana", email: "ana@nslink.com.br", password: "segredo-forte" });
+
+    expect(res.status).toBe(201);
+    expect(storageMock.createUser).toHaveBeenCalled();
+  });
+
+  it("e-mail ja cadastrado: nao cria nem avisa", async () => {
+    storageMock.getUserByEmail.mockResolvedValue({ id: 5, email: "ana@nslink.com.br" });
+
+    const res = await convidar({ name: "Ana", email: "ana@nslink.com.br", password: "segredo-forte" });
+
+    expect(res.status).toBe(409);
+    expect(storageMock.createUser).not.toHaveBeenCalled();
+    expect(emailMock.sendUsuarioAdicionadoEmail).not.toHaveBeenCalled();
+  });
+
+  it("operador comum nao convida ninguem, e nada e enviado", async () => {
+    sessao = { userId: 1, providerId: 42, role: "user" };
+
+    const res = await convidar({ name: "Ana", email: "ana@nslink.com.br", password: "segredo-forte" });
+
+    expect(res.status).toBe(403);
+    expect(emailMock.sendUsuarioAdicionadoEmail).not.toHaveBeenCalled();
   });
 });

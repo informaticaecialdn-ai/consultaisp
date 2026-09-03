@@ -5,6 +5,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, STALE_LISTS } from "@/lib/queryClient";
 import {
@@ -26,6 +28,15 @@ export default function CadastrosTab() {
   const [, navigate] = useLocation();
   const [cadastroSearch, setCadastroSearch] = useState("");
   const [cadastroFilter, setCadastroFilter] = useState("all");
+  /**
+   * Reprovar sem dizer por que transforma um problema resolvivel — documento
+   * ilegivel, CNPJ com pendencia — numa porta sem macaneta: o servidor manda o
+   * e-mail de reprovacao, e o provedor le "nao pode ser concluida" sem saber o
+   * que corrigir. Por isso a reprovacao passou de um `confirm()` para este
+   * campo, e o motivo viaja no PATCH.
+   */
+  const [reprovando, setReprovando] = useState<{ id: number; nome: string } | null>(null);
+  const [motivo, setMotivo] = useState("");
 
   const { data: allProviders = [], isLoading: providersLoading } = useQuery<any[]>({
     queryKey: ["/api/admin/providers"],
@@ -37,15 +48,28 @@ export default function CadastrosTab() {
   });
 
   const updateVerificationMutation = useMutation({
-    mutationFn: async ({ id, verificationStatus }: { id: number; verificationStatus: string }) => {
-      const res = await apiRequest("PATCH", `/api/admin/providers/${id}`, { verificationStatus });
+    mutationFn: async ({ id, verificationStatus, motivo }: { id: number; verificationStatus: string; motivo?: string }) => {
+      // `motivo` so vai quando existe: o servidor valida com zod e um campo
+      // vazio seria recusado como dado invalido.
+      const corpo: Record<string, string> = { verificationStatus };
+      if (motivo?.trim()) corpo.motivo = motivo.trim();
+      const res = await apiRequest("PATCH", `/api/admin/providers/${id}`, corpo);
       if (!res.ok) throw new Error((await res.json()).message);
       return res.json();
     },
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: ["/api/admin/providers"] });
       const statusLabels: Record<string, string> = { approved: "aprovado", rejected: "rejeitado", pending: "movido para pendente" };
-      toast({ title: `Cadastro ${statusLabels[variables.verificationStatus] || "atualizado"} com sucesso` });
+      toast({
+        title: `Cadastro ${statusLabels[variables.verificationStatus] || "atualizado"} com sucesso`,
+        // "Foi avisado" seria promessa: o aviso so sai se o provedor tiver
+        // contato cadastrado ou algum administrador com e-mail.
+        description: variables.verificationStatus === "rejected" || variables.verificationStatus === "approved"
+          ? "Um aviso por e-mail foi disparado ao contato do provedor."
+          : undefined,
+      });
+      setReprovando(null);
+      setMotivo("");
     },
     onError: (e: any) => toast({ title: "Erro ao atualizar status", description: e.message, variant: "destructive" }),
   });
@@ -199,10 +223,7 @@ export default function CadastrosTab() {
                             size="sm"
                             variant="outline"
                             className="gap-1.5 text-xs h-8 text-[var(--color-danger)] border-red-200 hover:bg-[var(--color-danger-bg)] hover:text-[var(--color-danger)]"
-                            onClick={() => {
-                              if (confirm(`Rejeitar o cadastro de ${p.name}?`))
-                                updateVerificationMutation.mutate({ id: p.id, verificationStatus: "rejected" });
-                            }}
+                            onClick={() => { setMotivo(""); setReprovando({ id: p.id, nome: p.name }); }}
                             disabled={updateVerificationMutation.isPending}
                             data-testid={`button-reject-${p.id}`}
                           >
@@ -258,6 +279,44 @@ export default function CadastrosTab() {
           </div>
         )}
       </Card>
+
+      <Dialog open={reprovando !== null} onOpenChange={(aberto) => { if (!aberto) { setReprovando(null); setMotivo(""); } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Reprovar o cadastro de {reprovando?.nome}</DialogTitle>
+            <DialogDescription>
+              O motivo vai no e-mail que o provedor recebe. Escreva o que precisa ser corrigido
+              para que ele possa reenviar — sem isso, sai um texto genérico.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={motivo}
+            onChange={(e) => setMotivo(e.target.value)}
+            maxLength={500}
+            rows={4}
+            placeholder="Ex.: o contrato social enviado está ilegível nas páginas 2 e 3."
+            data-testid="input-motivo-reprovacao"
+          />
+          <p className="font-mono text-[10px] tabular-nums text-[var(--color-muted)]">
+            {motivo.length}/500
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setReprovando(null); setMotivo(""); }} data-testid="button-cancelar-reprovacao">
+              Cancelar
+            </Button>
+            <Button
+              className="bg-[var(--color-danger)] hover:opacity-90 text-white"
+              disabled={updateVerificationMutation.isPending}
+              onClick={() => reprovando && updateVerificationMutation.mutate({
+                id: reprovando.id, verificationStatus: "rejected", motivo,
+              })}
+              data-testid="button-confirmar-reprovacao"
+            >
+              Reprovar cadastro
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
