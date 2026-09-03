@@ -4,13 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Printer, ArrowLeft, Download } from "lucide-react";
 import { useLocation } from "wouter";
-
-const PLAN_LABELS: Record<string, string> = {
-  free: "Gratuito",
-  basic: "Basico",
-  pro: "Pro",
-  enterprise: "Enterprise",
-};
+import { usePrecosPublicos, planoPorChave } from "@/hooks/use-precos";
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   pending:   { label: "Pendente",   color: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" },
@@ -19,13 +13,6 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   cancelled: { label: "Cancelado",  color: "bg-[var(--color-tag-bg)] text-[var(--color-muted)]" },
 };
 
-
-const PLAN_CREDITS: Record<string, { isp: number; spc: number }> = {
-  free: { isp: 50, spc: 0 },
-  basic: { isp: 200, spc: 50 },
-  pro: { isp: 500, spc: 150 },
-  enterprise: { isp: 1500, spc: 500 },
-};
 
 function formatCurrency(value: string | number): string {
   return Number(value).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -56,6 +43,13 @@ export default function InvoiceViewPage() {
     },
   });
 
+  /**
+   * So o ROTULO do plano vem daqui. Os creditos da fatura sao os que ela
+   * gravou (`ispCreditsIncluded`), nunca os da tabela de hoje: uma fatura de
+   * marco tem que continuar dizendo o que prometeu em marco.
+   */
+  const { data: precos } = usePrecosPublicos();
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -76,7 +70,6 @@ export default function InvoiceViewPage() {
   }
 
   const status = STATUS_LABELS[invoice.status] || STATUS_LABELS.pending;
-  const credits = PLAN_CREDITS[invoice.planAtTime] || { isp: 0, spc: 0 };
   const unitValue = parseFloat(invoice.amount);
   const baseValue = unitValue;
   const discount = 0;
@@ -150,7 +143,7 @@ export default function InvoiceViewPage() {
             <tbody>
               <tr className="border-b">
                 <td className="py-3">
-                  <p className="font-medium text-sm">Plano {PLAN_LABELS[invoice.planAtTime] || invoice.planAtTime}</p>
+                  <p className="font-medium text-sm">Plano {planoPorChave(precos, invoice.planAtTime)?.rotulo || invoice.planAtTime}</p>
                   <p className="text-xs text-muted-foreground">Assinatura mensal - {formatPeriod(invoice.period)}</p>
                   <p className="text-xs text-muted-foreground">Inclui: {invoice.ispCreditsIncluded} creditos ISP + {invoice.spcCreditsIncluded} creditos SPC</p>
                 </td>

@@ -17,7 +17,7 @@ import {
   Target, Activity, PieChart, Calendar, Info, ChevronRight,
   ScanLine, ArrowUp, ArrowDown, Minus
 } from "lucide-react";
-import { PLAN_PRICES } from "@shared/schema";
+import { usePrecos, camposDaFatura } from "@/hooks/use-precos";
 const PLAN_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   free:       { label: "Gratuito",   color: "text-[var(--color-muted)]",   bg: "bg-[var(--color-tag-bg)]" },
   basic:      { label: "Basico",     color: "text-blue-600",   bg: "bg-blue-100" },
@@ -127,6 +127,27 @@ export default function AdminFinanceiroPage() {
     providerId: "", period: "", amount: "", planAtTime: "basic",
     ispCreditsIncluded: "0", spcCreditsIncluded: "0", dueDate: "", notes: "",
   });
+
+  /**
+   * O formulario de fatura preenchia valor e creditos de uma tabela cravada
+   * aqui, e ela tinha envelhecido: o seletor oferecia "Pro — R$ 399" e
+   * preenchia outro valor. Agora tudo vem do servidor, que e quem cobra.
+   */
+  const { data: precos, isLoading: carregandoPrecos, isError: erroPrecos, refetch: recarregarPrecos } = usePrecos();
+  const planosDoSeletor = precos?.planos ?? [];
+  /**
+   * O formulario so pode preencher valor a partir da tabela. Enquanto ela nao
+   * chegou — ou se a leitura falhou — `camposDaFatura` devolve `null` e o
+   * campo fica INTOCADO, em vez de cair para "0".
+   *
+   * O `?? 0` que morava aqui gravava fatura de R$ 0,00 para provedor pagante:
+   * bastava um 500 na leitura de preco, e como a query nao refaz a leitura ao
+   * voltar o foco, ela ficava indisponivel ate a pagina recarregar. Ausencia
+   * de preco nao e gratuidade.
+   */
+  const camposDoPlano = (chave: string | null | undefined) => camposDaFatura(precos, chave) ?? {};
+  /** Sem tabela nao ha valor confiavel para gravar numa fatura. */
+  const podeEmitirFatura = Boolean(precos);
 
   const { data: metrics, isLoading: metricsLoading } = useQuery<any>({
     queryKey: ["/api/admin/financial/saas-metrics"],
@@ -764,18 +785,34 @@ export default function AdminFinanceiroPage() {
             {showNewInvoice && (
               <div className="p-5 border-b bg-muted/20">
                 <h4 className="font-medium text-sm mb-4">Emitir Nova Fatura</h4>
+                {carregandoPrecos && (
+                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-3" data-testid="skeleton-precos-fatura">
+                    {[0, 1, 2].map(i => (
+                      <div key={i} className="h-12 rounded bg-[var(--surface-inset)] animate-pulse" />
+                    ))}
+                  </div>
+                )}
+                {erroPrecos && (
+                  /* Sem a tabela o formulario nao sabe quanto cobrar. Dizer
+                     isso e melhor do que um seletor de plano vazio ao lado de
+                     um campo de valor zerado. */
+                  <div className="mb-3 rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2" data-testid="erro-precos-fatura">
+                    <p className="text-xs text-[var(--danger)]">
+                      Nao foi possivel carregar a tabela de precos. A fatura nao pode ser emitida sem ela.
+                    </p>
+                    <button type="button" className="text-xs underline mt-0.5 text-[var(--danger)]" onClick={() => recarregarPrecos()}>
+                      Tentar de novo
+                    </button>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
                   <div>
                     <label className="text-xs font-medium mb-1 block">Provedor</label>
                     <Select value={invoiceForm.providerId} onValueChange={(v) => {
                       const p = allProviders.find((x: any) => x.id.toString() === v);
-                      if (p) {
-                        const PLAN_CREDITS_MAP: Record<string, { isp: number; spc: number }> = {
-                          free: { isp: 50, spc: 0 }, basic: { isp: 200, spc: 50 }, pro: { isp: 500, spc: 150 }, enterprise: { isp: 1500, spc: 500 }
-                        };
-                        const credits = PLAN_CREDITS_MAP[p.plan] || { isp: 0, spc: 0 };
-                        setInvoiceForm(f => ({ ...f, providerId: v, planAtTime: p.plan, amount: (PLAN_PRICES[p.plan] || 0).toString(), ispCreditsIncluded: credits.isp.toString(), spcCreditsIncluded: credits.spc.toString() }));
-                      } else setInvoiceForm(f => ({ ...f, providerId: v }));
+                      // Sem tabela `camposDoPlano` e vazio: grava so o provedor
+                      // e deixa valor e creditos como estao.
+                      setInvoiceForm(f => ({ ...f, providerId: v, ...camposDoPlano(p?.plan) }));
                     }}>
                       <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-invoice-provider">
                         <SelectValue placeholder="Selecionar provedor" />
@@ -793,25 +830,23 @@ export default function AdminFinanceiroPage() {
                   </div>
                   <div>
                     <label className="text-xs font-medium mb-1 block">Plano Cobrado</label>
-                    <Select value={invoiceForm.planAtTime} onValueChange={v => {
-                      const PLAN_CREDITS_MAP: Record<string, { isp: number; spc: number }> = { free: { isp: 50, spc: 0 }, basic: { isp: 200, spc: 50 }, pro: { isp: 500, spc: 150 }, enterprise: { isp: 1500, spc: 500 } };
-                      const credits = PLAN_CREDITS_MAP[v] || { isp: 0, spc: 0 };
-                      setInvoiceForm(f => ({ ...f, planAtTime: v, amount: (PLAN_PRICES[v] || 0).toString(), ispCreditsIncluded: credits.isp.toString(), spcCreditsIncluded: credits.spc.toString() }));
+                    <Select value={invoiceForm.planAtTime} disabled={!precos} onValueChange={v => {
+                      setInvoiceForm(f => ({ ...f, ...camposDoPlano(v) }));
                     }}>
                       <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-invoice-plan">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="free">Gratuito — R$ 0</SelectItem>
-                        <SelectItem value="basic">Basico — R$ 199</SelectItem>
-                        <SelectItem value="pro">Pro — R$ 399</SelectItem>
-                        <SelectItem value="enterprise">Enterprise — R$ 799</SelectItem>
+                        {planosDoSeletor.map(p => (
+                          <SelectItem key={p.chave} value={p.chave}>{p.rotulo} — {p.precoLabel}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
                     <label className="text-xs font-medium mb-1 block">Valor (R$)</label>
-                    <Input className="h-8 text-xs mt-1" type="number" placeholder="199" value={invoiceForm.amount} onChange={e => setInvoiceForm(f => ({ ...f, amount: e.target.value }))} data-testid="input-invoice-amount" />
+                    {/* Sem placeholder de preco: "199" era a tabela antiga. */}
+                    <Input className="h-8 text-xs mt-1" type="number" value={invoiceForm.amount} onChange={e => setInvoiceForm(f => ({ ...f, amount: e.target.value }))} data-testid="input-invoice-amount" />
                   </div>
                   <div>
                     <label className="text-xs font-medium mb-1 block">Vencimento</label>
@@ -823,7 +858,7 @@ export default function AdminFinanceiroPage() {
                   </div>
                 </div>
                 <div className="flex gap-2 mt-3">
-                  <Button size="sm" className="gap-1.5 text-xs" disabled={createInvoiceMutation.isPending} onClick={() => createInvoiceMutation.mutate(invoiceForm)} data-testid="button-submit-invoice">
+                  <Button size="sm" className="gap-1.5 text-xs" disabled={!podeEmitirFatura || createInvoiceMutation.isPending} onClick={() => createInvoiceMutation.mutate(invoiceForm)} data-testid="button-submit-invoice">
                     {createInvoiceMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
                     Emitir Fatura
                   </Button>

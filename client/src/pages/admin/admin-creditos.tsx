@@ -8,31 +8,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
+import { usePrecos, pedidoDeCreditoPronto } from "@/hooks/use-precos";
 import {
   CreditCard, Plus, RefreshCw, CheckCircle, XCircle, Clock,
   Wallet, QrCode, Copy, ExternalLink, RotateCcw, CheckCheck,
   ScanLine, ArrowUpRight, History, Search, Shield,
   Filter, Users, DollarSign, TrendingUp, ShoppingCart,
 } from "lucide-react";
-
-const ISP_PACKAGES = [
-  { id: "isp-50",  name: "50 ISP",  credits: 50,   price: "49.90" },
-  { id: "isp-100", name: "100 ISP", credits: 100,  price: "89.90" },
-  { id: "isp-250", name: "250 ISP", credits: 250,  price: "199.90" },
-  { id: "isp-500", name: "500 ISP", credits: 500,  price: "349.90" },
-];
-
-const SPC_PACKAGES = [
-  { id: "spc-10",  name: "10 SPC",  credits: 10,   price: "49.90" },
-  { id: "spc-30",  name: "30 SPC",  credits: 30,   price: "129.90" },
-  { id: "spc-50",  name: "50 SPC",  credits: 50,   price: "199.90" },
-  { id: "spc-100", name: "100 SPC", credits: 100,  price: "349.90" },
-];
-
-const ALL_PACKAGES = [
-  ...ISP_PACKAGES.map(p => ({ ...p, creditType: "isp" })),
-  ...SPC_PACKAGES.map(p => ({ ...p, creditType: "spc" })),
-];
 
 const STATUS_STYLES: Record<string, { badge: string; label: string; icon: any }> = {
   pending:   { badge: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]",     label: "Pendente",  icon: Clock },
@@ -58,8 +40,8 @@ export default function AdminCreditosPage() {
   const [asaasChargeModal, setAsaasChargeModal] = useState<{ orderId: number; orderNumber: string; amount: string } | null>(null);
   const [pixModal, setPixModal] = useState<{ pixData: any } | null>(null);
   const [form, setForm] = useState({
-    providerId: "", packageId: "isp-100",
-    creditType: "isp", customCredits: "100", customAmount: "99.90",
+    providerId: "", packageId: "",
+    customCredits: "100", customAmount: "100.00",
     notes: "", billingType: "",
   });
 
@@ -73,6 +55,16 @@ export default function AdminCreditosPage() {
     queryKey: ["/api/admin/providers"],
     enabled: isSuperAdmin,
   });
+
+  /**
+   * Os pacotes vem do servidor. A copia que morava neste arquivo listava
+   * "50 ISP", "10 SPC" e afins — ids que o servidor deixou de reconhecer
+   * quando o credito virou unico (migration 0008). O superadmin escolhia um
+   * pacote e o POST respondia "Pacote invalido": o pedido manual estava
+   * quebrado, e a tela nao tinha como saber.
+   */
+  const { data: precos, isLoading: carregandoPrecos, isError: erroPrecos, refetch: recarregarPrecos } = usePrecos();
+  const pacotes = precos?.pacotes ?? [];
 
   const { data: asaasStatus } = useQuery<any>({
     queryKey: ["/api/admin/asaas/status"],
@@ -89,7 +81,7 @@ export default function AdminCreditosPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/admin/credit-orders"] });
       setShowNewOrder(false);
-      setForm({ providerId: "", packageId: "isp-100", creditType: "isp", customCredits: "100", customAmount: "99.90", notes: "", billingType: "" });
+      setForm({ providerId: "", packageId: "", customCredits: "100", customAmount: "100.00", notes: "", billingType: "" });
       toast({ title: "Pedido criado com sucesso" });
     },
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
@@ -174,7 +166,23 @@ export default function AdminCreditosPage() {
   const totalIspReleased = orders.filter(o => o.status === "paid").reduce((s: number, o: any) => s + o.ispCredits, 0);
   const totalSpcReleased = orders.filter(o => o.status === "paid").reduce((s: number, o: any) => s + o.spcCredits, 0);
 
-  const selectedPkg = ALL_PACKAGES.find(p => p.id === form.packageId);
+  // Enquanto a tabela nao chega nao ha id valido; o popular e o padrao.
+  const pacoteInicial = pacotes.find(p => p.popular) || pacotes[0];
+  const packageId = form.packageId || pacoteInicial?.id || "";
+  const selectedPkg = pacotes.find(p => p.id === packageId);
+  /**
+   * Sem pacote resolvido o POST vai com `packageId: ""`, que o servidor le
+   * como falsy e trata como "Personalizado": grava um pedido de 100 creditos
+   * por R$ 100,00 — os defaults deste formulario — e emite a cobranca no Asaas
+   * se o superadmin tiver escolhido forma de pagamento. Antes da tabela vir do
+   * servidor isso nao acontecia: o id sempre existia e, se estivesse errado, o
+   * servidor respondia "Pacote invalido" e nada era gravado.
+   */
+  const podeCriarPedido = pedidoDeCreditoPronto({
+    providerId: form.providerId,
+    packageId,
+    pacoteEscolhido: selectedPkg,
+  });
 
   return (
     <div className="p-4 lg:p-5 pb-10 space-y-5">
@@ -296,30 +304,35 @@ export default function AdminCreditosPage() {
             </div>
             <div>
               <label className="text-xs font-medium mb-1 block">Pacote *</label>
-              <Select value={form.packageId} onValueChange={v => {
-                const pkg = ALL_PACKAGES.find(p => p.id === v);
+              {erroPrecos ? (
+                /* Seletor vazio nao explica nada: o superadmin escolheria
+                   "Personalizado" achando que os pacotes acabaram. */
+                <div className="mt-1 rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-2.5 py-2" data-testid="erro-precos-pedido">
+                  <p className="text-xs text-[var(--danger)]">Nao foi possivel carregar a tabela de precos.</p>
+                  <button type="button" className="text-xs underline mt-0.5 text-[var(--danger)]" onClick={() => recarregarPrecos()}>
+                    Tentar de novo
+                  </button>
+                </div>
+              ) : (
+              <Select value={packageId} disabled={carregandoPrecos && pacotes.length === 0} onValueChange={v => {
+                const pkg = pacotes.find(p => p.id === v);
                 setForm(f => ({
                   ...f, packageId: v,
-                  creditType: pkg ? pkg.creditType : f.creditType,
-                  customCredits: pkg ? pkg.credits.toString() : f.customCredits,
-                  customAmount: pkg ? pkg.price : f.customAmount,
+                  customCredits: pkg ? pkg.creditos.toString() : f.customCredits,
+                  customAmount: pkg ? (pkg.precoCentavos / 100).toFixed(2) : f.customAmount,
                 }));
               }}>
                 <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-order-package">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__label_isp" disabled>-- Consulta ISP --</SelectItem>
-                  {ISP_PACKAGES.map(p => (
-                    <SelectItem key={p.id} value={p.id}>{p.name} — R$ {p.price}</SelectItem>
-                  ))}
-                  <SelectItem value="__label_spc" disabled>-- Consulta SPC --</SelectItem>
-                  {SPC_PACKAGES.map(p => (
-                    <SelectItem key={p.id} value={p.id}>{p.name} — R$ {p.price}</SelectItem>
+                  {pacotes.map(p => (
+                    <SelectItem key={p.id} value={p.id}>{p.nome} — {p.precoLabel}</SelectItem>
                   ))}
                   <SelectItem value="custom">Personalizado</SelectItem>
                 </SelectContent>
               </Select>
+              )}
             </div>
             <div>
               <label className="text-xs font-medium mb-1 block">Cobranca Asaas (opcional)</label>
@@ -337,18 +350,7 @@ export default function AdminCreditosPage() {
             </div>
             {form.packageId === "custom" && (
               <>
-                <div>
-                  <label className="text-xs font-medium mb-1 block">Tipo de Credito</label>
-                  <Select value={form.creditType} onValueChange={v => setForm(f => ({ ...f, creditType: v }))}>
-                    <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-custom-type">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="isp">Consulta ISP</SelectItem>
-                      <SelectItem value="spc">Consulta SPC</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                {/* Sem seletor ISP/SPC: o credito e unico desde a migration 0008 e o servidor ignora o tipo. */}
                 <div>
                   <label className="text-xs font-medium mb-1 block">Quantidade de Creditos</label>
                   <Input className="h-8 text-xs mt-1" type="number" value={form.customCredits} onChange={e => setForm(f => ({ ...f, customCredits: e.target.value }))} data-testid="input-custom-credits" />
@@ -364,7 +366,7 @@ export default function AdminCreditosPage() {
               <Input className="h-8 text-xs mt-1" placeholder="Ex: Cortesia, campanha especial..." value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
             </div>
           </div>
-          {form.providerId && form.packageId && (
+          {form.providerId && packageId && (
             <div className="mt-3 p-3 bg-background rounded-lg border text-xs flex items-center gap-4">
               <div>
                 <span className="text-muted-foreground">Provedor: </span>
@@ -374,22 +376,21 @@ export default function AdminCreditosPage() {
                 <span className="text-muted-foreground">Creditos: </span>
                 <strong>
                   {form.packageId === "custom"
-                    ? `${form.customCredits} ${form.creditType.toUpperCase()}`
-                    : `${selectedPkg?.credits} ${selectedPkg?.creditType.toUpperCase()}`}
+                    ? `${form.customCredits} creditos`
+                    : `${selectedPkg?.creditos ?? 0} creditos`}
                 </strong>
               </div>
               <div>
                 <span className="text-muted-foreground">Valor: </span>
-                <strong>R$ {form.packageId === "custom" ? parseFloat(form.customAmount || "0").toFixed(2) : parseFloat(selectedPkg?.price || "0").toFixed(2)}</strong>
+                <strong className="tabular-nums">{form.packageId === "custom" ? `R$ ${parseFloat(form.customAmount || "0").toFixed(2)}` : (selectedPkg?.precoLabel ?? "—")}</strong>
               </div>
             </div>
           )}
           <div className="flex gap-2 mt-4">
-            <Button size="sm" className="gap-1.5 text-xs" disabled={!form.providerId || createOrderMutation.isPending}
+            <Button size="sm" className="gap-1.5 text-xs" disabled={!podeCriarPedido || createOrderMutation.isPending}
               onClick={() => createOrderMutation.mutate({
                 providerId: form.providerId,
-                packageId: (form.packageId === "custom" || form.packageId.startsWith("__")) ? undefined : form.packageId,
-                creditType: form.creditType,
+                packageId: packageId === "custom" ? undefined : packageId,
                 customCredits: form.customCredits,
                 customAmount: form.customAmount,
                 notes: form.notes,

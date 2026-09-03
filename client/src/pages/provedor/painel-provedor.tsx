@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, STALE_DASHBOARD } from "@/lib/queryClient";
 import { useState, useRef, useEffect } from "react";
 import { CUSTO_EM_CREDITOS } from "@shared/schema";
+import { usePrecos, precoCurto, linhaDeCreditosDoPlano } from "@/hooks/use-precos";
 import { useLocation } from "wouter";
 import { useMarca } from "@/lib/marca";
 import {
@@ -114,6 +115,16 @@ export default function PainelProvedorPage() {
   const { data: profileData, isLoading: profileLoading } = useQuery<any>({
     queryKey: ["/api/provider/profile"],
   });
+
+  /**
+   * Os planos vinham cravados aqui: R$ 199/399/799 com 1000 consultas ISP, uma
+   * tabela que a fatura mensal nunca cobrou. Agora saem do servidor, que e
+   * quem cobra — e que, com o white label, resolve o preco da marca.
+   */
+  const { data: precos, isLoading: carregandoPrecos, isError: erroPrecos, refetch: recarregarPrecos } = usePrecos();
+  const planosVisiveis = (precos?.planos ?? []).filter(
+    p => p.naVitrine || p.chave === provider?.plan,
+  );
 
   const { data: integrationData, refetch: refetchIntegration } = useQuery<any>({
     queryKey: ["/api/provider/integration"],
@@ -1502,32 +1513,76 @@ export default function PainelProvedorPage() {
             </div>
             <Card className="p-6">
               <h3 className="font-semibold mb-4 flex items-center gap-2">
-                <CreditCard className="w-4 h-4" />Planos Disponiveis
+                <CreditCard className="w-4 h-4" />Planos
               </h3>
-              <div className="grid md:grid-cols-3 gap-4">
-                {[
-                  { plan: "Basico",       price: "R$ 199/mes", isp: 200,         spc: 50,           color: "border-blue-200",                               badge: "bg-blue-100 text-blue-700" },
-                  { plan: "Profissional", price: "R$ 399/mes", isp: 1000,        spc: 200,          color: "border-purple-200 ring-2 ring-purple-300",       badge: "bg-[var(--color-brand-bg)] text-[var(--color-brand)]", highlight: true },
-                  { plan: "Enterprise",  price: "R$ 799/mes", isp: "Ilimitado", spc: "Ilimitado",  color: "border-amber-200",                              badge: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" },
-                ].map((p) => (
-                  <div key={p.plan} className={`rounded-lg border p-4 relative ${p.color}`}>
-                    {p.highlight && (
-                      <Badge className="absolute -top-2 left-1/2 -translate-x-1/2 bg-purple-600 text-white text-xs">Popular</Badge>
-                    )}
-                    <p className="font-bold mb-1">{p.plan}</p>
-                    <p className="text-2xl font-bold mb-3">{p.price}</p>
-                    <ul className="space-y-1.5 text-sm text-muted-foreground mb-4">
-                      <li>{p.isp} consultas ISP/mes</li>
-                      <li>{p.spc} consultas SPC/mes</li>
-                      <li>Subdominio personalizado</li>
-                      <li>Suporte prioritario</li>
-                    </ul>
-                    <Button variant="outline" size="sm" className="w-full text-xs" data-testid={`button-plan-${p.plan.toLowerCase()}`}>
-                      {provider?.plan === p.plan.toLowerCase() ? "Plano Atual" : "Assinar"}
+              {carregandoPrecos && planosVisiveis.length === 0 ? (
+                <div className="grid md:grid-cols-2 gap-4">
+                  {[0, 1].map(i => (
+                    <div key={i} className="h-32 rounded-lg bg-[var(--surface-inset)] animate-pulse" />
+                  ))}
+                </div>
+              ) : planosVisiveis.length === 0 ? (
+                /* Card de planos vazio nao explica nada — e o provedor conclui
+                   que perdeu o plano. */
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-inset)] p-6 text-center" data-testid="empty-planos">
+                  <p className="text-sm font-medium">
+                    {erroPrecos ? "Nao foi possivel carregar os planos" : "Nenhum plano disponivel"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {erroPrecos
+                      ? "A tabela de precos nao respondeu. Seu plano atual continua valendo."
+                      : "Fale com o suporte."}
+                  </p>
+                  {erroPrecos && (
+                    <Button variant="outline" size="sm" className="mt-3 text-xs" onClick={() => recarregarPrecos()} data-testid="button-recarregar-planos">
+                      Tentar de novo
                     </Button>
-                  </div>
-                ))}
-              </div>
+                  )}
+                </div>
+              ) : (
+                <div className="grid md:grid-cols-2 gap-4">
+                  {planosVisiveis.map((p) => {
+                    const atual = provider?.plan === p.chave;
+                    return (
+                      <div key={p.chave} data-testid={`plan-${p.chave}`}
+                        className={`rounded-lg border p-4 ${atual ? "border-[var(--brand)]" : "border-[var(--border)]"}`}>
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <p className="font-bold">{p.rotulo}</p>
+                          {atual && (
+                            <Badge>Plano atual</Badge>
+                          )}
+                        </div>
+                        <p className="text-2xl font-bold font-mono tabular-nums mb-3">
+                          {precoCurto(p)}
+                          {p.precoCentavos > 0 && (
+                            <span className="text-sm font-normal text-muted-foreground">/mes</span>
+                          )}
+                        </p>
+                        <ul className="space-y-1.5 text-sm text-muted-foreground">
+                          {/* "N creditos inclusos por mes" so para plano que
+                              gera fatura. `generate-monthly` pula preco zero,
+                              entao no free nenhuma fatura nasce e nenhum
+                              credito e somado — os 50 vem uma vez so, no
+                              cadastro. O card prometia uma recorrencia que
+                              nunca acontece. */}
+                          <li className="tabular-nums">
+                            {linhaDeCreditosDoPlano(p)}
+                          </li>
+                          <li>Subdominio proprio e usuarios da equipe</li>
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {/* O botao "Assinar" daqui nunca teve acao: nao existe rota de
+                  troca de plano para o provedor — so POST /api/admin/providers/:id/plan,
+                  do superadmin. Botao que nao faz nada ensina o provedor a
+                  desconfiar da tela; enquanto a rota nao existir, o caminho
+                  honesto e o suporte. */}
+              <p className="text-xs text-muted-foreground mt-4">
+                Para mudar de plano, fale com o suporte.
+              </p>
             </Card>
           </div>
         </TabsContent>
