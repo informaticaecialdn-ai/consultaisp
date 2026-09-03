@@ -40,6 +40,7 @@ import { logger } from "../logger";
 import { validarCPF, validarCNPJ } from "../utils/cpf-cnpj-validator";
 import { consultarCpf, type Credencial } from "./bigdata.service";
 import { consultarCnpj, DATASETS_EMPRESA_ONBOARDING } from "./bigdata-empresa";
+import { gerarIdentificadorDeConsulta, protocoloDaOrigem } from "./identificador-consulta";
 import { storage } from "../storage";
 
 /**
@@ -292,18 +293,46 @@ export type BureauEmpresa = {
 export async function buscarBureauEmpresa(
   cnpjBruto: string, passe: string | undefined,
 ): Promise<BureauEmpresa> {
+  /**
+   * O identificador nasce na primeira linha, igual ao da rota autenticada.
+   *
+   * Aqui ele NAO vai para o banco nem para a resposta: nao ha provedor dono, e
+   * inventar tabela para o onboarding seria guardar consulta de visitante. Ele
+   * vive no log — e isso ja e a diferenca entre "alguma chamada gastou R$ 0,21
+   * as 14h" e "esta chamada, deste minuto, foi esta". Sem sessao para amarrar
+   * as linhas, o codigo e o unico fio.
+   */
+  const consultaId = gerarIdentificadorDeConsulta();
+  const t0 = Date.now();
+
   const conferido = conferirPasse(passe);
-  if (!conferido.ok) return { ok: false };
+  if (!conferido.ok) {
+    logger.info({ consultaId, evento: "cadastro.recusa", tipo: "cnpj", motivo: "passe" },
+      "onboarding: bureau da empresa recusado antes de gastar");
+    return { ok: false };
+  }
 
   const cnpj = soDigitos(cnpjBruto);
   // O passe e emitido PARA um CNPJ: usar com outro nao vale.
-  if (cnpj !== conferido.cnpj || !validarCNPJ(cnpj)) return { ok: false };
+  if (cnpj !== conferido.cnpj || !validarCNPJ(cnpj)) {
+    logger.info({ consultaId, evento: "cadastro.recusa", tipo: "cnpj", motivo: "documento" },
+      "onboarding: bureau da empresa recusado antes de gastar");
+    return { ok: false };
+  }
 
   const conta = await contaDeBusca();
-  if (!conta) return { ok: false };
+  if (!conta) {
+    logger.info({ consultaId, evento: "cadastro.recusa", tipo: "cnpj", motivo: "desligado" },
+      "onboarding: bureau da empresa recusado antes de gastar");
+    return { ok: false };
+  }
 
   try {
-    logger.info({ evento: "cadastro.consulta", tipo: "cnpj", cnpj }, "onboarding consultou CNPJ na BigDataCorp");
+    // O CNPJ sai mascarado como em toda rota que loga documento. Ele estava
+    // inteiro nesta linha, e o redact do pino nao o pegava: a lista cobre
+    // `cpfCnpj` e `cpf`, nunca `cnpj`.
+    logger.info({ consultaId, evento: "cadastro.consulta", tipo: "cnpj", doc: cnpj.slice(0, 4) + "***" },
+      "onboarding consultou CNPJ na BigDataCorp");
     /**
      * Recorte de 4 datasets, nao os 8 do combo: o bloco mostra cobrancas,
      * processos e divida ativa, e mais nada. Medido em producao, o combo
@@ -323,9 +352,19 @@ export async function buscarBureauEmpresa(
       new Promise<null>(resolve => setTimeout(() => resolve(null), 10_000)),
     ]);
     if (r === null) {
-      logger.warn({ cnpj }, "cadastro: bureau da empresa passou de 10s; o bloco nao aparece");
+      logger.warn({ consultaId, doc: cnpj.slice(0, 4) + "***", ms: Date.now() - t0 },
+        "cadastro: bureau da empresa passou de 10s; o bloco nao aparece");
       return { ok: false };
     }
+    logger.info({
+      consultaId, evento: "cadastro.consulta.fim", tipo: "cnpj",
+      encontrado: r.encontrado,
+      // O QueryId da propria BigDataCorp: e o numero que ELA pede quando o dado
+      // vem errado. Aqui nao ha linha no banco para consultar depois, entao o
+      // log e o unico lugar em que ele existe.
+      protocoloOrigem: protocoloDaOrigem("cadastral", { bruto: r.bruto })?.protocolo ?? null,
+      ms: Date.now() - t0,
+    }, "onboarding: bureau da empresa concluído");
     const i = r.inadimplencia;
     return {
       ok: true,
@@ -340,7 +379,8 @@ export async function buscarBureauEmpresa(
       naturezas: (i?.naturezas ?? []).slice(0, 4),
     };
   } catch (erro) {
-    logger.warn({ err: erro }, "cadastro: BigDataCorp falhou no bureau da empresa");
+    logger.warn({ consultaId, err: erro, ms: Date.now() - t0 },
+      "cadastro: BigDataCorp falhou no bureau da empresa");
     return { ok: false };
   }
 }
@@ -378,9 +418,19 @@ function cpfBateComSocio(cpf: string, mascara: string | null | undefined): boole
 export async function buscarResponsavel(
   cpfBruto: string, passe: string | undefined,
 ): Promise<RespostaResponsavel> {
+  // Mesma regra do bureau da empresa: primeiro do handler, antes do passe.
+  // Esta e a consulta mais cara do onboarding (R$ 0,72), e sai sem sessao.
+  const consultaId = gerarIdentificadorDeConsulta();
+  const t0 = Date.now();
+
+  const recusa = (motivo: string) =>
+    logger.info({ consultaId, evento: "cadastro.recusa", tipo: "cpf", motivo },
+      "onboarding: CPF recusado antes de gastar");
+
   // O passe primeiro: e o que impede laco direto nesta rota.
   const conferido = conferirPasse(passe);
   if (!conferido.ok) {
+    recusa("passe");
     return {
       ok: false, motivo: "passe",
       mensagem: "Sua sessao de cadastro expirou. Confirme o CNPJ novamente.",
@@ -389,6 +439,7 @@ export async function buscarResponsavel(
 
   const cpf = soDigitos(cpfBruto);
   if (!validarCPF(cpf)) {
+    recusa("documento");
     return { ok: false, motivo: "documento", mensagem: "CPF invalido. Confira os numeros." };
   }
 
@@ -406,6 +457,7 @@ export async function buscarResponsavel(
   if (socios.length > 0) {
     const ehSocio = socios.some(s => cpfBateComSocio(cpf, s?.cnpj_cpf_do_socio));
     if (!ehSocio) {
+      recusa("nao-socio");
       return {
         ok: false, motivo: "nao-socio",
         mensagem: "Este CPF nao consta no quadro societario da empresa. Confira os numeros ou preencha seus dados abaixo.",
@@ -416,13 +468,15 @@ export async function buscarResponsavel(
   const conta = await contaDeBusca();
   if (!conta) {
     // Nao e erro: e o modo manual. A tela pede nome e segue.
+    recusa("desligado");
     return { ok: false, motivo: "desligado", mensagem: "Preencha seus dados abaixo." };
   }
 
   try {
     // R$ 0,72 — a mais cara das duas. Ja passou pelo passe da etapa 1 e pelo
     // digito verificador; e por isso que ela e a ultima da fila.
-    logger.info({ evento: "cadastro.consulta", tipo: "cpf" }, "onboarding consultou CPF na BigDataCorp");
+    logger.info({ consultaId, evento: "cadastro.consulta", tipo: "cpf", doc: cpf.slice(0, 4) + "***" },
+      "onboarding consultou CPF na BigDataCorp");
 
     // Mesmo teto do CNPJ, um pouco mais folgado: esta consulta tem mais
     // datasets. Estourou, cai no preenchimento manual — que ja e o caminho
@@ -432,9 +486,21 @@ export async function buscarResponsavel(
       new Promise<null>(resolve => setTimeout(() => resolve(null), 8000)),
     ]);
     if (r === null) {
-      logger.warn("cadastro: BigDataCorp passou de 8s no CPF; caindo no preenchimento manual");
+      logger.warn({ consultaId, ms: Date.now() - t0 },
+        "cadastro: BigDataCorp passou de 8s no CPF; caindo no preenchimento manual");
       return { ok: false, motivo: "nao-encontrado", mensagem: "A consulta demorou. Preencha seus dados abaixo." };
     }
+    // Um so log de conclusao para os dois desfechos pagos: encontrado e nao
+    // encontrado. Os dois custaram o mesmo — a busca foi executada.
+    logger.info({
+      consultaId, evento: "cadastro.consulta.fim", tipo: "cpf",
+      // `encontrado` do lado pessoa mora dentro de `dados` — o do lado empresa
+      // e no topo. Nao ha simetria a corrigir aqui; e so onde cada um esta.
+      encontrado: r.dados.encontrado,
+      protocoloOrigem: protocoloDaOrigem("cadastral", { bruto: r.bruto })?.protocolo ?? null,
+      ms: Date.now() - t0,
+    }, "onboarding: CPF concluído");
+
     const nome = r.identidade?.nome?.trim();
     if (!nome) {
       return {
@@ -450,7 +516,7 @@ export async function buscarResponsavel(
       situacaoReceita: r.identidade?.situacaoReceita ?? null,
     };
   } catch (erro) {
-    logger.warn({ err: erro }, "cadastro: BigDataCorp falhou no CPF");
+    logger.warn({ consultaId, err: erro, ms: Date.now() - t0 }, "cadastro: BigDataCorp falhou no CPF");
     return {
       ok: false, motivo: "nao-encontrado",
       mensagem: "A consulta nao respondeu agora. Preencha seus dados abaixo.",
