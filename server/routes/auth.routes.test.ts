@@ -9,17 +9,33 @@ import type { Server } from "node:http";
  * host consulta a tabela de marcas — os dois viram espioes aqui, porque o que
  * se quer provar e o desvio de fluxo, nao a consulta.
  */
+vi.hoisted(() => {
+  // `auth.routes.ts` importa a mensagem de provedor suspenso de `../auth`, que
+  // exige SESSION_SECRET no topo do modulo.
+  process.env.SESSION_SECRET = "segredo-de-teste";
+});
+
 const storageMock = vi.hoisted(() => ({
   getUserByEmail: vi.fn(async (): Promise<any> => null),
   getProvider: vi.fn(async (): Promise<any> => null),
 }));
 vi.mock("../storage", () => ({ storage: storageMock }));
 
+vi.mock("../db", () => ({ db: {}, pool: {} }));
+
 const marcaMock = vi.hoisted(() => ({
   hostPertenceAoProvider: vi.fn(async () => true),
   resolverMarcaPorHost: vi.fn(async () => ({ marcaId: null, origem: "plataforma" })),
+  resolverMarcaPorId: vi.fn(async () => ({ marcaId: null, origem: "plataforma" })),
+  urlDeEntrada: vi.fn(() => "https://nslink.consultaisp.com.br"),
 }));
 vi.mock("../services/marca.service", () => marcaMock);
+
+// O limitador guarda estado entre chamadas e derrubaria o sexto login do arquivo
+// com 429; o que se mede aqui nao e ele.
+vi.mock("../middleware/rate-limiter.middleware", () => ({
+  createRateLimiter: () => (_r: any, _s: any, n: any) => n(),
+}));
 
 vi.mock("../password", () => ({
   hashPassword: vi.fn(async (s: string) => `hash:${s}`),
@@ -32,6 +48,7 @@ vi.mock("../services/email", () => ({
 }));
 
 import { registerAuthRoutes } from "./auth.routes";
+import { MENSAGEM_PROVEDOR_SUSPENSO } from "../auth";
 
 let server: Server;
 let base: string;
@@ -84,7 +101,7 @@ const login = () =>
 describe("POST /api/auth/login — prova de host", () => {
   it("provedor entra quando o host prova que e dele", async () => {
     storageMock.getUserByEmail.mockResolvedValue({ ...USUARIO_BASE });
-    storageMock.getProvider.mockResolvedValue({ id: 7, subdomain: "nslink", marcaId: null });
+    storageMock.getProvider.mockResolvedValue({ id: 7, subdomain: "nslink", marcaId: null, status: "active" });
 
     const res = await login();
 
@@ -95,7 +112,7 @@ describe("POST /api/auth/login — prova de host", () => {
 
   it("401 generico quando o host nao prova nada", async () => {
     storageMock.getUserByEmail.mockResolvedValue({ ...USUARIO_BASE });
-    storageMock.getProvider.mockResolvedValue({ id: 7, subdomain: "nslink", marcaId: null });
+    storageMock.getProvider.mockResolvedValue({ id: 7, subdomain: "nslink", marcaId: null, status: "active" });
     marcaMock.hostPertenceAoProvider.mockResolvedValue(false);
 
     const res = await login();
@@ -144,5 +161,76 @@ describe("POST /api/auth/login — prova de host", () => {
     expect(marcaMock.hostPertenceAoProvider).not.toHaveBeenCalled();
     expect(sessao.role).toBe("superadmin");
     expect(sessao.providerId).toBe(0);
+  });
+});
+
+/**
+ * A aba Provedores do superadmin promete, ao suspender, que "o acesso do
+ * provedor e dos usuarios dele fica bloqueado ate alguem reativar". Ninguem lia
+ * `providers.status`: o provedor era carregado so para a prova de host. Suspenso
+ * por inadimplencia as 10h, o operador logava as 10h02 e gastava credito.
+ */
+describe("POST /api/auth/login — provedor suspenso", () => {
+  it("403 com mensagem propria quando o provedor esta suspenso", async () => {
+    storageMock.getUserByEmail.mockResolvedValue({ ...USUARIO_BASE });
+    storageMock.getProvider.mockResolvedValue({ id: 7, subdomain: "nslink", marcaId: null, status: "suspended" });
+
+    const res = await login();
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      message: MENSAGEM_PROVEDOR_SUSPENSO,
+      code: "PROVIDER_SUSPENDED",
+    });
+    expect(sessao.userId).toBeUndefined();
+  });
+
+  it("403 tambem para provedor cancelado", async () => {
+    storageMock.getUserByEmail.mockResolvedValue({ ...USUARIO_BASE });
+    storageMock.getProvider.mockResolvedValue({ id: 7, subdomain: "nslink", marcaId: null, status: "cancelled" });
+
+    const res = await login();
+
+    expect(res.status).toBe(403);
+    expect(sessao.userId).toBeUndefined();
+  });
+
+  /**
+   * A ordem importa: quem erra o host continua ouvindo a mensagem generica. Sem
+   * isso, "Acesso suspenso" viraria um oraculo que confirma a existencia de uma
+   * conta para quem nem esta no endereco certo.
+   */
+  it("host errado ainda responde o 401 generico, nao 'acesso suspenso'", async () => {
+    storageMock.getUserByEmail.mockResolvedValue({ ...USUARIO_BASE });
+    storageMock.getProvider.mockResolvedValue({ id: 7, subdomain: "nslink", marcaId: null, status: "suspended" });
+    marcaMock.hostPertenceAoProvider.mockResolvedValue(false);
+
+    const res = await login();
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ message: "Email ou senha incorretos" });
+  });
+
+  it("reativar devolve o acesso na tentativa seguinte", async () => {
+    storageMock.getUserByEmail.mockResolvedValue({ ...USUARIO_BASE });
+    storageMock.getProvider.mockResolvedValue({ id: 7, subdomain: "nslink", marcaId: null, status: "suspended" });
+    expect((await login()).status).toBe(403);
+
+    storageMock.getProvider.mockResolvedValue({ id: 7, subdomain: "nslink", marcaId: null, status: "active" });
+
+    const res = await login();
+
+    expect(res.status).toBe(200);
+    expect(sessao.providerId).toBe(7);
+  });
+
+  it("superadmin nunca e barrado por status de tenant", async () => {
+    storageMock.getUserByEmail.mockResolvedValue({ ...USUARIO_BASE, role: "superadmin", providerId: null });
+    storageMock.getProvider.mockResolvedValue({ id: 7, status: "suspended" });
+
+    const res = await login();
+
+    expect(res.status).toBe(200);
+    expect(sessao.role).toBe("superadmin");
   });
 });

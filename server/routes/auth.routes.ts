@@ -7,6 +7,7 @@ import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { normalizarHost, extractSubdomainFromHost } from "../tenant";
 import { hostPertenceAoProvider, resolverMarcaPorHost, resolverMarcaPorId, urlDeEntrada } from "../services/marca.service";
+import { MENSAGEM_PROVEDOR_SUSPENSO } from "../auth";
 import { validarCPF, validarCNPJ } from "../utils/cpf-cnpj-validator";
 import crypto from "crypto";
 
@@ -58,6 +59,26 @@ export function registerAuthRoutes(): Router {
           // o endereco certo.
           return res.status(401).json({ message: "Email ou senha incorretos" });
         }
+      }
+
+      /**
+       * Provedor suspenso nao entra.
+       *
+       * O confirm da aba Provedores promete que suspender "bloqueia o acesso do
+       * provedor e dos usuarios dele", e nada no servidor lia
+       * `providers.status`. O superadmin suspendia por inadimplencia e o
+       * operador logava em seguida, abria o dashboard e gastava credito.
+       *
+       * Fica DEPOIS da senha e DEPOIS da prova de host de proposito: quem erra
+       * a senha, ou tenta pelo endereco errado, continua ouvindo a mensagem
+       * generica. Assim este texto — que confirma que a conta existe — so
+       * aparece para quem ja provou ser dono dela.
+       */
+      if (user.role !== "superadmin" && provider && provider.status !== "active") {
+        return res.status(403).json({
+          message: MENSAGEM_PROVEDOR_SUSPENSO,
+          code: "PROVIDER_SUSPENDED",
+        });
       }
 
       req.session.userId = user.id;
