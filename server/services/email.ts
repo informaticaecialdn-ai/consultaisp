@@ -1,5 +1,8 @@
 /**
- * E-mails transacionais.
+ * E-mails transacionais: QUANDO se manda e O QUE se diz.
+ *
+ * A aparencia mora em `email-ui.ts` — envelope, blocos, cores e as regras que
+ * a caixa de entrada impoe. Aqui ficam so as mensagens.
  *
  * ── WHITE LABEL ────────────────────────────────────────────────────────────
  * Todo e-mail sai com a marca de quem o cliente contratou. Um alerta de fraude
@@ -15,142 +18,24 @@
  * e-mail sai do dominio da plataforma com o NOME de exibicao da marca — e isso
  * aparece no cabecalho para quem recebe. O campo `emailRemetente` existe para
  * quando ele verificar.
+ *
+ * ── COMO ESCREVEMOS ────────────────────────────────────────────────────────
+ * Assunto diz o que aconteceu, nao vende. Primeira frase repete o assunto em
+ * palavras humanas. Uma acao por e-mail. O que o sistema gravou vai em bloco de
+ * dados, para o provedor conferir sem abrir o painel. Nada de exclamacao.
  */
 import { Resend } from "resend";
 import { MARCA_PLATAFORMA, urlDaMarca, type MarcaResolvida } from "./marca.service";
+import {
+  alerta, blocoDeDados, botao, brl, divisor, envelope, esc, kicker,
+  linkDeReserva, linkSecundario, paragrafo, passos, saudacao, titulo,
+  DANGER, GOLD, INK, MONO, MUTED, OK, SANS, TEXT_2,
+  type LinhaDeDado,
+} from "./email-ui";
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 const FROM_EMAIL = process.env.EMAIL_FROM || "onboarding@resend.dev";
-
-// ── Paleta ───────────────────────────────────────────────────────────────────
-// Os fixos vem de client/src/index.css. Antes daqui saia a paleta terracota
-// (#C96442) do design v3.0, que foi abandonado — o e-mail chegava com a cara de
-// um sistema que nao existe mais, sob um comentario dizendo "match index.css".
-const INK = "#1F1D29";
-const MUTED = "#6B6878";
-const BG = "#F6F6F9";
-const SURFACE = "#FFFFFF";
-const BORDER = "#EAEAF0";
-const GOLD = "#A9741B";
-const GOLD_BG = "#FBF1DF";
-const DANGER = "#B3261E";
-const DANGER_BG = "#FBE7E5";
-const INFO_BG = "#E9EFF5";
-
-/** A cor de acento e o texto sobre ela, para esta marca. */
-function acento(marca: MarcaResolvida): { brand: string; hover: string; sobre: string; suave: string } {
-  const c = marca.cores?.claro;
-  return {
-    brand: c?.brand ?? "#4A4670",
-    hover: c?.hover ?? "#3C3860",
-    sobre: c?.textOnBrand ?? "#FFFFFF",
-    suave: c?.soft ?? "#EDECF3",
-  };
-}
-
-/** Escapa o que vem de cadastro antes de entrar no HTML do e-mail. */
-function esc(v: string | null | undefined): string {
-  return String(v ?? "")
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-}
-
-// ── Template ─────────────────────────────────────────────────────────────────
-function emailTemplate(content: string, preheader: string | undefined, marca: MarcaResolvida): string {
-  const cor = acento(marca);
-  const nome = esc(marca.nomeProduto);
-  const url = urlDaMarca(marca);
-  const inicial = esc(marca.nomeProduto.trim().charAt(0).toUpperCase() || "C");
-  const assinatura = esc(marca.assinatura || "Analise de credito para provedores de internet");
-  // Cliente de e-mail costuma bloquear imagem; o quadrado com a inicial e a
-  // versao que sempre aparece, e o logo entra por cima quando carrega.
-  const logo = marca.logoUrl
-    ? `<img src="${esc(url)}${esc(marca.logoUrl)}" alt="${nome}" height="32" style="height:32px;width:auto;display:block;border:0;" />`
-    : `<div style="width:32px;height:32px;background:rgba(255,255,255,0.2);border-radius:6px;text-align:center;line-height:32px;">
-         <span style="color:${cor.sobre};font-size:16px;font-weight:800;">${inicial}</span>
-       </div>`;
-
-  return `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>${nome}</title>
-  ${preheader ? `<span style="display:none;max-height:0;overflow:hidden;">${esc(preheader)}</span>` : ""}
-</head>
-<body style="margin:0;padding:0;background-color:${BG};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:${BG};padding:40px 16px;">
-    <tr>
-      <td align="center">
-        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:540px;background:${SURFACE};border-radius:8px;overflow:hidden;border:1px solid ${BORDER};">
-
-          <!-- Header -->
-          <tr>
-            <td style="background:${cor.brand};padding:28px 36px;">
-              <table cellpadding="0" cellspacing="0"><tr>
-                <td style="vertical-align:middle;">${logo}</td>
-                <td style="padding-left:12px;">
-                  <span style="color:${cor.sobre};font-size:18px;font-weight:700;letter-spacing:-0.3px;">${nome}</span>
-                  <br/><span style="color:${cor.sobre};opacity:0.75;font-size:11px;letter-spacing:0.5px;">${assinatura.toUpperCase()}</span>
-                </td>
-              </tr></table>
-            </td>
-          </tr>
-
-          <!-- Content -->
-          <tr>
-            <td style="padding:32px 36px;">
-              ${content}
-            </td>
-          </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td style="background:${BG};padding:20px 36px;border-top:1px solid ${BORDER};">
-              <p style="color:${MUTED};font-size:11px;margin:0;text-align:center;line-height:1.5;">
-                ${nome} &mdash; ${assinatura}<br/>
-                <a href="${esc(url)}" style="color:${cor.brand};text-decoration:none;">${esc(url.replace(/^https?:\/\//, ""))}</a>
-                ${marca.suporteEmail ? `<br/>Suporte: <a href="mailto:${esc(marca.suporteEmail)}" style="color:${cor.brand};text-decoration:none;">${esc(marca.suporteEmail)}</a>` : ""}
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
-}
-
-function btnPrimary(href: string, text: string, marca: MarcaResolvida): string {
-  const cor = acento(marca);
-  // `href` carrega o dominio da marca, que e texto de cadastro. Sem escape, uma
-  // aspa nele fecha o atributo e o resto vira marcacao dentro do e-mail.
-  return `<div style="text-align:center;margin:28px 0;">
-    <a href="${esc(href)}" style="display:inline-block;background:${cor.brand};color:${cor.sobre};text-decoration:none;padding:13px 36px;border-radius:6px;font-weight:700;font-size:14px;letter-spacing:0.2px;">
-      ${text}
-    </a>
-  </div>`;
-}
-
-function alertBox(text: string, marca: MarcaResolvida, type: "warning" | "info" | "danger" = "warning"): string {
-  const cor = acento(marca);
-  const bg = type === "danger" ? DANGER_BG : type === "info" ? INFO_BG : GOLD_BG;
-  const border = type === "danger" ? DANGER : type === "info" ? cor.brand : GOLD;
-  const texto = type === "danger" ? DANGER : type === "info" ? cor.hover : "#854d0e";
-  return `<div style="background:${bg};border:1px solid ${border}30;border-radius:6px;padding:14px 16px;margin-top:20px;">
-    <p style="color:${texto};font-size:13px;margin:0;line-height:1.5;">${text}</p>
-  </div>`;
-}
-
-function linkFallback(url: string, marca: MarcaResolvida): string {
-  return `<p style="color:${MUTED};font-size:12px;line-height:1.5;margin:16px 0 0;">
-    Se o botao nao funcionar, copie e cole este link:<br/>
-    <a href="${esc(url)}" style="color:${acento(marca).brand};font-size:11px;word-break:break-all;">${esc(url)}</a>
-  </p>`;
-}
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
@@ -181,7 +66,35 @@ async function send(to: string, subject: string, html: string, marca: MarcaResol
   console.log(`[email] Email enviado para ${masked}, id: ${data?.id}`);
 }
 
-// ── Email Functions ──────────────────────────────────────────────────────────
+/**
+ * Uma mensagem pronta, antes de sair.
+ *
+ * Cada e-mail se divide em `montar*` (puro: devolve isto) e `send*` (manda).
+ * A divisao existe para a tela de pre-visualizacao e os testes trabalharem
+ * sobre o HTML EXATO que o provedor recebe. Enquanto montagem e envio eram a
+ * mesma funcao, so dava para conferir o e-mail enviando-o a alguem.
+ */
+export interface Mensagem {
+  assunto: string;
+  html: string;
+}
+
+/** O endereco por onde ESTE destinatario entra. Ver `urlDeEntrada`. */
+function base(marca: MarcaResolvida, urlBase?: string): string {
+  return (urlBase || urlDaMarca(marca)).replace(/\/+$/, "");
+}
+
+/** So a cor da marca, para quando o bloco pede um hex e nao o objeto inteiro. */
+function acentoDaMarca(marca: MarcaResolvida): string {
+  return marca.cores?.claro?.brand ?? "#4A4670";
+}
+
+/** "nslink.consultaisp.com.br" — endereco legivel, sem o protocolo. */
+function enderecoLegivel(url: string): string {
+  return url.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+}
+
+// ── 1. Confirmacao de cadastro ───────────────────────────────────────────────
 
 /**
  * `urlBase` existe porque a base da MARCA nem sempre e um endereco onde o
@@ -189,47 +102,188 @@ async function send(to: string, subject: string, html: string, marca: MarcaResol
  * raiz da plataforma, e la o login e recusado por desenho. Quem sabe o
  * endereco certo e quem conhece o provedor — ver `urlDeEntrada`.
  */
+export function montarVerificacao(
+  to: string, name: string, token: string, marca: MarcaResolvida = MARCA_PLATAFORMA,
+  urlBase?: string,
+): Mensagem {
+  const raiz = base(marca, urlBase);
+  const verifyUrl = `${raiz}/verificar-email?token=${token}`;
+  const nomeProduto = esc(marca.nomeProduto);
+  const html = envelope(`
+    ${kicker("confirmação de cadastro")}
+    ${titulo("Confirme seu e-mail para ativar a conta")}
+    ${saudacao(name)}
+    ${paragrafo(`Sua conta no ${nomeProduto} foi criada e falta um passo: confirmar que este e-mail é seu. É o mesmo endereço que vai receber os alertas do seu provedor, então ele precisa estar certo.`)}
+    ${botao(verifyUrl, "Confirmar e-mail", marca)}
+    ${blocoDeDados([
+      { rotulo: "e-mail cadastrado", valor: esc(to), mono: true },
+      { rotulo: "endereço de acesso", valor: esc(enderecoLegivel(raiz)), mono: true },
+    ])}
+    ${alerta(`<strong>O link vale por 24 horas.</strong> Depois disso, pe&ccedil;a um novo na tela de cadastro — o bot&atilde;o "Reenviar e-mail" est&aacute; l&aacute;.`)}
+    ${divisor()}
+    ${linkDeReserva(verifyUrl, marca)}
+    ${paragrafo(`<span style="color:#918EA0;font-size:12px;">Se você não criou esta conta, ignore esta mensagem: sem a confirmação, nada é ativado.</span>`, 0)}
+  `, `Confirme seu e-mail para ativar o acesso ao ${marca.nomeProduto}`, marca);
+  return { assunto: `Confirme seu cadastro — ${marca.nomeProduto}`, html };
+}
+
 export async function sendVerificationEmail(
   to: string, name: string, token: string, marca: MarcaResolvida = MARCA_PLATAFORMA,
   urlBase?: string,
 ): Promise<void> {
-  const nomeProduto = esc(marca.nomeProduto);
-  const verifyUrl = `${urlBase || urlDaMarca(marca)}/verificar-email?token=${token}`;
-  const html = emailTemplate(`
-    <h2 style="color:${INK};font-size:20px;font-weight:700;margin:0 0 8px;">Confirme seu email</h2>
-    <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0 0 4px;">
-      Ola, <strong style="color:${INK}">${esc(name)}</strong>
-    </p>
-    <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0 0 24px;">
-      Obrigado por criar sua conta no ${nomeProduto}. Para ativar seu acesso e comecar a proteger seu provedor, confirme seu email:
-    </p>
-    ${btnPrimary(verifyUrl, "Confirmar Email", marca)}
-    ${linkFallback(verifyUrl, marca)}
-    ${alertBox(`<strong>Este link expira em 24 horas.</strong> Se voce nao criou uma conta no ${nomeProduto}, ignore este email.`, marca)}
-  `, `Confirme seu email para ativar o ${marca.nomeProduto}`, marca);
-  await send(to, `Confirme seu cadastro — ${marca.nomeProduto}`, html, marca);
+  const m = montarVerificacao(to, name, token, marca, urlBase);
+  await send(to, m.assunto, m.html, marca);
 }
 
+// ── 2. Boas-vindas ───────────────────────────────────────────────────────────
+
+export interface DadosDeBoasVindas {
+  /** Nome de quem recebe. */
+  nome: string;
+  /** Razao social ou nome fantasia do provedor. */
+  provedor: string;
+  cnpj?: string | null;
+  /** Rotulo do plano, ja em portugues ("Gratuito", "Profissional"). */
+  plano: string;
+  /** Saldo com que a conta comeca. */
+  creditos: number;
+  /** E-mail que serve de login. */
+  emailDeAcesso: string;
+}
+
+/**
+ * Boas-vindas — enviado quando a conta fica ATIVA, nao quando e criada.
+ *
+ * A diferenca importa: entre criar e confirmar o e-mail, a conta nao entra.
+ * Mandar "bem-vindo, aproveite" antes disso e prometer um acesso que ainda nao
+ * existe, e o provedor tenta entrar e nao consegue.
+ *
+ * Ele carrega os DADOS do cadastro de proposito. Este e o unico e-mail que o
+ * provedor guarda; e nele que ele volta meses depois para lembrar por qual
+ * endereco entra e com qual e-mail.
+ */
+export function montarBoasVindas(
+  to: string, dados: DadosDeBoasVindas, marca: MarcaResolvida = MARCA_PLATAFORMA,
+  urlBase?: string,
+): Mensagem {
+  const raiz = base(marca, urlBase);
+  const endereco = enderecoLegivel(raiz);
+  const nomeProduto = esc(marca.nomeProduto);
+  const cor = marca.cores?.claro?.brand ?? "#4A4670";
+
+  const linhas: LinhaDeDado[] = [
+    { rotulo: "provedor", valor: esc(dados.provedor) },
+  ];
+  if (dados.cnpj) linhas.push({ rotulo: "cnpj", valor: esc(dados.cnpj), mono: true });
+  linhas.push(
+    { rotulo: "endereço de acesso", valor: `<a href="${esc(raiz)}" style="color:${cor};text-decoration:none;">${esc(endereco)}</a>`, mono: true },
+    { rotulo: "e-mail de acesso", valor: esc(dados.emailDeAcesso), mono: true },
+    { rotulo: "plano", valor: esc(dados.plano) },
+    { rotulo: "créditos disponíveis", valor: String(dados.creditos), mono: true, cor: OK },
+  );
+
+  const html = envelope(`
+    ${kicker("conta ativa")}
+    ${titulo(`Sua conta no ${nomeProduto} está pronta`)}
+    ${saudacao(dados.nome)}
+    ${paragrafo(`O e-mail foi confirmado e o acesso do <strong style="color:${INK};">${esc(dados.provedor)}</strong> está liberado. Guarde esta mensagem: é nela que estão o endereço de entrada e os dados do cadastro.`)}
+    ${blocoDeDados(linhas)}
+    ${botao(raiz, "Entrar no painel", marca)}
+    ${divisor()}
+    ${kicker("por onde começar")}
+    ${passos([
+      `<strong style="color:${INK};font-weight:600;">Consulte um CPF antes de instalar.</strong> O score sai em segundos e já mostra se a pessoa deixou dívida em outro provedor da rede.`,
+      `<strong style="color:${INK};font-weight:600;">Conecte seu ERP.</strong> IXC, MK Solutions, SGP, Hubsoft, Voalle e RBX. É o que faz sua base entrar sozinha, sem digitação.`,
+      `<strong style="color:${INK};font-weight:600;">Ligue o anti-fraude.</strong> Você é avisado quando um cliente seu, ativo e em atraso, é consultado por outro provedor.`,
+    ], marca)}
+    ${alerta(`Consultar a <strong>sua própria base</strong> não gasta crédito. Crédito só é consumido quando a pergunta vai para a rede.`, "info")}
+    ${marca.suporteEmail ? paragrafo(`Qualquer dúvida, responda este e-mail ou fale com <a href="mailto:${esc(marca.suporteEmail)}" style="color:${cor};text-decoration:none;font-weight:600;">${esc(marca.suporteEmail)}</a>.`, 0) : ""}
+  `, `Conta ativa: ${dados.provedor} já pode consultar a rede`, marca);
+  return { assunto: `Bem-vindo ao ${marca.nomeProduto} — sua conta está ativa`, html };
+}
+
+export async function sendWelcomeEmail(
+  to: string, dados: DadosDeBoasVindas, marca: MarcaResolvida = MARCA_PLATAFORMA,
+  urlBase?: string,
+): Promise<void> {
+  const m = montarBoasVindas(to, dados, marca, urlBase);
+  await send(to, m.assunto, m.html, marca);
+}
+
+// ── 3. Redefinicao de senha ──────────────────────────────────────────────────
+
 /** `urlBase`: mesma razao do e-mail de verificacao, logo acima. */
+export function montarRedefinicaoDeSenha(
+  to: string, name: string, token: string, marca: MarcaResolvida = MARCA_PLATAFORMA,
+  urlBase?: string,
+): Mensagem {
+  const raiz = base(marca, urlBase);
+  const resetUrl = `${raiz}/login?reset=${token}`;
+  const html = envelope(`
+    ${kicker("segurança da conta")}
+    ${titulo("Criar uma nova senha")}
+    ${saudacao(name)}
+    ${paragrafo(`Alguém pediu para redefinir a senha desta conta. Se foi você, use o botão abaixo — a senha atual continua valendo até você escolher a nova.`)}
+    ${botao(resetUrl, "Criar nova senha", marca)}
+    ${blocoDeDados([
+      { rotulo: "conta", valor: esc(to), mono: true },
+      { rotulo: "o link expira em", valor: "1 hora", mono: true, cor: GOLD },
+    ])}
+    ${alerta(`<strong>Se não foi você, ignore esta mensagem.</strong> A senha só muda depois que alguém abre este link, e ele vale por uma hora. Se isso se repetir, avise o suporte.`, "aviso")}
+    ${divisor()}
+    ${linkDeReserva(resetUrl, marca)}
+  `, `Link para criar uma nova senha no ${marca.nomeProduto}`, marca);
+  return { assunto: `Redefinição de senha — ${marca.nomeProduto}`, html };
+}
+
 export async function sendPasswordResetEmail(
   to: string, name: string, token: string, marca: MarcaResolvida = MARCA_PLATAFORMA,
   urlBase?: string,
 ): Promise<void> {
-  const resetUrl = `${urlBase || urlDaMarca(marca)}/login?reset=${token}`;
-  const html = emailTemplate(`
-    <h2 style="color:${INK};font-size:20px;font-weight:700;margin:0 0 8px;">Redefinir senha</h2>
-    <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0 0 4px;">
-      Ola, <strong style="color:${INK}">${esc(name)}</strong>
-    </p>
-    <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0 0 24px;">
-      Recebemos uma solicitacao para redefinir sua senha. Clique no botao abaixo para criar uma nova:
-    </p>
-    ${btnPrimary(resetUrl, "Redefinir Senha", marca)}
-    ${linkFallback(resetUrl, marca)}
-    ${alertBox("<strong>Este link expira em 1 hora.</strong> Se voce nao solicitou a redefinicao, ignore este email.", marca)}
-  `, `Redefina sua senha no ${marca.nomeProduto}`, marca);
-  await send(to, `Redefinicao de senha — ${marca.nomeProduto}`, html, marca);
+  const m = montarRedefinicaoDeSenha(to, name, token, marca, urlBase);
+  await send(to, m.assunto, m.html, marca);
 }
+
+/**
+ * Aviso de que a senha MUDOU.
+ *
+ * E o par do e-mail acima e a unica defesa do provedor contra troca silenciosa:
+ * quem tomou a conta muda a senha e, sem este aviso, o dono so descobre quando
+ * tenta entrar. Nao tem botao de acao — tem o caminho para reagir.
+ */
+export function montarSenhaAlterada(
+  to: string, name: string, marca: MarcaResolvida = MARCA_PLATAFORMA,
+  urlBase?: string, quando: Date = new Date(),
+): Mensagem {
+  const raiz = base(marca, urlBase);
+  const carimbo = quando.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" });
+  const contato = marca.suporteEmail
+    ? `<a href="mailto:${esc(marca.suporteEmail)}" style="color:${DANGER};text-decoration:none;font-weight:600;">${esc(marca.suporteEmail)}</a>`
+    : "o suporte";
+  const html = envelope(`
+    ${kicker("segurança da conta")}
+    ${titulo("A senha desta conta foi alterada")}
+    ${saudacao(name)}
+    ${paragrafo("A senha foi trocada agora. Se foi você, não precisa fazer nada — esta mensagem existe só para registrar.")}
+    ${blocoDeDados([
+      { rotulo: "conta", valor: esc(to), mono: true },
+      { rotulo: "quando", valor: esc(carimbo), mono: true },
+    ])}
+    ${alerta(`<strong>Se não foi você, aja agora.</strong> Peça uma nova redefinição de senha em ${esc(enderecoLegivel(raiz))} e fale com ${contato}. Quem trocou a senha entra com ela até você trocar de novo.`, "perigo")}
+    ${linkSecundario(`${raiz}/login`, "Ir para a tela de acesso", marca)}
+  `, "A senha da sua conta foi alterada", marca);
+  return { assunto: `Sua senha foi alterada — ${marca.nomeProduto}`, html };
+}
+
+export async function sendPasswordChangedEmail(
+  to: string, name: string, marca: MarcaResolvida = MARCA_PLATAFORMA,
+  urlBase?: string, quando: Date = new Date(),
+): Promise<void> {
+  const m = montarSenhaAlterada(to, name, marca, urlBase, quando);
+  await send(to, m.assunto, m.html, marca);
+}
+
+// ── 4. Alerta anti-fraude ────────────────────────────────────────────────────
 
 /**
  * `urlBase`: a outra metade do mesmo buraco do e-mail de verificacao. O botao
@@ -240,8 +294,7 @@ export async function sendPasswordResetEmail(
  * vendas. Quem sabe por onde ESTE provedor entra e quem conhece o provedor —
  * ver `urlDeEntrada`.
  */
-export async function sendProactiveAlertEmail(
-  to: string,
+export function montarAlertaAntiFraude(
   providerName: string,
   maskedCpf: string,
   maskedCustomerName: string,
@@ -249,38 +302,392 @@ export async function sendProactiveAlertEmail(
   /** A foto do momento: e o que diz POR QUE o aviso existe. */
   detalhes?: { valor: number; dias: number; contrato: string; motivo?: string; resumo?: string },
   urlBase?: string,
-): Promise<void> {
-  const alertaUrl = `${urlBase || urlDaMarca(marca)}/anti-fraude`;
-  const brl = (v: number) => `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const situacao = detalhes
-    ? `<p style="color:${INK};font-size:14px;margin:8px 0 0;line-height:1.6;">
-         ${detalhes.motivo ? `<strong>${esc(detalhes.motivo)}</strong><br/>` : ""}Contrato <strong>${esc(detalhes.contrato)}</strong>${
-           detalhes.valor > 0
-             ? ` · <strong>${brl(detalhes.valor)}</strong> vencidos ha <strong>${detalhes.dias} dia${detalhes.dias === 1 ? "" : "s"}</strong>`
-             : " · sem fatura vencida"
-         }.
-       </p>`
-    : "";
-  const html = emailTemplate(`
-    <div style="background:${GOLD_BG};border:1px solid ${GOLD}30;border-radius:6px;padding:16px;margin:0 0 20px;">
-      <p style="color:${GOLD};font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">
-        Alerta Anti-Fraude
-      </p>
-      <p style="color:${INK};font-size:14px;margin:0;line-height:1.6;">
-        Seu cliente <strong>${esc(maskedCustomerName)}</strong> (CPF: ${esc(maskedCpf)}) foi consultado por <strong>outro provedor</strong> da rede.
-      </p>
-      ${situacao}
-    </div>
-    <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0 0 8px;">
-      Ola, <strong style="color:${INK}">${esc(providerName)}</strong>
-    </p>
-    <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0 0 24px;">
-      ${detalhes?.resumo ? esc(detalhes.resumo) : "Um cliente seu, ativo e com fatura vencida, esta sendo avaliado por outro provedor"}: e o momento de agir — cobrar, renegociar, recolher o equipamento ou reter — antes que ele instale em outro lugar.
-    </p>
-    ${btnPrimary(alertaUrl, "Ver o alerta", marca)}
-    <p style="color:${MUTED};font-size:12px;margin:20px 0 0;line-height:1.5;">
-      A identidade do provedor que realizou a consulta e mantida em sigilo. Voce pode configurar suas preferencias de alerta no painel do provedor.
-    </p>
-  `, "Alerta: seu cliente foi consultado por outro provedor", marca);
-  await send(to, `Alerta: cliente consultado por outro provedor — ${marca.nomeProduto}`, html, marca);
+): Mensagem {
+  const alertaUrl = `${base(marca, urlBase)}/anti-fraude`;
+
+  const linhas: LinhaDeDado[] = [
+    { rotulo: "cliente", valor: esc(maskedCustomerName) },
+    { rotulo: "cpf", valor: esc(maskedCpf), mono: true },
+  ];
+  if (detalhes) {
+    linhas.push({ rotulo: "contrato", valor: esc(detalhes.contrato) });
+    linhas.push(
+      detalhes.valor > 0
+        ? { rotulo: "em aberto", valor: `${brl(detalhes.valor)} <span style="color:${MUTED};font-size:12px;">há ${detalhes.dias} dia${detalhes.dias === 1 ? "" : "s"}</span>`, mono: true, cor: DANGER }
+        : { rotulo: "em aberto", valor: "sem fatura vencida", mono: true },
+    );
+  }
+
+  const html = envelope(`
+    ${kicker("alerta anti-fraude", GOLD)}
+    ${titulo("Um cliente seu foi consultado por outro provedor")}
+    ${saudacao(providerName)}
+    ${paragrafo(
+      detalhes?.motivo
+        ? `<strong style="color:${INK};font-weight:600;">${esc(detalhes.motivo)}</strong>`
+        : `Um cliente ativo da sua base acabou de ser avaliado por outro provedor da rede.`,
+      10,
+    )}
+    ${blocoDeDados(linhas)}
+    ${paragrafo(
+      detalhes?.resumo
+        ? esc(detalhes.resumo)
+        : "Na prática, ele está procurando outro fornecedor. É a janela para agir: cobrar, renegociar, recolher o equipamento ou reter — antes que ele instale em outro lugar.",
+    )}
+    ${botao(alertaUrl, "Ver o alerta no painel", marca)}
+    ${divisor()}
+    ${paragrafo(`<span style="color:#918EA0;font-size:12px;">Quem consultou não é identificado: a rede troca risco, não nome de concorrente. Você escolhe o que vigiar na aba Anti-Fraude do painel.</span>`, 0)}
+  `, `${maskedCustomerName} foi consultado por outro provedor da rede`, marca);
+  return { assunto: `Alerta: cliente consultado por outro provedor — ${marca.nomeProduto}`, html };
 }
+
+export async function sendProactiveAlertEmail(
+  to: string,
+  providerName: string,
+  maskedCpf: string,
+  maskedCustomerName: string,
+  marca: MarcaResolvida = MARCA_PLATAFORMA,
+  detalhes?: { valor: number; dias: number; contrato: string; motivo?: string; resumo?: string },
+  urlBase?: string,
+): Promise<void> {
+  const m = montarAlertaAntiFraude(providerName, maskedCpf, maskedCustomerName, marca, detalhes, urlBase);
+  await send(to, m.assunto, m.html, marca);
+}
+
+// ── 5. Cadastro analisado (KYC) ──────────────────────────────────────────────
+
+/**
+ * Aprovacao do cadastro.
+ *
+ * Ate hoje o provedor descobria que passou na analise tentando entrar. Quem
+ * analisa e a plataforma, o prazo nao e prometido em lugar nenhum, e do lado de
+ * fora isso e indistinguivel de "esqueceram de mim".
+ */
+export function montarCadastroAprovado(
+  provedor: string, nome: string, marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Mensagem {
+  const raiz = base(marca, urlBase);
+  const html = envelope(`
+    ${kicker("cadastro aprovado", OK)}
+    ${titulo("Cadastro aprovado")}
+    ${saudacao(nome)}
+    ${paragrafo(`Terminamos a análise do cadastro do <strong style="color:${INK};">${esc(provedor)}</strong> e está tudo certo. O acesso completo já está liberado.`)}
+    ${blocoDeDados([
+      { rotulo: "provedor", valor: esc(provedor) },
+      { rotulo: "situação", valor: "aprovado", mono: true, cor: OK },
+    ])}
+    ${botao(raiz, "Entrar no painel", marca)}
+    ${paragrafo(`<span style="color:#918EA0;font-size:12px;">A partir de agora seu provedor também contribui com a rede: o que você marca como inadimplente ajuda outro provedor a não levar o mesmo calote, e vice-versa.</span>`, 0)}
+  `, `O cadastro do ${provedor} foi aprovado`, marca);
+  return { assunto: `Cadastro aprovado — ${marca.nomeProduto}`, html };
+}
+
+export async function sendCadastroAprovadoEmail(
+  to: string, provedor: string, nome: string, marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Promise<void> {
+  const m = montarCadastroAprovado(provedor, nome, marca, urlBase);
+  await send(to, m.assunto, m.html, marca);
+}
+
+/**
+ * Reprovacao do cadastro.
+ *
+ * O motivo e obrigatorio na chamada, e nao opcional, porque "seu cadastro foi
+ * reprovado" sem motivo transforma um problema resolvivel — documento ilegivel,
+ * CNPJ com pendencia — numa porta fechada sem maçaneta.
+ */
+export function montarCadastroReprovado(
+  provedor: string, nome: string, motivo: string,
+  marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Mensagem {
+  const raiz = base(marca, urlBase);
+  const contato = marca.suporteEmail
+    ? ` ou escreva para <a href="mailto:${esc(marca.suporteEmail)}" style="color:${acentoDaMarca(marca)};text-decoration:none;font-weight:600;">${esc(marca.suporteEmail)}</a>`
+    : "";
+  const html = envelope(`
+    ${kicker("cadastro em pendência", DANGER)}
+    ${titulo("Precisamos de um ajuste no seu cadastro")}
+    ${saudacao(nome)}
+    ${paragrafo(`A análise do cadastro do <strong style="color:${INK};">${esc(provedor)}</strong> não pôde ser concluída como está. Isso não encerra nada: é só o que falta acertar.`)}
+    ${alerta(`<strong>Motivo:</strong> ${esc(motivo)}`, "perigo")}
+    ${paragrafo(`Corrija o que foi apontado no Painel do Provedor${contato}. Assim que você reenviar, a análise recomeça.`)}
+    ${botao(`${raiz}/painel-provedor`, "Abrir o painel do provedor", marca)}
+  `, `Falta um ajuste no cadastro do ${provedor}`, marca);
+  return { assunto: `Cadastro em pendência — ${marca.nomeProduto}`, html };
+}
+
+export async function sendCadastroReprovadoEmail(
+  to: string, provedor: string, nome: string, motivo: string,
+  marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Promise<void> {
+  const m = montarCadastroReprovado(provedor, nome, motivo, marca, urlBase);
+  await send(to, m.assunto, m.html, marca);
+}
+
+// ── 6. Acesso suspenso e reativado ───────────────────────────────────────────
+
+/**
+ * Suspensao.
+ *
+ * O provedor tem que saber ANTES de tentar entrar e ver "acesso suspenso" numa
+ * tela de login — e tem que ficar claro que os dados continuam onde estavam.
+ * Suspensao e ato comercial, nao apagamento.
+ */
+export function montarAcessoSuspenso(
+  provedor: string, nome: string, motivo: string | undefined,
+  marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Mensagem {
+  const contato = marca.suporteEmail
+    ? `<a href="mailto:${esc(marca.suporteEmail)}" style="color:${acentoDaMarca(marca)};text-decoration:none;font-weight:600;">${esc(marca.suporteEmail)}</a>`
+    : "o suporte";
+  const html = envelope(`
+    ${kicker("acesso suspenso", DANGER)}
+    ${titulo("O acesso do seu provedor foi suspenso")}
+    ${saudacao(nome)}
+    ${paragrafo(`O acesso do <strong style="color:${INK};">${esc(provedor)}</strong> ao painel está suspenso. Ninguém do seu time consegue entrar enquanto estiver assim.`)}
+    ${motivo ? alerta(`<strong>Motivo:</strong> ${esc(motivo)}`, "perigo") : ""}
+    ${blocoDeDados([
+      { rotulo: "provedor", valor: esc(provedor) },
+      { rotulo: "situação", valor: "suspenso", mono: true, cor: DANGER },
+      { rotulo: "seus dados", valor: "preservados", mono: true },
+    ])}
+    ${paragrafo(`Nada foi apagado: clientes, consultas, equipamentos e histórico continuam exatamente como estavam e voltam no mesmo lugar quando o acesso for restabelecido. Para resolver, fale com ${contato}.`, 0)}
+  `, `O acesso do ${provedor} foi suspenso`, marca);
+  return { assunto: `Acesso suspenso — ${marca.nomeProduto}`, html };
+}
+
+export async function sendAcessoSuspensoEmail(
+  to: string, provedor: string, nome: string, motivo: string | undefined,
+  marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Promise<void> {
+  const m = montarAcessoSuspenso(provedor, nome, motivo, marca, urlBase);
+  await send(to, m.assunto, m.html, marca);
+}
+
+export function montarAcessoReativado(
+  provedor: string, nome: string, marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Mensagem {
+  const raiz = base(marca, urlBase);
+  const html = envelope(`
+    ${kicker("acesso restabelecido", OK)}
+    ${titulo("O acesso do seu provedor voltou")}
+    ${saudacao(nome)}
+    ${paragrafo(`A suspensão do <strong style="color:${INK};">${esc(provedor)}</strong> foi levantada. Seu time já pode entrar normalmente, e tudo está onde ficou.`)}
+    ${botao(raiz, "Entrar no painel", marca)}
+  `, `O acesso do ${provedor} foi restabelecido`, marca);
+  return { assunto: `Acesso restabelecido — ${marca.nomeProduto}`, html };
+}
+
+export async function sendAcessoReativadoEmail(
+  to: string, provedor: string, nome: string, marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Promise<void> {
+  const m = montarAcessoReativado(provedor, nome, marca, urlBase);
+  await send(to, m.assunto, m.html, marca);
+}
+
+// ── 7. Creditos liberados ────────────────────────────────────────────────────
+
+export interface DadosDeCredito {
+  /** Numero do pedido, como aparece no painel (CR-AAAAMM-NNNN). */
+  pedido: string;
+  pacote: string;
+  creditos: number;
+  valor: number;
+  /** Saldo depois da liberacao. */
+  saldo: number;
+}
+
+/**
+ * Confirmacao de que o pagamento entrou e o credito esta na conta.
+ *
+ * O provedor paga um PIX e fecha a aba. Sem este e-mail, a unica forma de saber
+ * se caiu e abrir o painel e conferir o saldo — e e a duvida que mais gera
+ * mensagem no suporte.
+ */
+export function montarCreditosLiberados(
+  nome: string, dados: DadosDeCredito, marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Mensagem {
+  const raiz = base(marca, urlBase);
+  const html = envelope(`
+    ${kicker("pagamento confirmado", OK)}
+    ${titulo("Seus créditos já estão na conta")}
+    ${saudacao(nome)}
+    ${paragrafo("O pagamento foi confirmado e os créditos entraram no saldo. Não precisa fazer mais nada.")}
+    ${blocoDeDados([
+      { rotulo: "pedido", valor: esc(dados.pedido), mono: true },
+      { rotulo: "pacote", valor: esc(dados.pacote) },
+      { rotulo: "créditos adicionados", valor: `+${dados.creditos}`, mono: true, cor: OK },
+      { rotulo: "valor pago", valor: brl(dados.valor), mono: true },
+      { rotulo: "saldo atual", valor: String(dados.saldo), mono: true },
+    ])}
+    ${botao(`${raiz}/consulta-isp`, "Fazer uma consulta", marca)}
+    ${paragrafo(`<span style="color:#918EA0;font-size:12px;">Consultar a sua própria base continua gratuito. Crédito só é usado quando a pergunta vai para a rede.</span>`, 0)}
+  `, `${dados.creditos} créditos adicionados ao seu saldo`, marca);
+  return { assunto: `Créditos liberados — ${marca.nomeProduto}`, html };
+}
+
+export async function sendCreditosLiberadosEmail(
+  to: string, nome: string, dados: DadosDeCredito,
+  marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Promise<void> {
+  const m = montarCreditosLiberados(nome, dados, marca, urlBase);
+  await send(to, m.assunto, m.html, marca);
+}
+
+// ── 8. Fatura ────────────────────────────────────────────────────────────────
+
+export interface DadosDeFatura {
+  numero: string;
+  /** Competencia como o provedor le: "setembro de 2026". */
+  competencia: string;
+  plano: string;
+  valor: number;
+  /** Vencimento ja formatado em dd/mm/aaaa. */
+  vencimento: string;
+  /** Link de pagamento do Asaas, quando existir. */
+  linkDePagamento?: string | null;
+}
+
+export function montarFaturaGerada(
+  nome: string, dados: DadosDeFatura, marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Mensagem {
+  const raiz = base(marca, urlBase);
+  const html = envelope(`
+    ${kicker("fatura disponível")}
+    ${titulo(`Fatura de ${esc(dados.competencia)}`)}
+    ${saudacao(nome)}
+    ${paragrafo(`A fatura da sua assinatura foi emitida. Abaixo está o que ela cobre.`)}
+    ${blocoDeDados([
+      { rotulo: "número", valor: esc(dados.numero), mono: true },
+      { rotulo: "plano", valor: esc(dados.plano) },
+      { rotulo: "competência", valor: esc(dados.competencia) },
+      { rotulo: "valor", valor: brl(dados.valor), mono: true },
+      { rotulo: "vencimento", valor: esc(dados.vencimento), mono: true, cor: GOLD },
+    ])}
+    ${dados.linkDePagamento
+      ? botao(dados.linkDePagamento, "Pagar agora", marca)
+      : botao(`${raiz}/nfse`, "Ver a fatura no painel", marca)}
+    ${dados.linkDePagamento ? linkSecundario(`${raiz}/nfse`, "Ver todas as faturas no painel", marca) : ""}
+  `, `Fatura de ${dados.competencia}: ${brl(dados.valor)}, vence em ${dados.vencimento}`, marca);
+  return { assunto: `Fatura de ${dados.competencia} — ${marca.nomeProduto}`, html };
+}
+
+export async function sendFaturaGeradaEmail(
+  to: string, nome: string, dados: DadosDeFatura,
+  marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Promise<void> {
+  const m = montarFaturaGerada(nome, dados, marca, urlBase);
+  await send(to, m.assunto, m.html, marca);
+}
+
+export function montarFaturaPaga(
+  nome: string, dados: Pick<DadosDeFatura, "numero" | "competencia" | "valor">,
+  marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Mensagem {
+  const raiz = base(marca, urlBase);
+  const html = envelope(`
+    ${kicker("pagamento confirmado", OK)}
+    ${titulo("Recebemos o pagamento da sua fatura")}
+    ${saudacao(nome)}
+    ${paragrafo("Está quitada. Guardamos o registro no painel, na aba de faturas.")}
+    ${blocoDeDados([
+      { rotulo: "número", valor: esc(dados.numero), mono: true },
+      { rotulo: "competência", valor: esc(dados.competencia) },
+      { rotulo: "valor pago", valor: brl(dados.valor), mono: true, cor: OK },
+    ])}
+    ${linkSecundario(`${raiz}/nfse`, "Ver no painel", marca)}
+  `, `Fatura ${dados.numero} quitada`, marca);
+  return { assunto: `Pagamento confirmado — ${marca.nomeProduto}`, html };
+}
+
+export async function sendFaturaPagaEmail(
+  to: string, nome: string, dados: Pick<DadosDeFatura, "numero" | "competencia" | "valor">,
+  marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Promise<void> {
+  const m = montarFaturaPaga(nome, dados, marca, urlBase);
+  await send(to, m.assunto, m.html, marca);
+}
+
+// ── 9. Plano alterado ────────────────────────────────────────────────────────
+
+export function montarPlanoAlterado(
+  nome: string,
+  dados: { de: string; para: string; creditosDoPlano?: number; observacao?: string | null },
+  marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Mensagem {
+  const raiz = base(marca, urlBase);
+  const linhas: LinhaDeDado[] = [
+    { rotulo: "plano anterior", valor: esc(dados.de) },
+    { rotulo: "plano atual", valor: esc(dados.para), cor: OK },
+  ];
+  if (dados.creditosDoPlano && dados.creditosDoPlano > 0) {
+    linhas.push({ rotulo: "créditos inclusos por mês", valor: String(dados.creditosDoPlano), mono: true });
+  }
+  const html = envelope(`
+    ${kicker("assinatura")}
+    ${titulo("Seu plano foi alterado")}
+    ${saudacao(nome)}
+    ${paragrafo("A mudança já está valendo na sua conta.")}
+    ${blocoDeDados(linhas)}
+    ${dados.observacao ? alerta(esc(dados.observacao), "info") : ""}
+    ${linkSecundario(`${raiz}/painel-provedor`, "Ver os detalhes no painel", marca)}
+  `, `Plano alterado de ${dados.de} para ${dados.para}`, marca);
+  return { assunto: `Plano alterado — ${marca.nomeProduto}`, html };
+}
+
+export async function sendPlanoAlteradoEmail(
+  to: string, nome: string,
+  dados: { de: string; para: string; creditosDoPlano?: number; observacao?: string | null },
+  marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Promise<void> {
+  const m = montarPlanoAlterado(nome, dados, marca, urlBase);
+  await send(to, m.assunto, m.html, marca);
+}
+
+// ── 10. Usuario adicionado ao provedor ───────────────────────────────────────
+
+/**
+ * Alguem foi incluido na equipe do provedor.
+ *
+ * A SENHA NAO VAI NESTE E-MAIL, de proposito. Hoje quem cria escolhe a senha e
+ * a entrega por fora — e-mail nao e canal seguro para senha: fica na caixa de
+ * entrada, no backup, no encaminhamento. O que este e-mail da e o endereco
+ * certo de entrada e o caminho para definir a propria senha.
+ */
+export function montarUsuarioAdicionado(
+  nome: string, provedor: string, quemAdicionou: string, emailDeAcesso: string,
+  marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Mensagem {
+  const raiz = base(marca, urlBase);
+  const html = envelope(`
+    ${kicker("acesso criado")}
+    ${titulo(`Você foi adicionado ao ${esc(provedor)}`)}
+    ${saudacao(nome)}
+    ${paragrafo(`<strong style="color:${INK};">${esc(quemAdicionou)}</strong> criou um acesso para você no ${esc(marca.nomeProduto)}, dentro do provedor <strong style="color:${INK};">${esc(provedor)}</strong>.`)}
+    ${blocoDeDados([
+      { rotulo: "endereço de acesso", valor: esc(enderecoLegivel(raiz)), mono: true },
+      { rotulo: "e-mail de acesso", valor: esc(emailDeAcesso), mono: true },
+    ])}
+    ${botao(`${raiz}/login`, "Entrar", marca)}
+    ${alerta(`A senha inicial é definida por quem criou o acesso e <strong>não viaja por e-mail</strong>. Se você não a recebeu, use "Esqueci minha senha" na tela de acesso e defina a sua.`, "info")}
+  `, `Seu acesso ao ${provedor} foi criado`, marca);
+  return { assunto: `Seu acesso ao ${provedor} — ${marca.nomeProduto}`, html };
+}
+
+export async function sendUsuarioAdicionadoEmail(
+  to: string, nome: string, provedor: string, quemAdicionou: string, emailDeAcesso: string,
+  marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Promise<void> {
+  const m = montarUsuarioAdicionado(nome, provedor, quemAdicionou, emailDeAcesso, marca, urlBase);
+  await send(to, m.assunto, m.html, marca);
+}
+
+// ── Exposto para a pre-visualizacao ──────────────────────────────────────────
+
+/**
+ * Os blocos visuais tambem saem daqui para que a tela de pre-visualizacao e os
+ * testes montem exatamente o mesmo HTML que o provedor recebe — e nao uma
+ * imitacao que envelhece.
+ */
+export { envelope, blocoDeDados, botao, titulo, kicker, paragrafo, alerta, passos } from "./email-ui";
+export { SANS, MONO, INK, TEXT_2 } from "./email-ui";
