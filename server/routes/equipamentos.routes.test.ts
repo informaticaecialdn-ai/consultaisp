@@ -23,6 +23,10 @@ vi.mock("../auth", () => ({
     if (!req.session?.userId) return res.status(401).json({ message: "Autenticacao necessaria" });
     next();
   },
+  requireProvider: (req: any, res: any, next: any) => {
+    if (!req.session?.providerId) return res.status(403).json({ message: "Somente provedores" });
+    next();
+  },
   requireAdmin: (_req: any, _res: any, next: any) => next(),
 }));
 

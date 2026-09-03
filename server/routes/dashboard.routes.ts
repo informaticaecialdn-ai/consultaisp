@@ -1,12 +1,12 @@
 import { Router } from "express";
-import { requireAuth } from "../auth";
+import { requireAuth, requireProvider } from "../auth";
 import { storage } from "../storage";
 import { getSafeErrorMessage } from "../utils/safe-error";
 
 export function registerDashboardRoutes(): Router {
   const router = Router();
 
-  router.get("/api/dashboard/stats", requireAuth, async (req, res) => {
+  router.get("/api/dashboard/stats", requireAuth, requireProvider, async (req, res) => {
     try {
       const stats = await storage.getDashboardStats(req.session.providerId!);
       return res.json(stats);
@@ -15,7 +15,7 @@ export function registerDashboardRoutes(): Router {
     }
   });
 
-  router.get("/api/dashboard/defaulters", requireAuth, async (req, res) => {
+  router.get("/api/dashboard/defaulters", requireAuth, requireProvider, async (req, res) => {
     try {
       const list = await storage.getDefaultersList(req.session.providerId!);
       return res.json(list);
@@ -24,7 +24,7 @@ export function registerDashboardRoutes(): Router {
     }
   });
 
-  router.get("/api/inadimplentes", requireAuth, async (req, res) => {
+  router.get("/api/inadimplentes", requireAuth, requireProvider, async (req, res) => {
     try {
       const list = await storage.getInadimplentes(req.session.providerId!);
       return res.json(list);
@@ -33,7 +33,7 @@ export function registerDashboardRoutes(): Router {
     }
   });
 
-  router.get("/api/customers", requireAuth, async (req, res) => {
+  router.get("/api/customers", requireAuth, requireProvider, async (req, res) => {
     try {
       const custs = await storage.getCustomersByProvider(req.session.providerId!);
       return res.json(custs);
@@ -42,7 +42,7 @@ export function registerDashboardRoutes(): Router {
     }
   });
 
-  router.post("/api/customers", requireAuth, async (req, res) => {
+  router.post("/api/customers", requireAuth, requireProvider, async (req, res) => {
     try {
       const customer = await storage.createCustomer({
         ...req.body,
@@ -54,7 +54,7 @@ export function registerDashboardRoutes(): Router {
     }
   });
 
-  router.get("/api/defaulters", requireAuth, async (req, res) => {
+  router.get("/api/defaulters", requireAuth, requireProvider, async (req, res) => {
     try {
       const defaulters = await storage.getDefaultersByProvider(req.session.providerId!);
       return res.json(defaulters);
@@ -63,7 +63,7 @@ export function registerDashboardRoutes(): Router {
     }
   });
 
-  router.get("/api/invoices", requireAuth, async (req, res) => {
+  router.get("/api/invoices", requireAuth, requireProvider, async (req, res) => {
     try {
       const invs = await storage.getInvoicesByProvider(req.session.providerId!);
       return res.json(invs);
@@ -76,7 +76,7 @@ export function registerDashboardRoutes(): Router {
   // tambem, e como este router e montado antes, o de equipamentos nunca
   // respondia — o CRUD novo ficaria inalcancavel.
 
-  router.get("/api/contracts", requireAuth, async (req, res) => {
+  router.get("/api/contracts", requireAuth, requireProvider, async (req, res) => {
     try {
       const ctrs = await storage.getContractsByProvider(req.session.providerId!);
       return res.json(ctrs);

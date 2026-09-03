@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth, requireSuperAdmin } from "../auth";
+import { requireAuth, requireProvider, requireSuperAdmin } from "../auth";
 import { storage } from "../storage";
 import { getConnector, getAllConnectors, getSupportedSources, buildConnectorConfig, ERP_CONFIG_FIELDS } from "../erp";
 import { getSafeErrorMessage } from "../utils/safe-error";
@@ -38,7 +38,7 @@ export function registerErpRoutes(): Router {
   });
 
 
-  router.get("/api/provider/erp-integrations", requireAuth, async (req, res) => {
+  router.get("/api/provider/erp-integrations", requireAuth, requireProvider, async (req, res) => {
     try {
       const integrations = await storage.getErpIntegrations(req.session.providerId!);
       return res.json(integrations);
@@ -47,7 +47,7 @@ export function registerErpRoutes(): Router {
     }
   });
 
-  router.patch("/api/provider/erp-integrations/:source", requireAuth, async (req, res) => {
+  router.patch("/api/provider/erp-integrations/:source", requireAuth, requireProvider, async (req, res) => {
     try {
       const source = String(req.params.source);
       const validSources = [...getSupportedSources(), "manual"];
@@ -70,7 +70,7 @@ export function registerErpRoutes(): Router {
     }
   });
 
-  router.post("/api/provider/erp-integrations/:source/test", requireAuth, async (req, res) => {
+  router.post("/api/provider/erp-integrations/:source/test", requireAuth, requireProvider, async (req, res) => {
     try {
       const source = String(req.params.source);
       const providerId = req.session.providerId!;
@@ -91,7 +91,7 @@ export function registerErpRoutes(): Router {
     }
   });
 
-  router.post("/api/provider/erp-integrations/:source/sync", requireAuth, async (req, res) => {
+  router.post("/api/provider/erp-integrations/:source/sync", requireAuth, requireProvider, async (req, res) => {
     try {
       const source = String(req.params.source);
       const providerId = req.session.providerId!;
@@ -191,7 +191,7 @@ export function registerErpRoutes(): Router {
     }
   });
 
-  router.get("/api/provider/erp-sync-logs", requireAuth, async (req, res) => {
+  router.get("/api/provider/erp-sync-logs", requireAuth, requireProvider, async (req, res) => {
     try {
       const { source, limit } = req.query;
       const parsedLimit = Math.min(Math.max(parseInt(limit as string) || 30, 1), 100);
@@ -206,7 +206,7 @@ export function registerErpRoutes(): Router {
     }
   });
 
-  router.get("/api/provider/erp-integration-stats", requireAuth, async (req, res) => {
+  router.get("/api/provider/erp-integration-stats", requireAuth, requireProvider, async (req, res) => {
     try {
       const stats = await storage.getErpIntegrationStats(req.session.providerId!);
       return res.json(stats);

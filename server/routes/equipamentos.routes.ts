@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { requireAdmin, requireAuth } from "../auth";
+import { requireAdmin, requireAuth, requireProvider } from "../auth";
 import { storage } from "../storage";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import {
@@ -75,7 +75,7 @@ function cleanOptionalFields<T extends Record<string, unknown>>(data: T): T {
 export function registerEquipamentosRoutes(): Router {
   const router = Router();
 
-  router.get("/api/equipment", requireAuth, async (req, res) => {
+  router.get("/api/equipment", requireAuth, requireProvider, async (req, res) => {
     try {
       return res.json(await storage.getEquipmentByProvider(req.session.providerId!));
     } catch (error: unknown) {
@@ -83,7 +83,7 @@ export function registerEquipamentosRoutes(): Router {
     }
   });
 
-  router.post("/api/equipment", requireAuth, async (req, res) => {
+  router.post("/api/equipment", requireAuth, requireProvider, async (req, res) => {
     try {
       const parsed = equipamentoSchema.safeParse(cleanOptionalFields(req.body));
       if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
@@ -111,7 +111,7 @@ export function registerEquipamentosRoutes(): Router {
     }
   });
 
-  router.patch("/api/equipment/:id", requireAuth, async (req, res) => {
+  router.patch("/api/equipment/:id", requireAuth, requireProvider, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (!Number.isInteger(id)) return res.status(400).json({ message: "Id inválido" });
@@ -141,7 +141,7 @@ export function registerEquipamentosRoutes(): Router {
     }
   });
 
-  router.delete("/api/equipment/:id", requireAuth, async (req, res) => {
+  router.delete("/api/equipment/:id", requireAuth, requireProvider, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (!Number.isInteger(id)) return res.status(400).json({ message: "Id inválido" });
@@ -160,7 +160,7 @@ export function registerEquipamentosRoutes(): Router {
     }
   });
 
-  router.get("/api/equipment/recovery-cases", requireAuth, async (req, res) => {
+  router.get("/api/equipment/recovery-cases", requireAuth, requireProvider, async (req, res) => {
     try {
       const providerId = req.session.providerId!;
       await storage.expireRecoveryCases(providerId);
@@ -175,7 +175,7 @@ export function registerEquipamentosRoutes(): Router {
    * serviço puro que classifica por idade da rescisão. Expira os casos
    * vencidos antes, como a lista faz, para as duas telas contarem o mesmo.
    */
-  router.get("/api/equipment/recovery-board", requireAuth, async (req, res) => {
+  router.get("/api/equipment/recovery-board", requireAuth, requireProvider, async (req, res) => {
     try {
       const providerId = req.session.providerId!;
       const agora = new Date();
@@ -199,7 +199,7 @@ export function registerEquipamentosRoutes(): Router {
     }
   });
 
-  router.get("/api/equipment/recovery-cases/:id/events", requireAuth, async (req, res) => {
+  router.get("/api/equipment/recovery-cases/:id/events", requireAuth, requireProvider, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (!Number.isInteger(id)) return res.status(400).json({ message: "Id inválido" });
@@ -211,7 +211,7 @@ export function registerEquipamentosRoutes(): Router {
     }
   });
 
-  router.post("/api/equipment/recovery-cases", requireAuth, async (req, res) => {
+  router.post("/api/equipment/recovery-cases", requireAuth, requireProvider, async (req, res) => {
     try {
       const parsed = casoSchema.safeParse(cleanOptionalFields(req.body));
       if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
@@ -258,7 +258,7 @@ export function registerEquipamentosRoutes(): Router {
     }
   });
 
-  router.patch("/api/equipment/recovery-cases/:id", requireAuth, async (req, res) => {
+  router.patch("/api/equipment/recovery-cases/:id", requireAuth, requireProvider, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (!Number.isInteger(id)) return res.status(400).json({ message: "Id inválido" });
@@ -285,7 +285,7 @@ export function registerEquipamentosRoutes(): Router {
     }
   });
 
-  router.post("/api/equipment/recovery-cases/:id/attempts", requireAuth, async (req, res) => {
+  router.post("/api/equipment/recovery-cases/:id/attempts", requireAuth, requireProvider, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (!Number.isInteger(id)) return res.status(400).json({ message: "Id inválido" });
@@ -307,7 +307,7 @@ export function registerEquipamentosRoutes(): Router {
     }
   });
 
-  router.post("/api/equipment/recovery-cases/:id/validate-signal", requireAdmin, async (req, res) => {
+  router.post("/api/equipment/recovery-cases/:id/validate-signal", requireProvider, requireAdmin, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (!Number.isInteger(id)) return res.status(400).json({ message: "Id inválido" });

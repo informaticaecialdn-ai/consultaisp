@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth } from "../auth";
+import { requireAuth, requireProvider } from "../auth";
 import { getRegionalProviders } from "../services/regional.service";
 import { storage } from "../storage";
 import citiesData from "../../shared/data/cidades-brasil.json";
@@ -48,7 +48,7 @@ export function registerRegionalRoutes(): Router {
 
   // GET /api/regional/cities?q=lon&limit=20
   // Returns filtered cities for autocomplete — now includes mesoregion
-  router.get("/api/regional/cities", requireAuth, (req, res) => {
+  router.get("/api/regional/cities", requireAuth, requireProvider, (req, res) => {
     const q = (req.query.q as string || "").toLowerCase().trim();
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
     if (q.length < 2) return res.json([]);
@@ -66,7 +66,7 @@ export function registerRegionalRoutes(): Router {
 
   // GET /api/regional/mesorregioes?uf=PR
   // Returns mesoregions for a state (with city count) — for quick-select UI
-  router.get("/api/regional/mesorregioes", requireAuth, (req, res) => {
+  router.get("/api/regional/mesorregioes", requireAuth, requireProvider, (req, res) => {
     const uf = (req.query.uf as string || "").toUpperCase().trim();
     if (uf.length !== 2) return res.json([]);
     const mesos = mesoregionsByState[uf] || [];
@@ -75,7 +75,7 @@ export function registerRegionalRoutes(): Router {
 
   // GET /api/regional/mesorregioes/:name/cities?uf=PR
   // Returns all cities in a mesoregion — for bulk-adding when selecting a region
-  router.get("/api/regional/mesorregioes/:name/cities", requireAuth, (req, res) => {
+  router.get("/api/regional/mesorregioes/:name/cities", requireAuth, requireProvider, (req, res) => {
     const name = req.params.name;
     const uf = (req.query.uf as string || "").toUpperCase().trim();
     const filtered = citiesData
@@ -86,7 +86,7 @@ export function registerRegionalRoutes(): Router {
 
   // GET /api/regional/providers
   // Returns providers in the same region as the authenticated provider
-  router.get("/api/regional/providers", requireAuth, async (req, res) => {
+  router.get("/api/regional/providers", requireAuth, requireProvider, async (req, res) => {
     try {
       const providerId = req.session.providerId!;
       const regional = await getRegionalProviders(providerId);
@@ -99,7 +99,7 @@ export function registerRegionalRoutes(): Router {
 
   // PUT /api/regional/cidades
   // Updates the authenticated provider's cidadesAtendidas + auto-derives mesorregioes
-  router.put("/api/regional/cidades", requireAuth, async (req, res) => {
+  router.put("/api/regional/cidades", requireAuth, requireProvider, async (req, res) => {
     try {
       const providerId = req.session.providerId!;
       const { cidades } = req.body as { cidades: string[] };
@@ -130,7 +130,7 @@ export function registerRegionalRoutes(): Router {
 
   // GET /api/regional/my-cidades
   // Returns the authenticated provider's cidadesAtendidas + mesorregioes
-  router.get("/api/regional/my-cidades", requireAuth, async (req, res) => {
+  router.get("/api/regional/my-cidades", requireAuth, requireProvider, async (req, res) => {
     try {
       const provider = await storage.getProvider(req.session.providerId!);
       return res.json({

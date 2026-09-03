@@ -69,7 +69,17 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     return res.status(401).json({ message: "Autenticacao necessaria" });
   }
 
-  if (req.session.providerId && req.session.role !== "superadmin") {
+  if (req.session.role !== "superadmin") {
+    // Fail-CLOSED. A condicao anterior era `req.session.providerId && ...`: a
+    // prova de host so valia quando havia provedor, entao uma sessao sem
+    // providerId entrava por QUALQUER host e viajava entre eles. Hoje isso e
+    // teorico (todo user/admin nasce com provedor); com o white label deixa de
+    // ser: papel sem provedor passa a existir, e o host e o seletor de tenant.
+    // Ausencia de provedor e falha de autorizacao, nunca dispensa.
+    if (!req.session.providerId || req.session.providerId <= 0) {
+      return res.status(401).json({ message: "Autenticacao necessaria" });
+    }
+
     const atual = normalizarHost(req.hostname);
 
     if (req.session.hostLogin) {
@@ -90,8 +100,32 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+/**
+ * Defesa em profundidade: so passa quem TEM provedor.
+ *
+ * Sem isto, uma sessao com `providerId` 0 chega ao handler e o handler grava
+ * `provider_id: 0` — que ou estoura na FK (500) ou, pior, cria uma gaveta
+ * orfa que nenhum tenant enxerga. `requireAuth` sozinho nunca prometeu isso;
+ * prometia apenas que ha alguem logado.
+ */
+export function requireProvider(req: Request, res: Response, next: NextFunction) {
+  const providerId = req.session.providerId;
+  if (!req.session.userId || !providerId || providerId <= 0) {
+    return res.status(403).json({ message: "Somente provedores" });
+  }
+  next();
+}
+
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  if (!req.session.userId || (req.session.role !== "admin" && req.session.role !== "superadmin")) {
+  if (!req.session.userId) {
+    return res.status(403).json({ message: "Acesso negado" });
+  }
+  if (req.session.role === "superadmin") {
+    return next();
+  }
+  // Admin de provedor sem provedor nao existe: as rotas que usam este
+  // middleware gravam com `session.providerId` e escreveriam no vazio.
+  if (req.session.role !== "admin" || !req.session.providerId || req.session.providerId <= 0) {
     return res.status(403).json({ message: "Acesso negado" });
   }
   next();

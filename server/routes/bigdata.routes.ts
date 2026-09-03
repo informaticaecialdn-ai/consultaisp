@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth } from "../auth";
+import { requireAuth, requireProvider } from "../auth";
 import { storage } from "../storage";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { validarCPF, validarCNPJ } from "../utils/cpf-cnpj-validator";
@@ -56,7 +56,7 @@ export function registerBigdataRoutes(): Router {
   const router = Router();
 
   /** A senha volta mascarada. O valor real nunca sai do servidor. */
-  router.get("/api/bigdata-integration", requireAuth, async (req, res) => {
+  router.get("/api/bigdata-integration", requireAuth, requireProvider, async (req, res) => {
     try {
       const i = await storage.getBigdataIntegration(req.session.providerId!);
       return res.json({
@@ -72,7 +72,7 @@ export function registerBigdataRoutes(): Router {
     }
   });
 
-  router.patch("/api/bigdata-integration", requireAuth, async (req, res) => {
+  router.patch("/api/bigdata-integration", requireAuth, requireProvider, async (req, res) => {
     try {
       const parsed = credencialSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
@@ -95,7 +95,7 @@ export function registerBigdataRoutes(): Router {
   });
 
   /** Valida a credencial guardada sem gastar consulta — so gera token. */
-  router.post("/api/bigdata-integration/test", requireAuth, async (req, res) => {
+  router.post("/api/bigdata-integration/test", requireAuth, requireProvider, async (req, res) => {
     try {
       const providerId = req.session.providerId!;
       const i = await storage.getBigdataIntegration(providerId);
@@ -113,7 +113,7 @@ export function registerBigdataRoutes(): Router {
   });
 
   /** Mesmo formato do GET da consulta ISP, para a tela reusar o cabecalho. */
-  router.get("/api/bigdata-consultations", requireAuth, async (req, res) => {
+  router.get("/api/bigdata-consultations", requireAuth, requireProvider, async (req, res) => {
     try {
       const providerId = req.session.providerId!;
       const brutas = await storage.getBigdataConsultations(providerId);
@@ -152,7 +152,7 @@ export function registerBigdataRoutes(): Router {
     }
   });
 
-  router.post("/api/bigdata-consultations", requireAuth, async (req, res) => {
+  router.post("/api/bigdata-consultations", requireAuth, requireProvider, async (req, res) => {
     const providerId = req.session.providerId!;
     let debitou = false;
     // Fora do try porque o catch precisa estornar a MESMA quantidade debitada.

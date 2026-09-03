@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth, requireAdmin } from "../auth";
+import { requireAuth, requireAdmin, requireProvider } from "../auth";
 import { storage } from "../storage";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { getBackfillStatus, runGeocodeBackfill, varreduraAtiva } from "../services/geocode-backfill.service";
@@ -18,7 +18,7 @@ import { logger } from "../logger";
 export function registerLocalizacaoRoutes(): Router {
   const router = Router();
 
-  router.get("/api/localizacao", requireAuth, async (req, res) => {
+  router.get("/api/localizacao", requireAuth, requireProvider, async (req, res) => {
     try {
       const data = await storage.getLocalizacao(req.session.providerId!);
       return res.json(data);
@@ -38,7 +38,7 @@ export function registerLocalizacaoRoutes(): Router {
    * "Curitiba", "curitiba" e "Curitiba - PR" sao a mesma cidade. Guardar
    * normalizado faria a lista aparecer sem acento na tela de configuracao.
    */
-  router.patch("/api/localizacao/cidades/:cidade", requireAuth, requireAdmin, async (req, res) => {
+  router.patch("/api/localizacao/cidades/:cidade", requireAuth, requireProvider, requireAdmin, async (req, res) => {
     try {
       const cidade = String(req.params.cidade || "").trim();
       if (!cidade) return res.status(400).json({ message: "Informe a cidade" });
@@ -72,7 +72,7 @@ export function registerLocalizacaoRoutes(): Router {
    * inteiro em rede-regional.service.ts, e e la que ele deve ficar — nunca no
    * cliente, que qualquer um inspeciona.
    */
-  router.get("/api/localizacao/rede", requireAuth, async (req, res) => {
+  router.get("/api/localizacao/rede", requireAuth, requireProvider, async (req, res) => {
     try {
       const area = await resolverAreaAtendida(req.session.providerId!);
       const cidades = area.cidades ?? [];
@@ -95,7 +95,7 @@ export function registerLocalizacaoRoutes(): Router {
    * varre a carteira com o recorte territorial da tela. Contar de novo aqui,
    * com outro filtro, punha dois numeros discordantes na mesma pagina.
    */
-  router.get("/api/localizacao/plotagem", requireAuth, async (_req, res) => {
+  router.get("/api/localizacao/plotagem", requireAuth, requireProvider, async (_req, res) => {
     try {
       const job = getBackfillStatus();
       const rodando = await varreduraAtiva();
@@ -120,7 +120,7 @@ export function registerLocalizacaoRoutes(): Router {
    * e a resposta diz qual dos dois casos aconteceu, em vez de afirmar
    * "iniciada" quando o disparo virou no-op.
    */
-  router.post("/api/localizacao/plotagem", requireAuth, requireAdmin, async (req, res) => {
+  router.post("/api/localizacao/plotagem", requireAuth, requireProvider, requireAdmin, async (req, res) => {
     if (await varreduraAtiva()) {
       return res.json({ iniciado: false, mensagem: "A plotagem já está em andamento." });
     }
@@ -149,7 +149,7 @@ export function registerLocalizacaoRoutes(): Router {
    * A UF desempata cidades homônimas. Vem de `?uf=` quando quem chama sabe;
    * senão, da área atendida do provedor — a tela não a conhece, o servidor sim.
    */
-  router.get("/api/localizacao/territorio/:camada/:cidade", requireAuth, async (req, res) => {
+  router.get("/api/localizacao/territorio/:camada/:cidade", requireAuth, requireProvider, async (req, res) => {
     try {
       const camada = String(req.params.camada || "");
       if (!ehCamadaTerritorio(camada)) {
