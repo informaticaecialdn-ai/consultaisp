@@ -21,7 +21,11 @@ export function validateEnv(): void {
     logger.fatal({ length: partnerSecret.length }, "PARTNER_CODE_SECRET must have at least 32 characters");
     process.exit(1);
   }
-  const webhook = verificarWebhookAsaas(process.env.ASAAS_WEBHOOK_TOKEN, process.env.NODE_ENV);
+  const webhook = verificarWebhookAsaas(
+    process.env.ASAAS_WEBHOOK_TOKEN,
+    process.env.NODE_ENV,
+    process.env.ASAAS_API_KEY,
+  );
   if (webhook.nivel === "fatal") {
     logger.fatal(webhook.mensagem);
     process.exit(1);
@@ -40,15 +44,33 @@ export function validateEnv(): void {
  * processo nao subir — o pm2 congela o .env no start, entao a variavel faltando
  * so apareceria quando o dinheiro ja tivesse escapado.
  *
- * Fora de producao vira aviso: quem roda local nao tem o token e ainda precisa
- * conseguir testar o fluxo.
+ * MAS a queda depende de o Asaas estar realmente ligado. `validateEnv` roda no
+ * servidor E no worker; derrubar os dois por uma variavel de cobranca numa
+ * instalacao que nem chave de API tem poe o bureau inteiro fora do ar (pm2 em
+ * laco de restart) para trancar uma porta que ja esta trancada por outro
+ * motivo: sem `ASAAS_API_KEY`, `conferirPagamento` recusa toda liberacao,
+ * porque nao tem como reconsultar a cobranca. Foi exatamente o caso da VPS em
+ * 03/09/2026 — nenhuma das duas variaveis existia la.
+ *
+ * Entao: com o Asaas configurado e sem token, em producao, o processo nao sobe.
+ * Sem chave de API, e aviso — e o aviso vira fatal no dia em que alguem
+ * cadastrar a chave sem o token.
+ *
+ * Fora de producao e sempre aviso: quem roda local nao tem o token e ainda
+ * precisa conseguir testar o fluxo.
  */
 export function verificarWebhookAsaas(
   token: string | undefined,
   nodeEnv: string | undefined,
+  chaveAsaas?: string | undefined,
 ): { nivel: "ok" | "aviso" | "fatal"; mensagem: string } {
   if (token?.trim()) return { nivel: "ok", mensagem: "" };
-  if (nodeEnv === "production") {
+
+  // Mesmo criterio de isAsaasConfigured() em services/asaas.ts: chave curta
+  // demais nao autentica em lugar nenhum.
+  const asaasLigado = (chaveAsaas ?? "").trim().length > 10;
+
+  if (nodeEnv === "production" && asaasLigado) {
     return {
       nivel: "fatal",
       mensagem:
@@ -57,11 +79,22 @@ export function verificarWebhookAsaas(
         "(o mesmo valor cadastrado no painel do Asaas) e suba o processo de novo.",
     };
   }
+
+  if (nodeEnv === "production") {
+    return {
+      nivel: "aviso",
+      mensagem:
+        "ASAAS_WEBHOOK_TOKEN e ASAAS_API_KEY nao configurados — cobranca desligada nesta instalacao. " +
+        "O webhook nao libera nada sem a chave (nao consegue reconsultar a cobranca). " +
+        "Ao cadastrar ASAAS_API_KEY, cadastre o token junto: sem ele o processo nao sobe.",
+    };
+  }
+
   return {
     nivel: "aviso",
     mensagem:
       "ASAAS_WEBHOOK_TOKEN nao configurado — o webhook do Asaas fica sem protecao. " +
-      "Tolerado fora de producao; em producao o processo nao sobe assim.",
+      "Tolerado fora de producao; em producao, com a chave do Asaas cadastrada, o processo nao sobe assim.",
   };
 }
 

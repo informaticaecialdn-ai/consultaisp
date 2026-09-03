@@ -33,9 +33,12 @@ afterEach(() => {
   process.env = { ...ambiente };
 });
 
+/** Chave com mais de 10 caracteres, o mesmo criterio de isAsaasConfigured(). */
+const CHAVE_ASAAS = "$aact_test_chave_de_mentira";
+
 describe("verificarWebhookAsaas", () => {
-  it("em producao, sem token o processo tem que cair", () => {
-    const r = verificarWebhookAsaas(undefined, "production");
+  it("em producao, com o Asaas ligado e sem token, o processo tem que cair", () => {
+    const r = verificarWebhookAsaas(undefined, "production", CHAVE_ASAAS);
     expect(r.nivel).toBe("fatal");
     expect(r.mensagem).toContain("ASAAS_WEBHOOK_TOKEN");
     // A mensagem e para quem opera a VPS as duas da manha; tem que dizer o que fazer.
@@ -43,21 +46,42 @@ describe("verificarWebhookAsaas", () => {
   });
 
   it("token so de espaco em branco conta como ausente", () => {
-    expect(verificarWebhookAsaas("   ", "production").nivel).toBe("fatal");
+    expect(verificarWebhookAsaas("   ", "production", CHAVE_ASAAS).nivel).toBe("fatal");
   });
 
   it("com token configurado, sobe calado", () => {
-    expect(verificarWebhookAsaas("segredo-do-painel", "production")).toEqual({ nivel: "ok", mensagem: "" });
+    expect(verificarWebhookAsaas("segredo-do-painel", "production", CHAVE_ASAAS)).toEqual({ nivel: "ok", mensagem: "" });
   });
 
   it("fora de producao vira aviso: quem roda local nao tem o token", () => {
-    const r = verificarWebhookAsaas("", "development");
+    const r = verificarWebhookAsaas("", "development", CHAVE_ASAAS);
     expect(r.nivel).toBe("aviso");
     expect(r.mensagem).toContain("sem protecao");
   });
 
   it("NODE_ENV nao definido tambem e aviso, nao fatal", () => {
-    expect(verificarWebhookAsaas(undefined, undefined).nivel).toBe("aviso");
+    expect(verificarWebhookAsaas(undefined, undefined, CHAVE_ASAAS).nivel).toBe("aviso");
+  });
+
+  /**
+   * O caso da VPS em 03/09/2026: producao sem ASAAS_WEBHOOK_TOKEN e sem
+   * ASAAS_API_KEY. Derrubar o boot ali poe servidor E worker em laco de restart
+   * no pm2 — o bureau inteiro fora do ar — para trancar uma porta que ja esta
+   * trancada: sem chave, conferirPagamento nao reconsulta e nao libera nada.
+   */
+  it("em producao SEM chave do Asaas e aviso, nao fatal: cobranca desligada nao derruba o bureau", () => {
+    const r = verificarWebhookAsaas(undefined, "production", undefined);
+    expect(r.nivel).toBe("aviso");
+    expect(r.mensagem).toContain("ASAAS_API_KEY");
+  });
+
+  it("chave curta demais nao conta como Asaas ligado", () => {
+    expect(verificarWebhookAsaas(undefined, "production", "curta").nivel).toBe("aviso");
+  });
+
+  it("cadastrar a chave sem o token faz o aviso virar fatal", () => {
+    expect(verificarWebhookAsaas(undefined, "production", undefined).nivel).toBe("aviso");
+    expect(verificarWebhookAsaas(undefined, "production", CHAVE_ASAAS).nivel).toBe("fatal");
   });
 });
 
