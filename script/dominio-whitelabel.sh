@@ -21,6 +21,13 @@
 #
 # Rodar antes do DNS propagar faz o certbot falhar na validacao — sem estrago,
 # mas e so tentar de novo depois.
+#
+# VARIAVEIS
+#   MAIN_DOMAIN      dominio da plataforma. Lido do .env do projeto quando nao
+#                    vier do ambiente. Obrigatorio — ver o motivo abaixo.
+#   PORTA            porta do processo Node (padrao 5000)
+#   EMAIL_CERTBOT    e-mail de registro no Let's Encrypt
+#   CONFIG_PRINCIPAL vhost da plataforma (padrao /etc/nginx/sites-enabled/consultaisp)
 
 set -euo pipefail
 
@@ -29,7 +36,10 @@ PORTA="${PORTA:-5000}"
 EMAIL_CERTBOT="${EMAIL_CERTBOT:-}"
 DISPONIVEIS=/etc/nginx/sites-available
 HABILITADOS=/etc/nginx/sites-enabled
-CONFIG_PRINCIPAL="$HABILITADOS/consultaisp"
+# Nome de ARQUIVO do vhost, nao dominio. Trocavel por ambiente porque a
+# instalacao pode ter chamado o vhost de outra coisa.
+CONFIG_PRINCIPAL="${CONFIG_PRINCIPAL:-$HABILITADOS/consultaisp}"
+RAIZ_PROJETO="$(cd "$(dirname "$0")/.." && pwd)"
 
 erro() { echo "ERRO: $*" >&2; exit 1; }
 aviso() { echo "AVISO: $*" >&2; }
@@ -38,6 +48,22 @@ passo() { echo; echo "── $* ──"; }
 [ -n "$DOMINIO" ] || erro "uso: $0 <dominio>   (ex: app.crednet.com.br)"
 [ "$(id -u)" = "0" ] || erro "precisa rodar como root."
 
+# ── O dominio da plataforma vem do ambiente, igual ao server/tenant.ts ────────
+# Cravado aqui, ele deixaria de proteger EM SILENCIO no dia em que a plataforma
+# mudasse de dominio: a checagem logo abaixo e o que impede publicar um
+# subdominio da plataforma como se fosse dominio proprio de uma marca — e ali as
+# duas regras de resolucao brigariam.
+#
+# Sem valor nenhum o script PARA, em vez de adivinhar. Um default errado aqui
+# aprovaria exatamente o caso que a checagem existe para barrar.
+MAIN_DOMAIN="${MAIN_DOMAIN:-}"
+if [ -z "$MAIN_DOMAIN" ] && [ -f "$RAIZ_PROJETO/.env" ]; then
+  MAIN_DOMAIN=$(grep -E '^[[:space:]]*MAIN_DOMAIN=' "$RAIZ_PROJETO/.env" | tail -1 \
+    | cut -d= -f2- | tr -d '"'\''[:space:]' || true)
+fi
+[ -n "$MAIN_DOMAIN" ] || erro "MAIN_DOMAIN nao definido. Exporte-o ou coloque em $RAIZ_PROJETO/.env — e o mesmo valor que a aplicacao usa."
+MAIN_DOMAIN=$(echo "$MAIN_DOMAIN" | tr '[:upper:]' '[:lower:]')
+
 # Minusculas, sem protocolo, sem barra final — igual ao normalizarHost do app.
 DOMINIO=$(echo "$DOMINIO" | tr '[:upper:]' '[:lower:]' | sed -e 's#^https\?://##' -e 's#/.*$##')
 
@@ -45,8 +71,8 @@ echo "$DOMINIO" | grep -Eq '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*
   || erro "dominio invalido: $DOMINIO"
 
 case "$DOMINIO" in
-  *.consultaisp.com.br|consultaisp.com.br)
-    erro "dominio da plataforma ja e atendido pelo curinga. Use um dominio proprio do revendedor." ;;
+  *".$MAIN_DOMAIN"|"$MAIN_DOMAIN")
+    erro "dominio da plataforma ($MAIN_DOMAIN) ja e atendido pelo curinga. Use um dominio proprio do revendedor." ;;
 esac
 
 # ── 1. O DNS ja aponta para ca? ──────────────────────────────────────────────

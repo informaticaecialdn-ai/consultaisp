@@ -21,9 +21,43 @@ export function validateEnv(): void {
     logger.fatal({ length: partnerSecret.length }, "PARTNER_CODE_SECRET must have at least 32 characters");
     process.exit(1);
   }
+  avisarLgpdSemIdentificacao();
   logger.info("Environment validated");
 }
 
 export function getAsaasWebhookToken(): string | undefined {
   return process.env.ASAAS_WEBHOOK_TOKEN?.trim() || undefined;
+}
+
+/** O CNPJ de exemplo que o codigo publica quando LGPD_CNPJ nao esta definido. */
+const CNPJ_PLACEHOLDER = "00.000.000/0000-00";
+
+/**
+ * Avisa, no boot de producao, que a politica publica esta sem quem responde
+ * por ela.
+ *
+ * `GET /api/public/lgpd-info` cai num nome e num CNPJ de exemplo quando estas
+ * variaveis faltam — e /lgpd e um documento com efeito juridico, nomeando o
+ * CONTROLADOR perante o titular. Publicar "00.000.000/0000-00" ali nao
+ * identifica ninguem, e a falha e silenciosa: a pagina responde 200 e parece
+ * pronta.
+ *
+ * So aviso, nunca falha. Derrubar o boot por causa disto deixaria o bureau
+ * inteiro fora do ar por um campo de texto — e o dono ainda precisa informar a
+ * razao social e o CNPJ reais da plataforma.
+ */
+export function avisarLgpdSemIdentificacao(): void {
+  if (process.env.NODE_ENV !== "production") return;
+
+  const cnpj = (process.env.LGPD_CNPJ || "").trim();
+  const empresa = (process.env.LGPD_EMPRESA || "").trim();
+  const faltando: string[] = [];
+  if (!cnpj || cnpj === CNPJ_PLACEHOLDER) faltando.push("LGPD_CNPJ");
+  if (!empresa) faltando.push("LGPD_EMPRESA");
+  if (faltando.length === 0) return;
+
+  logger.warn(
+    { faltando },
+    "Politica publica /lgpd sem identificacao real do controlador — ela vai publicar o CNPJ de exemplo. Defina os valores no .env (pm2 congela o .env: delete + start pelo ecosystem).",
+  );
 }
