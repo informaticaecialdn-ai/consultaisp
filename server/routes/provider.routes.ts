@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth } from "../auth";
+import { requireAuth, requireProvider } from "../auth";
 import { storage } from "../storage";
 import { hashPassword } from "../password";
 import { getSafeErrorMessage } from "../utils/safe-error";
@@ -25,7 +25,7 @@ export function registerProviderRoutes(): Router {
     });
   });
 
-  router.get("/api/provider/users", requireAuth, async (req, res) => {
+  router.get("/api/provider/users", requireAuth, requireProvider, async (req, res) => {
     try {
       const providerUsers = await storage.getUsersByProvider(req.session.providerId!);
       const safe = providerUsers.map(u => ({
@@ -38,7 +38,7 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.post("/api/provider/users", requireAuth, async (req, res) => {
+  router.post("/api/provider/users", requireAuth, requireProvider, async (req, res) => {
     try {
       if (req.session.role !== "admin") {
         return res.status(403).json({ message: "Apenas administradores podem convidar usuarios" });
@@ -63,18 +63,28 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.delete("/api/provider/users/:id", requireAuth, async (req, res) => {
+  router.delete("/api/provider/users/:id", requireAuth, requireProvider, async (req, res) => {
     try {
       if (req.session.role !== "admin") {
         return res.status(403).json({ message: "Apenas administradores podem remover usuarios" });
       }
       const userId = parseInt(req.params.id);
+      // 409, nao 400: o pedido esta bem formado: o que impede e o ESTADO. E a
+      // exclusao e definitiva, entao as duas travas abaixo sao a unica coisa
+      // entre um clique e um provedor sem ninguem que consiga administra-lo.
       if (userId === req.session.userId) {
-        return res.status(400).json({ message: "Voce nao pode remover sua propria conta" });
+        return res.status(409).json({ message: "Voce nao pode excluir a propria conta" });
       }
       const targetUser = await storage.getUser(userId);
       if (!targetUser || targetUser.providerId !== req.session.providerId) {
         return res.status(404).json({ message: "Usuario nao encontrado" });
+      }
+      if (targetUser.role === "admin") {
+        const doProvedor = await storage.getUsersByProvider(req.session.providerId!);
+        const admins = doProvedor.filter(u => u.role === "admin");
+        if (admins.length <= 1) {
+          return res.status(409).json({ message: "Este e o ultimo administrador do provedor. Promova outro antes de excluir." });
+        }
       }
       await storage.deleteUser(userId);
       return res.json({ message: "Usuario removido com sucesso" });
@@ -83,7 +93,7 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.patch("/api/provider/settings", requireAuth, async (req, res) => {
+  router.patch("/api/provider/settings", requireAuth, requireProvider, async (req, res) => {
     try {
       if (req.session.role !== "admin") {
         return res.status(403).json({ message: "Apenas administradores podem alterar configuracoes" });
@@ -98,7 +108,7 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.get("/api/provider/profile", requireAuth, async (req, res) => {
+  router.get("/api/provider/profile", requireAuth, requireProvider, async (req, res) => {
     try {
       const provider = await storage.getProvider(req.session.providerId!);
       if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
@@ -110,7 +120,7 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.get("/api/provider/integration", requireAuth, async (req, res) => {
+  router.get("/api/provider/integration", requireAuth, requireProvider, async (req, res) => {
     try {
       const token = await storage.getProviderWebhookToken(req.session.providerId!);
       const baseUrl = `${req.protocol}://${req.get("host")}`;
@@ -120,7 +130,7 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.post("/api/provider/integration/regenerate-token", requireAuth, async (req, res) => {
+  router.post("/api/provider/integration/regenerate-token", requireAuth, requireProvider, async (req, res) => {
     try {
       if (req.session.role !== "admin") return res.status(403).json({ message: "Apenas administradores" });
       const token = await storage.regenerateWebhookToken(req.session.providerId!);
@@ -131,7 +141,7 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.patch("/api/provider/profile", requireAuth, async (req, res) => {
+  router.patch("/api/provider/profile", requireAuth, requireProvider, async (req, res) => {
     try {
       if (req.session.role !== "admin") {
         return res.status(403).json({ message: "Apenas administradores podem alterar o perfil" });
@@ -153,7 +163,7 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.get("/api/provider/partners", requireAuth, async (req, res) => {
+  router.get("/api/provider/partners", requireAuth, requireProvider, async (req, res) => {
     try {
       const partners = await storage.getProviderPartners(req.session.providerId!);
       return res.json(partners);
@@ -162,7 +172,7 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.post("/api/provider/partners", requireAuth, async (req, res) => {
+  router.post("/api/provider/partners", requireAuth, requireProvider, async (req, res) => {
     try {
       if (req.session.role !== "admin") {
         return res.status(403).json({ message: "Apenas administradores podem adicionar socios" });
@@ -180,7 +190,7 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.patch("/api/provider/partners/:id", requireAuth, async (req, res) => {
+  router.patch("/api/provider/partners/:id", requireAuth, requireProvider, async (req, res) => {
     try {
       if (req.session.role !== "admin") {
         return res.status(403).json({ message: "Apenas administradores podem editar socios" });
@@ -197,7 +207,7 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.delete("/api/provider/partners/:id", requireAuth, async (req, res) => {
+  router.delete("/api/provider/partners/:id", requireAuth, requireProvider, async (req, res) => {
     try {
       if (req.session.role !== "admin") {
         return res.status(403).json({ message: "Apenas administradores podem remover socios" });
@@ -210,7 +220,7 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.get("/api/provider/documents", requireAuth, async (req, res) => {
+  router.get("/api/provider/documents", requireAuth, requireProvider, async (req, res) => {
     try {
       const docs = await storage.getProviderDocuments(req.session.providerId!);
       const docsNoData = docs.map(({ fileData, ...rest }) => rest);
@@ -220,7 +230,7 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.post("/api/provider/documents", requireAuth, async (req, res) => {
+  router.post("/api/provider/documents", requireAuth, requireProvider, async (req, res) => {
     try {
       if (req.session.role !== "admin") {
         return res.status(403).json({ message: "Apenas administradores podem enviar documentos" });
@@ -243,7 +253,7 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.delete("/api/provider/documents/:id", requireAuth, async (req, res) => {
+  router.delete("/api/provider/documents/:id", requireAuth, requireProvider, async (req, res) => {
     try {
       if (req.session.role !== "admin") {
         return res.status(403).json({ message: "Apenas administradores podem remover documentos" });
@@ -256,7 +266,7 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.get("/api/provider/documents/:id/download", requireAuth, async (req, res) => {
+  router.get("/api/provider/documents/:id/download", requireAuth, requireProvider, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const doc = await storage.getProviderDocument(id);
@@ -273,7 +283,7 @@ export function registerProviderRoutes(): Router {
   });
 
   // ── Proactive Alert Settings ──────────────────────────────
-  router.get("/api/providers/alert-settings", requireAuth, async (req, res) => {
+  router.get("/api/providers/alert-settings", requireAuth, requireProvider, async (req, res) => {
     try {
       const provider = await storage.getProvider(req.session.providerId!);
       if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
@@ -286,7 +296,7 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.put("/api/providers/alert-settings", requireAuth, async (req, res) => {
+  router.put("/api/providers/alert-settings", requireAuth, requireProvider, async (req, res) => {
     try {
       const { proactiveAlertsEnabled, webhookUrl } = req.body;
       await storage.updateProviderProfile(req.session.providerId!, {
@@ -299,7 +309,7 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.post("/api/providers/alert-settings/test-webhook", requireAuth, async (req, res) => {
+  router.post("/api/providers/alert-settings/test-webhook", requireAuth, requireProvider, async (req, res) => {
     try {
       const { webhookUrl } = req.body;
       if (!webhookUrl) return res.status(400).json({ message: "URL do webhook obrigatoria" });
@@ -330,7 +340,7 @@ export function registerProviderRoutes(): Router {
   // ── Proactive Alerts List ──────────────────────────────
   // O id cru do consulente nunca sai para o dono: ao lado do codigo pareado
   // ele desfazia a anonimizacao. Mesma mascara de GET /api/anti-fraud/alerts.
-  router.get("/api/providers/proactive-alerts", requireAuth, async (req, res) => {
+  router.get("/api/providers/proactive-alerts", requireAuth, requireProvider, async (req, res) => {
     try {
       const providerId = req.session.providerId!;
       const limit = Math.min(100, parseInt(req.query.limit as string) || 50);
@@ -345,7 +355,7 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.patch("/api/providers/proactive-alerts/:id/acknowledge", requireAuth, async (req, res) => {
+  router.patch("/api/providers/proactive-alerts/:id/acknowledge", requireAuth, requireProvider, async (req, res) => {
     try {
       const alertId = parseInt(req.params.id);
       const updated = await storage.acknowledgeProactiveAlert(alertId, req.session.providerId!);
