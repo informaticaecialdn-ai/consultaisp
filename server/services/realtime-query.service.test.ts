@@ -13,8 +13,9 @@ vi.mock("../logger.js", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { queryRegionalErps } from "./realtime-query.service.js";
+import { queryRegionalErps, queryRegionalErpsByAddress } from "./realtime-query.service.js";
 import { getConnector } from "../erp/registry.js";
+import { logger } from "../logger.js";
 import type { ErpConnector, ErpConnectionConfig, ErpFetchResult } from "../erp/types.js";
 
 const mockedGetConnector = vi.mocked(getConnector);
@@ -441,5 +442,68 @@ describe("o sinal de contrato atravessa a normalizacao", () => {
 
     expect(r.customers[0].status).toBe("Ativo");
     expect(r.customers[0].contractStatus).toBeUndefined();
+  });
+});
+
+/**
+ * O identificador da consulta nas linhas do ERP.
+ *
+ * Sem ele, dois provedores consultando ao mesmo tempo produzem "RT-QUERY ERP
+ * falhou" intercalado e indistinguivel — e e essa a linha que responde "por que
+ * a consulta CI-2609-K7F3M2 nao trouxe nada".
+ */
+describe("correlacao pelo identificador da consulta", () => {
+  const CODIGO = "CI-2609-K7F3M2";
+
+  beforeEach(() => {
+    vi.mocked(logger.info).mockClear();
+    vi.mocked(logger.warn).mockClear();
+  });
+
+  it("carimba as linhas de abertura e de conclusao", async () => {
+    mockedGetConnector.mockReturnValue(makeMockConnector([]));
+
+    await queryRegionalErps([makeIntegration(1, "Dono")], "12345678901", "cpf", { consultaId: CODIGO });
+
+    const linhas = vi.mocked(logger.info).mock.calls.map(([ctx, msg]: any[]) => ({ ctx, msg }));
+    expect(linhas.find(l => l.msg === "RT-QUERY consultando ERPs")?.ctx.consultaId).toBe(CODIGO);
+    expect(linhas.find(l => l.msg === "RT-QUERY concluido")?.ctx.consultaId).toBe(CODIGO);
+  });
+
+  it("carimba tambem a falha de um ERP — a linha que o suporte procura", async () => {
+    const quebrado = makeMockConnector([]);
+    (quebrado.fetchCustomerByCpf as any) = vi.fn().mockRejectedValue(new Error("ECONNREFUSED"));
+    mockedGetConnector.mockReturnValue(quebrado);
+
+    const [r] = await queryRegionalErps([makeIntegration(1, "Dono")], "12345678901", "cpf", { consultaId: CODIGO });
+
+    expect(r.ok).toBe(false);
+    const falha = vi.mocked(logger.warn).mock.calls.find(([, msg]: any[]) => msg === "RT-QUERY ERP falhou");
+    expect((falha?.[0] as any).consultaId).toBe(CODIGO);
+  });
+
+  it("sem codigo o servico segue funcionando — chamador antigo nao quebra", async () => {
+    mockedGetConnector.mockReturnValue(makeMockConnector([]));
+
+    const results = await queryRegionalErps([makeIntegration(1, "Dono")], "12345678901", "cpf");
+
+    expect(results).toHaveLength(1);
+    const abertura = vi.mocked(logger.info).mock.calls.find(([, msg]: any[]) => msg === "RT-QUERY consultando ERPs");
+    expect((abertura?.[0] as any).consultaId).toBeUndefined();
+  });
+
+  it("o cruzamento por endereco leva o mesmo codigo da consulta que o originou", async () => {
+    const connector = makeMockConnector([]);
+    (connector as any).fetchCustomersByAddress = vi.fn().mockResolvedValue({ ok: true, message: "ok", customers: [] });
+    mockedGetConnector.mockReturnValue(connector);
+
+    await queryRegionalErpsByAddress(
+      [makeIntegration(1, "Dono")],
+      { logradouro: "RUA DAS FLORES", numero: "772", cidade: "NOVA ESPERANCA", uf: "PR" },
+      { consultaId: CODIGO },
+    );
+
+    const abertura = vi.mocked(logger.info).mock.calls.find(([, msg]: any[]) => msg === "RT-QUERY cruzando endereco nos ERPs");
+    expect((abertura?.[0] as any).consultaId).toBe(CODIGO);
   });
 });
