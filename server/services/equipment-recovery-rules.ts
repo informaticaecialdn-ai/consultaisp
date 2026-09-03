@@ -45,9 +45,18 @@ const STATUS_RECUPERADO = new Set([
   "devolvido", "returned", "recuperado", "baixa",
 ]);
 
-const STATUS_PENDENTE = new Set([
+/**
+ * Status de `equipment` que significam "ainda com o cliente, retirada
+ * pendente". Os três últimos são legados (importação antiga e CSV) e ainda
+ * existem na base; quem filtra no SQL usa esta lista, quem filtra em memória
+ * usa `equipamentoTemRetiradaPendente` — os dois têm que concordar, senão a
+ * lista e o kanban contam fila diferente.
+ */
+export const STATUS_EQUIPAMENTO_PENDENTE = [
   "retirada_pendente", "nao_localizado", "retido", "em_cobranca", "not_returned",
-]);
+] as const;
+
+const STATUS_PENDENTE = new Set<string>(STATUS_EQUIPAMENTO_PENDENTE);
 
 const STATUS_CASO_FINAL = new Set<RecoveryCaseStatus>([
   "concluido", "baixado_economico", "prazo_expirado",

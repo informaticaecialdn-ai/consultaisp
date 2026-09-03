@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/collapsible";
 import {
   ScanSearch,
+  Kanban,
   IdCard,
   LayoutDashboard,
   Search,
@@ -354,6 +355,8 @@ function SidebarDoProvedor({ user, provider, logout, marca, location }: {
       grupo: "Equipamentos",
       itens: [
         { label: "Equipamentos", url: "/equipamentos", Icone: Package, testId: "link-equipamentos" },
+        // Kanban por idade desde a rescisão: a fila de retirada em forma de quadro.
+        { label: "Recuperação",  url: "/recuperacao",  Icone: Kanban,  testId: "link-recuperacao" },
       ],
     },
     {

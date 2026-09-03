@@ -28,6 +28,7 @@ const InadimplentesPage = lazy(() => import("@/pages/operacional/inadimplentes")
 const LocalizacaoPage = lazy(() => import("@/pages/operacional/localizacao"));
 const ImportacaoPage = lazy(() => import("@/pages/operacional/importacao"));
 const EquipamentosPage = lazy(() => import("@/pages/operacional/equipamentos"));
+const RecuperacaoPage = lazy(() => import("@/pages/operacional/recuperacao"));
 
 // Financeiro
 const NfsePage = lazy(() => import("@/pages/financeiro/nfse"));
@@ -84,6 +85,7 @@ function Router() {
         <Route path="/importacao" component={ImportacaoPage} />
         <Route path="/importacao-equipamentos"><Redirect to="/equipamentos?importar=1" /></Route>
         <Route path="/equipamentos" component={EquipamentosPage} />
+        <Route path="/recuperacao" component={RecuperacaoPage} />
         <Route path="/administracao" component={AdministracaoPage} />
         <Route path="/painel-provedor" component={PainelProvedorPage} />
         <Route path="/admin-sistema" component={AdminSistemaPage} />
@@ -105,7 +107,7 @@ function Router() {
 const PROVIDER_ONLY_PATHS = [
   "/", "/consulta-isp", "/consulta-cadastral", "/consulta-spc", "/anti-fraude",
   "/inadimplentes", "/mapa-calor", "/localizacao", "/creditos", "/nfse", "/importacao",
-  "/importacao-equipamentos", "/equipamentos", "/administracao", "/painel-provedor",
+  "/importacao-equipamentos", "/equipamentos", "/recuperacao", "/administracao", "/painel-provedor",
   "/benchmark-regional",
 ];
 

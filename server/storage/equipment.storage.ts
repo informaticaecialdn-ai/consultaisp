@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, notExists, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
   customers,
@@ -6,6 +6,7 @@ import {
   equipmentRecoveryCases,
   equipmentRecoveryEvents,
   providers,
+  users,
   type Equipment,
   type EquipmentRecoveryCase,
   type EquipmentRecoveryEvent,
@@ -16,9 +17,113 @@ import { decidirAcaoSync, type EquipamentoErp } from "../services/equipment-sync
 import {
   casoEstaEncerrado,
   equipamentoTemRetiradaPendente,
+  STATUS_EQUIPAMENTO_PENDENTE,
   validarSinalBureau,
   type RecoveryAttemptResult,
 } from "../services/equipment-recovery-rules";
+import type {
+  EntradaCasoBoard,
+  EntradaEquipamentoSemCasoBoard,
+  EntradaTentativaBoard,
+} from "../services/recovery-board.service";
+
+/**
+ * Colunas do cliente que o card do kanban mostra. Compartilhadas pelas duas
+ * leituras do board (casos e equipamento sem caso) para o card sair igual
+ * venha de onde vier.
+ */
+const colunasClienteBoard = {
+  clienteId: customers.id,
+  clienteNome: customers.name,
+  clienteCpfCnpj: customers.cpfCnpj,
+  clienteTelefone: customers.phone,
+  clienteEndereco: customers.address,
+  clienteNumero: customers.addressNumber,
+  clienteBairro: customers.neighborhood,
+  clienteCidade: customers.city,
+  clienteUf: customers.state,
+  clienteSituacao: customers.status,
+  clienteDivida: customers.totalOverdueAmount,
+  clienteDiasAtraso: customers.maxDaysOverdue,
+};
+
+const colunasEquipamentoBoard = {
+  equipamentoId: equipment.id,
+  equipamentoTipo: equipment.type,
+  equipamentoMarca: equipment.brand,
+  equipamentoModelo: equipment.model,
+  equipamentoSerie: equipment.serialNumber,
+  equipamentoMac: equipment.mac,
+  equipamentoPatrimonio: equipment.assetTag,
+  equipamentoValor: equipment.value,
+  equipamentoStatus: equipment.status,
+};
+
+interface LinhaClienteBoard {
+  clienteId: number;
+  clienteNome: string;
+  clienteCpfCnpj: string;
+  clienteTelefone: string | null;
+  clienteEndereco: string | null;
+  clienteNumero: string | null;
+  clienteBairro: string | null;
+  clienteCidade: string | null;
+  clienteUf: string | null;
+  clienteSituacao: string;
+  clienteDivida: string | null;
+  clienteDiasAtraso: number | null;
+}
+
+interface LinhaEquipamentoBoard {
+  equipamentoId: number;
+  equipamentoTipo: string;
+  equipamentoMarca: string | null;
+  equipamentoModelo: string | null;
+  equipamentoSerie: string | null;
+  equipamentoMac: string | null;
+  equipamentoPatrimonio: string | null;
+  equipamentoValor: string | null;
+  equipamentoStatus: string;
+}
+
+function montarClienteBoard(l: LinhaClienteBoard): EntradaCasoBoard["cliente"] {
+  return {
+    id: l.clienteId,
+    nome: l.clienteNome,
+    cpfCnpj: l.clienteCpfCnpj,
+    telefone: l.clienteTelefone,
+    endereco: l.clienteEndereco,
+    numero: l.clienteNumero,
+    bairro: l.clienteBairro,
+    cidade: l.clienteCidade,
+    uf: l.clienteUf,
+    situacao: l.clienteSituacao,
+    dividaEmAberto: l.clienteDivida,
+    diasEmAtraso: l.clienteDiasAtraso,
+  };
+}
+
+function montarEquipamentoBoard(l: LinhaEquipamentoBoard): EntradaCasoBoard["equipamento"] {
+  return {
+    id: l.equipamentoId,
+    tipo: l.equipamentoTipo,
+    marca: l.equipamentoMarca,
+    modelo: l.equipamentoModelo,
+    serie: l.equipamentoSerie,
+    mac: l.equipamentoMac,
+    patrimonio: l.equipamentoPatrimonio,
+    valor: l.equipamentoValor,
+    status: l.equipamentoStatus,
+  };
+}
+
+/**
+ * Status de `equipment` que entram na coluna "sem data" quando não há caso
+ * aberto — a mesma lista que `equipamentoTemRetiradaPendente` usa em memória,
+ * legados incluídos. Sem isso um `not_returned` importado aparece como
+ * pendente na aba Recuperação e some do kanban.
+ */
+const STATUS_EQUIPAMENTO_RETIDO = STATUS_EQUIPAMENTO_PENDENTE;
 
 export interface RecoveryCaseWithDetails extends EquipmentRecoveryCase {
   customerName: string;
@@ -520,5 +625,150 @@ export class EquipmentStorage {
       if (row.deadlineAt < current.deadlineAt) current.deadlineAt = row.deadlineAt;
     }
     return Array.from(grouped.values());
+  }
+
+  /**
+   * Casos do kanban numa ida só: caso + equipamento + cliente + nome do
+   * responsável (left join — caso sem dono continua aparecendo).
+   *
+   * Encerrado só entra se fechou há até 90 dias; o corte aqui é por hora
+   * crua e um dia folgado, para o índice trabalhar. Quem decide a janela
+   * exata, em dia civil, é o serviço puro (montarBoard) — o banco só evita
+   * carregar anos de histórico que a tela nunca mostra.
+   */
+  async getRecoveryBoardCases(providerId: number, agora = new Date()): Promise<EntradaCasoBoard[]> {
+    const corte = new Date(agora.getTime() - 91 * 24 * 60 * 60 * 1000);
+    const linhas = await db.select({
+      id: equipmentRecoveryCases.id,
+      status: equipmentRecoveryCases.status,
+      prioridade: equipmentRecoveryCases.priority,
+      rescisaoEm: equipmentRecoveryCases.terminationDate,
+      prazoAt: equipmentRecoveryCases.deadlineAt,
+      agendadoEm: equipmentRecoveryCases.scheduledAt,
+      metodo: equipmentRecoveryCases.collectionMethod,
+      responsavelId: equipmentRecoveryCases.assignedToUserId,
+      responsavelNome: users.name,
+      notificadoEm: equipmentRecoveryCases.customerNotifiedAt,
+      bureauStatus: equipmentRecoveryCases.bureauStatus,
+      contestadoEm: equipmentRecoveryCases.disputedAt,
+      encerradoEm: equipmentRecoveryCases.closedAt,
+      notas: equipmentRecoveryCases.notes,
+      ...colunasEquipamentoBoard,
+      ...colunasClienteBoard,
+    }).from(equipmentRecoveryCases)
+      .innerJoin(customers, and(
+        eq(customers.id, equipmentRecoveryCases.customerId),
+        eq(customers.providerId, equipmentRecoveryCases.providerId),
+      ))
+      .innerJoin(equipment, and(
+        eq(equipment.id, equipmentRecoveryCases.equipmentId),
+        eq(equipment.providerId, equipmentRecoveryCases.providerId),
+      ))
+      // O responsável tem que ser do mesmo provedor: um id apontado para
+      // usuário de outro tenant não pode vazar nome pelo join.
+      .leftJoin(users, and(
+        eq(users.id, equipmentRecoveryCases.assignedToUserId),
+        eq(users.providerId, equipmentRecoveryCases.providerId),
+      ))
+      .where(and(
+        eq(equipmentRecoveryCases.providerId, providerId),
+        or(
+          isNull(equipmentRecoveryCases.closedAt),
+          gte(equipmentRecoveryCases.closedAt, corte),
+        ),
+      ))
+      .orderBy(desc(equipmentRecoveryCases.createdAt));
+
+    return linhas.map(l => ({
+      id: l.id,
+      status: l.status,
+      prioridade: l.prioridade,
+      rescisaoEm: l.rescisaoEm,
+      prazoAt: l.prazoAt,
+      agendadoEm: l.agendadoEm,
+      metodo: l.metodo,
+      responsavelId: l.responsavelId,
+      responsavelNome: l.responsavelNome,
+      notificadoEm: l.notificadoEm,
+      bureauStatus: l.bureauStatus,
+      contestadoEm: l.contestadoEm,
+      encerradoEm: l.encerradoEm,
+      notas: l.notas,
+      equipamento: montarEquipamentoBoard(l),
+      cliente: montarClienteBoard(l),
+    }));
+  }
+
+  /**
+   * Equipamento retido (retirada pendente, não localizado ou marcado em
+   * processo de recuperação) que NÃO tem caso aberto — a coluna "sem data".
+   * Sem cliente não vira card (inner join): não há a quem cobrar.
+   */
+  async getRetainedEquipmentWithoutOpenCase(providerId: number): Promise<EntradaEquipamentoSemCasoBoard[]> {
+    const casoAberto = db.select({ id: equipmentRecoveryCases.id })
+      .from(equipmentRecoveryCases)
+      .where(and(
+        eq(equipmentRecoveryCases.equipmentId, equipment.id),
+        eq(equipmentRecoveryCases.providerId, equipment.providerId),
+        isNull(equipmentRecoveryCases.closedAt),
+      ));
+
+    const linhas = await db.select({
+      ...colunasEquipamentoBoard,
+      ...colunasClienteBoard,
+    }).from(equipment)
+      .innerJoin(customers, and(
+        eq(customers.id, equipment.customerId),
+        eq(customers.providerId, equipment.providerId),
+      ))
+      .where(and(
+        eq(equipment.providerId, providerId),
+        or(
+          inArray(equipment.status, [...STATUS_EQUIPAMENTO_RETIDO]),
+          eq(equipment.inRecoveryProcess, true),
+        ),
+        notExists(casoAberto),
+      ))
+      .orderBy(equipment.id);
+
+    return linhas.map(l => ({
+      equipamento: montarEquipamentoBoard(l),
+      cliente: montarClienteBoard(l),
+    }));
+  }
+
+  /**
+   * Total de tentativas e a última, por caso, numa query: DISTINCT ON pega
+   * a mais recente e a janela conta o total antes do DISTINCT recortar.
+   * Fazer isso caso a caso seria N+1 no carregamento do board.
+   */
+  async getRecoveryAttemptSummaries(providerId: number, caseIds: number[]): Promise<EntradaTentativaBoard[]> {
+    if (caseIds.length === 0) return [];
+    const linhas = await db.selectDistinctOn([equipmentRecoveryEvents.caseId], {
+      caseId: equipmentRecoveryEvents.caseId,
+      total: sql<number>`count(*) over (partition by ${equipmentRecoveryEvents.caseId})::int`,
+      canal: equipmentRecoveryEvents.channel,
+      resultado: equipmentRecoveryEvents.result,
+      em: equipmentRecoveryEvents.occurredAt,
+    }).from(equipmentRecoveryEvents)
+      .where(and(
+        eq(equipmentRecoveryEvents.providerId, providerId),
+        eq(equipmentRecoveryEvents.type, "tentativa"),
+        inArray(equipmentRecoveryEvents.caseId, caseIds),
+      ))
+      .orderBy(
+        equipmentRecoveryEvents.caseId,
+        desc(equipmentRecoveryEvents.occurredAt),
+        desc(equipmentRecoveryEvents.id),
+      );
+
+    return linhas.map(l => ({
+      caseId: l.caseId,
+      total: l.total,
+      canal: l.canal,
+      resultado: l.resultado,
+      // occurredAt tem default now() no banco; nulo só em linha gravada à mão.
+      em: l.em ?? new Date(0),
+    }));
   }
 }

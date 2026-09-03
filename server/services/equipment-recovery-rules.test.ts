@@ -5,8 +5,24 @@ import {
   equipamentoTemRetiradaPendente,
   faixaIdadeOcorrencia,
   faixaValorEquipamento,
+  STATUS_EQUIPAMENTO_PENDENTE,
   validarSinalBureau,
 } from "./equipment-recovery-rules";
+
+describe("STATUS_EQUIPAMENTO_PENDENTE — a lista do SQL e o predicado da memória são a mesma coisa", () => {
+  it("todo status da lista é pendente para o predicado, legados incluídos", () => {
+    for (const status of STATUS_EQUIPAMENTO_PENDENTE) expect(equipamentoTemRetiradaPendente(status)).toBe(true);
+    // Os três legados existem em base importada: sem eles o kanban perde a fila que a lista mostra.
+    expect(STATUS_EQUIPAMENTO_PENDENTE).toEqual(expect.arrayContaining(["retido", "em_cobranca", "not_returned"]));
+  });
+
+  it("o que o predicado nega não está na lista", () => {
+    for (const status of ["em_comodato", "installed", "recuperado_triagem", "baixado", "devolvido"]) {
+      expect(equipamentoTemRetiradaPendente(status)).toBe(false);
+      expect(STATUS_EQUIPAMENTO_PENDENTE as readonly string[]).not.toContain(status);
+    }
+  });
+});
 
 describe("regras de recuperação de equipamentos", () => {
   it("calcula 60 dias corridos a partir da rescisão", () => {

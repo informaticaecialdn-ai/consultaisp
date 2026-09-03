@@ -11,6 +11,7 @@ import {
   podeTransicionarCaso,
 } from "../services/equipment-recovery-rules";
 import { consultationCache } from "../services/consultation-cache.service";
+import { montarBoard } from "../services/recovery-board.service";
 
 const equipamentoSchema = z.object({
   customerId: z.number({ required_error: "Selecione o cliente responsável" }).int().positive(),
@@ -164,6 +165,35 @@ export function registerEquipamentosRoutes(): Router {
       const providerId = req.session.providerId!;
       await storage.expireRecoveryCases(providerId);
       return res.json(await storage.getRecoveryCases(providerId));
+    } catch (error: unknown) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  /**
+   * Kanban de recuperação (spec 2026-09-02). Três leituras agregadas + o
+   * serviço puro que classifica por idade da rescisão. Expira os casos
+   * vencidos antes, como a lista faz, para as duas telas contarem o mesmo.
+   */
+  router.get("/api/equipment/recovery-board", requireAuth, async (req, res) => {
+    try {
+      const providerId = req.session.providerId!;
+      const agora = new Date();
+      await storage.expireRecoveryCases(providerId);
+      const [casos, equipamentosSemCaso, usuarios] = await Promise.all([
+        storage.getRecoveryBoardCases(providerId, agora),
+        storage.getRetainedEquipmentWithoutOpenCase(providerId),
+        storage.getUsersByProvider(providerId),
+      ]);
+      const tentativas = await storage.getRecoveryAttemptSummaries(providerId, casos.map(c => c.id));
+      return res.json(montarBoard({
+        casos,
+        equipamentosSemCaso,
+        tentativas,
+        // Só id e nome: o registro de usuário carrega hash de senha e token,
+        // que não têm por que sair num payload de tela.
+        usuarios: usuarios.map(u => ({ id: u.id, nome: u.name })),
+      }, agora));
     } catch (error: unknown) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }

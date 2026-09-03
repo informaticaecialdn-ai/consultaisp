@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import Papa from "papaparse";
+// Data civil (rescisão, prazo) sai em UTC: no fuso do navegador mostrava o dia anterior.
+import { dataBr, deInputDataHora, paraInputDataHora } from "@/components/recuperacao/datas";
 import {
   AlertTriangle,
   Archive,
@@ -11,6 +14,7 @@ import {
   Download,
   FileUp,
   History,
+  Kanban,
   Package,
   Pencil,
   Plus,
@@ -196,11 +200,6 @@ function formatarDocumento(value: string) {
   return value;
 }
 
-function dataBr(value?: string | null) {
-  if (!value) return "—";
-  return new Date(value).toLocaleDateString("pt-BR");
-}
-
 function diasAte(value: string) {
   return Math.ceil((new Date(value).getTime() - Date.now()) / 86_400_000);
 }
@@ -236,6 +235,7 @@ function downloadTemplate() {
 export default function EquipamentosPage() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const [, navigate] = useLocation();
   const [aba, setAba] = useState<"patrimonio" | "recuperacao">("patrimonio");
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("todos");
@@ -375,7 +375,7 @@ export default function EquipamentosPage() {
     setStatusCaso(casoSelecionado.status);
     setStatusNotes(casoSelecionado.disputeReason || casoSelecionado.notes || "");
     setAgenda({
-      scheduledAt: casoSelecionado.scheduledAt?.slice(0, 16) || "",
+      scheduledAt: paraInputDataHora(casoSelecionado.scheduledAt),
       collectionMethod: casoSelecionado.collectionMethod || "retirada",
     });
     setValidacao({
@@ -576,7 +576,13 @@ export default function EquipamentosPage() {
           )}
         </section>
       ) : (
-        <section>
+        <section className="space-y-3">
+          {/* O kanban em /recuperacao e a mesma fila por idade da rescisao; a lista aqui continua para quem prefere ler linha a linha. */}
+          <div className="flex justify-end">
+            <Button variant="outline" className="min-h-11" onClick={() => navigate("/recuperacao")} data-testid="botao-ver-kanban">
+              <Kanban className="mr-1.5 h-4 w-4" /> Ver kanban
+            </Button>
+          </div>
           {casos.length === 0 ? (
             <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-6 py-12 text-center">
               <Truck className="mx-auto h-8 w-8 text-[var(--text-faint)]" />
@@ -649,7 +655,7 @@ export default function EquipamentosPage() {
 
               {!casoSelecionado.closedAt && <div className="grid gap-3 lg:grid-cols-2">
                 <section className="rounded-lg border border-[var(--border)] p-4"><h4 className="flex items-center gap-2 text-[13px] font-medium text-[var(--text)]"><ClipboardCheck className="h-4 w-4 text-[var(--brand)]" /> Etapa e desfecho</h4><div className="mt-3 space-y-3"><Select value={statusCaso} onValueChange={setStatusCaso}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(STATUS_CASO).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select><Textarea value={statusNotes} onChange={event => setStatusNotes(event.target.value)} placeholder={statusCaso === "contestado" ? "Motivo da contestação (obrigatório)" : "Observação da mudança"} /><Button className="min-h-11 w-full" variant="outline" disabled={atualizarCaso.isPending || (statusCaso === "contestado" && !statusNotes.trim())} onClick={() => atualizarCaso.mutate({ status: statusCaso, notes: statusNotes, disputeReason: statusCaso === "contestado" ? statusNotes : undefined })}>Atualizar etapa</Button></div></section>
-                <section className="rounded-lg border border-[var(--border)] p-4"><h4 className="flex items-center gap-2 text-[13px] font-medium text-[var(--text)]"><CalendarClock className="h-4 w-4 text-[var(--brand)]" /> Agendamento</h4><div className="mt-3 space-y-3"><Input type="datetime-local" className="min-h-11 font-mono tabular-nums" value={agenda.scheduledAt} onChange={event => setAgenda(current => ({ ...current, scheduledAt: event.target.value }))} /><Select value={agenda.collectionMethod} onValueChange={value => setAgenda(current => ({ ...current, collectionMethod: value }))}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="retirada">Retirada gratuita</SelectItem><SelectItem value="entrega_loja">Entrega em loja</SelectItem><SelectItem value="logistica_reversa">Logística reversa</SelectItem></SelectContent></Select><Button className="min-h-11 w-full" variant="outline" disabled={!agenda.scheduledAt || atualizarCaso.isPending} onClick={() => atualizarCaso.mutate(agenda)}>Salvar agendamento</Button></div></section>
+                <section className="rounded-lg border border-[var(--border)] p-4"><h4 className="flex items-center gap-2 text-[13px] font-medium text-[var(--text)]"><CalendarClock className="h-4 w-4 text-[var(--brand)]" /> Agendamento</h4><div className="mt-3 space-y-3"><Input type="datetime-local" className="min-h-11 font-mono tabular-nums" value={agenda.scheduledAt} onChange={event => setAgenda(current => ({ ...current, scheduledAt: event.target.value }))} /><Select value={agenda.collectionMethod} onValueChange={value => setAgenda(current => ({ ...current, collectionMethod: value }))}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="retirada">Retirada gratuita</SelectItem><SelectItem value="entrega_loja">Entrega em loja</SelectItem><SelectItem value="logistica_reversa">Logística reversa</SelectItem></SelectContent></Select><Button className="min-h-11 w-full" variant="outline" disabled={!agenda.scheduledAt || atualizarCaso.isPending} onClick={() => atualizarCaso.mutate({ ...agenda, scheduledAt: deInputDataHora(agenda.scheduledAt) })}>Salvar agendamento</Button></div></section>
                 <section className="rounded-lg border border-[var(--border)] p-4"><h4 className="flex items-center gap-2 text-[13px] font-medium text-[var(--text)]"><History className="h-4 w-4 text-[var(--brand)]" /> Registrar tentativa</h4><div className="mt-3 space-y-3"><div className="grid grid-cols-2 gap-2"><Select value={tentativa.channel} onValueChange={value => setTentativa(current => ({ ...current, channel: value }))}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(CANAL).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select><Input type="date" max={hojeInput()} className="min-h-11 font-mono tabular-nums" value={tentativa.occurredAt} onChange={event => setTentativa(current => ({ ...current, occurredAt: event.target.value }))} /></div><Select value={tentativa.result} onValueChange={value => setTentativa(current => ({ ...current, result: value }))}><SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger><SelectContent>{Object.entries(RESULTADO_TENTATIVA).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select><Textarea value={tentativa.notes} onChange={event => setTentativa(current => ({ ...current, notes: event.target.value }))} placeholder="Contexto objetivo da tentativa" /><Button className="min-h-11 w-full" variant="outline" disabled={registrarTentativa.isPending} onClick={() => registrarTentativa.mutate()}>Registrar tentativa</Button></div></section>
                 <section className="rounded-lg border border-[var(--border)] p-4"><h4 className="flex items-center gap-2 text-[13px] font-medium text-[var(--text)]"><ShieldCheck className="h-4 w-4 text-[var(--brand)]" /> Publicação no bureau</h4><p className="mt-1 text-[11px] leading-4 text-[var(--text-muted)]">Exige prova, notificação e recusa expressa ou duas ausências confirmadas. Apenas administradores podem validar.</p><div className="mt-3 space-y-3"><Input value={validacao.proofReference} onChange={event => setValidacao(current => ({ ...current, proofReference: event.target.value }))} placeholder="Referência do termo ou OS" /><div className="grid grid-cols-2 gap-2"><Input type="date" max={hojeInput()} className="font-mono tabular-nums" value={validacao.customerNotifiedAt} onChange={event => setValidacao(current => ({ ...current, customerNotifiedAt: event.target.value }))} /><Input className="font-mono" value={validacao.notificationProtocol} onChange={event => setValidacao(current => ({ ...current, notificationProtocol: event.target.value }))} placeholder="Protocolo" /></div><Button className="min-h-11 w-full" disabled={validarSinal.isPending || !validacao.proofReference || !validacao.customerNotifiedAt || user?.role !== "admin"} onClick={() => validarSinal.mutate()}>{casoSelecionado.bureauStatus === "ativo_validado" ? "Revalidar ocorrência" : "Validar ocorrência"}</Button>{user?.role !== "admin" && <p className="text-[11px] text-[var(--gated)]">Solicite a validação ao administrador do provedor.</p>}</div></section>
               </div>}

@@ -124,6 +124,10 @@ export interface IStorage {
   validateRecoverySignal(input: Parameters<EquipmentStorage["validateRecoverySignal"]>[0]): Promise<{ case?: EquipmentRecoveryCase; message?: string }>;
   expireRecoveryCases(providerId: number): Promise<number>;
   getValidatedRecoverySignals(cpfCnpj: string, providerIds: number[]): Promise<ValidatedRecoverySignal[]>;
+  // Kanban de recuperação (leituras agregadas, sem N+1)
+  getRecoveryBoardCases(providerId: number, agora?: Date): ReturnType<EquipmentStorage["getRecoveryBoardCases"]>;
+  getRetainedEquipmentWithoutOpenCase(providerId: number): ReturnType<EquipmentStorage["getRetainedEquipmentWithoutOpenCase"]>;
+  getRecoveryAttemptSummaries(providerId: number, caseIds: number[]): ReturnType<EquipmentStorage["getRecoveryAttemptSummaries"]>;
 
   getIspConsultationsByProvider(providerId: number): Promise<IspConsultation[]>;
   getIspConsultationsByProviderPaginated(providerId: number, page: number, limit: number): Promise<{ rows: IspConsultation[]; total: number }>;
@@ -410,6 +414,9 @@ class DatabaseStorage implements IStorage {
   validateRecoverySignal = (input: Parameters<EquipmentStorage["validateRecoverySignal"]>[0]) => this._equipment.validateRecoverySignal(input);
   expireRecoveryCases = (providerId: number) => this._equipment.expireRecoveryCases(providerId);
   getValidatedRecoverySignals = (cpfCnpj: string, providerIds: number[]) => this._equipment.getValidatedRecoverySignals(cpfCnpj, providerIds);
+  getRecoveryBoardCases = (providerId: number, agora?: Date) => this._equipment.getRecoveryBoardCases(providerId, agora);
+  getRetainedEquipmentWithoutOpenCase = (providerId: number) => this._equipment.getRetainedEquipmentWithoutOpenCase(providerId);
+  getRecoveryAttemptSummaries = (providerId: number, caseIds: number[]) => this._equipment.getRecoveryAttemptSummaries(providerId, caseIds);
 
   // ERP
   getErpIntegrations = (providerId: number) => this._erp.getErpIntegrations(providerId);
