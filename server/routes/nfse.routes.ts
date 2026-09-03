@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth } from "../auth";
+import { requireAuth, requireProvider } from "../auth";
 import { storage } from "../storage";
 import { emitirNfse, consultarNfse, cancelarNfse, isFocusNfeConfigured, getFocusNfeEnv } from "../services/focusnfe";
 import { getSafeErrorMessage } from "../utils/safe-error";
@@ -8,7 +8,7 @@ export function registerNfseRoutes(): Router {
   const router = Router();
 
   // Status da integracao
-  router.get("/api/nfse/config", requireAuth, async (_req, res) => {
+  router.get("/api/nfse/config", requireAuth, requireProvider, async (_req, res) => {
     return res.json({
       configured: isFocusNfeConfigured(),
       environment: getFocusNfeEnv(),
@@ -22,7 +22,7 @@ export function registerNfseRoutes(): Router {
   });
 
   // Emitir NFS-e
-  router.post("/api/nfse/emit", requireAuth, async (req, res) => {
+  router.post("/api/nfse/emit", requireAuth, requireProvider, async (req, res) => {
     try {
       if (!isFocusNfeConfigured()) {
         return res.status(400).json({ message: "Focus NFe nao configurado. Adicione FOCUS_NFE_TOKEN no .env" });
@@ -71,7 +71,7 @@ export function registerNfseRoutes(): Router {
   });
 
   // Consultar status de NFS-e
-  router.get("/api/nfse/:ref", requireAuth, async (req, res) => {
+  router.get("/api/nfse/:ref", requireAuth, requireProvider, async (req, res) => {
     try {
       if (!isFocusNfeConfigured()) {
         return res.status(400).json({ message: "Focus NFe nao configurado" });
@@ -85,7 +85,7 @@ export function registerNfseRoutes(): Router {
   });
 
   // Cancelar NFS-e
-  router.delete("/api/nfse/:ref", requireAuth, async (req, res) => {
+  router.delete("/api/nfse/:ref", requireAuth, requireProvider, async (req, res) => {
     try {
       if (!isFocusNfeConfigured()) {
         return res.status(400).json({ message: "Focus NFe nao configurado" });

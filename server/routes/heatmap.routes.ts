@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth } from "../auth";
+import { requireAuth, requireProvider } from "../auth";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { storage } from "../storage";
 
@@ -38,7 +38,7 @@ export function registerHeatmapRoutes(): Router {
   // /api/tiles acima — nao depende de chave nenhuma.
 
   // Dados regionais agregados de todos os provedores (anonimizado)
-  router.get("/api/heatmap/regional", requireAuth, async (_req, res) => {
+  router.get("/api/heatmap/regional", requireAuth, requireProvider, async (_req, res) => {
     try {
       const allPoints = await storage.getHeatmapAll();
       const clusterMap = new Map<string, { lat: number; lng: number; city: string; count: number; totalOverdue: number }>();

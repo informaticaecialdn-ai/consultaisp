@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth } from "../auth";
+import { requireAuth, requireProvider } from "../auth";
 import { storage } from "../storage";
 import { maskCrossProviderDetail, maskName, maskCpfCnpj, maskOverdueAmount, maskDaysOverdue } from "../services/lgpd-masking";
 import { generatePartnerCode } from "../utils/provider-anonymizer";
@@ -27,7 +27,7 @@ export function registerConsultasRoutes(): Router {
   const ispConsultaLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 10 });
   const spcConsultaLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 5 });
 
-  router.get("/api/isp-consultations", requireAuth, async (req, res) => {
+  router.get("/api/isp-consultations", requireAuth, requireProvider, async (req, res) => {
     try {
       const providerId = req.session.providerId!;
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
@@ -56,7 +56,7 @@ export function registerConsultasRoutes(): Router {
     }
   });
 
-  router.post("/api/isp-consultations", ispConsultaLimiter, requireAuth, async (req, res) => {
+  router.post("/api/isp-consultations", ispConsultaLimiter, requireAuth, requireProvider, async (req, res) => {
     try {
       const { cpfCnpj, lgpdAccepted, apiVersion } = req.body;
       if (!cpfCnpj) {
@@ -798,7 +798,7 @@ export function registerConsultasRoutes(): Router {
     }
   });
 
-  router.get("/api/isp-consultations/timeline/:cpfCnpj", ispConsultaLimiter, requireAuth, async (req, res) => {
+  router.get("/api/isp-consultations/timeline/:cpfCnpj", ispConsultaLimiter, requireAuth, requireProvider, async (req, res) => {
     try {
       const validacao = validarCpfCnpj(req.params.cpfCnpj);
       if (!validacao.valid) {
@@ -847,7 +847,7 @@ export function registerConsultasRoutes(): Router {
     }
   });
 
-  router.get("/api/isp-consultations/benchmark", requireAuth, async (req, res) => {
+  router.get("/api/isp-consultations/benchmark", requireAuth, requireProvider, async (req, res) => {
     try {
       const providerId = req.session.providerId!;
       const regionalProviderIds = await getRegionalProviderIds(providerId);
@@ -903,7 +903,7 @@ export function registerConsultasRoutes(): Router {
     }
   });
 
-  router.get("/api/spc-consultations", requireAuth, async (req, res) => {
+  router.get("/api/spc-consultations", requireAuth, requireProvider, async (req, res) => {
     try {
       const brutas = await storage.getSpcConsultationsByProvider(req.session.providerId!);
       // O XML cru fica no banco para auditoria; a tela recebe so o resultado.
@@ -922,7 +922,7 @@ export function registerConsultasRoutes(): Router {
     }
   });
 
-  router.post("/api/spc-consultations", spcConsultaLimiter, requireAuth, async (req, res) => {
+  router.post("/api/spc-consultations", spcConsultaLimiter, requireAuth, requireProvider, async (req, res) => {
     try {
       const { cpfCnpj } = req.body;
       if (!cpfCnpj) {

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth } from "../auth";
+import { requireAuth, requireProvider } from "../auth";
 import { storage } from "../storage";
 import { getSafeErrorMessage } from "../utils/safe-error";
 
@@ -8,7 +8,7 @@ const MAX_IMPORT_ROWS = 5000;
 export function registerImportRoutes(): Router {
   const router = Router();
 
-  router.post("/api/import/customers", requireAuth, async (req, res) => {
+  router.post("/api/import/customers", requireAuth, requireProvider, async (req, res) => {
     try {
       const { rows } = req.body as { rows: Record<string, string>[] };
       if (!Array.isArray(rows) || rows.length === 0) {
@@ -28,7 +28,7 @@ export function registerImportRoutes(): Router {
     }
   });
 
-  router.post("/api/import/invoices", requireAuth, async (req, res) => {
+  router.post("/api/import/invoices", requireAuth, requireProvider, async (req, res) => {
     try {
       const { rows } = req.body as { rows: Record<string, string>[] };
       if (!Array.isArray(rows) || rows.length === 0) {
@@ -48,7 +48,7 @@ export function registerImportRoutes(): Router {
     }
   });
 
-  router.post("/api/import/equipment", requireAuth, async (req, res) => {
+  router.post("/api/import/equipment", requireAuth, requireProvider, async (req, res) => {
     try {
       const { rows } = req.body as { rows: Record<string, string>[] };
       if (!Array.isArray(rows) || rows.length === 0) {

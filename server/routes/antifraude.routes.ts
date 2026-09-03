@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth, requireAdmin } from "../auth";
+import { requireAuth, requireAdmin, requireProvider } from "../auth";
 import { storage } from "../storage";
 import { maskAlertForProvider } from "../utils/mask-alert";
 import { getSafeErrorMessage } from "../utils/safe-error";
@@ -20,7 +20,7 @@ export function registerAntiFraudeRoutes(): Router {
    * padrao vivem em shared/antifraude-regras.ts; sem linha gravada vale o
    * padrao (so cliente ativo inadimplente).
    */
-  router.get("/api/anti-fraud/rules", requireAuth, async (req, res) => {
+  router.get("/api/anti-fraud/rules", requireAuth, requireProvider, async (req, res) => {
     try {
       const providerId = req.session.providerId!;
       const [linhas, provider, usuarios] = await Promise.all([
@@ -61,7 +61,7 @@ export function registerAntiFraudeRoutes(): Router {
     }).optional(),
   });
 
-  router.put("/api/anti-fraud/rules", requireAdmin, async (req, res) => {
+  router.put("/api/anti-fraud/rules", requireAuth, requireProvider, requireAdmin, async (req, res) => {
     try {
       const providerId = req.session.providerId!;
       const parsed = salvarRegrasSchema.safeParse(req.body);
@@ -104,7 +104,7 @@ export function registerAntiFraudeRoutes(): Router {
    * Tudo deduplicado por tipo + CPF + consulente: o mesmo CPF consultado tres
    * vezes pelo mesmo provedor e UM caso a tratar, nao tres cards iguais.
    */
-  router.get("/api/anti-fraud/alerts", requireAuth, async (req, res) => {
+  router.get("/api/anti-fraud/alerts", requireAuth, requireProvider, async (req, res) => {
     try {
       const currentProviderId = req.session.providerId!;
 
@@ -364,7 +364,7 @@ export function registerAntiFraudeRoutes(): Router {
     }
   });
 
-  router.patch("/api/anti-fraud/alerts/:id/status", requireAuth, async (req, res) => {
+  router.patch("/api/anti-fraud/alerts/:id/status", requireAuth, requireProvider, async (req, res) => {
     try {
       const alertId = parseInt(req.params.id as string);
       const { status } = req.body;
@@ -395,7 +395,7 @@ export function registerAntiFraudeRoutes(): Router {
     }
   });
 
-  router.get("/api/anti-fraud/customer-risk", requireAuth, async (req, res) => {
+  router.get("/api/anti-fraud/customer-risk", requireAuth, requireProvider, async (req, res) => {
     try {
       const providerId = req.session.providerId!;
       const allCustomers = await storage.getCustomersByProvider(providerId);

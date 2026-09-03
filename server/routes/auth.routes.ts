@@ -41,11 +41,18 @@ export function registerAuthRoutes(): Router {
       // A regra anterior so agia quando conseguia extrair um subdominio, o que
       // a tornava fail-OPEN: em host de dois rotulos ela era pulada inteira.
       // Superadmin e da plataforma e entra por qualquer host, por desenho.
-      if (user.role !== "superadmin" && user.providerId) {
-        const pertence = await hostPertenceAoProvider(req.hostname, {
-          subdomain: provider?.subdomain ?? null,
-          marcaId: provider?.marcaId ?? null,
-        });
+      //
+      // O `&& user.providerId` que existia aqui reabria a mesma porta em outro
+      // eixo: usuario sem provedor pulava a prova inteira e entrava por
+      // qualquer host. Agora a ausencia de provedor RECUSA — e recusa com a
+      // mensagem generica, para nao contar que a conta existe.
+      if (user.role !== "superadmin") {
+        const pertence = user.providerId && provider
+          ? await hostPertenceAoProvider(req.hostname, {
+              subdomain: provider.subdomain ?? null,
+              marcaId: provider.marcaId ?? null,
+            })
+          : false;
         if (!pertence) {
           // Generica de proposito: nao revela se a conta existe, nem qual seria
           // o endereco certo.

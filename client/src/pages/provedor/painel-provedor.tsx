@@ -413,7 +413,7 @@ export default function PainelProvedorPage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/provider/users"] });
-      toast({ title: "Usuario removido" });
+      toast({ title: "Usuario excluido" });
     },
     onError: (err: any) => toast({ title: "Erro", description: err.message, variant: "destructive" }),
   });
@@ -1477,8 +1477,17 @@ export default function PainelProvedorPage() {
                       {user?.role === "admin" && u.id !== user?.id && (
                         <Button
                           variant="ghost" size="sm"
-                          className="h-8 w-8 p-0 text-[var(--color-danger)] hover:text-red-700 hover:bg-red-50"
-                          onClick={() => { if (confirm(`Remover usuario ${u.name}?`)) deleteUserMutation.mutate(u.id); }}
+                          className="h-8 w-8 p-0 text-[var(--color-danger)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]"
+                          title="Excluir usuario"
+                          aria-label={`Excluir usuario ${u.name}`}
+                          // A rota apaga a linha de vez — nao ha "desativado" no
+                          // banco. A confirmacao precisa dizer isso, senao o
+                          // admin descobre depois de clicar.
+                          onClick={() => {
+                            if (confirm(`Excluir o usuario ${u.name} (${u.email})?\n\nA conta e apagada em definitivo e o acesso e perdido na hora. Nao ha como desfazer — para devolver o acesso sera preciso cadastrar de novo.`)) {
+                              deleteUserMutation.mutate(u.id);
+                            }
+                          }}
                           data-testid={`button-delete-user-${u.id}`}
                         >
                           <Trash2 className="w-4 h-4" />

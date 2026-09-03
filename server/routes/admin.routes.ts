@@ -447,6 +447,23 @@ export function registerAdminRoutes(): Router {
   router.delete("/api/admin/users/:id", requireSuperAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      if (!Number.isInteger(id)) {
+        return res.status(400).json({ message: "Usuario invalido" });
+      }
+      // Exclusao aqui e DEFINITIVA (hard delete). Duas travas contra o tiro no
+      // pe que nao tem volta pela interface: um superadmin apagando a si mesmo
+      // ou o unico outro superadmin deixa a plataforma sem quem administre, e
+      // so um acesso direto ao banco recupera.
+      if (id === req.session.userId) {
+        return res.status(409).json({ message: "Voce nao pode excluir a propria conta" });
+      }
+      const alvo = await storage.getUser(id);
+      if (!alvo) {
+        return res.status(404).json({ message: "Usuario nao encontrado" });
+      }
+      if (alvo.role === "superadmin") {
+        return res.status(409).json({ message: "Conta de administrador do sistema nao pode ser excluida por aqui" });
+      }
       await storage.deleteUser(id);
       return res.json({ message: "Usuario removido" });
     } catch (error: any) {

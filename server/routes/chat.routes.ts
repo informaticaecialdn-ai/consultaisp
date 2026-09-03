@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth, requireSuperAdmin } from "../auth";
+import { requireAuth, requireProvider, requireSuperAdmin } from "../auth";
 import { storage } from "../storage";
 import { getSafeErrorMessage } from "../utils/safe-error";
 
@@ -57,7 +57,7 @@ export function registerChatRoutes(): Router {
 
   // ---- SUPPORT CHAT (Provider side) ----
 
-  router.get("/api/chat/thread", requireAuth, async (req, res) => {
+  router.get("/api/chat/thread", requireAuth, requireProvider, async (req, res) => {
     try {
       const thread = await storage.getOrCreateSupportThread(req.session.providerId!);
       const messages = await storage.getSupportMessages(thread.id);
@@ -68,7 +68,7 @@ export function registerChatRoutes(): Router {
     }
   });
 
-  router.post("/api/chat/thread/messages", requireAuth, async (req, res) => {
+  router.post("/api/chat/thread/messages", requireAuth, requireProvider, async (req, res) => {
     try {
       const { content } = req.body;
       if (!content?.trim()) return res.status(400).json({ message: "Mensagem nao pode ser vazia" });
@@ -84,7 +84,7 @@ export function registerChatRoutes(): Router {
     }
   });
 
-  router.get("/api/chat/unread", requireAuth, async (req, res) => {
+  router.get("/api/chat/unread", requireAuth, requireProvider, async (req, res) => {
     try {
       const count = await storage.getUnreadCountForProvider(req.session.providerId!);
       return res.json({ count });
