@@ -15,24 +15,31 @@
  *
  * ── POR QUE O PATCH É PARCIAL ──────────────────────────────────────────────
  *
- * O formulário nasce da LISTA, que não carrega logo, favicon, WhatsApp nem nome
- * de exibição do e-mail — a listagem os corta de propósito, para não trafegar
- * três SVGs por linha. Enviando o formulário inteiro, esses campos saíam vazios
- * e o servidor os gravava como nulos: abrir a edição para corrigir um telefone
+ * O formulário nunca carrega logo nem favicon: são três SVGs que ninguém edita
+ * como texto. Enviando o formulário inteiro, esses campos saíam vazios e o
+ * servidor os gravava como nulos — abrir a edição para corrigir um telefone
  * apagava o logo do revendedor. Agora só o que MUDOU é enviado, e o que o
  * formulário não mostra ele também não toca.
+ *
+ * ── E POR QUE ELE ESPERA O DETALHE ─────────────────────────────────────────
+ *
+ * O formulário nascia da LISTA e um efeito o completava com o detalhe. A
+ * primeira entrega reescrevia tudo, digitado ou não: quem clicava em "Editar" e
+ * começava a escrever no mesmo instante via o texto sumir. Agora os campos só
+ * existem depois da resposta — antes dela há esqueleto. Ver `faseDoFormulario`.
  */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { corpoParcial } from "./marca-form";
+import { corpoParcial, faseDoFormulario, FORMULARIO_VAZIO as VAZIA } from "./marca-form";
 import {
   Palette, Plus, Globe, ShieldCheck, AlertTriangle, Trash2,
   Link2, Upload, Check, X, Image as ImageIcon,
@@ -47,14 +54,6 @@ type MarcaLista = {
 };
 
 type Paleta = { brand: string; hover: string; soft: string; ink: string; textOnBrand: string; ajustada: boolean };
-
-const VAZIA = {
-  slug: "", nomeProduto: "", assinatura: "", dominio: "", corBrand: "#4A4670",
-  corBrandDark: "", suporteEmail: "", suporteWhatsapp: "", site: "",
-  emailRemetente: "", emailNomeExibicao: "",
-  responsavelRazaoSocial: "", responsavelCnpj: "",
-  logoSvg: "", logoPng: "", faviconSvg: "",
-};
 
 /** Gera o slug a partir do nome, como no resto do sistema. */
 function slugificar(nome: string): string {
@@ -75,6 +74,31 @@ function ArquivoAtual({ presente }: { presente: boolean }) {
   );
 }
 
+/**
+ * O formulário enquanto o detalhe não chega.
+ *
+ * Não é enfeite: é o que garante que não exista campo para o operador digitar
+ * antes de a resposta do servidor estar completa — ver `faseDoFormulario`.
+ */
+function EsqueletoDoFormulario() {
+  return (
+    <div className="space-y-5" aria-busy="true" data-testid="form-marca-carregando">
+      <section className="grid sm:grid-cols-2 gap-3">
+        {["", "", "", ""].map((_, i) => (
+          <div key={i} className="space-y-1.5">
+            <Skeleton className="h-3 w-24 rounded" />
+            <Skeleton className="h-9 w-full rounded" />
+          </div>
+        ))}
+      </section>
+      <Skeleton className="h-9 w-40 rounded" />
+      <section className="grid sm:grid-cols-3 gap-3">
+        {["", "", ""].map((_, i) => <Skeleton key={i} className="h-9 w-full rounded" />)}
+      </section>
+    </div>
+  );
+}
+
 function Amostra({ cor, nome }: { cor: string; nome: string }) {
   return (
     <div className="flex flex-col items-center gap-1">
@@ -91,8 +115,8 @@ export default function AdminMarcasPage() {
   const [form, setForm] = useState<Record<string, string>>({ ...VAZIA });
   /** O que o servidor tem hoje. O PATCH é a diferença entre `form` e isto. */
   const [original, setOriginal] = useState<Record<string, string>>({ ...VAZIA });
-  /** Qual marca já foi preenchida com o detalhe — para não sobrescrever digitação. */
-  const hidratada = useRef<number | null>(null);
+  /** Qual marca já está carregada no formulário. Antes disso os campos nem existem. */
+  const [carregada, setCarregada] = useState<number | null>(null);
 
   const { data: marcas = [], isLoading } = useQuery<MarcaLista[]>({ queryKey: ["/api/admin/marcas"] });
   const { data: detalhe } = useQuery<any>({
@@ -134,7 +158,7 @@ export default function AdminMarcasPage() {
           : editando === "nova" ? "Marca criada" : "Marca atualizada",
       });
       setEditando(null); setForm({ ...VAZIA }); setOriginal({ ...VAZIA });
-      hidratada.current = null; invalidar();
+      setCarregada(null); invalidar();
     },
     onError: (e: any) => toast({ title: "Não foi possível salvar", description: e.message, variant: "destructive" }),
   });
@@ -157,60 +181,46 @@ export default function AdminMarcasPage() {
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
 
+  /**
+   * Abrir a edição não preenche mais nada com o que a LISTA tem. O formulário
+   * só nasce quando o detalhe chega — ver `faseDoFormulario`.
+   */
   function abrirEdicao(m: MarcaLista) {
     setEditando(m.id);
-    hidratada.current = null;
-    // A lista não tem tudo; o resto chega pelo detalhe, no efeito abaixo.
-    const daLista = {
-      ...VAZIA, slug: m.slug, nomeProduto: m.nomeProduto, assinatura: m.assinatura ?? "",
-      dominio: m.dominio ?? "", corBrand: m.corBrand, corBrandDark: m.corBrandDark ?? "",
-      suporteEmail: m.suporteEmail ?? "", site: m.site ?? "", emailRemetente: m.emailRemetente ?? "",
-      responsavelRazaoSocial: m.responsavelRazaoSocial ?? "", responsavelCnpj: m.responsavelCnpj ?? "",
-    };
-    setForm(daLista);
-    setOriginal(daLista);
+    setCarregada(null);
+    setForm({ ...VAZIA });
+    setOriginal({ ...VAZIA });
   }
 
   function fecharEdicao() {
     setEditando(null);
     setForm({ ...VAZIA });
     setOriginal({ ...VAZIA });
-    hidratada.current = null;
+    setCarregada(null);
   }
 
+  // Memo para o efeito abaixo não disparar a cada render — a fase só muda
+  // quando muda o que a decide.
+  const fase = useMemo(
+    () => faseDoFormulario(editando, detalhe, carregada),
+    [editando, detalhe, carregada],
+  );
+
   /**
-   * Completa o formulário com o que só o detalhe traz — WhatsApp de suporte e
-   * nome de exibição do e-mail. Roda uma vez por marca aberta: sem a trava, a
-   * resposta chegando depois do primeiro caractere digitado desfaria a edição.
+   * Carrega o formulário com o detalhe, uma vez por marca aberta.
    *
-   * Os arquivos (logo, favicon) NÃO entram no formulário. Eles ficam vazios até
-   * o operador escolher um arquivo novo, e por isso não aparecem no diff — que
-   * é justamente o que os preserva.
+   * Antes, o formulário abria com os campos da lista e este efeito o
+   * "completava": a primeira entrega reescrevia tudo, e quem clicava em Editar
+   * e já começava a digitar via o texto sumir. Agora não há campo antes de
+   * `carregar`, então não há digitação a perder — e depois dela a fase é
+   * "pronto", que nem um refetch reabre.
    */
   useEffect(() => {
-    if (typeof editando !== "number" || !detalhe || detalhe.id !== editando) return;
-    if (hidratada.current === editando) return;
-    hidratada.current = editando;
-
-    const doServidor: Record<string, string> = {
-      ...VAZIA,
-      slug: detalhe.slug ?? "",
-      nomeProduto: detalhe.nomeProduto ?? "",
-      assinatura: detalhe.assinatura ?? "",
-      dominio: detalhe.dominio ?? "",
-      corBrand: detalhe.corBrand || VAZIA.corBrand,
-      corBrandDark: detalhe.corBrandDark ?? "",
-      suporteEmail: detalhe.suporteEmail ?? "",
-      suporteWhatsapp: detalhe.suporteWhatsapp ?? "",
-      site: detalhe.site ?? "",
-      emailRemetente: detalhe.emailRemetente ?? "",
-      emailNomeExibicao: detalhe.emailNomeExibicao ?? "",
-      responsavelRazaoSocial: detalhe.responsavelRazaoSocial ?? "",
-      responsavelCnpj: detalhe.responsavelCnpj ?? "",
-    };
-    setOriginal(doServidor);
-    setForm(f => ({ ...doServidor, logoSvg: f.logoSvg, logoPng: f.logoPng, faviconSvg: f.faviconSvg }));
-  }, [detalhe, editando]);
+    if (fase.fase !== "carregar" || typeof editando !== "number") return;
+    setOriginal(fase.campos);
+    setForm(fase.campos);
+    setCarregada(editando);
+  }, [fase, editando]);
 
   /** Lê o arquivo escolhido: SVG vira texto, PNG vira data URI. */
   function carregarArquivo(arquivo: File, campo: "logoSvg" | "logoPng" | "faviconSvg") {
@@ -228,6 +238,8 @@ export default function AdminMarcasPage() {
   }
 
   const previa: { claro: Paleta; escuro: Paleta } | null = detalhe?.previa ?? null;
+  /** Só para o título enquanto o formulário ainda não carregou. */
+  const marcaEmEdicao = typeof editando === "number" ? marcas.find(m => m.id === editando) : undefined;
 
   return (
     <div className="p-6 max-w-[1100px] mx-auto space-y-5" data-testid="admin-marcas">
@@ -322,13 +334,17 @@ export default function AdminMarcasPage() {
         <Card className="p-5 space-y-5" data-testid="form-marca">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-[var(--text)]">
-              {editando === "nova" ? "Nova marca" : `Editando ${form.nomeProduto}`}
+              {editando === "nova"
+                ? "Nova marca"
+                : `Editando ${form.nomeProduto || marcaEmEdicao?.nomeProduto || ""}`}
             </h2>
             <Button size="sm" variant="ghost" onClick={fecharEdicao}>
               <X className="w-4 h-4" />
             </Button>
           </div>
 
+          {fase.fase === "aguardando" ? <EsqueletoDoFormulario /> : (
+          <>
           <section className="grid sm:grid-cols-2 gap-3">
             <div>
               <Label>Nome do produto</Label>
@@ -544,6 +560,8 @@ export default function AdminMarcasPage() {
                 </div>
               )}
             </section>
+          )}
+          </>
           )}
         </Card>
       )}
