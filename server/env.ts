@@ -21,7 +21,47 @@ export function validateEnv(): void {
     logger.fatal({ length: partnerSecret.length }, "PARTNER_CODE_SECRET must have at least 32 characters");
     process.exit(1);
   }
+  const webhook = verificarWebhookAsaas(process.env.ASAAS_WEBHOOK_TOKEN, process.env.NODE_ENV);
+  if (webhook.nivel === "fatal") {
+    logger.fatal(webhook.mensagem);
+    process.exit(1);
+  } else if (webhook.nivel === "aviso") {
+    logger.warn(webhook.mensagem);
+  }
+
   logger.info("Environment validated");
+}
+
+/**
+ * O webhook do Asaas e o unico caminho pelo qual credito entra no saldo sem
+ * ninguem clicar. Sem `ASAAS_WEBHOOK_TOKEN` a rota aceita qualquer POST: um
+ * pedido inventado libera credito de graca. Em producao isso e motivo para o
+ * processo nao subir — o pm2 congela o .env no start, entao a variavel faltando
+ * so apareceria quando o dinheiro ja tivesse escapado.
+ *
+ * Fora de producao vira aviso: quem roda local nao tem o token e ainda precisa
+ * conseguir testar o fluxo.
+ */
+export function verificarWebhookAsaas(
+  token: string | undefined,
+  nodeEnv: string | undefined,
+): { nivel: "ok" | "aviso" | "fatal"; mensagem: string } {
+  if (token?.trim()) return { nivel: "ok", mensagem: "" };
+  if (nodeEnv === "production") {
+    return {
+      nivel: "fatal",
+      mensagem:
+        "ASAAS_WEBHOOK_TOKEN nao configurado. Em producao o webhook do Asaas libera credito, " +
+        "e sem o token qualquer POST forjado creditaria um pedido. Defina a variavel no .env " +
+        "(o mesmo valor cadastrado no painel do Asaas) e suba o processo de novo.",
+    };
+  }
+  return {
+    nivel: "aviso",
+    mensagem:
+      "ASAAS_WEBHOOK_TOKEN nao configurado — o webhook do Asaas fica sem protecao. " +
+      "Tolerado fora de producao; em producao o processo nao sobe assim.",
+  };
 }
 
 export function getAsaasWebhookToken(): string | undefined {

@@ -27,7 +27,7 @@ import { ProvidersStorage, type ProviderWithStats } from "./providers.storage";
 import { CustomersStorage } from "./customers.storage";
 import { ConsultationsStorage } from "./consultations.storage";
 import { AntifraudeStorage } from "./antifraude.storage";
-import { FinancialStorage } from "./financial.storage";
+import { FinancialStorage, type ResultadoLiberacao } from "./financial.storage";
 import { EquipmentStorage, type RecoveryCaseWithDetails, type ValidatedRecoverySignal } from "./equipment.storage";
 import { BigdataStorage } from "./bigdata.storage";
 import { LocalizacaoStorage } from "./localizacao.storage";
@@ -191,7 +191,7 @@ export interface IStorage {
   getCreditOrder(id: number): Promise<CreditOrder | undefined>;
   createCreditOrder(order: InsertCreditOrder): Promise<CreditOrder>;
   updateCreditOrder(id: number, data: Partial<CreditOrder>): Promise<CreditOrder>;
-  releaseCreditOrder(id: number): Promise<CreditOrder>;
+  releaseCreditOrder(id: number): Promise<ResultadoLiberacao>;
   getNextOrderNumber(): Promise<string>;
 
   getProviderPartners(providerId: number): Promise<ProviderPartner[]>;
