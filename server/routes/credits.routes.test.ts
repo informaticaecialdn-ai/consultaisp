@@ -251,19 +251,29 @@ describe("PATCH /api/admin/credit-orders/:id", () => {
 });
 
 describe("POST /api/admin/credit-orders/:id/asaas/sync", () => {
+  // O pedido pendente que o superadmin ve na tela: R$ 500 devidos.
+  const PENDENTE = { id: 501, orderNumber: "CR-202609-0009", asaasChargeId: "pay_1", amount: "500.00", notes: null, status: "pending", creditedAt: null };
+  const COBRANCA_BOA = { id: "pay_1", externalReference: "credit_order_501", status: "RECEIVED", value: 500, invoiceUrl: "u" };
+
   beforeEach(() => {
     sessao = { userId: 1, role: "superadmin" };
-    asaasMock.getCharge.mockResolvedValue({ id: "pay_1", status: "RECEIVED", invoiceUrl: "u" } as any);
-    asaasMock.asaasStatusToLocal.mockReturnValue("paid" as any);
+    asaasMock.getCharge.mockResolvedValue(COBRANCA_BOA as any);
+    asaasMock.asaasStatusToLocal.mockImplementation((s: string) =>
+      (s === "RECEIVED" || s === "CONFIRMED" ? "paid" : "pending") as any);
+    storageMock.getCreditOrder.mockResolvedValue({ ...PENDENTE } as any);
   });
+
+  function sincronizar() {
+    return fetch(`${base}/api/admin/credit-orders/501/asaas/sync`, { method: "POST" });
+  }
 
   it("pedido ja creditado nao e creditado de novo pelo botao sincronizar", async () => {
     // O status pode ter sido rebaixado por um evento de chargeback; quem manda
     // e o credited_at.
     storageMock.getCreditOrder.mockResolvedValue({
-      id: 501, asaasChargeId: "pay_1", status: "pending", creditedAt: new Date("2026-09-02"),
+      ...PENDENTE, status: "pending", creditedAt: new Date("2026-09-02"),
     } as any);
-    const res = await fetch(`${base}/api/admin/credit-orders/501/asaas/sync`, { method: "POST" });
+    const res = await sincronizar();
     expect(res.status).toBe(200);
     expect(storageMock.releaseCreditOrder).not.toHaveBeenCalled();
     // e o sync ainda conserta o status rebaixado: creditado le "paid"
@@ -271,11 +281,47 @@ describe("POST /api/admin/credit-orders/:id/asaas/sync", () => {
   });
 
   it("pedido pago que nunca foi creditado libera", async () => {
-    storageMock.getCreditOrder.mockResolvedValue({
-      id: 501, asaasChargeId: "pay_1", status: "pending", creditedAt: null,
-    } as any);
-    const res = await fetch(`${base}/api/admin/credit-orders/501/asaas/sync`, { method: "POST" });
+    const res = await sincronizar();
     expect(res.status).toBe(200);
     expect(storageMock.releaseCreditOrder).toHaveBeenCalledWith(501);
+  });
+
+  // O sync liberava credito pelo status cru da cobranca, sem nenhuma das tres
+  // provas que o webhook aplica. O caminho real: o provedor paga R$ 50 num
+  // boleto de R$ 500, o webhook recusa e escreve a divergencia nas observacoes,
+  // e o superadmin — vendo o pedido pendente — clica em sincronizar e entrega
+  // os 500 creditos.
+  describe("as tres provas do webhook valem no botao sincronizar", () => {
+    it("boleto pago a menor nao libera, e o motivo chega ao superadmin", async () => {
+      asaasMock.getCharge.mockResolvedValue({ ...COBRANCA_BOA, value: 50 } as any);
+      const res = await sincronizar();
+      expect(res.status).toBe(409);
+      expect(storageMock.releaseCreditOrder).not.toHaveBeenCalled();
+      expect((await res.json()).message).toContain("valor divergente");
+    });
+
+    it("a recusa por valor fica anotada no pedido", async () => {
+      asaasMock.getCharge.mockResolvedValue({ ...COBRANCA_BOA, value: 50 } as any);
+      await sincronizar();
+      expect(storageMock.updateCreditOrder).toHaveBeenCalledWith(501, expect.objectContaining({
+        notes: expect.stringContaining("valor divergente"),
+      }));
+    });
+
+    it("cobranca de outro pedido nao libera este", async () => {
+      asaasMock.getCharge.mockResolvedValue({ ...COBRANCA_BOA, externalReference: "credit_order_999" } as any);
+      const res = await sincronizar();
+      expect(res.status).toBe(409);
+      expect(storageMock.releaseCreditOrder).not.toHaveBeenCalled();
+    });
+
+    it("Asaas fora do ar devolve 502 e nao anota — o superadmin le na tela", async () => {
+      asaasMock.isAsaasConfigured.mockReturnValue(false);
+      const res = await sincronizar();
+      expect(res.status).toBe(502);
+      expect(storageMock.releaseCreditOrder).not.toHaveBeenCalled();
+      const [, dados] = storageMock.updateCreditOrder.mock.calls.at(-1)!;
+      expect((dados as any).notes).toBeUndefined();
+    });
   });
 });
