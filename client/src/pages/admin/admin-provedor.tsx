@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
+import { usePrecos, camposDaFatura, planoPorChave } from "@/hooks/use-precos";
 import {
   ArrowLeft, Building2, Users, CreditCard, BarChart3, Activity,
   Globe, Mail, Phone, Calendar, Shield, CheckCircle, XCircle,
@@ -20,11 +21,25 @@ import {
   Printer, Ban, RotateCcw, Copy, EyeOff, Wifi, Database, AlertTriangle
 } from "lucide-react";
 
-const PLAN_CONFIG: Record<string, { label: string; color: string; isp: number; spc: number; price: number }> = {
-  free:       { label: "Gratuito",   color: "bg-[var(--color-tag-bg)] text-gray-700",   isp: 50,   spc: 0,   price: 0 },
-  basic:      { label: "Basico",     color: "bg-[var(--color-brand-bg)] text-[var(--color-brand)]",   isp: 200,  spc: 50,  price: 199 },
-  pro:        { label: "Pro",        color: "bg-indigo-100 text-indigo-700", isp: 500, spc: 150, price: 399 },
-  enterprise: { label: "Enterprise", color: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]", isp: 1500, spc: 500, price: 799 },
+/**
+ * SO ROTULO E COR. PRECO E CREDITO VEM DE `usePrecos()`.
+ *
+ * Aqui morava um `PLAN_CONFIG` com preco e creditos cravados — basic 199, pro
+ * 399 com 500 ISP e 150 SPC — que ninguem sincronizou quando a tabela virou
+ * `shared/planos.ts` (pro = R$ 99, sem credito incluso). O cartao anunciava
+ * "Mensalidade R$ 399,00" sem nenhum clique, o seletor oferecia "Pro — R$ 399"
+ * e o modal de fatura abria com esse valor. Como `POST /api/admin/invoices`
+ * grava o `amount` do corpo sem conferir contra o plano, nascia fatura de
+ * R$ 399 num plano que `generate-monthly` cobra a R$ 99.
+ *
+ * O rotulo pode ficar aqui porque nao varia por marca; o preco varia, e por
+ * isso so o servidor sabe dizer qual e.
+ */
+const PLANO_VISUAL: Record<string, { rotulo: string; cor: string }> = {
+  free:       { rotulo: "Gratuito",     cor: "bg-[var(--color-tag-bg)] text-[var(--text-2)]" },
+  basic:      { rotulo: "Básico",       cor: "bg-[var(--color-brand-bg)] text-[var(--color-brand)]" },
+  pro:        { rotulo: "Profissional", cor: "bg-[var(--brand-soft)] text-[var(--brand-ink)]" },
+  enterprise: { rotulo: "Enterprise",   cor: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" },
 };
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
@@ -96,6 +111,13 @@ export default function AdminProvedorPage() {
   const [newEmail, setNewEmail] = useState("");
 
   const isSuperAdmin = user?.role === "superadmin";
+
+  /**
+   * Preco e credito do plano sao do servidor, que e quem cobra. Com o white
+   * label eles ainda passam a depender da marca que o provedor veste, e uma
+   * constante compilada no bundle nao tem como saber disso.
+   */
+  const { data: precos, isLoading: carregandoPrecos, isError: erroPrecos, refetch: recarregarPrecos } = usePrecos();
 
   const { data, isLoading, error } = useQuery<any>({
     queryKey: ["/api/admin/providers", providerId, "detail"],
@@ -244,8 +266,38 @@ export default function AdminProvedorPage() {
   }
 
   const { provider, users, stats, invoices, planHistory, financial, recentIsp, recentSpc } = data;
-  const plan = PLAN_CONFIG[provider.plan] || PLAN_CONFIG.free;
+  const visual = PLANO_VISUAL[provider.plan] || { rotulo: provider.plan, cor: "bg-[var(--color-tag-bg)] text-[var(--text-2)]" };
+  const planoCobrado = planoPorChave(precos, provider.plan);
   const statusCfg = STATUS_CONFIG[provider.status] || STATUS_CONFIG.active;
+
+  /**
+   * "de N do plano" so quando o plano DECLARA credito incluso. O card dizia
+   * "de 500 do plano" para o Profissional, que hoje nao inclui nenhum — a
+   * consulta na rede se paga por credito. Sem tabela nao ha o que afirmar.
+   */
+  const inclusoNoPlano = (campo: "isp" | "spc"): string | undefined => {
+    if (!planoCobrado) return undefined;
+    const incluso = planoCobrado.creditosInclusos[campo];
+    return incluso > 0 ? `de ${incluso} do plano` : "sem crédito incluso";
+  };
+
+  /**
+   * O formulario de fatura so preenche valor a partir da tabela. Sem ela
+   * `camposDaFatura` devolve `null` e os campos ficam INTOCADOS, em vez de
+   * caírem para um numero inventado — era `String(plan.price)`, R$ 399 da
+   * tabela morta desta tela.
+   */
+  const abrirNovaFatura = () => {
+    setInvoiceForm({
+      period: "", amount: "", planAtTime: provider.plan,
+      ispCreditsIncluded: "", spcCreditsIncluded: "", dueDate: "", notes: "",
+      ...(camposDaFatura(precos, provider.plan) ?? {}),
+    });
+    setShowInvoiceModal(true);
+  };
+
+  /** Sem tabela nao ha valor confiavel para gravar numa fatura. */
+  const podeEmitirFatura = Boolean(precos);
 
   const startEdit = () => {
     setEditForm({
@@ -287,8 +339,8 @@ export default function AdminProvedorPage() {
           <div>
             <h1 className="text-2xl font-bold" data-testid="text-provider-name">{provider.name}</h1>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <Badge className={`${plan.color} border-0 text-xs font-semibold`}>
-                {plan.label}
+              <Badge className={`${visual.cor} border-0 text-xs font-semibold`} data-testid="badge-plano">
+                {visual.rotulo}
               </Badge>
               <Badge className={`${statusCfg.color} border-0 text-xs font-medium`}>
                 {statusCfg.label}
@@ -315,10 +367,7 @@ export default function AdminProvedorPage() {
           <Button variant="outline" size="sm" onClick={() => setShowCreditsModal(true)} data-testid="button-add-credits">
             <Zap className="w-4 h-4 mr-1" /> Creditos
           </Button>
-          <Button variant="outline" size="sm" onClick={() => {
-            setInvoiceForm({ period: "", amount: String(plan.price), planAtTime: provider.plan, ispCreditsIncluded: "", spcCreditsIncluded: "", dueDate: "", notes: "" });
-            setShowInvoiceModal(true);
-          }} data-testid="button-create-invoice">
+          <Button variant="outline" size="sm" onClick={abrirNovaFatura} data-testid="button-create-invoice">
             <FileText className="w-4 h-4 mr-1" /> Fatura
           </Button>
           {provider.status === "active" ? (
@@ -353,8 +402,8 @@ export default function AdminProvedorPage() {
         <StatCard icon={Activity} label="Equipamentos" value={stats.equipment} sub="ativos" color="text-indigo-600" />
         <StatCard icon={BarChart3} label="Consultas ISP" value={stats.ispConsultations} sub={`${stats.ispConsultationsMonth} este mes`} color="text-violet-600" />
         <StatCard icon={TrendingUp} label="Consultas SPC" value={stats.spcConsultations} sub={`${stats.spcConsultationsMonth} este mes`} color="text-purple-600" />
-        <StatCard icon={Zap} label="Creditos ISP" value={provider.ispCredits} sub={`de ${plan.isp} do plano`} color="text-[var(--color-gold)]" />
-        <StatCard icon={CreditCard} label="Creditos SPC" value={provider.spcCredits} sub={`de ${plan.spc} do plano`} color="text-[var(--color-brand)]" />
+        <StatCard icon={Zap} label="Creditos ISP" value={provider.ispCredits} sub={inclusoNoPlano("isp")} color="text-[var(--color-gold)]" />
+        <StatCard icon={CreditCard} label="Creditos SPC" value={provider.spcCredits} sub={inclusoNoPlano("spc")} color="text-[var(--color-brand)]" />
         <StatCard icon={CreditCard} label="Creditos Cadastral" value={provider.bigdataCredits ?? 0} sub="consulta cadastral" color="text-[var(--color-steel)]" />
       </div>
 
@@ -422,22 +471,42 @@ export default function AdminProvedorPage() {
 
               <Card className="p-5 space-y-4">
                 <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Plano e Creditos</h3>
+                {erroPrecos && (
+                  <div className="rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2" data-testid="erro-precos-plano">
+                    <p className="text-xs text-[var(--danger)]">Nao foi possivel carregar a tabela de precos.</p>
+                    <button type="button" className="text-xs underline mt-0.5 text-[var(--danger)]" onClick={() => recarregarPrecos()}>
+                      Tentar de novo
+                    </button>
+                  </div>
+                )}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between py-2 border-b">
                     <span className="text-sm text-muted-foreground">Plano atual</span>
-                    <Badge className={`${plan.color} border-0 font-semibold`}>{plan.label}</Badge>
+                    <Badge className={`${visual.cor} border-0 font-semibold`}>{visual.rotulo}</Badge>
                   </div>
                   <div className="flex items-center justify-between py-2 border-b">
                     <span className="text-sm text-muted-foreground">Mensalidade</span>
-                    <span className="font-semibold">{fmt(plan.price)}</span>
+                    {carregandoPrecos ? (
+                      <span className="h-4 w-20 rounded bg-[var(--surface-inset)] animate-pulse" data-testid="skeleton-mensalidade" />
+                    ) : planoCobrado ? (
+                      <span className="font-mono font-semibold tabular-nums" data-testid="text-mensalidade">{planoCobrado.precoLabel}</span>
+                    ) : (
+                      /* Ausencia de preco nao e gratuidade: a tela cala em vez
+                         de afirmar um valor que o servidor nao confirmou. */
+                      <span className="text-sm text-muted-foreground" data-testid="mensalidade-indisponivel">Tabela indisponivel</span>
+                    )}
                   </div>
                   <div className="flex items-center justify-between py-2 border-b">
                     <span className="text-sm text-muted-foreground">Creditos ISP</span>
-                    <span className="font-semibold text-blue-600">{provider.ispCredits} / {plan.isp}</span>
+                    <span className="font-mono font-semibold tabular-nums text-[var(--text)]">
+                      {provider.ispCredits}{planoCobrado && planoCobrado.creditosInclusos.isp > 0 ? ` / ${planoCobrado.creditosInclusos.isp}` : ""}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between py-2 border-b">
                     <span className="text-sm text-muted-foreground">Creditos SPC</span>
-                    <span className="font-semibold text-purple-600">{provider.spcCredits} / {plan.spc}</span>
+                    <span className="font-mono font-semibold tabular-nums text-[var(--text)]">
+                      {provider.spcCredits}{planoCobrado && planoCobrado.creditosInclusos.spc > 0 ? ` / ${planoCobrado.creditosInclusos.spc}` : ""}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between py-2">
                     <span className="text-sm text-muted-foreground">Status</span>
@@ -534,10 +603,7 @@ export default function AdminProvedorPage() {
           <Card className="overflow-hidden">
             <div className="flex items-center justify-between px-5 py-3 border-b bg-muted/20">
               <h3 className="font-semibold">Faturas do Provedor</h3>
-              <Button size="sm" variant="outline" onClick={() => {
-                setInvoiceForm({ period: "", amount: String(plan.price), planAtTime: provider.plan, ispCreditsIncluded: "", spcCreditsIncluded: "", dueDate: "", notes: "" });
-                setShowInvoiceModal(true);
-              }} data-testid="button-new-invoice-fin">
+              <Button size="sm" variant="outline" onClick={abrirNovaFatura} data-testid="button-new-invoice-fin">
                 <Plus className="w-4 h-4 mr-1" /> Nova Fatura
               </Button>
             </div>
@@ -761,9 +827,9 @@ export default function AdminProvedorPage() {
                     <div className="flex-1 min-w-0">
                       {h.oldPlan ? (
                         <p className="text-sm font-medium">
-                          Plano alterado: <span className="text-muted-foreground">{PLAN_CONFIG[h.oldPlan]?.label || h.oldPlan}</span>
+                          Plano alterado: <span className="text-muted-foreground">{PLANO_VISUAL[h.oldPlan]?.rotulo || h.oldPlan}</span>
                           {" → "}
-                          <span className="font-semibold text-blue-600">{PLAN_CONFIG[h.newPlan]?.label || h.newPlan}</span>
+                          <span className="font-semibold text-[var(--brand-ink)]">{PLANO_VISUAL[h.newPlan]?.rotulo || h.newPlan}</span>
                         </p>
                       ) : (
                         <p className="text-sm font-medium">
@@ -798,15 +864,30 @@ export default function AdminProvedorPage() {
               <Button variant="ghost" size="sm" onClick={() => setShowPlanModal(false)}><X className="w-4 h-4" /></Button>
             </div>
             <div className="space-y-3">
+              {carregandoPrecos && (
+                <div className="h-9 rounded bg-[var(--surface-inset)] animate-pulse" data-testid="skeleton-precos-plano" />
+              )}
+              {erroPrecos && (
+                /* Anunciar plano com preco desta tela foi exatamente o defeito.
+                   Sem a tabela do servidor o seletor nao tem o que oferecer. */
+                <div className="rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2" data-testid="erro-precos-troca-plano">
+                  <p className="text-xs text-[var(--danger)]">
+                    Nao foi possivel carregar a tabela de precos. O plano nao pode ser trocado sem ela.
+                  </p>
+                  <button type="button" className="text-xs underline mt-0.5 text-[var(--danger)]" onClick={() => recarregarPrecos()}>
+                    Tentar de novo
+                  </button>
+                </div>
+              )}
               <div className="space-y-1.5">
                 <Label>Plano</Label>
-                <Select value={planForm.plan} onValueChange={v => setPlanForm(f => ({ ...f, plan: v }))}>
+                <Select value={planForm.plan} disabled={!precos} onValueChange={v => setPlanForm(f => ({ ...f, plan: v }))}>
                   <SelectTrigger data-testid="select-plan">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {Object.entries(PLAN_CONFIG).map(([k, v]) => (
-                      <SelectItem key={k} value={k}>{v.label} — {fmt(v.price)}/mes</SelectItem>
+                    {(precos?.planos ?? []).map(p => (
+                      <SelectItem key={p.chave} value={p.chave}>{p.rotulo} — {p.precoLabel}/mes</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -826,7 +907,7 @@ export default function AdminProvedorPage() {
               <Button variant="ghost" onClick={() => setShowPlanModal(false)}>Cancelar</Button>
               <Button
                 onClick={() => planMutation.mutate(planForm)}
-                disabled={planMutation.isPending || !planForm.plan}
+                disabled={planMutation.isPending || !planForm.plan || !precos}
                 data-testid="button-confirm-plan"
               >
                 {planMutation.isPending ? "Salvando..." : "Confirmar"}
@@ -923,6 +1004,21 @@ export default function AdminProvedorPage() {
               <Button variant="ghost" size="sm" onClick={() => setShowInvoiceModal(false)}><X className="w-4 h-4" /></Button>
             </div>
             <div className="space-y-3">
+              {carregandoPrecos && (
+                <div className="h-9 rounded bg-[var(--surface-inset)] animate-pulse" data-testid="skeleton-precos-fatura" />
+              )}
+              {erroPrecos && (
+                /* Sem a tabela o formulario nao sabe quanto cobrar, e o campo
+                   vazio ao lado do botao ativo era o convite ao R$ 0,00. */
+                <div className="rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2" data-testid="erro-precos-fatura">
+                  <p className="text-xs text-[var(--danger)]">
+                    Nao foi possivel carregar a tabela de precos. A fatura nao pode ser emitida sem ela.
+                  </p>
+                  <button type="button" className="text-xs underline mt-0.5 text-[var(--danger)]" onClick={() => recarregarPrecos()}>
+                    Tentar de novo
+                  </button>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label>Periodo (AAAA-MM)</Label>
@@ -950,7 +1046,6 @@ export default function AdminProvedorPage() {
                     type="number"
                     value={invoiceForm.ispCreditsIncluded}
                     onChange={e => setInvoiceForm(f => ({ ...f, ispCreditsIncluded: e.target.value }))}
-                    placeholder={String(plan.isp)}
                     data-testid="input-invoice-isp"
                   />
                 </div>
@@ -960,7 +1055,6 @@ export default function AdminProvedorPage() {
                     type="number"
                     value={invoiceForm.spcCreditsIncluded}
                     onChange={e => setInvoiceForm(f => ({ ...f, spcCreditsIncluded: e.target.value }))}
-                    placeholder={String(plan.spc)}
                     data-testid="input-invoice-spc"
                   />
                 </div>
@@ -997,7 +1091,7 @@ export default function AdminProvedorPage() {
                   dueDate: invoiceForm.dueDate,
                   notes: invoiceForm.notes,
                 })}
-                disabled={invoiceMutation.isPending || !invoiceForm.period || !invoiceForm.amount}
+                disabled={!podeEmitirFatura || invoiceMutation.isPending || !invoiceForm.period || !invoiceForm.amount}
                 data-testid="button-confirm-invoice"
               >
                 {invoiceMutation.isPending ? "Criando..." : "Criar Fatura"}

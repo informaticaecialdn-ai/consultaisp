@@ -73,6 +73,84 @@ const PRECO_POR_CREDITO_EM_PROSA = [
   /R\$\s?[\d.,]+\s+por\s+cr[ée]dito/i,
 ];
 
+/* ------------------------------------------------------------------------- *
+ * A GUARDA PELA FORMA, NAO PELO NOME.
+ *
+ * As tres travas acima procuram identificador (`PLAN_PRICES`, `PLAN_CREDITS`,
+ * `CREDIT_PACKAGES`) e frase de preco por credito. Todas passaram verdes
+ * enquanto `/admin/provedor/:id` mantinha um `PLAN_CONFIG` proprio com
+ * `basic 199` e `pro 399 / 500 ISP / 150 SPC` — nome nenhum da lista, e a tela
+ * anunciava "Mensalidade R$ 399,00" para um plano de R$ 99 e abria o modal de
+ * fatura com esse valor. `POST /api/admin/invoices` grava o `amount` do corpo
+ * sem conferir contra o plano, entao nascia fatura de R$ 399 onde o
+ * `generate-monthly` cobra R$ 99.
+ *
+ * Batizar a constante de outro jeito nao pode continuar sendo a saida. O que
+ * reprova daqui em diante e a FORMA: chave de plano apontando para preco ou
+ * credito.
+ * ------------------------------------------------------------------------- */
+
+const CHAVES_DE_PLANO = "free|basic|pro|enterprise";
+
+/**
+ * `pro: { ... }` com ate um nivel de aninhamento no corpo — o suficiente para
+ * alcancar `pro: { creditosInclusos: { isp: 0 } }` sem precisar de um parser.
+ */
+const BLOCO_DE_PLANO = new RegExp(
+  `\\b(${CHAVES_DE_PLANO})\\s*:\\s*(\\{(?:[^{}]|\\{[^{}]*\\})*\\})`,
+  "g",
+);
+
+/**
+ * O campo que transforma o bloco em tabela de preco.
+ *
+ * A negativa de `number`/`string`/`boolean` deixa TIPO passar: uma interface
+ * com `isp: number` descreve a forma que vem do servidor, nao crava valor. Ela
+ * come o espaco DENTRO do lookahead de proposito — com `\s*` do lado de fora o
+ * motor volta atras, casa zero espaco e a negativa passa a olhar para " number".
+ */
+const CAMPO_DE_PRECO = /\b(price|preco\w*|isp|spc|credit\w*|credito\w*)\s*:(?!\s*(?:number|string|boolean)\b)/i;
+
+/** `{ free: 0, pro: 99 }` — a mesma tabela sem o objeto intermediario. */
+const PLANO_PARA_NUMERO = new RegExp(`\\b(${CHAVES_DE_PLANO})\\s*:\\s*-?\\d`, "g");
+
+/**
+ * As tabelas de preco/credito por plano que este fonte declara.
+ *
+ * Funcao pura para poder ser provada nos dois sentidos: que reprova o
+ * `PLAN_CONFIG` que existia em `admin-provedor.tsx`, e que NAO reprova o mapa
+ * de rotulo e cor que ficou no lugar dele.
+ */
+export function tabelasDePrecoDePlano(fonte: string): string[] {
+  const limpo = semComentarios(fonte);
+  const achados: string[] = [];
+
+  BLOCO_DE_PLANO.lastIndex = 0;
+  let bloco: RegExpExecArray | null;
+  while ((bloco = BLOCO_DE_PLANO.exec(limpo)) !== null) {
+    const campo = bloco[2].match(CAMPO_DE_PRECO);
+    if (campo) achados.push(`${bloco[1]}: { … ${campo[0].trim()} … }`);
+  }
+
+  PLANO_PARA_NUMERO.lastIndex = 0;
+  const chavesComNumero = new Set<string>();
+  let direto: RegExpExecArray | null;
+  while ((direto = PLANO_PARA_NUMERO.exec(limpo)) !== null) chavesComNumero.add(direto[1]);
+  // Uma chave sozinha pode ser coincidencia; duas ja sao uma tabela por plano.
+  if (chavesComNumero.size >= 2) {
+    achados.push(`${[...chavesComNumero].join(", ")} apontando direto para numero`);
+  }
+
+  return achados;
+}
+
+const COMO_CORRIGIR =
+  "Preco e credito de plano vem do servidor: use usePrecos() (ou usePrecosPublicos() " +
+  "sem sessao) de @/hooks/use-precos e leia precos.planos / planoPorChave / " +
+  "camposDaFatura. Sem tabela o campo fica intocado e o botao desabilitado — " +
+  "nunca R$ 0,00 nem numero cravado. Rotulo e cor do plano podem ficar no client; " +
+  "preco e credito nao, porque dependem da marca que o provedor veste.";
+
 describe("tabela de preco fora do client", () => {
   it("encontra os arquivos do client — um scanner vazio passaria calado", () => {
     expect(arquivos.length).toBeGreaterThan(50);
@@ -123,5 +201,78 @@ describe("tabela de preco fora do client", () => {
       }
     }
     expect(infratores).toEqual([]);
+  });
+
+  it("nenhum arquivo de client/src mapeia chave de plano para preco ou credito", () => {
+    const infratores: string[] = [];
+    for (const caminho of arquivos) {
+      for (const achado of tabelasDePrecoDePlano(readFileSync(caminho, "utf8"))) {
+        infratores.push(`${caminho.replace(RAIZ_CLIENT, "client/src")}: ${achado}`);
+      }
+    }
+    if (infratores.length > 0) {
+      throw new Error(`Tabela de preco por plano em client/src:\n  ${infratores.join("\n  ")}\n\n${COMO_CORRIGIR}`);
+    }
+    expect(infratores).toEqual([]);
+  });
+
+  /**
+   * A guarda anterior tambem "passava": o defeito de `admin-provedor.tsx` nao
+   * cabia em nenhuma das travas por nome. Sem esta prova, uma rede furada
+   * continuaria verde e ninguem saberia.
+   */
+  it("a guarda pela forma reprova o PLAN_CONFIG que existia em admin-provedor.tsx", () => {
+    const comoEra = `
+const PLAN_CONFIG: Record<string, { label: string; color: string; isp: number; spc: number; price: number }> = {
+  free:       { label: "Gratuito",   color: "bg-[var(--color-tag-bg)] text-gray-700",   isp: 50,   spc: 0,   price: 0 },
+  basic:      { label: "Basico",     color: "bg-[var(--color-brand-bg)] text-[var(--color-brand)]",   isp: 200,  spc: 50,  price: 199 },
+  pro:        { label: "Pro",        color: "bg-indigo-100 text-indigo-700", isp: 500, spc: 150, price: 399 },
+  enterprise: { label: "Enterprise", color: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]", isp: 1500, spc: 500, price: 799 },
+};`;
+    expect(tabelasDePrecoDePlano(comoEra)).toHaveLength(4);
+  });
+
+  it("a guarda pela forma reprova a tabela sem objeto intermediario", () => {
+    expect(tabelasDePrecoDePlano(`const mensalidade = { free: 0, pro: 99, enterprise: 799 };`)).toEqual([
+      "free, pro, enterprise apontando direto para numero",
+    ]);
+  });
+
+  it("rotulo, cor e tipo nao caem na rede — a guarda so pega preco e credito", () => {
+    const rotuloECor = `
+const PLANO_VISUAL: Record<string, { rotulo: string; cor: string }> = {
+  free:       { rotulo: "Gratuito",     cor: "bg-[var(--color-tag-bg)] text-[var(--text-2)]" },
+  pro:        { rotulo: "Profissional", cor: "bg-[var(--brand-soft)] text-[var(--brand-ink)]" },
+};`;
+    expect(tabelasDePrecoDePlano(rotuloECor)).toEqual([]);
+
+    const tipo = `interface Tabela { pro: { isp: number; spc: number } }`;
+    expect(tabelasDePrecoDePlano(tipo)).toEqual([]);
+
+    // Comentario nao e tela: a explicacao do defeito nao pode ser lida como o defeito.
+    const comentario = `/* pro: { isp: 500, spc: 150, price: 399 } era a tabela morta */`;
+    expect(tabelasDePrecoDePlano(comentario)).toEqual([]);
+  });
+
+  /**
+   * A tela que emite fatura e a que mais custa caro errar: `POST
+   * /api/admin/invoices` grava o `amount` do corpo sem conferir contra o plano.
+   * Se ela nao le a tabela do servidor, o valor so pode ter vindo de dentro do
+   * bundle — foi assim que `/admin/provedor/:id` faturou R$ 399 num plano de
+   * R$ 99.
+   */
+  it("toda tela que emite fatura le a tabela do servidor", () => {
+    const semTabela: string[] = [];
+    let emissoras = 0;
+    for (const caminho of arquivos) {
+      const fonte = readFileSync(caminho, "utf8");
+      if (!/apiRequest\(\s*["']POST["']\s*,\s*["']\/api\/admin\/invoices["']/.test(fonte)) continue;
+      emissoras++;
+      if (!/from\s+["']@\/hooks\/use-precos["']/.test(fonte)) {
+        semTabela.push(caminho.replace(RAIZ_CLIENT, "client/src"));
+      }
+    }
+    expect(emissoras).toBeGreaterThanOrEqual(3);
+    expect(semTabela, COMO_CORRIGIR).toEqual([]);
   });
 });
