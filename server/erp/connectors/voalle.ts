@@ -28,6 +28,26 @@ import { registerConnector } from "../registry.js";
 // Token cache
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
+/**
+ * As linhas de uma resposta do Voalle — array cru, `items` ou `data`.
+ *
+ * `null` quando a forma nao e nenhuma dessas. O `json?.items || json?.data ||
+ * []` anterior transformava o `{}` de um proxy em "nenhum inadimplente" com
+ * `ok: true`, e o sync usa a lista de inadimplentes como prova NEGATIVA: quem
+ * nao esta nela tem a divida baixada. Nao reconhecer a resposta nao e prova de
+ * que ninguem deve.
+ */
+function linhasDoVoalle(json: any): any[] | null {
+  if (Array.isArray(json)) return json;
+  if (json && typeof json === "object") {
+    if (Array.isArray(json.items)) return json.items;
+    if (Array.isArray(json.data)) return json.data;
+    if (Array.isArray(json.results)) return json.results;
+    if (Array.isArray(json.registros)) return json.registros;
+  }
+  return null;
+}
+
 export class VoalleConnector implements ErpConnector {
   readonly name = "voalle";
   readonly label = "Voalle";
@@ -105,8 +125,23 @@ export class VoalleConnector implements ErpConnector {
       });
 
       const latencyMs = Date.now() - start;
-      if (response.ok) return { ok: true, message: "Conexao com Voalle estabelecida com sucesso", latencyMs };
-      return { ok: false, message: `Voalle respondeu com status ${response.status}`, latencyMs };
+      if (!response.ok) return { ok: false, message: `Voalle respondeu com status ${response.status}`, latencyMs };
+
+      // A autenticacao ja provou que ha um Voalle do outro lado; esta segunda
+      // etapa so olhava o status, e status 200 tambem e o que uma pagina de erro
+      // amigavel ou um proxy devolvem. Exigir JSON aqui distingue o endpoint
+      // financeiro de qualquer coisa que apenas responda.
+      const corpo = await response.text();
+      try {
+        JSON.parse(corpo);
+      } catch {
+        return {
+          ok: false,
+          message: "Autenticacao OK, mas o endpoint financeiro nao respondeu JSON. Confira a URL do Voalle.",
+          latencyMs,
+        };
+      }
+      return { ok: true, message: "Conexao com Voalle estabelecida com sucesso", latencyMs };
     } catch (err: unknown) {
       const latencyMs = Date.now() - start;
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
@@ -131,7 +166,10 @@ export class VoalleConnector implements ErpConnector {
       if (!response.ok) return { ok: false, message: `Voalle respondeu com status ${response.status}`, customers: [], totalRecords: 0 };
 
       const json: any = await response.json();
-      const rows: any[] = Array.isArray(json) ? json : json?.items || json?.data || [];
+      const rows = linhasDoVoalle(json);
+      if (rows === null) {
+        return { ok: false, message: "Voalle: formato de resposta inesperado em inadimplentes", customers: [], totalRecords: 0 };
+      }
 
       const invoices = rows
         .map((r: any) => {
@@ -181,7 +219,10 @@ export class VoalleConnector implements ErpConnector {
       if (!response.ok) return { ok: false, message: `Voalle respondeu com status ${response.status}`, customers: [] };
 
       const json: any = await response.json();
-      const rows: any[] = Array.isArray(json) ? json : json?.items || json?.data || [];
+      const rows = linhasDoVoalle(json);
+      if (rows === null) {
+        return { ok: false, message: "Voalle: formato de resposta inesperado na consulta por CPF", customers: [] };
+      }
 
       const invoices = rows
         .filter((r: any) => {
@@ -237,7 +278,10 @@ export class VoalleConnector implements ErpConnector {
       if (!response.ok) return { ok: false, message: `Voalle respondeu com status ${response.status}`, customers: [], totalRecords: 0 };
 
       const json: any = await response.json();
-      const rows: any[] = Array.isArray(json) ? json : json?.items || json?.data || [];
+      const rows = linhasDoVoalle(json);
+      if (rows === null) {
+        return { ok: false, message: "Voalle: formato de resposta inesperado em clientes", customers: [], totalRecords: 0 };
+      }
       const customers: NormalizedErpCustomer[] = rows
         .map((r: any) => {
           const cpfCnpj = cleanCpfCnpj(r.cpf_cnpj || r.cpf || r.cnpj || r.documento || "");

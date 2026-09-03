@@ -135,7 +135,7 @@ class RbxConnector implements ErpConnector {
   async testConnection(config: ErpConnectionConfig): Promise<ErpTestResult> {
     const start = Date.now();
     try {
-      await this.rbxRequest(
+      const data = await this.rbxRequest(
         config,
         {
           chave_integracao: config.apiToken,
@@ -145,6 +145,19 @@ class RbxConnector implements ErpConnector {
         },
         API_TIMEOUT_MS,
       );
+
+      // "Nao lancou" nao prova que quem respondeu e o rbx_server_json.php:
+      // qualquer 200 com JSON passava, inclusive o `{}` de um proxy. O teste de
+      // conexao e a unica prova que o operador tem antes de ligar a integracao;
+      // se ele mente, a varredura roda contra o endereco errado e a lista vazia
+      // que volta e lida pelo sync como "ninguem deve".
+      if (extractArray(data) === null) {
+        return {
+          ok: false,
+          message: "O endereco respondeu, mas nao no formato do RBX. Informe a URL completa do rbx_server_json.php.",
+          latencyMs: Date.now() - start,
+        };
+      }
 
       return {
         ok: true,
@@ -177,7 +190,7 @@ class RbxConnector implements ErpConnector {
       );
 
       const records = extractArray(data);
-      if (records.length === 0 && data && typeof data === "object") {
+      if (!records || records.length === 0) {
         // May need a different acao — try "pendencias_financeiras"
         try {
           const fallbackData = await withResilience(
@@ -190,7 +203,7 @@ class RbxConnector implements ErpConnector {
             { retries: 1, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
           );
           const fallbackRecords = extractArray(fallbackData);
-          if (fallbackRecords.length > 0) {
+          if (fallbackRecords && fallbackRecords.length > 0) {
             return this.normalizeDelinquents(fallbackRecords);
           }
         } catch {
@@ -253,7 +266,13 @@ class RbxConnector implements ErpConnector {
         { retries: 2, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
       );
 
-      let records = extractArray(data);
+      const registros = extractArray(data);
+      // Forma nao reconhecida nao e "cliente sem pendencia": a consulta ao vivo
+      // leria isso como "nada consta" para quem pode estar devendo.
+      if (registros === null) {
+        return { ok: false, message: "RBX: formato de resposta inesperado na consulta por CPF.", customers: [] };
+      }
+      let records = registros;
 
       // Fallback: try Clientes module if financial returns nothing
       if (records.length === 0) {
@@ -270,7 +289,11 @@ class RbxConnector implements ErpConnector {
               }),
             { retries: 1, minTimeout: 1000, circuit: this.getCircuit(config.extra?.providerId ?? "default") },
           );
-          records = extractArray(clientData);
+          const clientes = extractArray(clientData);
+          if (clientes === null) {
+            return { ok: false, message: "RBX: formato de resposta inesperado no cadastro de clientes.", customers: [] };
+          }
+          records = clientes;
           if (records.length > 0) {
             // Client found but no delinquent records
             const customers: NormalizedErpCustomer[] = records.map((rec: any) => ({
@@ -315,7 +338,7 @@ class RbxConnector implements ErpConnector {
       );
 
       const records = extractArray(data);
-      if (records.length === 0 && data && typeof data === "object") {
+      if (!records || records.length === 0) {
         return {
           ok: false,
           message: "RBX: formato de resposta inesperado para clientes.",
@@ -354,8 +377,13 @@ class RbxConnector implements ErpConnector {
 /**
  * Extract array from various response shapes.
  * RBX may return { dados: [...] }, { registros: [...] }, or plain [...]
+ *
+ * `null` quando a forma NAO e nenhuma dessas — o `{}` de um proxy, o corpo de
+ * outro sistema. Devolver `[]` nesse caso faria "nao reconheci a resposta"
+ * parecer "nao ha ninguem", e no sync lista vazia e prova negativa: quem nao
+ * esta nela tem a divida baixada.
  */
-function extractArray(data: unknown): any[] {
+function extractArray(data: unknown): any[] | null {
   if (Array.isArray(data)) return data;
   if (data && typeof data === "object") {
     const obj = data as Record<string, unknown>;
@@ -364,7 +392,7 @@ function extractArray(data: unknown): any[] {
     if (Array.isArray(obj.registros)) return obj.registros;
     if (Array.isArray(obj.results)) return obj.results;
   }
-  return [];
+  return null;
 }
 
 // Register connector on import

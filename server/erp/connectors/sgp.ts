@@ -18,6 +18,9 @@
  * 02 da doc). O SGP tambem aceita Basic Auth com usuario e senha do sistema,
  * mas token e revogavel sem mexer em usuario — e o que a tela pede.
  *
+ * Toda resposta passa por `lerJson`: neste conector nao se chama
+ * `response.json()` direto. O motivo esta em `RespostaNaoEhSgp`, logo abaixo.
+ *
  * @see https://bookstack.sgp.net.br/books/api/page/autenticacoes-via-api
  */
 
@@ -44,6 +47,19 @@ const LIMITE_CLIENTES = 100;
  * negativa (ver `leituraParcial` em ../types.ts).
  */
 const MAX_PAGINAS = 400;
+
+/**
+ * Inicio da janela de vencimento pedida ao SGP.
+ *
+ * Nao e um recorte de politica — e o preco de usar o filtro: o SGP recusa
+ * `data_vencimento_fim` sozinho e exige o par. A janela precisa entao comecar
+ * antes de qualquer divida que possa existir na base, porque num bureau divida
+ * antiga NAO prescreve para efeito de consulta: um calote de 2019 e exatamente
+ * o que o provedor vizinho precisa enxergar. Medido: 2000 e 2015 devolvem o
+ * mesmo total na base de demonstracao, ou seja, a janela nao esta cortando
+ * nada — e e para continuar assim.
+ */
+const INICIO_DA_JANELA = "2000-01-01";
 
 /**
  * Status de contrato do SGP, como a propria doc os enumera:
@@ -144,6 +160,75 @@ interface TituloSgp {
   dataVencimento?: string;
 }
 
+/**
+ * Alguem respondeu, mas nao foi o SGP.
+ *
+ * O caso real, medido em 03/09/2026: o operador colou no campo de URL o
+ * endereco para onde o SGP redireciona quem nao esta logado
+ * (`.../accounts/login?next=/admin/`). O conector concatena o caminho da API
+ * nesse endereco, o servidor devolve a PROPRIA TELA DE LOGIN com HTTP 200, e o
+ * teste de conexao — que olhava so `response.ok` — respondeu "conexao ok, 216
+ * ms". A URL certa, a origem, devolvia 403 com JSON dizendo que a credencial
+ * estava errada.
+ *
+ * Por que isso nao e cosmetico: o teste de conexao e a unica prova que o
+ * operador tem antes de ligar a integracao. Ligada, a varredura passa a ler uma
+ * pagina HTML e nao encontra inadimplente nenhum — e o sync usa a lista vazia
+ * como prova NEGATIVA, baixando a divida de quem nao esta nela. Um "ok"
+ * mentiroso aqui limpa a inadimplencia de um provedor inteiro.
+ *
+ * Qualquer coisa responde 200: pagina de login, portal cativo de wifi, proxy
+ * reverso mal apontado, pagina de erro amigavel de CDN, dominio parqueado. So a
+ * FORMA da resposta prova quem atendeu.
+ */
+class RespostaNaoEhSgp extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RespostaNaoEhSgp";
+  }
+}
+
+const MSG_NAO_E_JSON =
+  "O endereco respondeu, mas nao com a API do SGP: veio uma pagina em vez de dados. " +
+  "Provavelmente a URL aponta para a tela de login do SGP ou para outro sistema. " +
+  "Informe apenas o endereco do servidor, sem caminho nem parametros.";
+
+const MSG_FORMA_INESPERADA =
+  "O endereco respondeu em JSON, mas sem os campos que a API do SGP devolve. " +
+  "Provavelmente a URL aponta para outro sistema, ou ha um proxy no meio do caminho. " +
+  "Confira o endereco do servidor.";
+
+/**
+ * A forma de /api/ura/titulos/: `{ paginacao: {...}, titulos: [...] }`.
+ *
+ * Conferir os dois campos e o que separa "e a API do SGP" de "e um JSON
+ * qualquer" — um proxy que devolva `{}` ou `{"status":"ok"}` reprova aqui.
+ */
+function ehEnvelopeDeTitulos(json: unknown): boolean {
+  if (!json || typeof json !== "object") return false;
+  const j = json as { paginacao?: unknown; titulos?: unknown };
+  return Array.isArray(j.titulos) && !!j.paginacao && typeof j.paginacao === "object";
+}
+
+/** A forma de /api/ura/consultacliente/: `{ msg, contratos: [...] }`. */
+function ehRespostaDeCliente(json: unknown): boolean {
+  if (!json || typeof json !== "object") return false;
+  const j = json as { msg?: unknown; contratos?: unknown };
+  // `msg` sozinho vale: o "Nenhum contrato localizado" pode vir sem a lista.
+  return Array.isArray(j.contratos) || typeof j.msg === "string";
+}
+
+/**
+ * Mensagem de falha para o operador.
+ *
+ * Quando ja sabemos explicar o que aconteceu, a explicacao vai crua. So o que
+ * sobra sem diagnostico leva o prefixo tecnico.
+ */
+function mensagemDeFalha(err: unknown): string {
+  if (err instanceof RespostaNaoEhSgp) return err.message;
+  return `Erro: ${err instanceof Error ? err.message : "Erro desconhecido"}`;
+}
+
 export class SgpConnector implements ErpConnector {
   readonly name = "sgp";
   readonly label = "SGP";
@@ -200,17 +285,80 @@ export class SgpConnector implements ErpConnector {
   }
 
   /**
+   * Le o corpo exigindo que ele seja JSON de verdade, e nao qualquer coisa com
+   * status 200.
+   *
+   * Nunca chame `response.json()` direto neste conector: alem de deixar passar
+   * a checagem de content-type, o erro dele ("Unexpected token '<'") chega ao
+   * operador sem dizer o que fazer. Ver `RespostaNaoEhSgp`.
+   */
+  private async lerJson(response: Response): Promise<unknown> {
+    const tipo = (response.headers?.get("content-type") ?? "").toLowerCase();
+    const corpo = await response.text();
+    if (!tipo.includes("json")) throw new RespostaNaoEhSgp(MSG_NAO_E_JSON);
+    try {
+      return JSON.parse(corpo);
+    } catch {
+      throw new RespostaNaoEhSgp(MSG_NAO_E_JSON);
+    }
+  }
+
+  /**
+   * O `detail` que o SGP manda junto do 401/403.
+   *
+   * Corpo ilegivel aqui nao e erro: quem chama ja tem o status para explicar o
+   * basico, e o detalhe so refina a mensagem.
+   */
+  private async detalheDoErro(response: Response): Promise<string | undefined> {
+    try {
+      // `erro` entra ao lado de `detail`: o SGP usa chaves DIFERENTES conforme a
+      // camada que recusou. A autenticacao (Django REST) responde `detail`; a
+      // validacao de parametro responde `erro` — foi assim que o 400 de
+      // `data_vencimento_inicio` chegou como "SGP respondeu com status 400",
+      // escondendo a frase que dizia exatamente o que faltava.
+      const json = JSON.parse(await response.text()) as {
+        detail?: unknown; message?: unknown; erro?: unknown;
+      };
+      return texto(json?.detail) ?? texto(json?.erro) ?? texto(json?.message);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async mensagemDeErro(response: Response): Promise<string> {
+    return this.erroDeHttp(response.status, await this.detalheDoErro(response));
+  }
+
+  /**
    * Traduz o status HTTP em algo que o provedor consiga agir.
    *
    * "SGP respondeu com status 403" nao diz a ninguem que o token esta errado
    * ou que o host nao esta na lista permitida do token — e as duas coisas se
    * resolvem em telas diferentes do SGP.
    */
-  private erroDeHttp(status: number): string {
+  private erroDeHttp(status: number, detalhe?: string): string {
+    // Medidas contra um SGP real: as duas frases abaixo saem do MESMO 403 e
+    // apontam para telas diferentes. Sem ler o `detail`, o suporte fica
+    // adivinhando entre "nome do app errado" e "token errado" — foi meia hora
+    // de duvida em 03/09/2026.
+    if (status === 401 || status === 403) {
+      const d = achatar(detalhe ?? "");
+      if (d.includes("nao foram fornecidas")) {
+        return `O SGP nao reconheceu o par token + nome do app (${status}). Confira o Nome do App: ele precisa estar escrito igual ao cadastro em Administracao > Integracoes > Tokens.`;
+      }
+      if (d.includes("incorretas")) {
+        return `O SGP leu a credencial e recusou (${status}). O token esta errado, inativo ou restrito a outro host. Confira o token em Administracao > Integracoes > Tokens.`;
+      }
+    }
     if (status === 401) return "Token ou nome do app recusado pelo SGP (401). Confira em Administracao > Integracoes > Tokens.";
     if (status === 403) return "O SGP recusou o acesso (403). O token pode estar inativo ou restrito a outros hosts/rotas.";
     if (status === 404) return "Endereco nao encontrado no SGP (404). Confira a URL do servidor.";
     if (status >= 500) return `O servidor SGP respondeu com erro interno (${status}).`;
+    // Quando o SGP explica a recusa, a explicacao DELE vale mais que o numero.
+    // O 400 de parametro e o caso vivo: "SGP respondeu com status 400" nao diz
+    // nada, enquanto o corpo trazia "[data_vencimento_inicio] obrigatoria caso
+    // [data_vencimento_fim] informada" — a frase que resolvia o problema.
+    if (detalhe) return `SGP respondeu com status ${status}: ${detalhe}`;
     return `SGP respondeu com status ${status}.`;
   }
 
@@ -222,12 +370,45 @@ export class SgpConnector implements ErpConnector {
       // usa. `auth/info` seria mais barata ainda, mas so aceita Basic Auth.
       const response = await this.post(config, "/api/ura/titulos/", { limit: 1 }, { timeoutMs: 8000, retries: 1 });
       const latencyMs = Date.now() - start;
-      if (!response.ok) return { ok: false, message: this.erroDeHttp(response.status), latencyMs };
+      if (!response.ok) return { ok: false, message: await this.mensagemDeErro(response), latencyMs };
+
+      // Status 200 nao prova nada — ver `RespostaNaoEhSgp`. O que prova e a
+      // resposta ter a forma do endpoint chamado.
+      const json = await this.lerJson(response);
+      if (!ehEnvelopeDeTitulos(json)) return { ok: false, message: MSG_FORMA_INESPERADA, latencyMs };
+
       return { ok: true, message: "Conexao com SGP estabelecida com sucesso", latencyMs };
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Erro desconhecido";
-      return { ok: false, message: `Erro: ${msg}`, latencyMs: Date.now() - start };
+      return { ok: false, message: mensagemDeFalha(err), latencyMs: Date.now() - start };
     }
+  }
+
+  /**
+   * Uma pagina de listagem: ou o lote lido, ou a explicacao de por que a
+   * resposta nao serve.
+   *
+   * Resposta que nao entendemos NUNCA vira lista vazia. Essa lista e usada pelo
+   * sync como prova negativa — quem nao aparece nela tem a divida baixada —,
+   * entao "nao consegui ler" e "ninguem deve nada" nao podem terminar na mesma
+   * resposta.
+   */
+  private async lerPagina(
+    response: Response,
+    campo: "titulos" | "clientes",
+  ): Promise<{ itens: unknown[]; total: number } | { erro: string }> {
+    if (!response.ok) return { erro: await this.mensagemDeErro(response) };
+
+    let json: unknown;
+    try {
+      json = await this.lerJson(response);
+    } catch (err: unknown) {
+      return { erro: mensagemDeFalha(err) };
+    }
+
+    const itens = (json as Record<string, unknown> | null)?.[campo];
+    if (!Array.isArray(itens)) return { erro: MSG_FORMA_INESPERADA };
+
+    return { itens, total: Number((json as { paginacao?: { total?: unknown } })?.paginacao?.total) };
   }
 
   /**
@@ -252,15 +433,14 @@ export class SgpConnector implements ErpConnector {
         { ...filtros, limit: LIMITE_TITULOS, offset },
         { timeoutMs: 30000, retries: 2 },
       );
-      if (!response.ok) {
-        return { titulos, parcial: true, erro: this.erroDeHttp(response.status) };
-      }
 
-      const json = (await response.json()) as { titulos?: TituloSgp[]; paginacao?: { total?: number; limit?: number } };
-      const lote = Array.isArray(json?.titulos) ? json.titulos : [];
+      const pg = await this.lerPagina(response, "titulos");
+      if ("erro" in pg) return { titulos, parcial: true, erro: pg.erro };
+
+      const lote = pg.itens as TituloSgp[];
       titulos.push(...lote);
 
-      const total = Number(json?.paginacao?.total);
+      const total = pg.total;
       // O SGP pode devolver menos que o limite pedido (ele impoe o teto dele).
       // Avancar pelo tamanho do lote, e nao por LIMITE_TITULOS, evita pular
       // registros silenciosamente quando isso acontece.
@@ -338,7 +518,16 @@ export class SgpConnector implements ErpConnector {
     const response = await this.post(config, "/api/ura/listacontrato/", { exibir_endereco: 1 }, { timeoutMs: 60000, retries: 1 });
     if (!response.ok) return mapa;
 
-    const json = (await response.json()) as unknown;
+    let json: unknown;
+    try {
+      json = await this.lerJson(response);
+    } catch {
+      // Cadastro ilegivel deixa o status em "nao sei", que e inofensivo: o
+      // anti-fraude so avisa com prova de contrato ativo. Derrubar a lista de
+      // inadimplentes por causa do cadastro seria trocar um dado ausente por
+      // um dado perdido.
+      return mapa;
+    }
     const linhas: any[] = Array.isArray(json) ? json : ((json as any)?.contratos ?? []);
 
     for (const c of linhas) {
@@ -387,8 +576,21 @@ export class SgpConnector implements ErpConnector {
       // data. O corte no servidor e por economia de paginas; a decisao de
       // "esta vencida" continua sendo local, com o mesmo calculo dos outros
       // conectores.
+      //
+      // As DUAS datas vao juntas porque o SGP exige o par. Mandar so o fim
+      // devolve `400 {"erro":"[data_vencimento_inicio] obrigatória caso
+      // [data_vencimento_fim] informada"}` — e era o que este conector fazia:
+      // a varredura completa falhava em TODO provedor, sempre, e como nenhum
+      // tinha SGP ligado ninguem viu. Medido contra o SGP de demonstracao da
+      // TSMX em 03/09/2026. A colecao Postman lista os dois parametros e nao
+      // diz que um exige o outro; so a API real ensina.
+      //
+      // O ganho de filtrar continua valendo: na mesma base medida, o par de
+      // datas levou 7.033 titulos abertos para 6.535 — as 498 que sairam sao
+      // faturas em aberto que ainda NAO venceram, que nao sao inadimplencia.
       const { titulos, parcial, erro } = await this.paginarTitulos(config, {
         status: "abertos",
+        data_vencimento_inicio: INICIO_DA_JANELA,
         data_vencimento_fim: ate,
       });
 
@@ -422,8 +624,7 @@ export class SgpConnector implements ErpConnector {
         ...(parcial ? { leituraParcial: true } : {}),
       };
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Erro desconhecido";
-      return { ok: false, message: `Erro: ${msg}`, customers: [] };
+      return { ok: false, message: mensagemDeFalha(err), customers: [] };
     }
   }
 
@@ -448,11 +649,16 @@ export class SgpConnector implements ErpConnector {
         if (resCliente.status === 404) {
           return { ok: true, message: "Cliente nao encontrado no SGP", customers: [], totalRecords: 0 };
         }
-        return { ok: false, message: this.erroDeHttp(resCliente.status), customers: [] };
+        return { ok: false, message: await this.mensagemDeErro(resCliente), customers: [] };
       }
 
-      const json = (await resCliente.json()) as { contratos?: any[] };
-      const contratos = Array.isArray(json?.contratos) ? json.contratos : [];
+      const json = await this.lerJson(resCliente);
+      // Sem a forma do endpoint, "sem contrato" seria indistinguivel de "nao
+      // falei com o SGP" — e num bureau isso vira "nada consta" sobre quem deve.
+      if (!ehRespostaDeCliente(json)) throw new RespostaNaoEhSgp(MSG_FORMA_INESPERADA);
+      const contratos = Array.isArray((json as { contratos?: unknown })?.contratos)
+        ? ((json as { contratos: any[] }).contratos)
+        : [];
       if (contratos.length === 0) {
         return { ok: true, message: "Cliente nao encontrado no SGP", customers: [], totalRecords: 0 };
       }
@@ -511,8 +717,7 @@ export class SgpConnector implements ErpConnector {
         ...(faturas.parcial ? { leituraParcial: true } : {}),
       };
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Erro desconhecido";
-      return { ok: false, message: `Erro: ${msg}`, customers: [] };
+      return { ok: false, message: mensagemDeFalha(err), customers: [] };
     }
   }
 
@@ -533,16 +738,16 @@ export class SgpConnector implements ErpConnector {
           { timeoutMs: 30000, retries: 2 },
         );
 
-        if (!response.ok) {
+        const pg = await this.lerPagina(response, "clientes");
+        if ("erro" in pg) {
           if (customers.length === 0) {
-            return { ok: false, message: this.erroDeHttp(response.status), customers: [], totalRecords: 0 };
+            return { ok: false, message: pg.erro, customers: [], totalRecords: 0 };
           }
           parcial = true;
           break;
         }
 
-        const json = (await response.json()) as { clientes?: any[]; paginacao?: { total?: number } };
-        const lote = Array.isArray(json?.clientes) ? json.clientes : [];
+        const lote = pg.itens as any[];
         if (lote.length === 0) break;
 
         for (const c of lote) {
@@ -576,7 +781,7 @@ export class SgpConnector implements ErpConnector {
         }
 
         offset += lote.length;
-        const total = Number(json?.paginacao?.total);
+        const total = pg.total;
         if (Number.isFinite(total) && offset >= total) break;
         if (!Number.isFinite(total) && lote.length < LIMITE_CLIENTES) break;
         if (pagina === MAX_PAGINAS - 1) parcial = true;
@@ -590,8 +795,7 @@ export class SgpConnector implements ErpConnector {
         ...(parcial ? { leituraParcial: true } : {}),
       };
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Erro desconhecido";
-      return { ok: false, message: `Erro: ${msg}`, customers: [] };
+      return { ok: false, message: mensagemDeFalha(err), customers: [] };
     }
   }
 }

@@ -49,6 +49,30 @@ function extractNumberFromAddress(endereco: string | undefined, numero: string |
   return match ? match[1] : undefined;
 }
 
+/**
+ * As linhas de uma resposta do IXC — ou o motivo de ela nao ser do IXC.
+ *
+ * O envelope do IXC e `{ page, total, registros }`. Ler so `json?.registros ||
+ * []` transformava QUALQUER 200 com JSON — o `{}` de um proxy, o corpo de outro
+ * sistema no mesmo dominio — em "nenhum registro". No caminho do sync essa e a
+ * forma mais perigosa de erro: lista vazia com `ok: true` vira prova NEGATIVA e
+ * a baixa de divida apaga o debito da carteira inteira, como aconteceu na O L I
+ * em 31/08/2026 por outro motivo. Sem envelope reconhecivel nao se afirma nada.
+ *
+ * `total`/`page`/`type` sozinhos ja identificam o IXC: a resposta sem nenhum
+ * registro varia entre versoes e nem sempre traz o array.
+ */
+function linhasDoIxc(json: any): { ok: true; registros: any[] } | { ok: false; motivo: string } {
+  if (json && typeof json === "object" && !Array.isArray(json)) {
+    if (Array.isArray(json.registros)) return { ok: true, registros: json.registros };
+    if (json.total !== undefined || json.page !== undefined || json.type !== undefined) {
+      return { ok: true, registros: [] };
+    }
+    return { ok: false, motivo: `objeto sem 'registros' (chaves: ${Object.keys(json).slice(0, 6).join(", ") || "nenhuma"})` };
+  }
+  return { ok: false, motivo: `resposta ${Array.isArray(json) ? "em array" : typeof json} sem envelope` };
+}
+
 /** grid_param filter entry */
 interface IxcFilter {
   TB: string;
@@ -158,7 +182,12 @@ export class IxcConnector implements ErpConnector {
         throw new Error(`IXC API error: ${json.message || "Erro desconhecido"}`);
       }
 
-      const registros: any[] = json?.registros || [];
+      const envelope = linhasDoIxc(json);
+      if (!envelope.ok) {
+        throw new Error(`IXC ${tabela}: resposta 200 fora do formato do IXC — ${envelope.motivo}`);
+      }
+
+      const registros: any[] = envelope.registros;
       const total = parseInt(json?.total, 10) || 0;
       allRows.push(...registros);
 
@@ -219,11 +248,48 @@ export class IxcConnector implements ErpConnector {
       );
 
       const latencyMs = Date.now() - start;
-      if (response.ok) {
-        const data: any = await response.json();
-        return { ok: true, message: `Conexao OK — IXC Soft (${data.total ?? "?"} clientes)`, latencyMs };
+      if (!response.ok) {
+        return { ok: false, message: `IXC retornou HTTP ${response.status}`, latencyMs };
       }
-      return { ok: false, message: `IXC retornou HTTP ${response.status}`, latencyMs };
+
+      // Status 200 nao prova que quem respondeu e o IXC. Pagina de login, portal
+      // cativo e proxy mal apontado respondem 200 — e um teste que diz "ok" para
+      // eles e pior que nenhum teste: o operador liga a integracao, a varredura
+      // roda contra a pagina errada, nao acha ninguem e a lista vazia vira prova
+      // de que ninguem deve.
+      const corpo = await response.text();
+      let data: any;
+      try {
+        data = JSON.parse(corpo);
+      } catch {
+        return {
+          ok: false,
+          message: "O endereco respondeu, mas nao com JSON do IXC (veio uma pagina). Informe a raiz do sistema IXC, sem caminho nem parametros.",
+          latencyMs,
+        };
+      }
+
+      // O IXC devolve {"type":"error"} com HTTP 200 em erro de token e de IP nao
+      // liberado. `listAll` sempre tratou isso; o teste de conexao nao, e por
+      // isso IP bloqueado no painel do IXC aparecia na tela como "Conexao OK".
+      if (data?.type === "error") {
+        return {
+          ok: false,
+          message: `IXC recusou: ${data.message || "erro sem descricao"}. Confira o token e se o IP do servidor esta liberado no painel do IXC.`,
+          latencyMs,
+        };
+      }
+
+      const envelope = linhasDoIxc(data);
+      if (!envelope.ok) {
+        return {
+          ok: false,
+          message: `Respondeu 200, mas nao no formato do IXC — ${envelope.motivo}. Confirme a URL do servidor IXC.`,
+          latencyMs,
+        };
+      }
+
+      return { ok: true, message: `Conexao OK — IXC Soft (${data.total ?? "?"} clientes)`, latencyMs };
     } catch (err: unknown) {
       const latencyMs = Date.now() - start;
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
@@ -388,20 +454,35 @@ export class IxcConnector implements ErpConnector {
    */
   async fetchCancelledDelinquents(config: ErpConnectionConfig): Promise<ErpFetchResult> {
     try {
-      // 1. Buscar contratos com status I (Inativo) — sem limite de paginas
-      const inativoContracts = await this.listWithFilter(config, "cliente_contrato", [
-        { TB: "cliente_contrato.status", OP: "=", P: "I", C: "AND", G: "" },
-      ], 500, 200).catch(() => [] as any[]);
+      // 1-3. Contratos I (Inativo), N (Negativado) e status_internet FA
+      // (Financeiro em atraso).
+      //
+      // As tres leituras engoliam qualquer erro com `.catch(() => [])`, e com as
+      // tres vazias esta funcao devolvia `ok: true` com lista vazia — o formato
+      // exato da prova negativa: o sync leria "ninguem deve" de uma leitura que
+      // nao aconteceu. Falha isolada ainda passa (uma das tres basta para haver
+      // o que dizer); as tres falhando NAO podem virar resposta positiva.
+      const falhas: string[] = [];
+      const contratosPorStatus = async (filtro: IxcFilter, rotulo: string): Promise<any[]> => {
+        try {
+          return await this.listWithFilter(config, "cliente_contrato", [filtro], 500, 200);
+        } catch (e) {
+          falhas.push(`${rotulo}: ${e instanceof Error ? e.message : e}`);
+          return [];
+        }
+      };
 
-      // 2. Buscar contratos com status N (Negativado)
-      const negativadoContracts = await this.listWithFilter(config, "cliente_contrato", [
-        { TB: "cliente_contrato.status", OP: "=", P: "N", C: "AND", G: "" },
-      ], 500, 200).catch(() => [] as any[]);
+      const inativoContracts = await contratosPorStatus({ TB: "cliente_contrato.status", OP: "=", P: "I", C: "AND", G: "" }, "status I");
+      const negativadoContracts = await contratosPorStatus({ TB: "cliente_contrato.status", OP: "=", P: "N", C: "AND", G: "" }, "status N");
+      const faContracts = await contratosPorStatus({ TB: "cliente_contrato.status_internet", OP: "=", P: "FA", C: "AND", G: "" }, "status_internet FA");
 
-      // 3. Buscar contratos com status_internet FA (Financeiro em atraso)
-      const faContracts = await this.listWithFilter(config, "cliente_contrato", [
-        { TB: "cliente_contrato.status_internet", OP: "=", P: "FA", C: "AND", G: "" },
-      ], 500, 200).catch(() => [] as any[]);
+      if (falhas.length === 3) {
+        return {
+          ok: false,
+          message: `IXC nao respondeu nenhuma das buscas de contrato: ${falhas[0]}`,
+          customers: [],
+        };
+      }
 
       // Mapear id_cliente → info do contrato (status, datas)
       const contractMap = new Map<string, { status: string; statusInternet: string; plan: string; startDate: string; endDate: string; contractId: string }>();
@@ -443,7 +524,12 @@ export class IxcConnector implements ErpConnector {
       try {
         allInvoices = await this.listWithFilter(config, "fn_areceber", [...FATURA_ABERTA], 500, 500);
       } catch (e) {
-        console.log(`[IXC] Bulk fn_areceber falhou: ${e instanceof Error ? e.message : e}`);
+        // Sem as faturas nao ha divida nenhuma para somar, e o retorno seria
+        // "nenhum cancelado com divida" — uma afirmacao que esta leitura nao
+        // pode fazer. Recusa explicita em vez de lista vazia com ok:true.
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(`[IXC] Bulk fn_areceber falhou: ${msg}`);
+        return { ok: false, message: `IXC nao respondeu as faturas em aberto: ${msg}`, customers: [] };
       }
       console.log(`[IXC] fetchCancelledDelinquents: bulk retornou ${allInvoices.length} faturas em ${Math.round((Date.now() - bulkStart) / 1000)}s`);
 

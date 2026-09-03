@@ -40,11 +40,27 @@ const CAMINHOS_REAIS = [
   "/api/ura/clientes/",
 ];
 
-type Rota = (params: URLSearchParams) => { status?: number; corpo?: unknown };
+type Rota = (params: URLSearchParams) => { status?: number; corpo?: unknown; html?: string };
+
+/**
+ * A tela de login do SGP, servida com status 200.
+ *
+ * E o que o servidor devolve quando a URL configurada e o endereco de
+ * redirecionamento do login (`.../accounts/login?next=/admin/`) em vez da
+ * origem. Foi medido em 03/09/2026: 200, text/html, 4751 bytes — e o teste de
+ * conexao dizia "ok".
+ */
+const PAGINA_DE_LOGIN = `<!DOCTYPE html><html lang="pt-br"><head><title>SGP · Login</title></head>
+<body><form action="/accounts/login" method="post"><input name="username"><input name="password" type="password">
+<button>Entrar</button></form></body></html>`;
 
 /**
  * Um SGP de mentira. Recusa qualquer caminho fora da doc — e assim que o teste
  * pega endpoint inventado sem precisar afirmar nada sobre ele.
+ *
+ * Responde com `Response` de verdade, e nao com um objeto de fachada: sem
+ * cabecalho e sem corpo cru nao da para provar o que o conector faz diante de
+ * uma pagina HTML com status 200, que e o caso que abriu este arquivo.
  */
 function servidorSgp(rotas: Record<string, Rota>) {
   const chamadas: Array<{ caminho: string; params: URLSearchParams }> = [];
@@ -57,9 +73,11 @@ function servidorSgp(rotas: Record<string, Rota>) {
     chamadas.push({ caminho, params });
 
     const r = rotas[caminho];
-    if (!r) return { ok: true, status: 200, json: async () => ({}) } as any;
-    const { status = 200, corpo = {} } = r(params);
-    return { ok: status < 400, status, json: async () => corpo } as any;
+    const { status = 200, corpo = {}, html } = r ? r(params) : {};
+    if (typeof html === "string") {
+      return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8" } });
+    }
+    return new Response(JSON.stringify(corpo), { status, headers: { "content-type": "application/json" } });
   });
   return { fetchFake, chamadas };
 }
@@ -318,6 +336,51 @@ describe("SGP · faturas vencidas", () => {
 });
 
 describe("SGP · sincronizacao", () => {
+  /**
+   * O SGP recusa `data_vencimento_fim` sozinho:
+   *   400 {"erro":"[data_vencimento_inicio] obrigatória caso [data_vencimento_fim] informada"}
+   *
+   * O conector mandava so o fim, entao a varredura completa falhava em TODO
+   * provedor com SGP — sempre, desde o primeiro dia. Como nenhum provedor tinha
+   * SGP ligado, ninguem viu. Medido contra o SGP de demonstracao da TSMX em
+   * 03/09/2026; a colecao Postman lista os dois parametros sem dizer que um
+   * exige o outro.
+   */
+  it("manda as DUAS datas — o SGP recusa o fim sozinho", async () => {
+    const { conector, chamadas } = montar({
+      "/api/ura/titulos/": () => ({ corpo: envelopeTitulos([]) }),
+      "/api/ura/listacontrato/": () => ({ corpo: [] }),
+    });
+
+    await conector.fetchDelinquents(CONFIG);
+
+    const p = chamadas.find(c => c.caminho === "/api/ura/titulos/")!.params;
+    expect(p.get("data_vencimento_fim")).toBeTruthy();
+    expect(p.get("data_vencimento_inicio")).toBeTruthy();
+    // A janela tem de comecar antes de qualquer divida que possa existir:
+    // num bureau, calote antigo e justamente o que o provedor vizinho precisa
+    // enxergar. Um inicio recente esconderia inadimplencia de verdade.
+    expect(Number(p.get("data_vencimento_inicio")!.slice(0, 4))).toBeLessThanOrEqual(2000);
+  });
+
+  it("quando o SGP explica a recusa, a explicacao dele chega a tela", async () => {
+    // O corpo do 400 usa a chave `erro`, e nao `detail` como a autenticacao —
+    // ler so `detail` transformava a frase que resolvia o problema num
+    // inutil "SGP respondeu com status 400".
+    const { conector } = montar({
+      "/api/ura/titulos/": () => ({
+        status: 400,
+        corpo: { erro: "[data_vencimento_inicio] obrigatória caso [data_vencimento_fim] informada" },
+      }),
+      "/api/ura/listacontrato/": () => ({ corpo: [] }),
+    });
+
+    const r = await conector.fetchDelinquents(CONFIG);
+
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain("data_vencimento_inicio");
+  });
+
   it("pagina os titulos ate cobrir o total anunciado", async () => {
     const paginas = [
       envelopeTitulos(Array.from({ length: 250 }, (_, i) => titulo(CPF_A, "MARIA", 1, iso(-i - 1))), 400, 0),
@@ -463,5 +526,147 @@ describe("SGP · teste de conexao", () => {
     });
     const r = await conector.testConnection(CONFIG);
     expect(r.ok).toBe(true);
+  });
+
+  it("pagina de login com status 200 nao pode passar por conexao boa", async () => {
+    // O defeito medido: o operador colou a URL de redirecionamento do login, o
+    // SGP devolveu a propria tela de login com 200, e o teste — que olhava so
+    // `response.ok` — respondeu "conexao ok, 216 ms". A integracao foi ligada e
+    // a varredura passou a ler HTML: zero inadimplentes, que o sync le como
+    // prova de que ninguem deve nada.
+    const { conector } = montar({
+      "/api/ura/titulos/": () => ({ html: PAGINA_DE_LOGIN }),
+    });
+
+    const r = await conector.testConnection(CONFIG);
+    expect(r.ok).toBe(false);
+    // O erro esta no endereco, e nao na credencial. Mandar o operador conferir
+    // o token faria ele trocar o que estava certo.
+    expect(r.message).toMatch(/endereco|URL/i);
+    expect(r.message).not.toMatch(/token/i);
+  });
+
+  it("JSON que nao tem a forma da API do SGP tambem reprova", async () => {
+    // Proxy reverso, CDN e dominio parqueado respondem 200 com JSON qualquer.
+    for (const corpo of [{}, { status: "ok" }, { titulos: [] }]) {
+      const { conector } = montar({ "/api/ura/titulos/": () => ({ corpo }) });
+      const r = await conector.testConnection(CONFIG);
+      // `{ titulos: [] }` sem `paginacao` entra na lista de proposito: meia
+      // forma nao prova que quem respondeu foi o SGP.
+      expect(r.ok).toBe(false);
+      expect(r.message).toMatch(/endereco|URL/i);
+    }
+  });
+
+  it("a resposta com paginacao e titulos e o que prova que quem atendeu foi o SGP", async () => {
+    const { conector } = montar({
+      "/api/ura/titulos/": () => ({ corpo: envelopeTitulos([titulo(CPF_A, "MARIA", 90, iso(-3))], 1) }),
+    });
+    const r = await conector.testConnection(CONFIG);
+    expect(r.ok).toBe(true);
+    expect(r.message).toMatch(/SGP/);
+  });
+
+  it("403 de credencial NAO FORNECIDA aponta para o nome do app", async () => {
+    // As duas mensagens abaixo saem do mesmo 403 e mandam o suporte para telas
+    // diferentes. Sem ler o `detail`, a tela dizia a mesma frase nos dois casos
+    // e a duvida entre "app errado" e "token errado" custou meia hora.
+    const { conector } = montar({
+      "/api/ura/titulos/": () => ({ status: 403, corpo: { detail: "As credenciais de autenticação não foram fornecidas." } }),
+    });
+
+    const r = await conector.testConnection(CONFIG);
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/Nome do App/i);
+  });
+
+  it("403 de credencial INCORRETA aponta para o token", async () => {
+    const { conector } = montar({
+      "/api/ura/titulos/": () => ({ status: 403, corpo: { detail: "Credenciais de autenticação incorretas." } }),
+    });
+
+    const r = await conector.testConnection(CONFIG);
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/token/i);
+    expect(r.message).not.toMatch(/Nome do App/i);
+  });
+});
+
+/**
+ * O mesmo engano da URL, agora nas leituras.
+ *
+ * Aqui o estrago e maior que uma mensagem errada: `ok: true` com lista vazia e
+ * lido pelo sync como prova NEGATIVA — quem nao esta na lista tem a divida
+ * baixada. Uma pagina de login lida como "nenhum inadimplente" zeraria a
+ * inadimplencia do provedor inteiro.
+ */
+describe("SGP · resposta que nao e do SGP nas leituras", () => {
+  it("pagina de login na varredura falha, e nunca vira lista vazia", async () => {
+    const { conector } = montar({
+      "/api/ura/titulos/": () => ({ html: PAGINA_DE_LOGIN }),
+      "/api/ura/listacontrato/": () => ({ corpo: [] }),
+    });
+
+    const r = await conector.fetchDelinquents(CONFIG);
+    expect(r.ok).toBe(false);
+    expect(r.customers).toEqual([]);
+    expect(r.message).toMatch(/endereco|URL/i);
+  });
+
+  it("JSON sem os campos do SGP na varredura tambem falha", async () => {
+    const { conector } = montar({
+      "/api/ura/titulos/": () => ({ corpo: { status: "ok" } }),
+      "/api/ura/listacontrato/": () => ({ corpo: [] }),
+    });
+
+    const r = await conector.fetchDelinquents(CONFIG);
+    expect(r.ok).toBe(false);
+  });
+
+  it("pagina de login na consulta ao vivo falha em vez de dizer 'nada consta'", async () => {
+    const { conector } = montar({
+      "/api/ura/consultacliente/": () => ({ html: PAGINA_DE_LOGIN }),
+      "/api/ura/titulos/": () => ({ html: PAGINA_DE_LOGIN }),
+    });
+
+    const r = await conector.fetchCustomerByCpf(CONFIG, CPF_A);
+    // "Cliente nao encontrado" aqui viraria "nada consta" sobre quem deve — o
+    // pior erro possivel num bureau de credito.
+    expect(r.ok).toBe(false);
+    expect(r.customers).toEqual([]);
+  });
+
+  it("consultacliente respondendo JSON de outro sistema nao vira cliente sem contrato", async () => {
+    const { conector } = montar({
+      "/api/ura/consultacliente/": () => ({ corpo: { erro: "rota desconhecida" } }),
+      "/api/ura/titulos/": () => ({ corpo: envelopeTitulos([]) }),
+    });
+
+    const r = await conector.fetchCustomerByCpf(CONFIG, CPF_A);
+    expect(r.ok).toBe(false);
+  });
+
+  it("pagina de login na base de clientes falha, e nao devolve carteira vazia", async () => {
+    const { conector } = montar({
+      "/api/ura/clientes/": () => ({ html: PAGINA_DE_LOGIN }),
+    });
+
+    const r = await conector.fetchCustomers(CONFIG);
+    expect(r.ok).toBe(false);
+    expect(r.customers).toEqual([]);
+  });
+
+  it("cadastro de contratos ilegivel nao derruba a lista de inadimplentes", async () => {
+    const { conector } = montar({
+      "/api/ura/titulos/": () => ({ corpo: envelopeTitulos([titulo(CPF_A, "MARIA", 100, iso(-30))]) }),
+      "/api/ura/listacontrato/": () => ({ html: PAGINA_DE_LOGIN }),
+    });
+
+    const r = await conector.fetchDelinquents(CONFIG);
+    // Status ausente e inofensivo: o anti-fraude so avisa com prova de contrato
+    // ativo. Perder a divida ja lida seria pior.
+    expect(r.ok).toBe(true);
+    expect(r.customers).toHaveLength(1);
+    expect(r.customers[0].contractStatus).toBeUndefined();
   });
 });

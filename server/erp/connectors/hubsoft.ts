@@ -259,6 +259,9 @@ class HubsoftConnector implements ErpConnector {
       );
 
       const records = extractArray(data);
+      if (records === null) {
+        return { ok: false, message: "Hubsoft: formato de resposta inesperado em inadimplentes. Confira a URL da API.", customers: [] };
+      }
       const invoices = records.map((rec: any) => ({
         cpfCnpj: cleanCpfCnpj(String(rec.cpf_cnpj ?? rec.documento ?? "")),
         name: String(rec.nome ?? rec.razao_social ?? rec.cliente ?? ""),
@@ -297,6 +300,9 @@ class HubsoftConnector implements ErpConnector {
       );
 
       const records = extractArray(data);
+      if (records === null) {
+        return { ok: false, message: "Hubsoft: formato de resposta inesperado na consulta por CPF.", customers: [] };
+      }
       const invoices = records
         .filter((rec: any) => {
           const rowCpf = cleanCpfCnpj(String(rec.cpf_cnpj ?? rec.documento ?? ""));
@@ -339,6 +345,9 @@ class HubsoftConnector implements ErpConnector {
       );
 
       const records = extractArray(data);
+      if (records === null) {
+        return { ok: false, message: "Hubsoft: formato de resposta inesperado em clientes. Confira a URL da API.", customers: [] };
+      }
       const customers: NormalizedErpCustomer[] = records.map((rec: any) => ({
         cpfCnpj: cleanCpfCnpj(String(rec.cpf_cnpj ?? rec.documento ?? "")),
         name: String(rec.nome ?? rec.razao_social ?? ""),
@@ -370,8 +379,14 @@ class HubsoftConnector implements ErpConnector {
 /**
  * Extract array from various response shapes.
  * Hubsoft may return { data: [...] }, { registros: [...] }, or plain [...]
+ *
+ * `null` quando a forma NAO e nenhuma dessas. Antes esta funcao devolvia `[]`
+ * nesse caso, e o `{}` de um proxy — ou o corpo de outro sistema — virava
+ * "nenhum inadimplente" com `ok: true`. O sync le a lista de inadimplentes como
+ * prova NEGATIVA: quem nao esta nela tem a divida baixada. Uma forma que nao
+ * reconhecemos nao prova nada, e nao pode passar por lista vazia.
  */
-function extractArray(data: unknown): any[] {
+function extractArray(data: unknown): any[] | null {
   if (Array.isArray(data)) return data;
   if (data && typeof data === "object") {
     const obj = data as Record<string, unknown>;
@@ -380,7 +395,7 @@ function extractArray(data: unknown): any[] {
     if (Array.isArray(obj.results)) return obj.results;
     if (Array.isArray(obj.items)) return obj.items;
   }
-  return [];
+  return null;
 }
 
 // Register connector on import
