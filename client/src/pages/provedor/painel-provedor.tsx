@@ -1683,7 +1683,12 @@ export default function PainelProvedorPage() {
                       const ERP_SETUP_HINTS: Record<string, string> = {
                         ixc: "Configure usuario e token da API IXC (menu Administracao > Tokens API)",
                         mk: "Insira o token JWT do MK Solutions (Configuracoes > API)",
-                        sgp: "Token API do SGP (Configuracoes > Integracao > API)",
+                        // O caminho aqui e o do SGP de verdade: o par token+app
+                        // nasce em Administracao > Integracoes > Tokens, no
+                        // proprio SGP do provedor. "Configuracoes > Integracao >
+                        // API" nao existe la, e mandava o provedor procurar uma
+                        // tela que nunca ia achar.
+                        sgp: "Gere o par em Administracao > Integracoes > Tokens, no seu SGP. Deixe o token ativo e sem restricao de host/rota",
                         hubsoft: "Configure Client ID, Client Secret e credenciais OAuth (Painel Hubsoft > API)",
                         voalle: "Configure usuario de integracao Voalle (Administracao > Integracao)",
                         rbx: "Insira a URL do RouterBox e a Chave de Integracao",
