@@ -3,6 +3,64 @@ import { requireAuth, requireProvider, requireSuperAdmin } from "../auth";
 import { storage } from "../storage";
 import { logger } from "../logger";
 import { getSafeErrorMessage } from "../utils/safe-error";
+import { sendCreditosLiberadosEmail } from "../services/email";
+import { avisarProvedor } from "../services/email-destinatario";
+
+/** O minimo do pedido que o aviso de credito liberado precisa. */
+export interface PedidoLiberado {
+  orderNumber: string;
+  packageName: string;
+  ispCredits: number;
+  amount: string;
+  providerId: number;
+}
+
+/**
+ * Avisa o provedor de que o credito ja esta no saldo.
+ *
+ * TRES caminhos liberam credito — o webhook do Asaas, o botao "sincronizar" e a
+ * liberacao manual do superadmin — e os tres tem que avisar UMA vez so. Por isso
+ * a regra mora aqui, num lugar so, e `financeiro.routes.ts` importa daqui em vez
+ * de repetir: uma segunda copia e o caminho conhecido para o mesmo pagamento
+ * render dois e-mails, ou nenhum.
+ *
+ * QUEM CHAMA SO CHAMA COM `liberadoAgora === true`. Quem decide se houve o que
+ * creditar e `credited_at`, dentro de `releaseCreditOrder`; a reentrega do
+ * webhook devolve false e nao avisa. Esta funcao NAO reavalia essa decisao —
+ * nada aqui pode encostar no dinheiro.
+ *
+ * E nada aqui pode derrubar o chamador: o pagamento ja entrou e o saldo ja subiu
+ * quando o aviso sai. `avisarProvedor` engole a falha de envio; o try/catch cobre
+ * o resto (provedor sumido, banco fora do ar na leitura do saldo).
+ */
+export async function avisarCreditosLiberados(pedido: PedidoLiberado): Promise<void> {
+  try {
+    const provedor = await storage.getProvider(pedido.providerId);
+    if (!provedor) {
+      logger.warn({ pedido: pedido.orderNumber, providerId: pedido.providerId },
+        "[email] Pedido liberado para provedor inexistente: aviso nao enviado");
+      return;
+    }
+    // O saldo e LIDO do provedor depois da liberacao, nunca recalculado a partir
+    // do pedido: e o mesmo numero que ele vai ver no painel.
+    const saldo = provedor.ispCredits ?? 0;
+    await avisarProvedor(provedor, async (para, ctx) => {
+      await sendCreditosLiberadosEmail(para, ctx.nome, {
+        pedido: pedido.orderNumber,
+        pacote: pedido.packageName,
+        // Credito e unico e entra todo em `isp_credits` (ver shared/planos.ts).
+        // E a mesma coluna de onde saiu o saldo acima, entao os dois numeros do
+        // e-mail falam do mesmo bolso.
+        creditos: pedido.ispCredits,
+        valor: parseFloat(pedido.amount),
+        saldo,
+      }, ctx.marca, ctx.urlBase);
+    }, "creditos-liberados");
+  } catch (err: any) {
+    logger.error({ pedido: pedido.orderNumber, err: err?.message },
+      "[email] Falha ao preparar o aviso de creditos liberados");
+  }
+}
 
 /** Formas de cobranca que o Asaas aceita; qualquer outra coisa vira UNDEFINED. */
 const FORMAS_DE_COBRANCA = ["PIX", "BOLETO", "UNDEFINED"] as const;
@@ -214,6 +272,9 @@ export function registerCreditsRoutes(): Router {
     try {
       const id = parseInt(req.params.id);
       const { pedido, liberadoAgora } = await storage.releaseCreditOrder(id);
+      // So quando algo entrou de fato: clicar duas vezes no botao devolve
+      // `liberadoAgora: false` e nao repete o aviso.
+      if (liberadoAgora) await avisarCreditosLiberados(pedido);
       return res.json({
         order: pedido,
         liberadoAgora,
@@ -351,6 +412,9 @@ export function registerCreditsRoutes(): Router {
           });
         }
         const { pedido, liberadoAgora } = await storage.releaseCreditOrder(id);
+        // Mesma trava do botao "liberar": o pedido que ja estava creditado
+        // (sync repetido sobre a mesma cobranca) nao rende um segundo aviso.
+        if (liberadoAgora) await avisarCreditosLiberados(pedido);
         return res.json({
           order: pedido,
           message: liberadoAgora
