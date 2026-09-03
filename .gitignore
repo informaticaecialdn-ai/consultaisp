@@ -6,6 +6,13 @@ vite.config.ts.*
 *.tar.gz
 .claude/worktrees/
 .env
+# Backup de .env NAO era ignorado, e na VPS havia tres deles (.env.bak-*)
+# com 9 segredos cada, dentro do diretorio do repositorio. O remote carrega
+# um token embutido, entao um `git add -A` seguido de push mandaria
+# SESSION_SECRET, DATABASE_URL e as chaves de API para o GitHub. Descoberto
+# em 03/09/2026.
+.env.*
+!.env.example
 
 Consulta-ISP.zip
 *.zip
