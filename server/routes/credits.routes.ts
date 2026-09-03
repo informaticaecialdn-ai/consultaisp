@@ -313,6 +313,7 @@ export function registerCreditsRoutes(): Router {
       const order = await storage.getCreditOrder(id);
       if (!order || !order.asaasChargeId) return res.status(400).json({ message: "Sem cobranca Asaas" });
       const { getCharge, asaasStatusToLocal } = await import("../services/asaas");
+      const { conferirPagamento, anotarRecusa } = await import("../services/asaas-conferencia");
       const charge = await getCharge(order.asaasChargeId);
       const newStatus = asaasStatusToLocal(charge.status);
       const updates: any = { asaasStatus: charge.status, asaasInvoiceUrl: charge.invoiceUrl, asaasBankSlipUrl: charge.bankSlipUrl };
@@ -324,6 +325,31 @@ export function registerCreditsRoutes(): Router {
       // "sincronizar". `releaseCreditOrder` tambem trava sozinho — este teste
       // so evita a chamada inutil.
       if (newStatus === "paid" && !order.creditedAt) {
+        // O status cru da cobranca era a unica coisa exigida aqui, e ele nao
+        // diz de que pedido a cobranca e nem quanto foi pago. Um boleto de
+        // R$ 50 num pedido de R$ 500 — recusado pelo webhook, com a
+        // divergencia escrita nas observacoes — liberava os 500 creditos assim
+        // que o superadmin visse o pedido pendente e clicasse em sincronizar.
+        // As mesmas tres provas do webhook valem aqui.
+        const conferencia = await conferirPagamento(
+          { id: order.asaasChargeId },
+          {
+            referencia: `credit_order_${order.id}`,
+            valorEsperado: parseFloat(order.amount),
+            chargeIdGravado: order.asaasChargeId,
+          },
+        );
+        if (!conferencia.ok) {
+          logger.error({ pedido: order.orderNumber, motivo: conferencia.motivo }, "Sincronizacao manual nao liberou credito");
+          // Indisponibilidade nao vira anotacao: a mensagem muda a cada
+          // tentativa e o superadmin ja le o motivo na tela.
+          const notes = conferencia.indisponivel ? null : anotarRecusa(order.notes, conferencia.motivo);
+          const recusado = await storage.updateCreditOrder(id, { ...updates, ...(notes ? { notes } : {}) });
+          return res.status(conferencia.indisponivel ? 502 : 409).json({
+            order: recusado,
+            message: `Creditos nao liberados: ${conferencia.motivo}`,
+          });
+        }
         const { pedido, liberadoAgora } = await storage.releaseCreditOrder(id);
         return res.json({
           order: pedido,

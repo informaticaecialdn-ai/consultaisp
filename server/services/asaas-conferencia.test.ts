@@ -105,6 +105,66 @@ describe("conferirPagamento", () => {
     expect(asaasMock.getCharge).not.toHaveBeenCalled();
   });
 
+  // Recusar por falta de resposta e recusar por prova sao a mesma palavra e
+  // dois fatos diferentes. Quem chama precisa saber qual foi: sobre a prova,
+  // insistir nao muda nada; sobre a indisponibilidade, insistir e a unica
+  // chance de o pagamento real virar credito.
+  describe("prova contra indisponibilidade", () => {
+    it("timeout de rede e indisponibilidade", async () => {
+      asaasMock.getCharge.mockRejectedValue(new Error("fetch failed"));
+      const r = await conferirPagamento({ id: "pay_1" }, pedido);
+      expect(r).toMatchObject({ ok: false, indisponivel: true });
+    });
+
+    it("5xx do Asaas e indisponibilidade", async () => {
+      asaasMock.getCharge.mockRejectedValue(Object.assign(new Error("Erro Asaas: 502"), { status: 502 }));
+      const r = await conferirPagamento({ id: "pay_1" }, pedido);
+      expect(r).toMatchObject({ ok: false, indisponivel: true });
+    });
+
+    it("429 e 408 sao 'tente de novo', nao prova", async () => {
+      for (const status of [408, 429]) {
+        asaasMock.getCharge.mockRejectedValue(Object.assign(new Error(`Erro Asaas: ${status}`), { status }));
+        const r = await conferirPagamento({ id: "pay_1" }, pedido);
+        expect(r).toMatchObject({ ok: false, indisponivel: true });
+      }
+    });
+
+    it("chave ausente e indisponibilidade — o pagamento pode ser real", async () => {
+      asaasMock.isAsaasConfigured.mockReturnValue(false);
+      const r = await conferirPagamento({ id: "pay_1" }, pedido);
+      expect(r).toMatchObject({ ok: false, indisponivel: true });
+    });
+
+    it("4xx que nao e retentavel e resposta do Asaas, nao indisponibilidade", async () => {
+      asaasMock.getCharge.mockRejectedValue(Object.assign(new Error("cobranca nao encontrada"), { status: 404 }));
+      const r = await conferirPagamento({ id: "pay_1" }, pedido);
+      expect(r.ok).toBe(false);
+      expect((r as any).indisponivel).toBeUndefined();
+    });
+
+    it("valor a menor e prova, nao indisponibilidade", async () => {
+      asaasMock.getCharge.mockResolvedValue({ ...cobrancaBoa, value: 1 });
+      const r = await conferirPagamento({ id: "pay_1" }, pedido);
+      expect(r.ok).toBe(false);
+      expect((r as any).indisponivel).toBeUndefined();
+    });
+
+    it("referencia de outro pedido e prova, nao indisponibilidade", async () => {
+      asaasMock.getCharge.mockResolvedValue({ ...cobrancaBoa, externalReference: "credit_order_99" });
+      const r = await conferirPagamento({ id: "pay_1" }, pedido);
+      expect(r.ok).toBe(false);
+      expect((r as any).indisponivel).toBeUndefined();
+    });
+
+    it("cobranca nao paga e prova, nao indisponibilidade", async () => {
+      asaasMock.getCharge.mockResolvedValue({ ...cobrancaBoa, status: "PENDING" });
+      const r = await conferirPagamento({ id: "pay_1" }, pedido);
+      expect(r.ok).toBe(false);
+      expect((r as any).indisponivel).toBeUndefined();
+    });
+  });
+
   it("aceita pagamento a maior e tolera o centavo do ponto flutuante", async () => {
     asaasMock.getCharge.mockResolvedValue({ ...cobrancaBoa, value: 199.9 });
     const r = await conferirPagamento({ id: "pay_1" }, { ...pedido, valorEsperado: parseFloat("199.90") });

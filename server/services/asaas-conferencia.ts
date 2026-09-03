@@ -28,7 +28,12 @@ import { getCharge, isAsaasConfigured, asaasStatusToLocal } from "./asaas";
  *
  * Falha de rede, Asaas fora do ar ou chave ausente tambem recusam: nao liberar
  * um pagamento verdadeiro custa uma retentativa do Asaas; liberar um falso
- * custa credito.
+ * custa credito. Mas essa recusa e de outra natureza, e vem marcada com
+ * `indisponivel`: nao ha prova contra o pagamento, so ausencia de resposta.
+ * Quem chama tem que pedir reentrega (webhook: 500) em vez de dar o evento por
+ * resolvido — senao o provedor paga R$ 500 num instante em que o Asaas esta
+ * fora do ar, o webhook responde 200, o Asaas nunca reenvia e o credito nunca
+ * entra.
  */
 
 export interface PedidoConferido {
@@ -53,10 +58,35 @@ export type Conferencia =
        */
       avisoIdDivergente?: string;
     }
-  | { ok: false; motivo: string };
+  | {
+      ok: false;
+      motivo: string;
+      /**
+       * A recusa nao e uma prova contra o pagamento: o Asaas nao respondeu
+       * (rede, 5xx, chave ausente) e continua sem se saber se o dinheiro
+       * entrou. Ausente nas recusas por prova — referencia de outro pedido,
+       * cobranca nao paga, valor a menor —, onde a resposta do Asaas ja
+       * fechou a questao e insistir nao muda nada.
+       */
+      indisponivel?: boolean;
+    };
 
 /** Centavo de tolerancia: `parseFloat("199.90")` nao e exato em ponto flutuante. */
 const TOLERANCIA_REAIS = 0.005;
+
+/**
+ * Uma falha ao reconsultar so e definitiva quando o Asaas de fato respondeu.
+ * Sem status (timeout, DNS, conexao cortada, corpo que nao e JSON) ninguem
+ * falou nada: e indisponibilidade. Do lado do que respondeu, 5xx e o Asaas
+ * quebrado, e 408/429 sao literalmente "tente de novo"; o resto do 4xx e
+ * resposta com conteudo — cobranca inexistente, chave sem permissao — e
+ * insistir devolve o mesmo erro para sempre.
+ */
+function ehIndisponibilidade(err: unknown): boolean {
+  const status = Number((err as { status?: unknown } | null)?.status);
+  if (!Number.isInteger(status) || status <= 0) return true;
+  return status >= 500 || status === 408 || status === 429;
+}
 
 export async function conferirPagamento(
   paymentDoWebhook: { id?: string; value?: unknown },
@@ -66,14 +96,18 @@ export async function conferirPagamento(
   if (!chargeId) return { ok: false, motivo: "webhook sem id de cobranca" };
 
   if (!isAsaasConfigured()) {
-    return { ok: false, motivo: "Asaas nao configurado: sem como reconsultar a cobranca" };
+    return { ok: false, indisponivel: true, motivo: "Asaas nao configurado: sem como reconsultar a cobranca" };
   }
 
   let cobranca;
   try {
     cobranca = await getCharge(chargeId);
   } catch (err: any) {
-    return { ok: false, motivo: `falha ao reconsultar a cobranca ${chargeId}: ${err?.message ?? "erro desconhecido"}` };
+    return {
+      ok: false,
+      ...(ehIndisponibilidade(err) ? { indisponivel: true } : {}),
+      motivo: `falha ao reconsultar a cobranca ${chargeId}: ${err?.message ?? "erro desconhecido"}`,
+    };
   }
 
   if (cobranca?.externalReference !== pedido.referencia) {

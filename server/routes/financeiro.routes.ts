@@ -80,6 +80,7 @@ export function registerFinanceiroRoutes(): Router {
       if (!invoice.asaasChargeId) return res.status(400).json({ message: "Fatura sem cobranca Asaas" });
 
       const { getCharge, asaasStatusToLocal } = await import("../services/asaas");
+      const { conferirPagamento, anotarRecusa } = await import("../services/asaas-conferencia");
       const charge = await getCharge(invoice.asaasChargeId);
       const newStatus = asaasStatusToLocal(charge.status);
 
@@ -87,11 +88,41 @@ export function registerFinanceiroRoutes(): Router {
         asaasStatus: charge.status,
         asaasInvoiceUrl: charge.invoiceUrl || invoice.asaasInvoiceUrl,
         asaasBankSlipUrl: charge.bankSlipUrl || invoice.asaasBankSlipUrl,
-        status: newStatus,
       };
-      if (newStatus === "paid" && charge.paymentDate) {
-        updateData.paidDate = new Date(charge.paymentDate);
-        updateData.paidAmount = String(charge.value);
+
+      if (newStatus === "paid") {
+        // O status cru da cobranca nao prova que ela e desta fatura nem que
+        // cobre o valor devido. Sem esta conferencia, um boleto pago a menor
+        // que o webhook recusou virava fatura quitada por um clique em
+        // "sincronizar" — a tela mostra pendente e o superadmin fecha a mao.
+        const conferencia = await conferirPagamento(
+          { id: invoice.asaasChargeId },
+          {
+            referencia: `invoice_${invoice.id}`,
+            valorEsperado: parseFloat(invoice.amount),
+            chargeIdGravado: invoice.asaasChargeId,
+          },
+        );
+        if (!conferencia.ok) {
+          logger.error({ invoiceId: id, fatura: invoice.invoiceNumber, motivo: conferencia.motivo },
+            "Sincronizacao manual nao deu a fatura por paga");
+          const notes = conferencia.indisponivel ? null : anotarRecusa(invoice.notes, conferencia.motivo);
+          await storage.updateProviderInvoiceAsaas(id, { ...updateData, ...(notes ? { notes } : {}) });
+          return res.status(conferencia.indisponivel ? 502 : 409).json({
+            message: `Fatura nao foi marcada como paga: ${conferencia.motivo}`,
+          });
+        }
+        updateData.status = "paid";
+        updateData.paidDate = charge.paymentDate ? new Date(charge.paymentDate) : new Date();
+        updateData.paidAmount = conferencia.valorPago.toFixed(2);
+      } else if (invoice.status === "paid" || invoice.paidDate) {
+        // Mesma trava do webhook: um status nao-pago (chargeback pedido,
+        // OVERDUE antigo) so registra o lado do Asaas; a fatura ja paga
+        // continua paga.
+        logger.warn({ invoiceId: id, fatura: invoice.invoiceNumber, asaasStatus: charge.status },
+          "Sincronizacao com status não-pago para fatura já paga: status local preservado");
+      } else {
+        updateData.status = newStatus;
       }
 
       const updated = await storage.updateProviderInvoiceAsaas(id, updateData);
@@ -199,6 +230,17 @@ export function registerFinanceiroRoutes(): Router {
           chargeIdGravado: order.asaasChargeId,
         });
         if (!conferencia.ok) {
+          // Recusa sem prova: o Asaas nao respondeu. Responder 200 aqui era
+          // perda de dinheiro — para o Asaas, 200 significa "entregue, nao
+          // reenvie", e o PIX de R$ 500 pago no minuto em que a API caiu nunca
+          // virava credito, porque ninguem reprocessa. 500 poe o evento de
+          // volta na fila. Nada e anotado: a mensagem muda a cada tentativa
+          // (timeout, 502, 503) e encheria as observacoes de ruido.
+          if (conferencia.indisponivel) {
+            logger.error({ orderId, pedido: order.orderNumber, motivo: conferencia.motivo },
+              "Webhook Asaas sem resposta do Asaas — devolvendo 500 para reentregar");
+            return res.status(500).json({ ok: false });
+          }
           logger.error({ orderId, pedido: order.orderNumber, motivo: conferencia.motivo }, "Webhook Asaas não liberou crédito");
           const notes = anotarRecusa(order.notes, conferencia.motivo);
           if (notes) await storage.updateCreditOrder(orderId, { notes });
@@ -229,6 +271,19 @@ export function registerFinanceiroRoutes(): Router {
       }
 
       if (newStatus !== "paid") {
+        // Mesma trava do ramo de pedido: fatura ja paga nao volta a pendente.
+        // `asaasStatusToLocal` devolve "pending" para todo status fora do mapa
+        // (CHARGEBACK_REQUESTED, AWAITING_RISK_ANALYSIS), e o botao "reenviar
+        // evento" do painel do Asaas reenvia PAYMENT_OVERDUE antigo. Sem isto,
+        // uma fatura com `paidDate` preenchida reaparecia como vencida e o
+        // provedor era cobrado de novo por algo que ja pagou. Estorno e
+        // chargeback sao lancamento a parte, nao rebaixamento silencioso.
+        if (invoice.status === "paid" || invoice.paidDate) {
+          logger.warn({ invoiceId, fatura: invoice.invoiceNumber, asaasStatus: payment.status },
+            "Evento não-pago para fatura já paga: status local preservado");
+          await storage.updateProviderInvoiceAsaas(invoiceId, { asaasStatus: payment.status });
+          return res.json({ ok: true });
+        }
         await storage.updateProviderInvoiceAsaas(invoiceId, { asaasStatus: payment.status, status: newStatus });
         return res.json({ ok: true });
       }
@@ -239,6 +294,14 @@ export function registerFinanceiroRoutes(): Router {
         chargeIdGravado: invoice.asaasChargeId,
       });
       if (!conferencia.ok) {
+        // Ver o ramo do pedido: sem resposta do Asaas nao ha prova nenhuma, e
+        // 200 encerraria a fila de reentrega sobre um pagamento que pode ser
+        // real.
+        if (conferencia.indisponivel) {
+          logger.error({ invoiceId, fatura: invoice.invoiceNumber, motivo: conferencia.motivo },
+            "Webhook Asaas sem resposta do Asaas — devolvendo 500 para reentregar");
+          return res.status(500).json({ ok: false });
+        }
         logger.error({ invoiceId, fatura: invoice.invoiceNumber, motivo: conferencia.motivo }, "Webhook Asaas não deu a fatura por paga");
         const notes = anotarRecusa(invoice.notes, conferencia.motivo);
         if (notes) await storage.updateProviderInvoiceAsaas(invoiceId, { notes });
