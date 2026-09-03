@@ -183,11 +183,18 @@ async function send(to: string, subject: string, html: string, marca: MarcaResol
 
 // ── Email Functions ──────────────────────────────────────────────────────────
 
+/**
+ * `urlBase` existe porque a base da MARCA nem sempre e um endereco onde o
+ * destinatario consegue entrar: sem dominio proprio ativo, `urlDaMarca` cai na
+ * raiz da plataforma, e la o login e recusado por desenho. Quem sabe o
+ * endereco certo e quem conhece o provedor — ver `urlDeEntrada`.
+ */
 export async function sendVerificationEmail(
   to: string, name: string, token: string, marca: MarcaResolvida = MARCA_PLATAFORMA,
+  urlBase?: string,
 ): Promise<void> {
   const nomeProduto = esc(marca.nomeProduto);
-  const verifyUrl = `${urlDaMarca(marca)}/verificar-email?token=${token}`;
+  const verifyUrl = `${urlBase || urlDaMarca(marca)}/verificar-email?token=${token}`;
   const html = emailTemplate(`
     <h2 style="color:${INK};font-size:20px;font-weight:700;margin:0 0 8px;">Confirme seu email</h2>
     <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0 0 4px;">
@@ -203,10 +210,12 @@ export async function sendVerificationEmail(
   await send(to, `Confirme seu cadastro — ${marca.nomeProduto}`, html, marca);
 }
 
+/** `urlBase`: mesma razao do e-mail de verificacao, logo acima. */
 export async function sendPasswordResetEmail(
   to: string, name: string, token: string, marca: MarcaResolvida = MARCA_PLATAFORMA,
+  urlBase?: string,
 ): Promise<void> {
-  const resetUrl = `${urlDaMarca(marca)}/login?reset=${token}`;
+  const resetUrl = `${urlBase || urlDaMarca(marca)}/login?reset=${token}`;
   const html = emailTemplate(`
     <h2 style="color:${INK};font-size:20px;font-weight:700;margin:0 0 8px;">Redefinir senha</h2>
     <p style="color:${MUTED};font-size:14px;line-height:1.6;margin:0 0 4px;">

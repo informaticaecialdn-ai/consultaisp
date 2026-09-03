@@ -20,7 +20,7 @@
  * pm2 unico, entao nao ha segunda copia para divergir.
  */
 import { storage } from "../storage";
-import { MAIN_DOMAIN, extractSubdomainFromHost } from "../tenant";
+import { MAIN_DOMAIN, extractSubdomainFromHost, buildSubdomainUrl } from "../tenant";
 import { normalizarHost } from "../storage/marcas.storage";
 import { paletaClara, paletaEscura, corValida, type Paleta } from "../utils/marca-cores";
 import type { Marca } from "@shared/schema";
@@ -111,9 +111,21 @@ const HOSTNAME = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}
 
 const cache = new Map<string, { valor: MarcaResolvida; expira: number }>();
 
+/**
+ * Segundo cache, chaveado pelo ID da marca.
+ *
+ * Nao da para reaproveitar o de host: a mesma marca e alcancada por host (quem
+ * navega) e por id (e-mail disparado pelo worker, prova de host do revendedor),
+ * e ha marca sem dominio nenhum — ela nao tem chave no primeiro mapa.
+ *
+ * A chave aqui vem do banco, nao do cliente, entao o teto e so higiene.
+ */
+const cachePorId = new Map<number, { valor: MarcaResolvida; expira: number }>();
+
 /** Chamar sempre que uma marca for gravada, apagada ou revinculada. */
 export function esquecerMarcas(): void {
   cache.clear();
+  cachePorId.clear();
 }
 
 export async function resolverMarcaPorHost(hostBruto: string | undefined): Promise<MarcaResolvida> {
@@ -218,19 +230,74 @@ export async function resolverMarcaPorProviderId(providerId: number | null | und
   if (!providerId) return MARCA_PLATAFORMA;
   try {
     const provider = await storage.getProvider(providerId);
-    if (!provider?.marcaId) return MARCA_PLATAFORMA;
-    const marca = await storage.getMarca(provider.marcaId);
-    if (!marca?.ativo) return MARCA_PLATAFORMA;
-    return montar(marca, "dominio-proprio");
+    return await resolverMarcaPorId(provider?.marcaId);
   } catch {
     return MARCA_PLATAFORMA;
   }
+}
+
+/**
+ * A marca pelo ID, sem host e sem provedor.
+ *
+ * E o caminho de quem JA sabe de qual marca esta falando: o e-mail que precisa
+ * sair com a marca do provedor dono da conta (nao com a do host de onde o
+ * pedido veio) e, na fase 1, a sessao do revendedor.
+ *
+ * Marca inativa devolve a plataforma de proposito — desligar a marca tem de
+ * derrubar a pele em todo lugar, inclusive fora de requisicao.
+ */
+export async function resolverMarcaPorId(marcaId: number | null | undefined): Promise<MarcaResolvida> {
+  if (!marcaId || !Number.isInteger(marcaId) || marcaId <= 0) return MARCA_PLATAFORMA;
+
+  const emCache = cachePorId.get(marcaId);
+  if (emCache && emCache.expira > Date.now()) return emCache.valor;
+
+  let resolvida: MarcaResolvida;
+  try {
+    const marca = await storage.getMarca(marcaId);
+    resolvida = marca?.ativo ? montar(marca, "dominio-proprio") : MARCA_PLATAFORMA;
+  } catch {
+    // Banco fora do ar nao vira linha de cache: senao um blip de conexao
+    // apagaria a marca por cinco minutos.
+    return MARCA_PLATAFORMA;
+  }
+
+  if (cachePorId.size >= TETO_CACHE) {
+    const maisAntiga = cachePorId.keys().next().value;
+    if (maisAntiga !== undefined) cachePorId.delete(maisAntiga);
+  }
+  cachePorId.set(marcaId, { valor: resolvida, expira: Date.now() + TTL_MS });
+  return resolvida;
 }
 
 /** Base absoluta dos links que a marca manda por e-mail. */
 export function urlDaMarca(marca: MarcaResolvida): string {
   if (marca.dominio && marca.dominioAtivo && marca.marcaId) return `https://${marca.dominio}`;
   return process.env.APP_URL || `https://${MAIN_DOMAIN}`;
+}
+
+/**
+ * O endereco por onde ESTE provedor consegue entrar.
+ *
+ * Nao e a mesma coisa que `urlDaMarca`. Sem dominio de marca ativo aquela cai
+ * na RAIZ da plataforma — e a raiz e justamente onde `hostPertenceAoProvider`
+ * recusa o login. O e-mail de verificacao e o de "esqueci minha senha" levavam
+ * o usuario para uma tela que responde "Email ou senha incorretos" sem dizer
+ * por que.
+ *
+ * Ordem: dominio da marca quando ativo (o endereco que o cliente do revendedor
+ * conhece), senao o subdominio do provedor. Sem nenhum dos dois nao existe
+ * endereco valido — devolve a base da marca so para o link nao sair quebrado, e
+ * esse provedor precisa de cadastro antes de conseguir logar.
+ */
+export function urlDeEntrada(
+  provider: { subdomain?: string | null } | null | undefined,
+  marca: MarcaResolvida,
+): string {
+  if (marca.marcaId && marca.dominio && marca.dominioAtivo) return `https://${marca.dominio}`;
+  const sub = provider?.subdomain?.trim();
+  if (sub) return buildSubdomainUrl(sub);
+  return urlDaMarca(marca);
 }
 
 /**
@@ -272,4 +339,42 @@ export async function hostPertenceAoProvider(
   }
 
   return false;
+}
+
+/**
+ * O host da requisicao prova que quem loga responde por ESTA marca?
+ *
+ * Irma de `hostPertenceAoProvider`, para o outro papel: o revendedor. A regra e
+ * mais estreita de proposito, e cada recusa tem motivo proprio.
+ *
+ *   dominio proprio da marca pedida  -> ACEITA (e o unico caminho)
+ *   dominio de outra marca           -> recusa: cross-tenant, o caso grave
+ *   marca inativa                    -> recusa: desligar a marca desliga o acesso
+ *   dominio ainda pendente de HTTPS  -> recusa: sem certificado a sessao viaja
+ *                                       em claro, e o superadmin so cria o
+ *                                       usuario revendedor depois do HTTPS
+ *   subdominio de provedor da marca  -> recusa: a sessao do revendedor nao nasce
+ *                                       presa ao endereco de um CLIENTE dele
+ *   raiz e www da plataforma         -> recusa: la quem manda e a plataforma
+ *   host desconhecido                -> recusa
+ *
+ * Fail-closed em toda ausencia: sem marcaId nao ha o que provar. Nao ha ramo
+ * que devolva true por nao ter conseguido decidir.
+ */
+export async function hostPertenceAMarca(
+  hostBruto: string | undefined,
+  marcaId: number | null | undefined,
+): Promise<boolean> {
+  if (!marcaId || !Number.isInteger(marcaId) || marcaId <= 0) return false;
+
+  const host = normalizarHost(hostBruto);
+  if (!host) return false;
+  if (ehHostDeDesenvolvimento(host)) return true;
+
+  const marca = await resolverMarcaPorHost(host);
+  // `resolverMarcaPorHost` so devolve "dominio-proprio" para marca ATIVA; as
+  // demais origens ja cobrem raiz, www, subdominio e host desconhecido.
+  if (marca.origem !== "dominio-proprio") return false;
+  if (marca.marcaId !== marcaId) return false;
+  return marca.dominioAtivo;
 }

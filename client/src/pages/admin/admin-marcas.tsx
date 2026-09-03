@@ -12,9 +12,18 @@
  *     um cliente reclamar que o link some no fundo;
  *  2. o domínio nasce PENDENTE e só um humano confirma. A aplicação não emite
  *     certificado, então não pode afirmar que o domínio responde em HTTPS.
+ *
+ * ── POR QUE O PATCH É PARCIAL ──────────────────────────────────────────────
+ *
+ * O formulário nasce da LISTA, que não carrega logo, favicon, WhatsApp nem nome
+ * de exibição do e-mail — a listagem os corta de propósito, para não trafegar
+ * três SVGs por linha. Enviando o formulário inteiro, esses campos saíam vazios
+ * e o servidor os gravava como nulos: abrir a edição para corrigir um telefone
+ * apagava o logo do revendedor. Agora só o que MUDOU é enviado, e o que o
+ * formulário não mostra ele também não toca.
  */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,6 +32,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { corpoParcial } from "./marca-form";
 import {
   Palette, Plus, Globe, ShieldCheck, AlertTriangle, Trash2,
   Link2, Upload, Check, X, Image as ImageIcon,
@@ -52,6 +62,19 @@ function slugificar(nome: string): string {
     .replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-").replace(/-+/g, "-").slice(0, 40);
 }
 
+/**
+ * Diz se o arquivo já está gravado. Sem isto o campo de upload aparece vazio
+ * numa marca que TEM logo, e o operador não sabe se ele existe — nem que deixar
+ * o campo em branco agora o preserva.
+ */
+function ArquivoAtual({ presente }: { presente: boolean }) {
+  return (
+    <p className="text-[11px] text-[var(--text-muted)] mt-1">
+      {presente ? "já enviado — escolher outro substitui" : "nenhum enviado"}
+    </p>
+  );
+}
+
 function Amostra({ cor, nome }: { cor: string; nome: string }) {
   return (
     <div className="flex flex-col items-center gap-1">
@@ -66,6 +89,10 @@ export default function AdminMarcasPage() {
   const qc = useQueryClient();
   const [editando, setEditando] = useState<number | "nova" | null>(null);
   const [form, setForm] = useState<Record<string, string>>({ ...VAZIA });
+  /** O que o servidor tem hoje. O PATCH é a diferença entre `form` e isto. */
+  const [original, setOriginal] = useState<Record<string, string>>({ ...VAZIA });
+  /** Qual marca já foi preenchida com o detalhe — para não sobrescrever digitação. */
+  const hidratada = useRef<number | null>(null);
 
   const { data: marcas = [], isLoading } = useQuery<MarcaLista[]>({ queryKey: ["/api/admin/marcas"] });
   const { data: detalhe } = useQuery<any>({
@@ -84,16 +111,30 @@ export default function AdminMarcasPage() {
 
   const salvar = useMutation({
     mutationFn: async () => {
-      const corpo: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(form)) corpo[k] = v === "" ? null : v;
-      corpo.slug = form.slug || slugificar(form.nomeProduto);
-      corpo.corBrand = form.corBrand;   // obrigatório: nunca vai como null
-      if (editando === "nova") return apiRequest("POST", "/api/admin/marcas", corpo);
-      return apiRequest("PATCH", `/api/admin/marcas/${editando}`, corpo);
+      if (editando === "nova") {
+        const corpo: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(form)) corpo[k] = v === "" ? null : v;
+        corpo.slug = form.slug || slugificar(form.nomeProduto);
+        corpo.corBrand = form.corBrand;   // obrigatório: nunca vai como null
+        return apiRequest("POST", "/api/admin/marcas", corpo);
+      }
+
+      // Só o que mudou. Campo que o formulário não carregou fica de fora e o
+      // servidor o preserva — ver a nota no topo do arquivo e marca-form.ts.
+      const corpo = corpoParcial(form, original);
+      // Corpo vazio não é PATCH: o servidor responde 400 ("Nada a alterar"), e
+      // aqui isso é só um aviso — não vale trocar o "Salvar" por um erro.
+      if (Object.keys(corpo).length === 0) return "sem-mudanca";
+      await apiRequest("PATCH", `/api/admin/marcas/${editando}`, corpo);
+      return "salvo";
     },
-    onSuccess: () => {
-      toast({ title: editando === "nova" ? "Marca criada" : "Marca atualizada" });
-      setEditando(null); setForm({ ...VAZIA }); invalidar();
+    onSuccess: (resultado) => {
+      toast({
+        title: resultado === "sem-mudanca" ? "Nada mudou"
+          : editando === "nova" ? "Marca criada" : "Marca atualizada",
+      });
+      setEditando(null); setForm({ ...VAZIA }); setOriginal({ ...VAZIA });
+      hidratada.current = null; invalidar();
     },
     onError: (e: any) => toast({ title: "Não foi possível salvar", description: e.message, variant: "destructive" }),
   });
@@ -118,13 +159,58 @@ export default function AdminMarcasPage() {
 
   function abrirEdicao(m: MarcaLista) {
     setEditando(m.id);
-    setForm({
+    hidratada.current = null;
+    // A lista não tem tudo; o resto chega pelo detalhe, no efeito abaixo.
+    const daLista = {
       ...VAZIA, slug: m.slug, nomeProduto: m.nomeProduto, assinatura: m.assinatura ?? "",
       dominio: m.dominio ?? "", corBrand: m.corBrand, corBrandDark: m.corBrandDark ?? "",
       suporteEmail: m.suporteEmail ?? "", site: m.site ?? "", emailRemetente: m.emailRemetente ?? "",
       responsavelRazaoSocial: m.responsavelRazaoSocial ?? "", responsavelCnpj: m.responsavelCnpj ?? "",
-    });
+    };
+    setForm(daLista);
+    setOriginal(daLista);
   }
+
+  function fecharEdicao() {
+    setEditando(null);
+    setForm({ ...VAZIA });
+    setOriginal({ ...VAZIA });
+    hidratada.current = null;
+  }
+
+  /**
+   * Completa o formulário com o que só o detalhe traz — WhatsApp de suporte e
+   * nome de exibição do e-mail. Roda uma vez por marca aberta: sem a trava, a
+   * resposta chegando depois do primeiro caractere digitado desfaria a edição.
+   *
+   * Os arquivos (logo, favicon) NÃO entram no formulário. Eles ficam vazios até
+   * o operador escolher um arquivo novo, e por isso não aparecem no diff — que
+   * é justamente o que os preserva.
+   */
+  useEffect(() => {
+    if (typeof editando !== "number" || !detalhe || detalhe.id !== editando) return;
+    if (hidratada.current === editando) return;
+    hidratada.current = editando;
+
+    const doServidor: Record<string, string> = {
+      ...VAZIA,
+      slug: detalhe.slug ?? "",
+      nomeProduto: detalhe.nomeProduto ?? "",
+      assinatura: detalhe.assinatura ?? "",
+      dominio: detalhe.dominio ?? "",
+      corBrand: detalhe.corBrand || VAZIA.corBrand,
+      corBrandDark: detalhe.corBrandDark ?? "",
+      suporteEmail: detalhe.suporteEmail ?? "",
+      suporteWhatsapp: detalhe.suporteWhatsapp ?? "",
+      site: detalhe.site ?? "",
+      emailRemetente: detalhe.emailRemetente ?? "",
+      emailNomeExibicao: detalhe.emailNomeExibicao ?? "",
+      responsavelRazaoSocial: detalhe.responsavelRazaoSocial ?? "",
+      responsavelCnpj: detalhe.responsavelCnpj ?? "",
+    };
+    setOriginal(doServidor);
+    setForm(f => ({ ...doServidor, logoSvg: f.logoSvg, logoPng: f.logoPng, faviconSvg: f.faviconSvg }));
+  }, [detalhe, editando]);
 
   /** Lê o arquivo escolhido: SVG vira texto, PNG vira data URI. */
   function carregarArquivo(arquivo: File, campo: "logoSvg" | "logoPng" | "faviconSvg") {
@@ -155,7 +241,7 @@ export default function AdminMarcasPage() {
             colaborativa — a marca muda o que o cliente vê, não o que o sistema consulta.
           </p>
         </div>
-        <Button onClick={() => { setEditando("nova"); setForm({ ...VAZIA }); }} data-testid="button-nova-marca">
+        <Button onClick={() => { fecharEdicao(); setEditando("nova"); }} data-testid="button-nova-marca">
           <Plus className="w-4 h-4 mr-1.5" /> Nova marca
         </Button>
       </header>
@@ -238,7 +324,7 @@ export default function AdminMarcasPage() {
             <h2 className="font-semibold text-[var(--text)]">
               {editando === "nova" ? "Nova marca" : `Editando ${form.nomeProduto}`}
             </h2>
-            <Button size="sm" variant="ghost" onClick={() => { setEditando(null); setForm({ ...VAZIA }); }}>
+            <Button size="sm" variant="ghost" onClick={fecharEdicao}>
               <X className="w-4 h-4" />
             </Button>
           </div>
@@ -321,18 +407,26 @@ export default function AdminMarcasPage() {
               <Label>Logo SVG</Label>
               <Input type="file" accept=".svg,image/svg+xml"
                      onChange={e => e.target.files?.[0] && carregarArquivo(e.target.files[0], "logoSvg")} />
-              {form.logoSvg && <p className="text-[11px] text-[var(--ok)] mt-1 inline-flex items-center gap-1"><Check className="w-3 h-3" />carregado</p>}
+              {form.logoSvg
+                ? <p className="text-[11px] text-[var(--ok)] mt-1 inline-flex items-center gap-1"><Check className="w-3 h-3" />carregado</p>
+                : <ArquivoAtual presente={Boolean(detalhe?.logoSvg)} />}
             </div>
             <div>
               <Label>Logo PNG</Label>
               <Input type="file" accept="image/png"
                      onChange={e => e.target.files?.[0] && carregarArquivo(e.target.files[0], "logoPng")} />
+              {form.logoPng
+                ? <p className="text-[11px] text-[var(--ok)] mt-1 inline-flex items-center gap-1"><Check className="w-3 h-3" />carregado</p>
+                : <ArquivoAtual presente={Boolean(detalhe?.logoPng)} />}
               <p className="text-[11px] text-[var(--text-muted)] mt-1">Não acompanha o tema escuro.</p>
             </div>
             <div>
               <Label>Favicon SVG</Label>
               <Input type="file" accept=".svg,image/svg+xml"
                      onChange={e => e.target.files?.[0] && carregarArquivo(e.target.files[0], "faviconSvg")} />
+              {form.faviconSvg
+                ? <p className="text-[11px] text-[var(--ok)] mt-1 inline-flex items-center gap-1"><Check className="w-3 h-3" />carregado</p>
+                : <ArquivoAtual presente={Boolean(detalhe?.faviconSvg)} />}
             </div>
           </section>
 
@@ -377,6 +471,11 @@ export default function AdminMarcasPage() {
               <Input value={form.suporteEmail} onChange={e => setForm(f => ({ ...f, suporteEmail: e.target.value }))} />
             </div>
             <div>
+              <Label>WhatsApp de suporte</Label>
+              <Input value={form.suporteWhatsapp} placeholder="5531999998888"
+                     onChange={e => setForm(f => ({ ...f, suporteWhatsapp: e.target.value }))} />
+            </div>
+            <div>
               <Label>Site</Label>
               <Input value={form.site} placeholder="https://crednet.com.br"
                      onChange={e => setForm(f => ({ ...f, site: e.target.value }))} />
@@ -390,13 +489,21 @@ export default function AdminMarcasPage() {
                 plataforma com o nome da marca.
               </p>
             </div>
+            <div>
+              <Label>Nome de exibição do e-mail</Label>
+              <Input value={form.emailNomeExibicao} placeholder="CredNet"
+                     onChange={e => setForm(f => ({ ...f, emailNomeExibicao: e.target.value }))} />
+              <p className="text-[11px] text-[var(--text-muted)] mt-1">
+                Vazio = o nome do produto.
+              </p>
+            </div>
           </section>
 
           <div className="flex gap-2 pt-1">
             <Button onClick={() => salvar.mutate()} disabled={salvar.isPending || !form.nomeProduto}>
               {salvar.isPending ? "Salvando…" : "Salvar marca"}
             </Button>
-            <Button variant="ghost" onClick={() => { setEditando(null); setForm({ ...VAZIA }); }}>Cancelar</Button>
+            <Button variant="ghost" onClick={fecharEdicao}>Cancelar</Button>
           </div>
 
           {/* Provedores vinculados */}

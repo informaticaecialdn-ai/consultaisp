@@ -13,15 +13,20 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const getMarcaPorSubdominio = vi.fn();
 const getMarcaPorDominio = vi.fn();
+const getMarca = vi.fn();
 
 vi.mock("../storage", () => ({
   storage: {
     getMarcaPorSubdominio: (s: string) => getMarcaPorSubdominio(s),
     getMarcaPorDominio: (h: string) => getMarcaPorDominio(h),
+    getMarca: (id: number) => getMarca(id),
   },
 }));
 
-import { hostPertenceAoProvider, resolverMarcaPorHost, esquecerMarcas } from "./marca.service";
+import {
+  hostPertenceAoProvider, hostPertenceAMarca, resolverMarcaPorHost,
+  resolverMarcaPorId, urlDeEntrada, esquecerMarcas, MARCA_PLATAFORMA,
+} from "./marca.service";
 
 /** Uma marca como o banco devolve, com o minimo que o resolvedor le. */
 const marca = (id: number, nome: string, dominio: string | null) => ({
@@ -44,8 +49,10 @@ beforeEach(() => {
   esquecerMarcas();
   getMarcaPorSubdominio.mockReset();
   getMarcaPorDominio.mockReset();
+  getMarca.mockReset();
   getMarcaPorSubdominio.mockResolvedValue(undefined);
   getMarcaPorDominio.mockResolvedValue(undefined);
+  getMarca.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -57,6 +64,13 @@ afterEach(() => {
 function mundo(porDominio: Record<string, any>, porSubdominio: Record<string, any> = {}) {
   getMarcaPorDominio.mockImplementation(async (h: string) => porDominio[h]);
   getMarcaPorSubdominio.mockImplementation(async (s: string) => porSubdominio[s]);
+  // A busca por id ve as MESMAS marcas: uma marca que responde por dominio mas
+  // some quando procurada por id seria um mundo que nao existe.
+  const porId = new Map<number, any>();
+  for (const m of [...Object.values(porDominio), ...Object.values(porSubdominio)]) {
+    if (m?.id) porId.set(m.id, m);
+  }
+  getMarca.mockImplementation(async (id: number) => porId.get(id));
 }
 
 describe("provedor que so tem subdominio", () => {
@@ -223,5 +237,156 @@ describe("cache nao pode crescer sem limite", () => {
 
     expect((await resolverMarcaPorHost("app.crednet.com.br")).marcaId).toBe(7);
     expect((await resolverMarcaPorHost("h1.desconhecido.com")).origem).toBe("plataforma");
+  });
+});
+
+/**
+ * Prova de host do REVENDEDOR — irma da de cima, para o outro papel.
+ *
+ * O caso que assusta e o mesmo de sempre: o revendedor da marca A abrindo
+ * sessao no dominio da marca B. Mas aqui ha duas recusas que nao sao obvias e
+ * por isso ganham teste proprio: o dominio com certificado ainda PENDENTE, e o
+ * SUBDOMINIO de um provedor da propria marca — a sessao do revendedor nao pode
+ * nascer presa ao endereco de um cliente dele.
+ */
+describe("hostPertenceAMarca", () => {
+  it("aceita o dominio proprio da marca pedida", async () => {
+    mundo({ "app.crednet.com.br": CREDNET });
+    expect(await hostPertenceAMarca("app.crednet.com.br", 7)).toBe(true);
+  });
+
+  it("marca A NAO prova host da marca B", async () => {
+    mundo({ "app.crednet.com.br": CREDNET, "portal.rival.com.br": RIVAL });
+    expect(await hostPertenceAMarca("portal.rival.com.br", 7)).toBe(false);
+    expect(await hostPertenceAMarca("app.crednet.com.br", 9)).toBe(false);
+  });
+
+  it("marca inativa nao prova nada", async () => {
+    mundo({ "app.crednet.com.br": { ...CREDNET, ativo: false } });
+    expect(await hostPertenceAMarca("app.crednet.com.br", 7)).toBe(false);
+  });
+
+  it("dominio ainda PENDENTE de certificado nao prova", async () => {
+    // O superadmin so cria o usuario revendedor depois do HTTPS ativo; aceitar
+    // aqui deixaria a sessao nascer num endereco que ainda serve em claro.
+    mundo({ "app.crednet.com.br": { ...CREDNET, dominioStatus: "pendente" } });
+    expect(await hostPertenceAMarca("app.crednet.com.br", 7)).toBe(false);
+  });
+
+  it("raiz e www da plataforma recusam", async () => {
+    mundo({ "app.crednet.com.br": CREDNET });
+    expect(await hostPertenceAMarca("consultaisp.com.br", 7)).toBe(false);
+    expect(await hostPertenceAMarca("www.consultaisp.com.br", 7)).toBe(false);
+  });
+
+  it("o SUBDOMINIO de um provedor da propria marca recusa", async () => {
+    // cliente1 e provedor da CredNet: o host resolve para a marca 7 e mesmo
+    // assim a resposta e nao. Decisao do dono.
+    mundo({ "app.crednet.com.br": CREDNET }, { cliente1: CREDNET });
+    expect((await resolverMarcaPorHost("cliente1.consultaisp.com.br")).marcaId).toBe(7);
+    expect(await hostPertenceAMarca("cliente1.consultaisp.com.br", 7)).toBe(false);
+  });
+
+  it("host desconhecido, vazio e lixo recusam", async () => {
+    mundo({ "app.crednet.com.br": CREDNET });
+    for (const h of ["dominio-solto.com", "", "com espaco", "a".repeat(300)]) {
+      expect(await hostPertenceAMarca(h, 7), `host ${h.slice(0, 20)}`).toBe(false);
+    }
+    expect(await hostPertenceAMarca(undefined, 7)).toBe(false);
+  });
+
+  it("sem marcaId nao ha o que provar — nem no host certo, nem em localhost", async () => {
+    process.env.NODE_ENV = "development";
+    mundo({ "app.crednet.com.br": CREDNET });
+    for (const id of [null, undefined, 0, -1, 1.5]) {
+      expect(await hostPertenceAMarca("app.crednet.com.br", id as any), `marcaId ${id}`).toBe(false);
+      expect(await hostPertenceAMarca("localhost", id as any), `marcaId ${id}`).toBe(false);
+    }
+  });
+
+  it("localhost passa fora de producao, e em producao nao", async () => {
+    process.env.NODE_ENV = "development";
+    expect(await hostPertenceAMarca("localhost", 7)).toBe(true);
+    expect(await hostPertenceAMarca("127.0.0.1:5000", 7)).toBe(true);
+
+    process.env.NODE_ENV = "production";
+    expect(await hostPertenceAMarca("localhost", 7)).toBe(false);
+    expect(await hostPertenceAMarca("127.0.0.1", 7)).toBe(false);
+  });
+
+  it("normaliza o host antes de comparar", async () => {
+    mundo({ "app.crednet.com.br": CREDNET });
+    for (const h of ["APP.CredNet.com.BR", "app.crednet.com.br:443", "https://app.crednet.com.br/login"]) {
+      expect(await hostPertenceAMarca(h, 7), `host ${h}`).toBe(true);
+    }
+  });
+});
+
+describe("resolverMarcaPorId", () => {
+  it("traz a marca pedida sem passar por host nenhum", async () => {
+    mundo({ "app.crednet.com.br": CREDNET });
+    const m = await resolverMarcaPorId(7);
+    expect(m.marcaId).toBe(7);
+    expect(m.nomeProduto).toBe("CredNet");
+  });
+
+  it("marca inativa, inexistente ou id invalido caem na plataforma", async () => {
+    mundo({ "app.crednet.com.br": { ...CREDNET, ativo: false } });
+    expect((await resolverMarcaPorId(7)).marcaId).toBeNull();
+    expect((await resolverMarcaPorId(404)).nomeProduto).toBe(MARCA_PLATAFORMA.nomeProduto);
+    for (const id of [null, undefined, 0, -3, 2.5]) {
+      expect((await resolverMarcaPorId(id as any)).marcaId, `id ${id}`).toBeNull();
+    }
+    // Id invalido nem chega a consultar o banco.
+    expect(getMarca).not.toHaveBeenCalledWith(0);
+  });
+
+  it("cacheia por id e o cache morre com esquecerMarcas", async () => {
+    mundo({ "app.crednet.com.br": CREDNET });
+    await resolverMarcaPorId(7);
+    await resolverMarcaPorId(7);
+    expect(getMarca).toHaveBeenCalledTimes(1);
+
+    esquecerMarcas();
+    await resolverMarcaPorId(7);
+    expect(getMarca).toHaveBeenCalledTimes(2);
+  });
+
+  it("banco fora do ar cai na plataforma e NAO fica cacheado", async () => {
+    getMarca.mockRejectedValueOnce(new Error("conexao recusada"));
+    expect((await resolverMarcaPorId(7)).marcaId).toBeNull();
+
+    mundo({ "app.crednet.com.br": CREDNET });
+    expect((await resolverMarcaPorId(7)).marcaId).toBe(7);
+  });
+});
+
+/**
+ * A URL de entrada existe porque `urlDaMarca` cai na RAIZ da plataforma quando
+ * a marca nao tem dominio ativo — e a raiz e exatamente onde o login e
+ * recusado. O link do e-mail levava a uma tela que responde "Email ou senha
+ * incorretos" sem dizer por que.
+ */
+describe("urlDeEntrada", () => {
+  it("dominio da marca quando ele esta ativo", async () => {
+    mundo({ "app.crednet.com.br": CREDNET });
+    const marca = await resolverMarcaPorId(7);
+    expect(urlDeEntrada({ subdomain: "cliente1" }, marca)).toBe("https://app.crednet.com.br");
+  });
+
+  it("dominio pendente NAO vale: cai no subdominio do provedor", async () => {
+    mundo({ "app.crednet.com.br": { ...CREDNET, dominioStatus: "pendente" } });
+    const marca = await resolverMarcaPorId(7);
+    expect(urlDeEntrada({ subdomain: "cliente1" }, marca)).toBe("https://cliente1.consultaisp.com.br");
+  });
+
+  it("sem marca, o endereco e o subdominio do provedor — nunca a raiz", () => {
+    expect(urlDeEntrada({ subdomain: "nslink" }, MARCA_PLATAFORMA)).toBe("https://nslink.consultaisp.com.br");
+  });
+
+  it("provedor sem subdominio e sem marca ainda devolve link absoluto", () => {
+    for (const p of [{ subdomain: null }, { subdomain: "  " }, null, undefined]) {
+      expect(urlDeEntrada(p as any, MARCA_PLATAFORMA)).toMatch(/^https:\/\/[^/]+$/);
+    }
   });
 });
