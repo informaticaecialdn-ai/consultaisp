@@ -102,7 +102,7 @@ describe("blocos que recebem dado de fora", () => {
     expect(html).not.toContain("<img");
     // O valor sai cru de proposito: e por onde entra o link de pagamento e o
     // <a> do endereco de acesso. Quem chama escapa — e `email.test.ts` prova
-    // que todas as 14 mensagens de fato escapam.
+    // que todas as 15 mensagens de fato escapam.
     expect(blocoDeDados([{ rotulo: "x", valor: `<a href="#">ok</a>` }])).toContain(`<a href="#">ok</a>`);
   });
 

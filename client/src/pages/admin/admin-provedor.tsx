@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -19,8 +19,10 @@ import {
   Globe, Mail, Phone, Calendar, Shield, CheckCircle, XCircle,
   Plus, RefreshCw, TrendingUp, TrendingDown, FileText, DollarSign,
   Clock, AlertCircle, Zap, Star, Crown, Edit2, Save, X, Eye,
-  Printer, Ban, RotateCcw, Copy, EyeOff, Wifi, Database, AlertTriangle
+  Printer, Ban, RotateCcw, Copy, EyeOff, Wifi, Database, AlertTriangle, ChevronRight,
+  KeyRound
 } from "lucide-react";
+import FormularioErp, { type ConectorMeta } from "@/components/erp/FormularioErp";
 
 /**
  * SO ROTULO E COR. PRECO E CREDITO VEM DE `usePrecos()`.
@@ -852,7 +854,12 @@ export default function AdminProvedorPage() {
         </TabsContent>
 
         {/* TAB: INTEGRACAO ERP */}
-        <IntegracaoTab providerId={parseInt(id!)} erpSource={provider.erpSource} erpEnabled={provider.erpEnabled} />
+        {/* `provider.erpSource` e `provider.erpEnabled` iam daqui e chegavam
+            sempre `undefined`: a tabela `providers` nao tem essas colunas e
+            /detail devolve o registro cru. A aba lia integracao de la e
+            deduzia "Configurado" de um valor que nunca existiu — tudo agora
+            sai de `erp_integrations`. */}
+        <IntegracaoTab providerId={providerId} ativo={activeTab === "integracao"} />
 
       </Tabs>
 
@@ -1105,22 +1112,157 @@ export default function AdminProvedorPage() {
   );
 }
 
-const ERP_NAMES: Record<string, string> = {
-  ixc: "iXC Soft", sgp: "SGP", mk: "MK Solutions",
-  tiacos: "Tiacos", hubsoft: "Hubsoft", flyspeed: "Fly Speed", netflash: "Netflash",
-  voalle: "Voalle", rbx: "RBX ISP",
-  topsapp: "TopSApp", radiusnet: "RadiusNet", gere: "Gere", receitanet: "ReceitaNet",
-};
+/* ============================ INTEGRACAO ERP ============================ */
 
-const ADMIN_ERP_LIST = [
-  { key: "ixc",      name: "iXC Soft",    grad: "from-blue-500 to-blue-600" },
-  { key: "sgp",      name: "SGP",          grad: "from-purple-500 to-purple-600" },
-  { key: "mk",       name: "MK Solutions", grad: "from-green-500 to-green-600" },
-  { key: "tiacos",   name: "Tiacos",       grad: "from-orange-500 to-orange-600" },
-  { key: "hubsoft",  name: "Hubsoft",      grad: "from-indigo-500 to-indigo-600" },
-  { key: "flyspeed", name: "Fly Speed",    grad: "from-cyan-500 to-cyan-600" },
-  { key: "netflash", name: "Netflash",     grad: "from-rose-500 to-pink-600" },
-];
+/**
+ * A configuracao do ERP mora AQUI, no painel SaaS.
+ *
+ * O painel do provedor virou vitrine: ele diz se esta integrado e nada mais.
+ * Quem digita credencial, testa conexao e dispara varredura e o superadmin —
+ * esta tela. O motivo nao e de layout: as rotas de escrita do provedor exigiam
+ * so `requireAuth`, entao qualquer operador de role "user" gravava credencial
+ * de ERP por curl. Tirar o formulario de la sem trazer para ca deixaria o
+ * produto sem lugar nenhum para configurar.
+ */
+
+interface IntegracaoAdmin {
+  id: number;
+  erpSource: string;
+  isEnabled: boolean;
+  status: string | null;
+  apiUrl: string | null;
+  apiToken: string | null;
+  apiUser: string | null;
+  mkContraSenha: string | null;
+  clientId: string | null;
+  clientSecret: string | null;
+  extraConfig: Record<string, string> | null;
+  /**
+   * A credencial esta gravada mas este servidor nao consegue LE-LA — a chave
+   * deriva do SESSION_SECRET, e ele mudou (troca de segredo, base restaurada de
+   * outro ambiente). O servidor devolve os quatro campos secretos em branco (o
+   * texto cifrado nao serve de nada no navegador) e liga esta marca.
+   *
+   * Ignora-la e o pior desfecho possivel: a linha leria "Sem credencial", o
+   * operador salvaria por cima achando que nunca houve nada, e como segredo
+   * vazio significa "nao mexe" no upsert, o valor ilegivel continuaria no banco
+   * e o sync continuaria falhando — com a tela dizendo que salvou.
+   */
+  credencialIlegivel: boolean;
+  /**
+   * `syncIntervalHours` NAO entra aqui de proposito.
+   *
+   * A coluna existe, o Zod da rota a aceita e o seed a preenche, mas nenhum
+   * agendador a le: a cadencia real e a da varredura completa — segunda, quarta
+   * e sexta as 03:00 (server/services/erp-agenda.ts). Publicar "intervalo 12h"
+   * numa tela e prometer um numero que nenhum codigo honra.
+   */
+  notes: string | null;
+  totalSynced: number;
+  totalErrors: number;
+  lastSyncAt: string | null;
+  lastSyncStatus: string | null;
+}
+
+interface LogSyncAdmin {
+  id: number;
+  erpSource: string;
+  status: string;
+  recordsProcessed: number;
+  recordsFailed: number;
+  /**
+   * A coluna e `synced_at`. Esta tela lia `createdAt`, que `erp_sync_logs`
+   * nunca teve: toda linha do historico imprimia "Invalid Date".
+   */
+  syncedAt: string | null;
+  ipAddress: string | null;
+}
+
+/**
+ * O conector como /api/erp-connectors o entrega para esta tela.
+ *
+ * `naoImplementado` marca o conector que esta registrado so para figurar no
+ * catalogo — nenhum metodo dele fala com o ERP. Ausente significa implementado.
+ * O campo mora aqui, e nao em `ConectorMeta`, porque aquele tipo pertence a
+ * outra frente; quando ele passar a declarar a marca, este alias sai.
+ */
+type ConectorAdmin = ConectorMeta & { naoImplementado?: boolean };
+
+/**
+ * Uma linha da lista "Integracoes deste provedor".
+ *
+ * `conector` e opcional porque a integracao manda na lista: existe linha em
+ * `erp_integrations` cujo `erpSource` nao tem mais conector registrado, e ela
+ * precisa aparecer mesmo assim — sem conector, sem campos, so o aviso.
+ */
+type ItemErp = { fonte: string; conector?: ConectorAdmin; integracao: IntegracaoAdmin };
+
+type ResultadoTeste = { ok: boolean; message: string; latencyMs?: number };
+type ResultadoSync = { tipo: "info" | "erro" | "ok"; texto: string };
+
+const PILL_BASE =
+  "inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[var(--track-wide)]";
+
+/**
+ * O selo do conector que ainda nao fala com a API do ERP.
+ *
+ * Nasceu na lista suspensa de "Adicionar integracao", mas a linha que JA existe
+ * para um desses ERPs precisa do MESMO selo — se ele so trancasse a porta da
+ * frente, a linha antiga continuaria lendo "Configurado / Ativo" e o provedor
+ * leria "Integrada" para um ERP que nenhuma varredura consegue ler. Texto e
+ * estilo moram aqui para que os dois lugares nao divirjam com o tempo.
+ */
+const ROTULO_CONECTOR_PENDENTE = "Conector em desenvolvimento";
+const PILL_CONECTOR_PENDENTE = `${PILL_BASE} bg-[var(--surface-inset)] text-[var(--text-muted)]`;
+
+/**
+ * O selo da credencial gravada que este servidor nao consegue ler.
+ *
+ * Ele SUBSTITUI "Sem credencial", nunca soma: os dois dizem coisas opostas e o
+ * que o operador faz depende de qual e. "Sem credencial" convida a preencher do
+ * zero — e preencher o que ja tem valor apagaria nada, porque campo secreto
+ * vazio significa "nao mexe" no servidor. "Credencial ilegivel" diz a unica
+ * coisa que resolve: digitar o segredo de novo.
+ *
+ * Cor de perigo, e nao de atencao: enquanto ninguem redigitar, toda varredura
+ * deste ERP falha, e a integracao caminha para a pausa automatica.
+ */
+const ROTULO_CREDENCIAL_ILEGIVEL = "Credencial ilegivel";
+const PILL_CREDENCIAL_ILEGIVEL = `${PILL_BASE} bg-[var(--danger-bg)] text-[var(--danger)]`;
+
+/** Os campos que o servidor guarda cifrados — os unicos zerados quando a credencial nao abre. */
+const CAMPOS_SECRETOS = ["apiToken", "apiUser", "mkContraSenha", "clientSecret"] as const;
+
+/**
+ * Ficou algum segredo em branco neste Salvar?
+ *
+ * Numa linha ilegivel a resposta precisa ser nao para TODOS os segredos que o
+ * conector declara, e nao so para um: o servidor zerou os quatro na leitura, e
+ * segredo em branco no upsert significa "mantem o que esta la" — ou seja,
+ * mantem justamente o valor que nao abre. Redigitar so o token do Hubsoft e
+ * deixar o client secret em branco produziria de novo o desfecho que esta marca
+ * existe para evitar: a tela diz "salvo" e a varredura continua falhando.
+ *
+ * So os campos presentes no corpo entram na conta — o formulario manda o que o
+ * conector declara, e cobrar um campo que a tela nem desenha travaria o Salvar
+ * para sempre.
+ */
+function segredoEmBranco(corpo: Record<string, unknown>): boolean {
+  return CAMPOS_SECRETOS.some(k => k in corpo && !String(corpo[k] ?? "").trim());
+}
+
+const PILL_SYNC: Record<string, { texto: string; cls: string }> = {
+  success: { texto: "Sucesso", cls: "bg-[var(--ok-bg)] text-[var(--ok)]" },
+  error: { texto: "Erro", cls: "bg-[var(--danger-bg)] text-[var(--danger)]" },
+  partial: { texto: "Parcial", cls: "bg-[var(--gated-bg)] text-[var(--gated)]" },
+  /**
+   * `reativado` nao e varredura: e a marca de que o superadmin religou a
+   * integracao, e o batente que faz a contagem de falhas consecutivas
+   * recomecar. Sem esta linha ela caia no ramo generico e o historico imprimia
+   * o identificador cru no lugar de portugues.
+   */
+  reativado: { texto: "Reativado", cls: "bg-[var(--info-bg)] text-[var(--info)]" },
+};
 
 function relDateAdmin(d: string | null): string {
   if (!d) return "Nunca";
@@ -1130,112 +1272,789 @@ function relDateAdmin(d: string | null): string {
   return `${Math.floor(diff / 1440)}d atras`;
 }
 
-function IntegracaoTab({ providerId, erpSource, erpEnabled }: { providerId: number; erpSource: string | null; erpEnabled: boolean }) {
-  const { data, isLoading } = useQuery<{
-    token: string;
-    integrations: Array<{
-      id: number; erpSource: string; isEnabled: boolean;
-      apiUrl: string | null; apiToken: string | null;
-      totalSynced: number; totalErrors: number;
-      lastSyncAt: string | null; lastSyncStatus: string | null;
-    }>;
-    logs: Array<{ id: number; erpSource: string; status: string; recordsProcessed: number; recordsFailed: number; createdAt: string; ipAddress: string | null }>;
+/** Numerais por extenso do aviso de pausa. O indice e a propria contagem. */
+const CONTAGEM_EXTENSO = ["", "Uma", "Duas", "Tres", "Quatro", "Cinco", "Seis", "Sete", "Oito", "Nove", "Dez"];
+
+/**
+ * O aviso e prosa, e prosa se escreve por extenso.
+ *
+ * O ramo singular ja dizia "Uma integracao"; o plural imprimia o algarismo em
+ * Inter, que e numero sem mono — o design system nao admite. Escrever "Duas",
+ * "Tres" resolve sem enfiar font-mono no meio de uma frase corrida, e dez cobre
+ * o catalogo inteiro de conectores. Acima disso (linhas de ERP que nem conector
+ * tem mais) o algarismo aparece, e ai vai em mono como todo numero do sistema.
+ */
+function frasePausadas(quantidade: number) {
+  const resto = quantidade === 1 ? "integracao foi pausada" : "integracoes foram pausadas";
+  const extenso = CONTAGEM_EXTENSO[quantidade];
+  /* A frase inteira sai daqui, inclusive o fecho: o container e flex, e devolver
+     pedacos faria do algarismo um item de flex com `gap` no lugar do espaco. */
+  if (extenso) return <span>{`${extenso} ${resto} por falhas consecutivas`}</span>;
+  return (
+    <span>
+      <span className="font-mono tabular-nums">{quantidade}</span> {resto} por falhas consecutivas
+    </span>
+  );
+}
+
+/**
+ * O rotulo sai do catalogo de conectores, nao de uma lista cravada na tela.
+ *
+ * A lista daqui trazia tiacos, flyspeed e netflash — ERPs sem nenhum conector
+ * no servidor. Um log de origem desconhecida cai no proprio identificador, que
+ * ao menos e verdade.
+ */
+function rotuloErp(source: string, conectores: ConectorMeta[]): string {
+  return conectores.find(c => c.name === source)?.label ?? source;
+}
+
+function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boolean }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const chave = ["/api/admin/providers", providerId, "integration"];
+
+  /**
+   * `enabled` amarra a busca a aba aberta.
+   *
+   * O payload traz a credencial de todo ERP do provedor DECIFRADA. Sem esta
+   * trava ele saia no primeiro render de qualquer aba — Financeiro, Usuarios,
+   * Historico — e ficava no cache do navegador de quem nunca abriu Integracao.
+   */
+  const { data, isLoading, isError, refetch, isFetching } = useQuery<{
+    token: string | null;
+    integrations: IntegracaoAdmin[];
+    logs: LogSyncAdmin[];
   }>({
-    queryKey: ["/api/admin/providers", providerId, "integration"],
+    queryKey: chave,
     queryFn: async () => {
-      const res = await fetch(`/api/admin/providers/${providerId}/integration`, { credentials: "include" });
-      if (!res.ok) throw new Error("Erro ao carregar integracao");
+      const res = await apiRequest("GET", `/api/admin/providers/${providerId}/integration`);
       return res.json();
+    },
+    enabled: ativo,
+  });
+
+  /** Os campos de cada ERP vem do proprio servidor que os consome. */
+  const {
+    data: conectores = [],
+    isLoading: carregandoConectores,
+    isError: erroConectores,
+    refetch: recarregarConectores,
+  } = useQuery<ConectorAdmin[]>({
+    queryKey: ["/api/erp-connectors"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/erp-connectors");
+      return res.json();
+    },
+    enabled: ativo,
+  });
+
+  const [expandido, setExpandido] = useState<string | null>(null);
+  /** O ERP escolhido na lista suspensa de "Adicionar integracao" — ainda sem linha no banco. */
+  const [novoErp, setNovoErp] = useState<string | null>(null);
+  /** O gatilho da lista suspensa, para o estado vazio conseguir mandar o foco para la. */
+  const seletorRef = useRef<HTMLButtonElement | null>(null);
+  const [resultadoTeste, setResultadoTeste] = useState<Record<string, ResultadoTeste | null>>({});
+  const [resultadoSync, setResultadoSync] = useState<Record<string, ResultadoSync | null>>({});
+
+  /**
+   * Temporizadores do acompanhamento, por ERP.
+   *
+   * Sem eles, cada clique deixava um `setInterval` de 15 minutos solto: sair da
+   * tela nao o parava, e clicar duas vezes no mesmo ERP acumulava dois. Guardar
+   * por `source` permite trocar o anterior e limpar tudo na desmontagem.
+   */
+  const acompanhamentoRef = useRef<Record<string, { intervalo: number; teto: number }>>({});
+  useEffect(() => () => {
+    for (const t of Object.values(acompanhamentoRef.current)) {
+      window.clearInterval(t.intervalo);
+      window.clearTimeout(t.teto);
+    }
+  }, []);
+
+  const acompanhar = (source: string) => {
+    const anterior = acompanhamentoRef.current[source];
+    if (anterior) {
+      window.clearInterval(anterior.intervalo);
+      window.clearTimeout(anterior.teto);
+    }
+    const intervalo = window.setInterval(() => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "integration"] });
+    }, 15000);
+    const teto = window.setTimeout(() => {
+      window.clearInterval(intervalo);
+      delete acompanhamentoRef.current[source];
+    }, 15 * 60 * 1000);
+    acompanhamentoRef.current[source] = { intervalo, teto };
+  };
+
+  const salvarMutation = useMutation({
+    mutationFn: async ({ source, corpo }: { source: string; corpo: Record<string, unknown>; reativando?: boolean }) => {
+      const res = await apiRequest("PUT", `/api/admin/providers/${providerId}/erp/${source}`, corpo);
+      if (!res.ok) throw new Error((await res.json()).message);
+      return res.json();
+    },
+    onSuccess: (_dados, variaveis) => {
+      // Nenhuma mutation desta tela invalidava a chave da aba: o formulario
+      // salvava e continuava exibindo o valor antigo ate um F5. Depois de
+      // religar isso e o que tira a marca de pausa da tela — sem a invalidacao
+      // o operador reativa e continua lendo "Pausado por falhas".
+      qc.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "integration"] });
+      // Integracao recem-criada: a linha passa a existir, o ERP sai da lista
+      // suspensa e o formulario de baixo desapareceria sem explicacao. Abrir o
+      // item na secao de cima mostra para onde ele foi.
+      if (novoErp === variaveis.source) {
+        setNovoErp(null);
+        setExpandido(variaveis.source);
+      }
+      toast({
+        title: variaveis.reativando ? "Integracao reativada" : "Integracao salva",
+        description: variaveis.reativando
+          ? "A contagem de falhas recomeca do zero na proxima varredura automatica."
+          : undefined,
+      });
+    },
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  /**
+   * Teste e sync respondem com significado tambem fora do 2xx — 400 "configure
+   * a URL e o token", 409 "ja existe uma varredura". `apiRequest` estoura antes
+   * de a tela ler o corpo, entao aqui o fetch e cru de proposito e a mensagem
+   * do servidor chega inteira ao operador.
+   */
+  const testarMutation = useMutation({
+    mutationFn: async (source: string) => {
+      const res = await fetch(`/api/admin/providers/${providerId}/erp/${source}/test`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const corpo = await res.json().catch(() => ({} as any));
+      return { source, corpo };
+    },
+    onSuccess: ({ source, corpo }) => {
+      setResultadoTeste(r => ({
+        ...r,
+        [source]: {
+          ok: !!corpo.ok,
+          message: corpo.message || (corpo.ok ? "Conexao estabelecida." : "Nao foi possivel conectar."),
+          latencyMs: corpo.latencyMs,
+        },
+      }));
+    },
+    onError: (_e, source) => {
+      setResultadoTeste(r => ({ ...r, [source]: { ok: false, message: "Nao consegui falar com o servidor." } }));
     },
   });
 
-  if (isLoading) return (
-    <TabsContent value="integracao">
-      <div className="p-8 text-center text-muted-foreground text-sm">Carregando...</div>
-    </TabsContent>
-  );
+  /**
+   * Dispara a varredura e volta na hora.
+   *
+   * A rota responde 202 assim que enfileira: a sincronizacao leva minutos, o
+   * proxy corta em 60s, e um `res.json()` de um 504 em HTML mostrava "Erro ao
+   * sincronizar" para um sync que estava rodando e ia terminar bem. A mensagem
+   * de sucesso, quando chegava, lia `data.synced` e `data.total`, campos que a
+   * rota nunca devolveu: sairia "undefined registros sincronizados".
+   *
+   * O desfecho de verdade mora no historico logo abaixo, que passa a recarregar
+   * sozinho enquanto ha varredura em andamento.
+   */
+  const sincronizarMutation = useMutation({
+    mutationFn: async (source: string) => {
+      const res = await fetch(`/api/admin/providers/${providerId}/sync/${source}`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const corpo = await res.json().catch(() => ({} as any));
+      return { source, status: res.status, corpo };
+    },
+    onSuccess: ({ source, status, corpo }) => {
+      if (status === 409) {
+        setResultadoSync(r => ({
+          ...r,
+          [source]: { tipo: "info", texto: corpo.message || "Sincronizacao ja em andamento." },
+        }));
+        return;
+      }
+      if (!corpo.ok) {
+        setResultadoSync(r => ({
+          ...r,
+          [source]: { tipo: "erro", texto: corpo.message || "Nao foi possivel iniciar a sincronizacao." },
+        }));
+        return;
+      }
+      setResultadoSync(r => ({
+        ...r,
+        [source]: { tipo: "info", texto: "Sincronizacao iniciada — o resultado aparece no historico ao terminar." },
+      }));
+      qc.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "integration"] });
+      // A varredura leva minutos; rele o historico ate ele registrar o
+      // desfecho. So quando ela de fato comecou — em 409 ja saimos acima, e
+      // num erro nao ha o que acompanhar.
+      acompanhar(source);
+    },
+    onError: (_e, source) => {
+      setResultadoSync(r => ({ ...r, [source]: { tipo: "erro", texto: "Nao consegui falar com o servidor." } }));
+    },
+  });
 
-  const integrations = data?.integrations || [];
-  const logs = data?.logs || [];
+  const ocupadoDe = (source: string) => ({
+    salvando: salvarMutation.isPending && salvarMutation.variables?.source === source,
+    testando: testarMutation.isPending && testarMutation.variables === source,
+    sincronizando: sincronizarMutation.isPending && sincronizarMutation.variables === source,
+  });
 
-  const getIntg = (key: string) => integrations.find(i => i.erpSource === key);
+  if (isLoading || carregandoConectores) {
+    return (
+      <TabsContent value="integracao" className="space-y-4">
+        <div className="grid grid-cols-3 gap-3">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="h-16 rounded-lg bg-[var(--surface-inset)] animate-pulse" />
+          ))}
+        </div>
+        <div className="h-64 rounded-lg bg-[var(--surface-inset)] animate-pulse" />
+      </TabsContent>
+    );
+  }
 
-  const integrationsWithCreds = integrations.filter(i => i.apiUrl && i.apiToken);
-  const activeErpKeys = new Set<string>([
-    ...integrationsWithCreds.map(i => i.erpSource),
-    ...(erpSource ? [erpSource] : []),
-  ]);
-  const displayErps = ADMIN_ERP_LIST.filter(e => activeErpKeys.has(e.key));
-  const hasAnyErp = displayErps.length > 0;
+  /**
+   * Falha de leitura NAO pode virar tela vazia.
+   *
+   * Sem esta saida, um GET que quebrou caia em `data?.integrations ?? []` e
+   * todo conector aparecia como "Sem credencial" — convite para o operador
+   * digitar por cima de uma integracao que existe e esta configurada. Aqui a
+   * tela diz que nao conseguiu ler e nao mostra a lista.
+   */
+  if (isError || erroConectores) {
+    return (
+      <TabsContent value="integracao" className="space-y-4" data-testid="tab-content-integracao">
+        <Card className="px-5 py-6" data-testid="erp-erro-carregamento">
+          <p className="flex items-center gap-2 text-sm font-medium text-[var(--danger)]">
+            <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+            Nao foi possivel carregar a integracao ERP
+          </p>
+          <p className="mt-1.5 text-xs text-[var(--text-2)]">
+            A leitura falhou — o que voce ve nao e a configuracao do provedor. Nao preencha
+            credencial agora: uma integracao ja configurada apareceria como vazia e gravar por
+            cima apagaria o que esta funcionando.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-3 h-8 rounded-[4px] text-xs"
+            disabled={isFetching}
+            onClick={() => {
+              if (isError) refetch();
+              if (erroConectores) recarregarConectores();
+            }}
+            data-testid="button-recarregar-integracao"
+          >
+            <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
+            Tentar novamente
+          </Button>
+        </Card>
+      </TabsContent>
+    );
+  }
+
+  const integrations = data?.integrations ?? [];
+  const logs = data?.logs ?? [];
+
+  /**
+   * `configurado` e AND, nunca OR.
+   *
+   * Um registro so com a URL lia "Configurado" e mentia: testar e sincronizar
+   * exigem os dois campos, e a rota devolve 400 antes de tentar qualquer coisa.
+   */
+  const estaConfigurado = (i?: IntegracaoAdmin) => !!(i?.apiUrl && i?.apiToken);
+
+  const porFonte = new Map(integrations.map(i => [i.erpSource, i]));
+  const porConector = new Map(conectores.map(c => [c.name, c]));
+
+  /**
+   * Ha conector capaz de ler este ERP?
+   *
+   * Nao basta a linha estar ligada e com credencial: sem conector registrado, ou
+   * com um que so figura no catalogo, nenhuma varredura traz um registro. Contar
+   * essas linhas como ativas fazia o resumo do topo prometer sincronizacao que
+   * nunca aconteceu.
+   */
+  const leDados = (source: string) => {
+    const c = porConector.get(source);
+    return !!c && !c.naoImplementado;
+  };
+
+  /**
+   * A lista de cima sai das INTEGRACOES, nao do catalogo de conectores.
+   *
+   * Empilhar os dez conectores obrigava o operador a rolar dez cartoes para
+   * achar o unico que o provedor usa. E uma linha de erpSource sem conector
+   * registrado — sobra de configuracao antiga — nunca aparecia: o que nao
+   * estava no catalogo sumia da tela, e nao havia como sequer saber que
+   * existia. Aqui ela entra, sem formulario, porque nao ha campos a editar.
+   */
+  const integrados: ItemErp[] = integrations
+    .map(i => ({ fonte: i.erpSource, conector: porConector.get(i.erpSource), integracao: i }))
+    .sort((a, b) =>
+      rotuloErp(a.fonte, conectores).localeCompare(rotuloErp(b.fonte, conectores), "pt-BR"),
+    );
+
+  /** A lista suspensa so oferece o que ainda NAO tem linha para este provedor. */
+  const disponiveis = [...conectores]
+    .filter(c => !porFonte.has(c.name))
+    .sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
+
+  /**
+   * O formulario em branco vive enquanto a linha nao existe.
+   *
+   * Assim que o salvar volta e a leitura traz a integracao, o item migra para a
+   * secao de cima — manter aqui um segundo formulario para o mesmo ERP daria
+   * dois lugares para editar a mesma credencial.
+   */
+  const escolhido = novoErp && !porFonte.has(novoErp) ? porConector.get(novoErp) : undefined;
+  /* A lista suspensa ja trava o conector so casca, mas o catalogo e recarregado
+     enquanto a tela vive: se um ERP virar stub depois de escolhido, o
+     formulario de credencial some junto com a possibilidade de salva-lo. */
+  const conectorNovo = escolhido?.naoImplementado ? undefined : escolhido;
+
+  const ativos = integrations.filter(i => i.isEnabled && estaConfigurado(i) && leDados(i.erpSource)).length;
+  const totalSincronizado = integrations.reduce((s, i) => s + (i.totalSynced || 0), 0);
+  const totalErros = integrations.reduce((s, i) => s + (i.totalErrors || 0), 0);
+  const pausados = integrations.filter(i => i.status === "pausado_por_falhas");
+  /**
+   * A instrucao do aviso muda conforme haja o que corrigir.
+   *
+   * "Corrija a credencial e reative" e conselho errado quando a pausa veio de um
+   * conector que ainda nao fala com a API do ERP: a credencial esta certa, e
+   * religar so faria a proxima varredura pausar de novo — e o provedor receber
+   * outro e-mail sobre um problema que nao e dele.
+   */
+  const pausadosCorrigiveis = pausados.filter(i => !porConector.get(i.erpSource)?.naoImplementado);
+  const pausadosPendentes = pausados.filter(i => !!porConector.get(i.erpSource)?.naoImplementado);
+
+  /**
+   * As linhas cuja credencial o servidor nao conseguiu decifrar.
+   *
+   * O aviso sobe ao topo porque o defeito nao e de uma linha so: a chave deriva
+   * do SESSION_SECRET, entao quando ele muda TODAS as credenciais gravadas com
+   * o anterior param de abrir de uma vez. Ver a marca so ao expandir cada linha
+   * esconderia a extensao do estrago.
+   */
+  const ilegiveis = integrations.filter(i => i.credencialIlegivel);
+
+  const resumo = [
+    { label: "ERPs ativos", valor: ativos.toLocaleString("pt-BR"), cor: "text-[var(--ok)]" },
+    { label: "Registros sincronizados", valor: totalSincronizado.toLocaleString("pt-BR"), cor: "text-[var(--text)]" },
+    { label: "Erros acumulados", valor: totalErros.toLocaleString("pt-BR"), cor: totalErros > 0 ? "text-[var(--danger)]" : "text-[var(--text)]" },
+  ];
 
   return (
     <TabsContent value="integracao" className="space-y-4" data-testid="tab-content-integracao">
-      {/* Header stats */}
       <div className="grid grid-cols-3 gap-3">
-        {[
-          { label: "ERPs Ativos", value: erpEnabled && erpSource ? 1 : integrations.filter(i => i.isEnabled).length, color: "text-[var(--color-success)]" },
-          { label: "Total Sincronizados", value: integrations.reduce((s, i) => s + (i.totalSynced || 0), 0).toLocaleString("pt-BR"), color: "text-blue-600" },
-          { label: "Total de Erros", value: integrations.reduce((s, i) => s + (i.totalErrors || 0), 0).toLocaleString("pt-BR"), color: "text-rose-500" },
-        ].map(s => (
-          <Card key={s.label} className="p-3 text-center">
-            <p className="text-xs text-muted-foreground mb-1">{s.label}</p>
-            <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
+        {resumo.map(s => (
+          <Card key={s.label} className="p-3">
+            <p className="font-mono text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">{s.label}</p>
+            <p className={`mt-1 font-mono text-xl font-medium tabular-nums ${s.cor}`}>{s.valor}</p>
           </Card>
         ))}
       </div>
 
-      {/* ERP Card — somente o integrado */}
-      <Card className="overflow-hidden">
-        <div className="px-5 py-3 border-b bg-muted/20">
-          <h3 className="font-semibold flex items-center gap-2"><Wifi className="w-4 h-4 text-violet-500" />Integracao ERP</h3>
-          <p className="text-xs text-muted-foreground">ERP integrado ao provedor (somente leitura)</p>
+      {/* Antes do aviso de pausa de proposito: quando as duas coisas aparecem
+          juntas, a credencial ilegivel e a CAUSA e a pausa e o efeito. Ler
+          primeiro "corrija a credencial e reative" mandaria religar uma
+          integracao que voltaria a falhar na varredura seguinte. */}
+      {ilegiveis.length > 0 && (
+        <div
+          className="rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3"
+          data-testid="aviso-credencial-ilegivel"
+        >
+          <p className="flex items-center gap-2 text-sm font-medium text-[var(--danger)]">
+            <KeyRound className="h-4 w-4 flex-shrink-0" />
+            {ilegiveis.length === 1
+              ? "Uma credencial gravada nao pode ser lida por este servidor"
+              : "Credenciais gravadas que este servidor nao consegue ler"}
+          </p>
+          <p className="mt-1 text-xs text-[var(--text-2)]">
+            {/* O texto e impessoal de proposito: a lista pode ter um ERP ou
+                todos, e "o segredo gravado" serve aos dois sem plural postico. */}
+            {ilegiveis.map(i => rotuloErp(i.erpSource, conectores)).join(", ")} — o segredo gravado
+            continua no banco, mas foi cifrado com outra chave de servidor e nao abre mais aqui.
+            {/* A instrucao inteira do reparo mora nesta frase porque e ela que
+                separa "ilegivel" de "faltando": quem le "faltando" salva por
+                cima e acha que resolveu. */}
+            {" "}Precisa ser <strong className="font-medium">digitado de novo</strong>: abra a
+            integracao abaixo e preencha os campos secretos. Salvar com campo em branco mantem o
+            valor ilegivel — em branco significa manter o que ja esta la —, e a varredura segue
+            falhando.
+          </p>
         </div>
-        {!hasAnyErp ? (
-          <div className="px-5 py-8 flex flex-col items-center gap-2 text-center text-muted-foreground" data-testid="erp-empty-state">
-            <Wifi className="w-8 h-8 text-muted-foreground/40" />
-            <p className="text-sm font-medium">Nenhuma integracao ERP configurada</p>
-            <p className="text-xs">O provedor ainda nao possui um ERP integrado ao sistema.</p>
+      )}
+
+      {pausados.length > 0 && (
+        <div
+          className="rounded-lg border border-[var(--gated-border)] bg-[var(--gated-bg)] px-4 py-3"
+          data-testid="aviso-pausado-por-falhas"
+        >
+          <p className="flex items-center gap-2 text-sm font-medium text-[var(--gated)]">
+            <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+            {frasePausadas(pausados.length)}
+          </p>
+          {pausadosCorrigiveis.length > 0 && (
+            <p className="mt-1 text-xs text-[var(--text-2)]">
+              {pausadosCorrigiveis.map(i => rotuloErp(i.erpSource, conectores)).join(", ")} — corrija a credencial, teste a conexao e reative abaixo.
+            </p>
+          )}
+          {pausadosPendentes.length > 0 && (
+            <p className="mt-1 text-xs text-[var(--text-2)]" data-testid="aviso-pausado-conector-pendente">
+              {pausadosPendentes.map(i => rotuloErp(i.erpSource, conectores)).join(", ")} — a pausa veio do
+              conector, que ainda nao conversa com a API desse ERP. A credencial do provedor nao tem
+              defeito e nao ha o que reativar.
+            </p>
+          )}
+        </div>
+      )}
+
+      <Card className="overflow-hidden">
+        <div className="border-b border-[var(--border)] bg-[var(--surface-2)] px-5 py-3">
+          <h3 className="flex items-center gap-2 font-semibold">
+            <Wifi className="h-4 w-4 text-[var(--brand)]" />
+            Integracoes deste provedor
+          </h3>
+          <p className="text-xs text-[var(--text-muted)]">
+            Credenciais, teste de conexao e sincronizacao. O provedor so visualiza o que esta integrado.
+          </p>
+          {/* A cadencia vem da agenda da varredura (server/services/erp-agenda.ts),
+              nao da coluna `sync_interval_hours` — que existe e ninguem le. */}
+          <p className="mt-0.5 text-xs text-[var(--text-muted)]">
+            Varredura automatica: <span className="font-mono tabular-nums">segunda, quarta e sexta as 03:00</span>.
+            Tres varreduras seguidas com falha pausam a integracao e avisam o provedor.
+          </p>
+        </div>
+
+        {integrados.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 px-5 py-10 text-center" data-testid="erp-empty-state">
+            <Wifi className="h-8 w-8 text-[var(--text-faint)]" />
+            <p className="text-sm font-medium text-[var(--text)]">Nenhum ERP integrado</p>
+            <p className="max-w-md text-xs text-[var(--text-muted)]">
+              Este provedor ainda nao tem integracao configurada. A integracao comeca na lista
+              suspensa abaixo: escolha o ERP, preencha as credenciais e salve.
+            </p>
+            {disponiveis.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                // 44px de altura: e o alvo de toque minimo do design system, e
+                // este e o unico caminho de saida do estado vazio.
+                className="mt-2 h-11 rounded-[4px] px-4 text-xs"
+                onClick={() => seletorRef.current?.focus()}
+                data-testid="button-ir-para-seletor-erp"
+              >
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                Escolher ERP
+              </Button>
+            )}
           </div>
         ) : (
-          <div className="divide-y">
-            {displayErps.map(erp => {
-              const intg = getIntg(erp.key);
-              const isActiveErp = erpSource === erp.key;
-              const hasCredentials = !!(intg?.apiUrl && intg?.apiToken);
-              const isEnabled = isActiveErp ? erpEnabled : (intg?.isEnabled ?? false);
-              const status = intg?.lastSyncStatus ?? null;
-              return (
-                <div key={erp.key} className="px-5 py-4 flex items-center gap-3" data-testid={`row-erp-${erp.key}`}>
-                  <div className={`w-10 h-10 rounded-lg bg-[var(--color-ink)] flex items-center justify-center flex-shrink-0`}>
-                    <Wifi className="w-5 h-5 text-white" />
+          <div className="divide-y divide-[var(--border)]">
+            {integrados.map(({ fonte, conector, integracao: intg }) => {
+              const rotulo = rotuloErp(fonte, conectores);
+              const configurado = estaConfigurado(intg);
+              const aberto = expandido === fonte;
+              const pillUltimo = intg?.lastSyncStatus ? PILL_SYNC[intg.lastSyncStatus] : undefined;
+              const pausado = intg?.status === "pausado_por_falhas";
+              const reativando = ocupadoDe(fonte).salvando;
+
+              /**
+               * `pendente` e o conector que esta no catalogo mas nao fala com o
+               * ERP: todo metodo dele devolve erro. A marca ja travava a lista
+               * suspensa; aqui ela precisa valer para a linha que JA existe —
+               * ate esta mudanca o painel do provedor aceitava qualquer fonte
+               * suportada, entao ha linha assim no banco.
+               *
+               * `editavel` junta os dois casos em que nao ha o que salvar,
+               * testar ou sincronizar: sem conector nenhum, ou com um que so
+               * figura no catalogo. O servidor recusa as tres acoes nos dois, e
+               * abrir o formulario seria oferecer botao que volta com erro.
+               */
+              const pendente = !!conector?.naoImplementado;
+              const editavel = !!conector && !pendente;
+
+              /**
+               * A credencial existe no banco e este servidor nao consegue abrir.
+               *
+               * Vem marcada da rota justamente para nao ser confundida com
+               * ausencia: os campos secretos chegam em branco nos dois casos, e
+               * so a marca distingue "nunca foi preenchida" de "foi, e nao abre".
+               */
+              const ilegivel = !!intg?.credencialIlegivel;
+
+              /* O bloco de identidade e sempre o mesmo; o que muda e se ele abre
+                 formulario. Fora do caso editavel nao ha o que abrir, e um
+                 <button> que nao faz nada e pior que texto. */
+              const identidade = (
+                <>
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md bg-[var(--surface-inset)]">
+                    <Database className="h-4 w-4 text-[var(--text-2)]" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-semibold">{erp.name}</p>
-                      {isActiveErp && (
-                        <span className="text-xs bg-[var(--color-success-bg)] text-[var(--color-success)] px-1.5 py-0.5 rounded font-medium">Configurado</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold">{rotulo}</p>
+                      {/* Tres estados, nao dois: configurado, sem credencial e
+                          credencial que nao abre. O terceiro chegava aqui como
+                          "Sem credencial" — a leitura que faz o operador salvar
+                          por cima e sair achando que consertou. */}
+                      <span
+                        className={
+                          ilegivel
+                            ? PILL_CREDENCIAL_ILEGIVEL
+                            : `${PILL_BASE} ${configurado ? "bg-[var(--ok-bg)] text-[var(--ok)]" : "bg-[var(--surface-inset)] text-[var(--text-muted)]"}`
+                        }
+                        data-testid={`badge-erp-configurado-${fonte}`}
+                      >
+                        {ilegivel ? ROTULO_CREDENCIAL_ILEGIVEL : configurado ? "Configurado" : "Sem credencial"}
+                      </span>
+                      {/* Pausada, a integracao esta desligada — mas dizer so
+                          "Inativo" esconde QUEM a desligou. O selo de pausa
+                          substitui o par ativo/inativo em vez de somar a ele. */}
+                      <span
+                        className={`${PILL_BASE} ${
+                          pausado
+                            ? "bg-[var(--gated-bg)] text-[var(--gated)]"
+                            : intg?.isEnabled
+                              ? "bg-[var(--brand-soft)] text-[var(--brand-ink)]"
+                              : "bg-[var(--surface-inset)] text-[var(--text-muted)]"
+                        }`}
+                        data-testid={`badge-erp-status-${fonte}`}
+                      >
+                        {pausado ? "Pausado por falhas" : intg?.isEnabled ? "Ativo" : "Inativo"}
+                      </span>
+                      {!conector && (
+                        <span
+                          className={`${PILL_BASE} bg-[var(--gated-bg)] text-[var(--gated)]`}
+                          data-testid={`badge-erp-sem-conector-${fonte}`}
+                        >
+                          Sem conector
+                        </span>
                       )}
-                      {hasCredentials && status && (
-                        <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
-                          status === "success" ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" :
-                          status === "error" ? "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" :
-                          "bg-[var(--color-gold-bg)] text-[var(--color-gold)]"
-                        }`}>{status === "success" ? "Sucesso" : status === "error" ? "Erro" : "Parcial"}</span>
+                      {pendente && (
+                        <span
+                          className={PILL_CONECTOR_PENDENTE}
+                          data-testid={`badge-erp-indisponivel-${fonte}`}
+                        >
+                          {ROTULO_CONECTOR_PENDENTE}
+                        </span>
+                      )}
+                      {configurado && pillUltimo && (
+                        <span className={`${PILL_BASE} ${pillUltimo.cls}`}>{pillUltimo.texto}</span>
                       )}
                     </div>
-                    {hasCredentials ? (
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {intg!.apiUrl?.replace(/https?:\/\//, "").slice(0, 50)} ·{" "}
-                        {(intg!.totalSynced || 0).toLocaleString("pt-BR")} registros · {relDateAdmin(intg!.lastSyncAt)}
-                        {(intg!.totalErrors || 0) > 0 && <span className="text-rose-500 ml-1">· {intg!.totalErrors} erros</span>}
+                    {ilegivel ? (
+                      /* "Preencha as credenciais", a linha do caso vazio, seria
+                         mentira aqui: elas estao preenchidas. O que falta e
+                         redigitar. */
+                      <p className="mt-0.5 text-xs text-[var(--danger)]">
+                        A credencial gravada nao abre neste servidor — precisa ser digitada de novo.
                       </p>
-                    ) : isActiveErp ? (
-                      <p className="text-xs text-muted-foreground mt-0.5">Configurado pelo administrador do sistema</p>
-                    ) : null}
+                    ) : configurado ? (
+                      <p className="mt-0.5 text-xs text-[var(--text-muted)]">
+                        <span className="font-mono">{intg!.apiUrl?.replace(/https?:\/\//, "").slice(0, 50)}</span>
+                        {" · "}
+                        <span className="font-mono tabular-nums">{(intg!.totalSynced || 0).toLocaleString("pt-BR")}</span> registros
+                        {" · "}
+                        {/* As linhas de ERP se empilham e esta e a ultima coluna
+                            de dado da frase: em Inter os "45min"/"3h"/"12d" de
+                            uma linha nao caem sobre os da outra. */}
+                        <span className="font-mono tabular-nums">{relDateAdmin(intg!.lastSyncAt)}</span>
+                        {(intg!.totalErrors || 0) > 0 && (
+                          <span className="ml-1 text-[var(--danger)]">
+                            · <span className="font-mono tabular-nums">{intg!.totalErrors}</span> erros
+                          </span>
+                        )}
+                      </p>
+                    ) : editavel ? (
+                      <p className="mt-0.5 text-xs text-[var(--text-muted)]">
+                        Preencha as credenciais para habilitar teste e sincronizacao.
+                      </p>
+                    ) : (
+                      /* Sem conector — ou com um que so figura no catalogo —
+                         credencial nenhuma habilita teste ou varredura, e
+                         prometer isso mandaria o operador procurar campo que a
+                         tela nao vai abrir. O aviso logo abaixo diz o porque. */
+                      <p className="mt-0.5 text-xs text-[var(--text-muted)]">
+                        Nenhuma varredura le este ERP.
+                      </p>
+                    )}
                   </div>
-                  <Badge className={`border-0 text-xs flex-shrink-0 ${isEnabled ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : "bg-[var(--color-tag-bg)] text-gray-500"}`} data-testid={`badge-erp-status-${erp.key}`}>
-                    {isEnabled ? "Ativo" : "Inativo"}
-                  </Badge>
+                </>
+              );
+
+              return (
+                <div key={fonte} className="px-5 py-4" data-testid={`row-erp-${fonte}`}>
+                  {editavel ? (
+                    <button
+                      type="button"
+                      // `ds-ctl` traz o anel de foco do sistema (index.css); o
+                      // anel padrao do navegador aparecia, mas com outra cor e
+                      // outra espessura que a dos demais controles da tela.
+                      className="ds-ctl flex w-full items-center gap-3 rounded-[4px] text-left"
+                      onClick={() => setExpandido(aberto ? null : fonte)}
+                      data-testid={`button-toggle-erp-${fonte}`}
+                    >
+                      {identidade}
+                      <ChevronRight
+                        className={`h-4 w-4 flex-shrink-0 text-[var(--text-muted)] transition-transform ${aberto ? "rotate-90" : ""}`}
+                      />
+                    </button>
+                  ) : (
+                    <div className="flex w-full items-center gap-3">{identidade}</div>
+                  )}
+
+                  {!conector && (
+                    <div className="mt-3 pl-[52px]" data-testid={`erp-sem-conector-${fonte}`}>
+                      <div className="rounded-lg border border-[var(--gated-border)] bg-[var(--gated-bg)] px-3 py-2.5">
+                        {/* O identificador do ERP ja esta no titulo da linha; repeti-lo
+                            aqui so publicaria de novo um nome tecnico que nao ajuda quem le. */}
+                        <p className="text-xs text-[var(--text-2)]">
+                          Este ERP nao e mais suportado: nao ha conector para ele, entao nao ha
+                          campos para editar nem varredura que o leia. Esta linha sobrou de uma
+                          configuracao antiga e continua visivel para que voce saiba que ela existe.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* O par do selo: o selo diz o estado, este bloco diz o que ele
+                      custa. Sem o texto, "Conector em desenvolvimento" ao lado de
+                      "Ativo" seria mais uma marca para o operador decifrar. */}
+                  {pendente && (
+                    <div className="mt-3 pl-[52px]" data-testid={`erp-conector-pendente-${fonte}`}>
+                      <div className="rounded-lg border border-[var(--gated-border)] bg-[var(--gated-bg)] px-3 py-2.5">
+                        <p className="text-xs text-[var(--text-2)]">
+                          O conector deste ERP ainda nao conversa com a API dele: existe so para
+                          constar no catalogo, e nenhuma varredura consegue trazer dados. Salvar
+                          credencial, testar conexao e sincronizar ficam indisponiveis aqui — o
+                          servidor recusa as tres enquanto o conector nao for concluido.
+                        </p>
+                        {pausado && (
+                          /* O pior desfecho do corte automatico: o provedor recebeu
+                             e-mail de pausa por falhas de um ERP que nunca leu nada.
+                             Religar so repetiria o ciclo, entao a linha nao oferece
+                             o botao de reativar — oferece a explicacao. */
+                          <p className="mt-2 text-xs text-[var(--text-2)]">
+                            As varreduras automaticas falharam ate a pausa e o provedor foi avisado
+                            por e-mail. Nao ha nada a corrigir do lado dele: a falha e do conector,
+                            nao da credencial. Reativar so repetiria a pausa.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* O par do selo "Credencial ilegivel": o selo nomeia o estado,
+                      este bloco diz o que fazer. Aparece com a linha fechada
+                      porque a acao (redigitar) exige abrir o formulario — sem o
+                      aviso aqui, o operador nao teria motivo para abrir. */}
+                  {ilegivel && (
+                    <div className="mt-3 pl-[52px]" data-testid={`erp-credencial-ilegivel-${fonte}`}>
+                      <div className="rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2.5">
+                        <p className="text-xs text-[var(--text-2)]">
+                          A credencial deste ERP esta gravada, mas foi cifrada com outro segredo de
+                          servidor e nao pode ser lida aqui. Ela nao esta faltando — esta ilegivel — e,
+                          enquanto continuar assim, toda varredura falha na autenticacao.
+                        </p>
+                        <p className="mt-2 text-xs text-[var(--text-2)]">
+                          {editavel
+                            ? "Abra o formulario e digite os segredos de novo, todos eles. Salvar com campo em branco nao conserta: em branco significa manter o valor que ja esta gravado, e o valor gravado e justamente o que nao abre."
+                            : "Nao ha formulario para este ERP nesta tela, entao a credencial nao pode ser redigitada aqui. Avise o suporte tecnico."}
+                        </p>
+                        {pausado && (
+                          /* Sem esta frase, o aviso de pausa logo acima mandaria
+                             religar — e religar sem redigitar repete a pausa e
+                             dispara outro e-mail ao provedor. */
+                          <p className="mt-2 text-xs text-[var(--text-2)]">
+                            As varreduras seguidas com falha ja pausaram esta integracao e o provedor
+                            foi avisado por e-mail. Reativar sem redigitar a credencial repetiria a
+                            pausa: salve o segredo novo com a integracao ativa e ela volta a rodar.
+                          </p>
+                        )}
+                        {editavel && !aberto && (
+                          <Button
+                            size="sm"
+                            className="mt-2 h-8 rounded-[4px] text-xs"
+                            onClick={() => setExpandido(fonte)}
+                            data-testid={`button-redigitar-credencial-${fonte}`}
+                          >
+                            Redigitar credencial
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Fora do <button> de cima de proposito: botao dentro de
+                      botao e HTML invalido e o clique de religar viraria um
+                      abre/fecha do formulario. */}
+                  {pausado && !pendente && !ilegivel && (
+                    <div className="mt-3 pl-[52px]" data-testid={`erp-pausado-${fonte}`}>
+                      <div className="rounded-lg border border-[var(--gated-border)] bg-[var(--gated-bg)] px-3 py-2.5">
+                        <p className="text-xs text-[var(--text-2)]">
+                          O sistema desligou esta integracao sozinho apos tres varreduras automaticas
+                          seguidas com falha, e avisou o provedor por e-mail. Corrija a credencial,
+                          teste a conexao e religue — a contagem de falhas recomeca do zero.
+                        </p>
+                        <Button
+                          size="sm"
+                          className="mt-2 h-8 rounded-[4px] text-xs"
+                          disabled={reativando}
+                          onClick={() =>
+                            salvarMutation.mutate({
+                              source: fonte,
+                              // So `isEnabled`: a rota grava o que chega, e mandar
+                              // os outros campos vazios apagaria a credencial que
+                              // esta la. Quem limpa o status e registra a
+                              // reativacao e o servidor.
+                              corpo: { isEnabled: true },
+                              reativando: true,
+                            })
+                          }
+                          data-testid={`button-reativar-erp-${fonte}`}
+                        >
+                          {reativando ? "Reativando..." : "Reativar integracao"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {editavel && aberto && (
+                    <div className="mt-4 pl-[52px]" data-testid={`form-erp-${fonte}`}>
+                      <FormularioErp
+                        conector={conector!}
+                        integracao={intg}
+                        ocupado={ocupadoDe(fonte)}
+                        resultadoTeste={resultadoTeste[fonte] ?? null}
+                        resultadoSync={resultadoSync[fonte] ?? null}
+                        onSalvar={corpo => {
+                          /* A ultima barreira do defeito: numa linha ilegivel, um
+                             Salvar com segredo em branco volta 200 e nao muda
+                             nada no banco — a tela diria "Integracao salva" e o
+                             sync continuaria falhando. Melhor recusar aqui do que
+                             confirmar um conserto que nao aconteceu. */
+                          if (ilegivel && segredoEmBranco(corpo)) {
+                            toast({
+                              title: "Credencial nao foi redigitada",
+                              description:
+                                "Um dos campos secretos ficou em branco, e em branco o servidor mantem o valor que ja esta gravado — o mesmo que ele nao consegue ler. Digite os segredos de novo antes de salvar.",
+                              variant: "destructive",
+                            });
+                            return;
+                          }
+                          salvarMutation.mutate({ source: fonte, corpo });
+                        }}
+                        onTestar={() => testarMutation.mutate(fonte)}
+                        onSincronizar={() => sincronizarMutation.mutate(fonte)}
+                      />
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1243,42 +2062,165 @@ function IntegracaoTab({ providerId, erpSource, erpEnabled }: { providerId: numb
         )}
       </Card>
 
-      {/* Sync Logs */}
       <Card className="overflow-hidden">
-        <div className="px-5 py-3 border-b bg-muted/20">
-          <h3 className="font-semibold">Historico de Sincronizacao</h3>
-          <p className="text-xs text-muted-foreground">Ultimas 20 sincronizacoes</p>
+        <div className="border-b border-[var(--border)] bg-[var(--surface-2)] px-5 py-3">
+          <h3 className="flex items-center gap-2 font-semibold">
+            <Plus className="h-4 w-4 text-[var(--brand)]" />
+            Adicionar integracao
+          </h3>
+          <p className="text-xs text-[var(--text-muted)]">
+            Escolha um dos ERPs disponiveis para configurar. Ao salvar, ele passa a constar acima.
+          </p>
+        </div>
+
+        <div className="space-y-4 px-5 py-4">
+          {conectores.length === 0 ? (
+            <p className="text-xs text-[var(--text-muted)]" data-testid="erp-sem-catalogo">
+              {/* O caminho da rota nao ajuda quem le a tela e publica a API para
+                  qualquer um com acesso ao painel (DESIGN_SYSTEM, secao 8). O
+                  operador precisa saber o que fazer, nao onde o dado nasceu. */}
+              O sistema nao devolveu nenhum ERP para integrar agora. Recarregue a pagina; se a lista
+              continuar vazia, avise o suporte tecnico.
+            </p>
+          ) : disponiveis.length === 0 ? (
+            <p className="text-xs text-[var(--text-muted)]" data-testid="erp-todos-integrados">
+              Todos os ERPs disponiveis ja estao integrados com este provedor.
+            </p>
+          ) : (
+            <>
+              <div className="max-w-sm">
+                <Label
+                  htmlFor="select-novo-erp"
+                  className="mb-1.5 block font-mono text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--text-faint)]"
+                >
+                  ERP disponivel
+                </Label>
+                <Select
+                  value={novoErp ?? ""}
+                  onValueChange={fonte => {
+                    // Trocar de ERP joga fora o que estava digitado: o `key` do
+                    // formulario carrega a fonte, entao React desmonta o antigo
+                    // em vez de reaproveitar o estado. Sem isso o token de um
+                    // ERP apareceria no formulario de outro.
+                    setNovoErp(fonte);
+                    setResultadoTeste(r => ({ ...r, [fonte]: null }));
+                    setResultadoSync(r => ({ ...r, [fonte]: null }));
+                  }}
+                >
+                  <SelectTrigger
+                    id="select-novo-erp"
+                    ref={seletorRef}
+                    className="h-11 rounded-[4px]"
+                    data-testid="select-novo-erp"
+                  >
+                    <SelectValue placeholder="Selecione um ERP" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {disponiveis.map(c => (
+                      <SelectItem
+                        key={c.name}
+                        value={c.name}
+                        /* O conector so casca aparece, mas travado. Escondido, o
+                           operador nao saberia que o sistema conhece o ERP e
+                           abriria chamado perguntando se ha suporte; oferecido,
+                           ele salvaria a credencial, a linha nasceria
+                           "Configurado / Ativo" e o provedor leria "Integrada"
+                           ate a primeira varredura falhar. */
+                        disabled={!!c.naoImplementado}
+                        data-testid={`option-erp-${c.name}`}
+                      >
+                        <span className="flex items-center gap-2">
+                          {rotuloErp(c.name, conectores)}
+                          {/* Mesmo testid da linha ja integrada: a lista suspensa so
+                              oferece ERP sem linha, entao os dois nunca coexistem para
+                              a mesma fonte. */}
+                          {c.naoImplementado && (
+                            <span
+                              className={PILL_CONECTOR_PENDENTE}
+                              data-testid={`badge-erp-indisponivel-${c.name}`}
+                            >
+                              {ROTULO_CONECTOR_PENDENTE}
+                            </span>
+                          )}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Enquanto nenhum ERP esta escolhido nao ha formulario: um form
+                  em branco sem dono convida a digitar credencial sem saber
+                  para quem ela vai. */}
+              {conectorNovo && (
+                <div className="border-t border-[var(--border)] pt-4" data-testid={`form-novo-erp-${conectorNovo.name}`}>
+                  <FormularioErp
+                    key={conectorNovo.name}
+                    conector={conectorNovo}
+                    ocupado={ocupadoDe(conectorNovo.name)}
+                    resultadoTeste={resultadoTeste[conectorNovo.name] ?? null}
+                    resultadoSync={resultadoSync[conectorNovo.name] ?? null}
+                    onSalvar={corpo => salvarMutation.mutate({ source: conectorNovo.name, corpo })}
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </Card>
+
+      <Card className="overflow-hidden">
+        <div className="border-b border-[var(--border)] bg-[var(--surface-2)] px-5 py-3">
+          <h3 className="font-semibold">Historico de sincronizacao</h3>
+          <p className="text-xs text-[var(--text-muted)]">Ultimas 20 varreduras</p>
         </div>
         {logs.length === 0 ? (
-          <div className="p-8 text-center text-muted-foreground text-sm">Nenhuma sincronizacao registrada</div>
+          <div className="p-8 text-center text-sm text-[var(--text-muted)]">Nenhuma sincronizacao registrada</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-muted/30 text-xs text-muted-foreground">
-                  <th className="text-left px-4 py-2 font-medium">ERP</th>
-                  <th className="text-left px-4 py-2 font-medium">Status</th>
-                  <th className="text-left px-4 py-2 font-medium">Registros</th>
-                  <th className="text-left px-4 py-2 font-medium">Data</th>
-                  <th className="text-left px-4 py-2 font-medium">IP</th>
+                <tr className="bg-[var(--surface-2)]">
+                  {["ERP", "Status", "Registros", "Data", "IP"].map(h => (
+                    <th
+                      key={h}
+                      className="border-b border-[var(--border)] px-4 py-2 text-left font-mono text-[10px] font-medium uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]"
+                    >
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody className="divide-y">
-                {logs.map((log) => (
-                  <tr key={log.id} data-testid={`row-synclog-${log.id}`}>
-                    <td className="px-4 py-2 font-medium">{ERP_NAMES[log.erpSource] || log.erpSource}</td>
-                    <td className="px-4 py-2">
-                      <Badge className={`text-xs border-0 ${log.status === "success" ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : log.status === "error" ? "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" : "bg-[var(--color-gold-bg)] text-[var(--color-gold)]"}`}>
-                        {log.status === "success" ? "Sucesso" : log.status === "error" ? "Erro" : log.status}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-2 text-muted-foreground">
-                      {log.recordsProcessed} ok{log.recordsFailed > 0 && ` · ${log.recordsFailed} falhas`}
-                    </td>
-                    <td className="px-4 py-2 text-muted-foreground text-xs">{new Date(log.createdAt).toLocaleString("pt-BR")}</td>
-                    <td className="px-4 py-2 text-muted-foreground text-xs font-mono">{log.ipAddress || "—"}</td>
-                  </tr>
-                ))}
+              <tbody>
+                {logs.map(log => {
+                  const pill = PILL_SYNC[log.status] ?? { texto: log.status, cls: "bg-[var(--surface-inset)] text-[var(--text-muted)]" };
+                  return (
+                    <tr key={log.id} data-testid={`row-synclog-${log.id}`}>
+                      <td className="border-b border-[var(--border)] px-4 py-2 font-medium">{rotuloErp(log.erpSource, conectores)}</td>
+                      <td className="border-b border-[var(--border)] px-4 py-2">
+                        <span className={`${PILL_BASE} ${pill.cls}`}>{pill.texto}</span>
+                      </td>
+                      <td className="border-b border-[var(--border)] px-4 py-2 font-mono text-xs tabular-nums text-[var(--text-2)]">
+                        {/* A linha de reativacao nao processou registro nenhum:
+                            "0 ok" leria como varredura que nao achou ninguem. */}
+                        {log.status === "reativado" ? (
+                          <span className="text-[var(--text-muted)]">—</span>
+                        ) : (
+                          <>
+                            {log.recordsProcessed} ok
+                            {log.recordsFailed > 0 && ` · ${log.recordsFailed} falhas`}
+                          </>
+                        )}
+                      </td>
+                      <td className="border-b border-[var(--border)] px-4 py-2 font-mono text-xs tabular-nums text-[var(--text-muted)]">
+                        {fmtDateTime(log.syncedAt)}
+                      </td>
+                      <td className="border-b border-[var(--border)] px-4 py-2 font-mono text-xs text-[var(--text-muted)]">
+                        {log.ipAddress || "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1287,6 +2229,7 @@ function IntegracaoTab({ providerId, erpSource, erpEnabled }: { providerId: numb
     </TabsContent>
   );
 }
+
 
 function InfoRow({ label, value, icon: Icon }: { label: string; value: string; icon: any }) {
   return (

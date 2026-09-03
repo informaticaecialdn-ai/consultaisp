@@ -8,15 +8,26 @@ import {
   erpIntegrations, erpSyncLogs,
   type Provider, type InsertProvider, type ErpIntegration,
 } from "@shared/schema";
-import { decryptField } from "../utils/crypto";
 
+/**
+ * Sem nenhum campo de ERP, de proposito.
+ *
+ * Ate 03/09/2026 este tipo carregava `erpSource`, `erpUrl`, `erpEnabled` e um
+ * `erpToken` no formato `usuario:token` — ja DECIFRADO. O objeto inteiro vai no
+ * `res.json` de GET /api/admin/providers, que nao esta em SENSITIVE_ROUTES, e o
+ * middleware de log grava o corpo: `sanitizeForLog` censura por NOME de chave e
+ * nunca ouviu falar de "erpToken". Resultado: a credencial de ERP de todo
+ * provedor com integracao ligada ficava legivel no log a cada abertura do painel
+ * do superadmin. E o incidente de 27/08/2026 outra vez, sob outro nome de chave.
+ *
+ * A aba ERP do ProviderDrawer era o unico consumidor e saiu com a mudanca que
+ * moveu a configuracao para /admin/provedor/:id. Quem precisa de ERP le
+ * `erp_integrations` pelas rotas proprias — que decifram sob demanda, para um
+ * unico provedor, e nao para a lista inteira.
+ */
 export interface ProviderWithStats extends Provider {
   userCount: number;
   adminEmailVerified: boolean;
-  erpSource: string | null;
-  erpUrl: string | null;
-  erpToken: string | null;
-  erpEnabled: boolean;
 }
 
 export class ProvidersStorage {
@@ -118,8 +129,6 @@ export class ProvidersStorage {
   }
 
   async getAllProvidersWithStats(): Promise<ProviderWithStats[]> {
-    const SENSITIVE_FIELDS = ["apiToken", "apiUser", "clientSecret", "mkContraSenha"] as const;
-
     // Query 1: all providers
     const allProviders = await db.select().from(providers);
 
@@ -141,43 +150,14 @@ export class ProvidersStorage {
       });
     }
 
-    // Query 3: active ERP integrations per provider (first enabled with apiUrl)
-    const erpRows = await db.execute(sql`
-      SELECT DISTINCT ON (provider_id) *
-      FROM erp_integrations
-      WHERE is_enabled = true AND api_url IS NOT NULL AND api_url != ''
-      ORDER BY provider_id, id
-    `);
-    const erpMap = new Map<number, any>();
-    for (const row of erpRows.rows as any[]) {
-      // Decrypt sensitive fields
-      const decrypted = { ...row };
-      for (const field of SENSITIVE_FIELDS) {
-        const snakeField = field.replace(/([A-Z])/g, "_$1").toLowerCase();
-        const key = snakeField in decrypted ? snakeField : field;
-        if (typeof decrypted[key] === "string") {
-          try {
-            decrypted[key] = decryptField(decrypted[key]);
-          } catch {
-            decrypted[key] = "***";
-          }
-        }
-      }
-      erpMap.set(row.provider_id, decrypted);
-    }
-
-    // Merge results
+    // `erp_integrations` NAO e lida aqui: nenhum campo dela sobrevive no
+    // retorno, e decifrar credencial que ninguem consome e so risco.
     return allProviders.map(p => {
       const stats = userStatsMap.get(p.id);
-      const erp = erpMap.get(p.id);
       return {
         ...p,
         userCount: stats?.userCount || 0,
         adminEmailVerified: stats?.adminEmailVerified || false,
-        erpSource: erp?.erp_source || null,
-        erpUrl: erp?.api_url || null,
-        erpToken: erp ? `${erp.api_user || ""}:${erp.api_token || ""}`.replace(/^:/, "") : null,
-        erpEnabled: erp?.is_enabled || false,
       };
     });
   }

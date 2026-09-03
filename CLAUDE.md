@@ -323,17 +323,35 @@ O sistema usa um **registry de conectores ERP nativos** — sem nenhum proxy int
 
 ### Arquitetura Implementada
 
-**Local:** `server/erp-connector.ts` (interface) + implementações por ERP. Heatmap, scheduler, rotas de test/sync e consultas usam o connector registry via `getConnector(erpSource)`.
+**Local:** `server/erp/types.ts` (interface `ErpConnector`), `server/erp/registry.ts` (registry) e
+`server/erp/connectors/*.ts` (um por ERP). `server/erp/index.ts` é o barril que importa e
+registra todos — **duas convenções convivem nele**: IXC, MK e SGP são registrados
+explicitamente ali; os demais se auto-registram no fim do próprio arquivo. O Voalle caiu
+entre as duas e ficou fora do registry por meses (corrigido em 03/09/2026); há teste em
+`server/erp/conectores-implementados.test.ts` comparando o que o barril importa com o que o
+registry contém. *(`server/erp-connector.ts` NÃO existe — foi documentado aqui por engano.)*
+Scheduler, rotas de test/sync e consultas usam `getConnector(erpSource)`.
 
-**ERPs suportados via conectores diretos:** IXC Soft, MK Solutions, SGP, Hubsoft, Voalle, RBX ISP.
+**ERPs implementados:** IXC Soft, MK Solutions, SGP, Hubsoft, Voalle, RBX ISP.
+**Registrados mas ainda casca:** TopSApp, RadiusNet, Gere, ReceitaNet — todo método deles
+devolve `ok:false, "ainda nao implementado"`. Eles declaram `naoImplementado = true` no
+conector, o campo sai em `GET /api/erp-connectors`, e o servidor recusa configurar, testar
+e sincronizar. Sem essa marca, `configFields` os fazia parecer integráveis: o operador
+salvava credencial, o provedor lia "Integrada", e três varreduras depois chegava e-mail
+dizendo que a integração dele foi pausada por falhas — de um ERP que nunca existiu.
 
 **Fluxos cobertos:**
-1. **Sync manual:** `POST /api/provider/erp-integrations/:source/sync`
-2. **Auto-sync:** scheduler dispara `connectors[source].fetchDelinquents()` periodicamente
-3. **Heatmap:** `heatmap-cache.ts` consulta via registry, suporta os 6 ERPs (não só IXC)
-4. **Test de conexão:** `POST /api/provider/erp-integrations/:source/test`
-5. **Logs:** `erpSyncLogs` registra cada tentativa (sucesso/erro/contagem)
-6. **Catálogo:** `GET /api/erp-connectors` expõe metadata (`name`, `label`, `configFields`)
+1. **Sync manual:** `POST /api/admin/providers/:id/sync/:source` (superadmin)
+2. **Auto-sync:** agenda em `server/services/erp-agenda.ts` — seg/qua/sex às 03:00.
+   `erp_integrations.sync_interval_hours` **existe mas ninguém lê**; não publique esse
+   número como se o sistema o honrasse.
+3. **Heatmap:** `heatmap-cache.ts` — **módulo morto**, ninguém o importa e
+   `startHeatmapCacheScheduler` nunca é chamado. `/api/heatmap/regional` lê a tabela
+   `customers` via `storage.getHeatmapAll()`.
+4. **Test de conexão:** `POST /api/admin/providers/:id/erp/:source/test` (superadmin)
+5. **Logs:** `erpSyncLogs` registra cada tentativa (sucesso/erro/contagem/reativação)
+6. **Catálogo:** `GET /api/erp-connectors` expõe metadata (`name`, `label`, `configFields`,
+   `supportsEquipment`, `naoImplementado`)
 
 ### Pré-requisito operacional por ERP
 Alguns ERPs (notavelmente IXC) exigem que o provedor **libere o IP do servidor** no painel deles antes da primeira sincronização. Sem isso, o teste de conexão retorna erro de bloqueio.
@@ -521,11 +539,37 @@ GET/PATCH provider/webhook-config
 // O client ainda consulta esse endereco a cada 5 min e recebe 404 em silencio
 // (client/src/components/app-sidebar.tsx).
 
-### ERP Integration (requireAuth)
-GET provider/erp-integrations, PATCH erp-integrations/:source
-POST erp-integrations/:source/test, POST erp-integrations/:source/sync
+### ERP Integration
+**Quem configura é o superadmin, não o provedor** (decisão do dono, 03/09/2026). O
+provedor só enxerga o estado.
+
+Superadmin (`requireSuperAdmin`, com rate limit):
+```
+GET  /api/admin/providers/:id/integration        # credencial DECIFRADA + logs
+PUT  /api/admin/providers/:id/erp/:source        # grava os 10 campos do contrato
+POST /api/admin/providers/:id/erp/:source/test   # buildConnectorConfig
+POST /api/admin/providers/:id/sync/:source       # responde 202, resultado vai em erp_sync_logs
+```
+Provedor (`requireAuth` + `requireProvider`) — **só leitura**:
+```
+GET provider/erp-integrations       # resumo SEM credencial: erpSource, isEnabled,
+                                    # configurado, status, lastSyncAt, lastSyncStatus,
+                                    # totalSynced, totalErrors
 GET provider/erp-sync-logs, erp-integration-stats
-GET /api/erp-connectors (catálogo público de conectores e seus campos)
+GET /api/erp-connectors             # catálogo (requireAuth), inclui `naoImplementado`
+```
+- **NÃO EXISTEM** `PATCH /api/provider/erp-integrations/:source`, nem os `/test` e `/sync`
+  do provedor: foram **removidas**, não escondidas. Elas exigiam só `requireAuth +
+  requireProvider` — sem checagem de role —, então qualquer operador `user` gravava
+  credencial por curl, e o `GET` devolvia o token DECIFRADO ao navegador.
+- **NÃO EXISTEM** `GET /api/erp/available` e `GET /api/erp/config-fields/:source`: eram
+  públicas, sem consumidor, e publicavam a anônimo o formato dos campos de credencial.
+- Corte automático: 3 falhas consecutivas de sync **automático** gravam
+  `isEnabled=false` + `status='pausado_por_falhas'` e avisam o provedor por e-mail. Sync
+  manual não conta, e conector marcado `naoImplementado` não dispara nada.
+- Religar pelo painel grava `status='idle'` e insere uma linha `'reativado'` em
+  `erp_sync_logs` — que é o batente de `contarFalhasConsecutivas`, senão a tolerância de 3
+  vira 1 para sempre.
 
 ### Mapa de Calor (requireAuth)
 GET heatmap/provider, heatmap/regional, heatmap/city-ranking, heatmap/sync-info, heatmap/cache-status

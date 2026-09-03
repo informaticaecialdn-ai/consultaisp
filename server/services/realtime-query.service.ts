@@ -160,6 +160,55 @@ async function querySingleErp(
     };
   }
 
+  /**
+   * Conector registrado que ainda NAO fala com a API do ERP: todo metodo dele
+   * devolve recusa. Sai antes de tocar na rede, no mesmo molde do sync
+   * (`erp-sync.service.ts`), porque chamar so para colecionar a recusa faria o
+   * diagnostico da consulta acusar "o ERP recusou" — suspeita jogada no ERP do
+   * provedor por uma pendencia que e nossa.
+   */
+  if (connector.naoImplementado) {
+    return {
+      providerId: intg.providerId,
+      providerName: intg.providerName,
+      erpSource: intg.erpSource,
+      ok: false,
+      error: `A integracao com o ${connector.label} ainda nao foi construida: nada foi perguntado ao ERP`,
+      customers: [],
+      latencyMs: Date.now() - start,
+    };
+  }
+
+  /**
+   * "Nao consegui perguntar" e "perguntei e ele nao e cliente" NAO sao a mesma
+   * resposta.
+   *
+   * Enquanto o conector recusando (`ok:false` — credencial negada, ERP fora do
+   * ar devolvendo corpo de erro) escorregava para o `return ok:true` do fim, a
+   * consulta declarava esse provedor como "respondeu, e o CPF nao e cliente
+   * dele". A rota trata quem respondeu como dispensado da base sincronizada, o
+   * anti-fraude pula a linha do dono, e o alerta de fuga nunca nasce para um
+   * cliente que ele de fato tem: "nada consta" para quem deve.
+   *
+   * O caso irmao continua intocado: `ok:true` com lista vazia e o ERP DIZENDO
+   * que nao e cliente dele, e disso depende dispensar a base sincronizada.
+   */
+  const falhaAoPerguntar = (mensagem: string): RealtimeQueryResult => {
+    logger.warn(
+      { consultaId, providerId: intg.providerId, erpSource: intg.erpSource, doc: document.slice(0, 4) + "***", error: mensagem },
+      "RT-QUERY ERP recusou a consulta",
+    );
+    return {
+      providerId: intg.providerId,
+      providerName: intg.providerName,
+      erpSource: intg.erpSource,
+      ok: false,
+      error: mensagem,
+      customers: [],
+      latencyMs: Date.now() - start,
+    };
+  };
+
   try {
     let customers: RealtimeQueryResult["customers"] = [];
 
@@ -208,11 +257,12 @@ async function querySingleErp(
             setTimeout(() => reject(new Error("Timeout")), ERP_QUERY_TIMEOUT_MS)
           ),
         ]);
-        if (result.ok) {
-          customers = result.customers
-            .filter(c => c.cep && c.cep.replace(/\D/g, "").startsWith(document.slice(0, 5)))
-            .map(normalizeCustomer);
+        if (!result.ok) {
+          return falhaAoPerguntar(result.message);
         }
+        customers = result.customers
+          .filter(c => c.cep && c.cep.replace(/\D/g, "").startsWith(document.slice(0, 5)))
+          .map(normalizeCustomer);
       }
     } else {
       // CPF/CNPJ search — use fetchCustomerByCpf if available, fallback to fetchDelinquents
@@ -223,9 +273,10 @@ async function querySingleErp(
             setTimeout(() => reject(new Error("Timeout")), ERP_QUERY_TIMEOUT_MS)
           ),
         ]);
-        if (result.ok && result.customers.length > 0) {
-          customers = result.customers.map(normalizeCustomer);
+        if (!result.ok) {
+          return falhaAoPerguntar(result.message);
         }
+        customers = result.customers.map(normalizeCustomer);
       } else {
         // Fallback: fetch all delinquents and filter by document
         const result = await Promise.race([
@@ -234,14 +285,15 @@ async function querySingleErp(
             setTimeout(() => reject(new Error("Timeout")), ERP_QUERY_TIMEOUT_MS)
           ),
         ]);
-        if (result.ok) {
-          const cleanDoc = document.replace(/\D/g, "");
-          const match = result.customers.find(
-            c => c.cpfCnpj.replace(/\D/g, "") === cleanDoc
-          );
-          if (match) {
-            customers = [normalizeCustomer(match)];
-          }
+        if (!result.ok) {
+          return falhaAoPerguntar(result.message);
+        }
+        const cleanDoc = document.replace(/\D/g, "");
+        const match = result.customers.find(
+          c => c.cpfCnpj.replace(/\D/g, "") === cleanDoc
+        );
+        if (match) {
+          customers = [normalizeCustomer(match)];
         }
       }
     }

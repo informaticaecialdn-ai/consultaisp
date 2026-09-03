@@ -121,6 +121,13 @@ export function exemplos(marca = MARCA_PLATAFORMA, url = URL_DO_PROVEDOR): Exemp
       "Quando o provedor adiciona alguém à equipe. A senha nunca vai por e-mail.",
       email.montarUsuarioAdicionado("Karina Souza", "NsLink Provedor", "Emerson Queiroz",
         "karina@nslink.com.br", marca, url)),
+
+    monte("erp-pausado", "Sincronização com o ERP pausada",
+      "Quando três varreduras seguidas falham e o corte automático pausa a integração.",
+      email.montarErpPausado("Emerson Queiroz", {
+        erp: "IXC Soft", falhasSeguidas: 3,
+        ultimoErro: "ERP recusou a busca: 403 — IP do servidor não liberado no painel do IXC",
+      }, marca, url)),
   ];
 }
 

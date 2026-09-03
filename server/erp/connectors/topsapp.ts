@@ -18,6 +18,14 @@ class TopsappConnector implements ErpConnector {
   readonly name = "topsapp";
   readonly label = "TopSApp";
 
+  /**
+   * Registrado so para figurar no catalogo — nenhum metodo abaixo fala com o
+   * ERP. Sem esta marca a lista suspensa do painel SaaS o ofereceria como
+   * integravel, e a integracao ficaria "Ativa" na tela dos dois lados sem
+   * nunca ter conversado com o TopSApp.
+   */
+  readonly naoImplementado = true;
+
   readonly configFields: ErpConfigField[] = [
     { key: "apiUrl", label: "URL da API TopSApp", type: "url", required: true, placeholder: "https://seudominio.topsapp.com.br" },
     { key: "apiToken", label: "Token de Integracao", type: "password", required: true },

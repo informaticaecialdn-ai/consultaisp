@@ -17,7 +17,9 @@ import { PLAN_CREDITS } from "@shared/planos";
 import { esquecerMarcas, resolverMarcaPorId, urlDeEntrada } from "../services/marca.service";
 import { esquecerStatusDeProvedor } from "../auth";
 import { getConnector, getSupportedSources } from "../erp/registry";
+import { buildConnectorConfig } from "../erp/config";
 import "../erp/index";
+import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { sanitizeFilename } from "../utils/filename-sanitizer";
 import { db } from "../db";
@@ -67,12 +69,55 @@ const adminUpdateProviderSchema = z.object({
   motivo: z.string().trim().min(1).max(500).optional(),
 }).strict();
 
+/**
+ * O contrato completo de uma integracao ERP — o mesmo que o painel do provedor
+ * aceitava e este aqui nao.
+ *
+ * Enquanto o superadmin so pode gravar apiUrl/apiToken/apiUser, quatro dos seis
+ * ERPs sao inconfiguraveis por ele: MK precisa de `mkContraSenha`, Hubsoft de
+ * `clientId`+`clientSecret`, SGP e Voalle de chaves dentro de `extraConfig`.
+ * O `.strict()` rejeitava esses campos, entao a tela salvava "com sucesso" um
+ * cadastro que o conector nunca conseguiria usar.
+ *
+ * `sgpApp` e `voalleClientId` NAO entram aqui: nao sao colunas de
+ * `erp_integrations` — viajam dentro de `extraConfig`, e e de la que
+ * buildConnectorConfig os le (server/erp/config.ts).
+ *
+ * apiUrl nao usa `.url()`: quem julga endereco de ERP e `validateErpUrl`, que
+ * alem do formato barra HTTP e host privado (SSRF).
+ */
 const adminUpdateErpSchema = z.object({
-  apiUrl: z.string().url().max(500).nullable().optional(),
+  isEnabled: z.boolean().optional(),
+  notes: z.string().max(1000).nullable().optional(),
+  apiUrl: z.string().max(500).nullable().optional(),
   apiToken: z.string().max(1000).nullable().optional(),
   apiUser: z.string().max(200).nullable().optional(),
-  isEnabled: z.boolean().optional(),
+  syncIntervalHours: z.number().int().min(1).max(720).optional(),
+  clientId: z.string().max(200).nullable().optional(),
+  clientSecret: z.string().max(500).nullable().optional(),
+  mkContraSenha: z.string().max(200).nullable().optional(),
+  extraConfig: z.record(z.string()).nullable().optional(),
 }).strict();
+
+/**
+ * Quatro ERPs figuram no catalogo so para aparecer na lista: o conector deles
+ * ainda nao fala com a API do fabricante e todo metodo devolve erro.
+ *
+ * A marca `naoImplementado` so fechava a porta da frente — a secao de adicionar
+ * integracao da tela. Quem chegasse pela rota, ou quem ja tivesse uma linha
+ * gravada de quando o painel do provedor aceitava qualquer fonte suportada,
+ * seguia configurando: a integracao nascia "ativa", o provedor lia "Integrada",
+ * as varreduras automaticas falhavam por construcao e, na terceira, o corte
+ * automatico mandava ao PROVEDOR um e-mail dizendo que a integracao dele foi
+ * pausada por falhas — de um ERP que nunca chegou a ser implementado. Ele abre
+ * chamado, o suporte olha o ERP dele, e nao ha nada errado do lado dele.
+ *
+ * Devolve o nome do ERP para a mensagem; `null` quando o conector e real.
+ */
+function erpSemImplementacao(source: string): string | null {
+  const connector = getConnector(source);
+  return connector?.naoImplementado ? connector.label : null;
+}
 
 /**
  * O que o provedor le quando o cadastro e reprovado sem motivo escrito.
@@ -245,6 +290,17 @@ function fichaDaConsulta(linha: LinhaDeConsultaEncontrada) {
 
 export function registerAdminRoutes(): Router {
   const router = Router();
+
+  /**
+   * Freio nas rotas de ERP do superadmin.
+   *
+   * Gravar credencial e barato, mas o teste de conexao dispara trafego de SAIDA
+   * para a API de um terceiro: sem limite, um loop na tela do admin vira uma
+   * enxurrada contra o ERP do provedor — que responde bloqueando o IP do
+   * servidor, derrubando o sync de todo mundo naquele ERP.
+   */
+  const limiteConfigErp = createRateLimiter({ windowMs: 60_000, maxRequests: 60 });
+  const limiteTesteErp = createRateLimiter({ windowMs: 60_000, maxRequests: 20 });
 
   router.get("/api/admin/stats", requireSuperAdmin, async (_req, res) => {
     try {
@@ -651,9 +707,20 @@ export function registerAdminRoutes(): Router {
       const id = parseInt(req.params.id);
       const provider = await storage.getProvider(id);
       if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
+      /**
+       * A leitura marcada, e nao `getErpIntegrations`.
+       *
+       * Aquela decifra com a variante que LANCA quando a credencial nao abre
+       * (SESSION_SECRET trocado, base restaurada de outro ambiente), e uma
+       * unica linha assim derrubava a aba inteira com 500 — nem as linhas
+       * sadias, nem o formulario. Esta e a tela que existe para redigitar a
+       * credencial quebrada: ela nao pode morrer pelo defeito que conserta.
+       * A linha que nao abriu vem com `credencialIlegivel` para a tela pedir
+       * que seja redigitada, em vez de mostrar campo vazio.
+       */
       const [token, integrations, logs] = await Promise.all([
         storage.getProviderWebhookToken(id),
-        storage.getErpIntegrations(id),
+        storage.getErpIntegracoesParaAdmin(id),
         storage.getErpSyncLogs(id, undefined, 20),
       ]);
       return res.json({ token, integrations, logs });
@@ -662,28 +729,150 @@ export function registerAdminRoutes(): Router {
     }
   });
 
-  router.put("/api/admin/providers/:id/erp/:source", requireSuperAdmin, async (req, res) => {
+  /**
+   * A configuracao de ERP mora AQUI, e so aqui.
+   *
+   * O painel do provedor virou exibicao: quem grava credencial de ERP e o
+   * superadmin. Por isso esta rota grava o registro inteiro — inclusive os
+   * campos que so alguns conectores usam — e nao mais um recorte de tres
+   * colunas.
+   *
+   * `parsed.data` vai ao storage como veio: chave ausente e chave que nao se
+   * quer mexer. A versao anterior mandava `apiUrl ?? null` e companhia, entao
+   * salvar so o `isEnabled` apagava a credencial que estava funcionando.
+   */
+  router.put("/api/admin/providers/:id/erp/:source", requireSuperAdmin, limiteConfigErp, async (req, res) => {
     try {
-      const id = parseInt(req.params.id);
-      const source = req.params.source;
+      const id = parseInt(String(req.params.id));
+      if (!Number.isInteger(id)) return res.status(400).json({ message: "Provedor invalido" });
+      const source = String(req.params.source);
       const ALLOWED = getSupportedSources();
       if (!ALLOWED.includes(source)) return res.status(400).json({ message: "ERP invalido" });
+      // Depois do "existe?" e antes de qualquer leitura de credencial: um ERP
+      // inexistente tem que continuar sendo invalido, nao "nao implementado".
+      const semImplementacao = erpSemImplementacao(source);
+      if (semImplementacao) {
+        return res.status(400).json({
+          message: `Ainda não é possível configurar a integração com o ${semImplementacao}: o conector não conversa com a API do ${semImplementacao}, então salvar estas credenciais criaria uma integração que nunca sincroniza.`,
+        });
+      }
       const provider = await storage.getProvider(id);
       if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
       const parsed = adminUpdateErpSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Dados invalidos", errors: parsed.error.flatten().fieldErrors });
       }
-      const { apiUrl, apiToken, apiUser, isEnabled } = parsed.data;
-      const integration = await storage.upsertErpIntegration(id, source, {
-        apiUrl: apiUrl ?? null,
-        apiToken: apiToken ?? null,
-        apiUser: apiUser ?? null,
-        isEnabled: isEnabled ?? true,
-      });
+      if (parsed.data.apiUrl) {
+        const { validateErpUrl } = await import("../utils/url-validator");
+        const urlCheck = validateErpUrl(parsed.data.apiUrl);
+        if (!urlCheck.valid) {
+          return res.status(400).json({ message: urlCheck.reason });
+        }
+      }
+      /**
+       * Religar tem que limpar a marca de pausa — salvar credencial, nao.
+       *
+       * A pausa por falhas mora em `status = "pausado_por_falhas"`, e desde que
+       * `registrarResultadoSync` preserva essa coluna, ninguem mais a apaga
+       * sozinho. Sem o que vem abaixo, religar deixava `is_enabled = true` com a
+       * marca de pausa junto: o painel do provedor testa o status ANTES do
+       * isEnabled e seguia anunciando "pausada por falhas" numa integracao que
+       * ja voltava a sincronizar.
+       *
+       * `status` NAO entra no Zod de entrada de proposito: quem decide o estado
+       * da integracao e o servidor, nunca o corpo da requisicao.
+       *
+       * Integracao que ainda NAO existe nao esta sendo religada — nao ha marca a
+       * limpar nem falha a esquecer —, e integracao que ja estava ligada tampouco:
+       * gravar reativacao a cada "Salvar" encheria o historico de reativacao
+       * falsa e zeraria a contagem de falhas sem motivo.
+       */
+      /**
+       * O RESUMO, e nao `getErpIntegrations`: aqui so se quer saber se a linha
+       * existe e se ela esta ligada, e o resumo responde isso sem DECIFRAR nada.
+       *
+       * `getErpIntegrations` passa por `decryptIntegration`, que LANCA quando a
+       * credencial nao abre — SESSION_SECRET trocado, base restaurada de outro
+       * ambiente. Ler por ali faria este PUT devolver 500 antes do upsert, e
+       * esta e justamente a tela que existe para redigitar a credencial
+       * quebrada: o unico caminho de conserto morreria pelo defeito que ele
+       * conserta.
+       */
+      const integracoes = await storage.getErpIntegracoesResumo(id);
+      const atual = integracoes.find(i => i.erpSource === source);
+      const religando = parsed.data.isEnabled === true && !!atual && !atual.isEnabled;
+
+      const dados: Record<string, unknown> = religando
+        ? { ...parsed.data, status: "idle" }
+        : { ...parsed.data };
+      const integration = await storage.upsertErpIntegration(id, source, dados as any);
+
+      if (religando) {
+        /**
+         * A linha "reativado" e o batente de `contarFalhasConsecutivas`, que
+         * varre os logs do mais recente para tras e para na primeira que nao e
+         * erro. Sem ela, as tres falhas que causaram a pausa continuam no
+         * historico e a tolerancia de 3 vira 1 para sempre.
+         *
+         * Falhar aqui nao pode derrubar o PUT: a credencial ja foi gravada.
+         */
+        try {
+          await storage.registrarReativacao(id, source);
+        } catch (err: any) {
+          logger.error(
+            { providerId: id, erpSource: source, err: err?.message },
+            "[erp] Falha ao registrar a reativacao da integracao",
+          );
+        }
+      }
       return res.json(integration);
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  /**
+   * Testa a conexao de UM ERP nomeado na URL.
+   *
+   * A rota anterior (`POST /:id/erp-test`, sem `:source`) pegava com `find()` a
+   * primeira integracao habilitada do provedor e montava a config a mao com
+   * `extra: {}` — descartando clientId, clientSecret, mkContraSenha e
+   * extraConfig. Em MK, Hubsoft, SGP e Voalle o teste falhava por construcao e o
+   * erro chegava na tela como "credencial invalida", mandando o operador trocar
+   * uma credencial que estava certa. Aqui a config sai de `buildConnectorConfig`,
+   * a mesma que o sync usa.
+   */
+  router.post("/api/admin/providers/:id/erp/:source/test", requireSuperAdmin, limiteTesteErp, async (req, res) => {
+    try {
+      const id = parseInt(String(req.params.id));
+      if (!Number.isInteger(id)) return res.status(400).json({ ok: false, message: "Provedor invalido" });
+      const source = String(req.params.source);
+      const connector = getConnector(source);
+      if (!connector) {
+        return res.status(400).json({ ok: false, message: "ERP nao suportado" });
+      }
+      // Mesma guarda do PUT, pelo mesmo motivo: testar um conector que nao fala
+      // com o ERP so devolveria o erro que ele devolve sempre, e o operador
+      // leria isso como credencial errada.
+      const semImplementacao = erpSemImplementacao(source);
+      if (semImplementacao) {
+        return res.status(400).json({
+          ok: false,
+          message: `Ainda não é possível testar a integração com o ${semImplementacao}: o conector não conversa com a API do ${semImplementacao}, então não há conexão a testar.`,
+        });
+      }
+      const provider = await storage.getProvider(id);
+      if (!provider) return res.status(404).json({ ok: false, message: "Provedor nao encontrado" });
+      const integrations = await storage.getErpIntegrations(id);
+      const intg = integrations.find(i => i.erpSource === source);
+      if (!intg?.apiUrl || !intg?.apiToken) {
+        return res.status(400).json({ ok: false, message: "Configure a URL e o token antes de testar" });
+      }
+      const config = buildConnectorConfig(intg);
+      const result = await connector.testConnection(config);
+      return res.json(result);
+    } catch (error: any) {
+      return res.status(500).json({ ok: false, message: getSafeErrorMessage(error) });
     }
   });
 
@@ -908,81 +1097,6 @@ export function registerAdminRoutes(): Router {
       const id = parseInt(req.params.id);
       await storage.deleteErpCatalogItem(id);
       return res.json({ success: true });
-    } catch (error: any) {
-      return res.status(500).json({ message: getSafeErrorMessage(error) });
-    }
-  });
-
-  // ── ERP Connection Test ──
-  router.post("/api/admin/providers/:id/erp-test", requireSuperAdmin, async (req, res) => {
-    try {
-      const id = parseInt(String(req.params.id));
-      const integrations = await storage.getErpIntegrations(id);
-      const erpIntg = integrations.find(i => i.isEnabled && i.apiUrl && i.apiToken);
-
-      if (!erpIntg) {
-        return res.json({ ok: false, message: "ERP nao configurado. Salve a URL e credenciais primeiro." });
-      }
-
-      const connector = getConnector(erpIntg.erpSource);
-      if (!connector) {
-        return res.json({ ok: false, message: `Conector ${erpIntg.erpSource} nao disponivel` });
-      }
-
-      const testResult = await connector.testConnection({
-        apiUrl: erpIntg.apiUrl!,
-        apiToken: erpIntg.apiToken!,
-        apiUser: erpIntg.apiUser || undefined,
-        extra: {},
-      });
-      return res.json(testResult);
-    } catch (error: any) {
-      return res.json({ ok: false, message: getSafeErrorMessage(error) });
-    }
-  });
-
-  // ── ERP Config Save (per provider) ──
-  router.put("/api/admin/providers/:id/erp-config", requireSuperAdmin, async (req, res) => {
-    try {
-      const id = parseInt(String(req.params.id));
-      const { erpSource, apiUrl, apiToken } = req.body;
-
-      if (!erpSource || !apiUrl || !apiToken) {
-        return res.status(400).json({ message: "erpSource, apiUrl e apiToken sao obrigatorios" });
-      }
-
-      // Parse credential format based on ERP type
-      let apiUser: string | undefined;
-      let cleanToken = apiToken;
-      if (cleanToken.includes(":")) {
-        const parts = cleanToken.split(":", 2);
-        if (erpSource === "mk") {
-          // MK: "token:contrasenha" → apiToken=token, apiUser=contrasenha
-          cleanToken = parts[0];
-          apiUser = parts[1];
-        } else {
-          // IXC/others: "userId:token" → apiUser=userId, apiToken=token
-          apiUser = parts[0];
-          cleanToken = parts[1];
-        }
-      }
-
-      const url = apiUrl.startsWith("http") ? apiUrl : `https://${apiUrl}`;
-
-      const { validateErpUrl } = await import("../utils/url-validator");
-      const urlCheck = validateErpUrl(url);
-      if (!urlCheck.valid) {
-        return res.status(400).json({ message: urlCheck.reason });
-      }
-
-      await storage.upsertErpIntegration(id, erpSource, {
-        apiUrl: url,
-        apiToken: cleanToken,
-        apiUser: apiUser || null,
-        isEnabled: true,
-      } as any);
-
-      return res.json({ ok: true });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }

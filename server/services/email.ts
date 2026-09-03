@@ -734,6 +734,75 @@ export async function sendUsuarioAdicionadoEmail(
   await send(to, m.assunto, m.html, marca);
 }
 
+// ── 11. Sincronizacao com o ERP pausada ──────────────────────────────────────
+
+export interface DadosDeErpPausado {
+  /** O ERP como ele aparece na tela: "IXC Soft", "MK Solutions". */
+  erp: string;
+  /** Quantas varreduras seguidas terminaram em erro antes da pausa. */
+  falhasSeguidas: number;
+  /** A ultima mensagem que a leitura devolveu. Opcional: nem sempre ha uma. */
+  ultimoErro?: string;
+}
+
+/**
+ * O freio automatico avisando quem pode consertar o ERP.
+ *
+ * Este e-mail nasceu junto com a decisao de tirar a configuracao do ERP do
+ * painel do provedor: ele deixou de ter botao de salvar, testar e sincronizar,
+ * e com isso deixou de existir o humano que, do lado dele, desligava uma
+ * integracao morta na mao. Sem aviso, um ERP fora do ar viraria uma base que
+ * envelhece em silencio — foi o que aconteceu com a NG em 31/08/2026.
+ *
+ * O e-mail nao promete religar sozinho, de proposito. Quem religa e o suporte,
+ * porque a credencial agora so se edita no painel da plataforma; dizer outra
+ * coisa mandaria o provedor procurar um botao que nao existe mais.
+ */
+export function montarErpPausado(
+  nome: string, dados: DadosDeErpPausado,
+  marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Mensagem {
+  const raiz = base(marca, urlBase);
+  // "1 vez seguidas" nao existe em portugues, e o limiar ja foi outro numero
+  // antes — o texto tem de sobreviver a proxima mudanca dele.
+  const vezes = dados.falhasSeguidas === 1
+    ? "1 vez"
+    : `${dados.falhasSeguidas} vezes seguidas`;
+  const contato = marca.suporteEmail
+    ? `<a href="mailto:${esc(marca.suporteEmail)}" style="color:${acentoDaMarca(marca)};text-decoration:none;font-weight:600;">${esc(marca.suporteEmail)}</a>`
+    : "o suporte";
+
+  const html = envelope(`
+    ${kicker("sincronização pausada", DANGER)}
+    ${titulo("Pausamos a sincronização com o seu ERP")}
+    ${saudacao(nome)}
+    ${paragrafo(`A leitura automática da sua base no <strong style="color:${INK};">${esc(dados.erp)}</strong> falhou ${vezes}. Para não continuar batendo num sistema que não responde, a sincronização foi pausada.`)}
+    ${blocoDeDados([
+      { rotulo: "erp", valor: esc(dados.erp), mono: true },
+      { rotulo: "falhas seguidas", valor: String(dados.falhasSeguidas), mono: true, cor: DANGER },
+      { rotulo: "situação", valor: "pausada", mono: true, cor: DANGER },
+    ])}
+    ${dados.ultimoErro ? alerta(`<strong>Último erro:</strong> ${esc(dados.ultimoErro)}`, "perigo") : ""}
+    ${paragrafo("Nada foi apagado. Enquanto estiver pausada, o painel continua mostrando o que já foi lido — o que para de acontecer é a atualização: quem pagar ou atrasar a partir de agora não aparece.")}
+    ${passos([
+      `Confirme se o ${esc(dados.erp)} está no ar e respondendo.`,
+      "Se o acesso mudou — endereço, usuário, token — ou se o IP do nosso servidor precisa ser liberado no painel do ERP, ajuste por lá.",
+      `Avise ${contato} para religar a sincronização.`,
+    ], marca)}
+    ${botao(`${raiz}/painel-provedor`, "Ver a situação no painel", marca)}
+    ${paragrafo(`<span style="color:${MUTED};font-size:12px;">A configuração da integração é feita pela nossa equipe, então religar passa pelo suporte. No painel você acompanha a situação e a data da última leitura.</span>`, 0)}
+  `, `A leitura da sua base no ${dados.erp} falhou ${vezes}`, marca);
+  return { assunto: `Sincronização com o ERP pausada — ${marca.nomeProduto}`, html };
+}
+
+export async function sendErpPausadoEmail(
+  to: string, nome: string, dados: DadosDeErpPausado,
+  marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
+): Promise<void> {
+  const m = montarErpPausado(nome, dados, marca, urlBase);
+  await send(to, m.assunto, m.html, marca);
+}
+
 // ── Exposto para a pre-visualizacao ──────────────────────────────────────────
 
 /**

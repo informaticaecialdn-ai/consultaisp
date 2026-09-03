@@ -3,7 +3,8 @@ dist
 .DS_Store
 server/public
 vite.config.ts.*
-*.tar.gz.claude/worktrees/
+*.tar.gz
+.claude/worktrees/
 .env
 
 Consulta-ISP.zip

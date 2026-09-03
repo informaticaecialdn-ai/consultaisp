@@ -830,7 +830,11 @@ export function registerConsultasRoutes(): Router {
           corIndicador: "verde", riskLabel: "SEM DADOS NA REDE",
           recommendation: "Nenhum provedor com ERP configurado na sua regiao",
           decisionReco: "Review", providersFound: 0, providerDetails: [],
-          alerts: ["Nenhuma integracao ERP encontrada na regiao. Configure em Integracoes."],
+          // A frase mandava o provedor "Configurar em Integracoes" — tela que ele
+          // nao tem mais desde 03/09/2026: a configuracao de ERP passou a ser do
+          // superadmin e a aba dele virou somente leitura. Mandar alguem fazer o
+          // que acabou de ser tirado dele gera chamado, nao solucao.
+          alerts: ["Nenhum provedor da sua regiao tem ERP integrado. Fale com o suporte para integrar o seu."],
           recommendedActions: [], creditsCost: 0, isOwnCustomer: false,
           addressSource: null, addressUsed: null, addressParts: null, autoAddressCrossRef: false,
           source: "no_erp",

@@ -85,6 +85,21 @@ async function puxarDoProvedor(providerId: number): Promise<{ comCoordenada: num
     const connector = getConnector(intg.erpSource);
     if (!connector || typeof connector.fetchCustomers !== "function") continue;
 
+    // Sai antes de tocar na rede. Sem isto, o conector era chamado so para
+    // colecionar a recusa dele, e a passada de plotagem ficava com um erro de
+    // leitura atribuido ao ERP do provedor. E no log que o suporte olha
+    // primeiro: culpar o ERP por um conector que nem chegou a fazer requisicao
+    // manda conferir credencial e liberacao de IP do provedor por uma pendencia
+    // que e nossa. A mensagem abaixo diz de quem e.
+    if (connector.naoImplementado) {
+      logger.warn(
+        { providerId, erp: intg.erpSource },
+        `A integracao com o ${connector.label} ainda nao foi construida: o conector nao conversa `
+        + `com a API desse ERP. Nada foi lido — nao ha falha no ERP do provedor.`,
+      );
+      continue;
+    }
+
     try {
       const limiter = getProviderLimiter(providerId, intg.erpSource);
       const r = await limiter(() => connector.fetchCustomers!(buildConnectorConfig(intg)));

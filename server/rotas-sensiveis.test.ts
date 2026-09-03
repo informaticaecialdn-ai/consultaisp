@@ -1,50 +1,32 @@
 /**
  * As rotas cujo corpo de resposta NAO pode virar linha de log.
  *
- * A consulta cadastral estava de fora, e ela devolve o maior dossie do sistema:
- * nome, nascimento, nome da mae, enderecos, telefones e o array `emails`, com
- * endereco de e-mail em texto puro. O corpo inteiro ia para o arquivo de log a
- * cada consulta — e o log de producao e replicado a cada rotacao.
+ * Duas redes protegem o log, e as duas ja falharam uma vez cada:
  *
- * `sanitizeForLog` nao servia de rede: ele censura por NOME DE CHAVE, no
- * singular. O primeiro teste abaixo demonstra o furo em vez de descreve-lo.
+ * · A rede FINA e `sanitizeForLog`, que censura por NOME DE CHAVE. Ela deixou
+ *   passar o dossie inteiro da consulta cadastral, porque a lista tem "email"
+ *   no singular e a BigDataCorp devolve `emails`, `enderecos` e `telefones`,
+ *   com os campos dentro. O primeiro teste abaixo demonstra o furo em vez de
+ *   descreve-lo.
  *
- * A lista mora em `server/index.ts`, que sobe o servidor ao ser importado —
- * por isso este teste le o fonte em vez de importar o modulo. E o mesmo motivo
- * que fez `sanitizeForLog` mudar de arquivo.
+ * · A rede GROSSA e `corpoEhSensivel`, que suprime o corpo da rota inteira.
+ *   Ela deixou passar `GET /api/admin/providers`, que publicava `erpToken` —
+ *   a mesma credencial de ERP sob um nome que a lista de chaves nao conhecia.
+ *
+ * A lista morava em `server/index.ts`, que sobe o servidor ao ser importado, e
+ * por isso este teste LIA O FONTE como texto: afirmava que uma string estava
+ * escrita no arquivo, nunca que a comparacao funcionava. Desde 03/09/2026 a
+ * decisao mora em `utils/sanitize-log.ts` e o teste chama a funcao — o que
+ * importa quando a lista passou a aceitar expressao regular para caminho com id
+ * no meio, forma que a leitura por aspas nem enxergava.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import { sanitizeForLog } from "./utils/sanitize-log";
+import { sanitizeForLog, corpoEhSensivel, ROTAS_SEM_CORPO_NO_LOG } from "./utils/sanitize-log";
 
-const fonteDoIndex = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8",
-);
-
-/**
- * O conteudo do array `SENSITIVE_ROUTES`, como o arquivo o declara.
- *
- * Os comentarios saem ANTES da varredura por aspas. Sem isso, uma rota citada
- * dentro de um comentario do bloco entrava na lista como se estivesse
- * declarada — e o teste passaria a afirmar protecao que nao existe. Foi o que
- * aconteceu quando o bloco ganhou um JSDoc explicando por que a consulta
- * cadastral entrou.
- */
-function rotasSensiveis(): string[] {
-  const bloco = fonteDoIndex.match(/const SENSITIVE_ROUTES = \[([\s\S]*?)\];/);
-  if (!bloco) throw new Error("SENSITIVE_ROUTES nao encontrado em server/index.ts");
-  const semComentario = bloco[1]
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\/\/[^\n]*/g, "");
-  return Array.from(semComentario.matchAll(/"([^"]+)"/g)).map(m => m[1]);
-}
-
-describe("SENSITIVE_ROUTES", () => {
-  it("sanitizeForLog NAO cobre o que a consulta cadastral devolve", () => {
-    // Este e o furo que obrigou a rota a entrar na lista: a censura procura
-    // "email", e a BigDataCorp devolve "emails".
+describe("sanitizeForLog", () => {
+  it("NAO cobre o que a consulta cadastral devolve", () => {
+    // Este e o furo que obrigou a rota a entrar na lista grossa: a censura
+    // procura "email", e a BigDataCorp devolve "emails".
     const corpo = sanitizeForLog({
       emails: ["fulano@exemplo.com"],
       enderecos: [{ logradouro: "Rua das Flores", numero: "100", cidade: "Porto Alegre" }],
@@ -63,21 +45,68 @@ describe("SENSITIVE_ROUTES", () => {
     expect(corpo.identidade.nome).toBe("[REDACTED]");
   });
 
-  it("a consulta cadastral esta na lista, junto das outras consultas", () => {
-    const rotas = rotasSensiveis();
-    expect(rotas).toContain("/api/bigdata-consultations");
-    // As que ja estavam: perder uma delas e o mesmo tipo de vazamento.
-    expect(rotas).toContain("/api/isp-consultations");
-    expect(rotas).toContain("/api/spc-consultations");
-    expect(rotas).toContain("/api/public/titular-request");
+  it("censura credencial de ERP em qualquer profundidade, inclusive dentro de array", () => {
+    // A forma exata da resposta que vazou em 03/09/2026: uma LISTA de provedores.
+    const corpo = sanitizeForLog([
+      { name: "NsLink", erpToken: "usuario:TOKEN_DO_MK", erpUrl: "http://10.0.0.5:8080" },
+      { apiToken: "t", apiUser: "u", mkContraSenha: "cs", clientSecret: "cse", extraConfig: { sgpApp: "x" } },
+    ]);
+    expect(corpo[0].name).toBe("NsLink");
+    expect(corpo[0].erpToken).toBe("[REDACTED]");
+    expect(corpo[0].erpUrl).toBe("[REDACTED]");
+    for (const chave of ["apiToken", "apiUser", "mkContraSenha", "clientSecret", "extraConfig"]) {
+      expect(corpo[1][chave]).toBe("[REDACTED]");
+    }
+  });
+});
+
+describe("corpoEhSensivel", () => {
+  it("cobre as tres consultas e o pedido do titular", () => {
+    expect(corpoEhSensivel("/api/isp-consultations")).toBe(true);
+    expect(corpoEhSensivel("/api/spc-consultations")).toBe(true);
+    expect(corpoEhSensivel("/api/bigdata-consultations")).toBe(true);
+    expect(corpoEhSensivel("/api/public/titular-request")).toBe(true);
   });
 
-  it("o corpo so e suprimido por prefixo — a rota precisa casar do inicio", () => {
-    // Espelha o `path.startsWith(r)` do middleware: e assim que o GET do
-    // historico e o POST da consulta ficam cobertos pela mesma entrada.
-    const rotas = rotasSensiveis();
-    const coberta = (p: string) => rotas.some(r => p.startsWith(r));
-    expect(coberta("/api/bigdata-consultations")).toBe(true);
-    expect(coberta("/api/bigdata-integration")).toBe(false);
+  it("casa por prefixo — o historico e a consulta ficam na mesma entrada", () => {
+    expect(corpoEhSensivel("/api/bigdata-consultations/42")).toBe(true);
+    // E so por prefixo: uma rota vizinha de nome parecido nao e coberta por acidente.
+    expect(corpoEhSensivel("/api/bigdata-integration")).toBe(false);
+  });
+
+  it("cobre a leitura e a gravacao de integracao do superadmin, que devolvem credencial", () => {
+    expect(corpoEhSensivel("/api/admin/providers/6/integration")).toBe(true);
+    expect(corpoEhSensivel("/api/admin/providers/123/erp/mk")).toBe(true);
+    expect(corpoEhSensivel("/api/admin/providers/123/erp/sgp")).toBe(true);
+  });
+
+  it("cobre tambem o teste de conexao, que devolve a mensagem crua do ERP", () => {
+    // Hoje o teste responde so {ok, message} — sem credencial. Mas a `message`
+    // de varios conectores carrega o hostname interno do provedor, e a rota
+    // irma foi protegida justamente por esse tipo de conteudo. Se um dia o
+    // diagnostico ficar mais rico, o corpo iria inteiro para o log sem ninguem
+    // notar: o sufixo `/test` escapava do `[^/]+$` da expressao.
+    expect(corpoEhSensivel("/api/admin/providers/42/erp/ixc/test")).toBe(true);
+    expect(corpoEhSensivel("/api/admin/providers/42/erp/mk/test")).toBe(true);
+  });
+
+  it("NAO apaga o log da area administrativa inteira", () => {
+    // O motivo de a entrada ser expressao regular e nao o prefixo
+    // "/api/admin/providers": cortar o prefixo levaria junto tudo isto.
+    expect(corpoEhSensivel("/api/admin/providers")).toBe(false);
+    expect(corpoEhSensivel("/api/admin/providers/6")).toBe(false);
+    expect(corpoEhSensivel("/api/admin/providers/6/plan")).toBe(false);
+    expect(corpoEhSensivel("/api/admin/providers/6/credits")).toBe(false);
+    // O sync nao devolve credencial: responde 202 com {ok, iniciado, message}.
+    expect(corpoEhSensivel("/api/admin/providers/6/sync/mk")).toBe(false);
+  });
+
+  it("nao casa com id que nao seja numero", () => {
+    // Guarda contra uma regex frouxa demais que cobrisse caminhos vizinhos.
+    expect(corpoEhSensivel("/api/admin/providers/abc/integration")).toBe(false);
+  });
+
+  it("a lista nao esta vazia — trava contra alguem esvazia-la sem perceber", () => {
+    expect(ROTAS_SEM_CORPO_NO_LOG.length).toBeGreaterThanOrEqual(5);
   });
 });

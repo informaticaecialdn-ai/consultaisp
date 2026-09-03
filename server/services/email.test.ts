@@ -1,5 +1,5 @@
 /**
- * As 14 mensagens transacionais, sob contrato.
+ * As 15 mensagens transacionais, sob contrato.
  *
  * A caixa de entrada e o unico lugar do produto onde o defeito e irreversivel.
  * Entao o que este arquivo cobra de CADA mensagem, sem excecao:
@@ -92,16 +92,16 @@ const tituloDe = (html: string) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. O contrato que vale para as 14
+// 1. O contrato que vale para as 15
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("as 14 mensagens, uma invariante de cada vez", () => {
+describe("as 15 mensagens, uma invariante de cada vez", () => {
   const lista = exemplos(MARCA_PLATAFORMA, URL);
   const CASA = urlDaMarca(MARCA_PLATAFORMA);
 
-  it("sao 14, e a pre-visualizacao e a mesma lista", () => {
-    expect(lista).toHaveLength(14);
-    expect(new Set(lista.map(x => x.chave)).size).toBe(14);
+  it("sao 15, e a pre-visualizacao e a mesma lista", () => {
+    expect(lista).toHaveLength(15);
+    expect(new Set(lista.map(x => x.chave)).size).toBe(15);
   });
 
   it.each(lista.map(x => [x.chave, x] as const))("%s — assunto util", (_chave, x) => {
@@ -263,7 +263,7 @@ describe("o que cada mensagem grava no corpo", () => {
 describe("dado de cadastro hostil nao vira marcacao", () => {
   const H = HOSTIL;
 
-  /** As 14, montadas com veneno em cada campo que vem de fora. */
+  /** As 15, montadas com veneno em cada campo que vem de fora. */
   const envenenadas = (marca: MarcaResolvida = MARCA_PLATAFORMA): Array<[string, email.Mensagem]> => [
     ["verificacao", email.montarVerificacao(H, H, H, marca, URL)],
     ["boas-vindas", email.montarBoasVindas(H, {
@@ -287,6 +287,7 @@ describe("dado de cadastro hostil nao vira marcacao", () => {
     ["fatura-paga", email.montarFaturaPaga(H, { numero: H, competencia: H, valor: 10 }, marca, URL)],
     ["plano", email.montarPlanoAlterado(H, { de: H, para: H, creditosDoPlano: 5, observacao: H }, marca, URL)],
     ["usuario", email.montarUsuarioAdicionado(H, H, H, H, marca, URL)],
+    ["erp-pausado", email.montarErpPausado(H, { erp: H, falhasSeguidas: 3, ultimoErro: H }, marca, URL)],
   ];
 
   it.each(envenenadas())("%s — a tag nao sai crua", (_chave, m) => {

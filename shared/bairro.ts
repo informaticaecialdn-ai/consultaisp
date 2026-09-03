@@ -22,12 +22,22 @@ export function isSetorInterno(bairro: string | null | undefined): boolean {
 export interface ErpIntegracaoResumo {
   erpSource: string;
   isEnabled: boolean;
+  status: string;
 }
 
-/** Lista ausente (query ainda carregando ou falhou) vale "nao usa": na duvida
- *  o rotulo generico "sem bases publicas" e o honesto. */
+/**
+ * Lista ausente (query ainda carregando ou falhou) vale "nao usa": na duvida
+ * o rotulo generico "sem bases publicas" e o honesto.
+ *
+ * `pausado_por_falhas` conta como MK ligado de proposito. O corte automatico
+ * grava isEnabled=false depois de tres falhas seguidas de sync, mas o ERP do
+ * provedor continua sendo o MK: os "Setor N" que estao na tela vieram da ultima
+ * sincronizacao dele. Sem esta condicao a pausa apagaria justamente a frase que
+ * explica que aquilo e zona interna, e o provedor passaria a ler codigo de
+ * cadastro do ERP como se fosse nome de bairro real.
+ */
 export function provedorUsaMk(erps: ErpIntegracaoResumo[] | null | undefined): boolean {
-  return erps?.some(e => e.erpSource === "mk" && e.isEnabled) ?? false;
+  return erps?.some(e => e.erpSource === "mk" && (e.isEnabled || e.status === "pausado_por_falhas")) ?? false;
 }
 
 /** Recorte territorial de um bairro — o que decide se o aviso faz sentido. */

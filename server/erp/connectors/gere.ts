@@ -18,6 +18,14 @@ class GereConnector implements ErpConnector {
   readonly name = "gere";
   readonly label = "Gere";
 
+  /**
+   * Registrado so para figurar no catalogo — nenhum metodo abaixo fala com o
+   * ERP. Sem esta marca a lista suspensa do painel SaaS o ofereceria como
+   * integravel, e a integracao ficaria "Ativa" na tela dos dois lados sem
+   * nunca ter conversado com o Gere.
+   */
+  readonly naoImplementado = true;
+
   readonly configFields: ErpConfigField[] = [
     { key: "apiUrl", label: "URL da API Gere", type: "url", required: true, placeholder: "https://seudominio.gere.com.br" },
     { key: "apiToken", label: "Token de Integracao", type: "password", required: true },

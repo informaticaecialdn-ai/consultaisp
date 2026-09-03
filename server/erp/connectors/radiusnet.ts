@@ -18,6 +18,14 @@ class RadiusnetConnector implements ErpConnector {
   readonly name = "radiusnet";
   readonly label = "RadiusNet";
 
+  /**
+   * Registrado so para figurar no catalogo — nenhum metodo abaixo fala com o
+   * ERP. Sem esta marca a lista suspensa do painel SaaS o ofereceria como
+   * integravel, e a integracao ficaria "Ativa" na tela dos dois lados sem
+   * nunca ter conversado com o RadiusNet.
+   */
+  readonly naoImplementado = true;
+
   readonly configFields: ErpConfigField[] = [
     { key: "apiUrl", label: "URL da API RadiusNet", type: "url", required: true, placeholder: "https://seudominio.radiusnet.com.br" },
     { key: "apiToken", label: "Token de Integracao", type: "password", required: true },

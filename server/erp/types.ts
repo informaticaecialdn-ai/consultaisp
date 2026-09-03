@@ -202,6 +202,25 @@ export interface ErpConnector {
    */
   readonly supportsEquipment?: boolean;
 
+  /**
+   * `true` quando o conector esta registrado mas NAO fala com o ERP: todos os
+   * metodos devolvem "ainda nao implementado".
+   *
+   * Existe porque `configFields` sozinho nao distingue um stub de um conector
+   * que funciona, e a lista suspensa do painel SaaS se monta a partir dele. Sem
+   * a marca, o caminho da falha e silencioso: o operador escolhe o ERP, digita
+   * credencial e salva; a linha entra como "Configurado / Ativo" e o provedor
+   * do outro lado passa a ler "Integrada", porque o selo depende de configurado
+   * + isEnabled, e nao de o conector existir. So dias depois, na primeira
+   * varredura automatica, alguem descobre — e o provedor achou que estava
+   * integrado esse tempo todo.
+   *
+   * Ausente significa implementado, para nao obrigar os conectores que
+   * funcionam a declarar nada. Ao trocar um stub por integracao real, apague o
+   * campo em vez de virar para false.
+   */
+  readonly naoImplementado?: boolean;
+
   /** Test connectivity to the ERP API */
   testConnection(config: ErpConnectionConfig): Promise<ErpTestResult>;
 

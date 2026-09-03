@@ -14,6 +14,7 @@ import { agendaDoAmbiente, proximaExecucao, ultimaExecucaoAgendada, descreverAge
 import { geocodeCep, resolveIbgeCode } from "./geocoding";
 import { coordenadaValida } from "./coordenada";
 import { coordenadaDoErpCoerente } from "./coords-erp.service";
+import { avaliarPausaAutomatica, FALHAS_PARA_PAUSAR } from "./erp-pausa-automatica";
 
 let _syncing = false;
 
@@ -147,6 +148,13 @@ async function syncProviderToDbInterno(
   const inicioMs = Date.now();
 
   /**
+   * Conector registrado que ainda NAO fala com a API do ERP: todo metodo dele
+   * devolve recusa. Lido aqui em cima porque quem precisa da resposta e o
+   * `registrar` abaixo, que roda antes de qualquer leitura.
+   */
+  const semImplementacao = !!getConnector(erpSource)?.naoImplementado;
+
+  /**
    * Toda saida desta funcao passa por aqui. Antes, os tres desfechos de falha
    * (conector ausente, credencial recusada, excecao) saiam por `return`/`throw`
    * sem gravar nada, e a unica pista era um console.warn perdido no journal.
@@ -165,10 +173,49 @@ async function syncProviderToDbInterno(
         status, upserted, errors, recordsProcessed, syncType, mensagem,
         duracaoMs: Date.now() - inicioMs,
       });
-      if (status === "error") {
+      // O corte automatico so olha a varredura das 03:00.
+      //
+      // Quem clica em "Sincronizar Agora" esta OLHANDO o resultado: e o suporte
+      // depurando uma credencial recem-trocada, e a falha aparece na tela dele
+      // no mesmo segundo. Tres cliques num ERP fora do ar — exatamente o que se
+      // faz enquanto se depura — pausariam a integracao e mandariam ao provedor
+      // um e-mail pedindo que ele acione o suporte que estava com a mao ali.
+      // Quem roda as 03:00 nao esta olhando nada, e e por causa dele que o corte
+      // existe.
+      //
+      // A falha manual segue gravada como "error" na linha acima. Se o ERP
+      // estiver quebrado de verdade, a proxima varredura automatica conta essa
+      // falha e pausa: nada some do historico, so a consequencia espera.
+      //
+      // E nao vale para conector que nunca foi implementado. Pausar existe para
+      // parar de MARTELAR o ERP do provedor depois que ele para de responder; um
+      // conector que nem chega a fazer requisicao nao martela nada. O que
+      // sobraria seria so a metade que machuca: um e-mail dizendo ao provedor
+      // que a integracao dele foi pausada por falhas, sobre um ERP onde nao ha
+      // nada errado — ele abre chamado, o suporte vai conferir a credencial
+      // dele, e o problema e nosso. A falha continua gravada logo acima: quem
+      // le o historico precisa ver que aquela linha nao sincroniza.
+      if (status === "error" && syncType === "auto" && !semImplementacao) {
         const seguidas = await storage.contarFalhasConsecutivas(providerId, erpSource);
-        if (seguidas >= 3) {
+        if (seguidas >= FALHAS_PARA_PAUSAR) {
           console.error(`[ERPSync] ${providerName} (${erpSource}): ${seguidas} falhas CONSECUTIVAS — ${mensagem ?? "sem detalhe"}`);
+          // Ate aqui a linha acima era TUDO o que acontecia: contava e
+          // imprimia. Quem desligava uma integracao morta era um humano no
+          // painel do provedor — e esse painel virou so exibicao.
+          //
+          // O resumo diz se ela JA esta parada. Sem essa pergunta o provedor
+          // receberia um e-mail de pausa a cada varredura, para sempre. E
+          // leitura barata: nao decifra credencial nenhuma.
+          const resumo = (await storage.getErpIntegracoesResumo(providerId))
+            .find(i => i.erpSource === erpSource);
+          await avaliarPausaAutomatica({
+            providerId, erpSource, providerName,
+            falhasSeguidas: seguidas,
+            // Sem linha na tabela nao ha o que pausar; desligada ou ja pausada,
+            // idem. So o que esta LIGADO e ainda inteiro entra no corte.
+            jaPausado: !resumo || !resumo.isEnabled || resumo.status === "pausado_por_falhas",
+            ultimoErro: mensagem,
+          });
         }
       }
     } catch (e: any) {
@@ -182,6 +229,19 @@ async function syncProviderToDbInterno(
   if (!connector) {
     console.warn(`[ERPSync] Conector nao encontrado para ${erpSource}`);
     await registrar("error", 0, 0, `Conector "${erpSource}" nao existe no registry`);
+    return { upserted: 0, errors: 0 };
+  }
+
+  // Sai antes de tocar na rede. Sem isto a varredura chamava os metodos do
+  // conector so para colecionar as recusas dele, e o historico registrava
+  // "ERP recusou a busca" — texto que joga a suspeita no ERP do provedor. A
+  // mensagem abaixo diz de quem e a pendencia, para quem abrir o historico
+  // entender de imediato.
+  if (connector.naoImplementado) {
+    const msg = `A integracao com o ${connector.label} ainda nao foi construida: o conector `
+      + `nao conversa com a API desse ERP. Nada foi lido — nao ha falha no ERP do provedor.`;
+    console.warn(`[ERPSync] ${providerName}: ${msg}`);
+    await registrar("error", 0, 0, msg);
     return { upserted: 0, errors: 0 };
   }
 

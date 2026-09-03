@@ -10,24 +10,15 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
-  CreditCard, RefreshCw, Save, Plus, Terminal, CheckCircle2, AlertTriangle,
-  Eye, EyeOff, ExternalLink, Trash2, User,
+  CreditCard, RefreshCw, Save, Plus, ExternalLink, Trash2, User,
 } from "lucide-react";
-import { ERP_OPTIONS, ERP_MAP, PLAN_LABELS } from "./constants";
-import type { ErpCatalog } from "@shared/schema";
+import { PLAN_LABELS } from "./constants";
 import { PLANOS_DO_CATALOGO, rotuloDoPlano } from "@/lib/planos";
 
 interface ProviderDrawerProps {
   providerId: number | null;
   open: boolean;
   onOpenChange: (o: boolean) => void;
-}
-
-interface ErpFormState {
-  url: string;
-  token: string;
-  showToken: boolean;
-  erpProvider: string;
 }
 
 export default function ProviderDrawer({ providerId, open, onOpenChange }: ProviderDrawerProps) {
@@ -49,11 +40,6 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
   });
   const providerUsers = allUsers.filter((u: any) => u.providerId === providerId);
 
-  const { data: erpCatalogList = [] } = useQuery<ErpCatalog[]>({
-    queryKey: ["/api/erp-catalog"],
-    enabled: open,
-  });
-
   // Creditos state
   const [isp, setIsp] = useState("0");
   const [spc, setSpc] = useState("0");
@@ -62,21 +48,10 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
   // Plano state
   const [plan, setPlan] = useState("free");
 
-  // ERP state
-  const [erpForm, setErpForm] = useState<ErpFormState>({ url: "", token: "", showToken: false, erpProvider: "" });
-  const [erpTestResult, setErpTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
-
   // Reset state when provider changes
   useEffect(() => {
     if (provider) {
       setPlan(provider.plan || "free");
-      setErpForm({
-        url: provider.erpUrl ?? "",
-        token: provider.erpToken ?? "",
-        showToken: false,
-        erpProvider: provider.erpSource ?? "",
-      });
-      setErpTestResult(null);
       setIsp("0");
       setSpc("0");
       setNotes("");
@@ -116,54 +91,6 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
 
-  // ERP save mutation (replaces raw fetch at admin-sistema.tsx lines 1169-1217)
-  const saveErpMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("PUT", `/api/admin/providers/${providerId}/erp-config`, {
-        erpSource: erpForm.erpProvider || "ixc",
-        apiUrl: erpForm.url,
-        apiToken: erpForm.token,
-      });
-      if (!res.ok) throw new Error((await res.json()).message);
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({ title: "ERP salvo", description: "Configuracao de integracao atualizada com sucesso." });
-      qc.invalidateQueries({ queryKey: ["/api/admin/providers"] });
-    },
-    onError: () => toast({ title: "Erro", description: "Nao foi possivel salvar.", variant: "destructive" }),
-  });
-
-  const testErpMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/admin/providers/${providerId}/erp-test`, {});
-      return res.json();
-    },
-    onSuccess: (d: any) => {
-      setErpTestResult({ ok: d.ok, msg: d.message });
-    },
-    onError: () => {
-      setErpTestResult({ ok: false, msg: "Erro de conexao" });
-    },
-  });
-
-  const syncErpMutation = useMutation({
-    mutationFn: async () => {
-      const source = erpForm.erpSource || "ixc";
-      const res = await apiRequest("POST", `/api/admin/providers/${providerId}/sync/${source}`, {});
-      if (!res.ok) throw new Error((await res.json()).message || "Erro ao sincronizar");
-      return res.json();
-    },
-    onSuccess: (d: any) => {
-      toast({
-        title: "Sincronizacao concluida",
-        description: `${d.upserted} clientes sincronizados, ${d.errors} erros.`,
-      });
-      qc.invalidateQueries({ queryKey: ["/api/admin/providers"] });
-    },
-    onError: (e: any) => toast({ title: "Erro ao sincronizar", description: e.message, variant: "destructive" }),
-  });
-
   const deleteUserMutation = useMutation({
     mutationFn: async (id: number) => {
       const res = await apiRequest("DELETE", `/api/admin/users/${id}`, undefined);
@@ -188,10 +115,6 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
       </Sheet>
     );
   }
-
-  const erpName = provider.erpSource
-    ? (erpCatalogList.find((e: ErpCatalog) => e.key === provider.erpSource)?.name ?? ERP_MAP[provider.erpSource] ?? provider.erpSource)
-    : null;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -220,12 +143,11 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
         </SheetHeader>
 
         <Tabs value={activeSubTab} onValueChange={setActiveSubTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="dados" data-testid="tab-provider-dados">Dados</TabsTrigger>
             <TabsTrigger value="usuarios" data-testid="tab-provider-usuarios">Usuarios</TabsTrigger>
             <TabsTrigger value="creditos" data-testid="tab-provider-creditos">Creditos</TabsTrigger>
             <TabsTrigger value="plano" data-testid="tab-provider-plano">Plano</TabsTrigger>
-            <TabsTrigger value="erp" data-testid="tab-provider-erp">ERP</TabsTrigger>
           </TabsList>
 
           {/* Dados tab */}
@@ -340,127 +262,6 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
                 Plano atual: <strong>{PLAN_LABELS[provider.plan]?.label || provider.plan}</strong>
               </p>
             </div>
-          </TabsContent>
-
-          {/* ERP tab */}
-          <TabsContent value="erp" className="space-y-3 pt-4">
-            {erpName && (
-              <div className="text-xs text-[var(--color-muted)]">
-                ERP atual: <Badge className="bg-[var(--color-brand-bg)] text-[var(--color-brand)]">{erpName}</Badge>
-              </div>
-            )}
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">Selecione o ERP</Label>
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
-                {(erpCatalogList.length > 0 ? erpCatalogList.filter((e: any) => e.active) : ERP_OPTIONS).map((erp: any) => {
-                  const isSelected = erpForm.erpProvider === erp.key;
-                  const grad = "bg-[var(--color-ink)]";
-                  return (
-                    <button
-                      key={erp.key}
-                      type="button"
-                      onClick={() => {
-                        const currentErp = erpForm.erpProvider;
-                        if (currentErp && currentErp !== erp.key) {
-                          setErpForm({ url: "", token: "", showToken: false, erpProvider: erp.key });
-                        } else {
-                          setErpForm(f => ({ ...f, erpProvider: erp.key }));
-                        }
-                        setErpTestResult(null);
-                      }}
-                      className={`flex flex-col items-center gap-1 p-2 rounded border transition-colors text-center ${
-                        isSelected ? "border-[var(--color-brand)] bg-[var(--color-brand-bg)]" : "border-transparent bg-[var(--color-surface)] hover:bg-[var(--color-tag-bg)]"
-                      }`}
-                      data-testid={`drawer-erp-option-${erp.key}`}
-                    >
-                      <div className={`w-8 h-8 rounded flex items-center justify-center overflow-hidden ${erp.logoBase64 ? "bg-[var(--color-surface)] border" : grad}`}>
-                        {erp.logoBase64 ? (
-                          <img src={erp.logoBase64} alt={erp.name} className="w-full h-full object-contain p-0.5" />
-                        ) : (
-                          <span className="text-white text-xs font-bold">{erp.name[0]}</span>
-                        )}
-                      </div>
-                      <p className={`text-xs font-semibold leading-tight ${isSelected ? "text-[var(--color-brand)]" : "text-[var(--color-muted)]"}`}>{erp.name}</p>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {erpForm.erpProvider && (
-              <>
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Endereco do Servidor</Label>
-                  <Input
-                    placeholder="https://erp.seudominio.com.br"
-                    value={erpForm.url}
-                    onChange={e => setErpForm(f => ({ ...f, url: e.target.value }))}
-                    className="h-10 text-sm font-mono"
-                    data-testid="input-drawer-erp-url"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold">Token / Credencial</Label>
-                  <div className="relative">
-                    <Input
-                      type={erpForm.showToken ? "text" : "password"}
-                      placeholder="Credencial de acesso"
-                      value={erpForm.token}
-                      onChange={e => setErpForm(f => ({ ...f, token: e.target.value }))}
-                      className="h-10 text-sm font-mono pr-9"
-                      data-testid="input-drawer-erp-token"
-                    />
-                    <button
-                      type="button"
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--color-muted)]"
-                      onClick={() => setErpForm(f => ({ ...f, showToken: !f.showToken }))}
-                    >
-                      {erpForm.showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Button
-                    size="sm"
-                    className="h-8 text-xs gap-1.5"
-                    onClick={() => saveErpMutation.mutate()}
-                    disabled={saveErpMutation.isPending || !erpForm.url || !erpForm.erpProvider}
-                    data-testid="button-drawer-erp-save"
-                  >
-                    <Save className="w-3.5 h-3.5" />
-                    {saveErpMutation.isPending ? "Salvando..." : "Salvar"}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs gap-1.5"
-                    onClick={() => { setErpTestResult(null); testErpMutation.mutate(); }}
-                    disabled={testErpMutation.isPending || !erpForm.url}
-                    data-testid="button-drawer-erp-test"
-                  >
-                    <Terminal className="w-3.5 h-3.5" />
-                    {testErpMutation.isPending ? "Testando..." : "Testar Conexão"}
-                  </Button>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    className="h-8 text-xs gap-1.5"
-                    onClick={() => syncErpMutation.mutate()}
-                    disabled={syncErpMutation.isPending || !erpForm.url}
-                    data-testid="button-drawer-erp-sync"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${syncErpMutation.isPending ? "animate-spin" : ""}`} />
-                    {syncErpMutation.isPending ? "Sincronizando..." : "Sincronizar Agora"}
-                  </Button>
-                </div>
-                {erpTestResult && (
-                  <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded ${erpTestResult.ok ? "bg-[var(--color-success-bg)] text-[var(--color-success)] border border-[var(--color-success)]" : "bg-[var(--color-danger-bg)] text-[var(--color-danger)] border border-[var(--color-danger)]"}`}>
-                    {erpTestResult.ok ? <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />}
-                    {erpTestResult.msg}
-                  </div>
-                )}
-              </>
-            )}
           </TabsContent>
         </Tabs>
       </SheetContent>

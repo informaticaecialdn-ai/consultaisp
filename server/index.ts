@@ -10,7 +10,7 @@ import { pool } from "./db";
 import { logger } from "./logger";
 import { getSafeErrorMessage } from "./utils/safe-error";
 import { runMigrations, verifySchema } from "./migrate";
-import { sanitizeForLog } from "./utils/sanitize-log";
+import { sanitizeForLog, corpoEhSensivel } from "./utils/sanitize-log";
 
 const app = express();
 // trust proxy: expects exactly 1 reverse proxy (Nginx/Caddy) in front of the app.
@@ -78,26 +78,7 @@ export function log(message: string, source = "express") {
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
-// Routes whose response bodies must never be logged (contain personal/financial data)
-const SENSITIVE_ROUTES = [
-  "/api/isp-consultations",
-  "/api/spc-consultations",
-  /**
-   * A consulta cadastral faltava aqui, e ela e a que devolve MAIS dado pessoal
-   * do sistema: nome, nascimento, nome da mae, enderecos, telefones e o array
-   * `emails` — endereco de e-mail em texto puro. Sem esta linha, o corpo
-   * inteiro ia para o arquivo de log a cada consulta.
-   *
-   * `sanitizeForLog` nao cobria: ele censura por NOME DE CHAVE, e a lista tem
-   * "email" no singular. O que a BigDataCorp devolve e `emails`, `enderecos`,
-   * `telefones` e `identidade` — nenhum bate, e tudo passava limpo. Consertar
-   * a lista de chaves ajudaria, mas nao resolve: o resultado da consulta muda
-   * de forma a cada dataset novo, e a regra segura para uma rota que devolve
-   * dossie e nao logar o corpo, como ja se faz com a ISP e a SPC.
-   */
-  "/api/bigdata-consultations",
-  "/api/public/titular-request",
-];
+
 
 // A regra de censura vive em utils/sanitize-log.ts — importar este arquivo sobe
 // o servidor, e o que decide o que e segredo precisa de teste.
@@ -119,7 +100,7 @@ app.use((req, res, next) => {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
 
       // Suppress response body for sensitive consultation routes
-      const isSensitive = SENSITIVE_ROUTES.some(r => path.startsWith(r));
+      const isSensitive = corpoEhSensivel(path);
       if (capturedJsonResponse && !isSensitive) {
         logLine += ` :: ${JSON.stringify(sanitizeForLog(capturedJsonResponse))}`;
       } else if (isSensitive && capturedJsonResponse) {

@@ -23,6 +23,7 @@ import type {
 } from "../types.js";
 import { CircuitBreaker, withResilience } from "../resilience.js";
 import { cleanCpfCnpj, cleanPhone, calculateDaysOverdue, aggregateByCustomer } from "../normalize.js";
+import { registerConnector } from "../registry.js";
 
 // Token cache
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
@@ -259,3 +260,9 @@ export class VoalleConnector implements ErpConnector {
     }
   }
 }
+
+// Register connector on import
+const voalleConnector = new VoalleConnector();
+registerConnector(voalleConnector);
+
+export default voalleConnector;

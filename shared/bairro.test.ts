@@ -34,18 +34,33 @@ describe("isSetorInterno", () => {
 
 describe("provedorUsaMk", () => {
   it("so conta o MK quando esta ligado", () => {
-    expect(provedorUsaMk([{ erpSource: "mk", isEnabled: true }])).toBe(true);
-    expect(provedorUsaMk([{ erpSource: "mk", isEnabled: false }])).toBe(false);
+    expect(provedorUsaMk([{ erpSource: "mk", isEnabled: true, status: "idle" }])).toBe(true);
     expect(provedorUsaMk([
-      { erpSource: "ixc", isEnabled: true },
-      { erpSource: "mk", isEnabled: true },
+      { erpSource: "ixc", isEnabled: true, status: "idle" },
+      { erpSource: "mk", isEnabled: true, status: "idle" },
+    ])).toBe(true);
+  });
+
+  it("MK desligado pelo suporte nao conta — a integracao foi encerrada", () => {
+    expect(provedorUsaMk([{ erpSource: "mk", isEnabled: false, status: "idle" }])).toBe(false);
+  });
+
+  it("MK pausado por falhas ainda conta: o ERP continua sendo MK, so parou de sincronizar, e os 'Setor N' na tela vieram dele", () => {
+    expect(provedorUsaMk([
+      { erpSource: "mk", isEnabled: false, status: "pausado_por_falhas" },
     ])).toBe(true);
   });
 
   it("outro ERP ligado nao e MK", () => {
-    expect(provedorUsaMk([{ erpSource: "ixc", isEnabled: true }])).toBe(false);
-    expect(provedorUsaMk([{ erpSource: "sgp", isEnabled: true }])).toBe(false);
+    expect(provedorUsaMk([{ erpSource: "ixc", isEnabled: true, status: "idle" }])).toBe(false);
+    expect(provedorUsaMk([{ erpSource: "sgp", isEnabled: true, status: "idle" }])).toBe(false);
     expect(provedorUsaMk([])).toBe(false);
+  });
+
+  it("outro ERP pausado por falhas nao vira MK", () => {
+    expect(provedorUsaMk([
+      { erpSource: "ixc", isEnabled: false, status: "pausado_por_falhas" },
+    ])).toBe(false);
   });
 
   it("lista ausente vale nao usa — a query pode estar carregando", () => {

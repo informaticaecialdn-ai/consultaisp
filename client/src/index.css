@@ -589,6 +589,63 @@
   min-height: 100%;
 }
 
+/* ------------------------------------------------------------------ */
+/* Formulario de credencial de ERP (client/src/components/erp/FormularioErp.tsx).
+   O componente desenha tudo em estilo inline para bater 1:1 com o handoff, e
+   inline nao expressa media query, pseudo-elemento nem keyframe. As regras
+   moram AQUI, e nao num <style> dentro do componente, porque a tela do
+   superadmin monta uma instancia por conector: o <style> local e global do
+   mesmo jeito, so que reinjetado a cada instancia montada. Mesmo motivo e
+   mesma tecnica da .ds-copiar acima, que e o precedente da casa.           */
+
+.ds-erp-girando { animation: ci-spin .9s linear infinite; }
+
+/* Alvo de toque de 44px, que o DESIGN_SYSTEM (secao 7) trata como nao
+   negociavel — mas SO no ponteiro grosso. No mouse o botao continua 36px e o
+   campo 38px, porque densidade e decisao de produto (secao 4): engordar todo
+   controle no desktop tiraria linhas da tela do operador, que escaneia muitas
+   por dia. Mesma leitura do <Button> em client/src/components/ui/button.tsx. */
+@media (pointer: coarse) {
+  .ds-erp-botao { min-height: 44px; }
+  .ds-erp-campo { min-height: 44px; }
+
+  /* Controle de tamanho fixo (a chave liga/desliga): crescer ate 44px
+     deformaria o desenho — deixaria de parecer uma chave. Separa-se o que se
+     VE do que se TOCA, como na .ds-copiar: a area sensivel vem por ::after,
+     centrada, invisivel e fora do fluxo do layout. */
+  .ds-erp-alvo::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+    /* Nunca menor que o proprio controle. */
+    min-width: 100%;
+    min-height: 100%;
+  }
+
+  /* O olho de revelar senha mora DENTRO do campo, entao o alvo dele nao pode
+     ser centrado: crescendo para os dois lados ele avancava sobre a area de
+     texto, e um clique na beirada direita do campo caia no botao em vez de
+     focar o campo. Aqui o alvo cresce so para a direita, ancorado na borda do
+     input (o botao tem 3px de folga ate ela, dai o -3px), e ocupa exatamente
+     os 44px de padding que o campo reserva do lado da senha. */
+  .ds-erp-alvo-lateral::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: -3px;
+    left: auto;
+    width: 44px;
+    height: 44px;
+    transform: translateY(-50%);
+    min-width: 100%;
+    min-height: 100%;
+  }
+}
+
 /* Par "Seu provedor / Provedor parceiro" do relatorio: duas colunas fixas,
    uma no celular. Media query nao existe em style inline — por isso classe. */
 .ds-duo {

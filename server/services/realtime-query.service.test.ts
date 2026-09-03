@@ -446,6 +446,156 @@ describe("o sinal de contrato atravessa a normalizacao", () => {
 });
 
 /**
+ * "Nao consegui perguntar" nunca pode virar "nao e cliente meu".
+ *
+ * `ok` responde UMA pergunta: o ERP daquele provedor chegou a responder? Quem
+ * consome a resposta e a cadeia do anti-fraude — a rota monta o conjunto dos
+ * provedores que responderam e, para eles, o alerta de fuga desiste da base
+ * sincronizada, por entender que o dono ja disse "esse CPF nao e cliente meu".
+ * Enquanto o conector recusando (credencial negada, ERP fora do ar) saia como
+ * `ok:true` com lista vazia, o dono de um cliente inadimplente de verdade era
+ * dado como tendo respondido "nao e meu", e nenhum aviso nascia. Num bureau de
+ * credito e o pior desfecho possivel: "nada consta" para quem deve.
+ *
+ * O contrario tambem tem de continuar valendo: ERP que respondeu e nao achou o
+ * CPF sai `ok:true` de lista vazia — e o unico jeito de dispensar a base
+ * sincronizada sem inventar alerta.
+ */
+describe("ok distingue ERP que respondeu de ERP que falhou", () => {
+  beforeEach(() => { vi.restoreAllMocks(); });
+
+  describe("busca por CPF pelo metodo dedicado do conector", () => {
+    it("conector recusando derruba o ok e preserva o motivo que ele deu", async () => {
+      const connector = makeMockConnector();
+      (connector.fetchCustomerByCpf as ReturnType<typeof vi.fn>).mockResolvedValue({
+        ok: false,
+        message: "Credencial recusada pelo ERP (HTTP 401)",
+        customers: [],
+      });
+      mockedGetConnector.mockReturnValue(connector);
+
+      const [r] = await queryRegionalErps([makeIntegration(1, "Dono")], "12345678901", "cpf");
+
+      expect(r.ok).toBe(false);
+      expect(r.error).toBe("Credencial recusada pelo ERP (HTTP 401)");
+      expect(r.customers).toEqual([]);
+    });
+
+    it("ERP que respondeu 'nao e cliente meu' segue sendo ok — lista vazia nao e falha", async () => {
+      const connector = makeMockConnector([]);
+      mockedGetConnector.mockReturnValue(connector);
+
+      const [r] = await queryRegionalErps([makeIntegration(1, "Dono")], "12345678901", "cpf");
+
+      expect(r.ok).toBe(true);
+      expect(r.error).toBeUndefined();
+      expect(r.customers).toEqual([]);
+    });
+
+    it("ERP que achou o cliente responde ok com o cliente", async () => {
+      const connector = makeMockConnector([
+        { cpfCnpj: "12345678901", name: "Cliente do Dono", totalOverdueAmount: 210, maxDaysOverdue: 15, erpSource: "mock-erp" },
+      ]);
+      mockedGetConnector.mockReturnValue(connector);
+
+      const [r] = await queryRegionalErps([makeIntegration(1, "Dono")], "12345678901", "cpf");
+
+      expect(r.ok).toBe(true);
+      expect(r.customers).toHaveLength(1);
+      expect(r.customers[0].name).toBe("Cliente do Dono");
+    });
+  });
+
+  describe("busca por CPF pelo caminho de fallback (conector sem metodo dedicado)", () => {
+    function conectorSemBuscaPorCpf(fetchDelinquents: ReturnType<typeof vi.fn>): ErpConnector {
+      return {
+        name: "basic-erp",
+        label: "Basic ERP",
+        configFields: [],
+        testConnection: vi.fn().mockResolvedValue({ ok: true, message: "ok" }),
+        fetchDelinquents,
+        fetchCustomers: vi.fn().mockResolvedValue({ ok: true, message: "ok", customers: [] }),
+      };
+    }
+
+    it("recusa na varredura de inadimplentes derruba o ok e preserva o motivo", async () => {
+      mockedGetConnector.mockReturnValue(conectorSemBuscaPorCpf(
+        vi.fn().mockResolvedValue({ ok: false, message: "ERP indisponivel (HTTP 503)", customers: [] }),
+      ));
+
+      const [r] = await queryRegionalErps([makeIntegration(1, "Dono", "basic-erp")], "12345678901", "cpf");
+
+      expect(r.ok).toBe(false);
+      expect(r.error).toBe("ERP indisponivel (HTTP 503)");
+      expect(r.customers).toEqual([]);
+    });
+
+    it("varredura que respondeu sem o CPF na lista segue sendo ok", async () => {
+      mockedGetConnector.mockReturnValue(conectorSemBuscaPorCpf(
+        vi.fn().mockResolvedValue({
+          ok: true,
+          message: "ok",
+          customers: [
+            { cpfCnpj: "99999999999", name: "Outro", totalOverdueAmount: 100, maxDaysOverdue: 10, erpSource: "basic-erp" },
+          ],
+        }),
+      ));
+
+      const [r] = await queryRegionalErps([makeIntegration(1, "Dono", "basic-erp")], "12345678901", "cpf");
+
+      expect(r.ok).toBe(true);
+      expect(r.customers).toEqual([]);
+    });
+
+    it("varredura que trouxe o CPF responde ok com o cliente", async () => {
+      mockedGetConnector.mockReturnValue(conectorSemBuscaPorCpf(
+        vi.fn().mockResolvedValue({
+          ok: true,
+          message: "ok",
+          customers: [
+            { cpfCnpj: "123.456.789-01", name: "Achado na varredura", totalOverdueAmount: 400, maxDaysOverdue: 40, erpSource: "basic-erp" },
+          ],
+        }),
+      ));
+
+      const [r] = await queryRegionalErps([makeIntegration(1, "Dono", "basic-erp")], "12345678901", "cpf");
+
+      expect(r.ok).toBe(true);
+      expect(r.customers).toHaveLength(1);
+      expect(r.customers[0].name).toBe("Achado na varredura");
+    });
+  });
+
+  it("conector que ainda nao fala com o ERP nao e perguntado, e nao entra como recusa do ERP", async () => {
+    const casca = makeMockConnector([]);
+    (casca as any).naoImplementado = true;
+    (casca as any).label = "TopSApp";
+    mockedGetConnector.mockReturnValue(casca);
+
+    const [r] = await queryRegionalErps([makeIntegration(1, "Dono", "topsapp")], "12345678901", "cpf");
+
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("TopSApp");
+    expect(r.error).toContain("nao foi construida");
+    // Nada foi perguntado: a pendencia e nossa, nao do ERP do provedor.
+    expect(casca.fetchCustomerByCpf).not.toHaveBeenCalled();
+    expect(casca.fetchDelinquents).not.toHaveBeenCalled();
+  });
+
+  it("timeout continua saindo como falha, com a marca de timeout", async () => {
+    const connector = makeMockConnector();
+    (connector.fetchCustomerByCpf as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("Timeout"));
+    mockedGetConnector.mockReturnValue(connector);
+
+    const [r] = await queryRegionalErps([makeIntegration(1, "Lento")], "12345678901", "cpf");
+
+    expect(r.ok).toBe(false);
+    expect(r.timedOut).toBe(true);
+    expect(r.error).toContain("Timeout");
+  });
+});
+
+/**
  * O identificador da consulta nas linhas do ERP.
  *
  * Sem ele, dois provedores consultando ao mesmo tempo produzem "RT-QUERY ERP

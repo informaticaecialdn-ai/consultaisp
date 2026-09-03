@@ -3,6 +3,13 @@
  *
  * Imports all connector modules, registers them, and re-exports the registry API.
  * Consumers only need: import { getConnector, ErpConnectionConfig } from "../erp"
+ *
+ * Duas convencoes convivem aqui: conector importado como classe e registrado
+ * logo abaixo, e conector que se registra sozinho no fim do proprio arquivo
+ * (importado so pelo efeito colateral). O voalle passou meses caindo entre as
+ * duas — estava no grupo de baixo sem nunca chamar registerConnector(), e nada
+ * acusava. Quem acusa agora e conectores-implementados.test.ts, que compara o
+ * que este arquivo importa com o que o registry contem.
  */
 
 // --- Import connector classes (manual registration) ---

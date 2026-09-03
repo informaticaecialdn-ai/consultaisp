@@ -63,9 +63,39 @@ export async function refreshProviderCache(
     return;
   }
 
+  // Sai antes de tocar na rede. Sem isto, o conector era chamado so para
+  // colecionar a recusa dele, e o mapa registrava erro de leitura do ERP —
+  // texto que joga a suspeita no ERP do provedor. O log e o estado do cache
+  // sao o primeiro lugar onde o suporte olha; culpar o ERP por um conector que
+  // nem chegou a fazer requisicao manda investigar o lado errado (credencial,
+  // IP liberado, ERP fora do ar) por um problema que e nosso.
+  if (connector.naoImplementado) {
+    const msg = `A integracao com o ${connector.label} ainda nao foi construida: o conector `
+      + `nao conversa com a API desse ERP. Nada foi lido — nao ha falha no ERP do provedor.`;
+    console.warn(`[HeatmapCache] ${providerName}: ${msg}`);
+    const existing = _cache.get(providerId);
+    if (!existing || existing.status !== "ok") {
+      _cache.set(providerId, {
+        points: existing?.points || [],
+        fetchedAt: existing?.fetchedAt || new Date(),
+        lastSuccessAt: existing?.lastSuccessAt || null,
+        lastAttemptAt: new Date(),
+        providerName,
+        status: "empty",
+        errorMessage: msg,
+      });
+    }
+    return;
+  }
+
   try {
     const config = buildConnectorConfig(intg);
-    console.log(`[HeatmapCache] Buscando ${providerName} (${erpSource}) id=${providerId} url=${intg.apiUrl}`);
+    // Sem a `url=`: o endereco do ERP e host interno do provedor, e este
+    // console.log escreve direto no stdout — nao passa pelo middleware, entao
+    // `sanitizeForLog` nunca o alcanca. Censurar `erpUrl` por nome de chave e
+    // deixar o mesmo dado sair por aqui seria censura de fachada. O par
+    // provedor+ERP ja identifica a linha para quem for depurar.
+    console.log(`[HeatmapCache] Buscando ${providerName} (${erpSource}) id=${providerId}`);
     const limiter = getProviderLimiter(providerId, erpSource);
     const result = await limiter(() => connector.fetchDelinquents(config));
 

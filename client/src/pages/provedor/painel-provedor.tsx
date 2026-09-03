@@ -19,10 +19,8 @@ import {
   BarChart3, Search, AlertTriangle, Save, RefreshCw, Crown,
   Lock, Star, FileText, Upload, Download, MapPin, Calendar,
   Briefcase, X, Pencil, ClipboardList, UserCheck, Wand2, Info,
-  Key, Zap, ArrowRight, Database, CheckCheck, Clock,
-  Loader2
+  Zap, Database, CheckCheck, Clock,
 } from "lucide-react";
-import { Switch } from "@/components/ui/switch";
 import { AbaAntiFraude } from "@/components/painel/AbaAntiFraude";
 import { mensagemDoErro } from "@/components/recuperacao/DialogoContato";
 import { rotuloDoPlano } from "@/lib/planos";
@@ -69,6 +67,176 @@ const ERP_LIST = [
   { key: "flyspeed", name: "Fly Speed",    desc: "Fly Speed ISP",  grad: "from-cyan-500 to-cyan-600",     authType: "bearer", authHint: "Token: chave de API do Fly Speed" },
   { key: "netflash", name: "Netflash",     desc: "Netflash ISP",   grad: "from-rose-500 to-pink-600",     authType: "bearer", authHint: "Token: chave de API do Netflash" },
 ];
+
+/**
+ * O que a aba de integracao do provedor recebe hoje.
+ *
+ * A rota devolve um RESUMO — nunca apiUrl, apiToken, apiUser, clientId,
+ * clientSecret, mkContraSenha, extraConfig ou notes. Antes ela mandava as
+ * credenciais decifradas para o navegador e esta tela as editava; a
+ * configuracao passou para o painel do superadmin, e aqui so se exibe.
+ * `configurado` ja vem calculado no servidor como apiUrl E apiToken.
+ */
+type ResumoErp = {
+  erpSource: string;
+  isEnabled: boolean;
+  configurado: boolean;
+  status: string;
+  lastSyncAt: string | null;
+  lastSyncStatus: string | null;
+  totalSynced: number;
+  totalErrors: number;
+};
+
+type TomEstado = "ok" | "gated" | "past" | "info" | "neutro";
+
+/**
+ * O estado que o provedor le. Sem os botoes de salvar, testar e sincronizar,
+ * este selo virou o unico sinal que resta — entao ele nao pode arredondar nada
+ * para cima. `configurado` e um E (url E token) vindo do servidor; um OU aqui
+ * mostraria "Integrada" para quem tem so metade da credencial.
+ *
+ * A ordem importa e e defensiva de proposito: `isEnabled` manda, `status` so
+ * qualifica. A pausa por falhas e gravada como isEnabled=false + status
+ * 'pausado_por_falhas', e o religar limpa o status — mas se um dia a marca
+ * ficar presa por qualquer outro motivo (migracao pela metade, escrita perdida,
+ * bug de servidor), uma integracao LIGADA e sincronizando seria exibida como
+ * pausada. O provedor pararia de confiar no dado que esta chegando, e abriria
+ * chamado para um problema que nao existe. Por isso 'pausado_por_falhas' so e
+ * lido dentro do ramo em que a integracao ja esta desligada.
+ *
+ * `conectorPendente` vem do registry do servidor e manda em tudo o mais. Ha ERP
+ * cujo conector so figura no catalogo: ele nunca conversa com a API, entao a
+ * linha nasce "Integrada" em verde e, depois da primeira varredura automatica,
+ * fica para sempre em "Falha na ultima sincronizacao" — a tela atribuindo ao
+ * sistema do provedor uma falha que e nossa. Como o corte automatico por falhas
+ * foi suprimido justamente para esses conectores, nada tira a linha desse
+ * estado, e o provedor abre chamado sobre um ERP que esta perfeito. O parametro
+ * e opcional e o padrao preserva o comportamento de antes: quem nao sabe do
+ * conector nao pode ser obrigado a informa-lo.
+ */
+export function estadoDaIntegracao(
+  intg: ResumoErp,
+  conectorPendente = false,
+): { texto: string; tom: TomEstado; detalhe?: string } {
+  if (conectorPendente) {
+    return {
+      texto: "Em desenvolvimento",
+      tom: "neutro",
+      detalhe: "A ligacao com este ERP ainda esta sendo construida pela nossa equipe. Nao ha falha no seu sistema e nao ha nada a ajustar do seu lado: assim que ela ficar pronta, a sincronizacao comeca sozinha e o historico aparece aqui.",
+    };
+  }
+  if (!intg.configurado) {
+    return {
+      texto: "Aguardando configuracao",
+      tom: "gated",
+      detalhe: "As credenciais deste ERP ainda nao foram cadastradas pelo suporte.",
+    };
+  }
+  if (!intg.isEnabled) {
+    if (intg.status === "pausado_por_falhas") {
+      return {
+        texto: "Pausada por falhas",
+        tom: "gated",
+        detalhe: "A sincronizacao foi pausada automaticamente depois de falhas seguidas do ERP. O suporte religa apos verificar a causa.",
+      };
+    }
+    return { texto: "Desativada", tom: "neutro", detalhe: "Esta integracao esta configurada, mas nao esta sincronizando." };
+  }
+  if (intg.lastSyncStatus === "error") {
+    return { texto: "Falha na ultima sincronizacao", tom: "past" };
+  }
+  return { texto: "Integrada", tom: "ok" };
+}
+
+/**
+ * Quais linhas de integracao o PROVEDOR ve nesta aba.
+ *
+ * A tabela guarda uma linha por ERP que o suporte ja tocou, e o provedor viu
+ * seis delas de uma vez. Aqui ele nao configura nada — entao a lista so pode
+ * conter o que fala sobre a conta dele hoje:
+ *
+ * - `configurado` e obrigatorio porque linha sem credencial nao e integracao,
+ *   e cadastro pela metade: assunto interno, nao estado do provedor.
+ * - `configurado` sozinho tambem nao basta. Uma linha com credencial e
+ *   desligada de proposito pelo suporte e assunto do suporte — o provedor nao
+ *   tem como liga-la, e ficar olhando para ela so gera duvida.
+ * - `pausado_por_falhas` entra MESMO desligada, e e a razao de a regra nao ser
+ *   apenas `isEnabled`: e o unico aviso que o provedor recebe de que a
+ *   sincronizacao dele parou e que o ERP dele precisa de conserto. Esconder
+ *   isso seria esconder justamente aquilo sobre o que ele tem de agir.
+ *
+ * A linha de um ERP cujo conector ainda esta sendo construido FICA VISIVEL, e o
+ * criterio nao a consulta. Esconde-la deixaria a conta que so tem essa linha
+ * caindo no estado vazio, cujo texto manda procurar o suporte para cadastrar a
+ * integracao — exatamente o chamado que se quer evitar, agora sobre um ERP que o
+ * suporte ja cadastrou. O provedor tambem foi avisado de que a integracao dele
+ * estava sendo ligada; sumir com ela produz "cade meu ERP?", que e o mesmo
+ * chamado com outro assunto. Visivel e dizendo a verdade, ele le que existe,
+ * que o atraso e nosso e que nao ha o que fazer — e nao liga. O que a linha nao
+ * pode e ser contada como sincronizacao no ar; disso cuida `integracaoNoAr`.
+ */
+export function integracaoVisivelAoProvedor(intg: ResumoErp): boolean {
+  if (!intg.configurado) return false;
+  return intg.isEnabled || intg.status === "pausado_por_falhas";
+}
+
+/**
+ * Se esta integracao conta como sincronizacao acontecendo agora.
+ *
+ * O cartao "integracoes ativas" imprime esse numero em 21px. Uma linha de
+ * conector ainda em construcao chega aqui com isEnabled=true — a coluna diz
+ * ligada, e nenhuma varredura consegue ler nada — e somaria 1 logo acima da
+ * propria linha que se declara em desenvolvimento. Numero grande contradizendo
+ * o texto abaixo dele e o jeito mais rapido de o operador parar de acreditar na
+ * tela inteira.
+ */
+export function integracaoNoAr(intg: ResumoErp, conectorPendente = false): boolean {
+  return intg.isEnabled && !conectorPendente;
+}
+
+/**
+ * Selo de estado — o mesmo componente que a tela do superadmin imprime para a
+ * mesma integracao (o PILL_BASE de admin-provedor). Label mono em caixa alta na
+ * abertura do token: com a medida cravada aqui, suporte e provedor liam a mesma
+ * marca em duas formas diferentes durante a mesma conversa.
+ */
+const SELO_ESTADO = "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[var(--track-wide)]";
+
+/** Cabecalho da tabela do historico: mesma abertura dos rotulos dos cartoes acima. */
+const COLUNA_HISTORICO = "text-[10px] tracking-[var(--track-wide)]";
+
+const TOM_ESTADO: Record<TomEstado, { fg: string; bg: string; bd: string }> = {
+  ok:     { fg: "var(--ok)",        bg: "var(--ok-bg)",     bd: "var(--ok-border)" },
+  gated:  { fg: "var(--gated)",     bg: "var(--gated-bg)",  bd: "var(--gated-border)" },
+  past:   { fg: "var(--past)",      bg: "var(--past-bg)",   bd: "var(--past-border)" },
+  info:   { fg: "var(--info)",      bg: "var(--info-bg)",   bd: "var(--info-border)" },
+  neutro: { fg: "var(--text-muted)", bg: "var(--surface-inset)", bd: "var(--border)" },
+};
+
+/**
+ * Desfecho de cada linha do historico.
+ *
+ * 'reativado' nao e sucesso nem erro: e o registro de que o suporte religou a
+ * integracao, e ele existe para servir de parada na contagem de falhas
+ * consecutivas do servidor. Sem estar mapeado aqui, cairia no ramo generico e
+ * seria mostrado como "Parcial" — inventando um desfecho de varredura para uma
+ * linha que nao e varredura nenhuma.
+ *
+ * O ramo desconhecido mostra o codigo cru em tom neutro de proposito: rotular
+ * de "Parcial" um status que esta tela ainda nao conhece e mentir com mais
+ * confianca do que nao saber.
+ */
+const DESFECHO_DO_LOG: Record<string, { rotulo: string; tom: TomEstado }> = {
+  success:   { rotulo: "Sucesso",   tom: "ok" },
+  partial:   { rotulo: "Parcial",   tom: "gated" },
+  error:     { rotulo: "Erro",      tom: "past" },
+  reativado: { rotulo: "Reativada", tom: "info" },
+};
+
+export function desfechoDoLog(status: string): { rotulo: string; tom: TomEstado } {
+  return DESFECHO_DO_LOG[status] ?? { rotulo: status, tom: "neutro" };
+}
 
 function relDate(d: string | null): string {
   if (!d) return "Nunca";
@@ -128,47 +296,53 @@ export default function PainelProvedorPage() {
     p => p.naVitrine || p.chave === provider?.plan,
   );
 
-  const { data: integrationData, refetch: refetchIntegration } = useQuery<any>({
-    queryKey: ["/api/provider/integration"],
-    enabled: activeTab === "integracao",
-  });
-
-  const { data: erpIntegrationsList = [], refetch: refetchErpList } = useQuery<any[]>({
+  /**
+   * `isError` nao e detalhe: o default `= []` mais o `retry: false` do
+   * queryClient fazem QUALQUER falha do GET virar lista vazia, e lista vazia
+   * aqui significa "voce nao tem ERP nenhum". Um provedor integrado leria que
+   * perdeu a integracao e abriria chamado; o suporte olharia e veria tudo no
+   * lugar. Sem ler o erro, a tela nao consegue separar "nao ha" de "nao deu
+   * para saber".
+   */
+  const {
+    data: erpIntegrationsList = [],
+    isLoading: carregandoErps,
+    isError: erroErps,
+    error: falhaErps,
+    refetch: refetchErpList,
+  } = useQuery<ResumoErp[]>({
     queryKey: ["/api/provider/erp-integrations"],
     enabled: activeTab === "integracao",
   });
 
-  const { data: syncLogs = [], refetch: refetchSyncLogs } = useQuery<any[]>({
+  const {
+    data: syncLogs = [],
+    isLoading: carregandoLogs,
+    isError: erroLogs,
+    refetch: refetchSyncLogs,
+  } = useQuery<any[]>({
     queryKey: ["/api/provider/erp-sync-logs"],
     enabled: activeTab === "integracao",
-  });
-
-  const toggleErpMutation = useMutation({
-    mutationFn: ({ source, isEnabled }: { source: string; isEnabled: boolean }) =>
-      apiRequest("PATCH", `/api/provider/erp-integrations/${source}`, { isEnabled }),
-    onSuccess: () => { refetchErpList(); },
-    onError: () => toast({ title: "Erro", description: "Nao foi possivel atualizar a integracao.", variant: "destructive" }),
-  });
-
-  const [erpTestResults, setErpTestResults] = useState<Record<string, { ok: boolean; msg: string } | null>>({});
-  const [erpSyncResults, setErpSyncResults] = useState<Record<string, { ok: boolean; msg: string } | null>>({});
-  const [erpPending, setErpPending] = useState<Record<string, { testing?: boolean; syncing?: boolean }>>({});
-  const [expandedErp, setExpandedErp] = useState<string | null>(null);
-  const [editingErp, setEditingErp] = useState<string | null>(null);
-  const [erpFormData, setErpFormData] = useState<Record<string, string>>({});
-  const [showPassFields, setShowPassFields] = useState<Record<string, boolean>>({});
-
-  const { data: connectorMeta = [] } = useQuery<Array<{
-    name: string; label: string;
-    configFields: Array<{ key: string; label: string; type: "text" | "password" | "url"; required: boolean; placeholder?: string }>;
-  }>>({
-    queryKey: ["/api/erp-connectors"],
-    staleTime: 10 * 60 * 1000,
   });
 
   const { data: erpCatalogData = [] } = useQuery<any[]>({
     queryKey: ["/api/erp-catalog"],
     staleTime: 5 * 60 * 1000,
+  });
+
+  /* Segunda fonte de rotulo humano.
+     O catalogo acima so lista o que o superadmin cadastrou; o registry de
+     conectores lista o que o servidor sabe falar. Um ERP integrado e ausente do
+     catalogo — caso real, porque quem integra e o suporte — cairia no
+     identificador cru ("RBX", "HUBSOFT") no cartao e nas linhas. Muda so com
+     deploy do servidor, entao a validade e longa de proposito.
+
+     `naoImplementado` ja vinha nesta resposta e esta tela nao o declarava, entao
+     nao o lia: e a marca do conector que ainda nao conversa com a API do ERP, e
+     sem ela a linha aparecia como "Integrada". */
+  const { data: erpConectores = [] } = useQuery<Array<{ name: string; label: string; naoImplementado?: boolean }>>({
+    queryKey: ["/api/erp-connectors"],
+    staleTime: 30 * 60 * 1000,
   });
 
   const activeErpList = (erpCatalogData.length > 0 ? erpCatalogData.filter((e: any) => e.active) : ERP_LIST).map((e: any) => ({
@@ -180,99 +354,6 @@ export default function PainelProvedorPage() {
     authHint: e.authHint ?? e.auth_hint ?? "",
     logoBase64: e.logoBase64 ?? e.logo_base64 ?? null,
   }));
-
-  const saveErpConfigMutation = useMutation({
-    mutationFn: ({ source, data }: { source: string; data: Record<string, any> }) =>
-      apiRequest("PATCH", `/api/provider/erp-integrations/${source}`, data),
-    onSuccess: () => { refetchErpList(); setEditingErp(null); toast({ title: "Configuracao salva", description: "Credenciais do ERP atualizadas com sucesso." }); },
-    onError: () => toast({ title: "Erro ao salvar", description: "Nao foi possivel salvar a configuracao.", variant: "destructive" }),
-  });
-
-  const testConnection = async (source: string) => {
-    setErpPending(p => ({ ...p, [source]: { ...p[source], testing: true } }));
-    setErpTestResults(r => ({ ...r, [source]: null }));
-    try {
-      const res = await fetch(`/api/provider/erp-integrations/${source}/test`, { method: "POST" });
-      const data = await res.json();
-      setErpTestResults(r => ({ ...r, [source]: { ok: data.ok, msg: data.message } }));
-    } catch {
-      setErpTestResults(r => ({ ...r, [source]: { ok: false, msg: "Erro de conexao" } }));
-    } finally {
-      setErpPending(p => ({ ...p, [source]: { ...p[source], testing: false } }));
-    }
-  };
-
-  /**
-   * Temporizadores do acompanhamento, por ERP.
-   *
-   * Sem eles, cada clique deixava um `setInterval` de 15 minutos solto: sair da
-   * tela nao o parava, e clicar duas vezes no mesmo ERP acumulava dois. Guardar
-   * por `source` permite trocar o anterior e limpar tudo na desmontagem.
-   */
-  const acompanhamentoRef = useRef<Record<string, { intervalo: number; teto: number }>>({});
-  useEffect(() => () => {
-    for (const t of Object.values(acompanhamentoRef.current)) {
-      window.clearInterval(t.intervalo);
-      window.clearTimeout(t.teto);
-    }
-  }, []);
-
-  /**
-   * Dispara a varredura e volta na hora.
-   *
-   * A rota agora responde 202 assim que enfileira: a sincronizacao leva
-   * minutos, o proxy corta em 60s, e este `fetch` estourava no `res.json()` de
-   * um 504 em HTML — mostrando "Erro ao sincronizar" para um sync que estava
-   * rodando e ia terminar bem. A mensagem de sucesso, quando chegava, lia
-   * `data.synced` e `data.total`, campos que a rota nunca devolveu: sairia
-   * "undefined registros sincronizados".
-   *
-   * O resultado de verdade mora no historico logo abaixo, que passa a recarregar
-   * sozinho enquanto ha varredura em andamento.
-   */
-  const syncNow = async (source: string) => {
-    setErpPending(p => ({ ...p, [source]: { ...p[source], syncing: true } }));
-    setErpSyncResults(r => ({ ...r, [source]: null }));
-    try {
-      const res = await fetch(`/api/provider/erp-integrations/${source}/sync`, { method: "POST" });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 409) {
-        setErpSyncResults(r => ({ ...r, [source]: { ok: false, msg: data.message || "Sincronizacao ja em andamento." } }));
-        return;
-      }
-      setErpSyncResults(r => ({
-        ...r,
-        [source]: {
-          ok: !!data.ok,
-          msg: data.ok
-            ? "Sincronizacao iniciada — o resultado aparece no historico ao terminar."
-            : data.message || "Nao foi possivel iniciar a sincronizacao.",
-        },
-      }));
-      refetchErpList();
-      refetchSyncLogs();
-      // A varredura leva minutos; relê o histórico até ele registrar o desfecho.
-      // Só quando ela de fato começou — em 409 já saímos acima, e num erro não
-      // há o que acompanhar.
-      if (data.ok) {
-        const anterior = acompanhamentoRef.current[source];
-        if (anterior) {
-          window.clearInterval(anterior.intervalo);
-          window.clearTimeout(anterior.teto);
-        }
-        const intervalo = window.setInterval(() => refetchSyncLogs(), 15000);
-        const teto = window.setTimeout(() => {
-          window.clearInterval(intervalo);
-          delete acompanhamentoRef.current[source];
-        }, 15 * 60 * 1000);
-        acompanhamentoRef.current[source] = { intervalo, teto };
-      }
-    } catch {
-      setErpSyncResults(r => ({ ...r, [source]: { ok: false, msg: "Nao consegui falar com o servidor." } }));
-    } finally {
-      setErpPending(p => ({ ...p, [source]: { ...p[source], syncing: false } }));
-    }
-  };
 
   const [empresa, setEmpresa] = useState<any>(null);
   const profileRef = profileData;
@@ -565,14 +646,34 @@ export default function PainelProvedorPage() {
   const kycConfig = KYC_CONFIG[kycStatus] || KYC_CONFIG.pending;
   const KycIcon = kycConfig.icon;
 
-  const erpTotalEnabled = erpIntegrationsList.filter((i: any) => i.isEnabled).length;
-  const erpTotalSynced  = erpIntegrationsList.reduce((s: number, i: any) => s + (i.totalSynced ?? 0), 0);
-  const erpTotalErrors  = erpIntegrationsList.reduce((s: number, i: any) => s + (i.totalErrors ?? 0), 0);
-  const erpLastSync     = erpIntegrationsList.reduce((latest: string | null, i: any) => {
+  /* Uma lista so para a tela inteira: cartoes, estado vazio e linhas contam e
+     mostram exatamente o mesmo conjunto. Contar sobre a lista crua enquanto se
+     exibe a filtrada publicaria "5 integracoes ativas" acima de uma unica
+     linha — numero que nao bate com o que esta logo abaixo dele, e uma tela
+     que o operador para de acreditar. */
+  const erpsVisiveis    = erpIntegrationsList.filter(integracaoVisivelAoProvedor);
+  /* Enquanto a lista de conectores nao chegou, nenhum ERP e tratado como
+     pendente: e um render de diferenca, e supor pendente o que ainda nao se sabe
+     rotularia de "em desenvolvimento" a integracao que esta sincronizando. */
+  const conectorPendente = (source: string) =>
+    erpConectores.some(c => c.name === source && c.naoImplementado === true);
+  const erpTotalEnabled = erpsVisiveis.filter(i => integracaoNoAr(i, conectorPendente(i.erpSource))).length;
+  const erpTotalErrors  = erpsVisiveis.reduce((s, i) => s + (i.totalErrors ?? 0), 0);
+  const erpLastSync     = erpsVisiveis.reduce((latest: string | null, i) => {
     if (!i.lastSyncAt) return latest;
     return !latest || i.lastSyncAt > latest ? i.lastSyncAt : latest;
   }, null as string | null);
-  const getIntg = (key: string) => erpIntegrationsList.find((i: any) => i.erpSource === key);
+  /** O catalogo so entra para o nome bonito e o logo; a lista quem manda e o resumo. */
+  const erpDoCatalogo = (source: string) => activeErpList.find((e: any) => e.key === source);
+  /**
+   * O identificador de banco so vai a tela quando nao existe rotulo humano em
+   * lugar nenhum — nem no catalogo do superadmin, nem no registry de conectores
+   * do servidor. Fora desse caso o provedor le "IXC Soft", nunca "ixc".
+   */
+  const nomeDoErp = (source: string) =>
+    erpDoCatalogo(source)?.name
+    ?? erpConectores.find(c => c.name === source)?.label
+    ?? source.toUpperCase();
 
   return (
     <div className="p-4 lg:p-6 space-y-6" data-testid="painel-provedor-page">
@@ -1603,345 +1704,400 @@ export default function PainelProvedorPage() {
         </TabsContent>
 
         {/* ======================== INTEGRACAO ======================== */}
+        {/* Somente exibicao. A configuracao das credenciais mora no painel do
+            superadmin; aqui o provedor so ve o que esta integrado e como anda a
+            sincronizacao. Nao ha campo, liga/desliga, teste nem "sincronizar
+            agora": a rota que gravava credencial daqui exigia apenas sessao, e
+            qualquer operador de papel "user" trocava o token do ERP. Esconder o
+            JSX nao resolveria — as rotas de escrita do provedor sairam junto. */}
         <TabsContent value="integracao" className="space-y-4" data-testid="tab-content-integracao">
-          <>
-                {/* Header */}
-                <div className="flex items-center justify-between flex-wrap gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shadow-sm">
-                      <Zap className="w-5 h-5 text-white" />
+          {/* Cabecalho */}
+          <div className="flex items-start justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: "var(--brand-soft)", color: "var(--brand-ink)" }}>
+                <Zap className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold leading-tight" style={{ color: "var(--text)", letterSpacing: "var(--track-tight)" }}>
+                  Integracao com ERPs
+                </h2>
+                <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                  O sistema busca os inadimplentes direto na API do seu ERP. As credenciais sao cadastradas pela equipe de suporte.
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 text-xs"
+              onClick={() => { refetchErpList(); refetchSyncLogs(); }}
+              data-testid="button-refresh-integrations"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />Atualizar
+            </Button>
+          </div>
+
+          {/* Estatisticas.
+              Os quatro numeros saem de `erpsVisiveis`, que e `[]` tanto
+              quando nao ha integracao quanto quando o GET falhou. Publicar
+              "0 integracoes ativas / Nenhum" em cima de um erro de rede e a
+              mesma mentira do estado vazio, so que em fonte grande — entao,
+              carregando e no erro, a grade nao afirma nada. */}
+          {carregandoErps ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="loading-stats-erp">
+              {[0, 1, 2, 3].map(i => (
+                <div key={i} className="rounded-lg px-3.5 py-3 space-y-2" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                  <div className="h-2.5 w-24 rounded animate-pulse" style={{ background: "var(--surface-inset)" }} />
+                  <div className="h-5 w-16 rounded animate-pulse" style={{ background: "var(--surface-inset)" }} />
+                </div>
+              ))}
+            </div>
+          ) : erroErps ? null : (() => {
+            /* Conta sobre `erpsVisiveis` inteiro, e nao so sobre as habilitadas.
+               Uma integracao pausada por falhas continua integrada: ela aparece
+               logo abaixo, com o selo "Pausada por falhas" e o nome do ERP. Ler
+               "Nenhum" aqui em cima da propria linha que nomeia o ERP era a
+               contradicao que fazia o operador desconfiar da tela. Quantas estao
+               no ar e o que o cartao ao lado ja mede. */
+            const integrados = erpsVisiveis.map(i => nomeDoErp(i.erpSource));
+            const cartoes: Array<{ id: string; rotulo: string; valor: string; mono: boolean; cor: string; icone: any }> = [
+              { id: "ativas",  rotulo: "integracoes ativas",   valor: erpTotalEnabled.toLocaleString("pt-BR"), mono: true,  cor: erpTotalEnabled > 0 ? "var(--ok)" : "var(--text-muted)", icone: CheckCheck },
+              { id: "nomes",   rotulo: "erps integrados",      valor: integrados.length > 0 ? integrados.join(", ") : "Nenhum", mono: false, cor: "var(--text)", icone: Database },
+              { id: "ultima",  rotulo: "ultima sincronizacao", valor: relDate(erpLastSync), mono: true, cor: "var(--text)", icone: Clock },
+              { id: "erros",   rotulo: "erros acumulados",     valor: erpTotalErrors.toLocaleString("pt-BR"), mono: true, cor: erpTotalErrors > 0 ? "var(--past)" : "var(--text)", icone: AlertTriangle },
+            ];
+            return (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {cartoes.map(c => (
+                  <div
+                    key={c.id}
+                    className="rounded-lg px-3.5 py-3"
+                    style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+                    data-testid={`stat-erp-${c.id}`}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <p className="text-[10px] uppercase truncate" style={{ fontFamily: "var(--font-mono)", letterSpacing: "var(--track-wide)", color: "var(--text-muted)" }}>
+                        {c.rotulo}
+                      </p>
+                      <c.icone className="w-3.5 h-3.5 shrink-0" style={{ color: "var(--text-faint)" }} />
                     </div>
-                    <div>
-                      <h2 className="font-bold text-base leading-tight">Integracao com ERPs</h2>
-                      <p className="text-xs text-muted-foreground">O sistema busca automaticamente os inadimplentes na API do seu ERP</p>
+                    <p
+                      className="text-[21px] leading-tight truncate"
+                      title={c.valor}
+                      style={{
+                        fontFamily: c.mono ? "var(--font-mono)" : "var(--font-sans)",
+                        fontVariantNumeric: "tabular-nums",
+                        fontWeight: 500,
+                        letterSpacing: "var(--track-tight)",
+                        color: c.cor,
+                      }}
+                    >
+                      {c.valor}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
+          {/* Uma linha por integracao que o provedor TEM E QUE FALA COM ELE — a
+              lista vem do resumo, nao do catalogo de conectores: o catalogo diz o
+              que existe no mundo, nao o que esta ligado nesta conta. O recorte
+              esta em `integracaoVisivelAoProvedor`. */}
+          <Card className="overflow-hidden" data-testid="card-erp-integrations">
+            <div className="px-4 py-3" style={{ borderBottom: "1px solid var(--border)", background: "var(--surface-2)" }}>
+              <div className="flex items-center gap-2">
+                <Database className="w-4 h-4" style={{ color: "var(--text-muted)" }} />
+                <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>Suas integracoes</p>
+              </div>
+              <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                Estado de cada ERP ligado a esta conta. Para ligar, trocar ou desligar um ERP, fale com o suporte.
+              </p>
+            </div>
+
+            {carregandoErps ? (
+              <div data-testid="loading-erp-integrations">
+                {[0, 1].map(i => (
+                  <div key={i} className="px-4 py-4 flex items-center gap-3" style={{ borderTop: i > 0 ? "1px solid var(--border)" : undefined }}>
+                    <div className="w-8 h-8 rounded animate-pulse shrink-0" style={{ background: "var(--surface-inset)" }} />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-3 w-40 rounded animate-pulse" style={{ background: "var(--surface-inset)" }} />
+                      <div className="h-2.5 w-64 rounded animate-pulse" style={{ background: "var(--surface-inset)" }} />
                     </div>
                   </div>
-                  <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={() => { refetchErpList(); refetchSyncLogs(); }} data-testid="button-refresh-integrations">
-                    <RefreshCw className="w-3.5 h-3.5" />Atualizar
-                  </Button>
+                ))}
+              </div>
+            ) : erroErps ? (
+              /* Erro NAO e vazio. O texto do vazio manda procurar o suporte
+                 para cadastrar a integracao — dito a quem ja tem uma, vira um
+                 chamado que termina com "esta tudo certo aqui". Aqui a tela
+                 admite o que aconteceu de verdade: nao deu para ler o estado. */
+              <div className="flex flex-col items-center justify-center text-center px-6 py-14" data-testid="error-erp-integrations">
+                <div className="w-12 h-12 rounded-lg flex items-center justify-center mb-4" style={{ background: "var(--past-bg)", border: "1px solid var(--past-border)" }}>
+                  <AlertTriangle className="w-6 h-6" style={{ color: "var(--past)" }} />
                 </div>
-
-                {/* Stats */}
-                {(() => {
-                  const hasActiveErp = erpTotalEnabled > 0;
-                  const enabledNames = erpIntegrationsList.filter((i: any) => i.isEnabled).map((i: any) => {
-                    const meta = connectorMeta.find(c => c.name === i.erpSource) ?? activeErpList.find((e: any) => e.key === i.erpSource);
-                    return meta?.label ?? meta?.name ?? i.erpSource;
-                  });
-                  const erpNameDisplay = enabledNames.length > 0 ? enabledNames.join(", ") : "Nenhum";
+                <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>Nao foi possivel ler o estado da integracao</p>
+                <p className="text-xs mt-1.5 max-w-md leading-relaxed" style={{ color: "var(--text-muted)" }}>
+                  Esta e uma falha ao consultar esta tela, nao uma falha do seu ERP. Se voce ja tem uma integracao
+                  ligada, ela continua sincronizando normalmente — so o painel nao conseguiu carregar o estado agora.
+                </p>
+                <p className="text-[10px] uppercase mt-3 max-w-md break-words" style={{ fontFamily: "var(--font-mono)", letterSpacing: "var(--track-wide)", color: "var(--text-faint)" }}>
+                  {mensagemDoErro(falhaErps)}
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-4 h-8 text-xs gap-1.5"
+                  onClick={() => refetchErpList()}
+                  data-testid="button-retry-erp-integrations"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />Tentar de novo
+                </Button>
+              </div>
+            ) : erpsVisiveis.length === 0 ? (
+              /* Este vazio agora vale por dois casos: conta sem nenhuma linha, e
+                 conta com linhas que o recorte tirou da tela (sem credencial ou
+                 desligadas pelo suporte). O texto tem de ser verdadeiro nos dois
+                 — dizer "nenhum ERP cadastrado" a quem tem uma linha desativada
+                 seria mentira, entao ele afirma so o que o provedor de fato nao
+                 tem: sincronizacao acontecendo. */
+              <div className="flex flex-col items-center justify-center text-center px-6 py-14" data-testid="empty-erp-integrations">
+                <div className="w-12 h-12 rounded-lg flex items-center justify-center mb-4" style={{ background: "var(--surface-inset)" }}>
+                  <Database className="w-6 h-6" style={{ color: "var(--text-faint)" }} />
+                </div>
+                <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>Nenhuma integracao ativa</p>
+                <p className="text-xs mt-1.5 max-w-md leading-relaxed" style={{ color: "var(--text-muted)" }}>
+                  Nenhum ERP esta sincronizando com esta conta no momento. A integracao com iXC, MK Solutions, SGP,
+                  Hubsoft, Voalle ou RBX e cadastrada e ligada pela equipe de suporte, com as credenciais que voce gera
+                  no painel do seu proprio ERP. Assim que ela estiver ativa, o estado e o historico de sincronizacao
+                  aparecem aqui.
+                </p>
+                {marca.suporteEmail ? (
+                  <Button asChild size="sm" className="mt-4 h-8 text-xs gap-1.5">
+                    <a
+                      href={`mailto:${marca.suporteEmail}?subject=${encodeURIComponent("Integracao com ERP")}`}
+                      data-testid="link-suporte-erp"
+                    >
+                      <Mail className="w-3.5 h-3.5" />Falar com o suporte
+                    </a>
+                  </Button>
+                ) : (
+                  /* Sem e-mail de suporte na marca nao ha link honesto a oferecer:
+                     o chat existe e e o caminho real. Botao que nao leva a lugar
+                     nenhum ensina o provedor a desconfiar da tela. */
+                  <p className="text-xs mt-4" style={{ color: "var(--text-faint)" }}>
+                    Abra o chat de suporte no canto da tela para solicitar a integracao.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div>
+                {erpsVisiveis.map((intg, idx) => {
+                  const catalogo = erpDoCatalogo(intg.erpSource);
+                  const nome = nomeDoErp(intg.erpSource);
+                  const estado = estadoDaIntegracao(intg, conectorPendente(intg.erpSource));
+                  const tom = TOM_ESTADO[estado.tom];
+                  /* Havia aqui uma medida "intervalo Xh", lida de
+                     sync_interval_hours. Nenhum agendador le essa coluna: a
+                     cadencia real e a agenda de madrugada do servidor, que
+                     ainda por cima e ajustavel por ambiente. Publicar "12h"
+                     era publicar um numero que o sistema nao honra, e cravar a
+                     agenda aqui apenas trocaria de numero errado. A verdade que
+                     esta tela consegue provar e "ultima sync" — o resto o
+                     provedor le no historico logo abaixo. */
+                  const medidas = [
+                    { id: "sincronizados", rotulo: "sincronizados", valor: (intg.totalSynced ?? 0).toLocaleString("pt-BR"), cor: "var(--text)" },
+                    { id: "erros",         rotulo: "erros",         valor: (intg.totalErrors ?? 0).toLocaleString("pt-BR"), cor: (intg.totalErrors ?? 0) > 0 ? "var(--past)" : "var(--text)" },
+                    { id: "ultima-sync",   rotulo: "ultima sync",   valor: relDate(intg.lastSyncAt), cor: "var(--text)" },
+                  ];
                   return (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      {[
-                        { label: "Integracoes Ativas", value: hasActiveErp ? `${erpTotalEnabled} ativa(s)` : "Nenhuma", icon: CheckCheck, accent: hasActiveErp ? "from-emerald-500 to-green-500" : "from-slate-400 to-slate-500", bg: hasActiveErp ? "bg-[var(--color-success-bg)]/30" : "bg-slate-100 dark:bg-slate-800", ic: hasActiveErp ? "text-[var(--color-success)]" : "text-slate-500" },
-                        { label: "ERPs Integrados", value: erpNameDisplay, icon: Database, accent: "from-violet-500 to-indigo-500", bg: "bg-violet-100 dark:bg-violet-900/30", ic: "text-violet-600" },
-                        { label: "Ultima Sincronizacao", value: relDate(erpLastSync), icon: Clock, accent: "from-sky-500 to-blue-500", bg: "bg-sky-100 dark:bg-sky-900/30", ic: "text-sky-600" },
-                        { label: "Total de Erros", value: erpTotalErrors.toLocaleString("pt-BR"), icon: AlertTriangle, accent: "from-rose-500 to-red-500", bg: "bg-[var(--color-danger-bg)]", ic: "text-rose-600" },
-                      ].map(s => (
-                        <Card key={s.label} className="relative overflow-hidden p-3">
-                          <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${s.accent}`} />
-                          <div className="flex items-center justify-between mb-1.5">
-                            <p className="text-xs text-muted-foreground">{s.label}</p>
-                            <div className={`w-6 h-6 rounded-md ${s.bg} flex items-center justify-center`}>
-                              <s.icon className={`${s.ic}`} style={{ width: 13, height: 13 }} />
-                            </div>
+                    <div
+                      key={intg.erpSource}
+                      className="px-4 py-4"
+                      style={{ borderTop: idx > 0 ? "1px solid var(--border)" : undefined }}
+                      data-testid={`erp-connector-${intg.erpSource}`}
+                    >
+                      <div className="flex items-start gap-3">
+                        {catalogo?.logoBase64 ? (
+                          <img
+                            src={catalogo.logoBase64}
+                            alt={nome}
+                            className="w-8 h-8 object-contain rounded shrink-0"
+                            style={{ border: "1px solid var(--border)" }}
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded flex items-center justify-center shrink-0" style={{ background: "var(--brand-soft)", color: "var(--brand-ink)" }}>
+                            <span className="text-xs font-semibold" style={{ fontFamily: "var(--font-mono)" }}>{nome.charAt(0)}</span>
                           </div>
-                          <p className="text-lg font-bold truncate">{s.value}</p>
-                        </Card>
-                      ))}
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-semibold leading-tight" style={{ color: "var(--text)" }}>{nome}</p>
+                            <span
+                              className={SELO_ESTADO}
+                              style={{
+                                fontFamily: "var(--font-mono)",
+                                color: tom.fg,
+                                background: tom.bg,
+                                border: `1px solid ${tom.bd}`,
+                              }}
+                              data-testid={`erp-status-${intg.erpSource}`}
+                            >
+                              {estado.texto}
+                            </span>
+                          </div>
+                          {estado.detalhe && (
+                            <p className="text-xs mt-1 leading-snug max-w-xl" style={{ color: estado.tom === "gated" ? "var(--gated)" : "var(--text-muted)" }}>
+                              {estado.detalhe}
+                            </p>
+                          )}
+                          {/* Os contadores viviam dentro do formulario expandido.
+                              Sem formulario, o card nao expande mais — eles sobem
+                              para a linha principal, que e onde o provedor olha. */}
+                          <div className="flex flex-wrap gap-x-6 gap-y-2 mt-3">
+                            {medidas.map(m => (
+                              <div key={m.id}>
+                                <p className="text-[10px] uppercase" style={{ fontFamily: "var(--font-mono)", letterSpacing: "var(--track-wide)", color: "var(--text-faint)" }}>
+                                  {m.rotulo}
+                                </p>
+                                <p
+                                  className="text-sm leading-tight mt-0.5"
+                                  style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums", fontWeight: 500, color: m.cor }}
+                                  data-testid={`erp-${intg.erpSource}-${m.id}`}
+                                >
+                                  {m.valor}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   );
-                })()}
+                })}
+              </div>
+            )}
+          </Card>
 
-
-                {/* ERP Connectors List — all connectors from metadata */}
-                <Card className="overflow-hidden" data-testid="card-erp-integrations">
-                  <div className="px-4 py-3 border-b bg-slate-50/60">
-                    <div className="flex items-center gap-2">
-                      <Database className="w-4 h-4 text-violet-500" />
-                      <p className="text-sm font-semibold">Integracoes ERP</p>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-0.5">Configure, teste e sincronize cada ERP. Campos variam por tipo de conector.</p>
+          {/* Historico de sincronizacao */}
+          <Card className="overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: "1px solid var(--border)" }}>
+              <h3 className="text-sm font-semibold flex items-center gap-2" style={{ color: "var(--text)" }}>
+                <ClipboardList className="w-4 h-4" style={{ color: "var(--text-muted)" }} />
+                Historico de sincronizacao
+              </h3>
+              <span className="text-xs" style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--text-muted)" }}>
+                {erroLogs || carregandoLogs ? "—" : `${syncLogs.length} registros`}
+              </span>
+            </div>
+            {carregandoLogs ? (
+              <div data-testid="loading-sync-logs">
+                {[0, 1, 2].map(i => (
+                  <div key={i} className="px-4 py-3.5" style={{ borderTop: i > 0 ? "1px solid var(--border)" : undefined }}>
+                    <div className="h-3 w-full max-w-md rounded animate-pulse" style={{ background: "var(--surface-inset)" }} />
                   </div>
-                  <div className="divide-y">
-                    {(connectorMeta.length > 0 ? connectorMeta : []).map(connector => {
-                      const intg = getIntg(connector.name);
-                      const catalogEntry = activeErpList.find((e: any) => e.key === connector.name);
-                      const pending = erpPending[connector.name] ?? {};
-                      const testResult = erpTestResults[connector.name];
-                      const syncResult = erpSyncResults[connector.name];
-                      const isExpanded = expandedErp === connector.name;
-                      const isEditing = editingErp === connector.name;
-
-                      const hasCredentials = !!(intg?.apiUrl || intg?.apiToken);
-                      const statusBadge = (() => {
-                        if (intg?.lastSyncStatus === "error") return { text: "Erro", cls: "bg-red-100 text-red-700 dark:bg-red-900/20" };
-                        if (intg?.isEnabled && hasCredentials) return { text: "Configurado", cls: "bg-[var(--color-success-bg)] text-[var(--color-success)]" };
-                        if (intg?.isEnabled && !hasCredentials) return { text: "Credenciais pendentes", cls: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" };
-                        return { text: "Desativado", cls: "bg-slate-100 text-slate-600 dark:bg-slate-800" };
-                      })();
-
-                      const ERP_SETUP_HINTS: Record<string, string> = {
-                        ixc: "Configure usuario e token da API IXC (menu Administracao > Tokens API)",
-                        mk: "Insira o token JWT do MK Solutions (Configuracoes > API)",
-                        // O caminho aqui e o do SGP de verdade: o par token+app
-                        // nasce em Administracao > Integracoes > Tokens, no
-                        // proprio SGP do provedor. "Configuracoes > Integracao >
-                        // API" nao existe la, e mandava o provedor procurar uma
-                        // tela que nunca ia achar.
-                        sgp: "Gere o par em Administracao > Integracoes > Tokens, no seu SGP. Deixe o token ativo e sem restricao de host/rota",
-                        hubsoft: "Configure Client ID, Client Secret e credenciais OAuth (Painel Hubsoft > API)",
-                        voalle: "Configure usuario de integracao Voalle (Administracao > Integracao)",
-                        rbx: "Insira a URL do RouterBox e a Chave de Integracao",
-                      };
-
-                      const fieldKeyToIntgProp = (key: string, record: any): string => {
-                        if (key === "apiUrl") return record?.apiUrl ?? "";
-                        if (key === "apiToken") return record?.apiToken ?? "";
-                        if (key === "apiUser") return record?.apiUser ?? "";
-                        if (key === "mkContraSenha") return record?.mkContraSenha ?? "";
-                        if (key === "extra.clientId") return record?.clientId ?? "";
-                        if (key === "extra.clientSecret") return record?.clientSecret ?? "";
-                        // Espelha o handleSave: o que ele grava em extraConfig, este
-                        // le de volta. Sem isto, reabrir a integracao mostrava o
-                        // campo vazio e um Salvar seguido apagava o valor salvo.
-                        if (key.startsWith("extra.")) return record?.extraConfig?.[key.slice(6)] ?? "";
-                        return "";
-                      };
-
-                      const startEditing = () => {
-                        const formData: Record<string, string> = {};
-                        connector.configFields.forEach(f => {
-                          formData[f.key] = fieldKeyToIntgProp(f.key, intg);
-                        });
-                        setErpFormData(formData);
-                        setEditingErp(connector.name);
-                        setExpandedErp(connector.name);
-                      };
-
-                      const handleSave = () => {
-                        const body: Record<string, any> = {};
-                        const extra: Record<string, string> = {};
-                        connector.configFields.forEach(f => {
-                          const val = erpFormData[f.key] ?? "";
-                          if (f.key === "apiUrl") body.apiUrl = val;
-                          else if (f.key === "apiToken") body.apiToken = val;
-                          else if (f.key === "apiUser") body.apiUser = val;
-                          else if (f.key === "mkContraSenha") body.mkContraSenha = val;
-                          else if (f.key === "extra.clientId") body.clientId = val;
-                          else if (f.key === "extra.clientSecret") body.clientSecret = val;
-                          // Qualquer outro "extra.*" declarado pelo conector vai
-                          // inteiro no extraConfig. Antes esta cadeia de ifs era a
-                          // lista fechada do que sobrevivia ao Salvar: o campo era
-                          // renderizado, o operador digitava, e o que nao estivesse
-                          // aqui era descartado antes de virar requisicao. Era o
-                          // caso da contra-senha do MK e do nome do app do SGP —
-                          // os dois obrigatorios, os dois perdidos em silencio.
-                          else if (f.key.startsWith("extra.")) extra[f.key.slice(6)] = val;
-                        });
-                        if (Object.keys(extra).length > 0) body.extraConfig = extra;
-                        saveErpConfigMutation.mutate({ source: connector.name, data: body });
-                      };
-
+                ))}
+              </div>
+            ) : erroLogs ? (
+              /* Mesmo raciocinio do estado vazio das integracoes: `= []` no
+                 default esconde a falha, e "nenhuma sincronizacao ainda" diz ao
+                 provedor que o ERP nunca rodou. */
+              <div className="flex flex-col items-center justify-center text-center px-6 py-14" data-testid="error-sync-logs">
+                <div className="w-12 h-12 rounded-lg flex items-center justify-center mb-4" style={{ background: "var(--past-bg)", border: "1px solid var(--past-border)" }}>
+                  <AlertTriangle className="w-6 h-6" style={{ color: "var(--past)" }} />
+                </div>
+                <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>Nao foi possivel carregar o historico</p>
+                <p className="text-xs mt-1.5 max-w-md leading-relaxed" style={{ color: "var(--text-muted)" }}>
+                  As varreduras que ja rodaram continuam registradas — o painel e que nao conseguiu le-las agora.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-4 h-8 text-xs gap-1.5"
+                  onClick={() => refetchSyncLogs()}
+                  data-testid="button-retry-sync-logs"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />Tentar de novo
+                </Button>
+              </div>
+            ) : syncLogs.length === 0 ? (
+              <div className="flex flex-col items-center justify-center text-center px-6 py-14" data-testid="empty-sync-logs">
+                <div className="w-12 h-12 rounded-lg flex items-center justify-center mb-4" style={{ background: "var(--surface-inset)" }}>
+                  <Clock className="w-6 h-6" style={{ color: "var(--text-faint)" }} />
+                </div>
+                <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>Nenhuma sincronizacao ainda</p>
+                <p className="text-xs mt-1.5 max-w-md leading-relaxed" style={{ color: "var(--text-muted)" }}>
+                  Assim que a primeira varredura do seu ERP rodar, cada tentativa aparece aqui com quantos
+                  registros entraram, quantos falharam e a que horas.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow style={{ background: "var(--surface-2)" }}>
+                      {/* O TableHead compartilhado ja e mono em caixa alta, mas com
+                          a abertura cravada em 0.08em — mais larga que a dos rotulos
+                          dos cartoes desta mesma aba, que usam o token. Duas aberturas
+                          de label na mesma tela desalinham a leitura. */}
+                      <TableHead className={COLUNA_HISTORICO}>ERP</TableHead>
+                      <TableHead className={COLUNA_HISTORICO}>Data/Hora</TableHead>
+                      <TableHead className={`${COLUNA_HISTORICO} text-right`}>Sincronizados</TableHead>
+                      <TableHead className={`${COLUNA_HISTORICO} text-right`}>Erros</TableHead>
+                      <TableHead className={`${COLUNA_HISTORICO} text-center`}>Status</TableHead>
+                      <TableHead className={`${COLUNA_HISTORICO} hidden md:table-cell`}>IP</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {syncLogs.slice(0, 20).map((log: any) => {
+                      const desfecho = desfechoDoLog(String(log.status ?? ""));
+                      const tomLog = TOM_ESTADO[desfecho.tom];
                       return (
-                        <div key={connector.name} className="px-4 py-4 space-y-3" data-testid={`erp-connector-${connector.name}`}>
-                          {/* Header Row */}
-                          <div className="flex items-center justify-between">
-                            <button className="flex items-center gap-3 flex-1 text-left" onClick={() => { setExpandedErp(isExpanded ? null : connector.name); if (!isExpanded && !isEditing) startEditing(); }}>
-                              {catalogEntry?.logoBase64 ? (
-                                <img src={catalogEntry.logoBase64} alt={connector.label} className="w-8 h-8 object-contain rounded border border-slate-200" />
-                              ) : (
-                                <div className={`w-8 h-8 rounded-md bg-gradient-to-br ${catalogEntry?.grad ?? "from-slate-400 to-slate-500"} flex items-center justify-center`}>
-                                  <span className="text-white text-xs font-bold">{connector.label[0]}</span>
-                                </div>
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <p className="text-sm font-semibold leading-tight">{connector.label}</p>
-                                  <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${statusBadge.cls}`}>{statusBadge.text}</span>
-                                </div>
-                                {!hasCredentials && (
-                                  <p className="text-xs text-muted-foreground leading-tight mt-0.5">{ERP_SETUP_HINTS[connector.name] ?? "Configure as credenciais para ativar"}</p>
-                                )}
-                              </div>
-                              <ArrowRight className={`w-4 h-4 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
-                            </button>
-                            <div className="ml-3">
-                              <Switch
-                                checked={!!intg?.isEnabled}
-                                onCheckedChange={(checked) => toggleErpMutation.mutate({ source: connector.name, isEnabled: checked })}
-                                data-testid={`switch-erp-${connector.name}`}
-                              />
-                            </div>
-                          </div>
-
-                          {/* Expanded: Config Form + Actions */}
-                          {isExpanded && (
-                            <div className="pl-11 space-y-4">
-                              {/* Dynamic Config Fields */}
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                {connector.configFields.map(field => (
-                                  <div key={field.key}>
-                                    <label className="text-xs font-medium mb-1 block text-muted-foreground">{field.label}{field.required && <span className="text-rose-500 ml-0.5">*</span>}</label>
-                                    <div className="relative">
-                                      <Input
-                                        type={field.type === "password" && !showPassFields[`${connector.name}.${field.key}`] ? "password" : "text"}
-                                        placeholder={field.placeholder ?? ""}
-                                        value={isEditing ? (erpFormData[field.key] ?? "") : fieldKeyToIntgProp(field.key, intg)}
-                                        onChange={(e) => {
-                                          if (!isEditing) startEditing();
-                                          setErpFormData(prev => ({ ...prev, [field.key]: e.target.value }));
-                                        }}
-                                        className="text-sm h-9 pr-9"
-                                        data-testid={`input-${connector.name}-${field.key}`}
-                                      />
-                                      {field.type === "password" && (
-                                        <button
-                                          type="button"
-                                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                                          onClick={() => setShowPassFields(prev => ({ ...prev, [`${connector.name}.${field.key}`]: !prev[`${connector.name}.${field.key}`] }))}
-                                        >
-                                          {showPassFields[`${connector.name}.${field.key}`] ? <Lock className="w-3.5 h-3.5" /> : <Key className="w-3.5 h-3.5" />}
-                                        </button>
-                                      )}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-
-                              {/* Action Buttons */}
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <Button
-                                  size="sm"
-                                  className="h-8 text-xs gap-1.5 bg-[var(--color-brand)] hover:bg-violet-700 text-white"
-                                  disabled={saveErpConfigMutation.isPending}
-                                  onClick={handleSave}
-                                  data-testid={`button-save-erp-${connector.name}`}
-                                >
-                                  {saveErpConfigMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                                  Salvar Configuracao
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8 text-xs gap-1"
-                                  disabled={pending.testing || !hasCredentials}
-                                  onClick={() => testConnection(connector.name)}
-                                  data-testid={`button-test-erp-${connector.name}`}
-                                >
-                                  {pending.testing ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
-                                  Testar Conexao
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8 text-xs gap-1"
-                                  disabled={pending.syncing || !hasCredentials}
-                                  onClick={() => syncNow(connector.name)}
-                                  data-testid={`button-sync-erp-${connector.name}`}
-                                >
-                                  {pending.syncing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                                  Sincronizar Agora
-                                </Button>
-                              </div>
-
-                              {/* Feedback Area */}
-                              {(testResult || syncResult) && (
-                                <div className="flex items-center gap-3 flex-wrap">
-                                  {testResult && (
-                                    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md ${testResult.ok ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : "bg-rose-50 text-rose-600"}`}>
-                                      {testResult.ok ? <CheckCircle className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
-                                      {testResult.ok ? "Conexao OK" : testResult.msg}
-                                    </span>
-                                  )}
-                                  {syncResult && (
-                                    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md ${syncResult.ok ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" : "bg-rose-50 text-rose-600"}`}>
-                                      {syncResult.ok ? <CheckCheck className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
-                                      {syncResult.msg}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-
-                              {/* Sync stats for configured ERPs */}
-                              {intg && (intg.totalSynced > 0 || intg.totalErrors > 0) && (
-                                <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                                  <span>Sincronizados: <strong className="text-[var(--color-success)]">{intg.totalSynced ?? 0}</strong></span>
-                                  <span>Erros: <strong className={intg.totalErrors > 0 ? "text-rose-500" : ""}>{intg.totalErrors ?? 0}</strong></span>
-                                  <span>Ultima sync: {relDate(intg.lastSyncAt)}</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
+                        <TableRow key={log.id} data-testid={`row-sync-log-${log.id}`}>
+                          <TableCell>
+                            {/* Nome humano, na mesma forma que o resto da aba e que
+                                a tela do superadmin usam. Sem caixa alta e sem
+                                tracking cravado: isto virou nome proprio, e nao um
+                                label mono — a abertura de `--track-wide` existe para
+                                label em caixa alta, e aplicada a um nome so o afasta. */}
+                            <span className="text-xs font-semibold" style={{ fontFamily: "var(--font-mono)", color: "var(--text)" }}>
+                              {nomeDoErp(log.erpSource)}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-xs" style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--text-muted)" }}>
+                            {new Date(log.syncedAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <span className="text-xs font-semibold" style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--text)" }}>
+                              {/* Linha de religamento nao contou registro nenhum;
+                                  "0" ali leria como varredura que nao trouxe nada. */}
+                              {log.status === "reativado" ? "—" : log.upserted}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <span className="text-xs font-semibold" style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums", color: log.errors > 0 ? "var(--past)" : "var(--text-muted)" }}>
+                              {log.status === "reativado" ? "—" : log.errors}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <span
+                              className={SELO_ESTADO}
+                              style={{ fontFamily: "var(--font-mono)", color: tomLog.fg, background: tomLog.bg, border: `1px solid ${tomLog.bd}` }}
+                            >
+                              {desfecho.rotulo}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-xs hidden md:table-cell" style={{ fontFamily: "var(--font-mono)", fontVariantNumeric: "tabular-nums", color: "var(--text-muted)" }}>
+                            {log.ipAddress ?? "—"}
+                          </TableCell>
+                        </TableRow>
                       );
                     })}
-                    {connectorMeta.length === 0 && (
-                      <div className="flex flex-col items-center justify-center py-12 text-center px-6">
-                        <Database className="w-10 h-10 text-muted-foreground/30 mb-3" />
-                        <p className="text-sm text-muted-foreground">Carregando conectores disponiveis...</p>
-                      </div>
-                    )}
-                  </div>
-                </Card>
-
-                {/* Sync Logs */}
-                <Card className="overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-3 border-b">
-                    <h3 className="font-semibold text-sm flex items-center gap-2"><ClipboardList className="w-4 h-4 text-muted-foreground" />Historico de Sincronizacao</h3>
-                    <span className="text-xs text-muted-foreground">{syncLogs.length} registros</span>
-                  </div>
-                  {syncLogs.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-center px-6">
-                      <div className="w-12 h-12 rounded-full bg-muted/50 flex items-center justify-center mb-3">
-                        <Database className="w-6 h-6 text-muted-foreground/40" />
-                      </div>
-                      <p className="text-sm font-medium text-muted-foreground">Nenhuma sincronizacao ainda</p>
-                      <p className="text-xs text-muted-foreground/60 mt-1">Configure as credenciais do ERP e use "Sincronizar Agora" para ver os logs aqui.</p>
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="bg-muted/30">
-                            <TableHead className="text-xs">ERP</TableHead>
-                            <TableHead className="text-xs">Data/Hora</TableHead>
-                            <TableHead className="text-xs text-right">Sincronizados</TableHead>
-                            <TableHead className="text-xs text-right">Erros</TableHead>
-                            <TableHead className="text-xs text-center">Status</TableHead>
-                            <TableHead className="text-xs hidden md:table-cell">IP</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {syncLogs.slice(0, 20).map((log: any) => (
-                            <TableRow key={log.id} className="hover:bg-muted/20" data-testid={`row-sync-log-${log.id}`}>
-                              <TableCell>
-                                <span className="text-xs font-semibold uppercase">{log.erpSource}</span>
-                              </TableCell>
-                              <TableCell className="text-xs text-muted-foreground">
-                                {new Date(log.syncedAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <span className="text-xs font-semibold text-[var(--color-success)]">{log.upserted}</span>
-                              </TableCell>
-                              <TableCell className="text-right">
-                                <span className={`text-xs font-semibold ${log.errors > 0 ? "text-rose-500" : "text-muted-foreground"}`}>{log.errors}</span>
-                              </TableCell>
-                              <TableCell className="text-center">
-                                <span className={`inline-flex text-xs font-medium px-2 py-0.5 rounded ${
-                                  log.status === "success" ? "bg-[var(--color-success-bg)] text-[var(--color-success)]" :
-                                  log.status === "error" ? "bg-red-100 text-red-700 dark:bg-red-900/20" :
-                                  "bg-[var(--color-gold-bg)] text-[var(--color-gold)]"
-                                }`}>{log.status === "success" ? "Sucesso" : log.status === "error" ? "Erro" : "Parcial"}</span>
-                              </TableCell>
-                              <TableCell className="text-xs text-muted-foreground hidden md:table-cell">{log.ipAddress ?? "—"}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </Card>
-          </>
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </Card>
         </TabsContent>
 
         {/* ======================== ANTI-FRAUDE ======================== */}

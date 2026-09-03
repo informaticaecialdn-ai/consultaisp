@@ -50,12 +50,126 @@ function decryptIntegrationSafe(
   }
 }
 
+/**
+ * O que o PROVEDOR pode ver de uma integracao: estado e contadores, nunca
+ * credencial.
+ *
+ * Existe porque `getErpIntegrations` devolve a linha inteira ja DECIFRADA, e a
+ * rota do painel jogava isso direto no `res.json()` — token, usuario, segredo
+ * de OAuth e contra-senha do MK viajavam em texto claro ate o navegador de
+ * qualquer operador. A configuracao passou a ser do superadmin; o provedor so
+ * confere se esta integrado e se o ultimo sync deu certo.
+ *
+ * `syncIntervalHours` NAO entra aqui, embora a coluna exista e o superadmin
+ * possa grava-la: nenhum agendador a le. A cadencia real vem de
+ * server/services/erp-agenda.ts (seg/qua/sex as 03:00). Publicar "intervalo 12h"
+ * seria publicar um numero que codigo nenhum honra, e o provedor ficaria
+ * esperando um sync naquela hora.
+ */
+/**
+ * A linha inteira, decifrada, mais a marca de credencial que nao abriu — o que
+ * a tela de configuracao do superadmin precisa para dizer "redigite esta" em
+ * vez de mostrar um campo vazio que parece nunca ter sido preenchido.
+ */
+export type IntegracaoAdminErp = ErpIntegration & { credencialIlegivel: boolean };
+
+export interface ResumoErp {
+  erpSource: string;
+  isEnabled: boolean;
+  configurado: boolean;
+  status: string;
+  lastSyncAt: Date | null;
+  lastSyncStatus: string | null;
+  totalSynced: number;
+  totalErrors: number;
+}
+
 export class ErpStorage {
+  /**
+   * Resumo por provedor — sem decifrar nada.
+   *
+   * `apiUrl` e `apiToken` entram no SELECT so para responder "esta
+   * configurado?", e morrem dentro desta funcao: o que sai e um booleano. E um
+   * E logico, nunca OU — meia credencial nao conecta em ERP nenhum, e dizer
+   * "integrado" com so um dos dois manda o provedor esperar um sync que nunca
+   * vai acontecer.
+   */
+  async getErpIntegracoesResumo(providerId: number): Promise<ResumoErp[]> {
+    const rows = await db.select({
+      erpSource: erpIntegrations.erpSource,
+      isEnabled: erpIntegrations.isEnabled,
+      status: erpIntegrations.status,
+      lastSyncAt: erpIntegrations.lastSyncAt,
+      lastSyncStatus: erpIntegrations.lastSyncStatus,
+      totalSynced: erpIntegrations.totalSynced,
+      totalErrors: erpIntegrations.totalErrors,
+      apiUrl: erpIntegrations.apiUrl,
+      apiToken: erpIntegrations.apiToken,
+    }).from(erpIntegrations)
+      .where(eq(erpIntegrations.providerId, providerId))
+      .orderBy(erpIntegrations.erpSource);
+
+    return rows.map(({ apiUrl, apiToken, ...resto }) => ({
+      ...resto,
+      configurado: !!apiUrl && !!apiToken,
+    }));
+  }
+
+  /**
+   * Corte automatico: 3 falhas seguidas pausam a integracao.
+   *
+   * Sem isto o provedor nao teria freio nenhum depois que a configuracao saiu
+   * do painel dele — o ERP cai, o scheduler continua batendo de hora em hora, e
+   * o historico enche de erro identico ate alguem reparar. `pausado_por_falhas`
+   * e o unico status novo da coluna, e distingue "eu desliguei" de "o sistema
+   * desligou por mim".
+   */
+  async pausarPorFalhas(providerId: number, erpSource: string): Promise<void> {
+    await db.update(erpIntegrations)
+      .set({ isEnabled: false, status: "pausado_por_falhas" })
+      .where(and(eq(erpIntegrations.providerId, providerId), eq(erpIntegrations.erpSource, erpSource)));
+  }
+
   async getErpIntegrations(providerId: number): Promise<ErpIntegration[]> {
     const rows = await db.select().from(erpIntegrations)
       .where(eq(erpIntegrations.providerId, providerId))
       .orderBy(erpIntegrations.erpSource);
     return rows.map(decryptIntegration);
+  }
+
+  /**
+   * A leitura da tela de configuracao do superadmin — a unica em que uma
+   * credencial ilegivel nao pode derrubar a lista.
+   *
+   * `getErpIntegrations` decifra com `decryptIntegration`, que LANCA quando a
+   * chave nao abre. Uma unica linha assim fazia a aba de integracao responder
+   * 500 por inteiro: nem as linhas sadias, nem o formulario. E justamente a
+   * tela que existe para redigitar a credencial quebrada, entao o unico caminho
+   * de conserto morria pelo defeito que ele conserta.
+   *
+   * A linha problematica volta com os segredos em branco e `credencialIlegivel`
+   * ligado. Campo vazio sem marca seria pior que o 500: o operador salvaria por
+   * cima achando que nunca houve nada, e como `preservarSegredosVazios` trata
+   * segredo vazio como "nao mexe", o valor podre continuaria la. O texto
+   * cifrado tampouco sobe — nao serve de nada no navegador e e segredo.
+   */
+  async getErpIntegracoesParaAdmin(providerId: number): Promise<IntegracaoAdminErp[]> {
+    const rows = await db.select().from(erpIntegrations)
+      .where(eq(erpIntegrations.providerId, providerId))
+      .orderBy(erpIntegrations.erpSource);
+
+    return rows.map(row => {
+      const d = decryptIntegrationSafe(row);
+      if (d.ok) return { ...d.value, credencialIlegivel: false };
+
+      logger.error(
+        { providerId, erpSource: row.erpSource, motivo: d.motivo },
+        "[ERP] credencial ilegivel na tela do superadmin — precisa ser redigitada. A chave deriva do SESSION_SECRET e ele mudou desde que o token foi salvo.",
+      );
+      const semSegredos = { ...row } as any;
+      for (const campo of SENSITIVE_FIELDS) semSegredos[campo] = null;
+      return { ...semSegredos, credencialIlegivel: true } as IntegracaoAdminErp;
+    });
   }
 
   async getAllEnabledErpIntegrationsWithCredentials(): Promise<Array<ErpIntegration & { providerName: string }>> {
@@ -167,13 +281,23 @@ export class ErpStorage {
     },
   ): Promise<void> {
     await db.transaction(async (tx) => {
+      // `status` e o ESTADO da integracao; `last_sync_status` e o DESFECHO da
+      // ultima varredura. Colapsar os dois foi o que apagou a unica marca que
+      // separa "o sistema cortou" de "alguem desligou": `pausarPorFalhas`
+      // escrevia `pausado_por_falhas` em `status` e a varredura seguinte —
+      // qualquer uma, ate a que falhou — reescrevia por cima com 'error'/'idle'.
+      // O desfecho continua sendo gravado sempre; so a marca de corte e
+      // preservada, e quem a limpa e a religada do superadmin.
       await tx.execute(sql`
         UPDATE erp_integrations
            SET total_synced     = total_synced + ${r.upserted},
                total_errors     = total_errors + ${r.errors},
                last_sync_at     = NOW(),
                last_sync_status = ${r.status},
-               status           = ${r.status === "error" ? "error" : "idle"}
+               status           = CASE WHEN status = 'pausado_por_falhas'
+                                       THEN status
+                                       ELSE ${r.status === "error" ? "error" : "idle"}
+                                  END
          WHERE provider_id = ${providerId} AND erp_source = ${erpSource}
       `);
       await tx.insert(erpSyncLogs).values({
@@ -227,6 +351,40 @@ export class ErpStorage {
   }
 
   /**
+   * Marca no historico que o superadmin religou a integracao.
+   *
+   * Existe para ZERAR a contagem de falhas, nao para enfeitar o log:
+   * `contarFalhasConsecutivas` anda do mais recente para tras e para na primeira
+   * linha que nao e 'error'. Sem uma linha de parada, as tres falhas que
+   * causaram o corte continuam no topo do historico — a integracao religada
+   * cairia de novo na PRIMEIRA falha seguinte, e a tolerancia de 3 viraria 1
+   * para sempre depois do primeiro corte. De brinde fica o rastro de quando
+   * alguem religou.
+   *
+   * `syncType` e 'manual' porque foi gente que fez. E por isso que
+   * `contarFalhasConsecutivas` nao pode filtrar por syncType: a linha de parada
+   * e justamente uma linha manual.
+   */
+  async registrarReativacao(providerId: number, erpSource: string): Promise<void> {
+    await db.insert(erpSyncLogs).values({
+      providerId,
+      erpSource,
+      // Explicito, e nao o defaultNow() da coluna — mesmo motivo detalhado em
+      // `registrarResultadoSync`: defaultNow() grava hora local e o Drizzle rele
+      // como UTC, jogando a linha 3h para tras. Uma reativacao com carimbo
+      // antigo pode ficar ABAIXO das falhas que ela deveria interromper.
+      syncedAt: new Date(),
+      status: "reativado",
+      upserted: 0,
+      errors: 0,
+      recordsProcessed: 0,
+      recordsFailed: 0,
+      syncType: "manual",
+      payload: { mensagem: "Integracao reativada pelo superadmin" },
+    } as any);
+  }
+
+  /**
    * Quando alguem sincronizou com sucesso pela ultima vez, em toda a plataforma.
    *
    * Serve ao scheduler para nao repetir a varredura completa a cada restart do
@@ -236,6 +394,12 @@ export class ErpStorage {
    *
    * "partial" conta como sucesso: gravou a maior parte da carteira, e repetir a
    * varredura inteira por causa de algumas linhas custa mais do que corrige.
+   *
+   * O filtro e uma LISTA BRANCA, e e o que segura 'reativado' fora daqui: uma
+   * reativacao nao leu um unico registro do ERP. Se ela contasse como sucesso, o
+   * boot logo depois de religar concluiria que a plataforma acabou de
+   * sincronizar e pularia a varredura — deixando a integracao recem-religada sem
+   * dado novo ate a proxima janela.
    */
   async ultimoSyncBemSucedido(): Promise<Date | null> {
     const [linha] = await db.select({ quando: erpSyncLogs.syncedAt })
@@ -260,9 +424,24 @@ export class ErpStorage {
     return created;
   }
 
+  /**
+   * Agregado. Sem `providerId` soma a plataforma inteira — e assim que o painel
+   * do superadmin le, e o comportamento fica.
+   *
+   * O array `integrations` saiu daqui. Ele vinha de um `db.select()` cru, com o
+   * token CIFRADO junto, e ia inteiro para o navegador pela rota
+   * GET /api/provider/erp-integration-stats. Era a segunda porta de vazamento de
+   * credencial, e a mais facil de esquecer: o nome da funcao diz "stats", nao
+   * "credenciais". Quem precisa da lista chama `getErpIntegracoesResumo`.
+   */
   async getErpIntegrationStats(providerId?: number): Promise<any> {
     const conditions = providerId ? [eq(erpIntegrations.providerId, providerId)] : [];
-    const integrations = await db.select().from(erpIntegrations)
+    const integrations = await db.select({
+      isEnabled: erpIntegrations.isEnabled,
+      totalSynced: erpIntegrations.totalSynced,
+      totalErrors: erpIntegrations.totalErrors,
+      lastSyncAt: erpIntegrations.lastSyncAt,
+    }).from(erpIntegrations)
       .where(conditions.length ? and(...conditions) : undefined);
     const totalEnabled = integrations.filter(i => i.isEnabled).length;
     const totalSynced = integrations.reduce((s, i) => s + (i.totalSynced ?? 0), 0);
@@ -272,7 +451,7 @@ export class ErpStorage {
       if (!latest) return i.lastSyncAt;
       return i.lastSyncAt > latest ? i.lastSyncAt : latest;
     }, null as Date | null);
-    return { totalEnabled, totalSynced, totalErrors, lastSync, integrations };
+    return { totalEnabled, totalSynced, totalErrors, lastSync };
   }
 
   async getAllErpCatalog(): Promise<ErpCatalog[]> {
