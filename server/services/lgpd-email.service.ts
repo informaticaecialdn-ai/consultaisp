@@ -1,167 +1,159 @@
 /**
- * LGPD Email Notification Service
+ * Os e-mails que o TITULAR do dado recebe ao exercer um direito da LGPD.
  *
- * Sends transactional emails for LGPD titular data subject requests
- * using Resend. Gracefully degrades if RESEND_API_KEY is not set.
+ * Destinatario diferente de todo o resto do modulo: nao e um provedor, e a
+ * pessoa cujo CPF passou por aqui. Ela nao tem conta, nao tem painel e talvez
+ * nunca tenha ouvido falar do produto — o unico contato dela com o sistema e
+ * esta mensagem.
+ *
+ * ── O que estava errado ────────────────────────────────────────────────────
+ *
+ * 1. INJECAO. `protocolo`, `tipo` e `resultSummary` entravam no HTML sem
+ *    escape. O `resultSummary` e montado a partir do corpo de uma requisicao do
+ *    admin (`admin.routes.ts`, PATCH da solicitacao) e o `tipo` vem do
+ *    formulario publico. A validacao de hoje na borda fecha o buraco por
+ *    acidente, nao por desenho: basta um tipo novo aceito, ou um resumo
+ *    montado com texto livre, para a tag voltar. Escape aqui e a barreira que
+ *    nao depende de quem chama.
+ * 2. OUTRO PRODUTO. O template era um segundo sistema visual — paleta do
+ *    Tailwind (#2563eb, #f4f6fa, #1e293b), `box-shadow`, raio de 12px, fonte
+ *    'Segoe UI'. Tudo isso e proibido em duas linhas separadas do
+ *    DESIGN_SYSTEM, e o titular recebia um e-mail que nao parecia do mesmo
+ *    lugar onde ele abriu a solicitacao.
+ * 3. REMETENTE SEM MARCA. Saia do `EMAIL_FROM` cru, ignorando a marca que a
+ *    propria funcao ja recebia. A tela onde ele abriu a solicitacao diz que o
+ *    controlador e o revendedor; o e-mail chegava assinado por outra empresa,
+ *    contradizendo exatamente a informacao que a LGPD exige que ele tenha.
+ *
+ * O TEXTO nao mudou de conteudo: diz o mesmo que dizia, agora acentuado e
+ * dentro do envelope do produto. O rodape e o unico ponto em que o envelope
+ * precisou de ajuste — o padrao dele fala de "conta de provedor", e o titular
+ * nao tem uma.
  */
 
-import { Resend } from "resend";
 import { logger } from "../logger";
 import { MARCA_PLATAFORMA, type MarcaResolvida } from "./marca.service";
+import { enviarEmail } from "./email";
+import { alerta, blocoDeDados, envelope, esc, kicker, paragrafo, titulo, DANGER, type LinhaDeDado } from "./email-ui";
 
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-const FROM_EMAIL = process.env.EMAIL_FROM || "onboarding@resend.dev";
 const ADMIN_EMAIL = process.env.LGPD_ADMIN_EMAIL || "";
 
 const TIPO_LABELS: Record<string, string> = {
   acesso: "Acesso aos Dados",
-  correcao: "Correcao de Dados",
-  exclusao: "Exclusao de Dados",
+  correcao: "Correção de Dados",
+  exclusao: "Exclusão de Dados",
   portabilidade: "Portabilidade de Dados",
-  revogacao: "Revogacao de Consentimento",
+  revogacao: "Revogação de Consentimento",
 };
 
+/** Tipo desconhecido sai como veio — e por isso passa por `esc` em todo uso. */
 function tipoLabel(tipo: string): string {
-  return TIPO_LABELS[tipo] || tipo;
+  return TIPO_LABELS[tipo] || String(tipo ?? "");
 }
 
-function warnNoResend(): void {
-  logger.warn("[LGPD-EMAIL] RESEND_API_KEY nao configurada — email nao enviado");
-}
+/** Por que esta mensagem chegou. O padrao do envelope fala de provedor. */
+const MOTIVO_TITULAR =
+  "Você recebeu esta mensagem porque abriu uma solicitação de direitos do titular (LGPD). É um aviso do sistema, não uma oferta.";
 
 /**
- * Email wrapper that catches errors and logs them without crashing.
+ * Envio que registra e nunca propaga.
+ *
+ * Um e-mail de LGPD que falha nao pode desfazer a solicitacao ja gravada nem
+ * derrubar o processamento automatico que o disparou — a mesma regra de
+ * `email-destinatario.ts`, aplicada ao outro destinatario.
  */
-async function safeSend(to: string, subject: string, html: string): Promise<void> {
-  if (!resend) {
-    warnNoResend();
-    return;
-  }
-
+async function safeSend(to: string, subject: string, html: string, marca: MarcaResolvida): Promise<void> {
   try {
-    const { error } = await resend.emails.send({ from: FROM_EMAIL, to, subject, html });
-    if (error) {
-      logger.error({ error, to: to.slice(0, 3) + "***" }, "[LGPD-EMAIL] Erro ao enviar email");
-    } else {
-      logger.info({ to: to.slice(0, 3) + "***" }, "[LGPD-EMAIL] Email enviado");
-    }
+    await enviarEmail(to, subject, html, marca);
   } catch (err) {
-    logger.error({ err }, "[LGPD-EMAIL] Falha ao enviar email");
+    logger.error({ err, to: to.slice(0, 3) + "***" }, "[LGPD-EMAIL] Falha ao enviar email");
   }
 }
 
+/** O casco de todo e-mail de LGPD: o envelope do produto, com o rodape certo. */
+function corpo(titleTexto: string, conteudo: string, preheader: string, marca: MarcaResolvida): string {
+  return envelope(`
+    ${kicker("lgpd · direitos do titular")}
+    ${titulo(esc(titleTexto))}
+    ${conteudo}
+  `, preheader, marca, MOTIVO_TITULAR);
+}
+
 /**
- * O e-mail que o TITULAR recebe ao exercer um direito LGPD.
+ * Enviado quando a solicitacao do titular e registrada.
+ */
+export async function sendConfirmationEmail(
+  to: string, protocolo: string, tipo: string, marca: MarcaResolvida = MARCA_PLATAFORMA,
+): Promise<void> {
+  const html = corpo("Solicitação registrada", `
+    ${paragrafo(`Sua solicitação de <strong>${esc(tipoLabel(tipo))}</strong> foi registrada com sucesso.`)}
+    ${blocoDeDados([
+      { rotulo: "protocolo", valor: esc(protocolo), mono: true },
+      { rotulo: "prazo de resposta", valor: "15 dias úteis (LGPD Art. 18, §5º)", mono: true },
+    ])}
+    ${paragrafo("Você receberá uma notificação por e-mail quando sua solicitação for processada.", 0)}
+  `, `Protocolo ${protocolo} registrado — resposta em até 15 dias úteis`, marca);
+
+  await safeSend(to, `Solicitação LGPD registrada — ${protocolo}`, html, marca);
+}
+
+/**
+ * Enviado quando a solicitacao do titular e concluida.
  *
- * Precisa levar a marca por um motivo mais forte que estetica: a tela onde ele
- * abriu a solicitacao diz que o controlador e o revendedor, e o e-mail que
- * chega logo depois assinado por outra empresa contradiz exatamente a
- * informacao que a LGPD exige que ele tenha.
- *
- * A paleta tambem mudou: saiu o gradiente azul do Tailwind (#2563eb) — que o
- * DESIGN_SYSTEM proibe em duas linhas separadas — e entrou a cor da marca.
+ * `resultSummary` e o unico campo aqui montado a partir de dado de uma
+ * requisicao. Sai escapado.
  */
-function emailTemplate(title: string, body: string, marca: MarcaResolvida = MARCA_PLATAFORMA): string {
-  const acento = marca.cores?.claro.brand ?? "#4A4670";
-  const sobreAcento = marca.cores?.claro.textOnBrand ?? "#FFFFFF";
-  const nome = String(marca.nomeProduto ?? "")
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-  return `<!DOCTYPE html>
-<html lang="pt-BR">
-<head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
-<body style="margin:0;padding:0;background:#f4f6fa;font-family:'Segoe UI',Arial,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fa;padding:40px 20px;">
-<tr><td align="center">
-<table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
-<tr><td style="background:${acento};padding:28px 40px;text-align:center;">
-  <span style="color:${sobreAcento};font-size:22px;font-weight:700;">${nome}</span>
-  <p style="color:${sobreAcento};opacity:0.78;margin:4px 0 0;font-size:12px;">LGPD — Direitos do Titular</p>
-</td></tr>
-<tr><td style="padding:36px 40px;">
-  <h2 style="color:#1e293b;font-size:18px;font-weight:700;margin:0 0 16px;">${title}</h2>
-  ${body}
-</td></tr>
-<tr><td style="background:#f8fafc;padding:16px 40px;border-top:1px solid #e2e8f0;text-align:center;">
-  <p style="color:#6B6878;font-size:11px;margin:0;">${nome} — Em conformidade com a LGPD (Lei 13.709/2018)</p>
-</td></tr>
-</table>
-</td></tr>
-</table>
-</body>
-</html>`;
+export async function sendCompletionEmail(
+  to: string, protocolo: string, tipo: string, resultSummary: string,
+  marca: MarcaResolvida = MARCA_PLATAFORMA,
+): Promise<void> {
+  const html = corpo("Solicitação concluída", `
+    ${paragrafo(`Sua solicitação de <strong>${esc(tipoLabel(tipo))}</strong> foi concluída.`)}
+    ${blocoDeDados([
+      { rotulo: "protocolo", valor: esc(protocolo), mono: true },
+      { rotulo: "resultado", valor: esc(resultSummary) },
+    ])}
+    ${paragrafo("Caso tenha dúvidas, entre em contato pelo canal de atendimento LGPD.", 0)}
+  `, `Protocolo ${protocolo} concluído`, marca);
+
+  await safeSend(to, `Solicitação LGPD concluída — ${protocolo}`, html, marca);
 }
 
 /**
- * Sent when a titular request is created.
+ * Enviado ao administrador da PLATAFORMA quando solicitacoes se aproximam do
+ * prazo de 15 dias uteis. Aqui o destinatario nao e titular nem provedor: e
+ * quem opera o atendimento, e a marca certa e a da casa.
  */
-export async function sendConfirmationEmail(to: string, protocolo: string, tipo: string, marca: MarcaResolvida = MARCA_PLATAFORMA): Promise<void> {
-  const body = `
-  <p style="color:#64748b;font-size:14px;line-height:1.6;margin:0 0 20px;">
-    Sua solicitacao de <strong>${tipoLabel(tipo)}</strong> foi registrada com sucesso.
-  </p>
-  <div style="background:#f1f5f9;border-radius:8px;padding:16px;margin:0 0 20px;">
-    <p style="margin:0 0 6px;color:#475569;font-size:13px;"><strong>Protocolo:</strong> ${protocolo}</p>
-    <p style="margin:0;color:#475569;font-size:13px;"><strong>Prazo de resposta:</strong> 15 dias uteis (LGPD Art. 18, §5)</p>
-  </div>
-  <p style="color:#64748b;font-size:13px;line-height:1.5;margin:0;">
-    Voce recebera uma notificacao por email quando sua solicitacao for processada.
-  </p>`;
-
-  await safeSend(to, `Solicitacao LGPD registrada — ${protocolo}`, emailTemplate("Solicitacao Registrada", body, marca));
-}
-
-/**
- * Sent when a titular request is completed.
- */
-export async function sendCompletionEmail(to: string, protocolo: string, tipo: string, resultSummary: string, marca: MarcaResolvida = MARCA_PLATAFORMA): Promise<void> {
-  const body = `
-  <p style="color:#64748b;font-size:14px;line-height:1.6;margin:0 0 20px;">
-    Sua solicitacao de <strong>${tipoLabel(tipo)}</strong> foi concluida.
-  </p>
-  <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin:0 0 20px;">
-    <p style="margin:0 0 6px;color:#166534;font-size:13px;"><strong>Protocolo:</strong> ${protocolo}</p>
-    <p style="margin:0;color:#166534;font-size:13px;"><strong>Resultado:</strong> ${resultSummary}</p>
-  </div>
-  <p style="color:#64748b;font-size:13px;line-height:1.5;margin:0;">
-    Caso tenha duvidas, entre em contato pelo canal de atendimento LGPD.
-  </p>`;
-
-  await safeSend(to, `Solicitacao LGPD concluida — ${protocolo}`, emailTemplate("Solicitacao Concluida", body, marca));
-}
-
-/**
- * Sent to admin when requests approach the 15 business day SLA deadline.
- */
-export async function sendSlaAlertEmail(requests: Array<{ protocolo: string; nome: string; tipoSolicitacao: string; businessDays: number }>): Promise<void> {
+export async function sendSlaAlertEmail(
+  requests: Array<{ protocolo: string; nome: string; tipoSolicitacao: string; businessDays: number }>,
+): Promise<void> {
   if (!ADMIN_EMAIL) {
     logger.warn("[LGPD-EMAIL] LGPD_ADMIN_EMAIL nao configurado — alerta SLA nao enviado");
     return;
   }
 
-  const rows = requests.map(r =>
-    `<tr>
-      <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;">${r.protocolo}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;">${tipoLabel(r.tipoSolicitacao)}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#dc2626;font-weight:600;">${r.businessDays}/15 dias</td>
-    </tr>`
-  ).join("");
+  const linhas: LinhaDeDado[] = requests.map(r => ({
+    rotulo: esc(r.protocolo),
+    valor: `${esc(tipoLabel(r.tipoSolicitacao))} <span style="color:${DANGER};">· ${esc(String(r.businessDays))}/15 dias úteis</span>`,
+    mono: true,
+  }));
 
-  const body = `
-  <p style="color:#dc2626;font-size:14px;font-weight:600;margin:0 0 16px;">
-    ${requests.length} solicitacao(oes) LGPD estao proximas do prazo limite de 15 dias uteis.
-  </p>
-  <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin:0 0 20px;">
-    <tr style="background:#f8fafc;">
-      <th style="padding:10px 12px;text-align:left;font-size:12px;color:#475569;">Protocolo</th>
-      <th style="padding:10px 12px;text-align:left;font-size:12px;color:#475569;">Tipo</th>
-      <th style="padding:10px 12px;text-align:left;font-size:12px;color:#475569;">Dias Uteis</th>
-    </tr>
-    ${rows}
-  </table>
-  <p style="color:#64748b;font-size:13px;margin:0;">
-    Acesse o painel administrativo para tratar essas solicitacoes antes do vencimento.
-  </p>`;
+  const html = envelope(`
+    ${kicker("lgpd · prazo", DANGER)}
+    ${titulo("Solicitações perto do prazo")}
+    ${alerta(`<strong>${requests.length} solicitação(ões) LGPD</strong> estão próximas do prazo limite de 15 dias úteis.`, "perigo")}
+    ${blocoDeDados(linhas)}
+    ${paragrafo("Acesse o painel administrativo para tratar essas solicitações antes do vencimento.", 0)}
+  `,
+    `${requests.length} solicitação(ões) LGPD perto do prazo de 15 dias úteis`,
+    MARCA_PLATAFORMA,
+    "Você recebeu esta mensagem porque é o contato administrativo de LGPD da plataforma.",
+  );
 
-  await safeSend(ADMIN_EMAIL, `ALERTA SLA LGPD — ${requests.length} solicitacao(oes) proximo(s) do prazo`, emailTemplate("Alerta de Prazo LGPD", body));
+  await safeSend(
+    ADMIN_EMAIL,
+    `ALERTA SLA LGPD — ${requests.length} solicitação(ões) próxima(s) do prazo`,
+    html,
+    MARCA_PLATAFORMA,
+  );
 }

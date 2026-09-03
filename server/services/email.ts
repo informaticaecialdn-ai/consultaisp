@@ -42,8 +42,11 @@ const FROM_EMAIL = process.env.EMAIL_FROM || "onboarding@resend.dev";
 /**
  * Monta o remetente. Ver o limite honesto no topo do arquivo: sem dominio
  * verificado no Resend, so o NOME de exibicao e da marca.
+ *
+ * Exportado para ser conferido de fora: e a unica funcao daqui que produz um
+ * CABECALHO, e cabecalho aceita coisas que o corpo nao aceita.
  */
-function remetente(marca: MarcaResolvida): string {
+export function remetente(marca: MarcaResolvida): string {
   const endereco = marca.emailRemetente || FROM_EMAIL;
   const nome = marca.emailNomeExibicao || marca.nomeProduto;
   // Aspas e sinais quebrariam o cabecalho; nome de marca nao precisa deles.
@@ -57,7 +60,14 @@ async function send(to: string, subject: string, html: string, marca: MarcaResol
     console.warn(`[email] RESEND_API_KEY nao configurada. Email para ${masked} nao enviado.`);
     return;
   }
-  const { data, error } = await resend.emails.send({ from: remetente(marca), to, subject, html });
+  // Assunto e CABECALHO, e quebra de linha em cabecalho e injecao. Os assuntos
+  // montam com o nome do provedor e o da marca sem escape (e nao teriam como
+  // escapar: assunto nao e HTML), e nenhum dos dois e validado contra caractere
+  // de controle na entrada — `nomeProduto` e so `z.string().min(1).max(60)`.
+  // Hoje o Resend recebe isto como campo JSON e nao como cabecalho cru, entao e
+  // defesa em profundidade; o custo de mante-la e uma linha.
+  const assunto = subject.replace(/[\r\n]+/g, " ").trim();
+  const { data, error } = await resend.emails.send({ from: remetente(marca), to, subject: assunto, html });
   if (error) {
     console.error(`[email] Erro ao enviar para ${to}:`, JSON.stringify(error));
     throw new Error(`Falha ao enviar email: ${error.message || JSON.stringify(error)}`);
@@ -691,3 +701,16 @@ export async function sendUsuarioAdicionadoEmail(
  */
 export { envelope, blocoDeDados, botao, titulo, kicker, paragrafo, alerta, passos } from "./email-ui";
 export { SANS, MONO, INK, TEXT_2 } from "./email-ui";
+
+/**
+ * O unico ponto do sistema que fala com o Resend.
+ *
+ * Exposto para o e-mail de LGPD, que mantinha um segundo cliente e um segundo
+ * remetente — e o segundo saia do `EMAIL_FROM` cru, ignorando a marca. Duas
+ * copias da mesma regra e como o revendedor acaba entregue por um cabecalho.
+ *
+ * LANCA quando o Resend recusa. Quem chama decide o que fazer com isso: os
+ * gatilhos de provedor passam por `avisarProvedor`, que engole e registra,
+ * porque o ato que disparou o aviso ja terminou.
+ */
+export { send as enviarEmail };
