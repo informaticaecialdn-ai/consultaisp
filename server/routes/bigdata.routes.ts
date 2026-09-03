@@ -10,6 +10,8 @@ import {
 } from "../services/bigdata.service";
 import { decidirVeredito } from "../services/bigdata-veredito";
 import { consultarCnpj, decidirVereditoEmpresa } from "../services/bigdata-empresa";
+import { gerarIdentificadorDeConsulta, protocoloDaOrigem } from "../services/identificador-consulta";
+import { logger } from "../logger";
 
 /**
  * Consulta Cadastral (BigDataCorp).
@@ -122,6 +124,9 @@ export function registerBigdataRoutes(): Router {
       // ao navegador — la eles apareceriam no devtools de qualquer operador.
       const consultations = brutas.map(c => ({
         id: c.id, cpfCnpj: c.cpfCnpj, veredito: c.veredito, createdAt: c.createdAt,
+        // Nulo nas consultas anteriores a esta versao: elas nasceram sem codigo
+        // e a tela mostra o traco, em vez de inventar um que o log nao tem.
+        consultaId: c.consultaId ?? null,
         consultasRealizadas: c.datasets?.length ?? 0,
         // Consultas antigas nao tem nivel gravado; sao todas do combo padrao.
         nivel: (c.result as any)?.nivel ?? NIVEL_PADRAO,
@@ -158,12 +163,43 @@ export function registerBigdataRoutes(): Router {
     // Fora do try porque o catch precisa estornar a MESMA quantidade debitada.
     // Uma Premium que falha tem de devolver 17 creditos, nao 1.
     let custoCreditos = NIVEIS[NIVEL_PADRAO].creditos;
+
+    /**
+     * O identificador nasce AQUI, na primeira linha do handler.
+     *
+     * Antes do parse, antes do debito, antes de falar com a BigDataCorp — e
+     * proposital. Se ele nascesse junto do insert, os caminhos que MAIS
+     * precisam dele ficariam sem: saldo insuficiente, credencial recusada,
+     * bureau fora do ar. E justamente ai que o provedor liga para o suporte,
+     * e ate esta versao nao havia o que procurar — esta rota nao tinha uma
+     * unica linha de log.
+     *
+     * Um por REQUISICAO, nao por linha gravada: os dois ramos abaixo (CNPJ e
+     * CPF) usam o mesmo codigo, porque foram a mesma consulta.
+     */
+    const consultaId = gerarIdentificadorDeConsulta();
+    const t0 = Date.now();
+    // Declarado fora do try porque o catch tambem escreve log: sem isso a linha
+    // de falha sairia sem saber qual documento estava sendo consultado.
+    let contexto: Record<string, unknown> = { consultaId, providerId };
+
     try {
       const parsed = consultaSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ message: parsed.error.issues[0].message });
+      if (!parsed.success) {
+        // Documento nao chegou a ser lido: o log NAO pode citar req.body.
+        logger.warn({ consultaId, providerId, motivo: "corpo-invalido" },
+          "[Cadastral] consulta recusada antes de qualquer cobranca");
+        return res.status(400).json({ consultaId, message: parsed.error.issues[0].message });
+      }
 
       const doc = parsed.data.cpfCnpj.replace(/\D/g, "");
       const ehCnpj = doc.length === 14;
+      // Quatro digitos e o suficiente para o suporte casar a linha com a
+      // consulta que o provedor esta descrevendo, e nao remonta o documento.
+      // Mesmo mascaramento das outras rotas.
+      contexto = { consultaId, providerId, doc: doc.slice(0, 4) + "***", tipo: ehCnpj ? "cnpj" : "cpf" };
+
+      logger.info(contexto, "[Cadastral] consulta iniciada");
 
       // Valida antes de chamar: documento errado nao gasta credito nem consulta.
       // A mensagem tem de descrever o documento QUE FOI DIGITADO — antes daqui
@@ -171,15 +207,19 @@ export function registerBigdataRoutes(): Router {
       // manda o operador conferir a coisa errada.
       if (ehCnpj) {
         if (!validarCNPJ(doc)) {
-          return res.status(400).json({ message: "CNPJ inválido: dígitos verificadores incorretos" });
+          logger.warn({ ...contexto, motivo: "documento-invalido" }, "[Cadastral] consulta recusada sem cobranca");
+          return res.status(400).json({ consultaId, message: "CNPJ inválido: dígitos verificadores incorretos" });
         }
       } else if (!validarCPF(doc)) {
-        return res.status(400).json({ message: "CPF inválido: dígitos verificadores incorretos" });
+        logger.warn({ ...contexto, motivo: "documento-invalido" }, "[Cadastral] consulta recusada sem cobranca");
+        return res.status(400).json({ consultaId, message: "CPF inválido: dígitos verificadores incorretos" });
       }
 
       const integ = await storage.getBigdataIntegration(providerId);
       if (!integ?.login || !integ?.password) {
+        logger.warn({ ...contexto, motivo: "sem-credencial" }, "[Cadastral] consulta recusada sem cobranca");
         return res.status(400).json({
+          consultaId,
           message: "Consulta cadastral não configurada", naoConfigurado: true,
         });
       }
@@ -196,7 +236,10 @@ export function registerBigdataRoutes(): Router {
         debitou = await storage.debitarBigdataCredito(providerId, custoCreditos);
         if (!debitou) {
           const provider = await storage.getProvider(providerId);
+          logger.warn({ ...contexto, motivo: "saldo-insuficiente", creditosNecessarios: custoCreditos },
+            "[Cadastral] consulta recusada sem cobranca");
           return res.status(402).json({
+            consultaId,
             message: `Saldo insuficiente: a consulta custa ${custoCreditos} crédito(s) `
               + `e você tem ${provider?.ispCredits ?? 0}`,
             creditosNecessarios: custoCreditos,
@@ -209,8 +252,14 @@ export function registerBigdataRoutes(): Router {
         );
         const ve = decidirVereditoEmpresa(e);
 
+        // O protocolo que a PROPRIA BigDataCorp emitiu (um UUID no envelope).
+        // Quando o dado vem errado quem resolve e ela, e e este numero que ela
+        // pede. Estava gravado em `bruto` desde sempre, e ninguem lia.
+        const protocoloEmpresa = protocoloDaOrigem("cadastral", { bruto: e.bruto });
+
         const salvaEmpresa = await storage.createBigdataConsultation({
           providerId, userId: req.session.userId!, cpfCnpj: doc,
+          consultaId,
           result: {
             tipoDocumento: "cnpj",
             empresa: e.empresa,
@@ -237,8 +286,17 @@ export function registerBigdataRoutes(): Router {
           veredito: ve.veredito,
         } as any);
 
+        logger.info({
+          ...contexto, linhaId: salvaEmpresa.id, veredito: ve.veredito,
+          encontrado: e.encontrado, creditosCobrados: custoCreditos,
+          protocoloOrigem: protocoloEmpresa?.protocolo ?? null,
+          ms: Date.now() - t0,
+        }, "[Cadastral] consulta concluída");
+
         return res.json({
           id: salvaEmpresa.id,
+          consultaId,
+          protocoloDaOrigem: protocoloEmpresa,
           cpfCnpj: doc,
           tipoDocumento: "cnpj",
           veredito: ve.veredito,
@@ -280,7 +338,10 @@ export function registerBigdataRoutes(): Router {
       debitou = await storage.debitarBigdataCredito(providerId, custoCreditos);
       if (!debitou) {
         const provider = await storage.getProvider(providerId);
+        logger.warn({ ...contexto, motivo: "saldo-insuficiente", creditosNecessarios: custoCreditos },
+          "[Cadastral] consulta recusada sem cobranca");
         return res.status(402).json({
+          consultaId,
           message: `Saldo insuficiente: a consulta ${NIVEIS[nivel].rotulo} custa `
             + `${custoCreditos} crédito(s) e você tem ${provider?.ispCredits ?? 0}`,
           creditosNecessarios: custoCreditos,
@@ -320,14 +381,22 @@ export function registerBigdataRoutes(): Router {
       if (bureauIndisponivel) {
         const estorno = custoCreditos - NIVEIS[NIVEL_PADRAO].creditos;
         if (estorno > 0) {
+          // Movimento de credito que o provedor ve no extrato e nao consegue
+          // explicar sozinho: cobrado 4, devolvido 3. Com o codigo na linha, o
+          // suporte liga o estorno a consulta que o causou.
           await storage.estornarBigdataCredito(providerId, estorno).catch(() => {});
+          logger.info({ ...contexto, estornado: estorno, motivo: "bureau-indisponivel" },
+            "[Cadastral] estorno parcial de créditos");
         }
         custoCreditos = NIVEIS[NIVEL_PADRAO].creditos;
         nivelCobrado = NIVEL_PADRAO;
       }
 
+      const protocolo = protocoloDaOrigem("cadastral", { bruto: r.bruto });
+
       const salva = await storage.createBigdataConsultation({
         providerId, userId: req.session.userId!, cpfCnpj: cpf,
+        consultaId,
         result: {
           dados: r.dados,
           identidade: r.identidade,
@@ -373,8 +442,17 @@ export function registerBigdataRoutes(): Router {
         veredito: v.veredito,
       } as any);
 
+      logger.info({
+        ...contexto, linhaId: salva.id, veredito: v.veredito,
+        encontrado: r.dados.encontrado, creditosCobrados: custoCreditos, bureauIndisponivel,
+        protocoloOrigem: protocolo?.protocolo ?? null,
+        ms: Date.now() - t0,
+      }, "[Cadastral] consulta concluída");
+
       return res.json({
         id: salva.id,
+        consultaId,
+        protocoloDaOrigem: protocolo,
         cpfCnpj: cpf,
         veredito: v.veredito,
         motivos: v.motivos,
@@ -414,10 +492,33 @@ export function registerBigdataRoutes(): Router {
         createdAt: salva.createdAt,
       });
     } catch (error: any) {
-      // Falha nossa ou do bureau nao cobra: a busca nao foi executada.
-      if (debitou) await storage.estornarBigdataCredito(providerId, custoCreditos).catch(() => {});
+      /**
+       * O buraco que este bloco fechou.
+       *
+       * O credito e debitado ANTES do insert, entao existe um intervalo real em
+       * que o provedor pagou e nenhuma linha foi gravada: bureau fora do ar,
+       * timeout, credencial recusada no meio. Ate esta versao esse evento nao
+       * deixava rastro NENHUM — nem a falha, nem o estorno que a compensa. O
+       * provedor via o saldo oscilar e o suporte nao tinha o que procurar.
+       */
+      if (debitou) {
+        await storage.estornarBigdataCredito(providerId, custoCreditos).catch(() => {});
+        logger.info({ ...contexto, estornado: custoCreditos, motivo: "falha-na-consulta" },
+          "[Cadastral] estorno integral de créditos");
+      }
       const credencialRuim = error?.codigo === -111;
+      logger.error({
+        ...contexto, codigo: error?.codigo ?? null,
+        motivo: credencialRuim ? "credencial-recusada" : "falha-do-bureau",
+        // `err` e o campo que o pino serializa como erro; a mensagem crua pode
+        // conter o corpo da resposta do bureau, entao nao vai por outro caminho.
+        err: error, debitou, ms: Date.now() - t0,
+      }, "[Cadastral] consulta falhou — nenhuma linha gravada");
+
       return res.status(credencialRuim ? 400 : 503).json({
+        // O codigo vai TAMBEM no erro, e e aqui que ele mais importa: e o unico
+        // caminho em que nao existe linha no banco para o suporte consultar.
+        consultaId,
         message: credencialRuim
           ? "Credencial recusada. Verifique usuário e senha."
           : getSafeErrorMessage(error),
