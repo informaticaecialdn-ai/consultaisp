@@ -19,7 +19,17 @@ vi.mock("./db", () => ({
   pool: {},
 }));
 
-import { requireAuth, requireAdmin, requireProvider, requireSuperAdmin } from "./auth.js";
+// `requireProvider` passou a ler `providers.status`: sem este espiao o teste
+// abriria conexao de verdade so para descobrir se um provedor esta suspenso.
+const storageMock = vi.hoisted(() => ({
+  getProvider: vi.fn(async (_id: number): Promise<any> => ({ id: 7, status: "active" })),
+}));
+vi.mock("./storage", () => ({ storage: storageMock }));
+
+import {
+  requireAuth, requireAdmin, requireProvider, requireSuperAdmin,
+  esquecerStatusDeProvedor, MENSAGEM_PROVEDOR_SUSPENSO,
+} from "./auth.js";
 
 type SessionData = {
   userId?: number;
@@ -162,57 +172,150 @@ describe("requireProvider", () => {
 
   beforeEach(() => {
     next = vi.fn();
+    vi.clearAllMocks();
+    esquecerStatusDeProvedor();
+    storageMock.getProvider.mockResolvedValue({ id: 7, status: "active" });
   });
 
-  it("passa com provedor de verdade", () => {
+  it("passa com provedor de verdade", async () => {
     const req = mockReq({ userId: 1, providerId: 7, role: "user" });
     const res = mockRes();
 
-    requireProvider(req, res, next);
+    await requireProvider(req, res, next);
 
     expect(next).toHaveBeenCalled();
     expect(res.status).not.toHaveBeenCalled();
   });
 
-  it("403 com providerId 0 — o valor que gravaria provider_id 0 na tabela", () => {
+  it("403 com providerId 0 — o valor que gravaria provider_id 0 na tabela", async () => {
     const req = mockReq({ userId: 1, providerId: 0, role: "user" });
     const res = mockRes();
 
-    requireProvider(req, res, next);
+    await requireProvider(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(res.json).toHaveBeenCalledWith({ message: "Somente provedores" });
     expect(next).not.toHaveBeenCalled();
   });
 
-  it("403 sem providerId nenhum", () => {
+  it("403 sem providerId nenhum", async () => {
     const req = mockReq({ userId: 1, role: "user" });
     const res = mockRes();
 
-    requireProvider(req, res, next);
+    await requireProvider(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(next).not.toHaveBeenCalled();
   });
 
-  it("403 sem sessao", () => {
+  it("403 sem sessao", async () => {
     const req = mockReq({});
     const res = mockRes();
 
-    requireProvider(req, res, next);
+    await requireProvider(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(next).not.toHaveBeenCalled();
   });
 
-  it("403 para superadmin: rota de provedor nao e endereco dele", () => {
+  it("403 para superadmin: rota de provedor nao e endereco dele", async () => {
     const req = mockReq({ userId: 1, role: "superadmin" });
     const res = mockRes();
 
-    requireProvider(req, res, next);
+    await requireProvider(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(next).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Suspender era promessa de tela: o confirm do superadmin dizia que "o acesso
+ * do provedor e dos usuarios dele fica bloqueado", e nada no servidor lia
+ * `providers.status`. A sessao dura 48h — sem esta trava, quem ja estava logado
+ * seguia consultando CPF e gastando credito depois da suspensao.
+ */
+describe("requireProvider — status do provedor", () => {
+  let next: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    next = vi.fn();
+    vi.clearAllMocks();
+    esquecerStatusDeProvedor();
+  });
+
+  const sessaoDoProvedor = () => mockReq({ userId: 1, providerId: 7, role: "admin" });
+
+  it("403 quando o provedor da sessao esta suspenso", async () => {
+    storageMock.getProvider.mockResolvedValue({ id: 7, status: "suspended" });
+    const res = mockRes();
+
+    await requireProvider(sessaoDoProvedor(), res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith({
+      message: MENSAGEM_PROVEDOR_SUSPENSO,
+      code: "PROVIDER_SUSPENDED",
+    });
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("403 tambem para provedor cancelado", async () => {
+    storageMock.getProvider.mockResolvedValue({ id: 7, status: "cancelled" });
+    const res = mockRes();
+
+    await requireProvider(sessaoDoProvedor(), res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  // A assimetria do cache: veredito negativo nunca e guardado, entao reativar
+  // volta a valer na requisicao seguinte, sem esperar TTL nenhum.
+  it("reativar volta a funcionar de imediato", async () => {
+    storageMock.getProvider.mockResolvedValue({ id: 7, status: "suspended" });
+    await requireProvider(sessaoDoProvedor(), mockRes(), next);
+    expect(next).not.toHaveBeenCalled();
+
+    storageMock.getProvider.mockResolvedValue({ id: 7, status: "active" });
+    const res = mockRes();
+    await requireProvider(sessaoDoProvedor(), res, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it("provedor ativo e lido uma vez so — nao uma consulta por requisicao", async () => {
+    storageMock.getProvider.mockResolvedValue({ id: 7, status: "active" });
+
+    await requireProvider(sessaoDoProvedor(), mockRes(), next);
+    await requireProvider(sessaoDoProvedor(), mockRes(), next);
+    await requireProvider(sessaoDoProvedor(), mockRes(), next);
+
+    expect(next).toHaveBeenCalledTimes(3);
+    expect(storageMock.getProvider).toHaveBeenCalledTimes(1);
+  });
+
+  // Falha de leitura nao pode virar bloqueio em massa: o que se protege aqui e
+  // cobranca, nao invasao.
+  it("banco fora do ar nao bloqueia ninguem", async () => {
+    storageMock.getProvider.mockRejectedValue(new Error("connection terminated"));
+    const res = mockRes();
+
+    await requireProvider(sessaoDoProvedor(), res, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it("provedor que nao existe mais nao e tratado como suspenso", async () => {
+    storageMock.getProvider.mockResolvedValue(undefined);
+    const res = mockRes();
+
+    await requireProvider(sessaoDoProvedor(), res, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
   });
 });
 

@@ -26,7 +26,13 @@ vi.hoisted(() => {
 
 const storageMock = vi.hoisted(() => ({
   getUserByEmail: vi.fn(async (_e: string): Promise<any> => undefined),
+  getUserByPhone: vi.fn(async (_p: string): Promise<any> => undefined),
   getProvider: vi.fn(async (_id: number): Promise<any> => undefined),
+  getProviderByCnpj: vi.fn(async (_c: string): Promise<any> => undefined),
+  getProviderBySubdomain: vi.fn(async (_s: string): Promise<any> => undefined),
+  createProvider: vi.fn(async (_d: any): Promise<any> => undefined),
+  createUser: vi.fn(async (_d: any): Promise<any> => ({ id: 3 })),
+  createProviderPartner: vi.fn(async (_d: any): Promise<any> => undefined),
   getMarca: vi.fn(async (_id: number): Promise<any> => undefined),
   setVerificationToken: vi.fn(async () => undefined),
 }));
@@ -157,6 +163,63 @@ describe("POST /api/auth/resend-verification", () => {
     expect(res.status).toBe(200);
     expect((await res.json()).message).toMatch(/Se esse email existir/);
     expect(emailMock.sendVerificationEmail).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * O e-mail do CADASTRO ficou de fora quando `urlDeEntrada` foi criada: seguia
+ * montando o link pela marca do HOST. Sem dominio de marca ativo, essa base e a
+ * RAIZ da plataforma — exatamente onde `hostPertenceAoProvider` recusa o login
+ * de todo usuario nao-superadmin. Quem se cadastrava pela landing confirmava o
+ * e-mail, era mandado para /login no mesmo host e ouvia "Email ou senha
+ * incorretos". O provedor recem-cadastrado nao entrava.
+ */
+describe("POST /api/auth/register", () => {
+  const CADASTRO = {
+    email: "novo@nslink.com.br", password: "senha-boa-123", name: "Ana Nova",
+    phone: "34999998888", responsavelCpf: "04117982940",
+    providerName: "NSLink", cnpj: "11222333000181", subdomain: "nslink",
+    lgpdAccepted: true,
+  };
+
+  beforeEach(() => {
+    storageMock.getUserByEmail.mockResolvedValue(undefined);
+    storageMock.getUserByPhone.mockResolvedValue(undefined);
+    storageMock.getProviderByCnpj.mockResolvedValue(undefined);
+    storageMock.getProviderBySubdomain.mockResolvedValue(undefined);
+    storageMock.createProvider.mockResolvedValue({ id: 42, subdomain: "nslink", marcaId: null });
+    storageMock.createUser.mockResolvedValue({ id: 3, email: CADASTRO.email });
+  });
+
+  it("o link do e-mail leva ao SUBDOMINIO do provedor, nunca a raiz da plataforma", async () => {
+    const res = await pedir("/api/auth/register", CADASTRO, "consultaisp.com.br");
+    expect(res.status).toBe(201);
+
+    const { urlBase } = argumentosDe(emailMock.sendVerificationEmail);
+    expect(urlBase).toBe("https://nslink.consultaisp.com.br");
+    expect(urlBase).not.toBe("https://consultaisp.com.br");
+  });
+
+  // Mesmo cadastro feito de dentro do dominio de uma marca que nao e a dele: o
+  // provedor nasce sem marca (vincular marca no cadastro e assunto da fase 1),
+  // entao o unico endereco onde ele consegue entrar e o subdominio.
+  it("cadastro por dominio de outra marca tambem aponta para onde ele entra", async () => {
+    const res = await pedir("/api/auth/register", CADASTRO, "app.crednet.com.br");
+    expect(res.status).toBe(201);
+
+    const { marca, urlBase } = argumentosDe(emailMock.sendVerificationEmail);
+    expect(marca.marcaId).toBeNull();
+    expect(urlBase).toBe("https://nslink.consultaisp.com.br");
+  });
+
+  it("provedor ja com marca de dominio ativo recebe o link da marca", async () => {
+    storageMock.createProvider.mockResolvedValue({ id: 42, subdomain: "nslink", marcaId: 7 });
+
+    await pedir("/api/auth/register", CADASTRO, "consultaisp.com.br");
+
+    const { marca, urlBase } = argumentosDe(emailMock.sendVerificationEmail);
+    expect(marca.nomeProduto).toBe("CredNet");
+    expect(urlBase).toBe("https://app.crednet.com.br");
   });
 });
 

@@ -3,6 +3,7 @@ import session from "express-session";
 import ConnectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
 import { normalizarHost, extractSubdomainFromHost } from "./tenant";
+import { storage } from "./storage";
 
 const PgSession = ConnectPgSimple(session);
 
@@ -100,18 +101,83 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+/** O que o login e as rotas de provedor respondem a quem esta suspenso. */
+export const MENSAGEM_PROVEDOR_SUSPENSO =
+  "Acesso suspenso — fale com o suporte para reativar a conta.";
+
 /**
- * Defesa em profundidade: so passa quem TEM provedor.
+ * Cache do status do provedor. Guarda SO o veredito positivo, de proposito.
+ *
+ * A aba Provedores do superadmin promete, no confirm de "Suspender", que "o
+ * acesso do provedor e dos usuarios dele fica bloqueado". Ninguem lia
+ * `providers.status`: o login carregava o provedor so para a prova de host, e
+ * os middlewares nunca olhavam o campo. Suspender por inadimplencia nao impedia
+ * um operador de logar dois minutos depois e queimar credito consultando CPF.
+ *
+ * Ler o status em toda requisicao de provedor custaria uma consulta por request,
+ * entao "ativo" fica 30s em memoria. A assimetria e deliberada: veredito
+ * NEGATIVO nunca e cacheado, entao REATIVAR volta a valer na requisicao
+ * seguinte. O preco e o inverso — suspender leva ate 30s para alcancar sessoes
+ * ja abertas — e esse e o lado barato: suspensao e ato comercial, nao contencao
+ * de invasor.
+ *
+ * A chave vem da sessao (gravada no login a partir da linha do usuario), nunca
+ * de cabecalho do cliente: o mapa e limitado pelo numero de provedores reais.
+ */
+const TTL_STATUS_ATIVO_MS = 30_000;
+const provedoresAtivos = new Map<number, number>();
+
+/** Zera o cache de status. Serve aos testes e a quem mudar status no processo. */
+export function esquecerStatusDeProvedor(providerId?: number): void {
+  if (providerId === undefined) provedoresAtivos.clear();
+  else provedoresAtivos.delete(providerId);
+}
+
+async function provedorSuspenso(providerId: number): Promise<boolean> {
+  const ate = provedoresAtivos.get(providerId);
+  if (ate !== undefined && ate > Date.now()) return false;
+
+  let provider;
+  try {
+    provider = await storage.getProvider(providerId);
+  } catch {
+    // Banco fora do ar nao pode virar bloqueio em massa. Sem leitura, mantem o
+    // comportamento anterior: o que se protege aqui e cobranca, nao invasao.
+    return false;
+  }
+
+  // Provedor ausente nao e suspensao. Quem foi apagado ja quebra no handler, e
+  // um bloqueio aqui esconderia a causa real por tras de um texto errado.
+  if (!provider) return false;
+  if (provider.status === "active") {
+    provedoresAtivos.set(providerId, Date.now() + TTL_STATUS_ATIVO_MS);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Defesa em profundidade: so passa quem TEM provedor, e provedor no ar.
  *
  * Sem isto, uma sessao com `providerId` 0 chega ao handler e o handler grava
  * `provider_id: 0` — que ou estoura na FK (500) ou, pior, cria uma gaveta
  * orfa que nenhum tenant enxerga. `requireAuth` sozinho nunca prometeu isso;
  * prometia apenas que ha alguem logado.
+ *
+ * A segunda trava e o status: a recusa no login so alcanca quem entra AGORA, e
+ * a sessao dura 48h. Sem esta linha, suspender um provedor as 10h nao tirava do
+ * ar ninguem que ja estivesse logado desde as 9h.
  */
-export function requireProvider(req: Request, res: Response, next: NextFunction) {
+export async function requireProvider(req: Request, res: Response, next: NextFunction) {
   const providerId = req.session.providerId;
   if (!req.session.userId || !providerId || providerId <= 0) {
     return res.status(403).json({ message: "Somente provedores" });
+  }
+  // Superadmin e da plataforma: nao existe status de tenant que o barre. Hoje
+  // ele nem chega aqui (nao tem providerId), e a linha garante que continue
+  // assim se um dia tiver.
+  if (req.session.role !== "superadmin" && await provedorSuspenso(providerId)) {
+    return res.status(403).json({ message: MENSAGEM_PROVEDOR_SUSPENSO, code: "PROVIDER_SUSPENDED" });
   }
   next();
 }

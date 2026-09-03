@@ -56,6 +56,9 @@ afterAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // `clearAllMocks` limpa as chamadas, nao a implementacao: sem esta linha um
+  // `mockRejectedValue` de um teste vazaria para os seguintes.
+  storageMock.deleteUser.mockResolvedValue(undefined);
   sessao = { userId: 1, providerId: 7, role: "admin" };
 });
 
@@ -113,6 +116,56 @@ describe("DELETE /api/provider/users/:id", () => {
 
     expect(res.status).toBe(404);
     expect(storageMock.deleteUser).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `isp_consultations.user_id`, `spc_consultations.user_id`,
+ * `bigdata_consultations.user_id` e `support_messages.sender_id` sao NOT NULL e
+ * sem ON DELETE. Ou seja: o operador que ja rodou UMA consulta — o uso normal
+ * da conta — nao pode ser apagado, e o handler devolvia 500 "Erro interno do
+ * servidor". O admin via um erro sem causa e tentava de novo.
+ */
+describe("DELETE /api/provider/users/:id — usuario com historico", () => {
+  const violacaoDeFk = (extra: Record<string, unknown> = {}) =>
+    Object.assign(new Error('violates foreign key constraint "isp_consultations_user_id_users_id_fk"'), { code: "23503", ...extra });
+
+  beforeEach(() => {
+    storageMock.getUser.mockResolvedValue({ id: 9, role: "user", providerId: 7 });
+  });
+
+  it("409 com o motivo em portugues, nunca 500", async () => {
+    storageMock.deleteUser.mockRejectedValue(violacaoDeFk());
+
+    const res = await apagar(9);
+    const corpo = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(corpo.code).toBe("USUARIO_COM_HISTORICO");
+    expect(corpo.message).toMatch(/historico/i);
+    expect(corpo.message).not.toMatch(/23503|foreign key/i);
+  });
+
+  // O driver ora entrega o erro do pg direto, ora embrulhado por quem chamou.
+  it("reconhece o 23503 tambem quando vem embrulhado em cause", async () => {
+    storageMock.deleteUser.mockRejectedValue(
+      Object.assign(new Error("Failed query"), { cause: { code: "23503" } }),
+    );
+
+    const res = await apagar(9);
+
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("USUARIO_COM_HISTORICO");
+  });
+
+  // Qualquer outra falha continua sendo falha do servidor: transformar tudo em
+  // 409 esconderia um defeito de verdade atras de um texto tranquilizador.
+  it("erro que nao e violacao de chave estrangeira continua 500", async () => {
+    storageMock.deleteUser.mockRejectedValue(new Error("connection terminated"));
+
+    const res = await apagar(9);
+
+    expect(res.status).toBe(500);
   });
 });
 

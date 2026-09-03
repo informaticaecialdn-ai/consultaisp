@@ -6,7 +6,8 @@ import { sendVerificationEmail } from "../services/email";
 import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { normalizarHost, extractSubdomainFromHost } from "../tenant";
-import { hostPertenceAoProvider, resolverMarcaPorHost, resolverMarcaPorId, urlDeEntrada } from "../services/marca.service";
+import { hostPertenceAoProvider, resolverMarcaPorId, urlDeEntrada } from "../services/marca.service";
+import { MENSAGEM_PROVEDOR_SUSPENSO } from "../auth";
 import { validarCPF, validarCNPJ } from "../utils/cpf-cnpj-validator";
 import crypto from "crypto";
 
@@ -58,6 +59,26 @@ export function registerAuthRoutes(): Router {
           // o endereco certo.
           return res.status(401).json({ message: "Email ou senha incorretos" });
         }
+      }
+
+      /**
+       * Provedor suspenso nao entra.
+       *
+       * O confirm da aba Provedores promete que suspender "bloqueia o acesso do
+       * provedor e dos usuarios dele", e nada no servidor lia
+       * `providers.status`. O superadmin suspendia por inadimplencia e o
+       * operador logava em seguida, abria o dashboard e gastava credito.
+       *
+       * Fica DEPOIS da senha e DEPOIS da prova de host de proposito: quem erra
+       * a senha, ou tenta pelo endereco errado, continua ouvindo a mensagem
+       * generica. Assim este texto — que confirma que a conta existe — so
+       * aparece para quem ja provou ser dono dela.
+       */
+      if (user.role !== "superadmin" && provider && provider.status !== "active") {
+        return res.status(403).json({
+          message: MENSAGEM_PROVEDOR_SUSPENSO,
+          code: "PROVIDER_SUSPENDED",
+        });
       }
 
       req.session.userId = user.id;
@@ -175,7 +196,22 @@ export function registerAuthRoutes(): Router {
       await storage.setVerificationToken(user.id, token, expiresAt);
 
       try {
-        await sendVerificationEmail(email, name, token, await resolverMarcaPorHost(req.hostname));
+        /**
+         * Mesma regra do reenvio e do "esqueci minha senha": marca e endereco
+         * saem do PROVEDOR, nao do host de onde o cadastro veio.
+         *
+         * Com a marca do host, sem dominio de marca ativo, o link caia na RAIZ
+         * da plataforma — e a raiz e exatamente onde `hostPertenceAoProvider`
+         * recusa o login de todo usuario nao-superadmin. Quem se cadastrava
+         * pela landing confirmava o e-mail, era mandado para /login no mesmo
+         * host e ouvia "Email ou senha incorretos" sem entender por que.
+         *
+         * O provedor acabou de ser inserido acima, ainda sem marca (vincular
+         * marca no cadastro e assunto da fase 1), entao `urlDeEntrada` cai no
+         * subdominio dele — o unico endereco onde ele consegue entrar hoje.
+         */
+        const marca = await resolverMarcaPorId(provider.marcaId);
+        await sendVerificationEmail(email, name, token, marca, urlDeEntrada(provider, marca));
       } catch (emailError: any) {
         console.error("[email] Falha ao enviar email de verificacao:", emailError.message);
       }
