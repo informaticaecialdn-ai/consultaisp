@@ -6,7 +6,42 @@ import { getSafeErrorMessage } from "../utils/safe-error";
 import { sanitizeFilename } from "../utils/filename-sanitizer";
 import { logger } from "../logger";
 import { anonymizeProvider } from "../utils/provider-anonymizer";
+import { sendUsuarioAdicionadoEmail } from "../services/email";
+import { contextoDeEmail } from "../services/email-destinatario";
 import crypto from "crypto";
+
+/**
+ * Avisa a PESSOA que acabou de ganhar acesso ao provedor.
+ *
+ * O destinatario e um endereco especifico — o do usuario criado — e por isso
+ * `avisarProvedor` (que resolve o contato do provedor) nao serve. O que se
+ * aproveita dele e a resolucao de marca e de endereco de entrada, via
+ * `contextoDeEmail`: quem entra por uma marca revendedora precisa do link
+ * daquela marca, senao cai numa tela onde o login dele e recusado.
+ *
+ * A SENHA NAO VAI NO E-MAIL — quem cria a entrega por outro canal, ou o novo
+ * usuario define a dele por "Esqueci minha senha".
+ *
+ * Nao lanca: a conta ja esta criada quando este aviso sai. Envio de e-mail nao
+ * derruba a operacao que o disparou.
+ */
+async function avisarUsuarioCriado(
+  provedor: { id: number; name: string; contactEmail?: string | null; marcaId?: number | null; subdomain?: string | null },
+  usuario: { name: string; email: string },
+  quemAdicionou: string,
+): Promise<void> {
+  try {
+    const ctx = await contextoDeEmail(provedor);
+    await sendUsuarioAdicionadoEmail(
+      usuario.email, usuario.name, provedor.name, quemAdicionou, usuario.email, ctx.marca, ctx.urlBase,
+    );
+  } catch (err: any) {
+    logger.error(
+      { providerId: provedor.id, rotulo: "usuario-adicionado", err: err?.message },
+      "[email] Falha ao avisar o usuario criado",
+    );
+  }
+}
 
 export function registerProviderRoutes(): Router {
   const router = Router();
@@ -57,6 +92,15 @@ export function registerProviderRoutes(): Router {
         providerId: req.session.providerId!,
         emailVerified: true,
       });
+
+      // Quem foi adicionado nao recebia nada: descobria a conta quando alguem
+      // avisava por fora. O aviso sai depois da criacao e nao pode derruba-la.
+      const provedor = await storage.getProvider(req.session.providerId!).catch(() => null);
+      if (provedor) {
+        const autor = await storage.getUser(req.session.userId!).catch(() => null);
+        await avisarUsuarioCriado(provedor, newUser, autor?.name || provedor.name);
+      }
+
       return res.status(201).json({ id: newUser.id, name: newUser.name, email: newUser.email, role: newUser.role });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
