@@ -1,6 +1,7 @@
 import { Search } from "lucide-react";
 import { formatCpfCnpj } from "./utils";
 import { Kicker, pillStyle, type Tone } from "./report-ui";
+import { normalizarCodigo } from "./identificacao";
 
 interface Props {
   consultations: any[];
@@ -18,7 +19,7 @@ interface Props {
  * Com ela, as colunas ficam do tamanho do que carregam e o excedente vai para a
  * direita — a linha continua compacta em qualquer monitor.
  */
-const COLUNAS = "minmax(96px, 120px) minmax(120px, 300px) 56px 64px minmax(90px, 120px) 70px 1fr";
+const COLUNAS = "minmax(96px, 120px) 124px minmax(120px, 300px) 56px 64px minmax(90px, 120px) 70px 1fr";
 
 function parecer(decisionReco: string): { label: string; tone: Tone } {
   if (decisionReco === "Accept") return { label: "Aprovar", tone: "ok" };
@@ -63,6 +64,7 @@ export default function ConsultaHistoryTab({ consultations }: Props) {
             padding: "12px 0 8px", borderBottom: "1px solid var(--border-faint)",
           }}>
             <Cabecalho>Data</Cabecalho>
+            <Cabecalho>Identificação</Cabecalho>
             <Cabecalho>Documento</Cabecalho>
             <Cabecalho>Tipo</Cabecalho>
             <Cabecalho alinharDireita>Score</Cabecalho>
@@ -73,6 +75,11 @@ export default function ConsultaHistoryTab({ consultations }: Props) {
           {consultations.map((c: any) => {
             const p = parecer(c.decisionReco);
             const dt = c.createdAt ? new Date(c.createdAt) : null;
+            /* Consulta gravada antes desta versão nasceu sem código: a coluna
+               mostra um traço. Derivar um a partir do `c.id` — que era o que a
+               tela fazia no cabeçalho do relatório — daria ao operador um número
+               que o suporte não encontra em lugar nenhum. */
+            const codigo = normalizarCodigo(c.consultaId);
             return (
               <div
                 key={c.id}
@@ -87,6 +94,16 @@ export default function ConsultaHistoryTab({ consultations }: Props) {
                   fontVariantNumeric: "tabular-nums",
                 }}>
                   {dt ? dt.toLocaleDateString("pt-BR").slice(0, 5) + " " + dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "—"}
+                </span>
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)", fontSize: 11.5,
+                    fontVariantNumeric: "tabular-nums", letterSpacing: "0.01em",
+                    color: codigo ? "var(--text-2)" : "var(--text-faint)",
+                  }}
+                  data-testid={`consultation-${c.id}-consulta-id`}
+                >
+                  {codigo ?? "—"}
                 </span>
                 <span style={{
                   fontFamily: "var(--font-mono)", fontSize: 12,

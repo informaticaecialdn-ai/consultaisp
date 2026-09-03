@@ -6,6 +6,10 @@ import ConsultaIdleState from "@/components/consulta/ConsultaIdleState";
 import ConsultaSearchBar from "@/components/consulta/ConsultaSearchBar";
 import LgpdDisclaimerModal from "@/components/consulta/LgpdDisclaimerModal";
 import CadastralResultReport from "@/components/consulta/CadastralResultReport";
+import ConsultaErroCard from "@/components/consulta/ConsultaErroCard";
+import {
+  normalizarCodigo, lerErroDeConsulta, type ErroDeConsulta,
+} from "@/components/consulta/identificacao";
 import type { ResultadoCadastral } from "@/components/consulta/cadastral-tipos";
 import { CUSTO_EM_CREDITOS } from "@shared/schema";
 import { Button } from "@/components/ui/button";
@@ -250,6 +254,9 @@ function Configuracao({ integracao }: { integracao?: Integracao }) {
 export default function ConsultaCadastralPage() {
   const { toast } = useToast();
   const [resultado, setResultado] = useState<Resultado | null>(null);
+  /* A falha vira card na tela, e não só toast: é nela que o identificador da
+     consulta tem serventia, e um toast some antes de a pessoa abrir o chamado. */
+  const [erro, setErro] = useState<ErroDeConsulta | null>(null);
   const [activeTab, setActiveTab] = useState<"nova" | "historico" | "info">("nova");
   const [verConfig, setVerConfig] = useState(false);
   // A lista de contato mostra 4 telefones; o resto fica atrás de um clique,
@@ -295,11 +302,18 @@ export default function ConsultaCadastralPage() {
     },
     onSuccess: (d: Resultado) => {
       setResultado(d);
+      setErro(null);
       queryClient.invalidateQueries({ queryKey: ["/api/bigdata-consultations"] });
     },
     onError: (e: any) => {
       setResultado(null);
-      toast({ title: "Consulta não realizada", description: e.message, variant: "destructive" });
+      const falha = lerErroDeConsulta(e);
+      setErro(falha);
+      toast({
+        title: "Consulta não realizada",
+        description: falha.consultaId ? `${falha.mensagem} · ${falha.consultaId}` : falha.mensagem,
+        variant: "destructive",
+      });
     },
   });
 
@@ -327,7 +341,7 @@ export default function ConsultaCadastralPage() {
     }
   };
 
-  const handleClear = () => setResultado(null);
+  const handleClear = () => { setResultado(null); setErro(null); };
 
   const configurado = integracao?.configurado;
   const v = resultado ? VEREDITO[resultado.veredito] : null;
@@ -424,9 +438,13 @@ export default function ConsultaCadastralPage() {
                   />
                 )}
 
+                {!mutation.isPending && erro && (
+                  <ConsultaErroCard erro={erro} testId="consulta-cadastral-erro" />
+                )}
+
                 {/* Sem a tira de métricas: saldo já aparece no seletor de nível
                     e no topo; contagem do dia/mês vive no Histórico. */}
-                {!mutation.isPending && !resultado && (
+                {!mutation.isPending && !resultado && !erro && (
                   <ConsultaIdleState
                     totalConsultas={consultations.length}
                     emptyTitle="Nenhuma consulta ainda"
@@ -462,7 +480,7 @@ export default function ConsultaCadastralPage() {
                 <table className="w-full text-[13px] min-w-[560px]">
                   <thead>
                     <tr>
-                      {["Data", "CPF", "Veredito", "Datasets"].map(h => (
+                      {["Data", "Identificação", "CPF", "Veredito", "Datasets"].map(h => (
                         <th key={h} className="text-left text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--text-muted)] px-4 py-2 border-b border-[var(--border-faint)]">
                           {h}
                         </th>
@@ -472,11 +490,19 @@ export default function ConsultaCadastralPage() {
                   <tbody>
                     {consultations.map((c: any) => {
                       const vv = VEREDITO[c.veredito as Resultado["veredito"]] ?? VEREDITO.NAO_ENCONTRADO;
+                      // Consulta anterior a esta versão não tem código: traço, nunca um inventado.
+                      const codigo = normalizarCodigo(c.consultaId);
                       return (
                         <tr key={c.id} className="border-b border-[var(--border-faint)] last:border-b-0"
                           data-testid={`consulta-${c.id}`}>
                           <td className="px-4 py-2.5 font-mono tabular-nums text-[var(--text-2)]">
                             {fmtData(c.createdAt)}
+                          </td>
+                          <td
+                            className={`px-4 py-2.5 font-mono tabular-nums whitespace-nowrap ${codigo ? "text-[var(--text-2)]" : "text-[var(--text-faint)]"}`}
+                            data-testid={`consulta-${c.id}-consulta-id`}
+                          >
+                            {codigo ?? "—"}
                           </td>
                           <td className="px-4 py-2.5 font-mono tabular-nums text-[var(--text)]">
                             {formataCpf(c.cpfCnpj)}

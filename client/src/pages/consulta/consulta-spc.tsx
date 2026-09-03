@@ -9,6 +9,12 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import ConsultaIdleState from "@/components/consulta/ConsultaIdleState";
+import IdentificacaoConsulta from "@/components/consulta/IdentificacaoConsulta";
+import ConsultaErroCard from "@/components/consulta/ConsultaErroCard";
+import {
+  lerIdentificacao, lerErroDeConsulta, normalizarCodigo,
+  type IdentificacaoDaConsulta, type ErroDeConsulta,
+} from "@/components/consulta/identificacao";
 import { useToast } from "@/hooks/use-toast";
 import {
   Search,
@@ -33,6 +39,11 @@ import {
 
 interface SpcResult {
   cpfCnpj: string;
+  /** `CI-2609-K7F3M2` — a consulta AQUI. Ausente nas gravadas antes desta versão. */
+  consultaId?: string | null;
+  /** O protocolo do SPC Brasil, já emparelhado com quem o emitiu. */
+  protocoloDaOrigem?: { origem: string; protocolo: string } | null;
+  /** O mesmo número do SPC, cru — como a rota o devolve desde antes. */
   protocolo?: string | null;
   consultadoEm?: string | null;
   cadastralData: {
@@ -139,6 +150,10 @@ export default function ConsultaSPCPage() {
   const { toast } = useToast();
   const [query, setQuery] = useState("");
   const [result, setResult] = useState<SpcResult | null>(null);
+  /* O identificador é da REQUISIÇÃO, e a resposta o traz até no erro — por isso
+     ele não mora dentro de `result`, que só existe quando a consulta deu certo. */
+  const [identificacao, setIdentificacao] = useState<IdentificacaoDaConsulta | null>(null);
+  const [erro, setErro] = useState<ErroDeConsulta | null>(null);
   const [aba, setAba] = useState("nova");
 
   const { data, isLoading } = useQuery<any>({
@@ -152,16 +167,27 @@ export default function ConsultaSPCPage() {
     },
     onSuccess: (data) => {
       setResult(data.result);
+      // "SPC Brasil" é a origem padrão: enquanto a rota não mandar o par pronto,
+      // o `protocolo` cru que ela já devolvia continua identificado na tela.
+      setIdentificacao(lerIdentificacao(data, "SPC Brasil"));
+      setErro(null);
       queryClient.invalidateQueries({ queryKey: ["/api/spc-consultations"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Consulta realizada", description: "Consulta SPC processada com sucesso" });
     },
     onError: (err: any) => {
-      // apiRequest lança "503: {json}": aqui sai só a mensagem em português.
-      const bruto = String(err?.message ?? "").replace(/^\d{3}:\s*/, "");
-      let msg = bruto;
-      try { msg = JSON.parse(bruto).message ?? bruto; } catch { /* texto puro */ }
-      toast({ title: "Consulta não realizada", description: msg || "Falha ao consultar o SPC", variant: "destructive" });
+      // O desembrulho do "503: {json}" que morava aqui virou `lerErroDeConsulta`,
+      // compartilhado com as outras duas telas — e ele traz também o código da
+      // consulta que falhou, que é o que o provedor leva ao suporte.
+      const falha = lerErroDeConsulta(err);
+      setResult(null);
+      setIdentificacao(null);
+      setErro(falha);
+      toast({
+        title: "Consulta não realizada",
+        description: falha.consultaId ? `${falha.mensagem} · ${falha.consultaId}` : falha.mensagem,
+        variant: "destructive",
+      });
     },
   });
 
@@ -169,6 +195,10 @@ export default function ConsultaSPCPage() {
   const abrirDoHistorico = (c: any) => {
     if (!c?.result) return;
     setResult(c.result as SpcResult);
+    // O código vem da LINHA, não do `result`: quem guarda `consulta_id` é a
+    // tabela. Sem isto o relatório reaberto do histórico apareceria sem número.
+    setIdentificacao(lerIdentificacao(c, "SPC Brasil"));
+    setErro(null);
     setQuery(formatCpfCnpj(c.cpfCnpj ?? ""));
     setAba("nova");
   };
@@ -349,7 +379,13 @@ export default function ConsultaSPCPage() {
               </p>
             </div>
 
-            {!mutation.isPending && !result && (
+            {!mutation.isPending && erro && (
+              <div className="mt-6">
+                <ConsultaErroCard erro={erro} testId="consulta-spc-erro" />
+              </div>
+            )}
+
+            {!mutation.isPending && !result && !erro && (
               <div className="mt-6">
                 <ConsultaIdleState
                   totalConsultas={(data?.consultations ?? []).length}
@@ -370,8 +406,12 @@ export default function ConsultaSPCPage() {
                         <BarChart3 className="w-5 h-5" />
                         <div>
                           <h3 className="text-lg font-semibold">Consulta SPC - {result.cadastralData.tipo === "PF" ? "CPF" : "CNPJ"}: {formatCpfCnpj(result.cpfCnpj)}</h3>
+                          {/* O protocolo do SPC saiu daqui: em 12px branco sobre
+                              a faixa da marca ele era decoração, e é um número
+                              para ser lido e ditado. Desceu para o bloco de
+                              Identificação, ao lado do código desta consulta. */}
                           <p className="text-sm text-white/70">
-                            SPC Brasil{result.protocolo ? <> · protocolo <span className="font-mono tabular-nums">{result.protocolo}</span></> : null}
+                            SPC Brasil
                             {result.consultadoEm ? <> · {new Date(result.consultadoEm).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</> : null}
                           </p>
                         </div>
@@ -383,6 +423,12 @@ export default function ConsultaSPCPage() {
                   </div>
 
                   <div className="p-6 space-y-6">
+                    <IdentificacaoConsulta
+                      consultaId={identificacao?.consultaId}
+                      protocoloDaOrigem={identificacao?.protocoloDaOrigem}
+                      testIdPrefixo="identificacao-spc"
+                    />
+
                     <Card className="p-4 bg-slate-50 dark:bg-slate-900/30">
                       <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
                         <User className="w-4 h-4" />
@@ -592,6 +638,8 @@ export default function ConsultaSPCPage() {
                   const resultData = c.result as any;
                   const riskLevel = resultData?.riskLevel || (c.score >= 700 ? "low" : c.score >= 500 ? "medium" : "high");
                   const statusLabel = resultData?.status === "clean" ? "Limpo" : resultData?.restrictions?.length > 0 ? `${resultData.restrictions.length} restricoes` : "Com restricoes";
+                  // Consulta anterior a esta versão não tem código: traço, nunca um inventado.
+                  const codigo = normalizarCodigo(c.consultaId);
                   return (
                     <div
                       key={c.id}
@@ -610,6 +658,12 @@ export default function ConsultaSPCPage() {
                           {resultData?.cadastralData?.nome && (
                             <span className="text-xs text-muted-foreground ml-2">{resultData.cadastralData.nome}</span>
                           )}
+                          <div
+                            className={`font-mono tabular-nums text-[11.5px] ${codigo ? "text-[var(--text-2)]" : "text-[var(--text-faint)]"}`}
+                            data-testid={`spc-consultation-${c.id}-consulta-id`}
+                          >
+                            {codigo ?? "—"}
+                          </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-3">

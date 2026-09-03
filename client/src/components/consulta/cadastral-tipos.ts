@@ -64,6 +64,15 @@ export interface ProcessoCadastro {
 
 export interface ResultadoCadastral {
   id: number;
+  /**
+   * `CI-2609-K7F3M2` — o identificador desta consulta, gravado em
+   * `bigdata_consultations.consulta_id`. Opcional porque consulta anterior a
+   * esta versão nasceu sem: nesses casos a tela não mostra código nenhum, e
+   * NÃO deriva um a partir do `id` (a chave sequencial é global à plataforma).
+   */
+  consultaId?: string | null;
+  /** O `QueryId` que a BigDataCorp devolveu, para escalar direto com ela. */
+  protocoloDaOrigem?: { origem: string; protocolo: string } | null;
   cpfCnpj: string;
   /** Ausente nas consultas gravadas antes de o CNPJ existir — trate como CPF. */
   tipoDocumento?: "cpf" | "cnpj";
