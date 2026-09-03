@@ -11,11 +11,22 @@ import {
   Kicker, pillStyle, ReportSection, ScoreBar, ProvTag, Th,
   bandOf, ReportButton, type Tone,
 } from "./report-ui";
+import IdentificacaoConsulta from "./IdentificacaoConsulta";
+import type { ProtocoloDaOrigem } from "./identificacao";
 
 interface Props {
   result: ConsultaResult;
-  /** Registro gravado da consulta — origem do protocolo e do hash de auditoria. */
+  /** Registro gravado da consulta — de onde saem a data e o hash de auditoria. */
   consultation?: { id?: number; cpfCnpjHash?: string; createdAt?: string } | null;
+  /**
+   * O identificador desta consulta, como o servidor o emitiu.
+   *
+   * Vem de fora, e não de `consultation`, porque ele existe mesmo quando não há
+   * linha gravada — cache, "nada consta", erro. Amarrá-lo ao registro seria
+   * repetir o defeito do protocolo derivado, que sumia justo nesses casos.
+   */
+  consultaId?: string | null;
+  protocoloDaOrigem?: ProtocoloDaOrigem | null;
   onShowDetail: (idx: number) => void;
   onSave: () => void;
   onGeneratePDF: () => void;
@@ -53,7 +64,7 @@ const GRID_FONTE = "minmax(140px, 1.2fr) 170px 2fr";
    RELATÓRIO DE CRÉDITO v2 — um card, seções numeradas por hairline.
    ════════════════════════════════════════════════════════════ */
 export default function ConsultaResultSummary({
-  result, consultation, onSave, onGeneratePDF,
+  result, consultation, consultaId, protocoloDaOrigem, onSave, onGeneratePDF,
 }: Props) {
   // Todas as contas vêm de relatorio-dados.ts — o MESMO módulo que o PDF usa.
   // Estavam aqui dentro, e o gerador de PDF tinha a sua própria cópia: o papel
@@ -77,9 +88,6 @@ export default function ConsultaResultSummary({
 
   const dt = consultation?.createdAt ? new Date(consultation.createdAt) : new Date();
   const dataHora = dt.toLocaleDateString("pt-BR") + " " + dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  const protocolo = consultation?.id
-    ? `#CI-${dt.getFullYear()}-${String(consultation.id).padStart(5, "0")}`
-    : null;
   const provKind = result.source === "cache" ? "cache" : result.source === "no_erp" ? "sem-rede" : "real";
   const custoLabel = result.creditsCost > 0
     ? `custo ${result.creditsCost} crédito${result.creditsCost > 1 ? "s" : ""}`
@@ -131,11 +139,6 @@ export default function ConsultaResultSummary({
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <Kicker>Relatório de crédito ISP</Kicker>
-            {protocolo && (
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)" }}>
-                {protocolo}
-              </span>
-            )}
             <ProvTag kind={provKind} />
           </div>
           <div style={{
@@ -148,6 +151,15 @@ export default function ConsultaResultSummary({
               : formatCpfCnpj(result.cpfCnpj)}
           </div>
           <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>{meta}</div>
+          {/* No CACHE o código é o da consulta ORIGINAL, e não um novo: o que
+              está na tela É aquela consulta — o selo CACHE ao lado do título já
+              diz isso. Um código novo mandaria o suporte procurar uma linha que
+              nunca foi gravada. Quem devolve o código certo é o servidor. */}
+          <IdentificacaoConsulta
+            consultaId={consultaId}
+            protocoloDaOrigem={protocoloDaOrigem}
+            style={{ marginTop: 12 }}
+          />
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
           <ReportButton onClick={onGeneratePDF} testId="button-generate-pdf">

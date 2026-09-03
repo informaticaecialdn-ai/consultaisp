@@ -5,6 +5,8 @@ import {
   Kicker, pillStyle, ReportSection, ScoreBar, Th, bandOf, ReportButton, type Tone,
 } from "./report-ui";
 import type { ResultadoCadastral, SocioEmpresa } from "./cadastral-tipos";
+import IdentificacaoConsulta from "./IdentificacaoConsulta";
+import { lerIdentificacao } from "./identificacao";
 import {
   fmtDoc, fmtData, fmtBrl, fmtTelefone, enderecoEmLinha,
   decisaoCadastral, sinaisCadastrais, LEGENDA_CAPACIDADE, faixaCapacidade,
@@ -43,9 +45,12 @@ export default function CadastralResultReport({ r, onSave, onGeneratePDF }: Prop
   const sinais = sinaisCadastrais(r);
 
   const dt = r.createdAt ? new Date(r.createdAt) : new Date();
-  const protocolo = r.id
-    ? `#CC-${dt.getFullYear()}-${String(r.id).padStart(5, "0")}`
-    : null;
+  /* `#CC-2026-00123`, derivado de `r.id`, saiu daqui: a chave é sequencial e
+     global, então dois relatórios seguidos contavam ao provedor o volume da
+     plataforma inteira — e o número não existia no banco para o suporte
+     procurar. Agora vem o identificador real, e ao lado dele o QueryId da
+     BigDataCorp, que é a quem se reclama quando o dado cadastral veio errado. */
+  const { consultaId, protocoloDaOrigem } = lerIdentificacao(r);
 
   const meta = [
     ehEmpresa ? "CNPJ" : "CPF",
@@ -82,11 +87,6 @@ export default function CadastralResultReport({ r, onSave, onGeneratePDF }: Prop
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <Kicker>{ehEmpresa ? "Relatório cadastral · empresa" : "Relatório cadastral"}</Kicker>
-            {protocolo && (
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-muted)" }}>
-                {protocolo}
-              </span>
-            )}
           </div>
           <div style={{
             fontFamily: "var(--font-mono)", fontSize: 28, fontWeight: 600,
@@ -101,6 +101,12 @@ export default function CadastralResultReport({ r, onSave, onGeneratePDF }: Prop
               : (r.identidade?.nome ?? "Nome não informado")}
           </div>
           <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 3 }}>{meta}</div>
+          <IdentificacaoConsulta
+            consultaId={consultaId}
+            protocoloDaOrigem={protocoloDaOrigem}
+            style={{ marginTop: 12 }}
+            testIdPrefixo="identificacao-cadastral"
+          />
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
           {onGeneratePDF && (

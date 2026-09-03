@@ -19,6 +19,12 @@ import TimelineTab from "@/components/consulta/TimelineTab";
 import ConsultaReportsTab from "@/components/consulta/ConsultaReportsTab";
 import ConsultaInfoTab from "@/components/consulta/ConsultaInfoTab";
 import LgpdDisclaimerModal from "@/components/consulta/LgpdDisclaimerModal";
+import IdentificacaoConsulta from "@/components/consulta/IdentificacaoConsulta";
+import ConsultaErroCard from "@/components/consulta/ConsultaErroCard";
+import {
+  lerIdentificacao, lerErroDeConsulta,
+  type IdentificacaoDaConsulta, type ErroDeConsulta,
+} from "@/components/consulta/identificacao";
 
 const ABAS = [
   ["nova", "Nova consulta"],
@@ -42,6 +48,11 @@ export default function ConsultaISPPage() {
   const { toast } = useToast();
   const [result, setResult] = useState<ConsultaResult | null>(null);
   const [consultation, setConsultation] = useState<any>(null);
+  /* O identificador é da REQUISIÇÃO, não do registro: existe também quando não
+     houve linha gravada (nada consta, sem cobertura) e quando a consulta falhou.
+     Por isso mora aqui, em estado próprio, e não dentro de `consultation`. */
+  const [identificacao, setIdentificacao] = useState<IdentificacaoDaConsulta | null>(null);
+  const [erro, setErro] = useState<ErroDeConsulta | null>(null);
   const [activeTab, setActiveTab] = useState<Aba>("nova");
   const [documentoEmConsulta, setDocumentoEmConsulta] = useState("");
 
@@ -80,6 +91,8 @@ export default function ConsultaISPPage() {
     onSuccess: (data) => {
       setResult(data.result);
       setConsultation(data.consultation ?? null);
+      setIdentificacao(lerIdentificacao(data));
+      setErro(null);
       queryClient.invalidateQueries({ queryKey: ["/api/isp-consultations"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
 
@@ -100,7 +113,19 @@ export default function ConsultaISPPage() {
       }
     },
     onError: (err: any) => {
-toast({ title: "Não foi possível consultar", description: err.message, variant: "destructive" });
+      // O toast avisa e some; o card fica com o código, que é o que o provedor
+      // leva ao suporte. A mensagem sai desembrulhada — antes ia para a tela
+      // com o status colado no JSON ("500: {"message":...").
+      const falha = lerErroDeConsulta(err);
+      setResult(null);
+      setConsultation(null);
+      setIdentificacao(null);
+      setErro(falha);
+      toast({
+        title: "Não foi possível consultar",
+        description: falha.consultaId ? `${falha.mensagem} · ${falha.consultaId}` : falha.mensagem,
+        variant: "destructive",
+      });
     },
   });
 
@@ -141,10 +166,10 @@ toast({ title: "Não foi possível consultar", description: err.message, variant
 
   const handleGeneratePDF = () => {
     if (!result) return;
-    // `consultation` entra: e dela que saem o protocolo (#CI-ano-id), a data da
-    // consulta e o hash de auditoria. Sem passa-la, o papel carimbava a hora da
-    // IMPRESSAO como se fosse a da consulta.
-    const html = generatePDF(result, consultation);
+    // `consultation` entra pela data da consulta e pelo hash de auditoria: sem
+    // passa-la, o papel carimbava a hora da IMPRESSAO como se fosse a da
+    // consulta. O identificador vai separado — ele existe mesmo sem registro.
+    const html = generatePDF(result, consultation, identificacao);
     if (!html) return;
     const w = window.open("", "_blank", "width=900,height=700");
     if (!w) { toast({ title: "Relatório não abriu", description: "Permita pop-ups neste site para gerar o PDF.", variant: "destructive" }); return; }
@@ -166,7 +191,9 @@ toast({ title: "Não foi possível consultar", description: err.message, variant
     }
   };
 
-  const handleClear = () => { setResult(null); setConsultation(null); };
+  const handleClear = () => {
+    setResult(null); setConsultation(null); setIdentificacao(null); setErro(null);
+  };
 
   /* "Nada consta" tem card próprio: sem ocorrência não há o que compor, e um
      relatório completo cheio de zeros faria o operador procurar problema onde
@@ -266,7 +293,9 @@ toast({ title: "Não foi possível consultar", description: err.message, variant
 
             {mutation.isPending && <LoadingCard documento={documentoEmConsulta} />}
 
-            {!mutation.isPending && !result && (
+            {!mutation.isPending && erro && <ConsultaErroCard erro={erro} testId="consulta-isp-erro" />}
+
+            {!mutation.isPending && !result && !erro && (
               <ConsultaIdleState
                 totalConsultas={consultations.length}
                 cards={CARDS_OCIOSO}
@@ -326,13 +355,27 @@ toast({ title: "Não foi possível consultar", description: err.message, variant
                         </span>
                         <Kicker>Gate · decisão final é sua</Kicker>
                       </div>
+                      {/* O código aparece TAMBÉM aqui, e é neste caminho que ele
+                          mais faz falta: "consultei e não veio nada" é a
+                          reclamação mais comum, e até agora não havia número
+                          nenhum para o suporte procurar — o protocolo derivado
+                          dependia de uma linha gravada que este caminho não tem. */}
+                      <IdentificacaoConsulta
+                        consultaId={identificacao?.consultaId}
+                        protocoloDaOrigem={identificacao?.protocoloDaOrigem}
+                        style={{ marginTop: 2 }}
+                        testIdPrefixo="identificacao-nada-consta"
+                      />
                     </div>
                   </div>
                 ) : (
                   <ConsultaResultSummary
                     result={result}
                     consultation={consultation}
-                    onShowDetail={() => {}}                    onSave={handleSaveConsulta}
+                    consultaId={identificacao?.consultaId}
+                    protocoloDaOrigem={identificacao?.protocoloDaOrigem}
+                    onShowDetail={() => {}}
+                    onSave={handleSaveConsulta}
                     onGeneratePDF={handleGeneratePDF}
                   />
                 )}

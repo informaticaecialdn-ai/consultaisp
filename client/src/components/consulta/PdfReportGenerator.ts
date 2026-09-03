@@ -22,6 +22,7 @@
 import type { ConsultaResult } from "./types";
 import { formatCpfCnpj, escHtml } from "./utils";
 import { derivarRelatorio, fmtCep, type Tom, type LinhaFonte } from "./relatorio-dados";
+import type { IdentificacaoDaConsulta } from "./identificacao";
 import { marcaAtual } from "@/lib/marca";
 
 /* ── Tokens, com valor literal ──────────────────────────────────
@@ -97,15 +98,20 @@ function tabelaFonte(linhas: LinhaFonte[], colunas: [string, string, string]): s
 export function generatePDF(
   result: ConsultaResult,
   consultation?: { id?: number; cpfCnpjHash?: string; createdAt?: string } | null,
+  identificacao?: IdentificacaoDaConsulta | null,
 ): string | null {
   const d = derivarRelatorio(result);
 
   const dt = consultation?.createdAt ? new Date(consultation.createdAt) : new Date();
   const dataHora = dt.toLocaleDateString("pt-BR") + " "
     + dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  const protocolo = consultation?.id
-    ? `#CI-${dt.getFullYear()}-${String(consultation.id).padStart(5, "0")}`
-    : null;
+  /* O papel imprimia `#CI-2026-00123`, derivado de `consultation.id` — a chave
+     sequencial da tabela. Além de contar ao provedor quantas consultas TODOS
+     fizeram, o número não existe em lugar nenhum do banco: quem arquivasse este
+     PDF e voltasse com ele ao suporte um ano depois não teria o que procurar.
+     Agora sai o identificador real, e o protocolo do bureau quando houver. */
+  const consultaId = identificacao?.consultaId ?? null;
+  const origem = identificacao?.protocoloDaOrigem ?? null;
   const documento = result.searchType === "cep"
     ? fmtCep(result.cpfCnpj)
     : formatCpfCnpj(result.cpfCnpj);
@@ -239,8 +245,14 @@ export function generatePDF(
 
   header{border-bottom:1px solid ${T.border};padding-bottom:14px;margin-bottom:0}
   .topo-linha{display:flex;align-items:center;gap:10px}
-  .protocolo{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:10px;
-    font-variant-numeric:tabular-nums;color:${T.muted}}
+  /* Identificação: 13px, não 10px. O papel é o que vai para o arquivo do
+     provedor e volta ao suporte meses depois — o código precisa ser legível
+     numa impressão e ditável ao telefone. */
+  .ident{display:flex;gap:22px;flex-wrap:wrap;margin-top:10px}
+  .ident .k{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:9px;font-weight:600;
+    text-transform:uppercase;letter-spacing:.06em;color:${T.faint}}
+  .ident .v{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:13px;font-weight:600;
+    font-variant-numeric:tabular-nums;letter-spacing:.02em;color:${T.text};margin-top:3px}
   .documento{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:26px;font-weight:600;
     font-variant-numeric:tabular-nums;letter-spacing:.01em;margin-top:6px;color:${T.text}}
   .meta{font-size:11px;color:${T.muted};margin-top:4px}
@@ -320,10 +332,13 @@ export function generatePDF(
 <header>
   <div class="topo-linha">
     ${kicker("Relatório de crédito ISP")}
-    ${protocolo ? `<span class="protocolo">${esc(protocolo)}</span>` : ""}
   </div>
   <div class="documento">${esc(documento)}</div>
   <div class="meta">${esc(meta)}</div>
+  ${(consultaId || origem) ? `<div class="ident">
+    ${consultaId ? `<div><div class="k">Identificação</div><div class="v">${esc(consultaId)}</div></div>` : ""}
+    ${origem ? `<div><div class="k">Protocolo em ${esc(origem.origem)}</div><div class="v">${esc(origem.protocolo)}</div></div>` : ""}
+  </div>` : ""}
 </header>
 
 <section class="sec" style="border-top:none">
