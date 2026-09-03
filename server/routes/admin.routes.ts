@@ -27,6 +27,10 @@ import crypto from "crypto";
 import { z } from "zod";
 import { sendCompletionEmail } from "../services/lgpd-email.service";
 import { normalizePartnerCode, resolvePartnerCode, resolveOwnCode } from "../utils/provider-anonymizer";
+import { normalizarIdentificador, protocoloDaOrigem } from "../services/identificador-consulta";
+import type { LinhaDeConsultaEncontrada } from "../storage/admin.storage";
+import { maskCpfCnpj } from "../services/lgpd-masking";
+import { CUSTO_EM_CREDITOS } from "@shared/planos";
 import { isSpcConfigured, listarProdutosSpc, produtoSpcPadrao, SpcError, statusHttpParaErroSpc } from "../services/spc/spc.service";
 import { getRegionalProviderIds } from "../services/regional.service";
 import { logger } from "../logger";
@@ -185,6 +189,58 @@ async function avisarUsuarioCriado(
       "[email] Falha ao avisar o usuario criado",
     );
   }
+}
+
+/**
+ * Quanto a consulta custou, e de onde veio esse numero.
+ *
+ * A ISP grava o custo na coluna `cost`; a SPC e a cadastral gravam
+ * `creditosCobrados` dentro do `result`. Linha anterior a esses campos nao tem
+ * nenhum dos dois, e ai vale a tabela de precos de HOJE — que pode nao ser a
+ * de ontem (o SPC ja custou 4 creditos e passou a 3 em 31/08/2026). Por isso o
+ * numero nunca sai sozinho: `origem` diz se ele foi lido ou deduzido, e o
+ * suporte so estorna com base em "gravado".
+ */
+function custoDaConsulta(linha: LinhaDeConsultaEncontrada): { creditos: number; origem: "gravado" | "tabela" } {
+  if (linha.tipo === "isp" && typeof linha.cost === "number") {
+    return { creditos: linha.cost, origem: "gravado" };
+  }
+  const gravado = (linha.result as any)?.creditosCobrados;
+  if (typeof gravado === "number") return { creditos: gravado, origem: "gravado" };
+  return { creditos: CUSTO_EM_CREDITOS[linha.tipo], origem: "tabela" };
+}
+
+/**
+ * A linha do banco virando a ficha que o suporte ve.
+ *
+ * Esta funcao e o unico ponto por onde a consulta sai para o navegador, e e de
+ * proposito que ela CONSTROI um objeto campo a campo em vez de espalhar a
+ * linha com `...`. Espalhar levaria o `result` inteiro junto no dia em que
+ * alguem acrescentasse uma coluna, sem ninguem perceber. Ver a nota de LGPD na
+ * rota.
+ */
+function fichaDaConsulta(linha: LinhaDeConsultaEncontrada) {
+  const custo = custoDaConsulta(linha);
+  return {
+    consultaId: linha.consultaId,
+    tipo: linha.tipo,
+    linhaId: linha.id,
+    criadaEm: linha.criadaEm,
+    provedor: { id: linha.providerId, nome: linha.providerName },
+    usuario: { id: linha.userId, nome: linha.userName },
+    /** Mascarado sempre: nem o superadmin precisa do documento inteiro aqui. */
+    documento: maskCpfCnpj(linha.cpfCnpj, false),
+    custoCreditos: custo.creditos,
+    custoOrigem: custo.origem,
+    desfecho: {
+      score: linha.score,
+      decisao: linha.decisionReco,
+      veredito: linha.veredito,
+      tipoDeBusca: linha.searchType,
+      datasets: linha.datasets,
+    },
+    protocoloDaOrigem: protocoloDaOrigem(linha.tipo, linha.result),
+  };
 }
 
 export function registerAdminRoutes(): Router {
@@ -1144,6 +1200,120 @@ export function registerAdminRoutes(): Router {
       return res.json({ tipo, providerId: resolvido.subjectProviderId, name: provider?.name ?? null, keyVersion: resolvido.keyVersion });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  // ── A busca do suporte pelo codigo da consulta ─────────────────────────────
+
+  /**
+   * O que o suporte pode ver de uma consulta de OUTRO provedor.
+   *
+   * Esta rota entrega, a quem tem um codigo, uma consulta de qualquer tenant.
+   * Por isso ela devolve a FICHA e nao a consulta: metadados que permitem agir
+   * (quem consultou, quando, quanto custou, qual foi o desfecho, que protocolo
+   * apresentar ao bureau) e nada do relatorio.
+   *
+   * O `result` NAO SAI. Ele e o relatorio de credito de um titular — nome,
+   * endereco, telefone, renda, restricoes, processos. Nenhum chamado de
+   * suporte precisa disso: "a consulta CI-2609-K7F3M2 deu erro" se resolve
+   * sabendo se a linha existe, o que ela decidiu e a quem escalar. Devolver o
+   * corpo transformaria o codigo — que circula por e-mail, WhatsApp e ticket —
+   * numa chave de leitura do dado pessoal de terceiro.
+   *
+   * O documento sai MASCARADO (`123.***.***-**`, o mesmo `maskCpfCnpj` que ja
+   * governa o que cruza provedor). Ele sai porque o suporte precisa confirmar
+   * que esta olhando a consulta certa — o provedor diz "consultei o CPF que
+   * comeca com 123" — e os tres primeiros digitos bastam para isso sem
+   * identificar ninguem.
+   *
+   * Os campos que nao sao obvios, um a um:
+   * - `usuario` (id e nome): quem operou. E funcionario do provedor, nao
+   *   titular do dado consultado, e e a primeira pergunta de todo chamado.
+   * - `desfecho.tipoDeBusca` (ISP: "cpf" ou "cep"): consulta por endereco nao
+   *   parte de documento; sem isso o suporte estranha o documento vazio.
+   * - `desfecho.datasets` (cadastral): quais blocos foram pedidos a
+   *   BigDataCorp. E configuracao de produto, nao dado de pessoa, e e o que
+   *   explica um relatorio que voltou sem um bloco.
+   * - `custoOrigem`: se o custo saiu da linha gravada ou da tabela de precos
+   *   de hoje. Linha antiga sem custo gravado ganharia o preco atual, e o SPC
+   *   ja custou 4 creditos — devolver "3" para uma consulta de agosto induziria
+   *   estorno errado.
+   */
+  router.get("/api/admin/consultas/:consultaId", requireSuperAdmin, async (req, res) => {
+    // Fora do try: o codigo normalizado entra em toda linha de log deste
+    // handler, inclusive na do erro inesperado.
+    let normalizado: string | null = null;
+    try {
+      // `req.params` no Express 5 e tipado como `string | string[]`; um array
+      // vira texto com virgula, nao casa com o formato e cai no 400 de baixo.
+      const digitado = String(req.params.consultaId ?? "");
+      normalizado = normalizarIdentificador(digitado);
+
+      if (!normalizado) {
+        // O que a pessoa digitou NAO vai para o log. A caixa de busca aceita
+        // texto livre, e o engano mais provavel de quem atende e colar ali o
+        // CPF que o provedor acabou de ditar — gravar isso poria dado pessoal
+        // no log justamente pela porta que existe para tira-lo de la.
+        logger.warn(
+          { superadminUserId: req.session.userId, tamanhoDigitado: digitado.length },
+          "busca de consulta recusada: codigo fora do formato",
+        );
+        return res.status(400).json({
+          message: "Código inválido. O formato é CI-AAMM-XXXXXX (exemplo: CI-2609-K7F3M2), "
+            + "e o alfabeto não tem 0, 1, I, O nem U.",
+        });
+      }
+
+      const achadas = await storage.buscarConsultasPorCodigo(normalizado);
+
+      if (achadas.length === 0) {
+        logger.info(
+          { consultaId: normalizado, superadminUserId: req.session.userId },
+          "busca de consulta sem resultado",
+        );
+        return res.status(404).json({
+          consultaId: normalizado,
+          message: "Nenhuma consulta gravada com este código. Ele pode ser de uma consulta que "
+            + "falhou antes de gravar a linha — saldo insuficiente, bureau fora do ar, erro do "
+            + "servidor — e nesse caso existe apenas no log do servidor: procure pelo campo "
+            + "consultaId no log do dia da consulta.",
+        });
+      }
+
+      if (achadas.length > 1) {
+        // O indice unico e por tabela, entao duas tabelas podem, em tese,
+        // guardar o mesmo codigo. Uma requisicao grava em uma so, entao isso e
+        // defeito — colisao do sorteio ou codigo reaproveitado. Fica no log em
+        // vez de sumir: quem atende ve a primeira e o dev ve que houve duas.
+        logger.error(
+          {
+            consultaId: normalizado,
+            superadminUserId: req.session.userId,
+            tipos: achadas.map(a => a.tipo),
+            linhas: achadas.map(a => a.id),
+          },
+          "codigo de consulta repetido em mais de uma tabela",
+        );
+      }
+
+      const linha = achadas[0];
+      logger.info(
+        {
+          consultaId: normalizado,
+          superadminUserId: req.session.userId,
+          tipo: linha.tipo,
+          linhaId: linha.id,
+          // Trilha de acesso: um superadmin abriu a ficha de uma consulta
+          // deste provedor. Sem o id nao se sabe de quem era a consulta lida.
+          providerId: linha.providerId,
+        },
+        "consulta localizada pelo codigo",
+      );
+
+      return res.json(fichaDaConsulta(linha));
+    } catch (error: any) {
+      logger.error({ err: error, consultaId: normalizado }, "erro ao buscar consulta pelo codigo");
+      return res.status(500).json({ consultaId: normalizado, message: getSafeErrorMessage(error) });
     }
   });
 

@@ -1,9 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import ChatPanel from "../ChatPanel";
+import BuscaConsulta from "../BuscaConsulta";
 
+/**
+ * A busca por codigo mora aqui, e nao numa aba propria, porque e a mesma
+ * pessoa no mesmo momento: o provedor abre um chamado dizendo "a consulta
+ * CI-2609-K7F3M2 deu erro", e quem le a mensagem precisa da ficha ao lado da
+ * conversa — nao a duas abas de distancia.
+ */
 export default function SuporteTab() {
-  const [sub, setSub] = useState<"provedores" | "visitantes">("provedores");
+  const [sub, setSub] = useState<"provedores" | "visitantes" | "consulta">("provedores");
 
   const { data: chatThreads = [] } = useQuery<any[]>({
     queryKey: ["/api/admin/chat/threads"],
@@ -45,7 +52,15 @@ export default function SuporteTab() {
             </span>
           )}
         </button>
+        <button
+          onClick={() => setSub("consulta")}
+          className={`px-4 py-2 rounded text-sm font-medium transition-colors ${sub === "consulta" ? "bg-[var(--color-brand)] text-white" : "bg-muted text-[var(--color-muted)] hover:bg-muted/70"}`}
+          data-testid="tab-support-consulta"
+        >
+          Buscar consulta
+        </button>
       </div>
+      {sub === "consulta" && <BuscaConsulta />}
       {sub === "provedores" && (
         <ChatPanel
           variant="provider"
