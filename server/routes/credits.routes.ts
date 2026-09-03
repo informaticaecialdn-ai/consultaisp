@@ -16,6 +16,14 @@ function formaDeCobranca(valor: unknown): FormaDeCobranca {
   return FORMAS_DE_COBRANCA.includes(valor as FormaDeCobranca) ? (valor as FormaDeCobranca) : "UNDEFINED";
 }
 
+/**
+ * Os unicos status que o pedido pode ter. Sao os que a tela do superadmin
+ * filtra e pinta (`pending`, `paid`, `cancelled`) mais o `overdue` que
+ * `asaasStatusToLocal` produz. Qualquer outra string deixa o pedido fora de
+ * todos os filtros e de todas as somas.
+ */
+const STATUS_DE_PEDIDO = ["pending", "paid", "cancelled", "overdue"] as const;
+
 /** Vencimento padrao da cobranca: tres dias, no formato AAAA-MM-DD do Asaas. */
 function vencimentoPadrao(): string {
   return new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -224,7 +232,32 @@ export function registerCreditsRoutes(): Router {
     try {
       const id = parseInt(req.params.id);
       const { status, notes } = req.body;
-      const order = await storage.updateCreditOrder(id, { status, notes });
+
+      const alvo = await storage.getCreditOrder(id);
+      if (!alvo) return res.status(404).json({ message: "Pedido nao encontrado" });
+
+      const mudancas: { status?: string; notes?: string } = {};
+      if (typeof notes === "string") mudancas.notes = notes;
+
+      if (status !== undefined) {
+        // O status vinha cru do corpo. Rebaixar um pedido ja creditado para
+        // "pending" pela mao reabria o caminho do credito em dobro na proxima
+        // entrega do webhook; e um status inventado ("PAGO", "ok") deixava o
+        // pedido invisivel para toda tela que filtra por status.
+        if (!STATUS_DE_PEDIDO.includes(status)) {
+          return res.status(400).json({ message: `Status invalido. Use um de: ${STATUS_DE_PEDIDO.join(", ")}` });
+        }
+        if (alvo.creditedAt && status !== "paid") {
+          return res.status(409).json({
+            message: "Pedido ja creditado: o status nao volta atras. Para estornar, lance um pedido de ajuste.",
+          });
+        }
+        mudancas.status = status;
+      }
+
+      if (Object.keys(mudancas).length === 0) return res.json(alvo);
+
+      const order = await storage.updateCreditOrder(id, mudancas);
       return res.json(order);
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
@@ -239,6 +272,15 @@ export function registerCreditsRoutes(): Router {
       if (!order) return res.status(404).json({ message: "Pedido nao encontrado" });
       const provider = await storage.getProvider(order.providerId);
       if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
+
+      // A cobranca anterior NAO e cancelada e continua pagavel no Asaas com o
+      // mesmo externalReference. E por isso que a conferencia do webhook decide
+      // pela referencia, e nao pelo id gravado: o provedor pode pagar o boleto
+      // velho, e esse pagamento tem que virar credito.
+      if (order.asaasChargeId) {
+        logger.warn({ pedido: order.orderNumber, cobrancaAnterior: order.asaasChargeId },
+          "Segunda cobrança para o mesmo pedido: a anterior continua pagável no Asaas");
+      }
 
       const { findOrCreateCustomer, createCharge } = await import("../services/asaas");
       const customer = await findOrCreateCustomer({
@@ -277,7 +319,13 @@ export function registerCreditsRoutes(): Router {
       const newStatus = asaasStatusToLocal(charge.status);
       const updates: any = { asaasStatus: charge.status, asaasInvoiceUrl: charge.invoiceUrl, asaasBankSlipUrl: charge.bankSlipUrl };
       if (charge.pixTransaction?.payload) updates.asaasPixKey = charge.pixTransaction.payload;
-      if (newStatus === "paid" && order.status !== "paid") {
+
+      // Quem decide se ha o que creditar e `credited_at`, nao o status: um
+      // pedido pago cujo status tenha sido rebaixado (evento de chargeback,
+      // ajuste manual) nao pode ser creditado de novo por um clique em
+      // "sincronizar". `releaseCreditOrder` tambem trava sozinho — este teste
+      // so evita a chamada inutil.
+      if (newStatus === "paid" && !order.creditedAt) {
         const { pedido, liberadoAgora } = await storage.releaseCreditOrder(id);
         return res.json({
           order: pedido,
@@ -286,7 +334,11 @@ export function registerCreditsRoutes(): Router {
             : "Pedido ja estava liberado; nada foi creditado de novo",
         });
       }
-      const updated = await storage.updateCreditOrder(id, { ...updates, status: newStatus !== "paid" ? newStatus : order.status });
+      // Pedido ja creditado le "paid", ponto: `credited_at` so e escrito junto
+      // com status "paid", entao credito sem "paid" e um estado que so existe
+      // por rebaixamento indevido — e o sync conserta.
+      const statusLocal = order.creditedAt ? "paid" : (newStatus !== "paid" ? newStatus : order.status);
+      const updated = await storage.updateCreditOrder(id, { ...updates, status: statusLocal });
       return res.json({ order: updated });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });

@@ -1,4 +1,4 @@
-import { eq, and, ne, desc, sql } from "drizzle-orm";
+import { eq, and, isNull, desc, sql } from "drizzle-orm";
 import { db } from "../db";
 import { logger } from "../logger";
 import {
@@ -203,16 +203,26 @@ export class FinancialStorage {
    * juntas e o provedor ganhava o dobro dos creditos, com duas linhas em
    * plan_changes e duas NFS-e.
    *
-   * A trava e o proprio UPDATE condicional (`status <> 'paid'`), dentro da
-   * transacao: quem chega em segundo lugar espera o lock da linha, reavalia o
-   * WHERE contra o valor ja gravado, casa com zero linhas e sai sem creditar.
-   * Nao lanca erro — reentrega e evento normal, nao falha.
+   * A trava e o proprio UPDATE condicional, dentro da transacao: quem chega em
+   * segundo lugar espera o lock da linha, reavalia o WHERE contra o valor ja
+   * gravado, casa com zero linhas e sai sem creditar. Nao lanca erro —
+   * reentrega e evento normal, nao falha.
+   *
+   * A condicao e `credited_at IS NULL`, e nao `status <> 'paid'`, porque
+   * `status` e MUTAVEL: qualquer evento do Asaas fora do mapa de
+   * `asaasStatusToLocal` (CHARGEBACK_REQUESTED, AWAITING_RISK_ANALYSIS) vira
+   * "pending" no webhook, e o admin ainda pode rebaixar o pedido pela mao. Um
+   * pedido ja creditado que voltasse para "pending" casaria com o WHERE de
+   * novo na proxima entrega do PAYMENT_RECEIVED e creditaria a segunda vez,
+   * com uma segunda linha em plan_changes e uma segunda NFS-e. `credited_at`
+   * so e escrito aqui, e nunca e limpo: e a unica marca que prova "este pedido
+   * ja virou saldo".
    */
   async releaseCreditOrder(id: number): Promise<ResultadoLiberacao> {
     const resultado = await db.transaction(async (tx): Promise<ResultadoLiberacao> => {
       const [reivindicado] = await tx.update(creditOrders)
         .set({ status: "paid", creditedAt: new Date() })
-        .where(and(eq(creditOrders.id, id), ne(creditOrders.status, "paid")))
+        .where(and(eq(creditOrders.id, id), isNull(creditOrders.creditedAt)))
         .returning();
 
       if (!reivindicado) {

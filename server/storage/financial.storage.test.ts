@@ -102,12 +102,39 @@ describe("releaseCreditOrder", () => {
     expect(r.liberadoAgora).toBe(true);
     expect(chamadas.claimSet[0]).toMatchObject({ status: "paid" });
 
-    // A trava contra credito dobrado e o `status <> 'paid'` no WHERE: sem ele,
-    // duas entregas do webhook leem "pending" juntas e creditam duas vezes.
+    // A trava contra credito dobrado e o `credited_at is null` no WHERE: sem
+    // ele, duas entregas do webhook leem "pending" juntas e creditam duas vezes.
     const where = paraSql(chamadas.claimWhere[0]);
-    expect(where.sql).toContain("<>");
-    expect(where.params).toContain("paid");
+    expect(where.sql).toContain("credited_at");
+    expect(where.sql).toContain("is null");
     expect(where.params).toContain(501);
+  });
+
+  // O `status` e mutavel: o webhook rebaixa para "pending" em qualquer evento
+  // fora do mapa do Asaas (chargeback, analise de risco) e o admin pode mexer
+  // nele pela tela. Se a trava fosse `status <> 'paid'`, um pedido ja creditado
+  // que voltasse a "pending" seria creditado de novo na entrega seguinte.
+  it("a trava NAO depende do status, que o webhook e o admin reescrevem", async () => {
+    retornos.claim = [{ ...PEDIDO, status: "paid" }];
+    await storage.releaseCreditOrder(501);
+
+    const where = paraSql(chamadas.claimWhere[0]);
+    expect(where.sql).not.toContain("<>");
+    expect(where.params).not.toContain("paid");
+  });
+
+  it("pedido ja creditado que voltou para pending nao credita de novo", async () => {
+    // O UPDATE condicional nao casa porque `credited_at` continua preenchido,
+    // ainda que o status esteja "pending" de novo.
+    retornos.claim = [];
+    retornos.selectPedido = [{ ...PEDIDO, status: "pending", creditedAt: new Date("2026-09-02") }];
+
+    const r = await storage.releaseCreditOrder(501);
+
+    expect(r.liberadoAgora).toBe(false);
+    expect(chamadas.execute).toHaveLength(0);   // nenhum saldo mexido
+    expect(chamadas.insert).toHaveLength(0);    // nenhuma linha de movimentacao
+    expect(nfseMock.emitirNfseParaCompra).not.toHaveBeenCalled();
   });
 
   it("soma os creditos ao provedor e registra a movimentacao, uma vez so", async () => {

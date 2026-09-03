@@ -49,10 +49,34 @@ describe("conferirPagamento", () => {
     expect((r as any).motivo).toContain("credit_order_99");
   });
 
-  it("recusa id de cobranca diferente do gravado no pedido, sem nem consultar", async () => {
-    const r = await conferirPagamento({ id: "pay_outro" }, pedido);
+  // O superadmin gera uma segunda cobranca para o mesmo pedido (o boleto
+  // anterior venceu). A rota sobrescreve `asaasChargeId` e NAO cancela a
+  // anterior, que continua pagavel com o mesmo externalReference. Se o provedor
+  // pagar o boleto antigo, isto tem que liberar: ele pagou de verdade.
+  it("cobranca antiga paga libera o pedido — quem amarra e a referencia, nao o id gravado", async () => {
+    asaasMock.getCharge.mockResolvedValue({
+      id: "pay_antigo", externalReference: "credit_order_7", status: "RECEIVED", value: 100,
+    });
+    const r = await conferirPagamento({ id: "pay_antigo" }, { ...pedido, chargeIdGravado: "pay_novo" });
+    expect(r.ok).toBe(true);
+    expect(asaasMock.getCharge).toHaveBeenCalledWith("pay_antigo");
+    // o pagamento vale, mas a divergencia fica registrada para o superadmin
+    expect((r as any).avisoIdDivergente).toContain("pay_novo");
+  });
+
+  it("id divergente que referencia OUTRO pedido continua recusado", async () => {
+    asaasMock.getCharge.mockResolvedValue({
+      id: "pay_antigo", externalReference: "credit_order_99", status: "RECEIVED", value: 100,
+    });
+    const r = await conferirPagamento({ id: "pay_antigo" }, { ...pedido, chargeIdGravado: "pay_novo" });
     expect(r.ok).toBe(false);
-    expect(asaasMock.getCharge).not.toHaveBeenCalled();
+    expect((r as any).motivo).toContain("credit_order_99");
+  });
+
+  it("id igual ao gravado nao gera aviso de divergencia", async () => {
+    const r = await conferirPagamento({ id: "pay_1", value: 100 }, pedido);
+    expect(r.ok).toBe(true);
+    expect((r as any).avisoIdDivergente).toBeUndefined();
   });
 
   it("recusa webhook sem id de cobranca", async () => {

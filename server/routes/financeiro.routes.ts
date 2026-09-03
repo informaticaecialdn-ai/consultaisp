@@ -162,7 +162,7 @@ export function registerFinanceiroRoutes(): Router {
       if (!payment?.externalReference || typeof payment.externalReference !== "string") return res.json({ ok: true });
 
       const { asaasStatusToLocal } = await import("../services/asaas");
-      const { conferirPagamento, anotarRecusa } = await import("../services/asaas-conferencia");
+      const { conferirPagamento, anotarRecusa, anotarObservacao } = await import("../services/asaas-conferencia");
 
       const creditOrderMatch = payment.externalReference.match(/^credit_order_(\d+)$/);
       if (creditOrderMatch) {
@@ -175,6 +175,20 @@ export function registerFinanceiroRoutes(): Router {
         }
 
         if (newStatus !== "paid") {
+          // Pedido ja creditado nao volta a "pending". `asaasStatusToLocal`
+          // devolve "pending" para tudo que nao esta no mapa dele
+          // (CHARGEBACK_REQUESTED, AWAITING_RISK_ANALYSIS, DUNNING_REQUESTED),
+          // e o botao "reenviar evento" do painel do Asaas reenvia PENDING e
+          // OVERDUE antigos. Rebaixar aqui e o que reabria o pedido para um
+          // segundo credito quando o PAYMENT_RECEIVED chegasse de novo.
+          // O status do Asaas continua sendo registrado — o que nao muda e o
+          // status LOCAL, que ja tem um pagamento consumado por tras.
+          if (order.creditedAt) {
+            logger.warn({ orderId, pedido: order.orderNumber, asaasStatus: payment.status },
+              "Evento nao-pago para pedido ja creditado: status local preservado");
+            await storage.updateCreditOrder(orderId, { asaasStatus: payment.status });
+            return res.json({ ok: true });
+          }
           await storage.updateCreditOrder(orderId, { asaasStatus: payment.status, status: newStatus });
           return res.json({ ok: true });
         }
@@ -194,6 +208,12 @@ export function registerFinanceiroRoutes(): Router {
         const { liberadoAgora } = await storage.releaseCreditOrder(orderId);
         logger.info({ orderId, pedido: order.orderNumber, valorPago: conferencia.valorPago, liberadoAgora },
           liberadoAgora ? "Créditos liberados pelo webhook Asaas" : "Reentrega do webhook Asaas: pedido já estava liberado");
+        if (conferencia.avisoIdDivergente && liberadoAgora) {
+          logger.warn({ orderId, pedido: order.orderNumber, aviso: conferencia.avisoIdDivergente },
+            "Pagamento veio de cobrança diferente da gravada no pedido");
+          const notes = anotarObservacao(order.notes, `Asaas: ${conferencia.avisoIdDivergente}`);
+          if (notes) await storage.updateCreditOrder(orderId, { notes });
+        }
         return res.json({ ok: true });
       }
 
@@ -234,10 +254,23 @@ export function registerFinanceiroRoutes(): Router {
         paidAmount: conferencia.valorPago.toFixed(2),
       });
       logger.info({ invoiceId, fatura: invoice.invoiceNumber, valorPago: conferencia.valorPago }, "Fatura marcada como paga pelo webhook Asaas");
+      if (conferencia.avisoIdDivergente) {
+        logger.warn({ invoiceId, fatura: invoice.invoiceNumber, aviso: conferencia.avisoIdDivergente },
+          "Fatura paga por cobrança diferente da gravada");
+        const notes = anotarObservacao(invoice.notes, `Asaas: ${conferencia.avisoIdDivergente}`);
+        if (notes) await storage.updateProviderInvoiceAsaas(invoiceId, { notes });
+      }
       return res.json({ ok: true });
     } catch (error: any) {
-      logger.error({ err: error.message }, "Webhook Asaas error");
-      return res.json({ ok: true });
+      // 200 aqui era perda de dinheiro silenciosa: o Asaas da o evento por
+      // entregue e NAO reenvia. Uma queda de banco no meio de um
+      // PAYMENT_RECEIVED legitimo deixava o provedor pago e sem credito, sem
+      // retentativa e sem registro no pedido. Todo caminho ja tratado responde
+      // 200 explicitamente acima; o que sobra aqui e falha inesperada, e a
+      // resposta certa e 500, para a fila do Asaas reentregar.
+      // Reentregar nao custa nada: a liberacao e travada por `credited_at`.
+      logger.error({ err: error?.message }, "Webhook Asaas error — devolvendo 500 para o Asaas reentregar");
+      return res.status(500).json({ ok: false });
     }
   });
 

@@ -185,6 +185,103 @@ describe("POST /api/asaas/webhook — pedido de credito", () => {
     expect(res.status).toBe(200);
     expect(storageMock.releaseCreditOrder).not.toHaveBeenCalled();
   });
+
+  // Este era o caminho do credito em dobro: o proprio webhook apagava a trava.
+  // `asaasStatusToLocal` devolve "pending" para todo status fora do mapa dele —
+  // CHARGEBACK_REQUESTED, AWAITING_RISK_ANALYSIS, DUNNING_REQUESTED — e o ramo
+  // nao-pago gravava esse "pending" por cima de um pedido ja creditado.
+  it("evento de status desconhecido nao rebaixa pedido ja creditado", async () => {
+    storageMock.getCreditOrder.mockResolvedValue({
+      ...PEDIDO, status: "paid", creditedAt: new Date("2026-09-02"),
+    });
+    const res = await webhook(
+      { event: "PAYMENT_CHARGEBACK_REQUESTED", payment: { id: "pay_1", externalReference: "credit_order_501", status: "CHARGEBACK_REQUESTED" } },
+      "token-do-painel",
+    );
+    expect(res.status).toBe(200);
+    // o status do Asaas e registrado; o status LOCAL nao volta para "pending"
+    expect(storageMock.updateCreditOrder).toHaveBeenCalledWith(501, { asaasStatus: "CHARGEBACK_REQUESTED" });
+    expect(storageMock.updateCreditOrder).not.toHaveBeenCalledWith(501, expect.objectContaining({ status: "pending" }));
+  });
+
+  it("pedido ainda nao creditado continua acompanhando o status do Asaas", async () => {
+    storageMock.getCreditOrder.mockResolvedValue({ ...PEDIDO, status: "pending", creditedAt: null });
+    await webhook(
+      { event: "PAYMENT_OVERDUE", payment: { id: "pay_1", externalReference: "credit_order_501", status: "OVERDUE" } },
+      "token-do-painel",
+    );
+    expect(storageMock.updateCreditOrder).toHaveBeenCalledWith(501, { asaasStatus: "OVERDUE", status: "overdue" });
+  });
+
+  // Sequencia completa do defeito: pago -> chargeback -> PAYMENT_RECEIVED de
+  // novo. A segunda entrega chega ate releaseCreditOrder (a conferencia passa,
+  // o Asaas de fato confirma), e quem barra o segundo credito e o `credited_at`
+  // la dentro — que ninguem no meio do caminho apagou.
+  it("depois do chargeback, a reentrega do PAYMENT_RECEIVED nao credita de novo", async () => {
+    storageMock.getCreditOrder.mockResolvedValue({
+      ...PEDIDO, status: "paid", creditedAt: new Date("2026-09-02"),
+    });
+    await webhook(
+      { event: "PAYMENT_CHARGEBACK_REQUESTED", payment: { id: "pay_1", externalReference: "credit_order_501", status: "CHARGEBACK_REQUESTED" } },
+      "token-do-painel",
+    );
+    storageMock.releaseCreditOrder.mockResolvedValue({
+      pedido: { id: 501, orderNumber: "CR-202609-0009", ispCredits: 100, status: "paid" },
+      liberadoAgora: false,
+    } as any);
+    const res = await webhook(PAGO, "token-do-painel");
+    expect(res.status).toBe(200);
+    expect(storageMock.releaseCreditOrder).toHaveBeenCalledTimes(1);
+    // e o pedido nunca passou por "pending" no meio
+    for (const [, dados] of storageMock.updateCreditOrder.mock.calls) {
+      expect((dados as any).status).not.toBe("pending");
+    }
+  });
+
+  // Cobranca antiga paga (o superadmin gerou um segundo boleto e o provedor
+  // pagou o primeiro): o pagamento e real e tem que virar credito.
+  it("pagamento por cobranca diferente da gravada libera e fica anotado", async () => {
+    storageMock.getCreditOrder.mockResolvedValue({ ...PEDIDO, asaasChargeId: "pay_novo" });
+    asaasMock.getCharge.mockResolvedValue({
+      id: "pay_antigo", externalReference: "credit_order_501", status: "RECEIVED", value: 100,
+    });
+    const res = await webhook(
+      { event: "PAYMENT_RECEIVED", payment: { id: "pay_antigo", externalReference: "credit_order_501", status: "RECEIVED", value: 100 } },
+      "token-do-painel",
+    );
+    expect(res.status).toBe(200);
+    expect(storageMock.releaseCreditOrder).toHaveBeenCalledWith(501);
+    expect(storageMock.updateCreditOrder).toHaveBeenCalledWith(501, {
+      notes: expect.stringContaining("pay_antigo"),
+    });
+  });
+});
+
+// O Asaas so reenvia o evento quando a resposta NAO e 2xx. Responder 200 numa
+// falha de banco fazia o provedor pagar e nunca receber credito, sem
+// retentativa. Reentregar e barato: a liberacao e travada por `credited_at`.
+describe("POST /api/asaas/webhook — falha inesperada", () => {
+  it("banco fora do ar devolve 500 para o Asaas reentregar", async () => {
+    storageMock.getCreditOrder.mockRejectedValue(new Error("statement timeout"));
+    const res = await webhook(PAGO, "token-do-painel");
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ ok: false });
+  });
+
+  it("falha ao creditar tambem devolve 500", async () => {
+    storageMock.releaseCreditOrder.mockRejectedValue(new Error("pool esgotado"));
+    const res = await webhook(PAGO, "token-do-painel");
+    expect(res.status).toBe(500);
+  });
+
+  it("falha na fatura tambem devolve 500", async () => {
+    storageMock.getProviderInvoice.mockRejectedValue(new Error("db down"));
+    const res = await webhook(
+      { event: "PAYMENT_RECEIVED", payment: { id: "pay_f", externalReference: "invoice_77", status: "RECEIVED", value: 349 } },
+      "token-do-painel",
+    );
+    expect(res.status).toBe(500);
+  });
 });
 
 describe("POST /api/asaas/webhook — fatura do plano", () => {

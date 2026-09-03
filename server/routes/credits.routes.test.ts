@@ -193,3 +193,81 @@ describe("POST /api/admin/credit-orders/:id/release", () => {
     expect(body.message).toContain("ja estava liberado");
   });
 });
+
+// A trava contra credito dobrado vive em `credited_at`. Estas duas rotas eram os
+// caminhos por onde uma mao humana podia reabrir um pedido ja creditado.
+describe("PATCH /api/admin/credit-orders/:id", () => {
+  beforeEach(() => {
+    sessao = { userId: 1, role: "superadmin" };
+  });
+
+  function alterar(body: unknown) {
+    return fetch(`${base}/api/admin/credit-orders/501`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("nao rebaixa pedido ja creditado", async () => {
+    storageMock.getCreditOrder.mockResolvedValue({
+      id: 501, status: "paid", creditedAt: new Date("2026-09-02"), notes: null,
+    } as any);
+    const res = await alterar({ status: "cancelled" });
+    expect(res.status).toBe(409);
+    expect(storageMock.updateCreditOrder).not.toHaveBeenCalled();
+  });
+
+  it("cancela normalmente pedido que ainda nao virou saldo", async () => {
+    storageMock.getCreditOrder.mockResolvedValue({ id: 501, status: "pending", creditedAt: null } as any);
+    const res = await alterar({ status: "cancelled" });
+    expect(res.status).toBe(200);
+    expect(storageMock.updateCreditOrder).toHaveBeenCalledWith(501, { status: "cancelled" });
+  });
+
+  it("status fora do catalogo e recusado — a tela filtra por estes quatro", async () => {
+    storageMock.getCreditOrder.mockResolvedValue({ id: 501, status: "pending", creditedAt: null } as any);
+    const res = await alterar({ status: "PAGO" });
+    expect(res.status).toBe(400);
+    expect(storageMock.updateCreditOrder).not.toHaveBeenCalled();
+  });
+
+  it("anotar observacao em pedido creditado continua permitido", async () => {
+    storageMock.getCreditOrder.mockResolvedValue({
+      id: 501, status: "paid", creditedAt: new Date("2026-09-02"),
+    } as any);
+    const res = await alterar({ notes: "conferido com o extrato" });
+    expect(res.status).toBe(200);
+    expect(storageMock.updateCreditOrder).toHaveBeenCalledWith(501, { notes: "conferido com o extrato" });
+  });
+});
+
+describe("POST /api/admin/credit-orders/:id/asaas/sync", () => {
+  beforeEach(() => {
+    sessao = { userId: 1, role: "superadmin" };
+    asaasMock.getCharge.mockResolvedValue({ id: "pay_1", status: "RECEIVED", invoiceUrl: "u" } as any);
+    asaasMock.asaasStatusToLocal.mockReturnValue("paid" as any);
+  });
+
+  it("pedido ja creditado nao e creditado de novo pelo botao sincronizar", async () => {
+    // O status pode ter sido rebaixado por um evento de chargeback; quem manda
+    // e o credited_at.
+    storageMock.getCreditOrder.mockResolvedValue({
+      id: 501, asaasChargeId: "pay_1", status: "pending", creditedAt: new Date("2026-09-02"),
+    } as any);
+    const res = await fetch(`${base}/api/admin/credit-orders/501/asaas/sync`, { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(storageMock.releaseCreditOrder).not.toHaveBeenCalled();
+    // e o sync ainda conserta o status rebaixado: creditado le "paid"
+    expect(storageMock.updateCreditOrder).toHaveBeenCalledWith(501, expect.objectContaining({ status: "paid" }));
+  });
+
+  it("pedido pago que nunca foi creditado libera", async () => {
+    storageMock.getCreditOrder.mockResolvedValue({
+      id: 501, asaasChargeId: "pay_1", status: "pending", creditedAt: null,
+    } as any);
+    const res = await fetch(`${base}/api/admin/credit-orders/501/asaas/sync`, { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(storageMock.releaseCreditOrder).toHaveBeenCalledWith(501);
+  });
+});
