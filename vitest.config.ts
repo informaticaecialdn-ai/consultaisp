@@ -15,6 +15,8 @@ export default defineConfig({
     // Somente .test.ts: o que esta em client/ e logica pura (derivacao do
     // relatorio, formatadores). Componente .tsx exigiria ambiente de DOM, que
     // este projeto ainda nao configura.
-    include: ['server/**/*.test.ts', 'client/**/*.test.ts', "shared/**/*.test.ts"],
+    // script/ entra pelo mesmo motivo: o teste do dominio-whitelabel.sh roda o
+    // script de deploy de verdade, e fora do include ele nunca seria coletado.
+    include: ['server/**/*.test.ts', 'client/**/*.test.ts', "shared/**/*.test.ts", 'script/**/*.test.ts'],
   },
 });

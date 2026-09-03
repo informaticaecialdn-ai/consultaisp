@@ -56,18 +56,31 @@ passo() { echo; echo "── $* ──"; }
 #
 # Sem valor nenhum o script PARA, em vez de adivinhar. Um default errado aqui
 # aprovaria exatamente o caso que a checagem existe para barrar.
+RE_HOSTNAME='^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
+
 MAIN_DOMAIN="${MAIN_DOMAIN:-}"
 if [ -z "$MAIN_DOMAIN" ] && [ -f "$RAIZ_PROJETO/.env" ]; then
+  # O `sed` corta o comentario de fim de linha ANTES do `tr`. O `tr` tira aspas e
+  # espaco, mas NAO tira `#`: com `MAIN_DOMAIN=x.com.br  # a plataforma` no .env
+  # — e o .env.example do projeto usa comentario — o valor viraria
+  # "x.com.br#aplataforma". Nao e vazio, entao a checagem abaixo passa, e o
+  # `case` mais adiante deixa de casar com qualquer host real: a guarda se
+  # desligaria sozinha, EM SILENCIO, que e o que esta secao existe para evitar.
   MAIN_DOMAIN=$(grep -E '^[[:space:]]*MAIN_DOMAIN=' "$RAIZ_PROJETO/.env" | tail -1 \
-    | cut -d= -f2- | tr -d '"'\''[:space:]' || true)
+    | cut -d= -f2- | sed -e 's/[[:space:]]*#.*$//' | tr -d '"'\''[:space:]' || true)
 fi
 [ -n "$MAIN_DOMAIN" ] || erro "MAIN_DOMAIN nao definido. Exporte-o ou coloque em $RAIZ_PROJETO/.env — e o mesmo valor que a aplicacao usa."
 MAIN_DOMAIN=$(echo "$MAIN_DOMAIN" | tr '[:upper:]' '[:lower:]')
 
+# Valor que nao e hostname nunca deve virar guarda: ele nao barra nada e ninguem
+# percebe. Mesmo criterio aplicado ao DOMINIO logo abaixo.
+echo "$MAIN_DOMAIN" | grep -Eq "$RE_HOSTNAME" \
+  || erro "MAIN_DOMAIN invalido: '$MAIN_DOMAIN'. So o dominio (ex: consultaisp.com.br) — sem protocolo, sem barra, sem comentario na mesma linha do .env."
+
 # Minusculas, sem protocolo, sem barra final — igual ao normalizarHost do app.
 DOMINIO=$(echo "$DOMINIO" | tr '[:upper:]' '[:lower:]' | sed -e 's#^https\?://##' -e 's#/.*$##')
 
-echo "$DOMINIO" | grep -Eq '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$' \
+echo "$DOMINIO" | grep -Eq "$RE_HOSTNAME" \
   || erro "dominio invalido: $DOMINIO"
 
 case "$DOMINIO" in
