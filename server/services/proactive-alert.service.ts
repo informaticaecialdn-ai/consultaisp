@@ -21,7 +21,7 @@
  */
 import { storage } from "../storage";
 import { sendProactiveAlertEmail } from "./email";
-import { resolverMarcaPorProviderId, urlDaMarca } from "./marca.service";
+import { resolverMarcaPorProviderId, urlDeEntrada } from "./marca.service";
 import { isZapiConfigured, sendText } from "./crm/zapi";
 import { logger } from "../logger";
 import { avaliarRiscoDeFuga, rotuloDoAlerta, severidadeDoAlerta, motivoPrincipal, type MotivoFuga } from "./antifraude-rules";
@@ -306,6 +306,11 @@ export async function notifyOwnerProviders(
       // ── 2. OS AVISOS ───────────────────────────────────────────────────
       const canais: string[] = [];
       const marca = await resolverMarcaPorProviderId(ownerProvider.id);
+      // O link do aviso sai do endereco por onde ESTE dono entra, nao da base
+      // da marca: sem dominio proprio ativo aquela e a RAIZ da plataforma, onde
+      // nao ha sessao (o cookie e host-only do subdominio) e o app serve a
+      // landing page. O aviso levava o dono para uma pagina de vendas.
+      const urlDeAcesso = urlDeEntrada(ownerProvider, marca);
       const detalhes = { valor: dono.totalOverdueAmount, dias: dono.maxDaysOverdue, contrato, motivo, resumo };
 
       const destinos = await destinatariosDeEmail(ownerProvider);
@@ -314,7 +319,7 @@ export async function notifyOwnerProviders(
       }
       for (const to of destinos) {
         try {
-          await sendProactiveAlertEmail(to, ownerProvider.name, maskedCpf, maskedName, marca, detalhes);
+          await sendProactiveAlertEmail(to, ownerProvider.name, maskedCpf, maskedName, marca, detalhes, urlDeAcesso);
           if (!canais.includes("email")) canais.push("email");
         } catch (emailErr) {
           logger.error({ err: emailErr, providerId: ownerProvider.id }, "Failed to send proactive alert email");
@@ -329,7 +334,7 @@ export async function notifyOwnerProviders(
             `Alerta anti-fraude · ${marca.nomeProduto}\n` +
             `${motivo}\n` +
             `Cliente ${maskedName} (${maskedCpf}). ${resumo}.\n` +
-            `Detalhes: ${urlDaMarca(marca)}/anti-fraude`;
+            `Detalhes: ${urlDeAcesso}/anti-fraude`;
           const r = await sendText(ownerProvider.contactPhone, texto);
           if (r.success) canais.push("zap");
           else logger.warn({ providerId: ownerProvider.id, erro: r.error }, "Alerta de fuga: WhatsApp nao enviado");
