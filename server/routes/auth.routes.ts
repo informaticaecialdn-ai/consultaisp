@@ -287,7 +287,7 @@ export function registerAuthRoutes(): Router {
       }
       const user = await storage.getUserByVerificationToken(token);
       if (!user) {
-        return res.status(400).json({ message: "Token invalido ou ja utilizado" });
+        return res.status(400).json({ message: "Este link de confirmação não vale mais: ou já foi usado, ou não é o link que enviamos." });
       }
       if (user.verificationTokenExpiresAt && new Date() > user.verificationTokenExpiresAt) {
         return res.status(400).json({ message: "Token expirado. Solicite um novo email de verificacao.", code: "TOKEN_EXPIRED" });

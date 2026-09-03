@@ -178,7 +178,7 @@ export default function VerificarEmailPage() {
               </div>
               <h2 className="text-xl font-semibold mb-2" data-testid="text-verify-status">Link inválido</h2>
               <p className="text-[var(--color-muted)] text-sm mb-6">
-                {errorMessage} Se você já confirmou antes, use o link abaixo para receber outro e confira depois se consegue entrar.
+                {errorMessage}{" "}Se você já confirmou antes, tente entrar direto; se não, peça um link novo abaixo.
               </p>
 
               <BlocoDeReenvio testId="button-resend-from-error" />
