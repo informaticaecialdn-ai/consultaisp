@@ -580,7 +580,17 @@ describe("SGP · teste de conexao", () => {
     expect(r.message).toMatch(/Nome do App/i);
   });
 
-  it("403 de credencial INCORRETA aponta para o token", async () => {
+  /**
+   * "Incorretas" NAO identifica a causa, e a primeira versao desta mensagem
+   * fingia que sim: mandava conferir o token. Medido contra o SGP de
+   * demonstracao em 03/09/2026, com o MESMO token valido:
+   *   app="consultaisp"  -> 403 "Credenciais de autenticação incorretas."
+   *   app="Consultaisp"  -> 200
+   * Ou seja, a frase tambem sai quando o token esta certo e so a caixa do nome
+   * do app difere. Mandar trocar so o token faz o operador mexer no que estava
+   * certo e continuar sem integracao.
+   */
+  it("403 de credencial INCORRETA cita as tres causas, nao so o token", async () => {
     const { conector } = montar({
       "/api/ura/titulos/": () => ({ status: 403, corpo: { detail: "Credenciais de autenticação incorretas." } }),
     });
@@ -588,7 +598,9 @@ describe("SGP · teste de conexao", () => {
     const r = await conector.testConnection(CONFIG);
     expect(r.ok).toBe(false);
     expect(r.message).toMatch(/token/i);
-    expect(r.message).not.toMatch(/Nome do App/i);
+    expect(r.message).toMatch(/Nome do App/i);
+    expect(r.message).toMatch(/maiuscul/i);   // a caixa, que foi a causa real
+    expect(r.message).toMatch(/host/i);
   });
 });
 

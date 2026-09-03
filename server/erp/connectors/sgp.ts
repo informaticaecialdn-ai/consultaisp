@@ -347,7 +347,14 @@ export class SgpConnector implements ErpConnector {
         return `O SGP nao reconheceu o par token + nome do app (${status}). Confira o Nome do App: ele precisa estar escrito igual ao cadastro em Administracao > Integracoes > Tokens.`;
       }
       if (d.includes("incorretas")) {
-        return `O SGP leu a credencial e recusou (${status}). O token esta errado, inativo ou restrito a outro host. Confira o token em Administracao > Integracoes > Tokens.`;
+        // O SGP devolve esta MESMA frase para causas diferentes, e a primeira
+        // versao desta mensagem mandava conferir o token — que no caso real
+        // estava certo. Medido contra o SGP de demonstracao em 03/09/2026: com
+        // o token correto, `app="consultaisp"` da "incorretas" e
+        // `app="Consultaisp"` da 200. O campo e sensivel a maiuscula, e o nome
+        // precisa ser COPIADO da lista Aplicacoes, nao digitado. Mandar trocar
+        // so o token faz o operador mexer no que estava certo.
+        return `O SGP leu a credencial e recusou (${status}). Confira, em Administracao > Integracoes > Tokens: o Nome do App precisa estar escrito com as mesmas maiusculas e minusculas da lista Aplicacoes; o token precisa estar ativo; e se houver host permitido, o endereco de saida do nosso servidor precisa constar la.`;
       }
     }
     if (status === 401) return "Token ou nome do app recusado pelo SGP (401). Confira em Administracao > Integracoes > Tokens.";
