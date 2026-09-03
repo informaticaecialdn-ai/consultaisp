@@ -22,7 +22,7 @@ import {
  * tela enquanto se digita o proximo.
  *
  * A ficha NAO tem o relatorio da consulta, de proposito: ver o comentario de
- * LGPD em GET /api/admin/consultas/:consultaId. Quem atende ve metadados e o
+ * LGPD em GET /api/admin/consultas?codigo=. Quem atende ve metadados e o
  * protocolo a apresentar ao bureau; o dado do titular fica onde esta.
  */
 
@@ -39,7 +39,7 @@ export default function BuscaConsulta() {
 
   const busca = useMutation<FichaDeConsulta, Error, string>({
     mutationFn: async (codigo: string) => {
-      const res = await apiRequest("GET", `/api/admin/consultas/${encodeURIComponent(codigo)}`);
+      const res = await apiRequest("GET", `/api/admin/consultas?codigo=${encodeURIComponent(codigo)}`);
       return res.json();
     },
   });

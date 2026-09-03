@@ -3,7 +3,7 @@ import express from "express";
 import type { Server } from "node:http";
 
 /**
- * Foco: GET /api/admin/consultas/:consultaId — a unica porta por onde o
+ * Foco: GET /api/admin/consultas?codigo= — a unica porta por onde o
  * suporte acha uma consulta a partir do codigo que o provedor ditou.
  *
  * Tres coisas se provam aqui, e so tres:
@@ -168,9 +168,26 @@ const linhaCadastral = (extra: Record<string, any> = {}) => ({
 });
 
 const buscar = (codigo: string) =>
-  fetch(`${base}/api/admin/consultas/${encodeURIComponent(codigo)}`);
+  fetch(`${base}/api/admin/consultas?codigo=${encodeURIComponent(codigo)}`);
 
-describe("GET /api/admin/consultas/:consultaId — o codigo acha a consulta", () => {
+/**
+ * O codigo tem que viajar na QUERY, nunca no caminho.
+ *
+ * O log de acesso registra `req.path` de toda requisicao /api, e `req.path` nao
+ * inclui a query. Com o codigo no caminho, o que a pessoa do suporte colasse na
+ * busca ia para o log — e o engano mais provavel de quem atende e colar ali o
+ * CPF que o provedor acabou de ditar. Este teste existe para a rota nao voltar
+ * a aceitar o codigo no caminho por conveniencia.
+ */
+describe("o codigo nao viaja no caminho da URL", () => {
+  it("a forma com o codigo no caminho nao existe", async () => {
+    const res = await fetch(`${base}/api/admin/consultas/${CODIGO}`);
+    expect(res.status).toBe(404);
+    expect(storageMock.buscarConsultasPorCodigo).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/admin/consultas?codigo= — o codigo acha a consulta", () => {
   it("acha a consulta ISP e devolve o desfecho dela", async () => {
     storageMock.buscarConsultasPorCodigo.mockResolvedValue([linhaIsp()]);
 

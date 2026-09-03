@@ -54,7 +54,11 @@ export default function CopiarBotao({ texto, rotulo, testId }: {
         display: "inline-flex", alignItems: "center", gap: 5,
         // 4px: raio de botão do design system. Nunca pill.
         height: 24, padding: r.dito ? "0 7px" : "0 5px", borderRadius: 4,
-        background: "transparent", border: "1px solid var(--border)",
+        // O fundo mora na classe `.ds-copiar` (index.css), e nao aqui: estilo
+        // inline vence seletor de classe tambem no `:hover`, e com
+        // `background: transparent` inline o hover da folha de estilo era
+        // regra morta — o botao nunca reagia ao ponteiro.
+        border: "1px solid var(--border)",
         color: r.cor, cursor: "pointer", flexShrink: 0,
         fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 600,
         textTransform: "uppercase", letterSpacing: "var(--track-wide)",
@@ -62,9 +66,12 @@ export default function CopiarBotao({ texto, rotulo, testId }: {
       }}
     >
       <Icone size={12} aria-hidden="true" />
-      {/* `aria-live`: quem usa leitor de tela precisa ouvir o resultado; o
-          `aria-label` sozinho só seria relido se o foco voltasse ao botão. */}
-      {r.dito && <span aria-live="polite">{r.dito}</span>}
+      {/* A região `aria-live` fica SEMPRE no DOM, vazia enquanto não há o que
+          dizer. Criada junto com o texto, ela não é anunciada: o leitor de tela
+          precisa já estar observando o nó quando o conteúdo muda — uma região
+          que nasce preenchida costuma passar em silêncio. O `aria-label`
+          sozinho só seria relido se o foco voltasse ao botão. */}
+      <span aria-live="polite">{r.dito ?? ""}</span>
     </button>
   );
 }

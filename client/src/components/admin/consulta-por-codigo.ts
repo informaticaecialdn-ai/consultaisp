@@ -12,7 +12,7 @@
  * caber num pedaco de URL sem quebrar o roteamento.
  */
 
-/** O que o servidor devolve em GET /api/admin/consultas/:consultaId. */
+/** O que o servidor devolve em GET /api/admin/consultas?codigo=. */
 export interface FichaDeConsulta {
   consultaId: string;
   tipo: "isp" | "spc" | "cadastral";

@@ -561,8 +561,32 @@
    porque aquela regra forca `color: var(--text)`, e este botao carrega COR DE
    ESTADO (verde de copiado, vermelho de nao copiou) — o hover apagaria
    justamente a resposta que o operador esta lendo. Aqui muda so a superficie. */
+.ds-copiar {
+  position: relative;
+  background: transparent;
+}
 .ds-copiar:hover {
   background: var(--surface-2);
+}
+
+/* O alvo de toque, que o DESIGN_SYSTEM (secao 7) trata como nao negociavel:
+   44x44. O botao mede 24px de altura de proposito — ele fica colado num codigo
+   em monoespacada, e um retangulo de 44px ali dentro romperia a linha. A saida
+   e separar o que se VE do que se TOCA: a area sensivel vem por ::after,
+   centrada sobre o botao, invisivel e sem afetar o layout. No dedo o alvo tem
+   44px; no olho, 24. */
+.ds-copiar::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%);
+  /* Menor que o botao em telas onde o cursor e preciso nao faz diferenca; o
+     que importa e nunca ficar ABAIXO do proprio botao. */
+  min-width: 100%;
+  min-height: 100%;
 }
 
 /* Par "Seu provedor / Provedor parceiro" do relatorio: duas colunas fixas,

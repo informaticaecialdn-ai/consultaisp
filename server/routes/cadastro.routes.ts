@@ -13,6 +13,8 @@ import { Router } from "express";
 import { z } from "zod";
 import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { getSafeErrorMessage } from "../utils/safe-error";
+import { logger } from "../logger";
+import { gerarIdentificadorDeConsulta } from "../services/identificador-consulta";
 import {
   buscarEmpresa, buscarBureauEmpresa, buscarResponsavel, buscaAutomaticaDisponivel,
 } from "../services/cadastro-publico.service";
@@ -83,7 +85,16 @@ export function registerCadastroRoutes(): Router {
     try {
       const parsed = esquemaResponsavel.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ ok: false, motivo: "documento", mensagem: "Informe um CPF valido." });
+        // Esta recusa acontece ANTES de buscarResponsavel, que e onde o codigo
+        // nasce — entao ele e gerado aqui. Nada foi consultado nem cobrado, mas
+        // quem tentou e nao conseguiu passar desta porta tambem liga para o
+        // suporte, e sem codigo essa tentativa nao existe em lugar nenhum.
+        const consultaId = gerarIdentificadorDeConsulta();
+        logger.info(
+          { consultaId, evento: "cadastro.recusa", tipo: "cpf", motivo: "documento" },
+          "[Cadastro] recusa antes da consulta",
+        );
+        return res.status(400).json({ ok: false, motivo: "documento", mensagem: "Informe um CPF válido.", consultaId });
       }
       const r = await buscarResponsavel(parsed.data.cpf, parsed.data.passe);
       if (!r.ok) {

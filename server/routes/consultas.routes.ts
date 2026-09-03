@@ -730,8 +730,9 @@ export function registerConsultasRoutes(): Router {
           const txResult = await storage.debitAndCreateIspConsultation(providerId, creditsCost, consultationPayload);
           if (!txResult) {
             const currentProvider = await storage.getProvider(providerId);
-            // A consulta JA ACONTECEU aqui: os ERPs foram chamados, o score foi
-            // calculado, o dono foi avisado. So a gravacao nao coube no saldo.
+            // A consulta JA ACONTECEU aqui: os ERPs foram chamados e o score
+            // foi calculado. So a gravacao nao coube no saldo — e o dono do CPF
+            // NAO chega a ser avisado, porque o aviso sai depois da gravacao.
             // Sem esta linha o codigo que o provedor tem na tela nao existiria
             // em lugar nenhum do servidor.
             logger.warn(

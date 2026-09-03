@@ -351,7 +351,7 @@ export default function ConsultaSPCPage() {
                   <ClipboardCopy className="w-4 h-4" />
                 </button>
               </div>
-              <Button variant="ghost" onClick={() => { setQuery(""); setResult(null); }} data-testid="button-clear-spc">
+              <Button variant="ghost" onClick={() => { setQuery(""); setResult(null); setErro(null); setIdentificacao(null); }} data-testid="button-clear-spc">
                 Limpar
               </Button>
               <Button

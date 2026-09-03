@@ -1239,14 +1239,25 @@ export function registerAdminRoutes(): Router {
    *   ja custou 4 creditos — devolver "3" para uma consulta de agosto induziria
    *   estorno errado.
    */
-  router.get("/api/admin/consultas/:consultaId", requireSuperAdmin, async (req, res) => {
+  /**
+   * O codigo viaja na QUERY STRING, e nao no caminho.
+   *
+   * O log de acesso registra `req.path` de toda requisicao /api
+   * (server/index.ts:107) — e `req.path` NAO inclui a query. Com o codigo no
+   * caminho, o texto que a pessoa do suporte colasse na busca ia direto para o
+   * log: a caixa aceita texto livre, e o engano mais provavel de quem atende e
+   * colar ali o CPF que o provedor acabou de ditar. Seria dado pessoal entrando
+   * no log exatamente pela porta que existe para tira-lo de la.
+   */
+  router.get("/api/admin/consultas", requireSuperAdmin, async (req, res) => {
     // Fora do try: o codigo normalizado entra em toda linha de log deste
     // handler, inclusive na do erro inesperado.
     let normalizado: string | null = null;
     try {
-      // `req.params` no Express 5 e tipado como `string | string[]`; um array
-      // vira texto com virgula, nao casa com o formato e cai no 400 de baixo.
-      const digitado = String(req.params.consultaId ?? "");
+      // `req.query` pode vir como array ou objeto aninhado; o que nao for texto
+      // simples nao casa com o formato e cai no 400 de baixo.
+      const bruto = req.query.codigo;
+      const digitado = typeof bruto === "string" ? bruto : "";
       normalizado = normalizarIdentificador(digitado);
 
       if (!normalizado) {

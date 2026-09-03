@@ -23,11 +23,22 @@ const fonteDoIndex = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "index.ts"), "utf8",
 );
 
-/** O conteudo do array `SENSITIVE_ROUTES`, como o arquivo o declara. */
+/**
+ * O conteudo do array `SENSITIVE_ROUTES`, como o arquivo o declara.
+ *
+ * Os comentarios saem ANTES da varredura por aspas. Sem isso, uma rota citada
+ * dentro de um comentario do bloco entrava na lista como se estivesse
+ * declarada — e o teste passaria a afirmar protecao que nao existe. Foi o que
+ * aconteceu quando o bloco ganhou um JSDoc explicando por que a consulta
+ * cadastral entrou.
+ */
 function rotasSensiveis(): string[] {
   const bloco = fonteDoIndex.match(/const SENSITIVE_ROUTES = \[([\s\S]*?)\];/);
   if (!bloco) throw new Error("SENSITIVE_ROUTES nao encontrado em server/index.ts");
-  return Array.from(bloco[1].matchAll(/"([^"]+)"/g)).map(m => m[1]);
+  const semComentario = bloco[1]
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/[^\n]*/g, "");
+  return Array.from(semComentario.matchAll(/"([^"]+)"/g)).map(m => m[1]);
 }
 
 describe("SENSITIVE_ROUTES", () => {
