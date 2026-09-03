@@ -5,7 +5,8 @@ import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import LandingChatbot from "@/components/landing-chatbot";
 import Marca, { SimboloConsultaISP } from "@/components/marca";
-import { PLAN_PRICES, PLAN_CREDITS, CUSTO_EM_CREDITOS } from "@shared/schema";
+import { CUSTO_EM_CREDITOS } from "@shared/schema";
+import { usePrecosPublicos, planoPorChave, precoCurto } from "@/hooks/use-precos";
 import {
   Shield, Search, Bell, Database, CheckCircle2,
   ArrowRight, AlertTriangle, CreditCard, Lock,
@@ -34,6 +35,15 @@ export default function LandingPage() {
       .then(data => { if (Array.isArray(data) && data.length > 0) setErps(data); })
       .catch(() => {});
   }, []);
+
+  /**
+   * A vitrine le a tabela do SERVIDOR, resolvida pelo host. No dominio proprio
+   * de um revendedor a landing tem que anunciar o preco DELE — uma constante
+   * importada anunciaria sempre o da plataforma.
+   */
+  const { data: precos } = usePrecosPublicos();
+  const planoFree = planoPorChave(precos, "free");
+  const planoPro = planoPorChave(precos, "pro");
 
   const goRegister = () => setLocation("/login?mode=register");
   const goLogin = () => setLocation("/login");
@@ -303,14 +313,18 @@ export default function LandingPage() {
           <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
             {/* Gratuito */}
             <div className="rounded p-6 flex flex-col border border-[var(--border)] transition-all" data-testid="plan-0">
-              <h3 className="font-display font-semibold text-lg text-[var(--color-ink)] mb-1">Gratuito</h3>
+              <h3 className="font-display font-semibold text-lg text-[var(--color-ink)] mb-1">{planoFree?.rotulo || "Gratuito"}</h3>
               <div className="mb-1 flex items-baseline gap-1">
-                <span className="text-4xl font-mono font-black text-[var(--color-ink)]">R$ 0</span>
+                {planoFree ? (
+                  <span className="text-4xl font-mono font-black tabular-nums text-[var(--color-ink)]">{precoCurto(planoFree)}</span>
+                ) : (
+                  <span className="inline-block h-9 w-24 rounded bg-[var(--surface-inset)] animate-pulse" aria-hidden />
+                )}
                 <span className="text-sm text-[var(--color-muted)]">para sempre</span>
               </div>
               <p className="text-xs text-[var(--color-muted)] mb-6">Para conhecer a plataforma</p>
               <ul className="space-y-2.5 mb-6 flex-1">
-                {[`${PLAN_CREDITS.free.isp} creditos para testar a rede`,"Consultas ilimitadas na sua base","Anti-fraude basico","Importacao via CSV"].map(f => (
+                {[`${planoFree?.creditosInclusos.isp ?? "—"} creditos para testar a rede`,"Consultas ilimitadas na sua base","Anti-fraude basico","Importacao via CSV"].map(f => (
                   <li key={f} className="flex items-start gap-2 text-sm text-[var(--color-ink)]">
                     <CheckCircle2 className="w-4 h-4 text-[var(--color-success)] flex-shrink-0 mt-0.5"/>{f}
                   </li>
@@ -324,9 +338,13 @@ export default function LandingPage() {
             {/* Profissional */}
             <div className="rounded p-6 flex flex-col border-2 border-[var(--color-brand)] transition-all relative" data-testid="plan-1">
               <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-[var(--color-brand)] text-[var(--text-on-brand)] text-xs font-black px-4 py-1 rounded-sm">RECOMENDADO</div>
-              <h3 className="font-display font-semibold text-lg text-[var(--color-ink)] mb-1">Profissional</h3>
+              <h3 className="font-display font-semibold text-lg text-[var(--color-ink)] mb-1">{planoPro?.rotulo || "Profissional"}</h3>
               <div className="mb-1 flex items-baseline gap-1">
-                <span className="text-4xl font-mono font-black text-[var(--color-ink)]">R$ {PLAN_PRICES.pro}</span>
+                {planoPro ? (
+                  <span className="text-4xl font-mono font-black tabular-nums text-[var(--color-ink)]">{precoCurto(planoPro)}</span>
+                ) : (
+                  <span className="inline-block h-9 w-28 rounded bg-[var(--surface-inset)] animate-pulse" aria-hidden />
+                )}
                 <span className="text-sm text-[var(--color-muted)]">/mes</span>
               </div>
               {/* O plano e ACESSO; a consulta na rede se paga por credito, na
@@ -505,10 +523,10 @@ export default function LandingPage() {
             <span className="text-[var(--text-on-brand)]/75">antes de instalar.</span>
           </h2>
           <p className="text-[var(--text-on-brand)]/85 mb-10 text-lg max-w-xl mx-auto leading-relaxed">
-            {/* Sai da mesma constante do card do plano. Cravado, dizia 40
-                enquanto o card dizia 50 — a mesma pagina prometia dois numeros
-                diferentes, e o certo e o do schema, que e o que o sistema da. */}
-            Cadastro em 2 minutos. {PLAN_CREDITS.free.isp} créditos gratuitos para testar a rede.<br/>
+            {/* Sai da mesma fonte do card do plano. Cravado, dizia 40 enquanto
+                o card dizia 50 — a mesma pagina prometia dois numeros
+                diferentes, e o certo e o do servidor, que e o que ele da. */}
+            Cadastro em 2 minutos. {planoFree?.creditosInclusos.isp ?? "—"} créditos gratuitos para testar a rede.<br/>
             Consultas na sua base sempre gratuitas.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8">

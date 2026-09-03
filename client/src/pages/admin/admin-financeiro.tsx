@@ -17,7 +17,7 @@ import {
   Target, Activity, PieChart, Calendar, Info, ChevronRight,
   ScanLine, ArrowUp, ArrowDown, Minus
 } from "lucide-react";
-import { PLAN_PRICES } from "@shared/schema";
+import { usePrecos, planoPorChave, type PrecoDePlano } from "@/hooks/use-precos";
 const PLAN_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   free:       { label: "Gratuito",   color: "text-[var(--color-muted)]",   bg: "bg-[var(--color-tag-bg)]" },
   basic:      { label: "Basico",     color: "text-blue-600",   bg: "bg-blue-100" },
@@ -127,6 +127,24 @@ export default function AdminFinanceiroPage() {
     providerId: "", period: "", amount: "", planAtTime: "basic",
     ispCreditsIncluded: "0", spcCreditsIncluded: "0", dueDate: "", notes: "",
   });
+
+  /**
+   * O formulario de fatura preenchia valor e creditos de uma tabela cravada
+   * aqui, e ela tinha envelhecido: o seletor oferecia "Pro — R$ 399" e
+   * preenchia outro valor. Agora tudo vem do servidor, que e quem cobra.
+   */
+  const { data: precos } = usePrecos();
+  const planosDoSeletor = precos?.planos ?? [];
+  /** O que muda no formulario quando o plano cobrado muda. */
+  const camposDoPlano = (chave: string) => {
+    const plano: PrecoDePlano | undefined = planoPorChave(precos, chave);
+    return {
+      planAtTime: chave,
+      amount: (plano?.precoReais ?? 0).toString(),
+      ispCreditsIncluded: (plano?.creditosInclusos.isp ?? 0).toString(),
+      spcCreditsIncluded: (plano?.creditosInclusos.spc ?? 0).toString(),
+    };
+  };
 
   const { data: metrics, isLoading: metricsLoading } = useQuery<any>({
     queryKey: ["/api/admin/financial/saas-metrics"],
@@ -770,11 +788,7 @@ export default function AdminFinanceiroPage() {
                     <Select value={invoiceForm.providerId} onValueChange={(v) => {
                       const p = allProviders.find((x: any) => x.id.toString() === v);
                       if (p) {
-                        const PLAN_CREDITS_MAP: Record<string, { isp: number; spc: number }> = {
-                          free: { isp: 50, spc: 0 }, basic: { isp: 200, spc: 50 }, pro: { isp: 500, spc: 150 }, enterprise: { isp: 1500, spc: 500 }
-                        };
-                        const credits = PLAN_CREDITS_MAP[p.plan] || { isp: 0, spc: 0 };
-                        setInvoiceForm(f => ({ ...f, providerId: v, planAtTime: p.plan, amount: (PLAN_PRICES[p.plan] || 0).toString(), ispCreditsIncluded: credits.isp.toString(), spcCreditsIncluded: credits.spc.toString() }));
+                        setInvoiceForm(f => ({ ...f, providerId: v, ...camposDoPlano(p.plan) }));
                       } else setInvoiceForm(f => ({ ...f, providerId: v }));
                     }}>
                       <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-invoice-provider">
@@ -794,18 +808,15 @@ export default function AdminFinanceiroPage() {
                   <div>
                     <label className="text-xs font-medium mb-1 block">Plano Cobrado</label>
                     <Select value={invoiceForm.planAtTime} onValueChange={v => {
-                      const PLAN_CREDITS_MAP: Record<string, { isp: number; spc: number }> = { free: { isp: 50, spc: 0 }, basic: { isp: 200, spc: 50 }, pro: { isp: 500, spc: 150 }, enterprise: { isp: 1500, spc: 500 } };
-                      const credits = PLAN_CREDITS_MAP[v] || { isp: 0, spc: 0 };
-                      setInvoiceForm(f => ({ ...f, planAtTime: v, amount: (PLAN_PRICES[v] || 0).toString(), ispCreditsIncluded: credits.isp.toString(), spcCreditsIncluded: credits.spc.toString() }));
+                      setInvoiceForm(f => ({ ...f, ...camposDoPlano(v) }));
                     }}>
                       <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-invoice-plan">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="free">Gratuito — R$ 0</SelectItem>
-                        <SelectItem value="basic">Basico — R$ 199</SelectItem>
-                        <SelectItem value="pro">Pro — R$ 399</SelectItem>
-                        <SelectItem value="enterprise">Enterprise — R$ 799</SelectItem>
+                        {planosDoSeletor.map(p => (
+                          <SelectItem key={p.chave} value={p.chave}>{p.rotulo} — {p.precoLabel}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>

@@ -12,7 +12,7 @@ import {
   Wallet, TrendingUp, DollarSign, AlertCircle, TrendingDown, BarChart3, Crown,
   Plus, RefreshCw, Zap, FileText, Clock, ArrowUpDown, CreditCard, QrCode, Copy,
 } from "lucide-react";
-import { PLAN_PRICES } from "@shared/schema";
+import { usePrecos, planoPorChave, type PrecoDePlano } from "@/hooks/use-precos";
 import { PLAN_LABELS } from "../constants";
 import InvoiceTable from "../InvoiceTable";
 
@@ -27,6 +27,23 @@ export default function FinanceiroTab() {
     ispCreditsIncluded: "0", spcCreditsIncluded: "0",
     dueDate: "", notes: "",
   });
+
+  /**
+   * Valor e creditos do formulario saem do servidor, que e quem cobra. A
+   * tabela cravada aqui tinha envelhecido: o seletor oferecia "Pro — R$ 399"
+   * e o formulario preenchia outro valor.
+   */
+  const { data: precos } = usePrecos();
+  const planosDoSeletor = precos?.planos ?? [];
+  const camposDoPlano = (chave: string) => {
+    const plano: PrecoDePlano | undefined = planoPorChave(precos, chave);
+    return {
+      planAtTime: chave,
+      amount: (plano?.precoReais ?? 0).toString(),
+      ispCreditsIncluded: (plano?.creditosInclusos.isp ?? 0).toString(),
+      spcCreditsIncluded: (plano?.creditosInclusos.spc ?? 0).toString(),
+    };
+  };
 
   const [asaasChargeModal, setAsaasChargeModal] = useState<{ invoiceId: number; invoiceNumber: string } | null>(null);
   const [asaasPixModal, setAsaasPixModal] = useState<{ invoiceId: number; pixData: any } | null>(null);
@@ -317,12 +334,8 @@ export default function FinanceiroTab() {
                 <Label className="text-xs">Provedor</Label>
                 <Select value={invoiceForm.providerId} onValueChange={(v) => {
                   const p = allProviders.find((x: any) => x.id.toString() === v);
-                  const PLAN_CREDITS_MAP: Record<string, { isp: number; spc: number }> = {
-                    free: { isp: 50, spc: 0 }, basic: { isp: 200, spc: 50 }, pro: { isp: 500, spc: 150 }, enterprise: { isp: 1500, spc: 500 }
-                  };
                   if (p) {
-                    const credits = PLAN_CREDITS_MAP[p.plan] || { isp: 0, spc: 0 };
-                    setInvoiceForm(f => ({ ...f, providerId: v, planAtTime: p.plan, amount: PLAN_PRICES[p.plan as keyof typeof PLAN_PRICES]?.toString() || "0", ispCreditsIncluded: credits.isp.toString(), spcCreditsIncluded: credits.spc.toString() }));
+                    setInvoiceForm(f => ({ ...f, providerId: v, ...camposDoPlano(p.plan) }));
                   } else {
                     setInvoiceForm(f => ({ ...f, providerId: v }));
                   }
@@ -344,20 +357,15 @@ export default function FinanceiroTab() {
               <div>
                 <Label className="text-xs">Plano Cobrado</Label>
                 <Select value={invoiceForm.planAtTime} onValueChange={(v) => {
-                  const PLAN_CREDITS_MAP: Record<string, { isp: number; spc: number }> = {
-                    free: { isp: 50, spc: 0 }, basic: { isp: 200, spc: 50 }, pro: { isp: 500, spc: 150 }, enterprise: { isp: 1500, spc: 500 }
-                  };
-                  const credits = PLAN_CREDITS_MAP[v] || { isp: 0, spc: 0 };
-                  setInvoiceForm(f => ({ ...f, planAtTime: v, amount: PLAN_PRICES[v as keyof typeof PLAN_PRICES]?.toString() || "0", ispCreditsIncluded: credits.isp.toString(), spcCreditsIncluded: credits.spc.toString() }));
+                  setInvoiceForm(f => ({ ...f, ...camposDoPlano(v) }));
                 }}>
                   <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-invoice-plan">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="free">Gratuito — R$ 0</SelectItem>
-                    <SelectItem value="basic">Basico — R$ 199</SelectItem>
-                    <SelectItem value="pro">Pro — R$ 399</SelectItem>
-                    <SelectItem value="enterprise">Enterprise — R$ 799</SelectItem>
+                    {planosDoSeletor.map(p => (
+                      <SelectItem key={p.chave} value={p.chave}>{p.rotulo} — {p.precoLabel}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
