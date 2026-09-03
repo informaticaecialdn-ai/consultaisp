@@ -13,6 +13,24 @@ export function getAsaasMode(): "sandbox" | "production" | "not_configured" {
   return IS_SANDBOX ? "sandbox" : "production";
 }
 
+/**
+ * Erro de uma resposta HTTP do Asaas, carregando o status.
+ *
+ * O status e o que separa "o Asaas respondeu e recusou" (4xx: cobranca que nao
+ * existe, chave sem permissao) de "o Asaas nao respondeu" (5xx, gateway caido).
+ * Quem confere um pagamento precisa dessa diferenca: sem ela, um 502 no meio de
+ * um PAYMENT_RECEIVED legitimo era lido como prova contra o pagamento e o
+ * credito de um PIX de verdade nunca entrava.
+ */
+export class AsaasApiError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "AsaasApiError";
+    this.status = status;
+  }
+}
+
 async function asaasRequest(method: string, path: string, body?: object): Promise<any> {
   if (!isAsaasConfigured()) {
     throw new Error("Asaas nao configurado. Verifique a chave de API.");
@@ -27,12 +45,14 @@ async function asaasRequest(method: string, path: string, body?: object): Promis
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const data = await res.json();
   if (!res.ok) {
+    // Um 502 servido por proxy vem em HTML: `res.json()` estourava um
+    // SyntaxError e o status se perdia no caminho.
+    const data = await res.json().catch(() => null);
     const msg = data?.errors?.[0]?.description || data?.message || `Erro Asaas: ${res.status}`;
-    throw new Error(msg);
+    throw new AsaasApiError(msg, res.status);
   }
-  return data;
+  return await res.json();
 }
 
 export interface AsaasCustomer {
