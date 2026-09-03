@@ -187,7 +187,8 @@ addressZip/Street/Number/Complement/Neighborhood/City/State,
 webhookToken, webhookAtivo,
 notifWhatsapp/Email/Push/Sms/WhatsappNumber/DailySummary,
 n8nWebhookUrl, n8nAuthToken, n8nEnabled, n8nErpProvider,
-trialInicio, createdAt
+createdAt
+// NAO EXISTE trialInicio: a coluna nunca foi criada. Ver a nota de trial abaixo.
 ```
 
 **users** — Usuários
@@ -210,7 +211,14 @@ lastSyncAt, notificacaoEnviada/Data/Canal, createdAt
 ### Tabelas de Consulta
 - **ispConsultations** — result(JSONB), score(0-100), decisionReco(Accept/Review/Reject), cost
 - **spcConsultations** — result(JSONB), score(0-1000)
-- **consultationLogs** — cpfCnpj, providerId, tipo(isp/spc)
+- ~~consultationLogs~~ — **NÃO EXISTE**. Documentada aqui desde sempre, mas nunca
+  criada: não está no schema, não está em migração, ninguém escreve e ninguém lê.
+  O rastro de uma consulta é o log do pino, correlacionado pelo `consultaId`
+  (`CI-AAMM-XXXXXX`, coluna `consulta_id` nas três tabelas de consulta desde a
+  migração 0015). Para achar uma consulta pelo código:
+  `GET /api/admin/consultas?codigo=` (superadmin). O código vai na query, e não
+  no caminho, porque o log de acesso registra `req.path` — e a caixa de busca
+  aceita texto livre.
 
 ### Tabelas Financeiras
 - **contracts** — customerId, providerId, plan, value, status
@@ -474,7 +482,7 @@ POST customers
 POST import/customers, import/invoices, import/equipment
 
 ### Consultas (requireAuth)
-GET/POST isp-consultations, POST isp-consultations/lote
+GET/POST isp-consultations   // NAO existe rota de lote — nunca foi construida
 GET/POST spc-consultations
 
 ### Anti-Fraude (requireAuth)
@@ -486,7 +494,10 @@ GET/POST/PATCH/DELETE equipamentos, POST equipamentos/import
 ### Provedor Config (requireAuth)
 GET/PATCH provider/profile, provider/settings, provider/notification-settings
 GET/POST/DELETE provider/users, provider/partners, provider/documents
-GET/PATCH provider/webhook-config, GET provider/trial-status
+GET/PATCH provider/webhook-config
+// NAO existe provider/trial-status: nao ha rota, nao ha coluna, nao ha trial.
+// O client ainda consulta esse endereco a cada 5 min e recebe 404 em silencio
+// (client/src/components/app-sidebar.tsx).
 
 ### ERP Integration (requireAuth)
 GET provider/erp-integrations, PATCH erp-integrations/:source
