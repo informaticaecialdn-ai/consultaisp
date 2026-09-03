@@ -42,6 +42,14 @@ vi.mock("../auth", () => ({
     if (!req.session?.userId) return res.status(401).json({ message: "Autenticacao necessaria" });
     next();
   },
+  // Espelha o middleware real: `> 0`, e nao truthy. Antes cada rota de crédito
+  // repetia essa checagem inline; agora é o middleware, e o mock precisa dele
+  // ou o registro das rotas recebe `undefined` como handler.
+  requireProvider: (req: any, res: any, next: any) => {
+    if (!req.session?.userId) return res.status(401).json({ message: "Autenticacao necessaria" });
+    if (!(Number(req.session?.providerId) > 0)) return res.status(403).json({ message: "Somente provedores" });
+    next();
+  },
   requireSuperAdmin: (req: any, res: any, next: any) => {
     if (req.session?.role !== "superadmin") return res.status(403).json({ message: "Somente superadmin" });
     next();

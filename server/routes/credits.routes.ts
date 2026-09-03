@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth, requireSuperAdmin } from "../auth";
+import { requireAuth, requireProvider, requireSuperAdmin } from "../auth";
 import { storage } from "../storage";
 import { logger } from "../logger";
 import { getSafeErrorMessage } from "../utils/safe-error";
@@ -34,9 +34,8 @@ export function registerCreditsRoutes(): Router {
 
   // ============ CREDIT ORDER ROUTES (PROVIDER) ============
 
-  router.get("/api/credits/orders", requireAuth, async (req, res) => {
+  router.get("/api/credits/orders", requireAuth, requireProvider, async (req, res) => {
     try {
-      if (!req.session.providerId) return res.status(403).json({ message: "Somente provedores" });
       const orders = await storage.getAllCreditOrders(req.session.providerId);
       return res.json(orders);
     } catch (error: any) {
@@ -44,9 +43,8 @@ export function registerCreditsRoutes(): Router {
     }
   });
 
-  router.post("/api/credits/purchase", requireAuth, async (req, res) => {
+  router.post("/api/credits/purchase", requireAuth, requireProvider, async (req, res) => {
     try {
-      if (!req.session.providerId) return res.status(403).json({ message: "Somente provedores" });
       const { packageId, billingType } = req.body;
       const { CREDIT_PACKAGES } = await import("@shared/schema");
 
@@ -61,7 +59,8 @@ export function registerCreditsRoutes(): Router {
       const spcCredits = 0;
       const bigdataCredits = 0;
 
-      const provider = await storage.getProvider(req.session.providerId);
+      // `requireProvider` ja garantiu providerId > 0 antes de chegar aqui.
+      const provider = await storage.getProvider(req.session.providerId!);
       if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
       const me = await storage.getUser(req.session.userId!);
 
@@ -116,9 +115,8 @@ export function registerCreditsRoutes(): Router {
     }
   });
 
-  router.get("/api/credits/orders/:id/asaas/pix", requireAuth, async (req, res) => {
+  router.get("/api/credits/orders/:id/asaas/pix", requireAuth, requireProvider, async (req, res) => {
     try {
-      if (!req.session.providerId) return res.status(403).json({ message: "Somente provedores" });
       const order = await storage.getCreditOrder(parseInt(req.params.id));
       if (!order || order.providerId !== req.session.providerId) return res.status(404).json({ message: "Pedido nao encontrado" });
       if (!order.asaasChargeId) return res.status(400).json({ message: "Sem cobranca Asaas vinculada" });
