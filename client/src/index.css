@@ -557,6 +557,14 @@
   background: var(--action-hover) !important;
 }
 
+/* Botao de copiar do bloco de Identificacao. Nao usa data-variant="ghost"
+   porque aquela regra forca `color: var(--text)`, e este botao carrega COR DE
+   ESTADO (verde de copiado, vermelho de nao copiou) — o hover apagaria
+   justamente a resposta que o operador esta lendo. Aqui muda so a superficie. */
+.ds-copiar:hover {
+  background: var(--surface-2);
+}
+
 /* Par "Seu provedor / Provedor parceiro" do relatorio: duas colunas fixas,
    uma no celular. Media query nao existe em style inline — por isso classe. */
 .ds-duo {
