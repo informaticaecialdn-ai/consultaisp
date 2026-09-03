@@ -2,7 +2,18 @@ import { Router } from "express";
 import { requireSuperAdmin } from "../auth";
 import { storage } from "../storage";
 import { hashPassword } from "../password";
-import { sendVerificationEmail } from "../services/email";
+import {
+  sendVerificationEmail,
+  sendCadastroAprovadoEmail,
+  sendCadastroReprovadoEmail,
+  sendAcessoSuspensoEmail,
+  sendAcessoReativadoEmail,
+  sendPlanoAlteradoEmail,
+  sendUsuarioAdicionadoEmail,
+} from "../services/email";
+import { avisarProvedor, contextoDeEmail } from "../services/email-destinatario";
+import { ROTULO_DO_PLANO } from "../services/precos.service";
+import { PLAN_CREDITS } from "@shared/planos";
 import { esquecerMarcas, resolverMarcaPorId, urlDeEntrada } from "../services/marca.service";
 import { esquecerStatusDeProvedor } from "../auth";
 import { getConnector, getSupportedSources } from "../erp/registry";
@@ -40,6 +51,13 @@ const adminUpdateProviderSchema = z.object({
   addressNeighborhood: z.string().max(100).nullable().optional(),
   addressCity: z.string().max(100).nullable().optional(),
   addressState: z.string().max(2).nullable().optional(),
+  /**
+   * NAO E COLUNA. Nao existe `providers.motivo` e nao deve existir: este campo
+   * so viaja da tela do superadmin ate o corpo do e-mail que explica a decisao
+   * (reprovacao de cadastro, suspensao de acesso). Por isso ele e retirado do
+   * payload antes de chegar ao storage — ver o desmembramento no handler.
+   */
+  motivo: z.string().trim().min(1).max(500).optional(),
 }).strict();
 
 const adminUpdateErpSchema = z.object({
@@ -48,6 +66,123 @@ const adminUpdateErpSchema = z.object({
   apiUser: z.string().max(200).nullable().optional(),
   isEnabled: z.boolean().optional(),
 }).strict();
+
+/**
+ * O que o provedor le quando o cadastro e reprovado sem motivo escrito.
+ *
+ * "Seu cadastro foi reprovado", sozinho, transforma um problema resolvivel —
+ * documento ilegivel, CNPJ com pendencia — numa porta sem macaneta. Se o
+ * superadmin nao escreveu a razao, o e-mail ainda tem que dizer o que fazer.
+ */
+const MOTIVO_REPROVACAO_PADRAO =
+  "Não foi informado um motivo específico. Revise os dados do cadastro e os documentos enviados no Painel do Provedor e reenvie para uma nova análise; se preferir, fale com o suporte para saber o que falta.";
+
+/** O minimo do provedor que os avisos deste arquivo precisam ler. */
+type ProvedorAvisavel = {
+  id: number;
+  name: string;
+  contactEmail?: string | null;
+  marcaId?: number | null;
+  subdomain?: string | null;
+  status?: string | null;
+  verificationStatus?: string | null;
+};
+
+/**
+ * Avisa o provedor sobre uma decisao do superadmin — e SO quando ela mudou algo.
+ *
+ * Analise de cadastro e suspensao de acesso sao decisoes que o provedor so
+ * descobria batendo na tela de login. Cada uma tem uma mensagem propria; nenhuma
+ * pode sair duas vezes pelo mesmo estado, por isso a comparacao com o valor
+ * anterior acontece aqui e nao no e-mail.
+ *
+ * Nao lanca: o ato ja terminou quando esta funcao e chamada.
+ */
+async function avisarProvedorSobreDecisao(
+  provedor: ProvedorAvisavel,
+  anterior: ProvedorAvisavel,
+  campos: { verificationStatus?: string; status?: string },
+  motivo?: string,
+): Promise<void> {
+  const nomeDoProvedor = provedor.name;
+
+  if (campos.verificationStatus && campos.verificationStatus !== anterior.verificationStatus) {
+    if (campos.verificationStatus === "approved") {
+      await avisarProvedor(
+        provedor,
+        (para, ctx) => sendCadastroAprovadoEmail(para, nomeDoProvedor, ctx.nome, ctx.marca, ctx.urlBase),
+        "cadastro-aprovado",
+      );
+    } else if (campos.verificationStatus === "rejected") {
+      await avisarProvedor(
+        provedor,
+        (para, ctx) => sendCadastroReprovadoEmail(
+          para, nomeDoProvedor, ctx.nome, motivo || MOTIVO_REPROVACAO_PADRAO, ctx.marca, ctx.urlBase,
+        ),
+        "cadastro-reprovado",
+      );
+    }
+  }
+
+  if (campos.status && campos.status !== anterior.status) {
+    if (campos.status === "suspended") {
+      await avisarProvedor(
+        provedor,
+        (para, ctx) => sendAcessoSuspensoEmail(para, nomeDoProvedor, ctx.nome, motivo, ctx.marca, ctx.urlBase),
+        "acesso-suspenso",
+      );
+    } else if (campos.status === "active" && anterior.status === "suspended") {
+      // So de "suspended" para "active" e restabelecimento. Sair de
+      // "cancelled" e outra historia comercial, e "seu acesso voltou" seria a
+      // mensagem errada para ela.
+      await avisarProvedor(
+        provedor,
+        (para, ctx) => sendAcessoReativadoEmail(para, nomeDoProvedor, ctx.nome, ctx.marca, ctx.urlBase),
+        "acesso-reativado",
+      );
+    }
+  }
+}
+
+/** Nome de quem criou o acesso; sem ele o e-mail assina a plataforma. */
+async function nomeDeQuemCriou(userId?: number): Promise<string> {
+  if (!userId) return "Administrador do Sistema";
+  try {
+    const autor = await storage.getUser(userId);
+    return autor?.name || "Administrador do Sistema";
+  } catch {
+    return "Administrador do Sistema";
+  }
+}
+
+/**
+ * Avisa a PESSOA que acabou de ganhar acesso — nao o contato do provedor.
+ *
+ * Por isso `avisarProvedor` nao serve aqui: o destinatario e um endereco
+ * especifico, o do usuario criado. O que se aproveita de la e a resolucao de
+ * marca e de endereco de entrada (`contextoDeEmail`), que continua sendo a do
+ * PROVEDOR: quem entra por uma marca revendedora precisa do link daquela marca,
+ * senao cai numa tela que recusa o login dele.
+ *
+ * Nao lanca: a conta ja foi criada quando este aviso sai.
+ */
+async function avisarUsuarioCriado(
+  provedor: ProvedorAvisavel,
+  usuario: { name: string; email: string },
+  quemAdicionou: string,
+): Promise<void> {
+  try {
+    const ctx = await contextoDeEmail(provedor);
+    await sendUsuarioAdicionadoEmail(
+      usuario.email, usuario.name, provedor.name, quemAdicionou, usuario.email, ctx.marca, ctx.urlBase,
+    );
+  } catch (err: any) {
+    logger.error(
+      { providerId: provedor.id, rotulo: "usuario-adicionado", err: err?.message },
+      "[email] Falha ao avisar o usuario criado",
+    );
+  }
+}
 
 export function registerAdminRoutes(): Router {
   const router = Router();
@@ -246,7 +381,22 @@ export function registerAdminRoutes(): Router {
       if (!parsed.success) {
         return res.status(400).json({ message: "Dados invalidos", errors: parsed.error.flatten().fieldErrors });
       }
-      const updated = await storage.adminUpdateProvider(id, parsed.data);
+      // `motivo` explica a decisao no e-mail; nao e coluna e nao pode ir ao storage.
+      const { motivo, ...campos } = parsed.data;
+
+      /**
+       * Ler ANTES de gravar e o que torna o aviso honesto.
+       *
+       * Esta tela reenvia o PATCH inteiro a cada clique, e a lista de cadastros
+       * tem botao "Aprovar" visivel para quem ja esta aprovado. Sem o valor
+       * anterior, cada clique repetido mandaria de novo "seu cadastro foi
+       * aprovado" ou "seu acesso foi suspenso" — e um aviso que chega duas
+       * vezes ensina o provedor a ignorar o proximo.
+       */
+      const anterior = await storage.getProvider(id);
+      if (!anterior) return res.status(404).json({ message: "Provedor nao encontrado" });
+
+      const updated = await storage.adminUpdateProvider(id, campos);
       // A resolucao host->marca e cacheada por subdominio. Sem esta linha, uma
       // troca de subdominio ficava ate 5 minutos servindo a marca do dono
       // anterior naquele endereco.
@@ -255,6 +405,15 @@ export function registerAdminRoutes(): Router {
       // esta linha, suspender demorava ate meia rodada de cache para valer nas
       // sessoes ja abertas — e reativar demorava o mesmo para devolver acesso.
       esquecerStatusDeProvedor(id);
+
+      // O e-mail sai depois do ato, e nunca o derruba: `avisarProvedor` engole
+      // a falha de envio com log. Quem recebe e o provedor DEPOIS da alteracao
+      // — nome, contato e marca podem ter mudado neste mesmo PATCH — e o valor
+      // anterior fica de base para o caso de o UPDATE devolver menos colunas do
+      // que a linha inteira.
+      const provedor = { ...anterior, ...(updated || {}) };
+      await avisarProvedorSobreDecisao(provedor, anterior, campos, motivo);
+
       return res.json(updated);
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
@@ -302,13 +461,39 @@ export function registerAdminRoutes(): Router {
       const { plan, notes } = req.body;
       const provider = await storage.getProvider(id);
       if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
+      const planoAnterior = provider.plan;
       const updated = await storage.updateProviderPlan(id, plan);
       await storage.createPlanChange({
-        providerId: id, oldPlan: provider.plan, newPlan: plan,
+        providerId: id, oldPlan: planoAnterior, newPlan: plan,
         ispCreditsAdded: 0, spcCreditsAdded: 0,
         changedById: req.session.userId, changedByName: "Administrador do Sistema",
         notes: notes || null,
       });
+
+      /**
+       * Plano igual ao anterior nao e alteracao: o superadmin reabre a tela,
+       * confirma o mesmo plano e o registro em `plan_changes` continua sendo
+       * gravado (e o log de quem mexeu), mas "seu plano foi alterado" seria
+       * mentira.
+       *
+       * Os rotulos sao os do servidor (`ROTULO_DO_PLANO`) porque o provedor
+       * comprou "Profissional", nao "pro" — a chave e nome de coluna, nao de
+       * produto.
+       */
+      if (plan && plan !== planoAnterior) {
+        const creditosDoPlano = PLAN_CREDITS[plan]?.isp ?? 0;
+        await avisarProvedor(
+          { ...provider, ...(updated || {}) },
+          (para, ctx) => sendPlanoAlteradoEmail(para, ctx.nome, {
+            de: ROTULO_DO_PLANO[planoAnterior] || planoAnterior,
+            para: ROTULO_DO_PLANO[plan] || plan,
+            creditosDoPlano,
+            observacao: notes || null,
+          }, ctx.marca, ctx.urlBase),
+          "plano-alterado",
+        );
+      }
+
       return res.json(updated);
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
@@ -549,6 +734,11 @@ export function registerAdminRoutes(): Router {
         role: userRole,
         providerId,
       });
+
+      // Quem foi criado precisa saber que existe um acesso no nome dele, e por
+      // qual endereco entrar. A SENHA NAO VAI NO E-MAIL — quem criou a entrega
+      // por outro canal, ou o novo usuario usa "Esqueci minha senha".
+      await avisarUsuarioCriado(provider, user, await nomeDeQuemCriou(req.session.userId));
 
       const { password: _, ...userWithoutPassword } = user;
       return res.status(201).json(userWithoutPassword);
