@@ -360,14 +360,36 @@ Alguns ERPs (notavelmente IXC) exigem que o provedor **libere o IP do servidor**
 - **Docs:** https://postman.mk-auth.com.br/
 - **GitHub:** https://github.com/felipebergamin/mkauth-node-api
 
-#### SGP (Sistema Gerencial de Provedores)
-- **Auth:** Token/App (token + app_name no body) OU Basic Auth (Base64 user:pass)
-- **Base URL:** `https://[dominio]/api/`
-- **Método:** GET/POST com `Content-Type: application/json`
-- **Endpoint clientes:** `/api/clientes?limit=1000`
-- **Endpoint financeiro:** `/api/financeiro/inadimplentes`
-- **Docs:** https://bookstack.sgp.net.br/books/api
-- **Auth details:** https://bookstack.sgp.net.br/books/api/page/autenticacoes-via-api
+#### SGP (Sistema Gerencial de Provedores / TSMX)
+- **Auth:** `token` + `app` no CORPO, `application/x-www-form-urlencoded` (método 02
+  da doc). O par é gerado pelo PRÓPRIO provedor em Administração > Integrações >
+  Tokens — não se pede ao suporte. Basic Auth (usuário/senha do sistema) também
+  funciona, mas token é revogável sem mexer em usuário.
+- **Base URL:** `https://[dominio]` (o caminho `/api/...` vai no endpoint)
+- **Método:** POST em tudo que o conector usa
+- **Endpoints (conferidos na coleção Postman oficial):**
+  - `POST /api/ura/consultacliente/` — cliente + contratos por `cpfcnpj`. Devolve
+    `{msg, contratos:[{contratoStatus, contratoStatusDisplay, dataCadastro,
+    razaoSocial, endereco_*, emails, telefones, planointernet, endereco_ll}]}`
+  - `POST /api/ura/titulos/` — faturas. `status=abertos`, `cpfcnpj`,
+    `data_vencimento_fim`; **`limit` máximo 250**, com `offset` e
+    `paginacao.total` na resposta
+  - `POST /api/ura/listacontrato/` — contratos com `status` e, com
+    `exibir_endereco=1`, o endereço. Sem paginação: devolve o array cru
+  - `POST /api/ura/clientes/` — clientes, **`limit` máximo 100**, `omitir_titulos`
+- **Status de contrato:** `1 Ativo · 2 Inativo · 3 Cancelado · 4 Suspenso ·
+  5 Inviabilidade Técnica · 6 Novo · 7 Ativo V. Reduzida`. O conector mapeia 1 e 7
+  para `active`, 4 para `suspended`, 2/3/5 para `cancelled` e **6 para
+  `undefined`** — contrato novo ainda não é cliente, e chutar "ativo" dispararia
+  anti-fraude para quem o provedor ainda não tem.
+- **ATENÇÃO:** `/api/financeiro/inadimplentes`, `/api/contratos` e `/api/clientes`
+  **não existem** no SGP. Estiveram documentados aqui e implementados no conector
+  até 03/09/2026; como nenhum provedor tinha SGP ligado, o erro só aparecia como
+  timeout na consulta ao vivo.
+- **Docs:** https://bookstack.sgp.net.br/books/api (só autenticação) — os endpoints
+  estão na coleção Postman pública: https://api.sgp.net.br/ redireciona para
+  https://documenter.getpostman.com/view/6682240/2sB34hHg2V. O JSON da coleção sai
+  em `https://documenter.gw.postman.com/api/collections/6682240/2sB34hHg2V?segregateAuth=true&versionTag=latest`
 
 #### Hubsoft
 - **Auth:** OAuth (client_id, client_secret, username, password) → Bearer Token

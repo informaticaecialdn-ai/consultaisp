@@ -45,9 +45,9 @@ export const ERP_CONFIG_FIELDS: Record<string, {
     { field: "mkContraSenha", label: "Contra-Senha do Perfil Webservice", type: "password", required: true, helpText: "Criada em Integradores > Gerenciador de Webservices" },
   ],
   sgp: [
-    { field: "apiUrl", label: "URL do Servidor SGP", type: "url", required: true, placeholder: "http://192.168.1.100" },
-    { field: "apiToken", label: "Token SGP", type: "password", required: true, helpText: "Obtido com o suporte da SGP" },
-    { field: "extra.sgpApp", label: "Nome do App", type: "text", required: true, placeholder: "consultaisp", helpText: "app_name configurado na integracao SGP" },
+    { field: "apiUrl", label: "URL do Servidor SGP", type: "url", required: true, placeholder: "https://provedor.sgp.net.br" },
+    { field: "apiToken", label: "Token SGP", type: "password", required: true, helpText: "Gerado em Administracao > Integracoes > Tokens. Deixe o token ativo e sem restricao de host/rota." },
+    { field: "extra.sgpApp", label: "Nome do App", type: "text", required: true, placeholder: "consultaisp", helpText: "O campo App do mesmo cadastro de token, escrito igual" },
   ],
   hubsoft: [
     { field: "apiUrl", label: "URL da API Hubsoft", type: "url", required: true, placeholder: "https://api.seudominio.com.br" },
