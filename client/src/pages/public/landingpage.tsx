@@ -382,16 +382,27 @@ export default function LandingPage() {
               <div className="mb-1 flex items-baseline gap-1">
                 <PrecoDaVitrine plano={planoPro} sufixo="/mes" erro={erroPrecos} larguraEsqueleto="w-28" />
               </div>
-              {/* O plano e ACESSO; a consulta na rede se paga por credito, na
-                  tabela logo abaixo. Dizer isso aqui evita a leitura de que o
-                  Gratuito da 50 creditos e o pago nao da nenhum. */}
-              <p className="text-xs text-[var(--color-muted)] mb-6">Acesso completo. Consultas na rede por credito.</p>
+              {/* Os creditos inclusos vem do servidor, nao do texto: desde
+                  03/09/2026 o plano inclui 30 por mes e eles entram no saldo
+                  quando a fatura e paga. Enquanto a tabela nao chega, a frase
+                  fala so do que nao depende de numero — prometer "N creditos"
+                  com N carregando seria promessa antes do dado. */}
+              <p className="text-xs text-[var(--color-muted)] mb-6">
+                {planoPro?.creditosInclusos?.isp
+                  ? `${planoPro.creditosInclusos.isp} creditos por mes inclusos. Consultas alem disso, por credito.`
+                  : "Acesso completo. Consultas na rede por credito."}
+              </p>
               <ul className="space-y-2.5 mb-6 flex-1">
                 {/* "Integracao com o seu ERP", nao "os 6 ERPs": o provedor usa
                     um so. Os seis suportados aparecem na secao de integracoes.
                     E a cadastral nao cita o fornecedor — quem compra nao compra
                     o bureau, compra o dado. */}
-                {["Integracao com o seu ERP","Anti-fraude por e-mail e webhook","Consulta cadastral","Consulta SPC Brasil","Cruzamento por endereco"].map(f => (
+                {[
+                  ...(planoPro?.creditosInclusos?.isp
+                    ? [`${planoPro.creditosInclusos.isp} creditos por mes, renovados a cada fatura paga`]
+                    : []),
+                  "Integracao com o seu ERP","Anti-fraude por e-mail e webhook","Consulta cadastral","Consulta SPC Brasil","Cruzamento por endereco",
+                ].map(f => (
                   <li key={f} className="flex items-start gap-2 text-sm text-[var(--color-ink)]">
                     <CheckCircle2 className="w-4 h-4 text-[var(--color-success)] flex-shrink-0 mt-0.5"/>{f}
                   </li>
