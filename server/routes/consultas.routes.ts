@@ -16,6 +16,7 @@ import { getSafeErrorMessage } from "../utils/safe-error";
 import { validarCpfCnpj } from "../utils/cpf-cnpj-validator";
 import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { logger } from "../logger";
+import { gerarIdentificadorDeConsulta } from "../services/identificador-consulta";
 import { isSpcConfigured, consultarSpc, SpcError, statusHttpParaErroSpc } from "../services/spc/spc.service";
 import { CUSTO_EM_CREDITOS } from "@shared/schema";
 import { notifyOwnerProviders } from "../services/proactive-alert.service";
@@ -57,10 +58,15 @@ export function registerConsultasRoutes(): Router {
   });
 
   router.post("/api/isp-consultations", ispConsultaLimiter, requireAuth, requireProvider, async (req, res) => {
+    // O identificador nasce ANTES de tudo que pode falhar — cache, credito,
+    // ERP. E no erro que o provedor mais precisa dele ("a consulta
+    // CI-2609-K7F3M2 deu erro"), entao gera-lo depois da parte que quebra seria
+    // gera-lo justamente para os casos que dispensam ajuda.
+    const consultaId = gerarIdentificadorDeConsulta();
     try {
       const { cpfCnpj, lgpdAccepted, apiVersion } = req.body;
       if (!cpfCnpj) {
-        return res.status(400).json({ message: "CPF/CNPJ obrigatorio" });
+        return res.status(400).json({ message: "CPF/CNPJ obrigatorio", consultaId });
       }
 
       // LGPD consent enforcement: strict boolean validation.
@@ -73,6 +79,7 @@ export function registerConsultasRoutes(): Router {
       if (lgpdAccepted !== undefined && typeof lgpdAccepted !== "boolean") {
         return res.status(400).json({
           message: "O campo 'lgpdAccepted' deve ser um booleano (true/false)",
+          consultaId,
         });
       }
 
@@ -81,7 +88,7 @@ export function registerConsultasRoutes(): Router {
       if (!lgpdConsentGiven) {
         if (isV2 || new Date() >= lgpdStrictEnforcementDate) {
           // v2 callers and post-deadline: strict enforcement
-          return res.status(400).json({ message: "Aceite LGPD obrigatorio para realizar consultas" });
+          return res.status(400).json({ message: "Aceite LGPD obrigatorio para realizar consultas", consultaId });
         }
         // Legacy callers within compatibility window: warn but proceed
         deprecationWarnings.push(
@@ -89,21 +96,26 @@ export function registerConsultasRoutes(): Router {
           "Envie lgpdAccepted: true no body para consentimento LGPD."
         );
         logger.warn(
-          { providerId: req.session.providerId, endpoint: "/api/isp-consultations" },
+          { consultaId, providerId: req.session.providerId, endpoint: "/api/isp-consultations" },
           "Legacy caller missing lgpdAccepted — proceeding with deprecation warning"
         );
       }
 
       const validacao = validarCpfCnpj(cpfCnpj);
       if (!validacao.valid) {
-        return res.status(400).json({ message: validacao.error });
+        // Recusa na porta: nada foi consultado e nada sera gravado. Fica no log
+        // porque e o unico registro de que este codigo existiu — sem ele, quem
+        // liga com o codigo na mao nao encontra nada em lugar nenhum.
+        logger.info({ consultaId, providerId: req.session.providerId, motivo: "documento_invalido" }, "CONSULTA recusada — nada gravado");
+        return res.status(400).json({ message: validacao.error, consultaId });
       }
       const { cleaned, type: searchType } = validacao;
 
       const providerId = req.session.providerId!;
       const provider = await storage.getProvider(providerId);
       if (!provider) {
-        return res.status(400).json({ message: "Provedor nao encontrado" });
+        logger.warn({ consultaId, providerId, motivo: "provedor_inexistente" }, "CONSULTA recusada — nada gravado");
+        return res.status(400).json({ message: "Provedor nao encontrado", consultaId });
       }
 
       const mesoregiao = (provider as any).mesorregioes?.[0] || "";
@@ -111,9 +123,22 @@ export function registerConsultasRoutes(): Router {
       // ── CACHE CHECK (CACHE-01, CACHE-02) ─────────────────────────
       const cached = consultationCache.getResult(cleaned, providerId, searchType);
       if (cached) {
-        logger.info({ providerId, doc: cleaned.slice(0, 4) + "***" }, "CONSULTA cache hit");
+        // O codigo devolvido e o da consulta ORIGINAL, nao o que acabou de ser
+        // sorteado: o que esta na tela E a consulta antiga (a tela mostra o selo
+        // CACHE). Devolver um codigo novo mandaria o suporte procurar uma linha
+        // que nao existe — nada foi gravado agora.
+        //
+        // Consulta anterior a esta versao nao tem codigo, e a resposta sai sem
+        // ele: ela nasceu sem, e inventar um aqui seria dizer que foi
+        // identificada quando nao foi.
+        const idOriginal = (cached.consultation as { consultaId?: string | null } | undefined)?.consultaId ?? undefined;
+        logger.info(
+          { consultaId: idOriginal, novoSorteioDescartado: consultaId, providerId, doc: cleaned.slice(0, 4) + "***" },
+          "CONSULTA cache hit",
+        );
         return res.json({
           ...cached,
+          ...(idOriginal ? { consultaId: idOriginal } : {}),
           source: "cache",
           cacheAge: Math.round((Date.now() - cached.cachedAt) / 1000),
         });
@@ -132,7 +157,7 @@ export function registerConsultasRoutes(): Router {
       // If an integration somehow bypasses the allowedProviderIds filter, log and reject it.
       for (const intg of erpIntegrations) {
         if (!allowedProviderIds.has(intg.providerId)) {
-          logger.warn({ providerId: intg.providerId }, "RT-01 ERP integration not in allowed set — skipping");
+          logger.warn({ consultaId, providerId: intg.providerId }, "RT-01 ERP integration not in allowed set — skipping");
         }
       }
 
@@ -153,7 +178,7 @@ export function registerConsultasRoutes(): Router {
           erpResults = (cachedRegional.erpResults as RealtimeQueryResult[])
             .filter(r => allowedProviderIds.has(r.providerId));
           regionalCacheHit = true;
-          logger.info({ providerId, doc: cleaned.slice(0, 4) + "***", mesoregiao }, "CONSULTA regional cache hit");
+          logger.info({ consultaId, providerId, doc: cleaned.slice(0, 4) + "***", mesoregiao }, "CONSULTA regional cache hit");
         } else {
           // ── CONSULTA E SEMPRE AO VIVO ───────────────────────────────────
           //
@@ -168,10 +193,10 @@ export function registerConsultasRoutes(): Router {
           // diferente da varredura noturna. O cache regional acima evita repetir
           // a mesma pergunta em minutos.
           logger.info(
-            { providerId, doc: cleaned.slice(0, 4) + "***", erps: erpIntegrations.length },
+            { consultaId, providerId, doc: cleaned.slice(0, 4) + "***", erps: erpIntegrations.length },
             "CONSULTA ao vivo nos ERPs da regiao",
           );
-          erpResults = await queryRegionalErps(erpIntegrations as any, cleaned, searchType);
+          erpResults = await queryRegionalErps(erpIntegrations as any, cleaned, searchType, { consultaId });
 
           // Store raw ERP results in regional cache for reuse by other providers
           if (mesoregiao) {
@@ -437,16 +462,16 @@ export function registerConsultasRoutes(): Router {
                       cidade: addressCandidate.city || undefined,
                       uf: addressCandidate.state || undefined,
                       cep: cepCandidato || undefined,
-                    })
-                  : await queryRegionalErps(erpIntegrations as any, cepCandidato, "cep");
+                    }, { consultaId })
+                  : await queryRegionalErps(erpIntegrations as any, cepCandidato, "cep", { consultaId });
                 logger.info(
-                  { por: chave ? "endereco" : "cep", ok: cruzamento.filter(r => r.ok).length, latencyMs: Date.now() - inicio },
+                  { consultaId, por: chave ? "endereco" : "cep", ok: cruzamento.filter(r => r.ok).length, latencyMs: Date.now() - inicio },
                   "CONSULTA cruzamento de endereco concluido",
                 );
               } catch (err) {
                 // O cruzamento e complemento, nao a resposta: se ele falha, a
                 // consulta ainda vale. Cai no que ja foi trazido pelo documento.
-                logger.warn({ err }, "CONSULTA cruzamento falhou; usando o resultado do documento");
+                logger.warn({ consultaId, err }, "CONSULTA cruzamento falhou; usando o resultado do documento");
                 cruzamento = erpResults;
               }
 
@@ -464,7 +489,7 @@ export function registerConsultasRoutes(): Router {
               addressSearchResult = buildAddressSearchResult(addressUsed, cruzamento, providerId, chave ?? undefined, cleaned);
               autoAddressCrossRef = true;
             } catch (err) {
-              logger.warn({ err }, "CONSULTA auto address search error (non-blocking)");
+              logger.warn({ consultaId, err }, "CONSULTA auto address search error (non-blocking)");
             }
           }
         }
@@ -540,7 +565,7 @@ export function registerConsultasRoutes(): Router {
               };
             }
           } catch (err) {
-            logger.warn({ err }, "MIGRADOR detection error (non-blocking)");
+            logger.warn({ consultaId, err }, "MIGRADOR detection error (non-blocking)");
           }
         }
 
@@ -567,7 +592,10 @@ export function registerConsultasRoutes(): Router {
             });
           }
         } catch (err) {
-          console.warn("[ConsultaISP] Erro ao buscar alerta de endereco:", err);
+          // Era console.warn: fora do pino, a linha nao carrega campo nenhum e
+          // por isso ficava impossivel de ligar a uma consulta. Mesma mensagem,
+          // agora com contexto.
+          logger.warn({ consultaId, err }, "[ConsultaISP] Erro ao buscar alerta de endereco");
         }
 
         const result = {
@@ -673,7 +701,7 @@ export function registerConsultasRoutes(): Router {
         try {
           cpfCnpjHash = hashCPFForNetwork(cleaned);
         } catch {
-          logger.warn("NETWORK_CPF_SALT not configured — CPF hash will be absent. Configure NETWORK_CPF_SALT in .env for LGPD compliance.");
+          logger.warn({ consultaId }, "NETWORK_CPF_SALT not configured — CPF hash will be absent. Configure NETWORK_CPF_SALT in .env for LGPD compliance.");
         }
 
         // LGPD audit: only persist consent metadata when explicitly validated
@@ -687,6 +715,9 @@ export function registerConsultasRoutes(): Router {
           cpfCnpj: cleaned,
           cpfCnpjHash,
           searchType,
+          // O codigo vai na COLUNA, nao dentro do result: e por ela que o
+          // suporte procura a linha, e o indice unico so cobre a coluna.
+          consultaId,
           result: { ...result, ...lgpdConsent },
           score: scoreResult.score,
           decisionReco: result.decisionReco,
@@ -699,8 +730,17 @@ export function registerConsultasRoutes(): Router {
           const txResult = await storage.debitAndCreateIspConsultation(providerId, creditsCost, consultationPayload);
           if (!txResult) {
             const currentProvider = await storage.getProvider(providerId);
+            // A consulta JA ACONTECEU aqui: os ERPs foram chamados, o score foi
+            // calculado, o dono foi avisado. So a gravacao nao coube no saldo.
+            // Sem esta linha o codigo que o provedor tem na tela nao existiria
+            // em lugar nenhum do servidor.
+            logger.warn(
+              { consultaId, providerId, motivo: "saldo_insuficiente", creditosNecessarios: creditsCost, creditosDisponiveis: currentProvider?.ispCredits ?? 0 },
+              "CONSULTA executada mas nao gravada",
+            );
             return res.status(402).json({
               message: `Creditos insuficientes. Requer ${creditsCost} credito(s). Voce tem ${currentProvider?.ispCredits ?? 0}.`,
+              consultaId,
             });
           }
           consultation = txResult.consultation;
@@ -743,12 +783,12 @@ export function registerConsultasRoutes(): Router {
           const provedoresConsultando = Array.from(new Set([providerId, ...recentConsultations.map(c => c.providerId)]));
           setImmediate(() => {
             notifyOwnerProviders(cleaned, aoVivo, providerId, responderam, provedoresConsultando).catch(err =>
-              logger.error({ err }, "Proactive alert failed"),
+              logger.error({ consultaId, err }, "Proactive alert failed"),
             );
           });
         }
 
-        const response: Record<string, any> = { consultation, result };
+        const response: Record<string, any> = { consultaId, consultation, result };
         if (deprecationWarnings.length > 0) {
           response.warnings = deprecationWarnings;
           res.setHeader("X-Deprecation-Warning", "lgpdAccepted will be required after 2026-07-01");
@@ -765,13 +805,23 @@ export function registerConsultasRoutes(): Router {
             const provedoresConsultando = Array.from(new Set([providerId, ...recentes.map(c => c.providerId)]));
             await notifyOwnerProviders(cleaned, [], providerId, new Set(), provedoresConsultando);
           } catch (err) {
-            logger.error({ err }, "Proactive alert failed");
+            logger.error({ consultaId, err }, "Proactive alert failed");
           }
         });
       }
 
+      // A consulta ACONTECEU — o dono do CPF ate foi notificado acima — mas nao
+      // ha linha em isp_consultations para ela: sem ERP na regiao nao ha
+      // resultado a gravar nem credito a cobrar. Este e o caso em que o suporte
+      // hoje nao tinha absolutamente nada para procurar.
+      logger.info(
+        { consultaId, providerId, searchType, motivo: "sem_erp_na_regiao" },
+        "CONSULTA sem resultado — nada gravado",
+      );
+
       // No ERP integrations configured for this provider's region
       const noErpResponse: Record<string, any> = {
+        consultaId,
         consultation: null,
         result: {
           cpfCnpj: cleaned, searchType, notFound: true, score: 1000,
@@ -793,8 +843,8 @@ export function registerConsultasRoutes(): Router {
 
 
     } catch (error: any) {
-      logger.error({ err: error }, "ISP consultation error");
-      return res.status(500).json({ message: getSafeErrorMessage(error) });
+      logger.error({ consultaId, err: error }, "ISP consultation error");
+      return res.status(500).json({ message: getSafeErrorMessage(error), consultaId });
     }
   });
 
@@ -923,19 +973,24 @@ export function registerConsultasRoutes(): Router {
   });
 
   router.post("/api/spc-consultations", spcConsultaLimiter, requireAuth, requireProvider, async (req, res) => {
+    // Mesmo contrato da consulta ISP: o codigo nasce antes do SPC, do saldo e
+    // da validacao, porque e nas saidas que NAO gravam linha que ele faz falta.
+    const consultaId = gerarIdentificadorDeConsulta();
     try {
       const { cpfCnpj } = req.body;
       if (!cpfCnpj) {
-        return res.status(400).json({ message: "CPF/CNPJ obrigatorio" });
+        return res.status(400).json({ message: "CPF/CNPJ obrigatorio", consultaId });
       }
 
       // Check feature flag
       if (!isSpcConfigured()) {
+        logger.info({ consultaId, providerId: req.session.providerId, motivo: "spc_nao_configurado" }, "CONSULTA SPC recusada — nada gravado");
         res.setHeader("X-Feature-Status", "coming-soon");
         return res.status(503).json({
           message: "Consulta SPC temporariamente indisponivel. Integracao em fase de implantacao.",
           featureStatus: "coming_soon",
           eta: null,
+          consultaId,
         });
       }
 
@@ -944,10 +999,15 @@ export function registerConsultasRoutes(): Router {
       const custo = CUSTO_EM_CREDITOS.spc;
       const provider = await storage.getProvider(req.session.providerId!);
       if (!provider || (provider.ispCredits || 0) < custo) {
+        logger.info(
+          { consultaId, providerId: req.session.providerId, motivo: "saldo_insuficiente", creditosNecessarios: custo, creditosDisponiveis: provider?.ispCredits ?? 0 },
+          "CONSULTA SPC recusada — nada gravado",
+        );
         return res.status(402).json({
           message: `Saldo insuficiente: a consulta SPC custa ${custo} créditos e você tem ${provider?.ispCredits ?? 0}.`,
           creditosNecessarios: custo,
           creditosDisponiveis: provider?.ispCredits ?? 0,
+          consultaId,
         });
       }
 
@@ -955,10 +1015,12 @@ export function registerConsultasRoutes(): Router {
       // ao SPC (o Fault E8.2 nao custa credito, mas gasta chamada do operador).
       const validacaoSpc = validarCpfCnpj(String(cpfCnpj));
       if (!validacaoSpc.valid) {
-        return res.status(400).json({ message: validacaoSpc.error });
+        logger.info({ consultaId, providerId: req.session.providerId, motivo: "documento_invalido" }, "CONSULTA SPC recusada — nada gravado");
+        return res.status(400).json({ message: validacaoSpc.error, consultaId });
       }
       if (validacaoSpc.type === "cep") {
-        return res.status(400).json({ message: "Informe um CPF ou CNPJ" });
+        logger.info({ consultaId, providerId: req.session.providerId, motivo: "documento_e_cep" }, "CONSULTA SPC recusada — nada gravado");
+        return res.status(400).json({ message: "Informe um CPF ou CNPJ", consultaId });
       }
       const cleaned = validacaoSpc.cleaned;
 
@@ -966,7 +1028,7 @@ export function registerConsultasRoutes(): Router {
       // documento invalido nao custam credito. O XML cru fica gravado para
       // auditoria (e o que o SPC entregou, com protocolo), mas nao vai ao
       // navegador.
-      const result = await consultarSpc(cleaned, { guardarXml: true });
+      const result = await consultarSpc(cleaned, { guardarXml: true, consultaId });
       const { rawXml, ...paraTela } = result;
 
       const saved = await storage.debitAndCreateSpcConsultation(
@@ -976,21 +1038,28 @@ export function registerConsultasRoutes(): Router {
           providerId: req.session.providerId!,
           userId: req.session.userId!,
           cpfCnpj: cleaned,
+          consultaId,
           result: { ...paraTela, rawXml, creditosCobrados: custo },
           score: result.score,
         },
       );
 
       if (!saved) {
-        return res.status(402).json({ message: "Saldo insuficiente para a consulta SPC" });
+        // O SPC ja foi consultado e respondeu; o saldo caiu entre a conferencia
+        // acima e o debito (outra consulta em paralelo). Nada sobra no banco.
+        logger.warn(
+          { consultaId, providerId: req.session.providerId, motivo: "saldo_insuficiente_no_debito", creditosNecessarios: custo },
+          "CONSULTA SPC executada mas nao gravada",
+        );
+        return res.status(402).json({ message: "Saldo insuficiente para a consulta SPC", consultaId });
       }
 
-      return res.json({ result: paraTela, credits: saved.provider.ispCredits });
+      return res.json({ consultaId, result: paraTela, credits: saved.provider.ispCredits });
     } catch (error: any) {
       if (error instanceof SpcError) {
         // Nao e erro nosso: e o SPC dizendo algo. Vai com o status certo e a
         // mensagem em portugues, sem stack.
-        logger.warn({ categoria: error.categoria, codigo: error.codigo, msg: error.message }, "SPC consultation refused");
+        logger.warn({ consultaId, categoria: error.categoria, codigo: error.codigo, msg: error.message }, "SPC consultation refused");
         // Credencial e produto sao problema da PLATAFORMA (operador do SPC),
         // nao do provedor: ele recebe aviso generico; o motivo fica no log e
         // em GET /api/admin/spc/produtos.
@@ -1000,10 +1069,14 @@ export function registerConsultasRoutes(): Router {
             ? "Consulta SPC indisponível no momento por configuração da plataforma. Nenhum crédito foi cobrado; tente mais tarde ou fale com o suporte."
             : error.message,
           categoria: error.categoria,
+          // O nosso codigo, nao o protocolo do SPC: quando o SPC recusa nao ha
+          // protocolo nenhum, e e justamente ai que o provedor precisa de um
+          // numero para apresentar ao suporte.
+          consultaId,
         });
       }
-      logger.error({ err: error }, "SPC consultation error");
-      return res.status(500).json({ message: getSafeErrorMessage(error) });
+      logger.error({ consultaId, err: error }, "SPC consultation error");
+      return res.status(500).json({ message: getSafeErrorMessage(error), consultaId });
     }
   });
 

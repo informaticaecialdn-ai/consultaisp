@@ -21,6 +21,15 @@ function providerDaLinha(row: any): Provider {
   } as Provider;
 }
 
+/**
+ * O `consultaId` (`CI-2609-K7F3M2`) chega PRONTO no payload de insercao, nas
+ * tres gravacoes de consulta desta classe. Nenhuma delas o gera.
+ *
+ * E deliberado: o codigo identifica a REQUISICAO, e nasce no topo do handler,
+ * antes do cache, do credito e do bureau. Se ele fosse sorteado aqui, o cache
+ * hit e o caminho sem saldo — que nao chegam a inserir linha — ficariam sem
+ * codigo nenhum, que sao justamente os casos em que o suporte precisa dele.
+ */
 export class ConsultationsStorage {
   async getIspConsultationsByProvider(providerId: number): Promise<IspConsultation[]> {
     return db.select().from(ispConsultations)
