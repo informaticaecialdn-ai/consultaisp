@@ -6,7 +6,7 @@ import { sendVerificationEmail } from "../services/email";
 import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { normalizarHost, extractSubdomainFromHost } from "../tenant";
-import { hostPertenceAoProvider, resolverMarcaPorHost } from "../services/marca.service";
+import { hostPertenceAoProvider, resolverMarcaPorHost, resolverMarcaPorId, urlDeEntrada } from "../services/marca.service";
 import { validarCPF, validarCNPJ } from "../utils/cpf-cnpj-validator";
 import crypto from "crypto";
 
@@ -217,7 +217,18 @@ export function registerAuthRoutes(): Router {
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
       await storage.setVerificationToken(user.id, token, expiresAt);
       try {
-        await sendVerificationEmail(email, user.name, token, await resolverMarcaPorHost(req.hostname));
+        /**
+         * A marca sai do PROVEDOR do usuario, nao do host de onde o pedido veio.
+         *
+         * Sao coisas diferentes, e a diferenca aparece: quem pede reenvio pelo
+         * dominio da plataforma, ou por um dominio de marca que nao e a dele,
+         * recebia um e-mail com a cara errada — e com um link para um endereco
+         * onde o login dele e recusado. Pelo provedor, a marca e sempre a que
+         * ele contratou.
+         */
+        const provider = user.providerId ? await storage.getProvider(user.providerId) : null;
+        const marca = await resolverMarcaPorId(provider?.marcaId);
+        await sendVerificationEmail(email, user.name, token, marca, urlDeEntrada(provider, marca));
       } catch (emailError: any) {
         console.error("[email] Falha ao reenviar email:", emailError.message);
       }
@@ -250,7 +261,14 @@ export function registerAuthRoutes(): Router {
         const { db } = await import("../db");
         await db.update(users).set({ resetToken: token, resetTokenExpiresAt: expiresAt }).where(eq(users.id, user.id));
         const { sendPasswordResetEmail } = await import("../services/email");
-        await sendPasswordResetEmail(user.email, user.name, token, await resolverMarcaPorHost(req.hostname)).catch(err =>
+        // Mesma regra do reenvio de verificacao: a marca e o endereco saem do
+        // PROVEDOR do usuario. Um link de redefinicao para a raiz da plataforma
+        // termina numa tela que recusa o login sem explicar por que.
+        const provider = user.providerId ? await storage.getProvider(user.providerId) : null;
+        const marca = await resolverMarcaPorId(provider?.marcaId);
+        await sendPasswordResetEmail(
+          user.email, user.name, token, marca, urlDeEntrada(provider, marca),
+        ).catch(err =>
           console.warn(`[auth] Erro ao enviar email de reset: ${err.message}`)
         );
       }
