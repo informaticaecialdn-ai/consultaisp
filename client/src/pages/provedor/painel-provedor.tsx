@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, STALE_DASHBOARD } from "@/lib/queryClient";
 import { useState, useRef, useEffect } from "react";
 import { CUSTO_EM_CREDITOS } from "@shared/schema";
-import { usePrecos, precoCurto } from "@/hooks/use-precos";
+import { usePrecos, precoCurto, linhaDeCreditosDoPlano } from "@/hooks/use-precos";
 import { useLocation } from "wouter";
 import { useMarca } from "@/lib/marca";
 import {
@@ -121,7 +121,7 @@ export default function PainelProvedorPage() {
    * tabela que a fatura mensal nunca cobrou. Agora saem do servidor, que e
    * quem cobra — e que, com o white label, resolve o preco da marca.
    */
-  const { data: precos, isLoading: carregandoPrecos } = usePrecos();
+  const { data: precos, isLoading: carregandoPrecos, isError: erroPrecos, refetch: recarregarPrecos } = usePrecos();
   const planosVisiveis = (precos?.planos ?? []).filter(
     p => p.naVitrine || p.chave === provider?.plan,
   );
@@ -1521,6 +1521,24 @@ export default function PainelProvedorPage() {
                     <div key={i} className="h-32 rounded-lg bg-[var(--surface-inset)] animate-pulse" />
                   ))}
                 </div>
+              ) : planosVisiveis.length === 0 ? (
+                /* Card de planos vazio nao explica nada — e o provedor conclui
+                   que perdeu o plano. */
+                <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-inset)] p-6 text-center" data-testid="empty-planos">
+                  <p className="text-sm font-medium">
+                    {erroPrecos ? "Nao foi possivel carregar os planos" : "Nenhum plano disponivel"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {erroPrecos
+                      ? "A tabela de precos nao respondeu. Seu plano atual continua valendo."
+                      : "Fale com o suporte."}
+                  </p>
+                  {erroPrecos && (
+                    <Button variant="outline" size="sm" className="mt-3 text-xs" onClick={() => recarregarPrecos()} data-testid="button-recarregar-planos">
+                      Tentar de novo
+                    </Button>
+                  )}
+                </div>
               ) : (
                 <div className="grid md:grid-cols-2 gap-4">
                   {planosVisiveis.map((p) => {
@@ -1541,10 +1559,14 @@ export default function PainelProvedorPage() {
                           )}
                         </p>
                         <ul className="space-y-1.5 text-sm text-muted-foreground">
+                          {/* "N creditos inclusos por mes" so para plano que
+                              gera fatura. `generate-monthly` pula preco zero,
+                              entao no free nenhuma fatura nasce e nenhum
+                              credito e somado — os 50 vem uma vez so, no
+                              cadastro. O card prometia uma recorrencia que
+                              nunca acontece. */}
                           <li className="tabular-nums">
-                            {p.creditosInclusos.isp > 0
-                              ? `${p.creditosInclusos.isp} creditos inclusos por mes`
-                              : "Consultas na rede pagas por credito"}
+                            {linhaDeCreditosDoPlano(p)}
                           </li>
                           <li>Subdominio proprio e usuarios da equipe</li>
                         </ul>

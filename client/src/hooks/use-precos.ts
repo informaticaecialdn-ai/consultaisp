@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { STALE_SETTINGS } from "@/lib/queryClient";
+import type { TabelaDePrecos } from "@/lib/precos";
 
 /**
  * PRECO VEM DO SERVIDOR. O CLIENT NAO TEM TABELA.
@@ -15,43 +16,44 @@ import { STALE_SETTINGS } from "@/lib/queryClient";
  * ERRADA: o preco depende da marca que o provedor veste, e o client nao tem
  * como saber disso. Ha um teste-guarda que falha se algum arquivo de
  * `client/src` voltar a importar a tabela de `@shared/*`.
+ *
+ * A FORMA e as derivacoes moram em `@/lib/precos`, sem React, para poderem ser
+ * testadas — foi na borda delas que as telas erraram: tabela ausente virava
+ * `?? 0`, e `?? 0` em preco nao e "ainda nao sei", e "de graca".
  */
 
-export interface PacoteDeCredito {
-  id: string;
-  nome: string;
-  creditos: number;
-  precoCentavos: number;
-  precoReais: number;
-  precoLabel: string;
-  precoUnitarioCentavos: number;
-  precoUnitarioLabel: string;
-  popular: boolean;
-}
+export type {
+  PacoteDeCredito,
+  PrecoDePlano,
+  TabelaDePrecos,
+  CamposDaFatura,
+} from "@/lib/precos";
+export {
+  precoCurto,
+  planoPorChave,
+  camposDaFatura,
+  pedidoDeCreditoPronto,
+  precoDoCreditoUnico,
+  fraseDoCredito,
+  linhaDeCreditosDoPlano,
+} from "@/lib/precos";
 
-export interface PrecoDePlano {
-  chave: string;
-  rotulo: string;
-  precoCentavos: number;
-  precoReais: number;
-  precoLabel: string;
-  creditosInclusos: { isp: number; spc: number };
-  naVitrine: boolean;
-}
-
-export interface TabelaDePrecos {
-  origem: "plataforma" | "marca";
-  marcaId: number | null;
-  pacotes: PacoteDeCredito[];
-  planos: PrecoDePlano[];
-  custoEmCreditos: Record<string, number>;
-}
+/**
+ * `retry: 1` contra o `retry: false` global.
+ *
+ * Preco e a unica leitura cuja falha muda o que a tela AFIRMA — sem ele a
+ * landing anuncia um retangulo cinza no lugar do valor e o formulario de
+ * fatura fica sem plano nenhum. Uma segunda tentativa cobre a queda de rede de
+ * um segundo; para o resto, cada tela trata `isError` explicitamente.
+ */
+const TENTATIVAS = 1;
 
 /** Tabela de quem esta logado — provedor ou superadmin. */
 export function usePrecos() {
   return useQuery<TabelaDePrecos>({
     queryKey: ["/api/credits/packages"],
     staleTime: STALE_SETTINGS,
+    retry: TENTATIVAS,
   });
 }
 
@@ -60,25 +62,6 @@ export function usePrecosPublicos() {
   return useQuery<TabelaDePrecos>({
     queryKey: ["/api/public/precos"],
     staleTime: STALE_SETTINGS,
+    retry: TENTATIVAS,
   });
-}
-
-/**
- * "R$ 99" quando o valor e redondo, "R$ 99,90" quando nao e.
- *
- * So para vitrine. Em fatura e extrato o centavo aparece sempre — usar
- * `precoLabel`.
- */
-export function precoCurto(preco: { precoCentavos: number; precoLabel: string }): string {
-  if (preco.precoCentavos % 100 !== 0) return preco.precoLabel;
-  return `R$ ${(preco.precoCentavos / 100).toLocaleString("pt-BR")}`;
-}
-
-/** Acha um plano pela chave (`free`, `pro`…) sem espalhar `.find` por cinco telas. */
-export function planoPorChave(
-  tabela: TabelaDePrecos | undefined,
-  chave: string | null | undefined,
-): PrecoDePlano | undefined {
-  if (!tabela || !chave) return undefined;
-  return tabela.planos.find((p) => p.chave === chave);
 }

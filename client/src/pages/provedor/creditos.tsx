@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Kicker, pillStyle, ReportSection, Th, type Tone } from "@/components/consulta/report-ui";
 import { CUSTO_EM_CREDITOS } from "@shared/schema";
-import { usePrecos, type PacoteDeCredito } from "@/hooks/use-precos";
+import { usePrecos, fraseDoCredito, type PacoteDeCredito } from "@/hooks/use-precos";
 
 /**
  * COMPRAR CRÉDITOS — crédito único, válido para toda consulta.
@@ -149,7 +149,7 @@ export default function CreditosPage() {
     queryKey: ["/api/credits/orders"],
   });
 
-  const { data: precos, isLoading: carregandoPrecos } = usePrecos();
+  const { data: precos, isLoading: carregandoPrecos, isError: erroPrecos, refetch: recarregarPrecos } = usePrecos();
   const pacotes = precos?.pacotes ?? [];
 
   const compra = useMutation({
@@ -206,9 +206,13 @@ export default function CreditosPage() {
             }} data-testid="text-creditos-title">
               Comprar créditos
             </h1>
-            <p style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4, maxWidth: "58ch", lineHeight: 1.5 }}>
-              Um crédito custa R$ 1,00 e vale para qualquer consulta do sistema.
-              O que muda é quantos créditos cada uma consome.
+            {/* O valor sai da mesma tabela dos cards abaixo. Cravado em prosa,
+                ele dizia "R$ 1,00" logo acima de cards que ja vinham do
+                servidor — e na revenda white label, com o credito a R$ 2,50,
+                a divergencia apareceria em toda venda. */}
+            <p style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4, maxWidth: "58ch", lineHeight: 1.5 }}
+               data-testid="text-preco-do-credito">
+              {fraseDoCredito(precos)}
             </p>
           </div>
           <div style={{ textAlign: "right" }}>
@@ -327,6 +331,41 @@ export default function CreditosPage() {
             consulta que muda conforme o tamanho da compra é difícil de explicar
             no suporte e impossível de conferir numa fatura.
           </p>
+
+          {/* Grade vazia nao e estado: sem os pacotes a tela simplesmente
+              deixava de ter o que comprar, sem dizer por que. */}
+          {!carregandoPrecos && pacotes.length === 0 && (
+            <div style={{
+              marginTop: 16, padding: "20px 18px", borderRadius: 8,
+              border: "1px solid var(--border)", background: "var(--surface-inset)",
+              textAlign: "center",
+            }} data-testid="empty-pacotes">
+              <p style={{ fontSize: 13, color: "var(--text)", fontWeight: 500 }}>
+                {erroPrecos ? "Não foi possível carregar os pacotes" : "Nenhum pacote disponível"}
+              </p>
+              <p style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>
+                {erroPrecos
+                  ? "A tabela de preços não respondeu. Seu saldo e seus pedidos continuam válidos."
+                  : "Fale com o suporte para liberar a compra de créditos."}
+              </p>
+              {erroPrecos && (
+                <button
+                  type="button"
+                  className="ds-ctl"
+                  onClick={() => recarregarPrecos()}
+                  data-testid="button-recarregar-pacotes"
+                  style={{
+                    marginTop: 12, cursor: "pointer", borderRadius: 4, padding: "7px 14px",
+                    fontSize: 13, fontWeight: 500, fontFamily: "var(--font-sans)",
+                    background: "var(--surface)", color: "var(--text)",
+                    border: "1px solid var(--border-strong)",
+                  }}
+                >
+                  Tentar de novo
+                </button>
+              )}
+            </div>
+          )}
 
           <div style={{
             display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(178px, 1fr))",

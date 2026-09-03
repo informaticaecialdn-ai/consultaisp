@@ -50,6 +50,21 @@ export interface PrecoDePlano {
   creditosInclusos: { isp: number; spc: number };
   /** Oferecido na landing e no cadastro. Os demais existem so por contrato vigente. */
   naVitrine: boolean;
+  /**
+   * O plano gera fatura mensal?
+   *
+   * Existe porque `creditosInclusos` NAO e um credito automatico: e o texto que
+   * a fatura escreve. `POST /api/admin/invoices/generate-monthly` pula todo
+   * provedor com preco zero (financeiro.routes.ts), entao no `free` nenhuma
+   * fatura nasce e nenhum credito e somado — os 50 vem uma vez so, do default
+   * da coluna `providers.isp_credits` no cadastro.
+   *
+   * Sem este campo o client so tinha `creditosInclusos` para exibir, e o card
+   * de plano do painel anunciava "50 creditos inclusos por mes" para uma
+   * recorrencia que nunca acontece. Quem decide se ha recorrencia e o servidor,
+   * que e quem fatura.
+   */
+  recorrente: boolean;
 }
 
 export interface TabelaDePrecos {
@@ -108,6 +123,8 @@ function montarPlano(chave: string): PrecoDePlano {
     precoLabel: formatarReais(centavos),
     creditosInclusos: PLAN_CREDITS[chave] || { isp: 0, spc: 0 },
     naVitrine: PLANOS_NA_VITRINE.has(chave),
+    // Mesma condicao de generate-monthly: preco zero nao gera fatura.
+    recorrente: centavos > 0,
   };
 }
 

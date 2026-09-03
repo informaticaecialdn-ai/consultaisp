@@ -94,6 +94,24 @@ describe("GET /api/public/precos", () => {
     expect(pro.naVitrine).toBe(true);
     expect(body.planos.find((p: any) => p.chave === "enterprise").naVitrine).toBe(false);
   });
+
+  /**
+   * `creditosInclusos` e o que a FATURA escreve, nao um credito automatico.
+   * Quem nao gera fatura nao tem recorrencia: `generate-monthly` pula todo
+   * provedor com preco zero. Sem este campo o painel do provedor so tinha
+   * `creditosInclusos` para exibir e anunciava "50 creditos inclusos por mes"
+   * no plano gratuito — uma promessa mensal que nada no sistema cumpre.
+   */
+  it("marca como recorrente apenas o plano que gera fatura", async () => {
+    const body = await comServidor(async (base) =>
+      (await fetch(`${base}/api/public/precos`)).json(),
+    );
+    for (const plano of body.planos) {
+      expect(plano.recorrente).toBe(plano.precoCentavos > 0);
+    }
+    expect(body.planos.find((p: any) => p.chave === "free").recorrente).toBe(false);
+    expect(body.planos.find((p: any) => p.chave === "enterprise").recorrente).toBe(true);
+  });
 });
 
 describe("GET /api/credits/packages", () => {

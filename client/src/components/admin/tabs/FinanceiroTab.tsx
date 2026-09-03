@@ -12,7 +12,7 @@ import {
   Wallet, TrendingUp, DollarSign, AlertCircle, TrendingDown, BarChart3, Crown,
   Plus, RefreshCw, Zap, FileText, Clock, ArrowUpDown, CreditCard, QrCode, Copy,
 } from "lucide-react";
-import { usePrecos, planoPorChave, type PrecoDePlano } from "@/hooks/use-precos";
+import { usePrecos, camposDaFatura } from "@/hooks/use-precos";
 import { PLAN_LABELS } from "../constants";
 import InvoiceTable from "../InvoiceTable";
 
@@ -33,17 +33,17 @@ export default function FinanceiroTab() {
    * tabela cravada aqui tinha envelhecido: o seletor oferecia "Pro — R$ 399"
    * e o formulario preenchia outro valor.
    */
-  const { data: precos } = usePrecos();
+  const { data: precos, isLoading: carregandoPrecos, isError: erroPrecos, refetch: recarregarPrecos } = usePrecos();
   const planosDoSeletor = precos?.planos ?? [];
-  const camposDoPlano = (chave: string) => {
-    const plano: PrecoDePlano | undefined = planoPorChave(precos, chave);
-    return {
-      planAtTime: chave,
-      amount: (plano?.precoReais ?? 0).toString(),
-      ispCreditsIncluded: (plano?.creditosInclusos.isp ?? 0).toString(),
-      spcCreditsIncluded: (plano?.creditosInclusos.spc ?? 0).toString(),
-    };
-  };
+  /**
+   * Sem tabela o preenchimento nao acontece: `camposDaFatura` devolve `null` e
+   * o campo fica intocado. O `?? 0` anterior gravava fatura de R$ 0,00 para
+   * provedor pagante quando a leitura de preco falhava — e como a query nao
+   * refaz a leitura ao voltar o foco, ela ficava indisponivel ate a pagina
+   * recarregar. Ausencia de preco nao e gratuidade.
+   */
+  const camposDoPlano = (chave: string | null | undefined) => camposDaFatura(precos, chave) ?? {};
+  const podeEmitirFatura = Boolean(precos);
 
   const [asaasChargeModal, setAsaasChargeModal] = useState<{ invoiceId: number; invoiceNumber: string } | null>(null);
   const [asaasPixModal, setAsaasPixModal] = useState<{ invoiceId: number; pixData: any } | null>(null);
@@ -329,16 +329,31 @@ export default function FinanceiroTab() {
         {showNewInvoice && (
           <div className="p-5 border-b bg-muted/30">
             <h4 className="font-medium text-sm mb-4">Emitir Nova Fatura</h4>
+            {carregandoPrecos && (
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-3" data-testid="skeleton-precos-fatura">
+                {[0, 1, 2].map(i => (
+                  <div key={i} className="h-12 rounded bg-[var(--surface-inset)] animate-pulse" />
+                ))}
+              </div>
+            )}
+            {erroPrecos && (
+              <div className="mb-3 rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2" data-testid="erro-precos-fatura">
+                <p className="text-xs text-[var(--danger)]">
+                  Nao foi possivel carregar a tabela de precos. A fatura nao pode ser emitida sem ela.
+                </p>
+                <button type="button" className="text-xs underline mt-0.5 text-[var(--danger)]" onClick={() => recarregarPrecos()}>
+                  Tentar de novo
+                </button>
+              </div>
+            )}
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
               <div>
                 <Label className="text-xs">Provedor</Label>
                 <Select value={invoiceForm.providerId} onValueChange={(v) => {
                   const p = allProviders.find((x: any) => x.id.toString() === v);
-                  if (p) {
-                    setInvoiceForm(f => ({ ...f, providerId: v, ...camposDoPlano(p.plan) }));
-                  } else {
-                    setInvoiceForm(f => ({ ...f, providerId: v }));
-                  }
+                  // Sem tabela `camposDoPlano` e vazio: grava so o provedor e
+                  // deixa valor e creditos como estao.
+                  setInvoiceForm(f => ({ ...f, providerId: v, ...camposDoPlano(p?.plan) }));
                 }}>
                   <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-invoice-provider">
                     <SelectValue placeholder="Selecionar provedor" />
@@ -356,7 +371,7 @@ export default function FinanceiroTab() {
               </div>
               <div>
                 <Label className="text-xs">Plano Cobrado</Label>
-                <Select value={invoiceForm.planAtTime} onValueChange={(v) => {
+                <Select value={invoiceForm.planAtTime} disabled={!precos} onValueChange={(v) => {
                   setInvoiceForm(f => ({ ...f, ...camposDoPlano(v) }));
                 }}>
                   <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-invoice-plan">
@@ -371,7 +386,8 @@ export default function FinanceiroTab() {
               </div>
               <div>
                 <Label className="text-xs">Valor (R$)</Label>
-                <Input className="h-8 text-xs mt-1" type="number" placeholder="199" value={invoiceForm.amount} onChange={(e) => setInvoiceForm(f => ({ ...f, amount: e.target.value }))} data-testid="input-invoice-amount" />
+                {/* Sem placeholder de preco: "199" era a tabela antiga. */}
+                <Input className="h-8 text-xs mt-1" type="number" value={invoiceForm.amount} onChange={(e) => setInvoiceForm(f => ({ ...f, amount: e.target.value }))} data-testid="input-invoice-amount" />
               </div>
               <div>
                 <Label className="text-xs">Vencimento</Label>
@@ -383,7 +399,7 @@ export default function FinanceiroTab() {
               </div>
             </div>
             <div className="flex gap-2 mt-3">
-              <Button size="sm" className="gap-1.5 text-xs" disabled={createInvoiceMutation.isPending} onClick={() => createInvoiceMutation.mutate(invoiceForm)} data-testid="button-submit-invoice">
+              <Button size="sm" className="gap-1.5 text-xs" disabled={!podeEmitirFatura || createInvoiceMutation.isPending} onClick={() => createInvoiceMutation.mutate(invoiceForm)} data-testid="button-submit-invoice">
                 {createInvoiceMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
                 Emitir Fatura
               </Button>

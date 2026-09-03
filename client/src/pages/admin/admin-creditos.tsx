@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
-import { usePrecos } from "@/hooks/use-precos";
+import { usePrecos, pedidoDeCreditoPronto } from "@/hooks/use-precos";
 import {
   CreditCard, Plus, RefreshCw, CheckCircle, XCircle, Clock,
   Wallet, QrCode, Copy, ExternalLink, RotateCcw, CheckCheck,
@@ -63,7 +63,7 @@ export default function AdminCreditosPage() {
    * pacote e o POST respondia "Pacote invalido": o pedido manual estava
    * quebrado, e a tela nao tinha como saber.
    */
-  const { data: precos, isLoading: carregandoPrecos } = usePrecos();
+  const { data: precos, isLoading: carregandoPrecos, isError: erroPrecos, refetch: recarregarPrecos } = usePrecos();
   const pacotes = precos?.pacotes ?? [];
 
   const { data: asaasStatus } = useQuery<any>({
@@ -170,6 +170,19 @@ export default function AdminCreditosPage() {
   const pacoteInicial = pacotes.find(p => p.popular) || pacotes[0];
   const packageId = form.packageId || pacoteInicial?.id || "";
   const selectedPkg = pacotes.find(p => p.id === packageId);
+  /**
+   * Sem pacote resolvido o POST vai com `packageId: ""`, que o servidor le
+   * como falsy e trata como "Personalizado": grava um pedido de 100 creditos
+   * por R$ 100,00 — os defaults deste formulario — e emite a cobranca no Asaas
+   * se o superadmin tiver escolhido forma de pagamento. Antes da tabela vir do
+   * servidor isso nao acontecia: o id sempre existia e, se estivesse errado, o
+   * servidor respondia "Pacote invalido" e nada era gravado.
+   */
+  const podeCriarPedido = pedidoDeCreditoPronto({
+    providerId: form.providerId,
+    packageId,
+    pacoteEscolhido: selectedPkg,
+  });
 
   return (
     <div className="p-4 lg:p-5 pb-10 space-y-5">
@@ -291,6 +304,16 @@ export default function AdminCreditosPage() {
             </div>
             <div>
               <label className="text-xs font-medium mb-1 block">Pacote *</label>
+              {erroPrecos ? (
+                /* Seletor vazio nao explica nada: o superadmin escolheria
+                   "Personalizado" achando que os pacotes acabaram. */
+                <div className="mt-1 rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-2.5 py-2" data-testid="erro-precos-pedido">
+                  <p className="text-xs text-[var(--danger)]">Nao foi possivel carregar a tabela de precos.</p>
+                  <button type="button" className="text-xs underline mt-0.5 text-[var(--danger)]" onClick={() => recarregarPrecos()}>
+                    Tentar de novo
+                  </button>
+                </div>
+              ) : (
               <Select value={packageId} disabled={carregandoPrecos && pacotes.length === 0} onValueChange={v => {
                 const pkg = pacotes.find(p => p.id === v);
                 setForm(f => ({
@@ -309,6 +332,7 @@ export default function AdminCreditosPage() {
                   <SelectItem value="custom">Personalizado</SelectItem>
                 </SelectContent>
               </Select>
+              )}
             </div>
             <div>
               <label className="text-xs font-medium mb-1 block">Cobranca Asaas (opcional)</label>
@@ -363,7 +387,7 @@ export default function AdminCreditosPage() {
             </div>
           )}
           <div className="flex gap-2 mt-4">
-            <Button size="sm" className="gap-1.5 text-xs" disabled={!form.providerId || createOrderMutation.isPending}
+            <Button size="sm" className="gap-1.5 text-xs" disabled={!podeCriarPedido || createOrderMutation.isPending}
               onClick={() => createOrderMutation.mutate({
                 providerId: form.providerId,
                 packageId: packageId === "custom" ? undefined : packageId,

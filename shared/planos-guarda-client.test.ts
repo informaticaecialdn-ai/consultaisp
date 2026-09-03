@@ -48,7 +48,30 @@ const DECLARACAO_LOCAL = new RegExp(
   "g",
 );
 
-const arquivos = arquivosDoClient(RAIZ_CLIENT);
+const arquivos = arquivosDoClient(RAIZ_CLIENT).filter(c => !/\.test\.tsx?$/.test(c));
+
+/**
+ * Comentario nao e tela. Esta guarda varre PROSA, e o comentario que explica o
+ * defeito ("anunciava R$ 1,00 cravado") nao pode ser lido como o defeito.
+ */
+function semComentarios(fonte: string): string {
+  return fonte.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+}
+
+/**
+ * "Um credito custa R$ 1,00", "R$ 1,00/credito", "R$ 1,00 por credito".
+ *
+ * O identificador saiu do client, mas o preco por credito continuava escrito
+ * em texto no cabecalho de /creditos, logo acima de cards que ja vinham do
+ * servidor. Bastava a tabela mudar — ou a marca revender o credito a R$ 2,50
+ * na fase 3 — para a mesma tela mostrar dois precos diferentes. A guarda de
+ * identificadores nao pega isso: prosa nao importa nada.
+ */
+const PRECO_POR_CREDITO_EM_PROSA = [
+  /cr[ée]dito\s+custa\s+R\$/i,
+  /R\$\s?[\d.,]+\s*\/\s*cr[ée]dito/i,
+  /R\$\s?[\d.,]+\s+por\s+cr[ée]dito/i,
+];
 
 describe("tabela de preco fora do client", () => {
   it("encontra os arquivos do client — um scanner vazio passaria calado", () => {
@@ -83,6 +106,20 @@ describe("tabela de preco fora do client", () => {
       let m: RegExpExecArray | null;
       while ((m = DECLARACAO_LOCAL.exec(fonte)) !== null) {
         infratores.push(`${caminho.replace(RAIZ_CLIENT, "client/src")} declara ${m[1]}`);
+      }
+    }
+    expect(infratores).toEqual([]);
+  });
+
+  it("nenhuma tela afirma em texto quanto custa um credito", () => {
+    const infratores: string[] = [];
+    for (const caminho of arquivos) {
+      const fonte = semComentarios(readFileSync(caminho, "utf8"));
+      for (const padrao of PRECO_POR_CREDITO_EM_PROSA) {
+        const achado = fonte.match(padrao);
+        if (achado) {
+          infratores.push(`${caminho.replace(RAIZ_CLIENT, "client/src")}: "${achado[0]}"`);
+        }
       }
     }
     expect(infratores).toEqual([]);
