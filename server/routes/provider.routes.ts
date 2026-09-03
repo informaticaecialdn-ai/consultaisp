@@ -86,7 +86,28 @@ export function registerProviderRoutes(): Router {
           return res.status(409).json({ message: "Este e o ultimo administrador do provedor. Promova outro antes de excluir." });
         }
       }
-      await storage.deleteUser(userId);
+      try {
+        await storage.deleteUser(userId);
+      } catch (erro: any) {
+        /**
+         * 23503 = foreign_key_violation.
+         *
+         * `isp_consultations.user_id`, `spc_consultations.user_id`,
+         * `bigdata_consultations.user_id` e `support_messages.sender_id` sao
+         * NOT NULL e sem ON DELETE. Ou seja: o operador que ja rodou UMA
+         * consulta — o uso normal da conta — nao pode ser apagado. Isso e
+         * estado, nao falha do servidor, e virava 500 "Erro interno do
+         * servidor": o admin clicava, via um erro sem causa e tentava de novo.
+         */
+        const codigo = erro?.code ?? erro?.cause?.code;
+        if (codigo === "23503") {
+          return res.status(409).json({
+            message: "Este usuario ja tem historico no sistema (consultas ou mensagens de suporte) e por isso nao pode ser apagado — o historico e do provedor e nao pode ir junto.",
+            code: "USUARIO_COM_HISTORICO",
+          });
+        }
+        throw erro;
+      }
       return res.json({ message: "Usuario removido com sucesso" });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });

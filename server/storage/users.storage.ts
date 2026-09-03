@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
   users,
@@ -49,8 +49,29 @@ export class UsersStorage {
     return db.select().from(users).where(eq(users.providerId, providerId));
   }
 
+  /**
+   * Apaga o usuario E as sessoes abertas dele, na mesma transacao.
+   *
+   * A tela promete que "o acesso e perdido na hora" e isso era falso:
+   * `requireAuth` so olha `req.session`, e a linha da sessao vive na tabela do
+   * connect-pg-simple, que ninguem tocava. O excluido continuava navegando e
+   * consultando ate o cookie vencer — 48h depois.
+   *
+   * SQL cru aqui e deliberado e e a excecao a regra do projeto: a tabela
+   * `session` e criada e mantida pelo connect-pg-simple (ver server/auth.ts),
+   * nao esta em shared/schema.ts e por isso nao existe tabela Drizzle para
+   * consultar. O id vai como parametro, nunca interpolado.
+   *
+   * Nao trata a violacao de chave estrangeira: quem chama e que sabe o que
+   * responder — ver DELETE /api/provider/users/:id.
+   */
   async deleteUser(id: number): Promise<void> {
-    await db.delete(users).where(eq(users.id, id));
+    await db.transaction(async (tx) => {
+      await tx.delete(users).where(eq(users.id, id));
+      // `->>` devolve texto e funciona tanto em `json` quanto em `jsonb`, que e
+      // o que muda entre bancos criados por versoes diferentes do store.
+      await tx.execute(sql`DELETE FROM "session" WHERE sess ->> 'userId' = ${String(id)}`);
+    });
   }
 
   async updateUserEmail(id: number, email: string): Promise<void> {

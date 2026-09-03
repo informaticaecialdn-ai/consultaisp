@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { AbaAntiFraude } from "@/components/painel/AbaAntiFraude";
+import { mensagemDoErro } from "@/components/recuperacao/DialogoContato";
 
 const MAIN_DOMAIN = "consultaisp.com.br";
 
@@ -408,14 +409,16 @@ export default function PainelProvedorPage() {
   const deleteUserMutation = useMutation({
     mutationFn: async (userId: number) => {
       const res = await apiRequest("DELETE", `/api/provider/users/${userId}`, undefined);
-      if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
       return res.json();
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/provider/users"] });
       toast({ title: "Usuario excluido" });
     },
-    onError: (err: any) => toast({ title: "Erro", description: err.message, variant: "destructive" }),
+    // `apiRequest` lanca `409: {"message":"..."}`; sem extrair a frase o admin
+    // le o JSON cru no toast — e o 409 mais comum aqui (usuario com historico)
+    // e justamente o que ele precisa entender.
+    onError: (err: unknown) => toast({ title: "Nao foi possivel excluir", description: mensagemDoErro(err), variant: "destructive" }),
   });
 
   const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1482,9 +1485,11 @@ export default function PainelProvedorPage() {
                           aria-label={`Excluir usuario ${u.name}`}
                           // A rota apaga a linha de vez — nao ha "desativado" no
                           // banco. A confirmacao precisa dizer isso, senao o
-                          // admin descobre depois de clicar.
+                          // admin descobre depois de clicar. E precisa avisar do
+                          // caso mais comum: quem ja consultou tem historico, o
+                          // historico e do provedor, e a exclusao e recusada.
                           onClick={() => {
-                            if (confirm(`Excluir o usuario ${u.name} (${u.email})?\n\nA conta e apagada em definitivo e o acesso e perdido na hora. Nao ha como desfazer — para devolver o acesso sera preciso cadastrar de novo.`)) {
+                            if (confirm(`Excluir o usuario ${u.name} (${u.email})?\n\nA conta e apagada em definitivo e as sessoes abertas dele caem na hora. Nao ha como desfazer — para devolver o acesso sera preciso cadastrar de novo.\n\nSe ele ja tiver historico no sistema (consultas ou mensagens de suporte), a exclusao e recusada: esse historico e do provedor e nao pode ser apagado junto.`)) {
                               deleteUserMutation.mutate(u.id);
                             }
                           }}
