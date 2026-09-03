@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { reenviarVerificacao, type ResultadoDeReenvio } from "@/lib/verificacao-email";
 import { Shield, CheckCircle, Lock, Eye, EyeOff, MailCheck, RefreshCw, ArrowLeft } from "lucide-react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -157,6 +157,22 @@ export default function LoginPage() {
   const [resendLoading, setResendLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [pendingEmail, setPendingEmail] = useState("");
+  const [resultadoReenvio, setResultadoReenvio] = useState<ResultadoDeReenvio | null>(null);
+  /**
+   * A tela de "verifique seu e-mail" pode ser alcancada de tres lugares, e num
+   * deles o endereco ainda nao e sabido: o atalho "não recebi o e-mail" com o
+   * campo de login vazio. So nesse caso ela pede o endereco; vindo do cadastro
+   * ou de um login recusado por e-mail nao verificado, o endereco ja e certo e
+   * um campo editavel so convidaria a digitar errado.
+   */
+  const [pedirEmailDoReenvio, setPedirEmailDoReenvio] = useState(false);
+
+  const irParaReenvio = (email: string) => {
+    setPendingEmail(email);
+    setPedirEmailDoReenvio(!email);
+    setResultadoReenvio(null);
+    setPageState("check-email");
+  };
 
   /**
    * Só o par de login. Todo o estado do cadastro — CNPJ, busca na Receita,
@@ -177,8 +193,7 @@ export default function LoginPage() {
       await login(form.email, form.password);
     } catch (err: any) {
       if (err.code === "EMAIL_NOT_VERIFIED") {
-        setPendingEmail(err.email || form.email);
-        setPageState("check-email");
+        irParaReenvio(err.email || form.email);
         return;
       }
       toast({
@@ -191,23 +206,24 @@ export default function LoginPage() {
     }
   };
 
+  /**
+   * O reenvio passa por `reenviarVerificacao`, que preserva o STATUS.
+   *
+   * Com `apiRequest` toda resposta ruim virava um `Error` sem status, e o 429
+   * do limitador — "seu pedido anterior saiu, espere" — era mostrado como
+   * "Nao foi possivel reenviar. Tente novamente", que e um convite a clicar de
+   * novo e empurrar a espera para mais longe.
+   */
   const handleResend = async () => {
+    const alvo = pendingEmail.trim();
+    if (!alvo || resendLoading) return;
     setResendLoading(true);
-    try {
-      const res = await apiRequest("POST", "/api/auth/resend-verification", { email: pendingEmail });
-      const data = await res.json();
-      toast({
-        title: "Email enviado",
-        description: data.message || "Novo link de verificacao enviado com sucesso.",
-      });
-    } catch {
-      toast({
-        title: "Erro",
-        description: "Nao foi possivel reenviar o email. Tente novamente.",
-        variant: "destructive",
-      });
-    } finally {
-      setResendLoading(false);
+    setResultadoReenvio(null);
+    const resultado = await reenviarVerificacao(alvo);
+    setResultadoReenvio(resultado);
+    setResendLoading(false);
+    if (resultado.ok) {
+      toast({ title: "E-mail enviado", description: resultado.mensagem });
     }
   };
 
@@ -286,12 +302,20 @@ export default function LoginPage() {
                     <MailCheck className="w-8 h-8 text-[var(--color-brand)]" />
                   </div>
                   <h2 className="font-display text-2xl font-semibold mb-2" data-testid="text-check-email-title">
-                    Verifique seu email
+                    Verifique seu e-mail
                   </h2>
-                  <p className="text-[var(--color-muted)] text-sm leading-relaxed">
-                    Enviamos um link de confirmacao para
-                  </p>
-                  <p className="font-semibold mt-1 text-[var(--color-ink)]" data-testid="text-pending-email">{pendingEmail}</p>
+                  {pedirEmailDoReenvio ? (
+                    <p className="text-[var(--color-muted)] text-sm leading-relaxed">
+                      Informe o e-mail do cadastro e enviamos outro link de confirmação.
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-[var(--color-muted)] text-sm leading-relaxed">
+                        Enviamos um link de confirmação para
+                      </p>
+                      <p className="font-semibold mt-1 text-[var(--color-ink)]" data-testid="text-pending-email">{pendingEmail}</p>
+                    </>
+                  )}
                 </div>
 
                 <div className="bg-[var(--color-brand)]/5 rounded p-4 mb-6 space-y-2">
@@ -310,17 +334,39 @@ export default function LoginPage() {
                 </div>
 
                 <div className="text-center space-y-3">
-                  <p className="text-sm text-[var(--color-muted)]">Nao recebeu o email?</p>
+                  <p className="text-sm text-[var(--color-muted)]">Não recebeu o e-mail?</p>
+                  {pedirEmailDoReenvio && (
+                    <Input
+                      type="email"
+                      placeholder="seu@email.com"
+                      value={pendingEmail}
+                      onChange={(e) => setPendingEmail(e.target.value)}
+                      data-testid="input-reenvio-email"
+                    />
+                  )}
                   <Button
                     variant="outline"
                     className="w-full gap-2"
                     onClick={handleResend}
-                    disabled={resendLoading}
+                    disabled={resendLoading || !pendingEmail.trim()}
                     data-testid="button-resend-email"
                   >
                     <RefreshCw className={`w-4 h-4 ${resendLoading ? "animate-spin" : ""}`} />
-                    {resendLoading ? "Enviando..." : "Reenviar email de verificacao"}
+                    {resendLoading ? "Enviando..." : "Reenviar e-mail de verificação"}
                   </Button>
+                  {resultadoReenvio && (
+                    <p
+                      role="status"
+                      data-testid="text-resultado-reenvio"
+                      className={`text-sm rounded px-3 py-2 text-left ${
+                        resultadoReenvio.ok
+                          ? "text-[var(--color-success)] bg-[var(--color-success-bg)]"
+                          : "text-[var(--color-danger)] bg-[var(--color-danger-bg)]"
+                      }`}
+                    >
+                      {resultadoReenvio.mensagem}
+                    </p>
+                  )}
                   <button
                     type="button"
                     className="text-sm text-[var(--color-brand)] font-medium hover:text-[var(--color-steel)]"
@@ -355,7 +401,7 @@ export default function LoginPage() {
 
                 {pageState === "register" && (
                   <CadastroWizard
-                    aoPrecisarVerificar={(email) => { setPendingEmail(email); setPageState("check-email"); }}
+                    aoPrecisarVerificar={(email) => irParaReenvio(email)}
                   />
                 )}
 
@@ -416,6 +462,23 @@ export default function LoginPage() {
                     {isLoading ? "Aguarde..." : "Entrar"}
                     {!isLoading && <ArrowLeft className="w-4 h-4 ml-2 rotate-180" />}
                   </Button>
+
+                  {/*
+                    O reenvio so aparecia depois de uma tentativa de login
+                    recusada por e-mail nao verificado. Quem nunca recebeu o
+                    primeiro e-mail nao tem por que adivinhar que precisa errar
+                    o login para achar o botao — e a mensagem que ele ve ali e
+                    generica. Aqui o caminho fica visivel antes disso, ja com o
+                    endereco digitado no campo acima, quando houver.
+                  */}
+                  <button
+                    type="button"
+                    className="w-full text-center text-xs text-[var(--color-muted)] hover:text-[var(--color-brand)] hover:underline"
+                    onClick={() => irParaReenvio(form.email.trim())}
+                    data-testid="button-nao-recebi-confirmacao"
+                  >
+                    Não recebi o e-mail de confirmação
+                  </button>
                 </form>
                 )}
 

@@ -2,7 +2,8 @@ import { Router } from "express";
 import { storage } from "../storage";
 import { loginSchema, registerSchema } from "@shared/schema";
 import { hashPassword, verifyPassword } from "../password";
-import { sendVerificationEmail } from "../services/email";
+import { sendVerificationEmail, sendWelcomeEmail, sendPasswordChangedEmail } from "../services/email";
+import { ROTULO_DO_PLANO } from "../services/precos.service";
 import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { normalizarHost, extractSubdomainFromHost } from "../tenant";
@@ -11,12 +12,64 @@ import { MENSAGEM_PROVEDOR_SUSPENSO } from "../auth";
 import { validarCPF, validarCNPJ } from "../utils/cpf-cnpj-validator";
 import crypto from "crypto";
 
+/**
+ * Avisa o DONO DA CONTA que a senha dela mudou.
+ *
+ * Nao passa por `avisarProvedor` de proposito: aquele resolve "quem fala pelo
+ * provedor" (contato cadastrado, ou os administradores). Aqui o destinatario e
+ * uma pessoa especifica — a dona do e-mail cuja senha acabou de ser trocada. Um
+ * operador que teve a conta tomada precisa do aviso na propria caixa, nao na do
+ * contato financeiro do provedor.
+ *
+ * E o unico sinal que ele tem: quem toma a conta troca a senha, e sem isso o
+ * dono so descobre quando tenta entrar e nao consegue.
+ *
+ * A marca e o endereco continuam saindo do PROVEDOR — mesma regra do reenvio de
+ * verificacao e do "esqueci minha senha".
+ *
+ * Nunca lanca. A senha JA mudou quando esta funcao e chamada; se o envio falhar,
+ * o que se perde e o aviso, e isso vai para o log.
+ */
+async function avisarQueASenhaMudou(
+  user: { email: string; name: string; providerId?: number | null },
+  origem: string,
+): Promise<void> {
+  try {
+    const provider = user.providerId ? await storage.getProvider(user.providerId) : null;
+    const marca = await resolverMarcaPorId(provider?.marcaId);
+    await sendPasswordChangedEmail(user.email, user.name, marca, urlDeEntrada(provider, marca));
+  } catch (err: any) {
+    console.error(`[email] Falha ao avisar troca de senha (${origem}):`, err?.message);
+  }
+}
+
 export function registerAuthRoutes(): Router {
   const router = Router();
 
   const loginLimiter = createRateLimiter({ windowMs: 900_000, maxRequests: 5 });
   const registerLimiter = createRateLimiter({ windowMs: 3_600_000, maxRequests: 3 });
   const resendLimiter = createRateLimiter({ windowMs: 900_000, maxRequests: 3 });
+
+  /**
+   * O fluxo de senha tambem tem limite. Ele era o unico de fora.
+   *
+   * `forgot-password` MANDA E-MAIL para um endereco que quem chama digitou, e
+   * responde a mesma coisa para conta que existe e para conta que nao existe.
+   * Sem limite, e uma maquina de despejar mensagem assinada com a marca de um
+   * provedor na caixa de terceiros — e a reputacao do dominio de envio e do
+   * provedor, nao de quem abusou. Mesma cota do reenvio de verificacao
+   * (3/15min): sao o mesmo gesto, "me manda de novo aquele e-mail".
+   *
+   * `reset-password` ADIVINHA um token de 32 bytes. Sozinho o token e forte,
+   * mas sem limite a tentativa nao custa nada e a janela fica aberta a hora
+   * inteira de validade dele. Cota do login (5/15min), que e o outro lugar
+   * onde se acerta ou nao um segredo: sobra folga para quem erra a confirmacao
+   * da senha duas ou tres vezes e nao serve para varredura.
+   *
+   * Os dois entram sem sessao, entao a chave e o IP — ver `chaveDoLimite`.
+   */
+  const forgotLimiter = createRateLimiter({ windowMs: 900_000, maxRequests: 3 });
+  const resetLimiter = createRateLimiter({ windowMs: 900_000, maxRequests: 5 });
 
   router.post("/api/auth/login", loginLimiter, async (req, res) => {
     try {
@@ -235,9 +288,64 @@ export function registerAuthRoutes(): Router {
       if (user.verificationTokenExpiresAt && new Date() > user.verificationTokenExpiresAt) {
         return res.status(400).json({ message: "Token expirado. Solicite um novo email de verificacao.", code: "TOKEN_EXPIRED" });
       }
-      await storage.setEmailVerified(user.id);
-      // Do NOT auto-login on GET — return success and let the frontend redirect to login
-      return res.json({ verified: true, email: user.email });
+      const provider = user.providerId ? await storage.getProvider(user.providerId) : null;
+      const marca = await resolverMarcaPorId(provider?.marcaId);
+      const entrada = urlDeEntrada(provider, marca);
+
+      /**
+       * A conta so fica ATIVA aqui — e e aqui que as boas-vindas saem.
+       *
+       * Mandar no cadastro seria prometer um acesso que ainda nao existe: entre
+       * criar e confirmar, o login e recusado por e-mail nao verificado.
+       *
+       * UMA VEZ SO. A trava de verdade e `setEmailVerified` zerar o token: o
+       * segundo clique no mesmo link nem encontra usuario e morre no 400 acima.
+       * O `if` abaixo e o cinto para a linha que chegar aqui ja verificada e
+       * ainda com token — ela recebe sucesso e nenhum e-mail.
+       */
+      if (!user.emailVerified) {
+        await storage.setEmailVerified(user.id);
+        if (provider) {
+          try {
+            await sendWelcomeEmail(
+              user.email,
+              {
+                nome: user.name,
+                provedor: provider.name,
+                cnpj: provider.cnpj,
+                // Rotulo em portugues, nunca a chave crua ("pro") na tela. Os
+                // quatro planos do sistema estao no mapa; um valor fora dele e
+                // dado corrompido, e ai mostrar o que esta gravado e mais
+                // honesto do que inventar um plano que o provedor nao tem.
+                plano: ROTULO_DO_PLANO[provider.plan] ?? provider.plan,
+                creditos: provider.ispCredits ?? 0,
+                emailDeAcesso: user.email,
+              },
+              marca,
+              entrada,
+            );
+          } catch (emailError: any) {
+            // A conta ja esta ativa. O que se perde e o aviso.
+            console.error("[email] Falha ao enviar boas-vindas:", emailError?.message);
+          }
+        } else {
+          // O e-mail inteiro fala do provedor (nome, CNPJ, plano, creditos).
+          // Sem provedor nao ha o que dizer, e inventar seria pior.
+          console.warn(`[email] Usuario ${user.id} verificado sem provedor: boas-vindas nao enviadas.`);
+        }
+      }
+
+      /**
+       * Sem login automatico no GET. Mas o endereco de entrada vai junto.
+       *
+       * A tela mandava para `/login` NO HOST ATUAL. Quem abriu o link pelo
+       * dominio da plataforma — e o link chega por e-mail, ele abre onde a
+       * pessoa clicar — caia numa tela onde `hostPertenceAoProvider` recusa o
+       * login por desenho, e lia "Email ou senha incorretos" sem ter errado
+       * nada. So o servidor sabe se este provedor entra pelo subdominio ou pelo
+       * dominio da marca, entao e o servidor que responde.
+       */
+      return res.json({ verified: true, email: user.email, urlDeEntrada: entrada });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
@@ -288,7 +396,7 @@ export function registerAuthRoutes(): Router {
   });
 
   // Esqueci minha senha
-  router.post("/api/auth/forgot-password", async (req, res) => {
+  router.post("/api/auth/forgot-password", forgotLimiter, async (req, res) => {
     try {
       const { email } = req.body;
       if (!email) return res.status(400).json({ message: "Email obrigatorio" });
@@ -322,7 +430,7 @@ export function registerAuthRoutes(): Router {
   });
 
   // Redefinir senha com token
-  router.post("/api/auth/reset-password", async (req, res) => {
+  router.post("/api/auth/reset-password", resetLimiter, async (req, res) => {
     try {
       const { token, newPassword } = req.body;
       if (!token || !newPassword) return res.status(400).json({ message: "Token e nova senha obrigatorios" });
@@ -346,6 +454,8 @@ export function registerAuthRoutes(): Router {
         resetTokenExpiresAt: null,
         mustChangePassword: false,
       }).where(eq(users.id, user.id));
+
+      await avisarQueASenhaMudou(user, "reset-password");
 
       return res.json({ message: "Senha alterada com sucesso. Faca login com a nova senha." });
     } catch (error: any) {
@@ -389,6 +499,11 @@ export function registerAuthRoutes(): Router {
       const { eq } = await import("drizzle-orm");
       const { db } = await import("../db");
       await db.update(users).set({ password: hashed, mustChangePassword: false }).where(eq(users.id, req.session.userId));
+
+      // Le depois de gravar: a troca ja aconteceu, e o que falta e so contar.
+      const dono = await storage.getUser(req.session.userId).catch(() => undefined);
+      if (dono) await avisarQueASenhaMudou(dono, "change-password");
+
       return res.json({ message: "Senha alterada com sucesso" });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
