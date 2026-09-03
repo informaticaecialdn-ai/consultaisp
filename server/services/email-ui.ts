@@ -205,8 +205,17 @@ export function linkDeReserva(url: string, marca: MarcaResolvida): string {
  * `preheader` e a linha que a caixa de entrada mostra ao lado do assunto. Sem
  * ela, o cliente de e-mail rouba as primeiras palavras do HTML — que costumam
  * ser "Se o botao nao abrir...".
+ *
+ * `rodapeMotivo` existe porque nem todo destinatario e provedor: o e-mail de
+ * LGPD vai para o TITULAR do dado, que nao tem conta nenhuma aqui. Dizer a ele
+ * "voce tem uma conta de provedor" e uma afirmacao falsa justamente na
+ * mensagem em que a lei exige clareza. O padrao continua sendo o texto do
+ * provedor, palavra por palavra.
  */
-export function envelope(conteudo: string, preheader: string | undefined, marca: MarcaResolvida): string {
+export function envelope(
+  conteudo: string, preheader: string | undefined, marca: MarcaResolvida,
+  rodapeMotivo?: string,
+): string {
   const cor = acento(marca);
   const nome = esc(marca.nomeProduto);
   const url = urlDaMarca(marca);
@@ -274,7 +283,9 @@ export function envelope(conteudo: string, preheader: string | undefined, marca:
                 }
               </p>
               <p style="margin:8px 0 0;color:${FAINT};font-family:${SANS};font-size:11px;line-height:1.55;">
-                Você recebeu esta mensagem porque tem uma conta de provedor no ${nome}. É um aviso do sistema, não uma oferta.
+                ${rodapeMotivo
+                  ? esc(rodapeMotivo)
+                  : `Você recebeu esta mensagem porque tem uma conta de provedor no ${nome}. É um aviso do sistema, não uma oferta.`}
               </p>
             </td>
           </tr>
