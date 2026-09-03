@@ -59,6 +59,8 @@ export interface AsaasPayment {
   pixKey?: string;
   nossoNumero?: string;
   paymentDate?: string;
+  /** So vem no GET /payments/:id de cobranca PIX — o copia-e-cola fica em `payload`. */
+  pixTransaction?: { payload?: string } | null;
 }
 
 export async function findOrCreateCustomer(params: {
@@ -67,13 +69,17 @@ export async function findOrCreateCustomer(params: {
   email?: string;
   phone?: string;
 }): Promise<AsaasCustomer> {
-  const existing = await asaasRequest("GET", `/customers?cpfCnpj=${params.cpfCnpj}&limit=1`);
+  // O CNPJ do provedor vem formatado do cadastro ("12.345.678/0001-90"). A
+  // barra e os pontos crus na query string nunca casavam com o cliente ja
+  // existente no Asaas, e a cada compra nascia um cliente duplicado.
+  const documento = params.cpfCnpj.replace(/\D/g, "");
+  const existing = await asaasRequest("GET", `/customers?cpfCnpj=${encodeURIComponent(documento)}&limit=1`);
   if (existing.data && existing.data.length > 0) {
     return existing.data[0];
   }
   return await asaasRequest("POST", "/customers", {
     name: params.name,
-    cpfCnpj: params.cpfCnpj,
+    cpfCnpj: documento,
     email: params.email,
     phone: params.phone,
     notificationDisabled: false,
