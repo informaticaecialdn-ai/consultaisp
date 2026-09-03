@@ -240,29 +240,37 @@ lastSyncAt, notificacaoEnviada/Data/Canal, createdAt
 
 ### Preços e Créditos
 ```typescript
-PLAN_PRICES = { free: 0, basic: 199, pro: 399, enterprise: 799 }  // R$/mês
+// FONTE ÚNICA: `shared/planos.ts` (a partir da fase 0 do white label, 03/09/2026).
+// `shared/schema.ts` só re-exporta. O client NUNCA importa a tabela: lê de
+// GET /api/credits/packages (autenticado) ou GET /api/public/precos (landing).
+// Há um teste que falha se algum arquivo de client voltar a importar a tabela.
+
+PLAN_PRICES = { free: 0, basic: 149, pro: 99, enterprise: 799 }  // R$/mês
+// Na vitrine da landing só aparecem `free` e `pro`. `basic` é legado (há
+// provedores nele) e `enterprise` é negociado fora do site.
 PLAN_CREDITS = {
   free: { isp: 50, spc: 0 },
   basic: { isp: 200, spc: 50 },
-  pro: { isp: 500, spc: 150 },
+  pro: { isp: 0, spc: 0 },     // o plano virou ACESSO: a consulta na rede se paga por crédito
   enterprise: { isp: 1500, spc: 500 },
 }
-// Landing page mostra: Gratuito R$0 / Básico R$149/mês / Profissional R$349/mês
-// NOTA: há divergência entre PLAN_PRICES no schema (199/399/799) e landing page (0/149/349)
-// A landing page é a versão mais recente
+// ATENÇÃO: PLAN_CREDITS é o que a FATURA declara como incluso. Nada soma esses
+// créditos a providers.ispCredits quando a fatura é paga — quem credita é o
+// superadmin ou a compra avulsa em /creditos.
 
-ISP_CREDIT_PACKAGES = [
-  50 consultas → R$49,90 (R$1,00/un),
-  100 → R$89,90 (R$0,90/un, popular),
-  250 → R$199,90 (R$0,80/un),
-  500 → R$349,90 (R$0,70/un)
+CREDIT_PACKAGES = [   // crédito único, sem desconto por volume
+  50 créditos → R$50,00 (R$1,00/un),
+  100 → R$100,00 (R$1,00/un, popular),
+  250 → R$250,00 (R$1,00/un),
+  500 → R$500,00 (R$1,00/un)
 ]
-SPC_CREDIT_PACKAGES = [
-  10 → R$49,90 (R$4,99/un),
-  30 → R$129,90 (R$4,33/un, popular),
-  50 → R$199,90 (R$4,00/un),
-  100 → R$349,90 (R$3,50/un)
-]
+// Um crédito vale para qualquer consulta; o que muda é quantos créditos cada
+// uma consome (CUSTO_EM_CREDITOS). A cadastral custa R$0,72 na BigDataCorp e é
+// vendida por 1 crédito.
+
+// Piso e teto do preço da marca revendedora (fase 2 do white label):
+// piso = a própria tabela acima (a marca só pode SUBIR), teto R$5,00/crédito.
+// `validarPrecoDaMarca()` em shared/planos.ts rejeita fora da faixa, nunca ajusta.
 ```
 
 ---
