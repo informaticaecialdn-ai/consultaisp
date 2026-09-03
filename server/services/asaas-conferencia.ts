@@ -85,7 +85,13 @@ const TOLERANCIA_REAIS = 0.005;
 function ehIndisponibilidade(err: unknown): boolean {
   const status = Number((err as { status?: unknown } | null)?.status);
   if (!Number.isInteger(status) || status <= 0) return true;
-  return status >= 500 || status === 408 || status === 429;
+  // 401 e 403 entram aqui, e nao no "resposta com conteudo", porque nao dizem
+  // nada sobre o PAGAMENTO: dizem que NOS perdemos acesso ao Asaas — chave
+  // rotacionada, expirada ou sem permissao. Tratar isso como prova contra o
+  // pagamento e o mesmo defeito que o Asaas fora do ar: o provedor pagou, o
+  // evento seria encerrado com 200 e o credito nunca entraria. Devolvendo
+  // indisponibilidade, o Asaas reentrega enquanto alguem conserta a chave.
+  return status >= 500 || status === 401 || status === 403 || status === 408 || status === 429;
 }
 
 export async function conferirPagamento(

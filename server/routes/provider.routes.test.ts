@@ -11,24 +11,49 @@ const storageMock = vi.hoisted(() => ({
   getUser: vi.fn(async (): Promise<any> => null),
   getUsersByProvider: vi.fn(async (): Promise<any[]> => []),
   deleteUser: vi.fn(async () => undefined),
+  // O requireProvider REAL le o status do provedor para barrar sessao aberta
+  // de provedor suspenso. Ativo por padrao; o teste de suspensao troca.
+  getProvider: vi.fn(async (): Promise<any> => ({ id: 42, name: "Provedor Teste", status: "active" })),
 }));
 vi.mock("../storage", () => ({ storage: storageMock }));
 
-vi.mock("../auth", () => ({
-  requireAuth: (req: any, res: any, next: any) => {
-    if (!req.session?.userId) return res.status(401).json({ message: "Autenticacao necessaria" });
-    next();
-  },
-  requireProvider: (req: any, res: any, next: any) => {
-    const pid = req.session?.providerId;
-    if (!req.session?.userId || !pid || pid <= 0) return res.status(403).json({ message: "Somente provedores" });
-    next();
-  },
+/**
+ * `requireProvider` entra AQUI COMO O REAL, importado do modulo de verdade.
+ *
+ * Antes este arquivo trazia uma copia sincrona escrita a mao, que so olhava
+ * providerId. O bloco "requireProvider nas rotas de provedor" testava, entao,
+ * a propria copia: passaria verde mesmo se o middleware de producao fosse
+ * arrancado das rotas, e nao conhecia a trava de provedor suspenso. Com o
+ * original, estes testes viram defesa de verdade.
+ *
+ * Importar `../auth` cobra dois pedagios, resolvidos abaixo: ele exige
+ * SESSION_SECRET no topo e monta a sessao sobre o pool do Postgres. Nenhum dos
+ * dois tem a ver com o middleware, entao o segredo e falso e o pool e mudo.
+ */
+vi.hoisted(() => {
+  process.env.SESSION_SECRET ||= "segredo-de-teste-sem-nenhum-valor-real";
+});
+vi.mock("../db", () => ({
+  pool: { query: async () => ({ rows: [] }), on: () => undefined, connect: async () => ({ release: () => undefined }) },
+  db: {},
 }));
+vi.mock("../auth", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../auth")>();
+  return {
+    ...real,
+    // O requireAuth real depende de prova de host e de sessao completa, que
+    // este arquivo nao esta testando.
+    requireAuth: (req: any, res: any, next: any) => {
+      if (!req.session?.userId) return res.status(401).json({ message: "Autenticacao necessaria" });
+      next();
+    },
+  };
+});
 
 vi.mock("../password", () => ({ hashPassword: vi.fn(async (s: string) => `hash:${s}`) }));
 vi.mock("../logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
+import { esquecerStatusDeProvedor } from "../auth";
 import { registerProviderRoutes } from "./provider.routes";
 
 let server: Server;
@@ -199,5 +224,32 @@ describe("requireProvider nas rotas de provedor", () => {
     const res = await fetch(`${base}/api/provider/users`);
 
     expect(res.status).toBe(401);
+  });
+
+  /**
+   * O motivo de usar o middleware REAL aqui: a suspensao de um provedor tem
+   * que alcancar a sessao que ja estava aberta. Com a copia escrita a mao que
+   * existia neste arquivo, este teste era impossivel — ela nem lia o status.
+   */
+  it("provedor suspenso nao passa, mesmo com a sessao ja aberta", async () => {
+    esquecerStatusDeProvedor();
+    storageMock.getProvider.mockResolvedValueOnce({ id: 42, name: "Provedor Teste", status: "suspended" });
+    sessao = { userId: 1, providerId: 42, role: "admin" };
+
+    const res = await fetch(`${base}/api/provider/users`);
+
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("PROVIDER_SUSPENDED");
+    expect(storageMock.getUsersByProvider).not.toHaveBeenCalled();
+  });
+
+  it("reativado volta a passar assim que o cache e esquecido", async () => {
+    esquecerStatusDeProvedor();
+    sessao = { userId: 1, providerId: 42, role: "admin" };
+
+    const res = await fetch(`${base}/api/provider/users`);
+
+    expect(res.status).toBe(200);
+    expect(storageMock.getUsersByProvider).toHaveBeenCalledWith(42);
   });
 });

@@ -44,6 +44,14 @@ const dbMock = vi.hoisted(() => {
 });
 vi.mock("../db", () => dbMock);
 
+/**
+ * A transacao boa. Um teste abaixo troca `db.transaction` por uma que sempre
+ * lanca; sem guardar a original aqui e restaurar no beforeEach, todo teste
+ * escrito depois dele herdaria um banco que explode — e `vi.clearAllMocks()`
+ * nao alcanca atribuicao direta de propriedade.
+ */
+const transacaoOriginal = dbMock.db.transaction;
+
 import { UsersStorage } from "./users.storage";
 
 const dialeto = new PgDialect();

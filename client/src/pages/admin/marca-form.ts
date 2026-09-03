@@ -62,6 +62,7 @@ export function camposDoDetalhe(detalhe: Record<string, any>): Record<string, st
 export type FaseDoFormulario =
   | { fase: "fechado" }
   | { fase: "aguardando" }
+  | { fase: "erro" }
   | { fase: "carregar"; campos: Record<string, string> }
   | { fase: "pronto" };
 
@@ -89,10 +90,14 @@ export function faseDoFormulario(
   editando: number | "nova" | null,
   detalhe: Record<string, any> | null | undefined,
   jaCarregada: number | null,
+  falhou = false,
 ): FaseDoFormulario {
   if (editando === null) return { fase: "fechado" };
   if (editando === "nova") return { fase: "pronto" };
   if (jaCarregada === editando) return { fase: "pronto" };
+  // Sem esta fase, GET do detalhe que falha deixa a tela em esqueleto para
+  // sempre, sem uma palavra: o operador acha que ainda está carregando.
+  if (falhou) return { fase: "erro" };
   // Resposta atrasada da marca anterior não vale para esta.
   if (!detalhe || detalhe.id !== editando) return { fase: "aguardando" };
   return { fase: "carregar", campos: camposDoDetalhe(detalhe) };

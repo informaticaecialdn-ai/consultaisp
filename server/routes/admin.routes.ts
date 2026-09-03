@@ -3,7 +3,8 @@ import { requireSuperAdmin } from "../auth";
 import { storage } from "../storage";
 import { hashPassword } from "../password";
 import { sendVerificationEmail } from "../services/email";
-import { esquecerMarcas } from "../services/marca.service";
+import { esquecerMarcas, resolverMarcaPorId, urlDeEntrada } from "../services/marca.service";
+import { esquecerStatusDeProvedor } from "../auth";
 import { getConnector, getSupportedSources } from "../erp/registry";
 import "../erp/index";
 import { getSafeErrorMessage } from "../utils/safe-error";
@@ -250,6 +251,10 @@ export function registerAdminRoutes(): Router {
       // troca de subdominio ficava ate 5 minutos servindo a marca do dono
       // anterior naquele endereco.
       esquecerMarcas();
+      // O status do provedor tambem e cacheado (30s) pelo requireProvider. Sem
+      // esta linha, suspender demorava ate meia rodada de cache para valer nas
+      // sessoes ja abertas — e reativar demorava o mesmo para devolver acesso.
+      esquecerStatusDeProvedor(id);
       return res.json(updated);
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
@@ -280,7 +285,11 @@ export function registerAdminRoutes(): Router {
       const token = crypto.randomBytes(32).toString("hex");
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
       await storage.setVerificationToken(adminUser.id, token, expiresAt);
-      await sendVerificationEmail(adminUser.email, adminUser.name, token);
+      // Sem a marca e a url de entrada, o link cai na raiz da plataforma — que
+      // e exatamente onde a prova de host recusa o login deste usuario. Mesmo
+      // defeito que o cadastro tinha; esta porta do superadmin ficou de fora.
+      const marca = await resolverMarcaPorId(provider.marcaId);
+      await sendVerificationEmail(adminUser.email, adminUser.name, token, marca, urlDeEntrada(provider, marca));
       return res.json({ message: "Email de verificacao reenviado com sucesso." });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
@@ -464,7 +473,23 @@ export function registerAdminRoutes(): Router {
       if (alvo.role === "superadmin") {
         return res.status(409).json({ message: "Conta de administrador do sistema nao pode ser excluida por aqui" });
       }
-      await storage.deleteUser(id);
+      try {
+        await storage.deleteUser(id);
+      } catch (erro: any) {
+        // Mesmo 23503 que a rota do provedor ja traduz: operador com consulta
+        // gravada nao pode ser apagado, porque o historico e do provedor. Sem
+        // esta traducao o superadmin recebia "Erro interno do servidor" e
+        // tentava de novo — a porta do superadmin ficou de fora da correcao
+        // original por estar em outro arquivo.
+        const codigo = erro?.code ?? erro?.cause?.code;
+        if (codigo === "23503") {
+          return res.status(409).json({
+            message: "Este usuario ja tem historico no sistema (consultas ou mensagens de suporte) e por isso nao pode ser apagado — o historico e do provedor e nao pode ir junto.",
+            code: "USUARIO_COM_HISTORICO",
+          });
+        }
+        throw erro;
+      }
       return res.json({ message: "Usuario removido" });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });

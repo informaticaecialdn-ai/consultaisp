@@ -52,6 +52,18 @@ describe("faseDoFormulario", () => {
   it("resposta atrasada de OUTRA marca não carrega esta", () => {
     expect(faseDoFormulario(9, DETALHE, null)).toEqual({ fase: "aguardando" });
   });
+
+  /**
+   * Sem a fase de erro, um GET que falha deixava a tela em esqueleto para
+   * sempre — e esqueleto diz "estou carregando", não "não deu".
+   */
+  it("detalhe que não chega vira erro, não esqueleto eterno", () => {
+    expect(faseDoFormulario(7, undefined, null, true)).toEqual({ fase: "erro" });
+  });
+
+  it("erro depois de carregado não derruba quem já está editando", () => {
+    expect(faseDoFormulario(7, DETALHE, 7, true)).toEqual({ fase: "pronto" });
+  });
 });
 
 describe("camposDoDetalhe", () => {

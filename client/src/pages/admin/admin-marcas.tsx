@@ -119,9 +119,15 @@ export default function AdminMarcasPage() {
   const [carregada, setCarregada] = useState<number | null>(null);
 
   const { data: marcas = [], isLoading } = useQuery<MarcaLista[]>({ queryKey: ["/api/admin/marcas"] });
-  const { data: detalhe } = useQuery<any>({
+  const { data: detalhe, isError: detalheFalhou, refetch: recarregarDetalhe } = useQuery<any>({
     queryKey: ["/api/admin/marcas", editando],
-    queryFn: async () => (await fetch(`/api/admin/marcas/${editando}`, { credentials: "include" })).json(),
+    // O `res.ok` importa: sem ele, um 401 ou 500 vira um objeto de erro sem
+    // `id`, a query nunca falha e o formulario fica em esqueleto para sempre.
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/marcas/${editando}`, { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}`);
+      return res.json();
+    },
     enabled: typeof editando === "number",
   });
   const { data: semMarca = [] } = useQuery<{ id: number; name: string; subdomain: string | null }[]>({
@@ -202,8 +208,8 @@ export default function AdminMarcasPage() {
   // Memo para o efeito abaixo não disparar a cada render — a fase só muda
   // quando muda o que a decide.
   const fase = useMemo(
-    () => faseDoFormulario(editando, detalhe, carregada),
-    [editando, detalhe, carregada],
+    () => faseDoFormulario(editando, detalhe, carregada, detalheFalhou),
+    [editando, detalhe, carregada, detalheFalhou],
   );
 
   /**
@@ -343,7 +349,17 @@ export default function AdminMarcasPage() {
             </Button>
           </div>
 
-          {fase.fase === "aguardando" ? <EsqueletoDoFormulario /> : (
+          {fase.fase === "erro" ? (
+            <div className="rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] px-5 py-8 text-center" data-testid="form-marca-erro">
+              <p className="text-[14px] font-medium text-[var(--text)]">Não foi possível carregar esta marca</p>
+              <p className="mx-auto mt-1 max-w-[46ch] text-[12.5px] text-[var(--text-2)]">
+                Os campos não abrem sem o cadastro atual — editar por cima do que não chegou apagaria o que está gravado.
+              </p>
+              <Button size="sm" variant="outline" className="mt-4 min-h-11" onClick={() => recarregarDetalhe()}>
+                Tentar de novo
+              </Button>
+            </div>
+          ) : fase.fase === "aguardando" ? <EsqueletoDoFormulario /> : (
           <>
           <section className="grid sm:grid-cols-2 gap-3">
             <div>

@@ -1,11 +1,11 @@
 import { Router } from "express";
-import { requireAuth } from "../auth";
+import { requireAuth, requireProvider } from "../auth";
 import { streamConsultationAnalysis, streamAntiFraudAnalysis } from "../services/ai-analysis";
 
 export function registerAiRoutes(): Router {
   const router = Router();
 
-  router.post("/api/ai/analyze-consultation", requireAuth, async (req, res) => {
+  router.post("/api/ai/analyze-consultation", requireAuth, requireProvider, async (req, res) => {
     try {
       const { result } = req.body;
       if (!result) return res.status(400).json({ message: "Dados de consulta ausentes" });
@@ -28,7 +28,7 @@ export function registerAiRoutes(): Router {
     }
   });
 
-  router.post("/api/ai/analyze-antifraud", requireAuth, async (req, res) => {
+  router.post("/api/ai/analyze-antifraud", requireAuth, requireProvider, async (req, res) => {
     try {
       const { alerts, customers } = req.body;
       if (!alerts || !customers) return res.status(400).json({ message: "Dados ausentes" });
