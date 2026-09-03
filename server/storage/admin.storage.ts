@@ -1,12 +1,43 @@
 import { eq, desc, sql, count } from "drizzle-orm";
 import { db } from "../db";
 import {
-  providers, users, customers, ispConsultations, spcConsultations,
+  providers, users, customers, ispConsultations, spcConsultations, bigdataConsultations,
   planChanges, providerInvoices,
   PLAN_PRICES,
   type Provider,
   type PlanChange, type InsertPlanChange,
 } from "@shared/schema";
+import type { OrigemDaConsulta } from "../services/identificador-consulta";
+
+/**
+ * A linha que o suporte achou pelo codigo, com provedor e operador ja
+ * resolvidos — sem o join a rota faria tres idas extras ao banco so para
+ * montar uma ficha de uma linha.
+ *
+ * `result` VEM JUNTO de proposito, e NAO e o que se devolve ao navegador: dele
+ * saem apenas dois numeros — o protocolo da origem e quantos creditos foram
+ * cobrados. Quem recorta e a rota; ver o comentario de LGPD la.
+ */
+export interface LinhaDeConsultaEncontrada {
+  tipo: OrigemDaConsulta;
+  id: number;
+  consultaId: string;
+  cpfCnpj: string;
+  criadaEm: Date | null;
+  providerId: number;
+  providerName: string | null;
+  userId: number;
+  userName: string | null;
+  /** ISP: a unica das tres tabelas com coluna de custo. */
+  cost: number | null;
+  /** ISP: "cpf" ou "cep" — a busca por endereco nao parte de um documento. */
+  searchType: string | null;
+  score: number | null;
+  decisionReco: string | null;
+  veredito: string | null;
+  datasets: string[] | null;
+  result: unknown;
+}
 
 export class AdminStorage {
   async adminUpdateProvider(id: number, data: Partial<Provider>): Promise<Provider> {
@@ -225,5 +256,94 @@ export class AdminStorage {
       },
       providerBillingHealth,
     };
+  }
+
+  /**
+   * A consulta que o provedor citou ao suporte, achada pelo codigo dela.
+   *
+   * Procura nas TRES tabelas porque o codigo nasce no topo do handler, antes
+   * de se saber onde a linha vai cair — o mesmo `CI-2609-K7F3M2` tanto pode
+   * ser de uma consulta ISP quanto de uma SPC ou de uma cadastral. O indice
+   * unico e por tabela, entao decidir o que fazer com duas linhas de mesmo
+   * codigo fica com quem chama: isso seria defeito, nao ambiguidade legitima,
+   * e engolir aqui esconderia o defeito.
+   *
+   * As tres saem em paralelo: sequencial pagaria tres viagens ao banco no caso
+   * mais comum, que e o codigo nao estar nas duas primeiras.
+   *
+   * `consultaId` chega ja normalizado por quem chama. Aqui nao se normaliza de
+   * novo — normalizar em dois lugares e ter duas fontes da verdade que um dia
+   * discordam em silencio.
+   */
+  async buscarConsultasPorCodigo(consultaId: string): Promise<LinhaDeConsultaEncontrada[]> {
+    const [isp, spc, cadastral] = await Promise.all([
+      db.select({
+        id: ispConsultations.id,
+        consultaId: ispConsultations.consultaId,
+        cpfCnpj: ispConsultations.cpfCnpj,
+        criadaEm: ispConsultations.createdAt,
+        providerId: ispConsultations.providerId,
+        providerName: providers.name,
+        userId: ispConsultations.userId,
+        userName: users.name,
+        cost: ispConsultations.cost,
+        searchType: ispConsultations.searchType,
+        score: ispConsultations.score,
+        decisionReco: ispConsultations.decisionReco,
+        result: ispConsultations.result,
+      })
+        .from(ispConsultations)
+        .leftJoin(providers, eq(providers.id, ispConsultations.providerId))
+        .leftJoin(users, eq(users.id, ispConsultations.userId))
+        .where(eq(ispConsultations.consultaId, consultaId)),
+
+      db.select({
+        id: spcConsultations.id,
+        consultaId: spcConsultations.consultaId,
+        cpfCnpj: spcConsultations.cpfCnpj,
+        criadaEm: spcConsultations.createdAt,
+        providerId: spcConsultations.providerId,
+        providerName: providers.name,
+        userId: spcConsultations.userId,
+        userName: users.name,
+        score: spcConsultations.score,
+        result: spcConsultations.result,
+      })
+        .from(spcConsultations)
+        .leftJoin(providers, eq(providers.id, spcConsultations.providerId))
+        .leftJoin(users, eq(users.id, spcConsultations.userId))
+        .where(eq(spcConsultations.consultaId, consultaId)),
+
+      db.select({
+        id: bigdataConsultations.id,
+        consultaId: bigdataConsultations.consultaId,
+        cpfCnpj: bigdataConsultations.cpfCnpj,
+        criadaEm: bigdataConsultations.createdAt,
+        providerId: bigdataConsultations.providerId,
+        providerName: providers.name,
+        userId: bigdataConsultations.userId,
+        userName: users.name,
+        veredito: bigdataConsultations.veredito,
+        datasets: bigdataConsultations.datasets,
+        result: bigdataConsultations.result,
+      })
+        .from(bigdataConsultations)
+        .leftJoin(providers, eq(providers.id, bigdataConsultations.providerId))
+        .leftJoin(users, eq(users.id, bigdataConsultations.userId))
+        .where(eq(bigdataConsultations.consultaId, consultaId)),
+    ]);
+
+    // Cada tabela tem as colunas de desfecho que lhe cabem; a ficha e uma so.
+    // Preencher o que falta com nulo aqui evita `undefined` viajando ate a tela.
+    const semDesfecho = {
+      cost: null, searchType: null, score: null,
+      decisionReco: null, veredito: null, datasets: null,
+    };
+
+    return [
+      ...isp.map(r => ({ ...semDesfecho, ...r, tipo: "isp" as const, consultaId: r.consultaId! })),
+      ...spc.map(r => ({ ...semDesfecho, ...r, tipo: "spc" as const, consultaId: r.consultaId! })),
+      ...cadastral.map(r => ({ ...semDesfecho, ...r, tipo: "cadastral" as const, consultaId: r.consultaId! })),
+    ];
   }
 }

@@ -34,7 +34,7 @@ import { LocalizacaoStorage } from "./localizacao.storage";
 import { ErpStorage } from "./erp.storage";
 import { ChatStorage } from "./chat.storage";
 import { DashboardStorage } from "./dashboard.storage";
-import { AdminStorage } from "./admin.storage";
+import { AdminStorage, type LinhaDeConsultaEncontrada } from "./admin.storage";
 import { ImportStorage } from "./import.storage";
 import { MarcasStorage } from "./marcas.storage";
 
@@ -168,6 +168,8 @@ export interface IStorage {
   updateProviderPlan(id: number, plan: string): Promise<Provider>;
   addCredits(providerId: number, ispCredits: number, spcCredits: number, bigdataCredits?: number): Promise<Provider>;
   getSystemStats(): Promise<any>;
+  /** Busca do suporte pelo codigo da consulta (`CI-2609-K7F3M2`) nas tres tabelas. */
+  buscarConsultasPorCodigo(consultaId: string): Promise<LinhaDeConsultaEncontrada[]>;
 
   getPlanChanges(providerId?: number): Promise<PlanChange[]>;
   createPlanChange(change: InsertPlanChange): Promise<PlanChange>;
@@ -466,6 +468,7 @@ class DatabaseStorage implements IStorage {
   updateProviderPlan = (id: number, plan: string) => this._admin.updateProviderPlan(id, plan);
   addCredits = (providerId: number, ispCredits: number, spcCredits: number, bigdataCredits?: number) => this._admin.addCredits(providerId, ispCredits, spcCredits, bigdataCredits);
   getSystemStats = () => this._admin.getSystemStats();
+  buscarConsultasPorCodigo = (consultaId: string) => this._admin.buscarConsultasPorCodigo(consultaId);
   getPlanChanges = (providerId?: number) => this._admin.getPlanChanges(providerId);
   createPlanChange = (change: InsertPlanChange) => this._admin.createPlanChange(change);
   getSaasMetrics = () => this._admin.getSaasMetrics();
