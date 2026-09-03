@@ -12,6 +12,7 @@ import {
   User, Send, FileText, Globe, CreditCard, Users, Trash2, Eye,
 } from "lucide-react";
 import { PLAN_LABELS } from "../constants";
+import { acaoExcluirProvedor, type AcaoProvedor } from "../acoes-provedor";
 
 const VERIFICATION_LABELS: Record<string, { label: string; color: string; icon: any }> = {
   pending: { label: "Pendente", color: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]", icon: Clock },
@@ -60,9 +61,12 @@ export default function CadastrosTab() {
     onError: (e: any) => toast({ title: "Erro ao reenviar email", description: e.message, variant: "destructive" }),
   });
 
+  // Este e o caminho explicito do hard delete: rotulo "Excluir", aviso que
+  // lista o que some e diz que nao ha desfazer. A lista de Provedores so
+  // suspende. Ver client/src/components/admin/acoes-provedor.ts.
   const deleteProviderMutation = useMutation({
-    mutationFn: async (id: number) => {
-      const res = await apiRequest("DELETE", `/api/admin/providers/${id}`);
+    mutationFn: async (acao: AcaoProvedor) => {
+      const res = await apiRequest(acao.metodo, acao.caminho, acao.corpo);
       return res.json();
     },
     onSuccess: () => {
@@ -230,8 +234,8 @@ export default function CadastrosTab() {
                         size="sm" variant="outline"
                         className="gap-1.5 text-xs h-8 text-[var(--color-danger)] border-red-200 hover:bg-[var(--color-danger-bg)] hover:text-[var(--color-danger)]"
                         onClick={() => {
-                          if (confirm(`Excluir permanentemente o cadastro de "${p.name}"?\n\nTodos os dados associados (usuarios, clientes, consultas, faturas etc.) serao removidos. Esta acao nao pode ser desfeita.`))
-                            deleteProviderMutation.mutate(p.id);
+                          const acao = acaoExcluirProvedor(p.id, p.name);
+                          if (confirm(acao.confirmacao!)) deleteProviderMutation.mutate(acao);
                         }}
                         disabled={deleteProviderMutation.isPending}
                         data-testid={`button-delete-cadastro-${p.id}`}

@@ -7,9 +7,10 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, STALE_LISTS } from "@/lib/queryClient";
 import {
-  Plus, Search, RefreshCw, XCircle, Globe, Users, ChevronRight,
+  Plus, Search, RefreshCw, Ban, CheckCircle, Globe, Users, ChevronRight,
 } from "lucide-react";
 import { PLAN_LABELS } from "../constants";
+import { acaoReativarProvedor, acaoSuspenderProvedor, type AcaoProvedor } from "../acoes-provedor";
 import NewProviderWizard from "../NewProviderWizard";
 import ProviderDrawer from "../ProviderDrawer";
 
@@ -26,18 +27,26 @@ export default function ProvedoresTab() {
     staleTime: STALE_LISTS,
   });
 
-  const deactivateMutation = useMutation({
-    mutationFn: async (id: number) => {
-      const res = await apiRequest("DELETE", `/api/admin/providers/${id}`, undefined);
+  // Este controle bloqueia o acesso; ele NAO apaga o provedor. A exclusao
+  // definitiva (DELETE, cascata sem desfazer) vive na aba Cadastros, com o
+  // rotulo e o aviso dela. Ver client/src/components/admin/acoes-provedor.ts.
+  const statusMutation = useMutation({
+    mutationFn: async (acao: AcaoProvedor) => {
+      const res = await apiRequest(acao.metodo, acao.caminho, acao.corpo);
       if (!res.ok) throw new Error((await res.json()).message);
-      return res.json();
+      return { acao, body: await res.json() };
     },
-    onSuccess: () => {
+    onSuccess: ({ acao }) => {
       qc.invalidateQueries({ queryKey: ["/api/admin/providers"] });
-      toast({ title: "Provedor desativado" });
+      toast({ title: acao.sucesso });
     },
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
+
+  const executar = (acao: AcaoProvedor) => {
+    if (acao.confirmacao && !confirm(acao.confirmacao)) return;
+    statusMutation.mutate(acao);
+  };
 
   const filteredProviders = allProviders.filter((p: any) =>
     p.name.toLowerCase().includes(providerSearch.toLowerCase()) ||
@@ -116,17 +125,27 @@ export default function ProvedoresTab() {
                   >
                     <ChevronRight className="w-3.5 h-3.5" />Painel
                   </Button>
-                  {p.status === "active" && (
+                  {p.status === "active" ? (
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-8 w-8 p-0 text-[var(--color-danger)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]"
-                      onClick={() => {
-                        if (confirm(`Desativar ${p.name}?`)) deactivateMutation.mutate(p.id);
-                      }}
-                      data-testid={`button-deactivate-provider-${p.id}`}
+                      className="gap-1.5 text-xs h-8 text-[var(--color-danger)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]"
+                      onClick={() => executar(acaoSuspenderProvedor(p.id, p.name))}
+                      disabled={statusMutation.isPending}
+                      data-testid={`button-suspend-provider-${p.id}`}
                     >
-                      <XCircle className="w-4 h-4" />
+                      <Ban className="w-3.5 h-3.5" />Suspender
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1.5 text-xs h-8 text-[var(--color-success)] hover:text-[var(--color-success)] hover:bg-[var(--color-success-bg)]"
+                      onClick={() => executar(acaoReativarProvedor(p.id, p.name))}
+                      disabled={statusMutation.isPending}
+                      data-testid={`button-reactivate-provider-${p.id}`}
+                    >
+                      <CheckCircle className="w-3.5 h-3.5" />Reativar
                     </Button>
                   )}
                 </div>
