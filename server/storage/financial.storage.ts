@@ -1,5 +1,6 @@
-import { eq, and, desc, sql, count } from "drizzle-orm";
+import { eq, and, ne, desc, sql } from "drizzle-orm";
 import { db } from "../db";
+import { logger } from "../logger";
 import {
   providers, contracts, invoices, providerInvoices, creditOrders,
   planChanges, providerPartners, providerDocuments,
@@ -13,6 +14,27 @@ import {
   type ProviderPartner, type InsertProviderPartner,
   type ProviderDocument, type InsertProviderDocument,
 } from "@shared/schema";
+
+/**
+ * Proximo numero de uma das sequences da migracao 0012.
+ *
+ * O contador precisa ser atomico: COUNT(*)+1 devolve o MESMO numero para duas
+ * compras simultaneas e a segunda morre no UNIQUE de `order_number`. O nome da
+ * sequence e literal no codigo (nunca vem de entrada) porque identificador nao
+ * aceita bind de parametro.
+ */
+async function proximoNumero(sequence: "credit_orders_numero_seq" | "provider_invoices_numero_seq"): Promise<number> {
+  const r = await db.execute(sql`SELECT nextval(${sequence}) AS n`);
+  const linha = r.rows[0] as { n: string | number } | undefined;
+  return Number(linha?.n ?? 0);
+}
+
+/** O que `releaseCreditOrder` fez de fato — ver a nota de idempotencia la. */
+export interface ResultadoLiberacao {
+  pedido: CreditOrder;
+  /** false quando o pedido ja estava pago: reentrega do webhook, nada a creditar. */
+  liberadoAgora: boolean;
+}
 
 export class FinancialStorage {
   async getContractsByCustomer(customerId: number): Promise<Contract[]> {
@@ -52,9 +74,8 @@ export class FinancialStorage {
 
   async getNextInvoiceNumber(): Promise<string> {
     const year = new Date().getFullYear();
-    const [{ count: total }] = await db.select({ count: count() }).from(providerInvoices);
-    const seq = (Number(total) + 1).toString().padStart(6, "0");
-    return `NF-${year}-${seq}`;
+    const seq = await proximoNumero("provider_invoices_numero_seq");
+    return `NF-${year}-${String(seq).padStart(6, "0")}`;
   }
 
   async getAllProviderInvoices(providerId?: number): Promise<(ProviderInvoice & { providerName: string })[]> {
@@ -98,6 +119,9 @@ export class FinancialStorage {
     status?: string;
     paidDate?: Date;
     paidAmount?: string;
+    // O webhook registra aqui por que recusou um pagamento (valor divergente,
+    // cobranca de outra fatura); e o unico lugar que o superadmin ve.
+    notes?: string;
   }): Promise<ProviderInvoice> {
     const [updated] = await db.update(providerInvoices).set(asaasData).where(eq(providerInvoices.id, id)).returning();
     return updated;
@@ -170,34 +194,62 @@ export class FinancialStorage {
     return updated;
   }
 
-  async releaseCreditOrder(id: number): Promise<CreditOrder> {
-    const order = await this.getCreditOrder(id);
-    if (!order) throw new Error("Pedido nao encontrado");
-    if (order.status === "paid") throw new Error("Creditos ja foram liberados para este pedido");
-    await db.execute(sql`UPDATE providers SET isp_credits = isp_credits + ${order.ispCredits}, spc_credits = spc_credits + ${order.spcCredits}, bigdata_credits = bigdata_credits + ${order.bigdataCredits ?? 0} WHERE id = ${order.providerId}`);
-    const [updated] = await db.update(creditOrders).set({ status: "paid", creditedAt: new Date() }).where(eq(creditOrders.id, id)).returning();
-    await db.insert(planChanges).values({
-      providerId: order.providerId,
-      ispCreditsAdded: order.ispCredits,
-      spcCreditsAdded: order.spcCredits,
-      bigdataCreditsAdded: order.bigdataCredits ?? 0,
-      notes: `Creditos liberados via pedido ${order.orderNumber} (${order.packageName})`,
+  /**
+   * Credita o pedido pago. Transacional e idempotente.
+   *
+   * O Asaas REENTREGA webhook (retentativa, ou o mesmo evento por dois
+   * caminhos). A versao anterior lia o status, creditava e so depois gravava
+   * "paid" em tres comandos soltos: duas entregas em paralelo liam "pending"
+   * juntas e o provedor ganhava o dobro dos creditos, com duas linhas em
+   * plan_changes e duas NFS-e.
+   *
+   * A trava e o proprio UPDATE condicional (`status <> 'paid'`), dentro da
+   * transacao: quem chega em segundo lugar espera o lock da linha, reavalia o
+   * WHERE contra o valor ja gravado, casa com zero linhas e sai sem creditar.
+   * Nao lanca erro — reentrega e evento normal, nao falha.
+   */
+  async releaseCreditOrder(id: number): Promise<ResultadoLiberacao> {
+    const resultado = await db.transaction(async (tx): Promise<ResultadoLiberacao> => {
+      const [reivindicado] = await tx.update(creditOrders)
+        .set({ status: "paid", creditedAt: new Date() })
+        .where(and(eq(creditOrders.id, id), ne(creditOrders.status, "paid")))
+        .returning();
+
+      if (!reivindicado) {
+        const [existente] = await tx.select().from(creditOrders).where(eq(creditOrders.id, id));
+        if (!existente) throw new Error("Pedido nao encontrado");
+        return { pedido: existente, liberadoAgora: false };
+      }
+
+      await tx.execute(sql`UPDATE providers SET isp_credits = isp_credits + ${reivindicado.ispCredits}, spc_credits = spc_credits + ${reivindicado.spcCredits}, bigdata_credits = bigdata_credits + ${reivindicado.bigdataCredits ?? 0} WHERE id = ${reivindicado.providerId}`);
+      await tx.insert(planChanges).values({
+        providerId: reivindicado.providerId,
+        ispCreditsAdded: reivindicado.ispCredits,
+        spcCreditsAdded: reivindicado.spcCredits,
+        bigdataCreditsAdded: reivindicado.bigdataCredits ?? 0,
+        notes: `Creditos liberados via pedido ${reivindicado.orderNumber} (${reivindicado.packageName})`,
+      });
+
+      return { pedido: reivindicado, liberadoAgora: true };
     });
 
-    // Emitir NFS-e automaticamente apos pagamento confirmado
-    try {
-      const { emitirNfseParaCompra } = await import("../services/nfse-auto");
-      emitirNfseParaCompra(order.providerId, updated).catch((err: any) =>
-        console.warn(`[NFS-e] Erro ao emitir NFS-e para pedido ${order.orderNumber}: ${err.message}`)
-      );
-    } catch {}
+    // Fora da transacao e so quando algo foi de fato creditado: a NFS-e e uma
+    // chamada externa, nao pode segurar a transacao nem sair duas vezes para o
+    // mesmo pedido numa reentrega.
+    if (resultado.liberadoAgora) {
+      try {
+        const { emitirNfseParaCompra } = await import("../services/nfse-auto");
+        emitirNfseParaCompra(resultado.pedido.providerId, resultado.pedido).catch((err: any) =>
+          logger.warn({ pedido: resultado.pedido.orderNumber, err: err?.message }, "NFS-e nao emitida para o pedido")
+        );
+      } catch {}
+    }
 
-    return updated;
+    return resultado;
   }
 
   async getNextOrderNumber(): Promise<string> {
-    const [row] = await db.select({ cnt: count() }).from(creditOrders);
-    const num = (row?.cnt || 0) + 1;
+    const num = await proximoNumero("credit_orders_numero_seq");
     const today = new Date();
     const yyyymm = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}`;
     return `CR-${yyyymm}-${String(num).padStart(4, "0")}`;

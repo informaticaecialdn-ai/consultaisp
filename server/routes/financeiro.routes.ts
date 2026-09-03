@@ -145,27 +145,55 @@ export function registerFinanceiroRoutes(): Router {
           logger.warn({ ip: req.ip, path: req.path }, "Webhook Asaas rejeitado: token inválido ou ausente");
           return res.status(401).json({ ok: true });
         }
+      } else if (process.env.NODE_ENV === "production") {
+        // validateEnv já derruba o boot sem o token; esta é a segunda tranca,
+        // para o caso de a rota subir por outro caminho. Sem token em produção
+        // a porta fica aberta para credito de graça — melhor 503.
+        logger.error({ ip: req.ip }, "Webhook Asaas recusado: ASAAS_WEBHOOK_TOKEN ausente em produção");
+        return res.status(503).json({ ok: false });
       } else {
         logger.warn("ASAAS_WEBHOOK_TOKEN não configurado — webhook sem proteção");
       }
 
-      const { event, payment } = req.body;
+      const { event, payment } = req.body ?? {};
 
       logger.info({ event, externalReference: payment?.externalReference }, "Webhook Asaas recebido");
 
-      if (!payment?.externalReference) return res.json({ ok: true });
+      if (!payment?.externalReference || typeof payment.externalReference !== "string") return res.json({ ok: true });
 
       const { asaasStatusToLocal } = await import("../services/asaas");
+      const { conferirPagamento, anotarRecusa } = await import("../services/asaas-conferencia");
 
       const creditOrderMatch = payment.externalReference.match(/^credit_order_(\d+)$/);
       if (creditOrderMatch) {
         const orderId = parseInt(creditOrderMatch[1]);
         const newStatus = asaasStatusToLocal(payment.status);
-        if (newStatus === "paid") {
-          try { await storage.releaseCreditOrder(orderId); } catch {}
-        } else {
-          await storage.updateCreditOrder(orderId, { asaasStatus: payment.status, status: newStatus });
+        const order = await storage.getCreditOrder(orderId);
+        if (!order) {
+          logger.warn({ orderId }, "Webhook Asaas para pedido inexistente");
+          return res.json({ ok: true });
         }
+
+        if (newStatus !== "paid") {
+          await storage.updateCreditOrder(orderId, { asaasStatus: payment.status, status: newStatus });
+          return res.json({ ok: true });
+        }
+
+        const conferencia = await conferirPagamento(payment, {
+          referencia: `credit_order_${orderId}`,
+          valorEsperado: parseFloat(order.amount),
+          chargeIdGravado: order.asaasChargeId,
+        });
+        if (!conferencia.ok) {
+          logger.error({ orderId, pedido: order.orderNumber, motivo: conferencia.motivo }, "Webhook Asaas não liberou crédito");
+          const notes = anotarRecusa(order.notes, conferencia.motivo);
+          if (notes) await storage.updateCreditOrder(orderId, { notes });
+          return res.json({ ok: true });
+        }
+
+        const { liberadoAgora } = await storage.releaseCreditOrder(orderId);
+        logger.info({ orderId, pedido: order.orderNumber, valorPago: conferencia.valorPago, liberadoAgora },
+          liberadoAgora ? "Créditos liberados pelo webhook Asaas" : "Reentrega do webhook Asaas: pedido já estava liberado");
         return res.json({ ok: true });
       }
 
@@ -174,13 +202,38 @@ export function registerFinanceiroRoutes(): Router {
 
       const invoiceId = parseInt(invoiceMatch[1]);
       const newStatus = asaasStatusToLocal(payment.status);
-
-      const updateData: any = { asaasStatus: payment.status, status: newStatus };
-      if (newStatus === "paid" && payment.paymentDate) {
-        updateData.paidDate = new Date(payment.paymentDate);
-        updateData.paidAmount = String(payment.value);
+      const invoice = await storage.getProviderInvoice(invoiceId);
+      if (!invoice) {
+        logger.warn({ invoiceId }, "Webhook Asaas para fatura inexistente");
+        return res.json({ ok: true });
       }
-      await storage.updateProviderInvoiceAsaas(invoiceId, updateData);
+
+      if (newStatus !== "paid") {
+        await storage.updateProviderInvoiceAsaas(invoiceId, { asaasStatus: payment.status, status: newStatus });
+        return res.json({ ok: true });
+      }
+
+      const conferencia = await conferirPagamento(payment, {
+        referencia: `invoice_${invoiceId}`,
+        valorEsperado: parseFloat(invoice.amount),
+        chargeIdGravado: invoice.asaasChargeId,
+      });
+      if (!conferencia.ok) {
+        logger.error({ invoiceId, fatura: invoice.invoiceNumber, motivo: conferencia.motivo }, "Webhook Asaas não deu a fatura por paga");
+        const notes = anotarRecusa(invoice.notes, conferencia.motivo);
+        if (notes) await storage.updateProviderInvoiceAsaas(invoiceId, { notes });
+        return res.json({ ok: true });
+      }
+
+      // Reentrega não é problema aqui: gravar "paid" de novo com os mesmos
+      // valores não soma nada, ao contrário do crédito.
+      await storage.updateProviderInvoiceAsaas(invoiceId, {
+        asaasStatus: payment.status,
+        status: "paid",
+        paidDate: payment.paymentDate ? new Date(payment.paymentDate) : new Date(),
+        paidAmount: conferencia.valorPago.toFixed(2),
+      });
+      logger.info({ invoiceId, fatura: invoice.invoiceNumber, valorPago: conferencia.valorPago }, "Fatura marcada como paga pelo webhook Asaas");
       return res.json({ ok: true });
     } catch (error: any) {
       logger.error({ err: error.message }, "Webhook Asaas error");

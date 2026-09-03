@@ -1,7 +1,25 @@
 import { Router } from "express";
 import { requireAuth, requireSuperAdmin } from "../auth";
 import { storage } from "../storage";
+import { logger } from "../logger";
 import { getSafeErrorMessage } from "../utils/safe-error";
+
+/** Formas de cobranca que o Asaas aceita; qualquer outra coisa vira UNDEFINED. */
+const FORMAS_DE_COBRANCA = ["PIX", "BOLETO", "UNDEFINED"] as const;
+type FormaDeCobranca = (typeof FORMAS_DE_COBRANCA)[number];
+
+/**
+ * O body vem do cliente. Mandar a string crua para o Asaas devolve 400 com uma
+ * mensagem em ingles que o provedor ve como "erro ao gerar cobranca".
+ */
+function formaDeCobranca(valor: unknown): FormaDeCobranca {
+  return FORMAS_DE_COBRANCA.includes(valor as FormaDeCobranca) ? (valor as FormaDeCobranca) : "UNDEFINED";
+}
+
+/** Vencimento padrao da cobranca: tres dias, no formato AAAA-MM-DD do Asaas. */
+function vencimentoPadrao(): string {
+  return new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
 
 export function registerCreditsRoutes(): Router {
   const router = Router();
@@ -52,13 +70,22 @@ export function registerCreditsRoutes(): Router {
       try {
         const { isAsaasConfigured, findOrCreateCustomer, createCharge } = await import("../services/asaas");
         if (isAsaasConfigured() && billingType) {
-          const customer = await findOrCreateCustomer({ name: provider.name, cnpj: provider.cnpj, email: provider.contactEmail || me?.email || "" });
+          // `cpfCnpj` e `customerId` sao os nomes que services/asaas.ts espera.
+          // Enquanto isto dizia `cnpj` e `customer`, o Asaas criava cliente sem
+          // documento e cobranca sem pagador: a compra self-service inteira caia
+          // no catch abaixo e o provedor recebia um pedido sem como pagar.
+          const customer = await findOrCreateCustomer({
+            name: provider.name,
+            cpfCnpj: provider.cnpj,
+            email: provider.contactEmail || me?.email || undefined,
+            phone: provider.contactPhone || undefined,
+          });
           const charge = await createCharge({
-            customer: customer.id,
-            billingType: billingType || "UNDEFINED",
+            customerId: customer.id,
+            billingType: formaDeCobranca(billingType),
             value: pkg.price / 100,
-            dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-            description: `${pkg.name} — ${pkg.credits} creditos ${creditType.toUpperCase()}`,
+            dueDate: vencimentoPadrao(),
+            description: `${pkg.name} — ${pkg.credits} creditos`,
             externalReference: `credit_order_${order.id}`,
           });
           await storage.updateCreditOrder(order.id, {
@@ -70,7 +97,9 @@ export function registerCreditsRoutes(): Router {
           chargeData = charge;
         }
       } catch (asaasErr: any) {
-        console.warn("Asaas charge creation failed:", asaasErr.message);
+        // O pedido ja existe e a tela oferece "fale com o suporte"; derrubar a
+        // rota apagaria o pedido da vista do provedor sem apagar do banco.
+        logger.error({ pedido: order.orderNumber, err: asaasErr?.message }, "Cobranca Asaas nao criada para o pedido");
       }
 
       return res.json({ order, charge: chargeData });
@@ -142,12 +171,18 @@ export function registerCreditsRoutes(): Router {
           const { isAsaasConfigured, findOrCreateCustomer, createCharge } = await import("../services/asaas");
           if (isAsaasConfigured()) {
             const credits = ispCredits || spcCredits;
-            const customer = await findOrCreateCustomer({ name: provider.name, cnpj: provider.cnpj, email: provider.contactEmail || "" });
+            const customer = await findOrCreateCustomer({
+              name: provider.name,
+              cpfCnpj: provider.cnpj,
+              email: provider.contactEmail || undefined,
+              phone: provider.contactPhone || undefined,
+            });
             const charge = await createCharge({
-              customer: customer.id, billingType,
+              customerId: customer.id,
+              billingType: formaDeCobranca(billingType),
               value: parseFloat(amount),
-              dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-              description: `${packageName} — ${credits} creditos ${creditType.toUpperCase()}`,
+              dueDate: vencimentoPadrao(),
+              description: `${packageName} — ${credits} creditos`,
               externalReference: `credit_order_${order.id}`,
             });
             await storage.updateCreditOrder(order.id, {
@@ -159,7 +194,7 @@ export function registerCreditsRoutes(): Router {
             chargeData = charge;
           }
         } catch (asaasErr: any) {
-          console.warn("Asaas charge creation failed:", asaasErr.message);
+          logger.error({ pedido: order.orderNumber, err: asaasErr?.message }, "Cobranca Asaas nao criada para o pedido");
         }
       }
 
@@ -172,8 +207,14 @@ export function registerCreditsRoutes(): Router {
   router.post("/api/admin/credit-orders/:id/release", requireSuperAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const order = await storage.releaseCreditOrder(id);
-      return res.json({ order, message: `${order.ispCredits} ISP + ${order.spcCredits} SPC creditos liberados` });
+      const { pedido, liberadoAgora } = await storage.releaseCreditOrder(id);
+      return res.json({
+        order: pedido,
+        liberadoAgora,
+        message: liberadoAgora
+          ? `${pedido.ispCredits} creditos liberados`
+          : "Este pedido ja estava liberado; nada foi creditado de novo",
+      });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
@@ -200,12 +241,18 @@ export function registerCreditsRoutes(): Router {
       if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
 
       const { findOrCreateCustomer, createCharge } = await import("../services/asaas");
-      const customer = await findOrCreateCustomer({ name: provider.name, cnpj: provider.cnpj, email: provider.contactEmail || "" });
+      const customer = await findOrCreateCustomer({
+        name: provider.name,
+        cpfCnpj: provider.cnpj,
+        email: provider.contactEmail || undefined,
+        phone: provider.contactPhone || undefined,
+      });
       const charge = await createCharge({
-        customer: customer.id, billingType: billingType || "UNDEFINED",
+        customerId: customer.id,
+        billingType: formaDeCobranca(billingType),
         value: parseFloat(order.amount),
-        dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-        description: `Creditos ${order.packageName}: ${order.ispCredits} ISP + ${order.spcCredits} SPC`,
+        dueDate: vencimentoPadrao(),
+        description: `Creditos ${order.packageName}: ${order.ispCredits} creditos`,
         externalReference: `credit_order_${order.id}`,
       });
       const updated = await storage.updateCreditOrder(id, {
@@ -231,8 +278,13 @@ export function registerCreditsRoutes(): Router {
       const updates: any = { asaasStatus: charge.status, asaasInvoiceUrl: charge.invoiceUrl, asaasBankSlipUrl: charge.bankSlipUrl };
       if (charge.pixTransaction?.payload) updates.asaasPixKey = charge.pixTransaction.payload;
       if (newStatus === "paid" && order.status !== "paid") {
-        const released = await storage.releaseCreditOrder(id);
-        return res.json({ order: released, message: "Pagamento confirmado e creditos liberados automaticamente" });
+        const { pedido, liberadoAgora } = await storage.releaseCreditOrder(id);
+        return res.json({
+          order: pedido,
+          message: liberadoAgora
+            ? "Pagamento confirmado e creditos liberados automaticamente"
+            : "Pedido ja estava liberado; nada foi creditado de novo",
+        });
       }
       const updated = await storage.updateCreditOrder(id, { ...updates, status: newStatus !== "paid" ? newStatus : order.status });
       return res.json({ order: updated });
