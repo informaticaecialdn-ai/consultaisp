@@ -5,6 +5,128 @@ import { PLAN_PRICES, PLAN_CREDITS } from "@shared/schema";
 import { logger } from "../logger";
 import { getAsaasWebhookToken } from "../env";
 import { getSafeErrorMessage } from "../utils/safe-error";
+import { sendFaturaGeradaEmail, sendFaturaPagaEmail } from "../services/email";
+import { avisarProvedor, type ProvedorParaEmail } from "../services/email-destinatario";
+import { ROTULO_DO_PLANO } from "../services/precos.service";
+// O aviso de credito liberado nasce em `credits.routes.ts` porque e la que
+// moram os outros dois caminhos de liberacao. Aqui esta o terceiro — o webhook —
+// e ele usa a MESMA funcao de proposito: duas copias da regra sao duas chances
+// de o provedor receber o aviso duas vezes pelo mesmo pagamento.
+import { avisarCreditosLiberados } from "./credits.routes";
+
+const MESES = [
+  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+];
+
+/**
+ * "2026-09" vira "setembro de 2026".
+ *
+ * A competencia e gravada no formato do banco (AAAA-MM), que serve para ordenar
+ * e para a tela do superadmin. No e-mail ela e a primeira coisa que o provedor
+ * le — esta no assunto e no titulo — e "Fatura de 2026-09" nao e portugues.
+ *
+ * Formato inesperado volta como veio: e melhor o provedor ler a competencia crua
+ * do que ler "Invalid Date" ou "undefined de NaN".
+ */
+export function competenciaPorExtenso(period: string): string {
+  const casa = /^(\d{4})-(\d{2})$/.exec((period || "").trim());
+  if (!casa) return period;
+  const mes = MESES[Number(casa[2]) - 1];
+  return mes ? `${mes} de ${casa[1]}` : period;
+}
+
+/**
+ * Vencimento como o provedor le: dd/mm/aaaa.
+ *
+ * Getters locais, e nao UTC, de proposito: e assim que a data foi construida na
+ * geracao mensal (`new Date(ano, mes - 1, 10)`) e e assim que a tela do
+ * superadmin a mostra (`toLocaleDateString("pt-BR")` em InvoiceTable). E-mail e
+ * tela divergirem em um dia num vencimento e pior do que qualquer fuso.
+ */
+export function dataPorExtenso(valor: Date | string | null | undefined): string {
+  if (valor === null || valor === undefined) return "";
+  const d = valor instanceof Date ? valor : new Date(valor);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+}
+
+/** O que o aviso de fatura gerada precisa saber da fatura. */
+interface FaturaGerada {
+  invoiceNumber: string;
+  period: string;
+  planAtTime: string;
+  amount: string;
+  dueDate: Date | string;
+  asaasInvoiceUrl?: string | null;
+}
+
+/**
+ * "Sua fatura foi emitida."
+ *
+ * `avisarProvedor` resolve destinatario, marca e endereco de entrada, e engole a
+ * falha de envio com log — por isso nao ha try/catch aqui. A fatura ja existe
+ * quando este aviso sai, e nenhuma falha dele pode desfaze-la.
+ */
+async function avisarFaturaGerada(provedor: ProvedorParaEmail, fatura: FaturaGerada): Promise<void> {
+  await avisarProvedor(provedor, async (para, ctx) => {
+    await sendFaturaGeradaEmail(para, ctx.nome, {
+      numero: fatura.invoiceNumber,
+      competencia: competenciaPorExtenso(fatura.period),
+      // Plano fora do catalogo sai com a propria chave em vez de vazio: o
+      // provedor precisa saber o que esta sendo cobrado, mesmo num plano legado.
+      plano: ROTULO_DO_PLANO[fatura.planAtTime] || fatura.planAtTime,
+      valor: parseFloat(fatura.amount),
+      vencimento: dataPorExtenso(fatura.dueDate),
+      // So existe quando a cobranca Asaas ja foi criada; sem ela o e-mail cai
+      // sozinho no botao "ver a fatura no painel".
+      linkDePagamento: fatura.asaasInvoiceUrl ?? null,
+    }, ctx.marca, ctx.urlBase);
+  }, "fatura-gerada");
+}
+
+/** "Recebemos o pagamento da sua fatura." */
+async function avisarFaturaPaga(
+  provedor: ProvedorParaEmail,
+  fatura: { invoiceNumber: string; period: string },
+  valorPago: number,
+): Promise<void> {
+  await avisarProvedor(provedor, async (para, ctx) => {
+    await sendFaturaPagaEmail(para, ctx.nome, {
+      numero: fatura.invoiceNumber,
+      competencia: competenciaPorExtenso(fatura.period),
+      valor: valorPago,
+    }, ctx.marca, ctx.urlBase);
+  }, "fatura-paga");
+}
+
+/**
+ * O provedor dono da fatura, para o aviso.
+ *
+ * A leitura acontece DEPOIS que o efeito financeiro ja esta gravado, entao ela
+ * nao pode virar 500 na tela nem 500 no webhook (que faria o Asaas reentregar um
+ * evento ja processado). Sem provedor, nao ha a quem avisar — e so isso.
+ */
+async function provedorParaAviso(providerId: number, rotulo: string): Promise<ProvedorParaEmail | undefined> {
+  try {
+    const provedor = await storage.getProvider(providerId);
+    if (!provedor) logger.warn({ providerId, rotulo }, "[email] Provedor da fatura nao encontrado: aviso nao enviado");
+    return provedor;
+  } catch (err: any) {
+    logger.error({ providerId, rotulo, err: err?.message }, "[email] Provedor da fatura nao lido: aviso nao enviado");
+    return undefined;
+  }
+}
+
+/**
+ * Quanto entrou. `paidAmount` e o que o superadmin digitou e pode vir vazio,
+ * zerado ou nao numerico; nesses casos vale o valor da fatura. O e-mail nunca
+ * deve mostrar "R$ NaN".
+ */
+function valorRecebido(paidAmount: unknown, amount: string): number {
+  const informado = Number(paidAmount);
+  return Number.isFinite(informado) && informado > 0 ? informado : parseFloat(amount);
+}
 
 export function registerFinanceiroRoutes(): Router {
   const router = Router();
@@ -89,6 +211,10 @@ export function registerFinanceiroRoutes(): Router {
         asaasInvoiceUrl: charge.invoiceUrl || invoice.asaasInvoiceUrl,
         asaasBankSlipUrl: charge.bankSlipUrl || invoice.asaasBankSlipUrl,
       };
+      // Foto de antes, para o aviso la embaixo: mesmo criterio que a trava do
+      // `else if` usa para preservar fatura ja paga.
+      const jaEstavaPaga = invoice.status === "paid" || !!invoice.paidDate;
+      let conferenciaValorPago = 0;
 
       if (newStatus === "paid") {
         // O status cru da cobranca nao prova que ela e desta fatura nem que
@@ -115,6 +241,7 @@ export function registerFinanceiroRoutes(): Router {
         updateData.status = "paid";
         updateData.paidDate = charge.paymentDate ? new Date(charge.paymentDate) : new Date();
         updateData.paidAmount = conferencia.valorPago.toFixed(2);
+        conferenciaValorPago = conferencia.valorPago;
       } else if (invoice.status === "paid" || invoice.paidDate) {
         // Mesma trava do webhook: um status nao-pago (chargeback pedido,
         // OVERDUE antigo) so registra o lado do Asaas; a fatura ja paga
@@ -126,6 +253,13 @@ export function registerFinanceiroRoutes(): Router {
       }
 
       const updated = await storage.updateProviderInvoiceAsaas(id, updateData);
+      // Mesmo criterio do webhook: so avisa quem passou de nao-paga a paga
+      // AGORA. Sincronizar duas vezes a mesma cobranca regrava "paid" sem
+      // consequencia — e sem um segundo e-mail.
+      if (updateData.status === "paid" && !jaEstavaPaga) {
+        const provedor = await provedorParaAviso(invoice.providerId, "fatura-paga");
+        if (provedor) await avisarFaturaPaga(provedor, invoice, conferenciaValorPago);
+      }
       return res.json({ invoice: updated, charge });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
@@ -247,7 +381,7 @@ export function registerFinanceiroRoutes(): Router {
           return res.json({ ok: true });
         }
 
-        const { liberadoAgora } = await storage.releaseCreditOrder(orderId);
+        const { pedido, liberadoAgora } = await storage.releaseCreditOrder(orderId);
         logger.info({ orderId, pedido: order.orderNumber, valorPago: conferencia.valorPago, liberadoAgora },
           liberadoAgora ? "Créditos liberados pelo webhook Asaas" : "Reentrega do webhook Asaas: pedido já estava liberado");
         if (conferencia.avisoIdDivergente && liberadoAgora) {
@@ -256,6 +390,12 @@ export function registerFinanceiroRoutes(): Router {
           const notes = anotarObservacao(order.notes, `Asaas: ${conferencia.avisoIdDivergente}`);
           if (notes) await storage.updateCreditOrder(orderId, { notes });
         }
+        // O provedor pagou um PIX e fechou a aba: sem este aviso, a unica forma
+        // de saber que caiu e abrir o painel. `liberadoAgora` e a trava contra a
+        // reentrega — o Asaas reenvia o mesmo PAYMENT_RECEIVED, e a segunda vez
+        // nao credita nem avisa. Esperar o envio antes de responder e seguro: se
+        // o Asaas desistir da resposta e reentregar, a reentrega nao avisa de novo.
+        if (liberadoAgora) await avisarCreditosLiberados(pedido);
         return res.json({ ok: true });
       }
 
@@ -310,6 +450,11 @@ export function registerFinanceiroRoutes(): Router {
 
       // Reentrega não é problema aqui: gravar "paid" de novo com os mesmos
       // valores não soma nada, ao contrário do crédito.
+      //
+      // O AVISO, porém, soma: sai uma vez por entrega. A foto de antes é o que
+      // separa a primeira quitação da reentrega — e é o mesmo critério que a
+      // trava logo acima usa para não rebaixar fatura já paga.
+      const jaEstavaPaga = invoice.status === "paid" || !!invoice.paidDate;
       await storage.updateProviderInvoiceAsaas(invoiceId, {
         asaasStatus: payment.status,
         status: "paid",
@@ -322,6 +467,10 @@ export function registerFinanceiroRoutes(): Router {
           "Fatura paga por cobrança diferente da gravada");
         const notes = anotarObservacao(invoice.notes, `Asaas: ${conferencia.avisoIdDivergente}`);
         if (notes) await storage.updateProviderInvoiceAsaas(invoiceId, { notes });
+      }
+      if (!jaEstavaPaga) {
+        const provedor = await provedorParaAviso(invoice.providerId, "fatura-paga");
+        if (provedor) await avisarFaturaPaga(provedor, invoice, conferencia.valorPago);
       }
       return res.json({ ok: true });
     } catch (error: any) {
@@ -399,6 +548,10 @@ export function registerFinanceiroRoutes(): Router {
         createdById: req.session.userId!,
         createdByName: me?.name || "Admin",
       });
+      // A fatura ja esta gravada: o aviso vem depois e nao pode virar 500 na
+      // tela do superadmin.
+      const provedor = await provedorParaAviso(invoice.providerId, "fatura-gerada");
+      if (provedor) await avisarFaturaGerada(provedor, invoice);
       return res.status(201).json(invoice);
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
@@ -409,10 +562,28 @@ export function registerFinanceiroRoutes(): Router {
     try {
       const { status, paidAmount } = req.body;
       if (!status) return res.status(400).json({ message: "Status e obrigatorio" });
+      const id = parseInt(req.params.id);
+
+      // Foto de antes. E ela que diz se foi ESTA chamada que quitou a fatura:
+      // um segundo PATCH com "paid" — o superadmin clicando de novo, ou
+      // corrigindo o valor pago — nao pode render um segundo aviso. Uma falha
+      // na leitura nao derruba a alteracao de status: sem a foto nao se avisa,
+      // e so.
+      const antes = await storage.getProviderInvoice(id).catch((err: any) => {
+        logger.warn({ invoiceId: id, err: err?.message },
+          "[email] Fatura nao lida antes da mudanca de status: aviso de pagamento nao sera enviado");
+        return undefined;
+      });
+
       const paidDate = status === "paid" ? new Date() : undefined;
       const updated = await storage.updateProviderInvoiceStatus(
-        parseInt(req.params.id), status, paidDate, paidAmount?.toString()
+        id, status, paidDate, paidAmount?.toString()
       );
+
+      if (status === "paid" && antes && !(antes.status === "paid" || antes.paidDate)) {
+        const provedor = await provedorParaAviso(antes.providerId, "fatura-paga");
+        if (provedor) await avisarFaturaPaga(provedor, antes, valorRecebido(paidAmount, antes.amount));
+      }
       return res.json(updated);
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
@@ -443,21 +614,33 @@ export function registerFinanceiroRoutes(): Router {
       const dueDate = new Date(year, month - 1, 10);
       let created = 0;
       let skipped = 0;
+      // Os avisos saem SO DEPOIS que todas as faturas existirem. E o que garante
+      // que nenhum e-mail lento ou fora do ar se meta entre a geracao de uma
+      // fatura e a da proxima: o laco de baixo nao chama nada de fora.
+      const aAvisar: { provedor: ProvedorParaEmail; fatura: FaturaGerada }[] = [];
       for (const provider of allProviders) {
         if (PLAN_PRICES[provider.plan] === 0) { skipped++; continue; }
         const existingInvoices = await storage.getAllProviderInvoices(provider.id);
         if (existingInvoices.some(i => i.period === period && i.status !== "cancelled")) { skipped++; continue; }
         const invoiceNumber = await storage.getNextInvoiceNumber();
         const credits = PLAN_CREDITS[provider.plan] || { isp: 0, spc: 0 };
+        const amount = PLAN_PRICES[provider.plan].toString();
         await storage.createProviderInvoice({
           invoiceNumber, providerId: provider.id, period,
-          planAtTime: provider.plan, amount: PLAN_PRICES[provider.plan].toString(),
+          planAtTime: provider.plan, amount,
           ispCreditsIncluded: credits.isp, spcCreditsIncluded: credits.spc,
           dueDate, status: "pending",
           createdById: req.session.userId!, createdByName: me?.name || "Admin",
         });
         created++;
+        aAvisar.push({
+          provedor: provider,
+          fatura: { invoiceNumber, period, planAtTime: provider.plan, amount, dueDate },
+        });
       }
+      // `avisarFaturaGerada` nunca lanca (ver `avisarProvedor`), entao a falha
+      // de um e-mail nao interrompe os outros nem a resposta da rota.
+      for (const { provedor, fatura } of aAvisar) await avisarFaturaGerada(provedor, fatura);
       return res.json({ created, skipped, message: `${created} faturas geradas para ${period}` });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
