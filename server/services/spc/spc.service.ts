@@ -221,7 +221,24 @@ async function chamar(corpo: string, operacao: string): Promise<string> {
  */
 export async function consultarSpc(
   documento: string,
-  opcoes: { codigoProduto?: number; insumosOpcionais?: number[]; guardarXml?: boolean } = {},
+  opcoes: {
+    codigoProduto?: number;
+    insumosOpcionais?: number[];
+    guardarXml?: boolean;
+    /**
+     * O `CI-AAMM-XXXXXX` da requisicao que pediu esta consulta.
+     *
+     * Nasce na rota, nao aqui: `chamar` repete a chamada HTTP quando o SPC cai
+     * (withResilience, `retries: 1`), e o codigo identifica a consulta LOGICA,
+     * nao a tentativa. Gerar um por tentativa daria dois codigos para o que o
+     * provedor viveu como uma consulta so.
+     *
+     * Nao confundir com o `protocolo` que o SPC devolve dentro do resultado:
+     * aquele e o numero DELES, existe so quando a consulta deu certo, e serve
+     * para reclamar com o SPC. Este existe mesmo quando o SPC recusa.
+     */
+    consultaId?: string;
+  } = {},
 ): Promise<SpcResult> {
   const doc = documento.replace(/\D/g, "");
   if (doc.length !== 11 && doc.length !== 14) {
@@ -229,14 +246,15 @@ export async function consultarSpc(
   }
   const produto = opcoes.codigoProduto ?? config().produto;
   const insumos = opcoes.insumosOpcionais ?? insumosOpcionaisPadrao();
+  const consultaId = opcoes.consultaId;
   const t0 = Date.now();
-  logger.info({ doc: doc.slice(0, 3) + "***", produto, insumosOpcionais: insumos }, "[SPC] consulta iniciada");
+  logger.info({ consultaId, doc: doc.slice(0, 3) + "***", produto, insumosOpcionais: insumos }, "[SPC] consulta iniciada");
 
   const xml = await chamar(montarFiltroConsulta(produto, doc, insumos), "consultar");
   const resultado = parseRespostaConsulta(xml, doc, { guardarXml: opcoes.guardarXml });
 
   logger.info(
-    { doc: doc.slice(0, 3) + "***", produto, protocolo: resultado.protocolo, restricao: resultado.restricao, restricoes: resultado.restrictions.length, score: resultado.score, ms: Date.now() - t0 },
+    { consultaId, doc: doc.slice(0, 3) + "***", produto, protocolo: resultado.protocolo, restricao: resultado.restricao, restricoes: resultado.restrictions.length, score: resultado.score, ms: Date.now() - t0 },
     "[SPC] consulta concluída",
   );
   return resultado;

@@ -17,6 +17,20 @@ import { logger } from "../logger.js";
 
 const ERP_QUERY_TIMEOUT_MS = 30_000; // 30s per ERP — increased for multi-format CPF search
 
+/**
+ * O que amarra estas linhas de log a UMA consulta.
+ *
+ * Dois provedores consultando CPFs diferentes no mesmo minuto produzem
+ * intercalado o mesmo texto ("RT-QUERY ERP falhou") com o mesmo prefixo de
+ * documento mascarado. Sem o identificador da consulta nao havia como dizer
+ * qual linha pertence a qual — que e exatamente a pergunta do suporte quando o
+ * provedor liga com um codigo na mao.
+ */
+export interface OpcoesDeCorrelacao {
+  /** O `CI-AAMM-XXXXXX` da requisicao que originou esta consulta ao ERP. */
+  consultaId?: string;
+}
+
 export interface RealtimeQueryResult {
   providerId: number;
   providerName: string;
@@ -112,6 +126,7 @@ async function querySingleErp(
   intg: ErpIntegration & { providerName: string },
   document: string,
   searchType: "cpf" | "cnpj" | "cep",
+  consultaId?: string,
 ): Promise<RealtimeQueryResult> {
   const start = Date.now();
   let config: ErpConnectionConfig;
@@ -120,7 +135,7 @@ async function querySingleErp(
   } catch (err) {
     // O detalhe (id do provedor, URL do ERP) fica no log. O que sai para quem
     // consulta e um rotulo grosso — a mensagem chegava a outros provedores.
-    logger.warn({ providerId: intg.providerId, erpSource: intg.erpSource, err }, "RT-QUERY configuracao do ERP invalida");
+    logger.warn({ consultaId, providerId: intg.providerId, erpSource: intg.erpSource, err }, "RT-QUERY configuracao do ERP invalida");
     return {
       providerId: intg.providerId,
       providerName: intg.providerName,
@@ -161,7 +176,7 @@ async function querySingleErp(
           customers = result.customers.map(normalizeCustomer);
         } else {
           // Optimized CEP path failed — fallback to fetchDelinquents + in-memory CEP filter
-          logger.warn({ providerId: intg.providerId, erpSource: intg.erpSource, error: result.message }, "RT-QUERY fetchCustomersByCep falhou, tentando fallback");
+          logger.warn({ consultaId, providerId: intg.providerId, erpSource: intg.erpSource, error: result.message }, "RT-QUERY fetchCustomersByCep falhou, tentando fallback");
           const fallback = await Promise.race([
             connector.fetchDelinquents(config),
             new Promise<never>((_, reject) =>
@@ -242,7 +257,7 @@ async function querySingleErp(
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Erro desconhecido";
     const isTimeout = msg === "Timeout" || msg.includes("timeout");
-    logger.warn({ providerId: intg.providerId, erpSource: intg.erpSource, doc: document.slice(0, 4) + "***", error: msg }, "RT-QUERY ERP falhou");
+    logger.warn({ consultaId, providerId: intg.providerId, erpSource: intg.erpSource, doc: document.slice(0, 4) + "***", error: msg }, "RT-QUERY ERP falhou");
     return {
       providerId: intg.providerId,
       providerName: intg.providerName,
@@ -334,11 +349,13 @@ export interface EnderecoConsulta {
 export async function queryRegionalErpsByAddress(
   integrations: Array<ErpIntegration & { providerName: string }>,
   endereco: EnderecoConsulta,
+  opcoes: OpcoesDeCorrelacao = {},
 ): Promise<RealtimeQueryResult[]> {
   if (integrations.length === 0) return [];
+  const { consultaId } = opcoes;
 
   logger.info(
-    { count: integrations.length, cidade: endereco.cidade, temCep: !!endereco.cep },
+    { consultaId, count: integrations.length, cidade: endereco.cidade, temCep: !!endereco.cep },
     "RT-QUERY cruzando endereco nos ERPs",
   );
 
@@ -381,7 +398,7 @@ export async function queryRegionalErpsByAddress(
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Erro desconhecido";
       const isTimeout = msg === "Timeout" || msg.includes("timeout");
-      logger.warn({ providerId: intg.providerId, erpSource: intg.erpSource, error: msg }, "RT-QUERY endereco falhou");
+      logger.warn({ consultaId, providerId: intg.providerId, erpSource: intg.erpSource, error: msg }, "RT-QUERY endereco falhou");
       return { ...base, ok: false, error: isTimeout ? `Timeout (${ERP_QUERY_TIMEOUT_MS / 1000}s)` : msg, timedOut: isTimeout, customers: [], latencyMs: Date.now() - start };
     }
   };
@@ -402,13 +419,15 @@ export async function queryRegionalErps(
   integrations: Array<ErpIntegration & { providerName: string }>,
   document: string,
   searchType: "cpf" | "cnpj" | "cep",
+  opcoes: OpcoesDeCorrelacao = {},
 ): Promise<RealtimeQueryResult[]> {
   if (integrations.length === 0) return [];
+  const { consultaId } = opcoes;
 
-  logger.info({ count: integrations.length, searchType, doc: document.slice(0, 4) + "***" }, "RT-QUERY consultando ERPs");
+  logger.info({ consultaId, count: integrations.length, searchType, doc: document.slice(0, 4) + "***" }, "RT-QUERY consultando ERPs");
 
   const results = await Promise.allSettled(
-    integrations.map(intg => querySingleErp(intg, document, searchType))
+    integrations.map(intg => querySingleErp(intg, document, searchType, consultaId))
   );
 
   const finalResults = results.map((r, i) => {
@@ -426,7 +445,7 @@ export async function queryRegionalErps(
 
   const successful = finalResults.filter(r => r.ok).length;
   const failed = finalResults.filter(r => !r.ok).length;
-  logger.info({ successful, failed, total: integrations.length }, "RT-QUERY concluido");
+  logger.info({ consultaId, successful, failed, total: integrations.length }, "RT-QUERY concluido");
 
   return finalResults;
 }
