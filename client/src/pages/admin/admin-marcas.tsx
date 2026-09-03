@@ -122,7 +122,8 @@ export default function AdminMarcasPage() {
       // Só o que mudou. Campo que o formulário não carregou fica de fora e o
       // servidor o preserva — ver a nota no topo do arquivo e marca-form.ts.
       const corpo = corpoParcial(form, original);
-      // Corpo vazio faria o Drizzle estourar num UPDATE sem colunas.
+      // Corpo vazio não é PATCH: o servidor responde 400 ("Nada a alterar"), e
+      // aqui isso é só um aviso — não vale trocar o "Salvar" por um erro.
       if (Object.keys(corpo).length === 0) return "sem-mudanca";
       await apiRequest("PATCH", `/api/admin/marcas/${editando}`, corpo);
       return "salvo";

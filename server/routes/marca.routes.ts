@@ -246,6 +246,16 @@ export function registerMarcaRoutes(): Router {
       const atual = await storage.getMarca(id);
       if (!atual) return res.status(404).json({ message: "Marca nao encontrada." });
 
+      // O zod DESCARTA chave que nao esta no esquema, em silencio. Um PATCH so
+      // com campo desconhecido — `{"dominioStatus":"ativo"}`, que e do operador
+      // e nao do formulario — chega aqui como objeto vazio, e um UPDATE sem
+      // coluna nenhuma faz o Drizzle lancar "No values to set": 500 com texto
+      // generico, como se o servidor tivesse quebrado. Nao gravar nada e pedido
+      // invalido, entao a resposta e 400 e diz o que aconteceu.
+      if (Object.keys(preparado.dados).length === 0) {
+        return res.status(400).json({ message: "Nada a alterar: nenhum campo editavel no corpo." });
+      }
+
       // Colisao de slug precisa virar mensagem, nao erro de banco: sem isto o
       // operador via "Nao foi possivel salvar" com o texto cru do Postgres.
       if (preparado.dados.slug && preparado.dados.slug !== atual.slug) {

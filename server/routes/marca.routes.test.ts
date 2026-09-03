@@ -13,6 +13,10 @@
  * ninguem cobria: a validacao dos arquivos enviados (um "PNG" que nao e PNG, um
  * "SVG" que e HTML, arquivo grande demais) e o fato de a area inteira ser so do
  * superadmin.
+ *
+ * E o outro lado da mesma moeda do PATCH parcial: corpo que fica VAZIO depois do
+ * zod (so campo desconhecido, ou nada) nao pode virar 500 — um UPDATE sem coluna
+ * nenhuma estoura dentro do Drizzle, e a falha e do pedido, nao do servidor.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
@@ -102,7 +106,13 @@ beforeEach(() => {
   storageMock.getMarca.mockResolvedValue(CREDNET);
   storageMock.getMarcaPorSlug.mockResolvedValue(undefined);
   storageMock.getMarcaPorDominio.mockResolvedValue(undefined);
-  storageMock.updateMarca.mockImplementation(async (id: number, dados: any) => ({ id, ...dados }));
+  // O mock imita o Drizzle no ponto que importa: `set({})` nao e UPDATE nenhum,
+  // e mapUpdateSet lanca "No values to set". Sem isto, um corpo que chega vazio
+  // ao storage passaria despercebido no teste e viraria 500 so em producao.
+  storageMock.updateMarca.mockImplementation(async (id: number, dados: any) => {
+    if (Object.keys(dados).length === 0) throw new Error("No values to set");
+    return { id, ...dados };
+  });
   sessao = { ...SUPERADMIN };
 });
 
@@ -134,6 +144,22 @@ describe("PATCH /api/admin/marcas/:id — parcial de verdade", () => {
     const [, gravado] = storageMock.updateMarca.mock.calls[0];
     expect(gravado).toEqual({ ativo: false });
     expect(gravado).not.toHaveProperty("dominioStatus");
+  });
+
+  it("corpo so com campo desconhecido nao vira 500: o zod esvazia, e vazio e 400", async () => {
+    // dominioStatus sozinho e o caso real — o operador tenta confirmar o HTTPS
+    // pela rota errada. Depois do zod o corpo fica {}, e um UPDATE sem coluna
+    // nenhuma explode dentro do Drizzle. Erro do pedido, nao do servidor.
+    const res = await patch(7, { dominioStatus: "ativo" });
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toMatch(/Nada a alterar/i);
+    expect(storageMock.updateMarca).not.toHaveBeenCalled();
+  });
+
+  it("corpo vazio tambem responde 400, e nao chega ao banco", async () => {
+    const res = await patch(7, {});
+    expect(res.status).toBe(400);
+    expect(storageMock.updateMarca).not.toHaveBeenCalled();
   });
 
   it("trocar o dominio devolve o status para pendente — o certificado antigo nao vale", async () => {
