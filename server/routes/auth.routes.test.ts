@@ -45,6 +45,11 @@ vi.mock("../password", () => ({
 vi.mock("../services/email", () => ({
   sendVerificationEmail: vi.fn(async () => undefined),
   sendPasswordResetEmail: vi.fn(async () => undefined),
+  // Gatilhos de outros handlers do mesmo arquivo. Declarados para o mock nao
+  // ficar mais estreito que o modulo real — quem os mede e
+  // auth-email-gatilhos.test.ts.
+  sendWelcomeEmail: vi.fn(async () => undefined),
+  sendPasswordChangedEmail: vi.fn(async () => undefined),
 }));
 
 import { registerAuthRoutes } from "./auth.routes";

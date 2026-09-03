@@ -41,6 +41,11 @@ vi.mock("../storage", () => ({ storage: storageMock }));
 const emailMock = vi.hoisted(() => ({
   sendVerificationEmail: vi.fn(async () => undefined),
   sendPasswordResetEmail: vi.fn(async () => undefined),
+  // Estes dois handlers nao os disparam, mas `auth.routes.ts` importa os quatro
+  // no topo — o mock precisa cobrir o modulo inteiro. Quem os mede e
+  // auth-email-gatilhos.test.ts.
+  sendWelcomeEmail: vi.fn(async () => undefined),
+  sendPasswordChangedEmail: vi.fn(async () => undefined),
 }));
 vi.mock("../services/email", () => emailMock);
 
