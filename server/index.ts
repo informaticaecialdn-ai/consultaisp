@@ -82,6 +82,20 @@ export function log(message: string, source = "express") {
 const SENSITIVE_ROUTES = [
   "/api/isp-consultations",
   "/api/spc-consultations",
+  /**
+   * A consulta cadastral faltava aqui, e ela e a que devolve MAIS dado pessoal
+   * do sistema: nome, nascimento, nome da mae, enderecos, telefones e o array
+   * `emails` — endereco de e-mail em texto puro. Sem esta linha, o corpo
+   * inteiro ia para o arquivo de log a cada consulta.
+   *
+   * `sanitizeForLog` nao cobria: ele censura por NOME DE CHAVE, e a lista tem
+   * "email" no singular. O que a BigDataCorp devolve e `emails`, `enderecos`,
+   * `telefones` e `identidade` — nenhum bate, e tudo passava limpo. Consertar
+   * a lista de chaves ajudaria, mas nao resolve: o resultado da consulta muda
+   * de forma a cada dataset novo, e a regra segura para uma rota que devolve
+   * dossie e nao logar o corpo, como ja se faz com a ISP e a SPC.
+   */
+  "/api/bigdata-consultations",
   "/api/public/titular-request",
 ];
 
