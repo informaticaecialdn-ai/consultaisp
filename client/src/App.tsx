@@ -222,6 +222,21 @@ function AuthenticatedApp() {
   }
 
   if (!user) {
+    /**
+     * A política de privacidade é PÚBLICA, em qualquer host.
+     *
+     * `/lgpd` só existia dentro de `<Router/>`, que exige sessão: sem login ela
+     * caía na landing (host da plataforma) ou na tela de login (host de tenant).
+     * Quem mais precisa dessa página é justamente quem NÃO tem conta — o titular
+     * que quer saber quem trata os dados dele, e a quem a LGPD garante essa
+     * informação. `GET /api/public/lgpd-info` já é público e já resolve a marca
+     * pelo host, então em domínio de revendedor a página nomeia o controlador
+     * certo sozinha.
+     */
+    if (location === "/lgpd") {
+      return <Suspense fallback={<PageLoader />}><LgpdPage /></Suspense>;
+    }
+
     // Quem decide é o SERVIDOR, não o subdomínio.
     //
     // A regra antiga era `getSubdomain() ? login : landing`. Num domínio
