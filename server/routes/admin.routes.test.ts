@@ -357,13 +357,13 @@ describe("POST /api/admin/providers/:id/plan", () => {
 
   it("leva as notas do superadmin como observacao e os creditos do plano novo", async () => {
     storageMock.getProvider.mockResolvedValue(provedorBase({ plan: "free" }));
-    storageMock.updateProviderPlan.mockResolvedValue(provedorBase({ plan: "basic" }));
+    storageMock.updateProviderPlan.mockResolvedValue(provedorBase({ plan: "pro" }));
 
-    await trocarPlano(42, { plan: "basic", notes: "Negociado com desconto de 3 meses." });
+    await trocarPlano(42, { plan: "pro", notes: "Negociado com desconto de 3 meses." });
 
     const dados = emailMock.sendPlanoAlteradoEmail.mock.calls[0][2] as unknown as any;
     expect(dados.observacao).toBe("Negociado com desconto de 3 meses.");
-    expect(dados.creditosDoPlano).toBe(200);
+    expect(dados.creditosDoPlano).toBe(30);
   });
 
   it("confirmar o mesmo plano grava o registro mas nao manda e-mail", async () => {

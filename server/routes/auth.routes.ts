@@ -70,6 +70,10 @@ export function registerAuthRoutes(): Router {
    */
   const forgotLimiter = createRateLimiter({ windowMs: 900_000, maxRequests: 3 });
   const resetLimiter = createRateLimiter({ windowMs: 900_000, maxRequests: 5 });
+  const trocaDeSenhaLimiter = createRateLimiter({ windowMs: 900_000, maxRequests: 10 });
+  // Trocar a senha logado tambem dispara e-mail desde 03/09/2026. Sem limite,
+  // uma sessao aberta vira maquina de despejar aviso na caixa do dono. O balde
+  // e maior que o do reset porque aqui quem chama ja provou quem e.
 
   router.post("/api/auth/login", loginLimiter, async (req, res) => {
     try {
@@ -484,7 +488,7 @@ export function registerAuthRoutes(): Router {
     });
   });
 
-  router.post("/api/auth/change-password", async (req, res) => {
+  router.post("/api/auth/change-password", trocaDeSenhaLimiter, async (req, res) => {
     if (!req.session.userId) {
       return res.status(401).json({ message: "Nao autenticado" });
     }

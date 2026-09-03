@@ -6,6 +6,8 @@ import type { Server } from "node:http";
 // ninguem clicar. Estes testes cobrem as tres maneiras de arrombar essa porta:
 // POST sem o token, POST com valor mentido, e reentrega do mesmo evento.
 const storageMock = vi.hoisted(() => ({
+  // Os creditos do plano entram por aqui quando a fatura e quitada.
+  addCredits: vi.fn(async () => ({ id: 42, ispCredits: 280 })),
   getCreditOrder: vi.fn(),
   updateCreditOrder: vi.fn(async (id: number, data: any) => ({ id, ...data })),
   releaseCreditOrder: vi.fn(async () => ({
@@ -697,6 +699,59 @@ describe("aviso de fatura paga", () => {
     });
   });
 
+  /**
+   * Os 30 creditos do Profissional (decisao do dono em 03/09/2026) entram
+   * quando a fatura e paga — nao quando e gerada, para credito nao chegar
+   * antes do dinheiro. A quantidade sai da FATURA, que e a foto do que foi
+   * vendido naquele mes.
+   *
+   * A trava contra creditar duas vezes e a mesma do e-mail: `jaEstavaPaga`.
+   * Sem ela, cada reentrega do webhook do Asaas somaria outros 30.
+   */
+  describe("creditos do plano na quitacao", () => {
+    it("credita o que a fatura declara, uma vez", async () => {
+      storageMock.getProviderInvoice.mockResolvedValue({ ...FATURA, ispCreditsIncluded: 30, spcCreditsIncluded: 0 });
+
+      const res = await webhook(PAGA, "token-do-painel");
+
+      expect(res.status).toBe(200);
+      expect(storageMock.addCredits).toHaveBeenCalledTimes(1);
+      expect(storageMock.addCredits).toHaveBeenCalledWith(42, 30, 0);
+    });
+
+    it("reentrega sobre fatura ja paga nao credita de novo", async () => {
+      storageMock.getProviderInvoice.mockResolvedValue({
+        ...FATURA, ispCreditsIncluded: 30, status: "paid", paidDate: new Date("2026-09-02"),
+      });
+
+      const res = await webhook(PAGA, "token-do-painel");
+
+      expect(res.status).toBe(200);
+      expect(storageMock.addCredits).not.toHaveBeenCalled();
+    });
+
+    it("fatura sem credito incluso nao mexe no saldo", async () => {
+      storageMock.getProviderInvoice.mockResolvedValue({ ...FATURA, ispCreditsIncluded: 0, spcCreditsIncluded: 0 });
+
+      await webhook(PAGA, "token-do-painel");
+
+      expect(storageMock.addCredits).not.toHaveBeenCalled();
+    });
+
+    // O credito e o que o provedor comprou; o aviso e cortesia. Se o saldo
+    // falhar, a fatura continua paga e o e-mail ainda sai — e o log diz que o
+    // credito precisa ser lancado a mao.
+    it("falha ao creditar nao derruba o webhook nem impede o aviso", async () => {
+      storageMock.getProviderInvoice.mockResolvedValue({ ...FATURA, ispCreditsIncluded: 30 });
+      storageMock.addCredits.mockRejectedValueOnce(new Error("connection terminated"));
+
+      const res = await webhook(PAGA, "token-do-painel");
+
+      expect(res.status).toBe(200);
+      expect(emailMock.sendFaturaPagaEmail).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("pelo botao sincronizar", () => {
     beforeEach(() => {
       sessao = { userId: 1, role: "superadmin" };
@@ -875,7 +930,7 @@ describe("aviso de fatura gerada", () => {
     const NSLINK = { ...PROVEDOR };
     const CIALDN = {
       id: 43, name: "CialDN", contactEmail: "contato@cialdn.com.br",
-      marcaId: null, subdomain: "cialdn", plan: "basic", ispCredits: 10,
+      marcaId: null, subdomain: "cialdn", plan: "pro", ispCredits: 10,
     };
     const GRATUITO = { id: 44, name: "Teste", contactEmail: "t@t.com", marcaId: null, subdomain: "teste", plan: "free" };
 
@@ -897,13 +952,53 @@ describe("aviso de fatura gerada", () => {
       expect(destinatarios).toEqual(["financeiro@nslink.com.br", "contato@cialdn.com.br"]);
     });
 
-    it("cada e-mail leva o plano e o valor do proprio provedor", async () => {
+    /**
+     * Antes esta prova usava dois planos de precos diferentes. Depois de
+     * 03/09/2026 o catalogo tem dois planos e um deles nao gera fatura, entao
+     * todo faturado e "Profissional": o que distingue um e-mail do outro
+     * passou a ser o NUMERO da fatura e o destinatario. O risco que o teste
+     * cobre e o mesmo — um provedor receber os dados do outro no laco.
+     */
+    it("cada e-mail leva a fatura do proprio provedor", async () => {
+      // No banco quem numera e uma SEQUENCE (migracao 0012): duas faturas nunca
+      // recebem o mesmo numero. O mock precisa refletir isso, senao o teste nao
+      // consegue distinguir a fatura de um provedor da do outro.
+      let n = 77;
+      storageMock.getNextInvoiceNumber.mockImplementation(
+        async () => `NF-2026-${String(n++).padStart(6, "0")}`,
+      );
       storageMock.getAllProviders.mockResolvedValue([NSLINK, CIALDN]);
       await gerar();
-      const [, , nslink] = emailMock.sendFaturaGeradaEmail.mock.calls[0] as any[];
-      const [, , cialdn] = emailMock.sendFaturaGeradaEmail.mock.calls[1] as any[];
+      const [paraNslink, , nslink] = emailMock.sendFaturaGeradaEmail.mock.calls[0] as any[];
+      const [paraCialdn, , cialdn] = emailMock.sendFaturaGeradaEmail.mock.calls[1] as any[];
+
+      expect(paraNslink).toBe("financeiro@nslink.com.br");
       expect(nslink).toMatchObject({ plano: "Profissional", valor: 99, competencia: "setembro de 2026", vencimento: "10/09/2026" });
-      expect(cialdn).toMatchObject({ plano: "Básico", valor: 149 });
+
+      expect(paraCialdn).toBe("contato@cialdn.com.br");
+      expect(cialdn).toMatchObject({ plano: "Profissional", valor: 99 });
+      // Cada um com a sua fatura: dois numeros, nunca o mesmo repetido.
+      expect(cialdn.numero).not.toBe(nslink.numero);
+    });
+
+    /**
+     * Provedor num plano que saiu do catalogo nao pode derrubar a geracao do
+     * mes inteiro. Ate 03/09/2026 a comparacao era `PLAN_PRICES[plan] === 0`:
+     * chave desconhecida escapava do `continue` e a linha seguinte fazia
+     * `.toString()` em `undefined` — 500 na rota e ninguem faturado.
+     */
+    it("plano fora do catalogo e pulado, e os outros continuam sendo faturados", async () => {
+      const LEGADO = { id: 45, name: "Antigo", contactEmail: "a@a.com", marcaId: null, subdomain: "antigo", plan: "enterprise" };
+      storageMock.getAllProviders.mockResolvedValue([NSLINK, LEGADO]);
+
+      const res = await gerar();
+
+      expect(res.status).toBe(200);
+      const corpo = await res.json();
+      expect(corpo.created).toBe(1);
+      expect(corpo.skipped).toBe(1);
+      expect(emailMock.sendFaturaGeradaEmail).toHaveBeenCalledTimes(1);
+      expect((emailMock.sendFaturaGeradaEmail.mock.calls[0] as any[])[0]).toBe("financeiro@nslink.com.br");
     });
 
     it("provedor pulado por ja ter fatura no periodo nao recebe e-mail", async () => {

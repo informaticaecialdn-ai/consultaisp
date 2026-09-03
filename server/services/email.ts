@@ -54,10 +54,50 @@ export function remetente(marca: MarcaResolvida): string {
   return nomeLimpo ? `${nomeLimpo} <${endereco}>` : endereco;
 }
 
+/**
+ * O endereco reduzido ao que basta para depurar: `fin***@nslink.com.br`.
+ *
+ * Log de servidor e retido, agregado e lido por gente que nao precisa saber
+ * quem recebeu o quê. Vale ainda mais desde que os e-mails de LGPD passaram
+ * por aqui: ali o destinatario e o TITULAR de dados, e o endereco dele no log
+ * de erro seria tratamento de dado pessoal sem finalidade.
+ */
+function mascarar(email: string): string {
+  const [usuario, dominio] = String(email || "").split("@");
+  if (!dominio) return "***";
+  return `${(usuario || "").slice(0, 3)}***@${dominio}`;
+}
+
+/**
+ * Quanto tempo se espera o Resend antes de desistir.
+ *
+ * O SDK nao tem limite proprio: uma chamada pendurada segurava quem chamou
+ * para sempre. Isso e caro em tres lugares — o webhook do Asaas (que responde
+ * 200 so depois, e o Asaas reentrega o evento se demorar), a confirmacao de
+ * e-mail (a tela fica em "Verificando...") e a geracao mensal de faturas (um
+ * provedor lento atrasa a fila inteira).
+ *
+ * Estourar o tempo vira falha de envio comum: quem chama ja trata isso e
+ * segue. A requisicao pode ate chegar ao Resend depois; o que se abandona e a
+ * espera.
+ */
+const LIMITE_DE_ENVIO_MS = 10_000;
+
+async function comLimite<T>(promessa: Promise<T>, ms: number): Promise<T> {
+  let temporizador: ReturnType<typeof setTimeout> | undefined;
+  const limite = new Promise<never>((_, rejeitar) => {
+    temporizador = setTimeout(() => rejeitar(new Error(`Resend nao respondeu em ${ms}ms`)), ms);
+  });
+  try {
+    return await Promise.race([promessa, limite]);
+  } finally {
+    if (temporizador) clearTimeout(temporizador);
+  }
+}
+
 async function send(to: string, subject: string, html: string, marca: MarcaResolvida): Promise<void> {
   if (!resend) {
-    const masked = to.split("@")[0].slice(0, 3) + "***@" + to.split("@")[1];
-    console.warn(`[email] RESEND_API_KEY nao configurada. Email para ${masked} nao enviado.`);
+    console.warn(`[email] RESEND_API_KEY nao configurada. Email para ${mascarar(to)} nao enviado.`);
     return;
   }
   // Assunto e CABECALHO, e quebra de linha em cabecalho e injecao. Os assuntos
@@ -67,13 +107,15 @@ async function send(to: string, subject: string, html: string, marca: MarcaResol
   // Hoje o Resend recebe isto como campo JSON e nao como cabecalho cru, entao e
   // defesa em profundidade; o custo de mante-la e uma linha.
   const assunto = subject.replace(/[\r\n]+/g, " ").trim();
-  const { data, error } = await resend.emails.send({ from: remetente(marca), to, subject: assunto, html });
+  const { data, error } = await comLimite(
+    resend.emails.send({ from: remetente(marca), to, subject: assunto, html }),
+    LIMITE_DE_ENVIO_MS,
+  );
   if (error) {
-    console.error(`[email] Erro ao enviar para ${to}:`, JSON.stringify(error));
+    console.error(`[email] Erro ao enviar para ${mascarar(to)}:`, JSON.stringify(error));
     throw new Error(`Falha ao enviar email: ${error.message || JSON.stringify(error)}`);
   }
-  const masked = to.split("@")[0].slice(0, 3) + "***@" + to.split("@")[1];
-  console.log(`[email] Email enviado para ${masked}, id: ${data?.id}`);
+  console.log(`[email] Email enviado para ${mascarar(to)}, id: ${data?.id}`);
 }
 
 /**

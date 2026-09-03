@@ -133,7 +133,10 @@ export async function sendSlaAlertEmail(
   }
 
   const linhas: LinhaDeDado[] = requests.map(r => ({
-    rotulo: esc(r.protocolo),
+    // O rotulo NAO vem pre-escapado:  escapa por conta propria
+    // (so o  e responsabilidade de quem chama). Escapar aqui produzia
+    // "NF&#39;s" na tela do administrador.
+    rotulo: r.protocolo,
     valor: `${esc(tipoLabel(r.tipoSolicitacao))} <span style="color:${DANGER};">· ${esc(String(r.businessDays))}/15 dias úteis</span>`,
     mono: true,
   }));

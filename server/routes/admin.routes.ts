@@ -35,7 +35,10 @@ const adminUpdateProviderSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   tradeName: z.string().max(200).nullable().optional(),
   cnpj: z.string().regex(/^\d{14}$/).optional(),
-  plan: z.enum(["free", "basic", "pro", "enterprise"]).optional(),
+  // O catalogo tem dois planos desde 03/09/2026. Aceitar aqui uma chave que
+  // saiu poria um provedor num plano sem preco e sem rotulo — a migracao 0014
+  // moveu para `pro` quem estava em `basic` ou `enterprise`.
+  plan: z.enum(["free", "pro"]).optional(),
   status: z.enum(["active", "suspended", "cancelled"]).optional(),
   verificationStatus: z.enum(["pending", "approved", "rejected"]).optional(),
   ispCredits: z.number().int().min(0).optional(),
@@ -322,7 +325,10 @@ export function registerAdminRoutes(): Router {
     tradeName: z.string().max(200).optional(),
     cnpj: z.string().regex(/^\d{14}$/, "CNPJ deve ter 14 digitos"),
     subdomain: z.string().min(2).max(50).regex(/^[a-z0-9-]+$/, "Subdominio: apenas letras minusculas, numeros e hifens"),
-    plan: z.enum(["free", "basic", "pro", "enterprise"]).optional(),
+    // O catalogo tem dois planos desde 03/09/2026. Aceitar aqui uma chave que
+  // saiu poria um provedor num plano sem preco e sem rotulo — a migracao 0014
+  // moveu para `pro` quem estava em `basic` ou `enterprise`.
+  plan: z.enum(["free", "pro"]).optional(),
     adminName: z.string().min(1).max(200),
     adminEmail: z.string().email().max(254),
     adminPassword: z.string().min(6).max(128),

@@ -6,6 +6,7 @@ import { logger } from "../logger";
 import { getAsaasWebhookToken } from "../env";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { sendFaturaGeradaEmail, sendFaturaPagaEmail } from "../services/email";
+import { creditarPlanoDaFatura } from "../services/credito-do-plano";
 import { avisarProvedor, type ProvedorParaEmail } from "../services/email-destinatario";
 import { ROTULO_DO_PLANO } from "../services/precos.service";
 // O aviso de credito liberado nasce em `credits.routes.ts` porque e la que
@@ -85,12 +86,35 @@ async function avisarFaturaGerada(provedor: ProvedorParaEmail, fatura: FaturaGer
   }, "fatura-gerada");
 }
 
-/** "Recebemos o pagamento da sua fatura." */
-async function avisarFaturaPaga(
+/**
+ * O que acontece quando uma fatura passa a paga: os creditos do plano entram
+ * no saldo e o provedor e avisado.
+ *
+ * Os dois na mesma funcao de proposito. Sao o mesmo evento — "a fatura do mes
+ * foi paga" — e separa-los convidaria a chamar so um dos dois num dos tres
+ * caminhos que quitam fatura (webhook do Asaas, sincronizacao do superadmin e
+ * PATCH manual de status).
+ *
+ * CHAME SOMENTE DENTRO DA TRANSICAO de nao-paga para paga. E `jaEstavaPaga`,
+ * nos tres caminhos, que impede a reentrega do webhook de creditar duas vezes
+ * a mesma fatura de 30 creditos.
+ */
+async function quitarFatura(
   provedor: ProvedorParaEmail,
-  fatura: { invoiceNumber: string; period: string },
+  fatura: { invoiceNumber: string; period: string; ispCreditsIncluded?: number | null; spcCreditsIncluded?: number | null; id?: number; planAtTime?: string | null },
   valorPago: number,
 ): Promise<void> {
+  // Primeiro o credito: e o que o provedor comprou. O aviso vem depois e nao
+  // pode atrasar a entrega — se o e-mail falhar, o saldo ja subiu.
+  await creditarPlanoDaFatura({
+    id: fatura.id ?? 0,
+    providerId: provedor.id,
+    invoiceNumber: fatura.invoiceNumber,
+    planAtTime: fatura.planAtTime,
+    ispCreditsIncluded: fatura.ispCreditsIncluded,
+    spcCreditsIncluded: fatura.spcCreditsIncluded,
+  });
+
   await avisarProvedor(provedor, async (para, ctx) => {
     await sendFaturaPagaEmail(para, ctx.nome, {
       numero: fatura.invoiceNumber,
@@ -258,7 +282,7 @@ export function registerFinanceiroRoutes(): Router {
       // consequencia — e sem um segundo e-mail.
       if (updateData.status === "paid" && !jaEstavaPaga) {
         const provedor = await provedorParaAviso(invoice.providerId, "fatura-paga");
-        if (provedor) await avisarFaturaPaga(provedor, invoice, conferenciaValorPago);
+        if (provedor) await quitarFatura(provedor, invoice, conferenciaValorPago);
       }
       return res.json({ invoice: updated, charge });
     } catch (error: any) {
@@ -470,7 +494,7 @@ export function registerFinanceiroRoutes(): Router {
       }
       if (!jaEstavaPaga) {
         const provedor = await provedorParaAviso(invoice.providerId, "fatura-paga");
-        if (provedor) await avisarFaturaPaga(provedor, invoice, conferencia.valorPago);
+        if (provedor) await quitarFatura(provedor, invoice, conferencia.valorPago);
       }
       return res.json({ ok: true });
     } catch (error: any) {
@@ -582,7 +606,7 @@ export function registerFinanceiroRoutes(): Router {
 
       if (status === "paid" && antes && !(antes.status === "paid" || antes.paidDate)) {
         const provedor = await provedorParaAviso(antes.providerId, "fatura-paga");
-        if (provedor) await avisarFaturaPaga(provedor, antes, valorRecebido(paidAmount, antes.amount));
+        if (provedor) await quitarFatura(provedor, antes, valorRecebido(paidAmount, antes.amount));
       }
       return res.json(updated);
     } catch (error: any) {
@@ -619,12 +643,23 @@ export function registerFinanceiroRoutes(): Router {
       // fatura e a da proxima: o laco de baixo nao chama nada de fora.
       const aAvisar: { provedor: ProvedorParaEmail; fatura: FaturaGerada }[] = [];
       for (const provider of allProviders) {
-        if (PLAN_PRICES[provider.plan] === 0) { skipped++; continue; }
+        /**
+         * Plano fora do catalogo nao gera fatura.
+         *
+         * A comparacao era `=== 0`, que so pulava o Gratuito: uma chave
+         * desconhecida passava, e a linha seguinte fazia `.toString()` em
+         * `undefined` — a rota inteira caia com 500 e NENHUM provedor era
+         * faturado no mes. Isso deixou de ser hipotese quando o catalogo
+         * encolheu para dois planos (03/09/2026): qualquer linha antiga em
+         * `basic` ou `enterprise` derrubaria a geracao.
+         */
+        const preco = PLAN_PRICES[provider.plan];
+        if (!preco || preco <= 0) { skipped++; continue; }
         const existingInvoices = await storage.getAllProviderInvoices(provider.id);
         if (existingInvoices.some(i => i.period === period && i.status !== "cancelled")) { skipped++; continue; }
         const invoiceNumber = await storage.getNextInvoiceNumber();
         const credits = PLAN_CREDITS[provider.plan] || { isp: 0, spc: 0 };
-        const amount = PLAN_PRICES[provider.plan].toString();
+        const amount = preco.toString();
         await storage.createProviderInvoice({
           invoiceNumber, providerId: provider.id, period,
           planAtTime: provider.plan, amount,
