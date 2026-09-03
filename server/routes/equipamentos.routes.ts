@@ -307,7 +307,7 @@ export function registerEquipamentosRoutes(): Router {
     }
   });
 
-  router.post("/api/equipment/recovery-cases/:id/validate-signal", requireProvider, requireAdmin, async (req, res) => {
+  router.post("/api/equipment/recovery-cases/:id/validate-signal", requireAuth, requireProvider, requireAdmin, async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (!Number.isInteger(id)) return res.status(400).json({ message: "Id inválido" });

@@ -61,7 +61,7 @@ export function registerAntiFraudeRoutes(): Router {
     }).optional(),
   });
 
-  router.put("/api/anti-fraud/rules", requireProvider, requireAdmin, async (req, res) => {
+  router.put("/api/anti-fraud/rules", requireAuth, requireProvider, requireAdmin, async (req, res) => {
     try {
       const providerId = req.session.providerId!;
       const parsed = salvarRegrasSchema.safeParse(req.body);
