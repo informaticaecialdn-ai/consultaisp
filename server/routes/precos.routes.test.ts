@@ -92,7 +92,24 @@ describe("GET /api/public/precos", () => {
     expect(pro.precoReais).toBe(PLAN_PRICES.pro);
     expect(pro.precoCentavos).toBe(PLAN_PRICES.pro * 100);
     expect(pro.naVitrine).toBe(true);
-    expect(body.planos.find((p: any) => p.chave === "enterprise").naVitrine).toBe(false);
+  });
+
+  /**
+   * Decisao do dono em 03/09/2026: o catalogo e o da landing, e mais nada.
+   * `basic` e `enterprise` sairam; a migracao 0014 moveu para `pro` quem
+   * estava neles. Este teste existe para eles nao voltarem por descuido —
+   * bastaria uma linha em PLAN_PRICES para o seletor do admin oferecer de novo
+   * um plano que ninguem decidiu vender.
+   */
+  it("o catalogo tem exatamente os dois planos da landing", async () => {
+    const body = await comServidor(async (base) =>
+      (await fetch(`${base}/api/public/precos`)).json(),
+    );
+    expect(body.planos.map((p: any) => p.chave).sort()).toEqual(["free", "pro"]);
+    expect(body.planos.every((p: any) => p.naVitrine)).toBe(true);
+    for (const legado of ["basic", "enterprise"]) {
+      expect(body.planos.find((p: any) => p.chave === legado)).toBeUndefined();
+    }
   });
 
   /**
@@ -110,7 +127,21 @@ describe("GET /api/public/precos", () => {
       expect(plano.recorrente).toBe(plano.precoCentavos > 0);
     }
     expect(body.planos.find((p: any) => p.chave === "free").recorrente).toBe(false);
-    expect(body.planos.find((p: any) => p.chave === "enterprise").recorrente).toBe(true);
+    expect(body.planos.find((p: any) => p.chave === "pro").recorrente).toBe(true);
+  });
+
+  /**
+   * Os 30 creditos do Profissional sao a unica promessa mensal do catalogo, e
+   * agora ela e cumprida pelo sistema (ver `creditarPlanoDaFatura`). O
+   * Gratuito declara 50 porque sao os de boas-vindas, concedidos uma vez no
+   * cadastro — por isso ele nao e recorrente.
+   */
+  it("o Profissional declara os 30 creditos mensais e o Gratuito os de boas-vindas", async () => {
+    const body = await comServidor(async (base) =>
+      (await fetch(`${base}/api/public/precos`)).json(),
+    );
+    expect(body.planos.find((p: any) => p.chave === "pro").creditosInclusos).toEqual({ isp: 30, spc: 0 });
+    expect(body.planos.find((p: any) => p.chave === "free").creditosInclusos).toEqual({ isp: 50, spc: 0 });
   });
 });
 

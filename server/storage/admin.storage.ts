@@ -76,6 +76,9 @@ export class AdminStorage {
   }
 
   async getSaasMetrics(): Promise<any> {
+    // Ordem de progressao para medir upgrade e downgrade. Os legados ficam na
+    // ponta de baixo para que uma troca antiga (enterprise -> pro) nao seja
+    // contada como upgrade agora que o catalogo tem so dois.
     const PLAN_ORDER = ["free", "basic", "pro", "enterprise"];
 
     const allProviders = await db.select().from(providers);

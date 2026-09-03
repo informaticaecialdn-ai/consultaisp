@@ -25,14 +25,15 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { AbaAntiFraude } from "@/components/painel/AbaAntiFraude";
 import { mensagemDoErro } from "@/components/recuperacao/DialogoContato";
+import { rotuloDoPlano } from "@/lib/planos";
 
 const MAIN_DOMAIN = "consultaisp.com.br";
 
 const PLAN_LABELS: Record<string, { label: string; color: string; icon: any }> = {
-  free:       { label: "Gratuito",    color: "bg-[var(--color-tag-bg)] text-gray-700 dark:text-gray-300", icon: Star },
-  basic:      { label: "Basico",      color: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300", icon: Star },
-  pro:        { label: "Profissional",color: "bg-[var(--color-brand-bg)] text-[var(--color-brand)] dark:bg-purple-900 dark:text-purple-300", icon: Crown },
-  enterprise: { label: "Enterprise",  color: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]", icon: Crown },
+  free: { label: rotuloDoPlano("free"), color: "bg-[var(--color-tag-bg)] text-gray-700 dark:text-gray-300", icon: Star },
+  pro: { label: rotuloDoPlano("pro"), color: "bg-[var(--color-brand-bg)] text-[var(--color-brand)] dark:bg-purple-900 dark:text-purple-300", icon: Crown },
+  basic: { label: rotuloDoPlano("basic"), color: "bg-[var(--color-tag-bg)] text-gray-700 dark:text-gray-300", icon: Star },
+  enterprise: { label: rotuloDoPlano("enterprise"), color: "bg-[var(--color-tag-bg)] text-gray-700 dark:text-gray-300", icon: Star },
 };
 
 const LEGAL_TYPES = ["MEI", "ME", "EPP", "LTDA", "S/A", "EIRELI", "Outro"];

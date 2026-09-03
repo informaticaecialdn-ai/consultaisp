@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { usePrecos, camposDaFatura, planoPorChave } from "@/hooks/use-precos";
+import { rotuloDoPlano } from "@/lib/planos";
 import {
   ArrowLeft, Building2, Users, CreditCard, BarChart3, Activity,
   Globe, Mail, Phone, Calendar, Shield, CheckCircle, XCircle,
@@ -36,10 +37,10 @@ import {
  * isso so o servidor sabe dizer qual e.
  */
 const PLANO_VISUAL: Record<string, { rotulo: string; cor: string }> = {
-  free:       { rotulo: "Gratuito",     cor: "bg-[var(--color-tag-bg)] text-[var(--text-2)]" },
-  basic:      { rotulo: "Básico",       cor: "bg-[var(--color-brand-bg)] text-[var(--color-brand)]" },
-  pro:        { rotulo: "Profissional", cor: "bg-[var(--brand-soft)] text-[var(--brand-ink)]" },
-  enterprise: { rotulo: "Enterprise",   cor: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" },
+  free: { rotulo: rotuloDoPlano("free"), cor: "bg-[var(--color-tag-bg)] text-[var(--text-2)]" },
+  pro: { rotulo: rotuloDoPlano("pro"), cor: "bg-[var(--brand-soft)] text-[var(--brand-ink)]" },
+  basic: { rotulo: rotuloDoPlano("basic"), cor: "bg-[var(--color-tag-bg)] text-[var(--text-2)]" },
+  enterprise: { rotulo: rotuloDoPlano("enterprise"), cor: "bg-[var(--color-tag-bg)] text-[var(--text-2)]" },
 };
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {

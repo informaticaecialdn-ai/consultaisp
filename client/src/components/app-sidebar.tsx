@@ -57,6 +57,7 @@ import { Badge } from "@/components/ui/badge";
 import { useQuery } from "@tanstack/react-query";
 import { SimboloConsultaISP, SimboloDaMarca } from "@/components/marca";
 import { useMarca } from "@/lib/marca";
+import { rotuloDoPlano, ehPlanoPago } from "@/lib/planos";
 
 function TrialBanner() {
   const { data } = useQuery<any>({ queryKey: ["/api/provider/trial-status"], staleTime: 5 * 60 * 1000 });
@@ -74,12 +75,6 @@ function TrialBanner() {
   );
 }
 
-const PLAN_LABELS: Record<string, string> = {
-  free: "Gratuito",
-  basic: "Basico",
-  pro: "Pro",
-  enterprise: "Enterprise",
-};
 
 
 
@@ -216,8 +211,10 @@ export function AppSidebar() {
   const search = useSearch();
   const { user, provider, logout } = useAuth();
   const subdomain = (provider as any)?.subdomain;
-  const planLabel = PLAN_LABELS[provider?.plan || "free"] || "Gratuito";
-  const isPro = provider?.plan === "pro" || provider?.plan === "enterprise";
+  const planLabel = rotuloDoPlano(provider?.plan);
+  // Qualquer plano pago: o catalogo tem so Gratuito e Profissional, e os
+  // legados que ainda existirem em dado antigo tambem sao pagos.
+  const isPro = ehPlanoPago(provider?.plan);
   const isSuperAdmin = user?.role === "superadmin";
 
   const [activeHash, setActiveHash] = useState(() =>

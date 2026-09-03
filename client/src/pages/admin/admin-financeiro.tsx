@@ -18,11 +18,12 @@ import {
   ScanLine, ArrowUp, ArrowDown, Minus
 } from "lucide-react";
 import { usePrecos, camposDaFatura } from "@/hooks/use-precos";
+import { rotuloDoPlano } from "@/lib/planos";
 const PLAN_LABELS: Record<string, { label: string; color: string; bg: string }> = {
-  free:       { label: "Gratuito",   color: "text-[var(--color-muted)]",   bg: "bg-[var(--color-tag-bg)]" },
-  basic:      { label: "Basico",     color: "text-blue-600",   bg: "bg-blue-100" },
-  pro:        { label: "Pro",        color: "text-indigo-600", bg: "bg-indigo-100" },
-  enterprise: { label: "Enterprise", color: "text-amber-600",  bg: "bg-[var(--color-gold-bg)]" },
+  free: { label: rotuloDoPlano("free"), color: "text-[var(--color-muted)]", bg: "bg-[var(--color-tag-bg)]" },
+  pro: { label: rotuloDoPlano("pro"), color: "text-[var(--brand-ink)]", bg: "bg-[var(--brand-soft)]" },
+  basic: { label: rotuloDoPlano("basic"), color: "text-[var(--color-muted)]", bg: "bg-[var(--color-tag-bg)]" },
+  enterprise: { label: rotuloDoPlano("enterprise"), color: "text-[var(--color-muted)]", bg: "bg-[var(--color-tag-bg)]" },
 };
 
 function fmt(n: number) {
@@ -124,7 +125,7 @@ export default function AdminFinanceiroPage() {
   const [asaasPixModal, setAsaasPixModal] = useState<{ invoiceId: number; pixData: any } | null>(null);
   const [showNewInvoice, setShowNewInvoice] = useState(false);
   const [invoiceForm, setInvoiceForm] = useState({
-    providerId: "", period: "", amount: "", planAtTime: "basic",
+    providerId: "", period: "", amount: "", planAtTime: "pro",
     ispCreditsIncluded: "0", spcCreditsIncluded: "0", dueDate: "", notes: "",
   });
 
@@ -181,7 +182,7 @@ export default function AdminFinanceiroPage() {
       qc.invalidateQueries({ queryKey: ["/api/admin/invoices"] });
       qc.invalidateQueries({ queryKey: ["/api/admin/financial/saas-metrics"] });
       setShowNewInvoice(false);
-      setInvoiceForm({ providerId: "", period: "", amount: "", planAtTime: "basic", ispCreditsIncluded: "0", spcCreditsIncluded: "0", dueDate: "", notes: "" });
+      setInvoiceForm({ providerId: "", period: "", amount: "", planAtTime: "pro", ispCreditsIncluded: "0", spcCreditsIncluded: "0", dueDate: "", notes: "" });
       toast({ title: "Fatura emitida com sucesso" });
     },
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),

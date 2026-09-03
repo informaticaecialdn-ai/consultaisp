@@ -2,6 +2,7 @@ import {
   BarChart3, Activity, Building2, Users, Database, DollarSign,
   MessageSquare, RefreshCw, Settings, ClipboardList,
 } from "lucide-react";
+import { rotuloDoPlano } from "@/lib/planos";
 
 export const VALID_TABS = [
   "painel",
@@ -34,14 +35,17 @@ export const PAGE_META: Record<string, { title: string; desc: string; icon: any 
 
 /**
  * Badge de plano no padrao Bureau: retangular, tokens do sistema, mesmos pares
- * nos dois temas. Gratuito e neutro; pago sobe em intensidade de marca; o
- * Enterprise leva gold por ser o unico que merece destaque de receita.
+ * nos dois temas. Gratuito e neutro; pago sobe em intensidade de marca.
+ *
+ * O ROTULO vem de `@/lib/planos` — fonte unica. So a cor mora aqui, porque e
+ * decisao desta tela. Os dois legados ficam em cinza: nao sao oferecidos, e
+ * destacar um plano que nao existe mais confunde quem le a lista.
  */
 export const PLAN_LABELS: Record<string, { label: string; color: string }> = {
-  free: { label: "Gratuito", color: "bg-[var(--color-tag-bg)] text-[var(--color-muted)]" },
-  basic: { label: "Basico", color: "bg-[var(--color-brand-bg)] text-[var(--color-brand)]" },
-  pro: { label: "Pro", color: "bg-[var(--color-brand-bg)] text-[var(--color-steel)] font-semibold" },
-  enterprise: { label: "Enterprise", color: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" },
+  free: { label: rotuloDoPlano("free"), color: "bg-[var(--color-tag-bg)] text-[var(--color-muted)]" },
+  pro: { label: rotuloDoPlano("pro"), color: "bg-[var(--color-brand-bg)] text-[var(--color-steel)] font-semibold" },
+  basic: { label: rotuloDoPlano("basic"), color: "bg-[var(--color-tag-bg)] text-[var(--color-muted)]" },
+  enterprise: { label: rotuloDoPlano("enterprise"), color: "bg-[var(--color-tag-bg)] text-[var(--color-muted)]" },
 };
 
 export const ERP_OPTIONS = [

@@ -85,17 +85,20 @@ export interface TabelaDePrecos {
  */
 export const ROTULO_DO_PLANO: Record<string, string> = {
   free: "Gratuito",
-  basic: "Básico",
   pro: "Profissional",
+  // FORA DO CATALOGO desde 03/09/2026, mas nomeados aqui de proposito:
+  // `plan_changes` e o `plan_at_time` das faturas guardam o que existia na
+  // epoca, e a tela nao pode exibir a chave crua no lugar do nome.
+  basic: "Básico",
   enterprise: "Enterprise",
 };
 
 /**
- * O que a landing vende hoje. `basic` e `enterprise` continuam na tabela
- * porque ha provedores neles, mas nao sao oferecidos — ver o comentario de
- * PLAN_PRICES em shared/planos.ts.
+ * O catalogo. Hoje ele e a propria tabela de precos: os dois planos da landing.
+ * A constante continua existindo porque a vitrine e uma DECISAO — se um dia um
+ * plano existir sem ser oferecido, e aqui que isso se diz.
  */
-const PLANOS_NA_VITRINE = new Set(["free", "pro"]);
+const PLANOS_NA_VITRINE = new Set(Object.keys(PLAN_PRICES));
 
 function montarPacote(pkg: (typeof CREDIT_PACKAGES)[number]): PacoteDeCredito {
   const unitario = Math.round(pkg.price / pkg.credits);

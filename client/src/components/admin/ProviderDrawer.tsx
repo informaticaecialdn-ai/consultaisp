@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { ERP_OPTIONS, ERP_MAP, PLAN_LABELS } from "./constants";
 import type { ErpCatalog } from "@shared/schema";
+import { PLANOS_DO_CATALOGO, rotuloDoPlano } from "@/lib/planos";
 
 interface ProviderDrawerProps {
   providerId: number | null;
@@ -318,10 +319,7 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
                 onChange={(e) => setPlan(e.target.value)}
                 data-testid="select-provider-plan"
               >
-                <option value="free">Gratuito</option>
-                <option value="basic">Basico</option>
-                <option value="pro">Pro</option>
-                <option value="enterprise">Enterprise</option>
+                {PLANOS_DO_CATALOGO.map(p => <option key={p} value={p}>{rotuloDoPlano(p)}</option>)}
               </select>
               <Input
                 placeholder="Observacao (opcional)"

@@ -23,7 +23,7 @@ export default function FinanceiroTab() {
   const [invoiceFilter, setInvoiceFilter] = useState("all");
   const [showNewInvoice, setShowNewInvoice] = useState(false);
   const [invoiceForm, setInvoiceForm] = useState({
-    providerId: "", period: "", amount: "", planAtTime: "basic",
+    providerId: "", period: "", amount: "", planAtTime: "pro",
     ispCreditsIncluded: "0", spcCreditsIncluded: "0",
     dueDate: "", notes: "",
   });
@@ -75,7 +75,7 @@ export default function FinanceiroTab() {
       qc.invalidateQueries({ queryKey: ["/api/admin/invoices"] });
       qc.invalidateQueries({ queryKey: ["/api/admin/financial/summary"] });
       setShowNewInvoice(false);
-      setInvoiceForm({ providerId: "", period: "", amount: "", planAtTime: "basic", ispCreditsIncluded: "0", spcCreditsIncluded: "0", dueDate: "", notes: "" });
+      setInvoiceForm({ providerId: "", period: "", amount: "", planAtTime: "pro", ispCreditsIncluded: "0", spcCreditsIncluded: "0", dueDate: "", notes: "" });
       toast({ title: "Fatura emitida com sucesso" });
     },
     onError: (e: any) => toast({ title: "Erro ao emitir fatura", description: e.message, variant: "destructive" }),

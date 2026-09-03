@@ -81,35 +81,45 @@ export type TipoConsultaCobravel = keyof typeof CUSTO_EM_CREDITOS;
  * landing exibe. Sao a MESMA fonte de proposito: preco de vitrine que diverge
  * do preco cobrado e a forma mais rapida de perder um cliente.
  *
- * Vendidos hoje: `free` e `pro` — os dois cards da landing.
- * `basic` e `enterprise` continuam aqui porque provedores podem estar neles e
- * as consultas quebrariam sem a chave; nao sao oferecidos na pagina.
+ * SAO DOIS, e sao os da landing. Decisao do dono em 03/09/2026: o catalogo
+ * inteiro do sistema passa a ser Gratuito e Profissional.
+ *
+ * `basic` e `enterprise` foram removidos daqui. Estavam documentados como
+ * "legado, fora da vitrine", mas continuavam aparecendo em todo seletor do
+ * admin, no formulario de fatura e no cadastro de provedor — na pratica ainda
+ * eram vendaveis. A migracao 0014 moveu para `pro` os dois provedores que
+ * estavam em `enterprise` (nao havia ninguem em `basic`, e nenhuma fatura
+ * tinha sido emitida ate ali).
+ *
+ * Quem le dado ANTIGO (plan_changes, plan_at_time de fatura) usa
+ * `ROTULO_DO_PLANO` em precos.service.ts, que ainda sabe nomear os dois — o
+ * historico registra o que existia na epoca, nao o catalogo de hoje.
  */
 export const PLAN_PRICES: Record<string, number> = {
   free: 0,
-  basic: 149,      // legado, fora da vitrine
   pro: 99,
-  enterprise: 799, // negociado fora do site
 };
 
 /**
- * Creditos que a fatura declara como inclusos no plano.
+ * Creditos inclusos no plano, por mes.
  *
- * ATENCAO: isto e o que a fatura ESCREVE, nao um credito automatico. Nada no
- * sistema soma esses valores a `providers.ispCredits` quando a fatura e paga —
- * quem credita e o superadmin, ou a compra avulsa em /creditos.
+ * O `free` sao os creditos de boas-vindas, concedidos uma vez no cadastro
+ * (o default da coluna `providers.isp_credits` faz isso).
  *
- * `pro` foi a zero junto com o preco de R$ 99: o plano passou a ser acesso, e a
- * consulta na rede se paga por credito (e o que a landing sempre disse no
- * subtitulo, "pague apenas pelo que usar na rede"). Antes prometia 500 ISP +
- * 150 SPC — cerca de R$ 500 pela propria tabela de pacotes — por um valor
- * menor que isso, e ainda dependia de alguem lancar na mao todo mes.
+ * O `pro` sao 30 por mes, e sao CONCEDIDOS DE VERDADE quando a fatura do mes e
+ * paga — ver `creditarPlanoDaFatura`. Decisao do dono em 03/09/2026, junto com
+ * a reducao para dois planos. A conta que sustenta o numero: o credito e
+ * vendido avulso a R$ 1,00 e custa ate R$ 0,72 na origem, entao 30 creditos
+ * consomem no maximo R$ 21,60 de um plano de R$ 99. Cem creditos, por
+ * exemplo, entregariam R$ 100 de consulta num plano de R$ 99 e o avulso
+ * deixaria de fazer sentido.
+ *
+ * Ate esta versao NADA era creditado automaticamente: o numero aqui era so o
+ * que a fatura ESCREVIA, e quem somava ao saldo era o superadmin, na mao.
  */
 export const PLAN_CREDITS: Record<string, { isp: number; spc: number }> = {
   free: { isp: 50, spc: 0 },
-  basic: { isp: 200, spc: 50 },
-  pro: { isp: 0, spc: 0 },
-  enterprise: { isp: 1500, spc: 500 },
+  pro: { isp: 30, spc: 0 },
 };
 
 /**

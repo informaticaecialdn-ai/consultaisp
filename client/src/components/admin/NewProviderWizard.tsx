@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { PLANOS_DO_CATALOGO, rotuloDoPlano } from "@/lib/planos";
 import {
   Building2, Plus, Search, RefreshCw, CheckCircle, ChevronRight,
   Settings2, MapPin, Users, User, Crown, AlertTriangle,
@@ -254,10 +255,7 @@ export default function NewProviderWizard({ open, onOpenChange }: { open: boolea
                 <div>
                   <label className="text-xs font-medium mb-1 block">Plano Inicial</label>
                   <select className="w-full border rounded-md px-3 py-2 text-sm bg-background" value={form.plan} onChange={f("plan")}>
-                    <option value="free">Gratuito</option>
-                    <option value="basic">Basico</option>
-                    <option value="pro">Pro</option>
-                    <option value="enterprise">Enterprise</option>
+                    {PLANOS_DO_CATALOGO.map(p => <option key={p} value={p}>{rotuloDoPlano(p)}</option>)}
                   </select>
                 </div>
               </div>
