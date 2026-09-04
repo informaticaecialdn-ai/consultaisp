@@ -604,28 +604,32 @@ export default function PainelProvedorPage() {
   };
 
   /**
-   * Quem pode mexer na ficha da empresa.
+   * Quem pode ADMINISTRAR este provedor — salvar cadastro, mexer em socios,
+   * enviar documento, criar e remover usuario.
    *
    * ESPELHA `podeAdministrarOProvedor` (server/routes/provider.routes.ts), e a
-   * copia tem de ser fiel nas duas pontas: mais frouxa aqui e um botao que
-   * aparece e recusa ao salvar; mais estrita e uma acao permitida que ninguem
-   * consegue alcancar.
+   * copia tem de ser fiel: mais frouxa aqui e botao que aparece e recusa ao
+   * salvar; mais estrita e acao permitida que ninguem alcanca.
    *
-   * A regra do servidor tem duas metades:
    *   · `admin` do provedor, sempre;
-   *   · `superadmin` SO dentro de uma janela de acesso de suporte — fora dela,
-   *     ser da plataforma nao autoriza escrever na conta de nenhum tenant, e a
-   *     liberacao que o provedor assinou viraria decoracao.
+   *   · `superadmin` SO dentro de uma janela de acesso de suporte. Fora dela,
+   *     ser da plataforma nao autoriza escrever na conta de tenant nenhum.
    *
-   * A guarda anterior comparava so com "admin", e escondia todo botao de escrita
-   * desta aba justamente do suporte conectado: na personificacao o papel
-   * continua "superadmin" de proposito (e o que separa um suporte de um admin de
-   * verdade no log e na faixa vermelha). O resultado era o aviso "clique em
-   * buscar" acima de um lugar sem botao nenhum.
+   * ERA `role === "admin"` em ONZE lugares deste arquivo, e o efeito foi
+   * relatado em 04/09/2026: o suporte entrou na conta do provedor para
+   * consertar o cadastro, o aviso mandava "clique em buscar", e nao havia botao
+   * nenhum — nem de buscar, nem de SALVAR. Na personificacao o papel continua
+   * "superadmin" de proposito (e o que separa um suporte conectado de um admin
+   * de verdade no log e na faixa vermelha), entao a comparacao com "admin"
+   * escondia o painel inteiro justamente de quem foi chamado para arruma-lo.
+   *
+   * A UNICA acao que NAO usa isto e liberar acesso de suporte, na aba Suporte:
+   * um suporte conectado estendendo a propria janela transformaria o
+   * consentimento do provedor em decoracao. La a comparacao com "admin"
+   * continua, e e proposital.
    */
-  const podeEditarEmpresa =
+  const podeAdministrar =
     user?.role === "admin" || (user?.role === "superadmin" && personificando);
-
 
   /**
    * Preenche a ficha com o cadastro da Receita.
@@ -971,9 +975,9 @@ export default function PainelProvedorPage() {
                       justamente quem abre esta tela num acesso de suporte, e o
                       papel dele NAO muda na personificacao (server/auth.ts). O
                       resultado era um aviso mandando "clique em buscar" acima de
-                      um lugar sem botao nenhum. `podeEditarEmpresa` e a mesma
+                      um lugar sem botao nenhum. `podeAdministrar` e a mesma
                       condicao que o servidor aplica no PATCH do perfil. */}
-                  {podeEditarEmpresa && (
+                  {podeAdministrar && (
                     <Button
                       size="sm"
                       className="gap-2 bg-[var(--color-brand)] hover:bg-blue-700 text-white flex-shrink-0"
@@ -1234,7 +1238,7 @@ export default function PainelProvedorPage() {
                 </div>
               </Card>
 
-              {user?.role === "admin" && (
+              {podeAdministrar && (
                 <Button
                   onClick={() => savePerfil.mutate(getEmpresa())}
                   disabled={savePerfil.isPending}
@@ -1261,7 +1265,7 @@ export default function PainelProvedorPage() {
                   Cadastre os socios e responsaveis legais da empresa
                 </p>
               </div>
-              {user?.role === "admin" && (
+              {podeAdministrar && (
                 <Button
                   size="sm"
                   className="gap-1.5"
@@ -1324,7 +1328,7 @@ export default function PainelProvedorPage() {
               <div className="text-center py-12 text-muted-foreground">
                 <UserCheck className="w-10 h-10 mx-auto mb-3 opacity-30" />
                 <p className="text-sm">Nenhum socio cadastrado.</p>
-                {user?.role === "admin" && (
+                {podeAdministrar && (
                   <button className="text-blue-600 text-sm mt-1 underline" onClick={() => setShowPartnerForm(true)}>Adicionar primeiro socio</button>
                 )}
               </div>
@@ -1348,7 +1352,7 @@ export default function PainelProvedorPage() {
                         {p.phone && <span>{p.phone}</span>}
                       </div>
                     </div>
-                    {user?.role === "admin" && (
+                    {podeAdministrar && (
                       <div className="flex gap-1">
                         <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openEditPartner(p)} data-testid={`button-edit-partner-${p.id}`}>
                           <Pencil className="w-4 h-4" />
@@ -1410,7 +1414,7 @@ export default function PainelProvedorPage() {
               </div>
             </Card>
 
-            {user?.role === "admin" && (
+            {podeAdministrar && (
               <Card className="p-6">
                 <h3 className="font-semibold mb-4 flex items-center gap-2">
                   <Upload className="w-4 h-4" />Enviar Novo Documento
@@ -1494,7 +1498,7 @@ export default function PainelProvedorPage() {
                               <Download className="w-4 h-4" />
                             </Button>
                           </a>
-                          {user?.role === "admin" && doc.status === "pending" && (
+                          {podeAdministrar && doc.status === "pending" && (
                             <Button
                               variant="ghost" size="sm"
                               className="h-8 w-8 p-0 text-[var(--color-danger)] hover:text-red-700 hover:bg-red-50"
@@ -1614,7 +1618,7 @@ export default function PainelProvedorPage() {
                   Gerencie quem tem acesso ao painel do {provider?.tradeName || provider?.name}
                 </p>
               </div>
-              {user?.role === "admin" && (
+              {podeAdministrar && (
                 <Button size="sm" className="gap-1.5" onClick={() => setShowAddUser(!showAddUser)} data-testid="button-add-user">
                   <Plus className="w-4 h-4" />Novo Usuario
                 </Button>
@@ -1679,7 +1683,7 @@ export default function PainelProvedorPage() {
                       ) : (
                         <Mail className="w-4 h-4 text-amber-500" title="Email pendente" />
                       )}
-                      {user?.role === "admin" && u.id !== user?.id && (
+                      {podeAdministrar && u.id !== user?.id && (
                         <Button
                           variant="ghost" size="sm"
                           className="h-8 w-8 p-0 text-[var(--color-danger)] hover:text-[var(--color-danger)] hover:bg-[var(--color-danger-bg)]"
@@ -2202,7 +2206,7 @@ export default function PainelProvedorPage() {
 
         {/* ======================== ANTI-FRAUDE ======================== */}
         <TabsContent value="anti-fraude">
-          <AbaAntiFraude podeEditar={user?.role === "admin"} />
+          <AbaAntiFraude podeEditar={podeAdministrar} />
         </TabsContent>
 
         {/* ========================= SUPORTE ========================= */}
@@ -2214,7 +2218,7 @@ export default function PainelProvedorPage() {
             fim. */}
         {user?.role !== "user" && (
           <TabsContent value="suporte">
-            <AbaSuporte podeEditar={user?.role === "admin"} />
+            <AbaSuporte podeEditar={user?.role === "admin"}   /* de proposito: ver `podeAdministrar` */ />
           </TabsContent>
         )}
       </Tabs>
