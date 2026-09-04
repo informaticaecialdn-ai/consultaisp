@@ -473,21 +473,54 @@ const NAV_PROVEDOR: Array<{
 export function AppSidebar() {
   const marca = useMarca();
   const [location, navigate] = useLocation();
-  const { user, provider, logout } = useAuth();
-  const isSuperAdmin = user?.role === "superadmin";
+  const { user, provider, personificando, logout } = useAuth();
+
+  /**
+   * QUAL DOS DOIS MENUS — a pergunta nao e "quem e voce", e "onde voce esta".
+   *
+   * O criterio era `role === "superadmin"`, e ele quebra na unica situacao em
+   * que os dois deixam de ser a mesma coisa: o acesso de suporte. Ali a sessao
+   * ganha o `providerId` do provedor e MANTEM `role` como superadmin de
+   * proposito (server/auth.ts) — e o que separa suporte de admin de verdade no
+   * log e na faixa vermelha. Pelo papel, o suporte via o menu da plataforma:
+   * Provedores, Marcas, Dashboard SaaS, e nenhum item levando a uma tela do
+   * provedor que ele entrou para atender. O escopo liberado so era alcancavel
+   * digitando URL a mao.
+   *
+   * `personificando` vem de `GET /api/auth/me`, que le `session.suporte` — a
+   * janela que a trava reconfere a cada requisicao. Nao e autorizacao nenhuma:
+   * o servidor decide o que responde, isto so decide o que se navega.
+   *
+   * O QUE O SUPORTE PERDE, E POR QUE ISSO E O CERTO
+   * Enquanto personificando ele deixa de ver Provedores, Marcas White Label e
+   * Dashboard SaaS. Aquelas telas sao da plataforma e listam dado de OUTROS
+   * provedores; a janela que o provedor A abriu autoriza olhar o dado de A, e
+   * so. Um suporte dentro da conta de A com a lista de todos os provedores na
+   * frente usa o consentimento de A para ver o que nao tem nada a ver com A —
+   * exatamente o isolamento que este produto vende. Elas voltam quando ele sai,
+   * que e um clique na faixa.
+   *
+   * E O CAMINHO DE VOLTA nao se duplica aqui. A faixa vermelha ja carrega o
+   * "sair" e ela e permanente, no topo, em toda tela. Um segundo botao na
+   * sidebar seria uma segunda implementacao do mesmo encerramento (a da faixa
+   * chama a rota E apaga o lembrete de personificacao), com o risco classico de
+   * uma das duas ficar para tras — e sairia da faixa justamente o que a torna
+   * util: ser o unico lugar onde o estado de suporte se le e se desfaz.
+   */
+  const menuDaPlataforma = user?.role === "superadmin" && !personificando;
 
   const [activeHash, setActiveHash] = useState(() =>
     typeof window !== "undefined" ? window.location.hash.replace("#", "") || "painel" : "painel"
   );
 
   useEffect(() => {
-    if (!isSuperAdmin) return;
+    if (!menuDaPlataforma) return;
     const handleHashChange = () => {
       setActiveHash(window.location.hash.replace("#", "") || "painel");
     };
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
-  }, [isSuperAdmin]);
+  }, [menuDaPlataforma]);
 
   const handleAdminNavigate = (hash: string) => {
     setActiveHash(hash);
@@ -498,7 +531,7 @@ export function AppSidebar() {
     window.dispatchEvent(new HashChangeEvent("hashchange"));
   };
 
-  if (isSuperAdmin) {
+  if (menuDaPlataforma) {
     return (
       <CascaSidebar
         cabecalho={

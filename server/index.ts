@@ -86,6 +86,21 @@ export function log(message: string, source = "express") {
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
+  /**
+   * O MESMO caminho em minusculas, e so ele decide o que este log faz.
+   *
+   * O Express roteia sem distinguir caixa — `case sensitive routing` fica no
+   * default `false` —, entao `/API/isp-consultations` chega na mesma rota que
+   * `/api/isp-consultations`. Comparar o caminho cru com prefixos minusculos
+   * fazia as duas decisoes deste bloco errarem justo na requisicao que alguem
+   * escreveu com a caixa trocada de proposito: o corpo da consulta (o dossie
+   * inteiro do titular) escapava da supressao, e a requisicao nao era sequer
+   * reconhecida como de API.
+   *
+   * O caminho GRAVADO continua sendo o original: a auditoria precisa ver o que
+   * foi de fato pedido, inclusive a caixa estranha, que e o proprio indicio.
+   */
+  const caminhoNormalizado = path.toLowerCase();
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
   const originalResJson = res.json;
@@ -96,11 +111,46 @@ app.use((req, res, next) => {
 
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
+    if (caminhoNormalizado.startsWith("/api")) {
+      /**
+       * QUEM olhou o dado — a unica pergunta que este log nao sabia responder.
+       *
+       * `acessos_suporte.usado_por` guarda o PRIMEIRO superadmin que entrou na
+       * janela e nunca e sobrescrito, de proposito: sobrescrever apagaria quem
+       * abriu a porta. A consequencia assumida la e que dois superadmins na
+       * mesma janela ficam indistinguiveis na tabela — e a separacao por pessoa
+       * foi delegada a esta linha. Sem ela, a promessa da trilha fica pela
+       * metade: da para provar que a porta abriu, nao quem passou por ela.
+       *
+       * Sai SO em sessao personificada, e SO com os tres identificadores. Nada
+       * de e-mail, nome ou corpo: quem tem os ids resolve o resto no banco, com
+       * a autorizacao que essa consulta exige — e um log nao e lugar de dado
+       * pessoal, nem do superadmin nem de terceiro.
+       *
+       * Linha estruturada (pino) em vez de texto colado na linha de acesso
+       * porque a pergunta que ela responde e feita com filtro, meses depois:
+       * "tudo que o usuario 3 fez dentro do provedor 42 na janela 907".
+       */
+      const suporte = req.session?.suporte;
+      if (suporte) {
+        logger.info(
+          {
+            userId: req.session.userId,
+            providerId: suporte.providerId,
+            acessoId: suporte.acessoId,
+            metodo: req.method,
+            caminho: path,
+            status: res.statusCode,
+            duracaoMs: duration,
+          },
+          "[suporte] requisicao em sessao personificada",
+        );
+      }
+
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
 
       // Suppress response body for sensitive consultation routes
-      const isSensitive = corpoEhSensivel(path);
+      const isSensitive = corpoEhSensivel(caminhoNormalizado);
       if (capturedJsonResponse && !isSensitive) {
         logLine += ` :: ${JSON.stringify(sanitizeForLog(capturedJsonResponse))}`;
       } else if (isSensitive && capturedJsonResponse) {

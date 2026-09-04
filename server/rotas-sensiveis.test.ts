@@ -90,6 +90,53 @@ describe("corpoEhSensivel", () => {
     expect(corpoEhSensivel("/api/admin/providers/42/erp/mk/test")).toBe(true);
   });
 
+  /**
+   * A TRILHA DE ACESSO DE SUPORTE (04/09/2026).
+   *
+   * `GET /api/admin/acesso-suporte/:providerId` devolve `liberadoPorNome`,
+   * `revogadoPorNome` e `usadoPorNome` — nome de gente, que e exatamente o que
+   * a tela pergunta. `sanitizeForLog` nao alcanca nenhum dos tres: a lista de
+   * chaves tem "nome", e nenhum dos sufixados casa. Sem esta entrada, o corpo
+   * virava linha de log a cada abertura da aba Suporte da ficha do provedor.
+   */
+  it("cobre a trilha de acesso de suporte, que devolve nome de pessoa", () => {
+    expect(corpoEhSensivel("/api/admin/acesso-suporte/42")).toBe(true);
+    expect(corpoEhSensivel("/api/admin/acesso-suporte/42/")).toBe(true);
+    expect(corpoEhSensivel("/API/ADMIN/ACESSO-SUPORTE/42")).toBe(true);
+  });
+
+  /**
+   * `GET /api/auth/me` (04/09/2026).
+   *
+   * Devolve a linha inteira de `providers` mais o nome de quem esta logado, e
+   * `sanitizeForLog` mal a alcanca: a lista de chaves tem "nome" e "email" em
+   * portugues, e as colunas se chamam `name` e `contactEmail`. Como e o endpoint
+   * mais chamado do sistema, o cadastro do provedor ia para o log a cada
+   * montagem de tela.
+   */
+  it("cobre o /me, que devolve a linha inteira do provedor", () => {
+    expect(corpoEhSensivel("/api/auth/me")).toBe(true);
+    expect(corpoEhSensivel("/API/AUTH/ME")).toBe(true);
+    // E so ele: o resto da area de autenticacao continua no log, e e onde se
+    // enxerga tentativa de login e verificacao de e-mail.
+    expect(corpoEhSensivel("/api/auth/login")).toBe(false);
+    expect(corpoEhSensivel("/api/auth/logout")).toBe(false);
+    expect(corpoEhSensivel("/api/auth/register")).toBe(false);
+  });
+
+  it("nao cala o log de quem entrou e de quem saiu do provedor", () => {
+    // Estes dois corpos nao tem nome de ninguem — id de provedor, id da janela
+    // e prazo — e sao a evidencia mais barata de quem atravessou o isolamento
+    // entre tenants e quando. Um prefixo teria levado os dois junto.
+    expect(corpoEhSensivel("/api/admin/acesso-suporte/42/entrar")).toBe(false);
+    expect(corpoEhSensivel("/api/admin/acesso-suporte/sair")).toBe(false);
+    // O lado do provedor tambem fica no log: carimbos de tempo, contagens e a
+    // identificacao do PROPRIO provedor que perguntou.
+    expect(corpoEhSensivel("/api/provider/acesso-suporte")).toBe(false);
+    expect(corpoEhSensivel("/api/provider/acesso-suporte/liberar")).toBe(false);
+    expect(corpoEhSensivel("/api/provider/acesso-suporte/revogar")).toBe(false);
+  });
+
   it("NAO apaga o log da area administrativa inteira", () => {
     // O motivo de a entrada ser expressao regular e nao o prefixo
     // "/api/admin/providers": cortar o prefixo levaria junto tudo isto.
@@ -108,5 +155,56 @@ describe("corpoEhSensivel", () => {
 
   it("a lista nao esta vazia — trava contra alguem esvazia-la sem perceber", () => {
     expect(ROTAS_SEM_CORPO_NO_LOG.length).toBeGreaterThanOrEqual(5);
+  });
+
+  /**
+   * O FURO DE CAIXA (04/09/2026).
+   *
+   * A comparacao era `path.startsWith(entrada)`, sensivel a caixa, decidindo
+   * sobre um roteador que NAO e: este projeto nao chama
+   * `app.set("case sensitive routing", true)`, e o default do Express e false.
+   * Medido no express 5.2.1 deste `node_modules`: `/API/isp-consultations` e
+   * `/API/ISP-CONSULTATIONS` chegam ao MESMO handler que a forma em caixa
+   * baixa. Ou seja, existia um endereco que servia o dossie inteiro da consulta
+   * cadastral e nao casava com esta lista — o corpo iria para o log em texto
+   * puro, e em cada arquivo rotacionado.
+   */
+  it("reconhece a rota qualquer que seja a caixa — o roteador do Express ignora caixa", () => {
+    expect(corpoEhSensivel("/API/bigdata-consultations")).toBe(true);
+    expect(corpoEhSensivel("/API/BIGDATA-CONSULTATIONS")).toBe(true);
+    expect(corpoEhSensivel("/aPi/BigData-Consultations/42")).toBe(true);
+    expect(corpoEhSensivel("/API/isp-consultations")).toBe(true);
+    expect(corpoEhSensivel("/Api/Spc-Consultations")).toBe(true);
+    expect(corpoEhSensivel("/API/PUBLIC/TITULAR-REQUEST")).toBe(true);
+    // A entrada de expressao regular tinha o mesmo problema, com o agravante de
+    // o `$` do fim nao tolerar a barra final que o Express aceita.
+    expect(corpoEhSensivel("/API/ADMIN/PROVIDERS/6/INTEGRATION")).toBe(true);
+    expect(corpoEhSensivel("/api/admin/providers/6/ERP/MK/TEST")).toBe(true);
+  });
+
+  it("tolera a barra final, que o Express aceita sem `strict routing`", () => {
+    // Medido: `GET /api/admin/providers/6/integration/` chega ao handler. Sem
+    // a normalizacao, o `$` da expressao regular nao casava e o corpo com a
+    // credencial decifrada do ERP virava linha de log.
+    expect(corpoEhSensivel("/api/admin/providers/6/integration/")).toBe(true);
+    expect(corpoEhSensivel("/api/isp-consultations/")).toBe(true);
+  });
+
+  it("normalizar caixa nao passa a cobrir rota vizinha", () => {
+    // A folga da normalizacao e so caixa e barra final: o resto continua
+    // valendo, e o log da area administrativa segue inteiro.
+    expect(corpoEhSensivel("/API/ADMIN/PROVIDERS")).toBe(false);
+    expect(corpoEhSensivel("/API/BIGDATA-INTEGRATION")).toBe(false);
+    expect(corpoEhSensivel("/API/ADMIN/PROVIDERS/6/PLAN")).toBe(false);
+    expect(corpoEhSensivel("/")).toBe(false);
+    expect(corpoEhSensivel("")).toBe(false);
+  });
+
+  it("toda entrada de texto da lista esta em caixa baixa", () => {
+    // A comparacao rebaixa o caminho; uma entrada com maiuscula nunca casaria
+    // com nada e a rota ficaria descoberta em silencio.
+    for (const entrada of ROTAS_SEM_CORPO_NO_LOG) {
+      if (typeof entrada === "string") expect(entrada).toBe(entrada.toLowerCase());
+    }
   });
 });

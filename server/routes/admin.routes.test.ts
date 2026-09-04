@@ -25,6 +25,7 @@ const storageMock = vi.hoisted(() => ({
   getUsersByProvider: vi.fn(async (): Promise<any[]> => []),
   getUserByEmail: vi.fn(async (): Promise<any> => null),
   createUser: vi.fn(async (dados: any): Promise<any> => ({ id: 99, ...dados })),
+  deleteProvider: vi.fn(async (_id: number): Promise<void> => undefined),
 }));
 vi.mock("../storage", () => ({ storage: storageMock }));
 
@@ -115,6 +116,7 @@ beforeEach(() => {
   storageMock.getUserByEmail.mockResolvedValue(null);
   storageMock.adminUpdateProvider.mockImplementation(async (_id: number, dados: any) => dados);
   storageMock.createUser.mockImplementation(async (dados: any) => ({ id: 99, ...dados }));
+  storageMock.deleteProvider.mockResolvedValue(undefined);
   sessao = { userId: 1, role: "superadmin" };
 });
 
@@ -429,5 +431,86 @@ describe("POST /api/admin/providers/:id/users", () => {
 
     expect(res.status).toBe(409);
     expect(emailMock.sendUsuarioAdicionadoEmail).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * DELETE /api/admin/providers/:id — a recusa honesta.
+ *
+ * `deleteProvider` para antes do primeiro DELETE quando o provedor tem trilha de
+ * acesso de suporte: aquela tabela e a unica prova de quem entrou na conta e
+ * abriu o dado pessoal dos titulares, e ela nao pode sumir junto com o provedor
+ * que audita.
+ *
+ * O lado do storage ja esta coberto em `storage/providers-acesso-suporte.test.ts`.
+ * O que faltava era a TRADUCAO: um erro que atravessa a fronteira do modulo e
+ * cai no `catch` generico vira "Erro interno do servidor" — nada sobre o que
+ * aconteceu, nada sobre o que fazer, e um convite a clicar de novo.
+ */
+describe("DELETE /api/admin/providers/:id", () => {
+  const excluir = (id: number) => fetch(`${base}/api/admin/providers/${id}`, { method: "DELETE" });
+
+  /** O erro como ele chega: sem a classe, so com o campo. Ver o comentario da rota. */
+  function recusaDaTrilha(acessos: number): Error {
+    const erro = new Error("provedor com trilha de acesso de suporte") as any;
+    erro.codigo = "PROVEDOR_COM_TRILHA_DE_SUPORTE";
+    erro.acessos = acessos;
+    return erro;
+  }
+
+  it("sem trilha, exclui", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await excluir(42);
+
+    expect(res.status).toBe(200);
+    expect(storageMock.deleteProvider).toHaveBeenCalledWith(42);
+  });
+
+  it("com trilha, recusa com 409 — e nao com 500", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+    storageMock.deleteProvider.mockRejectedValue(recusaDaTrilha(3));
+
+    const res = await excluir(42);
+    const corpo = await res.json();
+
+    // 409 e nao 400: o pedido esta bem formado e a permissao existe. O que
+    // impede e o ESTADO do provedor.
+    expect(res.status).toBe(409);
+    expect(corpo.code).toBe("PROVEDOR_COM_TRILHA_DE_SUPORTE");
+    expect(corpo.acessos).toBe(3);
+  });
+
+  it("a mensagem diz quantos registros sao e onde ve-los", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+    storageMock.deleteProvider.mockRejectedValue(recusaDaTrilha(3));
+
+    const { message } = await (await excluir(42)).json();
+
+    expect(message).toContain("3 registro(s)");
+    expect(message).toContain("aba Suporte");
+    // A primeira versao mandava "Exporte o historico antes de remover", e nao ha
+    // exportacao nenhuma na tela. Instrucao impossivel de cumprir e pior do que
+    // nenhuma: o operador procura o botao antes de acreditar que nao existe.
+    expect(message).not.toMatch(/exporte/i);
+  });
+
+  it("falha de verdade continua sendo 500 — a traducao nao engole erro", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+    storageMock.deleteProvider.mockRejectedValue(new Error("connection terminated"));
+
+    const res = await excluir(42);
+
+    expect(res.status).toBe(500);
+    expect((await res.json()).code).toBeUndefined();
+  });
+
+  it("provedor inexistente da 404 e nao chega a tentar apagar", async () => {
+    storageMock.getProvider.mockResolvedValue(null);
+
+    const res = await excluir(999);
+
+    expect(res.status).toBe(404);
+    expect(storageMock.deleteProvider).not.toHaveBeenCalled();
   });
 });

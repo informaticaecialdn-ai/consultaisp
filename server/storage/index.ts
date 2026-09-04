@@ -19,6 +19,7 @@ import type {
   VisitorChat, VisitorChatMessage,
   ProactiveAlert, InsertProactiveAlert,
   Marca, InsertMarca,
+  AcessoDeSuporte,
 } from "@shared/schema";
 import type { AlertWithOwnership } from "./antifraude.storage";
 
@@ -37,6 +38,7 @@ import { DashboardStorage } from "./dashboard.storage";
 import { AdminStorage, type LinhaDeConsultaEncontrada } from "./admin.storage";
 import { ImportStorage } from "./import.storage";
 import { MarcasStorage } from "./marcas.storage";
+import { SuporteStorage } from "./suporte.storage";
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
@@ -254,6 +256,15 @@ export interface IStorage {
   bulkImportInvoices(rows: Record<string, string>[], providerId: number): Promise<{ imported: number; errors: Array<{ row: number; message: string }> }>;
   bulkImportEquipment(rows: Record<string, string>[], providerId: number): Promise<{ imported: number; errors: Array<{ row: number; message: string }> }>;
 
+  // Acesso de suporte — personificacao do provedor pelo superadmin.
+  // Ver server/storage/suporte.storage.ts: a validade e o prazo sao decididos
+  // pelo relogio do BANCO, nunca pelo do processo.
+  liberarAcessoDeSuporte(providerId: number, liberadoPor: number, duracaoMs?: number): Promise<AcessoDeSuporte>;
+  revogarAcessoDeSuporte(providerId: number, revogadoPor: number): Promise<number>;
+  acessoDeSuporteValido(providerId: number): Promise<AcessoDeSuporte | undefined>;
+  registrarUsoDoAcesso(acessoId: number, usadoPor: number): Promise<void>;
+  historicoDeAcessos(providerId: number, limite?: number): Promise<AcessoDeSuporte[]>;
+
   // Proactive alerts
   getLastProactiveAlert(cpfCnpj: string, providerId: number): Promise<{ sentAt: Date } | undefined>;
   createProactiveAlert(data: InsertProactiveAlert): Promise<ProactiveAlert>;
@@ -277,6 +288,7 @@ class DatabaseStorage implements IStorage {
   private _admin = new AdminStorage();
   private _import = new ImportStorage();
   private _marcas = new MarcasStorage();
+  private _suporte = new SuporteStorage();
 
   // Users
   getUser = (id: number) => this._users.getUser(id);
@@ -480,6 +492,13 @@ class DatabaseStorage implements IStorage {
   getPlanChanges = (providerId?: number) => this._admin.getPlanChanges(providerId);
   createPlanChange = (change: InsertPlanChange) => this._admin.createPlanChange(change);
   getSaasMetrics = () => this._admin.getSaasMetrics();
+
+  // Acesso de suporte
+  liberarAcessoDeSuporte = (providerId: number, liberadoPor: number, duracaoMs?: number) => this._suporte.liberarAcessoDeSuporte(providerId, liberadoPor, duracaoMs);
+  revogarAcessoDeSuporte = (providerId: number, revogadoPor: number) => this._suporte.revogarAcessoDeSuporte(providerId, revogadoPor);
+  acessoDeSuporteValido = (providerId: number) => this._suporte.acessoDeSuporteValido(providerId);
+  registrarUsoDoAcesso = (acessoId: number, usadoPor: number) => this._suporte.registrarUsoDoAcesso(acessoId, usadoPor);
+  historicoDeAcessos = (providerId: number, limite?: number) => this._suporte.historicoDeAcessos(providerId, limite);
 
   // Proactive alerts
   getLastProactiveAlert = (cpfCnpj: string, providerId: number) => this._consultations.getLastProactiveAlert(cpfCnpj, providerId);

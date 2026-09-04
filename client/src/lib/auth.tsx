@@ -7,6 +7,15 @@ interface AuthState {
   provider: Provider | null;
   /** "Seu codigo", para o suporte — nao e o que os parceiros veem para voce. */
   partnerCode: string | null;
+  /**
+   * Um superadmin esta conectado DENTRO da conta de `provider` por uma janela de
+   * acesso de suporte. Vem de `GET /api/auth/me`, que le `session.suporte`.
+   *
+   * Existe porque `role` continua "superadmin" durante a personificacao, de
+   * proposito (server/auth.ts): sem este campo nao ha como a interface saber se
+   * a sessao esta na plataforma ou dentro de um tenant.
+   */
+  personificando: boolean;
   mustChangePassword: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<{ code?: string; email?: string } | void>;
@@ -21,6 +30,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthState["user"]>(null);
   const [provider, setProvider] = useState<Provider | null>(null);
   const [partnerCode, setPartnerCode] = useState<string | null>(null);
+  const [personificando, setPersonificando] = useState(false);
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -32,6 +42,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(data.user);
         setProvider(data.provider);
         setPartnerCode(data.partnerCode || null);
+        setPersonificando(data.personificando === true);
         setMustChangePassword(data.mustChangePassword || false);
       }
     } catch {
@@ -60,6 +71,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setUser(data.user);
     setProvider(data.provider);
+    // Login encerra qualquer personificacao no servidor (`encerrarPersonificacao`
+    // em auth.routes.ts), entao o estado local tem de acompanhar: uma aba que
+    // fizesse login por cima de uma sessao de suporte continuaria desenhando a
+    // navegacao do tenant anterior.
+    setPersonificando(false);
     setMustChangePassword(data.mustChangePassword || false);
   };
 
@@ -81,12 +97,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await apiRequest("POST", "/api/auth/logout");
     setUser(null);
     setProvider(null);
+    setPersonificando(false);
   };
 
   const clearMustChangePassword = () => setMustChangePassword(false);
 
   return (
-    <AuthContext.Provider value={{ user, provider, partnerCode, mustChangePassword, isLoading, login, register, logout, clearMustChangePassword }}>
+    <AuthContext.Provider value={{ user, provider, partnerCode, personificando, mustChangePassword, isLoading, login, register, logout, clearMustChangePassword }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import { requireAuth, requireProvider } from "../auth";
 import { storage } from "../storage";
 import { hashPassword } from "../password";
@@ -43,6 +43,59 @@ async function avisarUsuarioCriado(
   }
 }
 
+/**
+ * QUEM PODE ADMINISTRAR ESTE PROVEDOR.
+ *
+ * Dez rotas deste arquivo comparavam `req.session.role !== "admin"` na mao. A
+ * comparacao esta certa para o operador — ele nao cria usuario, nao mexe em
+ * socio, nao troca a configuracao — e errada para o SUPORTE: a personificacao
+ * mantem `role` como "superadmin" de proposito (ver `PersonificacaoDeSuporte` em
+ * server/auth.ts), para que a trilha, o log e a faixa vermelha consigam separar
+ * um atendente de um admin de verdade. O preco dessa escolha caia exatamente
+ * aqui: o suporte entrava na conta e era barrado nas dez telas de configuracao
+ * que ele foi criado para arrumar. O escopo decidido pelo dono e "tudo que o
+ * admin do provedor faz"; estas dez rotas nao cumpriam.
+ *
+ * A condicao tem tres partes, e cada uma existe por um motivo:
+ *
+ *   1. `role === "admin"` — o caso normal, inalterado. O operador (`user`)
+ *      continua barrado, que e o ponto de nao enfraquecer a regra.
+ *   2. `role === "superadmin"` E COM `session.suporte` — um superadmin fora de
+ *      personificacao NAO administra provedor nenhum por aqui. Sem esta metade
+ *      bastaria ser da plataforma para escrever na conta de qualquer tenant sem
+ *      janela liberada, e a autorizacao do provedor viraria decoracao.
+ *   3. `suporte.providerId === providerId` da sessao — a janela autoriza UM
+ *      provedor. Sao sempre o mesmo valor hoje (`entrar` grava os dois juntos), e
+ *      e por isso que a comparacao e barata: ela transforma um invariante que
+ *      existe por convencao em um que o codigo confere.
+ *
+ * O que ela NAO faz e conferir se a janela continua valida — isso e
+ * `travaDeAcessoDeSuporte`, que roda antes de toda rota e pergunta ao BANCO. Uma
+ * segunda verificacao aqui daria duas respostas para a mesma pergunta.
+ */
+export function podeAdministrarOProvedor(session: Request["session"]): boolean {
+  if (session.role === "admin") return true;
+  if (session.role !== "superadmin") return false;
+  const suporte = session.suporte;
+  return suporte != null && suporte.providerId === session.providerId;
+}
+
+/**
+ * A recusa, com o verbo da acao no texto.
+ *
+ * A frase e por rota porque ela e o que o usuario le: "apenas administradores
+ * podem remover socios" diz o que ele tentou fazer, e um texto unico para as dez
+ * rotas obrigaria quem le a adivinhar qual das acoes da tela foi recusada.
+ */
+function exigirAdminDoProvedor(acao: string) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!podeAdministrarOProvedor(req.session)) {
+      return res.status(403).json({ message: `Apenas administradores podem ${acao}` });
+    }
+    next();
+  };
+}
+
 export function registerProviderRoutes(): Router {
   const router = Router();
 
@@ -73,11 +126,8 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.post("/api/provider/users", requireAuth, requireProvider, async (req, res) => {
+  router.post("/api/provider/users", requireAuth, requireProvider, exigirAdminDoProvedor("convidar usuarios"), async (req, res) => {
     try {
-      if (req.session.role !== "admin") {
-        return res.status(403).json({ message: "Apenas administradores podem convidar usuarios" });
-      }
       const { name, email, password, role } = req.body as { name: string; email: string; password: string; role: string };
       if (!name || !email || !password) {
         return res.status(400).json({ message: "Nome, email e senha sao obrigatorios" });
@@ -107,11 +157,8 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.delete("/api/provider/users/:id", requireAuth, requireProvider, async (req, res) => {
+  router.delete("/api/provider/users/:id", requireAuth, requireProvider, exigirAdminDoProvedor("remover usuarios"), async (req, res) => {
     try {
-      if (req.session.role !== "admin") {
-        return res.status(403).json({ message: "Apenas administradores podem remover usuarios" });
-      }
       const userId = parseInt(req.params.id);
       // 409, nao 400: o pedido esta bem formado: o que impede e o ESTADO. E a
       // exclusao e definitiva, entao as duas travas abaixo sao a unica coisa
@@ -158,11 +205,8 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.patch("/api/provider/settings", requireAuth, requireProvider, async (req, res) => {
+  router.patch("/api/provider/settings", requireAuth, requireProvider, exigirAdminDoProvedor("alterar configuracoes"), async (req, res) => {
     try {
-      if (req.session.role !== "admin") {
-        return res.status(403).json({ message: "Apenas administradores podem alterar configuracoes" });
-      }
       const { updateProviderSchema } = await import("@shared/schema");
       const parsed = updateProviderSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: "Dados invalidos" });
@@ -195,9 +239,8 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.post("/api/provider/integration/regenerate-token", requireAuth, requireProvider, async (req, res) => {
+  router.post("/api/provider/integration/regenerate-token", requireAuth, requireProvider, exigirAdminDoProvedor("gerar um token novo de integracao"), async (req, res) => {
     try {
-      if (req.session.role !== "admin") return res.status(403).json({ message: "Apenas administradores" });
       const token = await storage.regenerateWebhookToken(req.session.providerId!);
       const baseUrl = `${req.protocol}://${req.get("host")}`;
       return res.json({ token, webhookUrl: `${baseUrl}/api/webhooks/erp-sync` });
@@ -206,11 +249,8 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.patch("/api/provider/profile", requireAuth, requireProvider, async (req, res) => {
+  router.patch("/api/provider/profile", requireAuth, requireProvider, exigirAdminDoProvedor("alterar o perfil"), async (req, res) => {
     try {
-      if (req.session.role !== "admin") {
-        return res.status(403).json({ message: "Apenas administradores podem alterar o perfil" });
-      }
       const allowedFields = [
         "name", "tradeName", "cnpj", "legalType", "openingDate", "businessSegment",
         "contactEmail", "contactPhone", "website",
@@ -237,11 +277,8 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.post("/api/provider/partners", requireAuth, requireProvider, async (req, res) => {
+  router.post("/api/provider/partners", requireAuth, requireProvider, exigirAdminDoProvedor("adicionar socios"), async (req, res) => {
     try {
-      if (req.session.role !== "admin") {
-        return res.status(403).json({ message: "Apenas administradores podem adicionar socios" });
-      }
       const { name, cpf, birthDate, email, phone, role, sharePercentage } = req.body;
       if (!name || !cpf) return res.status(400).json({ message: "Nome e CPF sao obrigatorios" });
       const partner = await storage.createProviderPartner({
@@ -255,11 +292,8 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.patch("/api/provider/partners/:id", requireAuth, requireProvider, async (req, res) => {
+  router.patch("/api/provider/partners/:id", requireAuth, requireProvider, exigirAdminDoProvedor("editar socios"), async (req, res) => {
     try {
-      if (req.session.role !== "admin") {
-        return res.status(403).json({ message: "Apenas administradores podem editar socios" });
-      }
       const id = parseInt(req.params.id);
       const { name, cpf, birthDate, email, phone, role, sharePercentage } = req.body;
       const updated = await storage.updateProviderPartner(id, req.session.providerId!, {
@@ -272,11 +306,8 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.delete("/api/provider/partners/:id", requireAuth, requireProvider, async (req, res) => {
+  router.delete("/api/provider/partners/:id", requireAuth, requireProvider, exigirAdminDoProvedor("remover socios"), async (req, res) => {
     try {
-      if (req.session.role !== "admin") {
-        return res.status(403).json({ message: "Apenas administradores podem remover socios" });
-      }
       const id = parseInt(req.params.id);
       await storage.deleteProviderPartner(id, req.session.providerId!);
       return res.json({ success: true });
@@ -295,11 +326,8 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.post("/api/provider/documents", requireAuth, requireProvider, async (req, res) => {
+  router.post("/api/provider/documents", requireAuth, requireProvider, exigirAdminDoProvedor("enviar documentos"), async (req, res) => {
     try {
-      if (req.session.role !== "admin") {
-        return res.status(403).json({ message: "Apenas administradores podem enviar documentos" });
-      }
       const { documentType, documentName, documentMimeType, documentSize, fileData } = req.body;
       if (!documentType || !documentName || !fileData) {
         return res.status(400).json({ message: "Dados do documento incompletos" });
@@ -318,11 +346,8 @@ export function registerProviderRoutes(): Router {
     }
   });
 
-  router.delete("/api/provider/documents/:id", requireAuth, requireProvider, async (req, res) => {
+  router.delete("/api/provider/documents/:id", requireAuth, requireProvider, exigirAdminDoProvedor("remover documentos"), async (req, res) => {
     try {
-      if (req.session.role !== "admin") {
-        return res.status(403).json({ message: "Apenas administradores podem remover documentos" });
-      }
       const id = parseInt(req.params.id);
       await storage.deleteProviderDocument(id, req.session.providerId!);
       return res.json({ success: true });

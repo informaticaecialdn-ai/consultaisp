@@ -29,9 +29,10 @@ import {
   Plus, RefreshCw, FileText,
   AlertCircle, Zap, Star, Edit2, Save, X, Eye,
   Ban, Copy, Wifi, Database, AlertTriangle, ChevronRight,
-  KeyRound, Receipt, History, ScanSearch, IdCard,
+  KeyRound, Receipt, History, ScanSearch, IdCard, Lock, LogIn,
 } from "lucide-react";
 import FormularioErp, { type ConectorMeta } from "@/components/erp/FormularioErp";
+import { lembrarPersonificacao } from "@/components/FaixaSuporte";
 
 /**
  * O PLANO SAI DO CATALOGO DO PAINEL, NAO DE UMA COPIA DESTA TELA.
@@ -121,6 +122,11 @@ const ABAS: { chave: string; rotulo: string; Icone: Icone }[] = [
   { chave: "consumo", rotulo: "Consumo", Icone: ScanSearch },
   { chave: "historico", rotulo: "Histórico", Icone: History },
   { chave: "integracao", rotulo: "Integração ERP", Icone: Database },
+  /* Fica por ULTIMO de propósito. É o caminho mais raro da ficha — só existe
+     enquanto o provedor mantém uma liberação aberta — e enfiá-lo antes de
+     "Integração ERP" trocaria a posição de uma aba que o operador já sabe onde
+     encontrar. */
+  { chave: "suporte", rotulo: "Acesso de suporte", Icone: KeyRound },
 ];
 
 /**
@@ -1178,6 +1184,13 @@ export default function AdminProvedorPage() {
             sai de `erp_integrations`. */}
         <IntegracaoTab providerId={providerId} ativo={activeTab === "integracao"} />
 
+        {/* TAB: ACESSO DE SUPORTE */}
+        <AcessoSuporteTab
+          providerId={providerId}
+          nomeProvedor={provider.name}
+          ativo={activeTab === "suporte"}
+        />
+
       </Tabs>
 
       {/* Modal: alterar plano.
@@ -1449,6 +1462,577 @@ export default function AdminProvedorPage() {
         </MolduraModal>
       )}
     </div>
+  );
+}
+
+/* ========================== ACESSO DE SUPORTE ========================== */
+
+/**
+ * A JANELA DE ACESSO, COMO O SERVIDOR A ENTREGA PARA ESTA TELA.
+ *
+ * Espelha uma linha de `acessos_suporte` (shared/schema.ts) mais o NOME de quem
+ * liberou, revogou e entrou — a tabela guarda id de usuário, e id não se lê numa
+ * trilha de auditoria. Os nomes são opcionais porque a linha sobrevive ao
+ * usuário (nenhuma FK da tabela tem CASCADE, de propósito); sem par a tela
+ * escreve "—" em vez de imprimir o número cru.
+ *
+ * `expiraEm` chega como texto ISO e é o ÚNICO horário que esta tela transforma
+ * em contagem regressiva. Quem AUTORIZA continua sendo o servidor: o relógio
+ * daqui só decide o que mostrar, e quando ele acha que venceu a tela para de
+ * oferecer o botão e manda perguntar de novo — nunca o contrário.
+ */
+interface JanelaDeAcesso {
+  id: number;
+  liberadoEm: string;
+  expiraEm: string;
+  revogadoEm: string | null;
+  liberadoPorNome?: string | null;
+  revogadoPorNome?: string | null;
+  usadoPorNome?: string | null;
+  primeiroUsoEm: string | null;
+  ultimoUsoEm: string | null;
+  usos: number;
+}
+
+/**
+ * QUANTO FALTA, EM PROSA CURTA.
+ *
+ * Sai como "1h 58min", e não como "01:58:32": o operador precisa saber se dá
+ * tempo de fazer o que veio fazer, não cronometrar. Abaixo de um minuto a tela
+ * para de anunciar número — dizer "0min" enquanto o botão ainda funciona é
+ * pior do que dizer que está acabando.
+ */
+function faltaEmProsa(ms: number): string {
+  const minutos = Math.floor(ms / 60000);
+  if (minutos < 1) return "menos de 1min";
+  const horas = Math.floor(minutos / 60);
+  const resto = minutos % 60;
+  if (horas === 0) return `${resto}min`;
+  if (resto === 0) return `${horas}h`;
+  return `${horas}h ${resto}min`;
+}
+
+/**
+ * A SITUAÇÃO DE UMA JANELA NA TRILHA.
+ *
+ * "Vigente" sai em `gated` (âmbar), e não em `ok` (verde), porque verde afirma
+ * que está tudo bem — e uma janela aberta é justamente o intervalo em que
+ * alguém de fora enxerga o dado pessoal dos titulares deste provedor. Âmbar é o
+ * que a seção 3 reserva para o estado que pede atenção sem ser erro.
+ *
+ * "Encerrada" e "Expirada" são coisas diferentes e a tabela as separa desde a
+ * fundação: `revogado_em` preenchido quer dizer que alguém cortou (o provedor,
+ * ou o próprio clique dele em liberar de novo); prazo vencido com
+ * `revogado_em` nulo quer dizer que a hora simplesmente passou. Fundir as duas
+ * num "Fechada" apagaria a única pergunta que uma auditoria faz aqui.
+ */
+function situacaoDaJanela(j: JanelaDeAcesso, agora: number): { label: string; tom: TomSelo } {
+  if (j.revogadoEm) return { label: "Encerrada", tom: "neutro" };
+  if (new Date(j.expiraEm).getTime() > agora) return { label: "Vigente", tom: "gated" };
+  return { label: "Expirada", tom: "neutro" };
+}
+
+/** O texto que existe, ou nada — string vazia na trilha lê como nome apagado. */
+function textoOuNada(v: unknown): string | null {
+  return typeof v === "string" && v.trim() ? v : null;
+}
+
+/**
+ * UMA LINHA DA TRILHA, CONFERIDA CAMPO A CAMPO.
+ *
+ * Sem `id`, `liberadoEm` e `expiraEm` não há linha: são eles que dão a chave da
+ * tabela e as duas datas de que a situação depende. Faltando qualquer um, a
+ * linha é descartada em vez de virar "Invalid Date" numa auditoria — e um corpo
+ * inteiro sem nenhuma linha aproveitável cai no bloco de falha de leitura, que é
+ * a única coisa que esta tela pode afirmar nesse caso.
+ *
+ * Os nomes de pessoa são opcionais de propósito: a rota resolve `liberado_por` e
+ * `usado_por` em nome quando consegue, e a tela já sabe dizer "—".
+ */
+function janelaNormalizada(bruto: unknown): JanelaDeAcesso | null {
+  if (!bruto || typeof bruto !== "object") return null;
+  const b = bruto as Record<string, unknown>;
+  const id = Number(b.id);
+  const liberadoEm = textoOuNada(b.liberadoEm);
+  const expiraEm = textoOuNada(b.expiraEm);
+  if (!Number.isInteger(id) || !liberadoEm || !expiraEm) return null;
+  const usos = Number(b.usos);
+  return {
+    id,
+    liberadoEm,
+    expiraEm,
+    revogadoEm: textoOuNada(b.revogadoEm),
+    liberadoPorNome: textoOuNada(b.liberadoPorNome),
+    revogadoPorNome: textoOuNada(b.revogadoPorNome),
+    usadoPorNome: textoOuNada(b.usadoPorNome),
+    primeiroUsoEm: textoOuNada(b.primeiroUsoEm),
+    ultimoUsoEm: textoOuNada(b.ultimoUsoEm),
+    usos: Number.isFinite(usos) ? usos : 0,
+  };
+}
+
+/**
+ * O CORPO DA ROTA, ANTES DE A TELA ACREDITAR NELE.
+ *
+ * `data?.vigente ?? null` é confortável e é justamente a armadilha que o bloco
+ * "FALHA DE LEITURA NÃO PODE VIRAR 'O PROVEDOR NÃO LIBEROU'" descreve: um corpo
+ * com outro formato — a rota mudando de nome de campo, um proxy devolvendo HTML,
+ * uma resposta de erro em 200 — passaria por ele em silêncio e a tela diria ao
+ * operador que o provedor não liberou nada. Nesta aba, dizer isso errado custa
+ * um telefonema cobrando um clique que já foi dado, e um histórico vazio afirma
+ * "ninguém nunca entrou aqui" numa trilha de auditoria.
+ *
+ * Por isso o formato desconhecido ESTOURA: quem trata erro aqui é o bloco que
+ * diz "não foi possível ler", com botão de tentar de novo.
+ *
+ * `vigente` ausente é diferente de `vigente: null`. `null` é o servidor
+ * afirmando que não há janela aberta, e a tela obedece. Ausente é um corpo que
+ * não fala disso, e aí a janela vigente é deduzida do próprio histórico pela
+ * mesma regra do banco (não revogada, dentro do prazo). Deduzir no máximo faz a
+ * tela oferecer um "Entrar" que o servidor recusa com a frase certa — a rota
+ * revalida a janela pelo banco, e o botão daqui nunca foi autorização.
+ */
+function acessoNormalizado(
+  bruto: unknown,
+  agora: number,
+): { vigente: JanelaDeAcesso | null; historico: JanelaDeAcesso[] } {
+  const corpo: Record<string, unknown> | null = Array.isArray(bruto)
+    ? { historico: bruto }
+    : bruto && typeof bruto === "object"
+      ? (bruto as Record<string, unknown>)
+      : null;
+  if (!corpo || !Array.isArray(corpo.historico)) {
+    throw new Error("Resposta do acesso de suporte em formato inesperado");
+  }
+
+  const historico = corpo.historico
+    .map(janelaNormalizada)
+    .filter((j): j is JanelaDeAcesso => j !== null);
+
+  const vigente =
+    "vigente" in corpo
+      ? janelaNormalizada(corpo.vigente)
+      : (historico.find(j => !j.revogadoEm && new Date(j.expiraEm).getTime() > agora) ?? null);
+
+  return { vigente, historico };
+}
+
+/**
+ * POR ONDE O SUPORTE ENTRA — e por que ele quase nunca pode.
+ *
+ * Entrar aqui é PERSONIFICAÇÃO: a sessão do superadmin ganha o `providerId`
+ * deste provedor e, a partir daí, `requireAuth`, `requireProvider` e
+ * `requireAdmin` passam a valer inteiros — ou seja, ele faz tudo que o
+ * administrador do provedor faz, inclusive consulta que gasta crédito. O que
+ * separa isso de um bureau sem isolamento é uma coisa só: a janela que o
+ * PROVEDOR abriu. Por isso o botão não é um botão desabilitado com um título
+ * explicativo — sem liberação ele não existe, e no lugar dele fica a frase que
+ * diz o que falta acontecer.
+ *
+ * O CONTRATO COM O SERVIDOR:
+ *
+ *   POST /api/admin/acesso-suporte/:providerId/entrar  — JÁ EXISTE
+ *        (server/routes/suporte-acesso.routes.ts). 200 grava o `providerId` na
+ *        sessão; 403 quando não há janela válida, 409 quando este superadmin já
+ *        está dentro de OUTRO provedor. Todos devolvem `{ message }` em
+ *        português, que é o que a tela mostra. A rota REVALIDA a janela pelo
+ *        banco: o botão daqui é conveniência, nunca autorização.
+ *
+ *   GET  /api/admin/acesso-suporte/:providerId
+ *        → { vigente: JanelaDeAcesso | null, historico: JanelaDeAcesso[] }
+ *        `vigente` é `storage.acessoDeSuporteValido` (não revogada e dentro do
+ *        prazo, medido pelo relógio do BANCO) e `historico` é
+ *        `storage.historicoDeAcessos`, completo, com a vigente incluída.
+ *        A tela não confia no corpo de olhos fechados: `acessoNormalizado`
+ *        confere campo a campo e estoura no que não reconhece, para que formato
+ *        inesperado caia em "não foi possível ler" em vez de virar "o provedor
+ *        não liberou".
+ *
+ *        O `GET /api/provider/acesso-suporte` NÃO serve aqui: ele lê
+ *        `req.session.providerId` (o provedor perguntando de si mesmo), não
+ *        aceita provedor por parâmetro, e de propósito não devolve nome de
+ *        pessoa nem histórico — o que o provedor precisa saber é "há alguém
+ *        dentro", enquanto esta tela existe para responder "quem, quando e por
+ *        autorização de quem".
+ *
+ * E, ao entrar, esta tela deixa o LEMBRETE DE PERSONIFICAÇÃO
+ * (client/src/components/FaixaSuporte.tsx). Ele não autoriza nada — é o bilhete
+ * que faz a faixa vermelha saber que vale a pena perguntar ao servidor, em vez
+ * de perguntar em toda montagem do app e colher um 403 por carregamento. Como
+ * quem clica aqui é quem começa a personificação, este é o único lugar do
+ * sistema que sabe disso na hora certa.
+ */
+function AcessoSuporteTab({
+  providerId,
+  nomeProvedor,
+  ativo,
+}: {
+  providerId: number;
+  nomeProvedor: string;
+  ativo: boolean;
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const { data, isLoading, isError, refetch, isFetching } = useQuery<{
+    vigente: JanelaDeAcesso | null;
+    historico: JanelaDeAcesso[];
+  }>({
+    queryKey: ["/api/admin/acesso-suporte", providerId],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/admin/acesso-suporte/${providerId}`);
+      return acessoNormalizado(await res.json(), Date.now());
+    },
+    /* Como em `IntegracaoTab`: a busca só acontece com a aba aberta. Aqui o
+       payload não traz credencial, traz nomes de pessoas e horários de quem
+       olhou dado de titular — trilha de auditoria não precisa ficar no cache do
+       navegador de quem abriu a ficha para ver uma fatura. */
+    enabled: ativo,
+    /* Enquanto EXISTE janela aberta a tela relê sozinha, porque o estado pode
+       mudar sem que ninguém toque nesta aba: o prazo vence, ou o provedor
+       encerra do lado dele. Sem janela não há o que expirar e a releitura
+       automática só gastaria requisição — quem quer saber se o provedor já
+       clicou usa o "Verificar de novo". */
+    refetchInterval: q => (q.state.data?.vigente ? 30000 : false),
+  });
+
+  /**
+   * O relógio da contagem regressiva.
+   *
+   * Passo de 15s para um texto que só mostra minutos: erra por menos de um
+   * quarto de minuto e não acorda a tela a cada segundo. Só corre com a aba
+   * aberta — um `setInterval` vivo numa aba fechada re-renderiza a ficha
+   * inteira de graça.
+   */
+  const [agora, setAgora] = useState(() => Date.now());
+  useEffect(() => {
+    if (!ativo) return;
+    setAgora(Date.now());
+    const t = window.setInterval(() => setAgora(Date.now()), 15000);
+    return () => window.clearInterval(t);
+  }, [ativo]);
+
+  /**
+   * A entrada. `fetch` cru, e não `apiRequest`, pelo mesmo motivo já escrito no
+   * teste de ERP: `apiRequest` estoura antes de a tela ler o corpo, e aqui a
+   * mensagem do servidor é o conteúdo ("a liberação expirou", "o provedor
+   * encerrou o acesso") — trocá-la por "403: {json}" faria o operador ligar
+   * para o provedor sem saber o que dizer.
+   */
+  const entrarMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/admin/acesso-suporte/${providerId}/entrar`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const corpo = await res.json().catch(() => ({}) as any);
+      if (!res.ok) {
+        throw new Error(corpo.message || "Não foi possível entrar no sistema deste provedor.");
+      }
+      return corpo;
+    },
+    onSuccess: (corpo: { providerId?: number }) => {
+      /* O BILHETE VAI ANTES DA RECARGA.
+         Escrito aqui, e não depois, porque `location.assign` derruba este
+         JavaScript: qualquer coisa deixada para o "depois" não acontece. O id
+         preferido é o que o servidor confirmou ter gravado na sessão — a rota
+         devolve `providerId` — e o da rota desta ficha é o suplente. O nome vem
+         da tela, que já o tem, e serve de reserva para o caso de a leitura do
+         provedor falhar no servidor. Ver o bloco do lembrete em FaixaSuporte. */
+      const id = Number(corpo?.providerId);
+      lembrarPersonificacao({
+        providerId: Number.isInteger(id) && id > 0 ? id : providerId,
+        providerNome: nomeProvedor || undefined,
+      });
+      /* A sessão trocou de dono. `qc.clear()` antes de sair porque todo o cache
+         desta aba pertence à plataforma, e recarregar de página em página com
+         resposta de outro tenant no cache é exatamente como dado de um provedor
+         apareceria dentro de outro.
+         A saída é `location.assign`, e não o `navigate` do wouter, porque o
+         `AuthProvider` só consulta `/api/auth/me` na montagem (client/src/lib/auth.tsx):
+         sem recarga a aplicação continuaria se achando superadmin sem provedor,
+         e a faixa de "Suporte conectado" nunca desenharia. */
+      qc.clear();
+      window.location.assign("/");
+    },
+    onError: (e: any) => {
+      /* Título neutro porque a recusa tem duas caras muito diferentes: 403 é
+         "este provedor não liberou", 409 é "você já está dentro de outro
+         provedor, saia de lá primeiro". Quem sabe qual das duas é o servidor, e
+         a frase dele vai inteira na descrição. */
+      toast({ title: "Não foi possível entrar", description: e.message, variant: "destructive" });
+      /* O servidor disse não; o mais provável é que a janela tenha fechado
+         enquanto a tela estava aberta. Relê para a tela parar de oferecer o que
+         não existe mais. */
+      refetch();
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <TabsContent value="suporte" className="space-y-4">
+        <Card className="p-4">
+          <LinhasSkeleton linhas={3} />
+        </Card>
+      </TabsContent>
+    );
+  }
+
+  /**
+   * FALHA DE LEITURA NÃO PODE VIRAR "O PROVEDOR NÃO LIBEROU".
+   *
+   * Um GET que quebrou cairia em `data?.vigente ?? null` e a tela mandaria o
+   * operador cobrar do provedor um clique que ele talvez já tenha dado — e o
+   * histórico apareceria vazio, que numa trilha de auditoria é uma afirmação
+   * ("ninguém nunca entrou aqui") que esta tela não tem como fazer.
+   */
+  if (isError) {
+    return (
+      <TabsContent value="suporte" className="space-y-4" data-testid="tab-content-suporte">
+        <Card className="px-4 py-4" data-testid="acesso-suporte-erro">
+          <AvisoNaoCarregou aoTentarDeNovo={() => refetch()} testIdAcao="button-recarregar-acesso-suporte">
+            Não foi possível ler o acesso de suporte deste provedor. Sem essa leitura não dá para
+            afirmar se existe liberação aberta nem mostrar o histórico.
+          </AvisoNaoCarregou>
+        </Card>
+      </TabsContent>
+    );
+  }
+
+  const vigente = data?.vigente ?? null;
+  const historico = data?.historico ?? [];
+  const restanteMs = vigente ? new Date(vigente.expiraEm).getTime() - agora : 0;
+  /** O botão só aparece com janela aberta E com prazo pelo relógio desta tela. */
+  const liberado = !!vigente && restanteMs > 0;
+  /** O servidor mandou uma janela que, aqui, já venceu — vale dizer isso. */
+  const venceuNaTela = !!vigente && restanteMs <= 0;
+
+  return (
+    <TabsContent value="suporte" className="space-y-4" data-testid="tab-content-suporte">
+      <Card className="overflow-hidden" data-testid="card-acesso-suporte">
+        <TopoCartao
+          titulo="Acesso de suporte"
+          Icone={KeyRound}
+          sub="Entrar no sistema deste provedor para configurar e verificar, com a autorização dele."
+          acao={
+            <Selo tom={liberado ? "gated" : "neutro"} testId="badge-acesso-suporte">
+              {liberado ? "Liberado" : "Sem liberação"}
+            </Selo>
+          }
+        />
+
+        {liberado && vigente ? (
+          <div className="px-4 py-3 space-y-3">
+            <div>
+              <LinhaDado rotulo="Tempo restante">
+                <Num className="text-[13px] font-medium text-[var(--text)]" testId="text-acesso-restante">
+                  {faltaEmProsa(restanteMs)}
+                </Num>
+              </LinhaDado>
+              <LinhaDado rotulo="Vale até">
+                <Num className="text-[13px] text-[var(--text)]" testId="text-acesso-expira">
+                  {fmtDateTime(vigente.expiraEm)}
+                </Num>
+              </LinhaDado>
+              <LinhaDado rotulo="Liberado por">
+                <span className="text-[13px] text-[var(--text)]" data-testid="text-acesso-liberado-por">
+                  {vigente.liberadoPorNome || "—"}
+                </span>
+              </LinhaDado>
+              <LinhaDado rotulo="Liberado em">
+                <Num className="text-[13px] text-[var(--text-2)]">{fmtDateTime(vigente.liberadoEm)}</Num>
+              </LinhaDado>
+              <LinhaDado rotulo="Quem já entrou">
+                {vigente.usadoPorNome ? (
+                  <span className="text-[13px] text-[var(--text)]" data-testid="text-acesso-usado-por">
+                    {vigente.usadoPorNome} · <Num>{fmtDateTime(vigente.primeiroUsoEm)}</Num>
+                  </span>
+                ) : (
+                  /* Janela autorizada e nunca aberta é informação — é o provedor
+                     tendo liberado sem que ninguém tenha olhado nada. */
+                  <span className="text-[13px] text-[var(--text-muted)]" data-testid="text-acesso-sem-uso">
+                    Ninguém entrou ainda
+                  </span>
+                )}
+              </LinhaDado>
+            </div>
+
+            {/* O QUE ENTRAR SIGNIFICA, ANTES DO CLIQUE E NÃO DEPOIS.
+                Âmbar (`--gated`) porque não é erro nem risco consumado: é o
+                aviso de que o próximo clique atravessa o isolamento por
+                provedor, que é a invariante central do produto. */}
+            <div className="rounded border border-[var(--gated-border)] bg-[var(--gated-bg)] px-3 py-2.5">
+              <p className="text-[12px] text-[var(--gated)] leading-snug">
+                Ao entrar, você passa a agir como administrador de{" "}
+                <span className="font-medium">{nomeProvedor}</span>: vê o dado pessoal completo
+                dos clientes dele e faz tudo que o painel do provedor faz — inclusive consulta
+                que gasta crédito e importação. A entrada e o tempo que você ficar dentro ficam
+                registrados nesta trilha, no nome de quem está logado.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className={cn(BOTAO_MARCA, DESABILITAVEL)}
+                onClick={() => entrarMutation.mutate()}
+                disabled={entrarMutation.isPending}
+                data-testid="button-entrar-suporte"
+              >
+                <LogIn className="w-3.5 h-3.5" strokeWidth={2} />
+                {entrarMutation.isPending ? "Entrando..." : "Entrar no sistema do provedor"}
+              </button>
+              <button
+                type="button"
+                className={cn(BOTAO_SECUNDARIO, DESABILITAVEL)}
+                onClick={() => refetch()}
+                disabled={isFetching}
+                data-testid="button-verificar-acesso-suporte"
+              >
+                <RefreshCw
+                  className={cn("w-3.5 h-3.5", isFetching && "motion-safe:animate-spin")}
+                  strokeWidth={2}
+                />
+                Verificar de novo
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* SEM LIBERAÇÃO NÃO HÁ BOTÃO — há a explicação do que falta.
+             Um "Entrar" desabilitado deixaria o operador procurando o que
+             destrava, e o que destrava não está nesta tela nem nas mãos dele:
+             está no clique do provedor. A única ação honesta aqui é reler.
+             A tela também NÃO diz em que menu do painel o provedor clica: essa
+             tela é de outra frente, e mandar alguém procurar um menu que pode
+             ter outro nome é a receita de um chamado que não fecha. */
+          <EstadoVazio
+            Icone={Lock}
+            titulo={venceuNaTela ? "A liberação venceu" : "O provedor não liberou o acesso"}
+            descricao={
+              venceuNaTela
+                ? "A janela aberta por este provedor chegou ao fim. Para entrar de novo é preciso que ele libere outra — cada liberação vale 2 horas."
+                : "Ninguém entra no sistema de um provedor sem que ele autorize. A liberação é feita por ele, no painel do provedor, vale 2 horas e pode ser encerrada por ele a qualquer momento."
+            }
+            cta={
+              <button
+                type="button"
+                className={cn(BOTAO_SECUNDARIO, DESABILITAVEL)}
+                onClick={() => refetch()}
+                disabled={isFetching}
+                data-testid="button-verificar-acesso-suporte"
+              >
+                <RefreshCw
+                  className={cn("w-3.5 h-3.5", isFetching && "motion-safe:animate-spin")}
+                  strokeWidth={2}
+                />
+                Verificar de novo
+              </button>
+            }
+            testId="acesso-suporte-sem-liberacao"
+          />
+        )}
+      </Card>
+
+      {/* A TRILHA. Ela é metade da razão de a tabela existir em vez de duas
+          colunas em `providers`, e uma trilha que ninguém consegue ler não
+          protege ninguém. Vem completa: liberação encerrada e liberação que
+          ninguém usou também são linhas da história. */}
+      <Card className="overflow-hidden">
+        <TopoCartao
+          titulo="Histórico de acessos"
+          Icone={History}
+          sub={
+            historico.length === 1 ? (
+              <>
+                <Num>1</Num> liberação registrada
+              </>
+            ) : (
+              <>
+                <Num>{historico.length}</Num> liberações registradas
+              </>
+            )
+          }
+        />
+        {historico.length === 0 ? (
+          <EstadoVazio
+            Icone={History}
+            titulo="Nenhuma liberação registrada"
+            descricao="Toda vez que este provedor liberar o acesso de suporte, a janela aparece aqui — com quem autorizou, até quando valia, quem entrou e quantas requisições foram feitas."
+            testId="empty-historico-acesso-suporte"
+          />
+        ) : (
+          <>
+            <TabelaPainel testId="tabela-historico-acesso-suporte">
+              <thead>
+                <tr>
+                  <Th>Liberado em</Th>
+                  <Th>Liberado por</Th>
+                  <Th>Vale até</Th>
+                  <Th>Quem entrou</Th>
+                  <Th alinhamento="direita">Atividade</Th>
+                  <Th>Situação</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {historico.map(j => {
+                  const s = situacaoDaJanela(j, agora);
+                  return (
+                    <tr key={j.id} data-testid={`row-acesso-suporte-${j.id}`}>
+                      {/* Data e hora se leem da esquerda para a direita, como
+                          identificador — mono sem alinhar à direita. */}
+                      <Td num alinhamento="esquerda">{fmtDateTime(j.liberadoEm)}</Td>
+                      <Td>{j.liberadoPorNome || "—"}</Td>
+                      <Td num alinhamento="esquerda">{fmtDateTime(j.expiraEm)}</Td>
+                      <Td>
+                        {j.usadoPorNome ? (
+                          <span className="text-[var(--text)]">
+                            {j.usadoPorNome} · <Num>{fmtDateTime(j.primeiroUsoEm)}</Num>
+                          </span>
+                        ) : (
+                          <span className="text-[var(--text-muted)]">Ninguém entrou</span>
+                        )}
+                      </Td>
+                      <Td num>{j.usos}</Td>
+                      <Td>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Selo tom={s.tom}>{s.label}</Selo>
+                          {/* Quem cortou só aparece quando alguém cortou. Numa
+                              janela que apenas venceu não há autor, e inventar
+                              um é o que a coluna `revogado_em` existe para
+                              impedir. */}
+                          {j.revogadoEm && (
+                            <span className="text-[11.5px] text-[var(--text-muted)]">
+                              {j.revogadoPorNome ? `por ${j.revogadoPorNome} · ` : ""}
+                              <Num>{fmtDateTime(j.revogadoEm)}</Num>
+                            </span>
+                          )}
+                        </div>
+                      </Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </TabelaPainel>
+            {/* O NÚMERO PRECISA DO SEU RÓTULO CERTO.
+                `usos` NÃO é "vezes que entrou" nem "requisições": a trava
+                amostra no máximo uma gravação por minuto por janela
+                (INTERVALO_REGISTRO_DE_USO_MS, server/auth.ts), então o que a
+                coluna conta são minutos em que houve atividade do suporte.
+                Chamá-la de "acessos" faria o operador ler cinquenta visitas
+                onde houve uma de cinquenta minutos.
+                E "Quem entrou" guarda o PRIMEIRO, e só ele: `usado_por` nunca é
+                sobrescrito, de propósito — dois superadmins na mesma janela
+                aparecem aqui como um nome só. */}
+            <p className="px-4 py-2.5 text-[11.5px] text-[var(--text-muted)] border-t border-[var(--border)]">
+              "Atividade" conta os minutos em que houve alguma requisição do suporte dentro da
+              janela — é a medida de quanto tempo alguém ficou dentro, não de quantas vezes
+              entrou. "Quem entrou" guarda o primeiro a usar a liberação; havendo mais de um, os
+              demais ficam no log do servidor.
+            </p>
+          </>
+        )}
+      </Card>
+    </TabsContent>
   );
 }
 

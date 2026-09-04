@@ -5,7 +5,7 @@ import {
   ispConsultations, spcConsultations, antiFraudAlerts,
   supportThreads, supportMessages, planChanges, providerInvoices,
   creditOrders, providerDocuments, providerPartners,
-  erpIntegrations, erpSyncLogs,
+  erpIntegrations, erpSyncLogs, acessosSuporte,
   type Provider, type InsertProvider, type ErpIntegration,
 } from "@shared/schema";
 
@@ -25,6 +25,63 @@ import {
  * `erp_integrations` pelas rotas proprias — que decifram sob demanda, para um
  * unico provedor, e nao para a lista inteira.
  */
+/**
+ * Codigo da recusa, para quem chama distinguir "nao deu" de "nao pode".
+ *
+ * A rota do superadmin hoje converte qualquer excecao em 500 com
+ * `getSafeErrorMessage`, que em producao devolve "Erro interno do servidor" — a
+ * recusa chegaria ao superadmin com cara de defeito, e defeito e o tipo de coisa
+ * que se tenta de novo. Nao e defeito, e decisao. O codigo fica exportado para a
+ * rota poder mapea-lo em 409 com o texto certo quando alguem mexer nela.
+ */
+export const CODIGO_PROVEDOR_COM_TRILHA_DE_SUPORTE = "PROVEDOR_COM_TRILHA_DE_SUPORTE";
+
+/**
+ * Apagar um provedor que tem historico de acesso de suporte e RECUSADO.
+ *
+ * POR QUE RECUSAR, EM VEZ DE APAGAR JUNTO.
+ *
+ * `acessos_suporte` guarda a unica prova de que estranhos abriram o dado pessoal
+ * de titulares que nunca ouviram falar do suporte: quem autorizou, quem entrou,
+ * quando e por quanto tempo. Ela existe para responder a LGPD meses depois — e a
+ * pergunta que chega meses depois nao e sobre o provedor, e sobre os TITULARES
+ * cujo CPF, endereco e telefone foram vistos. Apagar o provedor apaga o sujeito
+ * da pergunta; a pergunta continua de pe, feita por gente que nao tem nada a ver
+ * com o fim do contrato entre a plataforma e o provedor. Uma trilha que some
+ * junto com o que ela audita nunca foi trilha: bastaria excluir o provedor para
+ * nunca ter havido acesso nenhum.
+ *
+ * As saidas descartadas:
+ *
+ *   · APAGAR a trilha junto — o conserto apressado que uma violacao de FK
+ *     convida a escrever. Destroi exatamente a prova, e deixa o sistema
+ *     PARECENDO auditado, que e pior do que nao ter auditoria.
+ *   · ANONIMIZAR — nao ha o que anonimizar. A linha ja e so id de provedor, id
+ *     de usuario e instantes; nenhum dado de titular mora nela. Zerar o
+ *     `provider_id` para soltar a FK trocaria "quem olhou o dado de quem" por
+ *     "alguem olhou o dado de alguem", que nao responde nada.
+ *   · PRESERVAR a trilha orfa — a FK para `providers.id` nao deixa, e nao deixa
+ *     de proposito (migrations/0018). Remove-la seria decidir de passagem que a
+ *     trilha pode apontar para um provedor que ninguem mais consegue nomear.
+ *
+ * Sobra recusar, que e tambem a unica saida que um auditor aceitaria como
+ * honesta: ela obriga uma PESSOA a decidir o que fazer com a prova antes de o
+ * sujeito dela sumir — exportar, reter pelo prazo legal, comunicar — em vez de a
+ * decisao acontecer sozinha, sem registro, dentro de um DELETE.
+ */
+export class ProvedorComTrilhaDeSuporteError extends Error {
+  readonly codigo = CODIGO_PROVEDOR_COM_TRILHA_DE_SUPORTE;
+
+  constructor(readonly providerId: number, readonly acessos: number) {
+    super(
+      `Provedor ${providerId} nao pode ser excluido: a trilha de auditoria tem ${acessos} registro(s) de acesso de suporte. ` +
+      `Ela prova quem abriu o dado pessoal dos clientes deste provedor e precisa sobreviver a exclusao. ` +
+      `Trate o historico primeiro (exportar e reter pelo prazo legal) e so entao remova o provedor.`,
+    );
+    this.name = "ProvedorComTrilhaDeSuporteError";
+  }
+}
+
 export interface ProviderWithStats extends Provider {
   userCount: number;
   adminEmailVerified: boolean;
@@ -64,7 +121,31 @@ export class ProvidersStorage {
     await db.update(providers).set({ ispCredits, spcCredits }).where(eq(providers.id, id));
   }
 
+  /**
+   * A pergunta vem ANTES do primeiro DELETE, e isso e metade do conserto.
+   *
+   * A sequencia abaixo nao esta em transacao: sao dezessete comandos soltos. Sem
+   * esta guarda, um provedor com trilha percorria a lista inteira apagando
+   * clientes, faturas, equipamentos e consultas, e so estourava a violacao de FK
+   * no penultimo comando — `users`, por causa de `liberado_por`. O resultado nao
+   * seria "nao apagou": seria um provedor esvaziado, ainda vivo, com um 500 na
+   * tela e o dado ja perdido. Perguntar primeiro custa uma consulta e deixa o
+   * provedor exatamente como estava.
+   */
   async deleteProvider(id: number): Promise<void> {
+    const [trilha] = await db
+      .select({ acessos: sql<number>`count(*)::int` })
+      .from(acessosSuporte)
+      .where(eq(acessosSuporte.providerId, id));
+
+    // `count(*)` volta como string em driver de Postgres quando o ::int se
+    // perde; o Number() e a rede para o caso em que "0" verdadeiro viraria um
+    // valor considerado positivo por comparacao frouxa.
+    const acessos = Number(trilha?.acessos ?? 0);
+    if (acessos > 0) {
+      throw new ProvedorComTrilhaDeSuporteError(id, acessos);
+    }
+
     const threads = await db.select({ id: supportThreads.id }).from(supportThreads).where(eq(supportThreads.providerId, id));
     if (threads.length > 0) {
       const threadIds = threads.map(t => t.id);

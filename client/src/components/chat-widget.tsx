@@ -67,6 +67,18 @@ export function ChatWidget() {
     }
   }, [open, chatData?.messages?.length]);
 
+  /**
+   * O widget e o canal do PROVEDOR para falar com a plataforma, e escreve com a
+   * identidade do provedor. Superadmin nao o usa nunca — nem na propria conta,
+   * nem personificando.
+   *
+   * Na personificacao a regra vale pelo mesmo motivo, e nao por acidente de a
+   * condicao olhar o papel: o suporte teclando aqui criaria uma mensagem
+   * ASSINADA PELO PROVEDOR num chamado que o provedor nao abriu. O atendente le
+   * e responde a mesma conversa pelo lado da plataforma (Chat de Suporte no
+   * painel SaaS), com o nome dele. Escopo de suporte e "tudo que o admin do
+   * provedor faz" para configurar e conferir, nao para falar no lugar dele.
+   */
   if (user?.role === "superadmin") return null;
 
   const unreadCount = unreadData?.count || 0;

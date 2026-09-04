@@ -19,9 +19,10 @@ import {
   BarChart3, Search, AlertTriangle, Save, RefreshCw, Crown,
   Lock, Star, FileText, Upload, Download, MapPin, Calendar,
   Briefcase, X, Pencil, ClipboardList, UserCheck, Wand2, Info,
-  Zap, Database, CheckCheck, Clock,
+  Zap, Database, CheckCheck, Clock, Headset,
 } from "lucide-react";
 import { AbaAntiFraude } from "@/components/painel/AbaAntiFraude";
+import { AbaSuporte } from "@/components/painel/AbaSuporte";
 import { mensagemDoErro } from "@/components/recuperacao/DialogoContato";
 import { rotuloDoPlano } from "@/lib/planos";
 import { ERP_OPTIONS } from "@/components/admin/constants";
@@ -757,6 +758,16 @@ export default function PainelProvedorPage() {
           <TabsTrigger value="anti-fraude" className="gap-1.5" data-testid="tab-anti-fraude">
             <Shield className="w-3.5 h-3.5" />Anti-Fraude
           </TabsTrigger>
+          {/* A aba nao aparece para o OPERADOR do provedor (role `user`): a rota
+              que le o estado exige admin, entao para ele a aba seria uma caixa
+              vermelha de falha — um erro onde na verdade nao ha permissao. O
+              superadmin passa (`requireAdmin` o deixa entrar) e precisa ver o
+              estado enquanto esta conectado. */}
+          {user?.role !== "user" && (
+            <TabsTrigger value="suporte" className="gap-1.5" data-testid="tab-suporte">
+              <Headset className="w-3.5 h-3.5" />Suporte
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* ======================== VISAO GERAL ======================== */}
@@ -2121,6 +2132,19 @@ export default function PainelProvedorPage() {
         <TabsContent value="anti-fraude">
           <AbaAntiFraude podeEditar={user?.role === "admin"} />
         </TabsContent>
+
+        {/* ========================= SUPORTE ========================= */}
+        {/* `podeEditar` e `role === "admin"` de proposito, e nao um `!== "user"`:
+            durante uma sessao de suporte a role da sessao e `superadmin`, entao
+            quem esta USANDO o acesso ve esta aba somente para ler. Um superadmin
+            conectado nao renova a propria janela nem a fecha — abrir e fechar a
+            porta e do dono da conta, senao a liberacao de 2 horas deixa de ter
+            fim. */}
+        {user?.role !== "user" && (
+          <TabsContent value="suporte">
+            <AbaSuporte podeEditar={user?.role === "admin"} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

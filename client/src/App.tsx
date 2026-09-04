@@ -10,6 +10,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import ThemeToggle from "@/components/theme-toggle";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ChatWidget } from "@/components/chat-widget";
+import { FaixaSuporte, useSessaoDeSuporte } from "@/components/FaixaSuporte";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMarca } from "@/lib/marca";
 
@@ -111,6 +112,23 @@ const PROVIDER_ONLY_PATHS = [
   "/benchmark-regional",
 ];
 
+/**
+ * O espelho: as telas da PLATAFORMA, que listam dado de OUTROS provedores.
+ *
+ * Durante a personificacao elas saem da barra lateral, mas sumir do menu nao e
+ * o mesmo que ficar inalcancavel — o endereco digitado a mao continuava
+ * montando a tela. A recusa que vale e a do servidor (`requireSuperAdmin`
+ * responde 403 na janela de suporte); esta lista existe para o suporte ver a
+ * conta do provedor em vez de uma tela de erro atras da outra.
+ *
+ * `/admin/provedor/:id` nao esta aqui porque a lista compara caminho exato.
+ * A tela dele ja recusa sozinha: e ela quem chama `GET .../:id/detail`, e a
+ * resposta agora e 403.
+ */
+const PLATFORM_ONLY_PATHS = [
+  "/admin-sistema", "/admin/financeiro", "/admin/creditos", "/admin/marcas", "/admin/lgpd",
+];
+
 function ChangePasswordModal() {
   const { mustChangePassword, clearMustChangePassword } = useAuth();
   const [newPassword, setNewPassword] = useState("");
@@ -171,7 +189,23 @@ function ChangePasswordModal() {
 function AuthenticatedApp() {
   const marca = useMarca();
   const { user, isLoading } = useAuth();
+  const { sessao: sessaoDeSuporte, carregando: carregandoSuporte } = useSessaoDeSuporte();
   const [location, navigate] = useLocation();
+
+  /**
+   * As telas de provedor são o DESTINO de uma sessão de suporte, não um desvio.
+   *
+   * A regra abaixo expulsa superadmin de tudo que é do provedor, e é o que
+   * mantém os dois painéis separados no dia a dia. Com uma liberação aberta ela
+   * se inverte: o superadmin está ali justamente para operar a conta, e o desvio
+   * para /admin-sistema tornaria a funcionalidade inteira inalcançável.
+   *
+   * Enquanto a resposta não chega ninguém é redirecionado (`carregandoSuporte`).
+   * Expulsar primeiro e descobrir depois faria todo link de suporte cair em
+   * /admin-sistema antes de a primeira requisição terminar.
+   */
+  const superadminSemSuporte =
+    user?.role === "superadmin" && !carregandoSuporte && !sessaoDeSuporte;
 
   useEffect(() => {
     if (isLoading) return;
@@ -181,10 +215,19 @@ function AuthenticatedApp() {
       return;
     }
 
-    if (user && user.role === "superadmin" && PROVIDER_ONLY_PATHS.includes(location)) {
+    if (superadminSemSuporte && PROVIDER_ONLY_PATHS.includes(location)) {
       navigate("/admin-sistema", { replace: true });
+      return;
     }
-  }, [user, isLoading, location, navigate]);
+
+    // O sentido inverso: dentro da janela, as telas da plataforma nao sao dele.
+    // O destino e "/" — o painel do provedor em que ele esta — e nao a tela de
+    // login ou um erro: ele tem sessao, tem papel, e o que falta e so sair da
+    // personificacao, o que a faixa vermelha oferece o tempo todo.
+    if (sessaoDeSuporte && PLATFORM_ONLY_PATHS.includes(location)) {
+      navigate("/", { replace: true });
+    }
+  }, [user, isLoading, superadminSemSuporte, sessaoDeSuporte, location, navigate]);
 
   if (location === "/meus-dados") {
     return <Suspense fallback={<PageLoader />}><MeusDadosPage /></Suspense>;
@@ -250,9 +293,42 @@ function AuthenticatedApp() {
     return <Suspense fallback={<PageLoader />}><LandingPage /></Suspense>;
   }
 
-  if (user.role === "superadmin" && PROVIDER_ONLY_PATHS.includes(location)) {
+  // Sem sessão de suporte — inclusive enquanto ela ainda não é conhecida — a tela
+  // de provedor não chega a montar: o efeito acima já está redirecionando, e
+  // pintar a página do provedor por um quadro mostraria dado de outro tenant a
+  // quem talvez não tenha autorização nenhuma.
+  // O espelho, pelo mesmo motivo: o desvio acima e um efeito, e um efeito roda
+  // DEPOIS da pintura. Sem esta guarda, /admin-sistema digitado a mao dentro da
+  // janela de suporte mostraria a lista de todos os provedores por um quadro
+  // antes de o desvio levar embora — um quadro basta para ler a tela e para o
+  // navegador guardar a resposta.
+  //
+  // O 403 do servidor ja esvazia os dados; isto evita o esqueleto da tela
+  // errada. As duas defesas sao de camadas diferentes de proposito.
+  if (sessaoDeSuporte && PLATFORM_ONLY_PATHS.includes(location)) {
+    return (
+      <div className="min-h-screen flex flex-col bg-background">
+        <FaixaSuporte />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="space-y-4 w-64">
+            <Skeleton className="h-8 w-48 mx-auto" />
+            <Skeleton className="h-4 w-32 mx-auto" />
+            <Skeleton className="h-2 w-full" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (user.role === "superadmin" && !sessaoDeSuporte && PROVIDER_ONLY_PATHS.includes(location)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
+        {/* Este é o caminho por onde a sessão de suporte MORRE: no segundo em que
+            a liberação cai, esta guarda passa a valer e o shell inteiro some.
+            Sem a faixa montada aqui também, o aviso de encerramento seria
+            desmontado justamente no instante em que precisa aparecer, e o
+            suporte veria apenas a tela trocar sozinha. */}
+        <FaixaSuporte />
         <div className="space-y-4 w-64">
           <Skeleton className="h-8 w-48 mx-auto" />
           <Skeleton className="h-4 w-32 mx-auto" />
@@ -272,6 +348,22 @@ function AuthenticatedApp() {
       <div className="flex h-screen w-full" data-module="consulta">
         <AppSidebar />
         <div className="flex flex-col flex-1 min-w-0">
+          {/**
+           * A faixa é a PRIMEIRA linha da coluna de conteúdo, acima do cabeçalho.
+           *
+           * O lugar não é estético, é estrutural. A barra lateral do shadcn é
+           * `fixed inset-y-0 h-svh` — colada no topo da janela e independente
+           * desta coluna. Uma faixa de largura total, acima de tudo, seria
+           * pintada por cima dos 40px superiores da barra lateral (a marca e o
+           * botão de recolher) ou exigiria empurrar um elemento `fixed` que não
+           * é nosso. Aqui ela ocupa a largura inteira do conteúdo, empurra
+           * cabeçalho e <main> para baixo em fluxo normal — o <main> é
+           * `flex-1 overflow-auto` e recalcula a própria altura sozinho — e não
+           * cobre coisa nenhuma: nem a lateral, nem o cabeçalho, nem a rolagem.
+           * No celular a lateral é gaveta (largura zero) e a faixa ocupa a tela
+           * inteira de qualquer forma.
+           */}
+          <FaixaSuporte />
           <header className="flex items-center h-12 px-3 border-b border-[var(--border)] bg-[var(--surface)] sticky top-0 z-50">
             <SidebarTrigger data-testid="button-sidebar-toggle" aria-label="Abrir menu lateral" />
             <div className="ml-auto flex items-center gap-2">

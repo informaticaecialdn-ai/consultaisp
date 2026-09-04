@@ -26,6 +26,7 @@ import { registerCrmRoutes } from "./crm.routes";
 import { registerMarcaRoutes } from "./marca.routes";
 import { registerCadastroRoutes } from "./cadastro.routes";
 import { registerPrecosRoutes } from "./precos.routes";
+import { registerSuporteAcessoRoutes } from "./suporte-acesso.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -33,6 +34,14 @@ export async function registerRoutes(
 ): Promise<Server> {
   // Session middleware (was in old routes.ts)
   app.use(sessionMiddleware);
+
+  // PRIMEIRO da cadeia, e a posicao importa: este router comeca com
+  // `travaDeAcessoDeSuporte`, que reconfere a cada requisicao se a
+  // personificacao em curso continua autorizada. Montado depois de qualquer
+  // outro, as rotas montadas antes dele serviriam dado do provedor a um suporte
+  // cuja liberacao ja tinha sido revogada. Ele chama `next()` para quem nao
+  // esta personificando, entao nao muda nada para o resto do sistema.
+  app.use(registerSuporteAcessoRoutes());
 
   // Mount all domain routers
   app.use(registerAuthRoutes());

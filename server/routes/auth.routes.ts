@@ -8,7 +8,7 @@ import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { normalizarHost, extractSubdomainFromHost } from "../tenant";
 import { hostPertenceAoProvider, resolverMarcaPorId, urlDeEntrada } from "../services/marca.service";
-import { MENSAGEM_PROVEDOR_SUSPENSO } from "../auth";
+import { MENSAGEM_PROVEDOR_SUSPENSO, encerrarPersonificacao } from "../auth";
 import { validarCPF, validarCNPJ } from "../utils/cpf-cnpj-validator";
 import crypto from "crypto";
 
@@ -137,6 +137,26 @@ export function registerAuthRoutes(): Router {
           code: "PROVIDER_SUSPENDED",
         });
       }
+
+      /**
+       * A SESSAO TROCA DE DONO AQUI — e a personificacao de suporte nao pode
+       * atravessar essa troca.
+       *
+       * O login sobrescrevia `userId`, `providerId` e `role` e deixava
+       * `session.suporte` no lugar, orfa: uma sessao de suporte conectada ao
+       * provedor A na qual alguem faz login continuaria carregando a janela de
+       * A. `travaDeAcessoDeSuporte` seguiria validando aquela janela a cada
+       * requisicao e CARIMBANDO USO nela com o `userId` de quem acabou de
+       * entrar — a trilha do provedor A passaria a acusar acesso de uma pessoa
+       * que nunca entrou nele. E se o provedor A revogasse, quem esta logado
+       * como outra pessoa levaria um 403 de uma liberacao que nao e dele.
+       *
+       * Vem ANTES das atribuicoes de proposito: `encerrarPersonificacao` zera
+       * `providerId` junto, e as linhas abaixo gravam o valor certo por cima.
+       * Chamar a funcao de `server/auth.ts`, e nao um `delete` local, mantem um
+       * lugar so decidindo o que "sair da personificacao" significa.
+       */
+      encerrarPersonificacao(req.session);
 
       req.session.userId = user.id;
       req.session.providerId = user.providerId || 0;
@@ -393,6 +413,10 @@ export function registerAuthRoutes(): Router {
     }
   });
 
+  // O logout nao precisa de `encerrarPersonificacao`: `destroy` apaga a linha
+  // inteira da sessao, `suporte` incluido. Vale a nota porque a assimetria com o
+  // login logo acima parece esquecimento e nao e — o que sobrevive a um login e
+  // justamente o que nao sobrevive a um destroy.
   router.post("/api/auth/logout", (req, res) => {
     req.session.destroy(() => {
       res.json({ message: "Deslogado com sucesso" });
@@ -475,15 +499,49 @@ export function registerAuthRoutes(): Router {
     if (!user) {
       return res.status(401).json({ message: "Nao autenticado" });
     }
-    const provider = user.providerId ? await storage.getProvider(user.providerId) : null;
+    /**
+     * O TENANT DESTA REQUISICAO E O DA SESSAO, nao o da coluna `users.provider_id`.
+     *
+     * Resolver por `user.providerId` respondia certo por acidente: para todo
+     * mundo os dois valores coincidem, porque o login grava um a partir do
+     * outro. Durante um acesso de suporte eles divergem de proposito — o
+     * superadmin tem a coluna nula e a sessao apontando para o provedor que
+     * liberou a janela — e o /me devolvia `provider: null`, deixando as telas do
+     * provedor sem o unico contexto que elas tem (nome, plano, creditos, marca).
+     * Todo o resto do servidor isola por `req.session.providerId`; aqui passa a
+     * valer a mesma fonte.
+     *
+     * O fallback para a coluna preserva a resposta de quem nao esta
+     * personificando, inclusive numa sessao gravada antes de `providerId`
+     * existir: sem ele, uma sessao antiga perderia o provedor de repente.
+     */
+    const providerIdDaSessao = req.session.providerId && req.session.providerId > 0
+      ? req.session.providerId
+      : user.providerId;
+    const provider = providerIdDaSessao ? await storage.getProvider(providerIdDaSessao) : null;
     // "Seu codigo": o codigo proprio, para o suporte. Nao e o que os parceiros
     // veem para este provedor (cada um ve o codigo pareado) — identifica o
     // provedor so para a plataforma.
     const partnerCode = provider ? (await import("../utils/provider-anonymizer.js")).generateOwnCode(provider.id) : null;
+    /**
+     * "Esta sessao esta dentro de um tenant que nao e o dono dela?"
+     *
+     * A interface precisa dessa resposta e nao consegue deduzi-la: `role`
+     * continua "superadmin" de proposito (server/auth.ts), e `provider` agora
+     * vem preenchido nos dois casos. `session.suporte` so existe enquanto uma
+     * janela de acesso autoriza a personificacao — a trava a reconfere a cada
+     * requisicao — entao ele e o sinal exato, e nao uma heuristica sobre a
+     * coluna do usuario.
+     *
+     * Nao e autorizacao: nada aqui abre porta nenhuma. So diz de qual dos dois
+     * produtos a navegacao e.
+     */
+    const personificando = !!req.session.suporte;
     return res.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
       provider,
       partnerCode,
+      personificando,
       mustChangePassword: user.mustChangePassword || false,
     });
   });

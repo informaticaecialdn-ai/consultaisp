@@ -31,6 +31,7 @@ import { sendCompletionEmail } from "../services/lgpd-email.service";
 import { normalizePartnerCode, resolvePartnerCode, resolveOwnCode } from "../utils/provider-anonymizer";
 import { normalizarIdentificador, protocoloDaOrigem } from "../services/identificador-consulta";
 import type { LinhaDeConsultaEncontrada } from "../storage/admin.storage";
+import { CODIGO_PROVEDOR_COM_TRILHA_DE_SUPORTE } from "../storage/providers.storage";
 import { maskCpfCnpj } from "../services/lgpd-masking";
 import { CUSTO_EM_CREDITOS } from "@shared/planos";
 import { isSpcConfigured, listarProdutosSpc, produtoSpcPadrao, SpcError, statusHttpParaErroSpc } from "../services/spc/spc.service";
@@ -546,6 +547,40 @@ export function registerAdminRoutes(): Router {
       await storage.deleteProvider(id);
       return res.json({ message: "Provedor excluido com sucesso" });
     } catch (error: any) {
+      /**
+       * A recusa da trilha de suporte NAO e defeito, e defeito e o que se tenta
+       * de novo.
+       *
+       * `deleteProvider` para antes do primeiro DELETE quando o provedor tem
+       * historico de acesso de suporte: aquela tabela e a unica prova de quem
+       * abriu o dado pessoal dos titulares deste provedor, e ela nao pode
+       * evaporar junto com o que audita. Caindo no 500 generico abaixo, o
+       * superadmin lia "Erro interno do servidor" — nada sobre o que aconteceu,
+       * nada sobre o que fazer, e um convite a clicar mais uma vez.
+       *
+       * Compara pelo CODIGO e nao por `instanceof`: o storage e trocado por
+       * duble em teste e por camada de acesso em producao, e um erro que
+       * atravessa fronteira de modulo perde a identidade da classe antes de
+       * perder o campo.
+       *
+       * 409 e nao 400: o pedido esta bem formado e a permissao existe — o que
+       * impede e o ESTADO do provedor, e ele muda quando alguem tratar o
+       * historico.
+       */
+      if (error?.codigo === CODIGO_PROVEDOR_COM_TRILHA_DE_SUPORTE) {
+        return res.status(409).json({
+          // A frase descreve o que EXISTE. A primeira versão mandava "exporte o
+          // histórico antes de remover", e não há exportação nenhuma na tela —
+          // instrução impossível de cumprir é pior do que nenhuma, porque o
+          // operador procura o botão antes de acreditar que não tem.
+          message:
+            `Este provedor não pode ser excluído: existem ${error.acessos} registro(s) de acesso de suporte na trilha de auditoria. ` +
+            `A trilha prova quem entrou na conta e abriu os dados dos clientes deste provedor, e precisa continuar existindo depois dele. ` +
+            `Ela fica na aba Suporte da ficha deste provedor. Para excluir mesmo assim, a remoção precisa ser feita por quem administra o banco.`,
+          code: CODIGO_PROVEDOR_COM_TRILHA_DE_SUPORTE,
+          acessos: error.acessos,
+        });
+      }
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });

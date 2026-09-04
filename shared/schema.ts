@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, decimal, serial, jsonb, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, decimal, serial, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -826,6 +826,71 @@ export const geoEndereco = pgTable("geo_endereco", {
 });
 
 export type GeoEndereco = typeof geoEndereco.$inferSelect;
+
+/**
+ * Acesso de suporte — a janela em que o superadmin entra NA CONTA do provedor.
+ *
+ * Isto nao e uma permissao a mais: e personificacao. Enquanto a janela vale, o
+ * suporte ve o dado pessoal completo dos clientes daquele provedor — CPF, nome,
+ * endereco, telefone, consultas, alertas — e o isolamento por `providerId`, que
+ * e a invariante central do produto, e atravessado de proposito.
+ *
+ * Por isso ela e TABELA, e nao duas colunas em `providers`. Coluna guarda
+ * estado; a LGPD nao pergunta pelo estado de hoje, pergunta pelo passado: quem
+ * olhou o dado de quem, quando, autorizado por quem e por quanto tempo. Meses
+ * depois, com duas colunas sobrescritas a cada liberacao, nao ha resposta —
+ * cada linha aqui e uma janela que existiu, e nenhuma e reescrita por cima.
+ *
+ * As colunas respondem, uma a uma:
+ *   provider_id                  de QUEM e o dado que foi aberto
+ *   liberado_por / liberado_em   QUEM autorizou e QUANDO — e o consentimento
+ *   expira_em                    ate quando valia
+ *   revogado_em / revogado_por   se foi cortada antes da hora, e por quem
+ *   usado_por / primeiro_uso_em  QUEM entrou, e quando entrou a primeira vez
+ *   ultimo_uso_em / usos         ate quando ficou, e com que intensidade
+ *
+ * Uma janela liberada e NUNCA usada tambem e informacao: o provedor autorizou, o
+ * suporte nao entrou, ninguem viu dado nenhum. Por isso `usado_por` fica nulo
+ * ate o primeiro uso, em vez de nascer preenchido com o suposto destinatario.
+ *
+ * TIMESTAMPTZ, e nao TIMESTAMP como o resto do schema. A diferenca so importa
+ * aqui porque so aqui um horario decide se um estranho enxerga dado pessoal:
+ * `timestamp without time zone` compara duas paredes de relogio e depende do
+ * fuso de quem gravou e do fuso de quem le. Uma janela de 2 horas nao pode virar
+ * 5 porque o processo Node e o Postgres discordaram de fuso.
+ *
+ * `usado_por` guarda o PRIMEIRO que entrou e nunca e sobrescrito — sobrescrever
+ * apagaria quem abriu a porta. A consequencia assumida: se dois superadmins
+ * usarem a MESMA janela, esta tabela mostra o primeiro e a contagem, e a
+ * separacao por pessoa fica no log estruturado da requisicao.
+ */
+export const acessosSuporte = pgTable("acessos_suporte", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  liberadoPor: integer("liberado_por").notNull().references(() => users.id),
+  liberadoEm: timestamp("liberado_em", { withTimezone: true }).notNull().defaultNow(),
+  expiraEm: timestamp("expira_em", { withTimezone: true }).notNull(),
+  revogadoEm: timestamp("revogado_em", { withTimezone: true }),
+  revogadoPor: integer("revogado_por").references(() => users.id),
+  usadoPor: integer("usado_por").references(() => users.id),
+  primeiroUsoEm: timestamp("primeiro_uso_em", { withTimezone: true }),
+  ultimoUsoEm: timestamp("ultimo_uso_em", { withTimezone: true }),
+  usos: integer("usos").notNull().default(0),
+}, (t) => [
+  // A pergunta quente, feita a CADA requisicao de uma sessao de suporte:
+  // "existe liberacao valida para o provedor X agora?". Parcial porque janela
+  // revogada nunca volta a ser valida — deixa-la fora impede que o indice
+  // engorde com o historico. `expira_em` desc porque a consulta quer a de prazo
+  // mais longo e para na primeira linha.
+  index("acessos_suporte_vigente")
+    .on(t.providerId, t.expiraEm.desc())
+    .where(sql`revogado_em IS NULL`),
+  // A outra pergunta, fria: a trilha do provedor, da mais recente para tras.
+  index("acessos_suporte_historico").on(t.providerId, t.liberadoEm.desc()),
+]);
+
+export type AcessoDeSuporte = typeof acessosSuporte.$inferSelect;
+export type InsertAcessoDeSuporte = typeof acessosSuporte.$inferInsert;
 
 export type LoginData = z.infer<typeof loginSchema>;
 export type RegisterData = z.infer<typeof registerSchema>;
