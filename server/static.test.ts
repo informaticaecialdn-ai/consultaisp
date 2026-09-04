@@ -92,4 +92,27 @@ describe("caminhos que nunca sao rota do app", () => {
     expect(bloqueado("/ASSETS/index-A.js")).toBe(true);
     expect(bloqueado("/Api/auth/me")).toBe(true);
   });
+
+  it("a query nao muda a decisao", () => {
+    // "/assets/x.js?v=2" e o mesmo arquivo. O handler corta a query antes de
+    // testar; sem isso o `$` de uma futura regra deixaria de casar.
+    const semQuery = (u: string) => bloqueado(u.replace(/[?#].*$/, ""));
+    expect(semQuery("/assets/index-A.js?v=2")).toBe(true);
+    expect(semQuery("/login?next=/dashboard")).toBe(false);
+  });
+
+  /**
+   * O ERRO DO PRIMEIRO DEPLOY DESTA GUARDA.
+   *
+   * O handler esta montado com `app.use("/{*path}")`, e `app.use` TIRA o
+   * prefixo casado de `req.path`. A primeira versao testava `req.path`, e em
+   * producao `/assets/nao-existe.js` continuou respondendo 200 com o index.html
+   * dentro — a guarda existia e nao guardava nada. O mesmo cuidado esta escrito
+   * em `server/auth.ts`, pelo mesmo motivo.
+   */
+  it("a decisao usa o caminho INTEIRO, nao o que o Express deixa em req.path", () => {
+    // Depois do `app.use`, `req.path` de "/assets/x.js" pode chegar como "/".
+    expect(bloqueado("/")).toBe(false);
+    expect(bloqueado("/assets/x.js")).toBe(true);
+  });
 });

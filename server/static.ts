@@ -100,9 +100,23 @@ export function serveStatic(app: Express) {
   }
 
   app.use("/{*path}", async (req, res) => {
+    /**
+     * `req.originalUrl`, e NAO `req.path`.
+     *
+     * Este handler esta montado com `app.use("/{*path}")`, e `app.use` TIRA o
+     * prefixo casado de `req.path` — que aqui e o caminho inteiro. Medido em
+     * producao no primeiro deploy desta guarda: `/assets/nao-existe.js`
+     * continuou respondendo 200 com o index.html dentro, porque o teste rodava
+     * contra um `req.path` que ja nao tinha `/assets/`.
+     *
+     * O mesmo cuidado esta escrito em `server/auth.ts`, pelo mesmo motivo. A
+     * query sai fora: "/assets/x.js?v=2" e o mesmo arquivo.
+     */
+    const caminho = (req.originalUrl || "").replace(/[?#].*$/, "");
+
     // Ver `NUNCA_E_ROTA_DO_APP`: devolver a casca do app no lugar de um arquivo
     // que falta troca um 404 legivel por uma pagina em branco sem sintoma.
-    if (NUNCA_E_ROTA_DO_APP.some(r => r.test(req.path))) {
+    if (NUNCA_E_ROTA_DO_APP.some(r => r.test(caminho))) {
       return res.status(404).type("text/plain").send("Arquivo nao encontrado");
     }
 
