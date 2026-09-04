@@ -117,6 +117,85 @@ export function statusDoContratoSgp(
   return undefined;
 }
 
+/**
+ * Que aparelho e, a partir do `grupo` e do `tipo` do servico.
+ *
+ * O SGP nao tem campo de modelo nem de marca — so a familia do acesso. Medido
+ * na Amplinet: grupo `fibra` 905, `cabo` 29, `generico` 2, `telefonia` 1,
+ * `radio` 1; tipo `internet` 938, `tv` 7, `telefonia` 2.
+ *
+ * "ONU" e o nome que o provedor usa para o aparelho de fibra, e e o que aparece
+ * na tela de equipamentos. Grupo desconhecido vira "Equipamento" — generico e
+ * honesto, contra inventar uma familia que o ERP nao afirmou.
+ */
+function tipoDoAparelho(grupo: unknown, tipo: unknown): string {
+  const g = achatar(String(grupo ?? ""));
+  const t = achatar(String(tipo ?? ""));
+  if (g === "fibra") return "ONU";
+  if (g === "cabo") return "Cable modem";
+  if (g === "radio") return "Radio";
+  if (g === "telefonia" || t === "telefonia") return "Aparelho de telefonia";
+  if (t === "tv") return "Receptor de TV";
+  return "Equipamento";
+}
+
+/**
+ * O identificador do aparelho: numero de serie se houver, senao o MAC.
+ *
+ * `syncEquipmentFromErp` casa por numero de serie e IGNORA o que chega sem um
+ * (senao inseriria duplicata a cada varredura), entao sem identificador nao ha
+ * o que gravar. Na Amplinet o `serial` vem vazio em 100% dos servicos e o `mac`
+ * em 31% — e o MAC identifica o aparelho tao bem quanto, para efeito de saber
+ * que ele e o mesmo na proxima passada.
+ */
+function identificadorDoAparelho(servico: any): string | undefined {
+  return texto(servico?.serial) ?? texto(servico?.mac);
+}
+
+/**
+ * Os aparelhos que o cliente tem, a partir dos servicos dos contratos dele.
+ *
+ * O QUE ESTA FUNCAO SE RECUSA A AFIRMAR e tao importante quanto o que ela
+ * devolve:
+ *
+ * · `inRecoveryProcess` e SEMPRE false. O SGP nao tem campo de recuperacao, e
+ *   um `true` aqui faria o storage gravar `retirada_pendente`, que e o status
+ *   que `contarEquipamentoRetido` soma e que vale -150 pontos no score. Marcar
+ *   alguem como "nao devolveu" sem o ERP dizer isso seria acusar sem prova.
+ * · `value` fica VAZIO. O SGP nao informa quanto custa o aparelho, e o
+ *   repositorio ja escreve, no proprio insert, que "valor desconhecido fica
+ *   nulo — nunca inventamos R$ para o bureau".
+ * · `brand` e `model` ficam vazios pelo mesmo motivo: nao existem na resposta.
+ *
+ * Um servico sem identificador nao vira aparelho: `syncEquipmentFromErp` casa
+ * por numero de serie e descarta o que chega sem um, para nao duplicar a cada
+ * varredura.
+ */
+function aparelhosDoCliente(contratos: any[]): NormalizedErpCustomer["equipmentDetails"] {
+  const vistos = new Set<string>();
+  const aparelhos: NonNullable<NormalizedErpCustomer["equipmentDetails"]> = [];
+
+  for (const ct of contratos) {
+    for (const s of Array.isArray(ct?.servicos) ? ct.servicos : []) {
+      const id = identificadorDoAparelho(s);
+      if (!id) continue;
+      const chave = id.toLowerCase();
+      if (vistos.has(chave)) continue;   // o mesmo aparelho em dois contratos
+      vistos.add(chave);
+
+      aparelhos.push({
+        type: tipoDoAparelho(s?.grupo, s?.tipo),
+        brand: "",
+        model: "",
+        serialNumber: id,
+        value: "",
+        inRecoveryProcess: false,
+      });
+    }
+  }
+  return aparelhos.length > 0 ? aparelhos : undefined;
+}
+
 /** "-25.4284,-49.2733" → { latitude, longitude }. Qualquer outra coisa → {}. */
 function coordenadas(ll: unknown): { latitude?: string; longitude?: string } {
   const partes = String(ll ?? "").split(",");
@@ -249,6 +328,38 @@ function mensagemDeFalha(err: unknown): string {
 export class SgpConnector implements ErpConnector {
   readonly name = "sgp";
   readonly label = "SGP";
+
+  /**
+   * O SGP diz QUE aparelho o cliente tem — e nao diz o que aconteceu com ele.
+   *
+   * Cada servico do contrato (`contratos[].servicos`) carrega `mac`, `serial`,
+   * `tipo` e `grupo`. Medido na carteira da Amplinet em 04/09/2026, nos 960
+   * clientes:
+   *
+   *     serial                       0   — o campo existe e vem sempre vazio
+   *     mac · servico Ativo        184
+   *     mac · servico Suspenso     143
+   *     mac · servico ENCERRADO      0   — de 327 servicos cancelados
+   *
+   * A ultima linha e a que decide o que este conector pode afirmar: ao cancelar
+   * o servico, o SGP APAGA o mac. Ou seja, o ERP nao guarda registro de
+   * equipamento que ficou com o ex-cliente — e "equipamento nao devolvido",
+   * que vale -150 no score, NAO pode ser derivado daqui. O que sobra e honesto
+   * e util: 143 clientes cortados por falta de pagamento estao com a ONU do
+   * provedor na casa deles, e o bureau nao sabia disso.
+   *
+   * Por isso todo aparelho entra como `em_comodato` — o storage so conta como
+   * retido quem tem status de retirada pendente (ver `contarEquipamentoRetido`),
+   * e nada aqui produz esse status.
+   *
+   * A FONTE CERTA EXISTE E ESTA FECHADA: `/api/estoque/comodato/list/` e
+   * `/api/estoque/comodatoitens/list/` sao o comodato de verdade — produto,
+   * numero de serie, valor e situacao de devolucao. Os dois respondem 401
+   * "As credenciais de autenticacao nao foram fornecidas" para este token: falta
+   * permissao no modulo Estoque. Quando o provedor liberar, e por la que o
+   * equipamento nao devolvido deve ser lido, e nao por aqui.
+   */
+  readonly supportsEquipment = true;
 
   readonly configFields: ErpConfigField[] = [
     { key: "apiUrl", label: "URL do Servidor SGP", type: "url", required: true, placeholder: "https://provedor.sgp.net.br" },
@@ -985,6 +1096,7 @@ export class SgpConnector implements ErpConnector {
             contractStartDate: texto(escolhido?.dataCadastro),
             motivoCorte: texto(comMotivo?.motivo_status),
             cortadoEm: texto(comMotivo?.data_status),
+            equipmentDetails: aparelhosDoCliente(contratos),
             erpSource: "sgp",
           });
         }

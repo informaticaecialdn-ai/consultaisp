@@ -969,3 +969,115 @@ describe("SGP · motivo do corte na carteira inteira", () => {
     expect((await conector.fetchCustomers(CONFIG)).customers[0].motivoCorte).toBeUndefined();
   });
 });
+
+/**
+ * EQUIPAMENTO (04/09/2026).
+ *
+ * O SGP diz QUE aparelho o cliente tem, e nao diz o que aconteceu com ele.
+ * Medido na Amplinet, em 960 clientes:
+ *
+ *     serial                       0   — o campo existe e vem sempre vazio
+ *     mac · servico Ativo        184
+ *     mac · servico Suspenso     143
+ *     mac · servico ENCERRADO      0   — de 327 servicos cancelados
+ *
+ * A ultima linha manda: ao cancelar o servico o SGP APAGA o mac, entao
+ * "equipamento nao devolvido" — que vale -150 no score — NAO pode ser derivado
+ * daqui. Os testes abaixo existem principalmente para travar o que este
+ * conector NAO tem o direito de afirmar.
+ */
+describe("SGP · equipamento", () => {
+  const svc = (over: Record<string, unknown> = {}) => ({
+    id: 1, tipo: "internet", grupo: "fibra", status: "Ativo", mac: "AA:BB:CC:DD:EE:01", serial: "", ...over,
+  });
+  const cadastro = (cpf: string, servicos: unknown[], statusContrato = "Ativo") => ({
+    nome: "CLIENTE " + cpf, cpfcnpj: cpf, dataCadastro: "2023-01-01", tipo: "F",
+    endereco: { logradouro: "RUA A", numero: 1, bairro: "CENTRO", cidade: "EMBU GUACU", uf: "SP", cep: "06900-000" },
+    contratos: [{ contrato: 1, dataCadastro: "2023-01-01", status: statusContrato, servicos }],
+  });
+  const pagina = (clientes: unknown[]) => ({
+    paginacao: { offset: 0, limit: 100, parcial: clientes.length, total: clientes.length },
+    clientes,
+  });
+  const buscar = async (servicos: unknown[], statusContrato?: string) => {
+    const { conector } = montar({
+      "/api/ura/clientes/": () => ({ corpo: pagina([cadastro(CPF_A, servicos, statusContrato)]) }),
+    });
+    return (await conector.fetchCustomers(CONFIG)).customers[0];
+  };
+
+  it("o conector declara que sabe ler equipamento", () => {
+    expect(new SgpConnector().supportsEquipment).toBe(true);
+  });
+
+  it("usa o MAC como identificador quando o serial vem vazio", async () => {
+    // Na Amplinet o serial vem vazio em 100% dos servicos. Sem identificador,
+    // `syncEquipmentFromErp` descarta o aparelho — entao sem isto nao entraria
+    // nenhum equipamento.
+    const c = await buscar([svc()]);
+
+    expect(c.equipmentDetails).toHaveLength(1);
+    expect(c.equipmentDetails![0].serialNumber).toBe("AA:BB:CC:DD:EE:01");
+  });
+
+  it("prefere o SERIAL quando ele existe", async () => {
+    const c = await buscar([svc({ serial: "ZTEG1234ABCD" })]);
+    expect(c.equipmentDetails![0].serialNumber).toBe("ZTEG1234ABCD");
+  });
+
+  it("NUNCA marca recuperacao — o SGP nao tem esse campo", async () => {
+    /**
+     * A trava mais importante deste arquivo. `inRecoveryProcess: true` faz o
+     * storage gravar status `retirada_pendente`, que e o que
+     * `contarEquipamentoRetido` soma e o que vale -150 pontos no score.
+     * Acusar de nao devolver sem o ERP dizer isso e acusar sem prova.
+     */
+    for (const status of ["Ativo", "Suspenso", "Cancelado", "Inativo"]) {
+      const c = await buscar([svc({ status })], status);
+      for (const e of c.equipmentDetails ?? []) expect(e.inRecoveryProcess).toBe(false);
+    }
+  });
+
+  it("NUNCA inventa valor, marca nem modelo", async () => {
+    // O SGP nao informa nenhum dos tres. O proprio insert do storage diz:
+    // "valor desconhecido fica nulo — nunca inventamos R$ para o bureau".
+    const c = await buscar([svc()]);
+    expect(c.equipmentDetails![0].value).toBe("");
+    expect(c.equipmentDetails![0].brand).toBe("");
+    expect(c.equipmentDetails![0].model).toBe("");
+  });
+
+  it("traduz o grupo do servico em familia de aparelho", async () => {
+    expect((await buscar([svc({ grupo: "fibra" })])).equipmentDetails![0].type).toBe("ONU");
+    expect((await buscar([svc({ grupo: "cabo" })])).equipmentDetails![0].type).toBe("Cable modem");
+    expect((await buscar([svc({ grupo: "radio" })])).equipmentDetails![0].type).toBe("Radio");
+    // Grupo que ninguem previu vira o generico, e nao um chute de familia.
+    expect((await buscar([svc({ grupo: "coisa nova" })])).equipmentDetails![0].type).toBe("Equipamento");
+  });
+
+  it("servico sem mac e sem serial nao vira aparelho", async () => {
+    // E o caso de TODO servico encerrado na Amplinet: o SGP apaga o mac ao
+    // cancelar. Inventar um identificador para nao perder a linha duplicaria o
+    // aparelho a cada varredura.
+    const c = await buscar([svc({ mac: "", serial: "" })]);
+    expect(c.equipmentDetails).toBeUndefined();
+  });
+
+  it("o mesmo aparelho em dois contratos entra uma vez so", async () => {
+    const { conector } = montar({
+      "/api/ura/clientes/": () => ({
+        corpo: pagina([{
+          nome: "X", cpfcnpj: CPF_A, dataCadastro: "2023-01-01", tipo: "F",
+          endereco: { logradouro: "RUA A", numero: 1, cidade: "EMBU GUACU", uf: "SP" },
+          contratos: [
+            { contrato: 1, status: "Ativo", servicos: [svc()] },
+            { contrato: 2, status: "Suspenso", servicos: [svc()] },
+          ],
+        }]),
+      }),
+    });
+
+    const c = (await conector.fetchCustomers(CONFIG)).customers[0];
+    expect(c.equipmentDetails).toHaveLength(1);
+  });
+});
