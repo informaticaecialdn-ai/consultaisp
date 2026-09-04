@@ -67,7 +67,7 @@ async function acharUrlDoZip(m: Municipio): Promise<string> {
  * ingestor já lê tudo de uma vez, e gravar 47MB em disco só para reler seria
  * um passo a mais para dar errado.
  */
-export async function baixarCnefe(entrada: string): Promise<{ municipio: Municipio; csv: string }> {
+export async function baixarCnefe(entrada: string): Promise<{ municipio: Municipio; csv: Buffer }> {
   const m = resolverMunicipio(entrada);
   if (!m) throw new Error(`Município "${entrada}" não encontrado na tabela do IBGE`);
 
@@ -83,7 +83,17 @@ export async function baixarCnefe(entrada: string): Promise<{ municipio: Municip
   const arquivos = lerZip(zip, n => n.toLowerCase().endsWith(".csv"));
   if (arquivos.length === 0) throw new Error("O zip do IBGE não trouxe nenhum CSV");
 
-  // latin1: o CNEFE não é UTF-8, e lido como UTF-8 "IBIPORÃ" vira caractere
-  // inválido e o bairro deixa de casar com o do ERP.
-  return { municipio: m, csv: arquivos[0].conteudo.toString("latin1") };
+  /**
+   * Devolve o BUFFER, e nao a string.
+   *
+   * `toString("latin1")` estourava em Sao Paulo capital: "Cannot create a
+   * string longer than 0x1fffffe8 characters", o limite de string do V8. Quem
+   * decodifica agora e `linhasDoBuffer` (geo-bases.service.ts), em fatias, e o
+   * arquivo inteiro nunca vira uma string so.
+   *
+   * A decodificacao continua latin1 la: o CNEFE nao e UTF-8, e lido como UTF-8
+   * "IBIPORA" com til vira caractere invalido e o bairro deixa de casar com o
+   * do ERP.
+   */
+  return { municipio: m, csv: arquivos[0].conteudo };
 }

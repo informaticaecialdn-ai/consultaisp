@@ -111,11 +111,52 @@ async function gravar(
 }
 
 /** Domicílios por bairro a partir do conteúdo do CSV do CNEFE. Puro. */
-export function agregarCnefe(conteudo: string): { municipioIbge: string; porBairro: Map<string, number> } {
-  const linhas = conteudo.split(/\r?\n/);
-  if (linhas.length < 2) throw new Error("CSV vazio");
+/**
+ * As linhas de um CSV que NAO cabe numa string.
+ *
+ * O CNEFE de Sao Paulo capital passa de 512 MB, e `Buffer.toString()` estoura
+ * ali: "Cannot create a string longer than 0x1fffffe8 characters" — o limite de
+ * string do V8. Foi o que impediu de carregar a capital em 04/09/2026, quando
+ * a Amplinet precisou dela (parte da zona sul, na divisa de Embu-Guacu).
+ *
+ * Decodifica em fatias de 8 MB e emite linha a linha. O resto do arquivo nunca
+ * vira string, entao o tamanho deixa de importar — o que importa e o pico de
+ * memoria de quem CONSOME, e por isso os dois consumidores viraram geradores.
+ *
+ * latin1 e decodificado por byte, sem estado entre fatias: cortar o buffer em
+ * qualquer posicao e seguro, ao contrario de UTF-8, onde a fatia poderia partir
+ * um caractere ao meio. O CNEFE e latin1 — ver o comentario de `baixarCnefe`.
+ */
+export function* linhasDoBuffer(buf: Buffer): Generator<string> {
+  const FATIA = 8 * 1024 * 1024;
+  let resto = "";
+  for (let i = 0; i < buf.length; i += FATIA) {
+    const pedaco = resto + buf.toString("latin1", i, Math.min(i + FATIA, buf.length));
+    const partes = pedaco.split(/\r?\n/);
+    // A ultima parte pode ser meia linha: so sai quando a proxima fatia chegar.
+    resto = partes.pop() ?? "";
+    for (const l of partes) yield l;
+  }
+  if (resto) yield resto;
+}
 
-  const cab = linhas[0].split(";").map(c => c.trim().toUpperCase());
+/** Aceita o CSV inteiro (arquivo pequeno, teste) ou as linhas de um buffer. */
+type FonteCsv = string | Iterable<string>;
+
+function* comoLinhas(fonte: FonteCsv): Generator<string> {
+  if (typeof fonte === "string") {
+    for (const l of fonte.split(/\r?\n/)) yield l;
+    return;
+  }
+  yield* fonte;
+}
+
+export function agregarCnefe(fonte: FonteCsv): { municipioIbge: string; porBairro: Map<string, number> } {
+  const linhas = comoLinhas(fonte);
+  const primeira = linhas.next();
+  if (primeira.done) throw new Error("CSV vazio");
+
+  const cab = primeira.value.split(";").map(c => c.trim().toUpperCase());
   const iMunicipio = cab.indexOf("COD_MUNICIPIO");
   const iLocalidade = cab.indexOf("DSC_LOCALIDADE");
   const iEspecie = cab.indexOf("COD_ESPECIE");
@@ -125,8 +166,7 @@ export function agregarCnefe(conteudo: string): { municipioIbge: string; porBair
 
   const porBairro = new Map<string, number>();
   let municipioIbge = "";
-  for (let i = 1; i < linhas.length; i++) {
-    const l = linhas[i];
+  for (const l of linhas) {
     if (!l) continue;
     const f = l.split(";");
     // Só domicílio: HP é casa, não loja nem escola.
@@ -227,11 +267,21 @@ export interface EnderecoCnefe {
  * linhas no censo e uma única porta na rua. Sem isso, Londrina sozinha traria
  * centenas de milhares de linhas redundantes para responder a mesma pergunta.
  */
-export function extrairEnderecosCnefe(conteudo: string): EnderecoCnefe[] {
-  const linhas = conteudo.split(/\r?\n/);
-  if (linhas.length < 2) throw new Error("CSV vazio");
+/**
+ * Os enderecos, um a um, sem montar a lista inteira.
+ *
+ * Gerador e nao array porque Sao Paulo capital tem alguns milhoes de linhas:
+ * o array e o `Set` de deduplicacao juntos passariam de um giga de heap, e a
+ * gravacao ja e em lotes de mil — nunca houve razao para segurar tudo.
+ * `extrairEnderecosCnefe` continua existindo, devolvendo array, porque e o
+ * que os testes exercitam e o que um municipio pequeno pede.
+ */
+export function* enderecosCnefe(fonte: FonteCsv): Generator<EnderecoCnefe> {
+  const linhas = comoLinhas(fonte);
+  const primeira = linhas.next();
+  if (primeira.done) throw new Error("CSV vazio");
 
-  const cab = linhas[0].split(";").map(c => c.trim().toUpperCase());
+  const cab = primeira.value.split(";").map(c => c.trim().toUpperCase());
   const idx = (nome: string) => cab.indexOf(nome);
   const iTipo = idx("NOM_TIPO_SEGLOGR");
   const iTitulo = idx("NOM_TITULO_SEGLOGR");
@@ -246,10 +296,8 @@ export function extrairEnderecosCnefe(conteudo: string): EnderecoCnefe[] {
   }
 
   const vistos = new Set<string>();
-  const saida: EnderecoCnefe[] = [];
 
-  for (let i = 1; i < linhas.length; i++) {
-    const l = linhas[i];
+  for (const l of linhas) {
     if (!l) continue;
     const f = l.split(";");
 
@@ -274,17 +322,20 @@ export function extrairEnderecosCnefe(conteudo: string): EnderecoCnefe[] {
     vistos.add(chave);
 
     const cepBruto = iCep >= 0 ? (f[iCep] || "").replace(/\D/g, "") : "";
-    saida.push({
+    yield {
       logradouroNorm,
       numero,
       cep: cepBruto.length === 8 ? cepBruto : null,
       bairroNorm: iLocalidade >= 0 ? normalizarLocalidade(f[iLocalidade]) || null : null,
       lat,
       lon,
-    });
+    };
   }
+}
 
-  return saida;
+/** A lista inteira. So para municipio pequeno e para teste — ver `enderecosCnefe`. */
+export function extrairEnderecosCnefe(fonte: FonteCsv): EnderecoCnefe[] {
+  return [...enderecosCnefe(fonte)];
 }
 
 /**
@@ -300,7 +351,7 @@ export async function carregarCnefe(caminho: string): Promise<ResultadoCarga> {
   const nomeArquivo = basename(caminho).replace(/\.csv$/i, "");
   const cidade = normalizarLocalidade(nomeArquivo.replace(/^\d+[_-]?/, "").replace(/_/g, " "));
   if (!cidade) throw new Error(`Não deu para extrair a cidade do nome do arquivo: ${nomeArquivo}`);
-  return carregarCnefeDoConteudo(readFileSync(caminho, "latin1"), cidade);
+  return carregarCnefeDoConteudo(readFileSync(caminho), cidade);
 }
 
 /**
@@ -308,51 +359,85 @@ export async function carregarCnefe(caminho: string): Promise<ResultadoCarga> {
  * arquivo baixado do IBGE, sem passar pelo disco.
  */
 export async function carregarCnefeDoConteudo(
-  conteudo: string,
+  conteudo: string | Buffer,
   nomeCidade: string,
 ): Promise<ResultadoCarga> {
-  const { municipioIbge, porBairro } = agregarCnefe(conteudo);
+  /**
+   * Buffer entra sem virar string; string continua aceita para arquivo pequeno
+   * e para teste. O CNEFE de Sao Paulo capital passa do limite de string do V8
+   * (512 MB) — ver `linhasDoBuffer`.
+   *
+   * O arquivo e percorrido DUAS vezes, uma por agregacao. O comentario anterior
+   * dizia que isso seria desperdicio, e era: ali "ler duas vezes" significava
+   * ler do disco ou da rede de novo. Aqui os bytes ja estao na memoria e o
+   * custo e so redecodificar — barato ao lado de segurar milhoes de enderecos
+   * em heap para fazer as duas contas de uma vez.
+   */
+  const linhas = () => (typeof conteudo === "string" ? conteudo : linhasDoBuffer(conteudo));
+
+  const { municipioIbge, porBairro } = agregarCnefe(linhas());
   const cidadeNorm = normalizarLocalidade(nomeCidade);
   const uf = UF_POR_CODIGO[municipioIbge.slice(0, 2)] ?? "";
   if (!cidadeNorm) throw new Error("Nome de cidade vazio");
 
   const r = await gravar(municipioIbge, cidadeNorm, uf, FONTE_CNEFE, porBairro);
 
-  // O mesmo arquivo alimenta o geocodificador local. Ler duas vezes o CSV de
-  // 47MB para separar as duas cargas seria desperdício.
-  const enderecos = extrairEnderecosCnefe(conteudo);
-  await gravarEnderecos(municipioIbge, enderecos);
-  logger.info({ ...r, enderecos: enderecos.length }, "CNEFE carregado");
-  return { ...r, enderecos: enderecos.length };
+  // O mesmo arquivo alimenta o geocodificador local.
+  const enderecos = await gravarEnderecos(municipioIbge, enderecosCnefe(linhas()));
+  logger.info({ ...r, enderecos }, "CNEFE carregado");
+  return { ...r, enderecos };
 }
 
-/** Substitui os endereços do município — recarregar não duplica. */
-async function gravarEnderecos(municipioIbge: string, enderecos: EnderecoCnefe[]): Promise<void> {
+/**
+ * Substitui os endereços do município — recarregar não duplica.
+ *
+ * Consome um ITERAVEL e nunca guarda a lista: Sao Paulo capital tem alguns
+ * milhoes de enderecos, e o array inteiro em heap era metade do motivo de a
+ * capital nao carregar (a outra metade era o limite de string, em
+ * `linhasDoBuffer`). Devolve quantos gravou, que e o numero que o log e a tela
+ * mostram.
+ */
+async function gravarEnderecos(
+  municipioIbge: string,
+  enderecos: Iterable<EnderecoCnefe>,
+): Promise<number> {
   await garantirTabelaEnderecos();
   const conn = await pool.connect();
+  // Em lotes: um INSERT por endereço seriam centenas de milhares de idas ao
+  // banco, e um INSERT único estouraria o limite de parâmetros do protocolo.
+  const LOTE = 1000;
+  let gravados = 0;
+
+  const descarregar = async (fatia: EnderecoCnefe[]) => {
+    if (fatia.length === 0) return;
+    const valores: any[] = [];
+    const marcadores = fatia.map((e, k) => {
+      const b = k * 7;
+      valores.push(municipioIbge, e.logradouroNorm, e.numero, e.cep, e.bairroNorm, String(e.lat), String(e.lon));
+      return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7})`;
+    });
+    await conn.query(
+      `INSERT INTO geo_endereco
+         (municipio_ibge, logradouro_norm, numero, cep, bairro_norm, latitude, longitude)
+       VALUES ${marcadores.join(",")}`,
+      valores,
+    );
+    gravados += fatia.length;
+  };
+
   try {
     await conn.query("BEGIN");
     await conn.query("DELETE FROM geo_endereco WHERE municipio_ibge = $1", [municipioIbge]);
 
-    // Em lotes: um INSERT por endereço seriam centenas de milhares de idas ao
-    // banco, e um INSERT único estouraria o limite de parâmetros do protocolo.
-    const LOTE = 1000;
-    for (let i = 0; i < enderecos.length; i += LOTE) {
-      const fatia = enderecos.slice(i, i + LOTE);
-      const valores: any[] = [];
-      const marcadores = fatia.map((e, k) => {
-        const b = k * 7;
-        valores.push(municipioIbge, e.logradouroNorm, e.numero, e.cep, e.bairroNorm, String(e.lat), String(e.lon));
-        return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7})`;
-      });
-      await conn.query(
-        `INSERT INTO geo_endereco
-           (municipio_ibge, logradouro_norm, numero, cep, bairro_norm, latitude, longitude)
-         VALUES ${marcadores.join(",")}`,
-        valores,
-      );
+    let fatia: EnderecoCnefe[] = [];
+    for (const e of enderecos) {
+      fatia.push(e);
+      if (fatia.length >= LOTE) { await descarregar(fatia); fatia = []; }
     }
+    await descarregar(fatia);
+
     await conn.query("COMMIT");
+    return gravados;
   } catch (err) {
     await conn.query("ROLLBACK").catch(() => {});
     throw err;

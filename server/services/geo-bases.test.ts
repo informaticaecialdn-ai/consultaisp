@@ -11,6 +11,7 @@ vi.mock("../logger", () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.
 
 import {
   agregarCnefe, agregarAneel, validarTotaisAneel, carregarAneelDoConteudo, FONTE_ANEEL, FONTE_CNEFE,
+  linhasDoBuffer,
 } from "./geo-bases.service";
 
 /**
@@ -240,5 +241,73 @@ describe("ANEEL — carga", () => {
   it("sem --esperado nada é conferido e a carga segue", async () => {
     const rs = await carregarAneelDoConteudo([CAB, "4113700;CENTRO;10"].join("\n"));
     expect(rs[0].total).toBe(10);
+  });
+});
+
+/**
+ * O CSV QUE NAO CABE NUMA STRING (04/09/2026).
+ *
+ * A carga de Sao Paulo capital falhava com "Cannot create a string longer than
+ * 0x1fffffe8 characters" — o limite de string do V8, que o CNEFE da capital
+ * ultrapassa. O provedor Amplinet atende parte da zona sul, na divisa de
+ * Embu-Guacu, entao a capital nao era resíduo: era area de atendimento, e 21
+ * clientes ficavam fora do mapa por causa disso.
+ *
+ * `linhasDoBuffer` decodifica em fatias e nunca monta o arquivo inteiro. O que
+ * estes casos protegem e o CORTE: uma fatia que cai no meio de uma linha nao
+ * pode partir a linha em duas.
+ */
+describe("linhasDoBuffer", () => {
+  const junta = (buf: Buffer) => [...linhasDoBuffer(buf)];
+
+  it("devolve as mesmas linhas que split, para conteudo pequeno", () => {
+    const texto = "cab;a;b\n1;2;3\n4;5;6";
+    expect(junta(Buffer.from(texto, "latin1"))).toEqual(texto.split("\n"));
+  });
+
+  it("aceita CRLF, como o arquivo do IBGE", () => {
+    expect(junta(Buffer.from("a\r\nb\r\nc", "latin1"))).toEqual(["a", "b", "c"]);
+  });
+
+  it("uma linha cortada entre duas fatias continua inteira", () => {
+    // A fatia e de 8 MB. Um conteudo que a atravesse vai ter uma linha partida
+    // no meio, e e exatamente isso que a variavel `resto` existe para costurar.
+    const linha = (i: number) => `LINHA_${i};${"x".repeat(200)}`;
+    const n = 60_000;                                  // ~12 MB, mais de uma fatia
+    const esperado = Array.from({ length: n }, (_, i) => linha(i));
+    const buf = Buffer.from(esperado.join("\n"), "latin1");
+
+    expect(buf.length).toBeGreaterThan(8 * 1024 * 1024);
+    const lido = junta(buf);
+
+    expect(lido).toHaveLength(n);
+    expect(lido[0]).toBe(linha(0));
+    expect(lido[n - 1]).toBe(linha(n - 1));
+    // Nenhuma linha partida: todas comecam com o prefixo inteiro.
+    expect(lido.every(l => l.startsWith("LINHA_"))).toBe(true);
+  });
+
+  it("preserva latin1 — acento do CNEFE nao pode virar caractere invalido", () => {
+    // "IBIPORÃ" lido como UTF-8 quebra o casamento de bairro com o do ERP.
+    const buf = Buffer.from("IBIPORÃ;CENTRO\nSÃO PAULO;SÉ", "latin1");
+    expect(junta(buf)).toEqual(["IBIPORÃ;CENTRO", "SÃO PAULO;SÉ"]);
+  });
+
+  it("buffer vazio nao produz linha nenhuma", () => {
+    expect(junta(Buffer.alloc(0))).toEqual([]);
+  });
+});
+
+describe("agregarCnefe e enderecosCnefe aceitam buffer", () => {
+  it("o mesmo conteudo da o mesmo resultado por string e por buffer", () => {
+    // A garantia que permite a mudanca: quem passa string (teste, municipio
+    // pequeno) continua vendo exatamente o que via.
+    const csv = [CAB_CNEFE, linhaCnefe("CENTRO", "1"), linhaCnefe("CENTRO", "1"), linhaCnefe("JARDIM", "1")].join("\n");
+
+    const porString = agregarCnefe(csv);
+    const porBuffer = agregarCnefe(linhasDoBuffer(Buffer.from(csv, "latin1")));
+
+    expect(porBuffer.municipioIbge).toBe(porString.municipioIbge);
+    expect([...porBuffer.porBairro.entries()].sort()).toEqual([...porString.porBairro.entries()].sort());
   });
 });
