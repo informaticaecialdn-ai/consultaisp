@@ -16,3 +16,4 @@ vite.config.ts.*
 
 Consulta-ISP.zip
 *.zip
+dist-assets-anteriores/

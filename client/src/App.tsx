@@ -13,55 +13,56 @@ import { ChatWidget } from "@/components/chat-widget";
 import { FaixaSuporte, useSessaoDeSuporte } from "@/components/FaixaSuporte";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMarca } from "@/lib/marca";
+import { pagina } from "@/lib/pagina-do-deploy";
 
 // Auth
-const LoginPage = lazy(() => import("@/pages/auth/login"));
-const VerificarEmailPage = lazy(() => import("@/pages/auth/verificar-email"));
+const LoginPage = lazy(pagina(() => import("@/pages/auth/login")));
+const VerificarEmailPage = lazy(pagina(() => import("@/pages/auth/verificar-email")));
 
 // Consulta
-const ConsultaISPPage = lazy(() => import("@/pages/consulta/consulta-isp"));
-const ConsultaCadastralPage = lazy(() => import("@/pages/consulta/consulta-cadastral"));
-const ConsultaSPCPage = lazy(() => import("@/pages/consulta/consulta-spc"));
-const AntiFraudePage = lazy(() => import("@/pages/consulta/anti-fraude"));
+const ConsultaISPPage = lazy(pagina(() => import("@/pages/consulta/consulta-isp")));
+const ConsultaCadastralPage = lazy(pagina(() => import("@/pages/consulta/consulta-cadastral")));
+const ConsultaSPCPage = lazy(pagina(() => import("@/pages/consulta/consulta-spc")));
+const AntiFraudePage = lazy(pagina(() => import("@/pages/consulta/anti-fraude")));
 
 // Operacional
-const InadimplentesPage = lazy(() => import("@/pages/operacional/inadimplentes"));
-const LocalizacaoPage = lazy(() => import("@/pages/operacional/localizacao"));
-const ImportacaoPage = lazy(() => import("@/pages/operacional/importacao"));
-const EquipamentosPage = lazy(() => import("@/pages/operacional/equipamentos"));
-const RecuperacaoPage = lazy(() => import("@/pages/operacional/recuperacao"));
+const InadimplentesPage = lazy(pagina(() => import("@/pages/operacional/inadimplentes")));
+const LocalizacaoPage = lazy(pagina(() => import("@/pages/operacional/localizacao")));
+const ImportacaoPage = lazy(pagina(() => import("@/pages/operacional/importacao")));
+const EquipamentosPage = lazy(pagina(() => import("@/pages/operacional/equipamentos")));
+const RecuperacaoPage = lazy(pagina(() => import("@/pages/operacional/recuperacao")));
 
 // Financeiro
-const NfsePage = lazy(() => import("@/pages/financeiro/nfse"));
+const NfsePage = lazy(pagina(() => import("@/pages/financeiro/nfse")));
 
 // Admin
-const AdminSistemaPage = lazy(() => import("@/pages/admin/admin-sistema"));
-const AdminProvedorPage = lazy(() => import("@/pages/admin/admin-provedor"));
-const AdminFinanceiroPage = lazy(() => import("@/pages/admin/admin-financeiro"));
-const AdminCreditosPage = lazy(() => import("@/pages/admin/admin-creditos"));
-const AdminLgpdPage = lazy(() => import("@/pages/admin/admin-lgpd"));
-const AdminMarcasPage = lazy(() => import("@/pages/admin/admin-marcas"));
+const AdminSistemaPage = lazy(pagina(() => import("@/pages/admin/admin-sistema")));
+const AdminProvedorPage = lazy(pagina(() => import("@/pages/admin/admin-provedor")));
+const AdminFinanceiroPage = lazy(pagina(() => import("@/pages/admin/admin-financeiro")));
+const AdminCreditosPage = lazy(pagina(() => import("@/pages/admin/admin-creditos")));
+const AdminLgpdPage = lazy(pagina(() => import("@/pages/admin/admin-lgpd")));
+const AdminMarcasPage = lazy(pagina(() => import("@/pages/admin/admin-marcas")));
 
 // Provedor
-const DashboardPage = lazy(() => import("@/pages/provedor/dashboard"));
-const PainelProvedorPage = lazy(() => import("@/pages/provedor/painel-provedor"));
-const AdministracaoPage = lazy(() => import("@/pages/provedor/administracao"));
-const CreditosPage = lazy(() => import("@/pages/provedor/creditos"));
-const ConfiguracoesRegionalizacaoPage = lazy(() => import("@/pages/provedor/configuracoes-regionalizacao"));
+const DashboardPage = lazy(pagina(() => import("@/pages/provedor/dashboard")));
+const PainelProvedorPage = lazy(pagina(() => import("@/pages/provedor/painel-provedor")));
+const AdministracaoPage = lazy(pagina(() => import("@/pages/provedor/administracao")));
+const CreditosPage = lazy(pagina(() => import("@/pages/provedor/creditos")));
+const ConfiguracoesRegionalizacaoPage = lazy(pagina(() => import("@/pages/provedor/configuracoes-regionalizacao")));
 
 // Revenda — o painel de quem revende a plataforma sob a propria marca.
 // Fase 1 do white label: so estas tres telas existem. Provedores, Comissoes,
 // Precos e Relatorios sao das fases 2 a 4 e entram aqui quando forem escritos.
-const RevendaVisaoGeralPage = lazy(() => import("@/pages/revenda/visao-geral"));
-const RevendaMarcaPage = lazy(() => import("@/pages/revenda/marca"));
-const RevendaUsuariosPage = lazy(() => import("@/pages/revenda/usuarios"));
+const RevendaVisaoGeralPage = lazy(pagina(() => import("@/pages/revenda/visao-geral")));
+const RevendaMarcaPage = lazy(pagina(() => import("@/pages/revenda/marca")));
+const RevendaUsuariosPage = lazy(pagina(() => import("@/pages/revenda/usuarios")));
 
 // Public
-const LandingPage = lazy(() => import("@/pages/public/landingpage"));
-const LgpdPage = lazy(() => import("@/pages/public/lgpd"));
-const MeusDadosPage = lazy(() => import("@/pages/public/meus-dados"));
-const InvoiceViewPage = lazy(() => import("@/pages/public/invoice-view"));
-const NotFound = lazy(() => import("@/pages/public/not-found"));
+const LandingPage = lazy(pagina(() => import("@/pages/public/landingpage")));
+const LgpdPage = lazy(pagina(() => import("@/pages/public/lgpd")));
+const MeusDadosPage = lazy(pagina(() => import("@/pages/public/meus-dados")));
+const InvoiceViewPage = lazy(pagina(() => import("@/pages/public/invoice-view")));
+const NotFound = lazy(pagina(() => import("@/pages/public/not-found")));
 
 function PageLoader() {
   return (
