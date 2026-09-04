@@ -24,6 +24,7 @@ import { registerRegionalRoutes } from "./regional.routes";
 import { registerNfseRoutes } from "./nfse.routes";
 import { registerCrmRoutes } from "./crm.routes";
 import { registerMarcaRoutes } from "./marca.routes";
+import { registerRevendaRoutes } from "./revenda.routes";
 import { registerCadastroRoutes } from "./cadastro.routes";
 import { registerPrecosRoutes } from "./precos.routes";
 import { registerSuporteAcessoRoutes } from "./suporte-acesso.routes";
@@ -65,6 +66,12 @@ export async function registerRoutes(
   app.use(registerNfseRoutes());
   app.use(registerCrmRoutes());
   app.use(registerMarcaRoutes());
+  // Depois do de marcas, e a ordem tem razao: aquele serve o logo e o favicon
+  // por URL PUBLICA (`/api/marca/:id/logo`, sem sessao — a tela de login ja
+  // mostra a marca). Este exige revendedor autenticado. Nao ha caminho em comum
+  // entre os dois hoje, mas `/api/marca*` e `/api/revenda*` sao vizinhos de
+  // nome, e a ordem declarada deixa claro qual e o publico e qual e o fechado.
+  app.use(registerRevendaRoutes());
   app.use(registerCadastroRoutes());
   app.use(registerPrecosRoutes());
 

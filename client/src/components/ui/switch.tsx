@@ -3,6 +3,24 @@ import * as SwitchPrimitives from "@radix-ui/react-switch"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * O ALVO DE TOQUE E MAIOR QUE O DESENHO, de proposito.
+ *
+ * A secao 7 do DESIGN_SYSTEM.md poe "alvo de toque < 44x44px" entre os itens
+ * NAO NEGOCIAVEIS, e o interruptor tem 24px de altura por 44 de largura — a
+ * largura passa, a altura nao. Aumentar a altura visual estragaria o
+ * alinhamento de todo formulario que ja usa este componente (a aba Anti-Fraude
+ * e a aba Comercial de /admin/marcas), e o desenho de 24px e o certo: e um
+ * controle denso numa tela densa. Entao cresce o ALVO, nao a caixa.
+ *
+ * `alvo-de-toque-44` e CSS de verdade, em `client/src/index.css`, e nao uma
+ * pilha de utilitarios: a primeira versao usava
+ * `[@media(pointer:coarse)]:after:h-11` e companhia, e o Tailwind NAO GEROU
+ * nenhuma delas — conferido no bundle construido. O conserto ficava inerte sem
+ * erro em lugar nenhum, que e a pior forma de nao consertar nada.
+ */
+const ALVO_DE_TOQUE = "alvo-de-toque-44 touch-manipulation";
+
 const Switch = React.forwardRef<
   React.ElementRef<typeof SwitchPrimitives.Root>,
   React.ComponentPropsWithoutRef<typeof SwitchPrimitives.Root>
@@ -10,6 +28,7 @@ const Switch = React.forwardRef<
   <SwitchPrimitives.Root
     className={cn(
       "peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input",
+      ALVO_DE_TOQUE,
       className
     )}
     {...props}

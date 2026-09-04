@@ -880,3 +880,35 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ── Alvo de toque do interruptor ────────────────────────────────────────────
+   A secao 7 do DESIGN_SYSTEM.md poe "alvo de toque < 44x44px" entre os itens
+   NAO NEGOCIAVEIS. O `Switch` compartilhado tem 24px de altura por 44 de
+   largura: a largura passa, a altura nao. Aumentar a altura VISUAL estragaria
+   o alinhamento de todo formulario dele (aba Anti-Fraude, aba Comercial de
+   /admin/marcas) e o desenho de 24px e o certo — e um controle denso numa tela
+   densa. Entao cresce o ALVO, nao a caixa.
+
+   ESTA REGRA E CSS DE VERDADE, e nao classes utilitarias, porque a versao em
+   utilitarias NAO CHEGAVA AO BUNDLE: `[@media(pointer:coarse)]:after:h-11` e
+   companhia nao foram geradas pelo Tailwind (conferido no CSS construido — o
+   unico bloco `pointer:coarse` do bundle nao tem nenhuma regra `::after`), e o
+   conserto ficava inerte sem erro em lugar nenhum. Variante arbitraria
+   empilhada com `after:` e terreno em que o silencio custa caro.
+
+   So em ponteiro grosseiro: no mouse 24px ja e alvo confortavel, e um alvo
+   invisivel de 44px sobreporia o rotulo ao lado e roubaria cliques dele. */
+@media (pointer: coarse) {
+  .alvo-de-toque-44 {
+    position: relative;
+  }
+  .alvo-de-toque-44::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 44px;
+    transform: translateY(-50%);
+  }
+}

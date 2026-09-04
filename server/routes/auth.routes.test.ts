@@ -18,6 +18,7 @@ vi.hoisted(() => {
 const storageMock = vi.hoisted(() => ({
   getUserByEmail: vi.fn(async (): Promise<any> => null),
   getProvider: vi.fn(async (): Promise<any> => null),
+  getMarca: vi.fn(async (): Promise<any> => undefined),
 }));
 vi.mock("../storage", () => ({ storage: storageMock }));
 
@@ -25,6 +26,7 @@ vi.mock("../db", () => ({ db: {}, pool: {} }));
 
 const marcaMock = vi.hoisted(() => ({
   hostPertenceAoProvider: vi.fn(async () => true),
+  hostPertenceAMarca: vi.fn(async () => true),
   resolverMarcaPorHost: vi.fn(async () => ({ marcaId: null, origem: "plataforma" })),
   resolverMarcaPorId: vi.fn(async () => ({ marcaId: null, origem: "plataforma" })),
   urlDeEntrada: vi.fn(() => "https://nslink.consultaisp.com.br"),
@@ -93,6 +95,7 @@ afterAll(async () => {
 beforeEach(() => {
   vi.clearAllMocks();
   marcaMock.hostPertenceAoProvider.mockResolvedValue(true);
+  marcaMock.hostPertenceAMarca.mockResolvedValue(true);
   sessao = {};
 });
 
@@ -237,5 +240,150 @@ describe("POST /api/auth/login — provedor suspenso", () => {
 
     expect(res.status).toBe(200);
     expect(sessao.role).toBe("superadmin");
+  });
+});
+
+/**
+ * O TERCEIRO RAMO DO LOGIN.
+ *
+ * Aqui se mede a LIGACAO: que o revendedor e provado por `hostPertenceAMarca` e
+ * nao pela prova do provedor, que a sessao nasce com a marca DO USUARIO, e que a
+ * recusa e o mesmo 401 generico dos outros dois ramos. A regra de host em si —
+ * marca A x marca B, marca inativa, raiz, subdominio de provedor — e medida com
+ * o servico de verdade em `auth-revendedor.test.ts`; aqui ele e um duble, de
+ * proposito, para o desvio de fluxo ficar isolado.
+ */
+describe("POST /api/auth/login — revendedor", () => {
+  const REVENDEDOR = {
+    id: 3,
+    email: "dono@nslink.com.br",
+    name: "Renata Revendedora",
+    password: "hash",
+    role: "revendedor",
+    providerId: null,
+    marcaId: 7,
+    emailVerified: true,
+    mustChangePassword: false,
+  };
+
+  const MARCA = {
+    id: 7,
+    slug: "crednet",
+    nomeProduto: "CredNet",
+    dominio: "app.crednet.com.br",
+    dominioStatus: "ativo",
+    revendaAtiva: true,
+    comissaoPercentual: "20.00",
+    // O que NAO pode sair daqui, deliberadamente presente na linha do banco.
+    logoSvg: "<svg/>",
+    logoPng: "data:image/png;base64,AAAA",
+    faviconSvg: "<svg/>",
+    ogImagePng: "data:image/png;base64,BBBB",
+    repasseRazaoSocial: "CredNet Servicos LTDA",
+    repasseCnpj: "12345678000199",
+    repasseChavePix: "chave-pix-do-revendedor",
+    repasseEmail: "financeiro@crednet.com.br",
+  };
+
+  it("entra pelo dominio da propria marca e a sessao nasce com a marca DO USUARIO", async () => {
+    storageMock.getUserByEmail.mockResolvedValue({ ...REVENDEDOR });
+    storageMock.getMarca.mockResolvedValue({ ...MARCA });
+
+    const res = await login();
+
+    expect(res.status).toBe(200);
+    expect(marcaMock.hostPertenceAMarca).toHaveBeenCalledWith(expect.anything(), 7);
+    // A prova do PROVEDOR nao roda: ele nao tem provedor a provar.
+    expect(marcaMock.hostPertenceAoProvider).not.toHaveBeenCalled();
+    expect(sessao.marcaId).toBe(7);
+    expect(sessao.providerId).toBe(0);
+    expect(sessao.role).toBe("revendedor");
+    expect(sessao.hostLogin).toBeTruthy();
+  });
+
+  /**
+   * A linha era `provider?.marcaId`, e para o revendedor `provider` e null: a
+   * sessao nasceria sem marca e sem provedor, e `requireRevendedor` a recusaria
+   * em tudo. A pessoa acertaria senha e dominio e ficaria trancada por dentro.
+   */
+  it("a marca da sessao NAO vem do provedor — ele nao tem provedor", async () => {
+    storageMock.getUserByEmail.mockResolvedValue({ ...REVENDEDOR });
+    storageMock.getMarca.mockResolvedValue({ ...MARCA });
+
+    await login();
+
+    expect(storageMock.getProvider).not.toHaveBeenCalled();
+    expect(sessao.marcaId).toBe(7);
+  });
+
+  it("401 generico quando o host nao prova a marca — nunca 'essa conta e de outra marca'", async () => {
+    storageMock.getUserByEmail.mockResolvedValue({ ...REVENDEDOR });
+    marcaMock.hostPertenceAMarca.mockResolvedValue(false);
+
+    const res = await login();
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ message: "Email ou senha incorretos" });
+    expect(sessao.userId).toBeUndefined();
+    expect(storageMock.getMarca).not.toHaveBeenCalled();
+  });
+
+  it("revendedor sem marca na coluna e recusado, sem virar sessao sem tenant", async () => {
+    storageMock.getUserByEmail.mockResolvedValue({ ...REVENDEDOR, marcaId: null });
+    marcaMock.hostPertenceAMarca.mockResolvedValue(false);
+
+    const res = await login();
+
+    expect(res.status).toBe(401);
+    expect(marcaMock.hostPertenceAMarca).toHaveBeenCalledWith(expect.anything(), null);
+    expect(sessao.userId).toBeUndefined();
+  });
+
+  it("a resposta traz a marca enxuta e provider null", async () => {
+    storageMock.getUserByEmail.mockResolvedValue({ ...REVENDEDOR });
+    storageMock.getMarca.mockResolvedValue({ ...MARCA });
+
+    const corpo = await (await login()).json();
+
+    expect(corpo.provider).toBeNull();
+    expect(corpo.marca).toEqual({
+      id: 7,
+      nomeProduto: "CredNet",
+      slug: "crednet",
+      dominio: "app.crednet.com.br",
+      dominioStatus: "ativo",
+      revendaAtiva: true,
+      // `numeric(5,2)` chega como string do driver; na tela "20.00%" seria feio
+      // e "20%" e o que o revendedor negociou.
+      comissaoPercentual: 20,
+    });
+  });
+
+  it("a marca enxuta nao carrega repasse nem SVG", async () => {
+    storageMock.getUserByEmail.mockResolvedValue({ ...REVENDEDOR });
+    storageMock.getMarca.mockResolvedValue({ ...MARCA });
+
+    const bruto = await (await login()).text();
+
+    for (const proibido of [
+      "logoSvg", "logoPng", "faviconSvg", "ogImagePng",
+      "repasseRazaoSocial", "repasseCnpj", "repasseChavePix", "repasseEmail",
+      "chave-pix-do-revendedor", "12345678000199",
+    ]) {
+      expect(bruto, proibido).not.toContain(proibido);
+    }
+  });
+
+  // A promessa do outro lado: quem ja usava o sistema recebe o mesmo payload de
+  // ontem, sem uma chave `marca` a mais para o client ter de ignorar.
+  it("o login de admin de provedor continua sem a chave `marca`", async () => {
+    storageMock.getUserByEmail.mockResolvedValue({ ...USUARIO_BASE });
+    storageMock.getProvider.mockResolvedValue({ id: 7, subdomain: "nslink", marcaId: 4, status: "active" });
+
+    const corpo = await (await login()).json();
+
+    expect(corpo).not.toHaveProperty("marca");
+    expect(storageMock.getMarca).not.toHaveBeenCalled();
+    expect(sessao.marcaId).toBe(4);
   });
 });

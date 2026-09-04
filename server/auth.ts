@@ -42,7 +42,22 @@ declare module "express-session" {
      * Opcional so por causa das sessoes criadas antes do white label.
      */
     hostLogin?: string;
-    /** Marca vigente no login. Guardada para a UI e para diagnostico. */
+    /**
+     * A MARCA DESTA SESSAO — e o significado depende do papel.
+     *
+     *   role "revendedor"  -> a marca DO USUARIO (`users.marca_id`). E a ancora
+     *                         de tenant dele: nao ha provedor, entao e por este
+     *                         numero que toda query de `/api/revenda` filtra e
+     *                         e ele que `hostPertenceAMarca` provou no login.
+     *   demais papeis      -> a marca que o PROVEDOR veste (`providers.marca_id`),
+     *                         ou null. Serve so a UI e ao diagnostico.
+     *
+     * Ate a fase 1 o campo era gravado do provedor e NUNCA LIDO por ninguem —
+     * dava para trocar por qualquer numero sem efeito. Com o revendedor ele vira
+     * autorizacao, e e por isso que `requireRevendedor` exige `> 0` em vez de
+     * confiar no papel: uma sessao de revendedor sem marca nao tem tenant, e
+     * seguir adiante significaria consultar a marca de outro ou nenhuma.
+     */
     marcaId?: number | null;
     /**
      * Presente SOMENTE enquanto um superadmin esta conectado como suporte
@@ -79,6 +94,83 @@ export interface PersonificacaoDeSuporte {
 }
 
 /**
+ * O QUE UM REVENDEDOR PODE PEDIR. Fora desta lista, 403.
+ *
+ * O revendedor e um papel COMERCIAL: ele responde por provedores, nao opera
+ * nenhum. Nao ha uma unica rota de dado de titular — consulta, carteira,
+ * inadimplente, alerta, equipamento, documento de KYC — que ele deva alcancar,
+ * e as rotas de provedor nem sequer perguntam pelo papel: elas isolam por
+ * `session.providerId`, que na sessao dele e 0.
+ *
+ * Por isso a barreira e CENTRAL e por prefixo, e nao uma checagem por rota. Sao
+ * ~14 arquivos de rotas e mais de cem endpoints escritos quando "nao-admin =
+ * operador de provedor" era verdade; confiar em lembrar do papel novo em cada
+ * um deles significa que a PRIMEIRA rota esquecida e escalada de privilegio. Com
+ * a lista invertida — nega tudo, libera quatro prefixos — uma rota nova nasce
+ * fechada ao revendedor por construcao, e abri-la exige escrever aqui.
+ *
+ * Os quatro:
+ *   /api/revenda  — o painel dele (fase 2 em diante; hoje o namespace nem existe)
+ *   /api/auth     — login, /me, logout, troca de senha
+ *   /api/marca    — logo e favicon da propria marca, servidos por URL
+ *   /api/public   — o que ja e publico para qualquer visitante
+ *
+ * `/api/admin/*` fica de fora de proposito: la quem manda e `requireSuperAdmin`,
+ * que ja recusa o revendedor. Duas barreiras dizendo a mesma coisa nao se
+ * contradizem — a de fora e a que continua valendo se a de dentro for esquecida.
+ */
+export const PREFIXOS_LIBERADOS_AO_REVENDEDOR = [
+  "/api/revenda",
+  "/api/auth",
+  "/api/marca",
+  "/api/public",
+] as const;
+
+/**
+ * Este caminho esta na lista acima?
+ *
+ * A normalizacao espelha o que o ROTEADOR do Express ignora, e existe por causa
+ * de um furo real deste repositorio (ver `caminhoComparavel` em
+ * server/utils/sanitize-log.ts e o teste `server/rotas-sensiveis.test.ts`): sem
+ * `app.set("case sensitive routing", true)` — que este projeto nao tem — o
+ * Express casa a rota SEM olhar caixa, e sem `strict routing` ele aceita barra
+ * final. Medido no express 5.2.1 deste `node_modules`: `/API/isp-consultations`
+ * chega ao mesmo handler que a forma em caixa baixa. Uma lista sensivel a caixa
+ * decidindo sobre um roteador que nao e produz exatamente o buraco que ja
+ * aconteceu aqui uma vez.
+ *
+ * A comparacao e por SEGMENTO (`igual ao prefixo` ou `prefixo + "/"`), nunca
+ * `startsWith` cru: `startsWith("/api/marca")` liberaria tambem um futuro
+ * `/api/marcas-do-revendedor`, e a lista deixaria de dizer o que parece dizer.
+ *
+ * Percent-encoding e `..` NAO sao normalizados, pela mesma razao documentada em
+ * sanitize-log: o Express tambem nao os normaliza (`/api/%69sp-consultations` e
+ * `/api/x/../isp-consultations` dao 404, medidos), entao nao ha caminho que
+ * chegue a um handler de provedor e case com esta lista. E aqui o erro por falta
+ * custa barato: uma lista que nao casa NEGA, que e o lado seguro.
+ */
+export function caminhoLiberadoAoRevendedor(caminho: string): boolean {
+  const semQuery = (caminho || "").replace(/[?#].*$/, "");
+  const alvo = (semQuery.replace(/\/+$/, "") || "/").toLowerCase();
+  return PREFIXOS_LIBERADOS_AO_REVENDEDOR.some(p => alvo === p || alvo.startsWith(`${p}/`));
+}
+
+/**
+ * O caminho pedido, do jeito que o roteador o viu.
+ *
+ * `req.originalUrl` e nao `req.path` de proposito: hoje os routers sao montados
+ * na raiz (`app.use(registerXRoutes())` em server/routes/index.ts) e cada rota
+ * declara o caminho inteiro, entao os dois coincidem. Se um dia alguem montar um
+ * router sob prefixo, `req.path` passa a vir SEM o prefixo e nenhuma entrada
+ * desta lista casaria — o revendedor levaria 403 em tudo, inclusive no proprio
+ * painel. `originalUrl` nao e reescrito pelo roteamento e mantem a lista falando
+ * dos mesmos caminhos absolutos que estao escritos nos arquivos de rota.
+ */
+function caminhoDaRequisicao(req: Request): string {
+  return req.originalUrl || req.url || "";
+}
+
+/**
  * NOTA DE SEGURANCA — por que a comparacao e por HOST INTEIRO.
  *
  * O cookie de sessao nao define `domain` (ver acima), entao ele e host-only: o
@@ -102,34 +194,108 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     return res.status(401).json({ message: "Autenticacao necessaria" });
   }
 
-  if (req.session.role !== "superadmin") {
-    // Fail-CLOSED. A condicao anterior era `req.session.providerId && ...`: a
-    // prova de host so valia quando havia provedor, entao uma sessao sem
-    // providerId entrava por QUALQUER host e viajava entre eles. Hoje isso e
-    // teorico (todo user/admin nasce com provedor); com o white label deixa de
-    // ser: papel sem provedor passa a existir, e o host e o seletor de tenant.
-    // Ausencia de provedor e falha de autorizacao, nunca dispensa.
-    if (!req.session.providerId || req.session.providerId <= 0) {
+  // Superadmin e da plataforma: entra por qualquer host, por desenho, e nao tem
+  // tenant a provar. Sai cedo para as duas regras abaixo poderem ser escritas
+  // sem repetir a excecao.
+  if (req.session.role === "superadmin") return next();
+
+  const atual = normalizarHost(req.hostname);
+
+  /**
+   * REVENDEDOR — a ancora de tenant e a MARCA, nao o provedor.
+   *
+   * A regra de baixo (`providerId > 0`) e fail-closed e esta certa para user e
+   * admin, mas aplicada ao revendedor ela recusaria TODA requisicao dele:
+   * `providerId` 0 e o estado normal deste papel, nao a anomalia que aquela
+   * linha existe para pegar. Trocar o teto por `marcaId > 0` mantem a mesma
+   * afirmacao — "sessao sem tenant nao passa" — no eixo que vale aqui.
+   *
+   * `hostLogin` e OBRIGATORIO neste ramo, sem a janela de compatibilidade que o
+   * ramo do provedor ainda tem: o papel nasceu depois do campo, entao nao existe
+   * sessao legada de revendedor: uma sessao sem `hostLogin` aqui ou e forjada ou
+   * e lixo, e nos dois casos nao ha prova nenhuma a aceitar. A prova importa
+   * mais para ele do que para o provedor — o dominio da marca E a credencial de
+   * qual marca a sessao responde.
+   */
+  if (req.session.role === "revendedor") {
+    if (!req.session.marcaId || req.session.marcaId <= 0) {
       return res.status(401).json({ message: "Autenticacao necessaria" });
     }
+    if (!req.session.hostLogin || req.session.hostLogin !== atual) {
+      return res.status(403).json({ message: "Sessao invalida para este endereco" });
+    }
+    const caminho = caminhoDaRequisicao(req);
+    if (!caminhoLiberadoAoRevendedor(caminho)) {
+      // Vale log, e nao so o 403: nao e engano de tela — e uma sessao comercial
+      // pedindo dado operacional de provedor, que a tela dela nem sabe pedir.
+      // Ver PREFIXOS_LIBERADOS_AO_REVENDEDOR.
+      logger.warn(
+        { userId: req.session.userId, marcaId: req.session.marcaId, caminho },
+        "[revenda] rota fora do escopo do revendedor recusada",
+      );
+      return res.status(403).json({ message: "Somente provedores" });
+    }
+    return next();
+  }
 
-    const atual = normalizarHost(req.hostname);
+  // Fail-CLOSED. A condicao anterior era `req.session.providerId && ...`: a
+  // prova de host so valia quando havia provedor, entao uma sessao sem
+  // providerId entrava por QUALQUER host e viajava entre eles. Hoje isso e
+  // teorico (todo user/admin nasce com provedor); com o white label deixa de
+  // ser: papel sem provedor passa a existir, e o host e o seletor de tenant.
+  // Ausencia de provedor e falha de autorizacao, nunca dispensa.
+  if (!req.session.providerId || req.session.providerId <= 0) {
+    return res.status(401).json({ message: "Autenticacao necessaria" });
+  }
 
-    if (req.session.hostLogin) {
-      if (req.session.hostLogin !== atual) {
-        return res.status(403).json({ message: "Sessao invalida para este endereco" });
-      }
-    } else if (req.session.subdomain) {
-      // Sessao aberta ANTES deste deploy: nao tem `hostLogin`. Cai na regra
-      // antiga (agora com extracao correta de subdominio) ate expirar — o
-      // cookie dura 48h. Este ramo pode ser removido depois disso.
-      const rotulo = extractSubdomainFromHost(atual);
-      if (rotulo && req.session.subdomain !== rotulo) {
-        return res.status(403).json({ message: "Sessao invalida para este endereco" });
-      }
+  if (req.session.hostLogin) {
+    if (req.session.hostLogin !== atual) {
+      return res.status(403).json({ message: "Sessao invalida para este endereco" });
+    }
+  } else if (req.session.subdomain) {
+    // Sessao aberta ANTES deste deploy: nao tem `hostLogin`. Cai na regra
+    // antiga (agora com extracao correta de subdominio) ate expirar — o
+    // cookie dura 48h. Este ramo pode ser removido depois disso.
+    const rotulo = extractSubdomainFromHost(atual);
+    if (rotulo && req.session.subdomain !== rotulo) {
+      return res.status(403).json({ message: "Sessao invalida para este endereco" });
     }
   }
 
+  next();
+}
+
+/**
+ * As rotas do PAINEL DO REVENDEDOR (`/api/revenda/*`).
+ *
+ * Tres afirmacoes, e nenhuma delas e redundante:
+ *
+ *   `userId`            — ha alguem logado;
+ *   `role`              — e um revendedor. SUPERADMIN NAO PASSA de proposito:
+ *                         ele tem `/api/admin/marcas/:id` com o mesmo conteudo,
+ *                         e deixa-lo entrar aqui daria a uma sessao sem marca um
+ *                         escopo (`session.marcaId`) que ninguem gravou —
+ *                         `undefined` filtrando query e o comeco de um vazamento;
+ *   `marcaId > 0`       — a sessao tem tenant. Toda query de revenda filtra por
+ *                         este numero; sem ele o filtro sumiria em silencio.
+ *
+ * A prova de host e repetida aqui de PROPOSITO, e nao herdada de `requireAuth`.
+ * As duas sempre andam juntas hoje, mas quem escrever `router.get(rota,
+ * requireRevendedor, ...)` sem a primeira nao veria erro nenhum — e a sessao do
+ * revendedor de uma marca passaria a valer no dominio de outra. Uma comparacao
+ * de string e barata; descobrir a ausencia dela em producao nao e.
+ */
+export async function requireRevendedor(req: Request, res: Response, next: NextFunction) {
+  const sessao = req.session;
+  if (!sessao.userId || sessao.role !== "revendedor" || !sessao.marcaId || sessao.marcaId <= 0) {
+    return res.status(403).json({ message: "Somente revendedores" });
+  }
+  if (!sessao.hostLogin || sessao.hostLogin !== normalizarHost(req.hostname)) {
+    return res.status(403).json({ message: "Sessao invalida para este endereco" });
+  }
+  if (await marcaDesligada(sessao.marcaId)) {
+    return res.status(403).json({ message: MENSAGEM_MARCA_DESLIGADA, code: "MARCA_DESLIGADA" });
+  }
   next();
 }
 
@@ -188,6 +354,62 @@ async function provedorSuspenso(providerId: number): Promise<boolean> {
   return true;
 }
 
+/** O que as rotas de revenda respondem quando a marca foi desligada. */
+export const MENSAGEM_MARCA_DESLIGADA =
+  "Esta marca esta desligada — fale com a plataforma para reativa-la.";
+
+/**
+ * Cache do estado da marca, gemeo de `provedoresAtivos` e pelo mesmo motivo.
+ *
+ * A prova de que a marca esta ligada morava SO no login: `hostPertenceAMarca`
+ * exige que `resolverMarcaPorHost` devolva origem "dominio-proprio", e essa
+ * resolucao filtra por `ativo`. Depois disso nada revalidava — entao desligar
+ * uma marca as 10h deixava o revendedor ja logado editando a marca e criando e
+ * removendo acessos de equipe pelo resto da vida do cookie (48h).
+ *
+ * A assimetria e a mesma da versao de provedor, e pelo mesmo argumento:
+ * veredito POSITIVO fica 30s em memoria, NEGATIVO nunca — assim RELIGAR volta a
+ * valer na requisicao seguinte, e o preco (desligar leva ate 30s para alcancar
+ * sessao aberta) e o lado barato, porque isto e ato comercial e nao contencao
+ * de invasor.
+ *
+ * `revendaAtiva` NAO e conferida aqui de proposito. A decisao 14 do dono diz
+ * que marca sem revenda continua existindo como pele; tirar dela o painel seria
+ * a plataforma inventando uma punicao que o desenho nao pediu. Quem barra a
+ * CRIACAO de acesso naquele estado e o 422 de `POST /marcas/:id/usuarios`.
+ */
+const marcasLigadas = new Map<number, number>();
+
+/** Zera o cache do estado da marca. Serve aos testes e a quem desligar no processo. */
+export function esquecerEstadoDaMarca(marcaId?: number): void {
+  if (marcaId === undefined) marcasLigadas.clear();
+  else marcasLigadas.delete(marcaId);
+}
+
+async function marcaDesligada(marcaId: number): Promise<boolean> {
+  const ate = marcasLigadas.get(marcaId);
+  if (ate !== undefined && ate > Date.now()) return false;
+
+  let marca;
+  try {
+    marca = await storage.getMarca(marcaId);
+  } catch {
+    // Banco fora do ar nao pode virar bloqueio em massa — mesma escolha de
+    // `provedorSuspenso`. O que se protege aqui e regra comercial.
+    return false;
+  }
+
+  // Marca ausente nao e marca desligada: a sessao aponta para uma linha que
+  // sumiu, e isso e defeito, nao estado comercial. Bloquear aqui esconderia a
+  // causa real atras de um texto errado — as rotas ja respondem 404 sozinhas.
+  if (!marca) return false;
+  if (marca.ativo) {
+    marcasLigadas.set(marcaId, Date.now() + TTL_STATUS_ATIVO_MS);
+    return false;
+  }
+  return true;
+}
+
 /**
  * Defesa em profundidade: so passa quem TEM provedor, e provedor no ar.
  *
@@ -195,6 +417,11 @@ async function provedorSuspenso(providerId: number): Promise<boolean> {
  * `provider_id: 0` — que ou estoura na FK (500) ou, pior, cria uma gaveta
  * orfa que nenhum tenant enxerga. `requireAuth` sozinho nunca prometeu isso;
  * prometia apenas que ha alguem logado.
+ *
+ * `providerId` 0 deixou de ser hipotese com a fase 1: e o valor gravado na
+ * sessao de todo revendedor. Ele ja e barrado antes, pelo 403 central de
+ * `requireAuth`, e esta linha e a segunda barreira — a que continua de pe se
+ * alguem escrever uma rota de provedor sem a primeira.
  *
  * A segunda trava e o status: a recusa no login so alcanca quem entra AGORA, e
  * a sessao dura 48h. Sem esta linha, suspender um provedor as 10h nao tirava do
@@ -214,6 +441,19 @@ export async function requireProvider(req: Request, res: Response, next: NextFun
   next();
 }
 
+/**
+ * Admin DO PROVEDOR (ou superadmin). O revendedor NAO entra aqui.
+ *
+ * Vale dizer porque a intuicao puxa para o outro lado: o revendedor "administra"
+ * provedores, e chamar isto de administracao seria natural. Mas as rotas que
+ * usam este middleware sao as do painel de UM provedor e gravam com
+ * `session.providerId` — na sessao do revendedor esse valor e 0, e um "admin"
+ * sem provedor escreveria no vazio ou na FK. Aceitar aqui daria ao papel
+ * comercial exatamente o acesso operacional que ele nao tem.
+ *
+ * Ele e recusado duas vezes, em eixos diferentes: por papel nesta funcao, e pelo
+ * 403 central de `requireAuth`, que nem deixa a requisicao chegar.
+ */
 export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.session.userId) {
     return res.status(403).json({ message: "Acesso negado" });

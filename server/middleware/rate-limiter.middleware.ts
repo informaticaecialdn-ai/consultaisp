@@ -14,6 +14,13 @@ interface RateLimitEntry {
  * usuario responde por si — o prefixo separa o espaco de `p:` e `u:`, que sao
  * ids de tabelas diferentes e colidiriam se fossem numeros crus.
  *
+ * Desde a fase 1 do white label o caso tem nome: o REVENDEDOR loga com
+ * `providerId` 0 por desenho (o tenant dele e `marcaId`). Sem o ramo `u:`, todo
+ * revendedor de toda marca dividiria um unico balde chamado "sem provedor" — um
+ * deles esgotaria a cota de login de todos os outros, e o 429 nao teria dono.
+ * NAO se chaveia por `marcaId`: a cota e por PESSOA, e uma equipe de revenda
+ * grande nao pode se estrangular sozinha.
+ *
  * Sem sessao (login, cadastro, rotas publicas) continua valendo o IP.
  */
 export function chaveDoLimite(req: Request): string {

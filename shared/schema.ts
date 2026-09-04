@@ -88,6 +88,59 @@ export const marcas = pgTable("marcas", {
   responsavelRazaoSocial: text("responsavel_razao_social"),
   responsavelCnpj: text("responsavel_cnpj"),
 
+  // ── Camada comercial (migracao 0013) ─────────────────────────────────────
+  /**
+   * A marca E o revendedor. A camada comercial pendura AQUI em vez de numa
+   * tabela `revendedores` 1:1, que so duplicaria a chave.
+   *
+   * `revendaAtiva` false = marca "so pele": o ISP grande que quis a propria
+   * cara. Ele nao comissiona nem ganha painel comercial, e e o padrao — marca
+   * que ja existia nao vira revenda sozinha ao rodar a migracao.
+   */
+  revendaAtiva: boolean("revenda_ativa").notNull().default(false),
+  /**
+   * "ativo" | "suspenso". Pausa comissao e trava a edicao de preco SEM derrubar
+   * a pele nem os provedores: divida do revendedor nunca pune o provedor
+   * (decisao 14). Quem derruba a pele e `ativo`, que e outra coluna.
+   * CHECK `marcas_status_comercial_valido` no banco.
+   */
+  statusComercial: text("status_comercial").notNull().default("ativo"),
+  /**
+   * Percentual sobre o bruto que efetivamente entrou. Negociado por marca e
+   * definido SO pelo superadmin; CHECK de 0 a 50 no banco (`marcas_comissao_faixa`)
+   * — acima disso a plataforma fica com menos da metade e o piso de preco
+   * deixa de proteger a margem.
+   *
+   * `decimal` do Drizzle e o `numeric` do Postgres, e chega em JavaScript como
+   * STRING (o driver nao arredonda o que o float arredondaria). Todo dinheiro
+   * e percentual deste arquivo segue essa regra — some com `Number(...)` so no
+   * ponto de calculo, nunca guarde o resultado de volta como float.
+   */
+  comissaoPercentual: decimal("comissao_percentual", { precision: 5, scale: 2 }).notNull().default("0"),
+  /**
+   * Quem RECEBE a comissao — nao confundir com `responsavel*`, que e quem
+   * responde ao titular pela LGPD. Pode ser outra pessoa juridica.
+   * So o superadmin le e escreve: nada disto vai para `window.__MARCA__` nem
+   * para as rotas do revendedor.
+   */
+  repasseRazaoSocial: text("repasse_razao_social"),
+  repasseCnpj: text("repasse_cnpj"),
+  repasseChavePix: text("repasse_chave_pix"),
+  repasseEmail: text("repasse_email"),
+  /** Libera `POST /api/auth/register` no host desta marca. Desligado por padrao. */
+  cadastroAberto: boolean("cadastro_aberto").notNull().default(false),
+  /** Com landing desligada, "/" sem sessao no host da marca cai no login. */
+  landingAtiva: boolean("landing_ativa").notNull().default(false),
+  /**
+   * Textos da landing da marca. Fica sem `$type` de proposito: e JSONB escrito
+   * por gente, toda marca existente carrega `{}`, e nada no banco garante a
+   * forma. Quem le PARSEIA com `esquemaLandingDaMarca` (shared/marca-landing.ts)
+   * — declarar o tipo aqui afirmaria uma garantia que a coluna nao da.
+   */
+  landing: jsonb("landing").notNull().default({}),
+  /** Data URI de PNG para o card de compartilhamento (og:image). */
+  ogImagePng: text("og_image_png"),
+
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -179,6 +232,18 @@ export const users = pgTable("users", {
   phone: text("phone"),
   role: text("role").notNull().default("user"),
   providerId: integer("provider_id").references(() => providers.id),
+  /**
+   * UNICO vinculo pessoa ↔ marca. `providers.marcaId` diz que marca o provedor
+   * VESTE; esta coluna diz de que marca a pessoa E — o revendedor.
+   *
+   * O banco tem o CHECK `users_papel_coerente` (migracao 0013), bidirecional:
+   * revendedor tem marca e nao tem provedor; user/admin tem provedor e nao tem
+   * marca; superadmin nao tem marca. Ele existe porque `requireAuth` tratava
+   * "usuario sem provedor" como impossivel — um INSERT que criasse esse estado
+   * abriria sessao sem tenant. Insert que viole isso e recusado pelo Postgres,
+   * nao por este arquivo: o Drizzle nao conhece o CHECK.
+   */
+  marcaId: integer("marca_id").references(() => marcas.id),
   emailVerified: boolean("email_verified").notNull().default(false),
   verificationToken: text("verification_token"),
   verificationTokenExpiresAt: timestamp("verification_token_expires_at"),
@@ -500,6 +565,15 @@ export const providerInvoices = pgTable("provider_invoices", {
   id: serial("id").primaryKey(),
   invoiceNumber: text("invoice_number").notNull().unique(),
   providerId: integer("provider_id").notNull().references(() => providers.id),
+  /**
+   * FOTO da marca no momento da emissao — nulo = plataforma.
+   *
+   * A comissao e apurada sobre esta coluna, nunca sobre `providers.marcaId`:
+   * um provedor que troca de marca (ou se desvincula) reescreveria a comissao
+   * de meses ja pagos se a apuracao lesse a marca ATUAL. Faturas anteriores a
+   * migracao 0013 ficam nulas — nao ha comissao retroativa (decisao 7).
+   */
+  marcaId: integer("marca_id").references(() => marcas.id),
   period: text("period").notNull(),
   planAtTime: text("plan_at_time").notNull(),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
@@ -527,6 +601,19 @@ export const creditOrders = pgTable("credit_orders", {
   id: serial("id").primaryKey(),
   orderNumber: text("order_number").notNull().unique(),
   providerId: integer("provider_id").notNull().references(() => providers.id),
+  /** FOTO da marca na compra — mesma regra de `providerInvoices.marcaId`. */
+  marcaId: integer("marca_id").references(() => marcas.id),
+  /**
+   * Preco unitario que o provedor pagou, em CENTAVOS inteiros. `amount` guarda
+   * o total; sem o unitario nao da para reconstruir por quanto o credito foi
+   * vendido quando a marca mudar o preco depois — e e o unitario que a
+   * conferencia de piso/teto usa como prova.
+   *
+   * Inteiro e nao `decimal` porque preco de tabela e definido em centavos
+   * (`shared/planos.ts`, `TETO_CREDITO_CENTAVOS`); converter para numeric aqui
+   * so criaria um segundo formato do mesmo numero.
+   */
+  precoUnitarioCentavos: integer("preco_unitario_centavos"),
   providerName: text("provider_name").notNull(),
   packageName: text("package_name").notNull(),
   ispCredits: integer("isp_credits").notNull().default(0),
@@ -549,6 +636,158 @@ export const creditOrders = pgTable("credit_orders", {
   createdByName: text("created_by_name"),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+/**
+ * Preco proprio da marca — a camada 1 da resolucao de preco.
+ *
+ * E TABELA, e nao um JSONB em `marcas`, por tres motivos praticos: cada linha
+ * guarda quem mudou e quando (o preco muda a receita de terceiros, entao a
+ * mudanca precisa de dono); a `chave` e validada contra o catalogo de pacotes e
+ * planos; e o fechamento mensal faz JOIN direto nela.
+ *
+ * Vazia = a marca inteira usa a tabela da plataforma (`shared/planos.ts`), que
+ * tambem e o PISO: a marca so pode subir o preco, ate o teto por credito.
+ * Quem valida e `validarPrecoDaMarca`, sempre no servidor.
+ */
+export const marcaPrecos = pgTable("marca_precos", {
+  id: serial("id").primaryKey(),
+  marcaId: integer("marca_id").notNull().references(() => marcas.id),
+  /** "pacote" (creditos avulsos) ou "plano" (mensalidade). CHECK no banco. */
+  tipo: text("tipo").notNull(),
+  /** `credits-50`…`credits-500` para pacote; `free`/`pro`/`enterprise` para plano. */
+  chave: text("chave").notNull(),
+  precoCentavos: integer("preco_centavos").notNull(),
+  ativo: boolean("ativo").notNull().default(true),
+  atualizadoPorId: integer("atualizado_por_id").references(() => users.id),
+  atualizadoEm: timestamp("atualizado_em").defaultNow(),
+}, (t) => [
+  // A UNIQUE e constraint de tabela na migracao 0013; o Postgres a implementa
+  // com um indice deste nome. Declarada aqui para o leitor ver a chave de
+  // negocio — uma linha por marca, tipo e chave.
+  uniqueIndex("marca_precos_marca_id_tipo_chave_key").on(t.marcaId, t.tipo, t.chave),
+  index("idx_marca_precos_marca").on(t.marcaId),
+]);
+
+/**
+ * Fechamento mensal da comissao de uma marca — um por competencia (YYYY-MM).
+ *
+ * Existe ANTES de `comissaoLancamentos` neste arquivo porque e ela que os
+ * lancamentos referenciam quando sao fechados.
+ *
+ * O dinheiro sai FORA do sistema (PIX/TED contra nota fiscal de comissao do
+ * revendedor, decisao 6), entao `comprovante` e `notaFiscalRef` sao o unico
+ * rastro do pagamento — sem eles nao ha como provar meses depois que a
+ * plataforma pagou. `aberto → aprovado → pago`, e `cancelado` reabre os
+ * lancamentos; CHECK no banco.
+ */
+export const comissaoFechamentos = pgTable("comissao_fechamentos", {
+  id: serial("id").primaryKey(),
+  marcaId: integer("marca_id").notNull().references(() => marcas.id),
+  /** Competencia no formato `YYYY-MM`. Texto, para ordenar e agrupar como veio. */
+  competencia: text("competencia").notNull(),
+  valorBruto: decimal("valor_bruto", { precision: 10, scale: 2 }).notNull(),
+  valorComissao: decimal("valor_comissao", { precision: 10, scale: 2 }).notNull(),
+  qtdLancamentos: integer("qtd_lancamentos").notNull(),
+  status: text("status").notNull().default("aberto"),
+  aprovadoEm: timestamp("aprovado_em"),
+  pagoEm: timestamp("pago_em"),
+  comprovante: text("comprovante"),
+  notaFiscalRef: text("nota_fiscal_ref"),
+  observacoes: text("observacoes"),
+  fechadoPorId: integer("fechado_por_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  // Constraint de tabela na 0013: um fechamento por marca e competencia. E ela
+  // que protege contra o job mensal rodar em duas instancias ao mesmo tempo.
+  uniqueIndex("comissao_fechamentos_marca_id_competencia_key").on(t.marcaId, t.competencia),
+]);
+
+/**
+ * Um lancamento por ENTRADA DE DINHEIRO: pedido de credito pago ou fatura de
+ * plano paga.
+ *
+ * O `percentual` e gravado junto porque e o VIGENTE naquele instante. Sem esta
+ * tabela a comissao seria recalculada a cada leitura e mudaria sozinha quando o
+ * superadmin renegociasse o percentual — reescrevendo meses ja pagos.
+ * `plan_changes` nao serve: e ledger de credito, nao de dinheiro.
+ *
+ * So ids e valores: nenhum CPF, nenhum nome de cliente. O revendedor le esta
+ * tabela, e ele nao tem por que ver quem e o assinante do provedor dele.
+ */
+export const comissaoLancamentos = pgTable("comissao_lancamentos", {
+  id: serial("id").primaryKey(),
+  marcaId: integer("marca_id").notNull().references(() => marcas.id),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  /** `credit_order` | `provider_invoice` | `estorno` | `ajuste`. CHECK no banco. */
+  origem: text("origem").notNull(),
+  /** Id na tabela de origem. Nulo em `ajuste`, que nao nasce de documento. */
+  origemId: integer("origem_id"),
+  competencia: text("competencia").notNull(),
+  valorBruto: decimal("valor_bruto", { precision: 10, scale: 2 }).notNull(),
+  percentual: decimal("percentual", { precision: 5, scale: 2 }).notNull(),
+  valorComissao: decimal("valor_comissao", { precision: 10, scale: 2 }).notNull(),
+  status: text("status").notNull().default("pendente"),
+  fechamentoId: integer("fechamento_id").references(() => comissaoFechamentos.id),
+  descricao: text("descricao"),
+  criadoPorId: integer("criado_por_id").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  // Indice unico PARCIAL: e ele que torna a reentrega do webhook do Asaas
+  // inofensiva — o mesmo pedido pago duas vezes nao vira comissao dobrada.
+  // Parcial porque `estorno` e `ajuste` nao tem documento de origem e podem
+  // repetir na mesma competencia.
+  uniqueIndex("comissao_lancamentos_origem_uq")
+    .on(t.origem, t.origemId)
+    .where(sql`origem IN ('credit_order', 'provider_invoice')`),
+  index("idx_comissao_lancamentos_marca_comp").on(t.marcaId, t.competencia),
+  index("idx_comissao_lancamentos_provider").on(t.providerId),
+]);
+
+/**
+ * Trilha de auditoria da revenda — append-only.
+ *
+ * Obrigatoria desde a fase 1 (decisao 15) pelo que o revendedor pode fazer: ele
+ * suspende provedores que nao sao dele, cria usuarios de terceiros e mexe em
+ * preco que vira dinheiro. Sem esta tabela, "quem suspendeu meu provedor?" nao
+ * tem resposta. `atorRole` registra tambem o que o SUPERADMIN faz sobre a
+ * marca, porque ele pode reverter qualquer ato do revendedor.
+ *
+ * Nunca se escreve aqui direto: use `registrarEventoDaMarca`
+ * (server/services/marca-eventos.service.ts), que faz a redacao de senha,
+ * token, segredo e chave PIX antes do INSERT — o `detalhe` guarda o antes/depois
+ * de edicoes que passam perto de credencial.
+ */
+export const marcaEventos = pgTable("marca_eventos", {
+  id: serial("id").primaryKey(),
+  marcaId: integer("marca_id").notNull().references(() => marcas.id),
+  /** Quem fez. NOT NULL: evento sem autor nao serve de auditoria. */
+  userId: integer("user_id").notNull().references(() => users.id),
+  /** `revendedor` ou `superadmin` — o papel no momento do ato, nao o de hoje. */
+  atorRole: text("ator_role").notNull(),
+  /** Uma das acoes de `AcaoDeMarca`; o servico recusa o que nao esta na lista. */
+  acao: text("acao").notNull(),
+  /** Provedor alvo, quando a acao tem um. Nulo em acoes sobre a propria marca. */
+  providerId: integer("provider_id").references(() => providers.id),
+  detalhe: jsonb("detalhe").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  // A leitura e sempre "os ultimos eventos desta marca", da tela e do CSV.
+  index("idx_marca_eventos_marca_data").on(t.marcaId, t.createdAt.desc()),
+]);
+
+export const insertMarcaPrecoSchema = createInsertSchema(marcaPrecos).omit({ id: true, atualizadoEm: true });
+export const insertComissaoFechamentoSchema = createInsertSchema(comissaoFechamentos).omit({ id: true, createdAt: true });
+export const insertComissaoLancamentoSchema = createInsertSchema(comissaoLancamentos).omit({ id: true, createdAt: true });
+export const insertMarcaEventoSchema = createInsertSchema(marcaEventos).omit({ id: true, createdAt: true });
+
+export type MarcaPreco = typeof marcaPrecos.$inferSelect;
+export type InsertMarcaPreco = z.infer<typeof insertMarcaPrecoSchema>;
+export type ComissaoFechamento = typeof comissaoFechamentos.$inferSelect;
+export type InsertComissaoFechamento = z.infer<typeof insertComissaoFechamentoSchema>;
+export type ComissaoLancamento = typeof comissaoLancamentos.$inferSelect;
+export type InsertComissaoLancamento = z.infer<typeof insertComissaoLancamentoSchema>;
+export type MarcaEvento = typeof marcaEventos.$inferSelect;
+export type InsertMarcaEvento = z.infer<typeof insertMarcaEventoSchema>;
 
 export const insertMarcaSchema = createInsertSchema(marcas).omit({ id: true, createdAt: true });
 export const insertProviderSchema = createInsertSchema(providers).omit({ id: true, createdAt: true });
@@ -693,6 +932,14 @@ export const visitorChats = pgTable("visitor_chats", {
   visitorPhone: text("visitor_phone"),
   token: text("token").notNull().unique(),
   status: text("status").notNull().default("open"),
+  /**
+   * Marca da landing em que o visitante conversou. Nulo = plataforma.
+   *
+   * Entrou na migracao 0013 junto do resto, mas so a fase 5 escreve nela: quem
+   * atende continua sendo a plataforma (decisao 13), e a coluna serve para o
+   * atendente saber sob que nome o visitante achou o produto.
+   */
+  marcaId: integer("marca_id").references(() => marcas.id),
   lastMessageAt: timestamp("last_message_at").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -718,6 +965,14 @@ export const titularRequests = pgTable("titular_requests", {
   tipoSolicitacao: text("tipo_solicitacao").notNull(),
   descricao: text("descricao"),
   protocolo: text("protocolo").notNull().unique(),
+  /**
+   * Marca pela qual o titular chegou ate o pedido. Nulo = plataforma.
+   *
+   * Importa para a LGPD: a resposta ao titular sai com o nome de quem ele
+   * acredita ter contratado, e o controlador nomeado no texto e o
+   * `responsavel*` daquela marca. Escrita a partir da fase 5.
+   */
+  marcaId: integer("marca_id").references(() => marcas.id),
   status: text("status").notNull().default("pendente"),
   prazoLimite: timestamp("prazo_limite"),
   updatedBy: integer("updated_by").references(() => users.id),

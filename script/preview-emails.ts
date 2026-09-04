@@ -18,7 +18,7 @@
  */
 import fs from "fs";
 import path from "path";
-import { MARCA_PLATAFORMA } from "../server/services/marca.service";
+import { MARCA_PLATAFORMA, urlDaMarca, type MarcaResolvida } from "../server/services/marca.service";
 import * as email from "../server/services/email";
 
 const SAIDA = process.argv[2] || path.resolve("tmp-emails");
@@ -33,11 +33,32 @@ export interface ExemploDeEmail {
   quando: string;
   assunto: string;
   html: string;
+  /**
+   * Por onde ESTE destinatario entra — a base sob a qual os links da mensagem
+   * tem de cair. Nao e a mesma para todos: o provedor entra pelo subdominio
+   * dele, o revendedor so pelo dominio proprio da marca.
+   */
+  urlBase: string;
 }
 
 export function exemplos(marca = MARCA_PLATAFORMA, url = URL_DO_PROVEDOR): ExemploDeEmail[] {
-  const monte = (chave: string, nome: string, quando: string, m: email.Mensagem): ExemploDeEmail =>
-    ({ chave, nome, quando, assunto: m.assunto, html: m.html });
+  const monte = (
+    chave: string, nome: string, quando: string, m: email.Mensagem, urlBase = url,
+  ): ExemploDeEmail => ({ chave, nome, quando, assunto: m.assunto, html: m.html, urlBase });
+
+  /**
+   * Um revendedor so existe com dominio proprio ativo — e o unico endereco
+   * onde o login dele e aceito (`hostPertenceAMarca`). A marca da plataforma
+   * nao tem um, entao a pre-visualizacao inventa o dominio quando ele falta:
+   * sem isso os dois e-mails de revenda apontariam para a raiz, que e
+   * exatamente a porta fechada que eles existem para evitar. Quando a marca ja
+   * tem dominio ativo — o caso do revendedor de verdade — nada e trocado.
+   */
+  const marcaDaRevenda: MarcaResolvida =
+    marca.marcaId && marca.dominio && marca.dominioAtivo
+      ? marca
+      : { ...marca, marcaId: 90, dominio: "revenda.exemplo.com.br", dominioAtivo: true };
+  const urlDaRevenda = urlDaMarca(marcaDaRevenda);
 
   return [
     monte("verificacao", "Confirmação de cadastro",
@@ -128,6 +149,21 @@ export function exemplos(marca = MARCA_PLATAFORMA, url = URL_DO_PROVEDOR): Exemp
         erp: "IXC Soft", falhasSeguidas: 3,
         ultimoErro: "ERP recusou a busca: 403 — IP do servidor não liberado no painel do IXC",
       }, marca, url)),
+
+    monte("revenda-boas-vindas", "Boas-vindas do revendedor",
+      "Quando o superadmin cria o primeiro usuário da equipe revendedora, já com o domínio próprio no ar.",
+      email.montarBoasVindasRevendedor({
+        nome: "Renata Vasconcelos",
+        emailDeAcesso: "renata@crednet.com.br",
+      }, marcaDaRevenda, urlDaRevenda), urlDaRevenda),
+
+    monte("revenda-equipe", "Acesso criado para a equipe da revenda",
+      "Quando um revendedor cria outro membro da própria equipe.",
+      email.montarUsuarioDeEquipe({
+        nome: "Diego Prado",
+        quemAdicionou: "Renata Vasconcelos",
+        emailDeAcesso: "diego@crednet.com.br",
+      }, marcaDaRevenda, urlDaRevenda), urlDaRevenda),
   ];
 }
 

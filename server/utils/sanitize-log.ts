@@ -23,6 +23,13 @@ export const CHAVES_SENSIVEIS = new Set([
   "extraConfig", "webhookToken", "password", "senha", "token",
   "accessToken", "refreshToken", "apiKey", "secret", "authorization",
   "n8nAuthToken", "verificationToken",
+  // A senha do primeiro acesso do revendedor. A censura casa por nome EXATO,
+  // entao "senha" e "password", que ja estavam aqui, NAO cobriam
+  // `senhaTemporaria` — e ela sai em texto puro no corpo de
+  // `POST /api/admin/marcas/:id/usuarios` e de `POST /api/revenda/usuarios`,
+  // que e o unico canal de entrega dela. Mesmo incidente de 27/08/2026 com
+  // outro nome de chave.
+  "senhaTemporaria",
   // O mesmo segredo com outro nome de chave: GET /api/admin/providers
   // publicava `erpToken` ("usuario:token" ja decifrado) e `erpUrl` para TODOS
   // os provedores. Os campos sairam de ProviderWithStats em 03/09/2026; ficam
@@ -125,6 +132,36 @@ export const ROTAS_SEM_CORPO_NO_LOG: Array<string | RegExp> = [
    * continua registrado pelo pino-http. O CORPO e que nao precisa estar la.
    */
   "/api/auth/me",
+  /**
+   * As duas rotas que criam acesso de revendedor devolvem a SENHA em texto
+   * puro — e de proposito: nao ha e-mail que a carregue, entao aquela resposta
+   * e o unico canal de entrega. A rede fina ja cobre a chave
+   * (`senhaTemporaria` entrou em CHAVES_SENSIVEIS acima); esta e a grossa,
+   * porque o corpo tambem leva nome e e-mail de quem foi criado.
+   *
+   * Expressao regular com `$`, e nao prefixo: cortar `/api/admin/marcas`
+   * apagaria o log da area de marcas inteira, e cortar
+   * `/api/admin/marcas/\d+/usuarios` por prefixo levaria junto o DELETE
+   * `/usuarios/:userId`, cujo corpo nao tem segredo nenhum e e a evidencia de
+   * quem removeu o acesso de quem.
+   */
+  /^\/api\/admin\/marcas\/\d+\/usuarios$/,
+  /**
+   * O mesmo pelo lado do revendedor. Aqui a entrada e de TEXTO (prefixo) de
+   * proposito, e cobre tambem o `GET` da equipe: aquela listagem e nome e
+   * e-mail de cada pessoa da equipe da marca, e a tela pede a cada abertura.
+   */
+  "/api/revenda/usuarios",
+  /**
+   * A trilha da marca devolve o JSONB `detalhe`, que e um diff de forma livre
+   * e MUDA por acao: da fase 2 em diante ele carrega `contactEmail`,
+   * `tradeName` e a razao social do provedor alvo. Nenhum desses nomes esta em
+   * CHAVES_SENSIVEIS, e nao adianta acrescenta-los — e exatamente o criterio
+   * que esta lista declara para a rede grossa: rota cujo retorno muda de forma
+   * sozinho.
+   */
+  "/api/revenda/eventos",
+  /^\/api\/admin\/marcas\/\d+\/eventos$/,
 ];
 
 /**

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { apiRequest, getQueryFn } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/lib/auth";
+import { useAuth, type Papel } from "@/lib/auth";
 import { MessageSquare, X, Send, RefreshCw, ChevronDown, Headphones } from "lucide-react";
 
 function chatDayLabel(d: string): string {
@@ -22,6 +22,32 @@ function chatFullTime(d: string): string {
   return new Date(d).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
+/**
+ * Quem NAO tem este widget.
+ *
+ * O widget e o canal do PROVEDOR para falar com a plataforma: a thread nasce
+ * amarrada ao `providerId` da sessao e a mensagem sai assinada pelo provedor.
+ * Dois papeis nao tem provedor nenhum, e por isso nao tem o que dizer por aqui:
+ *
+ *  · SUPERADMIN — ele e o outro lado da conversa. Atende pelo Chat com
+ *    Provedores, no painel da plataforma, com o proprio nome. Vale tambem
+ *    dentro de uma sessao de suporte, e ai nao e detalhe: teclar aqui criaria
+ *    uma mensagem ASSINADA PELO PROVEDOR num chamado que o provedor nao abriu.
+ *  · REVENDEDOR — pela mesma razao, mais a decisao 13 do dono: nesta fase quem
+ *    atende o provedor continua sendo a plataforma, em nome da marca, e o
+ *    revendedor nao ve thread de suporte. A sessao dele tem `providerId` 0, e
+ *    o 403 central (server/auth.ts) recusa `/api/chat/*` — sem esta regra o
+ *    client ficaria batendo de 20 em 20 segundos numa rota que so responde
+ *    recusa, e recusa de escopo e justamente o que o log trata como tentativa
+ *    de acesso indevido.
+ *
+ * Funcao pura e exportada para caber em teste: o arquivo inteiro e um
+ * componente, e sem isto a unica forma de conferir a regra seria montar React.
+ */
+export function ocultaChat(papel: Papel | undefined): boolean {
+  return papel === "superadmin" || papel === "revendedor";
+}
+
 export function ChatWidget() {
   const marca = useMarca();
   const [open, setOpen] = useState(false);
@@ -32,16 +58,24 @@ export function ChatWidget() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  /* Lido aqui em cima, e nao so no `return null` la embaixo, porque as duas
+     consultas abaixo sao hooks: elas rodam antes do retorno antecipado e
+     continuariam batendo em `/api/chat/*` para quem o widget nem desenha. A de
+     nao lidas nao depende de o widget estar aberto — repete de 20 em 20
+     segundos, para sempre. */
+  const semWidget = ocultaChat(user?.role);
+
   const { data: chatData, isLoading } = useQuery<{ thread: any; messages: any[] }>({
     queryKey: ["/api/chat/thread"],
     queryFn: getQueryFn({ on401: "returnNull" }),
-    enabled: open,
+    enabled: open && !semWidget,
     refetchInterval: open ? 4000 : false,
   });
 
   const { data: unreadData } = useQuery<{ count: number }>({
     queryKey: ["/api/chat/unread"],
     queryFn: getQueryFn({ on401: "returnNull" }),
+    enabled: !semWidget,
     refetchInterval: 20000,
   });
 
@@ -67,19 +101,8 @@ export function ChatWidget() {
     }
   }, [open, chatData?.messages?.length]);
 
-  /**
-   * O widget e o canal do PROVEDOR para falar com a plataforma, e escreve com a
-   * identidade do provedor. Superadmin nao o usa nunca — nem na propria conta,
-   * nem personificando.
-   *
-   * Na personificacao a regra vale pelo mesmo motivo, e nao por acidente de a
-   * condicao olhar o papel: o suporte teclando aqui criaria uma mensagem
-   * ASSINADA PELO PROVEDOR num chamado que o provedor nao abriu. O atendente le
-   * e responde a mesma conversa pelo lado da plataforma (Chat de Suporte no
-   * painel SaaS), com o nome dele. Escopo de suporte e "tudo que o admin do
-   * provedor faz" para configurar e conferir, nao para falar no lugar dele.
-   */
-  if (user?.role === "superadmin") return null;
+  /* O motivo esta em `ocultaChat`, junto da regra. */
+  if (semWidget) return null;
 
   const unreadCount = unreadData?.count || 0;
   const messages = chatData?.messages || [];

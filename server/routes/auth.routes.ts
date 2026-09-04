@@ -7,7 +7,7 @@ import { ROTULO_DO_PLANO } from "../services/precos.service";
 import { createRateLimiter } from "../middleware/rate-limiter.middleware";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { normalizarHost, extractSubdomainFromHost } from "../tenant";
-import { hostPertenceAoProvider, resolverMarcaPorId, urlDeEntrada } from "../services/marca.service";
+import { hostPertenceAoProvider, hostPertenceAMarca, resolverMarcaPorId, urlDeEntrada } from "../services/marca.service";
 import { MENSAGEM_PROVEDOR_SUSPENSO, encerrarPersonificacao } from "../auth";
 import { validarCPF, validarCNPJ } from "../utils/cpf-cnpj-validator";
 import crypto from "crypto";
@@ -41,6 +41,60 @@ async function avisarQueASenhaMudou(
   } catch (err: any) {
     console.error(`[email] Falha ao avisar troca de senha (${origem}):`, err?.message);
   }
+}
+
+/**
+ * A MARCA que o revendedor recebe no login e no /me. Sete campos, escolhidos um
+ * a um — e a lista do que NAO esta aqui importa tanto quanto a do que esta.
+ *
+ * FORA, e nao por esquecimento:
+ *   · `logoSvg` / `logoPng` / `faviconSvg` / `ogImagePng` — sao imagens inteiras
+ *     em base64 dentro de uma coluna de texto. O /me e o endpoint mais chamado
+ *     do sistema (toda montagem de tela pede um); mandar centenas de KB de SVG
+ *     em cada resposta troca uma tela rapida por uma lenta sem nenhum ganho, e
+ *     as imagens ja sao servidas por URL (`/api/marca/:id/logo`), onde o
+ *     navegador as cacheia e desliga script.
+ *   · `repasseRazaoSocial` / `repasseCnpj` / `repasseChavePix` / `repasseEmail`
+ *     — quem RECEBE o dinheiro da comissao. Decisao 6 do dono: so o superadmin
+ *     le e escreve. Uma chave PIX de beneficiario nao tem por que atravessar a
+ *     rede a cada carregamento de tela, e este payload vai para o log do
+ *     navegador, para o histórico de rede e para qualquer extensao instalada.
+ *
+ * `comissaoPercentual` FICA: e o percentual que o proprio revendedor negociou e
+ * que ele vai conferir contra o extrato dele. Esconder o numero de quem tem
+ * direito a ele nao protege ninguem.
+ */
+export type MarcaDaSessao = {
+  id: number;
+  nomeProduto: string;
+  slug: string;
+  dominio: string | null;
+  dominioStatus: string;
+  revendaAtiva: boolean;
+  comissaoPercentual: number;
+};
+
+/**
+ * Projeta a linha de `marcas` nos sete campos acima.
+ *
+ * `Number(...)` no percentual: a coluna e `numeric(5,2)` e o driver a entrega
+ * como STRING ("20.00"), o que na tela viraria "20.00%". A conversao e total —
+ * a coluna e NOT NULL e tem CHECK de 0 a 50 no banco, entao nao ha texto fora de
+ * formato a converter. Vale so para exibir; conta de dinheiro se faz no servidor.
+ */
+async function marcaDaSessao(marcaId: number | null | undefined): Promise<MarcaDaSessao | null> {
+  if (!marcaId || marcaId <= 0) return null;
+  const marca = await storage.getMarca(marcaId);
+  if (!marca) return null;
+  return {
+    id: marca.id,
+    nomeProduto: marca.nomeProduto,
+    slug: marca.slug,
+    dominio: marca.dominio ?? null,
+    dominioStatus: marca.dominioStatus,
+    revendaAtiva: marca.revendaAtiva,
+    comissaoPercentual: Number(marca.comissaoPercentual),
+  };
 }
 
 export function registerAuthRoutes(): Router {
@@ -104,7 +158,27 @@ export function registerAuthRoutes(): Router {
       // eixo: usuario sem provedor pulava a prova inteira e entrava por
       // qualquer host. Agora a ausencia de provedor RECUSA — e recusa com a
       // mensagem generica, para nao contar que a conta existe.
-      if (user.role !== "superadmin") {
+      /**
+       * REVENDEDOR — a prova e outra, e mais estreita.
+       *
+       * Ele nao tem provedor: quem responde por ele e a marca. `hostPertenceAMarca`
+       * aceita UM caminho so — o dominio proprio da marca, ativo e com HTTPS
+       * emitido — e recusa o resto com motivo proprio: dominio de outra marca
+       * (cross-tenant, o caso grave), marca desligada, dominio ainda pendente de
+       * certificado, a raiz da plataforma e ate o subdominio de um provedor DA
+       * PROPRIA marca. Este ultimo e uma decisao, nao um efeito colateral: a
+       * sessao de quem revende nao nasce presa ao endereco de um cliente dele.
+       *
+       * A recusa e o MESMO 401 generico dos outros ramos. Um texto especifico
+       * aqui — "essa conta e de outra marca" — transformaria a tela de login de
+       * qualquer dominio white label num oraculo que confirma que um e-mail
+       * existe e em qual concorrente ele trabalha.
+       */
+      if (user.role === "revendedor") {
+        if (!await hostPertenceAMarca(req.hostname, user.marcaId)) {
+          return res.status(401).json({ message: "Email ou senha incorretos" });
+        }
+      } else if (user.role !== "superadmin") {
         const pertence = user.providerId && provider
           ? await hostPertenceAoProvider(req.hostname, {
               subdomain: provider.subdomain ?? null,
@@ -156,6 +230,22 @@ export function registerAuthRoutes(): Router {
        * Chamar a funcao de `server/auth.ts`, e nao um `delete` local, mantem um
        * lugar so decidindo o que "sair da personificacao" significa.
        */
+      /**
+       * `marca` sai SO para o revendedor, e a ausencia dela para os outros e
+       * deliberada: o payload de quem ja usava o sistema fica identico ao de
+       * ontem. Provedor e superadmin nao precisam dela — a pele que o provedor
+       * veste ja chega pelo `window.__MARCA__` injetado no HTML
+       * (server/marca-html.ts), resolvido por host e sem custar consulta por login.
+       *
+       * Para o revendedor `provider` e null porque ele nao tem provedor nenhum:
+       * a coluna e nula por CHECK no banco (`users_papel_coerente`).
+       *
+       * Lida ANTES de mexer na sessao: tudo o que a resposta precisa e resolvido
+       * primeiro, e so entao a sessao e alterada e gravada. Uma leitura que
+       * falhasse depois do `save` deixaria a pessoa autenticada olhando um 500.
+       */
+      const marca = user.role === "revendedor" ? await marcaDaSessao(user.marcaId) : undefined;
+
       encerrarPersonificacao(req.session);
 
       req.session.userId = user.id;
@@ -165,13 +255,27 @@ export function registerAuthRoutes(): Router {
       // nota de seguranca em server/auth.ts.
       req.session.hostLogin = normalizarHost(req.hostname);
       req.session.subdomain = extractSubdomainFromHost(req.hostname) || undefined;
-      req.session.marcaId = provider?.marcaId ?? null;
+      /**
+       * Para o revendedor a marca vem do USUARIO; para os demais, do provedor.
+       *
+       * A linha era so `provider?.marcaId`, e para um revendedor `provider` e
+       * null — a sessao nasceria com `marcaId` nulo, `providerId` 0 e nenhum
+       * tenant. `requireRevendedor` a recusaria em tudo, e a pessoa que acabou
+       * de acertar a senha e o dominio ficaria trancada do lado de dentro.
+       */
+      req.session.marcaId = user.role === "revendedor"
+        ? user.marcaId ?? null
+        : provider?.marcaId ?? null;
       await new Promise<void>((resolve, reject) => {
         req.session.save((err) => err ? reject(err) : resolve());
       });
       return res.json({
         user: { id: user.id, email: user.email, name: user.name, role: user.role },
         provider,
+        // A chave existe para o revendedor mesmo quando o valor e null — "sou
+        // revendedor e a marca sumiu" e uma resposta, e a ausencia da chave nao
+        // e. Para os demais papeis ela nao aparece.
+        ...(marca !== undefined ? { marca } : {}),
         mustChangePassword: user.mustChangePassword || false,
       });
     } catch (error: any) {
@@ -537,11 +641,26 @@ export function registerAuthRoutes(): Router {
      * produtos a navegacao e.
      */
     const personificando = !!req.session.suporte;
+    /**
+     * A MARCA, so para o revendedor — e pela mesma doutrina do `provider` acima:
+     * a fonte e a SESSAO, com a coluna como reserva.
+     *
+     * Para quem nao e revendedor a chave nem aparece, e isso e uma promessa: a
+     * resposta do admin de provedor e a do superadmin saem identicas as de
+     * antes da fase 1. O white label ja chega a essas telas pelo
+     * `window.__MARCA__` do HTML, resolvido por host, e duplicar aqui so criaria
+     * uma segunda fonte para a mesma pergunta — duas fontes divergem.
+     */
+    const marcaIdDaSessao = req.session.marcaId && req.session.marcaId > 0
+      ? req.session.marcaId
+      : user.marcaId;
+    const marca = user.role === "revendedor" ? await marcaDaSessao(marcaIdDaSessao) : undefined;
     return res.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
       provider,
       partnerCode,
       personificando,
+      ...(marca !== undefined ? { marca } : {}),
       mustChangePassword: user.mustChangePassword || false,
     });
   });

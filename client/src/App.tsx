@@ -4,7 +4,7 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { AuthProvider, useAuth } from "@/lib/auth";
+import { AuthProvider, useAuth, type Papel } from "@/lib/auth";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import ThemeToggle from "@/components/theme-toggle";
@@ -48,6 +48,13 @@ const PainelProvedorPage = lazy(() => import("@/pages/provedor/painel-provedor")
 const AdministracaoPage = lazy(() => import("@/pages/provedor/administracao"));
 const CreditosPage = lazy(() => import("@/pages/provedor/creditos"));
 const ConfiguracoesRegionalizacaoPage = lazy(() => import("@/pages/provedor/configuracoes-regionalizacao"));
+
+// Revenda — o painel de quem revende a plataforma sob a propria marca.
+// Fase 1 do white label: so estas tres telas existem. Provedores, Comissoes,
+// Precos e Relatorios sao das fases 2 a 4 e entram aqui quando forem escritos.
+const RevendaVisaoGeralPage = lazy(() => import("@/pages/revenda/visao-geral"));
+const RevendaMarcaPage = lazy(() => import("@/pages/revenda/marca"));
+const RevendaUsuariosPage = lazy(() => import("@/pages/revenda/usuarios"));
 
 // Public
 const LandingPage = lazy(() => import("@/pages/public/landingpage"));
@@ -96,6 +103,9 @@ function Router() {
         <Route path="/admin/creditos" component={AdminCreditosPage} />
         <Route path="/admin/lgpd" component={AdminLgpdPage} />
         <Route path="/admin/marcas" component={AdminMarcasPage} />
+        <Route path="/revenda" component={RevendaVisaoGeralPage} />
+        <Route path="/revenda/marca" component={RevendaMarcaPage} />
+        <Route path="/revenda/usuarios" component={RevendaUsuariosPage} />
         <Route path="/lgpd" component={LgpdPage} />
         <Route path="/configuracoes/regionalizacao" component={ConfiguracoesRegionalizacaoPage} />
         <Route path="/benchmark-regional"><Redirect to="/localizacao" /></Route>
@@ -105,11 +115,20 @@ function Router() {
   );
 }
 
-const PROVIDER_ONLY_PATHS = [
+/* Exportada para o teste percorrer a lista inteira em vez de repetir uma
+   amostra dela: amostra escrita a mao envelhece calada quando alguem acrescenta
+   uma tela aqui. */
+export const PROVIDER_ONLY_PATHS = [
   "/", "/consulta-isp", "/consulta-cadastral", "/consulta-spc", "/anti-fraude",
   "/inadimplentes", "/mapa-calor", "/localizacao", "/creditos", "/nfse", "/importacao",
   "/importacao-equipamentos", "/equipamentos", "/recuperacao", "/administracao", "/painel-provedor",
   "/benchmark-regional",
+  // Faltava desde que a tela nasceu: ela le `provider` da sessao e chama
+  // `/api/regional/my-cidades`, que sem provedor nao responde nada. Ficava de
+  // fora da lista por esquecimento, nao por decisao — e agora ha um segundo
+  // papel sem provedor (o revendedor) para quem a omissao significaria pintar
+  // uma tela de provedor inteira antes de qualquer desvio.
+  "/configuracoes/regionalizacao",
 ];
 
 /**
@@ -128,6 +147,126 @@ const PROVIDER_ONLY_PATHS = [
 const PLATFORM_ONLY_PATHS = [
   "/admin-sistema", "/admin/financeiro", "/admin/creditos", "/admin/marcas", "/admin/lgpd",
 ];
+
+/**
+ * O CAMINHO NA FORMA EM QUE O ROTEADOR O CASA.
+ *
+ * As duas listas acima descrevem ROTAS, e quem decide se um endereco chegou a
+ * uma rota e o wouter — que usa `parse` do regexparam e gera
+ * `new RegExp('^' + padrao + '\\/?$', 'i')`. Ou seja: ele casa SEM olhar caixa
+ * e com barra final opcional. Uma comparacao literal aqui deixava passar
+ * `/Inadimplentes` e `/inadimplentes/`: o desvio devolvia null, a guarda de
+ * pintura liberava, e o `<Route path="/inadimplentes">` casava assim mesmo — a
+ * tela de provedor montava inteira no painel do revendedor, e nao por um
+ * quadro, mas de forma permanente. Nao vazava dado (o 403 central do servidor
+ * recusa cada chamada), mas cada visita virava uma enxurrada de
+ * "tentativa de acesso indevido" no log.
+ *
+ * As normalizacoes sao exatamente as que o roteador ignora, e nao mais que
+ * isso — a mesma escolha (e o mesmo argumento) de `caminhoComparavel` em
+ * server/utils/sanitize-log.ts e de `caminhoLiberadoAoRevendedor` em
+ * server/auth.ts. Query e hash saem porque `useLocation` do wouter pode
+ * entrega-los junto conforme a configuracao do roteador.
+ */
+function caminhoDeRota(caminho: string): string {
+  const semQueryNemHash = (caminho || "").replace(/[?#].*$/, "");
+  return (semQueryNemHash.replace(/\/+$/, "") || "/").toLowerCase();
+}
+
+/** `Array.includes` que enxerga o que o roteador enxerga. */
+function estaNaLista(lista: readonly string[], caminho: string): boolean {
+  const alvo = caminhoDeRota(caminho);
+  return lista.some(p => caminhoDeRota(p) === alvo);
+}
+
+/**
+ * O TERCEIRO painel: o do revendedor.
+ *
+ * A lista existe pelo mesmo motivo das duas de cima — dizer quais enderecos
+ * pertencem a um papel —, mas ela e consumida de dois jeitos diferentes, e a
+ * diferenca importa:
+ *
+ *  · para SAIR (`ehRotaDeRevenda`) vale o PREFIXO, porque quem nao e revendedor
+ *    nao pode nem chegar numa subrota que ainda nao existe;
+ *  · para o MENU (app-sidebar) vale a lista literal, porque item de menu que
+ *    leva a tela inexistente e defeito, nao promessa.
+ */
+export const REVENDA_PATHS = ["/revenda", "/revenda/marca", "/revenda/usuarios"];
+
+/**
+ * Comparacao por SEGMENTO, nunca `startsWith("/revenda")` cru: assim uma futura
+ * `/revendas-antigas` — ou qualquer nome que so comece igual — nao entra de
+ * carona no painel do revendedor. Mesmo criterio que o 403 central do servidor
+ * usa nos prefixos dele (server/auth.ts).
+ */
+export function ehRotaDeRevenda(caminho: string): boolean {
+  const alvo = caminhoDeRota(caminho);
+  return alvo === "/revenda" || alvo.startsWith("/revenda/");
+}
+
+/**
+ * As telas da PLATAFORMA, para efeito do desvio do revendedor.
+ *
+ * Mais larga que `PLATFORM_ONLY_PATHS` de proposito: aquela lista compara
+ * caminho exato e por isso deixa de fora `/admin/provedor/:id` e
+ * `/admin/fatura/:id`, que sao telas com dado de provedor e nao podem ser
+ * alcancadas por quem revende. Aqui o criterio e o prefixo `/admin/` mais o
+ * `/admin-sistema`, que nao tem barra.
+ *
+ * Escrita assim, e nao como `startsWith("/admin")`, porque `/administracao`
+ * tambem comeca com "/admin" e e tela de PROVEDOR. Hoje o destino coincidiria
+ * (as duas mandam o revendedor para /revenda), mas uma regra que so acerta por
+ * coincidencia deixa de acertar sozinha.
+ */
+export function ehRotaDaPlataforma(caminho: string): boolean {
+  const alvo = caminhoDeRota(caminho);
+  return alvo === "/admin-sistema" || alvo.startsWith("/admin/");
+}
+
+/**
+ * Onde cada papel comeca. Uma regra so, usada pelo desvio pos-login e pela
+ * expulsao de quem entrou no painel errado — se as duas divergissem, entrar e
+ * ser expulso levariam a telas diferentes.
+ *
+ * `dentroDeSessaoDeSuporte` existe para um caso estreito e real: o superadmin
+ * personificando um provedor tem `role` "superadmin" de proposito
+ * (server/auth.ts), e manda-lo para /admin-sistema seria manda-lo para a tela
+ * de onde a regra de personificacao o expulsa no quadro seguinte. Duas viagens
+ * para chegar em "/", que e onde ele ja deveria ter ido.
+ */
+export function paginaInicial(papel: Papel, dentroDeSessaoDeSuporte = false): string {
+  if (papel === "revendedor") return "/revenda";
+  if (papel === "superadmin" && !dentroDeSessaoDeSuporte) return "/admin-sistema";
+  return "/";
+}
+
+/**
+ * Quem esta no painel errado, e para onde vai. `null` = fica onde esta.
+ *
+ * Os dois sentidos numa funcao so porque sao a mesma regra lida de cada lado —
+ * escritos separados, um dia um ganha um caso que o outro nao ganha.
+ *
+ * O revendedor NAO e barrado do que e publico (/lgpd, /meus-dados,
+ * /verificar-email) nem da tela de 404: nada disso e painel de ninguem. O que
+ * o barra e a tela de provedor e a da plataforma, que e onde mora dado de
+ * terceiro. A recusa que vale continua sendo a do servidor (o 403 central em
+ * server/auth.ts); isto so evita montar a tela errada.
+ */
+export function desvioDeRevenda(args: {
+  papel: Papel;
+  caminho: string;
+  dentroDeSessaoDeSuporte?: boolean;
+}): string | null {
+  const { papel, caminho } = args;
+  if (papel === "revendedor") {
+    const noLugarErrado =
+      estaNaLista(PROVIDER_ONLY_PATHS, caminho) || ehRotaDaPlataforma(caminho);
+    return noLugarErrado ? "/revenda" : null;
+  }
+  return ehRotaDeRevenda(caminho)
+    ? paginaInicial(papel, args.dentroDeSessaoDeSuporte)
+    : null;
+}
 
 function ChangePasswordModal() {
   const { mustChangePassword, clearMustChangePassword } = useAuth();
@@ -211,11 +350,35 @@ function AuthenticatedApp() {
     if (isLoading) return;
 
     if (user && location === "/login") {
-      navigate(user.role === "superadmin" ? "/admin-sistema" : "/", { replace: true });
+      navigate(paginaInicial(user.role), { replace: true });
       return;
     }
 
-    if (superadminSemSuporte && PROVIDER_ONLY_PATHS.includes(location)) {
+    /**
+     * Em qual dos TRES paineis voce esta — a pergunta vem antes de "qual tela
+     * do seu painel esta liberada agora", que e o que as duas regras de suporte
+     * abaixo decidem.
+     *
+     * Espera `carregandoSuporte` pelo mesmo motivo de `superadminSemSuporte`:
+     * mandar embora antes de saber se ha sessao de suporte faria o superadmin
+     * personificando saltar /revenda -> /admin-sistema -> "/" em vez de ir
+     * direto. Para o revendedor a espera nao existe na pratica — a consulta de
+     * suporte nem chega a ser feita para quem nao e superadmin
+     * (`devePerguntarPelaSessao`), entao `carregandoSuporte` ja e falso aqui.
+     */
+    if (user && !carregandoSuporte) {
+      const desvio = desvioDeRevenda({
+        papel: user.role,
+        caminho: location,
+        dentroDeSessaoDeSuporte: !!sessaoDeSuporte,
+      });
+      if (desvio) {
+        navigate(desvio, { replace: true });
+        return;
+      }
+    }
+
+    if (superadminSemSuporte && estaNaLista(PROVIDER_ONLY_PATHS, location)) {
       navigate("/admin-sistema", { replace: true });
       return;
     }
@@ -224,10 +387,10 @@ function AuthenticatedApp() {
     // O destino e "/" — o painel do provedor em que ele esta — e nao a tela de
     // login ou um erro: ele tem sessao, tem papel, e o que falta e so sair da
     // personificacao, o que a faixa vermelha oferece o tempo todo.
-    if (sessaoDeSuporte && PLATFORM_ONLY_PATHS.includes(location)) {
+    if (sessaoDeSuporte && estaNaLista(PLATFORM_ONLY_PATHS, location)) {
       navigate("/", { replace: true });
     }
-  }, [user, isLoading, superadminSemSuporte, sessaoDeSuporte, location, navigate]);
+  }, [user, isLoading, superadminSemSuporte, sessaoDeSuporte, carregandoSuporte, location, navigate]);
 
   if (location === "/meus-dados") {
     return <Suspense fallback={<PageLoader />}><MeusDadosPage /></Suspense>;
@@ -305,7 +468,7 @@ function AuthenticatedApp() {
   //
   // O 403 do servidor ja esvazia os dados; isto evita o esqueleto da tela
   // errada. As duas defesas sao de camadas diferentes de proposito.
-  if (sessaoDeSuporte && PLATFORM_ONLY_PATHS.includes(location)) {
+  if (sessaoDeSuporte && estaNaLista(PLATFORM_ONLY_PATHS, location)) {
     return (
       <div className="min-h-screen flex flex-col bg-background">
         <FaixaSuporte />
@@ -320,7 +483,40 @@ function AuthenticatedApp() {
     );
   }
 
-  if (user.role === "superadmin" && !sessaoDeSuporte && PROVIDER_ONLY_PATHS.includes(location)) {
+  /**
+   * O mesmo para o painel errado — e pela mesma razao das duas guardas acima:
+   * o desvio e um efeito, e efeito roda DEPOIS do primeiro quadro.
+   *
+   * Sem esta linha, um revendedor que digitasse "/" veria o dashboard de
+   * provedor montar por um quadro (com os esqueletos e as chamadas de API que
+   * ele dispara), e um provedor que digitasse "/revenda" veria o painel de
+   * revenda. Um quadro basta para ler a tela.
+   *
+   * Aqui NAO se passa `dentroDeSessaoDeSuporte`: a pergunta desta guarda nao e
+   * "para onde ele vai", e sim "este endereco e de outro painel" — e a resposta
+   * a essa nao depende do destino. Assim ela tambem nao precisa esperar a
+   * consulta de suporte responder, e erra para o lado de nao pintar.
+   *
+   * A faixa fica montada pelo mesmo motivo da guarda de baixo: se quem cair
+   * aqui for um superadmin dentro de uma janela de suporte, o aviso de que ele
+   * esta na conta de outra empresa nao pode piscar para fora da tela.
+   */
+  if (desvioDeRevenda({ papel: user.role, caminho: location }) !== null) {
+    return (
+      <div className="min-h-screen flex flex-col bg-background">
+        <FaixaSuporte />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="space-y-4 w-64">
+            <Skeleton className="h-8 w-48 mx-auto" />
+            <Skeleton className="h-4 w-32 mx-auto" />
+            <Skeleton className="h-2 w-full" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (user.role === "superadmin" && !sessaoDeSuporte && estaNaLista(PROVIDER_ONLY_PATHS, location)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         {/* Este é o caminho por onde a sessão de suporte MORRE: no segundo em que

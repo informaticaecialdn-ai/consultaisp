@@ -1,5 +1,5 @@
 /**
- * As 15 mensagens transacionais, sob contrato.
+ * As 17 mensagens transacionais, sob contrato.
  *
  * A caixa de entrada e o unico lugar do produto onde o defeito e irreversivel.
  * Entao o que este arquivo cobra de CADA mensagem, sem excecao:
@@ -42,12 +42,20 @@ vi.mock("resend", () => ({
   },
 }));
 
-// O modulo de marca fala com o banco para resolver marca por host/id. Nada
-// disto e exercitado aqui: as mensagens recebem a marca pronta.
-vi.mock("../storage", () => ({ storage: {} }));
+/**
+ * As 15 mensagens antigas recebem a marca pronta e nao tocam no banco. Os dois
+ * e-mails de revenda nao: eles resolvem a marca pelo ID de proposito (ver
+ * `painelDaRevenda` em email.ts), entao o banco falso precisa devolver uma
+ * linha de `marcas` de verdade — e o caminho real de `resolverMarcaPorId`,
+ * incluindo o `montar` que decide `dominioAtivo`, roda no teste.
+ */
+const bancoFalso = vi.hoisted(() => ({ marcas: new Map<number, any>() }));
+vi.mock("../storage", () => ({
+  storage: { getMarca: async (id: number) => bancoFalso.marcas.get(id) },
+}));
 
 import * as email from "./email";
-import { MARCA_PLATAFORMA, urlDaMarca, type MarcaResolvida } from "./marca.service";
+import { MARCA_PLATAFORMA, esquecerMarcas, urlDaMarca, type MarcaResolvida } from "./marca.service";
 import { exemplos } from "../../script/preview-emails";
 
 /** O endereco por onde um provedor real entra: o subdominio dele. */
@@ -86,22 +94,33 @@ const preheader = (html: string) => {
   return m ? m[1].trim() : "";
 };
 
+/**
+ * Os rotulos das linhas de `blocoDeDados`, na ordem em que aparecem.
+ *
+ * Serve para afirmar QUAIS campos um e-mail expoe — a pergunta que uma busca
+ * por palavra no HTML nao responde, porque a mesma palavra aparece em prosa.
+ * O `text-transform:uppercase` e do CSS; no fonte o rotulo esta como foi
+ * escrito.
+ */
+const rotulosDeDados = (html: string) =>
+  [...html.matchAll(/letter-spacing:1\.2px;text-transform:uppercase;">([^<]*)</g)].map(m => m[1]);
+
 const tituloDe = (html: string) => {
   const m = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/);
   return m ? m[1].replace(/<[^>]*>/g, "").trim() : "";
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. O contrato que vale para as 15
+// 1. O contrato que vale para as 17
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("as 15 mensagens, uma invariante de cada vez", () => {
+describe("as 17 mensagens, uma invariante de cada vez", () => {
   const lista = exemplos(MARCA_PLATAFORMA, URL);
   const CASA = urlDaMarca(MARCA_PLATAFORMA);
 
-  it("sao 15, e a pre-visualizacao e a mesma lista", () => {
-    expect(lista).toHaveLength(15);
-    expect(new Set(lista.map(x => x.chave)).size).toBe(15);
+  it("sao 17, e a pre-visualizacao e a mesma lista", () => {
+    expect(lista).toHaveLength(17);
+    expect(new Set(lista.map(x => x.chave)).size).toBe(17);
   });
 
   it.each(lista.map(x => [x.chave, x] as const))("%s — assunto util", (_chave, x) => {
@@ -132,11 +151,15 @@ describe("as 15 mensagens, uma invariante de cada vez", () => {
     expect(x.html).not.toContain("[object Object]");
   });
 
-  it.each(lista.map(x => [x.chave, x] as const))("%s — todo link de acao aponta para a urlBase recebida", (_chave, x) => {
+  // A base e POR EXEMPLO, e nao uma so para a lista inteira: o provedor entra
+  // pelo subdominio dele, o revendedor so pelo dominio proprio da marca. Uma
+  // constante unica aqui obrigaria a abrir excecao justamente para os dois
+  // e-mails cuja regra de endereco e a mais estrita.
+  it.each(lista.map(x => [x.chave, x] as const))("%s — todo link de acao aponta para a urlBase daquele destinatario", (_chave, x) => {
     const links = hrefs(x.html).filter(h => !h.startsWith("mailto:"));
     expect(links.length).toBeGreaterThan(0);
     for (const link of links) {
-      const ehAcao = link.startsWith(URL);
+      const ehAcao = link.startsWith(x.urlBase);
       // Duas excecoes legitimas, e so estas duas:
       // - o rodape, que e a assinatura da MARCA (`urlDaMarca`), nao um destino;
       // - o link de pagamento, que e do Asaas e nunca foi nosso.
@@ -151,7 +174,7 @@ describe("as 15 mensagens, uma invariante de cada vez", () => {
     // suspensao e a unica sem: o acesso esta bloqueado, e mandar o provedor
     // para uma tela que vai recusa-lo seria pior que nao mandar. O caminho
     // dela e o e-mail de suporte, que e mailto.
-    if (_chave !== "suspenso") expect(links.some(h => h.startsWith(URL))).toBe(true);
+    if (_chave !== "suspenso") expect(links.some(h => h.startsWith(x.urlBase))).toBe(true);
   });
 
   it("a suspensao nao oferece botao — o unico caminho e o suporte", () => {
@@ -263,7 +286,7 @@ describe("o que cada mensagem grava no corpo", () => {
 describe("dado de cadastro hostil nao vira marcacao", () => {
   const H = HOSTIL;
 
-  /** As 15, montadas com veneno em cada campo que vem de fora. */
+  /** As 17, montadas com veneno em cada campo que vem de fora. */
   const envenenadas = (marca: MarcaResolvida = MARCA_PLATAFORMA): Array<[string, email.Mensagem]> => [
     ["verificacao", email.montarVerificacao(H, H, H, marca, URL)],
     ["boas-vindas", email.montarBoasVindas(H, {
@@ -288,6 +311,10 @@ describe("dado de cadastro hostil nao vira marcacao", () => {
     ["plano", email.montarPlanoAlterado(H, { de: H, para: H, creditosDoPlano: 5, observacao: H }, marca, URL)],
     ["usuario", email.montarUsuarioAdicionado(H, H, H, H, marca, URL)],
     ["erp-pausado", email.montarErpPausado(H, { erp: H, falhasSeguidas: 3, ultimoErro: H }, marca, URL)],
+    ["revenda-boas-vindas", email.montarBoasVindasRevendedor(
+      { nome: H, emailDeAcesso: H }, marca, URL)],
+    ["revenda-equipe", email.montarUsuarioDeEquipe(
+      { nome: H, quemAdicionou: H, emailDeAcesso: H }, marca, URL)],
   ];
 
   it.each(envenenadas())("%s — a tag nao sai crua", (_chave, m) => {
@@ -443,5 +470,247 @@ describe("send", () => {
       "Confirme seu cadastro — Consulta ISP",
       "Sua senha foi alterada — Consulta ISP",
     ]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. Reply-To: quem responde, responde para o suporte da MARCA
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("reply-to", () => {
+  beforeEach(() => {
+    resendFalso.chamadas.length = 0;
+    resendFalso.erro = null;
+  });
+
+  it("com suporte proprio, a resposta vai para o revendedor e nao para a plataforma", async () => {
+    await email.sendCadastroAprovadoEmail("a@b.com", "NsLink", "Emerson", CREDNET, URL_CREDNET);
+    expect(resendFalso.chamadas[0].replyTo).toBe("suporte@crednet.com.br");
+  });
+
+  it("sem suporte proprio, o cabecalho nao existe — nada muda para a plataforma", async () => {
+    await email.sendCadastroAprovadoEmail("a@b.com", "NsLink", "Emerson", MARCA_PLATAFORMA, URL);
+    // `undefined` e ausencia sao coisas diferentes no corpo do pedido: o que se
+    // cobra e a chave nao estar la.
+    expect("replyTo" in resendFalso.chamadas[0]).toBe(false);
+  });
+
+  it("endereco de suporte com quebra de linha nao vira um segundo cabecalho", () => {
+    expect(email.respostaPara({ ...CREDNET, suporteEmail: "ok@crednet.com.br\r\nBcc: alguem@x.com" }))
+      .toBeUndefined();
+    expect(email.respostaPara({ ...CREDNET, suporteEmail: "a@b.com, outro@x.com" })).toBeUndefined();
+    expect(email.respostaPara({ ...CREDNET, suporteEmail: "  suporte@crednet.com.br  " }))
+      .toBe("suporte@crednet.com.br");
+    expect(email.respostaPara({ ...CREDNET, suporteEmail: "nao-e-endereco" })).toBeUndefined();
+    expect(email.respostaPara(MARCA_PLATAFORMA)).toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. Revenda: os dois acessos ao painel da marca
+//
+// Estes dois nao carregam senha nenhuma — e os unicos cujo endereco nao pode
+// ser escolhido por quem chama. As duas coisas sao cobradas aqui.
+//
+// A primeira versao deles carregava a senha temporaria, com o argumento de que
+// "ninguem, nem quem criou, a conhece". Era falso: as duas rotas que criam
+// esses acessos devolvem `senhaTemporaria` em claro no corpo da resposta, e as
+// duas telas a mostram para copiar. O e-mail so somava uma copia numa caixa de
+// entrada. O que ele entrega, e a resposta HTTP nao, e o ENDERECO em que
+// aquele login e aceito — e e isso que os testes abaixo cobram.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A linha de `marcas` que o banco falso devolve: dominio proprio no ar. */
+const LINHA_CREDNET = {
+  id: 7,
+  ativo: true,
+  nomeProduto: "CredNet Bureau",
+  assinatura: "Crédito para provedores",
+  dominio: "app.crednet.com.br",
+  dominioStatus: "ativo",
+  logoSvg: null, logoPng: null, faviconSvg: null,
+  corBrand: "#1F6F7A", corBrandDark: null,
+  suporteEmail: "suporte@crednet.com.br", suporteWhatsapp: null, site: null,
+  responsavelRazaoSocial: null, responsavelCnpj: null,
+  emailRemetente: null, emailNomeExibicao: null,
+};
+
+describe("revenda: os dois acessos ao painel da marca", () => {
+  const porChave = Object.fromEntries(exemplos(CREDNET, URL_CREDNET).map(x => [x.chave, x]));
+
+  it("o link e o dominio da marca — a raiz da plataforma recusa este login", () => {
+    for (const chave of ["revenda-boas-vindas", "revenda-equipe"]) {
+      const destinos = hrefs(porChave[chave].html).filter(h => h.startsWith("http"));
+      expect(destinos.length).toBeGreaterThan(0);
+      for (const d of destinos) expect(d.startsWith(URL_CREDNET)).toBe(true);
+      expect(destinos).toContain(`${URL_CREDNET}/login`);
+    }
+  });
+
+  /**
+   * A SENHA NAO VIAJA NESTES E-MAILS.
+   *
+   * Quem cria ja a tem: as duas rotas devolvem `senhaTemporaria` no corpo da
+   * resposta, e essa e a entrega. Por-la tambem aqui somaria uma copia numa
+   * caixa de entrada, que e o lugar menos controlado dos dois — e contraria a
+   * regra que o e-mail de usuario do PROVEDOR (secao 10) ja segue.
+   *
+   * O teste olha os ROTULOS do bloco de dados, e nao a palavra solta no texto
+   * corrido: o corpo hoje explica em prosa que a senha temporaria vem por
+   * outro canal, e essa frase e desejada. O que nao pode existir e uma LINHA
+   * DE DADO com a senha, que e a forma que ela tinha.
+   */
+  it("a senha nao entra no corpo, nem no assunto, nem na previa", () => {
+    for (const chave of ["revenda-boas-vindas", "revenda-equipe"]) {
+      const x = porChave[chave];
+      expect(rotulosDeDados(x.html)).toEqual(["endereço de acesso", "e-mail de acesso"]);
+      expect(x.html).not.toMatch(/Kx7f|Wb4n/);
+      expect(x.assunto).not.toMatch(/Kx7f|Wb4n/);
+      expect(preheader(x.html)).not.toMatch(/Kx7f|Wb4n/);
+    }
+  });
+
+  it("o corpo diz que a senha vem por outro canal — senao quem recebe fica esperando um e-mail", () => {
+    for (const chave of ["revenda-boas-vindas", "revenda-equipe"]) {
+      expect(porChave[chave].html).toContain("A senha não vem por e-mail");
+      expect(porChave[chave].html).toContain("vale por um acesso só");
+    }
+  });
+
+  /**
+   * O que este e-mail entrega e que a resposta HTTP nao entrega: o endereco.
+   * Quem recebe nao viu o corpo do POST, e o login dele e recusado em qualquer
+   * outro host com mensagem generica de proposito — sem esta linha, a pessoa
+   * fica com uma senha e nenhum lugar onde usa-la.
+   */
+  it("o corpo mostra o endereco de acesso e o e-mail de login", () => {
+    for (const chave of ["revenda-boas-vindas", "revenda-equipe"]) {
+      expect(porChave[chave].html).toContain("endereço de acesso");
+      expect(porChave[chave].html).toContain("e-mail de acesso");
+    }
+  });
+
+  it("o convite diz QUEM convidou, duas vezes: e o unico jeito de o destinatario desconfiar", () => {
+    const x = porChave["revenda-equipe"].html;
+    expect(x.match(/Renata Vasconcelos/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("nome de marca hostil sai escapado tambem nestes dois", () => {
+    const veneno = { ...CREDNET, nomeProduto: `<script>alert(1)</script>` };
+    const a = email.montarBoasVindasRevendedor(
+      { nome: "R", emailDeAcesso: "r@x.com" }, veneno, URL_CREDNET);
+    const b = email.montarUsuarioDeEquipe(
+      { nome: "D", quemAdicionou: "R", emailDeAcesso: "d@x.com" }, veneno, URL_CREDNET);
+    for (const m of [a, b]) {
+      expect(m.html.toLowerCase()).not.toContain("<script");
+      expect(m.html).toContain("&lt;script&gt;");
+    }
+  });
+
+  describe("o envio resolve a marca pelo ID", () => {
+    beforeEach(() => {
+      resendFalso.chamadas.length = 0;
+      resendFalso.erro = null;
+      bancoFalso.marcas.clear();
+      bancoFalso.marcas.set(7, { ...LINHA_CREDNET });
+      // O cache de marca dura 5 min e e de modulo: sem isto o teste seguinte
+      // leria a linha que o anterior plantou.
+      esquecerMarcas();
+    });
+
+    it("boas-vindas sai com a marca do ID e aponta para o dominio dela", async () => {
+      await email.sendBoasVindasRevendedorEmail(
+        "renata@crednet.com.br",
+        { nome: "Renata", emailDeAcesso: "renata@crednet.com.br" },
+        7,
+      );
+      expect(resendFalso.chamadas).toHaveLength(1);
+      const [envio] = resendFalso.chamadas;
+      expect(envio.subject).toBe("Seu painel está pronto — CredNet Bureau");
+      expect(envio.from).toBe(`CredNet Bureau <${process.env.EMAIL_FROM || "onboarding@resend.dev"}>`);
+      expect(envio.replyTo).toBe("suporte@crednet.com.br");
+      expect(envio.html).toContain("https://app.crednet.com.br/login");
+      // Quem cria e o superadmin, do dominio da plataforma. Se a marca viesse
+      // do host, seria a da plataforma que sairia aqui.
+      expect(envio.html).not.toContain("consultaisp.com.br");
+      expect(envio.subject + envio.html).not.toContain("Consulta ISP");
+    });
+
+    it("equipe idem, e nomeia quem convidou", async () => {
+      await email.sendUsuarioDeEquipeEmail(
+        "diego@crednet.com.br",
+        { nome: "Diego", quemAdicionou: "Renata", emailDeAcesso: "diego@crednet.com.br" },
+        7,
+      );
+      const [envio] = resendFalso.chamadas;
+      expect(envio.subject).toBe("Seu acesso à equipe — CredNet Bureau");
+      expect(envio.html).toContain("Renata");
+      expect(envio.html).toContain("https://app.crednet.com.br/login");
+    });
+
+    it("marca sem dominio ativo recusa o envio em vez de apontar para a raiz", async () => {
+      bancoFalso.marcas.set(7, { ...LINHA_CREDNET, dominioStatus: "pendente" });
+      esquecerMarcas();
+      await expect(
+        email.sendBoasVindasRevendedorEmail(
+          "renata@crednet.com.br",
+          { nome: "Renata", emailDeAcesso: "renata@crednet.com.br" },
+          7,
+        ),
+      ).rejects.toThrow(/sem dominio proprio ativo/);
+      expect(resendFalso.chamadas).toHaveLength(0);
+    });
+
+    it("marca inexistente ou desligada tambem recusa — resolverMarcaPorId devolve a plataforma", async () => {
+      bancoFalso.marcas.clear();
+      esquecerMarcas();
+      await expect(
+        email.sendUsuarioDeEquipeEmail(
+          "diego@crednet.com.br",
+          { nome: "Diego", quemAdicionou: "Renata", emailDeAcesso: "d@x.com" },
+          7,
+        ),
+      ).rejects.toThrow(/sem dominio proprio ativo/);
+      expect(resendFalso.chamadas).toHaveLength(0);
+    });
+
+    /**
+     * O e-mail nao recebe senha e nao pode PRODUZIR uma. O que restou para
+     * vigiar e o destinatario: `mascarar` reduz o endereco a `ren***@dominio`
+     * porque log de servidor e retido e lido por quem nao precisa saber quem
+     * recebeu o quê. A captura tambem prova, de graca, que nenhum log de
+     * depuracao despeja o corpo do e-mail.
+     */
+    it("nem o endereco inteiro nem o corpo caem no log — nem quando o Resend recusa", async () => {
+      const escrito: string[] = [];
+      const capturar = (...args: unknown[]) => { escrito.push(args.map(a => String(a)).join(" ")); };
+      const espioes = (["log", "info", "warn", "error", "debug"] as const)
+        .map(m => vi.spyOn(console, m).mockImplementation(capturar));
+
+      try {
+        await email.sendBoasVindasRevendedorEmail(
+          "renata@crednet.com.br",
+          { nome: "Renata", emailDeAcesso: "renata@crednet.com.br" },
+          7,
+        );
+        resendFalso.erro = { message: "domain not verified" };
+        await email.sendUsuarioDeEquipeEmail(
+          "diego@crednet.com.br",
+          { nome: "Diego", quemAdicionou: "Renata", emailDeAcesso: "d@x.com" },
+          7,
+        ).catch(() => {});
+      } finally {
+        for (const e of espioes) e.mockRestore();
+      }
+
+      // O teste so vale se ALGO foi registrado: sem isto ele passaria por
+      // silencio, e o dia em que alguem acrescentar um log de depuracao com o
+      // corpo do e-mail nao seria pego.
+      expect(escrito.length).toBeGreaterThan(0);
+      // O endereco sai reduzido, e nao inteiro.
+      expect(escrito.join("\n")).not.toContain("renata@crednet.com.br");
+      // E nenhum log carrega o corpo montado.
+      expect(escrito.join("\n")).not.toContain("endereço de acesso");
+    });
   });
 });

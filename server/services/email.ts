@@ -25,7 +25,7 @@
  * dados, para o provedor conferir sem abrir o painel. Nada de exclamacao.
  */
 import { Resend } from "resend";
-import { MARCA_PLATAFORMA, urlDaMarca, type MarcaResolvida } from "./marca.service";
+import { MARCA_PLATAFORMA, resolverMarcaPorId, urlDaMarca, type MarcaResolvida } from "./marca.service";
 import {
   alerta, blocoDeDados, botao, brl, divisor, envelope, esc, kicker,
   linkDeReserva, linkSecundario, paragrafo, passos, saudacao, titulo,
@@ -52,6 +52,30 @@ export function remetente(marca: MarcaResolvida): string {
   // Aspas e sinais quebrariam o cabecalho; nome de marca nao precisa deles.
   const nomeLimpo = nome.replace(/["<>\r\n]/g, "").trim();
   return nomeLimpo ? `${nomeLimpo} <${endereco}>` : endereco;
+}
+
+/**
+ * Para onde vai a RESPOSTA.
+ *
+ * Quem recebe um e-mail responde nele — e o envelope sai do dominio da
+ * plataforma enquanto o revendedor nao verificar o dele no Resend (ver o
+ * limite honesto no topo do arquivo). Sem `Reply-To`, a resposta do cliente de
+ * um revendedor cai numa caixa da plataforma: alem de entregar de quem ele
+ * comprou de fato, a mensagem chega a quem nao pode responde-la, porque quem
+ * atende aquele provedor e o suporte DELE.
+ *
+ * So sai quando a marca tem suporte proprio. `MARCA_PLATAFORMA.suporteEmail` e
+ * null, entao para a plataforma o cabecalho simplesmente nao existe e nada
+ * muda no que ja era enviado.
+ */
+export function respostaPara(marca: MarcaResolvida): string | undefined {
+  const endereco = (marca.suporteEmail || "").trim();
+  // Cabecalho aceita o que o corpo nao aceita. A rota valida com
+  // `z.string().email()` (marca.routes.ts), mas a coluna e `text` puro e as
+  // linhas anteriores a essa validacao continuam no banco — um `\n` aqui seria
+  // injecao de cabecalho, do mesmo jeito que no assunto.
+  if (!endereco || !endereco.includes("@") || /[\s<>,;"]/.test(endereco)) return undefined;
+  return endereco;
 }
 
 /**
@@ -107,8 +131,17 @@ async function send(to: string, subject: string, html: string, marca: MarcaResol
   // Hoje o Resend recebe isto como campo JSON e nao como cabecalho cru, entao e
   // defesa em profundidade; o custo de mante-la e uma linha.
   const assunto = subject.replace(/[\r\n]+/g, " ").trim();
+  const responder = respostaPara(marca);
   const { data, error } = await comLimite(
-    resend.emails.send({ from: remetente(marca), to, subject: assunto, html }),
+    resend.emails.send({
+      from: remetente(marca),
+      to,
+      subject: assunto,
+      html,
+      // Ausente quando a marca nao tem suporte proprio: um `replyTo: undefined`
+      // no corpo do pedido nao e a mesma coisa que a chave nao existir.
+      ...(responder ? { replyTo: responder } : {}),
+    }),
     LIMITE_DE_ENVIO_MS,
   );
   if (error) {
@@ -800,6 +833,160 @@ export async function sendErpPausadoEmail(
   marca: MarcaResolvida = MARCA_PLATAFORMA, urlBase?: string,
 ): Promise<void> {
   const m = montarErpPausado(nome, dados, marca, urlBase);
+  await send(to, m.assunto, m.html, marca);
+}
+
+// ── 12. Revenda: os dois acessos ao painel da marca ──────────────────────────
+
+/**
+ * A marca e o endereco de um revendedor, resolvidos pelo ID — nunca pelo host.
+ *
+ * Quem cria o PRIMEIRO usuario da equipe e o superadmin, e ele faz isso do
+ * dominio da plataforma. Uma marca resolvida do host ali seria a da casa: o
+ * e-mail sairia assinado com o nome da plataforma para o revendedor e, pior, o
+ * botao apontaria para a raiz — que e exatamente onde `hostPertenceAMarca`
+ * recusa este login. Por isso os dois `send*` desta secao nao aceitam uma
+ * `MarcaResolvida` pronta como os outros treze: nao ha como passar a errada.
+ *
+ * LANCA quando a marca nao tem dominio proprio ativo, porque ai nao existe
+ * endereco por onde o revendedor consiga entrar, e um link para a raiz seria
+ * uma porta fechada com aparencia de convite. O desenho ja impede o caso antes
+ * (o superadmin so cria o usuario depois do HTTPS ativo — 422 antes); isto e a
+ * rede embaixo, e quem chama trata a falha como falha de envio.
+ */
+async function painelDaRevenda(marcaId: number): Promise<{ marca: MarcaResolvida; raiz: string }> {
+  const marca = await resolverMarcaPorId(marcaId);
+  if (!marca.marcaId || !marca.dominio || !marca.dominioAtivo) {
+    throw new Error(
+      `Marca ${marcaId} sem dominio proprio ativo: nao ha endereco por onde o revendedor entre, e a raiz recusa o login dele.`,
+    );
+  }
+  return { marca, raiz: urlDaMarca(marca) };
+}
+
+/**
+ * O endereco e o login. A SENHA NAO ENTRA AQUI.
+ *
+ * A primeira redacao deste bloco carregava a senha temporaria, com a
+ * justificativa de que "ninguem — nem quem criou — a conhece". Isso era falso
+ * contra as duas rotas que criam esses acessos: `POST /api/admin/marcas/:id/
+ * usuarios` e `POST /api/revenda/usuarios` devolvem `senhaTemporaria` em claro
+ * no corpo da resposta, as duas telas a mostram num painel para copiar, e esse
+ * E o canal de entrega. Quem cria sempre a teve em maos — exatamente a
+ * situacao pela qual o e-mail de usuario do PROVEDOR (secao 10) ja nao carrega
+ * senha nenhuma. Manter a senha aqui nao substituia aquele canal; somava um
+ * segundo, e o segundo era uma caixa de entrada.
+ *
+ * Nao foi feito o inverso (tirar a senha da resposta HTTP e deixa-la so no
+ * e-mail) porque o envio e best-effort por regra deste repositorio — falha de
+ * Resend nao derruba o ato que ja terminou. Com a senha so no e-mail, um envio
+ * que falhasse deixaria a conta criada sem NENHUM caminho de acesso: o
+ * revendedor nao tem provedor, e o reenvio de verificacao resolve a marca pelo
+ * provedor.
+ *
+ * O e-mail continua fazendo o que so ele faz: dizer a quem recebe QUAL e o
+ * endereco em que o login dele e aceito. Essa informacao nao esta na resposta
+ * HTTP, que vai para quem criou, e nao para quem vai entrar.
+ */
+function blocoDaCredencial(raiz: string, emailDeAcesso: string): string {
+  return `
+    ${blocoDeDados([
+      { rotulo: "endereço de acesso", valor: esc(enderecoLegivel(raiz)), mono: true },
+      { rotulo: "e-mail de acesso", valor: esc(emailDeAcesso), mono: true },
+    ])}
+    ${alerta(`<strong>A senha não vem por e-mail.</strong> Quem criou o seu acesso entrega ela por outro canal, e ela vale por um acesso só: o sistema pede uma nova assim que você entrar.`, "aviso")}`;
+}
+
+export interface DadosDeAcessoDaRevenda {
+  /** Nome de quem recebe. */
+  nome: string;
+  /** E-mail que serve de login. Nao ha campo de senha: ela nao viaja aqui. */
+  emailDeAcesso: string;
+}
+
+/**
+ * Boas-vindas do revendedor: o primeiro acesso ao painel da propria marca.
+ *
+ * Sai com a marca DELE, e nao com a da plataforma, pelo mesmo motivo dos
+ * outros: e o unico canal que vai parar numa caixa de entrada, onde nao ha
+ * host nem CSS para consertar depois. O texto tambem nao cita a plataforma —
+ * nao por segredo (o revendedor sabe muito bem de quem comprou), mas porque
+ * este e o e-mail que ele encaminha, mostra e usa de referencia.
+ */
+export function montarBoasVindasRevendedor(
+  dados: DadosDeAcessoDaRevenda, marca: MarcaResolvida, urlBase?: string,
+): Mensagem {
+  const raiz = base(marca, urlBase);
+  const nomeProduto = esc(marca.nomeProduto);
+  const html = envelope(`
+    ${kicker("painel da marca")}
+    ${titulo(`O painel do ${nomeProduto} está no ar`)}
+    ${saudacao(dados.nome)}
+    ${paragrafo(`O ${nomeProduto} já responde no seu endereço, e este acesso é o painel por onde você administra a marca. Quem entrar por aqui vê o ${nomeProduto} — no painel, na tela de acesso e em todo e-mail que sair daqui.`)}
+    ${blocoDaCredencial(raiz, dados.emailDeAcesso)}
+    ${botao(`${raiz}/login`, "Entrar no painel", marca)}
+    ${divisor()}
+    ${kicker("por onde começar")}
+    ${passos([
+      `<strong style="color:${INK};font-weight:600;">Troque a senha.</strong> Entre com a senha temporária que quem criou o seu acesso te entregou; o sistema pede uma nova antes de qualquer outra coisa, e não deixa passar dele.`,
+      // Nao dizer "e para onde a resposta deste e-mail vai": o Reply-To so
+      // existe quando a marca ja tem suporte cadastrado, e no primeiro acesso
+      // ela costuma nao ter. A frase seria falsa exatamente para quem esta
+      // lendo pela primeira vez.
+      `<strong style="color:${INK};font-weight:600;">Confira a identidade da marca.</strong> Nome, cor, logo, assinatura e o e-mail de suporte — é o que o seu cliente vê no painel, e é para onde ele responde quando um e-mail chega até ele.`,
+      `<strong style="color:${INK};font-weight:600;">Chame a sua equipe.</strong> Cada pessoa entra com o próprio acesso; senha compartilhada não deixa rastro de quem fez o quê.`,
+      // Fase 2 acrescenta aqui o passo de cadastrar provedores, e a fase 4 o de
+      // acompanhar a comissao. Nao antecipe: prometer no e-mail uma tela que
+      // ainda nao existe manda o revendedor procurar um menu que nao esta la.
+    ], marca)}
+    ${alerta(`Guarde o endereço acima: é o <strong>único</strong> por onde o seu acesso é aceito. Em qualquer outro, o login é recusado — inclusive no endereço de um provedor seu.`, "info")}
+  `, `Painel do ${marca.nomeProduto} liberado, com o endereço e o primeiro acesso`, marca);
+  return { assunto: `Seu painel está pronto — ${marca.nomeProduto}`, html };
+}
+
+export async function sendBoasVindasRevendedorEmail(
+  to: string, dados: DadosDeAcessoDaRevenda, marcaId: number,
+): Promise<void> {
+  const { marca, raiz } = await painelDaRevenda(marcaId);
+  const m = montarBoasVindasRevendedor(dados, marca, raiz);
+  await send(to, m.assunto, m.html, marca);
+}
+
+/**
+ * Alguem foi incluido na equipe da revenda por outro revendedor da mesma marca.
+ *
+ * E irmao do e-mail acima e nao do da secao 10: o acesso e o mesmo painel de
+ * administracao da marca, com os mesmos poderes de quem convidou — e por isso
+ * o texto diz QUEM convidou. Se o nome nao fizer sentido para quem recebe, a
+ * mensagem e a hora de desconfiar.
+ */
+export interface DadosDeEquipeDaRevenda extends DadosDeAcessoDaRevenda {
+  /** Nome de quem criou o acesso. */
+  quemAdicionou: string;
+}
+
+export function montarUsuarioDeEquipe(
+  dados: DadosDeEquipeDaRevenda, marca: MarcaResolvida, urlBase?: string,
+): Mensagem {
+  const raiz = base(marca, urlBase);
+  const nomeProduto = esc(marca.nomeProduto);
+  const html = envelope(`
+    ${kicker("acesso criado")}
+    ${titulo(`Você entrou para a equipe do ${nomeProduto}`)}
+    ${saudacao(dados.nome)}
+    ${paragrafo(`<strong style="color:${INK};">${esc(dados.quemAdicionou)}</strong> criou um acesso para você no painel do ${nomeProduto} — o mesmo painel de administração da marca que ${esc(dados.quemAdicionou)} usa.`)}
+    ${blocoDaCredencial(raiz, dados.emailDeAcesso)}
+    ${botao(`${raiz}/login`, "Entrar no painel", marca)}
+    ${alerta(`O acesso é pessoal e não se empresta: tudo o que for feito por ele fica registrado no seu nome. Se você não esperava este convite, fale com <strong>${esc(dados.quemAdicionou)}</strong> antes de entrar.`, "info")}
+  `, `${dados.quemAdicionou} criou seu acesso ao painel do ${marca.nomeProduto}`, marca);
+  return { assunto: `Seu acesso à equipe — ${marca.nomeProduto}`, html };
+}
+
+export async function sendUsuarioDeEquipeEmail(
+  to: string, dados: DadosDeEquipeDaRevenda, marcaId: number,
+): Promise<void> {
+  const { marca, raiz } = await painelDaRevenda(marcaId);
+  const m = montarUsuarioDeEquipe(dados, marca, raiz);
   await send(to, m.assunto, m.html, marca);
 }
 

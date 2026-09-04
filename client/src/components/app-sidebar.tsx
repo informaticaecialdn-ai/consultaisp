@@ -26,6 +26,7 @@ import {
   ClipboardList,
   Package,
   Palette,
+  Users,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { SimboloDaMarca } from "@/components/marca";
@@ -469,11 +470,58 @@ const NAV_PROVEDOR: Array<{
 ];
 
 /* ==================================================================== */
+/* Conteudo: revendedor                                                 */
+/* ==================================================================== */
+
+/**
+ * O menu de quem revende — e so o que EXISTE na fase 1.
+ *
+ * Provedores, Comissoes, Precos e Relatorios estao desenhados no mesmo
+ * documento e chegam nas fases 2 a 4. Nao entram aqui antes das telas: item de
+ * menu que leva a rota sem componente cai no 404, e um menu que promete quatro
+ * telas quebradas ensina o revendedor a nao confiar no menu. Ha teste travando
+ * este acordo — todo `url` daqui tem de estar em `REVENDA_PATHS` (App.tsx).
+ *
+ * Um grupo so porque sao tres itens: rotulo de grupo existe para separar
+ * assunto, e com tres itens nao ha assunto a separar. Quando as telas das fases
+ * seguintes entrarem, este grupo se divide.
+ */
+export const NAV_REVENDEDOR: Array<{
+  grupo: string;
+  itens: Array<{ label: string; url: string; Icone: Icone; testId: string }>;
+}> = [
+  {
+    grupo: "Revenda",
+    itens: [
+      { label: "Visão geral", url: "/revenda",          Icone: LayoutDashboard, testId: "link-revenda-visao-geral" },
+      { label: "Minha marca", url: "/revenda/marca",    Icone: Palette,         testId: "link-revenda-marca" },
+      { label: "Equipe",      url: "/revenda/usuarios", Icone: Users,           testId: "link-revenda-usuarios" },
+    ],
+  },
+];
+
+/**
+ * Qual item do menu de revenda esta aceso.
+ *
+ * `/revenda` e a RAIZ deste painel e por isso casa exato, exatamente como "/"
+ * no menu do provedor. Com a regra de prefixo que vale para os outros itens,
+ * "Visão geral" ficaria aceso junto com "Minha marca" e "Equipe" — duas linhas
+ * destacadas ao mesmo tempo, e o operador deixa de saber onde esta.
+ *
+ * Os demais mantem o prefixo por segmento, para que uma subrota futura
+ * (/revenda/marca/dominio, por exemplo) mantenha o pai aceso.
+ */
+export function itemDeRevendaAtivo(url: string, caminho: string): boolean {
+  if (url === "/revenda") return caminho === "/revenda";
+  return caminho === url || caminho.startsWith(url + "/");
+}
+
+/* ==================================================================== */
 
 export function AppSidebar() {
   const marca = useMarca();
   const [location, navigate] = useLocation();
-  const { user, provider, personificando, logout } = useAuth();
+  const { user, provider, marca: marcaDaSessao, personificando, logout } = useAuth();
 
   /**
    * QUAL DOS DOIS MENUS — a pergunta nao e "quem e voce", e "onde voce esta".
@@ -569,6 +617,79 @@ export function AppSidebar() {
                 href={item.url}
                 acao={item.url ? undefined : () => handleAdminNavigate(item.hash)}
                 testId={item.testId}
+              />
+            ))}
+          </GrupoNav>
+        ))}
+      </CascaSidebar>
+    );
+  }
+
+  /**
+   * TERCEIRO RAMO: o revendedor. Vem antes do provedor porque o ramo de baixo
+   * nao pergunta papel nenhum — ele e o "todo o resto", e o revendedor cairia
+   * nele por omissao, com o menu de consultas e inadimplentes de um provedor
+   * que ele nao tem.
+   *
+   * O NOME DO PRODUTO tem duas fontes e elas quase sempre concordam. Prefiro a
+   * da SESSAO (`useAuth().marca`): ela e a marca que este usuario administra, e
+   * o revendedor so consegue logar no dominio proprio dela
+   * (`hostPertenceAMarca`). A de `useMarca()` vem do host, injetada no HTML, e
+   * cai para "Consulta ISP" quando `window.__MARCA__` falta — o que colocaria a
+   * marca da PLATAFORMA no topo do painel de um revendedor. A ordem inverte esse
+   * risco: a sessao manda, o host completa.
+   *
+   * O SIMBOLO, ao contrario, so pode vir do host: `SimboloDaMarca` desenha a
+   * logo por `<img src=/api/marca/:id/logo>` e o `/me` nao carrega imagem de
+   * proposito. Nos dois casos que existem hoje e a mesma marca.
+   *
+   * SEM TrialBanner (trial e do provedor; a rota nem existe no servidor), SEM
+   * ContadorDeAlertas (anti-fraude e do provedor, e o revendedor nunca ve
+   * cliente de ninguem) e SEM ChatWidget — este ultimo fica em App.tsx/chat-widget.
+   */
+  if (user?.role === "revendedor") {
+    const nomeProduto = marcaDaSessao?.nomeProduto || marca.nomeProduto;
+    /* A assinatura so vale quando o HOST resolveu uma marca de verdade. Sem
+       esse cuidado, num ambiente sem a injecao do HTML (dev em localhost, onde
+       `hostPertenceAMarca` ainda deixa o revendedor entrar) o painel dele sairia
+       com o nome da marca por cima da assinatura da PLATAFORMA. */
+    const assinatura = marca.marcaId !== null ? marca.assinatura : null;
+    return (
+      <CascaSidebar
+        cabecalho={
+          <Link href="/revenda" className={CONTROLE_MARCA}>
+            <CabecalhoSidebar
+              simbolo={
+                marca.marcaId !== null ? <SimboloDaMarca tamanho={34} /> : <LadrilhoDaPlataforma />
+              }
+              nome={nomeProduto}
+              /* Com assinatura, a voz da marca vence. Sem ela, o rotulo diz em
+                 QUAL painel voce esta — o mesmo trabalho que "Sistema Admin"
+                 faz no ramo do superadmin, e que aqui importa mais ainda:
+                 revendedor e provedor podem vestir a MESMA marca. */
+              subtitulo={assinatura || "Revenda"}
+            />
+          </Link>
+        }
+        rodape={
+          <RodapeSidebar
+            inicial={user?.name?.charAt(0)?.toUpperCase() || "R"}
+            titulo={user?.name}
+            subtitulo={`Revenda · ${nomeProduto}`}
+            logout={logout}
+          />
+        }
+      >
+        {NAV_REVENDEDOR.map(({ grupo, itens }) => (
+          <GrupoNav key={grupo} titulo={grupo}>
+            {itens.map(({ label, url, Icone, testId }) => (
+              <ItemNav
+                key={url}
+                label={label}
+                Icone={Icone}
+                ativo={itemDeRevendaAtivo(url, location)}
+                href={url}
+                testId={testId}
               />
             ))}
           </GrupoNav>

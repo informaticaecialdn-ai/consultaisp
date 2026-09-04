@@ -88,6 +88,24 @@ export const TITULO_CARTAO = "text-[13.5px] font-semibold text-[var(--text)] lea
  *  Use em qualquer controle novo destes paineis. */
 export const ALVO_CONTROLE = "min-h-[36px] [@media(pointer:coarse)]:min-h-11";
 
+/** ABAS na pele do painel: poco de superficie, aba ativa erguida por anel de
+ *  1px — profundidade e borda, nunca sombra (secao 5.2). O anel de foco do
+ *  primitivo (ring-2 em `--ring`, que aponta para a marca) fica como esta.
+ *
+ *  Moraram duplicadas em `components/admin/ProviderDrawer.tsx` e
+ *  `pages/admin/admin-marcas.tsx`, copiadas letra por letra e declaradas como
+ *  divida nas duas. Duas telas com o mesmo componente de aba e aparencia que
+ *  diverge no primeiro ajuste nao e economia nenhuma.
+ *
+ *  A contagem de colunas fica LITERAL, e nao interpolada: o Tailwind gera CSS
+ *  varrendo o fonte em busca de nomes de classe inteiros, entao um
+ *  `grid-cols-${n}` montado em tempo de execucao nunca chega a existir no
+ *  bundle — a barra de abas perderia a grade e viraria uma pilha, sem erro em
+ *  lugar nenhum. As duas telas usam quatro. */
+export const ABA = `${ALVO_CONTROLE} rounded text-[12.5px] font-medium text-[var(--text-muted)] data-[state=active]:bg-[var(--surface)] data-[state=active]:text-[var(--text)] data-[state=active]:shadow-[0_0_0_1px_var(--border)]`;
+
+export const LISTA_ABAS = "grid w-full grid-cols-4 h-auto p-1 bg-[var(--surface-inset)] rounded-md";
+
 /** LARGURA do alvo, para controle quadrado. `ALVO_CONTROLE` so fala de altura;
  *  num botao de icone o eixo horizontal precisa acompanhar, senao no dedo o
  *  alvo tem 44px de altura e 36 de largura — e a secao 7 fala dos dois eixos.
@@ -1154,11 +1172,57 @@ export function MolduraModal({
      O listener vive no `document` porque o foco pode estar em qualquer campo
      do formulario dentro do modal, e um handler preso a moldura so ouviria o
      que borbulha ate ela. */
+  const caixa = React.useRef<HTMLDivElement>(null);
+
+  /* O TAB FICA DENTRO DA CAIXA.
+     `aria-modal="true"` PROMETE isso a quem usa leitor de tela, e a promessa
+     nao estava sendo cumprida: o Tab continuava percorrendo a pagina atras do
+     modal, onde os controles estao visualmente cobertos pelo overlay mas
+     seguem focaveis e clicaveis pelo teclado. Quem navega por teclado saia da
+     caixa sem perceber e passava a operar uma tela que nao esta vendo — na
+     caixa de remover acesso, o botao seguinte e "Remover".
+     A volta e ciclica (do ultimo para o primeiro e vice-versa), que e o
+     comportamento que a WAI-ARIA descreve para dialogo modal. */
   React.useEffect(() => {
-    const aoTeclar = (e: KeyboardEvent) => { if (e.key === "Escape") onFechar(); };
+    const focaveis = () => Array.from(
+      caixa.current?.querySelectorAll<HTMLElement>(
+        'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
+      ) ?? [],
+    ).filter(el => el.offsetParent !== null || el === document.activeElement);
+
+    const aoTeclar = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { onFechar(); return; }
+      if (e.key !== "Tab") return;
+      const lista = focaveis();
+      if (lista.length === 0) { e.preventDefault(); return; }
+      const primeiro = lista[0];
+      const ultimo = lista[lista.length - 1];
+      const atual = document.activeElement as HTMLElement | null;
+      // Foco fora da caixa (a pagina de tras, ou nada) volta para dentro.
+      if (!atual || !caixa.current?.contains(atual)) {
+        e.preventDefault();
+        primeiro.focus();
+        return;
+      }
+      if (e.shiftKey && atual === primeiro) { e.preventDefault(); ultimo.focus(); }
+      else if (!e.shiftKey && atual === ultimo) { e.preventDefault(); primeiro.focus(); }
+    };
     document.addEventListener("keydown", aoTeclar);
     return () => document.removeEventListener("keydown", aoTeclar);
   }, [onFechar]);
+
+  /* O foco entra na caixa ao abrir e VOLTA para quem a abriu ao fechar.
+     Sem a volta, fechar o modal joga o foco no `<body>` e a proxima tecla Tab
+     recomeca do topo da pagina — quem abriu a caixa a partir de uma linha da
+     tabela perderia o lugar a cada abertura. */
+  React.useEffect(() => {
+    const anterior = document.activeElement as HTMLElement | null;
+    const primeiro = caixa.current?.querySelector<HTMLElement>(
+      'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
+    );
+    (primeiro ?? caixa.current)?.focus();
+    return () => anterior?.focus?.();
+  }, []);
 
   return (
     <div
@@ -1166,11 +1230,15 @@ export function MolduraModal({
       onClick={onFechar}
     >
       <div
+        ref={caixa}
         role="dialog"
         aria-modal="true"
         aria-label={rotulo}
+        /* -1 para a caixa poder receber o foco quando nao ha nenhum controle
+           dentro dela; ela continua fora da ordem natural do Tab. */
+        tabIndex={-1}
         className={cn(
-          "w-full max-w-sm rounded-lg bg-[var(--surface)] p-5",
+          "w-full max-w-sm rounded-lg bg-[var(--surface)] p-5 outline-none",
           "shadow-[0_0_0_1px_var(--ring-warm),0_12px_32px_-14px_rgba(20,19,26,0.20)]",
           centralizado && "text-center",
         )}

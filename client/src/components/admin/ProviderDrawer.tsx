@@ -9,7 +9,7 @@ import { apiRequest } from "@/lib/queryClient";
 import {
   ALVO_CONTROLE, BOTAO_MARCA, BOTAO_SECUNDARIO, BotaoIcone, Campo,
   CONTROLE_CAMPO, DESABILITAVEL, EstadoVazio, LadrilhoInicial, LinhasSkeleton,
-  PilulaCabecalho, ROTULO_CAMPO, Selo, TITULO_CARTAO, type TomSelo,
+  PilulaCabecalho, ROTULO_CAMPO, Selo, TITULO_CARTAO, LISTA_ABAS, ABA, type TomSelo,
 } from "@/components/painel/ui";
 import { cn } from "@/lib/utils";
 import {
@@ -94,12 +94,6 @@ import { PLANOS_DO_CATALOGO, rotuloDoPlano } from "@/lib/planos";
 /* A caixa de campo saiu daqui: eram duas locais (campo de texto e seletor
    nativo) com alturas e corpos diferentes, empilhadas no mesmo cartao da aba
    Plano. Agora e `CONTROLE_CAMPO`, da primitiva. */
-
-/** Abas na pele do painel: poco de superficie, aba ativa erguida por anel de
- *  1px — profundidade e borda, nunca sombra (secao 5.2). O anel de foco do
- *  primitivo (ring-2 em `--ring`, que aponta para a marca) fica como esta. */
-const LISTA_ABAS = "grid w-full grid-cols-4 h-auto p-1 bg-[var(--surface-inset)] rounded-md";
-const ABA = `${ALVO_CONTROLE} rounded text-[12.5px] font-medium text-[var(--text-muted)] data-[state=active]:bg-[var(--surface)] data-[state=active]:text-[var(--text)] data-[state=active]:shadow-[0_0_0_1px_var(--border)]`;
 
 /** Bloco de acao dentro de uma aba: card de 8px com hairline, sem sombra. */
 const CARTAO_ACAO = "rounded-lg border border-[var(--border)] p-4 space-y-3";
