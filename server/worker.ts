@@ -11,6 +11,12 @@
  */
 
 import "dotenv/config";
+import { preferirIPv4NaSaida } from "./rede-saida";
+
+// O worker e QUEM FALA COM OS ERPs nas varreduras agendadas. Sem isto ele sai
+// por IPv6 e um provedor que liberou nosso IPv4 recebe 403 de madrugada, com o
+// corte automatico por tres falhas seguidas em cima. Ver rede-saida.ts.
+preferirIPv4NaSaida();
 import { validateEnv } from "./env";
 import { pool } from "./db";
 import { logger } from "./logger";

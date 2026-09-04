@@ -1,4 +1,10 @@
 import "dotenv/config";
+import { preferirIPv4NaSaida } from "./rede-saida";
+
+// Antes de qualquer coisa que fale com a rede: sem isto o servidor sai por um
+// IPv6 que nenhum parceiro tem na lista de IP permitido. Ver rede-saida.ts.
+preferirIPv4NaSaida();
+
 import express, { type Request, Response, NextFunction } from "express";
 import helmet from "helmet";
 import { registerRoutes } from "./routes/index";
