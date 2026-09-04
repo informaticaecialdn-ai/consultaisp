@@ -25,6 +25,9 @@ import RankingBairros, {
 } from "@/components/localizacao/RankingBairros";
 import RaioXBairro from "@/components/localizacao/RaioXBairro";
 import PainelRede from "@/components/localizacao/PainelRede";
+import CoberturaEnderecos, {
+  ROTA_COBERTURA, subDoKpiSemCoordenada, type Cobertura,
+} from "@/components/localizacao/CoberturaEnderecos";
 
 /**
  * Localização & mapa de inadimplência.
@@ -35,6 +38,13 @@ import PainelRede from "@/components/localizacao/PainelRede";
  * de bureau e SÓ plota quem tem fatura em aberto — cliente ativo em dia não
  * entra. O corte é no servidor (localizacao.storage.ts); aqui nem legenda nem
  * filtro conhecem o estado `em_dia`.
+ *
+ * Entre a faixa de plotagem e o mapa entra um bloco que a referência não tem:
+ * `CoberturaEnderecos`, o POR QUÊ de um cliente estar fora do mapa. Ele nasceu
+ * de um caso medido em 04/09/2026 — a tela dizia "184 clientes esperam plotagem"
+ * e o dono concluiu que o sistema não plota, quando a causa era a base de
+ * endereços da região dele nunca ter sido carregada. Só aparece quando há causa
+ * a mostrar.
  */
 
 type Sede = { cidade: string; uf: string | null; lat: number | null; lon: number | null; foraDaArea: boolean };
@@ -70,8 +80,10 @@ type Plotagem = {
 };
 
 /**
- * Espelha MIN_CLIENTES_CIDADE de localizacao.storage.ts — quem decide o corte
- * e o servidor; aqui e so para o texto do aviso dizer o mesmo numero.
+ * Espelha MIN_CLIENTES_CIDADE de server/services/cidades-do-mapa.ts — quem
+ * decide o corte e o servidor; aqui e so para o texto do aviso dizer o mesmo
+ * numero. (A regra saiu de localizacao.storage.ts em 04/09/2026, quando a
+ * medicao de cobertura da base de enderecos passou a precisar dela tambem.)
  */
 const MIN_CLIENTES_CIDADE = 20;
 
@@ -134,6 +146,15 @@ export default function LocalizacaoPage() {
     queryKey: ["/api/localizacao"],
     refetchInterval: plotando ? 15000 : false,
   });
+
+  /* Mesmo portão do "Plotar agora": operador `user` lê o diagnóstico mas não
+     dispara download de dezenas de megabytes do IBGE. */
+  const podeCarregarBase = user?.role !== "user";
+
+  /* A cobertura da base de endereços. A mesma chave que `CoberturaEnderecos`
+     lê — o React Query atende as duas com uma requisição só —, aqui só para a
+     sublinha do KPI apontar para o bloco quando ele existir. */
+  const { data: cobertura } = useQuery<Cobertura>({ queryKey: [ROTA_COBERTURA] });
 
   const rodavaAntes = useRef(false);
   useEffect(() => {
@@ -536,7 +557,10 @@ export default function LocalizacaoPage() {
             iconeCor="var(--text-muted)" iconeBg="var(--surface-2)"
             rotulo="Sem coordenada"
             valor={num(data?.semCoordenada ?? 0)}
-            sub="carteira sem geocodificação — fora do mapa"
+            /* Este é o cartão que o dono leu antes de concluir que o sistema
+               não plota. Quando há causa conhecida logo abaixo, a sublinha
+               manda o olho para lá em vez de repetir o número. */
+            sub={subDoKpiSemCoordenada(cobertura, podeCarregarBase)}
           />
         </div>
       )}
@@ -592,6 +616,13 @@ export default function LocalizacaoPage() {
           )}
         </div>
       )}
+
+      {/* POR QUE ELES ESTÃO FORA DO MAPA. Vem logo DEPOIS da faixa de plotagem,
+          e não antes: a faixa diz o que está acontecendo ("a varredura roda a
+          cada 6 horas"), e este bloco diz o que a varredura sozinha não resolve.
+          Na ordem inversa a causa apareceria antes do estado, e o operador leria
+          um diagnóstico sem saber que há trabalho em curso. */}
+      <CoberturaEnderecos podeCarregar={podeCarregarBase} />
 
       {/* ── Mapa + ranking, na mesma altura ── */}
       <div className="ds-mapa-grid">

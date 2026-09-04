@@ -8,6 +8,7 @@ import {
 } from "../services/coordenada-suspeita";
 import { coordenadaValida } from "../services/coordenada";
 import { criarAgrupadorDeBairro, criarCasadorDeBairro, normalizarLocalidade } from "../services/localidade";
+import { cidadesNoMapa, MIN_CLIENTES_CIDADE } from "../services/cidades-do-mapa";
 import { carregarTerritorio, carregarCaixasMunicipio } from "../services/geo-bases.service";
 import {
   calcularBenchmarkBairro, benchmarkParaTela, chaveCidadeBenchmark, ordenarCanonicosPorTamanho,
@@ -82,14 +83,15 @@ export interface LocalizacaoSede {
 }
 
 /**
- * Cidade com menos clientes que isto nao entra no mapa da carteira.
+ * O piso de massa mora em `services/cidades-do-mapa.ts` desde 04/09/2026, e e
+ * so reexportado daqui para os consumidores que ja o importavam.
  *
- * Nao e area de atuacao — e endereco avulso: cliente que mudou de cidade,
- * cobranca com endereco de escritorio, cadastro com a capital digitada por
- * engano. Plotar os 6 clientes espalhados por 37 cidades esticaria o mapa do
- * Parana a Brasilia e afundaria a praca real em zoom.
+ * Ele saiu deste arquivo porque a medicao de cobertura da base de enderecos
+ * precisa da MESMA regra: sem isso o bloco de cobertura contava cidades que o
+ * KPI logo acima nao conta, e mandava baixar do IBGE a base de uma capital que
+ * o provedor tirou do mapa de proposito.
  */
-export const MIN_CLIENTES_CIDADE = 20;
+export { MIN_CLIENTES_CIDADE } from "../services/cidades-do-mapa";
 
 /** Uma cidade da carteira e a razao de ela estar ou nao no mapa. */
 export interface LocalizacaoCidadeCatalogo {
@@ -361,10 +363,12 @@ export class LocalizacaoStorage {
       (prov?.cidadesExcluidasDoMapa ?? []).map(normalizarCidade).filter(Boolean),
     );
 
-    const cidadesDoMapa = new Set(
-      Array.from(porCidadeBruta.entries())
-        .filter(([k, v]) => v.clientes >= MIN_CLIENTES_CIDADE && !excluidas.has(k))
-        .map(([k]) => k),
+    // A regra vive em `services/cidades-do-mapa.ts` porque a medicao de
+    // cobertura da base de enderecos tem de responder exatamente igual — ver o
+    // cabecalho daquele arquivo.
+    const cidadesDoMapa = cidadesNoMapa(
+      Array.from(porCidadeBruta.entries(), ([k, v]) => [k, v.clientes] as [string, number]),
+      prov?.cidadesExcluidasDoMapa ?? [],
     );
 
     const noMapa = (c: { city: string | null }) => cidadesDoMapa.has(normalizarCidade(c.city));

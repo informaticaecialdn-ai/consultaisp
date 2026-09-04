@@ -14,6 +14,7 @@ import { agendaDoAmbiente, proximaExecucao, ultimaExecucaoAgendada, descreverAge
 import { geocodeCep, resolveIbgeCode } from "./geocoding";
 import { coordenadaValida } from "./coordenada";
 import { coordenadaDoErpCoerente } from "./coords-erp.service";
+import { canonizarCidadeDoCadastro } from "./cidade-canonica.service";
 import { avaliarPausaAutomatica, FALHAS_PARA_PAUSAR } from "./erp-pausa-automatica";
 
 let _syncing = false;
@@ -290,6 +291,15 @@ async function syncProviderToDbInterno(
               if (loc) { if (!city) city = loc.city; if (!state) state = loc.state; }
             }
 
+            // O nome oficial do município ANTES da conferência da coordenada —
+            // ver o comentário longo no passo 2. "EMBUGUAÇU" não existe para o
+            // Nominatim, e sem isto a checagem falha em aberto.
+            const canonica = canonizarCidadeDoCadastro(city, state);
+            if (canonica.municipio) {
+              city = canonica.municipio.nome;
+              state = canonica.municipio.uf;
+            }
+
             // A coordenada que o ERP já tem entra AQUI, no passo que varre a
             // carteira inteira — é o que faz o mapa nascer cheio no primeiro
             // sync. Não custa rede: veio junto do cadastro (a cidade é
@@ -491,6 +501,23 @@ async function syncProviderToDbInterno(
             state = prov.addressState;
           }
         } catch {}
+      }
+
+      /*
+       * A CIDADE VIRA O NOME OFICIAL ANTES DA CONFERENCIA DA COORDENADA.
+       *
+       * `coordenadaDoErpCoerente` geocodifica o nome da cidade para ver se a
+       * coordenada que o ERP mandou cai perto dela. "EMBUGUAÇU" nao existe para
+       * o Nominatim: o centro vinha nulo e a checagem FALHAVA EM ABERTO — a
+       * coordenada passava sem ser conferida, que e exatamente o que ela existe
+       * para impedir. Canonizar aqui devolve a conferencia e ainda economiza uma
+       * consulta de rede por grafia. O que nao for reconhecido segue como veio;
+       * `upsertFromErp` aplica a mesma regra na hora de gravar.
+       */
+      const canonica = canonizarCidadeDoCadastro(city, state);
+      if (canonica.municipio) {
+        city = canonica.municipio.nome;
+        state = canonica.municipio.uf;
       }
 
       /*

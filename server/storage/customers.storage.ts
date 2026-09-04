@@ -6,6 +6,7 @@ import {
   providers,
   type Customer, type InsertCustomer,
 } from "@shared/schema";
+import { canonizarCidadeDoCadastro } from "../services/cidade-canonica.service";
 
 export class CustomersStorage {
   async getCustomersByProvider(providerId: number): Promise<Customer[]> {
@@ -233,6 +234,14 @@ export class CustomersStorage {
       throw new Error("upsertFromErp: cliente sem CPF/CNPJ — linha descartada");
     }
 
+    /* A CIDADE ENTRA CANONIZADA, e é aqui que "EMBUGUAÇU" vira "Embu-Guaçu" e
+       passa a casar com a base de endereços que o geocodificador lê. Vale para
+       o INSERT e para o UPDATE: o mesmo cliente chega pelos dois passos do sync
+       (o que varre a carteira e o que detalha o inadimplente), e canonizar só
+       num deles faria a grafia oscilar a cada varredura — e com ela o chip da
+       barra de filtros. Grafia não reconhecida sai daqui como entrou. */
+    const local = canonizarCidadeDoCadastro(data.city, data.state);
+
     const existing = await db.select().from(customers)
       .where(and(
         eq(customers.cpfCnpj, data.cpfCnpj),
@@ -282,8 +291,8 @@ export class CustomersStorage {
         ["address", data.address],
         ["addressNumber", data.addressNumber],
         ["neighborhood", data.neighborhood],
-        ["city", data.city],
-        ["state", data.state],
+        ["city", local.city ?? undefined],
+        ["state", local.state ?? undefined],
         ["cep", data.cep],
       ];
       for (const [campo, valor] of preservar) {
@@ -340,8 +349,8 @@ export class CustomersStorage {
         addressNumber: data.addressNumber || null,
         complement: data.complement || null,
         neighborhood: data.neighborhood || null,
-        city: data.city || null,
-        state: data.state || null,
+        city: local.city,
+        state: local.state,
         cep: data.cep || null,
         latitude: data.latitude || null,
         longitude: data.longitude || null,

@@ -7,6 +7,7 @@ import {
 
 import { EquipmentStorage } from "./equipment.storage";
 import { CustomersStorage } from "./customers.storage";
+import { canonizarCidadeDoCadastro } from "../services/cidade-canonica.service";
 
 type ValidationError = { row: number; message: string };
 type ImportResult = { imported: number; errors: ValidationError[] };
@@ -41,6 +42,15 @@ export class ImportStorage {
     return db.transaction(async (tx) => {
       let imported = 0;
       for (const { name, cpfCnpj, raw: r } of validRows) {
+        /* A MESMA canonizacao do sync (`upsertFromErp`). Sem ela, o provedor que
+           sobe a carteira por CSV recria exatamente as grafias que o sync
+           consertou — "EMBUGUAÇU" nao casa com a base de enderecos de
+           Embu-Guacu, e o cliente nasce fora do mapa. Grafia nao reconhecida
+           entra como veio: adivinhar por semelhanca plantaria o ponto na cidade
+           errada sem ninguem desconfiar. */
+        const local = canonizarCidadeDoCadastro(
+          r.cidade || r.city, r.estado || r.state,
+        );
         const existing = await tx.select().from(customers).where(eq(customers.cpfCnpj, cpfCnpj));
         const alreadyExists = existing.some(c => c.providerId === providerId);
         if (alreadyExists) {
@@ -53,8 +63,8 @@ export class ImportStorage {
           email: r.email || null,
           phone: r.telefone || r.phone || null,
           address: r.endereco || r.address || null,
-          city: r.cidade || r.city || null,
-          state: r.estado || r.state || null,
+          city: local.city,
+          state: local.state,
           cep: r.cep || null,
           status: (r.status || "active") as string,
           erpSource: "import",

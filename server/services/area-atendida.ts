@@ -1,5 +1,4 @@
 import citiesData from "../../shared/data/cidades-brasil.json";
-import { storage } from "../storage";
 
 /**
  * Recorte territorial do provedor.
@@ -88,7 +87,26 @@ export function escolherArea(
   return { cidades: null, uf: null, origem: 'nenhuma' };
 }
 
+/**
+ * O BARRIL DO STORAGE ENTRA AQUI DENTRO, e nao no topo do arquivo.
+ *
+ * `normalizarCidade` acima e uma funcao pura que meio repositorio usa —
+ * inclusive `municipio.service`, que por sua vez alimenta a canonizacao da
+ * cidade dentro de `customers.storage`. Com `import { storage } from "../storage"`
+ * no topo, esse caminho fechava o ciclo
+ * `customers.storage → cidade-canonica → municipio → area-atendida → storage/index`,
+ * e quem importasse `customers.storage` DIRETO (um teste, um script) fazia o
+ * barril avaliar `new DatabaseStorage()` com a classe ainda em TDZ. O erro que
+ * aparecia — "Cannot access 'CustomersStorage' before initialization" — nao
+ * menciona ciclo nenhum, e custa uma tarde para achar.
+ *
+ * `resolverAreaAtendida` ja e assincrona e o import de modulo e cacheado pelo
+ * Node, entao o custo desta linha e uma microtarefa por chamada. O ganho e o
+ * arquivo voltar a ser folha: quem so quer normalizar um nome de cidade nao
+ * arrasta a camada de dados junto.
+ */
 export async function resolverAreaAtendida(providerId: number): Promise<AreaAtendida> {
+  const { storage } = await import("../storage");
   const p = await storage.getProvider(providerId);
   return escolherArea(p?.cidadesAtendidas, p?.mesorregioes, p?.addressState);
 }
