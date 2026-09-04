@@ -888,3 +888,84 @@ describe("SGP · coordenada por CPF", () => {
     expect(chamadas).toHaveLength(0);
   });
 });
+
+/**
+ * O MOTIVO DO CORTE NA CARTEIRA INTEIRA (04/09/2026).
+ *
+ * A primeira versao lia `motivo_status` so em `fetchDelinquents`, e o resultado
+ * apareceu na producao da Amplinet: dos 276 clientes cancelados, TODOS ficaram
+ * sem motivo, porque quem nao tem fatura em aberto nao passa por aquela
+ * varredura. E eram justamente os 206 cancelados a pedido — o grupo que
+ * precisamos separar dos 66 cortados por dinheiro.
+ *
+ * `/api/ura/clientes/` traz `motivo_status` em cada contrato. Medido.
+ */
+describe("SGP · motivo do corte na carteira inteira", () => {
+  const cadastro = (cpf: string, contratos: unknown[]) => ({
+    nome: "CLIENTE " + cpf, cpfcnpj: cpf, dataCadastro: "2023-01-01", tipo: "F",
+    endereco: { logradouro: "RUA A", numero: 1, bairro: "CENTRO", cidade: "EMBU GUACU", uf: "SP", cep: "06900-000" },
+    contratos,
+  });
+  const pagina = (clientes: unknown[]) => ({
+    paginacao: { offset: 0, limit: 100, parcial: clientes.length, total: clientes.length },
+    clientes,
+  });
+  const ct = (status: string, motivo?: string, data?: string) => ({
+    contrato: 1, dataCadastro: "2023-01-01", status,
+    ...(motivo === undefined ? {} : { motivo_status: motivo }),
+    ...(data === undefined ? {} : { data_status: data }),
+  });
+
+  it("le o motivo de quem NAO tem fatura em aberto", async () => {
+    const { conector } = montar({
+      "/api/ura/clientes/": () => ({ corpo: pagina([cadastro(CPF_A, [ct("Cancelado", "Administrativo", "2025-05-08 10:00:00")])]) }),
+    });
+
+    const r = await conector.fetchCustomers(CONFIG);
+
+    expect(r.customers[0].contractStatus).toBe("cancelled");
+    expect(r.customers[0].motivoCorte).toBe("Administrativo");
+    expect(r.customers[0].cortadoEm).toBe("2025-05-08 10:00:00");
+  });
+
+  it("entre varios contratos, o motivo FINANCEIRO vence — o status ativo nao o apaga", async () => {
+    // A regra e oposta a do status de proposito: o status responde "e cliente
+    // hoje?" e o motivo responde "ja houve calote?".
+    const { conector } = montar({
+      "/api/ura/clientes/": () => ({
+        corpo: pagina([cadastro(CPF_A, [
+          ct("Ativo"),
+          ct("Cancelado", "Financeiro", "2024-02-01 09:00:00"),
+        ])]),
+      }),
+    });
+
+    const r = await conector.fetchCustomers(CONFIG);
+
+    expect(r.customers[0].contractStatus).toBe("active");     // e cliente hoje
+    expect(r.customers[0].motivoCorte).toBe("Financeiro");     // e ja levou corte por dinheiro
+  });
+
+  it("administrativo nao sobrescreve financeiro", async () => {
+    const { conector } = montar({
+      "/api/ura/clientes/": () => ({
+        corpo: pagina([cadastro(CPF_A, [
+          ct("Cancelado", "Administrativo", "2026-01-01"),
+          ct("Cancelado", "Financeiro", "2023-01-01"),
+        ])]),
+      }),
+    });
+
+    expect((await conector.fetchCustomers(CONFIG)).customers[0].motivoCorte).toBe("Financeiro");
+  });
+
+  it("sem motivo no ERP o campo fica indefinido — nao vira string vazia", async () => {
+    // 260 dos 939 contratos da Amplinet vem com o campo em branco. Vazio nao
+    // pode chegar ao storage como se fosse um motivo.
+    const { conector } = montar({
+      "/api/ura/clientes/": () => ({ corpo: pagina([cadastro(CPF_A, [ct("Ativo", "")])]) }),
+    });
+
+    expect((await conector.fetchCustomers(CONFIG)).customers[0].motivoCorte).toBeUndefined();
+  });
+});

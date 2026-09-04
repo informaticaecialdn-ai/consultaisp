@@ -948,6 +948,25 @@ export class SgpConnector implements ErpConnector {
           const ativo = contratos.find(k => statusDoContratoSgp(k?.status, k?.status) === "active");
           const escolhido = ativo ?? contratos[0];
 
+          /**
+           * O MOTIVO segue a regra OPOSTA a do status, como em `contratosPorDocumento`.
+           *
+           * `escolhido` responde "ele e cliente hoje?" e por isso prefere o
+           * contrato ativo. O motivo responde outra coisa — "ja houve calote?" —
+           * e por isso vale o PIOR entre todos os contratos: quem tem um
+           * encerrado a pedido e outro cortado por falta de pagamento TEM
+           * historico de inadimplencia, e deixar o administrativo vencer
+           * apagaria justamente o que o bureau existe para lembrar.
+           *
+           * Ler aqui, e nao so em `fetchDelinquents`, e o que alcanca a carteira
+           * INTEIRA: medido em 04/09/2026, a primeira versao so gravava o motivo
+           * de quem tinha fatura em aberto, e os 206 cancelados a pedido — o
+           * grupo que a gente quer separar dos 66 cortados por dinheiro —
+           * ficavam todos sem motivo nenhum.
+           */
+          const porDinheiro = contratos.find(k => corteFinanceiro(k?.motivo_status));
+          const comMotivo = porDinheiro ?? contratos.find(k => texto(k?.motivo_status)) ?? escolhido;
+
           customers.push({
             cpfCnpj,
             name: texto(c?.nome) ?? "",
@@ -964,6 +983,8 @@ export class SgpConnector implements ErpConnector {
             maxDaysOverdue: 0,
             contractStatus: escolhido ? statusDoContratoSgp(escolhido?.status, escolhido?.status) : undefined,
             contractStartDate: texto(escolhido?.dataCadastro),
+            motivoCorte: texto(comMotivo?.motivo_status),
+            cortadoEm: texto(comMotivo?.data_status),
             erpSource: "sgp",
           });
         }
