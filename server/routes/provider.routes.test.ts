@@ -40,6 +40,20 @@ vi.mock("../services/marca.service", () => ({
 }));
 
 /**
+ * A consulta a Receita vira espiao: as tres fontes sao servicos de terceiros e
+ * um teste que bata neles falharia por cota, sem falar nada sobre a rota. O que
+ * a rota faz com cada resposta possivel esta abaixo; o que cada fonte devolve
+ * esta em services/cnpj-publico.service.test.ts, contra respostas gravadas.
+ */
+const consultaCnpjMock = vi.hoisted(() => vi.fn(async (_cnpj: string): Promise<any> => null));
+vi.mock("../services/cnpj-publico.service", async importarReal => {
+  // `normalizarCnpj` fica REAL: e ela que decide se o provedor tem um CNPJ
+  // utilizavel, e esse julgamento e parte do que a rota promete.
+  const real = await importarReal<typeof import("../services/cnpj-publico.service")>();
+  return { ...real, consultarCnpjPublico: consultaCnpjMock };
+});
+
+/**
  * `requireProvider` entra AQUI COMO O REAL, importado do modulo de verdade.
  *
  * Antes este arquivo trazia uma copia sincrona escrita a mao, que so olhava
@@ -360,5 +374,79 @@ describe("POST /api/provider/users — aviso a quem foi adicionado", () => {
 
     expect(res.status).toBe(403);
     expect(emailMock.sendUsuarioAdicionadoEmail).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * GET /api/provider/cnpj — o cadastro da PROPRIA empresa na Receita.
+ *
+ * A rota nasceu em 04/09/2026 porque a busca acontecia NO NAVEGADOR, contra uma
+ * fonte so (BrasilAPI) e sem queda para as outras duas. O provedor da Amplinet
+ * via a ficha com "helio cainelli" no lugar da razao social, clicava em "buscar
+ * dados pelo CNPJ" e recebia "servico indisponivel" — que ele leu, com razao,
+ * como "o sistema nao busca nada".
+ *
+ * O que se prova aqui e o ESCOPO: a rota nao aceita CNPJ de ninguem, so o do
+ * provedor da sessao. Uma rota autenticada que consultasse CNPJ arbitrario
+ * viraria um consultor gratuito de cadastro de empresa alheia, pago com a nossa
+ * cota nas tres fontes.
+ */
+describe("GET /api/provider/cnpj", () => {
+  const buscar = () => fetch(`${base}/api/provider/cnpj`);
+
+  beforeEach(() => {
+    consultaCnpjMock.mockReset();
+    storageMock.getProvider.mockResolvedValue({
+      id: 42, name: "helio cainelli", status: "active", cnpj: "23864873000148",
+    });
+    sessao = { userId: 5, providerId: 42, role: "admin" };
+  });
+
+  it("consulta o CNPJ DO PROVEDOR DA SESSAO, e nao um do pedido", async () => {
+    consultaCnpjMock.mockResolvedValue({ razaoSocial: "HELIO CAINELLI TELECOM LTDA", fonte: "ReceitaWS" });
+
+    const res = await buscar();
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).razaoSocial).toBe("HELIO CAINELLI TELECOM LTDA");
+    expect(consultaCnpjMock).toHaveBeenCalledWith("23864873000148");
+  });
+
+  it("operador comum tambem le — ler o cadastro publico da propria empresa nao muda nada", async () => {
+    // Quem grava e o PATCH do perfil, e la a exigencia de admin continua.
+    sessao = { userId: 7, providerId: 42, role: "user" };
+    consultaCnpjMock.mockResolvedValue({ razaoSocial: "HELIO CAINELLI TELECOM LTDA" });
+
+    expect((await buscar()).status).toBe(200);
+  });
+
+  it("sessao sem provedor nao passa do requireProvider", async () => {
+    sessao = { userId: 1, providerId: 0, role: "superadmin" };
+
+    const res = await buscar();
+
+    expect(res.status).toBe(403);
+    expect(consultaCnpjMock).not.toHaveBeenCalled();
+  });
+
+  it("provedor sem CNPJ valido recebe 400 e ninguem e consultado", async () => {
+    storageMock.getProvider.mockResolvedValue({ id: 42, name: "X", status: "active", cnpj: "123" });
+
+    const res = await buscar();
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toMatch(/CNPJ/i);
+    expect(consultaCnpjMock).not.toHaveBeenCalled();
+  });
+
+  it("as tres fontes recusando da 502, e nao 404", async () => {
+    // 404 mandaria o provedor conferir um numero que costuma estar certo: as
+    // fontes sao de terceiros e recusam por cota tanto quanto por inexistencia.
+    consultaCnpjMock.mockResolvedValue(null);
+
+    const res = await buscar();
+
+    expect(res.status).toBe(502);
+    expect((await res.json()).message).toMatch(/tente de novo|alguns minutos/i);
   });
 });

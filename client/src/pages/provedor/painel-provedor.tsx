@@ -289,7 +289,7 @@ function formatFileSize(bytes: number) {
 
 export default function PainelProvedorPage() {
   const marca = useMarca();
-  const { user, provider } = useAuth();
+  const { user, provider, personificando } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
   const [location] = useLocation();
@@ -571,59 +571,91 @@ export default function PainelProvedorPage() {
     }
   };
 
+  /**
+   * Quem pode mexer na ficha da empresa.
+   *
+   * ESPELHA `podeAdministrarOProvedor` (server/routes/provider.routes.ts), e a
+   * copia tem de ser fiel nas duas pontas: mais frouxa aqui e um botao que
+   * aparece e recusa ao salvar; mais estrita e uma acao permitida que ninguem
+   * consegue alcancar.
+   *
+   * A regra do servidor tem duas metades:
+   *   · `admin` do provedor, sempre;
+   *   · `superadmin` SO dentro de uma janela de acesso de suporte — fora dela,
+   *     ser da plataforma nao autoriza escrever na conta de nenhum tenant, e a
+   *     liberacao que o provedor assinou viraria decoracao.
+   *
+   * A guarda anterior comparava so com "admin", e escondia todo botao de escrita
+   * desta aba justamente do suporte conectado: na personificacao o papel
+   * continua "superadmin" de proposito (e o que separa um suporte de um admin de
+   * verdade no log e na faixa vermelha). O resultado era o aviso "clique em
+   * buscar" acima de um lugar sem botao nenhum.
+   */
+  const podeEditarEmpresa =
+    user?.role === "admin" || (user?.role === "superadmin" && personificando);
+
+
+  /**
+   * Preenche a ficha com o cadastro da Receita.
+   *
+   * Quem consulta e o SERVIDOR (GET /api/provider/cnpj), que tenta tres fontes
+   * em ordem e cai para a seguinte quando uma recusa. Antes isto era um fetch
+   * daqui direto para a BrasilAPI: uma fonte so, sem queda, e um segundo
+   * tradutor de campos que ja divergia do do servidor — o daqui nem juntava
+   * "RUA" ao nome da rua. Bastava a BrasilAPI recusar por cota para a tela
+   * dizer "servico indisponivel" e o provedor concluir que o sistema nao busca
+   * nada.
+   *
+   * A rota NAO recebe CNPJ: usa o do provedor da sessao. Conferir o numero aqui
+   * so serviria para o botao recusar antes de perguntar, e a rota faz isso
+   * melhor — ela sabe qual CNPJ esta gravado de verdade.
+   */
   const handleCnpjLookup = async () => {
-    const digits = (provider?.cnpj || "").replace(/\D/g, "");
-    if (digits.length !== 14) {
-      toast({ title: "CNPJ invalido", description: "O CNPJ do provedor nao tem 14 digitos.", variant: "destructive" });
-      return;
-    }
     setCnpjLookupStatus("loading");
     try {
-      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${digits}`);
-      if (!res.ok) throw new Error("CNPJ nao encontrado");
+      const res = await apiRequest("GET", "/api/provider/cnpj");
       const data = await res.json();
 
-      const streetPrefix = data.descricao_tipo_logradouro ? `${data.descricao_tipo_logradouro} ` : "";
-      const street = data.logradouro ? `${streetPrefix}${data.logradouro}`.trim() : "";
-
-      const naturalezaToLegal: Record<string, string> = {
+      const naturezaToLegal: Record<string, string> = {
         "Empresario Individual": "MEI",
+        "Empres\u00e1rio Individual": "MEI",
         "Microempresario Individual (MEI)": "MEI",
         "Empresa Individual de Responsabilidade Limitada (EIRELI)": "EIRELI",
         "Sociedade Limitada": "LTDA",
+        "Sociedade Empres\u00e1ria Limitada": "LTDA",
         "Sociedade Anonima Aberta": "S/A",
         "Sociedade Anonima Fechada": "S/A",
       };
-      const legalGuess = naturalezaToLegal[data.natureza_juridica || ""] || "";
+      const legalGuess = naturezaToLegal[data.naturezaJuridica || ""] || "";
 
-      const phoneRaw = data.ddd_telefone_1 || data.ddd_telefone_2 || "";
-      const phone = phoneRaw.replace(/\s+/g, " ").trim();
-
-      const openingRaw = data.data_inicio_atividade || "";
-
+      /* O que a Receita traz SUBSTITUI o que esta na ficha; o que ela nao traz e
+         mantido. O contrario deixaria de pe o defeito que motivou este botao: a
+         razao social gravada com o nome da pessoa em vez do da empresa nunca
+         seria corrigida por ele. */
+      const atual = getEmpresa();
       setEmpresa({
-        ...getEmpresa(),
-        name: data.razao_social || getEmpresa().name,
-        tradeName: data.nome_fantasia || getEmpresa().tradeName,
-        legalType: legalGuess || getEmpresa().legalType,
-        openingDate: openingRaw || getEmpresa().openingDate,
-        contactPhone: phone || getEmpresa().contactPhone,
-        contactEmail: data.email || getEmpresa().contactEmail,
-        addressZip: data.cep?.replace(/\D/g, "") || getEmpresa().addressZip,
-        addressStreet: street || getEmpresa().addressStreet,
-        addressNumber: data.numero || getEmpresa().addressNumber,
-        addressComplement: (data.complemento && data.complemento !== ".") ? data.complemento : getEmpresa().addressComplement,
-        addressNeighborhood: data.bairro || getEmpresa().addressNeighborhood,
-        addressCity: data.municipio || getEmpresa().addressCity,
-        addressState: data.uf || getEmpresa().addressState,
+        ...atual,
+        name: data.razaoSocial || atual.name,
+        tradeName: data.nomeFantasia || atual.tradeName,
+        legalType: legalGuess || atual.legalType,
+        openingDate: data.dataAbertura || atual.openingDate,
+        contactPhone: data.telefone || atual.contactPhone,
+        contactEmail: data.email || atual.contactEmail,
+        addressZip: data.cep || atual.addressZip,
+        addressStreet: data.logradouro || atual.addressStreet,
+        addressNumber: data.numero || atual.addressNumber,
+        addressComplement: data.complemento || atual.addressComplement,
+        addressNeighborhood: data.bairro || atual.addressNeighborhood,
+        addressCity: data.cidade || atual.addressCity,
+        addressState: data.uf || atual.addressState,
       });
 
-      const qsa = Array.isArray(data.qsa) ? data.qsa : [];
-      if (qsa.length > 0) {
-        setImportedQsa(qsa.map((s: any) => ({
-          name: s.nome_socio || "",
-          cpf: s.cpf_representante_legal || "",
-          role: s.qualificacao_socio || "",
+      const socios = Array.isArray(data.socios) ? data.socios : [];
+      if (socios.length > 0) {
+        setImportedQsa(socios.map((s: any) => ({
+          name: s.nome || "",
+          cpf: s.cpf || "",
+          role: s.qualificacao || "",
           email: "",
           phone: "",
           birthDate: "",
@@ -633,10 +665,21 @@ export default function PainelProvedorPage() {
       }
 
       setCnpjLookupStatus("done");
-      toast({ title: "Dados importados", description: "Informacoes preenchidas automaticamente via Receita Federal." });
+      toast({
+        title: "Dados importados",
+        description: `Ficha preenchida com o cadastro da Receita Federal${data.fonte ? ` (${data.fonte})` : ""}. Revise e salve.`,
+      });
     } catch (err: any) {
       setCnpjLookupStatus("error");
-      toast({ title: "Erro na consulta", description: "CNPJ nao encontrado ou servico indisponivel.", variant: "destructive" });
+      /* Repetir a frase do servidor e melhor que uma generica: "as tres fontes
+         recusaram, tente em alguns minutos" e "este provedor nao tem CNPJ
+         valido" pedem acoes diferentes. `apiRequest` ja poe a frase dele em
+         `message`. */
+      toast({
+        title: "Nao foi possivel consultar",
+        description: err?.message || "A Receita nao respondeu. Tente novamente em alguns minutos.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -901,7 +944,14 @@ export default function PainelProvedorPage() {
                       </p>
                     </div>
                   </div>
-                  {user?.role === "admin" && (
+                  {/* Aparece para quem consegue SALVAR a ficha. A guarda era
+                      role === "admin" e escondia o botao do superadmin — que e
+                      justamente quem abre esta tela num acesso de suporte, e o
+                      papel dele NAO muda na personificacao (server/auth.ts). O
+                      resultado era um aviso mandando "clique em buscar" acima de
+                      um lugar sem botao nenhum. `podeEditarEmpresa` e a mesma
+                      condicao que o servidor aplica no PATCH do perfil. */}
+                  {podeEditarEmpresa && (
                     <Button
                       size="sm"
                       className="gap-2 bg-[var(--color-brand)] hover:bg-blue-700 text-white flex-shrink-0"

@@ -8,6 +8,7 @@ import { logger } from "../logger";
 import { anonymizeProvider } from "../utils/provider-anonymizer";
 import { sendUsuarioAdicionadoEmail } from "../services/email";
 import { contextoDeEmail } from "../services/email-destinatario";
+import { consultarCnpjPublico, normalizarCnpj } from "../services/cnpj-publico.service";
 import crypto from "crypto";
 
 /**
@@ -225,6 +226,58 @@ export function registerProviderRoutes(): Router {
       const documents = await storage.getProviderDocuments(req.session.providerId!);
       return res.json({ ...provider, partners, documents });
     } catch (error: any) {
+      return res.status(500).json({ message: getSafeErrorMessage(error) });
+    }
+  });
+
+  /**
+   * O cadastro da PROPRIA empresa na Receita, para preencher a ficha.
+   *
+   * SEM PARAMETRO, de proposito. A rota irma do superadmin recebe o CNPJ no
+   * caminho porque ele esta cadastrando um provedor que ainda nao existe; aqui
+   * o CNPJ vem de `session.providerId`, e so dele. Aceitar um CNPJ do cliente
+   * transformaria a conta de qualquer provedor num consultor gratuito de
+   * cadastro de empresa alheia — o dado e publico, mas publicar um consultor
+   * autenticado dele nao e o negocio desta rota, e o volume sairia da nossa
+   * cota nas tres fontes.
+   *
+   * Antes disso a consulta era feita NO NAVEGADOR, direto na BrasilAPI: uma
+   * fonte so, sem queda para as outras duas, e um segundo parser que divergia
+   * do do servidor. Bastava a BrasilAPI recusar para a tela dizer "servico
+   * indisponivel" e o provedor concluir que o sistema nao busca nada.
+   *
+   * `requireProvider` e nao `exigirAdminDoProvedor`: LER o cadastro publico da
+   * propria empresa nao muda nada. Quem grava e o PATCH do perfil, e la a
+   * exigencia de admin continua.
+   */
+  router.get("/api/provider/cnpj", requireAuth, requireProvider, async (req, res) => {
+    try {
+      const provider = await storage.getProvider(req.session.providerId!);
+      if (!provider) return res.status(404).json({ message: "Provedor nao encontrado" });
+
+      const cnpj = normalizarCnpj(provider.cnpj);
+      if (!cnpj) {
+        return res.status(400).json({
+          message: "Este provedor nao tem um CNPJ valido cadastrado, entao nao ha o que buscar na Receita.",
+        });
+      }
+
+      const empresa = await consultarCnpjPublico(cnpj);
+      if (!empresa) {
+        // 502 e nao 404: as tres fontes sao de terceiros e recusam por cota tao
+        // frequentemente quanto por CNPJ inexistente. Dizer "nao encontrado"
+        // mandaria o provedor conferir um numero que costuma estar certo.
+        return res.status(502).json({
+          message: "Nao foi possivel consultar a Receita agora. As tres fontes publicas recusaram ou nao responderam — tente de novo em alguns minutos.",
+        });
+      }
+
+      return res.json(empresa);
+    } catch (error: any) {
+      logger.error(
+        { providerId: req.session.providerId, err: error?.message },
+        "[provedor] falha ao consultar o proprio CNPJ",
+      );
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
   });

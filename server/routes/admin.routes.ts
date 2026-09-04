@@ -32,6 +32,7 @@ import { normalizePartnerCode, resolvePartnerCode, resolveOwnCode } from "../uti
 import { normalizarIdentificador, protocoloDaOrigem } from "../services/identificador-consulta";
 import type { LinhaDeConsultaEncontrada } from "../storage/admin.storage";
 import { CODIGO_PROVEDOR_COM_TRILHA_DE_SUPORTE } from "../storage/providers.storage";
+import { consultarCnpjPublico, normalizarCnpj } from "../services/cnpj-publico.service";
 import { maskCpfCnpj } from "../services/lgpd-masking";
 import { CUSTO_EM_CREDITOS } from "@shared/planos";
 import { isSpcConfigured, listarProdutosSpc, produtoSpcPadrao, SpcError, statusHttpParaErroSpc } from "../services/spc/spc.service";
@@ -322,112 +323,25 @@ export function registerAdminRoutes(): Router {
   });
 
   // CNPJ lookup with 3 fallback sources
+  /**
+   * O cadastro publico de um CNPJ qualquer, para o superadmin preencher a
+   * ficha de um provedor que ele esta criando ou corrigindo.
+   *
+   * As 110 linhas de parser das tres fontes sairam daqui para
+   * `services/cnpj-publico.service.ts` em 04/09/2026: o PROVEDOR precisa do
+   * mesmo dado para a propria ficha e tinha uma segunda implementacao no
+   * navegador, com uma fonte so e sem queda. Duas copias do mesmo parser
+   * divergem — a do client nem juntava o tipo do logradouro ao nome da rua.
+   */
   router.get("/api/admin/cnpj/:cnpj", requireSuperAdmin, async (req, res) => {
     try {
-      const cnpj = String(req.params.cnpj).replace(/\D/g, "");
-      if (cnpj.length !== 14) return res.status(400).json({ message: "CNPJ invalido" });
+      const cnpj = normalizarCnpj(String(req.params.cnpj));
+      if (!cnpj) return res.status(400).json({ message: "CNPJ invalido" });
 
-      // Try sources in order: ReceitaWS → BrasilAPI → CNPJ.ws
-      const sources = [
-        {
-          name: "ReceitaWS",
-          url: `https://receitaws.com.br/v1/cnpj/${cnpj}`,
-          parse: (d: any) => ({
-            razaoSocial: d.nome || "",
-            nomeFantasia: d.fantasia || "",
-            cnpj: d.cnpj?.replace(/\D/g, "") || cnpj,
-            naturezaJuridica: d.natureza_juridica || "",
-            dataAbertura: d.abertura || "",
-            atividadePrincipal: d.atividade_principal?.[0]?.text || "",
-            telefone: d.telefone || "",
-            email: d.email || "",
-            cep: d.cep?.replace(/\D/g, "") || "",
-            logradouro: d.logradouro || "",
-            numero: d.numero || "",
-            complemento: d.complemento || "",
-            bairro: d.bairro || "",
-            cidade: d.municipio || "",
-            uf: d.uf || "",
-            situacao: d.situacao || "",
-            socios: (d.qsa || []).map((s: any) => ({
-              nome: s.nome || "",
-              qualificacao: s.qual || "",
-              cpf: "",
-            })),
-          }),
-        },
-        {
-          name: "BrasilAPI",
-          url: `https://brasilapi.com.br/api/cnpj/v1/${cnpj}`,
-          parse: (d: any) => ({
-            razaoSocial: d.razao_social || "",
-            nomeFantasia: d.nome_fantasia || "",
-            cnpj: d.cnpj || cnpj,
-            naturezaJuridica: d.natureza_juridica || "",
-            dataAbertura: d.data_inicio_atividade || "",
-            atividadePrincipal: d.cnae_fiscal_descricao || "",
-            telefone: d.ddd_telefone_1 ? `(${d.ddd_telefone_1.slice(0, 2)}) ${d.ddd_telefone_1.slice(2)}` : "",
-            email: d.email || "",
-            cep: d.cep || "",
-            logradouro: d.logradouro || "",
-            numero: d.numero || "",
-            complemento: d.complemento || "",
-            bairro: d.bairro || "",
-            cidade: d.municipio || "",
-            uf: d.uf || "",
-            situacao: d.descricao_situacao_cadastral || "",
-            socios: (d.qsa || []).map((s: any) => ({
-              nome: s.nome_socio || "",
-              qualificacao: s.qualificacao_socio || "",
-              cpf: s.cnpj_cpf_do_socio || "",
-            })),
-          }),
-        },
-        {
-          name: "Publica",
-          url: `https://publica.cnpj.ws/cnpj/${cnpj}`,
-          parse: (d: any) => ({
-            razaoSocial: d.razao_social || "",
-            nomeFantasia: d.estabelecimento?.nome_fantasia || "",
-            cnpj: cnpj,
-            naturezaJuridica: d.natureza_juridica?.descricao || "",
-            dataAbertura: d.estabelecimento?.data_inicio_atividade || "",
-            atividadePrincipal: d.estabelecimento?.atividade_principal?.descricao || "",
-            telefone: d.estabelecimento?.ddd1 && d.estabelecimento?.telefone1 ? `(${d.estabelecimento.ddd1}) ${d.estabelecimento.telefone1}` : "",
-            email: d.estabelecimento?.email || "",
-            cep: d.estabelecimento?.cep || "",
-            logradouro: d.estabelecimento?.logradouro || "",
-            numero: d.estabelecimento?.numero || "",
-            complemento: d.estabelecimento?.complemento || "",
-            bairro: d.estabelecimento?.bairro || "",
-            cidade: d.estabelecimento?.cidade?.nome || "",
-            uf: d.estabelecimento?.estado?.sigla || "",
-            situacao: d.estabelecimento?.situacao_cadastral || "",
-            socios: (d.socios || []).map((s: any) => ({
-              nome: s.nome || "",
-              qualificacao: s.qualificacao?.descricao || "",
-              cpf: s.cpf_cnpj_socio || "",
-            })),
-          }),
-        },
-      ];
+      const empresa = await consultarCnpjPublico(cnpj);
+      if (!empresa) return res.status(404).json({ message: "CNPJ nao encontrado em nenhuma fonte" });
 
-      for (const source of sources) {
-        try {
-          const response = await fetch(source.url, { signal: AbortSignal.timeout(8000) });
-          if (!response.ok) continue;
-          const data = await response.json();
-          if (data.status === "ERROR" || data.error) continue;
-          const parsed = source.parse(data);
-          if (!parsed.razaoSocial) continue;
-          console.log(`[CNPJ] ${cnpj.slice(0, 4)}*** found via ${source.name}`);
-          return res.json(parsed);
-        } catch {
-          continue;
-        }
-      }
-
-      return res.status(404).json({ message: "CNPJ nao encontrado em nenhuma fonte" });
+      return res.json(empresa);
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });
     }
