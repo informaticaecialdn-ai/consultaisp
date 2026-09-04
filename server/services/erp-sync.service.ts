@@ -313,7 +313,7 @@ async function syncProviderToDbInterno(
             // Spec 012.5/fix atomicidade — skipPaymentStatus impede que esse
             // passo 1 zere paymentStatus de inadimplentes caso passo 2 falhe.
             // Só atualiza identidade (nome, endereco, telefone, etc).
-            await storage.upsertFromErp({
+            const salvoNoPasso1 = await storage.upsertFromErp({
               providerId,
               cpfCnpj: customer.cpfCnpj,
               name: customer.name,
@@ -347,6 +347,23 @@ async function syncProviderToDbInterno(
               skipPaymentStatus: true,
             });
             activeUpserted++;
+
+            /**
+             * O EQUIPAMENTO ENTRA AQUI, e nao no passo 2.
+             *
+             * Descoberto medindo, em 04/09/2026: a leitura de equipamento do SGP
+             * sai de `contratos[].servicos`, que so existe em
+             * `/api/ura/clientes/` — a varredura DESTE passo. O passo 2 monta os
+             * clientes a partir dos titulos e enriquece por
+             * `/api/ura/listacontrato/`, que nao devolve `servicos`. O bloco de
+             * equipamento morava so la, entao o primeiro sync depois do conector
+             * novo gravou ZERO aparelhos.
+             *
+             * E o lugar certo tambem por outro motivo: equipamento e da CARTEIRA
+             * INTEIRA, e nao so de quem deve. Quem esta com uma ONU do provedor
+             * sem dever nada continua sendo um dado do bureau.
+             */
+            await gravarEquipamento(providerId, salvoNoPasso1?.id, customer, providerName);
           } catch {}
         }
         console.log(`[ERPSync] ${providerName}: ${activeUpserted} clientes totais upserted (sem geocoding)`);
@@ -581,27 +598,7 @@ async function syncProviderToDbInterno(
         erpSource,
       });
 
-      // O conector ja normaliza equipmentDetails (ver server/erp/types.ts).
-      // Ate esta versao ninguem lia esse campo — o sync descartava.
-      const detalhes = (customer as any).equipmentDetails as any[] | undefined;
-      if (clienteSalvo?.id && detalhes?.length) {
-        try {
-          await storage.syncEquipmentFromErp(providerId, clienteSalvo.id, detalhes);
-
-          const agregado = await storage.contarEquipamentoRetido(providerId, [clienteSalvo.id]);
-          const a = agregado.get(clienteSalvo.id);
-          await storage.updateCustomerEquipmentAggregate(
-            providerId,
-            clienteSalvo.id,
-            a?.count ?? 0,
-            String(a?.value ?? 0),
-          );
-        } catch (e: any) {
-          // Falha de equipamento nao invalida o upsert do cliente: o dado de
-          // divida e mais critico que o de comodato.
-          console.warn(`[ERPSync] equipamento ${customer.cpfCnpj}: ${e.message}`);
-        }
-      }
+      await gravarEquipamento(providerId, clienteSalvo?.id, customer, providerName);
       upserted++;
     } catch (err: any) {
       errors++;
@@ -690,6 +687,41 @@ async function syncProviderToDbInterno(
  * Recusar e mais util do que enfileirar: quem pediu quer saber que ja esta
  * rodando, nao esperar 11 minutos por uma segunda passada identica.
  */
+/**
+ * Grava os aparelhos que o conector trouxe, para um cliente.
+ *
+ * Os DOIS passos da varredura chamam esta funcao, e essa e a correcao: o bloco
+ * vivia solto dentro do passo 2, e quando o conector do SGP passou a ler
+ * equipamento no passo 1 nenhum aparelho era gravado — `contratos[].servicos`
+ * so existe em `/api/ura/clientes/`, que e o passo 1.
+ *
+ * Falha aqui NAO invalida o cliente: divida e vinculo sao mais criticos que
+ * comodato, e derrubar o upsert por causa do aparelho trocaria um dado ausente
+ * por um dado perdido.
+ */
+async function gravarEquipamento(
+  providerId: number,
+  customerId: number | undefined,
+  customer: { cpfCnpj: string; equipmentDetails?: unknown },
+  providerName: string,
+): Promise<void> {
+  const detalhes = (customer as any).equipmentDetails as any[] | undefined;
+  if (!customerId || !detalhes?.length) return;
+
+  try {
+    await storage.syncEquipmentFromErp(providerId, customerId, detalhes);
+
+    const agregado = await storage.contarEquipamentoRetido(providerId, [customerId]);
+    const a = agregado.get(customerId);
+    await storage.updateCustomerEquipmentAggregate(
+      providerId, customerId, a?.count ?? 0, String(a?.value ?? 0),
+    );
+  } catch (e: any) {
+    // LGPD: o documento nao vai para o log. O provedor e o suficiente para achar.
+    console.warn(`[ERPSync] ${providerName}: falha ao gravar equipamento do cliente ${customerId}: ${e.message}`);
+  }
+}
+
 export async function syncProviderToDb(
   providerId: number,
   providerName: string,
