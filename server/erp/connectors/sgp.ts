@@ -188,6 +188,20 @@ class RespostaNaoEhSgp extends Error {
   }
 }
 
+/**
+ * Falta um campo de configuracao — nao e recusa do SGP.
+ *
+ * Separada de `RespostaNaoEhSgp` porque a acao e outra: aqui ninguem chegou a
+ * falar com o SGP, e a mensagem tem de mandar preencher o campo em vez de
+ * mandar conferir credencial. Ver `assegurarApp`.
+ */
+class ConfiguracaoIncompleta extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConfiguracaoIncompleta";
+  }
+}
+
 const MSG_NAO_E_JSON =
   "O endereco respondeu, mas nao com a API do SGP: veio uma pagina em vez de dados. " +
   "Provavelmente a URL aponta para a tela de login do SGP ou para outro sistema. " +
@@ -226,6 +240,8 @@ function ehRespostaDeCliente(json: unknown): boolean {
  */
 function mensagemDeFalha(err: unknown): string {
   if (err instanceof RespostaNaoEhSgp) return err.message;
+  // A frase ja e a instrucao; prefixar "Erro:" so afasta o operador dela.
+  if (err instanceof ConfiguracaoIncompleta) return err.message;
   return `Erro: ${err instanceof Error ? err.message : "Erro desconhecido"}`;
 }
 
@@ -254,13 +270,35 @@ export class SgpConnector implements ErpConnector {
     return config.apiUrl.replace(/\/+$/, "");
   }
 
-  /** token + app + os filtros da chamada, no formato que o SGP le. */
+  /**
+   * token + app + os filtros da chamada, no formato que o SGP le.
+   *
+   * O nome do app sai EXATAMENTE como foi gravado — sem aparar, sem rebaixar
+   * caixa, sem palpite. O SGP casa a string inteira: "Consultaisp" e
+   * "consultaisp" sao aplicacoes diferentes para ele, e a segunda nao existe.
+   *
+   * Havia aqui um `|| "consultaisp"` para o caso de o campo faltar. Ele
+   * transformava "voce nao configurou o nome do app" em "o SGP recusou a
+   * credencial": o palpite ia junto do token bom, o SGP nao achava o par, e o
+   * operador lia uma mensagem sobre credencial errada e ia mexer no token.
+   * Faltar o nome e erro de configuracao e tem de aparecer como tal — a
+   * validacao esta em `configFields`, e `assegurarApp` e a rede embaixo dela.
+   */
   private corpo(config: ErpConnectionConfig, campos: Record<string, string | number> = {}): string {
     const p = new URLSearchParams();
     p.set("token", config.apiToken ?? "");
-    p.set("app", config.extra?.sgpApp || "consultaisp");
+    p.set("app", this.assegurarApp(config));
     for (const [k, v] of Object.entries(campos)) p.set(k, String(v));
     return p.toString();
+  }
+
+  /** O nome do app como esta gravado, ou a recusa que diz o que fazer. */
+  private assegurarApp(config: ErpConnectionConfig): string {
+    const app = config.extra?.sgpApp;
+    if (typeof app === "string" && app.length > 0) return app;
+    throw new ConfiguracaoIncompleta(
+      "O Nome do App do SGP nao esta preenchido. Ele e gerado junto com o token em Administracao > Integracoes > Tokens, e precisa ser copiado da lista Aplicacoes com as mesmas maiusculas.",
+    );
   }
 
   private async post(
@@ -337,24 +375,37 @@ export class SgpConnector implements ErpConnector {
    * resolvem em telas diferentes do SGP.
    */
   private erroDeHttp(status: number, detalhe?: string): string {
-    // Medidas contra um SGP real: as duas frases abaixo saem do MESMO 403 e
-    // apontam para telas diferentes. Sem ler o `detail`, o suporte fica
-    // adivinhando entre "nome do app errado" e "token errado" — foi meia hora
-    // de duvida em 03/09/2026.
+    /**
+     * As duas frases saem do MESMO 403 e significam coisas OPOSTAS. Ate
+     * 04/09/2026 este bloco as tinha TROCADAS, e a tela passou dois dias
+     * mandando o provedor conferir o nome do app justamente quando o nome
+     * estava certo — ele trocou o token duas vezes e mexeu na permissao do
+     * usuario atras de um erro que nao era nenhum dos dois.
+     *
+     * O experimento que desfez a confusao (SGP real da Amplinet, do IP
+     * liberado, uma variavel por vez): com o par gravado, `app="Consultaisp"`
+     * devolve "nao foram fornecidas"; TODA outra grafia — "consultaisp",
+     * "CONSULTAISP", "ConsultaISP", sem app — devolve "incorretas". Se a
+     * segunda frase saisse de par valido bloqueado, ela nao mudaria conforme
+     * a grafia. Logo:
+     *
+     *   · "incorretas"          = AuthenticationFailed. O par token+app NAO
+     *                             EXISTE. Erro de digitacao ou token revogado.
+     *   · "nao foram fornecidas" = NotAuthenticated. O autenticador ACHOU o
+     *                             par e mesmo assim desistiu — host fora da
+     *                             lista, token inativo, ou o usuario ligado ao
+     *                             token sem permissao/inativo.
+     *
+     * A frase generica do Django engana porque parece dizer "voce nao mandou
+     * credencial". Ela quer dizer "nenhum autenticador produziu um usuario".
+     */
     if (status === 401 || status === 403) {
       const d = achatar(detalhe ?? "");
-      if (d.includes("nao foram fornecidas")) {
-        return `O SGP nao reconheceu o par token + nome do app (${status}). Confira o Nome do App: ele precisa estar escrito igual ao cadastro em Administracao > Integracoes > Tokens.`;
-      }
       if (d.includes("incorretas")) {
-        // O SGP devolve esta MESMA frase para causas diferentes, e a primeira
-        // versao desta mensagem mandava conferir o token — que no caso real
-        // estava certo. Medido contra o SGP de demonstracao em 03/09/2026: com
-        // o token correto, `app="consultaisp"` da "incorretas" e
-        // `app="Consultaisp"` da 200. O campo e sensivel a maiuscula, e o nome
-        // precisa ser COPIADO da lista Aplicacoes, nao digitado. Mandar trocar
-        // so o token faz o operador mexer no que estava certo.
-        return `O SGP leu a credencial e recusou (${status}). Confira, em Administracao > Integracoes > Tokens: o Nome do App precisa estar escrito com as mesmas maiusculas e minusculas da lista Aplicacoes; o token precisa estar ativo; e se houver host permitido, o endereco de saida do nosso servidor precisa constar la.`;
+        return `O SGP nao encontrou este par token + nome do app (${status}). O Nome do App e sensivel a maiusculas: copie-o da lista Aplicacoes em Administracao > Integracoes > Tokens em vez de digitar. Confira tambem se o token nao foi revogado.`;
+      }
+      if (d.includes("nao foram fornecidas")) {
+        return `O SGP reconheceu o token e o nome do app, e ainda assim recusou (${status}). O par esta certo — o bloqueio esta nas restricoes do token ou no usuario ligado a ele. Em Administracao > Integracoes > Tokens, abra este token e confira: "Hosts permitidos" vazio ou com o IP de saida do nosso servidor; o token ativo; e o usuario vinculado ativo e com permissao de listar cliente, contrato e titulo.`;
       }
     }
     if (status === 401) return "Token ou nome do app recusado pelo SGP (401). Confira em Administracao > Integracoes > Tokens.";

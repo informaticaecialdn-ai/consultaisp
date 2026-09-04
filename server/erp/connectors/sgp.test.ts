@@ -567,40 +567,79 @@ describe("SGP · teste de conexao", () => {
     expect(r.message).toMatch(/SGP/);
   });
 
-  it("403 de credencial NAO FORNECIDA aponta para o nome do app", async () => {
-    // As duas mensagens abaixo saem do mesmo 403 e mandam o suporte para telas
-    // diferentes. Sem ler o `detail`, a tela dizia a mesma frase nos dois casos
-    // e a duvida entre "app errado" e "token errado" custou meia hora.
-    const { conector } = montar({
-      "/api/ura/titulos/": () => ({ status: 403, corpo: { detail: "As credenciais de autenticação não foram fornecidas." } }),
-    });
-
-    const r = await conector.testConnection(CONFIG);
-    expect(r.ok).toBe(false);
-    expect(r.message).toMatch(/Nome do App/i);
-  });
-
   /**
-   * "Incorretas" NAO identifica a causa, e a primeira versao desta mensagem
-   * fingia que sim: mandava conferir o token. Medido contra o SGP de
-   * demonstracao em 03/09/2026, com o MESMO token valido:
-   *   app="consultaisp"  -> 403 "Credenciais de autenticação incorretas."
-   *   app="Consultaisp"  -> 200
-   * Ou seja, a frase tambem sai quando o token esta certo e so a caixa do nome
-   * do app difere. Mandar trocar so o token faz o operador mexer no que estava
-   * certo e continuar sem integracao.
+   * AS DUAS FRASES DO 403, E POR QUE ELAS ESTIVERAM TROCADAS.
+   *
+   * Ate 04/09/2026 este arquivo afirmava o contrario do que o SGP faz, e a
+   * tela mandou um provedor real conferir o nome do app durante dois dias —
+   * ele trocou o token duas vezes e mexeu na permissao do usuario atras de um
+   * erro que nao era nenhum dos dois.
+   *
+   * O experimento que desfez a confusao, contra o SGP da Amplinet, do IP
+   * liberado, variando UMA coisa por vez sobre a credencial gravada:
+   *
+   *   app="Consultaisp"  (o gravado)  -> "As credenciais ... nao foram fornecidas."
+   *   app="consultaisp"               -> "Credenciais de autenticacao incorretas."
+   *   app="CONSULTAISP"               -> "Credenciais de autenticacao incorretas."
+   *   app="ConsultaISP"               -> "Credenciais de autenticacao incorretas."
+   *   sem app                         -> "Credenciais de autenticacao incorretas."
+   *
+   * Se "incorretas" saisse de par valido bloqueado, ela nao mudaria conforme a
+   * grafia. Logo "incorretas" = o par NAO EXISTE (AuthenticationFailed), e
+   * "nao foram fornecidas" = o par existe e o autenticador desistiu por outro
+   * motivo (NotAuthenticated: host fora da lista, token inativo, usuario sem
+   * permissao). A frase do Django engana porque parece dizer "voce nao mandou
+   * credencial"; ela quer dizer "nenhum autenticador produziu um usuario".
    */
-  it("403 de credencial INCORRETA cita as tres causas, nao so o token", async () => {
+  it("403 INCORRETAS = o par nao existe: manda copiar o nome do app", async () => {
     const { conector } = montar({
       "/api/ura/titulos/": () => ({ status: 403, corpo: { detail: "Credenciais de autenticação incorretas." } }),
     });
 
     const r = await conector.testConnection(CONFIG);
     expect(r.ok).toBe(false);
-    expect(r.message).toMatch(/token/i);
+    expect(r.message).toMatch(/nao encontrou/i);
     expect(r.message).toMatch(/Nome do App/i);
-    expect(r.message).toMatch(/maiuscul/i);   // a caixa, que foi a causa real
+    expect(r.message).toMatch(/maiuscul/i);   // a caixa e o que muda a resposta
+    // NAO manda conferir host aqui: com o par inexistente, host permitido nao
+    // e a variavel, e citar tres causas faz o operador mexer no que estava bom.
+    expect(r.message).not.toMatch(/host/i);
+  });
+
+  it("403 NAO FORNECIDAS = o par existe: manda conferir host, token e usuario", async () => {
+    const { conector } = montar({
+      "/api/ura/titulos/": () => ({ status: 403, corpo: { detail: "As credenciais de autenticação não foram fornecidas." } }),
+    });
+
+    const r = await conector.testConnection(CONFIG);
+    expect(r.ok).toBe(false);
+    // O ponto da mensagem e tirar o operador do nome do app, que esta certo.
+    expect(r.message).toMatch(/reconheceu/i);
     expect(r.message).toMatch(/host/i);
+    expect(r.message).toMatch(/permiss/i);
+  });
+
+  /**
+   * O PALPITE QUE VIROU ERRO DE CREDENCIAL.
+   *
+   * `corpo()` tinha `config.extra?.sgpApp || "consultaisp"`. Com o campo vazio
+   * ele mandava uma grafia inventada junto do token bom, o SGP nao achava o
+   * par, e o operador lia uma mensagem sobre credencial recusada — para um
+   * campo que ele simplesmente nao tinha preenchido.
+   */
+  it("sem o nome do app o conector nao chuta: recusa dizendo o que preencher", async () => {
+    let chamou = false;
+    const { conector } = montar({
+      "/api/ura/titulos/": () => { chamou = true; return { status: 200, corpo: { titulos: [] } }; },
+    });
+
+    const r = await conector.testConnection({ ...CONFIG, extra: {} });
+
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/Nome do App/i);
+    expect(r.message).toMatch(/nao esta preenchido/i);
+    // E nao gasta uma ida ao SGP para descobrir o que ja se sabia aqui.
+    expect(chamou).toBe(false);
   });
 });
 
