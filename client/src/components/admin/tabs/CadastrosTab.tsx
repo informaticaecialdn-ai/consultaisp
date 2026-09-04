@@ -10,7 +10,7 @@ import { apiRequest, STALE_LISTS } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import {
   Activity, Search, RefreshCw, CheckCircle, XCircle, Clock, AlertCircle,
-  User, Mail, FileText, Globe, CreditCard, Users, Trash2, Eye, Building2, SearchX, HelpCircle,
+  User, Mail, FileText, Globe, CreditCard, Users, Trash2, Eye, Pencil, Building2, SearchX, HelpCircle,
 } from "lucide-react";
 import {
   TITULO_CARTAO, Selo, EstadoVazio, LinhasSkeleton, LadrilhoInicial,
@@ -472,6 +472,46 @@ export default function CadastrosTab() {
                           <RefreshCw className="w-3.5 h-3.5 flex-none" strokeWidth={2} aria-hidden />Reenviar e-mail
                         </button>
                       )}
+                      {/* As tres ultimas acoes ficam em ordem de consequencia:
+                          olhar, corrigir, destruir. Antes "Excluir" vinha no
+                          meio, encostada em "Reenviar e-mail" e em "Ver ficha"
+                          — as duas mais inofensivas da linha, e as duas mais
+                          clicadas. O `confirm()` segura o engano, mas vizinhanca
+                          e o que evita chegar ate ele. */}
+                      <button
+                        type="button"
+                        className={BOTAO_ACAO}
+                        onClick={() => navigate(`/admin/provedor/${p.id}`)}
+                        data-testid={`button-view-cadastro-${p.id}`}
+                      >
+                        <Eye className="w-3.5 h-3.5 flex-none" strokeWidth={2} aria-hidden />Ver ficha
+                      </button>
+                      {/* EDITAR — a porta que faltava. A gaveta da lista de
+                          provedores ja mandava usar "o Painel completo" para
+                          corrigir dado cadastral, so que la nao havia formulario
+                          nenhum: CNPJ errado, nome fantasia em branco e endereco
+                          desatualizado nao tinham por onde ser arrumados pelo
+                          superadmin.
+                          E irma de "Ver ficha", nao de "Excluir": as duas abrem
+                          a MESMA pagina, e a unica diferenca e se ela chega
+                          lendo ou escrevendo. Por isso o mesmo peso secundario —
+                          preencher este botao o poria disputando o clique com
+                          "Aprovar", que e a acao para a qual esta fila existe.
+                          `?editar=1` e o contrato com a ficha (/admin/provedor/:id),
+                          que le o parametro e ja abre editando. E a tecnica que o
+                          projeto ja usa em `/painel-provedor?tab=` e em
+                          `/equipamentos?importar=1`; o Route casa so pelo caminho,
+                          entao a query nao atrapalha o roteamento. Se um dos dois
+                          lados mudar a string, o botao degrada em silencio para
+                          um segundo "Ver ficha" — dai o teste que a trava. */}
+                      <button
+                        type="button"
+                        className={BOTAO_ACAO}
+                        onClick={() => navigate(`/admin/provedor/${p.id}?editar=1`)}
+                        data-testid={`button-edit-cadastro-${p.id}`}
+                      >
+                        <Pencil className="w-3.5 h-3.5 flex-none" strokeWidth={2} aria-hidden />Editar
+                      </button>
                       <button
                         type="button"
                         className={BOTAO_ACAO_PERIGO}
@@ -483,14 +523,6 @@ export default function CadastrosTab() {
                         data-testid={`button-delete-cadastro-${p.id}`}
                       >
                         <Trash2 className="w-3.5 h-3.5 flex-none" strokeWidth={2} aria-hidden />Excluir
-                      </button>
-                      <button
-                        type="button"
-                        className={BOTAO_ACAO}
-                        onClick={() => navigate(`/admin/provedor/${p.id}`)}
-                        data-testid={`button-view-cadastro-${p.id}`}
-                      >
-                        <Eye className="w-3.5 h-3.5 flex-none" strokeWidth={2} aria-hidden />Ver ficha
                       </button>
                     </div>
                   </div>

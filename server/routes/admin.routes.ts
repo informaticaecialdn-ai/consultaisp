@@ -39,10 +39,106 @@ import { isSpcConfigured, listarProdutosSpc, produtoSpcPadrao, SpcError, statusH
 import { getRegionalProviderIds } from "../services/regional.service";
 import { logger } from "../logger";
 
+/**
+ * "" no corpo vira NULL na coluna — e o trim vem junto.
+ *
+ * A ficha do superadmin monta o formulario com `provider.campo || ""` e reenvia
+ * o objeto inteiro a cada salvamento. Um provedor sem site, sem complemento ou
+ * sem nome fantasia chega aqui com "" no lugar de ausente, e "" custa caro de
+ * tres formas diferentes: em `contactEmail` (que e `.email()`) reprova o PATCH
+ * INTEIRO com "Dados invalidos" sem dizer qual campo; em `subdomain`, que e
+ * UNIQUE, "" NAO e NULL — o primeiro provedor grava vazio e o segundo estoura
+ * com 23505; e no resto da aplicacao null ja e a forma de dizer "nao informado"
+ * (`provider.website || "—"`), entao "" faz a tela mostrar um campo preenchido
+ * com nada.
+ *
+ * Fica no schema, e nao no handler, para valer para qualquer cliente — inclusive
+ * a tela que ja existe hoje e ja manda "".
+ *
+ * O trim entra aqui porque "   " tem exatamente o mesmo efeito de "" e nenhum
+ * significado a mais; nao e reescrita de dado, e recusa de espaco invisivel.
+ */
+const vazioVirouNulo = (valor: unknown) => {
+  if (typeof valor !== "string") return valor;
+  const limpo = valor.trim();
+  return limpo === "" ? null : limpo;
+};
+
+/**
+ * Texto opcional do cadastro: aceita ausente, null ou "" (que vira null).
+ *
+ * O rotulo entra na frase porque o 400 volta em `errors.<campo>` e a tela
+ * imprime essa frase DEBAIXO do campo, e nao mais num toast generico. A
+ * mensagem padrao do zod ("String must contain at most 200 character(s)") esta
+ * em ingles, nao nomeia o campo e nao diz o que fazer — tres coisas que quem le
+ * debaixo de um campo precisa.
+ */
+const textoDoCadastro = (max: number, rotulo: string) =>
+  z.preprocess(
+    vazioVirouNulo,
+    z.string().max(max, `${rotulo} deve ter no máximo ${max} caracteres.`).nullable(),
+  ).optional();
+
+/**
+ * O que se exige de um e-mail de contato NOVO — e a razao de a exigencia NAO
+ * valer para o que ja esta gravado.
+ *
+ * DECISAO (03/09/2026), entre afrouxar como o `website` e validar so quando muda:
+ * validar so quando muda. Os dois fatos que decidem:
+ *
+ * 1. `contactEmail` NAO e texto de vitrine como o site — e o ENDERECO DE ENTREGA.
+ *    `destinatariosDoProvedor` manda para ele quando existe e so cai nos
+ *    administradores quando ele esta VAZIO. Entao um valor preenchido e invalido
+ *    e pior que nenhum: ele sombreia o resgate. Afrouxar aqui trocaria um 400
+ *    visivel na cara do superadmin por um provedor que simplesmente para de
+ *    receber "seu cadastro foi reprovado" — e ninguem descobre, porque nao ha
+ *    tela que mostre e-mail que nao saiu.
+ * 2. O cliente passou a mandar SO o que mudou, entao um campo intocado nem chega
+ *    ao schema. Isso derruba o unico beneficio que (a) tinha — deixar passar o
+ *    valor legado que a coluna ja guarda ("financeiro@x.com, suporte@x.com",
+ *    gravado pelo painel do provedor, que nao valida nada) — e deixa (a) so com
+ *    o custo do item 1.
+ *
+ * O que sobra e o custo de (b): a comparacao. Ela e barata (o handler ja le
+ * `anterior` antes de gravar) e paga por si, porque a garantia deixa de depender
+ * do cliente se comportar. O 400 nao pode nascer de um valor que o servidor
+ * mesmo entregou: recusar o que ja esta gravado nao e validacao, e uma tranca
+ * numa porta que ja esta aberta — e ela obrigaria o superadmin a alterar ou
+ * apagar o e-mail real do provedor para conseguir corrigir o CEP dele, sem que o
+ * provedor visse a edicao acontecer.
+ *
+ * Por isso o `.email()` saiu do schema (que nao enxerga o valor anterior) e virou
+ * esta conferencia no handler. O `.max()` veio junto pelo mesmo motivo: a coluna
+ * e `text` sem limite, entao um teto no schema tambem reprovaria valor gravado.
+ */
+const EMAIL_DE_CONTATO_NOVO = z.string()
+  .email("E-mail de contato inválido: informe um endereço só, no formato nome@empresa.com.br.")
+  .max(254, "O e-mail de contato deve ter no máximo 254 caracteres.");
+
 const adminUpdateProviderSchema = z.object({
-  name: z.string().min(1).max(200).optional(),
-  tradeName: z.string().max(200).nullable().optional(),
-  cnpj: z.string().regex(/^\d{14}$/).optional(),
+  name: z.string().trim()
+    .min(1, "Informe a razão social do provedor.")
+    .max(200, "A razão social deve ter no máximo 200 caracteres.")
+    .optional(),
+  tradeName: textoDoCadastro(200, "O nome fantasia"),
+  /**
+   * CNPJ com ou sem pontuacao.
+   *
+   * A coluna guarda 14 digitos e a tela mostra mascarado. Sem esta limpeza,
+   * salvar a ficha SEM SEQUER TOCAR no campo devolvia 400: o valor que a tela
+   * exibe ("12.345.678/0001-99") nunca passou pelo regex. Tirar a pontuacao nao
+   * reescreve o dado — e a mesma inscricao na forma canonica que o POST ja exige
+   * e que `getProviderByCnpj` usa para comparar.
+   */
+  cnpj: z.preprocess(
+    valor => (typeof valor === "string" ? valor.replace(/\D/g, "") : valor),
+    z.string().regex(/^\d{14}$/, "CNPJ deve ter 14 digitos"),
+  ).optional(),
+  legalType: textoDoCadastro(50, "O tipo societário"),
+  // Coluna TEXT, ISO yyyy-mm-dd — nao date/timestamp. `z.coerce.date()` aqui
+  // devolveria um Date ao storage e gravaria o texto de um objeto Date.
+  openingDate: textoDoCadastro(20, "A data de abertura"),
+  businessSegment: textoDoCadastro(100, "O segmento"),
   // O catalogo tem dois planos desde 03/09/2026. Aceitar aqui uma chave que
   // saiu poria um provedor num plano sem preco e sem rotulo — a migracao 0014
   // moveu para `pro` quem estava em `basic` ou `enterprise`.
@@ -51,24 +147,78 @@ const adminUpdateProviderSchema = z.object({
   verificationStatus: z.enum(["pending", "approved", "rejected"]).optional(),
   ispCredits: z.number().int().min(0).optional(),
   spcCredits: z.number().int().min(0).optional(),
-  contactEmail: z.string().email().nullable().optional(),
-  contactPhone: z.string().max(20).nullable().optional(),
-  website: z.string().url().nullable().optional(),
-  subdomain: z.string().max(50).nullable().optional(),
-  addressZip: z.string().max(10).nullable().optional(),
-  addressStreet: z.string().max(200).nullable().optional(),
-  addressNumber: z.string().max(20).nullable().optional(),
-  addressComplement: z.string().max(100).nullable().optional(),
-  addressNeighborhood: z.string().max(100).nullable().optional(),
-  addressCity: z.string().max(100).nullable().optional(),
-  addressState: z.string().max(2).nullable().optional(),
+  /**
+   * Sem formato AQUI, de proposito: quem julga e `EMAIL_DE_CONTATO_NOVO`, no
+   * handler, e so quando o valor MUDA. O schema nao enxerga o que ja esta
+   * gravado, e recusar o valor gravado e recusar o cadastro inteiro.
+   */
+  contactEmail: z.preprocess(vazioVirouNulo, z.string().nullable()).optional(),
+  contactPhone: textoDoCadastro(20, "O telefone de contato"),
+  /**
+   * Site e texto livre, nao `.url()`. A regra tem um dono: o painel do PROPRIO
+   * provedor (PATCH /api/provider/profile) grava website sem validacao nenhuma,
+   * entao a coluna ja guarda "www.exemplo.com.br" — digitado pelo dono do
+   * provedor. Com `.url()` deste lado, a ficha do superadmin voltava 400 assim
+   * que reenviasse o valor que ela mesma acabara de ler do banco: o superadmin
+   * ficava impedido de corrigir o ENDERECO por causa do SITE, e a mensagem
+   * ("Dados invalidos") nao dizia qual dos 16 campos reprovou.
+   *
+   * Fica UMA recusa: esquema que nao seja http/https. Nao e cosmetica — este
+   * valor e candidato natural a virar href numa tela futura, e "javascript:..."
+   * num href e XSS. Hoje ele so e impresso como texto, o que torna a trava
+   * barata e preventiva, nao urgente.
+   *
+   * E nao ha normalizacao: nada de prefixar "https://" no que o provedor
+   * digitou. Reescrever em silencio o dado de outra pessoa e o comeco de um
+   * campo que mente sobre o que ela informou — e do lado do superadmin isso
+   * seria pior ainda, porque o provedor nao ve a edicao acontecer.
+   */
+  website: z.preprocess(
+    vazioVirouNulo,
+    z.string().max(500, "O site deve ter no máximo 500 caracteres.").nullable().refine(
+      valor => valor === null || !/^[a-z][a-z0-9+.-]*:/i.test(valor) || /^https?:\/\//i.test(valor),
+      "Site deve comecar com http:// ou https://, ou vir sem esquema (ex.: www.exemplo.com.br)",
+    ),
+  ).optional(),
+  /**
+   * Mesmo formato que o POST exige. Ate aqui o PATCH so limitava o tamanho, e
+   * pela ficha dava para gravar "Meu Provedor!" numa chave de resolucao de host
+   * — que nunca resolveria host nenhum e ainda ocuparia o valor para sempre.
+   */
+  subdomain: z.preprocess(
+    vazioVirouNulo,
+    z.string()
+      .min(2, "O subdomínio precisa de pelo menos 2 caracteres.")
+      .max(50, "O subdomínio deve ter no máximo 50 caracteres.")
+      .regex(/^[a-z0-9-]+$/, "Subdominio: apenas letras minusculas, numeros e hifens")
+      .nullable(),
+  ).optional(),
+  addressZip: textoDoCadastro(10, "O CEP"),
+  addressStreet: textoDoCadastro(200, "A rua"),
+  addressNumber: textoDoCadastro(20, "O número"),
+  addressComplement: textoDoCadastro(100, "O complemento"),
+  addressNeighborhood: textoDoCadastro(100, "O bairro"),
+  addressCity: textoDoCadastro(100, "A cidade"),
+  addressState: textoDoCadastro(2, "A UF"),
   /**
    * NAO E COLUNA. Nao existe `providers.motivo` e nao deve existir: este campo
    * so viaja da tela do superadmin ate o corpo do e-mail que explica a decisao
    * (reprovacao de cadastro, suspensao de acesso). Por isso ele e retirado do
    * payload antes de chegar ao storage — ver o desmembramento no handler.
    */
-  motivo: z.string().trim().min(1).max(500).optional(),
+  motivo: z.string().trim()
+    .min(1, "Escreva o motivo: é ele que o provedor lê no e-mail da decisão.")
+    .max(500, "O motivo deve ter no máximo 500 caracteres.")
+    .optional(),
+  /**
+   * As mensagens de `plan`, `status`, `verificationStatus`, `ispCredits` e
+   * `spcCredits` ficam nas do zod, em ingles, e isso e deliberado: nenhum dos
+   * cinco e digitado — plano e creditos tem rota propria e os dois status vem de
+   * botao com confirmacao. Valor invalido ali nao e engano de quem digita, e
+   * defeito de quem chama: nao ha campo debaixo do qual imprimir a frase, e uma
+   * traducao daria a esses cinco a mesma aparencia de erro de preenchimento que
+   * os doze de cima tem.
+   */
 }).strict();
 
 /**
@@ -412,10 +562,48 @@ export function registerAdminRoutes(): Router {
       const id = parseInt(req.params.id);
       const parsed = adminUpdateProviderSchema.safeParse(req.body);
       if (!parsed.success) {
+        /**
+         * `errors` E o `fieldErrors`: mapa campo -> frases, que e o formato de
+         * que a tela precisa para imprimir o erro DEBAIXO do campo
+         * (`errors[campo][0]`). Todas as frases dos campos que o operador digita
+         * estao em portugues e dizem o que fazer — ver o schema.
+         *
+         * `formErrors` fica de fora de proposito. Ele so recebe uma coisa aqui:
+         * o "Unrecognized key(s) in object" do `.strict()`, que nao pertence a
+         * campo nenhum e nao e engano de quem preenche — e cliente mandando
+         * chave que nao existe. Mostrar essa frase em ingles ao superadmin
+         * trocaria um "Dados invalidos" honesto por um vazamento de nome interno
+         * que ele nao tem como agir. Nesse caso `errors` vem vazio, e um 400 sem
+         * campo apontado e exatamente o sinal de que o defeito e do lado de la.
+         */
         return res.status(400).json({ message: "Dados invalidos", errors: parsed.error.flatten().fieldErrors });
       }
       // `motivo` explica a decisao no e-mail; nao e coluna e nao pode ir ao storage.
       const { motivo, ...campos } = parsed.data;
+
+      /**
+       * Corpo sem nenhum campo de coluna: recusa antes de tocar no banco.
+       *
+       * `db.update().set({})` nao e um no-op silencioso — o Drizzle se recusa a
+       * montar o SET vazio, o erro cai no catch generico e o superadmin le
+       * "Erro interno do servidor", que o convida a clicar de novo.
+       *
+       * E 400, nao 200 vazio: um PATCH que chega so com `motivo` (ou sem nada) e
+       * formulario quebrado deste lado de ca — nao ha alteracao para gravar nem
+       * decisao para avisar, ja que `motivo` sozinho nao muda status nenhum.
+       * Responder "salvo" a quem nao salvou nada e a pior das duas respostas:
+       * o operador fecha a tela achando que a correcao foi gravada.
+       *
+       * A guarda conta CHAVES, e nao os 17 campos do cadastro — e e o que a
+       * mantem certa agora que a tela manda so o que mudou. Um PATCH de um campo
+       * so e o caso NORMAL desde a mudanca, nao a excecao: `>= 1` passa. Vazio
+       * so chega de quem nao comparou antes de enviar, entao isto virou defesa
+       * de segunda linha — a primeira e o cliente nao mandar nada quando nada
+       * mudou.
+       */
+      if (Object.keys(campos).length === 0) {
+        return res.status(400).json({ message: "Nenhum campo para alterar" });
+      }
 
       /**
        * Ler ANTES de gravar e o que torna o aviso honesto.
@@ -428,6 +616,73 @@ export function registerAdminRoutes(): Router {
        */
       const anterior = await storage.getProvider(id);
       if (!anterior) return res.status(404).json({ message: "Provedor nao encontrado" });
+
+      /**
+       * O e-mail de contato so e julgado QUANDO MUDA — o porque esta em
+       * `EMAIL_DE_CONTATO_NOVO`.
+       *
+       * A comparacao e entre os dois lados JA NORMALIZADOS: o que chega passou
+       * por `vazioVirouNulo` (apara e transforma "" em null) e o gravado e
+       * aparado aqui. Comparar texto cru faria um espaco em volta do valor
+       * guardado no banco parecer alteracao e reprovar o cadastro inteiro por um
+       * campo que ninguem tocou.
+       *
+       * `null` nao entra: apagar o e-mail de contato e uma escolha valida — a
+       * entrega volta para os administradores do provedor, que e o resgate que
+       * `destinatariosDoProvedor` faz quando o campo esta vazio.
+       */
+      if ("contactEmail" in campos) {
+        const novo = campos.contactEmail ?? null;
+        const gravado = (anterior.contactEmail ?? "").trim() || null;
+        if (novo !== null && novo !== gravado) {
+          const email = EMAIL_DE_CONTATO_NOVO.safeParse(novo);
+          if (!email.success) {
+            return res.status(400).json({
+              message: "Dados invalidos",
+              errors: { contactEmail: email.error.issues.map(i => i.message) },
+            });
+          }
+        }
+      }
+
+      /**
+       * cnpj e subdomain sao UNIQUE no banco, e ate aqui so o POST conferia.
+       *
+       * No PATCH a colisao chegava como 23505 dentro do catch generico: o
+       * superadmin digitava um CNPJ que ja e de outro provedor e lia "Erro
+       * interno do servidor" — nenhuma pista de que o problema e duplicidade, e
+       * muito menos de quem ja tem o valor.
+       *
+       * 409 e nao 400: o pedido esta bem formado e a permissao existe; o que
+       * impede e o ESTADO de outra linha. O nome do dono vai na mensagem porque
+       * quem le e o superadmin, que enxerga todos os provedores e precisa achar
+       * o outro cadastro para resolver o conflito — sem isso a frase diz o que
+       * ha de errado mas nao onde.
+       *
+       * `null` nao entra na conferencia: em Postgres varios NULL convivem numa
+       * coluna UNIQUE, e limpar o subdominio de um provedor nao colide com nada.
+       *
+       * A frase vai TAMBEM em `errors.<campo>`, do mesmo formato do 400, e nao
+       * so em `message`. A tela passou a imprimir o erro debaixo do campo: sem
+       * esta chave ela teria de adivinhar o campo lendo o texto da frase, e a
+       * duplicidade — que aponta um campo especifico, como qualquer erro de
+       * preenchimento — cairia de novo num toast generico so por ser 409.
+       * `message` fica igual ao que ja era, para quem so o exibe.
+       */
+      if (campos.cnpj) {
+        const dono = await storage.getProviderByCnpj(campos.cnpj);
+        if (dono && dono.id !== id) {
+          const frase = `CNPJ ja cadastrado no provedor "${dono.name}"`;
+          return res.status(409).json({ message: frase, errors: { cnpj: [frase] } });
+        }
+      }
+      if (campos.subdomain) {
+        const dono = await storage.getProviderBySubdomain(campos.subdomain);
+        if (dono && dono.id !== id) {
+          const frase = `Subdominio ja em uso pelo provedor "${dono.name}"`;
+          return res.status(409).json({ message: frase, errors: { subdomain: [frase] } });
+        }
+      }
 
       const updated = await storage.adminUpdateProvider(id, campos);
       // A resolucao host->marca e cacheada por subdominio. Sem esta linha, uma

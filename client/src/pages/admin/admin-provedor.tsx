@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,22 +17,28 @@ import { rotuloDoPlano } from "@/lib/planos";
 import {
   CabecalhoPainel, CartaoMetrica, KickerSecao, Selo, EstadoVazio, LinhasSkeleton,
   LadrilhoIcone, LadrilhoInicial, TabelaPainel, Th, Td,
-  Dinheiro, MolduraModal, AvisoNaoCarregou,
+  Dinheiro, MolduraModal, AvisoNaoCarregou, Campo,
   TITULO_CARTAO, TITULO_MODAL, ALVO_CONTROLE, BOTAO_SECUNDARIO, BOTAO_MARCA,
   CAIXA_ICONE, CONTROLE_CAMPO, ROTULO_CAMPO, TABELA_NUM, DESABILITAVEL, FOCO,
   type TomSelo, type Icone,
 } from "@/components/painel/ui";
-import { PLAN_LABELS } from "@/components/admin/constants";
+import { PLAN_LABELS, VERIFICATION_LABELS } from "@/components/admin/constants";
 import {
   ArrowLeft, Building2, Users, CreditCard, BarChart3, Activity,
-  Globe, Mail, Phone, Calendar, Shield, CheckCircle, XCircle,
-  Plus, RefreshCw, FileText,
+  Globe, Mail, Calendar, Shield, CheckCircle, XCircle,
+  Plus, RefreshCw, FileText, Search, MapPin,
   AlertCircle, Zap, Star, Edit2, Save, X, Eye,
   Ban, Copy, Wifi, Database, AlertTriangle, ChevronRight,
   KeyRound, Receipt, History, ScanSearch, IdCard, Lock, LogIn,
 } from "lucide-react";
 import FormularioErp, { type ConectorMeta } from "@/components/erp/FormularioErp";
 import { lembrarPersonificacao } from "@/components/FaixaSuporte";
+import {
+  cadastroDoProvedor, corpoDoPatch, errosDoCadastro,
+  aplicarEmpresaPublica, aplicarViaCep, opcoesComValorAtual,
+  cnpjCru, cnpjMascarado, cepCru, cepMascarado,
+  CAMPOS_DO_CADASTRO, SEGMENTOS, TIPOS_SOCIETARIOS, type CadastroProvedor,
+} from "./cadastro-provedor";
 
 /**
  * O PLANO SAI DO CATALOGO DO PAINEL, NAO DE UMA COPIA DESTA TELA.
@@ -154,6 +160,25 @@ function fmtDateTime(d: string | null | undefined) {
   return new Date(d).toLocaleString("pt-BR");
 }
 
+/**
+ * Data de abertura em dd/mm/aaaa, SEM passar por `new Date`.
+ *
+ * `openingDate` e coluna TEXT com ISO so-data. Entregue a `fmtDate`, o
+ * "2015-03-27" e lido como meia-noite UTC e, em Brasilia (UTC-3), volta como
+ * 26/03/2015: a ficha mostraria a empresa aberta um dia antes do que a Receita
+ * registrou.
+ *
+ * Valor fora do formato sai COMO ESTA, e nao como "—" nem "Invalid Date": se
+ * alguma linha antiga guarda "27/03/2015", o superadmin precisa VER para poder
+ * corrigir no formulario.
+ */
+function fmtDataIso(v: string | null | undefined) {
+  const t = (v ?? "").trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
+  if (!m) return t || "—";
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
 /** Todo numero desta tela e mono e tabular (secao 2). Quando ele mora no meio
  *  de uma frase em Inter, este e o envelope. Vale para CPF, CNPJ, data, valor,
  *  contagem e endereco tecnico — tudo que se le coluna por coluna.
@@ -175,6 +200,20 @@ function Num({
       {children}
     </span>
   );
+}
+
+/**
+ * Junta pedacos com um separador de texto — o `join` que `Array.join` nao faz.
+ *
+ * Existe porque o endereco da LEITURA mistura texto e numero: rua e bairro sao
+ * prosa, numero e UF sao dado que se le caractere a caractere e por isso vao
+ * dentro de `<Num>` (secao 2). Com um elemento no meio, `join` chamaria
+ * `String(elemento)` e imprimiria "[object Object]".
+ */
+function juntarPedacos(pedacos: React.ReactNode[], separador: string): React.ReactNode {
+  return pedacos.map((pedaco, i) => (
+    <Fragment key={i}>{i > 0 ? separador : null}{pedaco}</Fragment>
+  ));
 }
 
 /** Linha de par rotulo/valor dentro de cartao. Separador de hairline, nunca a
@@ -230,6 +269,285 @@ function TopoCartao({
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* A ficha cadastral — vocabulario do formulario                       */
+/* ------------------------------------------------------------------ */
+
+/** A frase do erro sob o campo culpado. Tinta de risco, corpo menor que o dado. */
+const ERRO_CAMPO = "mt-1 block text-[11.5px] text-[var(--danger)]";
+
+/** Nota auxiliar sob o campo (formato esperado, o que a busca fez). */
+const DICA_CAMPO = "mt-1 block text-[11.5px] text-[var(--text-muted)]";
+
+/**
+ * A situacao cadastral na Receita e REGULAR?
+ *
+ * A comparacao era `situacao !== "ATIVA"`, letra por letra. As tres fontes
+ * escrevem o mesmo fato de jeitos diferentes — a ReceitaWS e a BrasilAPI mandam
+ * "ATIVA", a cnpj.ws manda "Ativa" —, e a terceira e justamente a que responde
+ * quando as duas primeiras devolvem 429. O resultado era o aviso ambar de
+ * irregularidade aceso para uma empresa perfeitamente regular.
+ *
+ * Quem le esse aviso e o superadmin, que pode REPROVAR ou SUSPENDER o provedor
+ * com base nele — e as duas acoes disparam e-mail, que nao da para voltar atras.
+ *
+ * O servico ja canoniza a situacao para caixa alta (`situacaoCanonica`), e essa
+ * e a correcao de fundo. Aqui a comparacao normaliza de novo de proposito: esta
+ * tela nao pode depender de um contrato de outra frente para deixar de acusar
+ * irregularidade de quem nao tem nenhuma.
+ *
+ * SEM INFORMACAO E REGULAR: ausencia de situacao nao e prova de situacao ruim,
+ * e um aviso disparado no vazio seria a mesma acusacao sem fato.
+ */
+function situacaoRegular(bruta: string | null | undefined): boolean {
+  const t = String(bruta ?? "")
+    .trim().replace(/\s+/g, " ").toUpperCase();
+  return t === "" || t === "ATIVA" || t === "ATIVO";
+}
+
+/**
+ * O `errors` do 400, virando a frase de cada campo culpado.
+ *
+ * O servidor responde `{ message: "Dados invalidos", errors: fieldErrors }`, e a
+ * tela jogava o `errors` fora: com dezessete campos, o operador ficava com um
+ * toast generico e nenhuma pista de qual deles reprovou — e o PATCH e tudo ou
+ * nada, entao as outras dezesseis correcoes tambem nao gravaram.
+ *
+ * So as chaves do cadastro entram. Erro de chave desconhecida cai em
+ * `formErrors`, e nao aqui; e um nome que nao seja campo da ficha nao tem caixa
+ * onde ser pintado — ele fica no toast, que continua repetindo a frase do
+ * servidor.
+ *
+ * A frase vai VERBATIM. Zod so escreve em portugues onde o schema deu mensagem
+ * propria ("CNPJ deve ter 14 digitos"); no resto ela vem em ingles. Traduzir por
+ * cima seria adivinhar, e a alternativa — cair no generico — e exatamente o
+ * defeito que este mapa existe para consertar. Quem enquadra em portugues e o
+ * aviso do topo do formulario.
+ */
+function errosDoServidorNaResposta(corpo: any): Partial<Record<keyof CadastroProvedor, string>> {
+  const campos = corpo?.errors;
+  if (!campos || typeof campos !== "object") return {};
+  const mapa: Partial<Record<keyof CadastroProvedor, string>> = {};
+  for (const campo of CAMPOS_DO_CADASTRO) {
+    const frases = (campos as Record<string, unknown>)[campo];
+    const frase = Array.isArray(frases) ? frases.find(f => typeof f === "string" && f) : frases;
+    if (typeof frase === "string" && frase.trim()) mapa[campo] = frase.trim();
+  }
+  return mapa;
+}
+
+/**
+ * O 409 tambem tem campo culpado.
+ *
+ * `cnpj` e `subdomain` sao UNIQUE, e o servidor responde 409 nomeando o provedor
+ * que ja tem o valor. Isso ia so para o toast — que some — enquanto a caixa
+ * responsavel continuava limpa; o operador reabria a ficha sem saber onde estava
+ * o conflito.
+ *
+ * A escolha sai da propria frase porque o corpo do 409 nao tem `errors`: sao as
+ * duas unicas colisoes possiveis, e a mensagem as nomeia ("CNPJ ja cadastrado
+ * no provedor ...", "Subdominio ja em uso pelo provedor ..."). A comparacao e em
+ * minusculas e por PEDACO ("subdomin"), e nao pela frase inteira: a mensagem e
+ * texto para gente ler, e nada impede que ela ganhe acento ou seja reescrita.
+ */
+function camposDoConflito(mensagem: string | undefined): Partial<Record<keyof CadastroProvedor, string>> {
+  const frase = (mensagem ?? "").trim();
+  const t = frase.toLowerCase();
+  if (t.includes("cnpj")) return { cnpj: frase };
+  if (t.includes("subdomin")) return { subdomain: frase };
+  return {};
+}
+
+/**
+ * Titulo de bloco dentro do formulario, na voz do kicker de secao.
+ *
+ * O molde e o passo 2 do `NewProviderWizard`: dezessete campos numa grade unica
+ * sao uma parede: o operador que veio corrigir o CEP tem de varrer o telefone e
+ * o subdominio para achar o campo. As quatro secoes sao os quatro assuntos.
+ */
+function BlocoCadastro({
+  Icone: IconeBloco,
+  titulo,
+  children,
+}: {
+  Icone: Icone;
+  titulo: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="border-t border-[var(--border)] pt-3 first:border-t-0 first:pt-0">
+      <KickerSecao className="flex items-center gap-1.5">
+        <IconeBloco className="w-3.5 h-3.5 flex-none" strokeWidth={2} aria-hidden />
+        {titulo}
+      </KickerSecao>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * Um campo da ficha: rotulo, caixa e a frase do erro NO MESMO LUGAR.
+ *
+ * A caixa e `CONTROLE_CAMPO`, e nao o `<Input>` cru do shadcn que este modo de
+ * edicao usava: sao 36px em vez de 40, 12,5px de corpo em vez de 14 e — o que
+ * importa de verdade — o anel de foco visivel da secao 7, que o `Input` base
+ * desenha sobre um token de fundo suave e some.
+ *
+ * O ERRO MORA AQUI porque a alternativa e o que existia: um toast dizendo
+ * "Dados invalidos". Com cinco campos isso ja era ruim; com dezessete, o
+ * operador nao tem como descobrir qual reprovou.
+ *
+ * NAO USA `Campo`, e essa e a diferenca que importa. O `Campo` da primitiva
+ * embrulha TUDO num `<label>` e associa por aninhamento — o certo quando dentro
+ * dele so ha rotulo e caixa. Aqui dentro tambem moram o botao de busca, a dica e
+ * a frase do erro, e o nome acessivel de um campo e o texto INTEIRO do `<label>`
+ * que o contem: o CNPJ passava a se chamar "CNPJ Buscar na Receita" e, depois da
+ * busca, "CNPJ Buscar na Receita Ficha preenchida com o cadastro da Receita
+ * Federal. Revise e salve." — um campo que muda de nome sozinho, e cujo nome
+ * anuncia uma acao que ele nao e.
+ *
+ * Entao o `<label>` embrulha SO o rotulo e liga pelo `htmlFor` (o `id` ja existe
+ * em todos os campos, e e o mesmo do `data-testid`). Erro e dica ficam de fora
+ * dele e chegam pelo `aria-describedby`, que e o canal proprio para descricao —
+ * anunciada DEPOIS do nome, e nao como parte dele.
+ */
+function CampoCadastro({
+  id,
+  rotulo,
+  valor,
+  aoMudar,
+  erro,
+  dica,
+  acao,
+  mono = false,
+  placeholder,
+  maxLength,
+  className,
+  tipo,
+}: {
+  id: string;
+  rotulo: React.ReactNode;
+  valor: string;
+  aoMudar: (v: string) => void;
+  erro?: string;
+  dica?: React.ReactNode;
+  /** Botao colado no campo (buscar na Receita, buscar o CEP). Fica ao lado da
+   *  caixa e FORA do `<label>`: dentro dele, o rotulo do botao entrava no nome
+   *  acessivel do campo. */
+  acao?: React.ReactNode;
+  /** Liga mono tabular: CNPJ, CEP, telefone, numero, data, UF (secao 2). */
+  mono?: boolean;
+  placeholder?: string;
+  maxLength?: number;
+  className?: string;
+  tipo?: string;
+}) {
+  const idErro = `${id}-erro`;
+  const idDica = `${id}-dica`;
+  return (
+    <div className={cn("block min-w-0", className)}>
+      <label htmlFor={id} className={ROTULO_CAMPO}>{rotulo}</label>
+      <span className="flex items-center gap-2">
+        <Input
+          id={id}
+          type={tipo}
+          value={valor}
+          onChange={e => aoMudar(e.target.value)}
+          placeholder={placeholder}
+          maxLength={maxLength}
+          aria-invalid={erro ? true : undefined}
+          aria-describedby={erro ? idErro : dica ? idDica : undefined}
+          className={cn(
+            CONTROLE_CAMPO,
+            "flex-1 min-w-0",
+            mono && "font-mono tabular-nums",
+            erro && "border-[var(--danger)]",
+          )}
+          data-testid={id}
+        />
+        {acao}
+      </span>
+      {erro ? (
+        <span id={idErro} className={ERRO_CAMPO} role="alert">{erro}</span>
+      ) : dica ? (
+        <span id={idDica} className={DICA_CAMPO}>{dica}</span>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Seletor da ficha. A lista passa por `opcoesComValorAtual` no chamador.
+ *
+ * POR QUE ISSO IMPORTA: o cadastro grava `legalType` com a natureza juridica
+ * CRUA da Receita ("Sociedade Empresaria Limitada") e `businessSegment` com a
+ * atividade principal do CNAE. Nenhuma das duas esta nas listas. Num seletor
+ * comum esse valor nao tem `<option>`, o campo volta sozinho para "Selecione..."
+ * sem erro nenhum, e o primeiro salvamento APAGA o que a Receita trouxe.
+ */
+function SelecaoCadastro({
+  id,
+  rotulo,
+  valor,
+  aoMudar,
+  opcoes,
+  className,
+}: {
+  id: string;
+  rotulo: React.ReactNode;
+  valor: string;
+  aoMudar: (v: string) => void;
+  opcoes: readonly string[];
+  className?: string;
+}) {
+  return (
+    <Campo rotulo={rotulo} className={cn("min-w-0", className)}>
+      <select
+        id={id}
+        value={valor}
+        onChange={e => aoMudar(e.target.value)}
+        className={CONTROLE_CAMPO}
+        data-testid={id}
+      >
+        <option value="">Não informado</option>
+        {opcoes.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </Campo>
+  );
+}
+
+/**
+ * Par rotulo/valor do cartao de cadastro, em duas colunas.
+ *
+ * Substituiu o `InfoRow` de coluna unica com icone. O motivo nao e estetico: a
+ * ficha passou a mostrar dezessete campos em vez de sete, e em coluna unica o
+ * cartao "Cadastro" ficava com mais que o dobro da altura do "Plano e creditos"
+ * ao lado dele. O molde de dado denso ja existe em `ProviderDrawer`.
+ *
+ * `children` e ReactNode, e nao string: e o que permite um `<Selo>` na linha da
+ * conferencia do cadastro — o `InfoRow` tipava `value: string` e nao aceitava.
+ */
+function DadoCadastro({
+  rotulo,
+  children,
+  mono = false,
+  className,
+}: {
+  rotulo: React.ReactNode;
+  children: React.ReactNode;
+  mono?: boolean;
+  className?: string;
+}) {
+  return (
+    <div className={cn("min-w-0", className)}>
+      <dt className={ROTULO_CAMPO}>{rotulo}</dt>
+      <dd className={cn("text-[13px] text-[var(--text)] break-words", mono && "font-mono tabular-nums")}>
+        {children}
+      </dd>
+    </div>
+  );
+}
+
 export default function AdminProvedorPage() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
@@ -240,7 +558,70 @@ export default function AdminProvedorPage() {
 
   const [activeTab, setActiveTab] = useState("geral");
   const [editMode, setEditMode] = useState(false);
-  const [editForm, setEditForm] = useState({ name: "", contactEmail: "", contactPhone: "", website: "", subdomain: "" });
+  /**
+   * A FICHA CADASTRAL INTEIRA, e nao mais cinco campos.
+   *
+   * O formulario editava `name`, `subdomain`, `contactEmail`, `contactPhone` e
+   * `website`. CNPJ, nome fantasia, tipo societario, data de abertura, segmento
+   * e os sete campos de endereco eram gravados no cadastro e depois nao tinham
+   * conserto em lugar nenhum — enquanto a gaveta da lista mandava "use o Painel
+   * completo", que e esta tela.
+   *
+   * A logica toda (mascara, hidratacao, corpo do PATCH, tradutores da Receita e
+   * do ViaCEP, validacao) mora em `./cadastro-provedor`, com teste. Aqui fica so
+   * o estado e o desenho: o vitest deste projeto nao coleta `.tsx` — sem ambiente
+   * de DOM —, entao nada que morasse dentro do componente teria prova nenhuma.
+   */
+  const [cadastro, setCadastro] = useState<CadastroProvedor>(() => cadastroDoProvedor(null));
+  /**
+   * O CADASTRO COMO ELE ESTAVA QUANDO A EDICAO COMECOU.
+   *
+   * E a outra metade de `corpoDoPatch(atual, original)`: sem ele o PATCH levava
+   * as dezessete colunas a cada salvamento, e o retrato de onde a tela nasceu
+   * virava ordem de gravacao. O provedor corrige o endereco no painel dele as
+   * 10h05; o superadmin, com a ficha aberta desde as 10h00, arruma so o telefone
+   * e salva as 10h10 — e o endereco novo volta ao valor antigo, sem que nenhum
+   * dos dois veja acontecer.
+   */
+  const [cadastroOriginal, setCadastroOriginal] = useState<CadastroProvedor>(() => cadastroDoProvedor(null));
+  /** Os erros so aparecem depois da primeira tentativa de salvar. Acusar campo
+   *  que o operador ainda nem alcancou e ruido; depois do clique, e resposta. */
+  const [errosVisiveis, setErrosVisiveis] = useState(false);
+  /**
+   * O que o SERVIDOR recusou, campo a campo — vindo do `errors` do 400 ou do
+   * campo que a frase do 409 nomeia.
+   *
+   * Fica separado de `errosDoCadastro` porque tem outro ciclo de vida: o erro
+   * local se recalcula a cada tecla e some sozinho quando o valor fica valido; o
+   * do servidor e sobre o valor que FOI ENVIADO, e so deixa de valer quando o
+   * campo muda ou quando outro PATCH sai.
+   */
+  const [errosDoServidor, setErrosDoServidor] = useState<Partial<Record<keyof CadastroProvedor, string>>>({});
+  /**
+   * A releitura que abre a edicao. Enquanto ela nao termina, o formulario ainda
+   * mostra o cadastro anterior — e salvar sobre ele e exatamente o que a
+   * releitura existe para impedir.
+   */
+  const [releituraDoCadastro, setReleituraDoCadastro] = useState<"ocioso" | "lendo" | "erro">("ocioso");
+  const [buscaCnpj, setBuscaCnpj] = useState<{
+    estado: "ocioso" | "buscando" | "ok" | "erro";
+    frase?: string;
+    situacao?: string;
+  }>({ estado: "ocioso" });
+  const [buscaCep, setBuscaCep] = useState<"ocioso" | "buscando" | "ok" | "vazio" | "erro">("ocioso");
+  /** O ultimo CEP que ja foi ao ViaCEP.
+   *
+   *  O painel do provedor dispara a busca a cada tecla, sem trava; aqui a
+   *  consulta so sai quando ha 8 digitos e UMA vez por CEP. Sem isto, apagar e
+   *  redigitar o ultimo digito manda o mesmo CEP de novo e a resposta que chegar
+   *  por ultimo — nao a da ultima digitacao — e a que sobrescreve o endereco. */
+  const cepJaBuscado = useRef("");
+  /** O numero da busca de CEP mais recente. Resposta de pedido vencido e
+   *  descartada — ver `buscarCep`. */
+  const pedidoDeCep = useRef(0);
+  /* Ver `abrirEdicao`: desiste da releitura que chegar depois de o operador
+     ter cancelado, para a tela nao reabrir o formulario sozinha. */
+  const sessaoDeEdicao = useRef(0);
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [showCreditsModal, setShowCreditsModal] = useState(false);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
@@ -259,7 +640,7 @@ export default function AdminProvedorPage() {
    */
   const { data: precos, isLoading: carregandoPrecos, isError: erroPrecos, refetch: recarregarPrecos } = usePrecos();
 
-  const { data, isLoading, error } = useQuery<any>({
+  const { data, isLoading, error, refetch: relerDetalhe } = useQuery<any>({
     queryKey: ["/api/admin/providers", providerId, "detail"],
     queryFn: async () => {
       const res = await fetch(`/api/admin/providers/${providerId}/detail`, { credentials: "include" });
@@ -267,20 +648,216 @@ export default function AdminProvedorPage() {
       return res.json();
     },
     enabled: !!providerId && isSuperAdmin,
+    /**
+     * O padrao do cliente e `staleTime: Infinity` — retrato eterno. Numa ficha
+     * de conta isso e caro em leitura (o operador confere um saldo de credito de
+     * horas atras) e caro de verdade na escrita: era desse retrato que o
+     * formulario nascia. Trinta segundos e o mesmo prazo que o painel usa para
+     * numero que muda sozinho. Quem abre a EDICAO nao depende disto: releitura
+     * explicita, em `abrirEdicao`.
+     */
+    staleTime: 30_000,
   });
 
+  /**
+   * Enche o formulario com a LINHA INTEIRA de `providers` e zera os avisos.
+   *
+   * A fonte tem de ser `data.provider` — a linha crua do detalhe. Hidratar de um
+   * resumo que nao traga todos os campos e depois enviar o corpo completo APAGA
+   * o que o resumo nao trouxe.
+   *
+   * `cadastro` e `cadastroOriginal` nascem da MESMA leitura: e a comparacao
+   * entre os dois que decide o que vai no PATCH. Hidratar um de uma leitura e o
+   * outro de outra faria a tela "descobrir" alteracoes que ninguem fez.
+   */
+  const prepararEdicao = (p: any) => {
+    setCadastro(cadastroDoProvedor(p));
+    setCadastroOriginal(cadastroDoProvedor(p));
+    setErrosVisiveis(false);
+    setErrosDoServidor({});
+    setBuscaCnpj({ estado: "ocioso" });
+    setBuscaCep("ocioso");
+    cepJaBuscado.current = "";
+    /* Uma busca de CEP da sessao anterior de edicao ainda pode estar no ar.
+       Sem invalidar o pedido, ela chega depois desta hidratacao e escreve o
+       endereco dela por cima do cadastro recem-lido. */
+    pedidoDeCep.current++;
+    setActiveTab("geral");
+    setEditMode(true);
+  };
+
+  /**
+   * ABRIR A EDICAO E RELER O CADASTRO — nesta ordem, e sempre.
+   *
+   * O formulario nascia do que a query tinha em maos, e essa query e um retrato:
+   * quem deixou a ficha aberta editava um cadastro de horas atras e, ao salvar,
+   * DESFAZIA sem ver o que o provedor tivesse gravado no painel dele nesse
+   * intervalo. Mandar so o que mudou (`corpoDoPatch`) reduz o estrago aos campos
+   * tocados; nascer do dado de agora e o que o elimina.
+   *
+   * `refetch` ignora o `staleTime` por construcao — e a leitura forcada, nao uma
+   * releitura "se estiver velho".
+   *
+   * A edicao abre ANTES da resposta, com o formulario travado: abrir so depois
+   * faria o clique em "Editar" nao produzir nada por um instante, e o operador
+   * clicaria de novo. Se a releitura falhar, a tela DIZ que falhou e nao deixa
+   * salvar — o botao some —, porque salvar sobre o retrato antigo e justamente o
+   * defeito.
+   */
+  const abrirEdicao = async () => {
+    /**
+     * A SESSAO DE EDICAO, e por que ela precisa de um numero.
+     *
+     * O `await` abaixo dura o tempo de uma requisicao, e nesse intervalo o
+     * operador pode ter desistido. Sem esta trava, a resposta que chega depois
+     * do clique em "Cancelar" executa `prepararEdicao` assim mesmo: a tela SALTA
+     * de volta para a aba Geral e reabre o formulario de dezessete campos
+     * sozinha, meio segundo depois de o operador ter ido para Creditos.
+     *
+     * Mesmo padrao — e mesmo motivo — do `pedidoDeCep` logo abaixo: quem espera
+     * resposta precisa saber se ainda e o pedido corrente.
+     */
+    const minhaSessao = ++sessaoDeEdicao.current;
+    setActiveTab("geral");
+    setReleituraDoCadastro("lendo");
+    /* Hidrata com o que ja esta em maos para o formulario nao abrir em branco —
+       dezessete caixas vazias por um instante leem como cadastro apagado. Este
+       valor e provisorio: a leitura nova o substitui, e ate ela chegar nao ha
+       como gravar. */
+    prepararEdicao(data?.provider);
+    const leitura = await relerDetalhe();
+    if (minhaSessao !== sessaoDeEdicao.current) return;
+    const p = leitura.data?.provider;
+    if (leitura.error || !p) {
+      setReleituraDoCadastro("erro");
+      return;
+    }
+    prepararEdicao(p);
+    setReleituraDoCadastro("ocioso");
+  };
+
+  /** Enquanto a releitura nao volta (ou volta com erro), o formulario mostra o
+   *  cadastro anterior — e nada dele pode ser gravado. */
+  const cadastroPronto = releituraDoCadastro === "ocioso";
+
+  /**
+   * `?editar=1` abre a ficha JA editando.
+   *
+   * E o contrato da acao "Editar" da fila de Cadastros, que navega para
+   * `/admin/provedor/:id?editar=1`. Nada no compilador liga as duas pontas: se o
+   * nome do parametro divergir, o botao vira um segundo "Ver ficha" — sem erro,
+   * sem console, sem sintoma. Por isso ha teste travando a string dos dois lados.
+   *
+   * A marca sai da URL depois de consumida, com `replace`: sem isso, cancelar a
+   * edicao e recarregar (ou voltar pelo historico) reabre o formulario, e o
+   * endereco que o operador copia da barra leva outra pessoa direto para dentro
+   * de um formulario de escrita.
+   */
+  const edicaoAbertaPelaUrl = useRef(false);
+  useEffect(() => {
+    if (edicaoAbertaPelaUrl.current) return;
+    const p = data?.provider;
+    if (!p) return;
+    if (new URLSearchParams(window.location.search).get("editar") !== "1") return;
+    edicaoAbertaPelaUrl.current = true;
+    /* Passa pela MESMA porta do botao — releitura inclusive. Chegar por
+       `?editar=1` nao garante leitura nova: voltar pelo historico serve a ficha
+       do cache, e era dela que o formulario nasceria. */
+    void abrirEdicao();
+    navigate(`/admin/provedor/${providerId}`, { replace: true });
+  }, [data, providerId, navigate]);
+
+  /**
+   * O PATCH da ficha — a unica chamada da tela que NAO passa por `apiRequest`.
+   *
+   * `apiRequest` consome a resposta e devolve so `message` e `status`; o `errors`
+   * do 400, que e o unico lugar onde o servidor diz QUAL dos dezessete campos
+   * reprovou, morre no caminho. Com cinco campos dava para procurar na mao; com
+   * dezessete, "Dados invalidos" num toast e um beco: o PATCH e tudo ou nada,
+   * entao nada gravou e nada diz por que.
+   *
+   * A ida direta ao `fetch` custa uma repeticao — o desvio do 401, que
+   * `apiRequest` faz por todo mundo. Ela e feita de proposito aqui: sessao
+   * expirada tem de levar ao login em qualquer rota, e nao ha caminho para
+   * pegar o corpo do erro passando pelo helper.
+   */
   const editMutation = useMutation({
-    mutationFn: async (body: any) => {
-      const res = await apiRequest("PATCH", `/api/admin/providers/${providerId}`, body);
-      if (!res.ok) throw new Error((await res.json()).message);
-      return res.json();
+    mutationFn: async (body: Record<string, string | null>) => {
+      const res = await fetch(`/api/admin/providers/${providerId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        credentials: "include",
+      });
+      if (res.status === 401) {
+        if (window.location.pathname !== "/login") window.location.href = "/login";
+        throw new Error("Sessão expirada. Faça login novamente.");
+      }
+      // Corpo que nao e JSON (HTML de proxy, texto do Express) nao pode derrubar
+      // a leitura do erro: a mensagem generica ainda e melhor que uma excecao de
+      // parse chegando ao operador como "Unexpected token <".
+      const corpo = await res.json().catch(() => null);
+      if (!res.ok) {
+        const erro = new Error(corpo?.message || `Erro ${res.status}`) as Error & {
+          status: number;
+          campos: Partial<Record<keyof CadastroProvedor, string>>;
+        };
+        erro.status = res.status;
+        /**
+         * O `errors` do servidor VEM PRIMEIRO, inclusive no 409.
+         *
+         * O handler passou a mandar `errors: { cnpj: [frase] }` / `{ subdomain }`
+         * junto do 409 exatamente para a tela nao ter de adivinhar. Adivinhar
+         * pelo texto erra de um jeito silencioso: a frase do conflito de
+         * subdominio carrega o NOME do outro provedor, entao um provedor
+         * chamado "CNPJ Solucoes" faz o teste `inclui("cnpj")` casar primeiro e
+         * o erro ser pintado debaixo da caixa do CNPJ, que esta correta,
+         * enquanto o subdominio — o culpado — fica limpo.
+         *
+         * `camposDoConflito` fica so como queda, para o caso de a tela nova
+         * conversar com um servidor que ainda nao manda `errors`.
+         */
+        const doServidor = errosDoServidorNaResposta(corpo);
+        erro.campos = Object.keys(doServidor).length > 0
+          ? doServidor
+          : (res.status === 409 ? camposDoConflito(corpo?.message) : {});
+        throw erro;
+      }
+      return corpo;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "detail"] });
+      /* A LISTA TAMBEM MUDOU. A edicao passou a mexer em nome, nome fantasia e
+         cidade — tres colunas que a lista de provedores e a gaveta exibem. Sem
+         esta linha o superadmin corrige a razao social, volta para a lista e le
+         o nome antigo, que e o jeito mais rapido de fazer alguem salvar duas
+         vezes. `planMutation` e `statusMutation` ja faziam isso. */
+      qc.invalidateQueries({ queryKey: ["/api/admin/providers"] });
       setEditMode(false);
+      setErrosVisiveis(false);
+      setErrosDoServidor({});
       toast({ title: "Provedor atualizado" });
     },
-    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+    /* 409 e o unico desfecho que a tela nao tem como prever: CNPJ e subdominio
+       sao UNIQUE, e quem ja tem o valor e outra linha do banco. A frase do
+       servidor nomeia o provedor dono do valor — repeti-la e melhor que uma
+       generica, porque e ela que diz ONDE resolver o conflito.
+
+       E ela nao fica so no toast, que some: vai para a CAIXA do campo culpado,
+       junto das frases do 400. Um toast lido e esquecido deixa o operador
+       reabrindo a ficha sem saber onde estava o conflito. */
+    onError: (e: any) => {
+      const campos: Partial<Record<keyof CadastroProvedor, string>> = e?.campos ?? {};
+      setErrosDoServidor(campos);
+      const apontados = Object.keys(campos).length;
+      toast({
+        title: e?.status === 409 ? "Valor já usado por outro provedor" : "Erro ao salvar",
+        description: apontados
+          ? `${e?.message} A frase de cada campo recusado está sob a caixa dele.`
+          : e?.message,
+        variant: "destructive",
+      });
+    },
   });
 
   const planMutation = useMutation({
@@ -435,6 +1012,44 @@ export default function AdminProvedorPage() {
   const situacao = SITUACAO_PROVEDOR[provider.status] ?? SITUACAO_DESCONHECIDA;
 
   /**
+   * A conferencia do cadastro (o KYC) so aparecia na fila de Cadastros. Quem
+   * abre a ficha para corrigir o CNPJ precisa saber se aquele cadastro ja foi
+   * aprovado — e o mapa e o mesmo da fila, para as duas telas nao divergirem.
+   * Valor fora dos tres conhecidos diz que nao sabe, e nunca o identificador cru.
+   */
+  const conferencia = VERIFICATION_LABELS[provider.verificationStatus] ?? {
+    label: "Conferência desconhecida",
+    tom: "neutro" as TomSelo,
+  };
+
+  /**
+   * O endereco numa linha. Cada pedaco ausente some junto com o separador:
+   * "— /" e o que sobra quando se junta campo vazio, e nao e informacao.
+   *
+   * O NUMERO E A UF SAO MONO TABULAR (secao 2 e 6). Os dois ja saem assim nas
+   * caixas do formulario; a linha de leitura os imprimia em Inter, ao lado de um
+   * CEP mono na linha de cima — o mesmo dado com duas tipografias na mesma
+   * ficha. Rua, complemento e bairro sao prosa e ficam como estao.
+   */
+  const enderecoDoProvedor = (() => {
+    const logradouro: React.ReactNode[] = [];
+    if (provider.addressStreet) logradouro.push(provider.addressStreet);
+    if (provider.addressNumber) logradouro.push(<Num key="numero">{provider.addressNumber}</Num>);
+
+    const cidadeUf: React.ReactNode[] = [];
+    if (provider.addressCity) cidadeUf.push(provider.addressCity);
+    if (provider.addressState) cidadeUf.push(<Num key="uf">{provider.addressState}</Num>);
+
+    const partes: React.ReactNode[] = [];
+    if (logradouro.length) partes.push(juntarPedacos(logradouro, ", "));
+    if (provider.addressComplement) partes.push(provider.addressComplement);
+    if (provider.addressNeighborhood) partes.push(provider.addressNeighborhood);
+    if (cidadeUf.length) partes.push(juntarPedacos(cidadeUf, "/"));
+
+    return partes.length ? juntarPedacos(partes, " — ") : "—";
+  })();
+
+  /**
    * "de N do plano" so quando o plano DECLARA credito incluso. O card dizia
    * "de 500 do plano" para o Profissional, que hoje nao inclui nenhum — a
    * consulta na rede se paga por credito. Sem tabela nao ha o que afirmar.
@@ -463,17 +1078,184 @@ export default function AdminProvedorPage() {
   /** Sem tabela nao ha valor confiavel para gravar numa fatura. */
   const podeEmitirFatura = Boolean(precos);
 
-  const startEdit = () => {
-    setEditForm({
-      name: provider.name || "",
-      contactEmail: provider.contactEmail || "",
-      contactPhone: provider.contactPhone || "",
-      website: provider.website || "",
-      subdomain: provider.subdomain || "",
+  const startEdit = () => { void abrirEdicao(); };
+
+  /** Um campo do cadastro. Enquanto os erros estao a vista, eles se atualizam a
+   *  cada tecla — a frase some no instante em que o campo fica valido. */
+  const mudarCampo = (campo: keyof CadastroProvedor, valor: string) => {
+    setCadastro(c => ({ ...c, [campo]: valor }));
+    /* A recusa do servidor e sobre o valor que FOI ENVIADO. No instante em que
+       o operador mexe na caixa, ela deixa de descrever o que esta la — e uma
+       frase que nao sai mais ensina a ignorar a proxima. A chave e REMOVIDA, e
+       nao zerada: `undefined` continuaria contando em `Object.keys`. */
+    setErrosDoServidor(atuais => {
+      if (!(campo in atuais)) return atuais;
+      const resto = { ...atuais };
+      delete resto[campo];
+      return resto;
     });
-    setActiveTab("geral");
-    setEditMode(true);
   };
+
+  const errosCadastro = errosDoCadastro(cadastro, cadastroOriginal);
+  const temErros = Object.keys(errosCadastro).length > 0;
+  const camposRecusadosPeloServidor = Object.keys(errosDoServidor).length;
+  /** A frase local primeiro: ela e a que se atualiza a cada tecla. A do servidor
+   *  entra quando a tela nao tem nada a dizer sobre aquele campo — que e
+   *  exatamente o caso em que ela e a unica informacao existente. */
+  const erroDe = (campo: keyof CadastroProvedor) =>
+    (errosVisiveis ? errosCadastro[campo] : undefined) ?? errosDoServidor[campo];
+
+  /**
+   * A ficha da Receita entra no formulario, e NAO no banco.
+   *
+   * Preenche e pede revisao — nunca salva sozinho. O que a Receita traz
+   * substitui, o que ela nao traz fica como esta (a regra vive em
+   * `aplicarEmpresaPublica`), entao um CNPJ consultado por engano nao apaga
+   * telefone e site que o provedor informou.
+   *
+   * A rota e a do SUPERADMIN. `GET /api/provider/cnpj` le
+   * `req.session.providerId`, que num superadmin nao existe.
+   */
+  const buscarNaReceita = async () => {
+    const digitos = cnpjCru(cadastro.cnpj);
+    if (digitos.length !== 14) {
+      setErrosVisiveis(true);
+      setBuscaCnpj({ estado: "erro", frase: "Informe os 14 dígitos do CNPJ antes de buscar." });
+      return;
+    }
+    setBuscaCnpj({ estado: "buscando" });
+    try {
+      const res = await apiRequest("GET", `/api/admin/cnpj/${digitos}`);
+      const dados = await res.json();
+      setCadastro(c => aplicarEmpresaPublica(c, dados));
+      setBuscaCnpj({ estado: "ok", situacao: dados?.situacao });
+    } catch (e: any) {
+      /* Repetir a frase do servidor: "as três fontes recusaram, tente em alguns
+         minutos" e "CNPJ não encontrado em nenhuma fonte" pedem ações diferentes. */
+      setBuscaCnpj({
+        estado: "erro",
+        frase: e?.message || "A Receita não respondeu. Tente novamente em alguns minutos.",
+      });
+    }
+  };
+
+  /**
+   * O endereco do CEP, uma vez por CEP.
+   *
+   * `forcar` existe para o botao: quem clica quer consultar de novo o mesmo CEP
+   * (a primeira tentativa caiu, ou o operador desfez o preenchimento na mao).
+   */
+  const buscarCep = async (digitos: string, forcar = false) => {
+    if (digitos.length !== 8) return;
+    if (!forcar && cepJaBuscado.current === digitos) return;
+    cepJaBuscado.current = digitos;
+    /* SO A ULTIMA BUSCA VALE. A trava acima evita repetir o MESMO CEP — nao
+       evita duas buscas DIFERENTES no ar ao mesmo tempo, que e o que acontece
+       quando o operador corrige o CEP logo depois de digitar um errado. Se a
+       primeira demorar mais que a segunda, ela chega por ultimo e grava a rua do
+       CEP ANTERIOR sob o CEP novo: o endereco fica errado e a tela diz
+       "Endereço preenchido pelo CEP". O numero do pedido e o desempate. */
+    const meuPedido = ++pedidoDeCep.current;
+    setBuscaCep("buscando");
+    try {
+      /* Chamada imperativa e de uma vez so, disparada por acao do operador — nao
+         e estado de servidor para cachear, e o ViaCEP e de terceiro. Mesmo
+         caminho do painel do provedor e da barra de consulta. */
+      const resp = await fetch(`https://viacep.com.br/ws/${digitos}/json/`);
+      const dados = await resp.json();
+      if (meuPedido !== pedidoDeCep.current) return;
+      if (dados?.erro) { setBuscaCep("vazio"); return; }
+      setCadastro(c => aplicarViaCep(c, dados));
+      setBuscaCep("ok");
+    } catch {
+      // A falha de uma busca vencida tambem nao fala pela tela: ela reportaria
+      // "a busca não respondeu" por cima de um endereço que a busca atual acabou
+      // de preencher.
+      if (meuPedido !== pedidoDeCep.current) return;
+      setBuscaCep("erro");
+    }
+  };
+
+  const mudarCep = (valor: string) => {
+    const digitos = cepCru(valor);
+    mudarCampo("addressZip", digitos);
+    if (digitos.length === 8) void buscarCep(digitos);
+    else setBuscaCep("ocioso");
+  };
+
+  /**
+   * O salvamento e TUDO OU NADA do lado do servidor: um campo invalido derruba o
+   * PATCH inteiro e leva as outras dezesseis correcoes junto. Por isso a tela
+   * para aqui e mostra as frases, em vez de mandar e traduzir um "Dados
+   * invalidos" que nao diz qual dos dezessete campos reprovou.
+   *
+   * E o corpo leva SO O QUE MUDOU, comparado com o cadastro que a edicao releu
+   * ao abrir. Mandar as dezessete colunas fazia deste formulario uma ordem de
+   * gravacao sobre o retrato de quando a tela abriu — o superadmin desfazia, sem
+   * ver, o que o provedor tivesse acabado de gravar no painel dele.
+   */
+  const salvarCadastro = () => {
+    if (temErros) {
+      setErrosVisiveis(true);
+      toast({
+        title: "Confira os campos destacados",
+        description: "A ficha é gravada de uma vez só: um campo inválido cancela as outras correções junto.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const corpo = corpoDoPatch(cadastro, cadastroOriginal);
+    /* Corpo vazio nao vai. O servidor responde 400 "Nenhum campo para alterar" a
+       um PATCH sem colunas — o operador leria "Erro ao salvar" por ter aberto e
+       fechado a ficha sem mexer em nada. Fechar dizendo que nada mudou e a
+       resposta honesta. */
+    if (Object.keys(corpo).length === 0) {
+      setEditMode(false);
+      setErrosVisiveis(false);
+      setErrosDoServidor({});
+      toast({
+        title: "Nada mudou no cadastro",
+        description: "Nenhum campo foi alterado, então não havia o que gravar.",
+      });
+      return;
+    }
+    editMutation.mutate(corpo);
+  };
+
+  /** Os dois botoes do formulario, repetidos no topo e no fim. */
+  const acoesDaEdicao = (sufixo: "" | "-fim") => (
+    <div className="flex items-center gap-2 flex-none">
+      <button
+        type="button"
+        className={cn(BOTAO_SECUNDARIO, sufixo === "" && CAIXA_ICONE)}
+        onClick={() => { sessaoDeEdicao.current++; setEditMode(false); setReleituraDoCadastro("ocioso"); setErrosDoServidor({}); }}
+        aria-label={sufixo === "" ? "Cancelar edição" : undefined}
+        data-testid={`button-cancel-edit${sufixo}`}
+      >
+        <X className="w-3.5 h-3.5" strokeWidth={2} />
+        {sufixo === "" ? null : "Cancelar"}
+      </button>
+      {/* NAO HA SALVAR SOBRE DADO VELHO. Enquanto a releitura corre, o
+          formulario ainda mostra o cadastro anterior; se ela falhou, ele nunca
+          vai mostrar outro. Nos dois casos gravar dali e reescrever o cadastro
+          com um retrato — que e o defeito que a releitura existe para fechar.
+          Travado enquanto le (o rotulo diz o que falta), ausente quando falhou:
+          um botao permanentemente travado no fim de um formulario de dezessete
+          campos nao explica nada; a saida esta no aviso, com "Tentar de novo". */}
+      {releituraDoCadastro !== "erro" && (
+        <button
+          type="button"
+          className={cn(BOTAO_MARCA, DESABILITAVEL)}
+          onClick={salvarCadastro}
+          disabled={editMutation.isPending || !cadastroPronto}
+          data-testid={`button-save-edit${sufixo}`}
+        >
+          <Save className="w-3.5 h-3.5" strokeWidth={2} />
+          {editMutation.isPending ? "Salvando..." : cadastroPronto ? "Salvar" : "Lendo o cadastro..."}
+        </button>
+      )}
+    </div>
+  );
 
   const startPlanChange = () => {
     setPlanForm({ plan: provider.plan, notes: "" });
@@ -528,9 +1310,17 @@ export default function AdminProvedorPage() {
             }
             acoes={
               <>
-                <button type="button" className={BOTAO_SECUNDARIO} onClick={startEdit} data-testid="button-edit-provider">
-                  <Edit2 className="w-3.5 h-3.5" strokeWidth={2} /> Editar
-                </button>
+                {/* SOME DURANTE A EDICAO. Ele continuava clicavel com o
+                    formulario aberto, e clicar RECOMECA a ficha do zero: o
+                    operador rola ate o topo, ve "Editar" e clica achando que e
+                    inofensivo — e perde dezessete campos preenchidos, sem aviso
+                    e sem desfazer. Quem ja esta editando nao tem o que fazer com
+                    ele; salvar e cancelar estao no cartao, no topo e no fim. */}
+                {!editMode && (
+                  <button type="button" className={BOTAO_SECUNDARIO} onClick={startEdit} data-testid="button-edit-provider">
+                    <Edit2 className="w-3.5 h-3.5" strokeWidth={2} /> Editar
+                  </button>
+                )}
                 <button type="button" className={BOTAO_SECUNDARIO} onClick={startPlanChange} data-testid="button-change-plan">
                   <Star className="w-3.5 h-3.5" strokeWidth={2} /> Plano
                 </button>
@@ -636,70 +1426,401 @@ export default function AdminProvedorPage() {
         {/* TAB: GERAL */}
         <TabsContent value="geral">
           {editMode ? (
-            <Card>
+            <Card data-testid="card-editar-cadastro">
               <TopoCartao
-                titulo="Editar informações"
+                titulo="Editar cadastro"
+                sub="Plano, créditos e situação não estão aqui: cada um tem botão próprio, no topo da ficha."
                 Icone={Edit2}
-                acao={
-                  <div className="flex items-center gap-2 flex-none">
-                    <button
-                      type="button"
-                      className={cn(BOTAO_SECUNDARIO, CAIXA_ICONE)}
-                      onClick={() => setEditMode(false)}
-                      aria-label="Cancelar edição"
-                      data-testid="button-cancel-edit"
-                    >
-                      <X className="w-3.5 h-3.5" strokeWidth={2} />
-                    </button>
-                    <button
-                      type="button"
-                      className={cn(BOTAO_MARCA, DESABILITAVEL)}
-                      onClick={() => editMutation.mutate(editForm)}
-                      disabled={editMutation.isPending}
-                      data-testid="button-save-edit"
-                    >
-                      <Save className="w-3.5 h-3.5" strokeWidth={2} />
-                      {editMutation.isPending ? "Salvando..." : "Salvar"}
-                    </button>
-                  </div>
-                }
+                acao={acoesDaEdicao("")}
               />
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-4 py-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-name">Nome</Label>
-                  <Input id="edit-name" value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} data-testid="input-edit-name" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-subdomain">Subdomínio</Label>
-                  <Input id="edit-subdomain" value={editForm.subdomain} onChange={e => setEditForm(f => ({ ...f, subdomain: e.target.value }))} data-testid="input-edit-subdomain" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-email">E-mail de contato</Label>
-                  <Input id="edit-email" type="email" value={editForm.contactEmail} onChange={e => setEditForm(f => ({ ...f, contactEmail: e.target.value }))} data-testid="input-edit-email" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-phone">Telefone</Label>
-                  <Input id="edit-phone" value={editForm.contactPhone} onChange={e => setEditForm(f => ({ ...f, contactPhone: e.target.value }))} data-testid="input-edit-phone" />
-                </div>
-                <div className="space-y-1.5 md:col-span-2">
-                  <Label htmlFor="edit-website">Site</Label>
-                  <Input id="edit-website" value={editForm.website} onChange={e => setEditForm(f => ({ ...f, website: e.target.value }))} data-testid="input-edit-website" />
+              <div className="px-4 py-4 space-y-4">
+                {/* A EDICAO NASCE DO DADO DE AGORA. Enquanto a releitura corre,
+                    as caixas ainda mostram o cadastro anterior — e é isso que o
+                    aviso diz, em vez de deixar o operador digitar por cima de um
+                    retrato achando que é o valor atual. */}
+                {releituraDoCadastro === "lendo" && (
+                  <p
+                    role="status"
+                    className="flex items-center gap-2 rounded border border-[var(--info-border)] bg-[var(--info-bg)] px-3 py-2 text-[12.5px] text-[var(--info)]"
+                    data-testid="aviso-relendo-cadastro"
+                  >
+                    <RefreshCw className="w-4 h-4 flex-none motion-safe:animate-spin" strokeWidth={2} aria-hidden />
+                    <span>Lendo o cadastro atual antes de editar. Os campos abaixo ainda são os da abertura da ficha.</span>
+                  </p>
+                )}
+
+                {releituraDoCadastro === "erro" && (
+                  <AvisoNaoCarregou
+                    aoTentarDeNovo={() => { void abrirEdicao(); }}
+                    testId="erro-releitura-cadastro"
+                  >
+                    Não foi possível reler o cadastro. Os campos abaixo são do momento em que a ficha
+                    abriu — gravá-los desfaria o que o provedor tenha alterado depois disso, então
+                    salvar está indisponível até a leitura voltar.
+                  </AvisoNaoCarregou>
+                )}
+
+                {/* O QUE O SERVIDOR RECUSOU. A frase de cada campo vai na caixa
+                    dele; este aviso só diz, em português, quantos são e onde
+                    procurar — a frase do servidor pode vir em inglês, e reescrevê-la
+                    seria adivinhar o motivo da recusa. */}
+                {camposRecusadosPeloServidor > 0 && (
+                  <p
+                    role="alert"
+                    className="flex items-center gap-2 rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2 text-[12.5px] text-[var(--danger)]"
+                    data-testid="aviso-erros-servidor"
+                  >
+                    <AlertTriangle className="w-4 h-4 flex-none" strokeWidth={2} aria-hidden />
+                    <span>
+                      O servidor recusou <Num>{camposRecusadosPeloServidor}</Num>{" "}
+                      {camposRecusadosPeloServidor === 1
+                        ? "campo. A frase dele está sob a caixa, como o servidor a escreveu."
+                        : "campos. A frase de cada um está sob a caixa, como o servidor a escreveu."}
+                    </span>
+                  </p>
+                )}
+
+                {errosVisiveis && temErros && (
+                  <p
+                    role="alert"
+                    className="flex items-center gap-2 rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2 text-[12.5px] text-[var(--danger)]"
+                    data-testid="aviso-erros-cadastro"
+                  >
+                    <AlertTriangle className="w-4 h-4 flex-none" strokeWidth={2} aria-hidden />
+                    <span>
+                      <Num>{Object.keys(errosCadastro).length}</Num>{" "}
+                      {Object.keys(errosCadastro).length === 1
+                        ? "campo precisa de correção antes de salvar."
+                        : "campos precisam de correção antes de salvar."}
+                    </span>
+                  </p>
+                )}
+
+                {/* AS CAIXAS FICAM TRAVADAS ENQUANTO A RELEITURA CORRE.
+                    O aviso logo acima diz que o cadastro está sendo relido, mas
+                    aviso não impede ninguém de digitar — e a ficha abre já na
+                    aba Geral, com o cursor a um clique das caixas. Quem começa
+                    a preencher antes de a resposta voltar perde tudo sem toast e
+                    sem desfazer: `prepararEdicao` re-hidrata o formulário com a
+                    leitura nova e apaga o que foi digitado.
+
+                    `fieldset` e não um `disabled` por campo: são dezessete
+                    caixas, dois seletores e dois botões de busca, e a trava
+                    nativa alcança todos de uma vez — inclusive o que for
+                    acrescentado depois. Cancelar e Salvar ficam FORA: travar o
+                    Cancelar seria prender o operador dentro de uma edição que
+                    ele já desistiu de fazer. */}
+                <fieldset disabled={!cadastroPronto} className="min-w-0 border-0 p-0 m-0 space-y-4">
+                {/* O CNPJ VEM PRIMEIRO porque é dele que sai o resto: a busca
+                    na Receita preenche razão social, nome fantasia, tipo
+                    societário, data de abertura, contato e endereço de uma vez.
+                    É a mesma ordem do cadastro (passo 1 do NewProviderWizard). */}
+                <BlocoCadastro Icone={IdCard} titulo="Identificação">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* O estado guarda o CNPJ CRU; a máscara é só de exibição.
+                        Guardar mascarado é 400 na hora — a coluna é de 14 dígitos. */}
+                    <CampoCadastro
+                      id="input-edit-cnpj"
+                      rotulo="CNPJ"
+                      mono
+                      className="sm:col-span-2"
+                      placeholder="00.000.000/0000-00"
+                      valor={cnpjMascarado(cadastro.cnpj)}
+                      aoMudar={v => mudarCampo("cnpj", cnpjCru(v))}
+                      erro={erroDe("cnpj")}
+                      acao={
+                        <button
+                          type="button"
+                          className={cn(BOTAO_SECUNDARIO, DESABILITAVEL, "flex-none")}
+                          onClick={buscarNaReceita}
+                          disabled={buscaCnpj.estado === "buscando"}
+                          data-testid="button-buscar-cnpj"
+                        >
+                          {buscaCnpj.estado === "buscando" ? (
+                            <RefreshCw className="w-3.5 h-3.5 motion-safe:animate-spin" strokeWidth={2} aria-hidden />
+                          ) : (
+                            <Search className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />
+                          )}
+                          Buscar na Receita
+                        </button>
+                      }
+                      dica={
+                        buscaCnpj.estado === "buscando"
+                          ? "Consultando o cadastro da Receita Federal..."
+                          : buscaCnpj.estado === "ok"
+                            ? "Ficha preenchida com o cadastro da Receita Federal. Revise e salve."
+                            : undefined
+                      }
+                    />
+                    {/* A busca NUNCA salva sozinha: preenche e pede revisão. */}
+                    {buscaCnpj.estado === "erro" && buscaCnpj.frase && (
+                      <p className="sm:col-span-2 text-[11.5px] text-[var(--danger)]" role="alert" data-testid="erro-busca-cnpj">
+                        {buscaCnpj.frase}
+                      </p>
+                    )}
+                    {/* A situação cadastral sai como a Receita a escreve: é o termo
+                        dela, público e em português, e traduzir mudaria o fato. A
+                        COMPARAÇÃO, essa, é normalizada (`situacaoRegular`): era
+                        `!== "ATIVA"` letra por letra, e a terceira fonte escreve
+                        "Ativa" — a ficha acusava irregularidade de empresa regular
+                        justamente quando as duas primeiras fontes recusavam. */}
+                    {buscaCnpj.estado === "ok" && buscaCnpj.situacao && !situacaoRegular(buscaCnpj.situacao) && (
+                      <p
+                        role="status"
+                        className="sm:col-span-2 flex items-center gap-2 rounded border border-[var(--gated-border)] bg-[var(--gated-bg)] px-3 py-2 text-[12px] text-[var(--gated)]"
+                        data-testid="aviso-situacao-cnpj"
+                      >
+                        <AlertTriangle className="w-4 h-4 flex-none" strokeWidth={2} aria-hidden />
+                        Situação cadastral na Receita Federal:{" "}
+                        <strong className="font-mono font-medium uppercase tracking-[var(--track-wide)]">
+                          {buscaCnpj.situacao}
+                        </strong>
+                      </p>
+                    )}
+                    <CampoCadastro
+                      id="input-edit-name"
+                      rotulo="Razão social"
+                      className="sm:col-span-2"
+                      valor={cadastro.name}
+                      aoMudar={v => mudarCampo("name", v)}
+                      erro={erroDe("name")}
+                    />
+                    <CampoCadastro
+                      id="input-edit-trade-name"
+                      rotulo="Nome fantasia"
+                      valor={cadastro.tradeName}
+                      aoMudar={v => mudarCampo("tradeName", v)}
+                      erro={erroDe("tradeName")}
+                    />
+                    <SelecaoCadastro
+                      id="input-edit-legal-type"
+                      rotulo="Tipo societário"
+                      valor={cadastro.legalType}
+                      aoMudar={v => mudarCampo("legalType", v)}
+                      opcoes={opcoesComValorAtual(TIPOS_SOCIETARIOS, cadastro.legalType)}
+                    />
+                    {/* Campo de TEXTO, e não `type="date"`. A coluna é TEXT: um
+                        valor gravado fora do ISO (dd/mm/aaaa de uma importação
+                        antiga) desaparece da caixa de data sem aviso, e o
+                        primeiro salvamento o apagaria do banco. Em texto o
+                        operador vê o que está lá e pode corrigir. */}
+                    <CampoCadastro
+                      id="input-edit-opening-date"
+                      rotulo="Data de abertura"
+                      mono
+                      placeholder="AAAA-MM-DD"
+                      maxLength={20}
+                      valor={cadastro.openingDate}
+                      aoMudar={v => mudarCampo("openingDate", v)}
+                      erro={erroDe("openingDate")}
+                    />
+                    <SelecaoCadastro
+                      id="input-edit-segment"
+                      rotulo="Segmento"
+                      valor={cadastro.businessSegment}
+                      aoMudar={v => mudarCampo("businessSegment", v)}
+                      opcoes={opcoesComValorAtual(SEGMENTOS, cadastro.businessSegment)}
+                    />
+                  </div>
+                </BlocoCadastro>
+
+                <BlocoCadastro Icone={Mail} titulo="Contato">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <CampoCadastro
+                      id="input-edit-email"
+                      rotulo="E-mail de contato"
+                      tipo="email"
+                      placeholder="contato@provedor.com.br"
+                      valor={cadastro.contactEmail}
+                      aoMudar={v => mudarCampo("contactEmail", v)}
+                      erro={erroDe("contactEmail")}
+                    />
+                    <CampoCadastro
+                      id="input-edit-phone"
+                      rotulo="Telefone"
+                      mono
+                      placeholder="(00) 00000-0000"
+                      valor={cadastro.contactPhone}
+                      aoMudar={v => mudarCampo("contactPhone", v)}
+                      erro={erroDe("contactPhone")}
+                    />
+                    <CampoCadastro
+                      id="input-edit-website"
+                      rotulo="Site"
+                      className="sm:col-span-2"
+                      placeholder="https://provedor.com.br"
+                      valor={cadastro.website}
+                      aoMudar={v => mudarCampo("website", v)}
+                      erro={erroDe("website")}
+                      dica="Sem o https:// na frente, ele é completado ao salvar."
+                    />
+                  </div>
+                </BlocoCadastro>
+
+                <BlocoCadastro Icone={MapPin} titulo="Endereço">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                    {/* A consulta sai sozinha quando há 8 dígitos, e uma vez por
+                        CEP. O botão existe para repetir a mesma consulta — a
+                        primeira pode ter caído, ou o operador desfez o
+                        preenchimento na mão. */}
+                    <CampoCadastro
+                      id="input-edit-zip"
+                      rotulo="CEP"
+                      mono
+                      placeholder="00000-000"
+                      valor={cepMascarado(cadastro.addressZip)}
+                      aoMudar={mudarCep}
+                      erro={erroDe("addressZip")}
+                      acao={
+                        <button
+                          type="button"
+                          className={cn(BOTAO_SECUNDARIO, CAIXA_ICONE, DESABILITAVEL, "flex-none")}
+                          onClick={() => buscarCep(cepCru(cadastro.addressZip), true)}
+                          disabled={buscaCep === "buscando" || cepCru(cadastro.addressZip).length !== 8}
+                          aria-label="Buscar endereço do CEP"
+                          data-testid="button-buscar-cep"
+                        >
+                          {buscaCep === "buscando" ? (
+                            <RefreshCw className="w-3.5 h-3.5 motion-safe:animate-spin" strokeWidth={2} aria-hidden />
+                          ) : (
+                            <Search className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />
+                          )}
+                        </button>
+                      }
+                      dica={
+                        buscaCep === "buscando" ? "Buscando o endereço..."
+                          : buscaCep === "ok" ? "Endereço preenchido pelo CEP."
+                            : buscaCep === "vazio" ? "CEP não encontrado. Preencha o endereço à mão."
+                              : buscaCep === "erro" ? "A busca de CEP não respondeu. Preencha à mão."
+                                : undefined
+                      }
+                    />
+                    <CampoCadastro
+                      id="input-edit-street"
+                      rotulo="Logradouro"
+                      className="sm:col-span-2"
+                      valor={cadastro.addressStreet}
+                      aoMudar={v => mudarCampo("addressStreet", v)}
+                      erro={erroDe("addressStreet")}
+                    />
+                    <CampoCadastro
+                      id="input-edit-number"
+                      rotulo="Número"
+                      mono
+                      valor={cadastro.addressNumber}
+                      aoMudar={v => mudarCampo("addressNumber", v)}
+                      erro={erroDe("addressNumber")}
+                    />
+                    <CampoCadastro
+                      id="input-edit-complement"
+                      rotulo="Complemento"
+                      valor={cadastro.addressComplement}
+                      aoMudar={v => mudarCampo("addressComplement", v)}
+                      erro={erroDe("addressComplement")}
+                    />
+                    <CampoCadastro
+                      id="input-edit-neighborhood"
+                      rotulo="Bairro"
+                      valor={cadastro.addressNeighborhood}
+                      aoMudar={v => mudarCampo("addressNeighborhood", v)}
+                      erro={erroDe("addressNeighborhood")}
+                    />
+                    <CampoCadastro
+                      id="input-edit-city"
+                      rotulo="Cidade"
+                      valor={cadastro.addressCity}
+                      aoMudar={v => mudarCampo("addressCity", v)}
+                      erro={erroDe("addressCity")}
+                    />
+                    {/* A UF sobe para maiúscula no ATO, e não por CSS: a classe
+                        `uppercase` mostraria "MG" com "mg" guardado, e a caixa
+                        estaria mentindo sobre o valor. Subir de verdade também
+                        casa com o que `corpoDoPatch` grava. */}
+                    <CampoCadastro
+                      id="input-edit-state"
+                      rotulo="UF"
+                      mono
+                      maxLength={2}
+                      valor={cadastro.addressState}
+                      aoMudar={v => mudarCampo("addressState", v.toUpperCase())}
+                      erro={erroDe("addressState")}
+                    />
+                  </div>
+                </BlocoCadastro>
+
+                <BlocoCadastro Icone={Globe} titulo="Plataforma">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <CampoCadastro
+                      id="input-edit-subdomain"
+                      rotulo="Subdomínio"
+                      mono
+                      valor={cadastro.subdomain}
+                      aoMudar={v => mudarCampo("subdomain", v)}
+                      erro={erroDe("subdomain")}
+                      dica={
+                        cadastro.subdomain.trim()
+                          ? `${cadastro.subdomain.trim().toLowerCase()}.consultaisp.com.br`
+                          : "Sem subdomínio o provedor entra pelo endereço principal."
+                      }
+                    />
+                  </div>
+                </BlocoCadastro>
+                </fieldset>
+
+                {/* OS BOTÕES DE NOVO, NO FIM. Os do `TopoCartao` saem da tela
+                    assim que se rola um formulário de dezessete campos, e o
+                    operador termina de preencher aqui embaixo. */}
+                <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] pt-3">
+                  {acoesDaEdicao("-fim")}
                 </div>
               </div>
             </Card>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {/* O CARTÃO MOSTRA O QUE O FORMULÁRIO EDITA.
+                  Ele exibia sete linhas, e nome fantasia, tipo societário, data
+                  de abertura, segmento, endereço e a conferência do cadastro não
+                  apareciam em lugar nenhum da ficha — nem em leitura. O
+                  superadmin não tinha como conferir o que acabara de corrigir.
+                  Duas colunas porque dezessete campos em coluna única deixariam
+                  este cartão com o dobro da altura do "Plano e créditos". */}
               <Card>
-                <TopoCartao titulo="Cadastro" Icone={Building2} />
-                <div className="px-4 py-2">
-                  <InfoRow label="Razão social" value={provider.name} icon={Building2} />
-                  <InfoRow label="CNPJ" value={provider.cnpj} icon={FileText} mono />
-                  <InfoRow label="Subdomínio" value={provider.subdomain ? `${provider.subdomain}.consultaisp.com.br` : "Não configurado"} icon={Globe} mono={!!provider.subdomain} />
-                  <InfoRow label="E-mail de contato" value={provider.contactEmail || "—"} icon={Mail} />
-                  <InfoRow label="Telefone" value={provider.contactPhone || "—"} icon={Phone} mono={!!provider.contactPhone} />
-                  <InfoRow label="Site" value={provider.website || "—"} icon={Globe} />
-                  <InfoRow label="Cadastrado em" value={fmtDate(provider.createdAt)} icon={Calendar} mono />
-                </div>
+                <TopoCartao titulo="Cadastro" Icone={Building2} acao={
+                  <button
+                    type="button"
+                    className={cn(BOTAO_SECUNDARIO, "flex-none")}
+                    onClick={startEdit}
+                    data-testid="button-edit-cadastro"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" strokeWidth={2} /> Editar
+                  </button>
+                } />
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3 px-4 py-3" data-testid="dados-cadastro">
+                  <DadoCadastro rotulo="Razão social" className="sm:col-span-2">{provider.name}</DadoCadastro>
+                  <DadoCadastro rotulo="Nome fantasia">{provider.tradeName || "—"}</DadoCadastro>
+                  <DadoCadastro rotulo="CNPJ" mono={!!provider.cnpj}>
+                    {provider.cnpj ? cnpjMascarado(provider.cnpj) : "—"}
+                  </DadoCadastro>
+                  <DadoCadastro rotulo="Tipo societário">{provider.legalType || "—"}</DadoCadastro>
+                  <DadoCadastro rotulo="Data de abertura" mono={!!provider.openingDate}>
+                    {fmtDataIso(provider.openingDate)}
+                  </DadoCadastro>
+                  <DadoCadastro rotulo="Segmento" className="sm:col-span-2">{provider.businessSegment || "—"}</DadoCadastro>
+                  <DadoCadastro rotulo="E-mail de contato" className="sm:col-span-2">{provider.contactEmail || "—"}</DadoCadastro>
+                  <DadoCadastro rotulo="Telefone" mono={!!provider.contactPhone}>{provider.contactPhone || "—"}</DadoCadastro>
+                  <DadoCadastro rotulo="Site">{provider.website || "—"}</DadoCadastro>
+                  <DadoCadastro rotulo="CEP" mono={!!provider.addressZip}>
+                    {provider.addressZip ? cepMascarado(provider.addressZip) : "—"}
+                  </DadoCadastro>
+                  <DadoCadastro rotulo="Endereço">{enderecoDoProvedor}</DadoCadastro>
+                  <DadoCadastro rotulo="Subdomínio" className="sm:col-span-2" mono={!!provider.subdomain}>
+                    {provider.subdomain ? `${provider.subdomain}.consultaisp.com.br` : "Não configurado"}
+                  </DadoCadastro>
+                  <DadoCadastro rotulo="Cadastrado em" mono>{fmtDate(provider.createdAt)}</DadoCadastro>
+                  <DadoCadastro rotulo="Conferência do cadastro">
+                    <Selo tom={conferencia.tom} testId="badge-conferencia">{conferencia.label}</Selo>
+                  </DadoCadastro>
+                </dl>
               </Card>
 
               <Card>
@@ -3196,33 +4317,7 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
 }
 
 
-/**
- * Par icone/rotulo/valor do cartao de cadastro.
- *
- * `mono` liga a fonte tabular para o que se le caractere a caractere — CNPJ,
- * telefone, data, endereco de subdominio (secao 2). Nome e site continuam em
- * Inter: sao texto, nao dado.
- */
-function InfoRow({
-  label,
-  value,
-  icon: Icon,
-  mono = false,
-}: {
-  label: string;
-  value: string;
-  icon: Icone;
-  mono?: boolean;
-}) {
-  return (
-    <div className="flex items-start gap-3 py-2 border-b border-[var(--border-faint)] last:border-0">
-      <Icon className="w-4 h-4 mt-0.5 flex-none text-[var(--text-faint)]" strokeWidth={2} />
-      <div className="min-w-0">
-        <p className="text-[12px] text-[var(--text-muted)]">{label}</p>
-        <p className={cn("text-[13px] font-medium text-[var(--text)] break-all", mono && "font-mono tabular-nums")}>
-          {value}
-        </p>
-      </div>
-    </div>
-  );
-}
+/* O `InfoRow` (icone + rotulo + valor, uma coluna) morava aqui e saiu com o
+   cartao que o usava. Ele tipava `value: string`, entao nao aceitava um `<Selo>`
+   — e a conferencia do cadastro precisa de um. Quem faz o par agora e
+   `DadoCadastro`, la em cima, que recebe ReactNode e monta duas colunas. */

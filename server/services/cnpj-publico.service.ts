@@ -41,6 +41,7 @@ export interface EmpresaPublica {
   bairro: string;
   cidade: string;
   uf: string;
+  /** Situacao cadastral em CAIXA ALTA — ver `situacaoCanonica`. Compare com "ATIVA". */
   situacao: string;
   socios: SocioPublico[];
   /** Qual fonte respondeu. Vai para o log e para o diagnostico, nao para a tela. */
@@ -180,6 +181,31 @@ export function semComplemento(bruto: string | null | undefined): string {
 }
 
 /**
+ * A situacao cadastral em CAIXA ALTA, que e a lingua que as telas ja falam.
+ *
+ * As tres fontes escrevem o mesmo fato de jeitos diferentes: a ReceitaWS e a
+ * BrasilAPI mandam "ATIVA", a Publica (cnpj.ws) manda "Ativa". Duas telas
+ * comparam por igualdade exata com "ATIVA" — a ficha do provedor
+ * (`admin-provedor.tsx`) e o `NewProviderWizard` —, entao cair na terceira
+ * fonte, o que acontece sempre que as duas primeiras respondem 429, pintava o
+ * aviso ambar de irregularidade para uma empresa perfeitamente regular. Quem le
+ * esse aviso e o superadmin, que pode REPROVAR ou SUSPENDER o provedor com base
+ * nele — e as duas acoes disparam e-mail, que nao da para voltar atras.
+ *
+ * A forma canonica e a CAIXA ALTA porque e a que as duas telas ja comparam e a
+ * que duas das tres fontes ja mandam: canonizar para "Ativa" obrigaria a mexer
+ * em codigo de outra frente, e o pill que mostra o valor ja renderiza com
+ * `uppercase` — ou seja, a caixa alta e o que o superadmin sempre viu na tela.
+ *
+ * NAO tira acento de proposito: as cinco situacoes da Receita (ATIVA, SUSPENSA,
+ * INAPTA, BAIXADA, NULA) nao tem nenhum, e inventar a regra aqui so criaria uma
+ * diferenca entre o que foi lido e o que e mostrado.
+ */
+export function situacaoCanonica(bruto: string | null | undefined): string {
+  return String(bruto ?? "").trim().replace(/\s+/g, " ").toUpperCase();
+}
+
+/**
  * A data de abertura em ISO (yyyy-mm-dd), que e o unico formato que um
  * `<input type="date">` aceita.
  *
@@ -231,15 +257,16 @@ export async function consultarCnpjPublico(cnpjBruto: string): Promise<EmpresaPu
         recusas.push(`${fonte.nome}:sem-razao-social`);
         continue;
       }
-      // As duas normalizacoes que valem para TODA fonte ficam aqui, e nao
-      // repetidas em cada parser: repetidas, uma delas fica de fora quando
-      // alguem acrescentar a quarta fonte — foi exatamente o que aconteceu com
-      // o complemento, que so a BrasilAPI e a Publica limpavam.
+      // As normalizacoes que valem para TODA fonte ficam aqui, e nao repetidas
+      // em cada parser: repetidas, uma delas fica de fora quando alguem
+      // acrescentar a quarta fonte — foi exatamente o que aconteceu com o
+      // complemento, que so a BrasilAPI e a Publica limpavam.
       const empresa: EmpresaPublica = {
         ...bruta,
         dataAbertura: dataEmIso(bruta.dataAbertura),
         complemento: semComplemento(bruta.complemento),
         naturezaJuridica: naturezaSemCodigo(bruta.naturezaJuridica),
+        situacao: situacaoCanonica(bruta.situacao),
       };
       // Quatro digitos bastam para correlacionar com o provedor no log sem
       // publicar o documento inteiro em arquivo.

@@ -12,7 +12,9 @@ vi.mock("../logger", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { consultarCnpjPublico, normalizarCnpj, dataEmIso } from "./cnpj-publico.service";
+import {
+  consultarCnpjPublico, normalizarCnpj, dataEmIso, situacaoCanonica,
+} from "./cnpj-publico.service";
 
 const CNPJ = "23864873000148";
 
@@ -67,7 +69,42 @@ const BRASILAPI = {
   uf: "PR",
   cep: "86010000",
   ddd_telefone_1: "4333334444",
+  descricao_situacao_cadastral: "ATIVA",
   qsa: [{ nome_socio: "HELIO CAINELLI", qualificacao_socio: "Sócio-Administrador", cnpj_cpf_do_socio: "***111***" }],
+};
+
+/**
+ * A terceira fonte, a que so entra quando as duas primeiras recusam por cota —
+ * e a unica que escreve a situacao em caixa mista ("Ativa", nao "ATIVA").
+ */
+const PUBLICA = {
+  razao_social: "HELIO CAINELLI TELECOM LTDA",
+  natureza_juridica: { descricao: "Sociedade Empresária Limitada" },
+  estabelecimento: {
+    nome_fantasia: "Amplinet",
+    data_inicio_atividade: "2016-01-15",
+    atividade_principal: { descricao: "Provedores de acesso às redes de comunicações" },
+    ddd1: "43",
+    telefone1: "33334444",
+    email: "contato@amplinet.com.br",
+    cep: "86010000",
+    tipo_logradouro: "RUA",
+    logradouro: "DAS FLORES",
+    numero: "100",
+    complemento: "-",
+    bairro: "Centro",
+    cidade: { nome: "Londrina" },
+    estado: { sigla: "PR" },
+    situacao_cadastral: "Ativa",
+  },
+  socios: [{ nome: "HELIO CAINELLI", qualificacao: { descricao: "Sócio-Administrador" }, cpf_cnpj_socio: "***111***" }],
+};
+
+/** As duas primeiras recusam por cota — o caminho que leva ate a Publica. */
+const SO_A_PUBLICA_RESPONDE = {
+  "receitaws.com.br": () => ({ status: 429, corpo: {} }),
+  "brasilapi.com.br": () => ({ status: 429, corpo: {} }),
+  "publica.cnpj.ws": () => ({ corpo: PUBLICA }),
 };
 
 describe("normalizarCnpj", () => {
@@ -104,6 +141,36 @@ describe("dataEmIso", () => {
     expect(dataEmIso("")).toBe("");
     expect(dataEmIso(null)).toBe("");
     expect(dataEmIso("nao sei")).toBe("");
+  });
+});
+
+describe("situacaoCanonica", () => {
+  it("poe as tres fontes na mesma lingua, uma grafia por fonte", () => {
+    // ReceitaWS e BrasilAPI ja mandam em caixa alta; a Publica manda "Ativa".
+    // Sao as tres grafias que existem hoje, conferidas nos parsers.
+    expect(situacaoCanonica("ATIVA")).toBe("ATIVA");
+    expect(situacaoCanonica("Ativa")).toBe("ATIVA");
+  });
+
+  it("nao muda o fato, so a caixa — as outras situacoes passam iguais", () => {
+    // Canonizar nao pode transformar irregular em regular: uma empresa baixada
+    // continua baixada, e o aviso ambar continua aparecendo.
+    expect(situacaoCanonica("Baixada")).toBe("BAIXADA");
+    expect(situacaoCanonica("SUSPENSA")).toBe("SUSPENSA");
+    expect(situacaoCanonica("Inapta")).toBe("INAPTA");
+  });
+
+  it("apara espaco em volta e colapsa o do meio", () => {
+    expect(situacaoCanonica("  ativa  ")).toBe("ATIVA");
+    expect(situacaoCanonica("BAIXADA  POR  OFICIO")).toBe("BAIXADA POR OFICIO");
+  });
+
+  it("o ausente vira vazio, e nao a palavra 'null'", () => {
+    // Vazio e o que as telas testam com `cnpjData?.situacao &&` para NAO
+    // desenhar o aviso: qualquer texto ali acenderia o ambar sem motivo.
+    expect(situacaoCanonica("")).toBe("");
+    expect(situacaoCanonica(null)).toBe("");
+    expect(situacaoCanonica(undefined)).toBe("");
   });
 });
 
@@ -189,6 +256,51 @@ describe("consultarCnpjPublico", () => {
     montar({ "receitaws.com.br": () => ({ corpo: RECEITAWS }) });
 
     expect((await consultarCnpjPublico(CNPJ))?.cep).toBe("86010000");
+  });
+
+  it("a situacao sai em caixa alta na primeira fonte", async () => {
+    montar({ "receitaws.com.br": () => ({ corpo: RECEITAWS }) });
+
+    expect((await consultarCnpjPublico(CNPJ))?.situacao).toBe("ATIVA");
+  });
+
+  it("a situacao sai em caixa alta na segunda fonte", async () => {
+    montar({
+      "receitaws.com.br": () => ({ status: 429, corpo: {} }),
+      "brasilapi.com.br": () => ({ corpo: BRASILAPI }),
+    });
+
+    expect((await consultarCnpjPublico(CNPJ))?.situacao).toBe("ATIVA");
+  });
+
+  it("a terceira fonte manda 'Ativa', e a empresa regular NAO vira irregular", async () => {
+    // ESTE e o defeito: as duas telas comparam com `=== "ATIVA"`, entao a
+    // grafia da Publica acendia o aviso ambar de irregularidade para uma
+    // empresa em dia. Quem le esse aviso e o superadmin, que pode reprovar ou
+    // suspender o provedor — e as duas acoes mandam e-mail sem volta.
+    const chamadas = montar(SO_A_PUBLICA_RESPONDE);
+
+    const e = await consultarCnpjPublico(CNPJ);
+
+    expect(e?.fonte).toBe("Publica");
+    expect(e?.situacao).toBe("ATIVA");
+    expect(e!.situacao !== "ATIVA").toBe(false);   // a comparacao que as telas fazem
+    expect(chamadas).toHaveLength(3);
+  });
+
+  it("a terceira fonte tambem nao esconde a empresa baixada", async () => {
+    // O outro lado da mesma regra: canonizar so muda a caixa, nunca o fato.
+    montar({
+      ...SO_A_PUBLICA_RESPONDE,
+      "publica.cnpj.ws": () => ({
+        corpo: {
+          ...PUBLICA,
+          estabelecimento: { ...PUBLICA.estabelecimento, situacao_cadastral: "Baixada" },
+        },
+      }),
+    });
+
+    expect((await consultarCnpjPublico(CNPJ))?.situacao).toBe("BAIXADA");
   });
 
   it("os socios saem no mesmo formato, venha de onde vier", async () => {

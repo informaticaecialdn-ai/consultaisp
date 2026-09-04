@@ -26,6 +26,8 @@ const storageMock = vi.hoisted(() => ({
   getUserByEmail: vi.fn(async (): Promise<any> => null),
   createUser: vi.fn(async (dados: any): Promise<any> => ({ id: 99, ...dados })),
   deleteProvider: vi.fn(async (_id: number): Promise<void> => undefined),
+  getProviderByCnpj: vi.fn(async (): Promise<any> => null),
+  getProviderBySubdomain: vi.fn(async (): Promise<any> => null),
 }));
 vi.mock("../storage", () => ({ storage: storageMock }));
 
@@ -117,6 +119,8 @@ beforeEach(() => {
   storageMock.adminUpdateProvider.mockImplementation(async (_id: number, dados: any) => dados);
   storageMock.createUser.mockImplementation(async (dados: any) => ({ id: 99, ...dados }));
   storageMock.deleteProvider.mockResolvedValue(undefined);
+  storageMock.getProviderByCnpj.mockResolvedValue(null);
+  storageMock.getProviderBySubdomain.mockResolvedValue(null);
   sessao = { userId: 1, role: "superadmin" };
 });
 
@@ -331,6 +335,443 @@ describe("PATCH /api/admin/providers/:id — acesso suspenso e restabelecido", (
     expect(emailMock.sendAcessoReativadoEmail).not.toHaveBeenCalled();
     expect(emailMock.sendCadastroAprovadoEmail).not.toHaveBeenCalled();
     expect(emailMock.sendCadastroReprovadoEmail).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * PATCH /api/admin/providers/:id — a ficha cadastral inteira.
+ *
+ * Ate aqui o superadmin CRIAVA um provedor com CNPJ, endereco, natureza juridica
+ * e data de abertura, e depois nao conseguia corrigir nenhum deles: o schema do
+ * PATCH e `.strict()` e so conhecia cinco campos. O que se prova abaixo e que a
+ * ficha completa grava e, principalmente, que ela FALHA DE FORMA LEGIVEL — um
+ * PATCH que reprova inteiro sem dizer qual dos 16 campos reprovou e, na pratica,
+ * um formulario que nao salva.
+ */
+describe("PATCH /api/admin/providers/:id — cadastro completo", () => {
+  /** O objeto que chegou ao storage — o unico lugar onde se ve o que seria gravado. */
+  const gravado = () => storageMock.adminUpdateProvider.mock.calls[0][1] as unknown as any;
+
+  it("grava natureza juridica, data de abertura e segmento", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, {
+      legalType: "Sociedade Empresária Limitada",
+      openingDate: "2014-03-21",
+      businessSegment: "Provedor de internet",
+    });
+
+    expect(res.status).toBe(200);
+    expect(gravado()).toEqual({
+      legalType: "Sociedade Empresária Limitada",
+      openingDate: "2014-03-21",
+      businessSegment: "Provedor de internet",
+    });
+  });
+
+  it("grava a ficha inteira de uma vez", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, {
+      name: "NsLink Telecom Ltda", tradeName: "NsLink", cnpj: "12345678000199",
+      legalType: "LTDA", openingDate: "2014-03-21", businessSegment: "Provedor de internet",
+      contactEmail: "contato@nslink.com.br", contactPhone: "37999990000",
+      website: "https://nslink.com.br", subdomain: "nslink",
+      addressZip: "35500000", addressStreet: "Rua das Palmeiras", addressNumber: "120",
+      addressComplement: "Sala 3", addressNeighborhood: "Centro",
+      addressCity: "Divinópolis", addressState: "MG",
+    });
+
+    expect(res.status).toBe(200);
+    expect(gravado().addressCity).toBe("Divinópolis");
+    expect(gravado().addressState).toBe("MG");
+    expect(Object.keys(gravado())).toHaveLength(17);
+  });
+
+  // A tela monta o formulario com `provider.campo || ""`. Antes desta regra,
+  // salvar a ficha de um provedor sem site devolvia 400 "Dados invalidos" sem
+  // dizer qual campo — e com 16 campos isso e um formulario que nunca salva.
+  it('"" vira null, e nao reprova o PATCH inteiro', async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, {
+      tradeName: "", website: "", contactEmail: "", contactPhone: "",
+      addressComplement: "", legalType: "", openingDate: "", businessSegment: "",
+    });
+
+    expect(res.status).toBe(200);
+    expect(gravado()).toEqual({
+      tradeName: null, website: null, contactEmail: null, contactPhone: null,
+      addressComplement: null, legalType: null, openingDate: null, businessSegment: null,
+    });
+  });
+
+  // "   " tem o mesmo efeito de "" e nenhum significado a mais.
+  it("so espaco tambem vira null, e o texto util e aparado", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    await alterar(42, { addressComplement: "   ", addressCity: "  Divinópolis  " });
+
+    expect(gravado()).toEqual({ addressComplement: null, addressCity: "Divinópolis" });
+  });
+
+  it("aceita CNPJ mascarado e grava so os 14 digitos", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { cnpj: "12.345.678/0001-99" });
+
+    expect(res.status).toBe(200);
+    expect(gravado()).toEqual({ cnpj: "12345678000199" });
+  });
+
+  it("CNPJ com menos de 14 digitos e recusado apontando o campo", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { cnpj: "123.456" });
+    const corpo = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(corpo.errors.cnpj?.[0]).toMatch(/14 digitos/);
+    expect(storageMock.adminUpdateProvider).not.toHaveBeenCalled();
+  });
+
+  // Um subdominio com espaco ou maiuscula nunca resolveria host nenhum, e ainda
+  // ocuparia o valor para sempre numa coluna UNIQUE.
+  it("subdominio fora do formato e recusado, com frase que diz o que vale", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { subdomain: "Meu Provedor!" });
+    const corpo = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(corpo.errors.subdomain?.[0]).toMatch(/letras minusculas, numeros e hifens/);
+    expect(storageMock.adminUpdateProvider).not.toHaveBeenCalled();
+  });
+
+  // "" NAO e NULL numa coluna UNIQUE: o primeiro provedor grava vazio e o
+  // segundo estoura com 23505.
+  it("subdominio vazio vira null, nao string vazia", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { subdomain: "" });
+
+    expect(res.status).toBe(200);
+    expect(gravado()).toEqual({ subdomain: null });
+  });
+
+  // O painel do PROPRIO provedor grava website sem validacao nenhuma. Com
+  // `.url()` deste lado, a ficha voltava 400 ao reenviar o valor que ela mesma
+  // leu do banco — e o superadmin nao conseguia corrigir o endereco por causa
+  // do site.
+  it("aceita o site como o provedor digitou, sem esquema", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { website: "www.exemplo.com.br", addressCity: "Divinópolis" });
+
+    expect(res.status).toBe(200);
+    expect(gravado().website).toBe("www.exemplo.com.br");
+  });
+
+  it("nao reescreve o site: nada de prefixar https://", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    await alterar(42, { website: "exemplo.com.br" });
+
+    expect(gravado().website).toBe("exemplo.com.br");
+  });
+
+  // Este valor e candidato natural a virar href numa tela futura.
+  it("recusa site com esquema que nao seja http/https", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { website: "javascript:alert(1)" });
+
+    expect(res.status).toBe(400);
+    expect(storageMock.adminUpdateProvider).not.toHaveBeenCalled();
+  });
+
+  it("campo desconhecido continua sendo recusado", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { ispCreditos: 500 });
+
+    expect(res.status).toBe(400);
+    expect(storageMock.adminUpdateProvider).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A colisao de UNIQUE chegava como 23505 no catch generico: o superadmin lia
+ * "Erro interno do servidor" e nao tinha como saber que o problema era
+ * duplicidade, muito menos de quem era o valor.
+ */
+describe("PATCH /api/admin/providers/:id — CNPJ e subdominio ja usados", () => {
+  it("CNPJ de outro provedor devolve 409 dizendo de quem e, e nao grava", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+    storageMock.getProviderByCnpj.mockResolvedValue({ id: 7, name: "Provedor Amplinet" });
+
+    const res = await alterar(42, { cnpj: "12345678000199" });
+    const corpo = await res.json();
+
+    // 409 e nao 400: o pedido esta bem formado; o que impede e o estado de
+    // outra linha.
+    expect(res.status).toBe(409);
+    expect(corpo.message).toMatch(/CNPJ ja cadastrado/);
+    expect(corpo.message).toContain("Provedor Amplinet");
+    // A frase vem pronta E enderecada ao campo, no mesmo formato do 400: e o que
+    // deixa a tela imprimir a duplicidade debaixo do campo em vez de num toast.
+    expect(corpo.errors.cnpj).toEqual([corpo.message]);
+    expect(storageMock.adminUpdateProvider).not.toHaveBeenCalled();
+  });
+
+  it("subdominio de outro provedor devolve 409 dizendo de quem e, e nao grava", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+    storageMock.getProviderBySubdomain.mockResolvedValue({ id: 7, name: "Provedor Amplinet" });
+
+    const res = await alterar(42, { subdomain: "amplinet" });
+    const corpo = await res.json();
+
+    expect(res.status).toBe(409);
+    expect(corpo.message).toMatch(/Subdominio ja em uso/);
+    expect(corpo.message).toContain("Provedor Amplinet");
+    expect(corpo.errors.subdomain).toEqual([corpo.message]);
+    expect(storageMock.adminUpdateProvider).not.toHaveBeenCalled();
+  });
+
+  // A ficha reenvia o objeto inteiro a cada salvamento: o CNPJ que ela manda e
+  // quase sempre o do proprio provedor. Se isso contasse como colisao, a tela
+  // nunca salvaria nada.
+  it("o proprio CNPJ nao e colisao", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+    storageMock.getProviderByCnpj.mockResolvedValue({ id: 42, name: "Provedor NsLink" });
+    storageMock.getProviderBySubdomain.mockResolvedValue({ id: 42, name: "Provedor NsLink" });
+
+    const res = await alterar(42, { cnpj: "12345678000199", subdomain: "nslink" });
+
+    expect(res.status).toBe(200);
+    expect(storageMock.adminUpdateProvider).toHaveBeenCalled();
+  });
+
+  // Em Postgres varios NULL convivem numa coluna UNIQUE: limpar o subdominio
+  // nao colide com nada, e nem faz sentido perguntar ao banco por "".
+  it("limpar o subdominio nao consulta unicidade", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { subdomain: "" });
+
+    expect(res.status).toBe(200);
+    expect(storageMock.getProviderBySubdomain).not.toHaveBeenCalled();
+  });
+
+  it("provedor inexistente da 404 antes de conferir unicidade", async () => {
+    storageMock.getProvider.mockResolvedValue(null);
+
+    const res = await alterar(999, { cnpj: "12345678000199" });
+
+    expect(res.status).toBe(404);
+    expect(storageMock.getProviderByCnpj).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `db.update().set({})` nao e no-op: o Drizzle se recusa a montar o SET vazio e
+ * o erro vira "Erro interno do servidor", que convida o operador a clicar de
+ * novo.
+ */
+describe("PATCH /api/admin/providers/:id — corpo sem campo nenhum", () => {
+  it("corpo vazio nao chega ao storage", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, {});
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toBe("Nenhum campo para alterar");
+    expect(storageMock.adminUpdateProvider).not.toHaveBeenCalled();
+  });
+
+  // `motivo` nao e coluna: sozinho, nao ha alteracao para gravar nem decisao
+  // para avisar. Responder 200 faria o operador fechar a tela achando que
+  // salvou.
+  it("so o motivo nao chega ao storage nem manda e-mail", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { motivo: "Documento ilegível." });
+
+    expect(res.status).toBe(400);
+    expect(storageMock.adminUpdateProvider).not.toHaveBeenCalled();
+    expect(emailMock.sendCadastroReprovadoEmail).not.toHaveBeenCalled();
+  });
+
+  // A guarda conta CHAVES. Desde que a tela manda so o que mudou, o PATCH de um
+  // campo so deixou de ser excecao e virou o caso normal: se a guarda o
+  // confundisse com corpo vazio, corrigir uma cidade seria impossivel.
+  it("um campo so nao e corpo vazio", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { addressCity: "Formiga" });
+
+    expect(res.status).toBe(200);
+    expect(storageMock.adminUpdateProvider).toHaveBeenCalledWith(42, { addressCity: "Formiga" });
+  });
+
+  // Um PATCH que so apaga um campo tambem e alteracao: `null` e chave presente.
+  it("apagar um campo so tambem passa pela guarda", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { addressComplement: "" });
+
+    expect(res.status).toBe(200);
+    expect(storageMock.adminUpdateProvider).toHaveBeenCalledWith(42, { addressComplement: null });
+  });
+});
+
+/**
+ * `contactEmail` e o ENDERECO DE ENTREGA dos avisos, e nao texto de vitrine como
+ * o site: `destinatariosDoProvedor` so cai nos administradores quando ele esta
+ * VAZIO. Por isso o formato continua exigido — mas so de valor NOVO. O painel do
+ * proprio provedor grava esse campo sem validacao nenhuma, entao a coluna ja
+ * guarda lista com virgula; recusar o que ja esta la obrigaria o superadmin a
+ * alterar o e-mail real do provedor para conseguir corrigir o CEP dele.
+ */
+describe("PATCH /api/admin/providers/:id — e-mail de contato", () => {
+  const gravado = () => storageMock.adminUpdateProvider.mock.calls[0][1] as unknown as any;
+  const LEGADO = "financeiro@nslink.com.br, suporte@nslink.com.br";
+
+  it("valor livre ja gravado nao reprova o PATCH, e o CEP e corrigido junto", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase({ contactEmail: LEGADO }));
+
+    const res = await alterar(42, { contactEmail: LEGADO, addressZip: "35500000" });
+
+    expect(res.status).toBe(200);
+    expect(gravado()).toEqual({ contactEmail: LEGADO, addressZip: "35500000" });
+  });
+
+  // A comparacao e entre valores JA NORMALIZADOS dos dois lados. Com texto cru,
+  // um espaco em volta do que o banco guarda viraria "alteracao" e reprovaria um
+  // campo que ninguem tocou.
+  it("espaco em volta do valor gravado nao conta como alteracao", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase({ contactEmail: `  ${LEGADO}  ` }));
+
+    const res = await alterar(42, { contactEmail: LEGADO });
+
+    expect(res.status).toBe(200);
+    expect(gravado()).toEqual({ contactEmail: LEGADO });
+  });
+
+  it("valor NOVO invalido e recusado apontando o campo, em portugues", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase({ contactEmail: LEGADO }));
+
+    const res = await alterar(42, { contactEmail: "financeiro arroba nslink" });
+    const corpo = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(corpo.errors.contactEmail?.[0]).toBe(
+      "E-mail de contato inválido: informe um endereço só, no formato nome@empresa.com.br.",
+    );
+    expect(storageMock.adminUpdateProvider).not.toHaveBeenCalled();
+  });
+
+  // O legado passa por ja estar gravado; trocar por OUTRA lista e valor novo, e
+  // valor novo tem de ser endereco de entrega de verdade.
+  it("trocar o legado por outra lista livre e recusado", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase({ contactEmail: LEGADO }));
+
+    const res = await alterar(42, { contactEmail: "cobranca@nslink.com.br, financeiro@nslink.com.br" });
+
+    expect(res.status).toBe(400);
+    expect(storageMock.adminUpdateProvider).not.toHaveBeenCalled();
+  });
+
+  it("e-mail novo e valido e gravado", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase({ contactEmail: LEGADO }));
+
+    const res = await alterar(42, { contactEmail: "contato@nslink.com.br" });
+
+    expect(res.status).toBe(200);
+    expect(gravado()).toEqual({ contactEmail: "contato@nslink.com.br" });
+  });
+
+  // Apagar e escolha valida: sem contato, a entrega volta para os
+  // administradores do provedor, que e o resgate de `destinatariosDoProvedor`.
+  it("apagar o e-mail de contato continua valendo", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase({ contactEmail: LEGADO }));
+
+    const res = await alterar(42, { contactEmail: "" });
+
+    expect(res.status).toBe(200);
+    expect(gravado()).toEqual({ contactEmail: null });
+  });
+
+  // Provedor sem contato cadastrado: nao ha valor anterior a preservar, entao
+  // qualquer coisa que se escreva ali e valor novo.
+  it("provedor sem contato: o primeiro e-mail ja e julgado", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase({ contactEmail: null }));
+
+    const res = await alterar(42, { contactEmail: "nao-e-email" });
+
+    expect(res.status).toBe(400);
+    expect(storageMock.adminUpdateProvider).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * O 400 volta em `errors.<campo>` e a tela imprime a frase DEBAIXO do campo. Uma
+ * frase em ingles ali ("String must contain at most 200 character(s)") nao diz
+ * nem o campo nem o que fazer.
+ */
+describe("PATCH /api/admin/providers/:id — as frases que o operador le", () => {
+  it("limite estourado diz o campo, o limite e em portugues", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { tradeName: "N".repeat(201) });
+    const corpo = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(corpo.errors.tradeName?.[0]).toBe("O nome fantasia deve ter no máximo 200 caracteres.");
+  });
+
+  it("razao social em branco diz o que informar", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { name: "   " });
+    const corpo = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(corpo.errors.name?.[0]).toBe("Informe a razão social do provedor.");
+  });
+
+  it("subdominio curto demais diz o minimo", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { subdomain: "a" });
+    const corpo = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(corpo.errors.subdomain?.[0]).toBe("O subdomínio precisa de pelo menos 2 caracteres.");
+  });
+
+  // Varredura: nenhuma frase de campo do cadastro pode voltar no texto padrao do
+  // zod. E o que impede a proxima regra de entrar em ingles sem ninguem notar.
+  it("nenhum campo do cadastro devolve frase em ingles", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, {
+      name: "", tradeName: "N".repeat(201), legalType: "L".repeat(51),
+      openingDate: "0".repeat(21), businessSegment: "S".repeat(101),
+      contactPhone: "9".repeat(21), website: "w".repeat(501), subdomain: "s",
+      addressZip: "0".repeat(11), addressStreet: "R".repeat(201),
+      addressNumber: "1".repeat(21), addressComplement: "C".repeat(101),
+      addressNeighborhood: "B".repeat(101), addressCity: "C".repeat(101),
+      addressState: "MGX", motivo: "M".repeat(501),
+    });
+    const corpo = await res.json();
+
+    expect(res.status).toBe(400);
+    const frases = Object.values(corpo.errors as Record<string, string[]>).flat();
+    expect(frases.length).toBeGreaterThan(10);
+    for (const frase of frases) {
+      expect(frase).not.toMatch(/String must contain|Invalid|Expected|character\(s\)/);
+    }
   });
 });
 
