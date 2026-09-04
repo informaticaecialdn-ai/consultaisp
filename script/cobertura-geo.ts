@@ -32,17 +32,66 @@ import citiesData from "../shared/data/cidades-brasil.json";
 
 interface Municipio { nome: string; uf: string; ibge: string }
 
-/** Cidade da carteira → municipio do IBGE, quando existe um so com esse nome. */
-function resolver(cidadeNorm: string, ufDica: string | null): Municipio | null {
+/**
+ * Limpa o que o cadastro do ERP acrescenta ao nome da cidade.
+ *
+ * Casos reais medidos na carteira da Amplinet em 04/09/2026:
+ *   "EMBU-GUACU,"              virgula no fim
+ *   "ITAPECERICA DA SERRA SP"  UF grudada, sem separador
+ *   "STRING:SAO PAULO"         prefixo de alguma integracao mal feita
+ */
+function limparNomeDeCidade(bruto: string): string {
+  return bruto
+    .replace(/^\s*[A-Za-z_]+\s*:\s*/, "")            // "STRING:" e parentes
+    .replace(/[,.;/\\]+\s*$/, "")                    // pontuacao no fim
+    .replace(/\s+[-–]?\s*[A-Za-z]{2}\s*$/, "")       // " SP", " - SP"
+    .trim();
+}
+
+/**
+ * Cidade da carteira → municipio do IBGE.
+ *
+ * TRES tentativas, cada uma exigindo resultado UNICO **e** UF batendo. A UF nao
+ * e opcional: "ITAPECERICA" e nome unico no pais (Minas Gerais), e sem conferir
+ * a UF o resolvedor casou dois clientes de Itapecerica DA SERRA/SP com a cidade
+ * mineira — a base foi carregada e teria plotado os dois a 500 km. Foi medido em
+ * 04/09/2026 e desfeito na mesma hora.
+ *
+ * A UF vem da MAIORIA dos clientes daquela grafia, e nao de uma linha: na mesma
+ * carteira, "ITAPECERICA DA SERRA" aparece com SP em 207 cadastros e com RN, SE
+ * e SC em quatro. Uma linha ruim nao pode decidir por 207.
+ */
+function resolver(cidadeNorm: string, uf: string | null): Municipio | null {
   const lista = citiesData as Municipio[];
-  const achados = lista.filter(c => normalizarCidade(c.nome) === cidadeNorm);
-  if (achados.length === 0) return null;
-  if (achados.length === 1) return achados[0];
-  // Homonimas ("Bom Jesus" existe em varias UFs): a UF do proprio cliente
-  // desempata. Sem ela, nao se chuta — carregar a cidade errada e pior que
-  // nao carregar, porque o mapa passa a plotar longe e ninguem desconfia.
-  const porUf = achados.filter(c => c.uf === ufDica);
-  return porUf.length === 1 ? porUf[0] : null;
+  if (!cidadeNorm || cidadeNorm.length < 3) return null;   // "SP" nao e cidade
+
+  const unico = (achados: Municipio[]): Municipio | null => {
+    const naUf = uf ? achados.filter(c => c.uf === uf) : achados;
+    return naUf.length === 1 ? naUf[0] : null;
+  };
+
+  // 1) Nome igual, ja normalizado (hifen e acento fora).
+  const exato = unico(lista.filter(c => normalizarCidade(c.nome) === cidadeNorm));
+  if (exato) return exato;
+
+  // 2) Sem espaco nenhum: "EMBUGUACU" e "Embu-Guacu" sao a mesma cidade
+  //    digitada sem a barra de espaco. 23 cadastros da Amplinet estavam assim.
+  const semEspaco = cidadeNorm.replace(/ /g, "");
+  const colado = unico(lista.filter(c => normalizarCidade(c.nome).replace(/ /g, "") === semEspaco));
+  if (colado) return colado;
+
+  // 3) Prefixo unico DENTRO DA UF: "ITAPECERICA" com UF SP so pode ser
+  //    Itapecerica da Serra. Sem a UF esta regra seria perigosa — e por isso ela
+  //    nao roda sem UF.
+  if (uf) {
+    const prefixo = unico(lista.filter(c => normalizarCidade(c.nome).startsWith(`${cidadeNorm} `)));
+    if (prefixo) return prefixo;
+  }
+
+  // Erro de digitacao ("EMBU GAUCU", "SAO PAUYLO") e bairro no campo de cidade
+  // ("PARQUE JANDAIA") param aqui, de proposito: adivinhar cidade por semelhanca
+  // e como se planta um ponto no lugar errado sem ninguem desconfiar.
+  return null;
 }
 
 async function main() {
@@ -66,18 +115,28 @@ async function main() {
     todos ? [] : [providerId],
   );
 
-  // As grafias colapsam pela mesma regra do geocodificador.
-  const porCidade = new Map<string, { clientes: number; semCoord: number; uf: string; grafias: Set<string> }>();
+  // As grafias colapsam pela mesma regra do geocodificador, depois de limpo o
+  // que o ERP acrescenta ao nome.
+  const porCidade = new Map<string, {
+    clientes: number; semCoord: number; grafias: Set<string>; ufs: Map<string, number>;
+  }>();
   for (const l of rows) {
-    const chave = normalizarCidade(l.cidade);
+    const chave = normalizarCidade(limparNomeDeCidade(l.cidade));
     if (!chave) continue;
-    const at = porCidade.get(chave) ?? { clientes: 0, semCoord: 0, uf: l.uf, grafias: new Set<string>() };
+    const at = porCidade.get(chave) ?? { clientes: 0, semCoord: 0, grafias: new Set<string>(), ufs: new Map<string, number>() };
     at.clientes += l.clientes;
     at.semCoord += l.sem_coord;
     at.grafias.add(l.cidade);
-    if (!at.uf && l.uf) at.uf = l.uf;
+    if (l.uf) at.ufs.set(l.uf, (at.ufs.get(l.uf) ?? 0) + l.clientes);
     porCidade.set(chave, at);
   }
+
+  /** A UF da MAIORIA dos cadastros. Uma linha ruim nao decide por 207. */
+  const ufDominante = (ufs: Map<string, number>): string | null => {
+    let melhor: string | null = null, max = 0;
+    for (const [uf, n] of ufs) if (n > max) { max = n; melhor = uf; }
+    return melhor;
+  };
 
   const { rows: carregadas } = await pool.query(
     `select distinct municipio_ibge from geo_hps_bairro where fonte = $1`, [FONTE_CNEFE]);
@@ -87,7 +146,7 @@ async function main() {
   const semMunicipio: Array<{ chave: string; clientes: number; grafias: string[] }> = [];
 
   for (const [chave, d] of [...porCidade.entries()].sort((a, b) => b[1].semCoord - a[1].semCoord)) {
-    const m = resolver(chave, d.uf || null);
+    const m = resolver(chave, ufDominante(d.ufs));
     if (!m) { semMunicipio.push({ chave, clientes: d.clientes, grafias: [...d.grafias] }); continue; }
     if (jaTem.has(m.ibge)) continue;
     faltando.push({ chave, m, clientes: d.clientes, semCoord: d.semCoord });
