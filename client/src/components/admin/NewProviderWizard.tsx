@@ -1,15 +1,108 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { PLANOS_DO_CATALOGO, rotuloDoPlano } from "@/lib/planos";
 import {
-  Building2, Plus, Search, RefreshCw, CheckCircle, ChevronRight,
+  BOTAO_MARCA, BOTAO_SECUNDARIO, Campo, CONTROLE_CAMPO, DESABILITAVEL,
+  EstadoVazio, KickerSecao, LadrilhoIcone, ROTULO_CAMPO, TITULO_CARTAO,
+} from "@/components/painel/ui";
+import { cn } from "@/lib/utils";
+import {
+  Building2, Plus, Search, RefreshCw, Check, ChevronRight,
   Settings2, MapPin, Users, User, Crown, AlertTriangle,
 } from "lucide-react";
+
+/**
+ * Cadastro de provedor em tres passos, vestido na MESMA linguagem do Painel do
+ * Provedor (`@/components/painel/ui`).
+ *
+ * Rodada de LINGUAGEM VISUAL: nenhuma rota, consulta, permissao, campo enviado
+ * ou data-testid mudou. O que mudou foi como a tela fala.
+ *
+ * O QUE ESTAVA ERRADO, ponto a ponto
+ * - Um roxo da paleta default do Tailwind pintava o titulo e o icone do passo 1:
+ *   paleta proibida pela secao 7, e a cor de marca deste produto nem e aquela.
+ * - Toda a familia de tokens da API antiga e os apelidos de cor do shadcn (os
+ *   que apontam para o canvas e para o texto base) trocados pelos canonicos.
+ * - O indicador de passo era um circulo de 9999px com numero em Inter. Virou quadrado
+ *   de 4px com numero mono tabular — a geometria seca e a identidade do sistema
+ *   (secao 5.1), e todo numero e mono (secao 2). Circulo de 9999px so para
+ *   avatar, dot e spinner; um chip numerado nao e nenhum dos tres.
+ * - O resumo final imprimia `form.plan` CRU ("free", "pro"), valor de banco na
+ *   tela — secao 8. `rotuloDoPlano` ja estava importado no arquivo.
+ * - "BrasilAPI" saiu do texto: e o nome do fornecedor que o produto usa por
+ *   dentro, nao a resposta a "de onde vem esse dado" (a resposta e a Receita
+ *   Federal, e essa ficou). Os acentos que faltavam voltaram todos.
+ *
+ * SOMBRA: o passo 5.2 do DESIGN_SYSTEM diz que o unico caso com elevacao e o
+ * flutuante — e o `DialogContent` do shadcn ja carrega exatamente o par certo
+ * (anel de 1px + lift). Este arquivo nao acrescenta sombra nenhuma; so corrige
+ * o fundo do painel, que apontava para o canvas quando o certo
+ * para uma superficie que flutua e `--surface`.
+ *
+ * SEGUNDA RODADA — AS COPIAS LOCAIS FORAM APAGADAS
+ * O rotulo de campo, o par rotulo+controle, o anel de foco e o desabilitado
+ * eram todos locais aqui, com a nota "quando a primitiva ganhar um campo de
+ * formulario, os dois viram um". Ela ganhou: `ROTULO_CAMPO`, `Campo`, o anel de
+ * foco e `DESABILITAVEL` agora vem de `painel/ui`, e o local sumiu.
+ *
+ * TERCEIRA RODADA — A CAIXA DO CAMPO TAMBEM SUBIU
+ * Sobravam duas constantes locais para a mesma coisa: uma para o campo de texto
+ * e outra para o seletor nativo, com alturas e corpos diferentes na MESMA grade.
+ * Viraram `CONTROLE_CAMPO`, da primitiva. Tres mudancas de pixel vem junto e
+ * estao justificadas la: a caixa de texto cai de 40px para os 36px que todo
+ * controle deste painel ja tem, o corpo do texto digitado passa a 12,5px em
+ * todos os campos (era 14px no campo de texto e 13px no seletor) e o campo
+ * ganha o anel de foco da casa. Um `text-[13px]` cravado no subdominio saiu
+ * pelo mesmo motivo: um campo com corpo proprio no meio da grade e a
+ * divergencia recomecando.
+ *
+ * UMA MUDANCA DE PIXEL: o botao desligado passa de 40% para 50% de opacidade e
+ * troca `pointer-events-none` por `cursor-not-allowed`. Sao os valores da
+ * primitiva, e os dois melhoram o mesmo caso — o rotulo do botao travado e o
+ * que explica o que ainda falta preencher, entao ele precisa continuar legivel,
+ * e o cursor e a unica coisa que avisa que o controle esta travado. Nada muda
+ * no clique: `<button disabled>` ja o ignora sozinho.
+ */
+
+/* ------------------------------------------------------------------ */
+/* Vocabulario local                                                   */
+/* ------------------------------------------------------------------ */
+
+/* A caixa de campo nao mora mais aqui. Havia duas locais — uma para o campo de
+   texto (so o alvo de toque, sobre a altura fixa de 40px do `Input`) e outra
+   para o seletor nativo (36px, escrita a mao) —, e as duas dividiam a mesma
+   grade no passo 2 com 4px de diferenca. Agora e `CONTROLE_CAMPO`, uma so, e a
+   decisao de altura, corpo e foco esta escrita na primitiva. */
+
+/** Titulo de bloco dentro do passo, na voz do kicker de secao. */
+function BlocoSecao({
+  Icone,
+  titulo,
+  children,
+}: {
+  Icone: React.ElementType;
+  titulo: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="border-t border-[var(--border)] pt-3">
+      <KickerSecao className="flex items-center gap-1.5">
+        <Icone className="w-3.5 h-3.5 flex-none" strokeWidth={2} aria-hidden />
+        {titulo}
+      </KickerSecao>
+      {children}
+    </section>
+  );
+}
+
+/** Os tres passos, na ordem. Rotulo curto: ele divide a largura com a trilha. */
+const PASSOS = ["CNPJ", "Dados da empresa", "Administrador"];
 
 function generateSubdomainSlug(name: string): string {
   return name
@@ -80,7 +173,7 @@ export default function NewProviderWizard({ open, onOpenChange }: { open: boolea
 
   const lookupCnpj = async () => {
     const clean = cnpjInput.replace(/\D/g, "");
-    if (clean.length !== 14) { toast({ title: "CNPJ deve ter 14 digitos", variant: "destructive" }); return; }
+    if (clean.length !== 14) { toast({ title: "CNPJ deve ter 14 dígitos", variant: "destructive" }); return; }
     setCnpjLoading(true);
     try {
       const res = await apiRequest("GET", `/api/admin/cnpj/${clean}`);
@@ -115,230 +208,350 @@ export default function NewProviderWizard({ open, onOpenChange }: { open: boolea
   const canProceedStep2 = form.name && form.cnpj && form.subdomain;
   const canProceedStep3 = form.adminName && form.adminEmail && form.adminPassword.length >= 6;
 
-  const stepLabels = ["CNPJ", "Dados da Empresa", "Administrador"];
+  /* Cidade/UF: sem os dois, "/" sozinho na tela nao e informacao. */
+  const cidadeUf = form.addressCity && form.addressState
+    ? `${form.addressCity}/${form.addressState}`
+    : form.addressCity || form.addressState || "—";
+
+  const RESUMO: Array<{ rotulo: string; valor: React.ReactNode; mono?: boolean }> = [
+    { rotulo: "Empresa", valor: form.tradeName || form.name || "—" },
+    { rotulo: "CNPJ", valor: formatCnpj(form.cnpj) || "—", mono: true },
+    { rotulo: "Subdomínio", valor: `${form.subdomain}.consultaisp.com.br`, mono: true },
+    /* Rotulo do plano, nao a chave de banco. */
+    { rotulo: "Plano", valor: rotuloDoPlano(form.plan) },
+    { rotulo: "Cidade", valor: cidadeUf },
+    { rotulo: "Telefone", valor: form.contactPhone || "—", mono: !!form.contactPhone },
+  ];
 
   return (
     <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) resetForm(); }}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-[var(--surface)] border-[var(--border)]">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Building2 className="w-5 h-5 text-violet-500" />
-            Novo Provedor
+          <DialogTitle className="flex items-center gap-2 text-[17px] font-medium tracking-[-0.02em] text-[var(--text)]">
+            <Building2 className="w-4 h-4 flex-none text-[var(--text-faint)]" strokeWidth={2} aria-hidden />
+            Novo provedor
           </DialogTitle>
-          <DialogDescription>
-            Cadastre um novo provedor em 3 passos
+          <DialogDescription className="text-[13px] text-[var(--text-muted)]">
+            Cadastre um provedor em três passos
           </DialogDescription>
         </DialogHeader>
 
-        {/* Step indicator */}
-        <div className="flex items-center gap-2 py-2">
-          {stepLabels.map((label, i) => (
-            <div key={i} className="flex items-center gap-2 flex-1">
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
-                step > i + 1 ? "bg-[var(--color-success)] text-white" : step === i + 1 ? "bg-[var(--color-brand)] text-white" : "bg-muted text-[var(--color-muted)]"
-              }`}>
-                {step > i + 1 ? <CheckCircle className="w-4 h-4" /> : i + 1}
-              </div>
-              <span className={`text-xs font-medium ${step === i + 1 ? "text-foreground" : "text-[var(--color-muted)]"}`}>{label}</span>
-              {i < 2 && <div className={`flex-1 h-0.5 ${step > i + 1 ? "bg-[var(--color-success)]" : "bg-muted"}`} />}
-            </div>
-          ))}
-        </div>
+        {/* Indicador de passo. Quadrado de 4px, numero mono tabular, trilha de
+            1px — a mesma geometria do resto do sistema. Concluido em --ok,
+            atual em --brand, futuro em --surface-inset: saturacao so onde ela
+            significa alguma coisa. */}
+        <ol className="flex items-center gap-2 py-1" aria-label="Etapas do cadastro">
+          {PASSOS.map((rotulo, i) => {
+            const numero = i + 1;
+            const concluido = step > numero;
+            const atual = step === numero;
+            return (
+              <li
+                key={rotulo}
+                className="flex items-center gap-2 flex-1 min-w-0"
+                aria-current={atual ? "step" : undefined}
+              >
+                <span
+                  className={cn(
+                    "w-7 h-7 rounded grid place-items-center flex-none font-mono text-[11px] font-medium tabular-nums motion-safe:transition-colors",
+                    concluido
+                      ? "bg-[var(--ok)] text-[var(--text-on-brand)]"
+                      : atual
+                        ? "bg-[var(--brand)] text-[var(--text-on-brand)]"
+                        : "bg-[var(--surface-inset)] text-[var(--text-faint)]",
+                  )}
+                >
+                  {concluido ? <Check className="w-3.5 h-3.5" strokeWidth={2.5} aria-hidden /> : numero}
+                </span>
+                <span
+                  className={cn(
+                    "text-[12px] font-medium truncate",
+                    atual ? "text-[var(--text)]" : "text-[var(--text-muted)]",
+                  )}
+                >
+                  {rotulo}
+                </span>
+                {i < PASSOS.length - 1 && (
+                  <span
+                    className={cn(
+                      "flex-1 h-px min-w-[8px]",
+                      concluido ? "bg-[var(--ok)]" : "bg-[var(--border)]",
+                    )}
+                    aria-hidden
+                  />
+                )}
+              </li>
+            );
+          })}
+        </ol>
 
-        {/* Step 1: CNPJ Lookup */}
+        {/* Passo 1: busca do CNPJ.
+            E literalmente um estado vazio — nao ha dado nenhum ainda e a tela
+            precisa dizer o que fazer a seguir —, entao usa a primitiva
+            `EstadoVazio` em vez de repetir icone solto + paragrafo centralizado.
+            O par campo+botao entra como CTA. */}
         {step === 1 && (
-          <div className="space-y-4 py-2">
-            <div className="text-center space-y-2 py-4">
-              <Search className="w-10 h-10 mx-auto text-violet-500" />
-              <p className="text-sm text-[var(--color-muted)]">Digite o CNPJ para buscar os dados automaticamente</p>
-            </div>
-            <div className="flex gap-2 max-w-md mx-auto">
-              <Input
-                placeholder="00.000.000/0000-00"
-                value={cnpjInput}
-                onChange={(e) => setCnpjInput(formatCnpj(e.target.value))}
-                onKeyDown={(e) => e.key === "Enter" && lookupCnpj()}
-                className="text-center text-lg font-mono tracking-wider"
-                autoFocus
-              />
-              <Button onClick={lookupCnpj} disabled={cnpjLoading} className="gap-2 px-6">
-                {cnpjLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                Buscar
-              </Button>
-            </div>
-            <p className="text-xs text-[var(--color-muted)] text-center">
-              Dados puxados da Receita Federal via BrasilAPI
-            </p>
-          </div>
+          <EstadoVazio
+            Icone={Search}
+            titulo="Buscar a empresa pelo CNPJ"
+            descricao="Os dados cadastrais vêm do registro da Receita Federal e já preenchem o próximo passo."
+            cta={
+              <div className="flex gap-2 w-full max-w-md">
+                <Input
+                  placeholder="00.000.000/0000-00"
+                  value={cnpjInput}
+                  onChange={(e) => setCnpjInput(formatCnpj(e.target.value))}
+                  onKeyDown={(e) => e.key === "Enter" && lookupCnpj()}
+                  className={cn(CONTROLE_CAMPO, "text-center font-mono text-[15px] tabular-nums tracking-[var(--track-wide)]")}
+                  aria-label="CNPJ do provedor"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={lookupCnpj}
+                  disabled={cnpjLoading}
+                  className={cn(BOTAO_MARCA, DESABILITAVEL, "px-5")}
+                >
+                  {cnpjLoading
+                    ? <RefreshCw className="w-4 h-4 motion-safe:animate-spin" strokeWidth={2} aria-hidden />
+                    : <Search className="w-4 h-4" strokeWidth={2} aria-hidden />}
+                  Buscar
+                </button>
+              </div>
+            }
+          />
         )}
 
-        {/* Step 2: Company Data (auto-filled) */}
+        {/* Passo 2: dados vindos da Receita, abertos para correcao */}
         {step === 2 && (
-          <div className="space-y-4 py-2">
+          <div className="space-y-4 py-1">
             {cnpjData?.situacao && cnpjData.situacao !== "ATIVA" && (
-              <div className="flex items-center gap-2 bg-[var(--color-gold-bg)] text-[var(--color-gold)] rounded px-3 py-2 text-sm">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                Situacao cadastral: <strong>{cnpjData.situacao}</strong>
-              </div>
+              /* A situacao cadastral sai como a Receita a escreve: e o termo
+                 dela, publico e em portugues, e traduzir mudaria o fato. O que
+                 mudou foi a moldura — `gated` e a porta que ainda nao abriu. */
+              <p
+                className="flex items-center gap-2 rounded border border-[var(--gated-border)] bg-[var(--gated-bg)] px-3 py-2 text-[12.5px] text-[var(--gated)]"
+                role="status"
+              >
+                <AlertTriangle className="w-4 h-4 flex-none" strokeWidth={2} aria-hidden />
+                Situação cadastral na Receita Federal:{" "}
+                <strong className="font-mono font-medium uppercase tracking-[var(--track-wide)]">
+                  {cnpjData.situacao}
+                </strong>
+              </p>
             )}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2">
-                <label className="text-xs font-medium mb-1 block">Razao Social</label>
-                <Input value={form.name} onChange={f("name")} />
-              </div>
-              <div>
-                <label className="text-xs font-medium mb-1 block">Nome Fantasia</label>
-                <Input value={form.tradeName} onChange={f("tradeName")} />
-              </div>
-              <div>
-                <label className="text-xs font-medium mb-1 block">CNPJ</label>
-                <Input value={formatCnpj(form.cnpj)} disabled className="bg-muted font-mono" />
-              </div>
-              <div>
-                <label className="text-xs font-medium mb-1 block">Telefone</label>
-                <Input value={form.contactPhone} onChange={f("contactPhone")} placeholder="(00) 0000-0000" />
-              </div>
-              <div>
-                <label className="text-xs font-medium mb-1 block">Email</label>
-                <Input value={form.contactEmail} onChange={f("contactEmail")} placeholder="contato@provedor.com" />
-              </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Campo rotulo="Razão social" className="sm:col-span-2">
+                <Input value={form.name} onChange={f("name")} className={CONTROLE_CAMPO} />
+              </Campo>
+              <Campo rotulo="Nome fantasia">
+                <Input value={form.tradeName} onChange={f("tradeName")} className={CONTROLE_CAMPO} />
+              </Campo>
+              <Campo rotulo="CNPJ">
+                <Input
+                  value={formatCnpj(form.cnpj)}
+                  disabled
+                  className={cn(CONTROLE_CAMPO, "bg-[var(--surface-inset)] font-mono tabular-nums")}
+                />
+              </Campo>
+              <Campo rotulo="Telefone">
+                <Input
+                  value={form.contactPhone}
+                  onChange={f("contactPhone")}
+                  placeholder="(00) 0000-0000"
+                  className={cn(CONTROLE_CAMPO, "font-mono tabular-nums")}
+                />
+              </Campo>
+              <Campo rotulo="E-mail">
+                <Input
+                  value={form.contactEmail}
+                  onChange={f("contactEmail")}
+                  placeholder="contato@provedor.com"
+                  className={CONTROLE_CAMPO}
+                />
+              </Campo>
             </div>
 
-            <div className="border-t pt-3">
-              <p className="text-xs font-semibold text-[var(--color-muted)] uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                <MapPin className="w-3 h-3" /> Endereço
-              </p>
+            <BlocoSecao Icone={MapPin} titulo="Endereço">
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                <div>
-                  <label className="text-xs font-medium mb-1 block">CEP</label>
-                  <Input value={form.addressZip} onChange={f("addressZip")} className="font-mono" />
-                </div>
-                <div className="col-span-2">
-                  <label className="text-xs font-medium mb-1 block">Logradouro</label>
-                  <Input value={form.addressStreet} onChange={f("addressStreet")} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1 block">Numero</label>
-                  <Input value={form.addressNumber} onChange={f("addressNumber")} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1 block">Complemento</label>
-                  <Input value={form.addressComplement} onChange={f("addressComplement")} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1 block">Bairro</label>
-                  <Input value={form.addressNeighborhood} onChange={f("addressNeighborhood")} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1 block">Cidade</label>
-                  <Input value={form.addressCity} onChange={f("addressCity")} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1 block">UF</label>
-                  <Input value={form.addressState} onChange={f("addressState")} maxLength={2} className="uppercase" />
-                </div>
+                <Campo rotulo="CEP">
+                  <Input
+                    value={form.addressZip}
+                    onChange={f("addressZip")}
+                    className={cn(CONTROLE_CAMPO, "font-mono tabular-nums")}
+                  />
+                </Campo>
+                <Campo rotulo="Logradouro" className="sm:col-span-2">
+                  <Input value={form.addressStreet} onChange={f("addressStreet")} className={CONTROLE_CAMPO} />
+                </Campo>
+                <Campo rotulo="Número">
+                  <Input
+                    value={form.addressNumber}
+                    onChange={f("addressNumber")}
+                    className={cn(CONTROLE_CAMPO, "font-mono tabular-nums")}
+                  />
+                </Campo>
+                <Campo rotulo="Complemento">
+                  <Input value={form.addressComplement} onChange={f("addressComplement")} className={CONTROLE_CAMPO} />
+                </Campo>
+                <Campo rotulo="Bairro">
+                  <Input value={form.addressNeighborhood} onChange={f("addressNeighborhood")} className={CONTROLE_CAMPO} />
+                </Campo>
+                <Campo rotulo="Cidade">
+                  <Input value={form.addressCity} onChange={f("addressCity")} className={CONTROLE_CAMPO} />
+                </Campo>
+                <Campo rotulo="UF">
+                  <Input
+                    value={form.addressState}
+                    onChange={f("addressState")}
+                    maxLength={2}
+                    className={cn(CONTROLE_CAMPO, "uppercase font-mono")}
+                  />
+                </Campo>
               </div>
-            </div>
+            </BlocoSecao>
 
-            <div className="border-t pt-3">
-              <p className="text-xs font-semibold text-[var(--color-muted)] uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                <Settings2 className="w-3 h-3" /> Configuracao
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium mb-1 block">Subdominio</label>
-                  <div className="flex items-center gap-1">
-                    <Input value={form.subdomain} onChange={handleSubdomainChange} className="font-mono text-sm" />
-                    <span className="text-xs text-[var(--color-muted)] whitespace-nowrap">.consultaisp.com.br</span>
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1 block">Plano Inicial</label>
-                  <select className="w-full border rounded-md px-3 py-2 text-sm bg-background" value={form.plan} onChange={f("plan")}>
+            <BlocoSecao Icone={Settings2} titulo="Configuração">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Campo rotulo="Subdomínio">
+                  <span className="flex items-center gap-1.5">
+                    <Input
+                      value={form.subdomain}
+                      onChange={handleSubdomainChange}
+                      className={cn(CONTROLE_CAMPO, "font-mono")}
+                    />
+                    <span className="font-mono text-[11px] text-[var(--text-muted)] whitespace-nowrap">
+                      .consultaisp.com.br
+                    </span>
+                  </span>
+                </Campo>
+                <Campo rotulo="Plano inicial">
+                  <select className={CONTROLE_CAMPO} value={form.plan} onChange={f("plan")}>
                     {PLANOS_DO_CATALOGO.map(p => <option key={p} value={p}>{rotuloDoPlano(p)}</option>)}
                   </select>
-                </div>
+                </Campo>
               </div>
-            </div>
+            </BlocoSecao>
 
             {cnpjData?.socios?.length > 0 && (
-              <div className="border-t pt-3">
-                <p className="text-xs font-semibold text-[var(--color-muted)] uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                  <Users className="w-3 h-3" /> Socios encontrados
-                </p>
+              <BlocoSecao Icone={Users} titulo="Sócios encontrados">
                 <div className="space-y-1">
                   {cnpjData.socios.map((s: any, i: number) => (
-                    <div key={i} className="flex items-center gap-2 text-xs bg-muted/40 rounded px-2 py-1.5">
-                      <User className="w-3 h-3 text-[var(--color-muted)]" />
-                      <span className="font-medium">{s.nome}</span>
-                      <span className="text-[var(--color-muted)]">— {s.qualificacao}</span>
+                    <div
+                      key={i}
+                      className="flex items-center gap-2 rounded bg-[var(--surface-inset)] px-2.5 py-2 text-[12.5px]"
+                    >
+                      <User className="w-3.5 h-3.5 flex-none text-[var(--text-faint)]" strokeWidth={2} aria-hidden />
+                      <span className="font-medium text-[var(--text)]">{s.nome}</span>
+                      <span className="text-[var(--text-muted)] truncate">— {s.qualificacao}</span>
                     </div>
                   ))}
                 </div>
-              </div>
+              </BlocoSecao>
             )}
           </div>
         )}
 
-        {/* Step 3: Admin User */}
+        {/* Passo 3: usuario administrador + conferencia */}
         {step === 3 && (
-          <div className="space-y-4 py-2">
-            <div className="text-center space-y-1 py-2">
-              <Crown className="w-8 h-8 mx-auto text-[var(--color-gold)]" />
-              <p className="text-sm font-medium">Administrador do Provedor</p>
-              <p className="text-xs text-[var(--color-muted)]">Este usuario tera acesso total ao painel do provedor</p>
-            </div>
-            <div className="max-w-md mx-auto space-y-3">
-              <div>
-                <label className="text-xs font-medium mb-1 block">Nome completo</label>
-                <Input value={form.adminName} onChange={f("adminName")} placeholder="Nome do administrador" autoFocus />
-              </div>
-              <div>
-                <label className="text-xs font-medium mb-1 block">Email</label>
-                <Input type="email" value={form.adminEmail} onChange={f("adminEmail")} placeholder="admin@provedor.com" />
-              </div>
-              <div>
-                <label className="text-xs font-medium mb-1 block">Senha</label>
-                <Input type="password" value={form.adminPassword} onChange={f("adminPassword")} placeholder="Minimo 6 caracteres" />
-                {form.adminPassword.length > 0 && form.adminPassword.length < 6 && (
-                  <p className="text-xs text-[var(--color-danger)] mt-0.5">Senha deve ter no minimo 6 caracteres</p>
-                )}
-              </div>
+          <div className="space-y-4 py-1">
+            {/* Ladrilho `vazio`, nunca `marca`: nao ha dado atras dele e o bloco
+                nao leva a lugar nenhum — quem convida sao os campos abaixo. */}
+            <div className="flex flex-col items-center text-center gap-2">
+              <LadrilhoIcone Icone={Crown} tom="vazio" tamanho="lg" />
+              <p className={TITULO_CARTAO}>Administrador do provedor</p>
+              <p className="text-[12px] text-[var(--text-muted)] leading-snug max-w-[46ch]">
+                Este usuário terá acesso total ao painel do provedor.
+              </p>
             </div>
 
-            {/* Summary */}
-            <div className="border-t pt-3">
-              <p className="text-xs font-semibold text-[var(--color-muted)] uppercase tracking-wide mb-2">Resumo</p>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs bg-muted/40 rounded p-3">
-                <div><span className="text-[var(--color-muted)]">Empresa:</span> {form.tradeName || form.name}</div>
-                <div><span className="text-[var(--color-muted)]">CNPJ:</span> {formatCnpj(form.cnpj)}</div>
-                <div><span className="text-[var(--color-muted)]">Subdominio:</span> <span className="font-mono">{form.subdomain}.consultaisp.com.br</span></div>
-                <div><span className="text-[var(--color-muted)]">Plano:</span> {form.plan}</div>
-                <div><span className="text-[var(--color-muted)]">Cidade:</span> {form.addressCity}/{form.addressState}</div>
-                <div><span className="text-[var(--color-muted)]">Telefone:</span> {form.contactPhone || "—"}</div>
-              </div>
+            <div className="max-w-md mx-auto space-y-3">
+              <Campo rotulo="Nome completo">
+                <Input
+                  value={form.adminName}
+                  onChange={f("adminName")}
+                  placeholder="Nome do administrador"
+                  className={CONTROLE_CAMPO}
+                  autoFocus
+                />
+              </Campo>
+              <Campo rotulo="E-mail">
+                <Input
+                  type="email"
+                  value={form.adminEmail}
+                  onChange={f("adminEmail")}
+                  placeholder="admin@provedor.com"
+                  className={CONTROLE_CAMPO}
+                />
+              </Campo>
+              <Campo rotulo="Senha">
+                <Input
+                  type="password"
+                  value={form.adminPassword}
+                  onChange={f("adminPassword")}
+                  placeholder="Mínimo de 6 caracteres"
+                  className={CONTROLE_CAMPO}
+                />
+                {form.adminPassword.length > 0 && form.adminPassword.length < 6 && (
+                  <span className="mt-1 block text-[11.5px] text-[var(--danger)]" role="alert">
+                    A senha precisa ter no mínimo 6 caracteres.
+                  </span>
+                )}
+              </Campo>
             </div>
+
+            <section className="border-t border-[var(--border)] pt-3">
+              <KickerSecao>Resumo</KickerSecao>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2.5 rounded-lg bg-[var(--surface-inset)] p-3">
+                {RESUMO.map(item => (
+                  <div key={item.rotulo} className="min-w-0">
+                    <dt className={ROTULO_CAMPO}>{item.rotulo}</dt>
+                    <dd
+                      className={cn(
+                        "text-[12.5px] text-[var(--text)] truncate",
+                        item.mono && "font-mono tabular-nums",
+                      )}
+                    >
+                      {item.valor}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
           </div>
         )}
 
-        {/* Footer */}
         <DialogFooter className="gap-2 sm:gap-0">
           {step > 1 && (
-            <Button variant="outline" onClick={() => setStep(s => s - 1)} className="gap-1">
+            <button type="button" onClick={() => setStep(s => s - 1)} className={BOTAO_SECUNDARIO}>
               Voltar
-            </Button>
+            </button>
           )}
           <div className="flex-1" />
           {step === 2 && (
-            <Button onClick={() => setStep(3)} disabled={!canProceedStep2} className="gap-1">
-              Proximo <ChevronRight className="w-4 h-4" />
-            </Button>
+            <button
+              type="button"
+              onClick={() => setStep(3)}
+              disabled={!canProceedStep2}
+              className={cn(BOTAO_MARCA, DESABILITAVEL)}
+            >
+              Próximo
+              <ChevronRight className="w-4 h-4" strokeWidth={2} aria-hidden />
+            </button>
           )}
           {step === 3 && (
-            <Button onClick={() => mutation.mutate(form)} disabled={!canProceedStep3 || mutation.isPending} className="gap-2">
-              {mutation.isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              Criar Provedor
-            </Button>
+            <button
+              type="button"
+              onClick={() => mutation.mutate(form)}
+              disabled={!canProceedStep3 || mutation.isPending}
+              className={cn(BOTAO_MARCA, DESABILITAVEL)}
+            >
+              {mutation.isPending
+                ? <RefreshCw className="w-4 h-4 motion-safe:animate-spin" strokeWidth={2} aria-hidden />
+                : <Plus className="w-4 h-4" strokeWidth={2} aria-hidden />}
+              Criar provedor
+            </button>
           )}
         </DialogFooter>
       </DialogContent>

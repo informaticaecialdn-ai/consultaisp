@@ -2,33 +2,126 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
+import { cn } from "@/lib/utils";
 import {
-  TrendingUp, TrendingDown, DollarSign, Users, BarChart3,
-  AlertCircle, CheckCircle, ArrowUpRight, ArrowDownRight,
-  RefreshCw, FileText, Plus, Eye, Ban, Wallet, RotateCcw,
-  QrCode, ExternalLink, Copy, ArrowLeft, Zap, Crown,
-  Target, Activity, PieChart, Calendar, Info, ChevronRight,
-  ScanLine, ArrowUp, ArrowDown, Minus
+  CabecalhoPainel, CartaoMetrica, KickerSecao, Selo, EstadoVazio, LinhasSkeleton,
+  TabelaPainel, Th, Td, Campo, BotaoIcone, AvisoNaoCarregou, BOTAO_ICONE,
+  TITULO_CARTAO, BOTAO_SECUNDARIO, BOTAO_MARCA,
+  type TomSelo, type Icone,
+} from "@/components/painel/ui";
+import {
+  Dinheiro, ChipFiltro, ModalCobrancaAsaas, ModalPixAsaas, CONTROLE_CAMPO,
+  textoDeReal,
+} from "@/components/admin/financeiro-ui";
+import { PLAN_LABELS } from "@/components/admin/constants";
+import {
+  TrendingUp, TrendingDown, Users, BarChart3,
+  CheckCircle, ArrowUpRight, RefreshCw, FileText, Plus, Eye, Ban,
+  Wallet, RotateCcw, ExternalLink, ArrowLeft, Zap, Crown,
+  Target, Activity, PieChart, ChevronRight, ArrowUp, ArrowDown, Minus,
+  Shield,
 } from "lucide-react";
 import { usePrecos, camposDaFatura } from "@/hooks/use-precos";
-import { rotuloDoPlano } from "@/lib/planos";
-const PLAN_LABELS: Record<string, { label: string; color: string; bg: string }> = {
-  free: { label: rotuloDoPlano("free"), color: "text-[var(--color-muted)]", bg: "bg-[var(--color-tag-bg)]" },
-  pro: { label: rotuloDoPlano("pro"), color: "text-[var(--brand-ink)]", bg: "bg-[var(--brand-soft)]" },
-  basic: { label: rotuloDoPlano("basic"), color: "text-[var(--color-muted)]", bg: "bg-[var(--color-tag-bg)]" },
-  enterprise: { label: rotuloDoPlano("enterprise"), color: "text-[var(--color-muted)]", bg: "bg-[var(--color-tag-bg)]" },
+
+/**
+ * Financeiro do superadmin, na MESMA linguagem do Painel do Provedor.
+ *
+ * Rodada de LINGUAGEM VISUAL: nenhuma rota, queryKey, mutação, permissão ou
+ * `data-testid` mudou. O que mudou é quem fala — a tela consome
+ * `@/components/painel/ui` e os tokens canônicos, no lugar da API antiga de
+ * token e da paleta default do Tailwind. (O literal da API antiga não aparece
+ * escrito aqui de propósito: a auditoria que confere se ela sumiu é feita por
+ * grep, e o comentário que conta a história envenenaria o resultado.)
+ *
+ * O QUE SAIU DAQUI, E POR QUÊ
+ *
+ * 1. O QUINTO MAPA DE PLANO. Este arquivo mantinha um `PLAN_LABELS` próprio
+ *    ({ label, color, bg }) — a cópia que `lib/planos.ts` e o catálogo do
+ *    admin foram criados para acabar. Agora importa `PLAN_LABELS` de
+ *    `@/components/admin/constants`, que devolve `{ label, tom }`, e o plano
+ *    aparece como `<Selo tom>` em vez de duas classes coladas à mão.
+ *
+ * 2. TREZE GRADIENTES E A PALETA DEFAULT. Cada cartão de métrica tinha uma
+ *    faixa em gradiente no topo e um ladrilho de ícone também em gradiente; as
+ *    barras dos dois gráficos usavam cinza-azulado, rosa e azul da paleta
+ *    default, uma delas com gradiente vertical; e o texto de valor negativo,
+ *    de alerta e de número de fatura usava rosa, âmbar e azul crus. Três
+ *    proibições da seção 7 convivendo. Tudo virou token.
+ *
+ * 3. O `MetricCard` LOCAL, com `trend`/`trendValue` que NENHUMA chamada
+ *    passava — parâmetro morto que só existia para justificar a seta colorida.
+ *    Virou `CartaoMetrica`, a primitiva compartilhada.
+ *
+ * 4. AS FAIXAS DE JULGAMENTO INVENTADAS. Churn e taxa de cobrança pintavam a
+ *    tela de verde/âmbar/vermelho por limiares cravados no JSX (churn 0 e 3%,
+ *    cobrança 90% e 70%). Esses números não existem no servidor, não são
+ *    configuráveis e não estão escritos em lugar nenhum do produto: eram
+ *    opinião pintada de medição. Um instrumento mostra a medida; o número
+ *    continua inteiro na tela, em `--text`, e a saturação fica reservada para
+ *    o que é risco de verdade — dinheiro vencido, fatura em atraso, situação
+ *    de cobrança do provedor (seção 3).
+ *
+ * 5. SPINNER CENTRALIZADO e "Nenhuma fatura encontrada" solto: viraram
+ *    `LinhasSkeleton` e `EstadoVazio` (seção 6).
+ *
+ * TODO NÚMERO É MONO TABULAR (seção 2), e todo valor NEGATIVO — contração,
+ * cancelamento, rebaixamento de plano, dívida vencida — leva o token de
+ * dinheiro negativo, hoje aplicado pelo componente `Dinheiro`.
+ *
+ * O QUE MUDOU NA RODADA SEGUINTE (unificação com a aba Faturas e Cobranças)
+ *
+ * 6. AS SIGLAS SAÍRAM DA TELA. Esta página dizia "MRR", "ARR", "ARPU", "LTV" e
+ *    "NRR"; a aba do painel do sistema, que mostra a MESMA receita, já dizia
+ *    "Receita mensal" e "Receita anual". Duas telas do mesmo painel nomeando a
+ *    mesma medida de dois jeitos é pior do que qualquer um dos dois nomes, e a
+ *    §8 proíbe jargão técnico exposto — as cinco eram jargão em inglês. Venceu
+ *    a versão em português; a definição de cada uma continua na sublinha.
+ *
+ * 7. AS CÓPIAS MORRERAM. Cabeçalho e célula de tabela, rótulo de campo, botão
+ *    só de ícone e estado desabilitado eram cópias manuscritas e agora vêm de
+ *    `@/components/painel/ui`. Dinheiro, chip de filtro, altura de campo e os
+ *    dois modais do Asaas eram cópias compartilhadas com a ABA e mudaram para
+ *    `@/components/admin/financeiro-ui`. Não sobrou cópia local nenhuma: é por
+ *    onde a divergência voltaria.
+ */
+
+/* ------------------------------------------------------------------ */
+/* Vocabulário de domínio desta tela                                   */
+/* ------------------------------------------------------------------ */
+
+/** Situação da fatura. `overdue` fica em `danger` porque é o único dos quatro
+ *  que pede ação hoje; `cancelled` fica neutro — fatura cancelada pelo próprio
+ *  superadmin não é acidente. */
+const SITUACAO_FATURA: Record<string, { rotulo: string; tom: TomSelo }> = {
+  pending: { rotulo: "Pendente", tom: "gated" },
+  paid: { rotulo: "Paga", tom: "ok" },
+  overdue: { rotulo: "Vencida", tom: "danger" },
+  cancelled: { rotulo: "Cancelada", tom: "neutro" },
 };
 
-function fmt(n: number) {
-  return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
+/** Situação de cobrança do provedor. Aqui a saturação É legítima: `overdue` é
+ *  provedor devendo, que é exatamente o eixo de risco. */
+const SITUACAO_COBRANCA: Record<string, { rotulo: string; tom: TomSelo }> = {
+  good: { rotulo: "Em dia", tom: "ok" },
+  overdue: { rotulo: "Inadimplente", tom: "danger" },
+  new: { rotulo: "Sem histórico", tom: "neutro" },
+};
+
+/* ------------------------------------------------------------------ */
+/* Vocabulário desta tela                                              */
+/* ------------------------------------------------------------------ */
+
+/** Mono tabular para número que NÃO é dinheiro nem célula de tabela — contagem
+ *  de provedores, porcentagem, período. Dinheiro é `<Dinheiro>` e célula é
+ *  `<Td num>`; as duas já trazem isto. */
+const MONO = "font-mono tabular-nums";
+
+/** Contagem inteira. Dinheiro NÃO passa por aqui. */
 function fmtInt(n: number) {
   return n.toLocaleString("pt-BR");
 }
@@ -41,77 +134,60 @@ function periodLabel(p: string) {
   return `${months[parseInt(m) - 1]}/${y.slice(2)}`;
 }
 
-type MetricCardProps = {
-  label: string;
-  value: string;
-  sub?: string;
-  icon: any;
-  trend?: "up" | "down" | "neutral";
-  trendValue?: string;
-  highlight?: boolean;
-  color?: string;
-  testId?: string;
-  tooltip?: string;
+/** Uma barra da composição da receita mensal.
+ *
+ *  A cor diz o PAPEL da parcela, não o gosto: início e fim são a mesma medida
+ *  em dois momentos (identidade, seção 3.5 — daí o neutro e a marca), soma é
+ *  `--ok` e subtração é `--past`, o token do dinheiro negativo. */
+const COR_DA_BARRA = {
+  start: "bg-[var(--cat-slate)]",
+  add: "bg-[var(--ok)]",
+  sub: "bg-[var(--past)]",
+  end: "bg-[var(--brand)]",
+} as const;
+
+/** O sinal da parcela. O servidor manda toda parcela como magnitude positiva,
+ *  então quem sabe que ela subtrai é o papel dela — e é o sinal que faz
+ *  `Dinheiro` pintar o valor com o token de dinheiro negativo. */
+const SINAL_DA_BARRA: Record<keyof typeof COR_DA_BARRA, "+" | "−" | undefined> = {
+  start: undefined,
+  add: "+",
+  sub: "−",
+  end: undefined,
 };
 
-function MetricCard({ label, value, sub, icon: Icon, trend, trendValue, highlight, color = "blue", testId, tooltip }: MetricCardProps) {
-  const gradients: Record<string, string> = {
-    blue:    "from-blue-500 to-blue-600",
-    indigo:  "from-indigo-500 to-indigo-600",
-    emerald: "from-emerald-500 to-emerald-600",
-    amber:   "from-amber-500 to-amber-600",
-    rose:    "from-rose-500 to-rose-600",
-    purple:  "from-purple-500 to-purple-600",
-    cyan:    "from-cyan-500 to-cyan-600",
-    violet:  "from-violet-500 to-violet-600",
-  };
-  return (
-    <Card className="overflow-hidden" data-testid={testId}>
-      <div className={`h-1 bg-gradient-to-r ${gradients[color] || gradients.blue}`} />
-      <div className="p-4">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs text-muted-foreground font-semibold uppercase tracking-widest">{label}</span>
-          <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${gradients[color] || gradients.blue} flex items-center justify-center`}>
-            <Icon className="w-4 h-4 text-white" />
-          </div>
-        </div>
-        <p className="text-2xl font-bold tracking-tight">{value}</p>
-        <div className="flex items-center justify-between mt-1">
-          {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
-          {trendValue && trend && (
-            <span className={`text-xs font-medium flex items-center gap-0.5 ${trend === "up" ? "text-[var(--color-success)]" : trend === "down" ? "text-rose-600" : "text-muted-foreground"}`}>
-              {trend === "up" ? <ArrowUpRight className="w-3 h-3" /> : trend === "down" ? <ArrowDownRight className="w-3 h-3" /> : null}
-              {trendValue}
-            </span>
-          )}
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-function WaterfallBar({ label, value, type, max }: { label: string; value: number; type: "start"|"add"|"sub"|"end"; max: number }) {
+function WaterfallBar({ label, value, type, max }: { label: string; value: number; type: keyof typeof COR_DA_BARRA; max: number }) {
   const pct = max > 0 ? Math.max((value / max) * 100, 2) : 2;
-  const colors = {
-    start: "bg-slate-400",
-    add:   "bg-[var(--color-success)]",
-    sub:   "bg-rose-400",
-    end:   "bg-blue-500",
-  };
-  const signs = { start: "", add: "+", sub: "-", end: "" };
+  const negativa = type === "sub";
   return (
     <div className="flex flex-col items-center gap-1 flex-1 min-w-0">
-      <span className="text-xs font-semibold text-muted-foreground text-center">
-        {signs[type]}R${fmtInt(Math.round(value))}
-      </span>
+      <Dinheiro
+        valor={Math.round(value)}
+        curto
+        sinal={SINAL_DA_BARRA[type]}
+        /* A tinta só entra quando a parcela NÃO é negativa: sobre uma negativa
+           ela apagaria o token de dinheiro negativo que o componente aplica. */
+        className={cn("text-[10px] font-medium text-center", !negativa && "text-[var(--text-muted)]")}
+      />
       <div
-        className={`w-full rounded-t-sm ${colors[type]} transition-all`}
+        className={cn("w-full rounded-t-sm motion-safe:transition-all", COR_DA_BARRA[type])}
         style={{ height: `${pct}%`, minHeight: 8 }}
       />
-      <span className="text-xs text-muted-foreground text-center leading-tight">{label}</span>
+      <span className="text-[10.5px] text-[var(--text-muted)] text-center leading-tight">{label}</span>
     </div>
   );
 }
+
+/** Operador entre duas barras do waterfall. */
+function Operador({ Icone: I }: { Icone: Icone }) {
+  return (
+    <div className="flex items-end self-center pb-4 text-[var(--text-faint)]" aria-hidden>
+      <I className="w-3 h-3" strokeWidth={2} />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 
 export default function AdminFinanceiroPage() {
   const { user } = useAuth();
@@ -197,7 +273,7 @@ export default function AdminFinanceiroPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/admin/invoices"] });
       qc.invalidateQueries({ queryKey: ["/api/admin/financial/saas-metrics"] });
-      toast({ title: "Status atualizado" });
+      toast({ title: "Situação atualizada" });
     },
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
@@ -239,7 +315,7 @@ export default function AdminFinanceiroPage() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["/api/admin/invoices"] });
       setAsaasChargeModal(null);
-      toast({ title: "Cobranca Asaas criada", description: `ID: ${data.charge?.id}` });
+      toast({ title: "Cobrança Asaas criada", description: `ID: ${data.charge?.id}` });
     },
     onError: (e: any) => toast({ title: "Erro Asaas", description: e.message, variant: "destructive" }),
   });
@@ -253,7 +329,7 @@ export default function AdminFinanceiroPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/admin/invoices"] });
       qc.invalidateQueries({ queryKey: ["/api/admin/financial/saas-metrics"] });
-      toast({ title: "Sincronizado com Asaas" });
+      toast({ title: "Sincronizado com o Asaas" });
     },
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
@@ -265,13 +341,19 @@ export default function AdminFinanceiroPage() {
       return res.json();
     },
     onSuccess: (data, id) => setAsaasPixModal({ invoiceId: id as number, pixData: data }),
-    onError: (e: any) => toast({ title: "Erro ao buscar PIX", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Erro ao buscar o PIX", description: e.message, variant: "destructive" }),
   });
 
   if (!isSuperAdmin) {
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-4 p-8">
-        <p className="text-muted-foreground">Acesso restrito a superadmin.</p>
+      <div className="p-4 lg:p-5">
+        <Card>
+          <EstadoVazio
+            Icone={Shield}
+            titulo="Acesso restrito"
+            descricao="Esta tela é do administrador da plataforma. Sua conta não tem esse acesso."
+          />
+        </Card>
       </div>
     );
   }
@@ -296,691 +378,870 @@ export default function AdminFinanceiroPage() {
         return i.status === invoiceFilter;
       });
 
-  const STATUS_STYLE: Record<string, string> = {
-    pending:   "bg-[var(--color-gold-bg)] text-[var(--color-gold)]",
-    paid:      "bg-[var(--color-success-bg)] text-[var(--color-success)]",
-    overdue:   "bg-red-100 text-red-700",
-    cancelled: "bg-[var(--color-tag-bg)] text-[var(--color-muted)]",
-  };
-  const STATUS_LABEL: Record<string, string> = {
-    pending: "Pendente", paid: "Pago", overdue: "Vencido", cancelled: "Cancelado"
-  };
+  const semMovimentacao =
+    !waterfall.upgrades?.length && !waterfall.downgrades?.length && !waterfall.churns?.length;
 
   return (
-    <div className="p-4 lg:p-5 pb-10 space-y-6">
-      {/* Asaas Charge Modal */}
+    <div className="p-4 lg:p-6 pb-10 space-y-6">
+      {/* Os dois modais do Asaas vivem em `@/components/admin/financeiro-ui`:
+          eram a mesma peça escrita aqui e na aba Faturas e Cobranças, e
+          divergiam no ícone do boleto, no corpo do título e na acessibilidade. */}
       {asaasChargeModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setAsaasChargeModal(null)}>
-          <div className="bg-background rounded-lg shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
-            <h2 className="text-base font-bold mb-1 flex items-center gap-2">
-              <Wallet className="w-4 h-4 text-blue-500" />Cobrar via Asaas
-            </h2>
-            <p className="text-xs text-muted-foreground mb-4">Fatura {asaasChargeModal.invoiceNumber}</p>
-            <div className="space-y-2">
-              {[
-                { type: "UNDEFINED", label: "Livre (cliente escolhe)", icon: Wallet },
-                { type: "PIX", label: "PIX", icon: QrCode },
-                { type: "BOLETO", label: "Boleto Bancario", icon: ScanLine },
-              ].map(opt => (
-                <button
-                  key={opt.type}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border hover:bg-muted/50 transition-colors text-left"
-                  disabled={createChargeMutation.isPending}
-                  onClick={() => createChargeMutation.mutate({ id: asaasChargeModal.invoiceId, billingType: opt.type })}
-                  data-testid={`button-charge-${opt.type.toLowerCase()}`}
-                >
-                  {createChargeMutation.isPending ? <RefreshCw className="w-4 h-4 animate-spin text-muted-foreground" /> : <opt.icon className="w-4 h-4 text-blue-500" />}
-                  <span className="text-sm font-medium">{opt.label}</span>
-                </button>
-              ))}
-            </div>
-            <Button variant="ghost" size="sm" className="mt-3 w-full text-xs" onClick={() => setAsaasChargeModal(null)}>Cancelar</Button>
-          </div>
-        </div>
+        <ModalCobrancaAsaas
+          numeroDaFatura={asaasChargeModal.invoiceNumber}
+          emAndamento={createChargeMutation.isPending}
+          onEscolher={(formaDeCobranca) =>
+            createChargeMutation.mutate({ id: asaasChargeModal.invoiceId, billingType: formaDeCobranca })
+          }
+          onFechar={() => setAsaasChargeModal(null)}
+        />
       )}
 
-      {/* PIX Modal */}
       {asaasPixModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setAsaasPixModal(null)}>
-          <div className="bg-background rounded-lg shadow-[0_0_0_1px_var(--ring-warm),0_24px_48px_rgba(20,20,19,0.05)] p-6 w-full max-w-sm text-center" onClick={e => e.stopPropagation()}>
-            <h2 className="text-base font-bold mb-1 flex items-center gap-2 justify-center"><QrCode className="w-4 h-4 text-blue-500" />QR Code PIX</h2>
-            {asaasPixModal.pixData?.encodedImage
-              ? <img src={`data:image/png;base64,${asaasPixModal.pixData.encodedImage}`} alt="QR Code PIX" className="mx-auto w-48 h-48 my-4 rounded-lg border" />
-              : <div className="w-48 h-48 mx-auto my-4 rounded-lg border bg-muted/30 flex items-center justify-center"><QrCode className="w-12 h-12 text-muted-foreground opacity-40" /></div>
-            }
-            {asaasPixModal.pixData?.payload && (
-              <div className="mt-2">
-                <p className="text-xs text-muted-foreground mb-1">Codigo Copia e Cola:</p>
-                <div className="flex gap-2 items-center">
-                  <code className="text-xs bg-muted rounded px-2 py-1 flex-1 text-left truncate">{asaasPixModal.pixData.payload}</code>
-                  <Button variant="outline" size="sm" className="h-7 w-7 p-0 flex-shrink-0"
-                    onClick={() => { navigator.clipboard.writeText(asaasPixModal.pixData.payload); toast({ title: "Copiado!" }); }}
-                  ><Copy className="w-3.5 h-3.5" /></Button>
-                </div>
-              </div>
-            )}
-            <Button variant="ghost" size="sm" className="mt-3 w-full text-xs" onClick={() => setAsaasPixModal(null)}>Fechar</Button>
-          </div>
-        </div>
+        <ModalPixAsaas pix={asaasPixModal.pixData} onFechar={() => setAsaasPixModal(null)} />
       )}
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => navigate("/admin-sistema#financeiro")} data-testid="button-back">
-            <ArrowLeft className="w-4 h-4" />
-          </Button>
-          <div>
-            <h1 className="text-xl font-bold flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-blue-500" />Dashboard Financeiro SaaS
-            </h1>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {now.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })} — Metricas em tempo real
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {asaasStatus?.configured && (
-            <Badge className={`text-xs ${asaasStatus.mode === "sandbox" ? "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" : "bg-[var(--color-success-bg)] text-[var(--color-success)]"}`}>
-              <Wallet className="w-3 h-3 mr-1" />{asaasStatus.mode === "sandbox" ? "Asaas Sandbox" : "Asaas Producao"}
-            </Badge>
-          )}
-          <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => {
-            qc.invalidateQueries({ queryKey: ["/api/admin/financial/saas-metrics"] });
-            qc.invalidateQueries({ queryKey: ["/api/admin/invoices"] });
-          }} data-testid="button-refresh-metrics">
-            <RefreshCw className="w-3.5 h-3.5" />Atualizar
-          </Button>
+      <div className="flex items-start gap-3">
+        <BotaoIcone
+          Icone={ArrowLeft}
+          rotulo="Voltar ao painel do sistema"
+          className="mt-0.5"
+          onClick={() => navigate("/admin-sistema#financeiro")}
+          testId="button-back"
+        />
+        <div className="flex-1 min-w-0">
+          <CabecalhoPainel
+            titulo="Financeiro"
+            descricao={`Receita recorrente, faturas e cobrança dos provedores · ${now.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}`}
+            acoes={
+              <>
+                {asaasStatus?.configured && (
+                  /* "Sandbox"/"Producao" era valor cru do gateway. O que
+                     importa para quem emite é se a cobrança vale dinheiro. */
+                  <Selo tom={asaasStatus.mode === "sandbox" ? "gated" : "ok"} Icone={Wallet}>
+                    {asaasStatus.mode === "sandbox" ? "Asaas em teste" : "Asaas em produção"}
+                  </Selo>
+                )}
+                <button
+                  type="button"
+                  className={BOTAO_SECUNDARIO}
+                  onClick={() => {
+                    qc.invalidateQueries({ queryKey: ["/api/admin/financial/saas-metrics"] });
+                    qc.invalidateQueries({ queryKey: ["/api/admin/invoices"] });
+                  }}
+                  data-testid="button-refresh-metrics"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 flex-none" strokeWidth={2} />
+                  Atualizar
+                </button>
+              </>
+            }
+          />
         </div>
       </div>
 
       {metricsLoading ? (
-        <div className="flex items-center justify-center py-24">
-          <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" />
-        </div>
+        /* Carregamento mostra a FORMA do que vem (seção 6): os mesmos quatro
+           cartões, com o rótulo já legível e o número em skeleton. O spinner
+           centralizado que estava aqui não dizia nada sobre a tela que ia
+           aparecer. */
+        <section>
+          <KickerSecao>Receita recorrente</KickerSecao>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {[
+              { rotulo: "Receita mensal", Icone: TrendingUp },
+              { rotulo: "Receita anual", Icone: Target },
+              { rotulo: "Receita por provedor", Icone: Users },
+              { rotulo: "Valor por cliente", Icone: Crown },
+            ].map(m => (
+              <CartaoMetrica key={m.rotulo} rotulo={m.rotulo} Icone={m.Icone} valor="" carregando />
+            ))}
+          </div>
+        </section>
       ) : (
         <>
-          {/* === ROW 1: PRIMARY KPIs === */}
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Receita Recorrente</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <MetricCard label="MRR" value={`R$ ${fmt(snap.mrr || 0)}`}
-                sub="Receita mensal recorrente" icon={TrendingUp} color="blue"
-                testId="metric-mrr" />
-              <MetricCard label="ARR" value={`R$ ${fmtInt(snap.arr || 0)}`}
-                sub="Receita anual recorrente" icon={Target} color="indigo"
-                testId="metric-arr" />
-              <MetricCard label="ARPU" value={`R$ ${fmt(snap.arpu || 0)}`}
-                sub={`${snap.payingProviders || 0} clientes pagantes`} icon={Users} color="purple"
-                testId="metric-arpu" />
-              <MetricCard label="LTV" value={`R$ ${fmtInt(snap.ltv || 0)}`}
-                sub="Valor vitalicio estimado" icon={Crown} color="amber"
-                testId="metric-ltv" />
+          <section>
+            <KickerSecao>Receita recorrente</KickerSecao>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* As sublinhas dizem o que cada sigla dizia. Nenhuma conta mudou:
+                  a receita anual continua sendo a mensal projetada, e o valor
+                  por cliente continua saindo da receita por provedor dividida
+                  pelo cancelamento (admin.storage.ts). */}
+              <CartaoMetrica rotulo="Receita mensal" Icone={TrendingUp} valor={<Dinheiro valor={snap.mrr || 0} />} sub="recorrente, dos provedores pagantes" testId="metric-mrr" testIdValor="value-metric-mrr" />
+              <CartaoMetrica rotulo="Receita anual" Icone={Target} valor={<Dinheiro valor={snap.arr || 0} curto />} sub="a mensal projetada em 12 meses" testId="metric-arr" testIdValor="value-metric-arr" />
+              <CartaoMetrica
+                rotulo="Receita por provedor"
+                Icone={Users}
+                valor={<Dinheiro valor={snap.arpu || 0} />}
+                sub={<>média entre <span className={MONO}>{snap.payingProviders || 0}</span> provedores pagantes</>}
+                testId="metric-arpu"
+                testIdValor="value-metric-arpu"
+              />
+              <CartaoMetrica rotulo="Valor por cliente" Icone={Crown} valor={<Dinheiro valor={snap.ltv || 0} curto />} sub="o que um provedor rende enquanto fica" testId="metric-ltv" testIdValor="value-metric-ltv" />
             </div>
-          </div>
+          </section>
 
-          {/* === ROW 2: HEALTH KPIs === */}
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Saude do Negocio</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <Card className="overflow-hidden" data-testid="metric-churn">
-                <div className={`h-1 bg-gradient-to-r ${(snap.monthlyChurnRate || 0) === 0 ? "from-emerald-400 to-emerald-500" : (snap.monthlyChurnRate || 0) < 3 ? "from-amber-400 to-amber-500" : "from-rose-400 to-rose-500"}`} />
-                <div className="p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs text-muted-foreground font-semibold uppercase tracking-widest">Churn Mensal</span>
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${(snap.monthlyChurnRate || 0) === 0 ? "bg-[var(--color-success-bg)]" : (snap.monthlyChurnRate || 0) < 3 ? "bg-[var(--color-gold-bg)]" : "bg-[var(--color-danger-bg)]"}`}>
-                      <TrendingDown className={`w-4 h-4 ${(snap.monthlyChurnRate || 0) === 0 ? "text-[var(--color-success)]" : (snap.monthlyChurnRate || 0) < 3 ? "text-amber-600" : "text-rose-600"}`} />
-                    </div>
-                  </div>
-                  <p className="text-2xl font-bold">{fmtPct(snap.monthlyChurnRate || 0)}</p>
-                  <p className="text-xs text-muted-foreground mt-1">Anual: {fmtPct(snap.annualChurnRate || 0)}</p>
-                </div>
-              </Card>
-
-              <Card className="overflow-hidden" data-testid="metric-nrr">
-                <div className={`h-1 bg-gradient-to-r ${(snap.nrr || 100) >= 100 ? "from-emerald-400 to-emerald-500" : "from-amber-400 to-amber-500"}`} />
-                <div className="p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs text-muted-foreground font-semibold uppercase tracking-widest">NRR</span>
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${(snap.nrr || 100) >= 100 ? "bg-[var(--color-success-bg)]" : "bg-[var(--color-gold-bg)]"}`}>
-                      <Activity className={`w-4 h-4 ${(snap.nrr || 100) >= 100 ? "text-[var(--color-success)]" : "text-amber-600"}`} />
-                    </div>
-                  </div>
-                  <p className="text-2xl font-bold">{snap.nrr || 100}%</p>
-                  <p className="text-xs text-muted-foreground mt-1">Retencao liquida de receita</p>
-                </div>
-              </Card>
-
-              <MetricCard label="Clientes Ativos" value={fmtInt(snap.activeProviders || 0)}
-                sub={`${snap.payingProviders || 0} pagantes · ${(snap.activeProviders || 0) - (snap.payingProviders || 0)} gratuitos`}
-                icon={Users} color="cyan" testId="metric-active-providers" />
-
-              <MetricCard label="Cobranca" value={`${invoiceHealth.collectionRate || 0}%`}
-                sub={`R$ ${fmt(invoiceHealth.totalCollected || 0)} cobrado`}
-                icon={CheckCircle}
-                color={(invoiceHealth.collectionRate || 0) >= 90 ? "emerald" : (invoiceHealth.collectionRate || 0) >= 70 ? "amber" : "rose"}
-                testId="metric-collection-rate" />
+          <section>
+            <KickerSecao>Saúde do negócio</KickerSecao>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <CartaoMetrica
+                rotulo="Cancelamento no mês"
+                Icone={TrendingDown}
+                valor={fmtPct(snap.monthlyChurnRate || 0)}
+                sub={<>no ano: <span className={MONO}>{fmtPct(snap.annualChurnRate || 0)}</span></>}
+                testId="metric-churn"
+                testIdValor="value-metric-churn"
+              />
+              <CartaoMetrica
+                rotulo="Retenção de receita"
+                Icone={Activity}
+                valor={`${snap.nrr || 100}%`}
+                sub="da base do mês passado, com expansões e cancelamentos"
+                testId="metric-nrr"
+                testIdValor="value-metric-nrr"
+              />
+              <CartaoMetrica
+                rotulo="Provedores ativos"
+                Icone={Users}
+                valor={fmtInt(snap.activeProviders || 0)}
+                sub={<>
+                  <span className={MONO}>{snap.payingProviders || 0}</span> pagantes ·{" "}
+                  <span className={MONO}>{(snap.activeProviders || 0) - (snap.payingProviders || 0)}</span> no gratuito
+                </>}
+                testId="metric-active-providers"
+                testIdValor="value-metric-active-providers"
+              />
+              <CartaoMetrica
+                rotulo="Cobrança recebida"
+                Icone={CheckCircle}
+                valor={`${invoiceHealth.collectionRate || 0}%`}
+                sub={<><Dinheiro valor={invoiceHealth.totalCollected || 0} /> recebidos</>}
+                testId="metric-collection-rate"
+                testIdValor="value-metric-collection-rate"
+              />
             </div>
-          </div>
+          </section>
 
-          {/* === ROW 3: MRR WATERFALL + TREND === */}
-          <div className="grid lg:grid-cols-5 gap-4">
-            {/* MRR Waterfall */}
-            <Card className="lg:col-span-2 p-5">
-              <h3 className="font-semibold text-sm mb-1 flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-blue-500" />Waterfall de MRR
-              </h3>
-              <p className="text-xs text-muted-foreground mb-4">{now.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}</p>
-              <div className="flex items-end gap-2 h-36">
-                <WaterfallBar label="Inicio" value={waterfall.startingMrr || 0} type="start" max={maxWaterfall} />
-                <div className="flex items-end text-muted-foreground self-center pb-4"><Plus className="w-3 h-3" /></div>
-                <WaterfallBar label="Novo" value={waterfall.newMrr || 0} type="add" max={maxWaterfall} />
-                <div className="flex items-end text-muted-foreground self-center pb-4"><Plus className="w-3 h-3" /></div>
-                <WaterfallBar label="Expansao" value={waterfall.expansionMrr || 0} type="add" max={maxWaterfall} />
-                <div className="flex items-end text-muted-foreground self-center pb-4"><Minus className="w-3 h-3" /></div>
-                <WaterfallBar label="Contracão" value={waterfall.contractionMrr || 0} type="sub" max={maxWaterfall} />
-                <div className="flex items-end text-muted-foreground self-center pb-4"><Minus className="w-3 h-3" /></div>
-                <WaterfallBar label="Churn" value={waterfall.churnedMrr || 0} type="sub" max={maxWaterfall} />
-                <div className="flex items-center self-center pb-4 text-muted-foreground text-xs">=</div>
-                <WaterfallBar label="Final" value={waterfall.endingMrr || 0} type="end" max={maxWaterfall} />
-              </div>
-              {/* Summary row */}
-              <div className="mt-3 pt-3 border-t grid grid-cols-2 gap-2">
-                {[
-                  { label: "MRR Novo", value: waterfall.newMrr || 0, color: "text-[var(--color-success)]", icon: ArrowUp },
-                  { label: "Expansao", value: waterfall.expansionMrr || 0, color: "text-[var(--color-success)]", icon: ArrowUp },
-                  { label: "Contracão", value: waterfall.contractionMrr || 0, color: "text-rose-500", icon: ArrowDown },
-                  { label: "Churn", value: waterfall.churnedMrr || 0, color: "text-rose-600", icon: ArrowDown },
-                ].map(item => (
-                  <div key={item.label} className="flex items-center justify-between">
-                    <div className="flex items-center gap-1">
-                      <item.icon className={`w-3 h-3 ${item.color}`} />
-                      <span className="text-xs text-muted-foreground">{item.label}</span>
-                    </div>
-                    <span className={`text-xs font-semibold ${item.color}`}>R$ {fmtInt(item.value)}</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
-
-            {/* 12-month Revenue Trend */}
-            <Card className="lg:col-span-3 p-5">
-              <h3 className="font-semibold text-sm mb-1 flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-indigo-500" />Receita Coletada (12 meses)
-              </h3>
-              <p className="text-xs text-muted-foreground mb-4">Faturas pagas por periodo</p>
-              <div className="flex items-end gap-1.5 h-36">
-                {last12.map((m: any) => {
-                  const pct = maxRevenue > 0 ? (m.collectedRevenue / maxRevenue) * 100 : 0;
-                  const isCurrent = m.period === currentPeriod;
-                  return (
-                    <div key={m.period} className="flex flex-col items-center flex-1 gap-1 group" title={`${periodLabel(m.period)}: R$ ${fmt(m.collectedRevenue)}`}>
-                      <span className="text-xs text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
-                        R${fmtInt(Math.round(m.collectedRevenue))}
-                      </span>
-                      <div
-                        className={`w-full rounded-t-sm transition-all ${isCurrent ? "bg-gradient-to-t from-blue-500 to-indigo-400" : "bg-gradient-to-t from-blue-300 to-indigo-200"}`}
-                        style={{ height: `${Math.max(pct, 3)}%` }}
+          <section>
+            <KickerSecao>Composição da receita</KickerSecao>
+            <div className="grid lg:grid-cols-5 gap-3">
+              <Card className="lg:col-span-2 p-4">
+                <h3 className={`${TITULO_CARTAO} flex items-center gap-2`}>
+                  <BarChart3 className="w-4 h-4 text-[var(--text-faint)] flex-none" strokeWidth={2} />
+                  Como a receita mensal chegou até aqui
+                </h3>
+                <p className="text-[12px] text-[var(--text-muted)] mb-4 mt-0.5">
+                  {now.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}
+                </p>
+                <div className="flex items-end gap-2 h-36">
+                  <WaterfallBar label="Início" value={waterfall.startingMrr || 0} type="start" max={maxWaterfall} />
+                  <Operador Icone={Plus} />
+                  <WaterfallBar label="Novo" value={waterfall.newMrr || 0} type="add" max={maxWaterfall} />
+                  <Operador Icone={Plus} />
+                  <WaterfallBar label="Expansão" value={waterfall.expansionMrr || 0} type="add" max={maxWaterfall} />
+                  <Operador Icone={Minus} />
+                  <WaterfallBar label="Contração" value={waterfall.contractionMrr || 0} type="sub" max={maxWaterfall} />
+                  <Operador Icone={Minus} />
+                  <WaterfallBar label="Cancelamento" value={waterfall.churnedMrr || 0} type="sub" max={maxWaterfall} />
+                  <div className="flex items-center self-center pb-4 text-[var(--text-faint)] text-[11px]" aria-hidden>=</div>
+                  <WaterfallBar label="Final" value={waterfall.endingMrr || 0} type="end" max={maxWaterfall} />
+                </div>
+                <div className="mt-3 pt-3 border-t border-[var(--border)] grid grid-cols-2 gap-x-4 gap-y-1.5">
+                  {[
+                    { label: "Receita nova", value: waterfall.newMrr || 0, negativa: false, Icone: ArrowUp },
+                    { label: "Expansão", value: waterfall.expansionMrr || 0, negativa: false, Icone: ArrowUp },
+                    { label: "Contração", value: waterfall.contractionMrr || 0, negativa: true, Icone: ArrowDown },
+                    { label: "Cancelamento", value: waterfall.churnedMrr || 0, negativa: true, Icone: ArrowDown },
+                  ].map(item => (
+                    <div key={item.label} className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1 min-w-0">
+                        <item.Icone
+                          className={cn("w-3 h-3 flex-none", item.negativa ? "text-[var(--past)]" : "text-[var(--ok)]")}
+                          strokeWidth={2}
+                          aria-hidden
+                        />
+                        <span className="text-[12px] text-[var(--text-muted)] truncate">{item.label}</span>
+                      </div>
+                      <Dinheiro
+                        valor={item.value}
+                        curto
+                        sinal={item.negativa ? "−" : "+"}
+                        className={cn("text-[12px] font-medium", !item.negativa && "text-[var(--ok)]")}
                       />
-                      <span className={`text-xs ${isCurrent ? "font-bold text-blue-600" : "text-muted-foreground"}`}>{periodLabel(m.period)}</span>
                     </div>
-                  );
-                })}
-              </div>
-              <div className="mt-3 pt-3 border-t flex items-center justify-between text-xs text-muted-foreground">
-                <span>Total coletado (12m): <strong className="text-foreground">R$ {fmt(last12.reduce((s: number, m: any) => s + m.collectedRevenue, 0))}</strong></span>
-                <span>Faturado: <strong className="text-foreground">R$ {fmt(last12.reduce((s: number, m: any) => s + m.billedRevenue, 0))}</strong></span>
-              </div>
-            </Card>
-          </div>
-
-          {/* === ROW 4: PLAN DISTRIBUTION + INVOICE HEALTH + MOVEMENTS === */}
-          <div className="grid lg:grid-cols-3 gap-4">
-            {/* Plan distribution */}
-            <Card className="p-5">
-              <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
-                <PieChart className="w-4 h-4 text-amber-500" />Receita por Plano
-              </h3>
-              <div className="space-y-3">
-                {Object.entries(planDist).sort(([, a]: any, [, b]: any) => b.mrr - a.mrr).map(([plan, data]: any) => {
-                  const total = Object.values(planDist).reduce((s: number, d: any) => s + d.mrr, 0) as number;
-                  const pct = total > 0 ? Math.round((data.mrr / total) * 100) : 0;
-                  const pl = PLAN_LABELS[plan];
-                  return (
-                    <div key={plan}>
-                      <div className="flex items-center justify-between text-xs mb-1.5">
-                        <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${pl?.bg || "bg-[var(--color-tag-bg)]"} border`} />
-                          <span className="font-medium">{pl?.label || plan}</span>
-                          <span className="text-muted-foreground">({data.count})</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold">R$ {fmtInt(data.mrr)}</span>
-                          <span className="text-muted-foreground">{pct}%</span>
-                        </div>
-                      </div>
-                      <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
-                      </div>
-                    </div>
-                  );
-                })}
-                {Object.keys(planDist).length === 0 && <p className="text-xs text-muted-foreground text-center py-4">Sem dados</p>}
-              </div>
-            </Card>
-
-            {/* Invoice Health */}
-            <Card className="p-5">
-              <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
-                <Activity className="w-4 h-4 text-rose-500" />Saude das Cobranças
-              </h3>
-              <div className="space-y-3">
-                <div className="flex items-center justify-between py-2 border-b">
-                  <span className="text-xs text-muted-foreground">Taxa de cobranca</span>
-                  <span className={`text-sm font-bold ${(invoiceHealth.collectionRate || 0) >= 90 ? "text-[var(--color-success)]" : (invoiceHealth.collectionRate || 0) >= 70 ? "text-amber-600" : "text-rose-600"}`}>
-                    {invoiceHealth.collectionRate || 0}%
-                  </span>
+                  ))}
                 </div>
-                {[
-                  { label: "Pagas", count: invoiceHealth.counts?.paid || 0, amount: invoiceHealth.totalCollected || 0, color: "text-[var(--color-success)]", bg: "bg-[var(--color-success-bg)]" },
-                  { label: "Pendentes", count: invoiceHealth.counts?.pending || 0, amount: 0, color: "text-amber-600", bg: "bg-amber-50" },
-                  { label: "Vencidas", count: invoiceHealth.counts?.overdue || 0, amount: invoiceHealth.totalOverdue || 0, color: "text-rose-600", bg: "bg-rose-50" },
-                ].map(row => (
-                  <div key={row.label} className={`flex items-center justify-between px-3 py-2 rounded-lg ${row.bg}`}>
-                    <div>
-                      <p className={`text-xs font-semibold ${row.color}`}>{row.label}</p>
-                      <p className="text-xs text-muted-foreground">{row.count} fatura(s)</p>
-                    </div>
-                    {row.amount > 0 && <span className={`text-xs font-bold ${row.color}`}>R$ {fmt(row.amount)}</span>}
-                  </div>
-                ))}
-                {/* Aging */}
-                {invoiceHealth.totalOverdue > 0 && (
-                  <div className="mt-2 pt-2 border-t">
-                    <p className="text-xs text-muted-foreground font-semibold mb-2 uppercase tracking-wide">Aging de inadimplencia</p>
-                    {Object.entries(invoiceHealth.agingBuckets || {}).map(([range, val]: any) => (
-                      val > 0 && (
-                        <div key={range} className="flex items-center justify-between text-xs py-0.5">
-                          <span className="text-muted-foreground">{range} dias</span>
-                          <span className="font-semibold text-rose-600">R$ {fmt(val)}</span>
-                        </div>
-                      )
-                    ))}
-                  </div>
-                )}
-              </div>
-            </Card>
+              </Card>
 
-            {/* MRR Movements this month */}
-            <Card className="p-5">
-              <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
-                <ArrowUpRight className="w-4 h-4 text-indigo-500" />Movimentacoes do Mes
-              </h3>
-              <div className="space-y-2">
-                {waterfall.upgrades?.length > 0 && (
-                  <>
-                    <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Upgrades</p>
-                    {waterfall.upgrades.map((u: any, i: number) => (
-                      <div key={i} className="flex items-center justify-between text-xs py-1.5 px-2 rounded bg-[var(--color-success-bg)]">
-                        <div>
-                          <span className="font-medium text-[var(--color-success)]">{u.provider}</span>
-                          <span className="text-[var(--color-success)] ml-1">{PLAN_LABELS[u.from]?.label} → {PLAN_LABELS[u.to]?.label}</span>
-                        </div>
-                        <span className="text-[var(--color-success)] font-bold">+R${u.delta}</span>
-                      </div>
-                    ))}
-                  </>
-                )}
-                {waterfall.downgrades?.length > 0 && (
-                  <>
-                    <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mt-2">Downgrades</p>
-                    {waterfall.downgrades.map((d: any, i: number) => (
-                      <div key={i} className="flex items-center justify-between text-xs py-1.5 px-2 rounded bg-amber-50">
-                        <div>
-                          <span className="font-medium text-[var(--color-gold)]">{d.provider}</span>
-                          <span className="text-amber-600 ml-1">{PLAN_LABELS[d.from]?.label} → {PLAN_LABELS[d.to]?.label}</span>
-                        </div>
-                        <span className="text-[var(--color-gold)] font-bold">-R${d.delta}</span>
-                      </div>
-                    ))}
-                  </>
-                )}
-                {waterfall.churns?.length > 0 && (
-                  <>
-                    <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider mt-2">Churn</p>
-                    {waterfall.churns.map((c: any, i: number) => (
-                      <div key={i} className="flex items-center justify-between text-xs py-1.5 px-2 rounded bg-rose-50">
-                        <div>
-                          <span className="font-medium text-rose-800">{c.provider}</span>
-                          <span className="text-rose-600 ml-1">{PLAN_LABELS[c.oldPlan]?.label} → Gratuito</span>
-                        </div>
-                        <span className="text-[var(--color-danger)] font-bold">-R${c.mrr}</span>
-                      </div>
-                    ))}
-                  </>
-                )}
-                {!waterfall.upgrades?.length && !waterfall.downgrades?.length && !waterfall.churns?.length && (
-                  <div className="flex flex-col items-center justify-center py-8 gap-2">
-                    <CheckCircle className="w-8 h-8 text-emerald-400 opacity-60" />
-                    <p className="text-xs text-muted-foreground text-center">Nenhuma movimentacao este mes</p>
-                  </div>
-                )}
-              </div>
-            </Card>
-          </div>
-
-          {/* === ROW 5: PROVIDER BILLING HEALTH TABLE === */}
-          <Card className="overflow-hidden">
-            <div className="p-5 border-b flex items-center justify-between">
-              <h3 className="font-semibold text-sm flex items-center gap-2">
-                <Users className="w-4 h-4 text-blue-500" />Saude de Cobranca por Provedor
-              </h3>
-              <span className="text-xs text-muted-foreground">{provHealth.length} provedores</span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b bg-muted/20">
-                    <th className="text-left py-2.5 px-4 font-semibold text-muted-foreground">Provedor</th>
-                    <th className="text-left py-2.5 px-4 font-semibold text-muted-foreground">Plano</th>
-                    <th className="text-right py-2.5 px-4 font-semibold text-muted-foreground">MRR</th>
-                    <th className="text-center py-2.5 px-4 font-semibold text-muted-foreground">Faturas</th>
-                    <th className="text-center py-2.5 px-4 font-semibold text-muted-foreground">Em Atraso</th>
-                    <th className="text-center py-2.5 px-4 font-semibold text-muted-foreground">Status</th>
-                    <th className="text-center py-2.5 px-4 font-semibold text-muted-foreground">Asaas</th>
-                    <th className="text-center py-2.5 px-4 font-semibold text-muted-foreground">Acao</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {provHealth.sort((a: any, b: any) => b.mrr - a.mrr).map((p: any) => {
-                    const pl = PLAN_LABELS[p.plan];
+              <Card className="lg:col-span-3 p-4">
+                <h3 className={`${TITULO_CARTAO} flex items-center gap-2`}>
+                  <TrendingUp className="w-4 h-4 text-[var(--text-faint)] flex-none" strokeWidth={2} />
+                  Receita recebida nos últimos 12 meses
+                </h3>
+                <p className="text-[12px] text-[var(--text-muted)] mb-4 mt-0.5">Faturas pagas, por período</p>
+                <div className="flex items-end gap-1.5 h-36">
+                  {last12.map((m: any) => {
+                    const pct = maxRevenue > 0 ? (m.collectedRevenue / maxRevenue) * 100 : 0;
+                    const isCurrent = m.period === currentPeriod;
                     return (
-                      <tr key={p.id} className="hover:bg-muted/10 transition-colors" data-testid={`provider-health-row-${p.id}`}>
-                        <td className="py-2.5 px-4 font-medium">{p.name}</td>
-                        <td className="py-2.5 px-4">
-                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${pl?.bg} ${pl?.color}`}>{pl?.label || p.plan}</span>
-                        </td>
-                        <td className="py-2.5 px-4 text-right font-semibold">
-                          {p.mrr > 0 ? `R$ ${fmtInt(p.mrr)}` : <span className="text-muted-foreground">Gratuito</span>}
-                        </td>
-                        <td className="py-2.5 px-4 text-center text-muted-foreground">{p.paidCount}/{p.invoicesCount}</td>
-                        <td className="py-2.5 px-4 text-center">
-                          {p.overdueCount > 0
-                            ? <span className="text-rose-600 font-semibold">{p.overdueCount} (R${fmtInt(p.overdueAmount)})</span>
-                            : <span className="text-muted-foreground">—</span>}
-                        </td>
-                        <td className="py-2.5 px-4 text-center">
-                          {p.health === "good" && <Badge className="text-xs bg-[var(--color-success-bg)] text-[var(--color-success)]">Em dia</Badge>}
-                          {p.health === "overdue" && <Badge className="text-xs bg-[var(--color-danger-bg)] text-[var(--color-danger)]">Inadimplente</Badge>}
-                          {p.health === "new" && <Badge className="text-xs bg-[var(--color-tag-bg)] text-[var(--color-muted)]">Novo</Badge>}
-                        </td>
-                        <td className="py-2.5 px-4 text-center">
-                          {p.hasAsaas ? <Wallet className="w-3.5 h-3.5 text-blue-500 mx-auto" title="Cobranca Asaas ativa" /> : <span className="text-muted-foreground">—</span>}
-                        </td>
-                        <td className="py-2.5 px-4 text-center">
-                          <Button variant="ghost" size="sm" className="h-6 px-2 text-xs gap-1"
-                            onClick={() => navigate(`/admin/provedor/${p.id}`)}
-                            data-testid={`button-go-provider-${p.id}`}>
-                            Ver <ChevronRight className="w-3 h-3" />
-                          </Button>
-                        </td>
-                      </tr>
+                      <div
+                        key={m.period}
+                        className="flex flex-col items-center flex-1 gap-1 group"
+                        title={`${periodLabel(m.period)}: ${textoDeReal(m.collectedRevenue)}`}
+                      >
+                        <Dinheiro
+                          valor={Math.round(m.collectedRevenue)}
+                          curto
+                          className="text-[10px] text-[var(--text-muted)] opacity-0 group-hover:opacity-100 motion-safe:transition-opacity"
+                        />
+                        {/* O mês corrente é o único na cor da marca — é o
+                            estado ativo da série, não decoração. Os demais
+                            ficam em hairline forte: barra de dado, sem voz. */}
+                        <div
+                          className={cn(
+                            "w-full rounded-t-sm motion-safe:transition-all",
+                            isCurrent ? "bg-[var(--brand)]" : "bg-[var(--border-strong)]",
+                          )}
+                          style={{ height: `${Math.max(pct, 3)}%` }}
+                        />
+                        <span className={cn(MONO, "text-[10px]", isCurrent ? "text-[var(--brand)] font-medium" : "text-[var(--text-muted)]")}>
+                          {periodLabel(m.period)}
+                        </span>
+                      </div>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-
-          {/* === ROW 6: INVOICE MANAGEMENT === */}
-          <Card className="overflow-hidden">
-            <div className="p-5 border-b">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <h3 className="font-semibold flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-indigo-500" />Gestao de Faturas
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">{allInvoices.length} fatura(s) no sistema</p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {asaasStatus?.configured && (
-                    <div className="flex items-center gap-1.5 text-xs text-blue-600 bg-blue-50 px-2.5 py-1.5 rounded-lg">
-                      <Wallet className="w-3.5 h-3.5" />
-                      Asaas {asaasStatus.mode === "sandbox" ? "Sandbox" : "Producao"} ativo
+                <div className="mt-3 pt-3 border-t border-[var(--border)] flex items-center justify-between flex-wrap gap-2 text-[12px] text-[var(--text-muted)]">
+                  <span>
+                    Recebido em 12 meses:{" "}
+                    <Dinheiro
+                      valor={last12.reduce((s: number, m: any) => s + m.collectedRevenue, 0)}
+                      className="font-medium text-[var(--text)]"
+                    />
+                  </span>
+                  <span>
+                    Faturado:{" "}
+                    <Dinheiro
+                      valor={last12.reduce((s: number, m: any) => s + m.billedRevenue, 0)}
+                      className="font-medium text-[var(--text)]"
+                    />
+                  </span>
+                </div>
+              </Card>
+            </div>
+          </section>
+
+          <section>
+            <KickerSecao>Planos, cobrança e movimentação</KickerSecao>
+            <div className="grid lg:grid-cols-3 gap-3">
+              <Card className="p-4">
+                <h3 className={`${TITULO_CARTAO} flex items-center gap-2 mb-4`}>
+                  <PieChart className="w-4 h-4 text-[var(--text-faint)] flex-none" strokeWidth={2} />
+                  Receita por plano
+                </h3>
+                {Object.keys(planDist).length === 0 ? (
+                  <EstadoVazio
+                    Icone={PieChart}
+                    titulo="Nenhuma receita por plano"
+                    descricao="Assim que houver provedor em plano pago, a divisão da receita aparece aqui."
+                    testId="empty-receita-por-plano"
+                  />
+                ) : (
+                  <div className="space-y-3">
+                    {Object.entries(planDist).sort(([, a]: any, [, b]: any) => b.mrr - a.mrr).map(([plan, data]: any) => {
+                      const total = Object.values(planDist).reduce((s: number, d: any) => s + d.mrr, 0) as number;
+                      const pct = total > 0 ? Math.round((data.mrr / total) * 100) : 0;
+                      const pl = PLAN_LABELS[plan];
+                      return (
+                        <div key={plan}>
+                          <div className="flex items-center justify-between gap-2 mb-1.5">
+                            <div className="flex items-center gap-2 min-w-0">
+                              {/* O selo já identifica o plano: o ponto colorido
+                                  que existia aqui era um segundo marcador para
+                                  a mesma coisa. */}
+                              <Selo tom={pl?.tom ?? "neutro"}>{pl?.label ?? plan}</Selo>
+                              <span className={cn(MONO, "text-[12px] text-[var(--text-muted)]")}>{data.count}</span>
+                            </div>
+                            <div className="flex items-center gap-2 flex-none">
+                              <Dinheiro valor={data.mrr} curto className="text-[12.5px] font-medium text-[var(--text)]" />
+                              <span className={cn(MONO, "text-[12px] text-[var(--text-muted)]")}>{pct}%</span>
+                            </div>
+                          </div>
+                          <div className="h-1.5 bg-[var(--surface-inset)] rounded overflow-hidden">
+                            <div className="h-full bg-[var(--brand)] motion-safe:transition-all" style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </Card>
+
+              <Card className="p-4">
+                <h3 className={`${TITULO_CARTAO} flex items-center gap-2 mb-4`}>
+                  <Activity className="w-4 h-4 text-[var(--text-faint)] flex-none" strokeWidth={2} />
+                  Situação das faturas
+                </h3>
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between py-2 border-b border-[var(--border-faint)]">
+                    <span className="text-[12px] text-[var(--text-muted)]">Taxa de recebimento</span>
+                    <span className={cn(MONO, "text-[13px] font-medium text-[var(--text)]")}>
+                      {invoiceHealth.collectionRate || 0}%
+                    </span>
+                  </div>
+                  {/* Aqui a saturação é legítima: paga / pendente / vencida é o
+                      próprio eixo de risco que a seção 3 reserva para ela. */}
+                  {[
+                    { rotulo: "Pagas", tom: "ok" as TomSelo, count: invoiceHealth.counts?.paid || 0, amount: invoiceHealth.totalCollected || 0, tinta: "text-[var(--ok)]" },
+                    { rotulo: "Pendentes", tom: "gated" as TomSelo, count: invoiceHealth.counts?.pending || 0, amount: 0, tinta: "text-[var(--gated)]" },
+                    { rotulo: "Vencidas", tom: "danger" as TomSelo, count: invoiceHealth.counts?.overdue || 0, amount: invoiceHealth.totalOverdue || 0, tinta: "text-[var(--past)]" },
+                  ].map(row => (
+                    <div key={row.rotulo} className="flex items-center justify-between gap-3 py-1.5">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Selo tom={row.tom}>{row.rotulo}</Selo>
+                        <span className={cn(MONO, "text-[12px] text-[var(--text-muted)]")}>{row.count}</span>
+                      </div>
+                      {row.amount > 0 && (
+                        <Dinheiro valor={row.amount} className={cn("text-[12.5px] font-medium flex-none", row.tinta)} />
+                      )}
+                    </div>
+                  ))}
+                  {invoiceHealth.totalOverdue > 0 && (
+                    <div className="mt-2 pt-2 border-t border-[var(--border-faint)]">
+                      {/* "Aging" era jargão em inglês numa tela em português. */}
+                      <KickerSecao className="mb-2">Atraso por faixa</KickerSecao>
+                      {Object.entries(invoiceHealth.agingBuckets || {}).map(([range, val]: any) => (
+                        val > 0 && (
+                          <div key={range} className="flex items-center justify-between py-0.5">
+                            <span className={cn(MONO, "text-[12px] text-[var(--text-muted)]")}>{range} dias</span>
+                            {/* `--past` pelo papel de ATRASO, e não pelo sinal:
+                                o valor é positivo, alguém deve. */}
+                            <Dinheiro valor={val} className="text-[12px] font-medium text-[var(--past)]" />
+                          </div>
+                        )
+                      ))}
                     </div>
                   )}
-                  <Button variant="outline" size="sm" className="gap-1.5 text-xs"
-                    onClick={() => {
-                      const period = currentPeriod;
-                      if (confirm(`Gerar faturas mensais para ${period}?`)) generateMonthlyMutation.mutate(period);
-                    }}
-                    disabled={generateMonthlyMutation.isPending} data-testid="button-generate-monthly">
-                    {generateMonthlyMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-                    Gerar Mensais
-                  </Button>
-                  <Button size="sm" className="gap-1.5 text-xs" onClick={() => setShowNewInvoice(!showNewInvoice)} data-testid="button-new-invoice">
-                    <Plus className="w-3.5 h-3.5" />Nova Fatura
-                  </Button>
                 </div>
-              </div>
+              </Card>
 
-              {/* Filter */}
-              <div className="flex gap-1.5 mt-4 flex-wrap">
-                {[
-                  { value: "all", label: "Todas", count: allInvoices.length },
-                  { value: "pending", label: "Pendentes", count: allInvoices.filter((i: any) => i.status === "pending" && new Date(i.dueDate) >= now).length },
-                  { value: "paid", label: "Pagas", count: allInvoices.filter((i: any) => i.status === "paid").length },
-                  { value: "overdue", label: "Vencidas", count: allInvoices.filter((i: any) => i.status === "overdue" || (i.status === "pending" && new Date(i.dueDate) < now)).length },
-                  { value: "cancelled", label: "Canceladas", count: allInvoices.filter((i: any) => i.status === "cancelled").length },
-                ].map(f => (
-                  <Button key={f.value} size="sm" variant={invoiceFilter === f.value ? "default" : "outline"}
-                    className="h-7 text-xs px-3" onClick={() => setInvoiceFilter(f.value)}
-                    data-testid={`button-filter-${f.value}`}>
-                    {f.label} <span className="ml-1 opacity-70">({f.count})</span>
-                  </Button>
-                ))}
-              </div>
+              <Card className="p-4">
+                <h3 className={`${TITULO_CARTAO} flex items-center gap-2 mb-4`}>
+                  <ArrowUpRight className="w-4 h-4 text-[var(--text-faint)] flex-none" strokeWidth={2} />
+                  Movimentação do mês
+                </h3>
+                {semMovimentacao ? (
+                  <EstadoVazio
+                    Icone={CheckCircle}
+                    titulo="Nenhuma movimentação este mês"
+                    descricao="Nenhum provedor trocou de plano nem saiu neste período. Trocas e saídas aparecem aqui assim que acontecem."
+                    testId="empty-movimentacao-mes"
+                  />
+                ) : (
+                  <div className="space-y-3">
+                    {/* As linhas eram retângulos tintos de verde/âmbar/vermelho
+                        inteiros. O evento já é dito pelo grupo, e o sinal do
+                        dinheiro pela cor do valor — repetir nos dois lugares
+                        transformava a lista num semáforo. */}
+                    {waterfall.upgrades?.length > 0 && (
+                      <div>
+                        <KickerSecao className="mb-1.5">Subiram de plano</KickerSecao>
+                        {waterfall.upgrades.map((u: any, i: number) => (
+                          <LinhaMovimento
+                            key={`up-${i}`}
+                            provedor={u.provider}
+                            de={PLAN_LABELS[u.from]?.label ?? u.from}
+                            para={PLAN_LABELS[u.to]?.label ?? u.to}
+                            valor={u.delta}
+                            negativa={false}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    {waterfall.downgrades?.length > 0 && (
+                      <div>
+                        <KickerSecao className="mb-1.5">Desceram de plano</KickerSecao>
+                        {waterfall.downgrades.map((d: any, i: number) => (
+                          <LinhaMovimento
+                            key={`down-${i}`}
+                            provedor={d.provider}
+                            de={PLAN_LABELS[d.from]?.label ?? d.from}
+                            para={PLAN_LABELS[d.to]?.label ?? d.to}
+                            valor={d.delta}
+                            negativa
+                          />
+                        ))}
+                      </div>
+                    )}
+                    {waterfall.churns?.length > 0 && (
+                      <div>
+                        <KickerSecao className="mb-1.5">Deixaram de pagar</KickerSecao>
+                        {waterfall.churns.map((c: any, i: number) => (
+                          <LinhaMovimento
+                            key={`churn-${i}`}
+                            provedor={c.provider}
+                            de={PLAN_LABELS[c.oldPlan]?.label ?? c.oldPlan}
+                            para={PLAN_LABELS.free.label}
+                            valor={c.mrr}
+                            negativa
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </Card>
             </div>
+          </section>
 
-            {/* New Invoice Form */}
-            {showNewInvoice && (
-              <div className="p-5 border-b bg-muted/20">
-                <h4 className="font-medium text-sm mb-4">Emitir Nova Fatura</h4>
-                {carregandoPrecos && (
-                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-3" data-testid="skeleton-precos-fatura">
-                    {[0, 1, 2].map(i => (
-                      <div key={i} className="h-12 rounded bg-[var(--surface-inset)] animate-pulse" />
-                    ))}
-                  </div>
-                )}
-                {erroPrecos && (
-                  /* Sem a tabela o formulario nao sabe quanto cobrar. Dizer
-                     isso e melhor do que um seletor de plano vazio ao lado de
-                     um campo de valor zerado. */
-                  <div className="mb-3 rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2" data-testid="erro-precos-fatura">
-                    <p className="text-xs text-[var(--danger)]">
-                      Nao foi possivel carregar a tabela de precos. A fatura nao pode ser emitida sem ela.
-                    </p>
-                    <button type="button" className="text-xs underline mt-0.5 text-[var(--danger)]" onClick={() => recarregarPrecos()}>
-                      Tentar de novo
-                    </button>
-                  </div>
-                )}
-                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                  <div>
-                    <label className="text-xs font-medium mb-1 block">Provedor</label>
-                    <Select value={invoiceForm.providerId} onValueChange={(v) => {
-                      const p = allProviders.find((x: any) => x.id.toString() === v);
-                      // Sem tabela `camposDoPlano` e vazio: grava so o provedor
-                      // e deixa valor e creditos como estao.
-                      setInvoiceForm(f => ({ ...f, providerId: v, ...camposDoPlano(p?.plan) }));
-                    }}>
-                      <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-invoice-provider">
-                        <SelectValue placeholder="Selecionar provedor" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {allProviders.map((p: any) => (
-                          <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium mb-1 block">Periodo (AAAA-MM)</label>
-                    <Input className="h-8 text-xs mt-1" placeholder={currentPeriod} value={invoiceForm.period} onChange={e => setInvoiceForm(f => ({ ...f, period: e.target.value }))} data-testid="input-invoice-period" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium mb-1 block">Plano Cobrado</label>
-                    <Select value={invoiceForm.planAtTime} disabled={!precos} onValueChange={v => {
-                      setInvoiceForm(f => ({ ...f, ...camposDoPlano(v) }));
-                    }}>
-                      <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-invoice-plan">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {planosDoSeletor.map(p => (
-                          <SelectItem key={p.chave} value={p.chave}>{p.rotulo} — {p.precoLabel}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium mb-1 block">Valor (R$)</label>
-                    {/* Sem placeholder de preco: "199" era a tabela antiga. */}
-                    <Input className="h-8 text-xs mt-1" type="number" value={invoiceForm.amount} onChange={e => setInvoiceForm(f => ({ ...f, amount: e.target.value }))} data-testid="input-invoice-amount" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium mb-1 block">Vencimento</label>
-                    <Input className="h-8 text-xs mt-1" type="date" value={invoiceForm.dueDate} onChange={e => setInvoiceForm(f => ({ ...f, dueDate: e.target.value }))} data-testid="input-invoice-due-date" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium mb-1 block">Observacoes</label>
-                    <Input className="h-8 text-xs mt-1" placeholder="Opcional..." value={invoiceForm.notes} onChange={e => setInvoiceForm(f => ({ ...f, notes: e.target.value }))} />
-                  </div>
-                </div>
-                <div className="flex gap-2 mt-3">
-                  <Button size="sm" className="gap-1.5 text-xs" disabled={!podeEmitirFatura || createInvoiceMutation.isPending} onClick={() => createInvoiceMutation.mutate(invoiceForm)} data-testid="button-submit-invoice">
-                    {createInvoiceMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
-                    Emitir Fatura
-                  </Button>
-                  <Button variant="ghost" size="sm" className="text-xs" onClick={() => setShowNewInvoice(false)}>Cancelar</Button>
-                </div>
+          <section>
+            <KickerSecao>Cobrança por provedor</KickerSecao>
+            <Card className="p-0 overflow-hidden">
+              <div className="px-4 py-3 border-b border-[var(--border)] bg-[var(--surface-2)] flex items-center justify-between gap-3">
+                <h3 className={`${TITULO_CARTAO} flex items-center gap-2`}>
+                  <Users className="w-4 h-4 text-[var(--text-faint)] flex-none" strokeWidth={2} />
+                  Situação de cada provedor
+                </h3>
+                <span className={cn(MONO, "text-[11px] text-[var(--text-muted)]")}>
+                  {provHealth.length} provedores
+                </span>
               </div>
-            )}
-
-            {/* Invoice Table */}
-            {invoicesLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" />
-              </div>
-            ) : filteredInvoices.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 gap-2">
-                <FileText className="w-8 h-8 text-muted-foreground opacity-40" />
-                <p className="text-sm text-muted-foreground">Nenhuma fatura encontrada</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+              {provHealth.length === 0 ? (
+                <EstadoVazio
+                  Icone={Users}
+                  titulo="Nenhum provedor com cobrança"
+                  descricao="Assim que houver fatura emitida, cada provedor aparece aqui com o que já pagou e o que está em atraso."
+                  testId="empty-cobranca-por-provedor"
+                />
+              ) : (
+                <TabelaPainel>
                   <thead>
-                    <tr className="border-b bg-muted/20">
-                      <th className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground">Numero</th>
-                      <th className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground">Provedor</th>
-                      <th className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground">Periodo</th>
-                      <th className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground">Plano</th>
-                      <th className="text-right py-3 px-4 text-xs font-semibold text-muted-foreground">Valor</th>
-                      <th className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground">Vencimento</th>
-                      <th className="text-center py-3 px-4 text-xs font-semibold text-muted-foreground">Status</th>
-                      <th className="text-center py-3 px-4 text-xs font-semibold text-muted-foreground">Acoes</th>
+                    <tr>
+                      <Th>Provedor</Th>
+                      <Th>Plano</Th>
+                      <Th alinhamento="direita">Receita mensal</Th>
+                      <Th alinhamento="centro">Faturas pagas</Th>
+                      <Th alinhamento="centro">Em atraso</Th>
+                      <Th alinhamento="centro">Situação</Th>
+                      <Th alinhamento="centro">Asaas</Th>
+                      <Th alinhamento="centro">Ação</Th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y">
-                    {filteredInvoices.map((inv: any) => {
-                      const isOverdue = inv.status === "pending" && new Date(inv.dueDate) < now;
-                      const displayStatus = isOverdue ? "overdue" : inv.status;
+                  {/* O hairline de cada linha agora vem da célula (a primitiva
+                      já o traz, como manda a §6); a última perde o dela para
+                      não desenhar uma risca colada na borda do cartão. */}
+                  <tbody className="[&_tr:last-child_td]:border-0">
+                    {provHealth.slice().sort((a: any, b: any) => b.mrr - a.mrr).map((p: any) => {
+                      const pl = PLAN_LABELS[p.plan];
+                      const sit = SITUACAO_COBRANCA[p.health];
                       return (
-                        <tr key={inv.id} className="hover:bg-muted/10 transition-colors" data-testid={`invoice-row-${inv.id}`}>
-                          <td className="py-3 px-4">
-                            <span className="font-mono text-xs font-medium text-blue-700">{inv.invoiceNumber}</span>
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className="font-medium text-xs">{inv.providerName}</span>
-                          </td>
-                          <td className="py-3 px-4 text-xs text-muted-foreground">{inv.period}</td>
-                          <td className="py-3 px-4">
-                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${PLAN_LABELS[inv.planAtTime]?.bg} ${PLAN_LABELS[inv.planAtTime]?.color}`}>
-                              {PLAN_LABELS[inv.planAtTime]?.label || inv.planAtTime}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-right font-semibold text-xs">
-                            R$ {fmt(parseFloat(inv.paidAmount || inv.amount))}
-                          </td>
-                          <td className="py-3 px-4 text-xs text-muted-foreground">
-                            {new Date(inv.dueDate).toLocaleDateString("pt-BR")}
-                          </td>
-                          <td className="py-3 px-4 text-center">
-                            <div className="flex flex-col items-center gap-0.5">
-                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${STATUS_STYLE[displayStatus] || STATUS_STYLE.pending}`}>
-                                {STATUS_LABEL[displayStatus] || displayStatus}
+                        <tr
+                          key={p.id}
+                          className="hover:bg-[var(--surface-2)] motion-safe:transition-colors"
+                          data-testid={`provider-health-row-${p.id}`}
+                        >
+                          <Td className="font-medium text-[var(--text)]">{p.name}</Td>
+                          <Td>
+                            <Selo tom={pl?.tom ?? "neutro"}>{pl?.label ?? p.plan}</Selo>
+                          </Td>
+                          <Td num className="font-medium text-[var(--text)]">
+                            {p.mrr > 0
+                              ? <Dinheiro valor={p.mrr} curto />
+                              : <span className="text-[var(--text-muted)] font-normal">Gratuito</span>}
+                          </Td>
+                          <Td num alinhamento="centro" className="text-[var(--text-muted)]">
+                            {p.paidCount}/{p.invoicesCount}
+                          </Td>
+                          <Td alinhamento="centro">
+                            {p.overdueCount > 0 ? (
+                              <span className={cn(MONO, "font-medium text-[var(--past)]")}>
+                                {p.overdueCount} · <Dinheiro valor={p.overdueAmount} curto className="text-[var(--past)]" />
                               </span>
-                              {inv.asaasChargeId && (
-                                <span className="text-xs text-blue-500 font-medium flex items-center gap-0.5">
-                                  <Wallet className="w-2.5 h-2.5" />Asaas
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="py-3 px-4">
-                            <div className="flex items-center justify-center gap-1">
-                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => navigate(`/admin/fatura/${inv.id}`)} title="Ver fatura" data-testid={`button-view-invoice-${inv.id}`}>
-                                <Eye className="w-3.5 h-3.5" />
-                              </Button>
-                              {(inv.status === "pending" || isOverdue) && !inv.asaasChargeId && asaasStatus?.configured && (
-                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                  onClick={() => setAsaasChargeModal({ invoiceId: inv.id, invoiceNumber: inv.invoiceNumber })}
-                                  title="Cobrar via Asaas" data-testid={`button-asaas-charge-${inv.id}`}>
-                                  <Wallet className="w-3.5 h-3.5" />
-                                </Button>
-                              )}
-                              {inv.asaasChargeId && (
-                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-indigo-500 hover:bg-indigo-50"
-                                  onClick={() => syncChargeMutation.mutate(inv.id)} title="Sincronizar Asaas"
-                                  disabled={syncChargeMutation.isPending} data-testid={`button-asaas-sync-${inv.id}`}>
-                                  {syncChargeMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
-                                </Button>
-                              )}
-                              {inv.asaasInvoiceUrl && (
-                                <a href={inv.asaasInvoiceUrl} target="_blank" rel="noopener noreferrer"
-                                  className="h-7 w-7 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                                  title="Link de pagamento" data-testid={`link-asaas-payment-${inv.id}`}>
-                                  <ExternalLink className="w-3.5 h-3.5" />
-                                </a>
-                              )}
-                              {(inv.status === "pending" || isOverdue) && (
-                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-[var(--color-success)] hover:bg-[var(--color-success-bg)]"
-                                  onClick={() => updateInvoiceStatusMutation.mutate({ id: inv.id, status: "paid", paidAmount: inv.amount })}
-                                  title="Marcar como pago" data-testid={`button-mark-paid-${inv.id}`}>
-                                  <CheckCircle className="w-3.5 h-3.5" />
-                                </Button>
-                              )}
-                              {(inv.status === "pending" || isOverdue) && (
-                                <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-rose-500 hover:bg-rose-50"
-                                  onClick={() => { if (confirm("Cancelar esta fatura?")) cancelInvoiceMutation.mutate(inv.id); }}
-                                  title="Cancelar fatura" data-testid={`button-cancel-invoice-${inv.id}`}>
-                                  <Ban className="w-3.5 h-3.5" />
-                                </Button>
-                              )}
-                            </div>
-                          </td>
+                            ) : (
+                              <span className="text-[var(--text-faint)]">—</span>
+                            )}
+                          </Td>
+                          <Td alinhamento="centro">
+                            {sit ? <Selo tom={sit.tom}>{sit.rotulo}</Selo> : <span className="text-[var(--text-faint)]">—</span>}
+                          </Td>
+                          <Td alinhamento="centro">
+                            {p.hasAsaas ? (
+                              /* O `title` ia direto no ícone do lucide, que
+                                 não aceita a prop — não virava tooltip e era
+                                 um dos erros de tsc deste arquivo. Num
+                                 elemento de verdade, funciona. */
+                              <span title="Cobrança Asaas ativa" className="inline-flex text-[var(--text-muted)]">
+                                <Wallet className="w-3.5 h-3.5" strokeWidth={2} />
+                              </span>
+                            ) : (
+                              <span className="text-[var(--text-faint)]">—</span>
+                            )}
+                          </Td>
+                          <Td alinhamento="centro">
+                            <button
+                              type="button"
+                              className={cn(BOTAO_SECUNDARIO, "px-2.5")}
+                              onClick={() => navigate(`/admin/provedor/${p.id}`)}
+                              data-testid={`button-go-provider-${p.id}`}
+                            >
+                              Abrir
+                              <ChevronRight className="w-3.5 h-3.5 flex-none" strokeWidth={2} aria-hidden />
+                            </button>
+                          </Td>
                         </tr>
                       );
                     })}
                   </tbody>
-                </table>
+                </TabelaPainel>
+              )}
+            </Card>
+          </section>
+
+          <section>
+            <KickerSecao>Faturas</KickerSecao>
+            <Card className="p-0 overflow-hidden">
+              <div className="p-4 border-b border-[var(--border)] bg-[var(--surface-2)]">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h3 className={`${TITULO_CARTAO} flex items-center gap-2`}>
+                      <FileText className="w-4 h-4 text-[var(--text-faint)] flex-none" strokeWidth={2} />
+                      Faturas emitidas
+                    </h3>
+                    <p className="text-[12px] text-[var(--text-muted)] mt-0.5">
+                      <span className={MONO}>{allInvoices.length}</span> no sistema
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className={BOTAO_SECUNDARIO}
+                      onClick={() => {
+                        const period = currentPeriod;
+                        if (confirm(`Gerar faturas mensais para ${period}?`)) generateMonthlyMutation.mutate(period);
+                      }}
+                      disabled={generateMonthlyMutation.isPending}
+                      data-testid="button-generate-monthly"
+                    >
+                      {generateMonthlyMutation.isPending
+                        ? <RefreshCw className="w-3.5 h-3.5 flex-none motion-safe:animate-spin" strokeWidth={2} />
+                        : <Zap className="w-3.5 h-3.5 flex-none" strokeWidth={2} />}
+                      Gerar as do mês
+                    </button>
+                    <button
+                      type="button"
+                      className={BOTAO_MARCA}
+                      onClick={() => setShowNewInvoice(!showNewInvoice)}
+                      data-testid="button-new-invoice"
+                    >
+                      <Plus className="w-3.5 h-3.5 flex-none" strokeWidth={2} />
+                      Nova fatura
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex gap-1.5 mt-4 flex-wrap" role="group" aria-label="Filtrar faturas por situação">
+                  {[
+                    { value: "all", label: "Todas", count: allInvoices.length },
+                    { value: "pending", label: "Pendentes", count: allInvoices.filter((i: any) => i.status === "pending" && new Date(i.dueDate) >= now).length },
+                    { value: "paid", label: "Pagas", count: allInvoices.filter((i: any) => i.status === "paid").length },
+                    { value: "overdue", label: "Vencidas", count: allInvoices.filter((i: any) => i.status === "overdue" || (i.status === "pending" && new Date(i.dueDate) < now)).length },
+                    { value: "cancelled", label: "Canceladas", count: allInvoices.filter((i: any) => i.status === "cancelled").length },
+                  ].map(f => (
+                    <ChipFiltro
+                      key={f.value}
+                      ativo={invoiceFilter === f.value}
+                      contagem={f.count}
+                      onClick={() => setInvoiceFilter(f.value)}
+                      testId={`button-filter-${f.value}`}
+                    >
+                      {f.label}
+                    </ChipFiltro>
+                  ))}
+                </div>
               </div>
-            )}
-          </Card>
+
+              {showNewInvoice && (
+                <div className="p-4 border-b border-[var(--border)] bg-[var(--surface-2)]">
+                  <h4 className={`${TITULO_CARTAO} mb-4`}>Emitir nova fatura</h4>
+                  {carregandoPrecos && (
+                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-3" data-testid="skeleton-precos-fatura">
+                      {[0, 1, 2].map(i => (
+                        <div key={i} className="h-12 rounded bg-[var(--surface-inset)] motion-safe:animate-pulse" />
+                      ))}
+                    </div>
+                  )}
+                  {erroPrecos && (
+                    /* Sem a tabela o formulario nao sabe quanto cobrar. Dizer
+                       isso e melhor do que um seletor de plano vazio ao lado de
+                       um campo de valor zerado.
+                       A FAIXA vem de `AvisoNaoCarregou`: o bloco estava escrito
+                       a mao aqui e em mais cinco pontos do painel, e o defeito
+                       comum as seis era o alvo do "Tentar de novo" — texto
+                       sublinhado de ~16px de altura, menos de metade dos 44px
+                       que a secao 7 exige no dedo. So a FRASE fica aqui, porque
+                       o que falhou muda o que dizer. */
+                    <AvisoNaoCarregou
+                      className="mb-3"
+                      aoTentarDeNovo={() => recarregarPrecos()}
+                      testId="erro-precos-fatura"
+                    >
+                      Não foi possível carregar a tabela de preços. A fatura não pode ser emitida sem ela.
+                    </AvisoNaoCarregou>
+                  )}
+                  {/* `Campo` põe o controle DENTRO do rótulo: os `<label>` que
+                      estavam aqui eram irmãos do controle, sem `htmlFor` —
+                      clicar no nome não focava a caixa e o leitor de tela não
+                      dizia o nome do campo. */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <Campo rotulo="provedor">
+                      <Select value={invoiceForm.providerId} onValueChange={(v) => {
+                        const p = allProviders.find((x: any) => x.id.toString() === v);
+                        // Sem tabela `camposDoPlano` e vazio: grava so o provedor
+                        // e deixa valor e creditos como estao.
+                        setInvoiceForm(f => ({ ...f, providerId: v, ...camposDoPlano(p?.plan) }));
+                      }}>
+                        <SelectTrigger className={CONTROLE_CAMPO} data-testid="select-invoice-provider">
+                          <SelectValue placeholder="Selecionar provedor" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {allProviders.map((p: any) => (
+                            <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Campo>
+                    <Campo rotulo="período (aaaa-mm)">
+                      <Input className={cn(CONTROLE_CAMPO, MONO)} placeholder={currentPeriod} value={invoiceForm.period} onChange={e => setInvoiceForm(f => ({ ...f, period: e.target.value }))} data-testid="input-invoice-period" />
+                    </Campo>
+                    <Campo rotulo="plano cobrado">
+                      <Select value={invoiceForm.planAtTime} disabled={!precos} onValueChange={v => {
+                        setInvoiceForm(f => ({ ...f, ...camposDoPlano(v) }));
+                      }}>
+                        <SelectTrigger className={CONTROLE_CAMPO} data-testid="select-invoice-plan">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {planosDoSeletor.map(p => (
+                            <SelectItem key={p.chave} value={p.chave}>{p.rotulo} — {p.precoLabel}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Campo>
+                    <Campo rotulo="valor (R$)">
+                      {/* Sem placeholder de preco: "199" era a tabela antiga. */}
+                      <Input className={cn(CONTROLE_CAMPO, MONO)} type="number" value={invoiceForm.amount} onChange={e => setInvoiceForm(f => ({ ...f, amount: e.target.value }))} data-testid="input-invoice-amount" />
+                    </Campo>
+                    <Campo rotulo="vencimento">
+                      <Input className={cn(CONTROLE_CAMPO, MONO)} type="date" value={invoiceForm.dueDate} onChange={e => setInvoiceForm(f => ({ ...f, dueDate: e.target.value }))} data-testid="input-invoice-due-date" />
+                    </Campo>
+                    <Campo rotulo="observações">
+                      <Input className={CONTROLE_CAMPO} placeholder="Opcional…" value={invoiceForm.notes} onChange={e => setInvoiceForm(f => ({ ...f, notes: e.target.value }))} />
+                    </Campo>
+                  </div>
+                  <div className="flex gap-2 mt-3 flex-wrap">
+                    <button
+                      type="button"
+                      className={BOTAO_MARCA}
+                      disabled={!podeEmitirFatura || createInvoiceMutation.isPending}
+                      onClick={() => createInvoiceMutation.mutate(invoiceForm)}
+                      data-testid="button-submit-invoice"
+                    >
+                      {createInvoiceMutation.isPending
+                        ? <RefreshCw className="w-3.5 h-3.5 flex-none motion-safe:animate-spin" strokeWidth={2} />
+                        : <FileText className="w-3.5 h-3.5 flex-none" strokeWidth={2} />}
+                      Emitir fatura
+                    </button>
+                    <button type="button" className={BOTAO_SECUNDARIO} onClick={() => setShowNewInvoice(false)}>
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {invoicesLoading ? (
+                <div className="p-4">
+                  <LinhasSkeleton linhas={5} />
+                </div>
+              ) : filteredInvoices.length === 0 ? (
+                /* Não há fatura nenhuma e o filtro escondeu todas são fatos
+                   diferentes; a tela não pode dizer um pelo outro. */
+                <EstadoVazio
+                  Icone={FileText}
+                  titulo={allInvoices.length === 0 ? "Nenhuma fatura emitida" : "Nenhuma fatura neste filtro"}
+                  descricao={
+                    allInvoices.length === 0
+                      ? "Emita uma fatura avulsa ou gere as do mês para começar a cobrar os provedores."
+                      : "Existem faturas no sistema, mas nenhuma atende ao filtro escolhido. Volte para “Todas” para ver a lista inteira."
+                  }
+                  cta={
+                    allInvoices.length === 0 ? (
+                      <button type="button" className={BOTAO_MARCA} onClick={() => setShowNewInvoice(true)}>
+                        <Plus className="w-3.5 h-3.5 flex-none" strokeWidth={2} />
+                        Nova fatura
+                      </button>
+                    ) : (
+                      <button type="button" className={BOTAO_SECUNDARIO} onClick={() => setInvoiceFilter("all")}>
+                        Ver todas
+                      </button>
+                    )
+                  }
+                  testId="empty-faturas"
+                />
+              ) : (
+                <TabelaPainel>
+                  <thead>
+                    <tr>
+                      <Th>Número</Th>
+                      <Th>Provedor</Th>
+                      <Th>Período</Th>
+                      <Th>Plano</Th>
+                      <Th alinhamento="direita">Valor</Th>
+                      <Th>Vencimento</Th>
+                      <Th alinhamento="centro">Situação</Th>
+                      <Th alinhamento="centro">Ações</Th>
+                    </tr>
+                  </thead>
+                  <tbody className="[&_tr:last-child_td]:border-0">
+                    {filteredInvoices.map((inv: any) => {
+                      const isOverdue = inv.status === "pending" && new Date(inv.dueDate) < now;
+                      const displayStatus = isOverdue ? "overdue" : inv.status;
+                      const sit = SITUACAO_FATURA[displayStatus] ?? SITUACAO_FATURA.pending;
+                      const pl = PLAN_LABELS[inv.planAtTime];
+                      return (
+                        <tr
+                          key={inv.id}
+                          className="hover:bg-[var(--surface-2)] motion-safe:transition-colors"
+                          data-testid={`invoice-row-${inv.id}`}
+                        >
+                          {/* Número, período e vencimento são mono mas se leem
+                              da esquerda: identificador não forma coluna de
+                              grandeza, então `alinhamento="esquerda"` junto do
+                              `num` — e o mesmo alinhamento no cabeçalho. */}
+                          <Td num alinhamento="esquerda" className="text-[12px] font-medium text-[var(--text)]">
+                            {inv.invoiceNumber}
+                          </Td>
+                          <Td className="font-medium text-[var(--text)]">{inv.providerName}</Td>
+                          <Td num alinhamento="esquerda" className="text-[var(--text-muted)]">{inv.period}</Td>
+                          <Td>
+                            <Selo tom={pl?.tom ?? "neutro"}>{pl?.label ?? inv.planAtTime}</Selo>
+                          </Td>
+                          <Td num className="font-medium text-[var(--text)]">
+                            <Dinheiro valor={parseFloat(inv.paidAmount || inv.amount)} />
+                          </Td>
+                          <Td num alinhamento="esquerda" className="text-[var(--text-muted)] whitespace-nowrap">
+                            {new Date(inv.dueDate).toLocaleDateString("pt-BR")}
+                          </Td>
+                          <Td alinhamento="centro">
+                            <div className="inline-flex flex-col items-center gap-1">
+                              <Selo tom={sit.tom}>{sit.rotulo}</Selo>
+                              {inv.asaasChargeId && (
+                                <span title="Cobrança emitida no Asaas" className="inline-flex items-center gap-1 text-[10px] text-[var(--text-muted)]">
+                                  <Wallet className="w-2.5 h-2.5" strokeWidth={2} />
+                                  Asaas
+                                </span>
+                              )}
+                            </div>
+                          </Td>
+                          <Td>
+                            {/* Seis botões só de ícone por linha: fantasmas em
+                                repouso, pela primitiva. O verde permanente do
+                                "marcar como paga" e o vermelho permanente do
+                                "cancelar" saíram — a §3 reserva saturação para
+                                risco, e um par de semáforos repetido em toda
+                                linha ensina o operador a não ver nenhum. O
+                                risco continua no cancelar, no hover. */}
+                            <div className="flex items-center justify-center gap-1">
+                              <BotaoIcone
+                                Icone={Eye}
+                                rotulo="Ver a fatura"
+                                onClick={() => navigate(`/admin/fatura/${inv.id}`)}
+                                testId={`button-view-invoice-${inv.id}`}
+                              />
+                              {(inv.status === "pending" || isOverdue) && !inv.asaasChargeId && asaasStatus?.configured && (
+                                <BotaoIcone
+                                  Icone={Wallet}
+                                  rotulo="Cobrar via Asaas"
+                                  onClick={() => setAsaasChargeModal({ invoiceId: inv.id, invoiceNumber: inv.invoiceNumber })}
+                                  testId={`button-asaas-charge-${inv.id}`}
+                                />
+                              )}
+                              {inv.asaasChargeId && (
+                                <BotaoIcone
+                                  Icone={RotateCcw}
+                                  rotulo="Sincronizar com o Asaas"
+                                  girando={syncChargeMutation.isPending}
+                                  disabled={syncChargeMutation.isPending}
+                                  onClick={() => syncChargeMutation.mutate(inv.id)}
+                                  testId={`button-asaas-sync-${inv.id}`}
+                                />
+                              )}
+                              {inv.asaasInvoiceUrl && (
+                                <a
+                                  href={inv.asaasInvoiceUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  /* Âncora, e não botão: `BotaoIcone` renderiza
+                                     um `<button>`, então aqui vale a constante
+                                     da mesma primitiva. */
+                                  className={BOTAO_ICONE}
+                                  title="Abrir o link de pagamento"
+                                  aria-label="Abrir o link de pagamento"
+                                  data-testid={`link-asaas-payment-${inv.id}`}
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />
+                                </a>
+                              )}
+                              {(inv.status === "pending" || isOverdue) && (
+                                <BotaoIcone
+                                  Icone={CheckCircle}
+                                  rotulo="Marcar como paga"
+                                  onClick={() => updateInvoiceStatusMutation.mutate({ id: inv.id, status: "paid", paidAmount: inv.amount })}
+                                  testId={`button-mark-paid-${inv.id}`}
+                                />
+                              )}
+                              {(inv.status === "pending" || isOverdue) && (
+                                <BotaoIcone
+                                  Icone={Ban}
+                                  tom="risco"
+                                  rotulo="Cancelar a fatura"
+                                  onClick={() => { if (confirm("Cancelar esta fatura?")) cancelInvoiceMutation.mutate(inv.id); }}
+                                  testId={`button-cancel-invoice-${inv.id}`}
+                                />
+                              )}
+                            </div>
+                          </Td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </TabelaPainel>
+              )}
+            </Card>
+          </section>
         </>
       )}
+    </div>
+  );
+}
+
+/** Uma troca de plano do mês. O sinal do dinheiro é a única cor da linha. */
+function LinhaMovimento({
+  provedor, de, para, valor, negativa,
+}: {
+  provedor: string; de: string; para: string; valor: number | string; negativa: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-1.5 border-b border-[var(--border-faint)] last:border-0">
+      <div className="min-w-0">
+        <p className="text-[12.5px] font-medium text-[var(--text)] truncate">{provedor}</p>
+        <p className="text-[11.5px] text-[var(--text-muted)] truncate">{de} → {para}</p>
+      </div>
+      <Dinheiro
+        valor={valor}
+        curto
+        sinal={negativa ? "−" : "+"}
+        className={cn("text-[12.5px] font-medium flex-none", !negativa && "text-[var(--ok)]")}
+      />
     </div>
   );
 }

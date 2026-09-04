@@ -27,22 +27,52 @@
  * primeira entrega reescrevia tudo, digitado ou não: quem clicava em "Editar" e
  * começava a escrever no mesmo instante via o texto sumir. Agora os campos só
  * existem depois da resposta — antes dela há esqueleto. Ver `faseDoFormulario`.
+ *
+ * ── A LINGUAGEM VISUAL ─────────────────────────────────────────────────────
+ *
+ * A tela fala por `@/components/painel/ui`, a primitiva extraída do Painel do
+ * Provedor, em vez de repetir classes próprias. Nada de rota, queryKey,
+ * mutação, permissão ou `data-testid` mudou nesta passagem — só quem fala.
+ *
+ * O que saiu: o "Carregando…" solto e o vazio escrito à mão (a seção 6 chama
+ * os dois de estado real, e agora são `LinhasSkeleton` e `EstadoVazio`); os
+ * `Badge` do shadcn com `variant="outline"` (viraram `Selo`, retangular e
+ * mono); os `Button` de 32px, abaixo do alvo mínimo de toque da seção 7.
+ *
+ * E, nesta segunda passagem, as quatro classes que ainda moravam aqui: rótulo
+ * de campo, botão só de ícone, estado desabilitado e anel de foco. Eram cópias
+ * locais — a semente de que a divergência voltasse pelo mesmo caminho — e agora
+ * vêm de `Campo`, `BotaoIcone`, `DESABILITAVEL` e `FOCO`. Muda de aparência de
+ * propósito: o rótulo troca Inter por mono (seção 2 não deixa margem) e o botão
+ * de ícone vai de 32px para 36px no mouse, a altura de controle destes painéis.
+ *
+ * E, na terceira, a última que restava: a CAIXA do campo. Era uma constante
+ * local que vestia os 17 campos desta tela sem borda de área editável, sem raio
+ * e sem anel de foco — hoje é `CONTROLE_CAMPO`, a definição única do painel.
+ * Ver o comentário na altura em que ela morava.
+ *
+ * UMA RESSALVA DE COR: o ladrilho de cada marca na lista é pintado com a cor
+ * DELA — é dado, não decoração, e é a única cor desta tela que não vem de
+ * token. Ver o comentário no próprio ladrilho.
  */
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
+import {
+  CabecalhoPainel, KickerSecao, Selo, EstadoVazio, LinhasSkeleton, LadrilhoIcone,
+  Campo, BotaoIcone, TITULO_CARTAO, ALVO_CONTROLE, FOCO, CONTROLE_CAMPO,
+  BOTAO_SECUNDARIO, BOTAO_MARCA, DESABILITAVEL,
+} from "@/components/painel/ui";
 import { corpoParcial, faseDoFormulario, FORMULARIO_VAZIO as VAZIA } from "./marca-form";
 import {
   Palette, Plus, Globe, ShieldCheck, AlertTriangle, Trash2,
-  Link2, Upload, Check, X, Image as ImageIcon,
+  Link2, Check, X, Image as ImageIcon,
 } from "lucide-react";
 
 type MarcaLista = {
@@ -54,6 +84,30 @@ type MarcaLista = {
 };
 
 type Paleta = { brand: string; hover: string; soft: string; ink: string; textOnBrand: string; ajustada: boolean };
+
+/* ------------------------------------------------------------------ */
+/* O que sobrou de local nesta tela                                     */
+/* ------------------------------------------------------------------ */
+
+/* O rótulo de campo, o botão só de ícone e o estado desabilitado eram quatro
+   constantes escritas aqui, com valores próprios. Saíram: agora vêm de
+   `painel/ui` (`Campo`, `BotaoIcone`, `DESABILITAVEL`, `FOCO`). O rótulo troca
+   Inter por mono e o botão de ícone sobe de 32px para 36px no mouse — mudança
+   de aparência de propósito, é o valor que o DESIGN_SYSTEM manda. */
+
+/* E A QUINTA SAIU AGORA: a CAIXA do campo.
+   Vivia aqui como `const CAMPO = cn(ALVO_CONTROLE, "text-[12.5px]")` e vestia
+   os 17 campos desta tela. Era a quarta definição de caixa de campo do painel,
+   e a mais pobre das quatro: sem a borda `--border-strong` (§3.1 reserva esse
+   token ao input justamente para a caixa ler como área editável), sem raio
+   declarado e — o que não se negocia — SEM ANEL DE FOCO. Dezessete campos que o
+   teclado percorria às cegas.
+   A primitiva `CONTROLE_CAMPO` é a definição única, e traz os três. Muda de
+   aparência de propósito: a caixa cai de 40px para 36px no mouse (a altura de
+   controle destes painéis, a mesma dos botões ao lado), ganha borda de área
+   editável e ganha o anel de foco da marca. O alvo de toque continua inteiro —
+   44px no ponteiro grosso, que já vinha de `ALVO_CONTROLE` e continua dentro de
+   `CONTROLE_CAMPO`. */
 
 /** Gera o slug a partir do nome, como no resto do sistema. */
 function slugificar(nome: string): string {
@@ -103,7 +157,10 @@ function Amostra({ cor, nome }: { cor: string; nome: string }) {
   return (
     <div className="flex flex-col items-center gap-1">
       <div className="w-9 h-9 rounded" style={{ background: cor, boxShadow: "0 0 0 1px var(--border)" }} />
-      <span className="font-mono text-[9px] uppercase tracking-[0.06em] text-[var(--text-muted)]">{nome}</span>
+      {/* Tracking pelo token, não pelo valor cravado: kicker, pilula e rótulo
+          mono têm de abrir na mesma medida, senão dois estilos de rótulo
+          convivem no mesmo card. */}
+      <span className="font-mono text-[9px] uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">{nome}</span>
     </div>
   );
 }
@@ -248,69 +305,105 @@ export default function AdminMarcasPage() {
   const marcaEmEdicao = typeof editando === "number" ? marcas.find(m => m.id === editando) : undefined;
 
   return (
-    <div className="p-6 max-w-[1100px] mx-auto space-y-5" data-testid="admin-marcas">
-      <header className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-[-0.02em] text-[var(--text)] flex items-center gap-2">
-            <Palette className="w-5 h-5 text-[var(--brand)]" /> Marcas white label
-          </h1>
-          <p className="text-[13px] text-[var(--text-muted)] mt-1 max-w-[62ch]">
-            Cada marca é a aparência que um revendedor vende. Os dados continuam na mesma base
-            colaborativa — a marca muda o que o cliente vê, não o que o sistema consulta.
-          </p>
-        </div>
-        <Button onClick={() => { fecharEdicao(); setEditando("nova"); }} data-testid="button-nova-marca">
-          <Plus className="w-4 h-4 mr-1.5" /> Nova marca
-        </Button>
-      </header>
+    <div className="p-4 lg:p-6 pb-10 max-w-[1100px] mx-auto space-y-6" data-testid="admin-marcas">
+      {/* O título perdeu o ícone e os 24px de corpo: `CabecalhoPainel` é a
+          mesma voz de todas as outras telas dos dois painéis (19px, peso 500),
+          e o ícone já identifica o item na sidebar. Duas páginas com títulos de
+          tamanhos diferentes é como a divergência aparece primeiro. */}
+      <CabecalhoPainel
+        titulo="Marcas white label"
+        descricao="Cada marca é a aparência que um revendedor vende. Os dados continuam na mesma base colaborativa — a marca muda o que o cliente vê, não o que o sistema consulta."
+        testIdTitulo="text-marcas-title"
+        acoes={
+          <button
+            type="button"
+            className={BOTAO_MARCA}
+            onClick={() => { fecharEdicao(); setEditando("nova"); }}
+            data-testid="button-nova-marca"
+          >
+            <Plus className="w-3.5 h-3.5 flex-none" strokeWidth={2} />
+            Nova marca
+          </button>
+        }
+      />
 
       {/* ── Lista ───────────────────────────────────────────────────────── */}
       {isLoading ? (
-        <Card className="p-8 text-center text-[var(--text-muted)] text-sm">Carregando…</Card>
+        <Card className="p-4">
+          <LinhasSkeleton linhas={3} />
+        </Card>
       ) : marcas.length === 0 ? (
-        <Card className="p-10 text-center">
-          <Palette className="w-8 h-8 mx-auto mb-3 text-[var(--text-faint)]" />
-          <h2 className="font-semibold text-[var(--text)]">Nenhuma marca cadastrada</h2>
-          <p className="text-[13px] text-[var(--text-muted)] mt-1 max-w-[46ch] mx-auto">
-            Sem marca, todo provedor vê o Consulta ISP. Crie uma para que um revendedor
-            venda o sistema com o nome e as cores dele.
-          </p>
+        <Card className="p-0">
+          <EstadoVazio
+            Icone={Palette}
+            titulo="Nenhuma marca cadastrada"
+            descricao="Sem marca, todo provedor vê o Consulta ISP. Crie uma para que um revendedor venda o sistema com o nome e as cores dele."
+            cta={
+              <button
+                type="button"
+                className={BOTAO_MARCA}
+                onClick={() => { fecharEdicao(); setEditando("nova"); }}
+              >
+                <Plus className="w-3.5 h-3.5 flex-none" strokeWidth={2} />
+                Nova marca
+              </button>
+            }
+            testId="empty-marcas"
+          />
         </Card>
       ) : (
         <div className="grid gap-2.5">
           {marcas.map(m => (
             <Card key={m.id} className="p-3.5 flex items-center gap-3.5 flex-wrap" data-testid={`marca-${m.id}`}>
+              {/* A ÚNICA cor desta tela fora de token, e de propósito: é a cor
+                  da própria marca, ou seja, dado. O branco por cima é o mesmo
+                  que o servidor deriva para o texto sobre a marca; a lista não
+                  carrega esse campo, então aqui ele é assumido — ver aviso.
+                  NÃO é `LadrilhoInicial`: a primitiva pinta o fundo por classe
+                  (`--surface-inset` fixo) e não aceita cor vinda do dado. Trocar
+                  por ela apagaria a cor da marca, que é justamente o que este
+                  ladrilho existe para mostrar. Fica como está, declarado. */}
               <div
-                className="w-10 h-10 rounded grid place-items-center flex-none font-bold text-[17px]"
+                className="w-10 h-10 rounded grid place-items-center flex-none font-semibold text-[17px]"
                 style={{ background: m.corBrand, color: "#fff" }}
+                aria-hidden
               >
                 {m.nomeProduto.charAt(0).toUpperCase()}
               </div>
 
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold text-[var(--text)]">{m.nomeProduto}</span>
+                  <span className={TITULO_CARTAO}>{m.nomeProduto}</span>
                   <span className="font-mono text-[10px] text-[var(--text-faint)]">{m.slug}</span>
-                  {!m.ativo && <Badge variant="outline" className="rounded text-[10px]">inativa</Badge>}
+                  {!m.ativo && <Selo tom="neutro">Inativa</Selo>}
                 </div>
-                <div className="flex items-center gap-3 mt-0.5 text-[11px] text-[var(--text-muted)] flex-wrap">
+                <div className="flex items-center gap-3 mt-1 text-[11px] text-[var(--text-muted)] flex-wrap">
                   {m.dominio ? (
-                    <span className="inline-flex items-center gap-1">
-                      <Globe className="w-3 h-3" /> {m.dominio}
+                    <span className="inline-flex items-center gap-1.5">
+                      <Globe className="w-3 h-3 flex-none" strokeWidth={2} />
+                      <span className="font-mono">{m.dominio}</span>
+                      {/* Certificado emitido é a porta aberta; pendente é a
+                          porta que ainda não abriu — `ok` e `gated` dizem
+                          exatamente isso, e não é decoração. */}
                       {m.dominioStatus === "ativo"
-                        ? <Badge className="rounded ml-1 text-[9px] bg-[var(--ok-bg)] text-[var(--ok)] border-0">HTTPS ativo</Badge>
-                        : <Badge className="rounded ml-1 text-[9px] bg-[var(--gated-bg)] text-[var(--gated)] border-0">certificado pendente</Badge>}
+                        ? <Selo tom="ok">HTTPS ativo</Selo>
+                        : <Selo tom="gated">Certificado pendente</Selo>}
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1"><Globe className="w-3 h-3" /> só subdomínio</span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <Globe className="w-3 h-3 flex-none" strokeWidth={2} /> só subdomínio
+                    </span>
                   )}
-                  <span className="inline-flex items-center gap-1">
-                    <ImageIcon className="w-3 h-3" />
+                  <span className="inline-flex items-center gap-1.5">
+                    <ImageIcon className="w-3 h-3 flex-none" strokeWidth={2} />
                     {m.temLogo ? (m.logoEhPng ? "logo PNG" : "logo SVG") : "sem logo"}
                   </span>
                   {!(m.responsavelRazaoSocial && m.responsavelCnpj && m.suporteEmail) && (
-                    <span className="inline-flex items-center gap-1 text-[var(--gated)]">
-                      <AlertTriangle className="w-3 h-3" /> responsável LGPD incompleto
+                    /* Saturação legítima: sem os três dados do responsável, a
+                       plataforma continua sendo o controlador — a marca não
+                       pode ser vendida assim. */
+                    <span className="inline-flex items-center gap-1.5 text-[var(--gated)]">
+                      <AlertTriangle className="w-3 h-3 flex-none" strokeWidth={2} /> responsável LGPD incompleto
                     </span>
                   )}
                 </div>
@@ -318,17 +411,30 @@ export default function AdminMarcasPage() {
 
               <div className="flex items-center gap-1.5">
                 {m.dominio && m.dominioStatus !== "ativo" && (
-                  <Button size="sm" variant="outline" onClick={() => confirmarDominio.mutate(m.id)}
-                          data-testid={`confirmar-dominio-${m.id}`}>
-                    <ShieldCheck className="w-3.5 h-3.5 mr-1" /> Confirmar HTTPS
-                  </Button>
+                  <button
+                    type="button"
+                    className={BOTAO_SECUNDARIO}
+                    onClick={() => confirmarDominio.mutate(m.id)}
+                    data-testid={`confirmar-dominio-${m.id}`}
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 flex-none" strokeWidth={2} />
+                    Confirmar HTTPS
+                  </button>
                 )}
-                <Button size="sm" variant="outline" onClick={() => abrirEdicao(m)}>Editar</Button>
-                <Button size="sm" variant="ghost" onClick={() => {
-                  if (confirm(`Remover a marca "${m.nomeProduto}"? Os provedores dela voltam para a marca da plataforma.`)) apagar.mutate(m.id);
-                }}>
-                  <Trash2 className="w-3.5 h-3.5 text-[var(--danger)]" />
-                </Button>
+                <button type="button" className={BOTAO_SECUNDARIO} onClick={() => abrirEdicao(m)}>
+                  Editar
+                </button>
+                {/* `rotulo` vira `aria-label` e `title` de uma vez: um botão só
+                    de ícone não tem texto, e sem ele o leitor de tela anuncia
+                    "botão" e nada mais. */}
+                <BotaoIcone
+                  Icone={Trash2}
+                  tom="risco"
+                  rotulo={`Remover a marca ${m.nomeProduto}`}
+                  onClick={() => {
+                    if (confirm(`Remover a marca "${m.nomeProduto}"? Os provedores dela voltam para a marca da plataforma.`)) apagar.mutate(m.id);
+                  }}
+                />
               </div>
             </Card>
           ))}
@@ -338,63 +444,74 @@ export default function AdminMarcasPage() {
       {/* ── Formulário ──────────────────────────────────────────────────── */}
       {editando !== null && (
         <Card className="p-5 space-y-5" data-testid="form-marca">
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold text-[var(--text)]">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className={TITULO_CARTAO}>
               {editando === "nova"
                 ? "Nova marca"
                 : `Editando ${form.nomeProduto || marcaEmEdicao?.nomeProduto || ""}`}
             </h2>
-            <Button size="sm" variant="ghost" onClick={fecharEdicao}>
-              <X className="w-4 h-4" />
-            </Button>
+            <BotaoIcone Icone={X} rotulo="Fechar o formulário" onClick={fecharEdicao} />
           </div>
 
           {fase.fase === "erro" ? (
-            <div className="rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] px-5 py-8 text-center" data-testid="form-marca-erro">
-              <p className="text-[14px] font-medium text-[var(--text)]">Não foi possível carregar esta marca</p>
-              <p className="mx-auto mt-1 max-w-[46ch] text-[12.5px] text-[var(--text-2)]">
+            /* Não é estado VAZIO — é falha, e o ladrilho `risco` da primitiva
+               é o que diz isso sem repetir o bloco inteiro à mão. */
+            <div className="flex flex-col items-center text-center gap-2 rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] px-6 py-8" data-testid="form-marca-erro">
+              <LadrilhoIcone Icone={AlertTriangle} tom="risco" tamanho="lg" />
+              <p className={TITULO_CARTAO}>Não foi possível carregar esta marca</p>
+              <p className="mx-auto max-w-[46ch] text-[12px] leading-snug text-[var(--text-2)]">
                 Os campos não abrem sem o cadastro atual — editar por cima do que não chegou apagaria o que está gravado.
               </p>
-              <Button size="sm" variant="outline" className="mt-4 min-h-11" onClick={() => recarregarDetalhe()}>
+              <button type="button" className={cn(BOTAO_SECUNDARIO, "mt-2")} onClick={() => recarregarDetalhe()}>
                 Tentar de novo
-              </Button>
+              </button>
             </div>
           ) : fase.fase === "aguardando" ? <EsqueletoDoFormulario /> : (
           <>
-          <section className="grid sm:grid-cols-2 gap-3">
-            <div>
-              <Label>Nome do produto</Label>
-              <Input value={form.nomeProduto} placeholder="CredNet"
-                     onChange={e => setForm(f => ({
-                       ...f, nomeProduto: e.target.value,
-                       slug: editando === "nova" ? slugificar(e.target.value) : f.slug,
-                     }))} />
-              <p className="text-[11px] text-[var(--text-muted)] mt-1">
-                Substitui “Consulta ISP” onde ele é o nome da plataforma. Onde “Consulta ISP”
-                é o nome do <em>tipo de consulta</em>, permanece.
-              </p>
-            </div>
-            <div>
-              <Label>Identificador</Label>
-              <Input value={form.slug} onChange={e => setForm(f => ({ ...f, slug: slugificar(e.target.value) }))} />
-            </div>
-            <div className="sm:col-span-2">
-              <Label>Linha de apoio</Label>
-              <Input value={form.assinatura} placeholder="Crédito para provedores"
-                     onChange={e => setForm(f => ({ ...f, assinatura: e.target.value }))} />
+          <section>
+            <KickerSecao>Identidade</KickerSecao>
+            <div className="grid sm:grid-cols-2 gap-3">
+              {/* `Campo` põe o controle DENTRO do `<label>`: sem `htmlFor` nem
+                  aninhamento, clicar no rótulo não focava a caixa e o leitor de
+                  tela anunciava o campo sem nome. A explicação fica FORA do
+                  rótulo — parágrafo dentro de `<label>` viraria parte do nome
+                  anunciado. */}
+              <div>
+                <Campo rotulo="nome do produto">
+                  <Input value={form.nomeProduto} placeholder="CredNet" className={CONTROLE_CAMPO}
+                         onChange={e => setForm(f => ({
+                           ...f, nomeProduto: e.target.value,
+                           slug: editando === "nova" ? slugificar(e.target.value) : f.slug,
+                         }))} />
+                </Campo>
+                <p className="text-[11px] text-[var(--text-muted)] mt-1 leading-snug">
+                  Substitui “Consulta ISP” onde ele é o nome da plataforma. Onde “Consulta ISP”
+                  é o nome do <em>tipo de consulta</em>, permanece.
+                </p>
+              </div>
+              {/* Identificador é dado que se lê caractere a caractere: mono. */}
+              <Campo rotulo="identificador">
+                <Input value={form.slug} className={cn(CONTROLE_CAMPO, "font-mono")}
+                       onChange={e => setForm(f => ({ ...f, slug: slugificar(e.target.value) }))} />
+              </Campo>
+              <Campo rotulo="linha de apoio" className="sm:col-span-2">
+                <Input value={form.assinatura} placeholder="Crédito para provedores" className={CONTROLE_CAMPO}
+                       onChange={e => setForm(f => ({ ...f, assinatura: e.target.value }))} />
+              </Campo>
             </div>
           </section>
 
           {/* Cor + prévia */}
           <section className="space-y-2">
-            <Label>Cor da marca</Label>
+            <KickerSecao className="mb-0">Cor da marca</KickerSecao>
             <div className="flex items-center gap-3 flex-wrap">
               <input type="color" value={form.corBrand} aria-label="Cor da marca"
                      onChange={e => setForm(f => ({ ...f, corBrand: e.target.value }))}
-                     className="w-11 h-9 rounded cursor-pointer border border-[var(--border)] bg-transparent" />
-              <Input value={form.corBrand} className="w-32 font-mono"
+                     className={cn("w-11 rounded cursor-pointer border border-[var(--border-strong)] bg-transparent", ALVO_CONTROLE, FOCO)} />
+              <Input value={form.corBrand} aria-label="Cor da marca em hexadecimal"
+                     className={cn(CONTROLE_CAMPO, "w-32 font-mono uppercase")}
                      onChange={e => setForm(f => ({ ...f, corBrand: e.target.value }))} />
-              <span className="text-[11px] text-[var(--text-muted)] max-w-[42ch]">
+              <span className="text-[11px] text-[var(--text-muted)] max-w-[42ch] leading-snug">
                 Hover, fundo e texto sobre a cor saem derivados. Salve para ver a prévia conferida.
               </span>
             </div>
@@ -402,7 +519,7 @@ export default function AdminMarcasPage() {
             {previa && (
               <div className="flex gap-8 flex-wrap pt-2">
                 <div>
-                  <p className="font-mono text-[9px] uppercase tracking-[0.06em] text-[var(--text-faint)] mb-2">Tema claro</p>
+                  <p className="font-mono text-[9px] uppercase tracking-[var(--track-wide)] text-[var(--text-faint)] mb-2">Tema claro</p>
                   <div className="flex gap-3">
                     <Amostra cor={previa.claro.brand} nome="marca" />
                     <Amostra cor={previa.claro.hover} nome="hover" />
@@ -411,7 +528,7 @@ export default function AdminMarcasPage() {
                   </div>
                 </div>
                 <div>
-                  <p className="font-mono text-[9px] uppercase tracking-[0.06em] text-[var(--text-faint)] mb-2">Tema escuro</p>
+                  <p className="font-mono text-[9px] uppercase tracking-[var(--track-wide)] text-[var(--text-faint)] mb-2">Tema escuro</p>
                   <div className="flex gap-3">
                     <Amostra cor={previa.escuro.brand} nome="marca" />
                     <Amostra cor={previa.escuro.hover} nome="hover" />
@@ -434,42 +551,51 @@ export default function AdminMarcasPage() {
           </section>
 
           {/* Arquivos */}
-          <section className="grid sm:grid-cols-3 gap-3">
-            <div>
-              <Label>Logo SVG</Label>
-              <Input type="file" accept=".svg,image/svg+xml"
-                     onChange={e => e.target.files?.[0] && carregarArquivo(e.target.files[0], "logoSvg")} />
-              {form.logoSvg
-                ? <p className="text-[11px] text-[var(--ok)] mt-1 inline-flex items-center gap-1"><Check className="w-3 h-3" />carregado</p>
-                : <ArquivoAtual presente={Boolean(detalhe?.logoSvg)} />}
-            </div>
-            <div>
-              <Label>Logo PNG</Label>
-              <Input type="file" accept="image/png"
-                     onChange={e => e.target.files?.[0] && carregarArquivo(e.target.files[0], "logoPng")} />
-              {form.logoPng
-                ? <p className="text-[11px] text-[var(--ok)] mt-1 inline-flex items-center gap-1"><Check className="w-3 h-3" />carregado</p>
-                : <ArquivoAtual presente={Boolean(detalhe?.logoPng)} />}
-              <p className="text-[11px] text-[var(--text-muted)] mt-1">Não acompanha o tema escuro.</p>
-            </div>
-            <div>
-              <Label>Favicon SVG</Label>
-              <Input type="file" accept=".svg,image/svg+xml"
-                     onChange={e => e.target.files?.[0] && carregarArquivo(e.target.files[0], "faviconSvg")} />
-              {form.faviconSvg
-                ? <p className="text-[11px] text-[var(--ok)] mt-1 inline-flex items-center gap-1"><Check className="w-3 h-3" />carregado</p>
-                : <ArquivoAtual presente={Boolean(detalhe?.faviconSvg)} />}
+          <section>
+            <KickerSecao>Logo e favicon</KickerSecao>
+            <div className="grid sm:grid-cols-3 gap-3">
+              <div>
+                <Campo rotulo="logo svg">
+                  <Input type="file" accept=".svg,image/svg+xml" className={CONTROLE_CAMPO}
+                         onChange={e => e.target.files?.[0] && carregarArquivo(e.target.files[0], "logoSvg")} />
+                </Campo>
+                {form.logoSvg
+                  ? <p className="text-[11px] text-[var(--ok)] mt-1 inline-flex items-center gap-1"><Check className="w-3 h-3 flex-none" strokeWidth={2} />carregado</p>
+                  : <ArquivoAtual presente={Boolean(detalhe?.logoSvg)} />}
+              </div>
+              <div>
+                <Campo rotulo="logo png">
+                  <Input type="file" accept="image/png" className={CONTROLE_CAMPO}
+                         onChange={e => e.target.files?.[0] && carregarArquivo(e.target.files[0], "logoPng")} />
+                </Campo>
+                {form.logoPng
+                  ? <p className="text-[11px] text-[var(--ok)] mt-1 inline-flex items-center gap-1"><Check className="w-3 h-3 flex-none" strokeWidth={2} />carregado</p>
+                  : <ArquivoAtual presente={Boolean(detalhe?.logoPng)} />}
+                <p className="text-[11px] text-[var(--text-muted)] mt-1">Não acompanha o tema escuro.</p>
+              </div>
+              <div>
+                <Campo rotulo="favicon svg">
+                  <Input type="file" accept=".svg,image/svg+xml" className={CONTROLE_CAMPO}
+                         onChange={e => e.target.files?.[0] && carregarArquivo(e.target.files[0], "faviconSvg")} />
+                </Campo>
+                {form.faviconSvg
+                  ? <p className="text-[11px] text-[var(--ok)] mt-1 inline-flex items-center gap-1"><Check className="w-3 h-3 flex-none" strokeWidth={2} />carregado</p>
+                  : <ArquivoAtual presente={Boolean(detalhe?.faviconSvg)} />}
+              </div>
             </div>
           </section>
 
           {/* Domínio */}
           <section>
-            <Label>Domínio próprio</Label>
+            <KickerSecao>Domínio próprio</KickerSecao>
+            {/* O kicker é <h2> e não rotula campo — quem nomeia o input para o
+                leitor de tela é o aria-label. */}
             <Input value={form.dominio} placeholder="app.crednet.com.br"
+                   aria-label="Domínio próprio da marca" className={cn(CONTROLE_CAMPO, "font-mono")}
                    onChange={e => setForm(f => ({ ...f, dominio: e.target.value }))} />
-            <p className="text-[11px] text-[var(--text-muted)] mt-1 max-w-[70ch]">
+            <p className="text-[11px] text-[var(--text-muted)] mt-1 max-w-[70ch] leading-snug">
               Depois de salvar, o revendedor aponta o DNS para o servidor e alguém roda{" "}
-              <code className="font-mono text-[10px]">script/dominio-whitelabel.sh {form.dominio || "dominio"}</code>{" "}
+              <code className="font-mono text-[10px] bg-[var(--surface-inset)] rounded px-1 py-0.5">script/dominio-whitelabel.sh {form.dominio || "dominio"}</code>{" "}
               — só então confirme o HTTPS na lista. Enquanto isso, o subdomínio da plataforma já funciona.
             </p>
           </section>
@@ -477,16 +603,20 @@ export default function AdminMarcasPage() {
           {/* LGPD */}
           <section className="space-y-2">
             <div className="flex items-center gap-2">
-              <Label className="m-0">Responsável pelos dados (LGPD)</Label>
-              <Badge variant="outline" className="rounded text-[9px]">obrigatório para vender</Badge>
+              <KickerSecao className="mb-0">Responsável pelos dados (LGPD)</KickerSecao>
+              <Selo tom="gated">obrigatório para vender</Selo>
             </div>
             <div className="grid sm:grid-cols-2 gap-3">
-              <Input value={form.responsavelRazaoSocial} placeholder="CredNet Serviços Ltda"
-                     onChange={e => setForm(f => ({ ...f, responsavelRazaoSocial: e.target.value }))} />
-              <Input value={form.responsavelCnpj} placeholder="00.000.000/0001-00"
-                     onChange={e => setForm(f => ({ ...f, responsavelCnpj: e.target.value }))} />
+              <Campo rotulo="razão social">
+                <Input value={form.responsavelRazaoSocial} placeholder="CredNet Serviços Ltda" className={CONTROLE_CAMPO}
+                       onChange={e => setForm(f => ({ ...f, responsavelRazaoSocial: e.target.value }))} />
+              </Campo>
+              <Campo rotulo="cnpj">
+                <Input value={form.responsavelCnpj} placeholder="00.000.000/0001-00" className={cn(CONTROLE_CAMPO, "font-mono tabular-nums")}
+                       onChange={e => setForm(f => ({ ...f, responsavelCnpj: e.target.value }))} />
+              </Campo>
             </div>
-            <p className="text-[11px] text-[var(--text-muted)] max-w-[74ch]">
+            <p className="text-[11px] text-[var(--text-muted)] max-w-[74ch] leading-snug">
               Quem o titular vê como controlador na página de privacidade e no consentimento.
               <strong> As três informações andam juntas — razão social, CNPJ e o e-mail de
               suporte abaixo.</strong> Faltando qualquer uma, a plataforma continua sendo o
@@ -497,65 +627,90 @@ export default function AdminMarcasPage() {
           </section>
 
           {/* Contato */}
-          <section className="grid sm:grid-cols-3 gap-3">
-            <div>
-              <Label>E-mail de suporte</Label>
-              <Input value={form.suporteEmail} onChange={e => setForm(f => ({ ...f, suporteEmail: e.target.value }))} />
-            </div>
-            <div>
-              <Label>WhatsApp de suporte</Label>
-              <Input value={form.suporteWhatsapp} placeholder="5531999998888"
-                     onChange={e => setForm(f => ({ ...f, suporteWhatsapp: e.target.value }))} />
-            </div>
-            <div>
-              <Label>Site</Label>
-              <Input value={form.site} placeholder="https://crednet.com.br"
-                     onChange={e => setForm(f => ({ ...f, site: e.target.value }))} />
-            </div>
-            <div>
-              <Label>Remetente de e-mail</Label>
-              <Input value={form.emailRemetente} placeholder="nao-responda@crednet.com.br"
-                     onChange={e => setForm(f => ({ ...f, emailRemetente: e.target.value }))} />
-              <p className="text-[11px] text-[var(--text-muted)] mt-1">
-                Só funciona com o domínio verificado no Resend. Vazio = sai pelo domínio da
-                plataforma com o nome da marca.
-              </p>
-            </div>
-            <div>
-              <Label>Nome de exibição do e-mail</Label>
-              <Input value={form.emailNomeExibicao} placeholder="CredNet"
-                     onChange={e => setForm(f => ({ ...f, emailNomeExibicao: e.target.value }))} />
-              <p className="text-[11px] text-[var(--text-muted)] mt-1">
-                Vazio = o nome do produto.
-              </p>
+          <section>
+            <KickerSecao>Contato e e-mail</KickerSecao>
+            <div className="grid sm:grid-cols-3 gap-3">
+              <Campo rotulo="e-mail de suporte">
+                <Input value={form.suporteEmail} className={CONTROLE_CAMPO}
+                       onChange={e => setForm(f => ({ ...f, suporteEmail: e.target.value }))} />
+              </Campo>
+              <Campo rotulo="whatsapp de suporte">
+                <Input value={form.suporteWhatsapp} placeholder="5531999998888"
+                       className={cn(CONTROLE_CAMPO, "font-mono tabular-nums")}
+                       onChange={e => setForm(f => ({ ...f, suporteWhatsapp: e.target.value }))} />
+              </Campo>
+              <Campo rotulo="site">
+                <Input value={form.site} placeholder="https://crednet.com.br" className={CONTROLE_CAMPO}
+                       onChange={e => setForm(f => ({ ...f, site: e.target.value }))} />
+              </Campo>
+              <div>
+                <Campo rotulo="remetente de e-mail">
+                  <Input value={form.emailRemetente} placeholder="nao-responda@crednet.com.br" className={CONTROLE_CAMPO}
+                         onChange={e => setForm(f => ({ ...f, emailRemetente: e.target.value }))} />
+                </Campo>
+                <p className="text-[11px] text-[var(--text-muted)] mt-1 leading-snug">
+                  Só funciona com o domínio verificado no Resend. Vazio = sai pelo domínio da
+                  plataforma com o nome da marca.
+                </p>
+              </div>
+              <div>
+                <Campo rotulo="nome de exibição do e-mail">
+                  <Input value={form.emailNomeExibicao} placeholder="CredNet" className={CONTROLE_CAMPO}
+                         onChange={e => setForm(f => ({ ...f, emailNomeExibicao: e.target.value }))} />
+                </Campo>
+                <p className="text-[11px] text-[var(--text-muted)] mt-1 leading-snug">
+                  Vazio = o nome do produto.
+                </p>
+              </div>
             </div>
           </section>
 
-          <div className="flex gap-2 pt-1">
-            <Button onClick={() => salvar.mutate()} disabled={salvar.isPending || !form.nomeProduto}>
+          <div className="flex gap-2 pt-1 flex-wrap">
+            <button
+              type="button"
+              className={cn(BOTAO_MARCA, DESABILITAVEL)}
+              onClick={() => salvar.mutate()}
+              disabled={salvar.isPending || !form.nomeProduto}
+              data-testid="button-salvar-marca"
+            >
               {salvar.isPending ? "Salvando…" : "Salvar marca"}
-            </Button>
-            <Button variant="ghost" onClick={fecharEdicao}>Cancelar</Button>
+            </button>
+            <button type="button" className={BOTAO_SECUNDARIO} onClick={fecharEdicao}>
+              Cancelar
+            </button>
           </div>
 
           {/* Provedores vinculados */}
           {typeof editando === "number" && (
             <section className="border-t border-[var(--border)] pt-4 space-y-2">
-              <Label className="flex items-center gap-1.5"><Link2 className="w-3.5 h-3.5" /> Provedores nesta marca</Label>
+              <KickerSecao className="mb-0 flex items-center gap-1.5">
+                <Link2 className="w-3.5 h-3.5 flex-none" strokeWidth={2} aria-hidden /> Provedores nesta marca
+              </KickerSecao>
               {detalhe?.provedores?.length ? (
                 <div className="flex flex-wrap gap-1.5">
                   {detalhe.provedores.map((p: any) => (
-                    <Badge key={p.id} variant="outline" className="rounded gap-1.5 py-1">
+                    /* O nome do provedor é dado, não estado: o chip fica
+                       neutro, como manda a seção 3.5 para identidade. */
+                    <Selo key={p.id} tom="neutro">
                       {p.name}
-                      <button onClick={() => vincular.mutate({ providerId: p.id, marcaId: null })}
-                              aria-label={`Desvincular ${p.name}`} className="hover:text-[var(--danger)]">
-                        <X className="w-3 h-3" />
+                      <button
+                        type="button"
+                        onClick={() => vincular.mutate({ providerId: p.id, marcaId: null })}
+                        aria-label={`Desvincular ${p.name}`}
+                        title={`Desvincular ${p.name}`}
+                        /* Não é `BotaoIcone`: este vive DENTRO do selo, e o
+                           quadrado de 36px da primitiva estouraria o chip. O que
+                           ele toma emprestado é o que não pode divergir — o anel
+                           de foco. */
+                        className={cn("rounded hover:text-[var(--danger)] motion-safe:transition-colors", FOCO)}
+                      >
+                        <X className="w-3 h-3" strokeWidth={2} />
                       </button>
-                    </Badge>
+                    </Selo>
                   ))}
                 </div>
               ) : (
-                <p className="text-[12px] text-[var(--text-muted)]">
+                <p className="text-[12px] text-[var(--text-muted)] leading-snug max-w-[64ch]">
                   Nenhum ainda. Sem provedor vinculado, esta marca só aparece se alguém acessar o
                   domínio dela.
                 </p>
@@ -564,7 +719,13 @@ export default function AdminMarcasPage() {
               {semMarca.length > 0 && (
                 <div className="flex items-center gap-2 pt-1">
                   <Select onValueChange={v => vincular.mutate({ providerId: Number(v), marcaId: editando })}>
-                    <SelectTrigger className="w-72"><SelectValue placeholder="Vincular um provedor…" /></SelectTrigger>
+                    {/* A MESMA caixa dos campos acima: um seletor que escolhe
+                        provedor é área de entrada como qualquer outra, e com a
+                        composição solta ele ficava sem borda de área editável e
+                        sem anel de foco enquanto o campo ao lado tinha os dois. */}
+                    <SelectTrigger className={cn(CONTROLE_CAMPO, "w-72")} aria-label="Vincular um provedor a esta marca">
+                      <SelectValue placeholder="Vincular um provedor…" />
+                    </SelectTrigger>
                     <SelectContent>
                       {semMarca.map(p => (
                         <SelectItem key={p.id} value={String(p.id)}>

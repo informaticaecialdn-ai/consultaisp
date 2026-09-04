@@ -50,25 +50,119 @@ import {
 } from "lucide-react";
 import { apiRequest, STALE_DASHBOARD, STALE_LISTS } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { Selo } from "@/components/painel/ui";
+import { ERP_OPTIONS } from "@/components/admin/constants";
 
 // ─── ERP config ──────────────────────────────────────────────────────────────
-// ERP e identidade categorica, nao status: chip neutro + dot na paleta --cat-*.
-// Ver DESIGN_SYSTEM.md secao 3.5. Nunca use --color-danger/success aqui.
-const ERP_CONFIG: Record<string, { label: string; dot: string }> = {
-  ixc:            { label: "iXC Soft",       dot: "bg-[var(--cat-indigo)]"     },
-  sgp:            { label: "SGP",            dot: "bg-[var(--cat-violet)]"       },
-  mk:             { label: "MK Solutions",   dot: "bg-[var(--cat-green)]"       },
-  tiacos:         { label: "Tiacos",         dot: "bg-[var(--cat-red)]"       },
-  hubsoft:        { label: "Hubsoft",        dot: "bg-[var(--cat-navy)]"     },
-  flyspeed:       { label: "Fly Speed",      dot: "bg-[var(--cat-teal)]"       },
-  netflash:       { label: "Netflash",       dot: "bg-[var(--cat-lime)]"      },
-  voalle:         { label: "Voalle",         dot: "bg-[var(--cat-blue)]"       },
-  rbx:            { label: "RBX",            dot: "bg-[var(--cat-orange)]" },
-  unisat:         { label: "Unisat",         dot: "bg-[var(--cat-amber)]"      },
-  clickisp:       { label: "ClickISP",       dot: "bg-[var(--cat-slate)]"      },
-  radius_manager: { label: "Radius Manager", dot: "bg-[var(--cat-pink)]"       },
-  manual:         { label: "Manual",         dot: "bg-[var(--color-muted)]"    },
+/**
+ * A ORIGEM DO DADO, e so o que existe de verdade.
+ *
+ * Esta lista tinha SEIS ERPs que nao existem: `tiacos`, `flyspeed`, `netflash`,
+ * `unisat`, `clickisp` e `radius_manager`. Nenhum deles tem conector em
+ * `server/erp/index.ts` — nunca teve. E aqui isso pesa mais do que numa tela de
+ * admin, porque esta lista alimenta o FILTRO "ERP Origem" e a faixa de ERPs
+ * suportados: a plataforma estava oferecendo ao provedor filtrar por, e
+ * integrar com, sistema que ela nao fala. Nome de ERP que nao existe nao e
+ * enfeite; e promessa.
+ *
+ * DUAS LISTAS, PORQUE SAO DOIS PAPEIS DIFERENTES
+ * - `ERP_CONFIG` TRADUZ uma chave ja gravada em `customers.erp_source`. Leva os
+ *   dez conectores registrados, inclusive os quatro que sao casca (`topsapp`,
+ *   `radiusnet`, `gere`, `receitanet`, marcados `naoImplementado` no servidor —
+ *   ver `server/erp/conectores-implementados.test.ts`): se um dia houver linha
+ *   gravada com essa origem, o operador precisa ler "TopSApp", nunca `topsapp`.
+ * - `ERPS_OFERECIDOS` OFERECE. Casca nao entra: um filtro por ERP que nao
+ *   sincroniza nunca traz linha, e a faixa da tela vazia estaria convidando o
+ *   provedor a integrar o que ainda nao integra. E o mesmo criterio ja escrito
+ *   em `components/admin/constants.ts` — casca entra em lista que traduz e fica
+ *   de fora de lista que oferece.
+ *
+ * Os NOMES vem do catalogo unico (`ERP_OPTIONS`), nao redigitados: era a
+ * segunda de tres copias da mesma lista, e as tres ja discordavam entre si.
+ * Aqui fica so o que e decisao desta tela — a cor do marcador.
+ *
+ * ERP e identidade categorica, nao status: chip neutro + dot na paleta --cat-*.
+ * Ver DESIGN_SYSTEM.md secao 3.5. Nunca use --color-danger/success aqui.
+ */
+const DOT_ERP: Record<string, string> = {
+  ixc:        "bg-[var(--cat-indigo)]",
+  mk:         "bg-[var(--cat-green)]",
+  sgp:        "bg-[var(--cat-violet)]",
+  hubsoft:    "bg-[var(--cat-navy)]",
+  voalle:     "bg-[var(--cat-blue)]",
+  rbx:        "bg-[var(--cat-orange)]",
+  topsapp:    "bg-[var(--cat-teal)]",
+  radiusnet:  "bg-[var(--cat-lime)]",
+  gere:       "bg-[var(--cat-amber)]",
+  receitanet: "bg-[var(--cat-pink)]",
 };
+
+/**
+ * AS ORIGENS QUE NAO SAO ERP — e a regressao que elas expuseram.
+ *
+ * `customers.erp_source` nao guarda so nome de ERP. O servidor grava
+ * `"import"` para TODO cliente que entra por importacao de CSV (tres pontos de
+ * `server/storage/import.storage.ts`) e o banco tem `DEFAULT 'manual'` desde a
+ * migracao 0000. Nenhuma das duas e chave de conector, entao nenhuma das duas
+ * vem do catalogo — e enquanto so `manual` estava escrita aqui, `import` caia
+ * no ramo do desconhecido e VAZAVA CRUA: a palavra `import` aparecia no chip da
+ * coluna Origem e na coluna ERP do CSV exportado. Valor cru de banco na tela e
+ * o que a secao 8 do DESIGN_SYSTEM proibe, e este vazava para a base inteira de
+ * quem importa planilha.
+ *
+ * As duas ficam sem cor categorica de proposito: a paleta `--cat-*` identifica
+ * QUAL sistema respondeu, e aqui nao houve sistema nenhum.
+ */
+const ORIGENS_SEM_ERP: Record<string, { label: string; dot: string }> = {
+  manual: { label: "Manual", dot: "bg-[var(--text-faint)]" },
+  import: { label: "Importação CSV", dot: "bg-[var(--text-faint)]" },
+};
+
+const ERP_CONFIG: Record<string, { label: string; dot: string }> = {
+  ...Object.fromEntries(
+    ERP_OPTIONS.map(e => [e.key, { label: e.name, dot: DOT_ERP[e.key] ?? "bg-[var(--text-faint)]" }]),
+  ),
+  ...ORIGENS_SEM_ERP,
+};
+
+/** Os seis que o servidor de fato sincroniza hoje. Ordem do catalogo. */
+const ERPS_OFERECIDOS = ["ixc", "mk", "sgp", "hubsoft", "voalle", "rbx"];
+
+/** O que a tela diz quando a chave gravada nao esta em lugar nenhum.
+ *
+ *  Tres saidas eram possiveis e duas sao desonestas:
+ *  - devolver a propria chave escreve `import`, `netflash`, o que estiver la —
+ *    valor de banco cru na tela e no CSV;
+ *  - cair em "Manual" AFIRMA que um operador cadastrou o cliente a mao, e a
+ *    unica coisa que se sabe e justamente que ninguem sabe de onde ele veio.
+ *  Sobra dizer o que e verdade. A chave desconhecida continua no banco para
+ *  quem for investigar; a tela nao inventa origem nem exibe codigo interno.
+ *
+ *  E A COLUNA NULA CAI AQUI TAMBEM. O raciocinio acima valia so para a chave
+ *  desconhecida: para a coluna sem valor, tres pontos desta tela (o filtro, o
+ *  chip da tabela e a coluna ERP do CSV) faziam `?? "manual"` e AFIRMAVAM
+ *  "Manual" — exatamente a saida que este comentario ja tinha recusado, so que
+ *  para o caso em que se sabe ainda menos.
+ *
+ *  E o nulo e possivel de verdade, conferido na fonte: `customers.erp_source` e
+ *  `TEXT DEFAULT 'manual'` na migracao 0000 e `.default("manual")` sem
+ *  `.notNull()` no schema. DEFAULT so preenche a coluna OMITIDA na insercao;
+ *  nulo escrito de proposito e gravado como nulo, e `POST /api/customers`
+ *  repassa o corpo da requisicao direto para a insercao. Nenhum caminho do
+ *  repositorio faz isso hoje — os conectores e a importacao por CSV sempre
+ *  escrevem uma origem —, mas a coluna aceita, o tipo lido e anulavel, e
+ *  "ninguem escreve nulo hoje" nao e a mesma coisa que "nulo nao chega".
+ *
+ *  Sem valor, o comportamento passa a ser o mesmo da chave desconhecida: a tela
+ *  diz que nao identificou. No FILTRO isso significa que a linha nao casa com
+ *  nenhuma origem especifica e so aparece em "Todos os ERPs" — que e o certo:
+ *  ela nao pode ser contada como Manual numa lista que promete ser de Manual. */
+const ORIGEM_NAO_IDENTIFICADA = "Origem não identificada";
+
+/** Chave gravada -> nome de gente. Aceita a coluna nula, que cai no mesmo ramo
+ *  da chave desconhecida — nenhuma entrada de `ERP_CONFIG` responde por "". */
+const rotuloErp = (source?: string | null) =>
+  ERP_CONFIG[source ?? ""]?.label ?? ORIGEM_NAO_IDENTIFICADA;
 
 const RISK_CONFIG: Record<string, { label: string; badge: string }> = {
   critical: { label: "Critico",  badge: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" },
@@ -101,13 +195,17 @@ const relativeDate = (d: string | null) => {
   return `${Math.floor(diff / 1440)}d atrás`;
 };
 
-function ErpBadge({ source }: { source: string }) {
-  const cfg = ERP_CONFIG[source] ?? ERP_CONFIG.manual;
+/** O mesmo chip de ERP que o painel do superadmin ja usa (`<Selo tom="neutro">`
+ *  em `VisaoGeralTab`), com o dot categorico por cima: o mesmo dado tem que ter
+ *  a mesma cara nos dois paineis. O `rounded-full` aqui e do DOT, que e um
+ *  ponto e nao um badge — badge de estado continua retangular. */
+function ErpBadge({ source }: { source?: string | null }) {
+  const dot = ERP_CONFIG[source ?? ""]?.dot ?? "bg-[var(--text-faint)]";
   return (
-    <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded bg-[var(--color-tag-bg)] text-[var(--color-ink)]">
-      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot} flex-shrink-0`} />
-      {cfg.label}
-    </span>
+    <Selo tom="neutro">
+      <span className={`w-1.5 h-1.5 rounded-full flex-none ${dot}`} aria-hidden />
+      {rotuloErp(source)}
+    </Selo>
   );
 }
 
@@ -205,7 +303,9 @@ export default function InadimplentesPage() {
     const term = search.toLowerCase();
     return list.filter(d => {
       if (term && !d.name?.toLowerCase().includes(term) && !d.cpfCnpj?.includes(term) && !d.city?.toLowerCase().includes(term)) return false;
-      if (filterErp !== "all" && (d.erpSource ?? "manual") !== filterErp) return false;
+      /* Sem `?? "manual"`: coluna nula nao casa com nenhuma origem especifica,
+         so com "Todos os ERPs". Ver `ORIGEM_NAO_IDENTIFICADA`. */
+      if (filterErp !== "all" && (d.erpSource ?? "") !== filterErp) return false;
       if (filterRisk !== "all" && (d.riskTier ?? "low") !== filterRisk) return false;
       return true;
     });
@@ -215,14 +315,12 @@ export default function InadimplentesPage() {
   const totalEquip  = filtered.reduce((s, d) => s + (d.unreturnedEquipmentCount || 0), 0);
   const totalEquipVal = filtered.reduce((s, d) => s + (d.unreturnedEquipmentValue || 0), 0);
 
-  const erpSources = [...new Set(list.map(d => d.erpSource ?? "manual"))];
-
   const handleExport = () => {
     const rows = [
       ["Nome", "CPF/CNPJ", "Cidade", "UF", "ERP", "Valor em Aberto", "Dias Atraso", "Risco", "Equipamentos", "Ultimo Sync"],
       ...filtered.map(d => [
         d.name, d.cpfCnpj, d.city ?? "", d.state ?? "",
-        ERP_CONFIG[d.erpSource ?? "manual"]?.label ?? "Manual",
+        rotuloErp(d.erpSource),
         Number(d.totalOverdueAmount || 0).toFixed(2),
         d.maxDaysOverdue ?? 0,
         RISK_CONFIG[d.riskTier ?? "low"]?.label ?? "Baixo",
@@ -359,8 +457,14 @@ export default function InadimplentesPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos os ERPs</SelectItem>
-              {Object.entries(ERP_CONFIG).map(([key, cfg]) => (
-                <SelectItem key={key} value={key}>{cfg.label}</SelectItem>
+              {/* So o que sincroniza, mais as origens que nao sao ERP —
+                  filtrar por um ERP que a plataforma nao integra nunca traz
+                  linha nenhuma. A importacao por CSV entrou junto: ela e a
+                  origem mais comum de todas em quem ainda nao ligou o ERP, e
+                  ate aqui o chip existia na tabela sem nenhum jeito de filtrar
+                  por ele. */}
+              {[...ERPS_OFERECIDOS, ...Object.keys(ORIGENS_SEM_ERP)].map(key => (
+                <SelectItem key={key} value={key}>{rotuloErp(key)}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -462,7 +566,7 @@ export default function InadimplentesPage() {
 
                     {/* ERP */}
                     <TableCell>
-                      <ErpBadge source={d.erpSource ?? "manual"} />
+                      <ErpBadge source={d.erpSource} />
                     </TableCell>
 
                     {/* Localidade */}
@@ -590,12 +694,16 @@ export default function InadimplentesPage() {
           <div className="flex items-start gap-3">
             <RefreshCw className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
             <div>
-              <p className="text-sm font-medium">Integracao com ERPs</p>
+              <p className="text-sm font-medium">Integração com ERPs</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Configure a integracao com seu ERP (iXC Soft, SGP, MK Solutions, Tiacos, Hubsoft, Fly Speed) para importar automaticamente os clientes inadimplentes. Os dados serao sincronizados periodicamente e exibidos aqui com origem identificada.
+                {/* A frase citava seis ERPs entre parenteses, e dois deles ("Tiacos",
+                    "Fly Speed") nao existem como conector. Os nomes saem da prosa: a
+                    faixa logo abaixo ja lista os que valem, e ela vem do catalogo —
+                    entao nao ha como as duas discordarem de novo. */}
+                Configure a integração com seu ERP para importar automaticamente os clientes inadimplentes. Os dados são sincronizados periodicamente e exibidos aqui com a origem identificada.
               </p>
               <div className="flex flex-wrap gap-1.5 mt-3">
-                {Object.entries(ERP_CONFIG).filter(([k]) => k !== "manual").map(([key, cfg]) => (
+                {ERPS_OFERECIDOS.map(key => (
                   <ErpBadge key={key} source={key} />
                 ))}
               </div>

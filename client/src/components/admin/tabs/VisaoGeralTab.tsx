@@ -2,7 +2,7 @@ import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import {
-  CartaoMetrica, KickerSecao, TITULO_CARTAO, Selo, TONS_SELO, BotaoLink,
+  CartaoMetrica, KickerSecao, TITULO_CARTAO, Selo, BotaoLink,
   EstadoVazio, LinhasSkeleton, type Icone, type TomSelo,
 } from "@/components/painel/ui";
 import {
@@ -159,11 +159,15 @@ export default function VisaoGeralTab() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 flex-none">
-                      <span
-                        className={`inline-flex rounded px-[7px] py-[3px] font-mono text-[10px] font-medium uppercase tracking-[var(--track-wide)] ${PLAN_LABELS[p.plan]?.color || TONS_SELO.neutro}`}
-                      >
+                      {/* A ultima copia manuscrita do `Selo` no painel: o corpo
+                          inteiro da pilula estava redigitado aqui (raio,
+                          padding, mono, caixa alta, tracking) so para injetar
+                          uma classe de cor pronta que o catalogo de planos
+                          publicava. O catalogo passou a publicar so o TOM, e a
+                          pilula virou a primitiva. */}
+                      <Selo tom={PLAN_LABELS[p.plan]?.tom ?? "neutro"}>
                         {PLAN_LABELS[p.plan]?.label ?? p.plan}
-                      </span>
+                      </Selo>
                       {/* Ponto de status: o unico rounded-full permitido — e um
                           dot, nao um badge. */}
                       <span

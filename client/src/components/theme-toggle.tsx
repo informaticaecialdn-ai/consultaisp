@@ -1,4 +1,6 @@
 import { Moon, Sun } from "lucide-react";
+import { FOCO } from "@/components/painel/ui";
+import { cn } from "@/lib/utils";
 
 /**
  * Alterna claro/escuro.
@@ -38,7 +40,14 @@ export default function ThemeToggle() {
       data-testid="button-theme-toggle"
       aria-label={proximo === "dark" ? "Ativar tema escuro" : "Ativar tema claro"}
       title={proximo === "dark" ? "Tema escuro" : "Tema claro"}
-      className="w-8 h-8 grid place-items-center rounded border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)] hover:border-[var(--border-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand)] motion-safe:transition-colors"
+      className={cn(
+        // 32px no mouse (a barra e densa), 44x44 no dedo — secao 7 fala dos DOIS
+        // eixos, e o botao e quadrado.
+        "w-8 h-8 [@media(pointer:coarse)]:w-11 [@media(pointer:coarse)]:h-11",
+        "grid place-items-center rounded border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)] hover:border-[var(--border-strong)]",
+        FOCO,
+        "motion-safe:transition-colors",
+      )}
     >
       {atual === "dark" ? <Sun className="w-4 h-4" strokeWidth={2} /> : <Moon className="w-4 h-4" strokeWidth={2} />}
     </button>

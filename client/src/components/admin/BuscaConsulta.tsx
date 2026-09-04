@@ -2,7 +2,13 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Search, FileSearch, AlertCircle, Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
-import { Kicker, pillStyle, type Tone } from "@/components/consulta/report-ui";
+import { Card } from "@/components/ui/card";
+import {
+  ALVO_CONTROLE, BOTAO_MARCA, DESABILITAVEL, EstadoVazio, FOCO, KickerSecao,
+  ROTULO_CAMPO, Selo, type TomSelo,
+} from "@/components/painel/ui";
+import { cn } from "@/lib/utils";
+import CopiarBotao from "@/components/consulta/CopiarBotao";
 import {
   codigoParaUrl, desfechoDaFicha, linhasDaFicha, mensagemDoErro,
   ROTULO_DO_TIPO, type FichaDeConsulta, type TomDoDesfecho,
@@ -24,14 +30,60 @@ import {
  * A ficha NAO tem o relatorio da consulta, de proposito: ver o comentario de
  * LGPD em GET /api/admin/consultas?codigo=. Quem atende ve metadados e o
  * protocolo a apresentar ao bureau; o dado do titular fica onde esta.
+ *
+ * RODADA DE LINGUAGEM VISUAL. A tela desenhava tudo em estilo inline com as
+ * primitivas do RELATORIO de consulta (`components/consulta/report-ui`), que e
+ * outro vocabulario — o do documento que o provedor le. Aqui e painel de
+ * operacao, e agora ela fala pelas primitivas de `@/components/painel/ui`,
+ * como o resto do painel. Nenhuma rota, endpoint, parametro ou data-testid
+ * mudou; `consulta-por-codigo.ts`, que e onde mora a logica testada, nao foi
+ * tocado.
+ *
+ * DUAS DECISOES, declaradas:
+ *
+ * 1. O CODIGO GANHOU BOTAO DE COPIAR. Ele existe para ser colado num ticket ou
+ *    num e-mail, e ate aqui quem atende tinha de selecionar o texto com o
+ *    mouse. Reaproveita `CopiarBotao`, que ja tem o estado honesto de tres
+ *    valores (parado / copiado / NAO copiado) — um botao que diz "copiado" sem
+ *    ter copiado faz o operador colar outra coisa no chamado.
+ *
+ * 2. O DESFECHO "recusa" VIRA `danger`, NAO `past`. No vocabulario do relatorio
+ *    ele era `past`, o tom de divida vencida; o `Selo` do painel nao tem esse
+ *    tom, e nem deveria — aqui a leitura e "a consulta recusou", que e porta
+ *    fechada. `danger` e o tom que a secao 3 reserva para isso.
+ *
+ * O ROTULO DAS LINHAS DA FICHA CONTINUA MONO, e nao vira `KickerSecao`: as
+ * linhas sao uma lista de dados (secao 2 do DESIGN_SYSTEM manda IBM Plex Mono
+ * em dado e rotulo de dado, e a `.ds-table th` da secao 6 e exatamente este
+ * desenho). `KickerSecao` e titulo de secao, e um `<h2>` — nao cabe num `<dt>`.
+ *
+ * SEGUNDA RODADA — AS COPIAS LOCAIS FORAM APAGADAS
+ * O anel de foco estava redigitado por extenso em dois controles, o rotulo do
+ * `<dt>` era a quinta voz de rotulo do painel e o desabilitado era o quarto
+ * valor. Os tres agora vem de `painel/ui`, com duas mudancas de pixel:
+ *
+ * a) O ROTULO DO `<dt>` TROCA `--text-faint` POR `--text-muted` e o peso 500
+ *    pelo 400 da primitiva. Mesma familia, mesmo corpo, mesmo tracking; a tinta
+ *    muda para cima, porque a 10px o faint fica abaixo do minimo de contraste
+ *    da secao 7 — e o que ele perde de peso, ganha de contraste. O `mb-0`
+ *    cancela a margem
+ *    que a primitiva traz para campo de formulario; aqui a linha e uma grade de
+ *    duas colunas alinhada pela linha de base, e a margem a desalinharia.
+ *
+ * b) O BOTAO "BUSCAR" DESLIGADO PASSA A SER A MARCA A 50%, e nao mais fundo
+ *    afundado com tinta fraca. O tratamento anterior era mais explicito, mas
+ *    era o quarto desabilitado diferente do painel — e a caixa vazia e o estado
+ *    em que esta aba ABRE, entao ela era a vitrine da divergencia. O
+ *    `cursor-not-allowed` continua, e e ele que avisa que o controle esta
+ *    travado.
  */
 
-/** O tom do desfecho no vocabulario das primitivas do relatorio. */
-const TOM_PARA_PILL: Record<TomDoDesfecho, Tone> = {
+/** O tom do desfecho no vocabulario do selo do painel. */
+const TOM_PARA_SELO: Record<TomDoDesfecho, TomSelo> = {
   ok: "ok",
   atencao: "gated",
-  recusa: "past",
-  neutro: "neutral",
+  recusa: "danger",
+  neutro: "neutro",
 };
 
 export default function BuscaConsulta() {
@@ -54,31 +106,23 @@ export default function BuscaConsulta() {
 
   const ficha = busca.data;
   const impedido = busca.isPending || !codigoParaUrl(texto);
+  const desfecho = ficha ? desfechoDaFicha(ficha) : null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 760 }}>
+    <div className="flex flex-col gap-3.5 max-w-[760px]">
       {/* Campo */}
-      <div
-        style={{
-          background: "var(--surface)",
-          border: "1px solid var(--border)",
-          borderRadius: 8,
-          padding: "16px 20px",
-        }}
-      >
-        <Kicker>buscar consulta pelo código</Kicker>
-        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "6px 0 12px" }}>
+      <Card className="px-5 py-4">
+        <KickerSecao className="mb-1.5">buscar consulta pelo código</KickerSecao>
+        <p className="text-[13px] text-[var(--text-muted)] mb-3">
           O código que o provedor apresenta ao suporte. Pode colar como veio — minúsculas,
           com espaço ou sem traço.
         </p>
-        <div style={{ display: "flex", gap: 8 }}>
-          <div style={{ position: "relative", flex: 1 }}>
+        <div className="flex gap-2">
+          <div className="relative flex-1">
             <Search
-              className="w-4 h-4"
-              style={{
-                position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)",
-                color: "var(--text-faint)", pointerEvents: "none",
-              }}
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 flex-none text-[var(--text-faint)] pointer-events-none"
+              strokeWidth={2}
+              aria-hidden
             />
             <input
               value={texto}
@@ -89,18 +133,7 @@ export default function BuscaConsulta() {
               spellCheck={false}
               autoComplete="off"
               data-testid="input-busca-consulta"
-              // `ds-input` traz a borda e o anel de foco: estilo inline nao
-              // expressa :focus, e sem anel a navegacao por Tab fica cega.
-              className="ds-input"
-              style={{
-                width: "100%", height: 44, paddingLeft: 34, paddingRight: 12,
-                background: "var(--surface-inset)",
-                borderRadius: 4,
-                fontFamily: "var(--font-mono)", fontSize: 13,
-                fontVariantNumeric: "tabular-nums", letterSpacing: "0.02em",
-                color: "var(--text)",
-                textTransform: "uppercase",
-              }}
+              className={`w-full ${ALVO_CONTROLE} pl-9 pr-3 rounded bg-[var(--surface-inset)] border border-[var(--border-strong)] font-mono text-[13px] tabular-nums tracking-[0.02em] uppercase text-[var(--text)] placeholder:text-[var(--text-faint)] ${FOCO}`}
             />
           </div>
           <button
@@ -108,157 +141,96 @@ export default function BuscaConsulta() {
             onClick={procurar}
             disabled={impedido}
             data-testid="button-busca-consulta"
-            // `ds-ctl` da o anel de foco; `data-variant` so quando o botao age,
-            // senao o hover de :hover pintaria de acao um controle desligado.
-            className="ds-ctl"
-            data-variant={impedido ? undefined : "primary"}
-            style={{
-              display: "inline-flex", alignItems: "center", gap: 7,
-              // 44px de altura: alvo de toque minimo do DESIGN_SYSTEM.
-              height: 44, padding: "0 18px", borderRadius: 4,
-              fontSize: 13, fontWeight: 500, fontFamily: "var(--font-sans)",
-              background: impedido ? "var(--surface-3)" : "var(--action)",
-              color: impedido ? "var(--text-faint)" : "var(--text-on-brand)",
-              border: "1px solid transparent",
-              cursor: impedido ? "not-allowed" : "pointer",
-              whiteSpace: "nowrap",
-            }}
+            className={cn(BOTAO_MARCA, DESABILITAVEL)}
           >
             {busca.isPending
-              ? <><Loader2 className="w-4 h-4 animate-spin" />Buscando</>
+              ? <><Loader2 className="w-4 h-4 flex-none motion-safe:animate-spin" strokeWidth={2} aria-hidden />Buscando</>
               : "Buscar"}
           </button>
         </div>
-      </div>
+      </Card>
 
       {/* Ocioso — o estado em que a aba abre */}
       {!busca.isPending && !busca.data && !busca.error && (
-        <div
-          data-testid="busca-consulta-ocioso"
-          style={{
-            background: "var(--surface)", border: "1px solid var(--border)",
-            borderRadius: 8, padding: "36px 24px", textAlign: "center",
-          }}
-        >
-          <FileSearch className="w-8 h-8" style={{ color: "var(--text-faint)", margin: "0 auto 10px" }} />
-          <div style={{ fontSize: 14, fontWeight: 500, color: "var(--text)", letterSpacing: "var(--track-tight)" }}>
-            Nenhuma consulta aberta
-          </div>
-          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "6px auto 0", maxWidth: 460 }}>
-            Cole o código que o provedor informou. A ficha mostra quando a consulta foi feita,
-            quem a fez, quanto custou e qual protocolo apresentar à origem do dado.
-          </p>
-        </div>
+        <Card data-testid="busca-consulta-ocioso">
+          <EstadoVazio
+            Icone={FileSearch}
+            titulo="Nenhuma consulta aberta"
+            descricao="Cole o código que o provedor informou. A ficha mostra quando a consulta foi feita, quem a fez, quanto custou e qual protocolo apresentar à origem do dado."
+          />
+        </Card>
       )}
 
       {/* Não encontrado e erro: a própria mensagem do servidor é o que ensina */}
       {busca.error && (
         <div
           data-testid="busca-consulta-erro"
-          style={{
-            background: "var(--gated-bg)", border: "1px solid var(--gated-border)",
-            borderRadius: 8, padding: "16px 20px",
-            display: "flex", gap: 11, alignItems: "flex-start",
-          }}
+          role="status"
+          className="flex items-start gap-3 rounded-lg px-5 py-4 bg-[var(--gated-bg)] border border-[var(--gated-border)]"
         >
-          <AlertCircle className="w-4 h-4 shrink-0" style={{ color: "var(--gated)", marginTop: 2 }} />
-          <p style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.55, margin: 0 }}>
+          <AlertCircle className="w-4 h-4 flex-none mt-0.5 text-[var(--gated)]" strokeWidth={2} aria-hidden />
+          <p className="text-[13px] leading-relaxed text-[var(--text-2)]">
             {mensagemDoErro(busca.error)}
           </p>
         </div>
       )}
 
       {/* A ficha */}
-      {ficha && (
-        <div
-          data-testid="busca-consulta-ficha"
-          style={{
-            background: "var(--surface)", border: "1px solid var(--border)",
-            borderRadius: 8, overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              padding: "16px 20px", background: "var(--surface-2)",
-              borderBottom: "1px solid var(--border)",
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              gap: 12, flexWrap: "wrap",
-            }}
-          >
-            <div style={{ minWidth: 0 }}>
-              <Kicker>identificação</Kicker>
-              <div
-                data-testid="text-ficha-codigo"
-                style={{
-                  fontFamily: "var(--font-mono)", fontSize: 18, fontWeight: 500,
-                  fontVariantNumeric: "tabular-nums", letterSpacing: "0.02em",
-                  color: "var(--text)", marginTop: 3,
-                }}
-              >
-                {ficha.consultaId}
+      {ficha && desfecho && (
+        <Card data-testid="busca-consulta-ficha" className="overflow-hidden">
+          <div className="flex items-center justify-between gap-3 flex-wrap px-5 py-4 bg-[var(--surface-2)] border-b border-[var(--border)]">
+            <div className="min-w-0">
+              <KickerSecao className="mb-0">identificação</KickerSecao>
+              <div className="flex items-center gap-2 mt-1">
+                <span
+                  data-testid="text-ficha-codigo"
+                  className="font-mono text-[18px] font-medium tabular-nums tracking-[0.02em] text-[var(--text)]"
+                >
+                  {ficha.consultaId}
+                </span>
+                <CopiarBotao
+                  texto={ficha.consultaId}
+                  rotulo="identificador desta consulta"
+                  testId="button-copiar-codigo-consulta"
+                />
               </div>
             </div>
-            <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
-              <span style={pillStyle("neutral")}>{ROTULO_DO_TIPO[ficha.tipo] ?? ficha.tipo}</span>
-              <span style={pillStyle(TOM_PARA_PILL[desfechoDaFicha(ficha).tom])}>
-                {desfechoDaFicha(ficha).texto}
-              </span>
+            <div className="flex gap-1.5 flex-wrap">
+              <Selo>{ROTULO_DO_TIPO[ficha.tipo] ?? ficha.tipo}</Selo>
+              <Selo tom={TOM_PARA_SELO[desfecho.tom]}>{desfecho.texto}</Selo>
             </div>
           </div>
 
-          <dl style={{ margin: 0 }}>
+          <dl className="m-0">
             {linhasDaFicha(ficha).map((linha, i) => (
               <div
                 key={linha.rotulo}
-                style={{
-                  display: "grid", gridTemplateColumns: "minmax(120px, 200px) 1fr",
-                  gap: 14, padding: "10px 20px",
-                  borderTop: i === 0 ? "none" : "1px solid var(--border-faint)",
-                  alignItems: "baseline",
-                }}
+                className={`grid grid-cols-[minmax(120px,200px)_1fr] gap-3.5 px-5 py-2.5 items-baseline ${
+                  i === 0 ? "" : "border-t border-[var(--border-faint)]"
+                }`}
               >
-                <dt
-                  style={{
-                    fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 500,
-                    textTransform: "uppercase", letterSpacing: "var(--track-wide)",
-                    color: "var(--text-faint)",
-                  }}
-                >
-                  {linha.rotulo}
-                </dt>
-                <dd style={{ margin: 0, minWidth: 0 }}>
+                <dt className={cn(ROTULO_CAMPO, "mb-0")}>{linha.rotulo}</dt>
+                <dd className="m-0 min-w-0">
                   <span
-                    style={{
-                      fontFamily: linha.mono ? "var(--font-mono)" : "var(--font-sans)",
-                      fontVariantNumeric: linha.mono ? "tabular-nums" : undefined,
-                      fontSize: linha.mono ? 12.5 : 13,
-                      color: "var(--text)",
-                      wordBreak: "break-word",
-                    }}
+                    className={`text-[var(--text)] break-words ${
+                      linha.mono ? "font-mono text-[12.5px] tabular-nums" : "text-[13px]"
+                    }`}
                   >
                     {linha.valor}
                   </span>
                   {linha.nota && (
-                    <span style={{ fontSize: 11.5, color: "var(--text-muted)", marginLeft: 8 }}>
-                      {linha.nota}
-                    </span>
+                    <span className="text-[11.5px] text-[var(--text-muted)] ml-2">{linha.nota}</span>
                   )}
                 </dd>
               </div>
             ))}
           </dl>
 
-          <p
-            style={{
-              margin: 0, padding: "11px 20px",
-              borderTop: "1px solid var(--border)", background: "var(--surface-2)",
-              fontSize: 11.5, color: "var(--text-muted)", lineHeight: 1.5,
-            }}
-          >
+          <p className="px-5 py-3 border-t border-[var(--border)] bg-[var(--surface-2)] text-[11.5px] leading-relaxed text-[var(--text-muted)]">
             O relatório da consulta não é exibido aqui: o código circula por e-mail e ticket, e
             ele identifica a consulta, não autoriza a leitura do dado do titular.
           </p>
-        </div>
+        </Card>
       )}
     </div>
   );

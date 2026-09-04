@@ -37,7 +37,10 @@ describe("pausa por falhas na aba do superadmin", () => {
 
   it("a pausa é acionável: há botão de reativar, não só selo", () => {
     expect(secao).toContain("button-reativar-erp-");
-    expect(secao).toContain("Reativar integracao");
+    // O rótulo ganhou acento na rodada de linguagem visual ("Reativar integração"):
+    // a seção 8 do DESIGN_SYSTEM pede português com acento, e o que este teste
+    // trava é a EXISTÊNCIA do botão, não a grafia sem acento que ele tinha.
+    expect(secao).toContain("Reativar integração");
     // Só `isEnabled`: a rota grava o que chega no corpo, e mandar os outros
     // campos vazios apagaria a credencial que está lá.
     expect(secao).toContain("corpo: { isEnabled: true },");
@@ -80,7 +83,10 @@ describe("contrato do que a tela publica", () => {
 
   it("a cadência anunciada é a da agenda de varredura", () => {
     // server/services/erp-agenda.ts: DIAS_PADRAO [1,3,5], HORA_PADRAO 3.
-    expect(secao).toContain("segunda, quarta e sexta as 03:00");
+    // "às" com acento desde a rodada de linguagem visual — os DIAS e a HORA,
+    // que são o que este teste protege contra desencontro com a agenda, não
+    // mudaram.
+    expect(secao).toContain("segunda, quarta e sexta às 03:00");
   });
 });
 

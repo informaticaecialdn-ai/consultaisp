@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { FOCO } from "@/components/painel/ui";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
@@ -245,7 +246,7 @@ export default function AntiFraudePage() {
           <a
             href="/inadimplentes"
             data-testid="link-empty-inadimplentes"
-            className="inline-flex items-center min-h-[44px] font-mono text-[11px] tracking-[0.06em] px-4 py-2 rounded-lg bg-[var(--color-tag-bg)] text-[var(--color-ink)] hover:shadow-[0_0_0_1px_var(--ring-warm)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[hsl(var(--ring))] motion-safe:transition-shadow"
+            className={`inline-flex items-center min-h-[44px] font-mono text-[11px] tracking-[0.06em] px-4 py-2 rounded-lg bg-[var(--color-tag-bg)] text-[var(--color-ink)] hover:shadow-[0_0_0_1px_var(--ring-warm)] ${FOCO} motion-safe:transition-shadow`}
           >
             VER INADIMPLENTES
           </a>

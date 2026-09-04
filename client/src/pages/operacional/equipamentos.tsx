@@ -23,6 +23,7 @@ import {
   Truck,
   UserRound,
 } from "lucide-react";
+import { FOCO } from "@/components/painel/ui";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -491,7 +492,7 @@ export default function EquipamentosPage() {
             role="tab"
             aria-selected={aba === key}
             onClick={() => setAba(key)}
-            className={`flex min-h-11 items-center gap-2 border-b-2 px-3 text-[13px] font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand)] ${aba === key ? "border-[var(--brand)] text-[var(--brand)]" : "border-transparent text-[var(--text-muted)] hover:text-[var(--text)]"}`}
+            className={`flex min-h-11 items-center gap-2 border-b-2 px-3 text-[13px] font-medium ${FOCO} ${aba === key ? "border-[var(--brand)] text-[var(--brand)]" : "border-transparent text-[var(--text-muted)] hover:text-[var(--text)]"}`}
           >
             <Icon className="h-4 w-4" /> {label}
           </button>
@@ -596,7 +597,7 @@ export default function EquipamentosPage() {
                 const remaining = diasAte(item.deadlineAt);
                 const priority = PRIORIDADE[item.priority] ?? PRIORIDADE.normal;
                 return (
-                  <button key={item.id} type="button" onClick={() => abrirDetalhes(item)} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-left transition-colors hover:border-[var(--border-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand)]">
+                  <button key={item.id} type="button" onClick={() => abrirDetalhes(item)} className={`rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-left transition-colors hover:border-[var(--border-strong)] ${FOCO}`}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0"><div className="flex items-center gap-2"><span className={`rounded px-2 py-1 font-mono text-[10px] font-medium ${priority.cls}`}>{priority.label}</span>{item.bureauStatus === "ativo_validado" && <span className="inline-flex items-center gap-1 rounded bg-[var(--ok-bg)] px-2 py-1 font-mono text-[10px] text-[var(--ok)]"><ShieldCheck className="h-3 w-3" /> Sinal validado</span>}</div><h3 className="mt-2 truncate text-[14px] font-medium text-[var(--text)]">{item.customerName}</h3><p className="mt-0.5 font-mono text-[10px] tabular-nums text-[var(--text-muted)]">{formatarDocumento(item.customerCpfCnpj)}</p></div>
                       <div className="text-right"><p className={`font-mono text-[18px] font-medium tabular-nums ${remaining <= 10 && !item.closedAt ? "text-[var(--danger)]" : "text-[var(--text)]"}`}>{item.closedAt ? "—" : Math.max(0, remaining)}</p><p className="font-mono text-[9px] uppercase tracking-[0.08em] text-[var(--text-muted)]">dias restantes</p></div>
@@ -673,7 +674,7 @@ export default function EquipamentosPage() {
             <div className="rounded-lg border border-dashed border-[var(--border-strong)] bg-[var(--surface-2)] px-6 py-8 text-center"><FileUp className="mx-auto h-7 w-7 text-[var(--text-faint)]" /><p className="mt-3 text-[13px] font-medium text-[var(--text)]">Selecione uma planilha CSV</p><p className="mt-1 text-[11px] text-[var(--text-muted)]">CPF/CNPJ e tipo são obrigatórios. O lote é validado antes da gravação.</p><input ref={fileInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={event => parseCsv(event.target.files?.[0])} /><Button variant="outline" className="mt-4 min-h-11" onClick={() => fileInputRef.current?.click()}>Selecionar arquivo</Button></div>
             {importError && <div className="rounded bg-[var(--danger-bg)] px-3 py-2 text-[12px] text-[var(--danger)]">{importError}</div>}
             {importRows.length > 0 && <div className="flex items-center gap-2 rounded bg-[var(--ok-bg)] px-3 py-2 text-[12px] text-[var(--ok)]"><CheckCircle2 className="h-4 w-4" /> {importRows.length} linha(s) pronta(s) para validação.</div>}
-            <button type="button" onClick={downloadTemplate} className="flex min-h-11 items-center gap-2 text-[12px] font-medium text-[var(--brand)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--brand)]"><Download className="h-4 w-4" /> Baixar modelo CSV</button>
+            <button type="button" onClick={downloadTemplate} className={`flex min-h-11 items-center gap-2 text-[12px] font-medium text-[var(--brand)] ${FOCO}`}><Download className="h-4 w-4" /> Baixar modelo CSV</button>
           </div>
           <DialogFooter><Button variant="ghost" className="min-h-11" onClick={() => setImportDialog(false)}>Cancelar</Button><Button className="min-h-11" disabled={importRows.length === 0 || importar.isPending} onClick={() => importar.mutate()}>{importar.isPending ? "Importando..." : "Importar equipamentos"}</Button></DialogFooter>
         </DialogContent>

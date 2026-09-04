@@ -24,6 +24,7 @@ import {
 import { AbaAntiFraude } from "@/components/painel/AbaAntiFraude";
 import { mensagemDoErro } from "@/components/recuperacao/DialogoContato";
 import { rotuloDoPlano } from "@/lib/planos";
+import { ERP_OPTIONS } from "@/components/admin/constants";
 
 const MAIN_DOMAIN = "consultaisp.com.br";
 
@@ -58,15 +59,34 @@ const KYC_CONFIG: Record<string, { label: string; color: string; icon: any }> = 
   rejected: { label: "Verificacao Rejeitada",color: "bg-red-100 text-red-700 border-red-200", icon: X },
 };
 
-const ERP_LIST = [
-  { key: "ixc",      name: "iXC Soft",    desc: "iXC Provedor",   grad: "from-blue-500 to-blue-600",    authType: "basic",  authHint: "Usuario: login do iXC | Token: token da API iXC" },
-  { key: "sgp",      name: "SGP",          desc: "Solucao Gestao", grad: "from-purple-500 to-purple-600", authType: "bearer", authHint: "Token: chave de API do SGP" },
-  { key: "mk",       name: "MK Solutions", desc: "MK-AUTH/ERP",    grad: "from-green-500 to-green-600",   authType: "bearer", authHint: "Token: Bearer token do MK Solutions" },
-  { key: "tiacos",   name: "Tiacos",       desc: "Tiacos ISP",     grad: "from-orange-500 to-orange-600", authType: "bearer", authHint: "Token: chave de API do Tiacos" },
-  { key: "hubsoft",  name: "Hubsoft",      desc: "Hubsoft ERP",    grad: "from-indigo-500 to-indigo-600", authType: "bearer", authHint: "Token: chave de API do Hubsoft" },
-  { key: "flyspeed", name: "Fly Speed",    desc: "Fly Speed ISP",  grad: "from-cyan-500 to-cyan-600",     authType: "bearer", authHint: "Token: chave de API do Fly Speed" },
-  { key: "netflash", name: "Netflash",     desc: "Netflash ISP",   grad: "from-rose-500 to-pink-600",     authType: "bearer", authHint: "Token: chave de API do Netflash" },
-];
+/**
+ * ERP: a lista local morreu — o catalogo agora e um so.
+ *
+ * O que existia aqui era a TERCEIRA copia da mesma lista de ERPs (as outras
+ * duas: `components/admin/constants.ts` e `pages/operacional/inadimplentes.tsx`),
+ * e as tres ja discordavam entre si. Esta trazia tres nomes que NAO existem
+ * como conector no servidor — `tiacos`, `flyspeed` e `netflash` — enquanto
+ * faltavam quatro que existem (`topsapp`, `radiusnet`, `gere`, `receitanet`).
+ * Conferido contra `server/erp/index.ts`: sao dez conectores registrados, nem
+ * mais nem menos.
+ *
+ * Aqui a lista TRADUZ, nao oferece: ela e o ultimo recurso de `nomeDoErp()`
+ * para uma chave que ja esta gravada, quando nem o catalogo do superadmin nem o
+ * registry do servidor souberam dizer o nome. Por isso ela leva as dez chaves,
+ * inclusive as quatro cujo conector ainda nao conversa com a API — quem tiver
+ * uma delas gravada precisa ler "TopSApp", nunca `topsapp`. O criterio e o
+ * mesmo escrito em `constants.ts`: casca entra em lista que traduz, e fica de
+ * fora de lista que oferece.
+ *
+ * TAMBEM SAIRAM `grad`, `authType` e `authHint` do mapeamento abaixo: nenhum
+ * dos tres tinha consumidor (grep no arquivo inteiro), e o padrao de `grad`
+ * era um gradiente de duas paradas na paleta default do Tailwind — duas
+ * proibicoes da secao 7 do DESIGN_SYSTEM num campo morto. (O literal nao e
+ * repetido aqui: uma auditoria por grep nao pode ser envenenada pelo
+ * comentario que conta que ele saiu.)
+ *
+ * `ERP_OPTIONS` e importado no topo, junto dos demais imports.
+ */
 
 /**
  * O que a aba de integracao do provedor recebe hoje.
@@ -345,13 +365,10 @@ export default function PainelProvedorPage() {
     staleTime: 30 * 60 * 1000,
   });
 
-  const activeErpList = (erpCatalogData.length > 0 ? erpCatalogData.filter((e: any) => e.active) : ERP_LIST).map((e: any) => ({
+  const activeErpList = (erpCatalogData.length > 0 ? erpCatalogData.filter((e: any) => e.active) : ERP_OPTIONS).map((e: any) => ({
     key: e.key,
     name: e.name,
     desc: e.description ?? e.desc ?? e.name,
-    grad: e.gradient ?? e.grad ?? "from-slate-500 to-slate-600",
-    authType: e.authType ?? e.auth_type ?? "bearer",
-    authHint: e.authHint ?? e.auth_hint ?? "",
     logoBase64: e.logoBase64 ?? e.logo_base64 ?? null,
   }));
 

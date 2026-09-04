@@ -2,59 +2,142 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { usePrecos, camposDaFatura, planoPorChave } from "@/hooks/use-precos";
 import { rotuloDoPlano } from "@/lib/planos";
 import {
+  CabecalhoPainel, CartaoMetrica, KickerSecao, Selo, EstadoVazio, LinhasSkeleton,
+  LadrilhoIcone, LadrilhoInicial, TabelaPainel, Th, Td,
+  Dinheiro, MolduraModal, AvisoNaoCarregou,
+  TITULO_CARTAO, TITULO_MODAL, ALVO_CONTROLE, BOTAO_SECUNDARIO, BOTAO_MARCA,
+  CAIXA_ICONE, CONTROLE_CAMPO, ROTULO_CAMPO, TABELA_NUM, DESABILITAVEL, FOCO,
+  type TomSelo, type Icone,
+} from "@/components/painel/ui";
+import { PLAN_LABELS } from "@/components/admin/constants";
+import {
   ArrowLeft, Building2, Users, CreditCard, BarChart3, Activity,
   Globe, Mail, Phone, Calendar, Shield, CheckCircle, XCircle,
-  Plus, RefreshCw, TrendingUp, TrendingDown, FileText, DollarSign,
-  Clock, AlertCircle, Zap, Star, Crown, Edit2, Save, X, Eye,
-  Printer, Ban, RotateCcw, Copy, EyeOff, Wifi, Database, AlertTriangle, ChevronRight,
-  KeyRound
+  Plus, RefreshCw, FileText,
+  AlertCircle, Zap, Star, Edit2, Save, X, Eye,
+  Ban, Copy, Wifi, Database, AlertTriangle, ChevronRight,
+  KeyRound, Receipt, History, ScanSearch, IdCard,
 } from "lucide-react";
 import FormularioErp, { type ConectorMeta } from "@/components/erp/FormularioErp";
 
 /**
- * SO ROTULO E COR. PRECO E CREDITO VEM DE `usePrecos()`.
+ * O PLANO SAI DO CATALOGO DO PAINEL, NAO DE UMA COPIA DESTA TELA.
  *
- * Aqui morava um `PLAN_CONFIG` com preco e creditos cravados — basic 199, pro
- * 399 com 500 ISP e 150 SPC — que ninguem sincronizou quando a tabela virou
- * `shared/planos.ts` (pro = R$ 99, sem credito incluso). O cartao anunciava
- * "Mensalidade R$ 399,00" sem nenhum clique, o seletor oferecia "Pro — R$ 399"
- * e o modal de fatura abria com esse valor. Como `POST /api/admin/invoices`
- * grava o `amount` do corpo sem conferir contra o plano, nascia fatura de
- * R$ 399 num plano que `generate-monthly` cobra a R$ 99.
+ * Aqui morava um `PLANO_VISUAL` — a quinta copia do mapa de plano do cliente —
+ * com rotulo repetido e classe de cor escrita a mao. `@/components/admin/constants`
+ * ja publica `PLAN_LABELS` com `{ label, tom }`, e o `tom` alimenta o `<Selo>`
+ * da primitiva: uma decisao de cor, valida para os dois paineis.
  *
- * O rotulo pode ficar aqui porque nao varia por marca; o preco varia, e por
- * isso so o servidor sabe dizer qual e.
+ * (Antes do `PLANO_VISUAL` morava aqui um `PLAN_CONFIG` com preco e credito
+ * cravados — basic 199, pro 399 — que ninguem sincronizou quando a tabela virou
+ * `shared/planos.ts`. O cartao anunciava "Mensalidade R$ 399,00" e o modal de
+ * fatura abria com esse valor num plano que `generate-monthly` cobra a R$ 99.
+ * Preco e credito continuam vindo so de `usePrecos()`, que e o servidor.)
+ *
+ * Plano desconhecido cai em `rotuloDoPlano`, que devolve a propria chave — e
+ * tom neutro, porque nao ha o que afirmar sobre um plano que o catalogo nao tem.
  */
-const PLANO_VISUAL: Record<string, { rotulo: string; cor: string }> = {
-  free: { rotulo: rotuloDoPlano("free"), cor: "bg-[var(--color-tag-bg)] text-[var(--text-2)]" },
-  pro: { rotulo: rotuloDoPlano("pro"), cor: "bg-[var(--brand-soft)] text-[var(--brand-ink)]" },
-  basic: { rotulo: rotuloDoPlano("basic"), cor: "bg-[var(--color-tag-bg)] text-[var(--text-2)]" },
-  enterprise: { rotulo: rotuloDoPlano("enterprise"), cor: "bg-[var(--color-tag-bg)] text-[var(--text-2)]" },
-};
-
-const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  active:    { label: "Ativo",     color: "bg-[var(--color-success-bg)] text-[var(--color-success)]" },
-  inactive:  { label: "Inativo",   color: "bg-[var(--color-tag-bg)] text-gray-500" },
-  suspended: { label: "Suspenso",  color: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" },
-};
-
-function fmt(n: number) {
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);
+function seloDoPlano(chave: string | null | undefined): { label: string; tom: TomSelo } {
+  return PLAN_LABELS[(chave || "").trim()] ?? { label: rotuloDoPlano(chave), tom: "neutro" };
 }
 
+/**
+ * A SITUACAO DO PROVEDOR, EM PORTUGUES E SEM CHUTE.
+ *
+ * O mapa anterior tinha `active`, `inactive` e `suspended`, e o fallback era
+ * `STATUS_CONFIG.active` — ou seja, um provedor `cancelled` (valor que a coluna
+ * `providers.status` admite desde sempre) aparecia como **Ativo**, em verde, nas
+ * duas telas onde o selo sai. Afirmar saude a partir de um valor que a tela nao
+ * reconhece e o pior desfecho possivel numa ficha de conta.
+ *
+ * Agora `cancelled` tem nome proprio e o desconhecido cai em neutro dizendo que
+ * nao sabe — nunca no identificador cru da coluna (secao 8 do DESIGN_SYSTEM).
+ */
+const SITUACAO_PROVEDOR: Record<string, { label: string; tom: TomSelo }> = {
+  active: { label: "Ativo", tom: "ok" },
+  inactive: { label: "Inativo", tom: "neutro" },
+  suspended: { label: "Suspenso", tom: "danger" },
+  cancelled: { label: "Cancelado", tom: "danger" },
+};
+
+const SITUACAO_DESCONHECIDA = { label: "Situação não informada", tom: "neutro" } as const;
+
+/** Situacao da fatura. `overdue` e risco de verdade; `pending` e a porta que
+ *  ainda nao abriu. Um status fora dos quatro nao vira texto cru na tela. */
+const SITUACAO_FATURA: Record<string, { label: string; tom: TomSelo }> = {
+  pending: { label: "Pendente", tom: "gated" },
+  paid: { label: "Paga", tom: "ok" },
+  overdue: { label: "Vencida", tom: "danger" },
+  cancelled: { label: "Cancelada", tom: "neutro" },
+};
+
+/**
+ * O ESTADO DESABILITADO VEM DA PRIMITIVA, e nao mais desta tela.
+ *
+ * `BOTAO_SECUNDARIO` e `BOTAO_MARCA` nao carregam `:disabled` — sao classes de
+ * aparencia, e o `<Button>` do shadcn e que trazia isso. Um botao travado
+ * (salvando, sem tabela de precos, sem e-mail valido) ficaria identico ao
+ * clicavel, e o operador clicaria achando que nao respondeu.
+ *
+ * O valor morava aqui, e era o quarto valor diferente do painel: opacidade 40 e
+ * `pointer-events-none` junto de `cursor-not-allowed`. Os dois ultimos se
+ * anulam — sem eventos de ponteiro o cursor nunca troca, e o cursor e a unica
+ * coisa que AVISA que o controle esta travado. Todos os desabilitados desta
+ * tela sao `<button disabled>`, que o navegador ja ignora sozinho. Agora e
+ * `DESABILITAVEL` de `painel/ui`: opacidade 50 (o rotulo do botao travado e
+ * justamente o que explica o que falta fazer) e so o cursor.
+ */
+
+/* A CORTINA DOS MODAIS SAIU DAQUI.
+   Era `VEU_MODAL`, uma constante local com a cortina em `--overlay` — o token
+   certo, e foi essa a correcao da rodada anterior. O que ela nao tinha era o
+   resto do que faz um modal: `role="dialog"`, `aria-modal` e um nome. Isso
+   existia so dentro dos dois modais do Asaas, porque a casca era privada do
+   arquivo do financeiro. Agora a casca e `MolduraModal`, da primitiva, e ela
+   traz a cortina junto — uma declaracao a menos que possa divergir. */
+
+/**
+ * As abas da ficha. A CHAVE e contrato — ela vai no `data-testid` e no estado
+ * da tela —, o rotulo e texto de gente e leva acento (secao 8). "ERP" fica: e a
+ * palavra que o proprio provedor usa para o sistema dele.
+ */
+const ABAS: { chave: string; rotulo: string; Icone: Icone }[] = [
+  { chave: "geral", rotulo: "Geral", Icone: Building2 },
+  { chave: "financeiro", rotulo: "Financeiro", Icone: Receipt },
+  { chave: "usuarios", rotulo: "Usuários", Icone: Users },
+  { chave: "consumo", rotulo: "Consumo", Icone: ScanSearch },
+  { chave: "historico", rotulo: "Histórico", Icone: History },
+  { chave: "integracao", rotulo: "Integração ERP", Icone: Database },
+];
+
+/**
+ * O FORMATADOR DE REAL SAIU DAQUI.
+ *
+ * Morava nesta tela um `fmt()` proprio — o quarto formatador de real do produto
+ * —, e o defeito nao era a duplicacao: era o que ele DEVOLVIA. Uma string crua.
+ * Entregue a `<CartaoMetrica valor={...}>` ela herda o mono tabular do slot de
+ * numero por acaso, e num `<span>` qualquer nao herda nada; foi assim que o
+ * mesmo valor saiu em Inter em uma tela e em mono em outra. `<Dinheiro>` carrega
+ * o proprio mono tabular (secao 2) e a tinta de negativo, entao o valor chega
+ * certo em qualquer lugar onde couber um elemento.
+ *
+ * `fmtDate`/`fmtDateTime` continuam devolvendo texto porque data nao tem
+ * primitiva propria: quem as usa envolve em `<Num>`, que e o envelope mono desta
+ * tela.
+ */
 function fmtDate(d: string | null | undefined) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("pt-BR");
@@ -65,32 +148,80 @@ function fmtDateTime(d: string | null | undefined) {
   return new Date(d).toLocaleString("pt-BR");
 }
 
-function StatCard({ icon: Icon, label, value, sub, color = "text-blue-600" }: {
-  icon: any; label: string; value: string | number; sub?: string; color?: string;
+/** Todo numero desta tela e mono e tabular (secao 2). Quando ele mora no meio
+ *  de uma frase em Inter, este e o envelope. Vale para CPF, CNPJ, data, valor,
+ *  contagem e endereco tecnico — tudo que se le coluna por coluna.
+ *
+ *  As classes vem de `TABELA_NUM`, a `.num` da secao 6 que a primitiva publica:
+ *  redigita-las aqui faria o numero em prosa divergir do numero em coluna no
+ *  primeiro ajuste. O componente existe so para poupar o `cn()` em ~40 pontos. */
+function Num({
+  children,
+  className,
+  testId,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  testId?: string;
 }) {
   return (
-    <Card className="p-4 flex items-start gap-3">
-      <div className={`p-2 rounded-lg bg-muted ${color}`}>
-        <Icon className="w-4 h-4" />
-      </div>
-      <div className="min-w-0">
-        <p className="text-xs text-muted-foreground truncate">{label}</p>
-        <p className="text-xl font-bold leading-tight">{value}</p>
-        {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
-      </div>
-    </Card>
+    <span className={cn(TABELA_NUM, className)} data-testid={testId}>
+      {children}
+    </span>
   );
 }
 
-function InvoiceStatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; cls: string }> = {
-    pending:   { label: "Pendente",   cls: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" },
-    paid:      { label: "Paga",       cls: "bg-[var(--color-success-bg)] text-[var(--color-success)]" },
-    overdue:   { label: "Vencida",    cls: "bg-[var(--color-danger-bg)] text-[var(--color-danger)]" },
-    cancelled: { label: "Cancelada",  cls: "bg-[var(--color-tag-bg)] text-gray-500" },
-  };
-  const s = map[status] || { label: status, cls: "bg-[var(--color-tag-bg)] text-[var(--color-muted)]" };
-  return <Badge className={`${s.cls} border-0 text-xs font-medium`}>{s.label}</Badge>;
+/** Linha de par rotulo/valor dentro de cartao. Separador de hairline, nunca a
+ *  borda default do Tailwind — `border-b` sozinho pinta a cor herdada. */
+function LinhaDado({ rotulo, children }: { rotulo: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-2 border-b border-[var(--border-faint)] last:border-0">
+      <span className="text-[12.5px] text-[var(--text-muted)]">{rotulo}</span>
+      {children}
+    </div>
+  );
+}
+
+function SeloFatura({ status }: { status: string }) {
+  const s = SITUACAO_FATURA[status] ?? { label: "Situação desconhecida", tom: "neutro" as TomSelo };
+  return <Selo tom={s.tom}>{s.label}</Selo>;
+}
+
+/**
+ * Cabecalho de cartao com icone — o mesmo corpo do `TITULO_CARTAO` da
+ * primitiva, sobre a superficie de segundo nivel. E o molde que o Painel Geral
+ * (VisaoGeralTab) ja usa; aqui ele vira funcao porque esta tela tem sete deles.
+ */
+function TopoCartao({
+  titulo,
+  sub,
+  Icone: IconeTopo,
+  acao,
+  testId,
+}: {
+  titulo: React.ReactNode;
+  sub?: React.ReactNode;
+  Icone?: Icone;
+  acao?: React.ReactNode;
+  testId?: string;
+}) {
+  return (
+    <div
+      className="flex items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface-2)] px-4 py-3"
+      data-testid={testId}
+    >
+      <div className="min-w-0">
+        <h3 className={cn(TITULO_CARTAO, "flex items-center gap-2")}>
+          {IconeTopo && (
+            <IconeTopo className="w-4 h-4 flex-none text-[var(--text-faint)]" strokeWidth={2} />
+          )}
+          {titulo}
+        </h3>
+        {sub && <p className="text-[12px] text-[var(--text-muted)] mt-0.5">{sub}</p>}
+      </div>
+      {acao}
+    </div>
+  );
 }
 
 export default function AdminProvedorPage() {
@@ -170,7 +301,7 @@ export default function AdminProvedorPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "detail"] });
       setShowCreditsModal(false);
-      toast({ title: "Creditos adicionados" });
+      toast({ title: "Créditos adicionados" });
     },
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
@@ -198,7 +329,7 @@ export default function AdminProvedorPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "detail"] });
       qc.invalidateQueries({ queryKey: ["/api/admin/providers"] });
-      toast({ title: "Status atualizado" });
+      toast({ title: "Situação atualizada" });
     },
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
@@ -224,54 +355,78 @@ export default function AdminProvedorPage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "detail"] });
-      toast({ title: "Email atualizado", description: "O email de login foi alterado com sucesso." });
+      toast({ title: "E-mail atualizado", description: "O e-mail de acesso foi alterado com sucesso." });
       setEditingEmailUser(null);
       setNewEmail("");
     },
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
 
+  /* Os tres desfechos que impedem a ficha de abrir usam o MESMO estado vazio da
+     primitiva — icone, titulo, descricao e, quando ha, a saida. Antes eram tres
+     blocos improvisados, cada um com um tamanho de icone e uma cor solta. */
   if (!isSuperAdmin) {
     return (
-      <div className="flex items-center justify-center h-full p-8">
-        <div className="text-center">
-          <Shield className="w-12 h-12 text-red-400 mx-auto mb-2" />
-          <p className="text-muted-foreground">Acesso restrito a superadmins</p>
-        </div>
+      <div className="p-4 lg:p-6">
+        <Card>
+          <EstadoVazio
+            Icone={Shield}
+            titulo="Acesso restrito"
+            descricao="Esta ficha é do painel da plataforma. Só um administrador do sistema pode abrir os dados de um provedor."
+            testId="acesso-restrito"
+          />
+        </Card>
       </div>
     );
   }
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4">
-        <div className="h-8 bg-muted animate-pulse rounded w-48" />
-        <div className="grid grid-cols-3 gap-4">
-          {[...Array(6)].map((_, i) => <div key={i} className="h-20 bg-muted animate-pulse rounded-lg" />)}
+      <div className="p-4 lg:p-6 space-y-5" data-testid="admin-provedor-carregando">
+        <Skeleton className="h-8 w-64" />
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-[86px] rounded-lg" />)}
         </div>
-        <div className="h-64 bg-muted animate-pulse rounded-lg" />
+        <Card className="p-4">
+          <LinhasSkeleton linhas={5} />
+        </Card>
       </div>
     );
   }
 
   if (error || !data) {
     return (
-      <div className="flex items-center justify-center h-full p-8">
-        <div className="text-center">
-          <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-2" />
-          <p className="text-muted-foreground">Provedor nao encontrado</p>
-          <Button variant="ghost" className="mt-4" onClick={() => navigate("/admin-sistema")}>
-            <ArrowLeft className="w-4 h-4 mr-2" /> Voltar
-          </Button>
-        </div>
+      <div className="p-4 lg:p-6">
+        <Card>
+          <EstadoVazio
+            Icone={AlertCircle}
+            titulo="Provedor não encontrado"
+            descricao="A ficha não pôde ser carregada. O provedor pode ter sido removido, ou o endereço aberto não corresponde a nenhum cadastro."
+            cta={
+              <button
+                type="button"
+                className={BOTAO_SECUNDARIO}
+                /* O mesmo destino de antes. O cabecalho da ficha vai para
+                   `#provedores`, mas mudar este aqui seria mexer em navegacao
+                   numa rodada que e so de linguagem visual. */
+                onClick={() => navigate("/admin-sistema")}
+                data-testid="button-voltar-provedores-erro"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" strokeWidth={2} />
+                Voltar para o painel
+              </button>
+            }
+            testId="provedor-nao-encontrado"
+          />
+        </Card>
       </div>
     );
   }
 
   const { provider, users, stats, invoices, planHistory, financial, recentIsp, recentSpc } = data;
-  const visual = PLANO_VISUAL[provider.plan] || { rotulo: provider.plan, cor: "bg-[var(--color-tag-bg)] text-[var(--text-2)]" };
+  const plano = seloDoPlano(provider.plan);
   const planoCobrado = planoPorChave(precos, provider.plan);
-  const statusCfg = STATUS_CONFIG[provider.status] || STATUS_CONFIG.active;
+  const situacao = SITUACAO_PROVEDOR[provider.status] ?? SITUACAO_DESCONHECIDA;
 
   /**
    * "de N do plano" so quando o plano DECLARA credito incluso. O card dizia
@@ -321,130 +476,199 @@ export default function AdminProvedorPage() {
 
   return (
     <div className="p-4 lg:p-6 space-y-5" data-testid="admin-provedor-page">
-      {/* Header */}
-      <div className="flex items-start gap-4 flex-wrap">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => navigate("/admin-sistema#provedores")}
-          data-testid="button-back-provedores"
-          className="text-muted-foreground"
-        >
-          <ArrowLeft className="w-4 h-4 mr-1" /> Provedores
-        </Button>
-      </div>
+      {/* A volta para a lista e a unica navegacao da tela e vem antes do titulo,
+          onde o operador ja a procura. Botao de superficie, com o alvo de toque
+          e o anel de foco da primitiva. */}
+      <button
+        type="button"
+        className={cn(BOTAO_SECUNDARIO, "text-[var(--text-muted)]")}
+        onClick={() => navigate("/admin-sistema#provedores")}
+        data-testid="button-back-provedores"
+      >
+        <ArrowLeft className="w-3.5 h-3.5" strokeWidth={2} />
+        Provedores
+      </button>
 
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white text-xl font-bold flex-shrink-0">
-            {provider.name?.charAt(0)?.toUpperCase()}
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold" data-testid="text-provider-name">{provider.name}</h1>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <Badge className={`${visual.cor} border-0 text-xs font-semibold`} data-testid="badge-plano">
-                {visual.rotulo}
-              </Badge>
-              <Badge className={`${statusCfg.color} border-0 text-xs font-medium`}>
-                {statusCfg.label}
-              </Badge>
-              {provider.subdomain && (
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Globe className="w-3 h-3" /> {provider.subdomain}.consultaisp.com.br
+      {/* O ladrilho da inicial ficava num gradiente azul→indigo da paleta default
+          do Tailwind — duas proibicoes da secao 7. A inicial e identidade, nao
+          estado, e agora quem a desenha e `LadrilhoInicial`.
+          Forma `ladrilho` (canto seco) porque isto e um PROVEDOR: empresa nao
+          tem rosto, e o circulo da secao 5.1 e a excecao do avatar de pessoa.
+          Tamanho `lg`, a mesma escada de `LadrilhoIcone` — a caixa desce de 44px
+          para 40px e o raio de 8px para 4px, que e a medida da primitiva. A
+          inicial sai de dentro dela: o `charAt(0)` estava redigitado aqui e no
+          avatar de usuario logo abaixo, e so um dos dois lembrava do maiusculo. */}
+      <div className="flex items-start gap-3.5">
+        <LadrilhoInicial nome={provider.name} tamanho="lg" />
+        <div className="flex-1 min-w-0">
+          <CabecalhoPainel
+            titulo={provider.name}
+            testIdTitulo="text-provider-name"
+            descricao={
+              <span className="flex items-center gap-2 flex-wrap">
+                <Selo tom={plano.tom} testId="badge-plano">{plano.label}</Selo>
+                <Selo tom={situacao.tom} testId="badge-situacao">{situacao.label}</Selo>
+                {provider.subdomain && (
+                  <span className="flex items-center gap-1 text-[12px] text-[var(--text-muted)]">
+                    <Globe className="w-3 h-3 flex-none" strokeWidth={2} />
+                    <Num>{provider.subdomain}.consultaisp.com.br</Num>
+                  </span>
+                )}
+                <span className="flex items-center gap-1 text-[12px] text-[var(--text-muted)]">
+                  <Calendar className="w-3 h-3 flex-none" strokeWidth={2} />
+                  Desde <Num>{fmtDate(provider.createdAt)}</Num>
                 </span>
-              )}
-              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                <Calendar className="w-3 h-3" /> Desde {fmtDate(provider.createdAt)}
               </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="outline" size="sm" onClick={startEdit} data-testid="button-edit-provider">
-            <Edit2 className="w-4 h-4 mr-1" /> Editar
-          </Button>
-          <Button variant="outline" size="sm" onClick={startPlanChange} data-testid="button-change-plan">
-            <Star className="w-4 h-4 mr-1" /> Plano
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setShowCreditsModal(true)} data-testid="button-add-credits">
-            <Zap className="w-4 h-4 mr-1" /> Creditos
-          </Button>
-          <Button variant="outline" size="sm" onClick={abrirNovaFatura} data-testid="button-create-invoice">
-            <FileText className="w-4 h-4 mr-1" /> Fatura
-          </Button>
-          {provider.status === "active" ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-red-600 border-red-200 hover:bg-red-50"
-              onClick={() => statusMutation.mutate("suspended")}
-              data-testid="button-suspend-provider"
-              disabled={statusMutation.isPending}
-            >
-              <Ban className="w-4 h-4 mr-1" /> Suspender
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-green-600 border-green-200 hover:bg-green-50"
-              onClick={() => statusMutation.mutate("active")}
-              data-testid="button-activate-provider"
-              disabled={statusMutation.isPending}
-            >
-              <CheckCircle className="w-4 h-4 mr-1" /> Ativar
-            </Button>
-          )}
+            }
+            acoes={
+              <>
+                <button type="button" className={BOTAO_SECUNDARIO} onClick={startEdit} data-testid="button-edit-provider">
+                  <Edit2 className="w-3.5 h-3.5" strokeWidth={2} /> Editar
+                </button>
+                <button type="button" className={BOTAO_SECUNDARIO} onClick={startPlanChange} data-testid="button-change-plan">
+                  <Star className="w-3.5 h-3.5" strokeWidth={2} /> Plano
+                </button>
+                <button type="button" className={BOTAO_SECUNDARIO} onClick={() => setShowCreditsModal(true)} data-testid="button-add-credits">
+                  <Zap className="w-3.5 h-3.5" strokeWidth={2} /> Créditos
+                </button>
+                <button type="button" className={BOTAO_SECUNDARIO} onClick={abrirNovaFatura} data-testid="button-create-invoice">
+                  <FileText className="w-3.5 h-3.5" strokeWidth={2} /> Fatura
+                </button>
+                {/* Cortar e religar um provedor sao acoes de risco, e so elas
+                    levam cor — o resto da barra e neutro (secao 3: saturacao
+                    reservada para risco). `cn` resolve o conflito de tinta com o
+                    botao secundario; concatenar string deixaria a vitoria por
+                    conta da ordem do CSS gerado. */}
+                {provider.status === "active" ? (
+                  <button
+                    type="button"
+                    className={cn(BOTAO_SECUNDARIO, DESABILITAVEL, "text-[var(--danger)] border-[var(--danger-border)] hover:bg-[var(--danger-bg)]")}
+                    onClick={() => statusMutation.mutate("suspended")}
+                    data-testid="button-suspend-provider"
+                    disabled={statusMutation.isPending}
+                  >
+                    <Ban className="w-3.5 h-3.5" strokeWidth={2} /> Suspender
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className={cn(BOTAO_SECUNDARIO, DESABILITAVEL, "text-[var(--ok)] border-[var(--ok-border)] hover:bg-[var(--ok-bg)]")}
+                    onClick={() => statusMutation.mutate("active")}
+                    data-testid="button-activate-provider"
+                    disabled={statusMutation.isPending}
+                  >
+                    <CheckCircle className="w-3.5 h-3.5" strokeWidth={2} /> Ativar
+                  </button>
+                )}
+              </>
+            }
+          />
         </div>
       </div>
 
-      {/* KPI Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <StatCard icon={Users} label="Clientes" value={stats.customers} sub="cadastrados" color="text-blue-600" />
-        <StatCard icon={Activity} label="Equipamentos" value={stats.equipment} sub="ativos" color="text-indigo-600" />
-        <StatCard icon={BarChart3} label="Consultas ISP" value={stats.ispConsultations} sub={`${stats.ispConsultationsMonth} este mes`} color="text-violet-600" />
-        <StatCard icon={TrendingUp} label="Consultas SPC" value={stats.spcConsultations} sub={`${stats.spcConsultationsMonth} este mes`} color="text-purple-600" />
-        <StatCard icon={Zap} label="Creditos ISP" value={provider.ispCredits} sub={inclusoNoPlano("isp")} color="text-[var(--color-gold)]" />
-        <StatCard icon={CreditCard} label="Creditos SPC" value={provider.spcCredits} sub={inclusoNoPlano("spc")} color="text-[var(--color-brand)]" />
-        <StatCard icon={CreditCard} label="Creditos Cadastral" value={provider.bigdataCredits ?? 0} sub="consulta cadastral" color="text-[var(--color-steel)]" />
-      </div>
+      {/* AS METRICAS EM DOIS GRUPOS, E NAO SETE NUMA FILA SO.
+          Eram sete cartoes numa grade de seis colunas: a segunda fila abria com
+          um cartao orfao e, num monitor de 1280px, cada um ficava com ~200px —
+          o numero mono de 21px e um rotulo de duas palavras nao cabem juntos.
+          Os sete tambem nao eram a mesma coisa: quatro contam o que ja
+          aconteceu (acumulado), tres dizem quanto resta (saldo). Separados, cada
+          fila fecha cheia — 4 e 3 — e o operador para de comparar contador com
+          saldo lado a lado. */}
+      <section>
+        <KickerSecao>Uso da plataforma</KickerSecao>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <CartaoMetrica Icone={Users} rotulo="Clientes" valor={stats.customers} sub="cadastrados" testId="card-clientes" testIdValor="value-card-clientes" />
+          <CartaoMetrica Icone={Activity} rotulo="Equipamentos" valor={stats.equipment} sub="ativos" testId="card-equipamentos" testIdValor="value-card-equipamentos" />
+          <CartaoMetrica Icone={ScanSearch} rotulo="Consultas ISP" valor={stats.ispConsultations} sub={<><Num>{stats.ispConsultationsMonth}</Num> neste mês</>} testId="card-consultas-isp" testIdValor="value-card-consultas-isp" />
+          <CartaoMetrica Icone={BarChart3} rotulo="Consultas SPC" valor={stats.spcConsultations} sub={<><Num>{stats.spcConsultationsMonth}</Num> neste mês</>} testId="card-consultas-spc" testIdValor="value-card-consultas-spc" />
+        </div>
+      </section>
 
-      {/* Main Tabs */}
+      <section>
+        <KickerSecao>Saldo de créditos</KickerSecao>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <CartaoMetrica Icone={Zap} rotulo="Créditos ISP" valor={provider.ispCredits} sub={inclusoNoPlano("isp")} testId="card-creditos-isp" testIdValor="value-card-creditos-isp" />
+          <CartaoMetrica Icone={CreditCard} rotulo="Créditos SPC" valor={provider.spcCredits} sub={inclusoNoPlano("spc")} testId="card-creditos-spc" testIdValor="value-card-creditos-spc" />
+          <CartaoMetrica Icone={IdCard} rotulo="Créditos cadastral" valor={provider.bigdataCredits ?? 0} sub="consulta cadastral" testId="card-creditos-cadastral" testIdValor="value-card-creditos-cadastral" />
+        </div>
+      </section>
+
+      {/* AS ABAS.
+          Nao ha primitiva de aba ainda — o painel do provedor tambem nao tinha
+          uma quando esta rodada comecou. Ate haver, o estilo mora aqui, escrito
+          nos tokens canonicos e com o alvo de toque da primitiva: densa no
+          mouse, 44px no dedo. Candidata declarada a subir para `painel/ui`
+          quando a segunda tela precisar dela. */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="border bg-muted/30 p-0.5" data-testid="tabs-provider">
-          <TabsTrigger value="geral" data-testid="tab-geral" className="text-sm">Geral</TabsTrigger>
-          <TabsTrigger value="financeiro" data-testid="tab-financeiro" className="text-sm">Financeiro</TabsTrigger>
-          <TabsTrigger value="usuarios" data-testid="tab-usuarios" className="text-sm">Usuarios</TabsTrigger>
-          <TabsTrigger value="consumo" data-testid="tab-consumo" className="text-sm">Consumo</TabsTrigger>
-          <TabsTrigger value="historico" data-testid="tab-historico" className="text-sm">Historico</TabsTrigger>
-          <TabsTrigger value="integracao" data-testid="tab-integracao" className="text-sm">Integracao ERP</TabsTrigger>
+        <TabsList
+          className="h-auto flex-wrap justify-start gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-1"
+          data-testid="tabs-provider"
+        >
+          {ABAS.map(a => (
+            <TabsTrigger
+              key={a.chave}
+              value={a.chave}
+              data-testid={`tab-${a.chave}`}
+              className={cn(
+                ALVO_CONTROLE,
+                "gap-1.5 rounded-md px-3 text-[12.5px] font-medium text-[var(--text-muted)]",
+                "data-[state=active]:bg-[var(--brand-soft)] data-[state=active]:text-[var(--brand-ink)] data-[state=active]:shadow-none",
+                /* Um indicador de foco so: o anel da primitiva. `ring-0` desliga
+                   o do shadcn, que ficaria por baixo em outra cor e espessura.
+                   `outline` (estilo) tem de vir junto de `outline-2` (largura) —
+                   sozinha, a largura nao pinta nada. */
+                "focus-visible:ring-0",
+                FOCO,
+              )}
+            >
+              <a.Icone className="w-3.5 h-3.5 flex-none" strokeWidth={2} />
+              {a.rotulo}
+            </TabsTrigger>
+          ))}
         </TabsList>
 
         {/* TAB: GERAL */}
         <TabsContent value="geral">
           {editMode ? (
-            <Card className="p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold">Editar Informacoes</h3>
-                <div className="flex gap-2">
-                  <Button variant="ghost" size="sm" onClick={() => setEditMode(false)}><X className="w-4 h-4" /></Button>
-                  <Button size="sm" onClick={() => editMutation.mutate(editForm)} disabled={editMutation.isPending} data-testid="button-save-edit">
-                    <Save className="w-4 h-4 mr-1" /> {editMutation.isPending ? "Salvando..." : "Salvar"}
-                  </Button>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Card>
+              <TopoCartao
+                titulo="Editar informações"
+                Icone={Edit2}
+                acao={
+                  <div className="flex items-center gap-2 flex-none">
+                    <button
+                      type="button"
+                      className={cn(BOTAO_SECUNDARIO, CAIXA_ICONE)}
+                      onClick={() => setEditMode(false)}
+                      aria-label="Cancelar edição"
+                      data-testid="button-cancel-edit"
+                    >
+                      <X className="w-3.5 h-3.5" strokeWidth={2} />
+                    </button>
+                    <button
+                      type="button"
+                      className={cn(BOTAO_MARCA, DESABILITAVEL)}
+                      onClick={() => editMutation.mutate(editForm)}
+                      disabled={editMutation.isPending}
+                      data-testid="button-save-edit"
+                    >
+                      <Save className="w-3.5 h-3.5" strokeWidth={2} />
+                      {editMutation.isPending ? "Salvando..." : "Salvar"}
+                    </button>
+                  </div>
+                }
+              />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-4 py-4">
                 <div className="space-y-1.5">
                   <Label htmlFor="edit-name">Nome</Label>
                   <Input id="edit-name" value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} data-testid="input-edit-name" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="edit-subdomain">Subdominio</Label>
+                  <Label htmlFor="edit-subdomain">Subdomínio</Label>
                   <Input id="edit-subdomain" value={editForm.subdomain} onChange={e => setEditForm(f => ({ ...f, subdomain: e.target.value }))} data-testid="input-edit-subdomain" />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="edit-email">Email de Contato</Label>
+                  <Label htmlFor="edit-email">E-mail de contato</Label>
                   <Input id="edit-email" type="email" value={editForm.contactEmail} onChange={e => setEditForm(f => ({ ...f, contactEmail: e.target.value }))} data-testid="input-edit-email" />
                 </div>
                 <div className="space-y-1.5">
@@ -452,151 +676,185 @@ export default function AdminProvedorPage() {
                   <Input id="edit-phone" value={editForm.contactPhone} onChange={e => setEditForm(f => ({ ...f, contactPhone: e.target.value }))} data-testid="input-edit-phone" />
                 </div>
                 <div className="space-y-1.5 md:col-span-2">
-                  <Label htmlFor="edit-website">Website</Label>
+                  <Label htmlFor="edit-website">Site</Label>
                   <Input id="edit-website" value={editForm.website} onChange={e => setEditForm(f => ({ ...f, website: e.target.value }))} data-testid="input-edit-website" />
                 </div>
               </div>
             </Card>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Card className="p-5 space-y-4">
-                <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Cadastro</h3>
-                <div className="space-y-3">
-                  <InfoRow label="Razao Social" value={provider.name} icon={Building2} />
-                  <InfoRow label="CNPJ" value={provider.cnpj} icon={FileText} />
-                  <InfoRow label="Subdominio" value={provider.subdomain ? `${provider.subdomain}.consultaisp.com.br` : "Nao configurado"} icon={Globe} />
-                  <InfoRow label="Email de contato" value={provider.contactEmail || "—"} icon={Mail} />
-                  <InfoRow label="Telefone" value={provider.contactPhone || "—"} icon={Phone} />
-                  <InfoRow label="Website" value={provider.website || "—"} icon={Globe} />
-                  <InfoRow label="Cadastrado em" value={fmtDate(provider.createdAt)} icon={Calendar} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <Card>
+                <TopoCartao titulo="Cadastro" Icone={Building2} />
+                <div className="px-4 py-2">
+                  <InfoRow label="Razão social" value={provider.name} icon={Building2} />
+                  <InfoRow label="CNPJ" value={provider.cnpj} icon={FileText} mono />
+                  <InfoRow label="Subdomínio" value={provider.subdomain ? `${provider.subdomain}.consultaisp.com.br` : "Não configurado"} icon={Globe} mono={!!provider.subdomain} />
+                  <InfoRow label="E-mail de contato" value={provider.contactEmail || "—"} icon={Mail} />
+                  <InfoRow label="Telefone" value={provider.contactPhone || "—"} icon={Phone} mono={!!provider.contactPhone} />
+                  <InfoRow label="Site" value={provider.website || "—"} icon={Globe} />
+                  <InfoRow label="Cadastrado em" value={fmtDate(provider.createdAt)} icon={Calendar} mono />
                 </div>
               </Card>
 
-              <Card className="p-5 space-y-4">
-                <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Plano e Creditos</h3>
-                {erroPrecos && (
-                  <div className="rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2" data-testid="erro-precos-plano">
-                    <p className="text-xs text-[var(--danger)]">Nao foi possivel carregar a tabela de precos.</p>
-                    <button type="button" className="text-xs underline mt-0.5 text-[var(--danger)]" onClick={() => recarregarPrecos()}>
-                      Tentar de novo
-                    </button>
-                  </div>
-                )}
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between py-2 border-b">
-                    <span className="text-sm text-muted-foreground">Plano atual</span>
-                    <Badge className={`${visual.cor} border-0 font-semibold`}>{visual.rotulo}</Badge>
-                  </div>
-                  <div className="flex items-center justify-between py-2 border-b">
-                    <span className="text-sm text-muted-foreground">Mensalidade</span>
-                    {carregandoPrecos ? (
-                      <span className="h-4 w-20 rounded bg-[var(--surface-inset)] animate-pulse" data-testid="skeleton-mensalidade" />
-                    ) : planoCobrado ? (
-                      <span className="font-mono font-semibold tabular-nums" data-testid="text-mensalidade">{planoCobrado.precoLabel}</span>
-                    ) : (
-                      /* Ausencia de preco nao e gratuidade: a tela cala em vez
-                         de afirmar um valor que o servidor nao confirmou. */
-                      <span className="text-sm text-muted-foreground" data-testid="mensalidade-indisponivel">Tabela indisponivel</span>
-                    )}
-                  </div>
-                  <div className="flex items-center justify-between py-2 border-b">
-                    <span className="text-sm text-muted-foreground">Creditos ISP</span>
-                    <span className="font-mono font-semibold tabular-nums text-[var(--text)]">
-                      {provider.ispCredits}{planoCobrado && planoCobrado.creditosInclusos.isp > 0 ? ` / ${planoCobrado.creditosInclusos.isp}` : ""}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between py-2 border-b">
-                    <span className="text-sm text-muted-foreground">Creditos SPC</span>
-                    <span className="font-mono font-semibold tabular-nums text-[var(--text)]">
-                      {provider.spcCredits}{planoCobrado && planoCobrado.creditosInclusos.spc > 0 ? ` / ${planoCobrado.creditosInclusos.spc}` : ""}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between py-2">
-                    <span className="text-sm text-muted-foreground">Status</span>
-                    <Badge className={`${statusCfg.color} border-0`}>{statusCfg.label}</Badge>
+              <Card>
+                <TopoCartao titulo="Plano e créditos" Icone={Star} />
+                <div className="px-4 py-3 space-y-3">
+                  {/* Este bloco estava escrito a mao TRES vezes so nesta tela, e
+                      seis no painel. `AvisoNaoCarregou` e a peca unica; o que
+                      ela conserta de verdade e o alvo do "Tentar de novo", que
+                      como texto sublinhado de 12px tinha ~16px de altura
+                      clicavel — menos de metade dos 44px da secao 7. A frase
+                      continua com a tela, porque o que falhou muda o que dizer. */}
+                  {erroPrecos && (
+                    <AvisoNaoCarregou aoTentarDeNovo={() => recarregarPrecos()} testId="erro-precos-plano">
+                      Não foi possível carregar a tabela de preços.
+                    </AvisoNaoCarregou>
+                  )}
+                  <div>
+                    <LinhaDado rotulo="Plano atual">
+                      <Selo tom={plano.tom}>{plano.label}</Selo>
+                    </LinhaDado>
+                    <LinhaDado rotulo="Mensalidade">
+                      {carregandoPrecos ? (
+                        <Skeleton className="h-4 w-20" data-testid="skeleton-mensalidade" />
+                      ) : planoCobrado ? (
+                        <Num className="text-[13px] font-medium text-[var(--text)]" testId="text-mensalidade">{planoCobrado.precoLabel}</Num>
+                      ) : (
+                        /* Ausencia de preco nao e gratuidade: a tela cala em vez
+                           de afirmar um valor que o servidor nao confirmou. */
+                        <span className="text-[13px] text-[var(--text-muted)]" data-testid="mensalidade-indisponivel">Tabela indisponível</span>
+                      )}
+                    </LinhaDado>
+                    <LinhaDado rotulo="Créditos ISP">
+                      <Num className="text-[13px] font-medium text-[var(--text)]">
+                        {provider.ispCredits}{planoCobrado && planoCobrado.creditosInclusos.isp > 0 ? ` / ${planoCobrado.creditosInclusos.isp}` : ""}
+                      </Num>
+                    </LinhaDado>
+                    <LinhaDado rotulo="Créditos SPC">
+                      <Num className="text-[13px] font-medium text-[var(--text)]">
+                        {provider.spcCredits}{planoCobrado && planoCobrado.creditosInclusos.spc > 0 ? ` / ${planoCobrado.creditosInclusos.spc}` : ""}
+                      </Num>
+                    </LinhaDado>
+                    <LinhaDado rotulo="Situação">
+                      <Selo tom={situacao.tom}>{situacao.label}</Selo>
+                    </LinhaDado>
                   </div>
                 </div>
               </Card>
 
+              {/* O CARTAO DE DNS ERA A AREA MAIS AZUL DA TELA — borda, fundo,
+                  cabecalho de tabela, tinta do destino e ate o selo do tipo, tudo
+                  na paleta default do Tailwind. Nada disso significava nada: o
+                  azul nao era estado, era enfeite. Vira cartao comum; a unica cor
+                  que sobra e a do selo, que diz de verdade que falta uma acao
+                  manual do operador. */}
               {provider.subdomain && (
-                <Card className="p-5 space-y-4 md:col-span-2 border-blue-200 bg-blue-50/30" data-testid="card-dns-config">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Globe className="w-4 h-4 text-blue-600" />
-                      <h3 className="font-semibold text-sm text-[var(--color-brand)]">Configuracao DNS do Subdominio</h3>
-                    </div>
-                    <Badge className="bg-[var(--color-gold-bg)] text-[var(--color-gold)] border-amber-200 text-xs font-medium" data-testid="badge-dns-status">
-                      Configurar manualmente
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Configure o registro abaixo no painel DNS do dominio <span className="font-semibold">consultaisp.com.br</span> para ativar o subdominio deste provedor.
-                  </p>
-                  <div className="bg-white rounded-lg border border-blue-200 overflow-hidden">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-blue-100/60 border-b border-blue-200">
-                          <th className="text-left px-4 py-2 text-xs font-semibold text-blue-700">Nome / Host</th>
-                          <th className="text-left px-4 py-2 text-xs font-semibold text-blue-700">Tipo</th>
-                          <th className="text-left px-4 py-2 text-xs font-semibold text-blue-700">Destino / Valor</th>
-                          <th className="text-left px-4 py-2 text-xs font-semibold text-blue-700">TTL</th>
-                          <th className="px-4 py-2" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="px-4 py-3 font-mono text-sm font-medium" data-testid="dns-host">{provider.subdomain}</td>
-                          <td className="px-4 py-3">
-                            <Badge className="bg-violet-100 text-violet-700 border-violet-200 text-xs font-mono">CNAME</Badge>
-                          </td>
-                          <td className="px-4 py-3 font-mono text-sm text-blue-700" data-testid="dns-destination">app.consultaisp.com.br</td>
-                          <td className="px-4 py-3 text-sm text-muted-foreground">3600</td>
-                          <td className="px-4 py-3">
-                            <button
-                              onClick={() => { navigator.clipboard.writeText(`${provider.subdomain}\tCNAME\tapp.consultaisp.com.br`); }}
-                              className="flex items-center gap-1 text-xs text-blue-600 hover:text-[var(--color-brand)] font-medium"
-                              data-testid="button-copy-dns-record"
-                            >
-                              <Copy className="w-3 h-3" />Copiar
-                            </button>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="flex items-center gap-4 flex-wrap">
-                    <div className="flex items-center gap-2 bg-white rounded-lg border border-blue-200 px-3 py-2 flex-1 min-w-0">
-                      <Globe className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
-                      <span className="text-xs font-mono text-slate-700 truncate" data-testid="text-full-subdomain-url">{provider.subdomain}.consultaisp.com.br</span>
+                <Card className="md:col-span-2 overflow-hidden" data-testid="card-dns-config">
+                  <TopoCartao
+                    titulo="Configuração de DNS do subdomínio"
+                    Icone={Globe}
+                    sub={
+                      <>
+                        Crie o registro abaixo no painel de DNS do domínio{" "}
+                        <Num>consultaisp.com.br</Num> para o subdomínio deste provedor responder.
+                      </>
+                    }
+                    acao={
+                      <Selo tom="gated" testId="badge-dns-status">
+                        Configurar manualmente
+                      </Selo>
+                    }
+                  />
+                  {/* O cabecalho era 10px com padding proprio: o corpo do SELO e
+                      do KICKER, e no cabecalho de tabela ele deixa de ler como
+                      cabecalho. `Th` traz os 9,5px da secao 6, o fundo de
+                      superficie de segundo nivel e o hairline. */}
+                  <TabelaPainel>
+                    <thead>
+                      <tr>
+                        {["Nome / host", "Tipo", "Destino", "TTL", ""].map((h, i) => (
+                          <Th key={i}>{h}</Th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        {/* Host e destino se leem caractere a caractere e da
+                            esquerda para a direita: mono, sem alinhar a direita. */}
+                        <Td num alinhamento="esquerda">
+                          <Num className="text-[13px] font-medium text-[var(--text)]" testId="dns-host">{provider.subdomain}</Num>
+                        </Td>
+                        <Td>
+                          <Selo tom="neutro">CNAME</Selo>
+                        </Td>
+                        <Td num alinhamento="esquerda">
+                          <Num className="text-[13px] text-[var(--text)]" testId="dns-destination">app.consultaisp.com.br</Num>
+                        </Td>
+                        <Td num alinhamento="esquerda">
+                          <Num className="text-[13px] text-[var(--text-muted)]">3600</Num>
+                        </Td>
+                        <Td>
+                          <button
+                            type="button"
+                            onClick={() => { navigator.clipboard.writeText(`${provider.subdomain}\tCNAME\tapp.consultaisp.com.br`); }}
+                            className={cn(BOTAO_SECUNDARIO, "px-2.5")}
+                            data-testid="button-copy-dns-record"
+                          >
+                            <Copy className="w-3 h-3" strokeWidth={2} />Copiar
+                          </button>
+                        </Td>
+                      </tr>
+                    </tbody>
+                  </TabelaPainel>
+                  {/* Sem `border-t`: a celula da primitiva ja fecha a linha com o
+                      hairline, e as duas juntas leriam como uma borda de 2px. */}
+                  <div className="px-4 py-3">
+                    <div className="flex items-center gap-2 rounded border border-[var(--border)] bg-[var(--surface-inset)] px-3 py-2">
+                      <Globe className="w-3.5 h-3.5 flex-none text-[var(--text-faint)]" strokeWidth={2} />
+                      <Num className="text-[12px] text-[var(--text-2)] truncate" testId="text-full-subdomain-url">
+                        {provider.subdomain}.consultaisp.com.br
+                      </Num>
                       <button
+                        type="button"
                         onClick={() => { navigator.clipboard.writeText(`${provider.subdomain}.consultaisp.com.br`); }}
-                        className="ml-auto flex-shrink-0 text-blue-500 hover:text-blue-700"
+                        className={cn(BOTAO_SECUNDARIO, CAIXA_ICONE, "ml-auto flex-none")}
+                        aria-label="Copiar endereço do subdomínio"
                         data-testid="button-copy-subdomain-url"
                       >
-                        <Copy className="w-3 h-3" />
+                        <Copy className="w-3 h-3" strokeWidth={2} />
                       </button>
                     </div>
                   </div>
                 </Card>
               )}
 
-              <Card className="p-5 space-y-3 md:col-span-2">
-                <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Resumo Financeiro</h3>
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="text-center p-3 bg-green-50 rounded-lg">
-                    <p className="text-xs text-muted-foreground mb-1">Total Pago</p>
-                    <p className="text-lg font-bold text-green-700">{fmt(financial.totalPaid)}</p>
-                  </div>
-                  <div className="text-center p-3 bg-yellow-50 rounded-lg">
-                    <p className="text-xs text-muted-foreground mb-1">Em Aberto</p>
-                    <p className="text-lg font-bold text-[var(--color-gold)]">{fmt(financial.totalPending)}</p>
-                  </div>
-                  <div className="text-center p-3 bg-red-50 rounded-lg">
-                    <p className="text-xs text-muted-foreground mb-1">Vencido</p>
-                    <p className="text-lg font-bold text-red-700">{fmt(financial.totalOverdue)}</p>
-                  </div>
+              {/* Os tres totais eram tres poços coloridos (verde, amarelo,
+                  vermelho) com o numero em Inter bold. Viram cartao de metrica,
+                  como qualquer outro numero do produto. So o VENCIDO leva cor, e
+                  so quando existe: dinheiro atrasado e risco; recebido e pago
+                  nao precisa gritar. */}
+              <section className="md:col-span-2">
+                <KickerSecao>Resumo financeiro</KickerSecao>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <CartaoMetrica rotulo="Total pago" valor={<Dinheiro valor={financial.totalPaid} />} sub="faturas quitadas" testId="card-total-pago" />
+                  <CartaoMetrica rotulo="Em aberto" valor={<Dinheiro valor={financial.totalPending} />} sub="a vencer" testId="card-total-aberto" />
+                  <CartaoMetrica
+                    rotulo="Vencido"
+                    valor={
+                      /* A cor do vencido NAO sai de `Dinheiro`: ali o vermelho
+                         seria o sinal do numero, e este valor e positivo —
+                         alguem deve. E atraso, entao e `--past`, e quem sabe
+                         que aquilo esta vencido e esta tela. */
+                      <Dinheiro
+                        valor={financial.totalOverdue}
+                        className={financial.totalOverdue > 0 ? "text-[var(--past)]" : undefined}
+                      />
+                    }
+                    sub="fora do prazo"
+                    testId="card-total-vencido"
+                  />
                 </div>
-              </Card>
+              </section>
             </div>
           )}
         </TabsContent>
@@ -604,57 +862,82 @@ export default function AdminProvedorPage() {
         {/* TAB: FINANCEIRO */}
         <TabsContent value="financeiro">
           <Card className="overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-3 border-b bg-muted/20">
-              <h3 className="font-semibold">Faturas do Provedor</h3>
-              <Button size="sm" variant="outline" onClick={abrirNovaFatura} data-testid="button-new-invoice-fin">
-                <Plus className="w-4 h-4 mr-1" /> Nova Fatura
-              </Button>
-            </div>
+            <TopoCartao
+              titulo="Faturas do provedor"
+              Icone={Receipt}
+              sub={<><Num>{invoices.length}</Num> {invoices.length === 1 ? "fatura emitida" : "faturas emitidas"}</>}
+              acao={
+                <button type="button" className={cn(BOTAO_SECUNDARIO, "flex-none")} onClick={abrirNovaFatura} data-testid="button-new-invoice-fin">
+                  <Plus className="w-3.5 h-3.5" strokeWidth={2} /> Nova fatura
+                </button>
+              }
+            />
             {invoices.length === 0 ? (
-              <div className="p-8 text-center text-muted-foreground text-sm">Nenhuma fatura encontrada</div>
+              <EstadoVazio
+                Icone={Receipt}
+                titulo="Nenhuma fatura emitida"
+                descricao="Assim que a primeira mensalidade for lançada para este provedor, ela aparece aqui com período, vencimento e situação."
+                cta={
+                  <button type="button" className={BOTAO_SECUNDARIO} onClick={abrirNovaFatura} data-testid="button-nova-fatura-vazio">
+                    <Plus className="w-3.5 h-3.5" strokeWidth={2} /> Nova fatura
+                  </button>
+                }
+                testId="empty-faturas"
+              />
             ) : (
-              <div className="divide-y">
+              <div className="divide-y divide-[var(--border-faint)]">
                 {invoices.map((inv: any) => (
-                  <div key={inv.id} className="flex items-center justify-between px-5 py-3 hover:bg-muted/30 transition-colors" data-testid={`row-invoice-${inv.id}`}>
-                    <div className="flex items-center gap-4">
-                      <div>
-                        <p className="text-sm font-mono font-semibold">{inv.invoiceNumber}</p>
-                        <p className="text-xs text-muted-foreground">{inv.period} · Vence {fmtDate(inv.dueDate)}</p>
+                  <div key={inv.id} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[var(--surface-2)] motion-safe:transition-colors" data-testid={`row-invoice-${inv.id}`}>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="min-w-0">
+                        <Num className="block text-[13px] font-medium text-[var(--text)]">{inv.invoiceNumber}</Num>
+                        <p className="text-[12px] text-[var(--text-muted)]">
+                          <Num>{inv.period}</Num> · vence <Num>{fmtDate(inv.dueDate)}</Num>
+                        </p>
                       </div>
-                      <InvoiceStatusBadge status={inv.status} />
+                      <SeloFatura status={inv.status} />
                     </div>
-                    <div className="flex items-center gap-4">
-                      <span className="font-semibold">{fmt(parseFloat(inv.amount))}</span>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
+                    <div className="flex items-center gap-3 flex-none">
+                      <Dinheiro valor={inv.amount} className="text-[13px] font-medium text-[var(--text)]" />
+                      <div className="flex items-center gap-1.5">
+                        {/* Icone sozinho continua sendo um controle: rotulo
+                            acessivel e o mesmo alvo de toque dos demais.
+                            `CAIXA_ICONE` e a LARGURA desse alvo — `ALVO_CONTROLE`
+                            so fala de altura, e com `px-2.5` o botao ficava com
+                            44px de altura e 34 de largura no dedo. A secao 7 fala
+                            dos dois eixos. Nao vira `BotaoIcone` porque este e
+                            fantasma, sem borda: aqui a barra de acoes precisa da
+                            borda para se separar do valor da fatura ao lado. */}
+                        <button
+                          type="button"
+                          className={cn(BOTAO_SECUNDARIO, CAIXA_ICONE)}
                           onClick={() => window.open(`/admin/fatura/${inv.id}`, "_blank")}
+                          aria-label={`Abrir a fatura ${inv.invoiceNumber}`}
                           data-testid={`button-view-invoice-${inv.id}`}
                         >
-                          <Eye className="w-3.5 h-3.5" />
-                        </Button>
+                          <Eye className="w-3.5 h-3.5" strokeWidth={2} />
+                        </button>
                         {inv.status !== "paid" && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-green-600"
+                          <button
+                            type="button"
+                            className={cn(BOTAO_SECUNDARIO, CAIXA_ICONE, "text-[var(--ok)] border-[var(--ok-border)] hover:bg-[var(--ok-bg)]")}
                             onClick={() => invoiceStatusMutation.mutate({ invoiceId: inv.id, status: "paid" })}
+                            aria-label={`Marcar a fatura ${inv.invoiceNumber} como paga`}
                             data-testid={`button-mark-paid-${inv.id}`}
                           >
-                            <CheckCircle className="w-3.5 h-3.5" />
-                          </Button>
+                            <CheckCircle className="w-3.5 h-3.5" strokeWidth={2} />
+                          </button>
                         )}
                         {inv.status === "pending" && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-red-600"
+                          <button
+                            type="button"
+                            className={cn(BOTAO_SECUNDARIO, CAIXA_ICONE, "text-[var(--danger)] border-[var(--danger-border)] hover:bg-[var(--danger-bg)]")}
                             onClick={() => invoiceStatusMutation.mutate({ invoiceId: inv.id, status: "overdue" })}
+                            aria-label={`Marcar a fatura ${inv.invoiceNumber} como vencida`}
                             data-testid={`button-mark-overdue-${inv.id}`}
                           >
-                            <AlertCircle className="w-3.5 h-3.5" />
-                          </Button>
+                            <AlertCircle className="w-3.5 h-3.5" strokeWidth={2} />
+                          </button>
                         )}
                       </div>
                     </div>
@@ -668,28 +951,36 @@ export default function AdminProvedorPage() {
         {/* TAB: USUARIOS */}
         <TabsContent value="usuarios">
           <Card className="overflow-hidden">
-            <div className="px-5 py-3 border-b bg-muted/20">
-              <h3 className="font-semibold">Usuarios do Provedor</h3>
-              <p className="text-xs text-muted-foreground">{users.length} usuario(s) cadastrado(s)</p>
-            </div>
+            <TopoCartao
+              titulo="Usuários do provedor"
+              Icone={Users}
+              sub={<><Num>{users.length}</Num> {users.length === 1 ? "conta cadastrada" : "contas cadastradas"}</>}
+            />
 
             {editingEmailUser && (
-              <div className="mx-5 my-3 p-4 border border-[var(--border)] rounded-lg bg-[var(--surface-inset)]">
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-sm font-semibold flex items-center gap-2">
-                    <Edit2 className="w-4 h-4 text-blue-600" />
-                    Alterar email de login
+              <div className="m-4 rounded-lg border border-[var(--border)] bg-[var(--surface-inset)] p-4">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <h4 className={cn(TITULO_CARTAO, "flex items-center gap-2")}>
+                    <Edit2 className="w-4 h-4 flex-none text-[var(--text-faint)]" strokeWidth={2} />
+                    Alterar e-mail de acesso
                   </h4>
-                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => { setEditingEmailUser(null); setNewEmail(""); }} data-testid="button-cancel-edit-email">
-                    <X className="w-4 h-4" />
-                  </Button>
+                  <button
+                    type="button"
+                    className={cn(BOTAO_SECUNDARIO, CAIXA_ICONE, "flex-none")}
+                    onClick={() => { setEditingEmailUser(null); setNewEmail(""); }}
+                    aria-label="Cancelar alteração de e-mail"
+                    data-testid="button-cancel-edit-email"
+                  >
+                    <X className="w-3.5 h-3.5" strokeWidth={2} />
+                  </button>
                 </div>
-                <p className="text-xs text-muted-foreground mb-3">
-                  Usuario: <span className="font-medium text-foreground">{editingEmailUser.name}</span> — Email atual: <span className="font-medium text-foreground">{editingEmailUser.email}</span>
+                <p className="text-[12px] text-[var(--text-muted)] mb-3">
+                  {editingEmailUser.name} — hoje entra com{" "}
+                  <span className="font-medium text-[var(--text)]">{editingEmailUser.email}</span>
                 </p>
                 <div className="flex items-center gap-2">
                   <Input
-                    placeholder="Novo email de login"
+                    placeholder="Novo e-mail de acesso"
                     type="email"
                     value={newEmail}
                     onChange={(e) => setNewEmail(e.target.value)}
@@ -701,55 +992,65 @@ export default function AdminProvedorPage() {
                       }
                     }}
                   />
-                  <Button
-                    size="sm"
-                    className="gap-1.5"
+                  <button
+                    type="button"
+                    className={cn(BOTAO_MARCA, DESABILITAVEL)}
                     disabled={!newEmail.includes("@") || updateEmailMutation.isPending}
                     onClick={() => updateEmailMutation.mutate({ id: editingEmailUser.id, email: newEmail })}
                     data-testid="button-save-email"
                   >
-                    {updateEmailMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                    {updateEmailMutation.isPending
+                      ? <RefreshCw className="w-3.5 h-3.5 motion-safe:animate-spin" strokeWidth={2} />
+                      : <Save className="w-3.5 h-3.5" strokeWidth={2} />}
                     Salvar
-                  </Button>
+                  </button>
                 </div>
               </div>
             )}
 
             {users.length === 0 ? (
-              <div className="p-8 text-center text-muted-foreground text-sm">Nenhum usuario encontrado</div>
+              <EstadoVazio
+                Icone={Users}
+                titulo="Nenhum usuário cadastrado"
+                descricao="Este provedor não tem nenhuma conta de acesso. As contas nascem no cadastro do provedor e no convite feito pelo painel dele."
+                testId="empty-usuarios"
+              />
             ) : (
-              <div className="divide-y">
+              <div className="divide-y divide-[var(--border-faint)]">
                 {users.map((u: any) => (
-                  <div key={u.id} className="flex items-center justify-between px-5 py-3" data-testid={`row-user-${u.id}`}>
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center text-sm font-bold text-blue-700 flex-shrink-0">
-                        {u.name?.charAt(0)?.toUpperCase()}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">{u.name}</p>
-                        <p className="text-xs text-muted-foreground">{u.email}</p>
+                  <div key={u.id} className="flex items-center justify-between gap-3 px-4 py-3" data-testid={`row-user-${u.id}`}>
+                    <div className="flex items-center gap-3 min-w-0">
+                      {/* Aqui quem esta representado e uma PESSOA, entao a forma
+                          e `avatar` — o unico redondo que a secao 5.1 autoriza,
+                          e por nome. Selo de estado continua retangular.
+                          O tamanho `md` (36px) e a mesma medida de antes; o que
+                          muda e o dono do valor. */}
+                      <LadrilhoInicial nome={u.name} forma="avatar" />
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-medium text-[var(--text)] truncate">{u.name}</p>
+                        <p className="text-[12px] text-[var(--text-muted)] truncate">{u.email}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <Badge className={`border-0 text-xs ${u.role === "admin" ? "bg-[var(--color-brand-bg)] text-[var(--color-brand)]" : "bg-[var(--color-tag-bg)] text-[var(--color-muted)]"}`}>
-                        {u.role === "admin" ? "Admin" : "Usuario"}
-                      </Badge>
-                      {u.emailVerified ? (
-                        <CheckCircle className="w-4 h-4 text-[var(--color-success)]" title="Email verificado" />
-                      ) : (
-                        <XCircle className="w-4 h-4 text-gray-400" title="Email nao verificado" />
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0 text-blue-500 hover:text-blue-700 hover:bg-blue-50"
+                    <div className="flex items-center gap-2.5 flex-none">
+                      <Selo tom={u.role === "admin" ? "marca" : "neutro"}>
+                        {u.role === "admin" ? "Administrador" : "Operador"}
+                      </Selo>
+                      {/* O par verificado/nao verificado era icone mudo com
+                          `title`. Vira selo, que se le sem passar o mouse — e o
+                          "nao verificado" e mesmo um portao, nao uma falha. */}
+                      <Selo tom={u.emailVerified ? "ok" : "gated"} Icone={u.emailVerified ? CheckCircle : XCircle}>
+                        {u.emailVerified ? "E-mail verificado" : "E-mail pendente"}
+                      </Selo>
+                      <button
+                        type="button"
+                        className={cn(BOTAO_SECUNDARIO, CAIXA_ICONE)}
                         onClick={() => { setEditingEmailUser({ id: u.id, name: u.name, email: u.email }); setNewEmail(""); }}
-                        title="Alterar email"
+                        aria-label={`Alterar o e-mail de acesso de ${u.name}`}
                         data-testid={`button-edit-email-${u.id}`}
                       >
-                        <Edit2 className="w-4 h-4" />
-                      </Button>
-                      <span className="text-xs text-muted-foreground">{fmtDate(u.createdAt)}</span>
+                        <Edit2 className="w-3.5 h-3.5" strokeWidth={2} />
+                      </button>
+                      <Num className="text-[12px] text-[var(--text-muted)]">{fmtDate(u.createdAt)}</Num>
                     </div>
                   </div>
                 ))}
@@ -759,26 +1060,34 @@ export default function AdminProvedorPage() {
         </TabsContent>
 
         {/* TAB: CONSUMO */}
+        {/* As duas listas eram o mesmo cartao pintado de azul e de roxo, com a
+            contagem repetindo a cor do cabecalho. A identidade de cada uma vem
+            do titulo e do icone; a cor nao dizia nada e as duas contagens agora
+            sao mono tabular, alinhadas entre si. */}
         <TabsContent value="consumo">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <Card className="overflow-hidden">
-              <div className="px-5 py-3 border-b bg-blue-50">
-                <h3 className="font-semibold text-[var(--color-brand)] flex items-center gap-2">
-                  <BarChart3 className="w-4 h-4" /> Consultas ISP
-                </h3>
-                <p className="text-xs text-blue-600">{stats.ispConsultations} total · {stats.ispConsultationsMonth} este mes</p>
-              </div>
+              <TopoCartao
+                titulo="Consultas ISP"
+                Icone={ScanSearch}
+                sub={<><Num>{stats.ispConsultations}</Num> no total · <Num>{stats.ispConsultationsMonth}</Num> neste mês</>}
+              />
               {recentIsp.length === 0 ? (
-                <div className="p-6 text-center text-muted-foreground text-sm">Nenhuma consulta ISP</div>
+                <EstadoVazio
+                  Icone={ScanSearch}
+                  titulo="Nenhuma consulta ISP"
+                  descricao="Este provedor ainda não consultou nenhum CPF ou CNPJ na rede. As consultas mais recentes aparecem aqui."
+                  testId="empty-consultas-isp"
+                />
               ) : (
-                <div className="divide-y max-h-80 overflow-y-auto">
+                <div className="divide-y divide-[var(--border-faint)] max-h-80 overflow-y-auto">
                   {recentIsp.map((c: any) => (
-                    <div key={c.id} className="px-4 py-2.5 flex items-center justify-between" data-testid={`row-isp-${c.id}`}>
-                      <div>
-                        <p className="text-sm font-mono font-medium">{c.cpfCnpj}</p>
-                        <p className="text-xs text-muted-foreground truncate max-w-[180px]">{c.name || "—"}</p>
+                    <div key={c.id} className="px-4 py-2.5 flex items-center justify-between gap-3" data-testid={`row-isp-${c.id}`}>
+                      <div className="min-w-0">
+                        <Num className="block text-[13px] font-medium text-[var(--text)]">{c.cpfCnpj}</Num>
+                        <p className="text-[12px] text-[var(--text-muted)] truncate max-w-[180px]">{c.name || "—"}</p>
                       </div>
-                      <span className="text-xs text-muted-foreground">{fmtDateTime(c.createdAt)}</span>
+                      <Num className="text-[12px] text-[var(--text-muted)] flex-none">{fmtDateTime(c.createdAt)}</Num>
                     </div>
                   ))}
                 </div>
@@ -786,23 +1095,27 @@ export default function AdminProvedorPage() {
             </Card>
 
             <Card className="overflow-hidden">
-              <div className="px-5 py-3 border-b bg-purple-50">
-                <h3 className="font-semibold text-purple-800 flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4" /> Consultas SPC
-                </h3>
-                <p className="text-xs text-purple-600">{stats.spcConsultations} total · {stats.spcConsultationsMonth} este mes</p>
-              </div>
+              <TopoCartao
+                titulo="Consultas SPC"
+                Icone={BarChart3}
+                sub={<><Num>{stats.spcConsultations}</Num> no total · <Num>{stats.spcConsultationsMonth}</Num> neste mês</>}
+              />
               {recentSpc.length === 0 ? (
-                <div className="p-6 text-center text-muted-foreground text-sm">Nenhuma consulta SPC</div>
+                <EstadoVazio
+                  Icone={BarChart3}
+                  titulo="Nenhuma consulta SPC"
+                  descricao="Este provedor ainda não fez nenhuma consulta no SPC Brasil. As consultas mais recentes aparecem aqui."
+                  testId="empty-consultas-spc"
+                />
               ) : (
-                <div className="divide-y max-h-80 overflow-y-auto">
+                <div className="divide-y divide-[var(--border-faint)] max-h-80 overflow-y-auto">
                   {recentSpc.map((c: any) => (
-                    <div key={c.id} className="px-4 py-2.5 flex items-center justify-between" data-testid={`row-spc-${c.id}`}>
-                      <div>
-                        <p className="text-sm font-mono font-medium">{c.cpfCnpj}</p>
-                        <p className="text-xs text-muted-foreground truncate max-w-[180px]">{c.name || "—"}</p>
+                    <div key={c.id} className="px-4 py-2.5 flex items-center justify-between gap-3" data-testid={`row-spc-${c.id}`}>
+                      <div className="min-w-0">
+                        <Num className="block text-[13px] font-medium text-[var(--text)]">{c.cpfCnpj}</Num>
+                        <p className="text-[12px] text-[var(--text-muted)] truncate max-w-[180px]">{c.name || "—"}</p>
                       </div>
-                      <span className="text-xs text-muted-foreground">{fmtDateTime(c.createdAt)}</span>
+                      <Num className="text-[12px] text-[var(--text-muted)] flex-none">{fmtDateTime(c.createdAt)}</Num>
                     </div>
                   ))}
                 </div>
@@ -814,36 +1127,40 @@ export default function AdminProvedorPage() {
         {/* TAB: HISTORICO */}
         <TabsContent value="historico">
           <Card className="overflow-hidden">
-            <div className="px-5 py-3 border-b bg-muted/20">
-              <h3 className="font-semibold">Historico de Alteracoes</h3>
-              <p className="text-xs text-muted-foreground">Mudancas de plano e creditos</p>
-            </div>
+            <TopoCartao titulo="Histórico de alterações" Icone={History} sub="Mudanças de plano e créditos lançados" />
             {planHistory.length === 0 ? (
-              <div className="p-8 text-center text-muted-foreground text-sm">Nenhuma alteracao registrada</div>
+              <EstadoVazio
+                Icone={History}
+                titulo="Nenhuma alteração registrada"
+                descricao="Toda troca de plano e todo crédito lançado por um administrador ficam registrados aqui, com autor e data."
+                testId="empty-historico"
+              />
             ) : (
-              <div className="divide-y">
+              <div className="divide-y divide-[var(--border-faint)]">
                 {planHistory.map((h: any) => (
-                  <div key={h.id} className="px-5 py-3 flex items-start gap-3" data-testid={`row-history-${h.id}`}>
-                    <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center flex-shrink-0 mt-0.5">
-                      {h.oldPlan ? <RefreshCw className="w-3.5 h-3.5 text-muted-foreground" /> : <Zap className="w-3.5 h-3.5 text-orange-500" />}
-                    </div>
+                  <div key={h.id} className="px-4 py-3 flex items-start gap-3" data-testid={`row-history-${h.id}`}>
+                    {/* Ladrilho neutro nos dois casos: troca de plano e credito
+                        lancado sao registro, nao risco — o laranja do raio era
+                        cor sem significado. */}
+                    <LadrilhoIcone Icone={h.oldPlan ? RefreshCw : Zap} tom="vazio" />
                     <div className="flex-1 min-w-0">
                       {h.oldPlan ? (
-                        <p className="text-sm font-medium">
-                          Plano alterado: <span className="text-muted-foreground">{PLANO_VISUAL[h.oldPlan]?.rotulo || h.oldPlan}</span>
+                        <p className="text-[13px] text-[var(--text-2)]">
+                          Plano alterado:{" "}
+                          <span className="text-[var(--text-muted)]">{seloDoPlano(h.oldPlan).label}</span>
                           {" → "}
-                          <span className="font-semibold text-[var(--brand-ink)]">{PLANO_VISUAL[h.newPlan]?.rotulo || h.newPlan}</span>
+                          <span className="font-medium text-[var(--text)]">{seloDoPlano(h.newPlan).label}</span>
                         </p>
                       ) : (
-                        <p className="text-sm font-medium">
-                          Creditos adicionados:
-                          {h.ispCreditsAdded > 0 && <span className="text-blue-600"> +{h.ispCreditsAdded} ISP</span>}
-                          {h.spcCreditsAdded > 0 && <span className="text-purple-600"> +{h.spcCreditsAdded} SPC</span>}
+                        <p className="text-[13px] text-[var(--text-2)]">
+                          Créditos adicionados:
+                          {h.ispCreditsAdded > 0 && <> <Num className="font-medium text-[var(--text)]">+{h.ispCreditsAdded}</Num> ISP</>}
+                          {h.spcCreditsAdded > 0 && <> <Num className="font-medium text-[var(--text)]">+{h.spcCreditsAdded}</Num> SPC</>}
                         </p>
                       )}
-                      {h.notes && <p className="text-xs text-muted-foreground mt-0.5">{h.notes}</p>}
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {h.changedByName} · {fmtDateTime(h.createdAt)}
+                      {h.notes && <p className="text-[12px] text-[var(--text-muted)] mt-0.5">{h.notes}</p>}
+                      <p className="text-[12px] text-[var(--text-muted)] mt-0.5">
+                        {h.changedByName} · <Num>{fmtDateTime(h.createdAt)}</Num>
                       </p>
                     </div>
                   </div>
@@ -863,250 +1180,273 @@ export default function AdminProvedorPage() {
 
       </Tabs>
 
-      {/* Modal: Alterar Plano */}
+      {/* Modal: alterar plano.
+          A CASCA DOS TRÊS MODAIS DESTA TELA vem de `MolduraModal`, e o motivo
+          não é aparência: os três eram uma `<div>` sobre uma cortina, sem
+          `role="dialog"`, sem `aria-modal` e sem nome. Para quem usa leitor de
+          tela isso significa que a página atrás continuava fazendo parte da
+          leitura e que a caixa aberta não se anunciava. A acessibilidade existia
+          — mas só dentro dos dois modais do Asaas, porque a casca era privada do
+          arquivo financeiro. Ela subiu para a primitiva e agora chega aqui.
+
+          O QUE MUDA DE PIXEL, declarado: a caixa passa de 448px (`max-w-md`)
+          para os 384px que a primitiva define como A largura de modal do
+          sistema, o corpo ganha o padding de 20px da moldura no lugar da faixa
+          de cabeçalho e do rodapé sangrados do `Card`, e o título troca
+          `TopoCartao` por `TITULO_MODAL` — 15px, o corpo que a primitiva
+          reserva ao modal, que é a tela enquanto está aberto. O X de fechar
+          fica: ele e o "Cancelar" fazem a mesma coisa, mas tirar o X removeria
+          um alvo que já existe. */}
       {showPlanModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowPlanModal(false)}>
-          <Card className="w-full max-w-md p-6 space-y-4" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold">Alterar Plano</h3>
-              <Button variant="ghost" size="sm" onClick={() => setShowPlanModal(false)}><X className="w-4 h-4" /></Button>
+        <MolduraModal rotulo="Alterar plano" onFechar={() => setShowPlanModal(false)}>
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <h2 className={TITULO_MODAL}>
+              <Star className="w-4 h-4 flex-none text-[var(--text-faint)]" strokeWidth={2} />
+              Alterar plano
+            </h2>
+            <button type="button" className={cn(BOTAO_SECUNDARIO, CAIXA_ICONE, "flex-none")} onClick={() => setShowPlanModal(false)} aria-label="Fechar">
+              <X className="w-3.5 h-3.5" strokeWidth={2} />
+            </button>
+          </div>
+          <div className="space-y-3">
+            {carregandoPrecos && <Skeleton className="h-9 w-full" data-testid="skeleton-precos-plano" />}
+            {erroPrecos && (
+              /* Anunciar plano com preco desta tela foi exatamente o defeito.
+                 Sem a tabela do servidor o seletor nao tem o que oferecer. */
+              <AvisoNaoCarregou aoTentarDeNovo={() => recarregarPrecos()} testId="erro-precos-troca-plano">
+                Não foi possível carregar a tabela de preços. O plano não pode ser trocado sem ela.
+              </AvisoNaoCarregou>
+            )}
+            <div className="space-y-1.5">
+              <Label>Plano</Label>
+              <Select value={planForm.plan} disabled={!precos} onValueChange={v => setPlanForm(f => ({ ...f, plan: v }))}>
+                {/* A caixa do seletor é a mesma dos campos de texto:
+                    `CONTROLE_CAMPO`. Solto, `ALVO_CONTROLE` dava só a altura —
+                    o seletor ficava sem a borda de área editável e sem anel de
+                    foco ao lado de campos que têm os dois. */}
+                <SelectTrigger className={CONTROLE_CAMPO} data-testid="select-plan">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(precos?.planos ?? []).map(p => (
+                    <SelectItem key={p.chave} value={p.chave}>{p.rotulo} — {p.precoLabel}/mês</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="space-y-3">
-              {carregandoPrecos && (
-                <div className="h-9 rounded bg-[var(--surface-inset)] animate-pulse" data-testid="skeleton-precos-plano" />
-              )}
-              {erroPrecos && (
-                /* Anunciar plano com preco desta tela foi exatamente o defeito.
-                   Sem a tabela do servidor o seletor nao tem o que oferecer. */
-                <div className="rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2" data-testid="erro-precos-troca-plano">
-                  <p className="text-xs text-[var(--danger)]">
-                    Nao foi possivel carregar a tabela de precos. O plano nao pode ser trocado sem ela.
-                  </p>
-                  <button type="button" className="text-xs underline mt-0.5 text-[var(--danger)]" onClick={() => recarregarPrecos()}>
-                    Tentar de novo
-                  </button>
-                </div>
-              )}
-              <div className="space-y-1.5">
-                <Label>Plano</Label>
-                <Select value={planForm.plan} disabled={!precos} onValueChange={v => setPlanForm(f => ({ ...f, plan: v }))}>
-                  <SelectTrigger data-testid="select-plan">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(precos?.planos ?? []).map(p => (
-                      <SelectItem key={p.chave} value={p.chave}>{p.rotulo} — {p.precoLabel}/mes</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Observacao (opcional)</Label>
-                <Textarea
-                  value={planForm.notes}
-                  onChange={e => setPlanForm(f => ({ ...f, notes: e.target.value }))}
-                  placeholder="Motivo da mudanca de plano..."
-                  rows={2}
-                  data-testid="textarea-plan-notes"
-                />
-              </div>
+            <div className="space-y-1.5">
+              <Label>Observação (opcional)</Label>
+              <Textarea
+                value={planForm.notes}
+                onChange={e => setPlanForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder="Motivo da mudança de plano..."
+                rows={2}
+                data-testid="textarea-plan-notes"
+              />
             </div>
-            <div className="flex gap-2 justify-end">
-              <Button variant="ghost" onClick={() => setShowPlanModal(false)}>Cancelar</Button>
-              <Button
-                onClick={() => planMutation.mutate(planForm)}
-                disabled={planMutation.isPending || !planForm.plan || !precos}
-                data-testid="button-confirm-plan"
-              >
-                {planMutation.isPending ? "Salvando..." : "Confirmar"}
-              </Button>
-            </div>
-          </Card>
-        </div>
+          </div>
+          {/* Sem a régua sangrada do rodapé do `Card`: dentro do padding da
+              moldura ela pararia a 20px de cada borda e leria como um traço
+              solto. Os dois modais do Asaas já separam os botões pelo espaço,
+              e é essa a voz de rodapé de modal do painel. */}
+          <div className="flex gap-2 justify-end mt-4">
+            <button type="button" className={BOTAO_SECUNDARIO} onClick={() => setShowPlanModal(false)}>Cancelar</button>
+            <button
+              type="button"
+              className={cn(BOTAO_MARCA, DESABILITAVEL)}
+              onClick={() => planMutation.mutate(planForm)}
+              disabled={planMutation.isPending || !planForm.plan || !precos}
+              data-testid="button-confirm-plan"
+            >
+              {planMutation.isPending ? "Salvando..." : "Confirmar"}
+            </button>
+          </div>
+        </MolduraModal>
       )}
 
-      {/* Modal: Adicionar Creditos */}
+      {/* Modal: adicionar créditos. Mesma casca compartilhada — ver o comentário
+          do modal de plano. */}
       {showCreditsModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowCreditsModal(false)}>
-          <Card className="w-full max-w-md p-6 space-y-4" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold">Adicionar Creditos</h3>
-              <Button variant="ghost" size="sm" onClick={() => setShowCreditsModal(false)}><X className="w-4 h-4" /></Button>
+        <MolduraModal rotulo="Adicionar créditos" onFechar={() => setShowCreditsModal(false)}>
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <h2 className={TITULO_MODAL}>
+              <Zap className="w-4 h-4 flex-none text-[var(--text-faint)]" strokeWidth={2} />
+              Adicionar créditos
+            </h2>
+            <button type="button" className={cn(BOTAO_SECUNDARIO, CAIXA_ICONE, "flex-none")} onClick={() => setShowCreditsModal(false)} aria-label="Fechar">
+              <X className="w-3.5 h-3.5" strokeWidth={2} />
+            </button>
+          </div>
+          <div className="space-y-3">
+            {/* O saldo de hoje sai no MESMO cartao de metrica das outras telas —
+                eram dois poços coloridos com o numero em Inter bold. */}
+            <div className="grid grid-cols-2 gap-3">
+              <CartaoMetrica rotulo="Saldo ISP" valor={provider.ispCredits} testId="card-modal-saldo-isp" />
+              <CartaoMetrica rotulo="Saldo SPC" valor={provider.spcCredits} testId="card-modal-saldo-spc" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Créditos ISP a adicionar</Label>
+              <Input
+                type="number"
+                value={creditsForm.ispCredits}
+                onChange={e => setCreditsForm(f => ({ ...f, ispCredits: e.target.value }))}
+                placeholder="0"
+                data-testid="input-isp-credits"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Créditos SPC a adicionar</Label>
+              <Input
+                type="number"
+                value={creditsForm.spcCredits}
+                onChange={e => setCreditsForm(f => ({ ...f, spcCredits: e.target.value }))}
+                placeholder="0"
+                data-testid="input-spc-credits"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Créditos de consulta cadastral a adicionar</Label>
+              <Input
+                type="number"
+                value={creditsForm.bigdataCredits}
+                onChange={e => setCreditsForm(f => ({ ...f, bigdataCredits: e.target.value }))}
+                placeholder="0"
+                data-testid="input-bigdata-credits"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Observação (opcional)</Label>
+              <Input
+                value={creditsForm.notes}
+                onChange={e => setCreditsForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder="Motivo..."
+                data-testid="input-credits-notes"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end mt-4">
+            <button type="button" className={BOTAO_SECUNDARIO} onClick={() => setShowCreditsModal(false)}>Cancelar</button>
+            <button
+              type="button"
+              className={cn(BOTAO_MARCA, DESABILITAVEL)}
+              onClick={() => creditsMutation.mutate({
+                ispCredits: parseInt(creditsForm.ispCredits) || 0,
+                spcCredits: parseInt(creditsForm.spcCredits) || 0,
+                bigdataCredits: parseInt(creditsForm.bigdataCredits) || 0,
+                notes: creditsForm.notes,
+              })}
+              disabled={creditsMutation.isPending}
+              data-testid="button-confirm-credits"
+            >
+              {creditsMutation.isPending ? "Salvando..." : "Adicionar"}
+            </button>
+          </div>
+        </MolduraModal>
+      )}
+
+      {/* Modal: nova fatura. Mesma casca compartilhada — ver o comentário do
+          modal de plano. */}
+      {showInvoiceModal && (
+        <MolduraModal rotulo="Nova fatura" onFechar={() => setShowInvoiceModal(false)}>
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <h2 className={TITULO_MODAL}>
+              <Receipt className="w-4 h-4 flex-none text-[var(--text-faint)]" strokeWidth={2} />
+              Nova fatura
+            </h2>
+            <button type="button" className={cn(BOTAO_SECUNDARIO, CAIXA_ICONE, "flex-none")} onClick={() => setShowInvoiceModal(false)} aria-label="Fechar">
+              <X className="w-3.5 h-3.5" strokeWidth={2} />
+            </button>
+          </div>
+          <div className="space-y-3">
+            {carregandoPrecos && <Skeleton className="h-9 w-full" data-testid="skeleton-precos-fatura" />}
+            {erroPrecos && (
+              /* Sem a tabela o formulario nao sabe quanto cobrar, e o campo
+                 vazio ao lado do botao ativo era o convite ao R$ 0,00. */
+              <AvisoNaoCarregou aoTentarDeNovo={() => recarregarPrecos()} testId="erro-precos-fatura">
+                Não foi possível carregar a tabela de preços. A fatura não pode ser emitida sem ela.
+              </AvisoNaoCarregou>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Período (AAAA-MM)</Label>
+                <Input
+                  value={invoiceForm.period}
+                  onChange={e => setInvoiceForm(f => ({ ...f, period: e.target.value }))}
+                  placeholder="2026-03"
+                  data-testid="input-invoice-period"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Valor (R$)</Label>
+                <Input
+                  type="number"
+                  value={invoiceForm.amount}
+                  onChange={e => setInvoiceForm(f => ({ ...f, amount: e.target.value }))}
+                  data-testid="input-invoice-amount"
+                />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="p-3 bg-blue-50 rounded-lg">
-                <p className="text-xs text-blue-600 mb-1">Atual ISP</p>
-                <p className="text-xl font-bold text-blue-700">{provider.ispCredits}</p>
-              </div>
-              <div className="p-3 bg-[var(--color-tag-bg)] rounded-lg">
-                <p className="text-xs text-[var(--color-muted)] mb-1">Atual SPC</p>
-                <p className="text-xl font-bold text-[var(--color-brand)]">{provider.spcCredits}</p>
-              </div>
-            </div>
-            <div className="space-y-3">
               <div className="space-y-1.5">
-                <Label>Creditos ISP a adicionar</Label>
+                <Label>Créditos ISP</Label>
                 <Input
                   type="number"
-                  value={creditsForm.ispCredits}
-                  onChange={e => setCreditsForm(f => ({ ...f, ispCredits: e.target.value }))}
-                  placeholder="0"
-                  data-testid="input-isp-credits"
+                  value={invoiceForm.ispCreditsIncluded}
+                  onChange={e => setInvoiceForm(f => ({ ...f, ispCreditsIncluded: e.target.value }))}
+                  data-testid="input-invoice-isp"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Creditos SPC a adicionar</Label>
+                <Label>Créditos SPC</Label>
                 <Input
                   type="number"
-                  value={creditsForm.spcCredits}
-                  onChange={e => setCreditsForm(f => ({ ...f, spcCredits: e.target.value }))}
-                  placeholder="0"
-                  data-testid="input-spc-credits"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Creditos Consulta Cadastral a adicionar</Label>
-                <Input
-                  type="number"
-                  value={creditsForm.bigdataCredits}
-                  onChange={e => setCreditsForm(f => ({ ...f, bigdataCredits: e.target.value }))}
-                  placeholder="0"
-                  data-testid="input-bigdata-credits"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Observacao (opcional)</Label>
-                <Input
-                  value={creditsForm.notes}
-                  onChange={e => setCreditsForm(f => ({ ...f, notes: e.target.value }))}
-                  placeholder="Motivo..."
-                  data-testid="input-credits-notes"
+                  value={invoiceForm.spcCreditsIncluded}
+                  onChange={e => setInvoiceForm(f => ({ ...f, spcCreditsIncluded: e.target.value }))}
+                  data-testid="input-invoice-spc"
                 />
               </div>
             </div>
-            <div className="flex gap-2 justify-end">
-              <Button variant="ghost" onClick={() => setShowCreditsModal(false)}>Cancelar</Button>
-              <Button
-                onClick={() => creditsMutation.mutate({
-                  ispCredits: parseInt(creditsForm.ispCredits) || 0,
-                  spcCredits: parseInt(creditsForm.spcCredits) || 0,
-                  bigdataCredits: parseInt(creditsForm.bigdataCredits) || 0,
-                  notes: creditsForm.notes,
-                })}
-                disabled={creditsMutation.isPending}
-                data-testid="button-confirm-credits"
-              >
-                {creditsMutation.isPending ? "Salvando..." : "Adicionar"}
-              </Button>
+            <div className="space-y-1.5">
+              <Label>Vencimento</Label>
+              <Input
+                type="date"
+                value={invoiceForm.dueDate}
+                onChange={e => setInvoiceForm(f => ({ ...f, dueDate: e.target.value }))}
+                data-testid="input-invoice-due"
+              />
             </div>
-          </Card>
-        </div>
-      )}
-
-      {/* Modal: Nova Fatura */}
-      {showInvoiceModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowInvoiceModal(false)}>
-          <Card className="w-full max-w-md p-6 space-y-4" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold">Nova Fatura</h3>
-              <Button variant="ghost" size="sm" onClick={() => setShowInvoiceModal(false)}><X className="w-4 h-4" /></Button>
+            <div className="space-y-1.5">
+              <Label>Observações</Label>
+              <Input
+                value={invoiceForm.notes}
+                onChange={e => setInvoiceForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder="Observações..."
+                data-testid="input-invoice-notes"
+              />
             </div>
-            <div className="space-y-3">
-              {carregandoPrecos && (
-                <div className="h-9 rounded bg-[var(--surface-inset)] animate-pulse" data-testid="skeleton-precos-fatura" />
-              )}
-              {erroPrecos && (
-                /* Sem a tabela o formulario nao sabe quanto cobrar, e o campo
-                   vazio ao lado do botao ativo era o convite ao R$ 0,00. */
-                <div className="rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2" data-testid="erro-precos-fatura">
-                  <p className="text-xs text-[var(--danger)]">
-                    Nao foi possivel carregar a tabela de precos. A fatura nao pode ser emitida sem ela.
-                  </p>
-                  <button type="button" className="text-xs underline mt-0.5 text-[var(--danger)]" onClick={() => recarregarPrecos()}>
-                    Tentar de novo
-                  </button>
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Periodo (AAAA-MM)</Label>
-                  <Input
-                    value={invoiceForm.period}
-                    onChange={e => setInvoiceForm(f => ({ ...f, period: e.target.value }))}
-                    placeholder="2026-03"
-                    data-testid="input-invoice-period"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Valor (R$)</Label>
-                  <Input
-                    type="number"
-                    value={invoiceForm.amount}
-                    onChange={e => setInvoiceForm(f => ({ ...f, amount: e.target.value }))}
-                    data-testid="input-invoice-amount"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Creditos ISP</Label>
-                  <Input
-                    type="number"
-                    value={invoiceForm.ispCreditsIncluded}
-                    onChange={e => setInvoiceForm(f => ({ ...f, ispCreditsIncluded: e.target.value }))}
-                    data-testid="input-invoice-isp"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Creditos SPC</Label>
-                  <Input
-                    type="number"
-                    value={invoiceForm.spcCreditsIncluded}
-                    onChange={e => setInvoiceForm(f => ({ ...f, spcCreditsIncluded: e.target.value }))}
-                    data-testid="input-invoice-spc"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Vencimento</Label>
-                <Input
-                  type="date"
-                  value={invoiceForm.dueDate}
-                  onChange={e => setInvoiceForm(f => ({ ...f, dueDate: e.target.value }))}
-                  data-testid="input-invoice-due"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Observacoes</Label>
-                <Input
-                  value={invoiceForm.notes}
-                  onChange={e => setInvoiceForm(f => ({ ...f, notes: e.target.value }))}
-                  placeholder="Observacoes..."
-                  data-testid="input-invoice-notes"
-                />
-              </div>
-            </div>
-            <div className="flex gap-2 justify-end">
-              <Button variant="ghost" onClick={() => setShowInvoiceModal(false)}>Cancelar</Button>
-              <Button
-                onClick={() => invoiceMutation.mutate({
-                  providerId: String(providerId),
-                  period: invoiceForm.period,
-                  amount: invoiceForm.amount,
-                  planAtTime: invoiceForm.planAtTime,
-                  ispCreditsIncluded: invoiceForm.ispCreditsIncluded || "0",
-                  spcCreditsIncluded: invoiceForm.spcCreditsIncluded || "0",
-                  dueDate: invoiceForm.dueDate,
-                  notes: invoiceForm.notes,
-                })}
-                disabled={!podeEmitirFatura || invoiceMutation.isPending || !invoiceForm.period || !invoiceForm.amount}
-                data-testid="button-confirm-invoice"
-              >
-                {invoiceMutation.isPending ? "Criando..." : "Criar Fatura"}
-              </Button>
-            </div>
-          </Card>
-        </div>
+          </div>
+          <div className="flex gap-2 justify-end mt-4">
+            <button type="button" className={BOTAO_SECUNDARIO} onClick={() => setShowInvoiceModal(false)}>Cancelar</button>
+            <button
+              type="button"
+              className={cn(BOTAO_MARCA, DESABILITAVEL)}
+              onClick={() => invoiceMutation.mutate({
+                providerId: String(providerId),
+                period: invoiceForm.period,
+                amount: invoiceForm.amount,
+                planAtTime: invoiceForm.planAtTime,
+                ispCreditsIncluded: invoiceForm.ispCreditsIncluded || "0",
+                spcCreditsIncluded: invoiceForm.spcCreditsIncluded || "0",
+                dueDate: invoiceForm.dueDate,
+                notes: invoiceForm.notes,
+              })}
+              disabled={!podeEmitirFatura || invoiceMutation.isPending || !invoiceForm.period || !invoiceForm.amount}
+              data-testid="button-confirm-invoice"
+            >
+              {invoiceMutation.isPending ? "Criando..." : "Criar fatura"}
+            </button>
+          </div>
+        </MolduraModal>
       )}
     </div>
   );
@@ -1200,20 +1540,31 @@ type ItemErp = { fonte: string; conector?: ConectorAdmin; integracao: Integracao
 type ResultadoTeste = { ok: boolean; message: string; latencyMs?: number };
 type ResultadoSync = { tipo: "info" | "erro" | "ok"; texto: string };
 
-const PILL_BASE =
-  "inline-flex items-center gap-1 rounded-[4px] px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-[var(--track-wide)]";
-
 /**
  * O selo do conector que ainda nao fala com a API do ERP.
  *
  * Nasceu na lista suspensa de "Adicionar integracao", mas a linha que JA existe
  * para um desses ERPs precisa do MESMO selo — se ele so trancasse a porta da
  * frente, a linha antiga continuaria lendo "Configurado / Ativo" e o provedor
- * leria "Integrada" para um ERP que nenhuma varredura consegue ler. Texto e
- * estilo moram aqui para que os dois lugares nao divirjam com o tempo.
+ * leria "Integrada" para um ERP que nenhuma varredura consegue ler. O texto mora
+ * aqui para que os dois lugares nao divirjam com o tempo; a FORMA agora vem do
+ * `<Selo>` da primitiva — este arquivo tinha o corpo do selo redigitado a mao
+ * (`PILL_BASE`), a copia manuscrita que faz os dois paineis divergirem no
+ * proximo ajuste.
  */
 const ROTULO_CONECTOR_PENDENTE = "Conector em desenvolvimento";
-const PILL_CONECTOR_PENDENTE = `${PILL_BASE} bg-[var(--surface-inset)] text-[var(--text-muted)]`;
+
+/**
+ * Os dois blocos de aviso desta aba, escritos uma vez.
+ *
+ * `ATENCAO` (gated) e a porta que ainda nao abriu — pausa, conector pendente,
+ * ERP sem conector. `RISCO` (danger) e a porta fechada: a credencial que nao
+ * abre e derruba toda varredura. Eram seis copias das mesmas classes espalhadas
+ * pela aba, e a divergencia ja tinha comecado (uma delas usava outro padding).
+ */
+const AVISO_ATENCAO = "rounded-lg border border-[var(--gated-border)] bg-[var(--gated-bg)] px-3 py-2.5";
+const AVISO_RISCO = "rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2.5";
+const TEXTO_AVISO = "text-[12px] leading-snug text-[var(--text-2)]";
 
 /**
  * O selo da credencial gravada que este servidor nao consegue ler.
@@ -1224,11 +1575,10 @@ const PILL_CONECTOR_PENDENTE = `${PILL_BASE} bg-[var(--surface-inset)] text-[var
  * vazio significa "nao mexe" no servidor. "Credencial ilegivel" diz a unica
  * coisa que resolve: digitar o segredo de novo.
  *
- * Cor de perigo, e nao de atencao: enquanto ninguem redigitar, toda varredura
+ * Tom de perigo, e nao de atencao: enquanto ninguem redigitar, toda varredura
  * deste ERP falha, e a integracao caminha para a pausa automatica.
  */
-const ROTULO_CREDENCIAL_ILEGIVEL = "Credencial ilegivel";
-const PILL_CREDENCIAL_ILEGIVEL = `${PILL_BASE} bg-[var(--danger-bg)] text-[var(--danger)]`;
+const ROTULO_CREDENCIAL_ILEGIVEL = "Credencial ilegível";
 
 /** Os campos que o servidor guarda cifrados — os unicos zerados quando a credencial nao abre. */
 const CAMPOS_SECRETOS = ["apiToken", "apiUser", "mkContraSenha", "clientSecret"] as const;
@@ -1251,29 +1601,43 @@ function segredoEmBranco(corpo: Record<string, unknown>): boolean {
   return CAMPOS_SECRETOS.some(k => k in corpo && !String(corpo[k] ?? "").trim());
 }
 
-const PILL_SYNC: Record<string, { texto: string; cls: string }> = {
-  success: { texto: "Sucesso", cls: "bg-[var(--ok-bg)] text-[var(--ok)]" },
-  error: { texto: "Erro", cls: "bg-[var(--danger-bg)] text-[var(--danger)]" },
-  partial: { texto: "Parcial", cls: "bg-[var(--gated-bg)] text-[var(--gated)]" },
+/**
+ * O DESFECHO DA VARREDURA, em portugues e no tom da primitiva.
+ *
+ * Era `{ texto, cls }` com a classe de cor escrita a mao; virou `{ texto, tom }`
+ * porque quem decide a cor de um selo e o `<Selo>`, para os dois paineis de uma
+ * vez.
+ *
+ * MUDANCA DE PIXEL, DECLARADA: `reativado` estava em `--info` (azul). A
+ * primitiva nao tem tom `info`, e inventar um aqui — por `className` — seria
+ * recriar num canto a divergencia que ela existe para acabar. Fica `neutro`, que
+ * e o que a linha significa: reativacao nao leu registro nenhum, e a coluna
+ * "Registros" da mesma linha ja mostra "—". Se um dia `info` virar tom da
+ * primitiva, esta linha volta a ele sem tocar em mais nada.
+ */
+const PILL_SYNC: Record<string, { texto: string; tom: TomSelo }> = {
+  success: { texto: "Sucesso", tom: "ok" },
+  error: { texto: "Erro", tom: "danger" },
+  partial: { texto: "Parcial", tom: "gated" },
   /**
    * `reativado` nao e varredura: e a marca de que o superadmin religou a
    * integracao, e o batente que faz a contagem de falhas consecutivas
    * recomecar. Sem esta linha ela caia no ramo generico e o historico imprimia
    * o identificador cru no lugar de portugues.
    */
-  reativado: { texto: "Reativado", cls: "bg-[var(--info-bg)] text-[var(--info)]" },
+  reativado: { texto: "Reativado", tom: "neutro" },
 };
 
 function relDateAdmin(d: string | null): string {
   if (!d) return "Nunca";
   const diff = Math.floor((Date.now() - new Date(d).getTime()) / 60000);
-  if (diff < 60) return `${diff}min atras`;
-  if (diff < 1440) return `${Math.floor(diff / 60)}h atras`;
-  return `${Math.floor(diff / 1440)}d atras`;
+  if (diff < 60) return `${diff}min atrás`;
+  if (diff < 1440) return `${Math.floor(diff / 60)}h atrás`;
+  return `${Math.floor(diff / 1440)}d atrás`;
 }
 
 /** Numerais por extenso do aviso de pausa. O indice e a propria contagem. */
-const CONTAGEM_EXTENSO = ["", "Uma", "Duas", "Tres", "Quatro", "Cinco", "Seis", "Sete", "Oito", "Nove", "Dez"];
+const CONTAGEM_EXTENSO = ["", "Uma", "Duas", "Três", "Quatro", "Cinco", "Seis", "Sete", "Oito", "Nove", "Dez"];
 
 /**
  * O aviso e prosa, e prosa se escreve por extenso.
@@ -1285,14 +1649,14 @@ const CONTAGEM_EXTENSO = ["", "Uma", "Duas", "Tres", "Quatro", "Cinco", "Seis", 
  * tem mais) o algarismo aparece, e ai vai em mono como todo numero do sistema.
  */
 function frasePausadas(quantidade: number) {
-  const resto = quantidade === 1 ? "integracao foi pausada" : "integracoes foram pausadas";
+  const resto = quantidade === 1 ? "integração foi pausada" : "integrações foram pausadas";
   const extenso = CONTAGEM_EXTENSO[quantidade];
   /* A frase inteira sai daqui, inclusive o fecho: o container e flex, e devolver
      pedacos faria do algarismo um item de flex com `gap` no lugar do espaco. */
   if (extenso) return <span>{`${extenso} ${resto} por falhas consecutivas`}</span>;
   return (
     <span>
-      <span className="font-mono tabular-nums">{quantidade}</span> {resto} por falhas consecutivas
+      <Num>{quantidade}</Num> {resto} por falhas consecutivas
     </span>
   );
 }
@@ -1408,9 +1772,9 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
         setExpandido(variaveis.source);
       }
       toast({
-        title: variaveis.reativando ? "Integracao reativada" : "Integracao salva",
+        title: variaveis.reativando ? "Integração reativada" : "Integração salva",
         description: variaveis.reativando
-          ? "A contagem de falhas recomeca do zero na proxima varredura automatica."
+          ? "A contagem de falhas recomeça do zero na próxima varredura automática."
           : undefined,
       });
     },
@@ -1437,13 +1801,13 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
         ...r,
         [source]: {
           ok: !!corpo.ok,
-          message: corpo.message || (corpo.ok ? "Conexao estabelecida." : "Nao foi possivel conectar."),
+          message: corpo.message || (corpo.ok ? "Conexão estabelecida." : "Não foi possível conectar."),
           latencyMs: corpo.latencyMs,
         },
       }));
     },
     onError: (_e, source) => {
-      setResultadoTeste(r => ({ ...r, [source]: { ok: false, message: "Nao consegui falar com o servidor." } }));
+      setResultadoTeste(r => ({ ...r, [source]: { ok: false, message: "Não consegui falar com o servidor." } }));
     },
   });
 
@@ -1472,20 +1836,20 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
       if (status === 409) {
         setResultadoSync(r => ({
           ...r,
-          [source]: { tipo: "info", texto: corpo.message || "Sincronizacao ja em andamento." },
+          [source]: { tipo: "info", texto: corpo.message || "Sincronização já em andamento." },
         }));
         return;
       }
       if (!corpo.ok) {
         setResultadoSync(r => ({
           ...r,
-          [source]: { tipo: "erro", texto: corpo.message || "Nao foi possivel iniciar a sincronizacao." },
+          [source]: { tipo: "erro", texto: corpo.message || "Não foi possível iniciar a sincronização." },
         }));
         return;
       }
       setResultadoSync(r => ({
         ...r,
-        [source]: { tipo: "info", texto: "Sincronizacao iniciada — o resultado aparece no historico ao terminar." },
+        [source]: { tipo: "info", texto: "Sincronização iniciada — o resultado aparece no histórico ao terminar." },
       }));
       qc.invalidateQueries({ queryKey: ["/api/admin/providers", providerId, "integration"] });
       // A varredura leva minutos; rele o historico ate ele registrar o
@@ -1494,7 +1858,7 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
       acompanhar(source);
     },
     onError: (_e, source) => {
-      setResultadoSync(r => ({ ...r, [source]: { tipo: "erro", texto: "Nao consegui falar com o servidor." } }));
+      setResultadoSync(r => ({ ...r, [source]: { tipo: "erro", texto: "Não consegui falar com o servidor." } }));
     },
   });
 
@@ -1507,12 +1871,16 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
   if (isLoading || carregandoConectores) {
     return (
       <TabsContent value="integracao" className="space-y-4">
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-16 rounded-lg bg-[var(--surface-inset)] animate-pulse" />
+            <Skeleton key={i} className="h-[86px] rounded-lg" />
           ))}
         </div>
-        <div className="h-64 rounded-lg bg-[var(--surface-inset)] animate-pulse" />
+        {/* A forma do que vem, e nao um bloco cinza: a lista de ERPs e uma
+            pilha de linhas com ladrilho, titulo e sublinha. */}
+        <Card className="p-4">
+          <LinhasSkeleton linhas={3} />
+        </Card>
       </TabsContent>
     );
   }
@@ -1528,30 +1896,34 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
   if (isError || erroConectores) {
     return (
       <TabsContent value="integracao" className="space-y-4" data-testid="tab-content-integracao">
-        <Card className="px-5 py-6" data-testid="erp-erro-carregamento">
-          <p className="flex items-center gap-2 text-sm font-medium text-[var(--danger)]">
-            <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-            Nao foi possivel carregar a integracao ERP
-          </p>
-          <p className="mt-1.5 text-xs text-[var(--text-2)]">
-            A leitura falhou — o que voce ve nao e a configuracao do provedor. Nao preencha
-            credencial agora: uma integracao ja configurada apareceria como vazia e gravar por
-            cima apagaria o que esta funcionando.
-          </p>
-          <Button
-            size="sm"
-            variant="outline"
-            className="mt-3 h-8 rounded-[4px] text-xs"
-            disabled={isFetching}
-            onClick={() => {
-              if (isError) refetch();
-              if (erroConectores) recarregarConectores();
-            }}
-            data-testid="button-recarregar-integracao"
-          >
-            <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
-            Tentar novamente
-          </Button>
+        <Card className="px-4 py-5" data-testid="erp-erro-carregamento">
+          <div className="flex items-start gap-3">
+            {/* Ladrilho de risco: e uma falha de leitura, nao um vazio. */}
+            <LadrilhoIcone Icone={AlertTriangle} tom="risco" />
+            <div className="min-w-0">
+              <p className={cn(TITULO_CARTAO, "text-[var(--danger)]")}>
+                Não foi possível carregar a integração ERP
+              </p>
+              <p className={cn(TEXTO_AVISO, "mt-1.5")}>
+                A leitura falhou — o que você vê não é a configuração do provedor. Não preencha
+                credencial agora: uma integração já configurada apareceria como vazia e gravar por
+                cima apagaria o que está funcionando.
+              </p>
+              <button
+                type="button"
+                className={cn(BOTAO_SECUNDARIO, DESABILITAVEL, "mt-3")}
+                disabled={isFetching}
+                onClick={() => {
+                  if (isError) refetch();
+                  if (erroConectores) recarregarConectores();
+                }}
+                data-testid="button-recarregar-integracao"
+              >
+                <RefreshCw className={cn("h-3.5 w-3.5", isFetching && "motion-safe:animate-spin")} strokeWidth={2} />
+                Tentar novamente
+              </button>
+            </div>
+          </div>
         </Card>
       </TabsContent>
     );
@@ -1642,20 +2014,38 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
    */
   const ilegiveis = integrations.filter(i => i.credencialIlegivel);
 
-  const resumo = [
-    { label: "ERPs ativos", valor: ativos.toLocaleString("pt-BR"), cor: "text-[var(--ok)]" },
-    { label: "Registros sincronizados", valor: totalSincronizado.toLocaleString("pt-BR"), cor: "text-[var(--text)]" },
-    { label: "Erros acumulados", valor: totalErros.toLocaleString("pt-BR"), cor: totalErros > 0 ? "text-[var(--danger)]" : "text-[var(--text)]" },
+  /* O resumo do topo era um cartao proprio, com rotulo e numero redigitados —
+     e o "ERPs ativos" saia em verde, cor de estado num numero que e so
+     contagem (secao 3: saturacao reservada para risco). Vira o mesmo
+     `CartaoMetrica` do resto do produto; a unica cor que sobra e a do erro
+     acumulado, e so quando ele existe. */
+  const resumo: { label: string; valor: React.ReactNode; sub: string; Icone: Icone; testId: string }[] = [
+    { label: "ERPs ativos", valor: ativos.toLocaleString("pt-BR"), sub: "com conector e credencial", Icone: Wifi, testId: "card-erps-ativos" },
+    { label: "Registros sincronizados", valor: totalSincronizado.toLocaleString("pt-BR"), sub: "desde a primeira varredura", Icone: Database, testId: "card-registros-sincronizados" },
+    {
+      label: "Erros acumulados",
+      valor: totalErros > 0
+        ? <span className="text-[var(--danger)]">{totalErros.toLocaleString("pt-BR")}</span>
+        : totalErros.toLocaleString("pt-BR"),
+      sub: "em todas as varreduras",
+      Icone: AlertTriangle,
+      testId: "card-erros-acumulados",
+    },
   ];
 
   return (
     <TabsContent value="integracao" className="space-y-4" data-testid="tab-content-integracao">
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {resumo.map(s => (
-          <Card key={s.label} className="p-3">
-            <p className="font-mono text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">{s.label}</p>
-            <p className={`mt-1 font-mono text-xl font-medium tabular-nums ${s.cor}`}>{s.valor}</p>
-          </Card>
+          <CartaoMetrica
+            key={s.label}
+            rotulo={s.label}
+            valor={s.valor}
+            sub={s.sub}
+            Icone={s.Icone}
+            testId={s.testId}
+            testIdValor={`value-${s.testId}`}
+          />
         ))}
       </div>
 
@@ -1664,96 +2054,90 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
           primeiro "corrija a credencial e reative" mandaria religar uma
           integracao que voltaria a falhar na varredura seguinte. */}
       {ilegiveis.length > 0 && (
-        <div
-          className="rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] px-4 py-3"
-          data-testid="aviso-credencial-ilegivel"
-        >
-          <p className="flex items-center gap-2 text-sm font-medium text-[var(--danger)]">
-            <KeyRound className="h-4 w-4 flex-shrink-0" />
+        <div className={cn(AVISO_RISCO, "px-4 py-3")} data-testid="aviso-credencial-ilegivel">
+          <p className={cn(TITULO_CARTAO, "flex items-center gap-2 text-[var(--danger)]")}>
+            <KeyRound className="h-4 w-4 flex-none" strokeWidth={2} />
             {ilegiveis.length === 1
-              ? "Uma credencial gravada nao pode ser lida por este servidor"
-              : "Credenciais gravadas que este servidor nao consegue ler"}
+              ? "Uma credencial gravada não pode ser lida por este servidor"
+              : "Credenciais gravadas que este servidor não consegue ler"}
           </p>
-          <p className="mt-1 text-xs text-[var(--text-2)]">
+          <p className={cn(TEXTO_AVISO, "mt-1")}>
             {/* O texto e impessoal de proposito: a lista pode ter um ERP ou
                 todos, e "o segredo gravado" serve aos dois sem plural postico. */}
             {ilegiveis.map(i => rotuloErp(i.erpSource, conectores)).join(", ")} — o segredo gravado
-            continua no banco, mas foi cifrado com outra chave de servidor e nao abre mais aqui.
+            continua no banco, mas foi cifrado com outra chave de servidor e não abre mais aqui.
             {/* A instrucao inteira do reparo mora nesta frase porque e ela que
                 separa "ilegivel" de "faltando": quem le "faltando" salva por
                 cima e acha que resolveu. */}
             {" "}Precisa ser <strong className="font-medium">digitado de novo</strong>: abra a
-            integracao abaixo e preencha os campos secretos. Salvar com campo em branco mantem o
-            valor ilegivel — em branco significa manter o que ja esta la —, e a varredura segue
+            integração abaixo e preencha os campos secretos. Salvar com campo em branco mantém o
+            valor ilegível — em branco significa manter o que já está lá —, e a varredura segue
             falhando.
           </p>
         </div>
       )}
 
       {pausados.length > 0 && (
-        <div
-          className="rounded-lg border border-[var(--gated-border)] bg-[var(--gated-bg)] px-4 py-3"
-          data-testid="aviso-pausado-por-falhas"
-        >
-          <p className="flex items-center gap-2 text-sm font-medium text-[var(--gated)]">
-            <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+        <div className={cn(AVISO_ATENCAO, "px-4 py-3")} data-testid="aviso-pausado-por-falhas">
+          <p className={cn(TITULO_CARTAO, "flex items-center gap-2 text-[var(--gated)]")}>
+            <AlertTriangle className="h-4 w-4 flex-none" strokeWidth={2} />
             {frasePausadas(pausados.length)}
           </p>
           {pausadosCorrigiveis.length > 0 && (
-            <p className="mt-1 text-xs text-[var(--text-2)]">
-              {pausadosCorrigiveis.map(i => rotuloErp(i.erpSource, conectores)).join(", ")} — corrija a credencial, teste a conexao e reative abaixo.
+            <p className={cn(TEXTO_AVISO, "mt-1")}>
+              {pausadosCorrigiveis.map(i => rotuloErp(i.erpSource, conectores)).join(", ")} — corrija a credencial, teste a conexão e reative abaixo.
             </p>
           )}
           {pausadosPendentes.length > 0 && (
-            <p className="mt-1 text-xs text-[var(--text-2)]" data-testid="aviso-pausado-conector-pendente">
+            <p className={cn(TEXTO_AVISO, "mt-1")} data-testid="aviso-pausado-conector-pendente">
               {pausadosPendentes.map(i => rotuloErp(i.erpSource, conectores)).join(", ")} — a pausa veio do
-              conector, que ainda nao conversa com a API desse ERP. A credencial do provedor nao tem
-              defeito e nao ha o que reativar.
+              conector, que ainda não conversa com a API desse ERP. A credencial do provedor não tem
+              defeito e não há o que reativar.
             </p>
           )}
         </div>
       )}
 
       <Card className="overflow-hidden">
-        <div className="border-b border-[var(--border)] bg-[var(--surface-2)] px-5 py-3">
-          <h3 className="flex items-center gap-2 font-semibold">
-            <Wifi className="h-4 w-4 text-[var(--brand)]" />
-            Integracoes deste provedor
-          </h3>
-          <p className="text-xs text-[var(--text-muted)]">
-            Credenciais, teste de conexao e sincronizacao. O provedor so visualiza o que esta integrado.
-          </p>
-          {/* A cadencia vem da agenda da varredura (server/services/erp-agenda.ts),
-              nao da coluna `sync_interval_hours` — que existe e ninguem le. */}
-          <p className="mt-0.5 text-xs text-[var(--text-muted)]">
-            Varredura automatica: <span className="font-mono tabular-nums">segunda, quarta e sexta as 03:00</span>.
-            Tres varreduras seguidas com falha pausam a integracao e avisam o provedor.
-          </p>
-        </div>
+        <TopoCartao
+          titulo="Integrações deste provedor"
+          Icone={Wifi}
+          sub={
+            <>
+              Credenciais, teste de conexão e sincronização. O provedor só visualiza o que está integrado.
+              {/* A cadencia vem da agenda da varredura (server/services/erp-agenda.ts),
+                  nao da coluna `sync_interval_hours` — que existe e ninguem le. */}
+              <br />
+              Varredura automática: <Num>segunda, quarta e sexta às 03:00</Num>.
+              Três varreduras seguidas com falha pausam a integração e avisam o provedor.
+            </>
+          }
+        />
 
         {integrados.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 px-5 py-10 text-center" data-testid="erp-empty-state">
-            <Wifi className="h-8 w-8 text-[var(--text-faint)]" />
-            <p className="text-sm font-medium text-[var(--text)]">Nenhum ERP integrado</p>
-            <p className="max-w-md text-xs text-[var(--text-muted)]">
-              Este provedor ainda nao tem integracao configurada. A integracao comeca na lista
-              suspensa abaixo: escolha o ERP, preencha as credenciais e salve.
-            </p>
-            {disponiveis.length > 0 && (
-              <Button
-                size="sm"
-                variant="outline"
-                // 44px de altura: e o alvo de toque minimo do design system, e
-                // este e o unico caminho de saida do estado vazio.
-                className="mt-2 h-11 rounded-[4px] px-4 text-xs"
-                onClick={() => seletorRef.current?.focus()}
-                data-testid="button-ir-para-seletor-erp"
-              >
-                <Plus className="mr-1.5 h-3.5 w-3.5" />
-                Escolher ERP
-              </Button>
-            )}
-          </div>
+          /* O estado vazio da primitiva: mesmo ladrilho, mesmo corpo e mesmo CTA
+             dos vazios do Painel Geral. O CTA herda o alvo de toque do
+             `BOTAO_SECUNDARIO` — 36px no mouse, 44px no dedo — em vez do `h-11`
+             cravado, que engordava o controle tambem no desktop. */
+          <EstadoVazio
+            Icone={Wifi}
+            titulo="Nenhum ERP integrado"
+            descricao="Este provedor ainda não tem integração configurada. A integração começa na lista suspensa abaixo: escolha o ERP, preencha as credenciais e salve."
+            cta={
+              disponiveis.length > 0 ? (
+                <button
+                  type="button"
+                  className={BOTAO_SECUNDARIO}
+                  onClick={() => seletorRef.current?.focus()}
+                  data-testid="button-ir-para-seletor-erp"
+                >
+                  <Plus className="h-3.5 w-3.5" strokeWidth={2} />
+                  Escolher ERP
+                </button>
+              ) : undefined
+            }
+            testId="erp-empty-state"
+          />
         ) : (
           <div className="divide-y divide-[var(--border)]">
             {integrados.map(({ fonte, conector, integracao: intg }) => {
@@ -1793,95 +2177,78 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
                  <button> que nao faz nada e pior que texto. */
               const identidade = (
                 <>
-                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md bg-[var(--surface-inset)]">
-                    <Database className="h-4 w-4 text-[var(--text-2)]" />
-                  </div>
+                  {/* O ladrilho da primitiva: `vazio` porque ele identifica a
+                      linha, nao promete um caminho — quem leva a algum lugar
+                      aqui e a propria linha, quando abre o formulario. */}
+                  <LadrilhoIcone Icone={Database} tom="vazio" />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold">{rotulo}</p>
+                      <p className={TITULO_CARTAO}>{rotulo}</p>
                       {/* Tres estados, nao dois: configurado, sem credencial e
                           credencial que nao abre. O terceiro chegava aqui como
                           "Sem credencial" — a leitura que faz o operador salvar
                           por cima e sair achando que consertou. */}
-                      <span
-                        className={
-                          ilegivel
-                            ? PILL_CREDENCIAL_ILEGIVEL
-                            : `${PILL_BASE} ${configurado ? "bg-[var(--ok-bg)] text-[var(--ok)]" : "bg-[var(--surface-inset)] text-[var(--text-muted)]"}`
-                        }
-                        data-testid={`badge-erp-configurado-${fonte}`}
+                      <Selo
+                        tom={ilegivel ? "danger" : configurado ? "ok" : "neutro"}
+                        testId={`badge-erp-configurado-${fonte}`}
                       >
                         {ilegivel ? ROTULO_CREDENCIAL_ILEGIVEL : configurado ? "Configurado" : "Sem credencial"}
-                      </span>
+                      </Selo>
                       {/* Pausada, a integracao esta desligada — mas dizer so
                           "Inativo" esconde QUEM a desligou. O selo de pausa
                           substitui o par ativo/inativo em vez de somar a ele. */}
-                      <span
-                        className={`${PILL_BASE} ${
-                          pausado
-                            ? "bg-[var(--gated-bg)] text-[var(--gated)]"
-                            : intg?.isEnabled
-                              ? "bg-[var(--brand-soft)] text-[var(--brand-ink)]"
-                              : "bg-[var(--surface-inset)] text-[var(--text-muted)]"
-                        }`}
-                        data-testid={`badge-erp-status-${fonte}`}
+                      <Selo
+                        tom={pausado ? "gated" : intg?.isEnabled ? "marca" : "neutro"}
+                        testId={`badge-erp-status-${fonte}`}
                       >
                         {pausado ? "Pausado por falhas" : intg?.isEnabled ? "Ativo" : "Inativo"}
-                      </span>
+                      </Selo>
                       {!conector && (
-                        <span
-                          className={`${PILL_BASE} bg-[var(--gated-bg)] text-[var(--gated)]`}
-                          data-testid={`badge-erp-sem-conector-${fonte}`}
-                        >
+                        <Selo tom="gated" testId={`badge-erp-sem-conector-${fonte}`}>
                           Sem conector
-                        </span>
+                        </Selo>
                       )}
                       {pendente && (
-                        <span
-                          className={PILL_CONECTOR_PENDENTE}
-                          data-testid={`badge-erp-indisponivel-${fonte}`}
-                        >
+                        <Selo tom="neutro" testId={`badge-erp-indisponivel-${fonte}`}>
                           {ROTULO_CONECTOR_PENDENTE}
-                        </span>
+                        </Selo>
                       )}
-                      {configurado && pillUltimo && (
-                        <span className={`${PILL_BASE} ${pillUltimo.cls}`}>{pillUltimo.texto}</span>
-                      )}
+                      {configurado && pillUltimo && <Selo tom={pillUltimo.tom}>{pillUltimo.texto}</Selo>}
                     </div>
                     {ilegivel ? (
                       /* "Preencha as credenciais", a linha do caso vazio, seria
                          mentira aqui: elas estao preenchidas. O que falta e
                          redigitar. */
-                      <p className="mt-0.5 text-xs text-[var(--danger)]">
-                        A credencial gravada nao abre neste servidor — precisa ser digitada de novo.
+                      <p className="mt-0.5 text-[12px] text-[var(--danger)]">
+                        A credencial gravada não abre neste servidor — precisa ser digitada de novo.
                       </p>
                     ) : configurado ? (
-                      <p className="mt-0.5 text-xs text-[var(--text-muted)]">
-                        <span className="font-mono">{intg!.apiUrl?.replace(/https?:\/\//, "").slice(0, 50)}</span>
+                      <p className="mt-0.5 text-[12px] text-[var(--text-muted)]">
+                        <Num>{intg!.apiUrl?.replace(/https?:\/\//, "").slice(0, 50)}</Num>
                         {" · "}
-                        <span className="font-mono tabular-nums">{(intg!.totalSynced || 0).toLocaleString("pt-BR")}</span> registros
+                        <Num>{(intg!.totalSynced || 0).toLocaleString("pt-BR")}</Num> registros
                         {" · "}
                         {/* As linhas de ERP se empilham e esta e a ultima coluna
                             de dado da frase: em Inter os "45min"/"3h"/"12d" de
                             uma linha nao caem sobre os da outra. */}
-                        <span className="font-mono tabular-nums">{relDateAdmin(intg!.lastSyncAt)}</span>
+                        <Num>{relDateAdmin(intg!.lastSyncAt)}</Num>
                         {(intg!.totalErrors || 0) > 0 && (
                           <span className="ml-1 text-[var(--danger)]">
-                            · <span className="font-mono tabular-nums">{intg!.totalErrors}</span> erros
+                            · <Num>{intg!.totalErrors}</Num> erros
                           </span>
                         )}
                       </p>
                     ) : editavel ? (
-                      <p className="mt-0.5 text-xs text-[var(--text-muted)]">
-                        Preencha as credenciais para habilitar teste e sincronizacao.
+                      <p className="mt-0.5 text-[12px] text-[var(--text-muted)]">
+                        Preencha as credenciais para habilitar teste e sincronização.
                       </p>
                     ) : (
                       /* Sem conector — ou com um que so figura no catalogo —
                          credencial nenhuma habilita teste ou varredura, e
                          prometer isso mandaria o operador procurar campo que a
                          tela nao vai abrir. O aviso logo abaixo diz o porque. */
-                      <p className="mt-0.5 text-xs text-[var(--text-muted)]">
-                        Nenhuma varredura le este ERP.
+                      <p className="mt-0.5 text-[12px] text-[var(--text-muted)]">
+                        Nenhuma varredura lê este ERP.
                       </p>
                     )}
                   </div>
@@ -1889,20 +2256,24 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
               );
 
               return (
-                <div key={fonte} className="px-5 py-4" data-testid={`row-erp-${fonte}`}>
+                <div key={fonte} className="px-4 py-4" data-testid={`row-erp-${fonte}`}>
                   {editavel ? (
                     <button
                       type="button"
                       // `ds-ctl` traz o anel de foco do sistema (index.css); o
                       // anel padrao do navegador aparecia, mas com outra cor e
                       // outra espessura que a dos demais controles da tela.
-                      className="ds-ctl flex w-full items-center gap-3 rounded-[4px] text-left"
+                      className={cn(ALVO_CONTROLE, "ds-ctl flex w-full items-center gap-3 rounded text-left")}
                       onClick={() => setExpandido(aberto ? null : fonte)}
                       data-testid={`button-toggle-erp-${fonte}`}
                     >
                       {identidade}
                       <ChevronRight
-                        className={`h-4 w-4 flex-shrink-0 text-[var(--text-muted)] transition-transform ${aberto ? "rotate-90" : ""}`}
+                        className={cn(
+                          "h-4 w-4 flex-none text-[var(--text-muted)] motion-safe:transition-transform",
+                          aberto && "rotate-90",
+                        )}
+                        strokeWidth={2}
                       />
                     </button>
                   ) : (
@@ -1910,14 +2281,14 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
                   )}
 
                   {!conector && (
-                    <div className="mt-3 pl-[52px]" data-testid={`erp-sem-conector-${fonte}`}>
-                      <div className="rounded-lg border border-[var(--gated-border)] bg-[var(--gated-bg)] px-3 py-2.5">
+                    <div className="mt-3 pl-12" data-testid={`erp-sem-conector-${fonte}`}>
+                      <div className={AVISO_ATENCAO}>
                         {/* O identificador do ERP ja esta no titulo da linha; repeti-lo
                             aqui so publicaria de novo um nome tecnico que nao ajuda quem le. */}
-                        <p className="text-xs text-[var(--text-2)]">
-                          Este ERP nao e mais suportado: nao ha conector para ele, entao nao ha
+                        <p className={TEXTO_AVISO}>
+                          Este ERP não é mais suportado: não há conector para ele, então não há
                           campos para editar nem varredura que o leia. Esta linha sobrou de uma
-                          configuracao antiga e continua visivel para que voce saiba que ela existe.
+                          configuração antiga e continua visível para que você saiba que ela existe.
                         </p>
                       </div>
                     </div>
@@ -1927,23 +2298,23 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
                       custa. Sem o texto, "Conector em desenvolvimento" ao lado de
                       "Ativo" seria mais uma marca para o operador decifrar. */}
                   {pendente && (
-                    <div className="mt-3 pl-[52px]" data-testid={`erp-conector-pendente-${fonte}`}>
-                      <div className="rounded-lg border border-[var(--gated-border)] bg-[var(--gated-bg)] px-3 py-2.5">
-                        <p className="text-xs text-[var(--text-2)]">
-                          O conector deste ERP ainda nao conversa com a API dele: existe so para
-                          constar no catalogo, e nenhuma varredura consegue trazer dados. Salvar
-                          credencial, testar conexao e sincronizar ficam indisponiveis aqui — o
-                          servidor recusa as tres enquanto o conector nao for concluido.
+                    <div className="mt-3 pl-12" data-testid={`erp-conector-pendente-${fonte}`}>
+                      <div className={AVISO_ATENCAO}>
+                        <p className={TEXTO_AVISO}>
+                          O conector deste ERP ainda não conversa com a API dele: existe só para
+                          constar no catálogo, e nenhuma varredura consegue trazer dados. Salvar
+                          credencial, testar conexão e sincronizar ficam indisponíveis aqui — o
+                          servidor recusa as três enquanto o conector não for concluído.
                         </p>
                         {pausado && (
                           /* O pior desfecho do corte automatico: o provedor recebeu
                              e-mail de pausa por falhas de um ERP que nunca leu nada.
                              Religar so repetiria o ciclo, entao a linha nao oferece
                              o botao de reativar — oferece a explicacao. */
-                          <p className="mt-2 text-xs text-[var(--text-2)]">
-                            As varreduras automaticas falharam ate a pausa e o provedor foi avisado
-                            por e-mail. Nao ha nada a corrigir do lado dele: a falha e do conector,
-                            nao da credencial. Reativar so repetiria a pausa.
+                          <p className={cn(TEXTO_AVISO, "mt-2")}>
+                            As varreduras automáticas falharam até a pausa e o provedor foi avisado
+                            por e-mail. Não há nada a corrigir do lado dele: a falha é do conector,
+                            não da credencial. Reativar só repetiria a pausa.
                           </p>
                         )}
                       </div>
@@ -1955,37 +2326,37 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
                       porque a acao (redigitar) exige abrir o formulario — sem o
                       aviso aqui, o operador nao teria motivo para abrir. */}
                   {ilegivel && (
-                    <div className="mt-3 pl-[52px]" data-testid={`erp-credencial-ilegivel-${fonte}`}>
-                      <div className="rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2.5">
-                        <p className="text-xs text-[var(--text-2)]">
-                          A credencial deste ERP esta gravada, mas foi cifrada com outro segredo de
-                          servidor e nao pode ser lida aqui. Ela nao esta faltando — esta ilegivel — e,
-                          enquanto continuar assim, toda varredura falha na autenticacao.
+                    <div className="mt-3 pl-12" data-testid={`erp-credencial-ilegivel-${fonte}`}>
+                      <div className={AVISO_RISCO}>
+                        <p className={TEXTO_AVISO}>
+                          A credencial deste ERP está gravada, mas foi cifrada com outro segredo de
+                          servidor e não pode ser lida aqui. Ela não está faltando — está ilegível — e,
+                          enquanto continuar assim, toda varredura falha na autenticação.
                         </p>
-                        <p className="mt-2 text-xs text-[var(--text-2)]">
+                        <p className={cn(TEXTO_AVISO, "mt-2")}>
                           {editavel
-                            ? "Abra o formulario e digite os segredos de novo, todos eles. Salvar com campo em branco nao conserta: em branco significa manter o valor que ja esta gravado, e o valor gravado e justamente o que nao abre."
-                            : "Nao ha formulario para este ERP nesta tela, entao a credencial nao pode ser redigitada aqui. Avise o suporte tecnico."}
+                            ? "Abra o formulário e digite os segredos de novo, todos eles. Salvar com campo em branco não conserta: em branco significa manter o valor que já está gravado, e o valor gravado é justamente o que não abre."
+                            : "Não há formulário para este ERP nesta tela, então a credencial não pode ser redigitada aqui. Avise o suporte técnico."}
                         </p>
                         {pausado && (
                           /* Sem esta frase, o aviso de pausa logo acima mandaria
                              religar — e religar sem redigitar repete a pausa e
                              dispara outro e-mail ao provedor. */
-                          <p className="mt-2 text-xs text-[var(--text-2)]">
-                            As varreduras seguidas com falha ja pausaram esta integracao e o provedor
+                          <p className={cn(TEXTO_AVISO, "mt-2")}>
+                            As varreduras seguidas com falha já pausaram esta integração e o provedor
                             foi avisado por e-mail. Reativar sem redigitar a credencial repetiria a
-                            pausa: salve o segredo novo com a integracao ativa e ela volta a rodar.
+                            pausa: salve o segredo novo com a integração ativa e ela volta a rodar.
                           </p>
                         )}
                         {editavel && !aberto && (
-                          <Button
-                            size="sm"
-                            className="mt-2 h-8 rounded-[4px] text-xs"
+                          <button
+                            type="button"
+                            className={cn(BOTAO_MARCA, "mt-2")}
                             onClick={() => setExpandido(fonte)}
                             data-testid={`button-redigitar-credencial-${fonte}`}
                           >
                             Redigitar credencial
-                          </Button>
+                          </button>
                         )}
                       </div>
                     </div>
@@ -1995,16 +2366,16 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
                       botao e HTML invalido e o clique de religar viraria um
                       abre/fecha do formulario. */}
                   {pausado && !pendente && !ilegivel && (
-                    <div className="mt-3 pl-[52px]" data-testid={`erp-pausado-${fonte}`}>
-                      <div className="rounded-lg border border-[var(--gated-border)] bg-[var(--gated-bg)] px-3 py-2.5">
-                        <p className="text-xs text-[var(--text-2)]">
-                          O sistema desligou esta integracao sozinho apos tres varreduras automaticas
+                    <div className="mt-3 pl-12" data-testid={`erp-pausado-${fonte}`}>
+                      <div className={AVISO_ATENCAO}>
+                        <p className={TEXTO_AVISO}>
+                          O sistema desligou esta integração sozinho após três varreduras automáticas
                           seguidas com falha, e avisou o provedor por e-mail. Corrija a credencial,
-                          teste a conexao e religue — a contagem de falhas recomeca do zero.
+                          teste a conexão e religue — a contagem de falhas recomeça do zero.
                         </p>
-                        <Button
-                          size="sm"
-                          className="mt-2 h-8 rounded-[4px] text-xs"
+                        <button
+                          type="button"
+                          className={cn(BOTAO_MARCA, DESABILITAVEL, "mt-2")}
                           disabled={reativando}
                           onClick={() =>
                             salvarMutation.mutate({
@@ -2019,14 +2390,17 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
                           }
                           data-testid={`button-reativar-erp-${fonte}`}
                         >
-                          {reativando ? "Reativando..." : "Reativar integracao"}
-                        </Button>
+                          {reativando ? "Reativando..." : "Reativar integração"}
+                        </button>
                       </div>
                     </div>
                   )}
 
+                  {/* O recuo alinha ao texto da linha: 36px do ladrilho da
+                      primitiva + 12px do gap. Era 52px, medida do ladrilho de
+                      40px que esta tela desenhava a mao. */}
                   {editavel && aberto && (
-                    <div className="mt-4 pl-[52px]" data-testid={`form-erp-${fonte}`}>
+                    <div className="mt-4 pl-12" data-testid={`form-erp-${fonte}`}>
                       <FormularioErp
                         conector={conector!}
                         integracao={intg}
@@ -2036,14 +2410,14 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
                         onSalvar={corpo => {
                           /* A ultima barreira do defeito: numa linha ilegivel, um
                              Salvar com segredo em branco volta 200 e nao muda
-                             nada no banco — a tela diria "Integracao salva" e o
+                             nada no banco — a tela diria "Integração salva" e o
                              sync continuaria falhando. Melhor recusar aqui do que
                              confirmar um conserto que nao aconteceu. */
                           if (ilegivel && segredoEmBranco(corpo)) {
                             toast({
-                              title: "Credencial nao foi redigitada",
+                              title: "Credencial não foi redigitada",
                               description:
-                                "Um dos campos secretos ficou em branco, e em branco o servidor mantem o valor que ja esta gravado — o mesmo que ele nao consegue ler. Digite os segredos de novo antes de salvar.",
+                                "Um dos campos secretos ficou em branco, e em branco o servidor mantém o valor que já está gravado — o mesmo que ele não consegue ler. Digite os segredos de novo antes de salvar.",
                               variant: "destructive",
                             });
                             return;
@@ -2063,37 +2437,37 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
       </Card>
 
       <Card className="overflow-hidden">
-        <div className="border-b border-[var(--border)] bg-[var(--surface-2)] px-5 py-3">
-          <h3 className="flex items-center gap-2 font-semibold">
-            <Plus className="h-4 w-4 text-[var(--brand)]" />
-            Adicionar integracao
-          </h3>
-          <p className="text-xs text-[var(--text-muted)]">
-            Escolha um dos ERPs disponiveis para configurar. Ao salvar, ele passa a constar acima.
-          </p>
-        </div>
+        <TopoCartao
+          titulo="Adicionar integração"
+          Icone={Plus}
+          sub="Escolha um dos ERPs disponíveis para configurar. Ao salvar, ele passa a constar acima."
+        />
 
-        <div className="space-y-4 px-5 py-4">
+        <div className="space-y-4 px-4 py-4">
           {conectores.length === 0 ? (
-            <p className="text-xs text-[var(--text-muted)]" data-testid="erp-sem-catalogo">
+            <p className="text-[12px] text-[var(--text-muted)]" data-testid="erp-sem-catalogo">
               {/* O caminho da rota nao ajuda quem le a tela e publica a API para
                   qualquer um com acesso ao painel (DESIGN_SYSTEM, secao 8). O
                   operador precisa saber o que fazer, nao onde o dado nasceu. */}
-              O sistema nao devolveu nenhum ERP para integrar agora. Recarregue a pagina; se a lista
-              continuar vazia, avise o suporte tecnico.
+              O sistema não devolveu nenhum ERP para integrar agora. Recarregue a página; se a lista
+              continuar vazia, avise o suporte técnico.
             </p>
           ) : disponiveis.length === 0 ? (
-            <p className="text-xs text-[var(--text-muted)]" data-testid="erp-todos-integrados">
-              Todos os ERPs disponiveis ja estao integrados com este provedor.
+            <p className="text-[12px] text-[var(--text-muted)]" data-testid="erp-todos-integrados">
+              Todos os ERPs disponíveis já estão integrados com este provedor.
             </p>
           ) : (
             <>
               <div className="max-w-sm">
-                <Label
-                  htmlFor="select-novo-erp"
-                  className="mb-1.5 block font-mono text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--text-faint)]"
-                >
-                  ERP disponivel
+                {/* O rotulo de campo vem da primitiva. O que estava aqui era a
+                    quarta voz de rotulo do painel: mono, mas em `--text-faint`,
+                    que a 10px fica abaixo do minimo de contraste da secao 7 — e
+                    rotulo de campo existe para ser LIDO antes de se preencher a
+                    caixa. Fica `<Label>` e nao `Campo` porque o controle e um
+                    `Select` do Radix, que se associa por `htmlFor` e nao por
+                    aninhamento. */}
+                <Label htmlFor="select-novo-erp" className={ROTULO_CAMPO}>
+                  ERP disponível
                 </Label>
                 <Select
                   value={novoErp ?? ""}
@@ -2110,7 +2484,10 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
                   <SelectTrigger
                     id="select-novo-erp"
                     ref={seletorRef}
-                    className="h-11 rounded-[4px]"
+                    /* Era `h-11` cravado: 44px tambem no mouse, contra a
+                       densidade da secao 4. `ALVO_CONTROLE` guarda os 44px onde
+                       eles sao regra — no ponteiro grosso. */
+                    className={cn(ALVO_CONTROLE, "h-auto rounded")}
                     data-testid="select-novo-erp"
                   >
                     <SelectValue placeholder="Selecione um ERP" />
@@ -2135,12 +2512,9 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
                               oferece ERP sem linha, entao os dois nunca coexistem para
                               a mesma fonte. */}
                           {c.naoImplementado && (
-                            <span
-                              className={PILL_CONECTOR_PENDENTE}
-                              data-testid={`badge-erp-indisponivel-${c.name}`}
-                            >
+                            <Selo tom="neutro" testId={`badge-erp-indisponivel-${c.name}`}>
                               {ROTULO_CONECTOR_PENDENTE}
-                            </span>
+                            </Selo>
                           )}
                         </span>
                       </SelectItem>
@@ -2170,37 +2544,45 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
       </Card>
 
       <Card className="overflow-hidden">
-        <div className="border-b border-[var(--border)] bg-[var(--surface-2)] px-5 py-3">
-          <h3 className="font-semibold">Historico de sincronizacao</h3>
-          <p className="text-xs text-[var(--text-muted)]">Ultimas 20 varreduras</p>
-        </div>
+        <TopoCartao titulo="Histórico de sincronização" Icone={History} sub="Últimas 20 varreduras" />
         {logs.length === 0 ? (
-          <div className="p-8 text-center text-sm text-[var(--text-muted)]">Nenhuma sincronizacao registrada</div>
+          <EstadoVazio
+            Icone={RefreshCw}
+            titulo="Nenhuma sincronização registrada"
+            descricao="Cada varredura — automática ou disparada aqui — deixa uma linha com o desfecho, quantos registros entraram e de qual endereço partiu."
+            testId="empty-historico-sync"
+          />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          /* A ultima linha nao repete o hairline: a tabela termina no rodape do
+             cartao, e as duas bordas coladas leem como uma so, de 2px. */
+          <TabelaPainel className="[&_tbody_tr:last-child_td]:border-0">
               <thead>
-                <tr className="bg-[var(--surface-2)]">
-                  {["ERP", "Status", "Registros", "Data", "IP"].map(h => (
-                    <th
-                      key={h}
-                      className="border-b border-[var(--border)] px-4 py-2 text-left font-mono text-[10px] font-medium uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]"
-                    >
-                      {h}
-                    </th>
+                <tr>
+                  {/* "Status" e "IP" sao as duas palavras tecnicas que sobravam
+                      num cabecalho de tela (secao 8): a coluna diz como a
+                      varredura terminou e de qual endereco ela partiu. */}
+                  {["ERP", "Desfecho", "Registros", "Data", "Endereço de origem"].map(h => (
+                    <Th key={h}>{h}</Th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {logs.map(log => {
-                  const pill = PILL_SYNC[log.status] ?? { texto: log.status, cls: "bg-[var(--surface-inset)] text-[var(--text-muted)]" };
+                  /* Status fora dos quatro conhecidos: nunca o identificador cru
+                     na tela (secao 8). Diz que nao sabe, em tom neutro. */
+                  const pill = PILL_SYNC[log.status] ?? { texto: "Desfecho desconhecido", tom: "neutro" as TomSelo };
                   return (
                     <tr key={log.id} data-testid={`row-synclog-${log.id}`}>
-                      <td className="border-b border-[var(--border)] px-4 py-2 font-medium">{rotuloErp(log.erpSource, conectores)}</td>
-                      <td className="border-b border-[var(--border)] px-4 py-2">
-                        <span className={`${PILL_BASE} ${pill.cls}`}>{pill.texto}</span>
-                      </td>
-                      <td className="border-b border-[var(--border)] px-4 py-2 font-mono text-xs tabular-nums text-[var(--text-2)]">
+                      <Td className="text-[13px] font-medium text-[var(--text)]">
+                        {rotuloErp(log.erpSource, conectores)}
+                      </Td>
+                      <Td>
+                        <Selo tom={pill.tom}>{pill.texto}</Selo>
+                      </Td>
+                      {/* Contagem, data e endereco se leem da esquerda para a
+                          direita ao lado do rotulo da coluna: mono tabular, sem
+                          alinhar a direita, e a cabeca acompanha. */}
+                      <Td num alinhamento="esquerda" className="text-[12px]">
                         {/* A linha de reativacao nao processou registro nenhum:
                             "0 ok" leria como varredura que nao achou ninguem. */}
                         {log.status === "reativado" ? (
@@ -2211,19 +2593,18 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
                             {log.recordsFailed > 0 && ` · ${log.recordsFailed} falhas`}
                           </>
                         )}
-                      </td>
-                      <td className="border-b border-[var(--border)] px-4 py-2 font-mono text-xs tabular-nums text-[var(--text-muted)]">
+                      </Td>
+                      <Td num alinhamento="esquerda" className="text-[12px] text-[var(--text-muted)]">
                         {fmtDateTime(log.syncedAt)}
-                      </td>
-                      <td className="border-b border-[var(--border)] px-4 py-2 font-mono text-xs text-[var(--text-muted)]">
+                      </Td>
+                      <Td num alinhamento="esquerda" className="text-[12px] text-[var(--text-muted)]">
                         {log.ipAddress || "—"}
-                      </td>
+                      </Td>
                     </tr>
                   );
                 })}
               </tbody>
-            </table>
-          </div>
+          </TabelaPainel>
         )}
       </Card>
     </TabsContent>
@@ -2231,13 +2612,32 @@ function IntegracaoTab({ providerId, ativo }: { providerId: number; ativo: boole
 }
 
 
-function InfoRow({ label, value, icon: Icon }: { label: string; value: string; icon: any }) {
+/**
+ * Par icone/rotulo/valor do cartao de cadastro.
+ *
+ * `mono` liga a fonte tabular para o que se le caractere a caractere — CNPJ,
+ * telefone, data, endereco de subdominio (secao 2). Nome e site continuam em
+ * Inter: sao texto, nao dado.
+ */
+function InfoRow({
+  label,
+  value,
+  icon: Icon,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  icon: Icone;
+  mono?: boolean;
+}) {
   return (
-    <div className="flex items-start gap-3 py-1.5 border-b last:border-0">
-      <Icon className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+    <div className="flex items-start gap-3 py-2 border-b border-[var(--border-faint)] last:border-0">
+      <Icon className="w-4 h-4 mt-0.5 flex-none text-[var(--text-faint)]" strokeWidth={2} />
       <div className="min-w-0">
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="text-sm font-medium break-all">{value}</p>
+        <p className="text-[12px] text-[var(--text-muted)]">{label}</p>
+        <p className={cn("text-[13px] font-medium text-[var(--text)] break-all", mono && "font-mono tabular-nums")}>
+          {value}
+        </p>
       </div>
     </div>
   );

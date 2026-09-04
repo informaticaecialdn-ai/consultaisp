@@ -1,20 +1,113 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
 import {
   Wallet, TrendingUp, DollarSign, AlertCircle, TrendingDown, BarChart3, Crown,
-  Plus, RefreshCw, Zap, FileText, Clock, ArrowUpDown, CreditCard, QrCode, Copy,
+  Plus, RefreshCw, Zap, FileText, Clock, ArrowUpDown, CreditCard,
 } from "lucide-react";
 import { usePrecos, camposDaFatura } from "@/hooks/use-precos";
 import { PLAN_LABELS } from "../constants";
 import InvoiceTable from "../InvoiceTable";
+import {
+  CartaoMetrica, KickerSecao, Selo, EstadoVazio, LinhasSkeleton, LadrilhoIcone,
+  BotaoLink, TabelaPainel, Th, Td, Campo, AvisoNaoCarregou, TITULO_CARTAO,
+  BOTAO_SECUNDARIO, BOTAO_MARCA, DESABILITAVEL,
+} from "@/components/painel/ui";
+import {
+  Dinheiro, ChipFiltro, ModalCobrancaAsaas, ModalPixAsaas, CONTROLE_CAMPO,
+  textoDeReal,
+} from "../financeiro-ui";
+
+/**
+ * Faturas e Cobranças do superadmin, vestida na MESMA linguagem do Painel do
+ * Provedor.
+ *
+ * Nada de dado, rota, consulta, permissão ou `data-testid` mudou nesta rodada —
+ * só o vocabulário visual. Esta era a maior tela do painel SaaS ainda escrita na
+ * API antiga de token, com quatro classes da paleta default do Tailwind soltas
+ * (azul em dois tons, índigo e roxo) e com as cinco peças da linguagem — cartão
+ * de métrica, selo, estado vazio, esqueleto de carregamento e botão —
+ * redigitadas à mão em cada bloco. Agora tudo fala por `@/components/painel/ui`,
+ * e os literais antigos não aparecem nem em comentário: uma auditoria futura de
+ * token é feita por grep, e citar a classe proibida envenena o resultado.
+ *
+ * AS DECISÕES QUE VALEM COMENTÁRIO
+ *
+ * 1. DINHEIRO. Todo valor monetário passa por `<Dinheiro>`: mono tabular, duas
+ *    casas, e `--money-neg` quando o número é negativo (DESIGN_SYSTEM §3, "sinal
+ *    de valor"). Antes o mesmo real aparecia de três jeitos na mesma tela — sem
+ *    centavos no cartão de KPI, com centavos na barra do Asaas e cru (`R$${n}`,
+ *    sem separador de milhar) no gráfico. Coluna de dinheiro desalinhada é o
+ *    defeito que a §2 chama de leitura destruída.
+ *
+ * 2. O VERMELHO DO ATRASO. O único valor que sai da tinta de corpo é a receita
+ *    vencida, e não por ser negativa: `--past` é literalmente o token de
+ *    "atraso, negativação" (index.css:54). A §3 reserva saturação para risco, e
+ *    fatura vencida é risco. Receita em aberto NÃO recebe cor: ela ainda pode
+ *    ser paga no prazo.
+ *
+ * 3. SEM COR POR CARTÃO. Os quatro KPIs tinham cada um uma faixa colorida no
+ *    topo e um ladrilho de ícone da mesma cor — quatro saturações lado a lado
+ *    para quatro métricas igualmente informativas. É o mesmo ruído que a
+ *    primitiva já resolveu no painel do provedor: ícone neutro, número herói.
+ *
+ * 4. "MRR"/"ARR" SAÍRAM DA TELA. §8 proíbe jargão exposto, e as duas siglas são
+ *    jargão em inglês. O rótulo passa a dizer o que a conta é, e a sublinha diz
+ *    de onde ela vem — inclusive que a receita anual é a mensal projetada em 12
+ *    meses (`arr = mrr * 12`, financial.storage.ts:136), que a tela antes
+ *    apresentava como se fosse uma medição independente.
+ *
+ * 5. "EM ABERTO" INCLUI AS VENCIDAS. O servidor soma `pending` E `overdue` em
+ *    `pendingRevenue` (financial.storage.ts:137-143), então os dois cartões se
+ *    sobrepõem. Isso agora está escrito na sublinha em vez de o leitor somar os
+ *    dois e chegar a um total que não existe.
+ *
+ * 6. O QUE ERA LOCAL E FICOU DIVERGENTE MUDOU DE ENDEREÇO. Cabeçalho e célula de
+ *    tabela, rótulo de campo e estado desabilitado eram cópias manuscritas e
+ *    agora vêm de `@/components/painel/ui` — a mesma tabela dos dois painéis.
+ *    Dinheiro, chip de filtro, altura de campo e os dois modais do Asaas eram
+ *    cópias compartilhadas com a PÁGINA `admin-financeiro` e mudaram para
+ *    `../financeiro-ui`, que existe para isso. Nenhuma cópia local sobrou aqui:
+ *    é por onde a divergência voltaria.
+ */
+
+/* ------------------------------------------------------------------ */
+/* Vocabulário desta tela                                              */
+/* ------------------------------------------------------------------ */
+
+const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+
+/** Carregamento do gráfico. `LinhasSkeleton` mostra a forma de uma LISTA, e o
+ *  que vem aqui são seis colunas — mostrar a forma errada é quase tão ruim
+ *  quanto o spinner que estava no lugar. */
+function EsqueletoGrafico() {
+  const alturas = ["45%", "70%", "35%", "85%", "55%", "95%"];
+  return (
+    <div className="flex items-end gap-2 h-32" aria-hidden>
+      {alturas.map((h, i) => (
+        <div key={i} className="flex-1 flex flex-col justify-end h-full">
+          <Skeleton className="w-full rounded-t-[3px]" style={{ height: h }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const FILTROS_DE_FATURA = [
+  { value: "all", label: "Todas" },
+  { value: "pending", label: "Pendentes" },
+  { value: "paid", label: "Pagas" },
+  { value: "overdue", label: "Vencidas" },
+  { value: "cancelled", label: "Canceladas" },
+];
+
+/* ------------------------------------------------------------------ */
 
 export default function FinanceiroTab() {
   const { toast } = useToast();
@@ -48,13 +141,13 @@ export default function FinanceiroTab() {
   const [asaasChargeModal, setAsaasChargeModal] = useState<{ invoiceId: number; invoiceNumber: string } | null>(null);
   const [asaasPixModal, setAsaasPixModal] = useState<{ invoiceId: number; pixData: any } | null>(null);
 
-  const { data: allProviders = [] } = useQuery<any[]>({
+  const { data: allProviders = [], isLoading: carregandoProvedores } = useQuery<any[]>({
     queryKey: ["/api/admin/providers"],
   });
-  const { data: planHistory = [] } = useQuery<any[]>({
+  const { data: planHistory = [], isLoading: carregandoHistorico } = useQuery<any[]>({
     queryKey: ["/api/admin/plan-history"],
   });
-  const { data: financialSummary } = useQuery<any>({
+  const { data: financialSummary, isLoading: carregandoResumo } = useQuery<any>({
     queryKey: ["/api/admin/financial/summary"],
   });
   const { data: allInvoices = [], isLoading: invoicesLoading } = useQuery<any[]>({
@@ -90,7 +183,7 @@ export default function FinanceiroTab() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/admin/invoices"] });
       qc.invalidateQueries({ queryKey: ["/api/admin/financial/summary"] });
-      toast({ title: "Status da fatura atualizado" });
+      toast({ title: "Situação da fatura atualizada" });
     },
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
@@ -132,7 +225,7 @@ export default function FinanceiroTab() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["/api/admin/invoices"] });
       setAsaasChargeModal(null);
-      toast({ title: "Cobranca Asaas criada", description: `ID: ${data.charge?.id}` });
+      toast({ title: "Cobrança Asaas criada", description: `ID: ${data.charge?.id}` });
     },
     onError: (e: any) => toast({ title: "Erro Asaas", description: e.message, variant: "destructive" }),
   });
@@ -146,7 +239,7 @@ export default function FinanceiroTab() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/admin/invoices"] });
       qc.invalidateQueries({ queryKey: ["/api/admin/financial/summary"] });
-      toast({ title: "Status sincronizado com Asaas" });
+      toast({ title: "Situação sincronizada com o Asaas" });
     },
     onError: (e: any) => toast({ title: "Erro ao sincronizar", description: e.message, variant: "destructive" }),
   });
@@ -163,396 +256,540 @@ export default function FinanceiroTab() {
     onError: (e: any) => toast({ title: "Erro ao buscar PIX", description: e.message, variant: "destructive" }),
   });
 
+  /* Fora do map: o cálculo do máximo estava dentro dele e refazia a varredura
+     dos seis meses uma vez por barra. */
+  const mesesDeReceita: any[] = financialSummary?.last6Months ?? [];
+  const receitaMaxima = Math.max(...mesesDeReceita.map((m: any) => m.revenue ?? 0), 1);
+
+  const distribuicaoDePlanos = Object.entries(financialSummary?.planDistribution ?? {}) as [string, number][];
+  const totalDistribuido = distribuicaoDePlanos.reduce((soma, [, n]) => soma + Number(n), 0);
+
+  const totalDeFaturas = allInvoices.length;
+  const vencidas = Number(financialSummary?.overdueCount ?? 0);
+
   return (
-    <div className="space-y-5">
-      {/* Asaas Status Bar */}
+    <div className="space-y-6" data-testid="admin-financeiro">
+
+      {/* Gateway de cobrança ------------------------------------------------
+          Era uma faixa inteira pintada de verde ou âmbar. A profundidade deste
+          sistema é hairline (§5.2), então o cartão volta a ser superfície e só
+          a BORDA muda de tom; quem afirma o estado é o selo. */}
       {asaasStatus && (
-        <Card className={`p-4 flex items-center justify-between gap-4 ${asaasStatus.configured ? "border-[var(--color-success)] bg-[var(--color-success-bg)]" : "border-[var(--color-gold)] bg-[var(--color-gold-bg)]"}`}>
-          <div className="flex items-center gap-3">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center ${asaasStatus.configured ? "bg-[var(--color-success-bg)]" : "bg-[var(--color-gold-bg)]"}`}>
-              <Wallet className={`w-4 h-4 ${asaasStatus.configured ? "text-[var(--color-success)]" : "text-[var(--color-gold)]"}`} />
-            </div>
-            <div>
-              <p className="text-sm font-semibold">
-                Asaas {asaasStatus.configured ? (asaasStatus.mode === "sandbox" ? "— Sandbox ativo" : "— Producao ativo") : "— Nao configurado"}
+        <Card
+          className={cn(
+            "p-4 flex items-center justify-between gap-4 flex-wrap",
+            asaasStatus.configured ? "border-[var(--ok-border)]" : "border-[var(--gated-border)]",
+          )}
+          data-testid="card-asaas-status"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            {/* Nunca `marca`: esse tom promete que o bloco leva a algum lugar, e
+                esta faixa não navega. Conectado usa `vazio` (neutro, o estado
+                fica no selo); sem chave usa `risco`, que é a porta fechada — não
+                há como cobrar ninguém por aqui. */}
+            <LadrilhoIcone Icone={Wallet} tom={asaasStatus.configured ? "vazio" : "risco"} />
+            <div className="min-w-0">
+              <p className={TITULO_CARTAO}>
+                {asaasStatus.configured ? "Asaas conectado" : "Asaas não configurado"}
               </p>
-              <p className="text-xs text-[var(--color-muted)]">
-                {asaasStatus.configured
-                  ? `Saldo disponivel: R$ ${(asaasStatus.balance?.balance || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
-                  : "Configure a chave ASAAS_API_KEY para ativar cobranças automaticas"}
+              <p className="text-[12px] text-[var(--text-muted)] mt-0.5">
+                {asaasStatus.configured ? (
+                  <>Saldo disponível: <Dinheiro valor={asaasStatus.balance?.balance ?? 0} /></>
+                ) : (
+                  <>
+                    Sem a chave{" "}
+                    <code className="font-mono text-[11px] text-[var(--text-2)]">ASAAS_API_KEY</code>{" "}
+                    no servidor, as cobranças precisam ser lançadas à mão.
+                  </>
+                )}
               </p>
             </div>
           </div>
           {asaasStatus.configured && (
-            <Badge className={asaasStatus.mode === "sandbox" ? "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" : "bg-[var(--color-success-bg)] text-[var(--color-success)]"}>
-              {asaasStatus.mode === "sandbox" ? "Sandbox" : "Producao"}
-            </Badge>
+            /* "Sandbox"/"Producao" era valor cru do gateway. O que o superadmin
+               precisa saber é se o dinheiro é real. */
+            asaasStatus.mode === "sandbox" ? (
+              <Selo tom="gated" testId="selo-asaas-modo">Ambiente de testes</Selo>
+            ) : (
+              <Selo tom="ok" testId="selo-asaas-modo">Cobrança real</Selo>
+            )
           )}
         </Card>
       )}
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: "MRR", value: `R$ ${(financialSummary?.mrr || 0).toLocaleString("pt-BR")}`, sub: "Receita mensal recorrente", icon: TrendingUp, color: "bg-[var(--color-success)]", testId: "kpi-mrr" },
-          { label: "ARR", value: `R$ ${(financialSummary?.arr || 0).toLocaleString("pt-BR")}`, sub: "Receita anual recorrente", icon: DollarSign, color: "bg-[var(--color-ink)]", testId: "kpi-arr" },
-          { label: "Em Aberto", value: `R$ ${(financialSummary?.pendingRevenue || 0).toLocaleString("pt-BR")}`, sub: `${financialSummary?.pendingCount || 0} faturas pendentes`, icon: AlertCircle, color: "bg-[var(--color-gold)]", testId: "kpi-pending" },
-          { label: "Em Atraso", value: `R$ ${(financialSummary?.overdueRevenue || 0).toLocaleString("pt-BR")}`, sub: `${financialSummary?.overdueCount || 0} faturas vencidas`, icon: TrendingDown, color: "bg-[var(--color-danger)]", testId: "kpi-overdue" },
-        ].map((card) => (
-          <Card key={card.label} className="overflow-hidden" data-testid={card.testId}>
-            <div className={`h-1.5 ${card.color}`} />
-            <div className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-[var(--color-muted)] font-medium uppercase tracking-wider">{card.label}</span>
-                <div className={`w-8 h-8 rounded ${card.color} flex items-center justify-center`}>
-                  <card.icon className="w-4 h-4 text-white" />
-                </div>
+      {/* Métricas ---------------------------------------------------------- */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <CartaoMetrica
+          testId="kpi-mrr"
+          testIdValor="value-kpi-mrr"
+          rotulo="Receita mensal"
+          Icone={TrendingUp}
+          carregando={carregandoResumo}
+          valor={<Dinheiro valor={financialSummary?.mrr ?? 0} />}
+          sub="recorrente, dos provedores ativos"
+        />
+        <CartaoMetrica
+          testId="kpi-arr"
+          testIdValor="value-kpi-arr"
+          rotulo="Receita anual"
+          Icone={DollarSign}
+          carregando={carregandoResumo}
+          valor={<Dinheiro valor={financialSummary?.arr ?? 0} />}
+          sub="a mensal projetada em 12 meses"
+        />
+        <CartaoMetrica
+          testId="kpi-pending"
+          testIdValor="value-kpi-pending"
+          rotulo="Em aberto"
+          Icone={AlertCircle}
+          carregando={carregandoResumo}
+          valor={<Dinheiro valor={financialSummary?.pendingRevenue ?? 0} />}
+          sub={
+            <>
+              <span className="font-mono tabular-nums">{financialSummary?.pendingCount ?? 0}</span>{" "}
+              faturas a receber, vencidas incluídas
+            </>
+          }
+        />
+        <CartaoMetrica
+          testId="kpi-overdue"
+          testIdValor="value-kpi-overdue"
+          rotulo="Em atraso"
+          Icone={TrendingDown}
+          carregando={carregandoResumo}
+          /* O único número da tela fora da tinta de corpo, e só quando há
+             atraso de verdade: `--past` é o token de atraso/negativação. */
+          valor={
+            <Dinheiro
+              valor={financialSummary?.overdueRevenue ?? 0}
+              className={vencidas > 0 ? "text-[var(--past)]" : undefined}
+            />
+          }
+          sub={
+            <span className={vencidas > 0 ? "text-[var(--past)]" : undefined}>
+              <span className="font-mono tabular-nums">{vencidas}</span> faturas vencidas
+            </span>
+          }
+        />
+      </div>
+
+      {/* Receita e planos --------------------------------------------------- */}
+      <section>
+        <KickerSecao>Receita e composição da base</KickerSecao>
+        <div className="grid lg:grid-cols-3 gap-3">
+          <Card className="lg:col-span-2 p-4">
+            <h3 className={`${TITULO_CARTAO} flex items-center gap-2 mb-4`}>
+              <BarChart3 className="w-4 h-4 text-[var(--text-faint)] flex-none" strokeWidth={2} />
+              Recebido por mês
+              <span className="font-mono text-[11px] font-normal tabular-nums text-[var(--text-muted)]">
+                últimos 6
+              </span>
+            </h3>
+            {carregandoResumo ? (
+              <EsqueletoGrafico />
+            ) : mesesDeReceita.length === 0 ? (
+              <EstadoVazio
+                Icone={BarChart3}
+                titulo="Ainda sem faturas pagas"
+                descricao="Assim que a primeira fatura for quitada, o valor recebido em cada mês aparece nesta série."
+                testId="empty-receita-mensal"
+              />
+            ) : (
+              <div className="flex items-end gap-2 h-32">
+                {mesesDeReceita.map((m: any) => {
+                  const receita = m.revenue ?? 0;
+                  const pct = (receita / receitaMaxima) * 100;
+                  const mes = MESES[parseInt(String(m.period).split("-")[1], 10) - 1] ?? m.period;
+                  return (
+                    <div key={m.period} className="flex flex-col items-center flex-1 gap-1 min-w-0">
+                      <span className="font-mono text-[10px] tabular-nums text-[var(--text-muted)] truncate w-full text-center">
+                        {receita > 0 ? <Dinheiro valor={receita} curto /> : ""}
+                      </span>
+                      <div
+                        /* Barra: uma cor de marca só, sem gradiente. O título
+                           nativo devolve o valor exato que o rótulo arredonda. */
+                        className="w-full rounded-t-[3px] bg-[var(--brand)] motion-safe:transition-all"
+                        style={{ height: `${Math.max(pct, 4)}%` }}
+                        title={`${m.period}: ${textoDeReal(receita)}`}
+                      />
+                      <span className="font-mono text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">
+                        {mes}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
-              <p className="text-xl font-bold">{card.value}</p>
-              <p className="text-xs text-[var(--color-muted)] mt-0.5">{card.sub}</p>
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      {/* Revenue chart + Plan distribution */}
-      <div className="grid lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2 p-5">
-          <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-blue-500" />Receita por Mes (ultimos 6 meses)
-          </h3>
-          <div className="flex items-end gap-2 h-32">
-            {(financialSummary?.last6Months || []).map((m: any) => {
-              const max = Math.max(...(financialSummary?.last6Months || []).map((x: any) => x.revenue), 1);
-              const pct = max > 0 ? (m.revenue / max) * 100 : 0;
-              const mo = m.period.split("-")[1];
-              const months = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-              const label = months[parseInt(mo) - 1];
-              return (
-                <div key={m.period} className="flex flex-col items-center flex-1 gap-1">
-                  <span className="text-xs text-[var(--color-muted)]">{m.revenue > 0 ? `R$${m.revenue}` : ""}</span>
-                  <div className="w-full rounded-t-sm bg-[var(--color-brand)] transition-all" style={{ height: `${Math.max(pct, 4)}%` }} />
-                  <span className="text-xs text-[var(--color-muted)]">{label}</span>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-
-        <Card className="p-5">
-          <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
-            <Crown className="w-4 h-4 text-[var(--color-gold)]" />Distribuicao de Planos
-          </h3>
-          <div className="space-y-2">
-            {Object.entries(financialSummary?.planDistribution || {}).map(([plan, count]: any) => {
-              const total = Object.values(financialSummary?.planDistribution || {}).reduce((a: any, b: any) => a + b, 0) as number;
-              const pct = total > 0 ? Math.round((count / total) * 100) : 0;
-              return (
-                <div key={plan}>
-                  <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="font-medium">{PLAN_LABELS[plan]?.label || plan}</span>
-                    <span className="text-[var(--color-muted)]">{count} ({pct}%)</span>
-                  </div>
-                  <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div className="h-full bg-[var(--color-brand)] rounded-full" style={{ width: `${pct}%` }} />
-                  </div>
-                </div>
-              );
-            })}
-            {!financialSummary?.planDistribution && (
-              <p className="text-xs text-[var(--color-muted)] text-center py-4">Sem dados</p>
             )}
-          </div>
-        </Card>
-      </div>
+          </Card>
 
-      {/* Invoice management */}
-      <Card className="overflow-hidden">
-        <div className="p-5 border-b">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h3 className="font-semibold flex items-center gap-2">
-                <FileText className="w-4 h-4 text-indigo-500" />Gestao de Faturas
-              </h3>
-              <p className="text-xs text-[var(--color-muted)] mt-0.5">{allInvoices.length} fatura(s) no sistema</p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 text-xs"
-                onClick={() => {
-                  const period = new Date().toISOString().slice(0, 7);
-                  if (confirm(`Gerar faturas mensais para ${period}?`)) generateMonthlyMutation.mutate(period);
-                }}
-                disabled={generateMonthlyMutation.isPending}
-                data-testid="button-generate-monthly-invoices"
-              >
-                {generateMonthlyMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-                Gerar Mensais
-              </Button>
-              <Button size="sm" className="gap-1.5 text-xs" onClick={() => setShowNewInvoice(!showNewInvoice)} data-testid="button-new-invoice">
-                <Plus className="w-3.5 h-3.5" />Nova Fatura
-              </Button>
-            </div>
-          </div>
-
-          {/* Filter */}
-          <div className="flex gap-1.5 mt-4 flex-wrap">
-            {[
-              { value: "all", label: "Todas" },
-              { value: "pending", label: "Pendentes" },
-              { value: "paid", label: "Pagas" },
-              { value: "overdue", label: "Vencidas" },
-              { value: "cancelled", label: "Canceladas" },
-            ].map((f) => (
-              <Button
-                key={f.value}
-                size="sm"
-                variant={invoiceFilter === f.value ? "default" : "outline"}
-                className="h-7 text-xs px-3"
-                onClick={() => setInvoiceFilter(f.value)}
-                data-testid={`button-invoice-filter-${f.value}`}
-              >
-                {f.label}
-                {f.value !== "all" && (
-                  <span className="ml-1 opacity-70">
-                    ({allInvoices.filter((i: any) => i.status === f.value).length})
-                  </span>
-                )}
-              </Button>
-            ))}
-          </div>
+          <Card className="p-4">
+            <h3 className={`${TITULO_CARTAO} flex items-center gap-2 mb-4`}>
+              <Crown className="w-4 h-4 text-[var(--text-faint)] flex-none" strokeWidth={2} />
+              Provedores por plano
+            </h3>
+            {carregandoResumo ? (
+              <LinhasSkeleton linhas={3} />
+            ) : distribuicaoDePlanos.length === 0 ? (
+              <EstadoVazio
+                Icone={Crown}
+                titulo="Nenhum provedor cadastrado"
+                descricao="A divisão por plano aparece aqui quando o primeiro provedor concluir o cadastro."
+                cta={<BotaoLink href="#provedores">Abrir provedores</BotaoLink>}
+                testId="empty-distribuicao-planos"
+              />
+            ) : (
+              <div className="space-y-3">
+                {distribuicaoDePlanos.map(([plano, quantidade]) => {
+                  const n = Number(quantidade);
+                  const pct = totalDistribuido > 0 ? Math.round((n / totalDistribuido) * 100) : 0;
+                  return (
+                    <div key={plano} data-testid={`distribuicao-plano-${plano}`}>
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        {/* Selo pela primitiva, com o `tom` do catálogo — a
+                            última cópia manuscrita de pílula de plano nesta
+                            tela morre aqui. */}
+                        <Selo tom={PLAN_LABELS[plano]?.tom}>{PLAN_LABELS[plano]?.label ?? plano}</Selo>
+                        <span className="font-mono text-[11px] tabular-nums text-[var(--text-muted)]">
+                          {n} · {pct}%
+                        </span>
+                      </div>
+                      {/* Trilha em --surface-inset, que é o token da trilha de
+                          barra. Raio de 4px: a trilha e o preenchimento eram
+                          arredondados por inteiro, e a geometria deste sistema
+                          é seca — nada acima de 8px, e canto de pílula só em
+                          avatar, ponto e spinner (§5.1). */}
+                      <div className="h-1.5 rounded bg-[var(--surface-inset)] overflow-hidden">
+                        <div className="h-full rounded bg-[var(--brand)]" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
         </div>
+      </section>
 
-        {/* New Invoice Form */}
-        {showNewInvoice && (
-          <div className="p-5 border-b bg-muted/30">
-            <h4 className="font-medium text-sm mb-4">Emitir Nova Fatura</h4>
-            {carregandoPrecos && (
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-3" data-testid="skeleton-precos-fatura">
-                {[0, 1, 2].map(i => (
-                  <div key={i} className="h-12 rounded bg-[var(--surface-inset)] animate-pulse" />
+      {/* Faturas ------------------------------------------------------------ */}
+      <section>
+        <KickerSecao>Faturas</KickerSecao>
+        <Card className="overflow-hidden">
+          <div className="p-4 border-b border-[var(--border)]">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className={`${TITULO_CARTAO} flex items-center gap-2`}>
+                  <FileText className="w-4 h-4 text-[var(--text-faint)] flex-none" strokeWidth={2} />
+                  Faturas emitidas
+                </h3>
+                <p className="text-[12px] text-[var(--text-muted)] mt-0.5">
+                  <span className="font-mono tabular-nums">{totalDeFaturas}</span>{" "}
+                  {totalDeFaturas === 1 ? "fatura no sistema" : "faturas no sistema"}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={cn(BOTAO_SECUNDARIO, DESABILITAVEL)}
+                  onClick={() => {
+                    const period = new Date().toISOString().slice(0, 7);
+                    if (confirm(`Gerar faturas mensais para ${period}?`)) generateMonthlyMutation.mutate(period);
+                  }}
+                  disabled={generateMonthlyMutation.isPending}
+                  data-testid="button-generate-monthly-invoices"
+                >
+                  {generateMonthlyMutation.isPending
+                    ? <RefreshCw className="w-3.5 h-3.5 flex-none motion-safe:animate-spin" strokeWidth={2} />
+                    : <Zap className="w-3.5 h-3.5 flex-none" strokeWidth={2} />}
+                  Gerar mensais
+                </button>
+                <button
+                  type="button"
+                  className={BOTAO_MARCA}
+                  onClick={() => setShowNewInvoice(!showNewInvoice)}
+                  aria-expanded={showNewInvoice}
+                  data-testid="button-new-invoice"
+                >
+                  <Plus className="w-3.5 h-3.5 flex-none" strokeWidth={2} />
+                  Nova fatura
+                </button>
+              </div>
+            </div>
+
+            {/* Filtro por situação */}
+            <div className="flex gap-1.5 mt-4 flex-wrap" role="group" aria-label="Filtrar faturas por situação">
+              {FILTROS_DE_FATURA.map((f) => (
+                <ChipFiltro
+                  key={f.value}
+                  ativo={invoiceFilter === f.value}
+                  /* "Todas" não leva contagem aqui: o total já está escrito
+                     acima, em "N faturas no sistema". */
+                  contagem={
+                    f.value === "all"
+                      ? undefined
+                      : allInvoices.filter((i: any) => i.status === f.value).length
+                  }
+                  onClick={() => setInvoiceFilter(f.value)}
+                  testId={`button-invoice-filter-${f.value}`}
+                >
+                  {f.label}
+                </ChipFiltro>
+              ))}
+            </div>
+          </div>
+
+          {/* Emissão de fatura */}
+          {showNewInvoice && (
+            <div className="p-4 border-b border-[var(--border)] bg-[var(--surface-2)]">
+              <h4 className={`${TITULO_CARTAO} mb-4`}>Emitir nova fatura</h4>
+              {carregandoPrecos && (
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-3" data-testid="skeleton-precos-fatura">
+                  {[0, 1, 2].map(i => (
+                    <Skeleton key={i} className="h-12 rounded" />
+                  ))}
+                </div>
+              )}
+              {/* A faixa e a mesma da pagina `admin-financeiro` porque agora e a
+                  MESMA peca: `AvisoNaoCarregou`. Enquanto ela estava escrita a
+                  mao dos dois lados, a diferenca que sobrou entre as copias foi
+                  o anel de foco — e o defeito comum a elas era o alvo do
+                  "Tentar de novo", que a primitiva resolve. */}
+              {erroPrecos && (
+                <AvisoNaoCarregou
+                  className="mb-3"
+                  aoTentarDeNovo={() => recarregarPrecos()}
+                  testId="erro-precos-fatura"
+                >
+                  Não foi possível carregar a tabela de preços. A fatura não pode ser emitida sem ela.
+                </AvisoNaoCarregou>
+              )}
+              {/* `Campo` põe o controle DENTRO do rótulo: sem isso, clicar no
+                  nome do campo não foca a caixa e o leitor de tela anuncia a
+                  caixa sem dizer o que ela é. */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <Campo rotulo="provedor">
+                  <Select value={invoiceForm.providerId} onValueChange={(v) => {
+                    const p = allProviders.find((x: any) => x.id.toString() === v);
+                    // Sem tabela `camposDoPlano` e vazio: grava so o provedor e
+                    // deixa valor e creditos como estao.
+                    setInvoiceForm(f => ({ ...f, providerId: v, ...camposDoPlano(p?.plan) }));
+                  }}>
+                    <SelectTrigger className={CONTROLE_CAMPO} data-testid="select-invoice-provider">
+                      <SelectValue placeholder="Selecionar provedor" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {allProviders.map((p: any) => (
+                        <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Campo>
+                <Campo rotulo="período (aaaa-mm)">
+                  <Input className={cn(CONTROLE_CAMPO, "font-mono tabular-nums")} placeholder="2026-03" value={invoiceForm.period} onChange={(e) => setInvoiceForm(f => ({ ...f, period: e.target.value }))} data-testid="input-invoice-period" />
+                </Campo>
+                <Campo rotulo="plano cobrado">
+                  <Select value={invoiceForm.planAtTime} disabled={!precos} onValueChange={(v) => {
+                    setInvoiceForm(f => ({ ...f, ...camposDoPlano(v) }));
+                  }}>
+                    <SelectTrigger className={CONTROLE_CAMPO} data-testid="select-invoice-plan">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {planosDoSeletor.map(p => (
+                        <SelectItem key={p.chave} value={p.chave}>{p.rotulo} — {p.precoLabel}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Campo>
+                <Campo rotulo="valor (R$)">
+                  {/* Sem placeholder de preco: "199" era a tabela antiga. */}
+                  <Input className={cn(CONTROLE_CAMPO, "font-mono tabular-nums")} type="number" value={invoiceForm.amount} onChange={(e) => setInvoiceForm(f => ({ ...f, amount: e.target.value }))} data-testid="input-invoice-amount" />
+                </Campo>
+                <Campo rotulo="vencimento">
+                  <Input className={cn(CONTROLE_CAMPO, "font-mono tabular-nums")} type="date" value={invoiceForm.dueDate} onChange={(e) => setInvoiceForm(f => ({ ...f, dueDate: e.target.value }))} data-testid="input-invoice-due-date" />
+                </Campo>
+                <Campo rotulo="observações (opcional)">
+                  <Input className={CONTROLE_CAMPO} placeholder="Observação…" value={invoiceForm.notes} onChange={(e) => setInvoiceForm(f => ({ ...f, notes: e.target.value }))} data-testid="input-invoice-notes" />
+                </Campo>
+              </div>
+              <div className="flex gap-2 mt-4">
+                <button
+                  type="button"
+                  className={cn(BOTAO_MARCA, DESABILITAVEL)}
+                  disabled={!podeEmitirFatura || createInvoiceMutation.isPending}
+                  onClick={() => createInvoiceMutation.mutate(invoiceForm)}
+                  data-testid="button-submit-invoice"
+                >
+                  {createInvoiceMutation.isPending
+                    ? <RefreshCw className="w-3.5 h-3.5 flex-none motion-safe:animate-spin" strokeWidth={2} />
+                    : <FileText className="w-3.5 h-3.5 flex-none" strokeWidth={2} />}
+                  Emitir fatura
+                </button>
+                <button type="button" className={BOTAO_SECUNDARIO} onClick={() => setShowNewInvoice(false)}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Lista de faturas. O spinner centralizado que estava aqui virou
+              esqueleto: acima de 300ms a tela mostra a forma do que vem (§6). */}
+          {invoicesLoading ? (
+            <div className="p-4">
+              <LinhasSkeleton linhas={5} />
+            </div>
+          ) : (
+            <InvoiceTable
+              invoices={allInvoices}
+              filter={invoiceFilter}
+              asaasConfigured={!!asaasStatus?.configured}
+              onOpenAsaasCharge={setAsaasChargeModal}
+              onSyncCharge={(id) => syncChargeMutation.mutate(id)}
+              onOpenPix={(id) => pixMutation.mutate(id)}
+              onMarkPaid={(id, amount) => updateInvoiceStatusMutation.mutate({ id, status: "paid", paidAmount: amount })}
+              onCancel={(id) => cancelInvoiceMutation.mutate(id)}
+              syncChargePending={syncChargeMutation.isPending}
+              pixPending={pixMutation.isPending}
+            />
+          )}
+        </Card>
+      </section>
+
+      {/* Créditos e histórico ------------------------------------------------ */}
+      <section>
+        <KickerSecao>Créditos e histórico</KickerSecao>
+        <div className="grid lg:grid-cols-2 gap-3">
+          <Card className="overflow-hidden flex flex-col">
+            <div className="px-4 py-3 border-b border-[var(--border)] bg-[var(--surface-2)]">
+              <h3 className={`${TITULO_CARTAO} flex items-center gap-2`}>
+                <CreditCard className="w-4 h-4 text-[var(--text-faint)] flex-none" strokeWidth={2} />
+                Créditos por provedor
+              </h3>
+            </div>
+            {carregandoProvedores ? (
+              <div className="p-4"><LinhasSkeleton linhas={4} /></div>
+            ) : allProviders.length === 0 ? (
+              <EstadoVazio
+                Icone={CreditCard}
+                titulo="Nenhum provedor cadastrado"
+                descricao="O saldo de cada provedor aparece aqui assim que o primeiro cadastro for concluído."
+                cta={<BotaoLink href="#provedores">Abrir provedores</BotaoLink>}
+                testId="empty-creditos-provedores"
+              />
+            ) : (
+              /* Vira TABELA de verdade: nome + duas colunas de número. Como
+                 lista, os saldos ficavam soltos no meio do texto e não havia
+                 coluna para alinhar — que é o que o `.num` da §6 existe para
+                 resolver.
+                 O `sticky top-0` do cabeçalho SAIU junto com o TH local, e não
+                 por gosto: `TabelaPainel` traz o próprio container de rolagem
+                 horizontal, que vira o container de rolagem do cabeçalho — e
+                 ele não é o que rola aqui (quem rola é a caixa de fora, com a
+                 altura máxima). Grudado num container que não se move, o
+                 `sticky` não gruda em nada. Ver o aviso da entrega. */
+              <div className="max-h-64 overflow-y-auto">
+                <TabelaPainel>
+                  <thead>
+                    <tr>
+                      <Th>Provedor</Th>
+                      <Th alinhamento="direita">ISP</Th>
+                      <Th alinhamento="direita">SPC</Th>
+                    </tr>
+                  </thead>
+                  <tbody className="[&_tr:last-child_td]:border-0">
+                    {allProviders.map((p: any) => (
+                      <tr key={p.id} data-testid={`credit-row-${p.id}`}>
+                        <Td className="text-[13px] font-medium text-[var(--text)] w-full">
+                          {p.name}
+                        </Td>
+                        <Td num className="text-[var(--text)]">{p.ispCredits}</Td>
+                        <Td num className="text-[var(--text)]">{p.spcCredits}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </TabelaPainel>
+              </div>
+            )}
+            <p className="text-[12px] text-[var(--text-muted)] px-4 py-3 border-t border-[var(--border)] mt-auto">
+              {/* "drawer" era jargão de quem construiu a tela, não de quem a lê. */}
+              Para lançar créditos a um provedor, abra a ficha dele na aba Provedores.
+            </p>
+          </Card>
+
+          <Card className="overflow-hidden flex flex-col">
+            <div className="px-4 py-3 border-b border-[var(--border)] bg-[var(--surface-2)]">
+              <h3 className={`${TITULO_CARTAO} flex items-center gap-2`}>
+                <ArrowUpDown className="w-4 h-4 text-[var(--text-faint)] flex-none" strokeWidth={2} />
+                Alterações de plano e crédito
+              </h3>
+            </div>
+            {carregandoHistorico ? (
+              <div className="p-4"><LinhasSkeleton linhas={4} /></div>
+            ) : planHistory.length === 0 ? (
+              <EstadoVazio
+                Icone={Clock}
+                titulo="Nenhum histórico ainda"
+                descricao="Toda troca de plano e todo crédito lançado por aqui ficam registrados nesta lista."
+                cta={<BotaoLink href="#provedores">Abrir provedores</BotaoLink>}
+                testId="empty-historico-financeiro"
+              />
+            ) : (
+              /* Mesmo dado do Painel Geral, agora com a MESMA forma: data mono
+                 no topo, o que mudou embaixo. Duas telas do mesmo painel não
+                 podem contar a mesma linha de dois jeitos. */
+              <div className="max-h-64 overflow-y-auto">
+                {planHistory.map((h: any) => (
+                  <div
+                    key={h.id}
+                    className="px-4 py-2.5 border-b border-[var(--border-faint)] last:border-0"
+                    data-testid={`plan-history-row-${h.id}`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-[var(--text-faint)] flex-none" strokeWidth={2} />
+                      <span className="font-mono text-[11px] tabular-nums text-[var(--text-muted)]">
+                        {new Date(h.createdAt).toLocaleDateString("pt-BR")}
+                      </span>
+                    </div>
+                    {h.newPlan ? (
+                      <p className="text-[12.5px] text-[var(--text-2)] mt-1">
+                        Plano: <strong className="text-[var(--text)] font-medium">{PLAN_LABELS[h.oldPlan]?.label ?? h.oldPlan}</strong>
+                        {" → "}
+                        <strong className="text-[var(--text)] font-medium">{PLAN_LABELS[h.newPlan]?.label ?? h.newPlan}</strong>
+                      </p>
+                    ) : (
+                      <p className="text-[12.5px] text-[var(--text-2)] mt-1">
+                        Créditos: ISP{" "}
+                        <strong className="font-mono tabular-nums text-[var(--text)] font-medium">+{h.ispCreditsAdded}</strong>
+                        {" / SPC "}
+                        <strong className="font-mono tabular-nums text-[var(--text)] font-medium">+{h.spcCreditsAdded}</strong>
+                      </p>
+                    )}
+                    {h.notes && (
+                      <p className="text-[12px] text-[var(--text-muted)] truncate mt-0.5">{h.notes}</p>
+                    )}
+                  </div>
                 ))}
               </div>
             )}
-            {erroPrecos && (
-              <div className="mb-3 rounded border border-[var(--danger-border)] bg-[var(--danger-bg)] px-3 py-2" data-testid="erro-precos-fatura">
-                <p className="text-xs text-[var(--danger)]">
-                  Nao foi possivel carregar a tabela de precos. A fatura nao pode ser emitida sem ela.
-                </p>
-                <button type="button" className="text-xs underline mt-0.5 text-[var(--danger)]" onClick={() => recarregarPrecos()}>
-                  Tentar de novo
-                </button>
-              </div>
-            )}
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-              <div>
-                <Label className="text-xs">Provedor</Label>
-                <Select value={invoiceForm.providerId} onValueChange={(v) => {
-                  const p = allProviders.find((x: any) => x.id.toString() === v);
-                  // Sem tabela `camposDoPlano` e vazio: grava so o provedor e
-                  // deixa valor e creditos como estao.
-                  setInvoiceForm(f => ({ ...f, providerId: v, ...camposDoPlano(p?.plan) }));
-                }}>
-                  <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-invoice-provider">
-                    <SelectValue placeholder="Selecionar provedor" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {allProviders.map((p: any) => (
-                      <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs">Periodo (AAAA-MM)</Label>
-                <Input className="h-8 text-xs mt-1" placeholder="2026-03" value={invoiceForm.period} onChange={(e) => setInvoiceForm(f => ({ ...f, period: e.target.value }))} data-testid="input-invoice-period" />
-              </div>
-              <div>
-                <Label className="text-xs">Plano Cobrado</Label>
-                <Select value={invoiceForm.planAtTime} disabled={!precos} onValueChange={(v) => {
-                  setInvoiceForm(f => ({ ...f, ...camposDoPlano(v) }));
-                }}>
-                  <SelectTrigger className="h-8 text-xs mt-1" data-testid="select-invoice-plan">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {planosDoSeletor.map(p => (
-                      <SelectItem key={p.chave} value={p.chave}>{p.rotulo} — {p.precoLabel}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs">Valor (R$)</Label>
-                {/* Sem placeholder de preco: "199" era a tabela antiga. */}
-                <Input className="h-8 text-xs mt-1" type="number" value={invoiceForm.amount} onChange={(e) => setInvoiceForm(f => ({ ...f, amount: e.target.value }))} data-testid="input-invoice-amount" />
-              </div>
-              <div>
-                <Label className="text-xs">Vencimento</Label>
-                <Input className="h-8 text-xs mt-1" type="date" value={invoiceForm.dueDate} onChange={(e) => setInvoiceForm(f => ({ ...f, dueDate: e.target.value }))} data-testid="input-invoice-due-date" />
-              </div>
-              <div>
-                <Label className="text-xs">Observacoes (opcional)</Label>
-                <Input className="h-8 text-xs mt-1" placeholder="Observacao..." value={invoiceForm.notes} onChange={(e) => setInvoiceForm(f => ({ ...f, notes: e.target.value }))} data-testid="input-invoice-notes" />
-              </div>
-            </div>
-            <div className="flex gap-2 mt-3">
-              <Button size="sm" className="gap-1.5 text-xs" disabled={!podeEmitirFatura || createInvoiceMutation.isPending} onClick={() => createInvoiceMutation.mutate(invoiceForm)} data-testid="button-submit-invoice">
-                {createInvoiceMutation.isPending ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
-                Emitir Fatura
-              </Button>
-              <Button variant="ghost" size="sm" className="text-xs" onClick={() => setShowNewInvoice(false)}>Cancelar</Button>
-            </div>
-          </div>
-        )}
-
-        {/* Invoice Table */}
-        {invoicesLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <RefreshCw className="w-5 h-5 animate-spin text-[var(--color-muted)]" />
-          </div>
-        ) : (
-          <InvoiceTable
-            invoices={allInvoices}
-            filter={invoiceFilter}
-            asaasConfigured={!!asaasStatus?.configured}
-            onOpenAsaasCharge={setAsaasChargeModal}
-            onSyncCharge={(id) => syncChargeMutation.mutate(id)}
-            onOpenPix={(id) => pixMutation.mutate(id)}
-            onMarkPaid={(id, amount) => updateInvoiceStatusMutation.mutate({ id, status: "paid", paidAmount: amount })}
-            onCancel={(id) => cancelInvoiceMutation.mutate(id)}
-            syncChargePending={syncChargeMutation.isPending}
-            pixPending={pixMutation.isPending}
-          />
-        )}
-      </Card>
-
-      {/* Credits management and history */}
-      <div className="grid lg:grid-cols-2 gap-4">
-        <Card className="p-5">
-          <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
-            <CreditCard className="w-4 h-4 text-blue-500" />Creditos por Provedor
-          </h3>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
-            {allProviders.map((p: any) => (
-              <div key={p.id} className="flex items-center gap-3 py-2 border-b last:border-0">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{p.name}</p>
-                  <div className="flex items-center gap-3 text-xs text-[var(--color-muted)] mt-0.5">
-                    <span className="text-[var(--color-brand)] font-medium">ISP: {p.ispCredits}</span>
-                    <span className="text-purple-600 font-medium">SPC: {p.spcCredits}</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-[var(--color-muted)] pt-2 border-t mt-2">
-            Para adicionar creditos a um provedor, abra o drawer dele na aba Provedores.
-          </p>
-        </Card>
-
-        <Card className="p-5">
-          <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
-            <Clock className="w-4 h-4 text-[var(--color-muted)]" />Historico de Alteracoes
-          </h3>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
-            {planHistory.map((h: any) => (
-              <div key={h.id} className="flex items-start gap-3 py-2 border-b last:border-0 text-sm">
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${h.newPlan ? "bg-[var(--color-brand-bg)] text-[var(--color-brand)]" : "bg-[var(--color-success-bg)] text-[var(--color-success)]"}`}>
-                  {h.newPlan ? <ArrowUpDown className="w-3.5 h-3.5" /> : <Plus className="w-3 h-3" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-xs">
-                      {h.newPlan
-                        ? `${PLAN_LABELS[h.oldPlan]?.label} → ${PLAN_LABELS[h.newPlan]?.label}`
-                        : `ISP +${h.ispCreditsAdded} / SPC +${h.spcCreditsAdded}`}
-                    </span>
-                    <span className="text-xs text-[var(--color-muted)] whitespace-nowrap">
-                      {new Date(h.createdAt).toLocaleDateString("pt-BR")}
-                    </span>
-                  </div>
-                  {h.notes && <p className="text-xs text-[var(--color-muted)] truncate">{h.notes}</p>}
-                </div>
-              </div>
-            ))}
-            {planHistory.length === 0 && (
-              <p className="text-xs text-[var(--color-muted)] py-4 text-center">Nenhum historico</p>
-            )}
-          </div>
-        </Card>
-      </div>
-
-      {/* ASAAS Charge Modal */}
-      {asaasChargeModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setAsaasChargeModal(null)}>
-          <div className="bg-background rounded p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
-            <h2 className="text-base font-bold mb-1 flex items-center gap-2">
-              <Wallet className="w-4 h-4 text-blue-500" />Cobrar via Asaas
-            </h2>
-            <p className="text-xs text-[var(--color-muted)] mb-4">Fatura {asaasChargeModal.invoiceNumber}</p>
-            <div className="space-y-2">
-              {[
-                { type: "UNDEFINED", label: "Livre (cliente escolhe)", icon: Wallet },
-                { type: "PIX", label: "PIX", icon: QrCode },
-                { type: "BOLETO", label: "Boleto Bancario", icon: CreditCard },
-              ].map(opt => (
-                <button
-                  key={opt.type}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded border hover:bg-muted/50 transition-colors text-left"
-                  disabled={createChargeMutation.isPending}
-                  onClick={() => createChargeMutation.mutate({ id: asaasChargeModal.invoiceId, billingType: opt.type })}
-                  data-testid={`button-charge-${opt.type.toLowerCase()}`}
-                >
-                  {createChargeMutation.isPending ? (
-                    <RefreshCw className="w-4 h-4 animate-spin text-[var(--color-muted)]" />
-                  ) : (
-                    <opt.icon className="w-4 h-4 text-blue-500" />
-                  )}
-                  <span className="text-sm font-medium">{opt.label}</span>
-                </button>
-              ))}
-            </div>
-            <Button variant="ghost" size="sm" className="mt-3 w-full text-xs" onClick={() => setAsaasChargeModal(null)}>Cancelar</Button>
-          </div>
+          </Card>
         </div>
+      </section>
+
+      {/* Os dois modais do Asaas vivem em `../financeiro-ui`: eram a mesma peça
+          escrita aqui e na página `admin-financeiro`, e divergiam no ícone do
+          boleto, no corpo do título e na acessibilidade. */}
+      {asaasChargeModal && (
+        <ModalCobrancaAsaas
+          numeroDaFatura={asaasChargeModal.invoiceNumber}
+          emAndamento={createChargeMutation.isPending}
+          onEscolher={(formaDeCobranca) =>
+            createChargeMutation.mutate({ id: asaasChargeModal.invoiceId, billingType: formaDeCobranca })
+          }
+          onFechar={() => setAsaasChargeModal(null)}
+        />
       )}
 
-      {/* PIX QrCode Modal */}
       {asaasPixModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setAsaasPixModal(null)}>
-          <div className="bg-background rounded p-6 w-full max-w-sm text-center" onClick={e => e.stopPropagation()}>
-            <h2 className="text-base font-bold mb-1 flex items-center gap-2 justify-center">
-              <QrCode className="w-4 h-4 text-blue-500" />QR Code PIX
-            </h2>
-            {asaasPixModal.pixData?.encodedImage ? (
-              <img src={`data:image/png;base64,${asaasPixModal.pixData.encodedImage}`} alt="QR Code PIX" className="mx-auto w-48 h-48 my-4 rounded border" />
-            ) : (
-              <div className="w-48 h-48 mx-auto my-4 rounded border bg-muted/30 flex items-center justify-center">
-                <QrCode className="w-12 h-12 text-[var(--color-muted)] opacity-40" />
-              </div>
-            )}
-            {asaasPixModal.pixData?.payload && (
-              <div className="mt-2">
-                <p className="text-xs text-[var(--color-muted)] mb-1">Codigo Copia e Cola:</p>
-                <div className="flex gap-2 items-center">
-                  <code className="text-xs bg-muted rounded px-2 py-1 flex-1 text-left truncate">{asaasPixModal.pixData.payload}</code>
-                  <Button
-                    variant="outline" size="sm"
-                    className="h-7 w-7 p-0 flex-shrink-0"
-                    onClick={() => { navigator.clipboard.writeText(asaasPixModal.pixData.payload); toast({ title: "Copiado!" }); }}
-                    data-testid="button-copy-pix"
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-              </div>
-            )}
-            <Button variant="ghost" size="sm" className="mt-3 w-full text-xs" onClick={() => setAsaasPixModal(null)}>Fechar</Button>
-          </div>
-        </div>
+        <ModalPixAsaas pix={asaasPixModal.pixData} onFechar={() => setAsaasPixModal(null)} />
       )}
     </div>
   );
