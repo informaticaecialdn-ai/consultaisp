@@ -721,3 +721,89 @@ describe("SGP · resposta que nao e do SGP nas leituras", () => {
     expect(r.customers[0].contractStatus).toBeUndefined();
   });
 });
+
+/**
+ * CADASTRO SEM CONTRATO — a regra do dono, e o estrago de nao ter tido ela.
+ *
+ * Medido na Amplinet em 04/09/2026: dos 937 clientes gravados, 71 nao tinham
+ * contrato nenhum no SGP e os 71 estavam ATIVOS. `customers.storage.ts` faz
+ * `data.status ?? "active"` na criacao, entao "o conector nao sabe" virava
+ * "cliente ativo" — e "ativo + fatura vencida" e a condicao que dispara o
+ * anti-fraude. Avisar um provedor sobre alguem que nunca foi cliente dele e o
+ * falso positivo mais caro que este produto pode cometer.
+ *
+ * O IXC e o MK ja descartavam esses cadastros; o SGP ficou de fora.
+ */
+describe("SGP · cadastro sem contrato nao entra", () => {
+  const cadastro = (cpf: string, contratos: unknown) => ({
+    nome: "CLIENTE " + cpf, cpfcnpj: cpf, dataCadastro: "2023-01-01", tipo: "F",
+    endereco: { logradouro: "RUA A", numero: 1, bairro: "CENTRO", cidade: "EMBU GUACU", uf: "SP", cep: "06900-000" },
+    ...(contratos === undefined ? {} : { contratos }),
+  });
+
+  const pagina = (clientes: unknown[]) => ({
+    paginacao: { offset: 0, limit: 100, parcial: clientes.length, total: clientes.length },
+    clientes,
+  });
+
+  it("array VAZIO e prova de que nao ha contrato: o cadastro e descartado", async () => {
+    const { conector } = montar({
+      "/api/ura/clientes/": () => ({
+        corpo: pagina([
+          cadastro(CPF_A, [{ contrato: 1, dataCadastro: "2023-01-01", status: "Ativo" }]),
+          cadastro(CPF_B, []),
+        ]),
+      }),
+    });
+
+    const r = await conector.fetchCustomers(CONFIG);
+
+    expect(r.customers.map(c => c.cpfCnpj)).toEqual([CPF_A]);
+    // A contagem sai na mensagem: sem ela, a carteira menor parece perda de dado.
+    expect(r.message).toMatch(/1 cadastro\(s\) sem contrato ignorados/);
+  });
+
+  it("campo AUSENTE nao e prova: o cadastro entra, com status desconhecido", async () => {
+    // A diferenca entre as duas linhas e o ponto todo. Pular aqui esvaziaria a
+    // carteira de um SGP que, por versao ou permissao, nao devolvesse contratos.
+    const { conector } = montar({
+      "/api/ura/clientes/": () => ({ corpo: pagina([cadastro(CPF_A, undefined)]) }),
+    });
+
+    const r = await conector.fetchCustomers(CONFIG);
+
+    expect(r.customers.map(c => c.cpfCnpj)).toEqual([CPF_A]);
+    expect(r.customers[0].contractStatus).toBeUndefined();
+    expect(r.message).not.toMatch(/sem contrato/);
+  });
+
+  it("contrato cancelado NAO e cadastro sem contrato — ex-cliente continua entrando", async () => {
+    // Ex-cliente com divida e o sinal de migrador serial que o bureau existe
+    // para ter. Confundir "sem contrato" com "contrato encerrado" apagaria isso.
+    const { conector } = montar({
+      "/api/ura/clientes/": () => ({
+        corpo: pagina([cadastro(CPF_A, [{ contrato: 1, dataCadastro: "2020-01-01", status: "Cancelado" }])]),
+      }),
+    });
+
+    const r = await conector.fetchCustomers(CONFIG);
+
+    expect(r.customers).toHaveLength(1);
+    expect(r.customers[0].contractStatus).toBe("cancelled");
+  });
+
+  it("com um contrato ativo entre varios encerrados, vale o ativo", async () => {
+    const { conector } = montar({
+      "/api/ura/clientes/": () => ({
+        corpo: pagina([cadastro(CPF_A, [
+          { contrato: 1, dataCadastro: "2019-01-01", status: "Cancelado" },
+          { contrato: 2, dataCadastro: "2024-01-01", status: "Ativo" },
+        ])]),
+      }),
+    });
+
+    const r = await conector.fetchCustomers(CONFIG);
+
+    expect(r.customers[0].contractStatus).toBe("active");
+  });
+});

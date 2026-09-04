@@ -785,6 +785,8 @@ export class SgpConnector implements ErpConnector {
       const vistos = new Set<string>();
       let offset = 0;
       let parcial = false;
+      /** Cadastros que o SGP provou nao ter contrato. Ver o bloco no laco. */
+      let semContrato = 0;
 
       for (let pagina = 0; pagina < MAX_PAGINAS; pagina++) {
         const response = await this.post(
@@ -814,7 +816,38 @@ export class SgpConnector implements ErpConnector {
           vistos.add(cpfCnpj);
 
           const e = c?.endereco ?? {};
-          const contratos: any[] = Array.isArray(c?.contratos) ? c.contratos : [];
+
+          /**
+           * CADASTRO SEM CONTRATO NAO ENTRA — regra do dono.
+           *
+           * A distincao entre as duas linhas abaixo e o ponto todo: um array
+           * VAZIO e prova de que este cadastro nao tem contrato nenhum; um
+           * campo AUSENTE e "o SGP nao contou", e pular nesse caso esvaziaria a
+           * carteira. O codigo anterior colapsava os dois em `[]` e seguia
+           * adiante, entao "nao sei" chegava ao storage como `contractStatus:
+           * undefined` — e la, em customers.storage.ts, cliente novo sem status
+           * nasce "active".
+           *
+           * O estrago, medido na Amplinet em 04/09/2026: dos 937 clientes
+           * gravados, 71 nao tinham contrato nenhum no SGP e os 71 estavam
+           * ATIVOS. Isso infla a carteira que o dono le e, pior, "ativo + fatura
+           * vencida" e exatamente a condicao que dispara o anti-fraude — avisar
+           * um provedor sobre alguem que nunca foi cliente dele e o falso
+           * positivo mais caro que este produto pode cometer.
+           *
+           * Medido no SGP da Amplinet: em 100 cadastros, `contratos` veio array
+           * em 100 e VAZIO em 8. O campo e confiavel, entao a prova existe.
+           *
+           * O IXC e o MK ja faziam isto (`if (contratos.lidos && !resumo)`); o
+           * SGP ficou de fora quando o conector foi reescrito em 03/09.
+           */
+          const contratosLidos = Array.isArray(c?.contratos);
+          const contratos: any[] = contratosLidos ? c.contratos : [];
+          if (contratosLidos && contratos.length === 0) {
+            semContrato++;
+            continue;
+          }
+
           const ativo = contratos.find(k => statusDoContratoSgp(k?.status, k?.status) === "active");
           const escolhido = ativo ?? contratos[0];
 
@@ -847,7 +880,12 @@ export class SgpConnector implements ErpConnector {
 
       return {
         ok: true,
-        message: `${customers.length} clientes encontrados`,
+        // O descartado sai na mensagem porque ele explica a diferenca entre o
+        // numero que o provedor ve no SGP e o que ele ve aqui. Sem essa linha, a
+        // carteira menor parece perda de dado.
+        message:
+          `${customers.length} clientes encontrados` +
+          (semContrato > 0 ? `, ${semContrato} cadastro(s) sem contrato ignorados` : ""),
         customers,
         totalRecords: customers.length,
         ...(parcial ? { leituraParcial: true } : {}),
