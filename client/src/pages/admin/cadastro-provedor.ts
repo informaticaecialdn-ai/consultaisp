@@ -370,14 +370,9 @@ export function tipoSocietario(natureza: string | null | undefined): string {
  * num `<select>` fechado é o mesmo defeito silencioso que `tipoSocietario`
  * existe para evitar.
  *
- * `contactEmail` e `contactPhone` seguem a MESMA regra que já vale para
- * `subdomain` e `website` — PRESERVAR-SE-PREENCHIDO: a Receita só entra quando o
- * campo está vazio. Estes dois não são "dado da Receita": lá eles são o contato
- * de quem ABRIU a empresa, quase sempre o escritório de contabilidade. Aqui eles
- * são o CANAL OPERACIONAL do provedor — por eles saem o aviso de sync pausado, o
- * e-mail de cadastro e o WhatsApp do anti-fraude. Substituídos pelos do contador,
- * o provedor simplesmente para de receber alerta, e ninguém descobre pela tela:
- * o envio "dá certo", só chega na caixa errada, e a falha só existe no log.
+ * E NÃO ENCOSTA em `contactEmail` nem em `contactPhone` — nem quando estão
+ * vazios. O argumento inteiro está na linha deles, dentro da função, porque é
+ * contraintuitivo e foi medido.
  */
 export function aplicarEmpresaPublica(
   atual: CadastroProvedor,
@@ -385,9 +380,6 @@ export function aplicarEmpresaPublica(
 ): CadastroProvedor {
   const d = dados ?? {};
   const societario = tipoSocietario(d.naturezaJuridica);
-  /** Preenche a partir da fonte só quando a ficha não tem nada no campo. */
-  const preservando = (jaNaFicha: string, daFonte: unknown) =>
-    texto(jaNaFicha).trim() ? jaNaFicha : texto(daFonte);
   return {
     ...atual,
     name: texto(d.razaoSocial) || atual.name,
@@ -395,8 +387,34 @@ export function aplicarEmpresaPublica(
     cnpj: cnpjCru(texto(d.cnpj)) || atual.cnpj,
     legalType: societario || atual.legalType,
     openingDate: texto(d.dataAbertura) || atual.openingDate,
-    contactEmail: preservando(atual.contactEmail, d.email),
-    contactPhone: preservando(atual.contactPhone, d.telefone),
+    /**
+     * O CONTATO NÃO VEM DA RECEITA. Nem quando o campo está vazio.
+     *
+     * A primeira versão desta regra era "preencher só se estiver vazio", pela
+     * intuição de que um campo vazio não tem nada a perder. Medido na busca real
+     * do provedor 6 (Amplisinal, Embu-Guaçu/SP), a Receita devolveu
+     * `paralegal@contabilrh.com.br` e um fixo de São Paulo, (11) 3227-6060 — a
+     * caixa e a linha do ESCRITÓRIO DE CONTABILIDADE, que é quem abre a empresa.
+     * Não é exceção: é o que esse campo é no cadastro fiscal.
+     *
+     * E campo vazio não é "sem canal". `destinatariosDoProvedor`
+     * (server/services/email-destinatario.ts:48) usa `contactEmail` quando ele
+     * existe e, SÓ QUANDO ELE ESTÁ VAZIO, cai nos usuários `admin` do próprio
+     * provedor — pessoas de verdade, na empresa. Preencher o vazio com o
+     * endereço do contador não preenche uma lacuna: SOMBREIA o resgate, e troca
+     * quem trabalha no provedor por um terceiro.
+     *
+     * O prejuízo é invisível dos dois lados. O e-mail "é entregue", só que na
+     * caixa errada; o WhatsApp do anti-fraude é disparado para um fixo, a Z-API
+     * registra a falha no log e mais nada. Nenhuma tela mostra aviso que não
+     * chegou.
+     *
+     * Quem quiser usar o contato da contabilidade digita — são dois campos. O
+     * caminho contrário, descobrir meses depois que os alertas iam para o
+     * contador, não tem desfazer.
+     */
+    contactEmail: atual.contactEmail,
+    contactPhone: atual.contactPhone,
     addressZip: cepCru(texto(d.cep)) || atual.addressZip,
     addressStreet: texto(d.logradouro) || atual.addressStreet,
     addressNumber: texto(d.numero) || atual.addressNumber,

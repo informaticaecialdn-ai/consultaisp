@@ -1548,7 +1548,12 @@ export default function AdminProvedorPage() {
                         buscaCnpj.estado === "buscando"
                           ? "Consultando o cadastro da Receita Federal..."
                           : buscaCnpj.estado === "ok"
-                            ? "Ficha preenchida com o cadastro da Receita Federal. Revise e salve."
+                            /* O contato fica de fora, e a frase DIZ isso: o que
+                               a Receita guarda ali é a caixa e a linha do
+                               escritório de contabilidade, e o operador que não
+                               soubesse ficaria esperando os campos preencherem.
+                               O argumento inteiro está em `aplicarEmpresaPublica`. */
+                            ? "Ficha preenchida com o cadastro da Receita Federal. E-mail e telefone de contato não entram: na Receita eles são os do contador. Revise e salve."
                             : undefined
                       }
                     />

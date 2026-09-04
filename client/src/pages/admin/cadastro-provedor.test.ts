@@ -427,13 +427,36 @@ describe("aplicarEmpresaPublica", () => {
     expect(c.name).toBe(RECEITA.razaoSocial);
   });
 
-  it("e-mail e telefone VAZIOS são preenchidos: contato do contador é melhor que nenhum", () => {
+  it("e-mail e telefone VAZIOS continuam vazios: o contato do contador é PIOR que nenhum", () => {
+    /**
+     * A primeira versão desta regra preenchia o campo vazio, pela intuição de
+     * que vazio não tem nada a perder. Está errado, e a medição na busca real do
+     * provedor 6 mostra os dois motivos de uma vez.
+     *
+     * A Receita devolveu `paralegal@contabilrh.com.br` e um fixo de São Paulo
+     * para um provedor de Embu-Guaçu: o que o cadastro fiscal guarda é a caixa e
+     * a linha do ESCRITÓRIO DE CONTABILIDADE.
+     *
+     * E campo vazio não é "sem canal". `destinatariosDoProvedor`
+     * (server/services/email-destinatario.ts:48) só cai nos usuários `admin` do
+     * provedor QUANDO `contactEmail` está vazio. Preencher o vazio com o
+     * endereço do contador não tapa uma lacuna: sombreia o resgate, e troca as
+     * pessoas que trabalham no provedor por um terceiro — em silêncio, porque o
+     * e-mail "é entregue" e o WhatsApp falha só no log.
+     */
     const c = aplicarEmpresaPublica(SUJA, RECEITA);
-    expect(c.contactEmail).toBe("fiscal@amplisinal.com.br");
-    expect(c.contactPhone).toBe("(31) 3333-4444");
-    // Só espaço é campo vazio, e não "campo preenchido com espaço".
-    const comEspaco = aplicarEmpresaPublica({ ...SUJA, contactEmail: "   " }, RECEITA);
-    expect(comEspaco.contactEmail).toBe("fiscal@amplisinal.com.br");
+    expect(c.contactEmail).toBe(SUJA.contactEmail);
+    expect(c.contactPhone).toBe(SUJA.contactPhone);
+  });
+
+  it("e-mail e telefone JÁ preenchidos também não são tocados", () => {
+    const c = aplicarEmpresaPublica(FICHA, RECEITA);
+    expect(c.contactEmail).toBe(FICHA.contactEmail);
+    expect(c.contactPhone).toBe(FICHA.contactPhone);
+    // E o resto do cadastro continua sendo corrigido pela Receita na mesma
+    // chamada: a porta é só para os dois campos de contato.
+    expect(c.name).toBe(RECEITA.razaoSocial);
+    expect(c.addressCity).toBe(RECEITA.cidade);
   });
 
   it("CNPJ e CEP chegam mascarados da fonte e são guardados crus", () => {
