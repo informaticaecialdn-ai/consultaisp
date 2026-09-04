@@ -123,6 +123,28 @@ export interface NormalizedErpCustomer {
   }>;
   /** Status do contrato no ERP. "active" = tem contrato vigente, "cancelled" = ex-cliente (pode ter fatura rescisória/equipamento). Mapeado para customers.status no DB. */
   contractStatus?: "active" | "cancelled" | "suspended";
+  /**
+   * POR QUE o contrato foi suspenso ou cancelado, no TEXTO CRU do ERP.
+   *
+   * `contractStatus` diz que o servico acabou; este campo diz se foi calote ou
+   * se o cliente pediu para sair — e para um bureau de credito e a diferenca
+   * que importa. Medido no SGP da Amplinet em 04/09/2026: 214 contratos
+   * cancelados por "Administrativo" contra 66 por "Financeiro", mais 222
+   * clientes suspensos por "Financeiro". Os 288 cortados por dinheiro entravam
+   * na base indistinguiveis dos 206 que so encerraram o servico.
+   *
+   * Cru, e nao normalizado: cada ERP escreve com a redacao dele ("Financeiro",
+   * "Financeiro - SPC"). A traducao para as duas familias mora em
+   * `shared/motivo-corte.ts`.
+   *
+   * AUSENTE E DIFERENTE DE VAZIO. Conector que nao sabe ler o motivo deixa
+   * `undefined`, e o storage nao pode apagar o que ja estava gravado — este
+   * repositorio ja perdeu a divida de uma carteira inteira assim, em
+   * 31/08/2026 (ver `skipPaymentStatus` em storage/customers.storage.ts).
+   */
+  motivoCorte?: string;
+  /** Quando o contrato passou ao status atual, como o ERP devolve. */
+  cortadoEm?: string;
   /** Nome do plano contratado (se ativo) — ex "Combo 800MB + Deezer". */
   contractPlan?: string;
   /**
@@ -232,6 +254,7 @@ export interface ErpConnector {
 
   /** Fetch a single customer by CPF/CNPJ with overdue data already aggregated (optional) */
   fetchCustomerByCpf?(config: ErpConnectionConfig, cpfCnpj: string): Promise<ErpFetchResult>;
+
 
   /**
    * A coordenada da INSTALACAO de um cliente, quando o ERP so a entrega um a um.

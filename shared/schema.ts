@@ -288,6 +288,26 @@ export const customers = pgTable("customers", {
   equipmentEstimatedValue: decimal("equipment_estimated_value", { precision: 10, scale: 2 }).default("290"),
   ispScore: integer("isp_score").default(100),
   riskTier: text("risk_tier").default("low"),
+  /**
+   * Por que o contrato acabou, no TEXTO CRU do ERP ("Financeiro",
+   * "Administrativo", "Financeiro - SPC").
+   *
+   * Sem ele, quem pediu para sair fica identico a quem foi cortado por calote —
+   * e essa e a diferenca que um bureau de credito existe para registrar. Medido
+   * na Amplinet em 04/09/2026: 214 contratos cancelados por motivo
+   * administrativo contra 66 por financeiro, mais 222 clientes suspensos por
+   * financeiro. Os 288 cortados por dinheiro entravam na nossa base
+   * indistinguiveis dos 206 que so encerraram o servico.
+   *
+   * Texto livre, e nao enum: cada ERP escreve com a redacao dele. A
+   * normalizacao para "financeiro" ou "administrativo" mora em
+   * `shared/motivo-corte.ts`, onde conector, score e tela leem a mesma regra.
+   * NULO significa "o ERP nao disse" — nunca "nao houve motivo".
+   */
+  motivoCorte: text("motivo_corte"),
+  /** Quando o contrato passou ao status atual. Corte de tres anos atras pesa
+   *  diferente de um de tres meses, e sem a data o score trata os dois igual. */
+  cortadoEm: timestamp("cortado_em"),
   erpSource: text("erp_source").default("manual"),
   lastSyncAt: timestamp("last_sync_at"),
   createdAt: timestamp("created_at").defaultNow(),

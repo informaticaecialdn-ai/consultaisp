@@ -200,3 +200,112 @@ describe("a conta fecha", () => {
     }
   });
 });
+/**
+ * DESLIGADO POR FALTA DE PAGAMENTO (04/09/2026).
+ *
+ * O motivo do corte vem do proprio ERP do provedor — "Financeiro" contra
+ * "Administrativo" —, e ate esta data o bureau descartava o campo. Medido no
+ * SGP da Amplinet: 222 clientes suspensos e 66 cancelados por motivo
+ * financeiro, contra 206 cancelados a pedido. Os dois grupos chegavam ao score
+ * identicos, porque so guardavamos "cancelado".
+ *
+ * O peso e o que estes casos fixam: mais que "atrasou e pagou" (-30), menos que
+ * equipamento retido (-150) e que padrao de fraude por endereco (-250).
+ */
+describe("corte por falta de pagamento", () => {
+  const base = (extra: Partial<OcorrenciaRede> = {}): ISPScoreInput => ({
+    rede: {
+      ocorrencias: [{ diasAtraso: 0, faturasAtraso: 0, statusContrato: "cancelado", ...extra }],
+      totalProvedores: 1,
+      consultasRecentes30d: 0,
+      consultasRecentes90d: 0,
+    },
+  });
+
+  it("corte recente pesa mais que corte antigo", () => {
+    const recente = calcularScoreISP(base({ corteFinanceiro: true, cortadoHaMeses: 3 })).score;
+    const antigo = calcularScoreISP(base({ corteFinanceiro: true, cortadoHaMeses: 40 })).score;
+
+    expect(recente).toBeLessThan(antigo);
+    // Antigo nao zera: num bureau, calote nao prescreve — so pesa menos.
+    expect(antigo).toBeLessThan(calcularScoreISP(base()).score);
+  });
+
+  it("o corte mais RECENTE manda quando ha varios", () => {
+    // Cortado ha tres meses num provedor e ha quatro anos noutro: o caso e
+    // recente. Deixar o antigo mandar suavizaria justamente o que acabou de
+    // acontecer.
+    const misto = calcularScoreISP({
+      rede: {
+        ocorrencias: [
+          { diasAtraso: 0, faturasAtraso: 0, statusContrato: "cancelado", corteFinanceiro: true, cortadoHaMeses: 48 },
+          { diasAtraso: 0, faturasAtraso: 0, statusContrato: "cancelado", corteFinanceiro: true, cortadoHaMeses: 3 },
+        ],
+        totalProvedores: 2, consultasRecentes30d: 0, consultasRecentes90d: 0,
+      },
+    });
+    const soAntigos = calcularScoreISP({
+      rede: {
+        ocorrencias: [
+          { diasAtraso: 0, faturasAtraso: 0, statusContrato: "cancelado", corteFinanceiro: true, cortadoHaMeses: 48 },
+          { diasAtraso: 0, faturasAtraso: 0, statusContrato: "cancelado", corteFinanceiro: true, cortadoHaMeses: 50 },
+        ],
+        totalProvedores: 2, consultasRecentes30d: 0, consultasRecentes90d: 0,
+      },
+    });
+
+    expect(misto.score).toBeLessThan(soAntigos.score);
+  });
+
+  it("dois provedores que cortaram pesam mais que um", () => {
+    const um = calcularScoreISP(base({ corteFinanceiro: true, cortadoHaMeses: 6 })).score;
+    const dois = calcularScoreISP({
+      rede: {
+        ocorrencias: [
+          { diasAtraso: 0, faturasAtraso: 0, statusContrato: "cancelado", corteFinanceiro: true, cortadoHaMeses: 6 },
+          { diasAtraso: 0, faturasAtraso: 0, statusContrato: "cancelado", corteFinanceiro: true, cortadoHaMeses: 6 },
+        ],
+        totalProvedores: 2, consultasRecentes30d: 0, consultasRecentes90d: 0,
+      },
+    }).score;
+
+    expect(dois).toBeLessThan(um);
+  });
+
+  it("cancelado a PEDIDO do cliente nao pontua contra ninguem", () => {
+    // Sao 206 clientes na Amplinet. Quem mudou de endereco ou trocou de plano
+    // nao pode carregar a marca de quem foi cortado por calote.
+    expect(calcularScoreISP(base({ corteFinanceiro: false })).score)
+      .toBe(calcularScoreISP(base()).score);
+  });
+
+  it("motivo AUSENTE nao pontua — silencio nao e culpa nem inocencia", () => {
+    // Todo conector que nao e o SGP deixa o campo indefinido hoje. Se ausencia
+    // pontuasse, a rede inteira levaria a penalidade por um campo que ninguem
+    // preencheu.
+    expect(calcularScoreISP(base({ corteFinanceiro: undefined })).score)
+      .toBe(calcularScoreISP(base()).score);
+  });
+
+  it("pesa menos que equipamento retido e que fraude por endereco", () => {
+    // A ordem entre as penalidades e o que este caso protege: corte por dinheiro
+    // e inadimplencia grave, nao fraude.
+    const corte = calcularScoreISP(base({ corteFinanceiro: true, cortadoHaMeses: 1 })).score;
+    const equipamento = calcularScoreISP(base({ equipamentosDevolvidos: false })).score;
+    const fraude = calcularScoreISP({
+      endereco: { cpfsDistintosInadimplentes: 3, totalOcorrenciasEndereco: 3 },
+    }).score;
+
+    expect(corte).toBeGreaterThan(equipamento);
+    expect(corte).toBeGreaterThan(fraude);
+  });
+
+  it("a composicao explica o corte em portugues, e diz de onde veio o motivo", () => {
+    const r = calcularScoreISP(base({ corteFinanceiro: true, cortadoHaMeses: 5 }));
+    const item = r.composicao?.deducoes?.find(d => /cortado por falta de pagamento/i.test(d.motivo));
+
+    expect(item).toBeDefined();
+    // O operador tem de saber que isto e o ERP falando, nao um palpite nosso.
+    expect(String(item?.detalhe)).toMatch(/ERP do provedor/i);
+  });
+});

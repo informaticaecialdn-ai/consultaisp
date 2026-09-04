@@ -10,6 +10,7 @@ import { pool } from "../db";
 import type { PoolClient } from "pg";
 import { getConnector, buildConnectorConfig, getProviderLimiter } from "../erp";
 import type { ErpFetchResult } from "../erp/types";
+import { dataDoErp } from "../erp/data-do-erp";
 import { agendaDoAmbiente, proximaExecucao, ultimaExecucaoAgendada, descreverAgenda } from "./erp-agenda";
 import { geocodeCep, resolveIbgeCode } from "./geocoding";
 import { coordenadaValida } from "./coordenada";
@@ -338,6 +339,10 @@ async function syncProviderToDbInterno(
               // sempre. `skipPaymentStatus` continua protegendo a DIVIDA, que e
               // o ativo do bureau — status e vinculo, nao dinheiro.
               status: customer.contractStatus,
+              // Por que o contrato acabou, e quando. Ausente = o ERP nao disse, e o
+              // upsert preserva o que ja estava gravado.
+              motivoCorte: customer.motivoCorte,
+              cortadoEm: dataDoErp(customer.cortadoEm),
               erpSource,
               skipPaymentStatus: true,
             });
@@ -568,6 +573,10 @@ async function syncProviderToDbInterno(
         // Spec 012.0 / connector v2 — status do contrato no ERP
         // "active" = contrato vigente, "cancelled" = ex-cliente (cobranca rescisoria)
         status: (customer as any).contractStatus,
+        // Por que o contrato acabou, e quando. Ausente = o ERP nao disse, e o
+        // upsert preserva o que ja estava gravado.
+        motivoCorte: (customer as any).motivoCorte,
+        cortadoEm: dataDoErp((customer as any).cortadoEm),
         contractPlan: (customer as any).contractPlan,
         erpSource,
       });

@@ -34,6 +34,7 @@ import type {
 } from "../types.js";
 import { CircuitBreaker, withResilience } from "../resilience.js";
 import { cleanCpfCnpj, cleanPhone, diasDesdeVencimento, aggregateByCustomer } from "../normalize.js";
+import { corteFinanceiro } from "@shared/motivo-corte";
 
 /** Teto documentado de `limit` em /api/ura/titulos/. Pedir mais nao traz mais. */
 const LIMITE_TITULOS = 250;
@@ -565,11 +566,19 @@ export class SgpConnector implements ErpConnector {
   ): Promise<Map<string, {
     contractStatus: NormalizedErpCustomer["contractStatus"];
     contractStartDate?: string;
+    /** Texto CRU do `motivo_status` do contrato. Ver shared/motivo-corte.ts. */
+    motivoCorte?: string;
+    /** `data_status`: quando o contrato passou a este status. */
+    cortadoEm?: string;
     dados: Partial<NormalizedErpCustomer>;
   }>> {
     const mapa = new Map<string, {
       contractStatus: NormalizedErpCustomer["contractStatus"];
       contractStartDate?: string;
+      /** Texto CRU do `motivo_status` do contrato. Ver shared/motivo-corte.ts. */
+      motivoCorte?: string;
+      /** `data_status`: quando o contrato passou a este status. */
+      cortadoEm?: string;
       dados: Partial<NormalizedErpCustomer>;
     }>();
 
@@ -597,6 +606,21 @@ export class SgpConnector implements ErpConnector {
       const registro = {
         contractStatus: status,
         contractStartDate: texto(c?.data_cadastro),
+        /**
+         * POR QUE o contrato acabou, e QUANDO.
+         *
+         * Estes dois campos ja vinham nesta mesma resposta e eram descartados.
+         * Medido na Amplinet em 04/09/2026: 214 contratos cancelados por motivo
+         * administrativo (o cliente pediu para sair) contra 66 por financeiro
+         * (o provedor cortou por falta de pagamento) — e na nossa base os dois
+         * grupos ficavam identicos, porque so guardavamos "cancelled".
+         *
+         * O texto vai CRU. A traducao para as duas familias mora em
+         * shared/motivo-corte.ts, e um conector nao e lugar de decidir o que
+         * "Financeiro - SPC" significa para o score.
+         */
+        motivoCorte: texto(c?.motivo_status),
+        cortadoEm: texto(c?.data_status),
         dados: {
           name: texto(c?.nome),
           email: texto(c?.email),
@@ -618,7 +642,26 @@ export class SgpConnector implements ErpConnector {
       // contrato dele esta vigente, ele e cliente do provedor — e essa e a
       // condicao que o anti-fraude testa.
       if (!anterior || (anterior.contractStatus !== "active" && registro.contractStatus === "active")) {
-        mapa.set(cpfCnpj, registro);
+        /**
+         * O MOTIVO segue a regra OPOSTA a do status, de proposito.
+         *
+         * O status vigente vence porque a pergunta e "ele e cliente hoje?". O
+         * motivo do corte vence pelo PIOR, porque a pergunta e outra: "ja houve
+         * calote?". Um cliente com um contrato encerrado a pedido e outro
+         * cortado por falta de pagamento TEM historico de inadimplencia, e
+         * deixar o administrativo sobrescrever apagaria justamente o que o
+         * bureau existe para lembrar.
+         *
+         * Por isso o registro que entra no mapa herda o motivo financeiro que
+         * ja estava la, em vez de perde-lo.
+         */
+        const financeiroAnterior = corteFinanceiro(anterior?.motivoCorte);
+        mapa.set(cpfCnpj, financeiroAnterior && !corteFinanceiro(registro.motivoCorte)
+          ? { ...registro, motivoCorte: anterior!.motivoCorte, cortadoEm: anterior!.cortadoEm }
+          : registro);
+      } else if (corteFinanceiro(registro.motivoCorte) && !corteFinanceiro(anterior.motivoCorte)) {
+        // O contrato perdedor traz a prova de calote que o vencedor nao tem.
+        mapa.set(cpfCnpj, { ...anterior, motivoCorte: registro.motivoCorte, cortadoEm: registro.cortadoEm });
       }
     }
 
@@ -667,6 +710,10 @@ export class SgpConnector implements ErpConnector {
         if (!info) continue;
         c.contractStatus = info.contractStatus;
         c.contractStartDate = info.contractStartDate;
+        // Por que o contrato acabou, e quando. Sem isto, quem pediu para sair
+        // fica indistinguivel de quem foi cortado por falta de pagamento.
+        c.motivoCorte = info.motivoCorte;
+        c.cortadoEm = info.cortadoEm;
         for (const [k, v] of Object.entries(info.dados)) {
           if (v && !(c as any)[k]) (c as any)[k] = v;
         }

@@ -206,6 +206,16 @@ export class CustomersStorage {
      * marcados como ativos na NsLink.
      */
     status?: "active" | "cancelled" | "suspended";
+    /**
+     * POR QUE o contrato acabou, no texto cru do ERP.
+     *
+     * `status` diz que acabou; isto diz se foi calote ou pedido do cliente — e
+     * num bureau de credito e a diferenca que importa. Ausente significa "o ERP
+     * nao disse", e o upsert nunca apaga o que ja esta gravado por causa disso.
+     */
+    motivoCorte?: string;
+    /** Quando o contrato passou ao status atual. */
+    cortadoEm?: Date;
     /** Plano do contrato ativo (ex "Combo 800MB + Deezer"). Opcional — armazenado em campo flexivel. */
     contractPlan?: string;
     erpSource: string;
@@ -323,6 +333,22 @@ export class CustomersStorage {
        */
       if (data.status) updateFields.status = data.status;
 
+      /**
+       * O MOTIVO DO CORTE segue a mesma regra do status, e pela mesma razao.
+       *
+       * Escrito quando o conector INFORMA; nunca apagado quando ele cala. Todo
+       * ERP que nao seja o SGP deixa o campo indefinido hoje, e um `|| null`
+       * aqui limparia o motivo em cada varredura de um provedor multi-ERP — o
+       * mesmo acidente que apagou endereco e coordenada e que este bloco inteiro
+       * existe para nao repetir.
+       *
+       * Nao ha caminho para "voltar a nao ter motivo": o ERP so muda o motivo,
+       * nunca o remove. Se um dia remover, quem apaga tem de ser uma acao
+       * explicita, e nao a ausencia de leitura.
+       */
+      if (data.motivoCorte) updateFields.motivoCorte = data.motivoCorte;
+      if (data.cortadoEm) updateFields.cortadoEm = data.cortadoEm;
+
       if (!data.skipPaymentStatus) {
         updateFields.totalOverdueAmount = String(data.totalOverdueAmount);
         updateFields.maxDaysOverdue = data.maxDaysOverdue;
@@ -361,6 +387,10 @@ export class CustomersStorage {
         // Sem equipamento conhecido nao se inventa um: o agregado real e escrito
         // depois, quando o conector traz equipmentDetails.
         status: statusInicial,
+        // Sem `?? null` disfarcado: o ERP nao ter dito o motivo e um estado
+        // legitimo, e o nulo aqui e o mesmo nulo que a coluna ja teria.
+        motivoCorte: data.motivoCorte ?? null,
+        cortadoEm: data.cortadoEm ?? null,
         paymentStatus: data.totalOverdueAmount > 0 ? "overdue" : "current",
         riskTier,
         erpSource: data.erpSource,

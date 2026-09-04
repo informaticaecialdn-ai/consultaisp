@@ -28,6 +28,19 @@ export interface OcorrenciaRede {
   equipamentosDevolvidos?: boolean
   /** Valor em aberto (R$). O motor antigo ignorava — dever R$ 100 ou R$ 10.000 pontuava igual. */
   valorAtraso?: number
+  /**
+   * O provedor desligou este cliente por falta de pagamento?
+   *
+   * Vem do motivo que o ERP registrou no contrato, e nao de deducao nossa. Ver
+   * `shared/motivo-corte.ts` e a nota de `DEDUCAO_CORTE_FINANCEIRO_RECENTE`.
+   *
+   * `undefined` significa "o ERP nao disse" e NAO pontua — a maioria dos
+   * conectores ainda nao le esse campo, e tratar silencio como inocencia ou
+   * como culpa seria inventar dado nos dois sentidos.
+   */
+  corteFinanceiro?: boolean
+  /** Ha quantos meses o contrato foi cortado. Sem isso, o corte pesa como recente. */
+  cortadoHaMeses?: number
 }
 
 export interface ISPScoreInput {
@@ -131,6 +144,37 @@ const CAP_CREDORES_EXTRAS = -120
 
 /** Ja atrasou no passado, hoje em dia: historico conta, mas pouco. */
 const DEDUCAO_ATRASO_PASSADO = -30
+
+/**
+ * O PROVEDOR CORTOU O SERVICO POR FALTA DE PAGAMENTO.
+ *
+ * Nao e inferencia nossa: e o motivo que o proprio ERP do provedor registrou
+ * ("Financeiro", contra "Administrativo" de quem pediu para sair). Medido no
+ * SGP da Amplinet em 04/09/2026: 222 clientes suspensos e 66 cancelados por
+ * motivo financeiro, contra 206 cancelados a pedido — e ate aqui os dois grupos
+ * chegavam ao bureau identicos, porque so guardavamos "cancelado".
+ *
+ * ONDE ISSO CABE ENTRE AS PENALIDADES QUE JA EXISTEM, que e a pergunta que
+ * importa:
+ *
+ * · Mais que `DEDUCAO_ATRASO_PASSADO` (-30), que e "atrasou e pagou". Atrasar e
+ *   normal; ser DESLIGADO por nao pagar e o provedor declarando que desistiu de
+ *   receber. Sao fatos de gravidade diferente.
+ * · Menos que `DEDUCAO_EQUIPAMENTO` (-150), que soma prejuizo de equipamento ao
+ *   calote, e menos que `DEDUCAO_ENDERECO_FRAUDE` (-250), que e padrao de
+ *   fraude. Corte por dinheiro e inadimplencia grave, nao fraude.
+ * · Perto de `DEDUCAO_CREDOR_EXTRA` (-60), que e "deve a mais de um provedor" —
+ *   o mesmo tipo de fato: alguem da rede ja se queimou com este CPF.
+ *
+ * Dai -80 quando o corte e recente e -50 quando e antigo. O tempo importa:
+ * 258 dos contratos cortados da Amplinet estao assim ha mais de dois anos, e um
+ * corte de 2019 diz menos sobre a pessoa de hoje que um de tres meses atras.
+ * Nao zera nunca — num bureau, calote antigo nao prescreve; so pesa menos.
+ */
+const DEDUCAO_CORTE_FINANCEIRO_RECENTE = -80
+const DEDUCAO_CORTE_FINANCEIRO_ANTIGO = -50
+/** A partir de quantos meses o corte conta como antigo. */
+const MESES_CORTE_ANTIGO = 24
 
 const DEDUCAO_EQUIPAMENTO = -150
 const CAP_EQUIPAMENTOS = -250
@@ -254,6 +298,37 @@ export function calcularScoreISP(input: ISPScoreInput): ISPScoreResult {
       pontos: DEDUCAO_ATRASO_PASSADO,
       motivo: `Histórico de ${oc.faturasAtraso} fatura(s) atrasada(s), hoje em dia`,
     })
+  }
+
+  // ── Deducoes: desligado por falta de pagamento ────────────────────────────
+  //
+  // Conta uma vez por PROVEDOR que cortou, e nao por contrato: dois contratos
+  // cortados no mesmo provedor sao um episodio, e cobrar duas vezes por ele
+  // inflaria o risco de quem so tinha dois servicos na mesma casa.
+  const cortados = ocorrencias.filter(oc => oc.corteFinanceiro === true)
+  if (cortados.length > 0) {
+    // O mais RECENTE manda: se alguem foi cortado ha tres meses, o corte de
+    // 2019 no mesmo CPF nao torna o caso mais brando.
+    const mesesMaisRecente = Math.min(
+      ...cortados.map(oc => oc.cortadoHaMeses ?? 0),
+    )
+    const recente = mesesMaisRecente < MESES_CORTE_ANTIGO
+    const porProvedor = recente ? DEDUCAO_CORTE_FINANCEIRO_RECENTE : DEDUCAO_CORTE_FINANCEIRO_ANTIGO
+    const quando = recente
+      ? `há ${mesesMaisRecente} ${mesesMaisRecente === 1 ? "mês" : "meses"}`
+      : `há mais de ${Math.floor(MESES_CORTE_ANTIGO / 12)} anos`
+
+    deducoes.push({
+      pontos: porProvedor * cortados.length,
+      motivo: cortados.length === 1
+        ? `Serviço cortado por falta de pagamento ${quando}`
+        : `Serviço cortado por falta de pagamento em ${cortados.length} provedores`,
+      detalhe: 'O motivo do desligamento é o que o ERP do provedor registrou, não uma dedução nossa.',
+    })
+    alertas.push(cortados.length === 1
+      ? 'Desligado por inadimplencia em um provedor da rede'
+      : `Desligado por inadimplencia em ${cortados.length} provedores da rede`)
+    condicoesSugeridas.push('Confirmar quitacao do debito anterior antes de instalar')
   }
 
   // ── Deducoes: equipamento ─────────────────────────────────────────────────
