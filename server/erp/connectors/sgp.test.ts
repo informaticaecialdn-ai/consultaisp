@@ -807,3 +807,84 @@ describe("SGP · cadastro sem contrato nao entra", () => {
     expect(r.customers[0].contractStatus).toBe("active");
   });
 });
+
+/**
+ * A COORDENADA QUE O SGP GUARDA EM DOIS LUGARES (04/09/2026).
+ *
+ * `/api/ura/clientes/` — a listagem que a varredura em lote usa — devolve
+ * `endereco.latitude` e `endereco.longitude` VAZIAS para boa parte da base,
+ * enquanto `/api/ura/consultacliente/` devolve `endereco_ll` preenchido para os
+ * MESMOS clientes. Medido na Amplinet: entre os que continuavam fora do mapa,
+ * 9 de 25 tinham a coordenada esperando na ficha.
+ *
+ * Isso importa porque a alternativa era adivinhar: dos 145 enderecos pendentes
+ * daquele provedor, so 21 existiam na base do IBGE — o resto e viela, estrada e
+ * chacara que o censo nao nomeia igual. A coordenada do ERP e o ponto da
+ * instalacao, e nao um palpite sobre o nome da rua.
+ */
+describe("SGP · coordenada por CPF", () => {
+  const contratoComLL = (ll: unknown) => contrato(CPF_A, { endereco_ll: ll });
+
+  it("le endereco_ll da ficha do cliente", async () => {
+    const { conector, chamadas } = montar({
+      "/api/ura/consultacliente/": () => ({
+        corpo: { msg: "Contrato(s) Localizado(s)", contratos: [contratoComLL("-23.7796835,-46.7960182")] },
+      }),
+    });
+
+    const r = await conector.fetchCoordenadaPorCpf!(CONFIG, "041.179.829-40");
+
+    expect(r).toEqual({ latitude: "-23.7796835", longitude: "-46.7960182" });
+    // Uma requisicao, ja com o documento limpo — nunca baixar a base para achar um.
+    expect(chamadas).toHaveLength(1);
+    expect(chamadas[0].params.get("cpfcnpj")).toBe(CPF_A);
+  });
+
+  it("com varios contratos, vale o primeiro que TEM coordenada", async () => {
+    // Um cliente pode ter a instalacao georreferenciada em so um dos contratos;
+    // desistir no primeiro vazio perderia o dado que existe.
+    const { conector } = montar({
+      "/api/ura/consultacliente/": () => ({
+        corpo: { contratos: [contratoComLL(""), contratoComLL(null), contratoComLL("-23.5,-46.6")] },
+      }),
+    });
+
+    expect(await conector.fetchCoordenadaPorCpf!(CONFIG, CPF_A))
+      .toEqual({ latitude: "-23.5", longitude: "-46.6" });
+  });
+
+  it("sem coordenada devolve null — e resposta, nao erro", async () => {
+    const { conector } = montar({
+      "/api/ura/consultacliente/": () => ({ corpo: { contratos: [contratoComLL("")] } }),
+    });
+
+    expect(await conector.fetchCoordenadaPorCpf!(CONFIG, CPF_A)).toBeNull();
+  });
+
+  it("0,0 nao e coordenada", async () => {
+    // A ilha nula no golfo da Guine e o valor que o ERP grava quando o campo
+    // existe e ninguem preencheu.
+    const { conector } = montar({
+      "/api/ura/consultacliente/": () => ({ corpo: { contratos: [contratoComLL("0,0")] } }),
+    });
+
+    expect(await conector.fetchCoordenadaPorCpf!(CONFIG, CPF_A)).toBeNull();
+  });
+
+  it("SGP fora do ar devolve null sem lancar — quem chama segue para a rede", async () => {
+    const { conector } = montar({
+      "/api/ura/consultacliente/": () => ({ status: 500, corpo: {} }),
+    });
+
+    await expect(conector.fetchCoordenadaPorCpf!(CONFIG, CPF_A)).resolves.toBeNull();
+  });
+
+  it("documento invalido nao gasta requisicao", async () => {
+    const { conector, chamadas } = montar({
+      "/api/ura/consultacliente/": () => ({ corpo: { contratos: [contratoComLL("-23.5,-46.6")] } }),
+    });
+
+    expect(await conector.fetchCoordenadaPorCpf!(CONFIG, "abc")).toBeNull();
+    expect(chamadas).toHaveLength(0);
+  });
+});

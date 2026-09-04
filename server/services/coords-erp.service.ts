@@ -135,9 +135,89 @@ async function puxarDoProvedor(providerId: number): Promise<{ comCoordenada: num
       // LGPD: só contagem e origem no log, nunca nome ou documento.
       logger.warn({ err, providerId, erp: intg.erpSource }, "Coordenadas do ERP: varredura falhou");
     }
+
+    // Segunda pescaria, um a um, só em quem continuou sem ponto.
+    atualizados += await puxarUmAUm(providerId, intg, connector);
   }
 
   return { comCoordenada, atualizados };
+}
+
+/**
+ * Quantos clientes por provedor a busca um-a-um tenta numa passada.
+ *
+ * É uma requisição ao ERP por cliente. O teto existe para a passada terminar em
+ * tempo previsível e para não martelar o ERP do provedor: o que sobrar entra na
+ * próxima, e a lista só encolhe, porque quem for encontrado sai dela.
+ */
+const TETO_UM_A_UM = 300;
+
+/**
+ * A coordenada que a listagem em lote não trouxe, pedida cliente a cliente.
+ *
+ * O ERP guarda a mesma informação em dois lugares e nem sempre nos dois. Medido
+ * no SGP da Amplinet em 04/09/2026: `/api/ura/clientes/` — a listagem que a
+ * varredura acima usa — devolve latitude e longitude VAZIAS para boa parte da
+ * base, enquanto a ficha do cliente traz `endereco_ll` preenchido. Entre os que
+ * continuavam fora do mapa, 9 de 25 tinham a coordenada esperando ali.
+ *
+ * Vale a pena porque a alternativa é pior: dos 145 endereços pendentes daquele
+ * provedor, só 21 existiam na base de endereços do IBGE — o resto é viela,
+ * estrada e chácara que o censo não nomeia igual, e sobrava adivinhar pela rede.
+ * A coordenada do ERP é o ponto da instalação.
+ *
+ * Só roda para conector que implementa `fetchCoordenadaPorCpf`; para os outros
+ * o método não existe e a fase termina como antes.
+ */
+async function puxarUmAUm(
+  providerId: number,
+  intg: { erpSource: string; [k: string]: any },
+  connector: { fetchCoordenadaPorCpf?: Function; label?: string },
+): Promise<number> {
+  if (!connector.fetchCoordenadaPorCpf) return 0;
+
+  const pendentes = await db
+    .select({ id: customers.id, cpfCnpj: customers.cpfCnpj, city: customers.city, state: customers.state })
+    .from(customers)
+    .where(and(eq(customers.providerId, providerId), SEM_COORDENADA))
+    .limit(TETO_UM_A_UM);
+  if (pendentes.length === 0) return 0;
+
+  const config = buildConnectorConfig(intg as any);
+  const limiter = getProviderLimiter(providerId, intg.erpSource);
+  let gravados = 0, semCoordenadaNoErp = 0, recusadas = 0;
+
+  for (const p of pendentes) {
+    if (!p.cpfCnpj) continue;
+    let achado: { latitude: string; longitude: string } | null = null;
+    try {
+      achado = await limiter(() => connector.fetchCoordenadaPorCpf!(config, p.cpfCnpj!));
+    } catch {
+      // Uma ficha que falha não derruba a passada nem as outras.
+      continue;
+    }
+    if (!achado) { semCoordenadaNoErp++; continue; }
+
+    // A MESMA régua da varredura em lote: coordenada que não combina com a
+    // cidade declarada não entra. Vir da ficha em vez da listagem não a torna
+    // mais confiável — o ERP erra coordenada dos dois lados.
+    const coord = await coordenadaDoErpCoerente(achado.latitude, achado.longitude, p.city, p.state);
+    if (!coord) { recusadas++; continue; }
+
+    const r = await db.update(customers)
+      .set({ latitude: String(coord.lat), longitude: String(coord.lng), geoPrecisao: "erp" })
+      .where(and(eq(customers.id, p.id), SEM_COORDENADA))
+      .returning({ id: customers.id });
+    gravados += r.length;
+  }
+
+  if (gravados > 0 || recusadas > 0) {
+    logger.info(
+      { providerId, erp: intg.erpSource, tentados: pendentes.length, gravados, semCoordenadaNoErp, recusadas },
+      "Coordenadas do ERP, ficha a ficha",
+    );
+  }
+  return gravados;
 }
 
 /**

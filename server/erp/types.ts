@@ -233,6 +233,29 @@ export interface ErpConnector {
   /** Fetch a single customer by CPF/CNPJ with overdue data already aggregated (optional) */
   fetchCustomerByCpf?(config: ErpConnectionConfig, cpfCnpj: string): Promise<ErpFetchResult>;
 
+  /**
+   * A coordenada da INSTALACAO de um cliente, quando o ERP so a entrega um a um.
+   *
+   * Existe porque a listagem em lote e a ficha do cliente nem sempre carregam a
+   * mesma coisa. Medido no SGP da Amplinet em 04/09/2026: `/api/ura/clientes/`
+   * devolve `latitude`/`longitude` VAZIAS para boa parte da base, e
+   * `/api/ura/consultacliente/` devolve `endereco_ll` preenchido para os MESMOS
+   * clientes — 9 de 25 dos que estavam fora do mapa tinham a coordenada
+   * esperando ali. Sem este metodo eles iam para a geocodificacao por nome de
+   * rua, que e adivinhacao, quando o ponto da instalacao existia.
+   *
+   * Fica FORA de `fetchCustomers` de proposito: e uma requisicao por cliente, e
+   * a varredura em lote (usada tambem pelo mapa de calor e pela consulta ao
+   * vivo) nao pode pagar esse preco. Quem chama e a fase de coordenadas, que
+   * pergunta so por quem continua sem ponto.
+   *
+   * Devolve null quando o ERP nao tem a coordenada — o que e resposta, nao erro.
+   */
+  fetchCoordenadaPorCpf?(
+    config: ErpConnectionConfig,
+    cpfCnpj: string,
+  ): Promise<{ latitude: string; longitude: string } | null>;
+
   /** Fetch customers by CEP prefix with overdue data aggregated (optional) */
   fetchCustomersByCep?(config: ErpConnectionConfig, cep: string): Promise<ErpFetchResult>;
 

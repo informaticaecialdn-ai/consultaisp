@@ -779,6 +779,56 @@ export class SgpConnector implements ErpConnector {
     }
   }
 
+  /**
+   * A coordenada da instalacao, na ficha do cliente.
+   *
+   * O SGP guarda a mesma informacao em dois lugares e nao os mantem iguais:
+   * `/api/ura/clientes/` traz `endereco.latitude` e `endereco.longitude`, e
+   * `/api/ura/consultacliente/` traz `endereco_ll` ("lat,lng") por contrato.
+   * Medido na Amplinet em 04/09/2026: no lote de 100 cadastros, 64 tinham
+   * latitude e 60 longitude — e entre os clientes que continuavam FORA DO MAPA,
+   * 9 de 25 tinham `endereco_ll` preenchido aqui, com a listagem em lote vazia.
+   *
+   * Sao ~36% dos que a plotagem estava tentando adivinhar pelo nome da rua. E
+   * adivinhar era mesmo o caso: dos 145 enderecos pendentes, so 21 existiam na
+   * base do IBGE — o resto e viela, estrada e chacara que o censo nao nomeia
+   * igual. A coordenada do ERP e o ponto da instalacao, nao um palpite.
+   *
+   * Uma requisicao por cliente. Fica fora de `fetchCustomers` por isso — ver a
+   * nota em `ErpConnector.fetchCoordenadaPorCpf`.
+   */
+  async fetchCoordenadaPorCpf(
+    config: ErpConnectionConfig,
+    cpfCnpj: string,
+  ): Promise<{ latitude: string; longitude: string } | null> {
+    const doc = cleanCpfCnpj(cpfCnpj);
+    if (!doc) return null;
+    try {
+      const response = await this.post(
+        config, "/api/ura/consultacliente/", { cpfcnpj: doc },
+        { timeoutMs: 15000, retries: 1 },
+      );
+      if (!response.ok) return null;
+
+      const json = await this.lerJson(response);
+      const contratos = (json as any)?.contratos;
+      if (!Array.isArray(contratos)) return null;
+
+      // O primeiro contrato que TIVER coordenada. Um cliente com mais de um
+      // contrato pode ter a instalacao georreferenciada em so um deles, e
+      // desistir no primeiro vazio perderia o dado que existe.
+      for (const ct of contratos) {
+        const c = coordenadas(ct?.endereco_ll);
+        if (c.latitude && c.longitude) return { latitude: c.latitude, longitude: c.longitude };
+      }
+      return null;
+    } catch {
+      // Falha aqui nao e defeito: quem chama segue para a geocodificacao, que e
+      // o que acontecia antes deste metodo existir.
+      return null;
+    }
+  }
+
   async fetchCustomers(config: ErpConnectionConfig): Promise<ErpFetchResult> {
     try {
       const customers: NormalizedErpCustomer[] = [];
