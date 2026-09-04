@@ -34,8 +34,26 @@ export interface AreaAtendida {
  */
 export function normalizarCidade(nome: string | null | undefined): string {
   return (nome || "")
-    .replace(/\s*-\s*[A-Za-z]{2}\s*$/, "")        // sufixo " - PR"
+    .replace(/\s*-\s*[A-Za-z]{2}\s*$/, "")        // sufixo " - PR" — ANTES de mexer no hifen
     .normalize("NFD").replace(/[̀-ͯ]/g, "") // acentos
+    /**
+     * Hifen e espaco repetido viram UM espaco.
+     *
+     * "Embu-Guacu" e "Embu Guacu" sao a mesma cidade escrita de dois jeitos, e
+     * cada base escolhe um: o CNEFE do IBGE grava EMBU GUACU, o cadastro do ERP
+     * do provedor grava EMBU-GUAÇU, e o operador digita EMBU  GUAÇU. Sem esta
+     * linha as tres sao chaves diferentes e nenhuma acha a outra.
+     *
+     * Medido na Amplinet em 04/09/2026: dos 179 clientes fora do mapa, 80
+     * estavam bloqueados SO por isto — a base de enderecos da cidade estava
+     * carregada, com 20.651 pontos, e o casador nao chegava nela por causa de
+     * um traco. A tela dizia "carteira sem geocodificacao", que o provedor leu
+     * como "o sistema nao plota".
+     *
+     * A ordem importa: o sufixo de UF e removido ANTES, senao " - PR" viraria
+     * " pr" e a regex do sufixo nao casaria mais.
+     */
+    .replace(/[-_\s]+/g, " ")
     .trim()
     .toLowerCase();
 }
