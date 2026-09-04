@@ -592,9 +592,24 @@ export default function LocalizacaoPage() {
               </>
             ) : (
               <>
+                {/**
+                 * A frase NAO promete que a fila zera, e a mudanca tem numero.
+                 *
+                 * Medido na Amplinet em 04/09/2026, nos 86 que sobraram: 84%
+                 * tem rua que nao existe no censo de endereços do IBGE, e o
+                 * geocodificador de rede resolveu 1 de 40 numa amostra. Sao
+                 * vielas, estradas e chacaras que as bases publicas nao nomeiam.
+                 *
+                 * A versao anterior dizia "clientes esperam plotagem. A
+                 * varredura roda sozinha a cada 6 horas", que le como "e so
+                 * aguardar". O provedor aguardava, o numero nao mexia, e ele
+                 * concluia que o sistema estava quebrado — foi exatamente essa
+                 * leitura que abriu esta investigacao.
+                 */}
                 <span className="font-mono tabular-nums">{naFila}</span>{" "}
-                {naFila === 1 ? "cliente espera" : "clientes esperam"} plotagem. A varredura roda sozinha a cada
-                6 horas.
+                {naFila === 1 ? "cliente segue" : "clientes seguem"} fora do mapa. A varredura tenta de novo a
+                cada 6 horas, mas endereço que nenhuma base pública conhece — viela, estrada, chácara — pode não
+                entrar por aí: nesses casos, a coordenada precisa vir do seu ERP.
                 {foraDaFila > 0 && (foraDaFila === 1
                   ? <> Outro cliente não tem cidade nem CEP no cadastro.</>
                   : <> Outros <span className="font-mono tabular-nums">{foraDaFila}</span> não têm cidade nem CEP no cadastro.</>
