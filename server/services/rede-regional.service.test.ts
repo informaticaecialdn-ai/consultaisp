@@ -91,6 +91,23 @@ describe("agregarRede — onde a bolha do bairro fica", () => {
     for (const p of r.pontos) expect(Math.abs(p.lat + 23.41)).toBeLessThan(0.02);
   });
 
+  /* DECISÃO EXPLÍCITA, 04/09/2026. O ponto de procedência `vizinho` é a mediana
+     de instalações da MESMA carteira que este mapa agrega. Deixá-lo entrar aqui
+     seria contá-lo como endereço apurado, e o mapa entre provedores afirmaria a
+     casa exatamente onde o mapa do dono diz que não sabe. Ele conta na bolha do
+     bairro e em `semPonto` — que é o lugar honesto dele. */
+  it("o ponto tirado da própria carteira não vira ponto nem âncora da rede", () => {
+    const linhas = [
+      linha({ neighborhood: "Chácara Fora do Censo", geoPrecisao: "vizinho", latitude: -23.40, longitude: -51.20 }),
+      linha({ neighborhood: "Chácara Fora do Censo", geoPrecisao: "vizinho", latitude: -23.41, longitude: -51.21 }),
+      linha({ neighborhood: "Chácara Fora do Censo", geoPrecisao: "vizinho", latitude: -23.42, longitude: -51.22 }),
+    ];
+    const r = agregarRede(linhas, ["Londrina"], centroides);
+    expect(r.bairros[0]).toMatchObject({ ocorrencias: 3, lat: null, lon: null });
+    expect(r.pontos).toHaveLength(0);
+    expect(r.semPonto).toBe(3);
+  });
+
   it("sem IBGE e sem coordenada confiável, o bairro conta mas não tem posição", () => {
     const linhas = Array.from({ length: 3 }, () => linha({ neighborhood: "Chácara Fora do Censo" }));
     const r = agregarRede(linhas, ["Londrina"], centroides);

@@ -13,6 +13,10 @@
  * Não depende de ERP nenhum: usa o que o cadastro já tem. Um sync futuro
  * sobrescreve com coordenada melhor se tiver.
  *
+ * A CASCATA DE FONTES — censo do IBGE em precisão de casa ou rua, vizinho de
+ * rua da própria carteira, censo em precisão de bairro, e por último a rede —
+ * está argumentada em `plotarCliente`, que é onde ela é decidida.
+ *
  * ── Três decisões que a primeira versão errou ──────────────────────────────
  *
  * 1. **Não existe marcador de "desisti".** A v1 gravava (0,0) no cliente que o
@@ -44,11 +48,38 @@ import {
 } from "./geocoding";
 import { puxarCoordenadasDoErp } from "./coords-erp.service";
 import { abrirGeocodificadorLocal, type GeocodificadorLocal } from "./geocode-local.service";
+import {
+  abrirIndiceDaCarteira, avaliarVizinho,
+  type IndiceDaCarteira, type MotivoRecusa,
+} from "./vizinho-de-rua.service";
 import { chaveLogradouro } from "./logradouro";
 import { logger } from "../logger";
 import type { GeoPrecisao } from "@shared/geo-precisao";
 
 const LOTE = 200;
+
+/**
+ * Ruído somado à coordenada antes de gravar: amplitude de 0,002° por eixo, ou
+ * ±0,001° (~±110 m) depois do sorteio.
+ *
+ * LGPD — o ponto plotado nunca é a porta exata. Recebe o ruído a fonte cujo
+ * ponto NASCEU de gente: o geocodificador de rede, que devolve a casa, e o
+ * vizinho de rua, cuja mediana é calculada sobre as instalações de CLIENTES
+ * REAIS. Sem ele, o cliente B ficaria num ponto derivado dos telhados do A e do
+ * C, e todos os clientes da mesma rua cairiam no mesmo pixel.
+ *
+ * A base local do IBGE continua gravando CRU — comportamento que já existia e
+ * que este arquivo não muda: o ponto dela é um endereço do censo, escolhido de
+ * forma estável e já espalhado sobre a rua ou o bairro (ver
+ * `geocode-local.service`).
+ *
+ * O orçamento da guarda do vizinho já conta com este ruído: teto de 300 m para
+ * o trecho que CERCA o cliente ⇒ a mediana dos cercadores fica a ≤150 m dele,
+ * +110 m daqui ⇒ pior caso ~260 m, ainda a quadra certa da rua certa. Sem
+ * cerco, o teto do trecho cai para 150 m e o pior caso é o mesmo.
+ */
+const JITTER_GRAUS = 0.002;
+
 /** Falhas de rede seguidas que caracterizam geocoder fora do ar. */
 const LIMITE_FALHAS_DE_REDE = 8;
 /** Teto de tempo por passada: o job é de fundo, não pode monopolizar o worker. */
@@ -60,6 +91,21 @@ export interface BackfillStatus {
   total: number;
   processados: number;
   plotados: number;
+  /**
+   * Quantos dos `plotados` só entraram no mapa pelo vizinho de rua da própria
+   * carteira. É o subconjunto que nenhuma base pública resolveria — na Amplinet,
+   * 84% dos clientes fora do mapa moram numa rua que o censo não nomeia.
+   */
+  plotadosPorVizinho: number;
+  /**
+   * Por que o vizinho de rua NÃO resolveu, por motivo.
+   *
+   * A guarda de `avaliarVizinho` troca cobertura por certeza — exigir cerco por
+   * número recusa cliente que a versão sem guarda plotava. Quanto custa cada
+   * regra não é opinião: sai daqui, numa passada, e o dono decide com número na
+   * mão se afrouxa alguma.
+   */
+  recusasDoVizinho: Record<MotivoRecusa, number>;
   semDadosDeEndereco: number;
   /** Não resolvidos porque o geocoder não respondeu — voltam na próxima volta. */
   adiadosPorIndisponibilidade: number;
@@ -70,11 +116,22 @@ export interface BackfillStatus {
   terminadoEm: string | null;
 }
 
+const zerarRecusas = (): Record<MotivoRecusa, number> => ({
+  "sem-chave": 0,
+  "rua-desconhecida": 0,
+  "fora-do-cerco": 0,
+  "cerco-largo": 0,
+  "coordenada-repetida": 0,
+  "amostra-fraca": 0,
+});
+
 const status: BackfillStatus = {
   emAndamento: false,
   total: 0,
   processados: 0,
   plotados: 0,
+  plotadosPorVizinho: 0,
+  recusasDoVizinho: zerarRecusas(),
   semDadosDeEndereco: 0,
   adiadosPorIndisponibilidade: 0,
   geocoderIndisponivel: false,
@@ -85,7 +142,10 @@ const status: BackfillStatus = {
 };
 
 export function getBackfillStatus(): BackfillStatus {
-  return { ...status };
+  // Cópia do contador também: `{...status}` levaria a MESMA referência do
+  // objeto de recusas, e quem guardasse o status veria os números mudarem
+  // debaixo dele enquanto a passada continua.
+  return { ...status, recusasDoVizinho: { ...status.recusasDoVizinho } };
 }
 
 /**
@@ -116,11 +176,29 @@ async function buscarPendentes(cursor: number, limite: number, providerId: numbe
   return db
     .select({
       id: customers.id,
+      // A etapa geral varre a base inteira, com clientes de vários provedores
+      // intercalados por id. O índice de logradouros é POR CARTEIRA — usar o do
+      // provedor errado seria plotar um cliente sobre a instalação de cliente
+      // alheio —, então cada linha precisa dizer de quem ela é.
+      providerId: customers.providerId,
       address: customers.address,
       addressNumber: customers.addressNumber,
       city: customers.city,
+      // A UF entra na chave do índice de logradouros: sem ela, "Bom Jesus - PR"
+      // e "Bom Jesus - SC" seriam a mesma rua, e o Brasil tem centenas de
+      // municípios homônimos em estados diferentes.
       state: customers.state,
       cep: customers.cep,
+      // `neighborhood` NÃO entra, e é uma ausência DECIDIDA, não um esquecimento
+      // (04/09/2026). `local.resolver` lê esse campo para chegar à precisão de
+      // BAIRRO, então, sem ele, o passo 3 da cascata de `plotarCliente` nunca
+      // dispara nesta fila — só na fase C, que seleciona a coluna. Acrescentá-lo
+      // passaria a plotar em precisão de bairro gente que hoje fica fora do
+      // mapa: é aproximação declarada (translúcida, rotulada na legenda), mas
+      // muda o que a tela mostra para TODA carteira, sem medição de quantos
+      // seriam. É decisão do dono, com número na mão, e não efeito colateral de
+      // uma emenda no vizinho de rua. Para reabrir: acrescentar a coluna aqui e
+      // medir quantos passam a sair como `bairro`.
     })
     .from(customers)
     .where(and(
@@ -135,6 +213,8 @@ async function buscarPendentes(cursor: number, limite: number, providerId: numbe
 
 type Pendente = Awaited<ReturnType<typeof buscarPendentes>>[number];
 type Desfecho = "plotado" | "sem-endereco" | "indisponivel";
+/** Qual fonte da cascata resolveu — só para contar e registrar. */
+type FontePlotagem = "censo" | "vizinho" | "rede";
 
 const limpar = (v: string | null | undefined) => (v || "").trim();
 
@@ -166,6 +246,12 @@ const MIN_PARA_DESEMPILHAR = 12;
  *
  * Sobra suspeito o que é de fato suspeito: logradouros diferentes de verdade no
  * mesmo ponto, ou ninguém com logradouro nenhum.
+ *
+ * O VIZINHO DE RUA não briga com esta guarda, e por duas razões independentes:
+ * os clientes que ele plota estão todos na MESMA rua — `ruas.size === 1`, e a
+ * concentração ali é o comportamento esperado, igual ao prédio da Avenida
+ * Américo Deolindo Garla —, e cada ponto sai com o seu próprio ruído, então as
+ * coordenadas nem chegam a ser idênticas para o `GROUP BY` agrupar.
  */
 export function pilhaSuspeita(clientes: Array<{ address?: string | null }>): boolean {
   const ruas = new Set(
@@ -213,37 +299,122 @@ async function buscarEmpilhados(providerId: number | null, limite: number) {
     }));
 }
 
-/** Resolve e grava a coordenada de um cliente. Não decide nada sobre a
- *  varredura — quem lê o desfecho é o laço. */
-async function plotarCliente(
+/**
+ * Grava a coordenada resolvida. Uma porta só, para que a decisão de somar ou
+ * não o ruído seja por FONTE e esteja num lugar só.
+ *
+ * `SEM_COORDENADA` no WHERE, e não só o id: entre a leitura do lote e este
+ * UPDATE cabem os segundos que a resolução levou, e nesse intervalo um sync
+ * pode ter gravado a coordenada EXATA que o ERP tem do cliente. Escrever uma
+ * aproximação por cima dela seria trocar a casa pelo município. Se o UPDATE não
+ * pegou, é porque o cliente ganhou coordenada melhor no meio do caminho — o
+ * desfecho para ele continua sendo "plotado".
+ */
+async function gravarCoordenada(
+  id: number, lat: number, lon: number, precisao: string, comRuido: boolean,
+): Promise<void> {
+  const ruido = () => (comRuido ? (Math.random() - 0.5) * JITTER_GRAUS : 0);
+  await db.update(customers)
+    .set({
+      latitude: String(lat + ruido()),
+      longitude: String(lon + ruido()),
+      geoPrecisao: precisao,
+    })
+    .where(and(eq(customers.id, id), SEM_COORDENADA));
+}
+
+/**
+ * Resolve e grava a coordenada de um cliente. Não decide nada sobre a
+ * varredura — quem lê o desfecho é o laço.
+ *
+ * ── A ORDEM DAS FONTES, e o que cada uma entrega ──────────────────────────
+ * Medido na Amplinet (provedor 6) em 04/09/2026, já com a base do IBGE da
+ * região carregada (2,2 milhões de pontos) e a coordenada do ERP aplicada: 86
+ * clientes seguiam fora do mapa, e em 84% deles a rua NÃO EXISTE no censo. O
+ * geocodificador de rede resolveu 1 de 40 na amostra — 3%. São vielas, estradas
+ * e chácaras de área peri-urbana: o censo não as nomeia e o OpenStreetMap não
+ * as conhece. A fonte que sobra é a própria carteira — 25 dos 86 moram numa rua
+ * que já tem cliente plotado pela coordenada do ERP.
+ *
+ *   1. IBGE em precisão de CASA ou de RUA. É a geometria real do logradouro,
+ *      com o número quando ele bate. Nada supera isso, e não custa rede nem
+ *      quota: resolve na memória do processo.
+ *
+ *   2. VIZINHO DE RUA da própria carteira. Pontos REAIS de instalação na mesma
+ *      rua, sob a guarda de `avaliarVizinho`: ou o cliente está CERCADO por
+ *      número entre dois conhecidos (prova de posição, trecho até 300 m), ou a
+ *      rua tem quatro lugares distintos dentro de 150 m (evidência, com o teto
+ *      pela metade). Vem ANTES do bairro porque é uma ordem de grandeza melhor
+ *      (o bairro pode ter quilômetros), e ANTES da rede porque é dado nosso:
+ *      não paga chamada, não paga quota, e não depende de o OpenStreetMap
+ *      conhecer uma viela que ele não conhece. Vem DEPOIS da rua do censo
+ *      porque ali existe a geometria do logradouro e o número da casa; aqui o
+ *      que se afirma é o trecho da rua, não a porta.
+ *
+ *   3. IBGE em precisão de BAIRRO. Um endereço real do bairro — a APROXIMAÇÃO
+ *      declarada do sistema (`geoAproximada`), desenhada translúcida. Perde para
+ *      o vizinho exatamente por isso, e é a única posição que esta mudança
+ *      alterou na cascata que já existia.
+ *
+ *   4. A rede. Última porque custa chamada e quota e porque nesta carteira
+ *      resolve 3% — mas continua no fim, e não fora: é ela que conhece a rua que
+ *      o censo não casou, e é a única fonte para o cliente cuja cidade não tem
+ *      base carregada.
+ *
+ * A precisão "cidade" do censo segue descartada, como antes: um endereço
+ * qualquer do município não é a localização de ninguém.
+ */
+export async function plotarCliente(
   c: Pendente,
   local: GeocodificadorLocal | null,
-): Promise<{ desfecho: Desfecho; motivo?: string }> {
+  abrirIndice: (providerId: number) => Promise<IndiceDaCarteira | null>,
+): Promise<{
+  desfecho: Desfecho;
+  motivo?: string;
+  fonte?: FontePlotagem;
+  /**
+   * Por que o vizinho de rua não resolveu. Sobe até o laço para ser CONTADO:
+   * cada regra da guarda custa cobertura, e o custo de cada uma tem de ser
+   * medível numa passada em vez de discutido no escuro.
+   */
+  recusaDoVizinho?: MotivoRecusa;
+}> {
   const rua = [limpar(c.address), limpar(c.addressNumber)].filter(Boolean).join(", ");
   const cep = limpar(c.cep);
   let cidade = limpar(c.city);
   let uf = limpar(c.state);
 
-  // 1. Base local do IBGE. Sem rede, sem quota, e com a coordenada da própria
-  // casa quando o número bate. Só o que ela não resolver paga rede.
-  //
-  // Até o bairro. A precisão "cidade" — um endereço qualquer do município —
-  // não é a localização de ninguém: era o que espalhava clientes de rua não
-  // casada por toda a cidade, a quilômetros da casa. Quem cai nela segue para
-  // a rede, que pode conhecer a rua que o censo não casou.
-  if (local) {
-    const acerto = local.resolver(c);
-    if (acerto && acerto.precisao !== "cidade") {
-      await db.update(customers)
-        .set({ latitude: String(acerto.lat), longitude: String(acerto.lon), geoPrecisao: acerto.precisao })
-        .where(and(eq(customers.id, c.id), SEM_COORDENADA));
-      return { desfecho: "plotado" };
-    }
+  // O censo é consultado uma vez; a cascata só decide QUANDO aceitar cada
+  // precisão dele, e a resolução é síncrona e em memória.
+  const doCenso = local?.resolver(c) ?? null;
+
+  // 1. A casa ou a rua, pelo censo.
+  if (doCenso && (doCenso.precisao === "endereco" || doCenso.precisao === "logradouro")) {
+    await gravarCoordenada(c.id, doCenso.lat, doCenso.lon, doCenso.precisao, false);
+    return { desfecho: "plotado", fonte: "censo" };
   }
 
-  let coords: [number, number] | null = null;
-  let precisao: GeoPrecisao | null = null;
-  const jitter = 0.002;      // ±~100m — LGPD: o ponto nunca é a porta exata
+  // 2. O vizinho de rua. O índice é da carteira DESTE cliente — `abrirIndice`
+  // recebe o provedor dele e nunca devolve ponto de outro tenant.
+  const indice = await abrirIndice(c.providerId);
+  const vizinho = indice ? avaliarVizinho(c, indice) : null;
+  if (vizinho?.acerto) {
+    // Com ruído: a mediana foi calculada sobre instalações de clientes reais.
+    await gravarCoordenada(c.id, vizinho.acerto.lat, vizinho.acerto.lon, vizinho.acerto.precisao, true);
+    return { desfecho: "plotado", fonte: "vizinho" };
+  }
+  const recusaDoVizinho = vizinho?.motivo ?? undefined;
+
+  // 3. O bairro, pelo censo — aproximação declarada, e só depois do vizinho.
+  if (doCenso && doCenso.precisao === "bairro") {
+    await gravarCoordenada(c.id, doCenso.lat, doCenso.lon, doCenso.precisao, false);
+    return { desfecho: "plotado", fonte: "censo", recusaDoVizinho };
+  }
+
+  // Coordenada e precisão andam juntas de propósito: separadas, o compilador
+  // não sabia que a segunda existe sempre que a primeira existe, e a gravação
+  // precisaria de um valor de reserva — inventado.
+  let daRede: { coords: [number, number]; precisao: GeoPrecisao } | null = null;
   let indisponivel = false;
   let motivo: string | undefined;
 
@@ -266,36 +437,68 @@ async function plotarCliente(
   if ((rua || cep) && cidade) {
     const r = await geocodeAddressDetalhado(rua, cidade, uf, cep || undefined);
     if (r.coords) {
-      coords = r.coords;
       // O geocoder so devolve casa, rua ou CEP de rua aqui (ver POSICIONA).
-      precisao = r.precisao === "endereco" || r.precisao === "logradouro" || r.precisao === "cep" ? r.precisao : "logradouro";
+      const precisao: GeoPrecisao =
+        r.precisao === "endereco" || r.precisao === "logradouro" || r.precisao === "cep" ? r.precisao : "logradouro";
+      daRede = { coords: r.coords, precisao };
     }
     else if (r.falha === "indisponivel") { indisponivel = true; motivo = r.motivo; }
   }
 
-  if (coords) {
-    // `SEM_COORDENADA` no WHERE, e não só o id: entre a leitura do lote e este
-    // UPDATE cabem os segundos que a geocodificação levou, e nesse intervalo um
-    // sync pode ter gravado a coordenada EXATA que o ERP tem do cliente.
-    // Escrever por cima dela um centro de cidade com jitter de ±2km seria
-    // trocar a casa pelo município.
-    // Se o UPDATE não pegou, é porque o cliente já ganhou coordenada melhor no
-    // meio do caminho — o desfecho para ele continua sendo "plotado".
-    await db.update(customers)
-      .set({
-        latitude: String(coords[0] + (Math.random() - 0.5) * jitter),
-        longitude: String(coords[1] + (Math.random() - 0.5) * jitter),
-        geoPrecisao: precisao,
-      })
-      .where(and(eq(customers.id, c.id), SEM_COORDENADA));
-    return { desfecho: "plotado" };
+  if (daRede) {
+    // 4. Com ruído: o geocodificador devolve a casa.
+    await gravarCoordenada(c.id, daRede.coords[0], daRede.coords[1], daRede.precisao, true);
+    return { desfecho: "plotado", fonte: "rede", recusaDoVizinho };
   }
   // Geocoder fora do ar: o endereço não tem culpa, não grava nada e tenta
   // de novo depois. Respondeu e não conhece: nada a fazer até o provedor
   // corrigir o cadastro no ERP.
   return indisponivel
-    ? { desfecho: "indisponivel", motivo }
-    : { desfecho: "sem-endereco" };
+    ? { desfecho: "indisponivel", motivo, recusaDoVizinho }
+    : { desfecho: "sem-endereco", recusaDoVizinho };
+}
+
+/**
+ * Abertura do índice de logradouros da carteira — uma consulta por PROVEDOR na
+ * passada inteira.
+ *
+ * A varredura percorre a base toda (33 mil clientes) e a etapa geral intercala
+ * provedores por id, então "abrir uma vez por provedor" não pode ser um `if` no
+ * começo de um bloco: precisa ser memória. Este `Map` guarda o índice na
+ * primeira vez que um cliente daquele provedor chega ao passo do vizinho — e
+ * não abre nenhum para o provedor cujos clientes o censo já resolve, porque a
+ * cascata devolve antes.
+ *
+ * QUANDO ele é aberto importa: dentro do laço, e não junto do geocodificador
+ * local. Assim enxerga as coordenadas que a fase A acabou de trazer do ERP e
+ * NÃO enxerga as que a fase C apagou ao desfazer pilhas.
+ *
+ * ELE NÃO É ATUALIZADO conforme a passada grava, e a razão não é economia: nada
+ * do que se grava aqui poderia entrar nele. `PROCEDENCIAS_DO_INDICE` admite só
+ * `erp` — a coordenada crua da instalação — justamente porque todo ponto que
+ * sai da plotagem leva o ruído de ±110 m, e um índice construído sobre ruído
+ * mediria o nosso ruído em vez do comprimento da rua, rejeitando rua curta boa
+ * e aceitando rua longa ruim. A única fonte que qualificaria é o ERP, e a fase
+ * A já a gravou antes de o índice abrir. Não há o que acrescentar.
+ *
+ * Índice indisponível não derruba a plotagem: sem ele o cliente segue para a
+ * rede, exatamente como seguia antes desta fonte existir.
+ */
+export function aberturaDeIndices(): (providerId: number) => Promise<IndiceDaCarteira | null> {
+  const abertos = new Map<number, IndiceDaCarteira | null>();
+  return async (providerId: number) => {
+    const jaAberto = abertos.get(providerId);
+    if (jaAberto !== undefined) return jaAberto;
+
+    let indice: IndiceDaCarteira | null = null;
+    try {
+      indice = await abrirIndiceDaCarteira(providerId);
+    } catch (err) {
+      logger.warn({ err, providerId }, "Geocode backfill: índice de logradouros da carteira indisponível");
+    }
+    abertos.set(providerId, indice);
+    return indice;
+  };
 }
 
 /**
@@ -376,6 +579,8 @@ export async function runGeocodeBackfill(providerIdPrioritario?: number): Promis
 
   status.processados = 0;
   status.plotados = 0;
+  status.plotadosPorVizinho = 0;
+  status.recusasDoVizinho = zerarRecusas();
   status.semDadosDeEndereco = 0;
   status.adiadosPorIndisponibilidade = 0;
   status.geocoderIndisponivel = false;
@@ -490,6 +695,11 @@ export async function runGeocodeBackfill(providerIdPrioritario?: number): Promis
     // provedor que por acaso têm id menor.
     const etapas: Array<number | null> = providerIdPrioritario ? [providerIdPrioritario, null] : [null];
 
+    // Um índice por provedor, memorizado para as duas etapas: a carteira
+    // prioritária é varrida duas vezes (nela e na geral) e não paga a leitura
+    // duas vezes.
+    const abrirIndice = aberturaDeIndices();
+
     for (const etapa of etapas) {
       if (parar) break;
 
@@ -521,9 +731,11 @@ export async function runGeocodeBackfill(providerIdPrioritario?: number): Promis
           if (etapa === null) status.cursor = cursor;
           status.processados++;
 
-          const r = await plotarCliente(c, local);
+          const r = await plotarCliente(c, local, abrirIndice);
+          if (r.recusaDoVizinho) status.recusasDoVizinho[r.recusaDoVizinho]++;
           if (r.desfecho === "plotado") {
             status.plotados++;
+            if (r.fonte === "vizinho") status.plotadosPorVizinho++;
             falhasSeguidasDeRede = 0;
             status.geocoderIndisponivel = false;
           } else if (r.desfecho === "indisponivel") {
@@ -541,7 +753,10 @@ export async function runGeocodeBackfill(providerIdPrioritario?: number): Promis
 
     if (parar === "tempo") {
       logger.info(
-        { processados: status.processados, plotados: status.plotados, cursor: status.cursor },
+        {
+          processados: status.processados, plotados: status.plotados,
+          porVizinho: status.plotadosPorVizinho, cursor: status.cursor,
+        },
         "Geocode backfill: teto de tempo da passada — continua na próxima",
       );
       return finalizar();
@@ -549,7 +764,10 @@ export async function runGeocodeBackfill(providerIdPrioritario?: number): Promis
     if (parar === "geocoder") {
       status.geocoderIndisponivel = true;
       logger.error(
-        { motivo: status.ultimoMotivo, processados: status.processados, plotados: status.plotados },
+        {
+          motivo: status.ultimoMotivo, processados: status.processados,
+          plotados: status.plotados, porVizinho: status.plotadosPorVizinho,
+        },
         "Geocode backfill abortado: geocoder fora do ar",
       );
       return finalizar();
@@ -558,6 +776,12 @@ export async function runGeocodeBackfill(providerIdPrioritario?: number): Promis
     logger.info(
       {
         plotados: status.plotados,
+        // Quantos só existiam no mapa por causa da carteira do próprio provedor:
+        // a rua deles não está no censo e a rede não a conhece.
+        porVizinho: status.plotadosPorVizinho,
+        // E o preço da guarda: quantos a carteira TERIA resolvido se não
+        // exigisse prova de que o cliente está no trecho conhecido.
+        recusasDoVizinho: status.recusasDoVizinho,
         semEndereco: status.semDadosDeEndereco,
         adiados: status.adiadosPorIndisponibilidade,
         processados: status.processados,

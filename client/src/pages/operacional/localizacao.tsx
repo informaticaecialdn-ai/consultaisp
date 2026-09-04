@@ -16,7 +16,7 @@ import {
   CAMADA_META, carregarTerritorio, rotuloTerritorio, webglDisponivel,
   type CamadaTerritorio, type OrigemTerritorio,
 } from "@/lib/territorio-dados";
-import { geoAproximada } from "@shared/geo-precisao";
+import { aproximacoesNaLegenda } from "@/components/maps/procedencia-ponto";
 import {
   Chip, Kicker, Kpi, Camada, GrupoCamadas, Selo, MONO, CARD, brl, num, pct, TRACO,
 } from "@/components/localizacao/ui";
@@ -291,8 +291,15 @@ export default function LocalizacaoPage() {
     for (const p of pontos) acc[p.estado]++;
     return acc;
   }, [pontos]);
-  /* Pontos que só afirmam o bairro — translúcidos no mapa, ditos na legenda. */
-  const aproximados = useMemo(() => pontos.filter(p => geoAproximada(p.precisao)).length, [pontos]);
+  /* Pontos que não afirmam a casa — translúcidos no mapa, ditos na legenda, uma
+     linha por procedência. Não é uma contagem só porque não é uma coisa só: o
+     ponto tirado de outra instalação da mesma rua e o endereço qualquer do
+     bairro somados numa linha esconderiam justamente a diferença que decide se
+     dá para sair para cobrar. */
+  const aproximacoes = useMemo(
+    () => aproximacoesNaLegenda(pontos.map(p => p.precisao)),
+    [pontos],
+  );
 
   /* Camadas fixas do território (IBGE/ANEEL): opt-in, fundo do mapa inteiro,
      fora dos filtros de estado e dívida mas seguindo o recorte de cidades. O
@@ -857,20 +864,38 @@ export default function LocalizacaoPage() {
                           n={porEstadoNoMapa[e]}
                         />
                       ))}
-                      {aproximados > 0 && (
+                      {/* Uma linha por procedência aproximada, da pista mais
+                          estreita para a mais larga. O swatch é o mesmo nas
+                          duas — no mapa elas têm a MESMA translucidez, e a
+                          legenda retrata o mapa; o que muda é a palavra. */}
+                      {aproximacoes.map(a => (
                         <div
-                          title="Ponto que só afirma o bairro: um endereço real do bairro, não a casa. Translúcido no mapa e dito no popup."
-                          style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 5, fontSize: 11, color: "var(--text-muted)" }}
+                          key={a.chave}
+                          title={a.explicacao}
+                          data-testid={`legenda-aproximacao-${a.chave}`}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 7, marginTop: 5,
+                            fontSize: 11, color: "var(--text-muted)",
+                            // O cartão inteiro é `pointer-events: none` para que o
+                            // clique atravesse a legenda e chegue ao mapa. Só que
+                            // elemento fora do hit-test não tem tooltip: o `title`
+                            // acima era texto morto, e a explicação de cada
+                            // aproximação — a única coisa que diz ao operador que
+                            // uma serve para ir à rua e a outra não — nunca
+                            // aparecia. Reativado SÓ nestas linhas: são 11 px de
+                            // altura, não atrapalham o clique no mapa.
+                            pointerEvents: "auto",
+                          }}
                         >
                           <span style={{
                             width: 9, height: 9, borderRadius: "50%", flexShrink: 0,
                             background: "var(--text-muted)", opacity: 0.45,
                             border: "1.5px solid #fff", boxShadow: "0 0 0 .5px var(--border-strong)",
                           }} />
-                          <span style={{ flex: 1 }}>aproximados · bairro</span>
-                          <span style={{ ...MONO }}>{num(aproximados)}</span>
+                          <span style={{ flex: 1, minWidth: 0 }}>{a.legenda}</span>
+                          <span style={{ ...MONO }}>{num(a.n)}</span>
                         </div>
-                      )}
+                      ))}
                     </>
                   )}
                   {sedeNoMapa && (

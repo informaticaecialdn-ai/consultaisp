@@ -51,6 +51,13 @@ export const MIN_POR_BAIRRO = 3;
  * coordenada sem procedência (gravada antes de existir a coluna, ou pelo sync
  * antigo com queda para o centro da cidade) não é verificável — nenhuma das
  * duas vira ponto nem âncora.
+ *
+ * `vizinho` fica de fora POR DECISÃO, e não por esquecimento (04/09/2026).
+ * Aquele ponto é derivado das instalações da MESMA carteira que este mapa está
+ * agregando: usá-lo aqui seria contar como endereço apurado o que é a mediana
+ * de outros clientes do próprio provedor, e o mapa entre provedores passaria a
+ * afirmar a casa exatamente onde o mapa do dono diz, em voz alta, que não sabe.
+ * O cliente entra na contagem de `semPonto`, que é o lugar honesto dele.
  */
 const PRECISAO_CONFIAVEL = new Set(["erp", "endereco", "logradouro", "cep"]);
 

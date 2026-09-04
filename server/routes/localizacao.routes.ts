@@ -128,6 +128,12 @@ export function registerLocalizacaoRoutes(): Router {
         // para a tela de um provedor. O texto completo fica no log.
         geocoderIndisponivel: job.geocoderIndisponivel,
         terminadoEm: job.terminadoEm,
+        // Quantos entraram no mapa pela PRÓPRIA carteira — a rua deles não está
+        // no censo do IBGE e o geocodificador de rede não a conhece (84% dos
+        // clientes fora do mapa na Amplinet). É contagem da varredura inteira,
+        // como os outros campos daqui, e não da carteira de quem pergunta: a
+        // varredura é uma só para toda a base.
+        plotadosPorVizinho: job.plotadosPorVizinho,
       });
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });

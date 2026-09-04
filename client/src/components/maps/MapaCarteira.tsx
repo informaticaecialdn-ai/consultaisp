@@ -3,14 +3,20 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "leaflet.heat";
 import { ESTADO_META, type EstadoPonto } from "./estado-ponto";
-import { geoAproximada, GEO_PRECISAO_ROTULO, type GeoPrecisao } from "@shared/geo-precisao";
+import { aparenciaDoPonto } from "./procedencia-ponto";
 import { PontosWebGL, garantirPaneTerritorio } from "./territorio-webgl";
 import { CAMADA_META, carregarPontosTerritorio, type CamadaTerritorio } from "@/lib/territorio-dados";
 
 export type PontoMapa = {
   id: number; nome: string; lat: number; lon: number;
-  /** Procedência da coordenada; `bairro` é aproximação (translúcido). */
-  precisao?: GeoPrecisao | null;
+  /**
+   * Procedência da coordenada — quem decide desenho e rótulo é
+   * `aparenciaDoPonto`. String crua, e não união fechada, de propósito: a coluna
+   * `geo_precisao` é texto livre e o servidor sobe antes do client, então o mapa
+   * recebe procedência que esta versão ainda não conhece. Tipar como união
+   * faria a tela AFIRMAR conhecer o valor que chegou.
+   */
+  precisao?: string | null;
   estado: EstadoPonto;
   emAberto: number; atraso: number;
   bairro: string | null; cidade: string;
@@ -89,10 +95,14 @@ export type SedeMapa = { cidade: string; uf: string | null; lat: number; lon: nu
 function popupDoPonto(p: PontoMapa): string {
   const meta = ESTADO_META[p.estado];
   const local = [p.bairro ? esc(p.bairro) : null, esc(p.cidade)].filter(Boolean).join(" · ");
-  // Aproximação SEMPRE rotulada, como na referência: um endereço do bairro não
-  // é a casa, e o operador que for até lá precisa saber disso antes de sair.
-  const aproximacao = geoAproximada(p.precisao)
-    ? `<div style="font-size:11px;color:var(--gated);margin:0 0 6px">⌖ localização aproximada (${GEO_PRECISAO_ROTULO.bairro.split(" ·")[0]})</div>`
+  // Aproximação SEMPRE rotulada, como na referência — e dizendo QUAL: o ponto
+  // tirado do trecho da própria rua erra na ordem de centenas de metros e a rua
+  // está certa; o do bairro pode estar a quilômetros e nem a rua está. Quem sai
+  // para cobrar decide diferente nos dois casos, então a frase é a da
+  // procedência, não uma genérica.
+  const aparencia = aparenciaDoPonto(p.precisao);
+  const aproximacao = aparencia.aproximado
+    ? `<div style="font-size:11px;color:var(--gated);margin:0 0 6px">⌖ ${esc(aparencia.aviso)}</div>`
     : "";
   return (
     `<div style="font-family:var(--font-sans);min-width:180px">` +
@@ -328,9 +338,11 @@ export default function MapaCarteira({
           renderer: renderer.current!,
           radius: 6, weight: 1.5, color: "#FFFFFF",
           fillColor: ESTADO_META[p.estado].cor,
-          // Aproximação de bairro é translúcida de propósito: rotulada, nunca
-          // disfarçada de endereço exato.
-          fillOpacity: geoAproximada(p.precisao) ? 0.55 : 0.95,
+          // Aproximação é translúcida de propósito: rotulada, nunca disfarçada
+          // de endereço exato. A opacidade sai do mesmo módulo que escreve o
+          // popup e a legenda — os três dizem a mesma coisa sobre o ponto, ou
+          // nenhum diz.
+          fillOpacity: aparenciaDoPonto(p.precisao).opacidade,
         })
           .bindPopup(popupDoPonto(p), { maxWidth: 280 })
           .addTo(camada.current!);

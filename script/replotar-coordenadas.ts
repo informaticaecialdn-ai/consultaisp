@@ -117,7 +117,16 @@ async function main() {
   console.log(`apagadas ${r.rowCount} coordenadas — replotando...`);
 
   const status = await runGeocodeBackfill(providerId);
-  console.log(`plotagem: ${status.plotados} plotados · ${status.semDadosDeEndereco} sem endereço localizável · ${status.adiadosPorIndisponibilidade} adiados (geocoder)`);
+  console.log(`plotagem: ${status.plotados} plotados · ${status.plotadosPorVizinho} pela própria carteira · ${status.semDadosDeEndereco} sem endereço localizável · ${status.adiadosPorIndisponibilidade} adiados (geocoder)`);
+  // O que a guarda do vizinho custou nesta rodada, por motivo. É a única forma
+  // de medir sem banco de dados na mão se alguma regra está apertada demais —
+  // "fora-do-cerco" alto quer dizer que a carteira tem número mas o cliente cai
+  // fora do intervalo conhecido; "amostra-fraca" alto, que ela quase não tem
+  // número e as ruas têm poucos pontos.
+  const recusas = Object.entries(status.recusasDoVizinho).filter(([, n]) => n > 0);
+  if (recusas.length > 0) {
+    console.log(`  vizinho de rua recusou: ${recusas.map(([m, n]) => `${m} ${n}`).join(" · ")}`);
+  }
   if (status.geocoderIndisponivel) console.log(`geocoder indisponível: ${status.ultimoMotivo}`);
   await pool.end();
 }
