@@ -155,6 +155,19 @@ export function normalizarCnpj(bruto: string | null | undefined): string | null 
 }
 
 /**
+ * A natureza juridica sem o codigo do IBGE na frente.
+ *
+ * A ReceitaWS devolve "206-2 - Sociedade Empresaria Limitada"; a BrasilAPI
+ * devolve so o texto. Medido em producao com o CNPJ da Amplisinal em
+ * 04/09/2026: quem consome isso e um `<select>` de tipo societario que casa por
+ * TEXTO, entao o prefixo fazia o campo ficar vazio sempre que a ReceitaWS
+ * respondesse primeiro — que e o caso comum, ja que ela e a primeira da fila.
+ */
+export function naturezaSemCodigo(bruto: string | null | undefined): string {
+  return String(bruto ?? "").replace(/^\s*\d{3,4}-\d\s*-\s*/, "").trim();
+}
+
+/**
  * O complemento, ou vazio quando a Receita esta dizendo que nao ha.
  *
  * Ela marca "sem complemento" com um ponto sozinho — as vezes com espacos em
@@ -226,6 +239,7 @@ export async function consultarCnpjPublico(cnpjBruto: string): Promise<EmpresaPu
         ...bruta,
         dataAbertura: dataEmIso(bruta.dataAbertura),
         complemento: semComplemento(bruta.complemento),
+        naturezaJuridica: naturezaSemCodigo(bruta.naturezaJuridica),
       };
       // Quatro digitos bastam para correlacionar com o provedor no log sem
       // publicar o documento inteiro em arquivo.

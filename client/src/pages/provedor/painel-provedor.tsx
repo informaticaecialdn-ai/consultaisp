@@ -37,6 +37,38 @@ const PLAN_LABELS: Record<string, { label: string; color: string; icon: any }> =
 };
 
 const LEGAL_TYPES = ["MEI", "ME", "EPP", "LTDA", "S/A", "EIRELI", "Outro"];
+
+/**
+ * O tipo societario do `<select>` a partir da natureza juridica da Receita.
+ *
+ * Casa por PALAVRA-CHAVE, e nao por string inteira, porque as tres fontes
+ * escrevem a mesma natureza de tres jeitos — "Sociedade Empresaria Limitada",
+ * "Sociedade Empresária Limitada" e, na ReceitaWS, com o codigo do IBGE na
+ * frente ("206-2 - ..."), que o servidor ja remove. Um mapa de igualdade exata
+ * acerta uma fonte e erra as outras duas em silencio: o campo fica em
+ * "Selecione..." e o provedor nao sabe que faltou preencher.
+ *
+ * A ORDEM IMPORTA. "Empresario Individual" e "Empresa Individual de
+ * Responsabilidade Limitada" compartilham palavras, e MEI tem de ser testado
+ * antes de EIRELI, que tem de vir antes de LTDA — senao a palavra "limitada"
+ * captura as tres.
+ *
+ * Devolve "" quando nao reconhece, e nao "Outro": um chute errado no tipo
+ * societario e pior que um campo vazio, porque ele sai numa nota fiscal.
+ */
+export function tipoSocietario(natureza: string | null | undefined): string {
+  const t = String(natureza ?? "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")   // tira acento
+    .toLowerCase();
+  if (!t) return "";
+  if (t.includes("microempresario individual") || t.includes("mei")) return "MEI";
+  if (t.includes("empresario individual")) return "MEI";
+  if (t.includes("eireli") || t.includes("empresa individual de responsabilidade")) return "EIRELI";
+  if (t.includes("sociedade anonima")) return "S/A";
+  if (t.includes("limitada")) return "LTDA";
+  return "";
+}
+
 const SEGMENTS = ["ISP / Provedor de Internet", "Telecom", "Data Center", "TV por Assinatura", "Outro"];
 
 const DOCUMENT_TYPES: Record<string, string> = {
@@ -616,17 +648,7 @@ export default function PainelProvedorPage() {
       const res = await apiRequest("GET", "/api/provider/cnpj");
       const data = await res.json();
 
-      const naturezaToLegal: Record<string, string> = {
-        "Empresario Individual": "MEI",
-        "Empres\u00e1rio Individual": "MEI",
-        "Microempresario Individual (MEI)": "MEI",
-        "Empresa Individual de Responsabilidade Limitada (EIRELI)": "EIRELI",
-        "Sociedade Limitada": "LTDA",
-        "Sociedade Empres\u00e1ria Limitada": "LTDA",
-        "Sociedade Anonima Aberta": "S/A",
-        "Sociedade Anonima Fechada": "S/A",
-      };
-      const legalGuess = naturezaToLegal[data.naturezaJuridica || ""] || "";
+      const legalGuess = tipoSocietario(data.naturezaJuridica);
 
       /* O que a Receita traz SUBSTITUI o que esta na ficha; o que ela nao traz e
          mantido. O contrario deixaria de pe o defeito que motivou este botao: a
