@@ -20,17 +20,17 @@ export type AdminTabKey = (typeof VALID_TABS)[number];
  * tipografia, e sete gradientes diferentes eram exatamente a bagunca.
  */
 export const PAGE_META: Record<string, { title: string; desc: string; icon: any }> = {
-  painel: { title: "Painel Geral", desc: "Visao geral do sistema", icon: BarChart3 },
+  painel: { title: "Painel Geral", desc: "Visão geral do sistema", icon: BarChart3 },
   cadastros: { title: "Cadastros", desc: "Cadastros realizados pela landing page", icon: Activity },
   provedores: { title: "Provedores", desc: "Gerencie todos os provedores", icon: Building2 },
-  financeiro: { title: "Faturas e Cobrancas", desc: "Receita, faturas e pagamentos", icon: DollarSign },
+  financeiro: { title: "Faturas e Cobranças", desc: "Receita, faturas e pagamentos", icon: DollarSign },
   suporte: { title: "Suporte", desc: "Chat direto com provedores e visitantes", icon: MessageSquare },
-  configuracoes: { title: "Configuracoes", desc: "Catalogo de ERPs e configuracoes do sistema", icon: Settings },
+  configuracoes: { title: "Configurações", desc: "Catálogo de ERPs e configurações do sistema", icon: Settings },
   // Legacy aliases (still referenced by deep links / internals)
-  usuarios: { title: "Usuarios", desc: "Contas e acessos do sistema", icon: Users },
+  usuarios: { title: "Usuários", desc: "Contas e acessos do sistema", icon: Users },
   erps: { title: "ERPs Cadastrados", desc: "Gerencie os sistemas ERP suportados", icon: Database },
-  integracoes: { title: "Integracoes", desc: "Configuracao ERP por provedor", icon: Database },
-  sincronizacao: { title: "Sincronizacao Automatica", desc: "Agendamento e monitoramento do auto-sync de ERPs", icon: RefreshCw },
+  integracoes: { title: "Integrações", desc: "Configuração de ERP por provedor", icon: Database },
+  sincronizacao: { title: "Sincronização automática", desc: "Agendamento e acompanhamento das varreduras de ERP", icon: RefreshCw },
 };
 
 /**
@@ -40,12 +40,26 @@ export const PAGE_META: Record<string, { title: string; desc: string; icon: any 
  * O ROTULO vem de `@/lib/planos` — fonte unica. So a cor mora aqui, porque e
  * decisao desta tela. Os dois legados ficam em cinza: nao sao oferecidos, e
  * destacar um plano que nao existe mais confunde quem le a lista.
+ *
+ * TOKENS CANONICOS, nao a ponte `--color-*`. Este selo era a ultima entrada da
+ * API antiga por linha nova no Painel Geral; manter a ponte viva num caminho
+ * recem-limpo e o que faz o vocabulario antigo sobreviver. Cada troca foi
+ * conferida hex a hex em `client/src/index.css`, claro E escuro:
+ *   --color-tag-bg   -> --surface-inset  (#F1F1F5 / #26242F) — identico
+ *   --color-brand-bg -> --brand-soft     (#EDECF3 / #2A2740) — identico
+ *   --color-muted    -> --text-muted     (#6B6878 / #918DA1) — identico
+ *   --color-steel    -> --brand-hover    (#3C3860 / #BDB6E6) — identico
+ * O quarto surpreende: `--color-steel` NAO e `--brand-ink` (#3A3658 / #C5BFEA),
+ * que seria o par semantico de `--brand-soft` ("texto ou icone SOBRE
+ * --brand-soft", index.css:39). Bate exatamente com `--brand-hover`. Como esta
+ * rodada e de token e nao de cor, ficou o que preserva o pixel; trocar para
+ * --brand-ink e decisao de cor, e deve ser tomada como tal.
  */
 export const PLAN_LABELS: Record<string, { label: string; color: string }> = {
-  free: { label: rotuloDoPlano("free"), color: "bg-[var(--color-tag-bg)] text-[var(--color-muted)]" },
-  pro: { label: rotuloDoPlano("pro"), color: "bg-[var(--color-brand-bg)] text-[var(--color-steel)] font-semibold" },
-  basic: { label: rotuloDoPlano("basic"), color: "bg-[var(--color-tag-bg)] text-[var(--color-muted)]" },
-  enterprise: { label: rotuloDoPlano("enterprise"), color: "bg-[var(--color-tag-bg)] text-[var(--color-muted)]" },
+  free: { label: rotuloDoPlano("free"), color: "bg-[var(--surface-inset)] text-[var(--text-muted)]" },
+  pro: { label: rotuloDoPlano("pro"), color: "bg-[var(--brand-soft)] text-[var(--brand-hover)] font-semibold" },
+  basic: { label: rotuloDoPlano("basic"), color: "bg-[var(--surface-inset)] text-[var(--text-muted)]" },
+  enterprise: { label: rotuloDoPlano("enterprise"), color: "bg-[var(--surface-inset)] text-[var(--text-muted)]" },
 };
 
 export const ERP_OPTIONS = [

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth";
-import { Shield } from "lucide-react";
+import { Shield, ShieldOff } from "lucide-react";
+import { CabecalhoPainel, PilulaCabecalho } from "@/components/painel/ui";
 import { PAGE_META, VALID_TABS } from "@/components/admin/constants";
 import VisaoGeralTab from "@/components/admin/tabs/VisaoGeralTab";
 import ProvedoresTab from "@/components/admin/tabs/ProvedoresTab";
@@ -43,11 +44,19 @@ export default function AdminSistemaPage() {
 
   if (!isSuperAdmin) {
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-4 p-8">
-        <Shield className="w-16 h-16 text-[var(--color-danger)] opacity-40" />
-        <h2 className="text-xl font-bold">Acesso Restrito</h2>
-        <p className="text-[var(--color-muted)] text-center">
-          Esta area e exclusiva para administradores do sistema Consulta ISP.
+      <div
+        className="flex flex-col items-center justify-center h-full gap-3 p-8 text-center"
+        data-testid="admin-acesso-restrito"
+      >
+        {/* Aqui --danger e legitimo: nao e "quem voce e", e uma porta fechada. */}
+        <div className="w-10 h-10 rounded-lg grid place-items-center bg-[var(--danger-bg)]">
+          <ShieldOff className="w-5 h-5 text-[var(--danger)]" strokeWidth={2} />
+        </div>
+        <h2 className="text-[19px] font-medium tracking-[-0.02em] text-[var(--text)] leading-tight">
+          Acesso restrito
+        </h2>
+        <p className="text-[13px] text-[var(--text-muted)] max-w-[46ch] leading-snug">
+          Esta área é exclusiva para administradores do sistema Consulta ISP.
         </p>
       </div>
     );
@@ -56,20 +65,30 @@ export default function AdminSistemaPage() {
   const meta = PAGE_META[activeTab] || PAGE_META.painel;
 
   return (
-    <div className="p-4 lg:p-6 space-y-5" data-testid="admin-sistema-page">
-      {/* Cabeçalho Bureau: título leve com tracking apertado, sem bloco de
-          ícone com gradiente — autoridade vem da tipografia, não do enfeite. */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-[19px] font-medium tracking-[-0.02em] text-[var(--color-ink)] leading-tight">
-            {meta.title}
-          </h1>
-          <p className="text-[13px] text-[var(--color-muted)] mt-0.5">{meta.desc}</p>
-        </div>
-        <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] px-2 py-1 rounded bg-[var(--color-danger-bg)] text-[var(--color-danger)] shrink-0">
-          <Shield className="w-3 h-3" />Super Admin
-        </span>
-      </div>
+    <div className="p-4 lg:p-6 space-y-6" data-testid="admin-sistema-page">
+      {/* Mesmo cabecalho do Painel do Provedor, pela mesma primitiva: titulo leve
+          com tracking apertado, descricao muted e pilulas a direita. */}
+      <CabecalhoPainel
+        titulo={meta.title}
+        descricao={meta.desc}
+        acoes={
+          /* O selo de papel usa o tom `neutro` — o MESMO da pilula "seu codigo"
+             do provedor. Papel e identificador, e o que se le e se dita ao
+             suporte; nao e estado do sistema. O vermelho anterior
+             (--color-danger) prometia erro em tempo integral, e a pele reserva
+             saturacao para risco. `--info` foi considerado e descartado: azure
+             ainda e "informacao com voz propria", e aqui a voz certa e a mesma
+             do identificador do outro painel — e assim que os dois passam a
+             parecer o mesmo produto. */
+          <PilulaCabecalho
+            Icone={Shield}
+            valor="Super Admin"
+            rotulo="seu acesso"
+            testId="selo-super-admin"
+            titleAtributo="Você está autenticado como administrador da plataforma: enxerga todos os provedores, não apenas um."
+          />
+        }
+      />
 
       <div>
         {activeTab === "painel" && <VisaoGeralTab />}
