@@ -34,6 +34,7 @@ import { KanbanColuna, LARGURA_COLUNA } from "@/components/recuperacao/KanbanCol
 import { DialogoAbrirCaso } from "@/components/recuperacao/DialogoAbrirCaso";
 import { DialogoAgendar } from "@/components/recuperacao/DialogoAgendar";
 import { DialogoContato, invalidarTudoDoCaso, mensagemDoErro } from "@/components/recuperacao/DialogoContato";
+import { API_CHAT_BULLQ, chatProntoParaEnviar, lerIntegracaoDoChat } from "@/components/cobranca/tipos";
 import { DrawerCaso } from "@/components/recuperacao/DrawerCaso";
 import {
   avaliarMovimento, cidadesDosCards, filtrarCards, FILTROS_INICIAIS, type FiltrosKanban,
@@ -193,7 +194,23 @@ export default function RecuperacaoPage() {
     setBaixa(null);
   };
 
+  // O chat com o cliente (Chat BullQ): "Chat" no card so aparece com o numero do provedor ativo.
+  const { data: integracaoDoChatCrua } = useQuery<unknown>({ queryKey: [`${API_CHAT_BULLQ}/integracao`], staleTime: 300_000 });
+  const chatPronto = chatProntoParaEnviar(lerIntegracaoDoChat(integracaoDoChatCrua));
+  const enviarParaChat = useMutation({
+    mutationFn: async (card: CardKanban) => {
+      if (!card.caseId) throw new Error("Este equipamento ainda nao tem caso de retirada");
+      return (await apiRequest("POST", `${API_CHAT_BULLQ}/recuperacao/${card.caseId}/enviar`, {})).json();
+    },
+    onSuccess: (r: { reaproveitada?: boolean }, card) => {
+      if (card.caseId) invalidarTudoDoCaso(card.caseId);
+      toast({ title: r.reaproveitada ? "Mensagem enviada na conversa que já existia" : "Retirada enviada para o chat", description: "A conversa segue no inbox do chat; o contato fica registrado no caso." });
+    },
+    onError: (erro: Error) => toast({ title: "Não foi possível enviar para o chat", description: mensagemDoErro(erro), variant: "destructive" }),
+  });
+
   const acoes: AcoesCard = {
+    onEnviarParaChat: chatPronto ? card => enviarParaChat.mutate(card) : undefined,
     onPrioridade: (card, prioridade) => {
       if (!card.caseId || card.caso?.prioridade === prioridade) return;
       mudarCaso.mutate({

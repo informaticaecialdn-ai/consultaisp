@@ -30,6 +30,8 @@ export interface AcoesCard {
   onAgendar: (card: CardKanban) => void;
   onDetalhes: (card: CardKanban) => void;
   onAbrirCaso: (card: CardKanban) => void;
+  /** "Chat": abre a conversa do cliente no WhatsApp do provedor (Chat BullQ) para combinar a retirada. So com o chat pronto. */
+  onEnviarParaChat?: (card: CardKanban) => void;
 }
 
 /** Cor do "dias retido" por faixa — os mesmos tokens das colunas. */
@@ -242,6 +244,9 @@ export function CardEquipamento({ card, acoes, ocupado, overlay, alca }: CardEqu
             <>
               {!encerrado && <Button type="button" variant="ghost" size="sm" className="min-h-11 flex-1 rounded-none rounded-bl-lg text-[12px]" onClick={() => acoes.onContato(card)}>Contato</Button>}
               {!encerrado && <Button type="button" variant="ghost" size="sm" className="min-h-11 flex-1 rounded-none border-l border-[var(--border-faint)] text-[12px]" onClick={() => acoes.onAgendar(card)}>Agendar</Button>}
+              {!encerrado && acoes.onEnviarParaChat && card.caseId !== null && (
+                <Button type="button" variant="ghost" size="sm" className="min-h-11 flex-1 rounded-none border-l border-[var(--border-faint)] text-[12px]" title="Abre a conversa do cliente no WhatsApp do provedor para combinar a retirada" onClick={() => acoes.onEnviarParaChat?.(card)} data-testid={`enviar-chat-${card.caseId}`}>Chat</Button>
+              )}
               <Button type="button" variant="ghost" size="sm" className={`min-h-11 flex-1 rounded-none rounded-br-lg text-[12px] text-[var(--brand)] ${encerrado ? "rounded-bl-lg" : "border-l border-[var(--border-faint)]"}`} onClick={() => acoes.onDetalhes(card)}>Detalhes</Button>
             </>
           ) : (
