@@ -60,6 +60,8 @@ export interface EstadoDaIntegracaoDoChat {
   ligado: boolean;
   provisionado: boolean;
   organizationId: string | null;
+  /** O e-mail com que a equipe entra no inbox (o owner da organizacao la). */
+  ownerEmail: string | null;
   canal: { id: string; nome: string | null } | null;
   status: string | null;
   ultimoErro: string | null;
@@ -73,6 +75,7 @@ export async function estadoDaIntegracao(providerId: number): Promise<EstadoDaIn
     ligado,
     provisionado: !!intg,
     organizationId: intg?.organizationId ?? null,
+    ownerEmail: intg?.ownerEmail ?? null,
     canal: intg?.canalId ? { id: intg.canalId, nome: intg.canalNome ?? null } : null,
     status: intg?.status ?? null,
     ultimoErro: intg?.ultimoErro ?? null,

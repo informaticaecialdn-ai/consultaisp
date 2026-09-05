@@ -103,7 +103,7 @@ export function AbaChat({ podeAdministrar }: { podeAdministrar: boolean }) {
         <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-5 py-4" data-testid="chat-senha">
           <div className="flex items-center gap-2"><KeyRound className="h-4 w-4 text-[var(--brand)]" aria-hidden /><h3 className="text-[14px] font-semibold text-[var(--text)]">Senha do inbox</h3></div>
           <p className="mt-1 text-[11.5px] leading-4 text-[var(--text-muted)]">
-            A equipe entra em <b>chat.consultaisp.com.br</b> com o e-mail de contato do provedor e esta senha. Ela não fica guardada aqui: vai direto para o chat.
+            A equipe entra em <b>chat.consultaisp.com.br</b> com o e-mail {integracao?.ownerEmail ? <><b className="font-mono" data-testid="chat-owner-email">{integracao.ownerEmail}</b></> : "de contato do provedor"} e esta senha. Ela não fica guardada aqui: vai direto para o chat.
           </p>
           <form className="mt-3 grid gap-3" onSubmit={e => { e.preventDefault(); definirSenha.mutate(); }}>
             <Campo rotulo="nova senha"><input className={CONTROLE_CAMPO} type="password" autoComplete="new-password" value={senha.senha} onChange={e => setSenha(s => ({ ...s, senha: e.target.value }))} disabled={!podeAdministrar} data-testid="chat-senha-nova" /></Campo>

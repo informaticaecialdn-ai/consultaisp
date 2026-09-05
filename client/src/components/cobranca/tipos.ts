@@ -588,6 +588,8 @@ export interface IntegracaoDoChat {
   ligado: boolean;
   provisionado: boolean;
   organizationId: string | null;
+  /** O e-mail com que a equipe entra no inbox. */
+  ownerEmail: string | null;
   canal: { id: string; nome: string | null } | null;
   status: string | null;
   ultimoErro: string | null;
@@ -602,6 +604,7 @@ export function lerIntegracaoDoChat(resposta: unknown): IntegracaoDoChat | null 
     ligado: r.ligado === true,
     provisionado: r.provisionado === true,
     organizationId: typeof r.organizationId === "string" ? r.organizationId : null,
+    ownerEmail: typeof r.ownerEmail === "string" ? r.ownerEmail : null,
     canal: canal ? { id: String(canal.id), nome: typeof canal.nome === "string" ? canal.nome : null } : null,
     status: typeof r.status === "string" ? r.status : null,
     ultimoErro: typeof r.ultimoErro === "string" ? r.ultimoErro : null,
