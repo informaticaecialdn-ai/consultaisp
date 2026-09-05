@@ -25,6 +25,7 @@
  * dados, para o provedor conferir sem abrir o painel. Nada de exclamacao.
  */
 import { Resend } from "resend";
+import { cnpjMascarado } from "@shared/cnpj";
 import { MARCA_PLATAFORMA, resolverMarcaPorId, urlDaMarca, type MarcaResolvida } from "./marca.service";
 import {
   alerta, blocoDeDados, botao, brl, divisor, envelope, esc, kicker,
@@ -227,6 +228,10 @@ export interface DadosDeBoasVindas {
   nome: string;
   /** Razao social ou nome fantasia do provedor. */
   provedor: string;
+  /**
+   * Como esta na coluna `providers.cnpj`, sem formatar. Quem chama passa
+   * `provider.cnpj` cru; a montagem e que mascara. Ver `montarBoasVindas`.
+   */
   cnpj?: string | null;
   /** Rotulo do plano, ja em portugues ("Gratuito", "Profissional"). */
   plano: string;
@@ -259,7 +264,29 @@ export function montarBoasVindas(
   const linhas: LinhaDeDado[] = [
     { rotulo: "provedor", valor: esc(dados.provedor) },
   ];
-  if (dados.cnpj) linhas.push({ rotulo: "cnpj", valor: esc(dados.cnpj), mono: true });
+  /**
+   * A mascara e da EXIBICAO, e o e-mail e exibicao — a mesma regra que vale nas
+   * telas (ver `shared/cnpj.ts`).
+   *
+   * Ate a canonizacao, `providers.cnpj` guardava o que o provedor digitou, e
+   * aqui saia igual. Com a coluna em 14 digitos, este bloco passaria a imprimir
+   * "22759562000156" para todo mundo — inclusive para os quatro provedores que
+   * hoje veem a propria pontuacao, vinda do banco. Num e-mail isso e pior do que
+   * numa tela: este e o unico e-mail que o provedor guarda, nao ha como corrigir
+   * depois o que ja esta na caixa de entrada dele, e o CNPJ e justamente um dos
+   * dados a que ele volta.
+   *
+   * Mascarar aqui, e nao no ponto de chamada, porque quem chama tem um registro
+   * do banco em maos e nao um dado de tela — e porque outro e-mail pode passar a
+   * carregar o campo amanha.
+   *
+   * Testar o valor JA mascarado, e nao `dados.cnpj`: um CNPJ que so tenha lixo
+   * ("--", espaco) e truthy e imprimiria uma linha "cnpj" vazia no bloco.
+   */
+  const cnpj = cnpjMascarado(dados.cnpj);
+  // `esc` continua: a mascara so devolve digitos e pontuacao, mas o bloco nao
+  // pode depender disso para nao virar marcacao.
+  if (cnpj) linhas.push({ rotulo: "cnpj", valor: esc(cnpj), mono: true });
   linhas.push(
     { rotulo: "endereço de acesso", valor: `<a href="${esc(raiz)}" style="color:${cor};text-decoration:none;">${esc(endereco)}</a>`, mono: true },
     { rotulo: "e-mail de acesso", valor: esc(dados.emailDeAcesso), mono: true },

@@ -16,6 +16,8 @@
  * aparece na pre-visualizacao e cai neste teste no mesmo commit, ou em nenhum.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { readFileSync } from "fs";
+import { join } from "path";
 
 /**
  * O cliente do Resend nasce na CARGA do modulo, olhando `RESEND_API_KEY`. Sem
@@ -712,5 +714,136 @@ describe("revenda: os dois acessos ao painel da marca", () => {
       // E nenhum log carrega o corpo montado.
       expect(escrito.join("\n")).not.toContain("endereço de acesso");
     });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 9. O CNPJ do provedor, na caixa de entrada
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A varredura da regressao do CNPJ passou pelas telas e parou na borda do
+ * navegador. Aqui e o outro lado.
+ *
+ * `providers.cnpj` guardava duas formas do mesmo dado — 14 digitos crus em dois
+ * provedores, a pontuacao dentro do banco em quatro. A canonizacao poe todo
+ * mundo em 14 digitos; sem mascara na exibicao, os quatro veem o proprio CNPJ
+ * da empresa virar "23864873000148". Nas telas isso se conserta com um deploy.
+ * Aqui nao: este e o unico e-mail que o provedor guarda, e o que ja saiu esta na
+ * caixa de entrada dele para sempre.
+ *
+ * E foi a PREVIA que escondeu o defeito — ela passava o CNPJ ja pontuado a mao,
+ * entao a tela de revisao mostrava um e-mail que ninguem receberia. O ultimo
+ * teste desta secao trava exatamente isso.
+ */
+describe("o CNPJ do provedor sai mascarado no e-mail que ele guarda", () => {
+  /**
+   * O par rotulo/valor de uma linha de `blocoDeDados`, com o estilo do valor.
+   *
+   * Ler a LINHA, e nao procurar o texto solto no HTML: "23.864.873/0001-48"
+   * aparecer em algum lugar da mensagem nao prova que e o campo CNPJ que esta
+   * certo, e uma mascara dupla passaria batida numa busca por substring.
+   */
+  const linhaDeDado = (html: string, rotulo: string) => {
+    const m = html.match(
+      new RegExp(`uppercase;">${rotulo}</span>\\s*<span style="([^"]*)">([\\s\\S]*?)</span>`),
+    );
+    return m ? { estilo: m[1], valor: m[2] } : null;
+  };
+
+  const boasVindas = (cnpj: string | null | undefined) =>
+    email.montarBoasVindas("financeiro@nslink.com.br", {
+      nome: "Emerson Queiroz",
+      provedor: "NsLink Provedor",
+      cnpj,
+      plano: "Gratuito",
+      creditos: 50,
+      emailDeAcesso: "financeiro@nslink.com.br",
+    }, MARCA_PLATAFORMA, URL).html;
+
+  it("os 14 digitos crus da coluna saem pontuados, e nao como um numerao", () => {
+    // `22759562000156` e o provedor 1, ja canonico no banco antes da migracao.
+    const html = boasVindas("22759562000156");
+    expect(linhaDeDado(html, "cnpj")?.valor).toBe("22.759.562/0001-56");
+    expect(html).not.toContain("22759562000156");
+  });
+
+  it("uma linha legada, ja pontuada, nao vira mascara dupla", () => {
+    // `23.864.873/0001-48` e a forma que quatro provedores tem HOJE na coluna.
+    // Enquanto a migracao nao rodar em todo ambiente, as duas convivem — e a
+    // montagem tem de aguentar receber qualquer uma delas.
+    const html = boasVindas("23.864.873/0001-48");
+    expect(linhaDeDado(html, "cnpj")?.valor).toBe("23.864.873/0001-48");
+    expect(html).not.toContain("23..864");
+  });
+
+  it("as duas formas gravadas em producao saem IDENTICAS", () => {
+    // Este e o teste que da sentido a mascara: nenhum dos seis provedores pode
+    // notar diferenca entre o e-mail de antes e o de depois da canonizacao.
+    const cru = linhaDeDado(boasVindas("23864873000148"), "cnpj")?.valor;
+    // Sem esta linha, um leitor quebrado compararia `undefined` com `undefined`
+    // e o teste passaria sem ter lido nada.
+    expect(cru).toBe("23.864.873/0001-48");
+    expect(linhaDeDado(boasVindas("23.864.873/0001-48"), "cnpj")?.valor).toBe(cru);
+  });
+
+  it("o CNPJ e dado numerico: sai em mono (DESIGN_SYSTEM secao 2)", () => {
+    expect(linhaDeDado(boasVindas("22759562000156"), "cnpj")?.estilo)
+      .toContain(`font-family:${email.MONO}`);
+  });
+
+  it("cnpj vazio, nulo ou so com lixo nao imprime uma linha em branco", () => {
+    // O antigo `if (dados.cnpj)` testava o valor BRUTO: "--" e truthy e teria
+    // aberto um rotulo "CNPJ" sem nada embaixo no bloco de dados.
+    for (const vazio of ["", "   ", "--", null, undefined]) {
+      expect(linhaDeDado(boasVindas(vazio), "cnpj")).toBeNull();
+    }
+    // O controle: com um CNPJ de verdade a linha existe. Sem ele, um leitor que
+    // nunca acha nada deixaria o laco acima verde para sempre.
+    expect(linhaDeDado(boasVindas("22759562000156"), "cnpj")).not.toBeNull();
+    // E o resto do bloco continua inteiro quando o CNPJ falta.
+    expect(linhaDeDado(boasVindas(null), "provedor")?.valor).toBe("NsLink Provedor");
+  });
+
+  it("quem envia passa a coluna crua e o e-mail sai pronto — a mascara e da MONTAGEM", async () => {
+    // `sendWelcomeEmail` e chamado em auth.routes.ts com `cnpj: provider.cnpj`,
+    // isto e, o registro do banco sem tratamento. Mascarar no ponto de chamada
+    // deixaria o proximo e-mail que carregasse o campo descoberto.
+    resendFalso.chamadas.length = 0;
+    resendFalso.erro = null;
+    await email.sendWelcomeEmail("financeiro@nslink.com.br", {
+      nome: "Emerson Queiroz",
+      provedor: "NsLink Provedor",
+      cnpj: "22759562000156",
+      plano: "Gratuito",
+      creditos: 50,
+      emailDeAcesso: "financeiro@nslink.com.br",
+    }, MARCA_PLATAFORMA, URL);
+
+    expect(resendFalso.chamadas).toHaveLength(1);
+    expect(resendFalso.chamadas[0].html).toContain("22.759.562/0001-56");
+    expect(resendFalso.chamadas[0].html).not.toContain("22759562000156");
+  });
+
+  it("a mascara vem do modulo compartilhado, e nao de uma quinta copia", () => {
+    // Havia QUATRO copias no client, e uma delas ja divergia. O servidor nao
+    // pode importar de `client/`, entao a dona subiu para `shared/`.
+    const fonte = readFileSync(join(__dirname, "email.ts"), "utf8");
+    expect(fonte).toContain('import { cnpjMascarado } from "@shared/cnpj"');
+    expect(fonte).not.toMatch(/\.slice\(8,\s*12\)/);
+  });
+
+  it("a previa passa o CNPJ como a producao entrega: 14 digitos crus", () => {
+    // O defeito era invisivel porque a previa mentia — passava
+    // "12.345.678/0001-90" pontuado a mao. Uma previa que formata o que a
+    // producao entrega cru revisa um e-mail que ninguem recebe.
+    const fonte = readFileSync(join(__dirname, "..", "..", "script", "preview-emails.ts"), "utf8");
+    const doExemplo = fonte.match(/cnpj: "([^"]*)"/)?.[1];
+    expect(doExemplo).toBe("12345678000190");
+    expect(doExemplo).toMatch(/^\d{14}$/);
+
+    // E a previa, montada com ele, mostra o que o provedor vai ler.
+    const previa = exemplos(MARCA_PLATAFORMA, URL).find(x => x.chave === "boas-vindas")!;
+    expect(linhaDeDado(previa.html, "cnpj")?.valor).toBe("12.345.678/0001-90");
   });
 });

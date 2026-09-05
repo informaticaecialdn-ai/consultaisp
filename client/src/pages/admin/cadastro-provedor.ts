@@ -42,6 +42,17 @@
  */
 
 import { z } from "zod";
+/**
+ * A máscara do CNPJ mora em `@/lib/cnpj` desde que `providers.cnpj` passou a
+ * guardar 14 dígitos crus para todo mundo: as telas do provedor e a fatura
+ * pública também precisam mascarar na exibição, e importar esta ficha só por
+ * causa disso arrastaria o zod e as regras de um formulário de 17 campos. Os
+ * dois nomes seguem exportados daqui — quem já importava de
+ * `./cadastro-provedor` não mudou.
+ */
+import { cnpjCru, cnpjMascarado } from "@/lib/cnpj";
+
+export { cnpjCru, cnpjMascarado };
 
 /** Os campos de cadastro que a ficha do superadmin edita. Todos string no formulário. */
 export interface CadastroProvedor {
@@ -139,27 +150,6 @@ export function cadastroDoProvedor(p: Record<string, any> | null | undefined): C
     addressCity: texto(p.addressCity),
     addressState: texto(p.addressState),
   };
-}
-
-/** Só dígitos, no máximo 14. Para guardar no estado. */
-export function cnpjCru(v: string): string {
-  return texto(v).replace(/\D/g, "").slice(0, 14);
-}
-
-/**
- * 00.000.000/0000-00 — só para EXIBIR.
- *
- * Mascara em degraus porque o campo é digitado: um formatador que só saiba
- * mascarar os 14 dígitos completos devolve o número cru enquanto se digita, e
- * o cursor pula a cada tecla.
- */
-export function cnpjMascarado(v: string): string {
-  const d = cnpjCru(v);
-  if (d.length <= 2) return d;
-  if (d.length <= 5) return `${d.slice(0, 2)}.${d.slice(2)}`;
-  if (d.length <= 8) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5)}`;
-  if (d.length <= 12) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8)}`;
-  return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
 }
 
 /** Só dígitos, no máximo 8. */

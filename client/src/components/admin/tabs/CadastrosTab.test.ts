@@ -25,6 +25,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { cadastroCasaBusca, termoEhDocumento } from "./CadastrosTab";
 
 const fonte = readFileSync(join(__dirname, "CadastrosTab.tsx"), "utf8");
 
@@ -100,5 +101,165 @@ describe("onde a acao fica na linha", () => {
     // ja APROVADO. "Ver ficha" nao tem condicao nenhuma; se aparecer um `&&`
     // entre as duas, alguem condicionou a edicao.
     expect(executavel.slice(ver, editar)).not.toContain("&&");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* A caixa de busca                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A busca da fila, agora testada de verdade e nao pelo texto da fonte.
+ *
+ * O DEFEITO QUE ESTE BLOCO EXISTE PARA IMPEDIR DE VOLTAR. Ao canonizar o CNPJ
+ * para 14 digitos, a busca passou a normalizar o termo com `cnpjCru` — que
+ * extrai digito de QUALQUER texto. "Net 1" virava "1"; todo CNPJ contem "1"; e
+ * como as condicoes sao OR, a fila devolvia os provedores todos. O filtro por
+ * nome — o de todo dia, e o unico que um nome comercial de ISP exercita, porque
+ * quase todos carregam numero — deixou de estreitar.
+ *
+ * A intencao original continua valendo e esta coberta logo abaixo: com a coluna
+ * em 14 digitos, colar o CNPJ PONTUADO de um contrato tem de achar a linha.
+ *
+ * A logica saiu de dentro do `.filter` no JSX justamente por isso: la ela nao
+ * era alcancavel por teste (componente .tsx nao e coletado neste projeto), e foi
+ * la que a regressao passou. O ultimo teste do bloco trava o fio entre a funcao
+ * testada e a tela — funcao verde com JSX chamando outra coisa e a mesma falha
+ * de novo, so que silenciosa.
+ */
+describe("busca da fila de cadastros", () => {
+  /** Nomes reais de ISP: quase todos carregam numero. Os CNPJs sao os que a
+   *  migracao canonizou, e TODOS contem o digito "1" — que e o que fazia a
+   *  busca por "Net 1" devolver a lista inteira. */
+  const CADASTROS = [
+    { name: "Net 1 Telecom", contactEmail: "contato@net1.com.br", cnpj: "23864873000148" },
+    { name: "Fibra 3 Provedor", contactEmail: "financeiro@fibra3.net", cnpj: "22759562000156" },
+    { name: "Via 2 Telecom", contactEmail: "adm@via2.com.br", cnpj: "11444777000161" },
+    { name: "Net 10 Internet", contactEmail: "suporte@net10.com.br", cnpj: "34028316000103" },
+    { name: "Conecta Sul", contactEmail: "ola@conectasul.com.br", cnpj: "45997418000153" },
+  ];
+
+  const acha = (termo: string) =>
+    CADASTROS.filter((c) => cadastroCasaBusca(c, termo)).map((c) => c.name);
+
+  describe("o CNPJ colado continua achando — a intencao do lote anterior", () => {
+    it("pontuado, como se copia de um contrato, acha a linha gravada em 14 digitos", () => {
+      expect(acha("23.864.873/0001-48")).toEqual(["Net 1 Telecom"]);
+    });
+
+    it("os 14 digitos crus acham", () => {
+      expect(acha("22759562000156")).toEqual(["Fibra 3 Provedor"]);
+    });
+
+    it("a raiz de 8 digitos acha — e o piso, entao tem de passar", () => {
+      expect(acha("23864873")).toEqual(["Net 1 Telecom"]);
+    });
+
+    it("espaco em volta do que foi colado nao atrapalha", () => {
+      expect(acha("  23.864.873/0001-48  ")).toEqual(["Net 1 Telecom"]);
+    });
+
+    it("normaliza os DOIS lados: linha ainda pontuada tambem e achada", () => {
+      // A migracao canonizou a coluna, mas comparar digito com digito e o que
+      // torna a busca indiferente a forma — de qualquer um dos lados.
+      const pontuado = { name: "Legado", contactEmail: "", cnpj: "23.864.873/0001-48" };
+      expect(cadastroCasaBusca(pontuado, "23864873000148")).toBe(true);
+    });
+
+    it("CNPJ que nao esta na fila nao acha nada", () => {
+      expect(acha("99.999.999/0001-99")).toEqual([]);
+    });
+  });
+
+  describe("a busca por nome volta a estreitar", () => {
+    it('"Net 1" acha quem se chama assim, nao os cinco', () => {
+      // O caso medido em producao: 0 -> 4 resultados, porque todo CNPJ contem
+      // "1". Os dois que sobram sobram por NOME — "Net 1" e prefixo de "Net 10",
+      // que e o que uma busca por texto tem de fazer mesmo. O que nao pode
+      // voltar e a terceira, a quarta e a quinta linha entrarem pelo CNPJ.
+      expect(acha("Net 1")).toEqual(["Net 1 Telecom", "Net 10 Internet"]);
+      expect(acha("Net 1 Telecom")).toEqual(["Net 1 Telecom"]);
+    });
+
+    it('"Fibra 3" acha o "Fibra 3"', () => {
+      expect(acha("Fibra 3")).toEqual(["Fibra 3 Provedor"]);
+    });
+
+    it('"Via 2 Telecom" acha o "Via 2 Telecom"', () => {
+      expect(acha("Via 2 Telecom")).toEqual(["Via 2 Telecom"]);
+    });
+
+    it("nome sem numero nenhum continua achando", () => {
+      expect(acha("Conecta")).toEqual(["Conecta Sul"]);
+    });
+
+    it("caixa nao importa", () => {
+      expect(acha("NET 1 TELECOM")).toEqual(["Net 1 Telecom"]);
+    });
+
+    it("o e-mail continua sendo caminho de busca", () => {
+      expect(acha("financeiro@fibra3.net")).toEqual(["Fibra 3 Provedor"]);
+    });
+
+    it("termo vazio nao filtra — a fila inteira aparece", () => {
+      expect(acha("")).toHaveLength(CADASTROS.length);
+      expect(acha("   ")).toHaveLength(CADASTROS.length);
+    });
+  });
+
+  describe("o piso de digitos: fragmento curto nao e documento", () => {
+    it('"10" sozinho procura NOME, e nao o "10" dentro de todo CNPJ', () => {
+      // Sem letra para reprovar o termo, so o piso o segura. "10" cabe dentro de
+      // praticamente qualquer CNPJ; sem piso, esta busca devolveria a fila toda.
+      expect(acha("10")).toEqual(["Net 10 Internet"]);
+    });
+
+    it("sete digitos ainda nao sao documento — a raiz tem oito", () => {
+      expect(termoEhDocumento("2386487")).toBe(false);
+      expect(acha("2386487")).toEqual([]);
+    });
+
+    it("uma linha cujo CNPJ contem o fragmento nao e arrastada por ele", () => {
+      // "0001" esta em quatro dos cinco CNPJs da amostra.
+      expect(acha("0001")).toEqual([]);
+    });
+  });
+
+  describe("termoEhDocumento", () => {
+    it("aprova o que se escreve com digito, ponto, barra e hifen", () => {
+      expect(termoEhDocumento("23.864.873/0001-48")).toBe(true);
+      expect(termoEhDocumento("23864873000148")).toBe(true);
+      expect(termoEhDocumento("23864873")).toBe(true);
+    });
+
+    it("uma letra reprova: e a assinatura de um nome", () => {
+      expect(termoEhDocumento("Via 2 Telecom")).toBe(false);
+      expect(termoEhDocumento("Net 1")).toBe(false);
+      // Ate quando sobram digitos de sobra — o nome e que manda.
+      expect(termoEhDocumento("Fibra 23864873")).toBe(false);
+    });
+
+    it("poucos digitos reprovam, mesmo sem letra nenhuma", () => {
+      expect(termoEhDocumento("1")).toBe(false);
+      expect(termoEhDocumento("10")).toBe(false);
+      expect(termoEhDocumento("0001")).toBe(false);
+      expect(termoEhDocumento("")).toBe(false);
+      expect(termoEhDocumento("   ")).toBe(false);
+    });
+
+    it("pontuacao que nao e de CNPJ reprova", () => {
+      // Um pedaco de e-mail ou de valor nao pode virar consulta de documento.
+      expect(termoEhDocumento("@2386487300")).toBe(false);
+      expect(termoEhDocumento("23.864,873")).toBe(false);
+    });
+  });
+
+  it("a tela usa esta funcao — senao o teste fica verde e a busca, quebrada", () => {
+    // Funcao pura testada + JSX chamando outra coisa e exatamente a mesma falha,
+    // so que sem ninguem para avisar.
+    expect(executavel).toContain("cadastroCasaBusca(p, cadastroSearch)");
+    // E o termo cru nao volta a ser espremido por `cnpjCru` no caminho da busca:
+    // foi essa linha, e so ela, que transformou "Net 1" em "1".
+    expect(executavel).not.toContain("cnpjCru(cadastroSearch)");
   });
 });

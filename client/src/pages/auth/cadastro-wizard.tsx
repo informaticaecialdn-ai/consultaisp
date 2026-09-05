@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
+import { cnpjMascarado } from "@/lib/cnpj";
 import {
   Building2, User, KeyRound, CheckCircle2, AlertTriangle,
   RefreshCw, ArrowLeft, ArrowRight, Globe, Eye, EyeOff,
@@ -44,15 +45,6 @@ type Bureau = {
 };
 
 const soDigitos = (v: string) => v.replace(/\D/g, "");
-
-function formatarCnpj(v: string): string {
-  const d = soDigitos(v).slice(0, 14);
-  if (d.length <= 2) return d;
-  if (d.length <= 5) return `${d.slice(0, 2)}.${d.slice(2)}`;
-  if (d.length <= 8) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5)}`;
-  if (d.length <= 12) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8)}`;
-  return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
-}
 
 function formatarCpf(v: string): string {
   const d = soDigitos(v).slice(0, 11);
@@ -432,7 +424,7 @@ export default function CadastroWizard({ aoPrecisarVerificar }: {
                 data-testid="input-cnpj"
                 placeholder="00.000.000/0000-00"
                 value={cnpj}
-                onChange={e => setCnpj(formatarCnpj(e.target.value))}
+                onChange={e => setCnpj(cnpjMascarado(e.target.value))}
                 className="font-mono tabular-nums pr-9"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2">
@@ -454,7 +446,7 @@ export default function CadastroWizard({ aoPrecisarVerificar }: {
                 {empresa.nomeFantasia || empresa.razaoSocial}
               </p>
               {empresa.nomeFantasia && <Linha rotulo="Razão social" valor={empresa.razaoSocial} />}
-              <Linha rotulo="CNPJ" valor={formatarCnpj(empresa.cnpj)} mono />
+              <Linha rotulo="CNPJ" valor={cnpjMascarado(empresa.cnpj)} mono />
               <Linha rotulo="Situação" valor={empresa.situacao} />
               <Linha rotulo="Aberta em" valor={dataBr(empresa.aberturaEm)} mono />
               <Linha rotulo="Atividade" valor={empresa.atividade} />

@@ -15,7 +15,7 @@ import { validateEnv } from "./env";
 import { pool } from "./db";
 import { logger } from "./logger";
 import { getSafeErrorMessage } from "./utils/safe-error";
-import { runMigrations, verifySchema } from "./migrate";
+import { prepararSchemaOuCair } from "./migrate";
 import { sanitizeForLog, corpoEhSensivel } from "./utils/sanitize-log";
 
 const app = express();
@@ -178,20 +178,11 @@ app.use((req, res, next) => {
     res.json({ status: "ok", uptime: process.uptime() });
   });
 
-  // Run migrations — non-fatal if migrations dir is missing
-  try {
-    await runMigrations();
-  } catch (err) {
-    logger.error({ err }, "Migration failed — continuing with existing schema");
-  }
-
-  // Verify critical schema — fatal only for core tables
-  try {
-    await verifySchema();
-  } catch (err) {
-    logger.fatal({ err }, "Critical schema verification failed — cannot serve traffic safely");
-    process.exit(1);
-  }
+  // Migracao e conferencia de schema. Falha em qualquer um dos dois derruba o
+  // processo — antes a migracao era apenas logada e o app subia com o schema
+  // velho. O porque da troca esta em migrate.ts, junto da funcao, que e onde
+  // quem for tentar reverter vai ler.
+  await prepararSchemaOuCair();
 
   await seedDatabase();
   await seedSuperAdmin();

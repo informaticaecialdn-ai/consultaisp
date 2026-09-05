@@ -26,6 +26,7 @@ import { AbaSuporte } from "@/components/painel/AbaSuporte";
 import { mensagemDoErro } from "@/components/recuperacao/DialogoContato";
 import { rotuloDoPlano } from "@/lib/planos";
 import { ERP_OPTIONS } from "@/components/admin/constants";
+import { cnpjMascarado } from "@/lib/cnpj";
 
 const MAIN_DOMAIN = "consultaisp.com.br";
 
@@ -408,10 +409,24 @@ export default function PainelProvedorPage() {
   const [empresa, setEmpresa] = useState<any>(null);
   const profileRef = profileData;
 
+  /**
+   * A ficha da aba Empresa. SEM `cnpj`, e de proposito.
+   *
+   * O botao Salvar manda este objeto inteiro para `PATCH /api/provider/profile`,
+   * e `cnpj` esta na lista de campos permitidos do handler — ou seja, o CNPJ
+   * fazia a volta pelo navegador e era REGRAVADO a cada salvamento da aba, mesmo
+   * o campo sendo readOnly. Enquanto o valor voltava igual ao que saiu, isso era
+   * so trabalho a toa; passa a ser defeito no instante em que a tela mascara a
+   * exibicao, porque bastaria alguem ligar o campo ao formulario para
+   * "23.864.873/0001-48" ser gravado de volta na coluna — que e exatamente a
+   * pontuacao dentro do banco que a correcao esta fechando.
+   *
+   * Chave ausente e "nao mexi" para o servidor (`req.body[campo] !== undefined`).
+   * O CNPJ so muda pela ficha do superadmin, que valida e normaliza.
+   */
   const getEmpresa = () => empresa ?? {
     name: profileData?.name || "",
     tradeName: profileData?.tradeName || "",
-    cnpj: profileData?.cnpj || "",
     legalType: profileData?.legalType || "",
     openingDate: profileData?.openingDate || "",
     businessSegment: profileData?.businessSegment || "",
@@ -897,18 +912,21 @@ export default function PainelProvedorPage() {
                 <div className="flex items-center justify-center py-6"><RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" /></div>
               ) : (
                 <div className="space-y-2 text-sm">
-                  {[
+                  {([
                     { label: "Razao Social", value: profileData?.name },
                     { label: "Nome Fantasia", value: profileData?.tradeName },
-                    { label: "CNPJ", value: profileData?.cnpj },
+                    /* A pontuacao e da TELA. `providers.cnpj` guarda 14 digitos
+                       crus; quatro provedores viam a pontuacao aqui so porque ela
+                       estava dentro do banco. Ver `@/lib/cnpj`. */
+                    { label: "CNPJ", value: cnpjMascarado(profileData?.cnpj), mono: true },
                     { label: "Tipo", value: profileData?.legalType },
                     { label: "Cidade", value: profileData?.addressCity && profileData?.addressState ? `${profileData.addressCity} / ${profileData.addressState}` : null },
                     { label: "Socios", value: partners.length > 0 ? `${partners.length} socio(s) cadastrado(s)` : null },
                     { label: "Documentos", value: documents.length > 0 ? `${documents.length} doc(s) enviado(s)` : null },
-                  ].filter(i => i.value).map(i => (
+                  ] as Array<{ label: string; value: any; mono?: boolean }>).filter(i => i.value).map(i => (
                     <div key={i.label} className="flex justify-between py-1 border-b last:border-0">
                       <span className="text-muted-foreground">{i.label}</span>
-                      <span className="font-medium text-right">{i.value}</span>
+                      <span className={`font-medium text-right${i.mono ? " font-mono tabular-nums" : ""}`}>{i.value}</span>
                     </div>
                   ))}
                   {!profileData?.tradeName && !profileData?.legalType && (
@@ -966,7 +984,7 @@ export default function PainelProvedorPage() {
                       <p className="font-medium text-sm text-blue-900 dark:text-blue-200">Preenchimento Automatico via Receita Federal</p>
                       <p className="text-xs text-blue-700 dark:text-blue-400 mt-0.5">
                         Clique em buscar para preencher os dados da empresa automaticamente usando o CNPJ:
-                        <span className="font-mono font-bold ml-1">{provider?.cnpj}</span>
+                        <span className="font-mono tabular-nums font-bold ml-1">{cnpjMascarado(provider?.cnpj)}</span>
                       </p>
                     </div>
                   </div>
@@ -1087,7 +1105,15 @@ export default function PainelProvedorPage() {
                   </div>
                   <div>
                     <label className="text-sm font-medium mb-1.5 block">CNPJ</label>
-                    <Input value={provider?.cnpj || ""} readOnly className="bg-muted" />
+                    {/* readOnly e sem par no estado do formulario: o valor daqui
+                        nao entra no corpo do PATCH (ver `getEmpresa`), entao a
+                        mascara fica so nos olhos e a coluna segue com 14 digitos. */}
+                    <Input
+                      value={cnpjMascarado(provider?.cnpj)}
+                      readOnly
+                      className="bg-muted font-mono tabular-nums"
+                      data-testid="input-cnpj-somente-leitura"
+                    />
                   </div>
                   <div>
                     <label className="text-sm font-medium mb-1.5 block">Tipo / Natureza Juridica</label>

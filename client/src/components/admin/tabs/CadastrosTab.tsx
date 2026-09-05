@@ -18,6 +18,7 @@ import {
 } from "@/components/painel/ui";
 import { PLAN_LABELS, VERIFICATION_LABELS } from "../constants";
 import { acaoExcluirProvedor, type AcaoProvedor } from "../acoes-provedor";
+import { cnpjCru, cnpjMascarado } from "@/lib/cnpj";
 
 /**
  * Cadastros vindos do site, vestidos na MESMA linguagem do Painel do Provedor.
@@ -124,6 +125,73 @@ const BOTAO_CONFIRMA_PERIGO = cn(
 /** Rotulo mono em caixa alta do cabecalho da lista, no tracking do sistema. */
 const CONTAGEM = "font-mono text-[11px] font-normal tabular-nums text-[var(--text-muted)]";
 
+/* ------------------------------------------------------------------ */
+/* A busca da fila                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A busca por CNPJ compara DIGITO com DIGITO — mas so quando o termo TEM CARA
+ * de documento.
+ *
+ * Era `p.cnpj.includes(busca)`, comparacao crua de string: so achava a linha
+ * quando o operador digitava o CNPJ na MESMA forma em que ele estava gravado.
+ * Agora que a coluna guarda 14 digitos para todo mundo, a forma que deixaria de
+ * achar e justamente a PONTUADA — que e a que se copia de um contrato, de uma
+ * nota ou do site da Receita. Dai normalizar os dois lados.
+ *
+ * O QUE ESSA NORMALIZACAO CUSTOU, e o motivo destas duas provas existirem:
+ * `cnpjCru` extrai digito de QUALQUER texto. Aplicada sozinha ao termo, "Net 1"
+ * virava "1", e todo CNPJ contem "1"; como as condicoes de busca sao OR, a linha
+ * casava e a lista devolvia os provedores TODOS. Medido com os CNPJs de
+ * producao: "Net 1" saiu de 0 para 4 resultados, "Fibra 3" de 1 para 2. Nome
+ * comercial de ISP quase sempre carrega numero ("Fibra 3", "Net 10", "Via 2
+ * Telecom"), entao o que quebrou foi a busca por NOME — a de todo dia.
+ *
+ * Um termo so vira consulta de documento quando passa nas duas:
+ *
+ * 1. e escrito SO com o que se escreve um CNPJ — digito, ponto, barra, hifen e
+ *    espaco. Letra e a assinatura de um nome, e por essa prova "Via 2 Telecom"
+ *    ja nao passa. Sozinha ela nao basta: "10" tambem nao tem letra.
+ * 2. sobram pelo menos 8 digitos — a RAIZ do CNPJ, o menor pedaco que identifica
+ *    UMA empresa (os quatro seguintes dizem a filial e os dois ultimos sao o
+ *    verificador). Abaixo disso nao se compara documento, se compara fragmento,
+ *    e fragmento curto casa por acidente: "10" esta dentro de quase todo CNPJ.
+ *
+ * Reprovado, o termo continua sendo texto e estreita por nome e e-mail — o
+ * comportamento de sempre. O piso e generoso com o unico jeito de digitar CNPJ
+ * que existe na pratica: colar os 14 do contrato, ou bater a raiz de cabeca.
+ */
+
+/** So os caracteres com que um CNPJ e escrito. Uma letra reprova o termo. */
+const SO_DE_DOCUMENTO = /^[\d./\-\s]+$/;
+
+/** A raiz do CNPJ — o menor pedaco que identifica uma empresa. */
+const MINIMO_DE_DIGITOS = 8;
+
+export function termoEhDocumento(termo: string): boolean {
+  const limpo = termo.trim();
+  return SO_DE_DOCUMENTO.test(limpo) && cnpjCru(limpo).length >= MINIMO_DE_DIGITOS;
+}
+
+/**
+ * Uma linha casa com o termo por nome, por e-mail ou — so quando o termo tem
+ * cara de documento — por CNPJ, digito contra digito.
+ *
+ * Esta e a logica da caixa de busca, extraida do JSX para poder ser testada de
+ * verdade: componente .tsx nao e coletado neste projeto, e foi dentro do `.filter`
+ * que a regressao passou despercebida.
+ */
+export function cadastroCasaBusca(
+  cadastro: { name?: string | null; contactEmail?: string | null; cnpj?: string | null },
+  termo: string,
+): boolean {
+  const alvo = termo.trim().toLowerCase();
+  if (alvo === "") return true;
+  if ((cadastro.name || "").toLowerCase().includes(alvo)) return true;
+  if ((cadastro.contactEmail || "").toLowerCase().includes(alvo)) return true;
+  return termoEhDocumento(termo) && cnpjCru(cadastro.cnpj).includes(cnpjCru(termo));
+}
+
 export default function CadastrosTab() {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -204,11 +272,8 @@ export default function CadastrosTab() {
 
   const filteredCadastros = allProviders
     .filter((p: any) => {
-      const matchesSearch = p.name.toLowerCase().includes(cadastroSearch.toLowerCase()) ||
-        (p.contactEmail || "").toLowerCase().includes(cadastroSearch.toLowerCase()) ||
-        (p.cnpj || "").includes(cadastroSearch);
       const matchesFilter = cadastroFilter === "all" || p.verificationStatus === cadastroFilter;
-      return matchesSearch && matchesFilter;
+      return cadastroCasaBusca(p, cadastroSearch) && matchesFilter;
     })
     .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
@@ -367,7 +432,7 @@ export default function CadastrosTab() {
                         <div className="flex items-center gap-1.5">
                           <FileText className="w-3 h-3 flex-none" strokeWidth={2} aria-hidden />
                           <span className="font-mono tabular-nums">
-                            {p.cnpj ? p.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5") : "—"}
+                            {cnpjMascarado(p.cnpj) || "—"}
                           </span>
                         </div>
                         <div className="flex items-center gap-1.5">

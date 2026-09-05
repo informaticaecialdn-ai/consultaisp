@@ -37,6 +37,10 @@ import { maskCpfCnpj } from "../services/lgpd-masking";
 import { CUSTO_EM_CREDITOS } from "@shared/planos";
 import { isSpcConfigured, listarProdutosSpc, produtoSpcPadrao, SpcError, statusHttpParaErroSpc } from "../services/spc/spc.service";
 import { getRegionalProviderIds } from "../services/regional.service";
+import {
+  dataDeAbertura, SEGMENTOS, siteComEsquemaAceito, SITE_MAX, TIPOS_SOCIETARIOS, umaDasOpcoes,
+  type Veredito,
+} from "@shared/cadastro-regras";
 import { logger } from "../logger";
 
 /**
@@ -163,10 +167,11 @@ const adminUpdateProviderSchema = z.object({
    * ficava impedido de corrigir o ENDERECO por causa do SITE, e a mensagem
    * ("Dados invalidos") nao dizia qual dos 16 campos reprovou.
    *
-   * Fica UMA recusa: esquema que nao seja http/https. Nao e cosmetica — este
-   * valor e candidato natural a virar href numa tela futura, e "javascript:..."
-   * num href e XSS. Hoje ele so e impresso como texto, o que torna a trava
-   * barata e preventiva, nao urgente.
+   * Fica UMA recusa: esquema que nao seja http/https, e quem julga e
+   * `siteComEsquemaAceito` — o MESMO predicado do painel do provedor. Era copia
+   * dos dois lados, e o defeito veio junto nas duas: o regex incluia o ponto na
+   * classe do nome de esquema, entao "meuisp.net.br:8080" era lido como esquema
+   * "meuisp.net.br" e o endereco com PORTA era recusado nas duas fichas.
    *
    * E nao ha normalizacao: nada de prefixar "https://" no que o provedor
    * digitou. Reescrever em silencio o dado de outra pessoa e o comeco de um
@@ -175,8 +180,8 @@ const adminUpdateProviderSchema = z.object({
    */
   website: z.preprocess(
     vazioVirouNulo,
-    z.string().max(500, "O site deve ter no máximo 500 caracteres.").nullable().refine(
-      valor => valor === null || !/^[a-z][a-z0-9+.-]*:/i.test(valor) || /^https?:\/\//i.test(valor),
+    z.string().max(SITE_MAX, `O site deve ter no máximo ${SITE_MAX} caracteres.`).nullable().refine(
+      valor => valor === null || siteComEsquemaAceito(valor),
       "Site deve comecar com http:// ou https://, ou vir sem esquema (ex.: www.exemplo.com.br)",
     ),
   ).optional(),
@@ -220,6 +225,53 @@ const adminUpdateProviderSchema = z.object({
    * os doze de cima tem.
    */
 }).strict();
+
+/**
+ * OS TRES CAMPOS DE FORMATO QUE A FICHA DO SUPERADMIN TAMBEM COBRA — e por que
+ * eles nao estao no schema acima.
+ *
+ * O painel do provedor passou a recusar, em 05/09/2026, exatamente os valores
+ * que a limpeza estava tirando do banco: `openingDate` com "17/05/2017" numa
+ * coluna que todo o resto le como ISO e `legalType` com
+ * "206-2 - Sociedade Empresaria Limitada" num campo de sete opcoes. A ficha do
+ * superadmin continuou aceitando os dois — medido: `PATCH /api/admin/providers/4`
+ * com qualquer um deles passava, porque `textoDoCadastro` so apara e mede
+ * tamanho. Uma regra que so vale na porta menos poderosa nao segura nada: o
+ * escritor de MAIOR privilegio recriava o lixo que acabara de ser removido.
+ *
+ * Fora do schema pela mesma razao de `contactEmail`: o schema nao enxerga o que
+ * ja esta gravado, e a coluna guarda anos de valor livre. Julgado no handler, e
+ * so quando o valor MUDA, o superadmin continua dono de um cadastro legado —
+ * ele corrige o CEP sem precisar antes arrumar a natureza juridica. O
+ * `<select>` da ficha combina com isso: `opcoesComValorAtual` oferece o valor
+ * gravado como opcao, entao reenvia-lo e eco, e nao alteracao.
+ *
+ * As regras vem de `@shared/cadastro-regras`, as MESMAS instancias que o painel
+ * do provedor usa — e nao uma segunda copia, que foi o que produziu a
+ * divergencia.
+ */
+/**
+ * Um campo de texto opcional que TAMBEM passa por uma regra de formato.
+ *
+ * Serve a CRIACAO, e nao a edicao: aqui a regra vale sempre, sem a excecao de
+ * "so julgar o que mudou" que a edicao precisa para nao trancar o superadmin
+ * fora de um cadastro legado. Na criacao nao ha valor anterior — todo valor e
+ * novo, e passar a regua e o que impede o lixo de nascer.
+ */
+const campoComRegraDeFormato = (max: number, regra: (valor: string | null) => Veredito) =>
+  z.string().max(max).optional().nullable().superRefine((valor, ctx) => {
+    if (valor === undefined) return;
+    const veredito = regra(valor ?? null);
+    if (!veredito.ok) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: veredito.frase });
+    }
+  });
+
+const REGRAS_DE_FORMATO: Record<string, (valor: string | null) => Veredito> = {
+  legalType: umaDasOpcoes(TIPOS_SOCIETARIOS, "O tipo societário"),
+  openingDate: dataDeAbertura,
+  businessSegment: umaDasOpcoes(SEGMENTOS, "O segmento de atuação"),
+};
 
 /**
  * O contrato completo de uma integracao ERP — o mesmo que o painel do provedor
@@ -518,9 +570,26 @@ export function registerAdminRoutes(): Router {
     addressNeighborhood: z.string().max(100).optional().nullable(),
     addressCity: z.string().max(100).optional().nullable(),
     addressState: z.string().max(2).optional().nullable(),
-    legalType: z.string().max(50).optional().nullable(),
-    openingDate: z.string().max(20).optional().nullable(),
-    businessSegment: z.string().max(100).optional().nullable(),
+    /**
+     * A CRIACAO usa as MESMAS regras da edicao — senao a limpeza nunca converge.
+     *
+     * Estes tres eram `z.string().max(N)` livre, e o wizard mandava a natureza
+     * juridica e a descricao do CNAE cruas da Receita. Medido em 05/09/2026: o
+     * provedor 4 tem `legal_type` = "206-2 - Sociedade Empresaria Limitada", que
+     * nao e nenhuma das sete opcoes, e `opening_date` = "17/05/2017" numa coluna
+     * que o resto do sistema le como ISO.
+     *
+     * Com o PATCH recusando esses valores e o POST fabricando-os, a base nunca
+     * ficaria limpa: a edicao so impediria trocar um valor livre por outro,
+     * enquanto todo provedor novo ja nascia com as duas doencas.
+     *
+     * Aqui NAO existe a excecao de "so julgar o que mudou" que a edicao precisa:
+     * na criacao nao ha valor anterior nem cadastro legado para respeitar. Todo
+     * valor e novo, entao todo valor passa pela regua.
+     */
+    legalType: campoComRegraDeFormato(50, umaDasOpcoes(TIPOS_SOCIETARIOS, "O tipo societário")),
+    openingDate: campoComRegraDeFormato(20, dataDeAbertura),
+    businessSegment: campoComRegraDeFormato(100, umaDasOpcoes(SEGMENTOS, "O segmento de atuação")),
   });
 
   router.post("/api/admin/providers", requireSuperAdmin, async (req, res) => {
@@ -642,6 +711,32 @@ export function registerAdminRoutes(): Router {
               errors: { contactEmail: email.error.issues.map(i => i.message) },
             });
           }
+        }
+      }
+
+      /**
+       * Natureza juridica, data de abertura e segmento — a MESMA disciplina do
+       * e-mail de contato logo acima, e pelo mesmo motivo: julgar so o campo
+       * cujo valor MUDOU. Ver `REGRAS_DE_FORMATO`.
+       *
+       * A comparacao e entre os dois lados ja normalizados; o que chega passou
+       * por `vazioVirouNulo` e o gravado e aparado aqui, senao um espaco em
+       * volta do valor do banco faria um campo intocado parecer alteracao.
+       *
+       * Nada e canonizado de passagem: as tres regras devolvem o proprio valor,
+       * entao o payload que vai ao storage e o que chegou — nem um campo a mais,
+       * nem um valor reescrito sem o superadmin ver.
+       */
+      const cadastro = campos as Record<string, unknown>;
+      const linha = anterior as unknown as Record<string, unknown>;
+      for (const [campo, julgar] of Object.entries(REGRAS_DE_FORMATO)) {
+        if (!(campo in cadastro)) continue;
+        const novo = (cadastro[campo] ?? null) as string | null;
+        const gravado = typeof linha[campo] === "string" ? (linha[campo] as string).trim() || null : null;
+        if (novo === gravado) continue;
+        const veredito = julgar(novo);
+        if (!veredito.ok) {
+          return res.status(400).json({ message: "Dados invalidos", errors: { [campo]: [veredito.frase] } });
         }
       }
 

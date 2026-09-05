@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { PLAN_LABELS } from "./constants";
 import { PLANOS_DO_CATALOGO, rotuloDoPlano } from "@/lib/planos";
+import { cnpjMascarado } from "@/lib/cnpj";
 
 /**
  * Ficha rapida do provedor, vestida na MESMA linguagem do Painel do Provedor.
@@ -318,7 +319,10 @@ export default function ProviderDrawer({ providerId, open, onOpenChange }: Provi
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
               <Dado rotulo="Razão social">{provider.name}</Dado>
               <Dado rotulo="Nome fantasia">{provider.tradeName || "—"}</Dado>
-              <Dado rotulo="CNPJ" mono={!!provider.cnpj}>{provider.cnpj || "—"}</Dado>
+              {/* Mascara na exibicao: `providers.cnpj` guarda 14 digitos crus.
+                  Sem ela, a gaveta mostraria "23864873000148" para quem hoje ve o
+                  numero pontuado — e a pontuacao vinha do banco, nao daqui. */}
+              <Dado rotulo="CNPJ" mono={!!provider.cnpj}>{cnpjMascarado(provider.cnpj) || "—"}</Dado>
               <Dado rotulo="Telefone" mono={!!provider.contactPhone}>{provider.contactPhone || "—"}</Dado>
               <Dado rotulo="E-mail" className="sm:col-span-2">{provider.contactEmail || "—"}</Dado>
               <Dado rotulo="Endereço" className="sm:col-span-2">

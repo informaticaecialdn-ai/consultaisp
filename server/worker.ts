@@ -84,6 +84,41 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
 
 (async () => {
   validateEnv();
+
+  /**
+   * O WORKER TAMBEM SE RECUSA A RODAR SOBRE UM SCHEMA QUE A API RECUSOU.
+   *
+   * Desde 05/09/2026 a API cai quando uma migracao falha (`prepararSchemaOuCair`
+   * em server/index.ts): servir com um schema que o codigo nao assume e pior do
+   * que nao servir. So que o corte alcancava um processo so — e este aqui e o
+   * que ESCREVE.
+   *
+   * O cenario, concreto: a migracao falha, o pm2 poe `consulta-isp` em
+   * `errored`, e `consulta-isp-worker` segue de pe varrendo ERP, gravando em
+   * `customers`, contando falhas para o corte automatico e mandando e-mail ao
+   * provedor — tudo contra o schema que a API considerou inseguro demais para
+   * LER. Ficaria pior do que antes do corte: antes os dois processos
+   * concordavam (os dois subiam), depois eles discordariam sem ninguem ver.
+   *
+   * `verifySchema` e NAO `runMigrations`: migracao roda em UM lugar so. Dois
+   * processos aplicando a mesma migracao ao mesmo tempo disputam a linha de
+   * `_migrations` e a transacao de um espera a do outro — no melhor caso lento,
+   * no pior um deadlock no boot. Quem migra e a API; o worker so confere e sai
+   * de cena se nao gostar do que viu.
+   *
+   * Sair com 1 faz o pm2 reiniciar em laco ate a API migrar, e desistir depois.
+   * E o comportamento certo dos dois lados: no deploy comum a espera dura o
+   * tempo de uma migracao, e no deploy quebrado os dois processos ficam fora,
+   * juntos e barulhentos, em vez de meio sistema escrevendo no escuro.
+   */
+  try {
+    const { verifySchema } = await import("./migrate");
+    await verifySchema();
+  } catch (err) {
+    logger.fatal({ err }, "[Worker] schema invalido — o worker nao vai escrever sobre ele");
+    process.exit(1);
+  }
+
   logger.info("[Worker] ERP sync worker starting");
 
   try {

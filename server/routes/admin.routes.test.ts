@@ -356,16 +356,16 @@ describe("PATCH /api/admin/providers/:id — cadastro completo", () => {
     storageMock.getProvider.mockResolvedValue(provedorBase());
 
     const res = await alterar(42, {
-      legalType: "Sociedade Empresária Limitada",
+      legalType: "LTDA",
       openingDate: "2014-03-21",
-      businessSegment: "Provedor de internet",
+      businessSegment: "ISP / Provedor de Internet",
     });
 
     expect(res.status).toBe(200);
     expect(gravado()).toEqual({
-      legalType: "Sociedade Empresária Limitada",
+      legalType: "LTDA",
       openingDate: "2014-03-21",
-      businessSegment: "Provedor de internet",
+      businessSegment: "ISP / Provedor de Internet",
     });
   });
 
@@ -374,7 +374,7 @@ describe("PATCH /api/admin/providers/:id — cadastro completo", () => {
 
     const res = await alterar(42, {
       name: "NsLink Telecom Ltda", tradeName: "NsLink", cnpj: "12345678000199",
-      legalType: "LTDA", openingDate: "2014-03-21", businessSegment: "Provedor de internet",
+      legalType: "LTDA", openingDate: "2014-03-21", businessSegment: "ISP / Provedor de Internet",
       contactEmail: "contato@nslink.com.br", contactPhone: "37999990000",
       website: "https://nslink.com.br", subdomain: "nslink",
       addressZip: "35500000", addressStreet: "Rua das Palmeiras", addressNumber: "120",
@@ -478,6 +478,18 @@ describe("PATCH /api/admin/providers/:id — cadastro completo", () => {
     await alterar(42, { website: "exemplo.com.br" });
 
     expect(gravado().website).toBe("exemplo.com.br");
+  });
+
+  // O regex de esquema incluia o ponto na classe do nome, entao ele lia
+  // "meuisp.net.br" como esquema e recusava o endereco com PORTA — e a ficha e
+  // tudo-ou-nada: o superadmin perdia a correcao da cidade junto.
+  it("aceita site com porta, e salva o resto da ficha junto", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { website: "meuisp.net.br:8080", addressCity: "Formiga" });
+
+    expect(res.status).toBe(200);
+    expect(gravado()).toEqual({ website: "meuisp.net.br:8080", addressCity: "Formiga" });
   });
 
   // Este valor e candidato natural a virar href numa tela futura.
@@ -711,6 +723,124 @@ describe("PATCH /api/admin/providers/:id — e-mail de contato", () => {
 
     expect(res.status).toBe(400);
     expect(storageMock.adminUpdateProvider).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * PATCH /api/admin/providers/:id — natureza juridica, data de abertura e segmento.
+ *
+ * O painel do PROVEDOR passou a recusar "17/05/2017" e
+ * "206-2 - Sociedade Empresaria Limitada" — os dois valores que o lote de
+ * limpeza estava tirando do banco. A ficha do superadmin, o escritor de MAIOR
+ * privilegio, continuava aceitando os dois: `textoDoCadastro` so apara e mede
+ * tamanho. O que se prova aqui e que a mesma regua vale nas duas portas E que
+ * ela julga so o que MUDOU — senao ela trancaria o superadmin fora dos cadastros
+ * legados, que e o defeito que este lote inteiro existe para consertar.
+ */
+describe("PATCH /api/admin/providers/:id — a regua do cadastro tambem vale aqui", () => {
+  const gravado = () => storageMock.adminUpdateProvider.mock.calls[0][1] as unknown as any;
+
+  /** A ficha do provedor 4, com as duas doencas medidas em producao. */
+  const LEGADO = provedorBase({
+    legalType: "206-2 - Sociedade Empresaria Limitada",
+    openingDate: "17/05/2017",
+  });
+
+  it("recusa a data em formato brasileiro, apontando o campo", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { openingDate: "17/05/2017" });
+    const corpo = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(corpo.errors.openingDate?.[0]).toMatch(/AAAA-MM-DD/);
+    expect(storageMock.adminUpdateProvider).not.toHaveBeenCalled();
+  });
+
+  it("recusa data que casa com o formato mas nao existe no calendario", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { openingDate: "2017-02-31" });
+    const corpo = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(corpo.errors.openingDate?.[0]).toMatch(/não existe no calendário/);
+  });
+
+  it("recusa a natureza juridica crua da Receita, enumerando o que vale", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { legalType: "206-2 - Sociedade Empresaria Limitada" });
+    const corpo = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(corpo.errors.legalType?.[0]).toMatch(/LTDA/);
+    expect(storageMock.adminUpdateProvider).not.toHaveBeenCalled();
+  });
+
+  it("recusa segmento fora da lista", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase());
+
+    const res = await alterar(42, { businessSegment: "Serviços de comunicação multimídia" });
+    const corpo = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(corpo.errors.businessSegment?.[0]).toMatch(/ISP \/ Provedor de Internet/);
+  });
+
+  // O CORACAO DA REGRA. O `<select>` da ficha oferece o valor gravado como
+  // opcao (`opcoesComValorAtual`), entao reenvia-lo e eco. Se isso reprovasse, o
+  // superadmin nao conseguiria corrigir a cidade do provedor 4 sem antes
+  // arrumar dois campos que ele nao sabe que estao errados.
+  it("o valor legado reenviado e eco: passa, e o resto da ficha e gravado", async () => {
+    storageMock.getProvider.mockResolvedValue(LEGADO);
+
+    const res = await alterar(42, {
+      legalType: "206-2 - Sociedade Empresaria Limitada",
+      openingDate: "17/05/2017",
+      addressCity: "Formiga",
+    });
+
+    expect(res.status).toBe(200);
+    expect(gravado().addressCity).toBe("Formiga");
+  });
+
+  it("espaco em volta do valor gravado nao conta como alteracao", async () => {
+    storageMock.getProvider.mockResolvedValue(provedorBase({ openingDate: "  17/05/2017  " }));
+
+    const res = await alterar(42, { openingDate: "17/05/2017" });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("corrigir o legado para a forma canonica grava", async () => {
+    storageMock.getProvider.mockResolvedValue(LEGADO);
+
+    const res = await alterar(42, { legalType: "LTDA", openingDate: "2017-05-17" });
+
+    expect(res.status).toBe(200);
+    expect(gravado()).toEqual({ legalType: "LTDA", openingDate: "2017-05-17" });
+  });
+
+  // Trocar um valor legado por OUTRO valor livre e alteracao, e alteracao e
+  // julgada: e por aqui que o lixo voltaria a entrar.
+  it("trocar um legado por outro valor livre e recusado", async () => {
+    storageMock.getProvider.mockResolvedValue(LEGADO);
+
+    const res = await alterar(42, { legalType: "213-5 - Empresario Individual" });
+
+    expect(res.status).toBe(400);
+    expect(storageMock.adminUpdateProvider).not.toHaveBeenCalled();
+  });
+
+  // Apagar um campo opcional continua valendo: null nao e formato invalido.
+  it("apagar a data de abertura continua valendo", async () => {
+    storageMock.getProvider.mockResolvedValue(LEGADO);
+
+    const res = await alterar(42, { openingDate: "" });
+
+    expect(res.status).toBe(200);
+    expect(gravado()).toEqual({ openingDate: null });
   });
 });
 

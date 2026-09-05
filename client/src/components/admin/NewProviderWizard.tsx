@@ -1,12 +1,14 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
+import { tipoSocietario } from "@/pages/admin/cadastro-provedor";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { PLANOS_DO_CATALOGO, rotuloDoPlano } from "@/lib/planos";
+import { cnpjMascarado } from "@/lib/cnpj";
 import {
   BOTAO_MARCA, BOTAO_SECUNDARIO, Campo, CONTROLE_CAMPO, DESABILITAVEL,
   EstadoVazio, KickerSecao, LadrilhoIcone, ROTULO_CAMPO, TITULO_CARTAO,
@@ -162,15 +164,6 @@ export default function NewProviderWizard({ open, onOpenChange }: { open: boolea
     });
   };
 
-  const formatCnpj = (v: string) => {
-    const d = v.replace(/\D/g, "").slice(0, 14);
-    if (d.length <= 2) return d;
-    if (d.length <= 5) return `${d.slice(0,2)}.${d.slice(2)}`;
-    if (d.length <= 8) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5)}`;
-    if (d.length <= 12) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8)}`;
-    return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`;
-  };
-
   const lookupCnpj = async () => {
     const clean = cnpjInput.replace(/\D/g, "");
     if (clean.length !== 14) { toast({ title: "CNPJ deve ter 14 dígitos", variant: "destructive" }); return; }
@@ -188,8 +181,29 @@ export default function NewProviderWizard({ open, onOpenChange }: { open: boolea
         addressZip: data.cep, addressStreet: data.logradouro, addressNumber: data.numero,
         addressComplement: data.complemento, addressNeighborhood: data.bairro,
         addressCity: data.cidade, addressState: data.uf,
-        legalType: data.naturezaJuridica, openingDate: data.dataAbertura,
-        businessSegment: data.atividadePrincipal,
+        /**
+         * A NATUREZA JURÍDICA PASSA PELO TRADUTOR, e o CNAE não entra.
+         *
+         * Aqui gravava-se `data.naturezaJuridica` e `data.atividadePrincipal`
+         * crus — e nenhum dos dois pertence às listas fechadas que os dois
+         * `<select>` oferecem. O efeito, medido em 05/09/2026: o provedor 4,
+         * nascido por este caminho, tem `legal_type` = "206-2 - Sociedade
+         * Empresária Limitada", que não é nenhuma das sete opções, então o
+         * campo aparece vazio na tela para um valor que ESTÁ gravado.
+         *
+         * Pior que cosmético: o `PATCH` passou a recusar esses valores, mas
+         * este `POST` continuava fabricando-os. A limpeza da base nunca
+         * convergiria — a edição só impediria trocar um valor livre por outro,
+         * enquanto todo provedor novo já nascia com as duas doenças.
+         *
+         * `tipoSocietario` devolve "" quando não reconhece, nunca "Outro":
+         * chute errado sai em nota fiscal. E `businessSegment` fica de FORA da
+         * busca — `atividadePrincipal` é descrição de CNAE ("Serviços de
+         * comunicação multimídia"), que não é nenhum dos cinco segmentos. Quem
+         * cadastra escolhe no seletor, que é uma pergunta de dez segundos.
+         */
+        legalType: tipoSocietario(data.naturezaJuridica),
+        openingDate: data.dataAbertura,
       }));
       setStep(2);
     } catch (e: any) {
@@ -215,7 +229,7 @@ export default function NewProviderWizard({ open, onOpenChange }: { open: boolea
 
   const RESUMO: Array<{ rotulo: string; valor: React.ReactNode; mono?: boolean }> = [
     { rotulo: "Empresa", valor: form.tradeName || form.name || "—" },
-    { rotulo: "CNPJ", valor: formatCnpj(form.cnpj) || "—", mono: true },
+    { rotulo: "CNPJ", valor: cnpjMascarado(form.cnpj) || "—", mono: true },
     { rotulo: "Subdomínio", valor: `${form.subdomain}.consultaisp.com.br`, mono: true },
     /* Rotulo do plano, nao a chave de banco. */
     { rotulo: "Plano", valor: rotuloDoPlano(form.plan) },
@@ -300,7 +314,7 @@ export default function NewProviderWizard({ open, onOpenChange }: { open: boolea
                 <Input
                   placeholder="00.000.000/0000-00"
                   value={cnpjInput}
-                  onChange={(e) => setCnpjInput(formatCnpj(e.target.value))}
+                  onChange={(e) => setCnpjInput(cnpjMascarado(e.target.value))}
                   onKeyDown={(e) => e.key === "Enter" && lookupCnpj()}
                   className={cn(CONTROLE_CAMPO, "text-center font-mono text-[15px] tabular-nums tracking-[var(--track-wide)]")}
                   aria-label="CNPJ do provedor"
@@ -350,7 +364,7 @@ export default function NewProviderWizard({ open, onOpenChange }: { open: boolea
               </Campo>
               <Campo rotulo="CNPJ">
                 <Input
-                  value={formatCnpj(form.cnpj)}
+                  value={cnpjMascarado(form.cnpj)}
                   disabled
                   className={cn(CONTROLE_CAMPO, "bg-[var(--surface-inset)] font-mono tabular-nums")}
                 />

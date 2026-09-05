@@ -9,7 +9,12 @@ import { anonymizeProvider } from "../utils/provider-anonymizer";
 import { sendUsuarioAdicionadoEmail } from "../services/email";
 import { contextoDeEmail } from "../services/email-destinatario";
 import { consultarCnpjPublico, normalizarCnpj } from "../services/cnpj-publico.service";
+import {
+  aceita, dataDeAbertura, recusa, SEGMENTOS, site, TIPOS_SOCIETARIOS, umaDasOpcoes,
+  type Veredito,
+} from "@shared/cadastro-regras";
 import crypto from "crypto";
+import { z } from "zod";
 
 /**
  * Avisa a PESSOA que acabou de ganhar acesso ao provedor.
@@ -96,6 +101,191 @@ function exigirAdminDoProvedor(acao: string) {
     next();
   };
 }
+
+/**
+ * A REGUA DO CADASTRO DO PROVEDOR — e por que ela so julga o que MUDOU.
+ *
+ * Ate 05/09/2026 o PATCH do perfil copiava dezesseis campos do corpo direto
+ * para o `db.update().set()`, com uma lista de campos permitidos e mais nada.
+ * E dele que saiu o lixo que o resto do sistema aprendeu a tolerar, medido em
+ * producao: `opening_date` com "17/05/2017" numa coluna que todo o resto le
+ * como ISO, `legal_type` com "206-2 - Sociedade Empresaria Limitada" num campo
+ * de sete opcoes, e CNPJ mascarado numa coluna UNIQUE que o cadastro compara
+ * por igualdade exata de string.
+ *
+ * A regra que organiza tudo aqui e uma so: **julgar so o campo cujo valor
+ * mudou**. Nao e afrouxamento, e a unica forma de a regua nao virar uma tranca.
+ * O painel manda os DEZESSEIS campos a cada clique em Salvar (a tela monta o
+ * formulario com `provider.campo || ""` e reenvia o objeto inteiro), e o
+ * conteudo que ela reenvia foi gravado por esta mesma rota, sem regua nenhuma.
+ * Uma validacao que julgasse o cadastro inteiro trancaria o provedor 4 fora do
+ * proprio cadastro: ele nao conseguiria corrigir o telefone sem antes arrumar
+ * a data de abertura e a natureza juridica — dois campos que ele nao sabe que
+ * estao errados, recusados por frases que nao explicam de onde vieram.
+ *
+ * Dai a divisao de trabalho entre o schema e as regras abaixo:
+ *
+ *   - O SCHEMA so da forma: recusa chave desconhecida, exige texto, apara o
+ *     valor e transforma "" em null. Nada que ele faz pode reprovar um valor
+ *     legado — nem tamanho, que tambem reprovaria ("Minas Gerais" num campo de
+ *     dois caracteres e exatamente o caso que existe hoje).
+ *   - As REGRAS julgam formato, e o handler so as aplica ao campo que difere do
+ *     que ja esta gravado. O molde e o `EMAIL_DE_CONTATO_NOVO` da ficha do
+ *     superadmin (server/routes/admin.routes.ts): recusar o que o servidor
+ *     mesmo entregou nao e validacao, e uma tranca numa porta ja aberta.
+ *
+ * O que a regua canoniza, ela canoniza so no valor que o provedor esta
+ * DIGITANDO AGORA (CEP para 8 digitos, UF para maiuscula). Consertar de passagem
+ * o valor antigo seria reescrever em silencio o dado de outra pessoa, e um
+ * conserto que so alcanca quem por acaso clicou em Salvar deixa a coluna
+ * misturada para sempre — isso e trabalho de migracao, com uma passada so.
+ */
+
+/**
+ * "" no corpo vira NULL na coluna — e o trim vem junto.
+ *
+ * Gemeo do helper de mesmo nome em admin.routes.ts, e a copia e deliberada:
+ * importar de la arrastaria o modulo do superadmin inteiro (rate limiter,
+ * registry de ERP, servico de e-mail) para dentro das rotas do provedor.
+ *
+ * "" custa caro de duas formas: no resto da aplicacao null ja e a forma de
+ * dizer "nao informado" (`provider.website || "—"`), entao "" faz a tela
+ * mostrar um campo preenchido com nada; e a comparacao com o valor gravado
+ * ficaria dependendo de qual das duas formas do vazio esta de cada lado.
+ * "   " tem o mesmo efeito de "" e nenhum significado a mais.
+ */
+const vazioVirouNulo = (valor: unknown) => {
+  if (typeof valor !== "string") return valor;
+  const limpo = valor.trim();
+  return limpo === "" ? null : limpo;
+};
+
+/** Campo do cadastro: ausente, null ou "" (que vira null). O FORMATO e o
+ *  TAMANHO nao sao julgados aqui — ver `REGRAS_DO_PERFIL`. */
+const campoDoPerfil = z.preprocess(vazioVirouNulo, z.string().nullable()).optional();
+
+/**
+ * `.strict()` para recusar chave que nao e coluna, em vez de descartar em
+ * silencio como fazia a lista de campos permitidos. "Salvo com sucesso" para um
+ * campo que o servidor jogou fora e a pior das respostas.
+ *
+ * As dezesseis chaves sao exatamente as que `getEmpresa()` monta em
+ * client/src/pages/provedor/painel-provedor.tsx. `subdomain`, plano, creditos e
+ * status ficam de fora porque nunca estiveram: eles nao sao do provedor.
+ */
+const perfilDoProvedorSchema = z.object({
+  name: campoDoPerfil,
+  tradeName: campoDoPerfil,
+  cnpj: campoDoPerfil,
+  legalType: campoDoPerfil,
+  openingDate: campoDoPerfil,
+  businessSegment: campoDoPerfil,
+  contactEmail: campoDoPerfil,
+  contactPhone: campoDoPerfil,
+  website: campoDoPerfil,
+  addressZip: campoDoPerfil,
+  addressStreet: campoDoPerfil,
+  addressNumber: campoDoPerfil,
+  addressComplement: campoDoPerfil,
+  addressNeighborhood: campoDoPerfil,
+  addressCity: campoDoPerfil,
+  addressState: campoDoPerfil,
+}).strict();
+
+const UFS: readonly string[] = [
+  "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG",
+  "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO",
+];
+
+/**
+ * `Veredito`, `aceita`, `recusa`, `umaDasOpcoes`, `dataDeAbertura`, `site` e as
+ * duas listas de opcoes vem de `@shared/cadastro-regras`: sao exatamente as
+ * regras que a ficha do superadmin tambem tem de aplicar, e enquanto elas eram
+ * copia daqui a ficha de MAIOR privilegio continuou aceitando os dois valores
+ * que esta rota passou a recusar. O que fica neste arquivo e o que so a ficha do
+ * provedor cobra.
+ */
+const texto = (max: number, rotulo: string) => (valor: string | null): Veredito =>
+  valor !== null && valor.length > max
+    ? recusa(`${rotulo} deve ter no máximo ${max} caracteres.`)
+    : aceita(valor);
+
+/**
+ * O e-mail e o ENDERECO DE ENTREGA do provedor: `destinatariosDoProvedor` manda
+ * para ele quando existe e so cai nos administradores quando ele esta VAZIO. Um
+ * valor preenchido e invalido e pior que nenhum, porque sombreia o resgate.
+ *
+ * Apagar continua valendo (null passa): sem contato, o aviso vai para os
+ * administradores, que e o resgate funcionando.
+ */
+const EMAIL_DE_CONTATO_NOVO = z.string()
+  .email("O e-mail de contato precisa ser um endereço só, no formato nome@empresa.com.br.")
+  .max(254, "O e-mail de contato deve ter no máximo 254 caracteres.");
+
+const emailDeContato = (valor: string | null): Veredito => {
+  if (valor === null) return aceita(null);
+  const julgado = EMAIL_DE_CONTATO_NOVO.safeParse(valor);
+  return julgado.success ? aceita(valor) : recusa(julgado.error.issues[0].message);
+};
+
+/**
+ * CEP em 8 digitos. A canonizacao vale a pena porque ha consumidor que usa o
+ * valor CRU: `nfse-auto.ts` manda `provider.addressZip` para a prefeitura sem
+ * limpar em um dos dois caminhos, e "35500-000" ali e um CEP invalido.
+ */
+const cep = (valor: string | null): Veredito => {
+  if (valor === null) return aceita(null);
+  const digitos = valor.replace(/\D/g, "");
+  return digitos.length === 8
+    ? aceita(digitos)
+    : recusa("O CEP precisa ter 8 dígitos (ex.: 35500-000).");
+};
+
+/** A coluna tem dois caracteres: "Minas Gerais" nao cabe e nao e sigla. */
+const uf = (valor: string | null): Veredito => {
+  if (valor === null) return aceita(null);
+  const sigla = valor.toUpperCase();
+  return UFS.includes(sigla)
+    ? aceita(sigla)
+    : recusa("A UF precisa ser a sigla de dois caracteres do estado (ex.: MG), e não o nome por extenso.");
+};
+
+/**
+ * A razao social e o nome do tenant em toda tela, e-mail e nota. Apagar nao e
+ * uma escolha valida como apagar o complemento.
+ */
+const razaoSocial = (valor: string | null): Veredito =>
+  valor === null ? recusa("Informe a razão social do provedor.") : texto(200, "A razão social")(valor);
+
+/**
+ * Uma regra por campo. `cnpj` NAO esta aqui de proposito — ele nao e alteravel
+ * por esta rota; ver a decisao no handler.
+ */
+const REGRAS_DO_PERFIL: Record<string, (valor: string | null) => Veredito> = {
+  name: razaoSocial,
+  tradeName: texto(200, "O nome fantasia"),
+  legalType: umaDasOpcoes(TIPOS_SOCIETARIOS, "O tipo societário"),
+  openingDate: dataDeAbertura,
+  businessSegment: umaDasOpcoes(SEGMENTOS, "O segmento de atuação"),
+  contactEmail: emailDeContato,
+  contactPhone: texto(20, "O telefone de contato"),
+  website: site,
+  addressZip: cep,
+  addressStreet: texto(200, "A rua"),
+  addressNumber: texto(20, "O número"),
+  addressComplement: texto(100, "O complemento"),
+  addressNeighborhood: texto(100, "O bairro"),
+  addressCity: texto(100, "A cidade"),
+  addressState: uf,
+};
+
+/**
+ * O valor gravado, na mesma forma em que o enviado chega — sem isso, um espaco
+ * em volta do valor no banco faria um campo intocado parecer alteracao e cairia
+ * na regua que existe justamente para nao julgar o que ninguem tocou.
+ */
+const gravadoComo = (valor: unknown): string | null =>
+  typeof valor === "string" ? (valor.trim() || null) : null;
 
 export function registerProviderRoutes(): Router {
   const router = Router();
@@ -302,19 +492,170 @@ export function registerProviderRoutes(): Router {
     }
   });
 
+  /**
+   * O cadastro da empresa, alterado pelo PROPRIO provedor.
+   *
+   * `exigirAdminDoProvedor` continua: o operador (`user`) nao mexe no cadastro
+   * da empresa, e a excecao do suporte personificado — que a funcao ja trata —
+   * e o motivo de a comparacao nao ser `role !== "admin"` na mao.
+   *
+   * A regua e a de cima, e o handler e quem aplica "so o que mudou". A ordem
+   * importa: forma (schema) -> corpo vazio -> linha anterior -> CNPJ ->
+   * comparacao campo a campo -> recusas -> gravacao.
+   */
   router.patch("/api/provider/profile", requireAuth, requireProvider, exigirAdminDoProvedor("alterar o perfil"), async (req, res) => {
     try {
-      const allowedFields = [
-        "name", "tradeName", "cnpj", "legalType", "openingDate", "businessSegment",
-        "contactEmail", "contactPhone", "website",
-        "addressZip", "addressStreet", "addressNumber", "addressComplement",
-        "addressNeighborhood", "addressCity", "addressState",
-      ];
-      const data: any = {};
-      for (const field of allowedFields) {
-        if (req.body[field] !== undefined) data[field] = req.body[field];
+      const parsed = perfilDoProvedorSchema.safeParse(req.body);
+      if (!parsed.success) {
+        /**
+         * `errors` e o mapa campo -> frases, para a tela um dia imprimir debaixo
+         * do campo. O que cai neste ramo e chave que nao existe ou valor que nao
+         * e texto: defeito do cliente, e nao engano de quem preenche.
+         *
+         * E por isso mesmo a resposta precisava de `formErrors`. A recusa do
+         * `.strict()` e um `unrecognized_keys`, que NAO pertence a campo nenhum
+         * — o zod a poe em `formErrors`, e a resposta so mandava `fieldErrors`.
+         * Medido: um PATCH com uma chave a mais respondia literalmente
+         * {"message":"Dados invalidos","errors":{}} — 400 sem uma palavra sobre
+         * o que estava errado, e o painel imprime so `message` num toast.
+         *
+         * A frase e NOSSA, e nao a do zod ("Unrecognized key(s) in object:
+         * 'ispCredits'"): ela nomeia as chaves recusadas, diz que nada foi
+         * salvo, e esta em portugues como todo o resto da tela.
+         */
+        const { fieldErrors, formErrors } = parsed.error.flatten();
+        const desconhecidas = parsed.error.issues
+          .filter(issue => issue.code === "unrecognized_keys")
+          .flatMap(issue => (issue as z.ZodIssue & { keys: string[] }).keys);
+        const frasesGerais = desconhecidas.length > 0
+          ? [`Estes campos não fazem parte do cadastro da empresa e por isso nada foi salvo: ${desconhecidas.join(", ")}.`]
+          : formErrors;
+        return res.status(400).json({
+          message: frasesGerais.length > 0 ? frasesGerais.join(" ") : "Dados invalidos",
+          errors: fieldErrors,
+          formErrors: frasesGerais,
+        });
       }
-      const updated = await storage.updateProviderProfile(req.session.providerId!, data);
+      const enviado = parsed.data as Record<string, string | null>;
+
+      /**
+       * Corpo sem nenhuma chave conhecida: recusa antes de tocar no banco.
+       * `db.update().set({})` nao e um no-op — o Drizzle se recusa a montar o
+       * SET vazio, o erro cai no catch generico e o provedor le "Erro interno
+       * do servidor", que o convida a clicar de novo.
+       *
+       * Isto e diferente de "nada mudou", tratado la embaixo: aqui NADA chegou,
+       * o que so acontece com formulario quebrado deste lado de ca.
+       */
+      if (Object.keys(enviado).length === 0) {
+        return res.status(400).json({ message: "Nenhum campo para alterar" });
+      }
+
+      const anterior = await storage.getProvider(req.session.providerId!);
+      if (!anterior) return res.status(404).json({ message: "Provedor nao encontrado" });
+      const linha = anterior as unknown as Record<string, unknown>;
+
+      /**
+       * DECISAO (05/09/2026): o CNPJ SAI do que o provedor pode alterar — mas o
+       * eco do que ja esta gravado continua passando.
+       *
+       * Tres fatos decidem, e nenhum deles e "por seguranca":
+       *
+       * 1. A tela NUNCA deixou digitar aqui: o campo do painel e `readOnly` e
+       *    so devolve o que o GET entregou. Manter `cnpj` na lista de campos
+       *    alteraveis nao servia o provedor — servia so quem chegasse por curl.
+       * 2. Trocar o CNPJ e trocar QUEM A EMPRESA E: e o documento da nota
+       *    fiscal e a chave pela qual o bureau reconhece o tenant. E a coluna e
+       *    UNIQUE sem conferencia nenhuma nesta rota, entao uma colisao virava
+       *    23505 dentro do catch e "Erro interno do servidor" na tela.
+       * 3. Quem digitou errado no cadastro tem caminho: a ficha do superadmin
+       *    corrige CNPJ desde 04/09/2026, com conferencia de duplicidade e 409
+       *    dizendo de quem e o numero. Um erro no documento da empresa e
+       *    exatamente o tipo de correcao que deve deixar rastro de quem fez.
+       *
+       * O eco tem de passar porque o painel reenvia os dezesseis campos a cada
+       * Salvar: recusar o valor que o servidor mesmo entregou trancaria o
+       * provedor fora do cadastro inteiro por um campo que ele nem pode editar.
+       * A comparacao e por DIGITOS — quatro das seis linhas de producao guardam
+       * o CNPJ mascarado, e "23.864.873/0001-48" e o mesmo documento que
+       * "23864873000148".
+       *
+       * 403 e nao 400: o pedido esta bem formado e o valor pode ser um CNPJ
+       * perfeito; o que falta e permissao para mexer NESTE campo.
+       */
+      if ("cnpj" in enviado) {
+        const pedido = (enviado.cnpj ?? "").replace(/\D/g, "");
+        const atual = String(linha.cnpj ?? "").replace(/\D/g, "");
+        if (pedido !== atual) {
+          logger.warn(
+            { providerId: req.session.providerId, userId: req.session.userId, cnpj: `${pedido.slice(0, 4)}***` },
+            "[provedor] tentativa de alterar o CNPJ pelo painel do provedor",
+          );
+          const frase = "O CNPJ identifica a empresa na nota fiscal e no bureau: só o suporte pode alterá-lo. Fale com o suporte para corrigir.";
+          return res.status(403).json({ message: frase, errors: { cnpj: [frase] } });
+        }
+      }
+
+      const alteracoes: Record<string, string | null> = {};
+      const recusas: Record<string, string[]> = {};
+
+      for (const [campo, valor] of Object.entries(enviado)) {
+        if (campo === "cnpj") continue;
+        const gravado = gravadoComo(linha[campo]);
+        // O CORACAO DA ROTA: valor igual ao gravado nao e alteracao, entao nao
+        // ha o que julgar nem o que gravar. E o que mantem o provedor com
+        // cadastro legado dono do proprio cadastro.
+        if (valor === gravado) continue;
+
+        const regra = REGRAS_DO_PERFIL[campo];
+        if (!regra) {
+          // Nao ha caminho para isto com o schema acima. A guarda existe para
+          // que um campo novo no schema sem regra correspondente falhe alto, em
+          // vez de entrar no banco sem regua nenhuma — que e como esta rota
+          // passou a existir.
+          recusas[campo] = ["Campo sem regra de validação no servidor."];
+          continue;
+        }
+
+        const veredito = regra(valor);
+        if (!veredito.ok) {
+          recusas[campo] = [veredito.frase];
+          continue;
+        }
+        // A canonizacao pode ter alcancado o valor gravado ("mg" -> "MG"): nesse
+        // caso nao ha alteracao de verdade, e um UPDATE que grava o que ja esta
+        // la so suja o rastro.
+        if (veredito.valor === gravado) continue;
+        alteracoes[campo] = veredito.valor;
+      }
+
+      /**
+       * Recusa e do formulario INTEIRO: nada de gravacao parcial. Quem clica em
+       * Salvar espera que a tela e a linha combinem depois — gravar metade
+       * deixaria as duas em desacordo sem que ninguem visse.
+       *
+       * As frases vao juntas em `message` porque o painel imprime so ele no
+       * toast; cada uma nomeia o proprio campo, entao duas frases leem como duas
+       * instrucoes. `errors` fica no mesmo formato da ficha do superadmin, para
+       * o dia em que esta tela imprimir o erro debaixo do campo.
+       */
+      const frases = Object.values(recusas).flat();
+      if (frases.length > 0) {
+        return res.status(400).json({ message: frases.join(" "), errors: recusas });
+      }
+
+      /**
+       * Tudo que chegou era igual ao que ja esta gravado. Nao e erro: e o Salvar
+       * clicado sem editar nada, que e comum numa tela que reenvia os dezesseis
+       * campos. A resposta honesta e a linha como ela esta — o estado da tela e
+       * o do banco ja combinam, e um 400 aqui pintaria de vermelho um clique que
+       * nao tem nada de errado.
+       */
+      if (Object.keys(alteracoes).length === 0) {
+        return res.json(anterior);
+      }
+
+      const updated = await storage.updateProviderProfile(req.session.providerId!, alteracoes as any);
       return res.json(updated);
     } catch (error: any) {
       return res.status(500).json({ message: getSafeErrorMessage(error) });

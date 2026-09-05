@@ -15,6 +15,11 @@
  * Os dados sao de exemplo, escolhidos para exercitar os casos dificeis: nome
  * longo, valor com centavos, CPF mascarado, motivo de reprovacao com frase
  * inteira.
+ *
+ * REGRA DO EXEMPLO: ele entra na forma em que o SISTEMA entrega o dado, nunca
+ * na forma em que se quer ve-lo. O CNPJ do provedor vinha aqui pontuado a mao
+ * enquanto a producao entregava a coluna crua — a previa mostrava um e-mail que
+ * ninguem receberia, e foi assim que a formatacao que faltava passou batida.
  */
 import fs from "fs";
 import path from "path";
@@ -70,7 +75,12 @@ export function exemplos(marca = MARCA_PLATAFORMA, url = URL_DO_PROVEDOR): Exemp
       email.montarBoasVindas("financeiro@nslink.com.br", {
         nome: "Emerson Queiroz",
         provedor: "NsLink Provedor",
-        cnpj: "12.345.678/0001-90",
+        // Os 14 digitos CRUS, como a coluna `providers.cnpj` guarda depois da
+        // canonizacao e como `sendWelcomeEmail` recebe (`cnpj: provider.cnpj`,
+        // em auth.routes.ts). Ate aqui a previa passava "12.345.678/0001-90"
+        // mascarado a mao: o e-mail aparecia certo na tela de revisao e sairia
+        // cru na producao. Uma previa que mente e pior do que nenhuma.
+        cnpj: "12345678000190",
         plano: "Gratuito",
         creditos: 50,
         emailDeAcesso: "financeiro@nslink.com.br",

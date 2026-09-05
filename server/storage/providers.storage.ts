@@ -1,5 +1,6 @@
 import { eq, sql, inArray, and } from "drizzle-orm";
 import { db } from "../db";
+import { cnpjCru } from "@shared/cnpj";
 import {
   providers, users, customers, contracts, invoices, equipment,
   ispConsultations, spcConsultations, antiFraudAlerts,
@@ -87,14 +88,68 @@ export interface ProviderWithStats extends Provider {
   adminEmailVerified: boolean;
 }
 
+/**
+ * A forma canonica do CNPJ: so os digitos.
+ *
+ * `providers.cnpj` guardava DUAS formas do mesmo dado — medido em producao em
+ * 05/09/2026, quatro das seis linhas mascaradas ("23.864.873/0001-48") e duas
+ * cruas ("22759562000156"). A migracao 0020 canonizou a coluna; esta funcao e o
+ * outro lado do mesmo conserto, e as duas precisam existir juntas: normalizar
+ * so a busca nao acharia as linhas mascaradas, e normalizar so a coluna nao
+ * ajudaria quem procura digitando a mascara.
+ *
+ * Aguenta nulo e indefinido porque o valor vem de `req.body` em mais de um
+ * caminho: o TypeScript promete `string`, o corpo de um POST nao promete nada.
+ * Sem isso, um `undefined` que escape de uma rota vira TypeError dentro do
+ * storage, que a rota converte em 500 — quando a resposta certa e simplesmente
+ * "nao achei". Quem garante isso hoje e `cnpjCru`, em shared/cnpj.ts.
+ */
+export function cnpjCanonico(cnpj: string): string {
+  /**
+   * DELEGA para `shared/cnpj`, e não repete o `replace`.
+   *
+   * Esta função nasceu com um `.replace(/\D/g,"")` próprio, SEM o
+   * `.slice(0, 14)` que a peça única aplica — e as duas só concordavam por
+   * acidente, porque todo chamador validava 14 dígitos antes de chegar aqui.
+   * No dia em que alguém consultasse com um valor não pré-validado de mais de
+   * 14 dígitos, `cnpjCru` truncaria e acharia a linha, esta aqui não acharia, e
+   * o cadastro concluiria "empresa nova" — que é, por outra porta, exatamente
+   * o defeito que este conserto inteiro existe para fechar.
+   *
+   * Fica como função, em vez de os chamadores importarem `cnpjCru` direto, só
+   * pelo nome: "canônico" é o que se quer dizer quando se COMPARA, e "cru" é o
+   * que se quer dizer quando se GUARDA. Mesma régua, duas leituras.
+   */
+  return cnpjCru(cnpj);
+}
+
 export class ProvidersStorage {
   async getProvider(id: number): Promise<Provider | undefined> {
     const [provider] = await db.select().from(providers).where(eq(providers.id, id));
     return provider;
   }
 
+  /**
+   * A conferencia de "esta empresa ja existe?" — a unica que impede dois
+   * tenants para o mesmo CNPJ.
+   *
+   * Ela comparava por igualdade exata contra o que o operador digitou. Quem se
+   * cadastrasse com "23864873000148" nao casava com a linha gravada como
+   * "23.864.873/0001-48": a conferencia passava, o indice UNIQUE tambem nao
+   * barrava (para o Postgres sao duas strings diferentes) e nascia um SEGUNDO
+   * provedor para a mesma empresa — com carteira, credito e alerta de
+   * anti-fraude proprios, cada metade cega para a outra.
+   *
+   * A normalizacao fica no ARGUMENTO, nao na coluna. `regexp_replace` no SQL
+   * casaria os dois formatos sem depender da migracao, mas ao preco de duas
+   * coisas: o indice de `cnpj` deixa de ser usado (a comparacao passa a ser
+   * sobre uma expressao, e o scan e sequencial), e — pior — dado sujo que
+   * voltasse a entrar continuaria sendo encontrado, entao ninguem descobriria
+   * que voltou. Depois da migracao 0020 a coluna e canonica, entao a igualdade
+   * exata volta a ser a comparacao CERTA, e nao apenas a mais rapida.
+   */
   async getProviderByCnpj(cnpj: string): Promise<Provider | undefined> {
-    const [provider] = await db.select().from(providers).where(eq(providers.cnpj, cnpj));
+    const [provider] = await db.select().from(providers).where(eq(providers.cnpj, cnpjCanonico(cnpj)));
     return provider;
   }
 
@@ -170,6 +225,32 @@ export class ProvidersStorage {
     await db.delete(providers).where(eq(providers.id, id));
   }
 
+  /**
+   * SEM guarda de payload vazio aqui, DE PROPOSITO — decisao de 05/09/2026,
+   * registrada para nao virarem duas guardas (nem nenhuma).
+   *
+   * O risco e real: `db.update().set({})` nao e um no-op, o Drizzle recusa o SET
+   * vazio ("No values to set") e a rota converte a excecao em 500 — o provedor
+   * clica em salvar e le "erro interno do servidor". O Drizzle descarta chave
+   * com valor `undefined` antes de montar o SET, entao `{ name: undefined }`
+   * chega tao vazio quanto `{}`.
+   *
+   * A guarda mora na ROTA (`PATCH /api/provider/profile`, que separa "nao chegou
+   * nada" -> 400 de "nada mudou" -> devolve a linha atual). Duas razoes:
+   *
+   *   · So ela pode receber payload vazio. Sao cinco chamadores; os outros
+   *     quatro (anti-fraude, regionalizacao, localizacao, alert-settings) montam
+   *     o objeto no codigo, com chave sempre presente e valor sempre definido —
+   *     `webhookUrl || null` e `enabled === true` nunca produzem `undefined`,
+   *     conferido um por um. Para eles, `{}` seria erro de programacao, e erro
+   *     de programacao deve estourar, nao virar um no-op que responde "salvo".
+   *   · So a rota consegue distinguir os dois vazios. Daqui, "nao chegou nada"
+   *     e "nada mudou" sao o mesmo objeto, e responder a ambos com a linha atual
+   *     esconderia um formulario quebrado atras de um 200.
+   *
+   * Se aquela guarda sair da rota, esta decisao muda junto: sem ela, o caminho
+   * volta a terminar em 500.
+   */
   async updateProviderProfile(id: number, data: Partial<Provider>): Promise<Provider> {
     const [updated] = await db.update(providers).set(data as any).where(eq(providers.id, id)).returning();
     return updated;

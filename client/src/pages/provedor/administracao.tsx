@@ -21,6 +21,7 @@ import {
   Building2,
   UserCog,
 } from "lucide-react";
+import { cnpjMascarado } from "@/lib/cnpj";
 
 export default function AdministracaoPage() {
   const { user, provider } = useAuth();
@@ -75,7 +76,16 @@ export default function AdministracaoPage() {
               </div>
               <div>
                 <label className="text-sm font-medium mb-1.5 block">CNPJ</label>
-                <Input value={provider?.cnpj || ""} readOnly />
+                {/* A pontuacao e da TELA: `providers.cnpj` guarda 14 digitos crus.
+                    Sem a mascara, quem hoje ve "23.864.873/0001-48" — porque a
+                    pontuacao estava dentro do banco — passaria a ver o numero
+                    corrido. Ver `@/lib/cnpj`. */}
+                <Input
+                  value={cnpjMascarado(provider?.cnpj)}
+                  readOnly
+                  className="font-mono tabular-nums"
+                  data-testid="input-cnpj-provedor"
+                />
               </div>
               <div>
                 <label className="text-sm font-medium mb-1.5 block">Plano</label>

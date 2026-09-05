@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Printer, ArrowLeft, Download } from "lucide-react";
 import { useLocation } from "wouter";
 import { usePrecosPublicos, planoPorChave } from "@/hooks/use-precos";
+import { cnpjMascarado } from "@/lib/cnpj";
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   pending:   { label: "Pendente",   color: "bg-[var(--color-gold-bg)] text-[var(--color-gold)]" },
@@ -16,12 +17,6 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 
 function formatCurrency(value: string | number): string {
   return Number(value).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
-function formatCnpj(cnpj: string): string {
-  const d = cnpj.replace(/\D/g, "");
-  if (d.length === 14) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`;
-  return cnpj;
 }
 
 function formatPeriod(period: string): string {
@@ -115,7 +110,12 @@ export default function InvoiceViewPage() {
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-2">Tomador de Servicos</p>
               <p className="font-semibold">{invoice.providerName}</p>
-              <p className="text-sm text-muted-foreground">CNPJ: {formatCnpj(invoice.providerCnpj)}</p>
+              {/* `providerCnpj` e a coluna `providers.cnpj`, que guarda 14 digitos
+                  crus — a pontuacao e desta linha. O formatador caseiro que morava
+                  aqui devolvia o valor INTACTO quando ele nao tinha 14 digitos, o
+                  que so nao aparecia porque quatro provedores tinham a pontuacao
+                  gravada no banco e passavam direto. */}
+              <p className="text-sm text-muted-foreground font-mono tabular-nums">CNPJ: {cnpjMascarado(invoice.providerCnpj)}</p>
               {invoice.providerSubdomain && (
                 <p className="text-sm text-muted-foreground">{invoice.providerSubdomain}.consultaisp.com.br</p>
               )}

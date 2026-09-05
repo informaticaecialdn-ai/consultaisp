@@ -10,6 +10,7 @@ import { normalizarHost, extractSubdomainFromHost } from "../tenant";
 import { hostPertenceAoProvider, hostPertenceAMarca, resolverMarcaPorId, urlDeEntrada } from "../services/marca.service";
 import { MENSAGEM_PROVEDOR_SUSPENSO, encerrarPersonificacao } from "../auth";
 import { validarCPF, validarCNPJ } from "../utils/cpf-cnpj-validator";
+import { cnpjCru } from "@shared/cnpj";
 import crypto from "crypto";
 
 /**
@@ -312,7 +313,33 @@ export function registerAuthRoutes(): Router {
       if (!validarCPF(cpfLimpo)) {
         return res.status(400).json({ message: "CPF do responsavel invalido. Confira os numeros." });
       }
-      if (!validarCNPJ(cnpj.replace(/\D/g, ""))) {
+      /**
+       * O CNPJ VIRA DIGITO PURO UMA VEZ SO, aqui — e e este valor que segue
+       * para as tres pontas: validacao, conferencia de duplicidade e gravacao.
+       *
+       * Ate 05/09/2026 so a validacao normalizava; a conferencia e o insert
+       * usavam o texto COMO DIGITADO. `getProviderByCnpj` compara com
+       * igualdade exata de string, e o indice UNIQUE do Postgres tambem —
+       * entao "23.864.873/0001-48" e "23864873000148" eram duas inscricoes
+       * diferentes para o banco. A conferencia passava, o UNIQUE nao barrava,
+       * e a MESMA EMPRESA nascia como DOIS provedores: num bureau que chaveia
+       * carteira, credito e alerta de anti-fraude por tenant, cada uma das
+       * duas contas fica com metade da base e nenhuma tem a verdade.
+       *
+       * Quatro das seis linhas de producao ficaram mascaradas por esse
+       * descompasso. Nao ha duplicata ainda — a brecha estava aberta e nao
+       * tinha sido usada.
+       *
+       * A normalizacao NAO reescreve o dado: 14 digitos e a forma canonica que
+       * a coluna guarda, que o cadastro do superadmin ja exige e que o wizard
+       * publico ja devolve. Nunca confiar no formato que o client mandou e o
+       * ponto — o servidor e quem decide a forma do que grava.
+       */
+      // A peca unica, e nao um replace a mais: quatro normalizadores de CNPJ
+      // conviviam neste servidor e concordavam por acidente. O argumento esta em
+      // `cnpjCanonico`, server/storage/providers.storage.ts.
+      const cnpjCanonico = cnpjCru(cnpj);
+      if (!validarCNPJ(cnpjCanonico)) {
         return res.status(400).json({ message: "CNPJ invalido. Confira os numeros." });
       }
 
@@ -326,7 +353,9 @@ export function registerAuthRoutes(): Router {
         return res.status(409).json({ message: "Dados ja cadastrados. Verifique email, telefone, CNPJ ou subdominio." });
       }
 
-      const existingProvider = await storage.getProviderByCnpj(cnpj);
+      // Com o canonico, e nao com o texto cru: procurar pela forma digitada
+      // era o que deixava a mesma empresa entrar duas vezes.
+      const existingProvider = await storage.getProviderByCnpj(cnpjCanonico);
       if (existingProvider) {
         return res.status(409).json({ message: "Dados ja cadastrados. Verifique email, telefone, CNPJ ou subdominio." });
       }
@@ -337,7 +366,9 @@ export function registerAuthRoutes(): Router {
       }
 
       const provider = await storage.createProvider({
-        name: providerName, cnpj, subdomain, plan: "free", status: "active",
+        // `cnpjCanonico`, nunca `cnpj`: a coluna guarda 14 digitos, e uma
+        // linha mascarada e invisivel para a proxima conferencia.
+        name: providerName, cnpj: cnpjCanonico, subdomain, plan: "free", status: "active",
         // O WhatsApp do responsavel tambem vira contato do provedor: e o unico
         // canal que continua funcionando quando o e-mail nao chega.
         contactEmail: email,

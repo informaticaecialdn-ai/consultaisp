@@ -200,7 +200,22 @@ export async function buscarEmpresa(cnpjBruto: string): Promise<RespostaEmpresa>
     return { ok: false, motivo: "documento", mensagem: "CNPJ invalido. Confira os numeros." };
   }
 
-  // 2. banco — quem ja e cliente nao paga consulta de novo
+  /**
+   * 2. banco — quem ja e cliente nao paga consulta de novo.
+   *
+   * `cnpj` aqui ja e digito puro, e e nessa forma que ele atravessa o resto do
+   * fluxo: vai no passe, volta para a tela em `cnpj` e e o que o wizard reenvia
+   * para `POST /api/auth/register`, que grava. O register nao confia nisso —
+   * ele normaliza de novo antes de conferir e gravar (auth.routes.ts) —, mas o
+   * caminho inteiro fala uma lingua so.
+   *
+   * DE QUE ESTA CONFERENCIA DEPENDE: a coluna `providers.cnpj` guardar UMA
+   * forma so. A comparacao la embaixo e igualdade exata de string, entao uma
+   * linha mascarada ("23.864.873/0001-48") seria invisivel para quem digita os
+   * 14 digitos — o visitante passaria da porta, gastaria consulta paga e
+   * chegaria ao cadastro como se fosse empresa nova. Quem garante a forma unica
+   * nao e este arquivo: e a coluna (migracao 0020) e a escrita nas rotas.
+   */
   const existente = await storage.getProviderByCnpj(cnpj).catch(() => undefined);
   if (existente) {
     return {
