@@ -5,22 +5,71 @@ import {
   type User, type InsertUser,
 } from "@shared/schema";
 
+/**
+ * A forma canonica de um e-mail de conta: sem espaco nas pontas, em minusculas.
+ *
+ * A parte local de um e-mail e, pela RFC, sensivel a caixa — mas nenhum
+ * provedor de caixa postal em uso trata `Joao@` e `joao@` como pessoas
+ * diferentes, e um sistema de login que trate e o que fabrica a segunda conta.
+ * Exportada para ser conferivel em teste, junto com o filtro de telefone.
+ */
+export function emailCanonico(email: string): string {
+  return String(email ?? "").trim().toLowerCase();
+}
+
+/**
+ * `users.phone` comparado por digitos, dentro do banco.
+ *
+ * A coluna guarda o telefone com mascara (4 de 4 em producao em 05/09/2026), e
+ * quem procura manda so digitos. Sem tirar a pontuacao dos DOIS lados, a
+ * conferencia de duplicidade do cadastro passava por qualquer diferenca de
+ * formatacao — e a versao anterior resolvia isso carregando a tabela inteira
+ * para filtrar em memoria.
+ */
+export function filtroPorTelefone(digits: string) {
+  return sql`regexp_replace(${users.phone}, '[^0-9]', '', 'g') = ${digits}`;
+}
+
 export class UsersStorage {
   async getUser(id: number): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
   }
 
+  /**
+   * E-MAIL E CHAVE DE IDENTIDADE — e chave de identidade se compara canonica.
+   *
+   * `users.email` e UNIQUE e e por ela que se faz login. A comparacao era
+   * igualdade exata de string: "Joao@X.com" gravado no cadastro e
+   * "joao@x.com" digitado no login eram duas contas diferentes para o banco —
+   * a mesma classe de defeito que deixou o CNPJ do provedor em duas formas
+   * (ver `cnpjCanonico` em providers.storage.ts). Medido em 05/09/2026: as 7
+   * contas estao canonicas, entao o defeito era latente — e e por isso que se
+   * fecha agora, antes de a primeira mista entrar.
+   *
+   * Normaliza-se o ARGUMENTO e a ESCRITA (`createUser`, `updateUserEmail`),
+   * nunca a coluna na consulta: `lower(email)` no WHERE mataria o indice unico
+   * e mascararia dado sujo que voltasse a entrar.
+   */
   async getUserByEmail(email: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.email, email));
+    const [user] = await db.select().from(users).where(eq(users.email, emailCanonico(email)));
     return user;
   }
 
+  /**
+   * Compara por DIGITOS, no banco — e nao carregando a tabela inteira.
+   *
+   * A versao anterior fazia `select * from users` e filtrava em memoria: com 7
+   * usuarios e invisivel, com 7 mil e um scan completo a cada cadastro novo.
+   * `users.phone` e gravado com mascara (4 de 4 em producao), entao a
+   * comparacao tem de tirar a pontuacao dos dois lados; nao ha indice em
+   * `phone`, logo a expressao no WHERE nao perde nada que existisse.
+   */
   async getUserByPhone(phone: string): Promise<User | undefined> {
     const digits = phone.replace(/\D/g, "");
     if (!digits) return undefined;
-    const allUsers = await db.select().from(users);
-    return allUsers.find(u => u.phone && u.phone.replace(/\D/g, "") === digits);
+    const [user] = await db.select().from(users).where(filtroPorTelefone(digits)).limit(1);
+    return user;
   }
 
   async getUserByVerificationToken(token: string): Promise<User | undefined> {
@@ -41,7 +90,10 @@ export class UsersStorage {
   }
 
   async createUser(user: InsertUser): Promise<User> {
-    const [created] = await db.insert(users).values(user).returning();
+    // Um ponto so de escrita para os cinco caminhos que criam conta (cadastro
+    // publico, superadmin, painel do provedor, revenda, wizard): nenhum deles
+    // normalizava, e bastaria um para a chave de login nascer em duas formas.
+    const [created] = await db.insert(users).values({ ...user, email: emailCanonico(user.email) }).returning();
     return created;
   }
 
@@ -75,7 +127,7 @@ export class UsersStorage {
   }
 
   async updateUserEmail(id: number, email: string): Promise<void> {
-    await db.update(users).set({ email }).where(eq(users.id, id));
+    await db.update(users).set({ email: emailCanonico(email) }).where(eq(users.id, id));
   }
 
   async getAllUsers(): Promise<User[]> {
