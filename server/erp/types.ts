@@ -117,7 +117,18 @@ export interface NormalizedErpCustomer {
     type: string;
     brand: string;
     model: string;
+    /** Vazio quando o ERP so conhece o MAC — o storage entao casa por `mac`. */
     serialNumber: string;
+    /**
+     * MAC do aparelho, so hexadecimal, maiusculo, sem separador (12 chars).
+     *
+     * Vai SEPARADO do serial, e nao no lugar dele, porque a fase 3 cruza o que
+     * a OLT informa (serial da ONU, via SNMP) com o que o RADIUS autenticou
+     * (MAC) — e isso exige os dois na MESMA linha. O SGP traz ambos por
+     * servico, e ate 05/09/2026 o conector escolhia um e descartava o outro:
+     * 322 aparelhos da Amplinet gravados, zero com MAC.
+     */
+    mac?: string;
     value: string;
     inRecoveryProcess: boolean;
   }>;

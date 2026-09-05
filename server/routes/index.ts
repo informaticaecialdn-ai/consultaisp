@@ -28,6 +28,7 @@ import { registerRevendaRoutes } from "./revenda.routes";
 import { registerCadastroRoutes } from "./cadastro.routes";
 import { registerPrecosRoutes } from "./precos.routes";
 import { registerSuporteAcessoRoutes } from "./suporte-acesso.routes";
+import { registerCobrancaRoutes } from "./cobranca.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -74,6 +75,7 @@ export async function registerRoutes(
   app.use(registerRevendaRoutes());
   app.use(registerCadastroRoutes());
   app.use(registerPrecosRoutes());
+  app.use(registerCobrancaRoutes());
 
   return httpServer;
 }

@@ -343,6 +343,10 @@ async function syncProviderToDbInterno(
               // upsert preserva o que ja estava gravado.
               motivoCorte: customer.motivoCorte,
               cortadoEm: dataDoErp(customer.cortadoEm),
+              // A data do contrato so chega por este passo para quem esta em
+              // dia — e e a fidelidade do DNA de cobranca. Ausente = o ERP nao
+              // disse, e o upsert nao apaga a que ja estava.
+              contractStartDate: dataDoErp(customer.contractStartDate),
               erpSource,
               skipPaymentStatus: true,
             });
@@ -594,6 +598,7 @@ async function syncProviderToDbInterno(
         // upsert preserva o que ja estava gravado.
         motivoCorte: (customer as any).motivoCorte,
         cortadoEm: dataDoErp((customer as any).cortadoEm),
+        contractStartDate: dataDoErp((customer as any).contractStartDate),
         contractPlan: (customer as any).contractPlan,
         erpSource,
       });

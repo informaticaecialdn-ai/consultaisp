@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, decimal, serial, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, decimal, serial, jsonb, index, uniqueIndex, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -308,6 +308,24 @@ export const customers = pgTable("customers", {
   /** Quando o contrato passou ao status atual. Corte de tres anos atras pesa
    *  diferente de um de tres meses, e sem a data o score trata os dois igual. */
   cortadoEm: timestamp("cortado_em"),
+  /**
+   * Quando o contrato COMECOU, como o ERP informa (`contractStartDate` do
+   * conector, lido por `dataDoErp`). Migracao 0021; autorizada pelo dono em
+   * 05/09/2026 junto com as tabelas de cobranca.
+   *
+   * E a unica fonte da FIDELIDADE do DNA de cobranca (novo ate 11 meses, medio
+   * ate 36, fiel acima): sem ela todo cliente e tratado como novo, e o tom que
+   * o funcionario recebe para um cliente de dez anos sai igual ao de um que
+   * entrou mes passado. `created_at` nao serve — e a data em que o SYNC viu o
+   * cliente pela primeira vez, nao a do contrato.
+   *
+   * DATE, e nao TIMESTAMP: o ERP diz o dia, e um horario inventado so serviria
+   * para virar o dia errado quando o fuso do processo e o do banco discordam.
+   * Lida como texto `YYYY-MM-DD` (o driver do Drizzle nao converte DATE), e
+   * gravada a partir das partes locais da `Date` que `dataDoErp` montou — ver
+   * `dataSemHora` em server/storage/customers.storage.ts.
+   */
+  contractStartDate: date("contract_start_date"),
   erpSource: text("erp_source").default("manual"),
   lastSyncAt: timestamp("last_sync_at"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -1166,6 +1184,317 @@ export const acessosSuporte = pgTable("acessos_suporte", {
 
 export type AcessoDeSuporte = typeof acessosSuporte.$inferSelect;
 export type InsertAcessoDeSuporte = typeof acessosSuporte.$inferInsert;
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════
+ * COBRANCA — o funcionario no lugar do agente.
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * Pedido do dono em 05/09/2026: trazer do Provedor.ai a carteira, a ficha 360,
+ * a regua e o DNA 3x3, "mas ao inves de agentes vai ser o funcionario, usuario
+ * do sistema". Cinco tabelas e uma coluna (`customers.contract_start_date`),
+ * autorizadas explicitamente nessa data. Migracao 0021.
+ *
+ * O desenho segue o que foi MEDIDO em producao no mesmo dia, e nao o que o
+ * Provedor.ai tem:
+ *
+ *   · NAO existe fatura a fatura. `invoices` tem 3 linhas de teste e
+ *     `contracts` uma. O sync do ERP grava so AGREGADOS em `customers`
+ *     (total_overdue_amount, max_days_overdue, overdue_invoices_count,
+ *     status). Por isso o caso e POR CLIENTE, e a regua anda sobre
+ *     `max_days_overdue`. Fatura a fatura e a fase 2.
+ *   · Sao duas carteiras do mesmo tamanho de importancia: ~590 clientes
+ *     ativos ou suspensos com divida, e ~7.300 EX-clientes devendo R$ 4,8 mi
+ *     (a NG sozinha, 6.034 / R$ 3,9 mi). `carteira` e fixada na abertura do
+ *     caso porque o status do ERP muda depois — um ativo que e cortado no
+ *     meio da cobranca continua sendo o caso que abriu como ativo.
+ *
+ * O molde e o CRM de recuperacao de equipamento (`equipment_recovery_cases` +
+ * `_events`): um CASO por cliente com a vida dele, uma LINHA DO TEMPO de
+ * eventos, e o que o sistema faz sozinho (mudar etapa, cumprir acordo) deixa
+ * evento com `user_id` nulo. Negociacao e parcela sao tabelas proprias porque
+ * um caso pode ter mais de uma tentativa de acordo — a primeira quebra, a
+ * segunda cumpre — e a ficha precisa contar as duas.
+ */
+
+/**
+ * Todos os status que um caso de cobranca assume, na ordem do kanban do
+ * operador (decisao do dono, 05/09/2026, migracao 0022): A contatar (aberto)
+ * → Em contato → Negociando → Acordo ativo → Pago | Cancelamento; baixado,
+ * negativado e encerrado ficam recolhidos em "Encerrados".
+ * A maquina de estados (quem vai para onde) e `shared/cobranca/estados.ts`.
+ */
+export const STATUS_CASO_COBRANCA = [
+  "aberto", "em_contato", "negociando", "acordo_ativo", "pago", "baixado", "negativado", "encerrado", "cancelamento",
+] as const;
+export type StatusCasoCobranca = (typeof STATUS_CASO_COBRANCA)[number];
+
+/**
+ * Os status TERMINAIS. Fora deles o caso esta vivo, e so pode haver UM vivo
+ * por cliente (indice parcial `cobranca_casos_um_aberto_por_cliente`).
+ *
+ * `negativado` NAO esta aqui, e e decisao: negativar e uma ETAPA da cobranca,
+ * nao o fim dela — o nome sujo e justamente o que faz o ex-cliente voltar para
+ * negociar, e a campanha de divida antiga mira esse cliente. Se fosse
+ * terminal, o job de abertura veria um cliente com divida e sem caso vivo e
+ * abriria outro no dia seguinte, para sempre.
+ *
+ * `cancelamento` ESTA: o contrato acabou e a cobranca desse caso tambem — o
+ * que sobra e a recuperacao do equipamento, que e outro CRM.
+ *
+ * ATENCAO: a lista e repetida LITERALMENTE no predicado dos indices parciais
+ * em migrations/0022_cobranca_fluxo.sql (a 0021 tem a lista da fase 1, sem
+ * `cancelamento`). Ha teste que le a migracao e confere.
+ */
+export const STATUS_CASO_FECHADO = ["pago", "baixado", "encerrado", "cancelamento"] as const satisfies readonly StatusCasoCobranca[];
+
+export const CARTEIRAS_DE_COBRANCA = ["ativo", "ex_cliente"] as const;
+export type CarteiraDeCobranca = (typeof CARTEIRAS_DE_COBRANCA)[number];
+
+/**
+ * O que fica GRAVADO por etapa em `cobranca_politica.etapas`: SO as mudancas
+ * do provedor sobre o catalogo (`EtapaConfig` em shared/cobranca/regua.ts,
+ * que e quem valida e mescla). Rotulo, base legal e "disponivel na fase 1"
+ * sao fatos do sistema e nao entram — se o JSON pudesse ligar o preventivo na
+ * fase 1, o motor mandaria lembrar de uma fatura que ninguem tem.
+ * `etapas = []` significa "vale o catalogo padrao inteiro".
+ */
+export interface EtapaDaReguaGravada {
+  id: string;
+  diaMin?: number;
+  diaMax?: number | null;
+  /** O que o funcionario faz nessa etapa, reescrito pelo provedor. */
+  acao?: string;
+  /** telefone | whatsapp | email | presencial. */
+  canalSugerido?: string;
+  /** NULL = qualquer operador pega da fila. */
+  responsavelUserId?: number | null;
+  /** Desligada pelo provedor: a etapa seguinte absorve a janela. */
+  ativa?: boolean;
+}
+
+export interface NegociacaoDaPolitica {
+  maxParcelas: number;
+  entradaMinimaPct: number;
+  descontoMaxPct: number;
+  saldoMinimoParcelar: number;
+}
+
+/** Tetos legais: multa 2% (CDC art. 52 §1) e juros 1%/mes (CC art. 406). A politica so pode DESCER. */
+export interface EncargosDaPolitica {
+  multaPct: number;
+  jurosMesPct: number;
+}
+
+/** Janela em que o funcionario pode ligar (CDC art. 42: dias uteis 8-20h, sabado ate 14h). */
+export interface JanelaDeContato {
+  horaInicio: number;
+  horaFim: number;
+  sabado: boolean;
+  sabadoHoraFim: number;
+  domingo: boolean;
+  feriado: boolean;
+}
+
+/**
+ * Os custos POR PROVEDOR da "Economia do cliente" (R24 do Provedor.ai) na
+ * ficha 360 — decisao do dono, 05/09/2026, migracao 0022. Reais por cliente;
+ * OPEX por mes; imposto em pontos percentuais. `confirmado` e o que separa
+ * dado de chute: false = a tela mostra o selo "≈ parametros padrao".
+ * Quem valida e ajusta e `EconomiaSchema` em shared/cobranca/politica.ts.
+ */
+export interface EconomiaDaPolitica {
+  cac: number;
+  capexInstalacao: number;
+  equipamentoResidual: number;
+  opexLink: number;
+  opexRedePop: number;
+  opexSuporte: number;
+  opexManutencaoNoc: number;
+  impostoReceitaPct: number;
+  cicloMeses: number;
+  confirmado: boolean;
+}
+
+/**
+ * Os DEFAULTS da politica, na coluna e no codigo, para uma linha criada so com
+ * `pausada = true` (o botao de pausar a regua antes de configurar o resto)
+ * nascer utilizavel.
+ *
+ * Tres copias precisam concordar, e ha teste para as tres: esta, o DEFAULT
+ * das colunas em migrations/0021_cobranca.sql e 0022_cobranca_fluxo.sql
+ * (linha velha e linha nova com padroes diferentes seria bug silencioso) e
+ * `POLITICA_PADRAO` em shared/cobranca/politica.ts, que e quem valida o que o
+ * admin grava. Os valores sao os do Provedor.ai (buildDefaultPolicy), em
+ * pontos percentuais.
+ */
+export const POLITICA_DE_COBRANCA_PADRAO: {
+  negociacao: NegociacaoDaPolitica;
+  encargos: EncargosDaPolitica;
+  janelaContato: JanelaDeContato;
+  economia: EconomiaDaPolitica;
+} = {
+  negociacao: { maxParcelas: 6, entradaMinimaPct: 20, descontoMaxPct: 20, saldoMinimoParcelar: 150 },
+  encargos: { multaPct: 2, jurosMesPct: 1 },
+  janelaContato: { horaInicio: 8, horaFim: 20, sabado: true, sabadoHoraFim: 14, domingo: false, feriado: false },
+  economia: {
+    cac: 0, capexInstalacao: 0, equipamentoResidual: 0,
+    opexLink: 0, opexRedePop: 0, opexSuporte: 0, opexManutencaoNoc: 0,
+    impostoReceitaPct: 0, cicloMeses: 36, confirmado: false,
+  },
+};
+
+/** Uma por provedor. Ausente = tudo no padrao (o `get` devolve undefined e o motor aplica o catalogo). */
+export const cobrancaPolitica = pgTable("cobranca_politica", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  etapas: jsonb("etapas").$type<EtapaDaReguaGravada[]>().notNull().default([]),
+  negociacao: jsonb("negociacao").$type<NegociacaoDaPolitica>().notNull().default(POLITICA_DE_COBRANCA_PADRAO.negociacao),
+  encargos: jsonb("encargos").$type<EncargosDaPolitica>().notNull().default(POLITICA_DE_COBRANCA_PADRAO.encargos),
+  janelaContato: jsonb("janela_contato").$type<JanelaDeContato>().notNull().default(POLITICA_DE_COBRANCA_PADRAO.janelaContato),
+  economia: jsonb("economia").$type<EconomiaDaPolitica>().notNull().default(POLITICA_DE_COBRANCA_PADRAO.economia),
+  pausada: boolean("pausada").notNull().default(false),
+  pausadaMotivo: text("pausada_motivo"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [uniqueIndex("cobranca_politica_provider").on(t.providerId)]);
+
+/** A vida do cliente na cobranca: um caso vivo por cliente, com a foto da abertura e o estado de hoje. */
+export const cobrancaCasos = pgTable("cobranca_casos", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  customerId: integer("customer_id").notNull().references(() => customers.id),
+  status: text("status").notNull().default("aberto"),
+  /** `ativo` | `ex_cliente`, fixada na abertura — ver o cabecalho da secao. */
+  carteira: text("carteira").notNull(),
+  abertoEm: timestamp("aberto_em").notNull().defaultNow(),
+  /** Id da etapa da regua em que o caso esta (`lembrete_atraso`, ...). Nula ate o motor passar. */
+  etapaAtual: text("etapa_atual"),
+  /** A foto do momento da abertura — o que o caso era quando nasceu. */
+  diasAtrasoAbertura: integer("dias_atraso_abertura").notNull().default(0),
+  valorAbertura: decimal("valor_abertura", { precision: 12, scale: 2 }).notNull().default("0"),
+  /** O que o caso vale hoje; quem atualiza e o job, a partir de `customers.total_overdue_amount`. */
+  valorAtual: decimal("valor_atual", { precision: 12, scale: 2 }).notNull().default("0"),
+  /** NULL = fila geral: qualquer operador pega. */
+  responsavelUserId: integer("responsavel_user_id").references(() => users.id),
+  /** critica | alta | normal | baixa (PRIORIDADES em shared/cobranca/estados.ts). Texto, como no CRM de recuperacao. */
+  prioridade: text("prioridade").notNull().default("normal"),
+  proximoContatoEm: timestamp("proximo_contato_em"),
+  ultimoContatoEm: timestamp("ultimo_contato_em"),
+  /** A1..C3 do DNA 3x3, calculado pelo motor. */
+  quadranteDna: text("quadrante_dna"),
+  /** A abordagem que o DNA manda (acolhedor, firme_gentil, ...). Vulneravel sobrepoe. */
+  tom: text("tom"),
+  encerradoEm: timestamp("encerrado_em"),
+  motivoEncerramento: text("motivo_encerramento"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("idx_cobranca_casos_provider_status").on(t.providerId, t.status),
+  index("idx_cobranca_casos_provider_customer").on(t.providerId, t.customerId),
+  // Um caso VIVO por cliente. A lista de status e a de STATUS_CASO_FECHADO
+  // (recriado na 0022 com `cancelamento`).
+  uniqueIndex("cobranca_casos_um_aberto_por_cliente")
+    .on(t.providerId, t.customerId)
+    .where(sql`status NOT IN ('pago', 'baixado', 'encerrado', 'cancelamento')`),
+  // A fila: casos vivos, por responsavel, na ordem do proximo contato.
+  index("idx_cobranca_casos_fila")
+    .on(t.providerId, t.responsavelUserId, t.proximoContatoEm)
+    .where(sql`status NOT IN ('pago', 'baixado', 'encerrado', 'cancelamento')`),
+]);
+
+/**
+ * A linha do tempo. `user_id` nulo = o sistema (job, cascata de acordo).
+ * tipo: contato | promessa | negociacao_proposta | acordo_aceito |
+ *       acordo_quebrado | parcela_paga | etapa_mudou | responsavel_mudou |
+ *       nota | suspensao | negativacao | encerramento | cancelamento
+ * canal: telefone | whatsapp | email | presencial | sistema
+ * resultado (de um contato): falou | nao_atendeu | caixa_postal |
+ *       promessa_pagamento | recusou | numero_errado
+ */
+export const cobrancaEventos = pgTable("cobranca_eventos", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  casoId: integer("caso_id").notNull().references(() => cobrancaCasos.id),
+  /** Repetido do caso para a ficha 360 ler a vida INTEIRA do cliente, atravessando casos. */
+  customerId: integer("customer_id").notNull().references(() => customers.id),
+  userId: integer("user_id").references(() => users.id),
+  tipo: text("tipo").notNull(),
+  canal: text("canal"),
+  resultado: text("resultado"),
+  notas: text("notas"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  ocorridoEm: timestamp("ocorrido_em").notNull().defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("idx_cobranca_eventos_caso").on(t.providerId, t.casoId, t.ocorridoEm.desc()),
+  index("idx_cobranca_eventos_cliente").on(t.providerId, t.customerId, t.ocorridoEm.desc()),
+  // "Contatados hoje", o KPI da carteira.
+  index("idx_cobranca_eventos_tipo_data").on(t.providerId, t.tipo, t.ocorridoEm),
+]);
+
+/**
+ * tipo: parcelamento | quitacao_desconto | baixa_negociada
+ * status: proposta | aceita | ativa | cumprida | quebrada | cancelada
+ */
+export const cobrancaNegociacoes = pgTable("cobranca_negociacoes", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  casoId: integer("caso_id").notNull().references(() => cobrancaCasos.id),
+  customerId: integer("customer_id").notNull().references(() => customers.id),
+  tipo: text("tipo").notNull(),
+  valorOriginal: decimal("valor_original", { precision: 12, scale: 2 }).notNull(),
+  valorNegociado: decimal("valor_negociado", { precision: 12, scale: 2 }).notNull(),
+  descontoPct: decimal("desconto_pct", { precision: 5, scale: 2 }).notNull().default("0"),
+  entrada: decimal("entrada", { precision: 12, scale: 2 }).notNull().default("0"),
+  /** Quantas parcelas — igual ao numero de linhas em `cobranca_parcelas`. */
+  parcelas: integer("parcelas").notNull().default(0),
+  valorParcela: decimal("valor_parcela", { precision: 12, scale: 2 }),
+  primeiroVencimento: date("primeiro_vencimento"),
+  status: text("status").notNull().default("proposta"),
+  criadoPorUserId: integer("criado_por_user_id").notNull().references(() => users.id),
+  aceitaEm: timestamp("aceita_em"),
+  quebradaEm: timestamp("quebrada_em"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("idx_cobranca_negociacoes_caso").on(t.providerId, t.casoId),
+]);
+
+/** status: pendente | paga | atrasada | cancelada */
+export const cobrancaParcelas = pgTable("cobranca_parcelas", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  negociacaoId: integer("negociacao_id").notNull().references(() => cobrancaNegociacoes.id),
+  numero: integer("numero").notNull(),
+  valor: decimal("valor", { precision: 12, scale: 2 }).notNull(),
+  vencimento: date("vencimento").notNull(),
+  pagoEm: timestamp("pago_em"),
+  valorPago: decimal("valor_pago", { precision: 12, scale: 2 }),
+  status: text("status").notNull().default("pendente"),
+}, (t) => [
+  uniqueIndex("cobranca_parcelas_numero").on(t.negociacaoId, t.numero),
+  // O job que marca atrasadas, e o KPI de recuperado nos ultimos 30 dias.
+  index("idx_cobranca_parcelas_status_vencimento").on(t.providerId, t.status, t.vencimento),
+]);
+
+export const insertCobrancaCasoSchema = createInsertSchema(cobrancaCasos).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCobrancaEventoSchema = createInsertSchema(cobrancaEventos).omit({ id: true, createdAt: true });
+export const insertCobrancaNegociacaoSchema = createInsertSchema(cobrancaNegociacoes).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCobrancaParcelaSchema = createInsertSchema(cobrancaParcelas).omit({ id: true });
+
+// `$inferInsert`, e nao z.infer dos schemas acima, para o JSONB tipado
+// (`etapas`, `negociacao`, `metadata`) chegar ao storage com o tipo declarado
+// em vez de `unknown`.
+export type CobrancaPolitica = typeof cobrancaPolitica.$inferSelect;
+export type InsertCobrancaPolitica = typeof cobrancaPolitica.$inferInsert;
+export type CobrancaCaso = typeof cobrancaCasos.$inferSelect;
+export type InsertCobrancaCaso = typeof cobrancaCasos.$inferInsert;
+export type CobrancaEvento = typeof cobrancaEventos.$inferSelect;
+export type InsertCobrancaEvento = typeof cobrancaEventos.$inferInsert;
+export type CobrancaNegociacao = typeof cobrancaNegociacoes.$inferSelect;
+export type InsertCobrancaNegociacao = typeof cobrancaNegociacoes.$inferInsert;
+export type CobrancaParcela = typeof cobrancaParcelas.$inferSelect;
+export type InsertCobrancaParcela = typeof cobrancaParcelas.$inferInsert;
 
 export type LoginData = z.infer<typeof loginSchema>;
 export type RegisterData = z.infer<typeof registerSchema>;

@@ -27,6 +27,10 @@ import {
   Package,
   Palette,
   Users,
+  Wallet,
+  ListTodo,
+  Route,
+  Scale,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { SimboloDaMarca } from "@/components/marca";
@@ -438,6 +442,18 @@ const NAV_PROVEDOR: Array<{
     ],
   },
   {
+    // A cobranca e um trabalho proprio — carteira, fila, regua e politica —
+    // feito por um funcionario do provedor. Grupo entre Principal e Financeiro
+    // porque vem depois de consultar e antes de comprar credito (05/09/2026).
+    grupo: "Cobrança",
+    itens: [
+      { label: "Carteira",    url: "/cobranca",          Icone: Wallet,   testId: "link-cobranca-carteira" },
+      { label: "Fila do dia", url: "/cobranca/fila",     Icone: ListTodo, testId: "link-cobranca-fila" },
+      { label: "Régua",       url: "/cobranca/regua",    Icone: Route,    testId: "link-cobranca-regua" },
+      { label: "Política",    url: "/cobranca/politica", Icone: Scale,    testId: "link-cobranca-politica" },
+    ],
+  },
+  {
     grupo: "Financeiro",
     itens: [
       { label: "Comprar Créditos", url: "/creditos", Icone: CreditCard, testId: "link-creditos" },
@@ -513,6 +529,21 @@ export const NAV_REVENDEDOR: Array<{
  */
 export function itemDeRevendaAtivo(url: string, caminho: string): boolean {
   if (url === "/revenda") return caminho === "/revenda";
+  return caminho === url || caminho.startsWith(url + "/");
+}
+
+/**
+ * Qual item do menu do provedor esta aceso.
+ *
+ * Prefixo, nao igualdade: subrota mantem o pai aceso. Duas raizes sao caso
+ * especial, pelo mesmo motivo de `itemDeRevendaAtivo`: "/" ficaria aceso em
+ * toda rota, e "/cobranca" ficaria aceso junto com Fila, Regua e Politica —
+ * duas linhas destacadas, e o operador deixa de saber onde esta. A ficha do
+ * cliente (`/cobranca/cliente/:id`) acende a Carteira, que e de onde se abre.
+ */
+export function itemDeProvedorAtivo(url: string, caminho: string): boolean {
+  if (url === "/") return caminho === "/";
+  if (url === "/cobranca") return caminho === "/cobranca" || caminho.startsWith("/cobranca/cliente/");
   return caminho === url || caminho.startsWith(url + "/");
 }
 
@@ -698,10 +729,7 @@ export function AppSidebar() {
     );
   }
 
-  // Prefixo, nao igualdade: subrota mantem o pai aceso. "/" e caso especial,
-  // senao ficaria ativo em todas as rotas.
-  const estaAtivo = (url: string) =>
-    url === "/" ? location === "/" : location === url || location.startsWith(url + "/");
+  const estaAtivo = (url: string) => itemDeProvedorAtivo(url, location);
 
   return (
     <CascaSidebar

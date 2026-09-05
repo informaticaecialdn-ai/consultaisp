@@ -1010,19 +1010,39 @@ describe("SGP · equipamento", () => {
     expect(new SgpConnector().supportsEquipment).toBe(true);
   });
 
-  it("usa o MAC como identificador quando o serial vem vazio", async () => {
-    // Na Amplinet o serial vem vazio em 100% dos servicos. Sem identificador,
-    // `syncEquipmentFromErp` descarta o aparelho — entao sem isto nao entraria
-    // nenhum equipamento.
+  it("o MAC sai na coluna dele quando o serial vem vazio — nao no lugar do serial", async () => {
+    // Na Amplinet o serial vem vazio em 100% dos servicos. Ate 05/09/2026 o
+    // MAC ia para `serialNumber` e 322 aparelhos ficaram gravados sem MAC
+    // nenhum — e a fase 3 (OLT x RADIUS) precisa dele na coluna certa.
     const c = await buscar([svc()]);
 
     expect(c.equipmentDetails).toHaveLength(1);
-    expect(c.equipmentDetails![0].serialNumber).toBe("AA:BB:CC:DD:EE:01");
+    expect(c.equipmentDetails![0].serialNumber).toBe("");
+    expect(c.equipmentDetails![0].mac).toBe("AABBCCDDEE01");
   });
 
-  it("prefere o SERIAL quando ele existe", async () => {
-    const c = await buscar([svc({ serial: "ZTEG1234ABCD" })]);
+  it("serial E MAC saem juntos, cada um no seu campo", async () => {
+    const c = await buscar([svc({ serial: " zteg1234abcd " })]);
     expect(c.equipmentDetails![0].serialNumber).toBe("ZTEG1234ABCD");
+    expect(c.equipmentDetails![0].mac).toBe("AABBCCDDEE01");
+  });
+
+  it("normaliza o MAC: so hexadecimal, caixa alta, sem separador", async () => {
+    // O storage casa a linha existente por este valor; cada grafia do SGP
+    // seria "outro aparelho" e entraria de novo a cada varredura.
+    for (const mac of ["aa:bb:cc:dd:ee:01", "AA-BB-CC-DD-EE-01", "aabb.ccdd.ee01", "aabbccddee01"]) {
+      expect((await buscar([svc({ mac })])).equipmentDetails![0].mac).toBe("AABBCCDDEE01");
+    }
+  });
+
+  it("o que nao tem 12 hexadecimais nao e MAC — e tambem nao vira serial", async () => {
+    // Sem serial e sem MAC valido o servico nao vira aparelho: nada aqui
+    // inventa identificador a partir do outro campo.
+    expect((await buscar([svc({ mac: "AA:BB:CC" })])).equipmentDetails).toBeUndefined();
+
+    const c = await buscar([svc({ serial: "ZTEG1234ABCD", mac: "AA:BB:CC:DD:EE:0G" })]);
+    expect(c.equipmentDetails![0].serialNumber).toBe("ZTEG1234ABCD");
+    expect(c.equipmentDetails![0].mac).toBeUndefined();
   });
 
   it("NUNCA marca recuperacao — o SGP nao tem esse campo", async () => {
@@ -1079,5 +1099,26 @@ describe("SGP · equipamento", () => {
 
     const c = (await conector.fetchCustomers(CONFIG)).customers[0];
     expect(c.equipmentDetails).toHaveLength(1);
+  });
+
+  it("a dedupe confere serial E mac: o contrato que so traz o MAC nao reentra o aparelho", async () => {
+    // Por uma chave unica (serial||mac) o segundo servico, sem serial, viraria
+    // "outro aparelho" com o mesmo MAC — e o storage o inseriria em dobro.
+    const { conector } = montar({
+      "/api/ura/clientes/": () => ({
+        corpo: pagina([{
+          nome: "X", cpfcnpj: CPF_A, dataCadastro: "2023-01-01", tipo: "F",
+          endereco: { logradouro: "RUA A", numero: 1, cidade: "EMBU GUACU", uf: "SP" },
+          contratos: [
+            { contrato: 1, status: "Ativo", servicos: [svc({ serial: "ZTEG1234ABCD" })] },
+            { contrato: 2, status: "Suspenso", servicos: [svc()] },
+          ],
+        }]),
+      }),
+    });
+
+    const c = (await conector.fetchCustomers(CONFIG)).customers[0];
+    expect(c.equipmentDetails).toHaveLength(1);
+    expect(c.equipmentDetails![0]).toMatchObject({ serialNumber: "ZTEG1234ABCD", mac: "AABBCCDDEE01" });
   });
 });

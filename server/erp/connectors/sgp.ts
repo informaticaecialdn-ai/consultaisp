@@ -139,21 +139,34 @@ function tipoDoAparelho(grupo: unknown, tipo: unknown): string {
   return "Equipamento";
 }
 
+/** Numero de serie como o SGP manda, aparado e em caixa alta. Vazio vira ausente. */
+function serialDoAparelho(v: unknown): string | undefined {
+  return texto(v)?.toUpperCase();
+}
+
 /**
- * O identificador do aparelho: numero de serie se houver, senao o MAC.
+ * MAC so com os 12 hexadecimais, em caixa alta e sem separador — ou nada.
  *
- * `syncEquipmentFromErp` casa por numero de serie e IGNORA o que chega sem um
- * (senao inseriria duplicata a cada varredura), entao sem identificador nao ha
- * o que gravar. Na Amplinet o `serial` vem vazio em 100% dos servicos e o `mac`
- * em 31% — e o MAC identifica o aparelho tao bem quanto, para efeito de saber
- * que ele e o mesmo na proxima passada.
+ * O SGP nao padroniza o campo ("aa:bb:cc:dd:ee:01", "AA-BB-...", sem
+ * separador), e o storage casa a linha existente por este valor. Sem uma forma
+ * unica, o mesmo aparelho voltaria como outro a cada grafia — e entraria de
+ * novo. Menos ou mais que 12 hexadecimais nao e MAC: sai `undefined`, nunca um
+ * palpite. A mesma regra vive em `chaveDeMac` no storage, do lado da leitura.
  */
-function identificadorDoAparelho(servico: any): string | undefined {
-  return texto(servico?.serial) ?? texto(servico?.mac);
+function macDoAparelho(v: unknown): string | undefined {
+  const hex = String(v ?? "").replace(/[^0-9a-fA-F]/g, "").toUpperCase();
+  return hex.length === 12 ? hex : undefined;
 }
 
 /**
  * Os aparelhos que o cliente tem, a partir dos servicos dos contratos dele.
+ *
+ * Cada servico sai com serial E mac, os dois normalizados. Ate 05/09/2026 esta
+ * funcao escolhia um (`serial ?? mac`) e gravava o escolhido em `serialNumber`:
+ * na Amplinet, onde o serial vem vazio em 100% dos servicos, isso deixou 322
+ * aparelhos com o MAC no campo de serie e nenhum com MAC — e a fase 3 (OLT via
+ * SNMP x RADIUS) precisa dos dois na mesma linha. Nada aqui deriva um do
+ * outro: MAC nao vira serial nem serial vira MAC.
  *
  * O QUE ESTA FUNCAO SE RECUSA A AFIRMAR e tao importante quanto o que ela
  * devolve:
@@ -167,9 +180,9 @@ function identificadorDoAparelho(servico: any): string | undefined {
  *   nulo — nunca inventamos R$ para o bureau".
  * · `brand` e `model` ficam vazios pelo mesmo motivo: nao existem na resposta.
  *
- * Um servico sem identificador nao vira aparelho: `syncEquipmentFromErp` casa
- * por numero de serie e descarta o que chega sem um, para nao duplicar a cada
- * varredura.
+ * Um servico sem serial nem MAC nao vira aparelho: e o caso de todo servico
+ * encerrado na Amplinet (o SGP apaga o MAC ao cancelar), e sem identificador o
+ * storage nao teria como saber que e o mesmo na proxima varredura.
  */
 function aparelhosDoCliente(contratos: any[]): NormalizedErpCustomer["equipmentDetails"] {
   const vistos = new Set<string>();
@@ -177,17 +190,23 @@ function aparelhosDoCliente(contratos: any[]): NormalizedErpCustomer["equipmentD
 
   for (const ct of contratos) {
     for (const s of Array.isArray(ct?.servicos) ? ct.servicos : []) {
-      const id = identificadorDoAparelho(s);
-      if (!id) continue;
-      const chave = id.toLowerCase();
-      if (vistos.has(chave)) continue;   // o mesmo aparelho em dois contratos
-      vistos.add(chave);
+      const serial = serialDoAparelho(s?.serial);
+      const mac = macDoAparelho(s?.mac);
+      if (!serial && !mac) continue;
+
+      // O mesmo aparelho em dois contratos entra uma vez. As duas chaves sao
+      // conferidas, e nao so a preferida: um contrato pode trazer serial e mac
+      // e o outro so o mac, e por uma chave unica o segundo passaria como novo.
+      const chaves = [serial && `s:${serial}`, mac && `m:${mac}`].filter((k): k is string => !!k);
+      if (chaves.some(k => vistos.has(k))) continue;
+      for (const k of chaves) vistos.add(k);
 
       aparelhos.push({
         type: tipoDoAparelho(s?.grupo, s?.tipo),
         brand: "",
         model: "",
-        serialNumber: id,
+        serialNumber: serial ?? "",
+        ...(mac ? { mac } : {}),
         value: "",
         inRecoveryProcess: false,
       });

@@ -8,6 +8,21 @@ import {
 } from "@shared/schema";
 import { canonizarCidadeDoCadastro } from "../services/cidade-canonica.service";
 
+/**
+ * `YYYY-MM-DD` das partes LOCAIS da data — o formato de uma coluna DATE.
+ *
+ * Nao e `toISOString().slice(0, 10)`: isso daria o dia em UTC. A meia-noite
+ * local de 20/03 em UTC-3 e 03:00Z do mesmo dia e passa; num processo a leste
+ * de Greenwich vira 19/03. `dataDoErp` monta a `Date` com as partes locais do
+ * que o ERP escreveu; ler as mesmas partes de volta devolve exatamente o dia
+ * que o ERP disse, em qualquer fuso.
+ */
+export function dataSemHora(d: Date): string {
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
 export class CustomersStorage {
   async getCustomersByProvider(providerId: number): Promise<Customer[]> {
     return db.select().from(customers).where(eq(customers.providerId, providerId));
@@ -216,6 +231,12 @@ export class CustomersStorage {
     motivoCorte?: string;
     /** Quando o contrato passou ao status atual. */
     cortadoEm?: Date;
+    /**
+     * Quando o contrato COMECOU (`dataDoErp(customer.contractStartDate)`).
+     * Alimenta a fidelidade do DNA de cobranca. Segue a regra do motivo e do
+     * corte: escrita quando o conector informa, nunca apagada quando ele cala.
+     */
+    contractStartDate?: Date;
     /** Plano do contrato ativo (ex "Combo 800MB + Deezer"). Opcional — armazenado em campo flexivel. */
     contractPlan?: string;
     erpSource: string;
@@ -348,6 +369,7 @@ export class CustomersStorage {
        */
       if (data.motivoCorte) updateFields.motivoCorte = data.motivoCorte;
       if (data.cortadoEm) updateFields.cortadoEm = data.cortadoEm;
+      if (data.contractStartDate) updateFields.contractStartDate = dataSemHora(data.contractStartDate);
 
       if (!data.skipPaymentStatus) {
         updateFields.totalOverdueAmount = String(data.totalOverdueAmount);
@@ -391,6 +413,7 @@ export class CustomersStorage {
         // legitimo, e o nulo aqui e o mesmo nulo que a coluna ja teria.
         motivoCorte: data.motivoCorte ?? null,
         cortadoEm: data.cortadoEm ?? null,
+        contractStartDate: data.contractStartDate ? dataSemHora(data.contractStartDate) : null,
         paymentStatus: data.totalOverdueAmount > 0 ? "overdue" : "current",
         riskTier,
         erpSource: data.erpSource,

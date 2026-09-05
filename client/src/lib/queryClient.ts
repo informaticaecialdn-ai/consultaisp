@@ -16,6 +16,27 @@ export interface ErroDaApi extends Error {
   status: number;
   /** O `code` do corpo, quando o servidor manda um. */
   codigo?: string;
+  /**
+   * O corpo inteiro, já como JSON quando era JSON. A mensagem é uma frase só;
+   * uma rota que recusa por três motivos (`violacoes`, `errors` campo a
+   * campo) mandava os três e a tela só via o primeiro. Quem quer a lista lê
+   * `erros`; quem quer o resto, `corpo`.
+   */
+  corpo?: unknown;
+  /** Toda frase de recusa que veio no corpo, achatada: `errors` (por campo), `erros` e `violacoes`. */
+  erros?: string[];
+}
+
+/** As listas de frase que as rotas usam, achatadas numa só — só string, e sem repetição. */
+function frasesDoCorpo(json: Record<string, unknown>): string[] {
+  const frases: string[] = [];
+  const pegar = (valor: unknown) => {
+    if (typeof valor === "string" && valor.trim()) frases.push(valor.trim());
+    else if (Array.isArray(valor)) valor.forEach(pegar);
+    else if (valor && typeof valor === "object") Object.values(valor as Record<string, unknown>).forEach(pegar);
+  };
+  for (const chave of ["errors", "erros", "violacoes"]) pegar(json[chave]);
+  return Array.from(new Set(frases));
 }
 
 /**
@@ -28,16 +49,21 @@ export interface ErroDaApi extends Error {
  * diz nada a quem está tentando excluir um provedor.
  *
  * O prefixo `409: ` sai junto pelo mesmo motivo. Quem precisa do status agora
- * lê `erro.status`; quem precisa do código, `erro.codigo`.
+ * lê `erro.status`; quem precisa do código, `erro.codigo`; quem precisa das
+ * outras frases, `erro.erros` — e o corpo inteiro fica em `erro.corpo`.
  */
-function erroDaResposta(status: number, corpo: string): ErroDaApi {
+export function erroDaResposta(status: number, corpo: string): ErroDaApi {
   let mensagem = corpo || "";
   let codigo: string | undefined;
+  let corpoLido: unknown = corpo;
+  let erros: string[] = [];
   try {
     const json = JSON.parse(corpo);
+    corpoLido = json;
     if (json && typeof json === "object") {
       if (typeof json.message === "string" && json.message) mensagem = json.message;
       if (typeof json.code === "string" && json.code) codigo = json.code;
+      erros = frasesDoCorpo(json as Record<string, unknown>);
     }
   } catch {
     // Corpo que não é JSON (HTML de proxy, texto do Express) vai inteiro para a
@@ -46,6 +72,8 @@ function erroDaResposta(status: number, corpo: string): ErroDaApi {
   const erro = new Error(mensagem || `Erro ${status}`) as ErroDaApi;
   erro.status = status;
   if (codigo) erro.codigo = codigo;
+  erro.corpo = corpoLido;
+  if (erros.length > 0) erro.erros = erros;
   return erro;
 }
 

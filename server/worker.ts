@@ -146,6 +146,16 @@ async function iniciarCadeiaDoMapa(): Promise<void> {
     logger.warn({ err }, "[Worker] LGPD titular processor failed to start");
   }
 
+  // A régua de cobrança: uma passada de boot e uma por dia às 05:00, depois da
+  // varredura do ERP das 03:00. Só o worker a roda — ver o cabeçalho do serviço.
+  try {
+    const { iniciarAgendaDaRegua } = await import("./services/cobranca/regua-diaria.service");
+    iniciarAgendaDaRegua();
+    logger.info("[Worker] Régua de cobrança scheduler started");
+  } catch (err) {
+    logger.warn({ err }, "[Worker] Régua de cobrança failed to start");
+  }
+
   /**
    * Espera o sync em voo antes de fechar o pool.
    *

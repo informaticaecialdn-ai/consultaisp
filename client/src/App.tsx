@@ -32,6 +32,13 @@ const ImportacaoPage = lazy(pagina(() => import("@/pages/operacional/importacao"
 const EquipamentosPage = lazy(pagina(() => import("@/pages/operacional/equipamentos")));
 const RecuperacaoPage = lazy(pagina(() => import("@/pages/operacional/recuperacao")));
 
+// Cobranca — carteira, ficha 360, fila do dia, regua + DNA e politica (05/09/2026).
+const CobrancaCarteiraPage = lazy(pagina(() => import("@/pages/cobranca/carteira")));
+const CobrancaCliente360Page = lazy(pagina(() => import("@/pages/cobranca/cliente360")));
+const CobrancaFilaPage = lazy(pagina(() => import("@/pages/cobranca/fila")));
+const CobrancaReguaPage = lazy(pagina(() => import("@/pages/cobranca/regua")));
+const CobrancaPoliticaPage = lazy(pagina(() => import("@/pages/cobranca/politica")));
+
 // Financeiro
 const NfsePage = lazy(pagina(() => import("@/pages/financeiro/nfse")));
 
@@ -95,6 +102,11 @@ function Router() {
         <Route path="/importacao-equipamentos"><Redirect to="/equipamentos?importar=1" /></Route>
         <Route path="/equipamentos" component={EquipamentosPage} />
         <Route path="/recuperacao" component={RecuperacaoPage} />
+        <Route path="/cobranca" component={CobrancaCarteiraPage} />
+        <Route path="/cobranca/cliente/:id" component={CobrancaCliente360Page} />
+        <Route path="/cobranca/fila" component={CobrancaFilaPage} />
+        <Route path="/cobranca/regua" component={CobrancaReguaPage} />
+        <Route path="/cobranca/politica" component={CobrancaPoliticaPage} />
         <Route path="/administracao" component={AdministracaoPage} />
         <Route path="/painel-provedor" component={PainelProvedorPage} />
         <Route path="/admin-sistema" component={AdminSistemaPage} />
@@ -124,6 +136,9 @@ export const PROVIDER_ONLY_PATHS = [
   "/inadimplentes", "/mapa-calor", "/localizacao", "/creditos", "/nfse", "/importacao",
   "/importacao-equipamentos", "/equipamentos", "/recuperacao", "/administracao", "/painel-provedor",
   "/benchmark-regional",
+  // A cobranca. `/cobranca/cliente/:id` nao cabe numa lista de caminho exato —
+  // e coberta por `ehRotaDeCobranca`, abaixo, pelo prefixo.
+  "/cobranca", "/cobranca/fila", "/cobranca/regua", "/cobranca/politica",
   // Faltava desde que a tela nasceu: ela le `provider` da sessao e chama
   // `/api/regional/my-cidades`, que sem provedor nao responde nada. Ficava de
   // fora da lista por esquecimento, nao por decisao — e agora ha um segundo
@@ -178,6 +193,21 @@ function caminhoDeRota(caminho: string): string {
 function estaNaLista(lista: readonly string[], caminho: string): boolean {
   const alvo = caminhoDeRota(caminho);
   return lista.some(p => caminhoDeRota(p) === alvo);
+}
+
+/**
+ * A cobranca inteira e de provedor, inclusive `/cobranca/cliente/:id`, que a
+ * lista exata nao alcanca. Por segmento, como `ehRotaDeRevenda`: uma futura
+ * `/cobrancas-antigas` nao entra de carona.
+ */
+export function ehRotaDeCobranca(caminho: string): boolean {
+  const alvo = caminhoDeRota(caminho);
+  return alvo === "/cobranca" || alvo.startsWith("/cobranca/");
+}
+
+/** Tela de PROVEDOR: a lista exata ou o prefixo da cobranca. */
+export function ehRotaDeProvedor(caminho: string): boolean {
+  return estaNaLista(PROVIDER_ONLY_PATHS, caminho) || ehRotaDeCobranca(caminho);
 }
 
 /**
@@ -260,8 +290,7 @@ export function desvioDeRevenda(args: {
 }): string | null {
   const { papel, caminho } = args;
   if (papel === "revendedor") {
-    const noLugarErrado =
-      estaNaLista(PROVIDER_ONLY_PATHS, caminho) || ehRotaDaPlataforma(caminho);
+    const noLugarErrado = ehRotaDeProvedor(caminho) || ehRotaDaPlataforma(caminho);
     return noLugarErrado ? "/revenda" : null;
   }
   return ehRotaDeRevenda(caminho)
@@ -379,7 +408,7 @@ function AuthenticatedApp() {
       }
     }
 
-    if (superadminSemSuporte && estaNaLista(PROVIDER_ONLY_PATHS, location)) {
+    if (superadminSemSuporte && ehRotaDeProvedor(location)) {
       navigate("/admin-sistema", { replace: true });
       return;
     }
@@ -517,7 +546,7 @@ function AuthenticatedApp() {
     );
   }
 
-  if (user.role === "superadmin" && !sessaoDeSuporte && estaNaLista(PROVIDER_ONLY_PATHS, location)) {
+  if (user.role === "superadmin" && !sessaoDeSuporte && ehRotaDeProvedor(location)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         {/* Este é o caminho por onde a sessão de suporte MORRE: no segundo em que

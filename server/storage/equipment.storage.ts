@@ -125,6 +125,32 @@ function montarEquipamentoBoard(l: LinhaEquipamentoBoard): EntradaCasoBoard["equ
  */
 const STATUS_EQUIPAMENTO_RETIDO = STATUS_EQUIPAMENTO_PENDENTE;
 
+/**
+ * O que o conector entrega por aparelho. `mac` fica fora de `EquipamentoErp`
+ * porque a regra de decisao (services/equipment-sync-rules.ts) nao o le —
+ * quem casa por MAC e este storage.
+ */
+type EquipamentoErpComMac = EquipamentoErp & { mac?: string };
+
+/** Serie como chave de casamento: aparada e em caixa alta. Ausente vira "". */
+function chaveDeSerie(v: string | null | undefined): string {
+  return (v ?? "").trim().toUpperCase();
+}
+
+/**
+ * MAC como chave de casamento: so os 12 hexadecimais, em caixa alta.
+ *
+ * Normalizar AQUI, e nao so no conector, e o que casa a linha digitada a mao
+ * ("aa:bb:cc:dd:ee:01") com a que o ERP manda ("AABBCCDDEE01"). Fora dos 12
+ * hexadecimais nao e MAC e vira "" — e essa regra que impede uma serie
+ * qualquer de passar por MAC no caminho legado de `syncEquipmentFromErp`.
+ * Espelha `macDoAparelho` em erp/connectors/sgp.ts.
+ */
+function chaveDeMac(v: string | null | undefined): string {
+  const hex = (v ?? "").replace(/[^0-9a-fA-F]/g, "").toUpperCase();
+  return hex.length === 12 ? hex : "";
+}
+
 export interface RecoveryCaseWithDetails extends EquipmentRecoveryCase {
   customerName: string;
   customerCpfCnpj: string;
@@ -196,11 +222,19 @@ export class EquipmentStorage {
    * Aplica o resultado do ERP sobre o equipamento de um cliente.
    * A decisao por aparelho vem de decidirAcaoSync (funcao pura, testada) —
    * aqui so executamos.
+   *
+   * A linha existente e casada pelo numero de serie e, quando nao ha serie
+   * (ou ela nao encontra ninguem), pelo MAC. Os dois identificadores sao
+   * gravados quando vierem, e um identificador ja gravado NUNCA e trocado nem
+   * apagado por esta funcao — so o vazio e preenchido. O motivo e a fase 3:
+   * o RADIUS pode ter gravado o MAC antes de o ERP mandar o serial, e a OLT
+   * o serial antes do MAC; sobrescrever esconderia justamente a divergencia
+   * que o cruzamento existe para achar.
    */
   async syncEquipmentFromErp(
     providerId: number,
     customerId: number,
-    detalhes: EquipamentoErp[],
+    detalhes: EquipamentoErpComMac[],
   ): Promise<{ inseridos: number; devolvidos: number }> {
     if (detalhes.length === 0) return { inseridos: 0, devolvidos: 0 };
 
@@ -208,21 +242,48 @@ export class EquipmentStorage {
       .where(and(eq(equipment.providerId, providerId), eq(equipment.customerId, customerId)));
 
     const porSerie = new Map<string, typeof atuais[number]>();
+    const porMac = new Map<string, typeof atuais[number]>();
     for (const a of atuais) {
-      if (a.serialNumber) porSerie.set(a.serialNumber.trim().toLowerCase(), a);
+      const serie = chaveDeSerie(a.serialNumber);
+      if (serie) porSerie.set(serie, a);
+      const mac = chaveDeMac(a.mac);
+      if (mac) {
+        porMac.set(mac, a);
+        continue;
+      }
+      /**
+       * LEGADO: o MAC gravado no campo de serie.
+       *
+       * Ate 05/09/2026 o conector do SGP escolhia `serial ?? mac` e gravava o
+       * escolhido em `serialNumber`. Na Amplinet o serial vem vazio em 100%
+       * dos servicos, entao 322 linhas em producao tem o MAC ali e a coluna
+       * `mac` nula. Se o casamento olhasse so a coluna `mac`, a varredura
+       * seguinte inseriria as 322 de novo. Uma serie com a forma exata de MAC
+       * numa linha sem MAC e indexada tambem como MAC; o que fazer com a
+       * serie ao casar e decidido em `serieEraMac`, abaixo.
+       */
+      const macNaSerie = chaveDeMac(a.serialNumber);
+      if (macNaSerie && !porMac.has(macNaSerie)) porMac.set(macNaSerie, a);
     }
 
     let inseridos = 0;
     let devolvidos = 0;
 
     for (const d of detalhes) {
-      const chave = d.serialNumber?.trim().toLowerCase() || "";
-      const existente = chave ? porSerie.get(chave) : undefined;
+      const serie = chaveDeSerie(d.serialNumber);
+      const mac = chaveDeMac(d.mac);
+      // A serie manda; o MAC entra quando ela nao acha ninguem — e o caso
+      // da linha que o RADIUS abriu so com MAC antes de o ERP trazer a serie.
+      const existente = (serie && porSerie.get(serie)) || (mac && porMac.get(mac)) || undefined;
       const acao = decidirAcaoSync(
         existente
           ? { id: existente.id, serialNumber: existente.serialNumber, status: existente.status }
           : undefined,
-        d,
+        // A regra pergunta "tenho identificador para casar com seguranca?" e
+        // le isso em `serialNumber`. O MAC responde a mesma pergunta, entao
+        // vai no lugar da serie quando ela falta — so para a decisao; o que
+        // e gravado sao as duas colunas, cada uma com o seu.
+        { ...d, serialNumber: serie || mac },
       );
 
       if (acao === "inserir") {
@@ -232,7 +293,8 @@ export class EquipmentStorage {
           type: d.type || "Equipamento",
           brand: d.brand || null,
           model: d.model || null,
-          serialNumber: d.serialNumber,
+          serialNumber: d.serialNumber?.trim() || null,
+          mac: mac || null,
           // O ERP que ja classifica o aparelho como pendente entra contando;
           // valor desconhecido fica nulo — nunca inventamos R$ para o bureau.
           status: equipamentoTemRetiradaPendente(d.status) || d.inRecoveryProcess
@@ -243,11 +305,41 @@ export class EquipmentStorage {
           source: "erp",
         });
         inseridos++;
-      } else if (acao === "marcar-devolvido" && existente) {
-        await db.update(equipment)
-          .set({ status: "recuperado_triagem", inRecoveryProcess: false, updatedAt: new Date() })
-          .where(eq(equipment.id, existente.id));
+        continue;
+      }
+
+      if (!existente) continue;
+
+      const mudancas: Partial<InsertEquipment> = {};
+      if (acao === "marcar-devolvido") {
+        mudancas.status = "recuperado_triagem";
+        mudancas.inRecoveryProcess = false;
         devolvidos++;
+      }
+
+      const macNaLinha = chaveDeMac(existente.mac);
+      if (mac && !macNaLinha) mudancas.mac = mac;
+
+      /**
+       * A serie desta linha e o MAC que o proprio sync gravou no lugar errado
+       * (ver o bloco LEGADO acima). So vale para linha de origem `erp`: numa
+       * linha manual a serie e o que o operador digitou, e manual vence —
+       * ali o MAC e preenchido e a serie fica como esta.
+       */
+      const serieEraMac = !!mac && !macNaLinha
+        && existente.source === "erp"
+        && chaveDeMac(existente.serialNumber) === mac;
+      if (serie && (!chaveDeSerie(existente.serialNumber) || serieEraMac)) {
+        mudancas.serialNumber = d.serialNumber.trim();
+      } else if (serieEraMac) {
+        // Serie desconhecida e nula, nao o MAC repetido.
+        mudancas.serialNumber = null;
+      }
+
+      if (Object.keys(mudancas).length > 0) {
+        await db.update(equipment)
+          .set({ ...mudancas, updatedAt: new Date() })
+          .where(eq(equipment.id, existente.id));
       }
     }
 

@@ -20,6 +20,7 @@ import type {
   ProactiveAlert, InsertProactiveAlert,
   Marca, InsertMarca,
   AcessoDeSuporte,
+  CobrancaPolitica, CobrancaCaso, CobrancaEvento, CobrancaNegociacao, CobrancaParcela,
 } from "@shared/schema";
 import type { AlertWithOwnership } from "./antifraude.storage";
 
@@ -39,6 +40,13 @@ import { AdminStorage, type LinhaDeConsultaEncontrada } from "./admin.storage";
 import { ImportStorage } from "./import.storage";
 import { MarcasStorage } from "./marcas.storage";
 import { SuporteStorage } from "./suporte.storage";
+import {
+  CobrancaStorage,
+  type AberturaDeCaso, type CandidatoACaso, type ComposicaoDaCarteira, type ContagemPorEtapa,
+  type ContagemPorQuadrante, type FiltrosDaCarteira, type KpisDaCobranca, type LinhaDaCarteira,
+  type NegociacaoComParcelas, type NovaNegociacao, type NovaParcela, type NovoEvento, type Paginacao,
+  type PatchDeCaso, type PatchDePolitica, type StatusCasoFechado, type StatusNegociacao,
+} from "./cobranca.storage";
 
 export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
@@ -265,6 +273,34 @@ export interface IStorage {
   registrarUsoDoAcesso(acessoId: number, usadoPor: number): Promise<void>;
   historicoDeAcessos(providerId: number, limite?: number): Promise<AcessoDeSuporte[]>;
 
+  // Cobranca — o funcionario no lugar do agente. Ver server/storage/cobranca.storage.ts:
+  // toda consulta filtra por provider_id, e o storage grava a trilha mecanica
+  // (etapa, responsavel, encerramento, acordo, parcela) na mesma transacao.
+  getPoliticaDeCobranca(providerId: number): Promise<CobrancaPolitica | undefined>;
+  upsertPoliticaDeCobranca(providerId: number, dados: PatchDePolitica): Promise<CobrancaPolitica>;
+  listarCasosDeCobranca(providerId: number, filtros?: FiltrosDaCarteira, paginacao?: Paginacao): Promise<{ linhas: LinhaDaCarteira[]; total: number }>;
+  obterCasoDeCobranca(providerId: number, id: number): Promise<LinhaDaCarteira | undefined>;
+  casoAbertoDoCliente(providerId: number, customerId: number): Promise<CobrancaCaso | undefined>;
+  abrirCasoDeCobranca(providerId: number, dados: AberturaDeCaso): Promise<CobrancaCaso>;
+  atualizarCasoDeCobranca(providerId: number, id: number, patch: PatchDeCaso, userId?: number | null): Promise<CobrancaCaso | undefined>;
+  fecharCasoDeCobranca(providerId: number, id: number, status: StatusCasoFechado, motivo: string | null, userId?: number | null): Promise<CobrancaCaso | undefined>;
+  contarCasosPorEtapa(providerId: number): Promise<ContagemPorEtapa[]>;
+  contarCasosPorQuadrante(providerId: number): Promise<ContagemPorQuadrante[]>;
+  registrarEventoDeCobranca(providerId: number, evento: NovoEvento): Promise<CobrancaEvento>;
+  listarEventosDoCaso(providerId: number, casoId: number): Promise<CobrancaEvento[]>;
+  listarEventosDoCliente(providerId: number, customerId: number, limite?: number): Promise<CobrancaEvento[]>;
+  criarNegociacao(providerId: number, dados: NovaNegociacao, parcelas: NovaParcela[]): Promise<NegociacaoComParcelas>;
+  atualizarStatusDaNegociacao(providerId: number, id: number, status: StatusNegociacao, userId?: number | null): Promise<CobrancaNegociacao | undefined>;
+  listarNegociacoesDoCaso(providerId: number, casoId: number): Promise<NegociacaoComParcelas[]>;
+  listarParcelasDaNegociacao(providerId: number, negociacaoId: number): Promise<CobrancaParcela[]>;
+  marcarParcelaPaga(providerId: number, parcelaId: number, valorPago: number, pagoEm: Date, userId?: number | null): Promise<{ parcela: CobrancaParcela; negociacao: CobrancaNegociacao; acordoCumprido: boolean } | undefined>;
+  marcarParcelasAtrasadas(providerId: number, hoje: Date): Promise<{ marcadas: number; negociacoes: number[] }>;
+  kpisDaCobranca(providerId: number, hoje?: Date): Promise<KpisDaCobranca>;
+  composicaoDaCarteira(providerId: number): Promise<ComposicaoDaCarteira>;
+  bairrosDaCarteira(providerId: number): Promise<Array<{ bairro: string; total: number }>>;
+  filaDeCobranca(providerId: number, opcoes?: { responsavelUserId?: number; hoje?: Date; limite?: number }): Promise<LinhaDaCarteira[]>;
+  clientesParaAbrirCaso(providerId: number, minimoValor: number, limite?: number): Promise<CandidatoACaso[]>;
+
   // Proactive alerts
   getLastProactiveAlert(cpfCnpj: string, providerId: number): Promise<{ sentAt: Date } | undefined>;
   createProactiveAlert(data: InsertProactiveAlert): Promise<ProactiveAlert>;
@@ -289,6 +325,7 @@ class DatabaseStorage implements IStorage {
   private _import = new ImportStorage();
   private _marcas = new MarcasStorage();
   private _suporte = new SuporteStorage();
+  private _cobranca = new CobrancaStorage();
 
   // Users
   getUser = (id: number) => this._users.getUser(id);
@@ -499,6 +536,32 @@ class DatabaseStorage implements IStorage {
   acessoDeSuporteValido = (providerId: number) => this._suporte.acessoDeSuporteValido(providerId);
   registrarUsoDoAcesso = (acessoId: number, usadoPor: number) => this._suporte.registrarUsoDoAcesso(acessoId, usadoPor);
   historicoDeAcessos = (providerId: number, limite?: number) => this._suporte.historicoDeAcessos(providerId, limite);
+
+  // Cobranca
+  getPoliticaDeCobranca = (providerId: number) => this._cobranca.getPoliticaDeCobranca(providerId);
+  upsertPoliticaDeCobranca = (providerId: number, dados: PatchDePolitica) => this._cobranca.upsertPoliticaDeCobranca(providerId, dados);
+  listarCasosDeCobranca = (providerId: number, filtros?: FiltrosDaCarteira, paginacao?: Paginacao) => this._cobranca.listarCasosDeCobranca(providerId, filtros, paginacao);
+  obterCasoDeCobranca = (providerId: number, id: number) => this._cobranca.obterCasoDeCobranca(providerId, id);
+  casoAbertoDoCliente = (providerId: number, customerId: number) => this._cobranca.casoAbertoDoCliente(providerId, customerId);
+  abrirCasoDeCobranca = (providerId: number, dados: AberturaDeCaso) => this._cobranca.abrirCasoDeCobranca(providerId, dados);
+  atualizarCasoDeCobranca = (providerId: number, id: number, patch: PatchDeCaso, userId?: number | null) => this._cobranca.atualizarCasoDeCobranca(providerId, id, patch, userId);
+  fecharCasoDeCobranca = (providerId: number, id: number, status: StatusCasoFechado, motivo: string | null, userId?: number | null) => this._cobranca.fecharCasoDeCobranca(providerId, id, status, motivo, userId);
+  contarCasosPorEtapa = (providerId: number) => this._cobranca.contarCasosPorEtapa(providerId);
+  contarCasosPorQuadrante = (providerId: number) => this._cobranca.contarCasosPorQuadrante(providerId);
+  registrarEventoDeCobranca = (providerId: number, evento: NovoEvento) => this._cobranca.registrarEventoDeCobranca(providerId, evento);
+  listarEventosDoCaso = (providerId: number, casoId: number) => this._cobranca.listarEventosDoCaso(providerId, casoId);
+  listarEventosDoCliente = (providerId: number, customerId: number, limite?: number) => this._cobranca.listarEventosDoCliente(providerId, customerId, limite);
+  criarNegociacao = (providerId: number, dados: NovaNegociacao, parcelas: NovaParcela[]) => this._cobranca.criarNegociacao(providerId, dados, parcelas);
+  atualizarStatusDaNegociacao = (providerId: number, id: number, status: StatusNegociacao, userId?: number | null) => this._cobranca.atualizarStatusDaNegociacao(providerId, id, status, userId);
+  listarNegociacoesDoCaso = (providerId: number, casoId: number) => this._cobranca.listarNegociacoesDoCaso(providerId, casoId);
+  listarParcelasDaNegociacao = (providerId: number, negociacaoId: number) => this._cobranca.listarParcelasDaNegociacao(providerId, negociacaoId);
+  marcarParcelaPaga = (providerId: number, parcelaId: number, valorPago: number, pagoEm: Date, userId?: number | null) => this._cobranca.marcarParcelaPaga(providerId, parcelaId, valorPago, pagoEm, userId);
+  marcarParcelasAtrasadas = (providerId: number, hoje: Date) => this._cobranca.marcarParcelasAtrasadas(providerId, hoje);
+  kpisDaCobranca = (providerId: number, hoje?: Date) => this._cobranca.kpisDaCobranca(providerId, hoje);
+  composicaoDaCarteira = (providerId: number) => this._cobranca.composicaoDaCarteira(providerId);
+  bairrosDaCarteira = (providerId: number) => this._cobranca.bairrosDaCarteira(providerId);
+  filaDeCobranca = (providerId: number, opcoes?: { responsavelUserId?: number; hoje?: Date; limite?: number }) => this._cobranca.filaDeCobranca(providerId, opcoes);
+  clientesParaAbrirCaso = (providerId: number, minimoValor: number, limite?: number) => this._cobranca.clientesParaAbrirCaso(providerId, minimoValor, limite);
 
   // Proactive alerts
   getLastProactiveAlert = (cpfCnpj: string, providerId: number) => this._consultations.getLastProactiveAlert(cpfCnpj, providerId);
