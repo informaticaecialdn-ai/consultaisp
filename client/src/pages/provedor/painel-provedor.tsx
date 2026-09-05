@@ -23,6 +23,8 @@ import {
 } from "lucide-react";
 import { AbaAntiFraude } from "@/components/painel/AbaAntiFraude";
 import { AbaSuporte } from "@/components/painel/AbaSuporte";
+import { AbaChat } from "@/components/painel/AbaChat";
+import { MessageSquareShare } from "lucide-react";
 import { mensagemDoErro } from "@/components/recuperacao/DialogoContato";
 import { rotuloDoPlano } from "@/lib/planos";
 import { ERP_OPTIONS } from "@/components/admin/constants";
@@ -841,6 +843,9 @@ export default function PainelProvedorPage() {
           </TabsTrigger>
           <TabsTrigger value="anti-fraude" className="gap-1.5" data-testid="tab-anti-fraude">
             <Shield className="w-3.5 h-3.5" />Anti-Fraude
+          </TabsTrigger>
+          <TabsTrigger value="chat" className="gap-1.5" data-testid="tab-chat">
+            <MessageSquareShare className="w-3.5 h-3.5" />Chat
           </TabsTrigger>
           {/* A aba nao aparece para o OPERADOR do provedor (role `user`): a rota
               que le o estado exige admin, entao para ele a aba seria uma caixa
@@ -2231,6 +2236,11 @@ export default function PainelProvedorPage() {
         </TabsContent>
 
         {/* ======================== ANTI-FRAUDE ======================== */}
+        {/* O chat com o cliente (Chat BullQ): ligar o numero, senha do inbox, estado. */}
+        <TabsContent value="chat">
+          <AbaChat podeAdministrar={podeAdministrar} />
+        </TabsContent>
+
         <TabsContent value="anti-fraude">
           <AbaAntiFraude podeEditar={podeAdministrar} />
         </TabsContent>

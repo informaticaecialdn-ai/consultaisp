@@ -39,7 +39,7 @@ vi.mock("../../storage", () => ({
 }));
 
 import {
-  _usarClienteDoChatParaTestes, configurarCanalWhatsapp, conversaDoCaso, enviarCasoParaCobranca, enviarRecuperacaoParaChat, ErroDaPonteDoChat,
+  _usarClienteDoChatParaTestes, configurarCanalWhatsapp, conversaDoCaso, definirSenhaDoInbox, enviarCasoParaCobranca, enviarRecuperacaoParaChat, ErroDaPonteDoChat,
   estadoDaIntegracao, garantirIntegracao, mensagemDeCobranca, mensagemDeRecuperacao,
 } from "./chat-ponte.service";
 
@@ -52,6 +52,7 @@ function clienteFalso(sobrescritas: Record<string, any> = {}) {
     iniciarConversa: vi.fn(async () => ({ ok: true, valor: { conversationId: "conv_nova", messageId: "msg_1" } })),
     enviarTexto: vi.fn(async () => ({ ok: true, valor: { messageId: "msg_2", status: "QUEUED" } })),
     listarMensagens: vi.fn(async () => ({ ok: true, valor: [{ id: "m1", direction: "OUTBOUND", type: "TEXT", content: { text: "Ola" }, status: "SENT", senderName: "NsLink", createdAt: "2026-09-05T10:00:00Z" }] })),
+    definirSenhaDoOwner: vi.fn(async () => ({ ok: true, valor: { ownerUserId: "u1", ownerEmail: "dono@nslink.com" } })),
     ...sobrescritas,
   };
   _usarClienteDoChatParaTestes(c as any);
@@ -228,6 +229,21 @@ describe("conversaDoCaso", () => {
     expect(c.listarMensagens).toHaveBeenCalledWith("org_1", "conv_1", { limit: 20 });
     expect(r).toMatchObject({ conversationId: "conv_1", status: "OPEN", erro: null });
     expect(r!.mensagens[0]).toEqual({ id: "m1", direcao: "OUTBOUND", texto: "Ola", status: "SENT", quem: "NsLink", em: "2026-09-05T10:00:00Z" });
+  });
+});
+
+describe("definirSenhaDoInbox", () => {
+  it("provisiona se preciso e manda a senha ao owner da org; a senha nao vai ao log", async () => {
+    const c = clienteFalso();
+    const r = await definirSenhaDoInbox(6, "segredo-forte-123");
+    expect(c.provisionarOrganizacao).toHaveBeenCalledTimes(1);
+    expect(c.definirSenhaDoOwner).toHaveBeenCalledWith("org_1", "segredo-forte-123");
+    expect(r).toEqual({ ownerEmail: "dono@nslink.com" });
+    expect(JSON.stringify([...log.info.mock.calls, ...log.warn.mock.calls])).not.toContain("segredo-forte");
+  });
+  it("chat recusou: CHAT_FALHOU", async () => {
+    clienteFalso({ definirSenhaDoOwner: vi.fn(async () => ({ ok: false, erro: "404 org", status: 404 })) });
+    await expect(definirSenhaDoInbox(6, "segredo-forte-123")).rejects.toMatchObject({ codigo: "CHAT_FALHOU" });
   });
 });
 

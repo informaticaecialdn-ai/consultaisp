@@ -138,6 +138,20 @@ export async function configurarCanalWhatsapp(providerId: number, dados: { nome:
   return { integracao: atualizada!, canalOk: ok };
 }
 
+/**
+ * A senha do inbox: o owner da organizacao e o e-mail de contato do provedor,
+ * e a senha e a que o admin escolher — vai direto para o Chat BullQ, nunca
+ * fica aqui. E o que deixa a equipe entrar em chat.consultaisp.com.br.
+ */
+export async function definirSenhaDoInbox(providerId: number, senha: string): Promise<{ ownerEmail: string }> {
+  const cliente = clienteDoChat();
+  if (!cliente) throw desligado();
+  const intg = await garantirIntegracao(providerId);
+  const r = await cliente.definirSenhaDoOwner(intg.organizationId, senha);
+  if (falhou(r)) throw new ErroDaPonteDoChat("CHAT_FALHOU", `O chat nao aceitou a senha: ${r.erro}`);
+  return { ownerEmail: r.valor.ownerEmail || intg.ownerEmail };
+}
+
 /** A primeira mensagem da cobranca: a acao da etapa, com nome, valor e dias — sem juridiques. */
 export function mensagemDeCobranca(d: { nomeCliente: string; nomeProvedor: string; valor: number; diasAtraso: number; acaoDaEtapa?: string | null }): string {
   const primeiro = d.nomeCliente.trim().split(/\s+/)[0] || "cliente";

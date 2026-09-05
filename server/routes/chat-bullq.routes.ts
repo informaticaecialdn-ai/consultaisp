@@ -13,7 +13,7 @@ import { z } from "zod";
 import { requireAuth, requireProvider } from "../auth";
 import { logger } from "../logger";
 import {
-  configurarCanalWhatsapp, conversaDoCaso, enviarCasoParaCobranca, enviarRecuperacaoParaChat, estadoDaIntegracao, ErroDaPonteDoChat,
+  configurarCanalWhatsapp, conversaDoCaso, definirSenhaDoInbox, enviarCasoParaCobranca, enviarRecuperacaoParaChat, estadoDaIntegracao, ErroDaPonteDoChat,
 } from "../services/chat/chat-ponte.service";
 import { podeAdministrarOProvedor } from "./provider.routes";
 
@@ -48,6 +48,8 @@ const CanalSchema = z.object({
   webhookSecret: z.string().trim().min(8).max(200).optional(),
 });
 
+const SenhaSchema = z.object({ senha: z.string().min(6).max(128) });
+
 const EnvioSchema = z.object({
   texto: z.string().trim().min(1).max(2000).optional(),
   acaoDaEtapa: z.string().trim().max(500).optional(),
@@ -73,6 +75,16 @@ export function registerChatBullqRoutes(): Router {
         canalOk: r.canalOk,
         integracao: { status: r.integracao.status, canal: r.integracao.canalId ? { id: r.integracao.canalId, nome: r.integracao.canalNome } : null, ultimoErro: r.integracao.ultimoErro },
       });
+    } catch (e) {
+      falha(res, e);
+    }
+  });
+
+  router.post("/api/chat-bullq/integracao/senha", requireAuth, requireProvider, exigirAdmin("definir a senha do inbox"), async (req, res) => {
+    const parsed = SenhaSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "A senha precisa ter entre 6 e 128 caracteres" });
+    try {
+      res.json(await definirSenhaDoInbox(providerDaSessao(req), parsed.data.senha));
     } catch (e) {
       falha(res, e);
     }

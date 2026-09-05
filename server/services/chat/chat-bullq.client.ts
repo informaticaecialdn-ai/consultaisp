@@ -378,6 +378,18 @@ export class ChatBullqClient {
     );
   }
 
+  /**
+   * A senha do owner da organizacao, pela chave de plataforma — e o que deixa
+   * a equipe do provedor entrar no inbox web. A senha so passa por aqui; nao
+   * e guardada nem logada.
+   */
+  async definirSenhaDoOwner(orgId: string, senha: string): Promise<Resultado<{ ownerUserId: string; ownerEmail: string }>> {
+    return this.requisicao<{ ownerUserId: string; ownerEmail: string }>("POST", `/platform/organizations/${enc(orgId)}/owner-password`, {
+      headers: this.cabecalhosPlataforma(),
+      corpo: { password: senha },
+    });
+  }
+
   // ---------------------------------------------------------- sessao
 
   private cabecalhosPlataforma(): Record<string, string> {

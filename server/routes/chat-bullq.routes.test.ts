@@ -14,6 +14,7 @@ const servico = vi.hoisted(() => ({
   enviarCasoParaCobranca: vi.fn(async (): Promise<any> => ({ conversationId: "conv_1", reaproveitada: false, messageId: "m1", inboxUrl: "https://chat.consultaisp.com.br/inbox" })),
   conversaDoCaso: vi.fn(async (): Promise<any> => null),
   enviarRecuperacaoParaChat: vi.fn(async (): Promise<any> => ({ conversationId: "conv_9", reaproveitada: false, messageId: "m9", inboxUrl: "https://chat.consultaisp.com.br/inbox" })),
+  definirSenhaDoInbox: vi.fn(async (): Promise<any> => ({ ownerEmail: "dono@isp.com" })),
 }));
 vi.mock("../services/chat/chat-ponte.service", async () => {
   const real = await vi.importActual<typeof import("../services/chat/chat-ponte.service")>("../services/chat/chat-ponte.service");
@@ -123,6 +124,19 @@ describe("conversa do caso e recuperacao", () => {
     const res = await json("POST", "/api/chat-bullq/recuperacao/77/enviar", { texto: "Combinar retirada" });
     expect(res.status).toBe(200);
     expect(servico.enviarRecuperacaoParaChat).toHaveBeenCalledWith(42, 77, 8, "Combinar retirada");
+  });
+});
+
+describe("senha do inbox", () => {
+  it("so admin; senha curta e 400; a senha vai ao servico com o provedor da sessao", async () => {
+    sessao = OPERADOR;
+    expect((await json("POST", "/api/chat-bullq/integracao/senha", { senha: "segredo123" })).status).toBe(403);
+    sessao = ADMIN;
+    expect((await json("POST", "/api/chat-bullq/integracao/senha", { senha: "curta" })).status).toBe(400);
+    const res = await json("POST", "/api/chat-bullq/integracao/senha", { senha: "segredo123" });
+    expect(res.status).toBe(200);
+    expect(servico.definirSenhaDoInbox).toHaveBeenCalledWith(42, "segredo123");
+    expect(await res.json()).toEqual({ ownerEmail: "dono@isp.com" });
   });
 });
 
