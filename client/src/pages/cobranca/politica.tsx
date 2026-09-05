@@ -32,7 +32,7 @@ import {
 import { AvisoNaoCarregou, BOTAO_MARCA, BOTAO_SECUNDARIO, CabecalhoPainel, Campo, CONTROLE_CAMPO, CONTROLE_CAMPO_MULTILINHA } from "@/components/painel/ui";
 import { podeAdministrarCobranca } from "@/components/cobranca/permissoes";
 import {
-  confirmarCustos, corpoDoPut, editarCusto, editarEtapa, formDaPolitica, lerPolitica, lerRespostaDoPut, ROTULO_PARCELAMENTO_POR_STATUS,
+  adicionarPlano, confirmarCustos, corpoDoPut, editarCusto, editarEtapa, editarPlano, formDaPolitica, lerPolitica, lerRespostaDoPut, removerPlano, ROTULO_PARCELAMENTO_POR_STATUS,
   type FormPolitica,
 } from "@/components/cobranca/politica-form";
 import { API_EQUIPE, API_POLITICA, CICLO_MESES_PADRAO, lerEquipe, ROTA_REGUA, type CampoDeCusto } from "@/components/cobranca/tipos";
@@ -280,6 +280,25 @@ export default function PoliticaPage() {
             <p className="mt-3 text-[11px] leading-4 text-[var(--text-muted)]">
               Mudar um custo desconfirma: o selo atesta os números que estavam na tela. <b>Confirmar custos</b> grava a política com a confirmação.
             </p>
+
+            {/* O ARPU: o sync não traz o valor do plano, só o NOME (pelo ERP ao vivo). A
+                mensalidade por nome é o que liga a Economia do cliente no 360; plano sem
+                preço fica PENDENTE lá, com o motivo — nunca um chute. */}
+            <fieldset className="mt-4 min-w-0 border-t border-[var(--border)] pt-3" id="economia" data-testid="planos-precos">
+              <legend className="mb-1 font-mono text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">planos · mensalidade por nome do plano (ARPU)</legend>
+              <p className="mb-2 text-[11px] leading-4 text-[var(--text-muted)]">Escreva o nome exatamente como o ERP o devolve (a ficha mostra o nome que veio). O 360 casa sem diferenciar maiúsculas, acentos ou espaços.</p>
+              <div className="flex flex-col gap-2">
+                {form.economia.planos.map((p, i) => (
+                  <div key={i} className="grid grid-cols-[minmax(0,1fr)_140px_36px] items-center gap-2" data-testid={`plano-${i}`}>
+                    <input className={CONTROLE_CAMPO} placeholder="Nome do plano (ex.: Fibra 300)" value={p.nome} disabled={travado} onChange={e => editar(f => editarPlano(f, i, "nome", e.target.value))} aria-label="nome do plano" data-testid={`plano-nome-${i}`} />
+                    <div className="flex items-center gap-1.5"><span className="text-[11px] text-[var(--text-muted)]">R$</span><input className={caixa} inputMode="decimal" placeholder="0,00" value={p.preco} disabled={travado} onChange={e => editar(f => editarPlano(f, i, "preco", e.target.value))} aria-label="mensalidade" data-testid={`plano-preco-${i}`} /></div>
+                    <button type="button" className={cn(BOTAO_SECUNDARIO, "h-9 w-9 px-0")} disabled={travado} onClick={() => editar(f => removerPlano(f, i))} aria-label="remover plano" data-testid={`plano-remover-${i}`}>×</button>
+                  </div>
+                ))}
+                {form.economia.planos.length === 0 && <p className="text-[11.5px] text-[var(--text-faint)]">nenhum plano cadastrado — a Economia do cliente fica PENDENTE no 360 até haver a mensalidade do plano dele.</p>}
+                <button type="button" className={cn(BOTAO_SECUNDARIO, "w-fit")} disabled={travado} onClick={() => editar(adicionarPlano)} data-testid="adicionar-plano">+ adicionar plano</button>
+              </div>
+            </fieldset>
           </Cartao>
 
           <Cartao kicker="régua" titulo="As etapas — janela, ação e responsável" acoes={<span className="text-[11px] text-[var(--text-muted)]">o tom não mora aqui: vem do DNA de cada cliente</span>} testId="cartao-etapas">

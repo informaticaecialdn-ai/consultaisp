@@ -47,8 +47,11 @@ export const ROTULO_PARCELAMENTO_POR_STATUS: Record<StatusDeParcelamento, string
   acumulado_multi_mes: "acumulado (duas mensalidades ou mais)",
 };
 
+/** Uma linha da tabela plano → mensalidade: o ARPU da Economia do cliente, pelo NOME que o ERP escreve. */
+export interface PlanoDoForm { nome: string; preco: string }
+
 /** As caixas da economia: texto, como as outras; `confirmado` é a única que não é número. */
-export type FormEconomia = Record<CampoDeCusto, string> & { confirmado: boolean };
+export type FormEconomia = Record<CampoDeCusto, string> & { confirmado: boolean; planos: PlanoDoForm[] };
 
 export interface FormPolitica {
   negociacao: { maxParcelas: string; entradaMinimaPct: string; descontoMaxPct: string; saldoMinimoParcelar: string };
@@ -63,7 +66,7 @@ export interface FormPolitica {
 const texto = (n: number) => String(n);
 
 function formDaEconomia(e: EconomiaDaPolitica): FormEconomia {
-  const form = { confirmado: e.confirmado } as FormEconomia;
+  const form = { confirmado: e.confirmado, planos: Object.entries(e.precoPorPlano ?? {}).map(([nome, preco]) => ({ nome, preco: texto(preco) })) } as FormEconomia;
   for (const campo of CAMPOS_DE_CUSTO) form[campo] = texto(e[campo]);
   return form;
 }
@@ -110,7 +113,36 @@ export function economiaDoForm(form: FormEconomia, gravada: EconomiaDaPolitica):
     economia[campo] = n < 0 ? gravada[campo] : n;
   }
   economia.cicloMeses = Math.max(1, Math.round(economia.cicloMeses));
+  economia.precoPorPlano = precoPorPlanoDoForm(form.planos ?? []);
   return economia;
+}
+
+/**
+ * As linhas da tabela → o mapa gravado. Linha sem nome ou sem preço válido
+ * (vazio, lixo, zero, negativo) não entra: plano sem preço é Economia
+ * PENDENTE no 360, nunca um chute. Nome repetido: a última linha vence.
+ */
+export function precoPorPlanoDoForm(planos: readonly PlanoDoForm[]): Record<string, number> {
+  const mapa: Record<string, number> = {};
+  for (const p of planos) {
+    const nome = p.nome.trim().replace(/\s+/g, " ");
+    const n = Number(String(p.preco).replace(",", "."));
+    if (!nome || !Number.isFinite(n) || n <= 0) continue;
+    mapa[nome] = n;
+  }
+  return mapa;
+}
+
+/** Preço de plano é ARPU, não custo: mexer nele não desconfirma os custos. */
+export function editarPlano(form: FormPolitica, indice: number, campo: keyof PlanoDoForm, valor: string): FormPolitica {
+  const planos = form.economia.planos.map((p, i) => (i === indice ? { ...p, [campo]: valor } : p));
+  return { ...form, economia: { ...form.economia, planos } };
+}
+export function adicionarPlano(form: FormPolitica): FormPolitica {
+  return { ...form, economia: { ...form.economia, planos: [...form.economia.planos, { nome: "", preco: "" }] } };
+}
+export function removerPlano(form: FormPolitica, indice: number): FormPolitica {
+  return { ...form, economia: { ...form.economia, planos: form.economia.planos.filter((_, i) => i !== indice) } };
 }
 
 /**

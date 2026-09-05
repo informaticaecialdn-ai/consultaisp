@@ -12,3 +12,6 @@ export * from "./dna";
 export * from "./regua";
 export * from "./politica";
 export * from "./estados";
+export * from "./economia";
+export * from "./cliente360";
+export * from "./ficha360";

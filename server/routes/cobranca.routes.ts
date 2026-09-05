@@ -67,6 +67,7 @@ import {
   type StatusDeCaso,
   type StatusDeNegociacao,
   type Tom,
+  montarFicha360,
 } from "@shared/cobranca";
 
 /**
@@ -599,6 +600,23 @@ function negociacaoParaApi(n: CobrancaNegociacao, parcelamento: CobrancaParcela[
 
 function eventoParaApi(e: CobrancaEvento, nomes: Map<number, string>) {
   return { ...e, usuarioNome: e.userId === null ? null : nomes.get(e.userId) ?? null };
+}
+
+/**
+ * O que o health tecnico do Provedor.ai conta: aparelhos ativos e extraviados.
+ * "Extraviado" aqui e o que o provedor ja deu por perdido (ou que esta em
+ * recuperacao sem devolucao); devolvido e baixado nao contam para nenhum lado.
+ */
+export function contarEquipamentosParaHealth(lista: Array<{ status: string | null; inRecoveryProcess?: boolean | null }>): { ativos: number; extraviados: number } {
+  let ativos = 0;
+  let extraviados = 0;
+  for (const e of lista) {
+    const st = (e.status ?? "").toLowerCase();
+    if (st === "extraviado" || st === "perdido" || st === "nao_devolvido" || st === "em_cobranca") extraviados += 1;
+    else if (st === "devolvido" || st === "baixado" || st === "recuperado") continue;
+    else ativos += 1;
+  }
+  return { ativos, extraviados };
 }
 
 function equipamentoParaApi(e: Equipment) {
@@ -1193,6 +1211,32 @@ export function registerCobrancaRoutes(): Router {
       const carteira = vivo ? carteiraValida(vivo.carteira) : carteiraDoStatusErp(cliente.status);
       const cls = classificarCliente({ contractStartDate: cliente.contractStartDate, diasAtraso, faturasAbertas }, hoje);
       const regua = reguaParaHoje(diasAtraso, carteira, etapas);
+
+      // A ficha do Provedor.ai, montada com o que o banco tem. O navegador a
+      // remonta com o mesmo `montarFicha360` quando o ERP ao vivo traz o
+      // plano e a data de contrato que o sync nao guarda.
+      const ha90d = new Date(hoje.getTime() - 90 * 86_400_000);
+      const contatos = eventos.filter(ev => ev.tipo === "contato");
+      const contatos90d = contatos.filter(ev => ev.ocorridoEm && new Date(ev.ocorridoEm) >= ha90d);
+      const RESPONDEU = new Set(["falou", "promessa_pagamento", "recusou"]);
+      const fichaEntrada = {
+        statusErp: cliente.status,
+        carteira,
+        contractStartDate: cliente.contractStartDate,
+        cortadoEm: cliente.cortadoEm,
+        plano: null,
+        ispScore: numOuNull(cliente.ispScore),
+        riskTier: cliente.riskTier,
+        dividaAtual,
+        diasAtraso,
+        faturasAbertas: cliente.overdueInvoicesCount === null || cliente.overdueInvoicesCount === undefined ? null : faturasAbertas,
+        equipamentos: contarEquipamentosParaHealth(equipamentos),
+        contatos90d: contatos90d.length,
+        respostas90d: contatos90d.filter(ev => ev.resultado && RESPONDEU.has(ev.resultado)).length,
+        comunicacoes30d: contatos.filter(ev => ev.ocorridoEm && new Date(ev.ocorridoEm) >= ha30d).length,
+        totalComunicacoes: contatos.length,
+      };
+      const ficha = montarFicha360({ hoje, ...fichaEntrada, economia: politica.economia, historicoPagamento: null });
       const endereco = [cliente.address, cliente.addressNumber].filter(Boolean).join(", ")
         + (cliente.complement ? ` - ${cliente.complement}` : "");
 
@@ -1253,6 +1297,8 @@ export function registerCobrancaRoutes(): Router {
         negociacoes: negociacoes.map(n => negociacaoParaApi(n, n.parcelamento)),
         eventos: eventos.map(e => eventoParaApi(e, nomes)),
         equipamentos: equipamentos.map(equipamentoParaApi),
+        ficha,
+        fichaEntrada,
         rede,
         alertas,
         recuperacao: recuperacoes

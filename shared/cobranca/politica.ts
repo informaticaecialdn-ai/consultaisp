@@ -100,6 +100,13 @@ export const EconomiaSchema = z.object({
   /** Ciclo de vida esperado, em meses. Clamp em 1..120. */
   cicloMeses: z.number().int(),
   confirmado: z.boolean(),
+  /**
+   * Mensalidade por NOME de plano, como o ERP o escreve ("Fibra 300"). É o
+   * ARPU da Economia do cliente: o Provedor.ai o lê de `clientes.valor_mensal`,
+   * que o sync daqui não traz. Plano sem preço cadastrado = Economia PENDENTE,
+   * nunca um chute. Nome casado sem caixa, acento nem espaço duplo.
+   */
+  precoPorPlano: z.record(z.string().trim().min(1).max(120), z.number().finite().min(0)).default({}),
 });
 export type Economia = z.infer<typeof EconomiaSchema>;
 
@@ -130,6 +137,7 @@ export const POLITICA_PADRAO = {
     impostoReceitaPct: 0,
     cicloMeses: 36,
     confirmado: false,
+    precoPorPlano: {},
   } satisfies Economia,
   pausada: false,
   pausadaMotivo: null as string | null,

@@ -1314,6 +1314,8 @@ export interface EconomiaDaPolitica {
   impostoReceitaPct: number;
   cicloMeses: number;
   confirmado: boolean;
+  /** Mensalidade por NOME de plano (ARPU do R24). Opcional: linhas anteriores a 0023 nao a tem; o Zod aplica `{}`. */
+  precoPorPlano?: Record<string, number>;
 }
 
 /**
@@ -1341,6 +1343,8 @@ export const POLITICA_DE_COBRANCA_PADRAO: {
     cac: 0, capexInstalacao: 0, equipamentoResidual: 0,
     opexLink: 0, opexRedePop: 0, opexSuporte: 0, opexManutencaoNoc: 0,
     impostoReceitaPct: 0, cicloMeses: 36, confirmado: false,
+    // Mensalidade por NOME de plano (o ARPU da Economia do cliente) — chave nova em 05/09/2026, migracao 0023.
+    precoPorPlano: {},
   },
 };
 

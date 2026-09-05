@@ -42,7 +42,7 @@ describe("validarPolitica — o padrão", () => {
     expect(POLITICA_PADRAO.economia).toEqual({
       cac: 0, capexInstalacao: 0, equipamentoResidual: 0,
       opexLink: 0, opexRedePop: 0, opexSuporte: 0, opexManutencaoNoc: 0,
-      impostoReceitaPct: 0, cicloMeses: 36, confirmado: false,
+      impostoReceitaPct: 0, cicloMeses: 36, confirmado: false, precoPorPlano: {},
     });
   });
 });

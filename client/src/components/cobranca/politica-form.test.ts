@@ -2,12 +2,11 @@ import { describe, it, expect } from "vitest";
 import { ETAPAS_PADRAO, PARCELAMENTO_POR_STATUS, POLITICA_PADRAO, PoliticaSchema, STATUS_DE_PARCELAMENTO } from "@shared/cobranca";
 import {
   confirmarCustos, corpoDaPausa, corpoDoPut, economiaDoForm, editarCusto, editarEtapa, etapasParaConfig, formDaPolitica,
-  lerPolitica, lerRespostaDoPut, ROTULO_PARCELAMENTO_POR_STATUS,
-} from "./politica-form";
+  lerPolitica, lerRespostaDoPut, ROTULO_PARCELAMENTO_POR_STATUS, adicionarPlano, editarPlano, precoPorPlanoDoForm, removerPlano } from "./politica-form";
 import { ECONOMIA_PADRAO, type EconomiaDaPolitica } from "./tipos";
 
 const padrao = PoliticaSchema.parse(POLITICA_PADRAO);
-const economia: EconomiaDaPolitica = { cac: 120, capexInstalacao: 480, equipamentoResidual: 250, opexLink: 12.5, opexRedePop: 8, opexSuporte: 6, opexManutencaoNoc: 4, impostoReceitaPct: 12, cicloMeses: 36, confirmado: true };
+const economia: EconomiaDaPolitica = { cac: 120, capexInstalacao: 480, equipamentoResidual: 250, opexLink: 12.5, opexRedePop: 8, opexSuporte: 6, opexManutencaoNoc: 4, impostoReceitaPct: 12, cicloMeses: 36, confirmado: true, precoPorPlano: { "Fibra 300": 119.9 } };
 /** A política gravada com custos confirmados — o que a tela lê depois de "Confirmar custos". */
 const comEconomia = { ...padrao, economia };
 
@@ -147,5 +146,35 @@ describe("lerRespostaDoPut", () => {
     expect(r.ajustes).toEqual(["Multa de 5% reduzida a 2%"]);
     expect(r.politica).toEqual(padrao);
     expect(lerRespostaDoPut(padrao).ajustes).toEqual([]);
+  });
+});
+
+describe("preço por plano (ARPU) no formulário", () => {
+  it("vai e volta: o mapa gravado vira linhas e as linhas voltam ao mapa", () => {
+    const form = formDaPolitica(comEconomia);
+    expect(form.economia.planos).toEqual([{ nome: "Fibra 300", preco: "119.9" }]);
+    expect(economiaDoForm(form.economia, economia).precoPorPlano).toEqual({ "Fibra 300": 119.9 });
+  });
+  it("linha sem nome, sem preço, com lixo, zero ou negativo não entra; vírgula é aceita; nome repetido, a última vence", () => {
+    expect(precoPorPlanoDoForm([
+      { nome: "  Fibra  500 ", preco: "149,90" },
+      { nome: "", preco: "99" },
+      { nome: "Vazio", preco: "" },
+      { nome: "Lixo", preco: "abc" },
+      { nome: "Zero", preco: "0" },
+      { nome: "Negativo", preco: "-5" },
+      { nome: "Fibra 500", preco: "159.9" },
+    ])).toEqual({ "Fibra 500": 159.9 });
+  });
+  it("adicionar, editar e remover linha; mexer no preço NÃO desconfirma os custos", () => {
+    let form = formDaPolitica(comEconomia);
+    form = adicionarPlano(form);
+    expect(form.economia.planos).toHaveLength(2);
+    form = editarPlano(form, 1, "nome", "Giga 1000");
+    form = editarPlano(form, 1, "preco", "249,9");
+    expect(form.economia.planos[1]).toEqual({ nome: "Giga 1000", preco: "249,9" });
+    expect(form.economia.confirmado).toBe(true);
+    form = removerPlano(form, 0);
+    expect(economiaDoForm(form.economia, economia).precoPorPlano).toEqual({ "Giga 1000": 249.9 });
   });
 });

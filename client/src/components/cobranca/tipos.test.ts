@@ -36,7 +36,7 @@ describe("status de caso da tela", () => {
 
 describe("economia da política na tela", () => {
   it("as nove caixas são exatamente os campos numéricos do vocabulário compartilhado", () => {
-    const numericos = Object.keys(EconomiaSchema.shape).filter(k => k !== "confirmado").sort();
+    const numericos = Object.keys(EconomiaSchema.shape).filter(k => k !== "confirmado" && k !== "precoPorPlano").sort();
     expect([...CAMPOS_DE_CUSTO].sort()).toEqual(numericos);
   });
   it("o padrão é o compartilhado: custo zero, 36 meses, não confirmado", () => {

@@ -187,7 +187,7 @@ describe("cliente 360", () => {
     for (const id of [
       "cobranca-cliente-360", "cabecalho-360", "nome-cliente", "documento-cliente", "tempo-de-casa", "acoes-360",
       "acao-registrar-contato", "acao-abrir-negociacao", "acao-ver-regua", "acao-historico", "acao-abrir-caso",
-      "cluster-360", "card-divida", "card-score", "card-endereco", "card-regua",
+      "card-divida", "card-score", "card-endereco", "card-economia", "secao-r24", "secao-transversal",
       "coluna-passado", "coluna-presente", "coluna-futuro", "form-caso", "sem-caso", "linha-do-tempo", "dialogo-fechar-caso",
     ]) {
       expect(f, id).toContain(`"${id}"`);
@@ -209,7 +209,9 @@ describe("cliente 360", () => {
   });
 
   it("o que a fase 1 não tem fica marcado, nunca preenchido com zero", () => {
-    expect(f.match(/<SeloFase2/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
+    // O molde do Provedor.ai: PENDENTE e A-CRIAR com motivo, nunca zero.
+    expect(f.match(/<Pendente /g)?.length ?? 0).toBeGreaterThanOrEqual(6);
+    expect(f.match(/<ACriar /g)?.length ?? 0).toBeGreaterThanOrEqual(3);
     expect(f).not.toContain("NPS: 0");
   });
 

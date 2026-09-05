@@ -747,7 +747,11 @@ describe("politica", () => {
     expect(m21).toContain(`DEFAULT '${JSON.stringify(POLITICA_DE_COBRANCA_PADRAO.janelaContato)}'::jsonb`);
     const m22 = fs.readFileSync(path.resolve(process.cwd(), "migrations/0022_cobranca_fluxo.sql"), "utf8");
     expect(m22).toContain("ALTER TABLE cobranca_politica ADD COLUMN IF NOT EXISTS economia JSONB NOT NULL");
-    expect(m22).toContain(`DEFAULT '${JSON.stringify(POLITICA_DE_COBRANCA_PADRAO.economia)}'::jsonb`);
+    // A 0022 criou a coluna com o default de entao (sem precoPorPlano) — historico, nao muda.
+    expect(m22).toContain(`"cicloMeses":36,"confirmado":false}'::jsonb`);
+    // A 0023 e quem carrega o default ATUAL, igual ao do schema.
+    const m23 = fs.readFileSync(path.join(process.cwd(), "migrations", "0023_cobranca_preco_por_plano.sql"), "utf8");
+    expect(m23).toContain(`DEFAULT '${JSON.stringify(POLITICA_DE_COBRANCA_PADRAO.economia)}'::jsonb`);
   });
 });
 

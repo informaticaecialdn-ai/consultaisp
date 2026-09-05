@@ -11,6 +11,10 @@
  * Nada de React aqui: o módulo é importado pelos `.ts` puros e pelos testes.
  */
 import { POLITICA_PADRAO, ROTULO_STATUS_DE_CASO, type Economia, type Etapa, type MotivoSemEtapa } from "@shared/cobranca";
+import type { EntradaDaFicha360, Ficha360 } from "@shared/cobranca";
+
+/** O que a rota leu para montar a ficha; o navegador remonta com o plano e a data do ERP ao vivo. */
+export type FichaEntrada = Omit<EntradaDaFicha360, "hoje" | "economia" | "historicoPagamento">;
 
 /* ── Status de caso ──────────────────────────────────────────────────── */
 
@@ -347,6 +351,9 @@ export interface Cliente360 {
   negociacoes: NegociacaoDeCobranca[];
   eventos: EventoDeCobranca[];
   equipamentos: EquipamentoDoCliente[];
+  /** Os blocos calculados do Provedor.ai (selo, scores, prescrição, economia, resumo) — `montarFicha360`. */
+  ficha?: Ficha360;
+  fichaEntrada?: FichaEntrada;
   rede?: RedeDo360;
   alertas?: AlertaDo360[];
   recuperacao?: RecuperacaoDoCliente[];
