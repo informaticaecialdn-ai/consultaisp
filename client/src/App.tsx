@@ -36,6 +36,7 @@ const RecuperacaoPage = lazy(pagina(() => import("@/pages/operacional/recuperaca
 const CobrancaCarteiraPage = lazy(pagina(() => import("@/pages/cobranca/carteira")));
 const CobrancaCliente360Page = lazy(pagina(() => import("@/pages/cobranca/cliente360")));
 const CobrancaFilaPage = lazy(pagina(() => import("@/pages/cobranca/fila")));
+const CobrancaKanbanPage = lazy(pagina(() => import("@/pages/cobranca/kanban")));
 const CobrancaReguaPage = lazy(pagina(() => import("@/pages/cobranca/regua")));
 const CobrancaPoliticaPage = lazy(pagina(() => import("@/pages/cobranca/politica")));
 
@@ -105,6 +106,7 @@ function Router() {
         <Route path="/cobranca" component={CobrancaCarteiraPage} />
         <Route path="/cobranca/cliente/:id" component={CobrancaCliente360Page} />
         <Route path="/cobranca/fila" component={CobrancaFilaPage} />
+        <Route path="/cobranca/kanban" component={CobrancaKanbanPage} />
         <Route path="/cobranca/regua" component={CobrancaReguaPage} />
         <Route path="/cobranca/politica" component={CobrancaPoliticaPage} />
         <Route path="/administracao" component={AdministracaoPage} />
@@ -138,7 +140,7 @@ export const PROVIDER_ONLY_PATHS = [
   "/benchmark-regional",
   // A cobranca. `/cobranca/cliente/:id` nao cabe numa lista de caminho exato —
   // e coberta por `ehRotaDeCobranca`, abaixo, pelo prefixo.
-  "/cobranca", "/cobranca/fila", "/cobranca/regua", "/cobranca/politica",
+  "/cobranca", "/cobranca/fila", "/cobranca/kanban", "/cobranca/regua", "/cobranca/politica",
   // Faltava desde que a tela nasceu: ela le `provider` da sessao e chama
   // `/api/regional/my-cidades`, que sem provedor nao responde nada. Ficava de
   // fora da lista por esquecimento, nao por decisao — e agora ha um segundo

@@ -502,3 +502,53 @@ export function pausaDaResposta(resposta: unknown): { pausada: boolean; motivo: 
   const r = resposta as { pausada?: unknown; pausadaMotivo?: unknown };
   return { pausada: r.pausada === true, motivo: typeof r.pausadaMotivo === "string" ? r.pausadaMotivo : null };
 }
+
+/* ── Kanban ──────────────────────────────────────────────────────────────── */
+
+export const API_KANBAN = "/api/cobranca/kanban";
+export const ROTA_KANBAN = "/cobranca/kanban";
+
+/** Uma coluna do quadro: o status, os casos que a rota mandou e o total do recorte. */
+export interface ColunaDoKanban {
+  status: string;
+  rotulo: string;
+  fechada: boolean;
+  casos: ItemDaFila[];
+  total: number;
+  /** true quando a coluna tem mais casos do que `casos` carrega (porColuna). */
+  truncado: boolean;
+}
+
+export interface RespostaDoKanban {
+  colunas: ColunaDoKanban[];
+  total: number | null;
+  pausada: boolean;
+  pausadaMotivo: string | null;
+}
+
+/**
+ * O quadro inteiro, tolerante: coluna sem `casos` vira lista vazia, sem
+ * `total` vira o tamanho da lista, sem `rotulo` cai no dicionário de status.
+ * Rota velha (sem `colunas`) devolve quadro vazio — a tela mostra o estado
+ * vazio, nunca inventa coluna.
+ */
+export function lerKanban(resposta: unknown): RespostaDoKanban {
+  const r = resposta && typeof resposta === "object" && !Array.isArray(resposta) ? (resposta as Record<string, unknown>) : {};
+  const cruas = Array.isArray(r.colunas) ? (r.colunas as Array<Record<string, unknown>>) : [];
+  const colunas: ColunaDoKanban[] = cruas
+    .filter(c => c && typeof c === "object" && typeof c.status === "string")
+    .map(c => {
+      const casos = Array.isArray(c.casos) ? (c.casos as ItemDaFila[]) : [];
+      const status = String(c.status);
+      return {
+        status,
+        rotulo: typeof c.rotulo === "string" && c.rotulo ? c.rotulo : rotuloDoStatusDeCaso(status) ?? status,
+        fechada: c.fechada === true,
+        casos,
+        total: numero(c.total) ?? casos.length,
+        truncado: c.truncado === true,
+      };
+    });
+  const pausa = pausaDaResposta(resposta);
+  return { colunas, total: numero(r.total), pausada: pausa.pausada, pausadaMotivo: pausa.motivo };
+}

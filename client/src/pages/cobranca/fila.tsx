@@ -25,7 +25,7 @@ import { brl, Kpi, num, Segmentado, TRACO } from "@/components/localizacao/ui";
 import { AvisoNaoCarregou, BOTAO_MARCA, BOTAO_SECUNDARIO, CabecalhoPainel, EstadoVazio, FOCO } from "@/components/painel/ui";
 import { DialogoContato, type AlvoDoContato } from "@/components/cobranca/DialogoContato";
 import { dataHoraBr, proximoContato, whatsappDe, type UrgenciaDoContato } from "@/components/cobranca/formatacao";
-import { API_CASOS, API_FILA, API_REGUA, lerFila, pausaDaResposta, ROTA_CARTEIRA, ROTA_REGUA, rotaDoCliente, type ItemDaFila, type RespostaDaRegua } from "@/components/cobranca/tipos";
+import { API_CASOS, API_FILA, API_REGUA, lerFila, pausaDaResposta, ROTA_CARTEIRA, ROTA_KANBAN, ROTA_REGUA, rotaDoCliente, type ItemDaFila, type RespostaDaRegua } from "@/components/cobranca/tipos";
 import { Avatar, invalidarCobranca, LinkWhatsapp, mensagemDoErro, PilulaAtraso, SeloCarteira, SeloPrioridade, SeloQuadrante, SeloStatusCaso, SeloTom, Traco, useSkeletonAtrasado } from "@/components/cobranca/ui";
 
 type Escopo = "eu" | "todos";
@@ -109,6 +109,7 @@ export default function FilaPage() {
         acoes={
           <>
             <Segmentado opcoes={OPCOES_ESCOPO} valor={escopo} onChange={setEscopo} rotulo="Escopo da fila" />
+            <Link href={ROTA_KANBAN} className={BOTAO_SECUNDARIO} data-testid="link-kanban">Kanban</Link>
             <Link href={ROTA_CARTEIRA} className={BOTAO_SECUNDARIO} data-testid="link-carteira">Carteira</Link>
           </>
         }

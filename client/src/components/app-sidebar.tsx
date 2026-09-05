@@ -448,6 +448,7 @@ const NAV_PROVEDOR: Array<{
     grupo: "Cobrança",
     itens: [
       { label: "Carteira",    url: "/cobranca",          Icone: Wallet,   testId: "link-cobranca-carteira" },
+        { label: "Kanban",      url: "/cobranca/kanban",   Icone: Kanban,   testId: "link-cobranca-kanban" },
       { label: "Fila do dia", url: "/cobranca/fila",     Icone: ListTodo, testId: "link-cobranca-fila" },
       { label: "Régua",       url: "/cobranca/regua",    Icone: Route,    testId: "link-cobranca-regua" },
       { label: "Política",    url: "/cobranca/politica", Icone: Scale,    testId: "link-cobranca-politica" },
