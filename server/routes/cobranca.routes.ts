@@ -5,6 +5,7 @@ import { storage } from "../storage";
 import { logger } from "../logger";
 import { getSafeErrorMessage } from "../utils/safe-error";
 import { casoEstaEncerrado } from "../services/equipment-recovery-rules";
+import { snapshotAoVivoDoCliente } from "../services/cobranca/snapshot-ao-vivo.service";
 import { podeAdministrarOProvedor } from "./provider.routes";
 import {
   CODIGOS_DE_ERRO_DE_COBRANCA,
@@ -1141,14 +1142,45 @@ export function registerCobrancaRoutes(): Router {
       // inteiro so o proprio cliente (ou um CNPJ que o contenha) volta, e o
       // filtro por id abaixo tira o resto.
       const digitos = cliente.cpfCnpj.replace(/\D/g, "");
-      const [{ politica, etapas }, casos, eventos, equipamentos, recuperacoes, equipe] = await Promise.all([
+      const [{ politica, etapas }, casos, eventos, equipamentos, recuperacoes, equipe, consultasRecentes, alertasDoCliente] = await Promise.all([
         carregarPolitica(providerId),
         storage.listarCasosDeCobranca(providerId, { status: "todos", busca: digitos.length >= 3 ? digitos : cliente.name }, { pagina: 1, porPagina: 200 }),
         storage.listarEventosDoCliente(providerId, customerId),
         storage.getEquipmentByCustomer(customerId, providerId),
         storage.getRecoveryCases(providerId),
         equipeDoProvedor(providerId),
+        // O sinal do bureau: quem mais perguntou por este documento. So
+        // contagens e datas — o id e o nome de outro tenant nunca saem daqui.
+        // Falha aqui nao derruba a ficha: ela abre com o que o banco tem.
+        storage.getRecentConsultationsForDocument(digitos, 90).catch(() => []),
+        storage.getAlertsByCustomer(customerId).catch(() => []),
       ]);
+      const ha30d = new Date(hoje.getTime() - 30 * 86_400_000);
+      const deOutros = consultasRecentes.filter(c => c.providerId !== providerId);
+      const rede = {
+        consultasOutros90d: deOutros.length,
+        consultasOutros30d: deOutros.filter(c => c.createdAt && new Date(c.createdAt) >= ha30d).length,
+        provedoresDistintos90d: new Set(deOutros.map(c => c.providerId)).size,
+        ultimaConsultaEm: deOutros.reduce<string | null>((max, c) => {
+          const d = c.createdAt ? new Date(c.createdAt).toISOString() : null;
+          return d && (!max || d > max) ? d : max;
+        }, null),
+      };
+      const alertas = alertasDoCliente
+        .filter(al => al.providerId === providerId)
+        .map(al => ({
+          id: al.id,
+          tipo: al.type,
+          severidade: al.severity,
+          status: al.status,
+          resolvido: !!al.resolved,
+          criadoEm: al.createdAt ? new Date(al.createdAt).toISOString() : null,
+          diasAtraso: numOuNull(al.daysOverdue),
+          valorEmAberto: numOuNull(al.overdueAmount),
+          equipamentoNaoDevolvido: !!al.equipmentNotReturned,
+          // `message` e `consultingProviderName` ficam de fora: carregam o nome
+          // de outro provedor, que aqui so aparece como codigo pareado.
+        }));
       const doCliente = casos.linhas.filter(l => l.cliente.id === customerId);
       const vivo = doCliente.find(l => !casoFechado(l.status)) ?? null;
       const anteriores = doCliente.filter(l => l !== vivo);
@@ -1221,6 +1253,8 @@ export function registerCobrancaRoutes(): Router {
         negociacoes: negociacoes.map(n => negociacaoParaApi(n, n.parcelamento)),
         eventos: eventos.map(e => eventoParaApi(e, nomes)),
         equipamentos: equipamentos.map(equipamentoParaApi),
+        rede,
+        alertas,
         recuperacao: recuperacoes
           .filter(r => r.customerId === customerId && !casoEstaEncerrado(r.status))
           .map(r => ({
@@ -1240,6 +1274,26 @@ export function registerCobrancaRoutes(): Router {
           { campo: "vulneravel", motivo: "nao ha coluna de vulnerabilidade (Lei 14.181)" },
         ],
       });
+    } catch (e) {
+      falha(res, e);
+    }
+  });
+
+  /**
+   * O snapshot AO VIVO do cliente no ERP do proprio provedor — separado da
+   * ficha para a tela abrir com o que o banco tem e o bloco do ERP chegar
+   * depois. `?forcar=1` fura o cache de dez minutos.
+   */
+  router.get("/api/cobranca/clientes/:customerId/360/ao-vivo", requireAuth, requireProvider, async (req, res) => {
+    const customerId = idDaRota(req.params.customerId);
+    if (!customerId) return res.status(400).json({ message: "Cliente invalido" });
+    const providerId = providerDaSessao(req);
+    try {
+      const cliente = await clienteDoProvedor(providerId, customerId);
+      if (!cliente) return res.status(404).json({ message: "Cliente nao encontrado" });
+      const forcar = req.query.forcar === "1" || req.query.forcar === "true";
+      const snapshot = await snapshotAoVivoDoCliente(providerId, cliente.cpfCnpj, { forcar });
+      res.json(snapshot);
     } catch (e) {
       falha(res, e);
     }

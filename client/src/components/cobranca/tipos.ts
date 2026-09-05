@@ -53,6 +53,7 @@ export const API_POLITICA = "/api/cobranca/politica";
 export const API_EQUIPE = "/api/cobranca/equipe";
 export const API_CASOS = "/api/cobranca/casos";
 export const api360 = (customerId: number | string) => `/api/cobranca/clientes/${customerId}/360`;
+export const api360AoVivo = (customerId: number, forcar = false) => `/api/cobranca/clientes/${customerId}/360/ao-vivo${forcar ? "?forcar=1" : ""}`;
 
 /* ── Carteira ────────────────────────────────────────────────────────── */
 
@@ -278,6 +279,64 @@ export interface RecuperacaoDoCliente {
   equipamento: { tipo: string | null; marca: string | null; modelo: string | null; serie: string | null };
 }
 
+/** O sinal do bureau sobre este documento: só contagens e datas, nunca quem. */
+export interface RedeDo360 {
+  consultasOutros90d: number;
+  consultasOutros30d: number;
+  provedoresDistintos90d: number;
+  ultimaConsultaEm: string | null;
+}
+
+/** Alerta anti-fraude do próprio provedor sobre este cliente, sem o nome de quem consultou. */
+export interface AlertaDo360 {
+  id: number;
+  tipo: string;
+  severidade: string;
+  status: string;
+  resolvido: boolean;
+  criadoEm: string | null;
+  diasAtraso: number | null;
+  valorEmAberto: number | null;
+  equipamentoNaoDevolvido: boolean;
+}
+
+export interface EquipamentoAoVivo {
+  tipo: string | null;
+  marca: string | null;
+  modelo: string | null;
+  serie: string | null;
+  mac: string | null;
+  valor: number | null;
+  emRecuperacao: boolean;
+}
+
+export interface ClienteAoVivo {
+  nome: string | null;
+  plano: string | null;
+  statusContrato: "active" | "cancelled" | "suspended" | null;
+  motivoCorte: string | null;
+  cortadoEm: string | null;
+  contractStartDate: string | null;
+  dividaAtual: number;
+  diasAtraso: number;
+  faturasAbertas: number | null;
+  telefone: string | null;
+  email: string | null;
+  equipamentos: EquipamentoAoVivo[];
+}
+
+/** `GET /api/cobranca/clientes/:id/360/ao-vivo` — o que o ERP do próprio provedor disse agora. */
+export interface SnapshotAoVivo {
+  ok: boolean;
+  erpSource: string | null;
+  encontrado: boolean;
+  cliente: ClienteAoVivo | null;
+  erro: string | null;
+  latenciaMs: number;
+  lidoEm: string;
+  doCache: boolean;
+}
+
 export interface Cliente360 {
   cliente: ClienteDo360;
   divida?: DividaDo360;
@@ -288,6 +347,8 @@ export interface Cliente360 {
   negociacoes: NegociacaoDeCobranca[];
   eventos: EventoDeCobranca[];
   equipamentos: EquipamentoDoCliente[];
+  rede?: RedeDo360;
+  alertas?: AlertaDo360[];
   recuperacao?: RecuperacaoDoCliente[];
   /** O que a ficha do Provedor.ai tem e esta base não: nomeado pela rota, não fabricado. */
   pendentes?: Array<{ campo: string; motivo: string }>;

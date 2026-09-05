@@ -60,7 +60,13 @@ const storageMock = vi.hoisted(() => ({
   clientesParaAbrirCaso: vi.fn(async (): Promise<any[]> => []),
   getEquipmentByCustomer: vi.fn(async (): Promise<any[]> => []),
   getRecoveryCases: vi.fn(async (): Promise<any[]> => []),
+  getRecentConsultationsForDocument: vi.fn(async (): Promise<any[]> => []),
+  getAlertsByCustomer: vi.fn(async (): Promise<any[]> => []),
 }));
+const snapshotMock = vi.hoisted(() => ({
+  snapshotAoVivoDoCliente: vi.fn(async (): Promise<any> => ({ ok: false, erpSource: null, encontrado: false, cliente: null, erro: "Sem integração", latenciaMs: 1, lidoEm: "2026-09-05T12:00:00.000Z", doCache: false })),
+}));
+vi.mock("../services/cobranca/snapshot-ao-vivo.service", () => snapshotMock);
 vi.mock("../storage", () => ({ storage: storageMock }));
 
 // cobranca.storage.ts (de onde vem `carteiraDoStatusErp` e `ErroDeCobranca`)
@@ -369,6 +375,88 @@ describe("GET /api/cobranca/clientes/:customerId/360", () => {
       expect(body.cliente).not.toHaveProperty(chave);
     }
     expect(JSON.stringify(body)).not.toContain("hash-secreto");
+  });
+
+  it("o sinal do bureau sai como contagem e data — nunca o id ou o nome de outro provedor", async () => {
+    sessao = OPERADOR;
+    storageMock.getCustomersByProvider.mockResolvedValueOnce([clienteMaria]);
+    storageMock.listarNegociacoesDoCaso.mockResolvedValue([]);
+    const agora = Date.now();
+    storageMock.getRecentConsultationsForDocument.mockResolvedValueOnce([
+      { id: 1, providerId: 42, createdAt: new Date(agora - 2 * 86_400_000) },            // o proprio: nao conta
+      { id: 2, providerId: 77, createdAt: new Date(agora - 3 * 86_400_000) },            // outro, 3 dias
+      { id: 3, providerId: 77, createdAt: new Date(agora - 40 * 86_400_000) },           // outro, 40 dias
+      { id: 4, providerId: 91, createdAt: new Date(agora - 80 * 86_400_000) },           // terceiro, 80 dias
+    ]);
+    storageMock.getAlertsByCustomer.mockResolvedValueOnce([
+      { id: 5, providerId: 42, customerId: 1, type: "defaulter_consulted", severity: "high", status: "open", resolved: false, createdAt: new Date(agora - 86_400_000), daysOverdue: 45, overdueAmount: "400.00", equipmentNotReturned: true, message: "Consultado por Provedor Vizinho Ltda", consultingProviderName: "Provedor Vizinho Ltda", consultingProviderId: 77 },
+      { id: 6, providerId: 99, customerId: 1, type: "defaulter_consulted", severity: "high", status: "open", resolved: false, createdAt: new Date(), message: "de outro tenant" },
+    ]);
+
+    const res = await json("GET", "/api/cobranca/clientes/1/360");
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(storageMock.getRecentConsultationsForDocument).toHaveBeenCalledWith("12345678901", 90);
+    expect(storageMock.getAlertsByCustomer).toHaveBeenCalledWith(1);
+    expect(body.rede).toMatchObject({ consultasOutros90d: 3, consultasOutros30d: 1, provedoresDistintos90d: 2 });
+    expect(body.rede.ultimaConsultaEm.slice(0, 10)).toBe(new Date(agora - 3 * 86_400_000).toISOString().slice(0, 10));
+    expect(body.alertas).toHaveLength(1);
+    expect(body.alertas[0]).toMatchObject({ id: 5, tipo: "defaulter_consulted", severidade: "high", resolvido: false, diasAtraso: 45, valorEmAberto: 400, equipamentoNaoDevolvido: true });
+    const texto = JSON.stringify(body);
+    expect(texto).not.toContain("Provedor Vizinho");
+    expect(texto).not.toContain("consultingProvider");
+    expect(texto).not.toContain("\"77\"");
+  });
+
+  it("a ficha abre mesmo se o bureau falhar: rede zerada, alertas vazios", async () => {
+    sessao = OPERADOR;
+    storageMock.getCustomersByProvider.mockResolvedValueOnce([clienteMaria]);
+    storageMock.listarNegociacoesDoCaso.mockResolvedValue([]);
+    storageMock.getRecentConsultationsForDocument.mockRejectedValueOnce(new Error("indice fora"));
+    storageMock.getAlertsByCustomer.mockRejectedValueOnce(new Error("indice fora"));
+    const res = await json("GET", "/api/cobranca/clientes/1/360");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.rede).toMatchObject({ consultasOutros90d: 0, consultasOutros30d: 0, provedoresDistintos90d: 0, ultimaConsultaEm: null });
+    expect(body.alertas).toEqual([]);
+  });
+});
+
+describe("GET /api/cobranca/clientes/:customerId/360/ao-vivo", () => {
+  it("401 sem sessao e 404 para cliente de outro provedor — o ERP nunca e chamado", async () => {
+    expect((await json("GET", "/api/cobranca/clientes/1/360/ao-vivo")).status).toBe(401);
+    sessao = OPERADOR;
+    storageMock.getCustomersByProvider.mockResolvedValueOnce([]);
+    expect((await json("GET", "/api/cobranca/clientes/1/360/ao-vivo")).status).toBe(404);
+    expect(snapshotMock.snapshotAoVivoDoCliente).not.toHaveBeenCalled();
+  });
+
+  it("chama o snapshot com o provedor da sessao e o documento do cliente; ?forcar=1 fura o cache", async () => {
+    sessao = OPERADOR;
+    storageMock.getCustomersByProvider.mockResolvedValue([clienteMaria]);
+    snapshotMock.snapshotAoVivoDoCliente.mockResolvedValueOnce({
+      ok: true, erpSource: "sgp", encontrado: true, erro: null, latenciaMs: 812, lidoEm: "2026-09-05T12:00:00.000Z", doCache: false,
+      cliente: { nome: "Maria", plano: "Fibra 300", statusContrato: "active", motivoCorte: null, cortadoEm: null, contractStartDate: "2023-05-10", dividaAtual: 400, diasAtraso: 45, faturasAbertas: 2, telefone: null, email: null, equipamentos: [{ tipo: "ONU", marca: "Huawei", modelo: "HG8145V5", serie: "HWTC1", mac: "A1B2C3D4E5F6", valor: 290, emRecuperacao: false }] },
+    });
+    const res = await json("GET", "/api/cobranca/clientes/1/360/ao-vivo");
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(snapshotMock.snapshotAoVivoDoCliente).toHaveBeenCalledWith(42, "12345678901", { forcar: false });
+    expect(body.cliente.plano).toBe("Fibra 300");
+    expect(body.cliente.equipamentos[0].mac).toBe("A1B2C3D4E5F6");
+
+    await json("GET", "/api/cobranca/clientes/1/360/ao-vivo?forcar=1");
+    expect(snapshotMock.snapshotAoVivoDoCliente).toHaveBeenLastCalledWith(42, "12345678901", { forcar: true });
+  });
+
+  it("ERP sem integracao nao e erro HTTP: 200 com ok=false e o motivo", async () => {
+    sessao = OPERADOR;
+    storageMock.getCustomersByProvider.mockResolvedValueOnce([clienteMaria]);
+    const res = await json("GET", "/api/cobranca/clientes/1/360/ao-vivo");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.erro).toBe("Sem integração");
   });
 });
 
