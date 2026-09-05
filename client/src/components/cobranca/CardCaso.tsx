@@ -13,7 +13,7 @@
  */
 import { useDraggable } from "@dnd-kit/core";
 import { Link } from "wouter";
-import { CalendarClock, GripVertical, MessageCircle, PhoneCall, UserRound } from "lucide-react";
+import { CalendarClock, GripVertical, MessageCircle, MessageSquareShare, PhoneCall, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { brl, TRACO } from "@/components/localizacao/ui";
 import { BOTAO_MARCA, BOTAO_SECUNDARIO, FOCO } from "@/components/painel/ui";
@@ -23,7 +23,7 @@ import {
 } from "@shared/cobranca";
 import { dataHoraBr, proximoContato, whatsappDe } from "./formatacao";
 import { rotaDoCliente, type ItemDaFila } from "./tipos";
-import { Avatar, LinkWhatsapp, PilulaAtraso, SeloCarteira, SeloPrioridade, SeloQuadrante, SeloTom, Traco } from "./ui";
+import { Avatar, LinkWhatsapp, PilulaAtraso, SeloCarteira, SeloCobranca, SeloPrioridade, SeloQuadrante, SeloTom, Traco } from "./ui";
 
 export interface EtapaDoCard {
   etapa: Etapa | null;
@@ -60,6 +60,12 @@ export interface AcoesDoCard {
   onContato: (item: ItemDaFila) => void;
   onPegar?: (item: ItemDaFila) => void;
   pegando?: boolean;
+  /** "Enviar p/ cobranca": abre a conversa do cliente no Chat BullQ com a mensagem da regua. So aparece com o chat pronto. */
+  onEnviarParaChat?: (item: ItemDaFila) => void;
+  /** O caso cujo envio esta em curso (desabilita so o botao dele). */
+  enviandoParaChat?: number | null;
+  /** O inbox do chat, para o selo "conversa" abrir a conversa la. */
+  inboxUrl?: string | null;
 }
 
 export function chaveDoCard(item: ItemDaFila): string {
@@ -129,6 +135,15 @@ export function CardCaso({ item, etapas, hoje, acoes, ocupado, overlay, alca }: 
         <SeloTom tom={tom} />
         <SeloCarteira carteira={item.carteira} />
         <SeloPrioridade prioridade={item.prioridade} />
+        {item.chat && (
+          acoes.inboxUrl ? (
+            <a href={acoes.inboxUrl} target="_blank" rel="noreferrer noopener" onClick={e => e.stopPropagation()} className="inline-flex" title={`Conversa no chat · ${item.chat.status}`} data-testid={`card-chat-${item.id}`}>
+              <SeloCobranca tom="info" className="normal-case tracking-normal"><MessageSquareShare className="h-3 w-3" aria-hidden /> chat · {item.chat.status.toLowerCase()}</SeloCobranca>
+            </a>
+          ) : (
+            <SeloCobranca tom="info" className="normal-case tracking-normal" titulo={`Conversa no chat · ${item.chat.status}`} testId={`card-chat-${item.id}`}><MessageSquareShare className="h-3 w-3" aria-hidden /> chat · {item.chat.status.toLowerCase()}</SeloCobranca>
+          )
+        )}
       </div>
 
       <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[11px]">
@@ -156,6 +171,11 @@ export function CardCaso({ item, etapas, hoje, acoes, ocupado, overlay, alca }: 
           {podePegar && (
             <button type="button" className={cn(BOTAO_SECUNDARIO, "h-8 px-2.5 text-[11.5px]")} disabled={acoes.pegando} onClick={() => acoes.onPegar?.(item)} data-testid={`card-pegar-${item.id}`}>
               <UserRound className="h-3 w-3" aria-hidden /> Pegar
+            </button>
+          )}
+          {acoes.onEnviarParaChat && !item.chat && (
+            <button type="button" className={cn(BOTAO_SECUNDARIO, "h-8 px-2.5 text-[11.5px]")} disabled={acoes.enviandoParaChat === item.id} title="Abre a conversa do cliente no WhatsApp do provedor com a mensagem da etapa" onClick={() => acoes.onEnviarParaChat?.(item)} data-testid={`card-enviar-chat-${item.id}`}>
+              <MessageSquareShare className="h-3 w-3" aria-hidden /> {acoes.enviandoParaChat === item.id ? "Enviando…" : "Enviar p/ cobrança"}
             </button>
           )}
           <Link href={rotaDoCliente(cliente.id)} className={cn(BOTAO_SECUNDARIO, "h-8 px-2.5 text-[11.5px]")} data-testid={`card-360-${item.id}`}>360</Link>

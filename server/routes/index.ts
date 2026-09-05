@@ -29,6 +29,7 @@ import { registerCadastroRoutes } from "./cadastro.routes";
 import { registerPrecosRoutes } from "./precos.routes";
 import { registerSuporteAcessoRoutes } from "./suporte-acesso.routes";
 import { registerCobrancaRoutes } from "./cobranca.routes";
+import { registerChatBullqRoutes } from "./chat-bullq.routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -76,6 +77,8 @@ export async function registerRoutes(
   app.use(registerCadastroRoutes());
   app.use(registerPrecosRoutes());
   app.use(registerCobrancaRoutes());
+  // A ponte com o Chat BullQ (chat com o cliente em cobranca e equipamentos).
+  app.use(registerChatBullqRoutes());
 
   return httpServer;
 }

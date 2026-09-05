@@ -51,8 +51,9 @@ import { LinhaDoTempo } from "@/components/cobranca/LinhaDoTempo";
 import { dataBr, dataCivilBr, dataHoraBr, deInputDataHora, paraInputDataHora, proximoContato, whatsappDe } from "@/components/cobranca/formatacao";
 import { podeAdministrarCobranca } from "@/components/cobranca/permissoes";
 import { lerPolitica } from "@/components/cobranca/politica-form";
+import { ConversaDoChat } from "@/components/cobranca/ConversaDoChat";
 import {
-  API_EQUIPE, API_POLITICA, api360, api360AoVivo, lerEquipe, numero, ROTA_CARTEIRA, ROTA_POLITICA, ROTA_REGUA,
+  API_CHAT_BULLQ, API_EQUIPE, API_POLITICA, api360, api360AoVivo, apiEnviarCasoParaChat, chatProntoParaEnviar, lerEquipe, lerIntegracaoDoChat, numero, ROTA_CARTEIRA, ROTA_POLITICA, ROTA_REGUA,
   type CasoDetalhe, type Cliente360, type EquipamentoDoCliente, type NegociacaoDeCobranca, type SnapshotAoVivo,
 } from "@/components/cobranca/tipos";
 import {
@@ -173,6 +174,9 @@ export default function Cliente360Page() {
   const { data: equipeCrua } = useQuery<unknown>({ queryKey: [API_EQUIPE], staleTime: 300_000 });
   const equipe = useMemo(() => lerEquipe(equipeCrua), [equipeCrua]);
   const mostrarSkeleton = useSkeletonAtrasado(isLoading);
+  const { data: integracaoCrua } = useQuery<unknown>({ queryKey: [`${API_CHAT_BULLQ}/integracao`], staleTime: 300_000 });
+  const integracaoDoChat = useMemo(() => lerIntegracaoDoChat(integracaoCrua), [integracaoCrua]);
+  const chatPronto = chatProntoParaEnviar(integracaoDoChat);
 
   const cliente = data?.cliente ?? null;
   const caso = data?.caso ?? null;
@@ -235,6 +239,14 @@ export default function Cliente360Page() {
       (await apiRequest("PATCH", `/api/cobranca/negociacoes/${negociacaoId}`, { casoId, status })).json(),
     onSuccess: (_d, v) => { invalidarCobranca(); toast({ title: `Negociação ${ROTULO_STATUS_DE_NEGOCIACAO[v.status].toLowerCase()}` }); },
     onError: (erro: Error) => toast({ title: "Não foi possível mudar a negociação", description: mensagemDoErro(erro), variant: "destructive" }),
+  });
+  const enviarParaChat = useMutation({
+    mutationFn: async () => {
+      if (!caso) throw new Error("Sem caso aberto");
+      return (await apiRequest("POST", apiEnviarCasoParaChat(caso.id), { acaoDaEtapa: data?.regua?.etapa?.acao ?? undefined })).json();
+    },
+    onSuccess: (r: { reaproveitada?: boolean }) => { invalidarCobranca(); toast({ title: r.reaproveitada ? "Mensagem enviada na conversa que já existia" : "Enviado para cobrança pelo chat" }); },
+    onError: (erro: Error) => toast({ title: "Não foi possível enviar para o chat", description: mensagemDoErro(erro), variant: "destructive" }),
   });
   const pagarParcela = useMutation({
     mutationFn: async ({ id: parcelaId, negociacaoId, valor }: { id: number; negociacaoId: number; valor: number }) =>
@@ -361,6 +373,11 @@ export default function Cliente360Page() {
                 <button type="button" className={BOTAO_MARCA} onClick={() => setAbrirCaso(true)} data-testid="acao-abrir-caso"><Milestone className="h-3.5 w-3.5" aria-hidden /> Abrir caso</button>
               )}
               {caso && <button type="button" className={BOTAO_SECUNDARIO} onClick={() => setContato(alvoDoContato())} data-testid="acao-registrar-contato"><PhoneCall className="h-3.5 w-3.5" aria-hidden /> Registrar contato</button>}
+              {caso && chatPronto && !data?.chat && (
+                <button type="button" className={BOTAO_SECUNDARIO} disabled={enviarParaChat.isPending} onClick={() => enviarParaChat.mutate()} title="Abre a conversa do cliente no WhatsApp do provedor com a mensagem da etapa" data-testid="acao-enviar-chat">
+                  <MessagesSquare className="h-3.5 w-3.5" aria-hidden /> {enviarParaChat.isPending ? "Enviando…" : "Enviar para cobrança"}
+                </button>
+              )}
               <button type="button" className={cn(BOTAO_SECUNDARIO, "opacity-60")} disabled title="Confissão de dívida (CPC 784) — GATED: sem assinatura eletrônica nem parecer jurídico do modelo"><FileSignature className="h-3.5 w-3.5" aria-hidden /> Confissão de dívida</button>
               <Pendente motivo="sem assinatura eletrônica (ZapSign) nem parecer jurídico do modelo" ext="GATED" />
               <Link href={`${ROTA_REGUA}?carteira=${cliente.carteira}`} className={BOTAO_SECUNDARIO} data-testid="acao-ver-regua"><GitBranch className="h-3.5 w-3.5" aria-hidden /> Ver na Régua DNA</Link>
@@ -537,6 +554,9 @@ export default function Cliente360Page() {
                     ))}
                   </div>
                 </form>
+              )}
+              {caso && (data?.chat || chatPronto) && (
+                <ConversaDoChat casoId={caso.id} chat={data?.chat ?? null} inboxUrl={integracaoDoChat?.inboxUrl ?? null} onEnviar={!data?.chat ? () => enviarParaChat.mutate() : undefined} enviando={enviarParaChat.isPending} />
               )}
               <Let k="Chamados técnicos"><Pendente motivo="sem integração de chamados — o ERP expõe atendimentos/OS mas o sync não traz" ext="EXT" /></Let>
               <Let k="Opt-out / DND"><ACriar oque="registro de opt-out por canal (CDC art. 42 / Lei 14.181)" /></Let>

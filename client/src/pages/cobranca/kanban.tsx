@@ -33,7 +33,7 @@ import { lerPolitica } from "@/components/cobranca/politica-form";
 import { podeAdministrarCobranca } from "@/components/cobranca/permissoes";
 import { etapaDoCard } from "@/components/cobranca/CardCaso";
 import {
-  API_CASOS, API_FILA, API_KANBAN, API_POLITICA, API_REGUA, lerKanban, lerRespostaDaFila,
+  API_CASOS, API_CHAT_BULLQ, API_FILA, API_KANBAN, API_POLITICA, API_REGUA, apiEnviarCasoParaChat, chatProntoParaEnviar, lerIntegracaoDoChat, lerKanban, lerRespostaDaFila,
   ROTA_CARTEIRA, ROTA_FILA, type ItemDaFila, type RespostaDaRegua,
 } from "@/components/cobranca/tipos";
 import { invalidarCobranca, mensagemDoErro, useSkeletonAtrasado } from "@/components/cobranca/ui";
@@ -86,6 +86,22 @@ export default function KanbanPage() {
   const mostrarSkeleton = useSkeletonAtrasado(isLoading);
   const vazio = !isLoading && quadro.colunas.every(c => c.casos.length === 0);
 
+  // O chat com o cliente (Chat BullQ): so oferece "Enviar p/ cobranca" com o numero do provedor ativo.
+  const { data: integracaoCrua } = useQuery<unknown>({ queryKey: [`${API_CHAT_BULLQ}/integracao`], staleTime: 300_000 });
+  const integracaoDoChat = useMemo(() => lerIntegracaoDoChat(integracaoCrua), [integracaoCrua]);
+  const chatPronto = chatProntoParaEnviar(integracaoDoChat);
+  const enviarParaChat = useMutation({
+    mutationFn: async (item: ItemDaFila) => {
+      const { etapa: e } = etapaDoCard(item, regua?.etapas);
+      return (await apiRequest("POST", apiEnviarCasoParaChat(item.id), { acaoDaEtapa: e?.acao ?? undefined })).json();
+    },
+    onSuccess: (r: { reaproveitada?: boolean }) => {
+      invalidarCobranca();
+      toast({ title: r.reaproveitada ? "Mensagem enviada na conversa que já existia" : "Enviado para cobrança pelo chat", description: "O caso passou a \"em contato\". A conversa segue no inbox do chat." });
+    },
+    onError: (erro: Error) => toast({ title: "Não foi possível enviar para o chat", description: mensagemDoErro(erro), variant: "destructive" }),
+  });
+
   const pegar = useMutation({
     mutationFn: async (casoId: number) => (await apiRequest("PATCH", `${API_CASOS}/${casoId}`, { responsavelUserId: user?.id })).json(),
     onSuccess: () => { invalidarCobranca(); toast({ title: "Caso é seu" }); },
@@ -105,6 +121,9 @@ export default function KanbanPage() {
     onContato: abrirContato,
     onPegar: user ? (item: ItemDaFila) => pegar.mutate(item.id) : undefined,
     pegando: pegar.isPending,
+    onEnviarParaChat: chatPronto ? (item: ItemDaFila) => enviarParaChat.mutate(item) : undefined,
+    enviandoParaChat: enviarParaChat.isPending ? enviarParaChat.variables?.id ?? null : null,
+    inboxUrl: integracaoDoChat?.inboxUrl ?? null,
   };
 
   const kpis = fila.kpis;

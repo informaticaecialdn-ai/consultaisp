@@ -1201,6 +1201,7 @@ export function registerCobrancaRoutes(): Router {
         }));
       const doCliente = casos.linhas.filter(l => l.cliente.id === customerId);
       const vivo = doCliente.find(l => !casoFechado(l.status)) ?? null;
+      const conversaDoChat = vivo ? await storage.getConversaDoChatPorCaso(providerId, vivo.id).catch(() => undefined) : undefined;
       const anteriores = doCliente.filter(l => l !== vivo);
       const negociacoes = (await Promise.all(doCliente.map(l => storage.listarNegociacoesDoCaso(providerId, l.id)))).flat();
       const nomes = new Map(equipe.map(u => [u.id, u.nome]));
@@ -1299,6 +1300,7 @@ export function registerCobrancaRoutes(): Router {
         equipamentos: equipamentos.map(equipamentoParaApi),
         ficha,
         fichaEntrada,
+        chat: conversaDoChat ? { conversationId: conversaDoChat.conversationId, status: conversaDoChat.status } : null,
         rede,
         alertas,
         recuperacao: recuperacoes
@@ -1795,11 +1797,20 @@ export function registerCobrancaRoutes(): Router {
     try {
       const { politica, etapas } = await carregarPolitica(providerId);
       const filtros = filtrosDoKanban(q, usuarioDaSessao(req));
-      const colunas = await Promise.all(
-        colunasDoKanban().map(status => montarColuna(providerId, status, filtros, q.porColuna, fechadosDesde, etapas, hoje)),
-      );
+      const [colunas, conversasDoChat] = await Promise.all([
+        Promise.all(colunasDoKanban().map(status => montarColuna(providerId, status, filtros, q.porColuna, fechadosDesde, etapas, hoje))),
+        // A conversa do Chat BullQ ligada ao caso, quando houver. Falha aqui nao derruba o quadro.
+        storage.conversasDoChatPorCaso(providerId).catch(() => new Map()),
+      ]);
+      const comChat = colunas.map(c => ({
+        ...c,
+        casos: c.casos.map(item => {
+          const v = conversasDoChat.get(item.id);
+          return { ...item, chat: v ? { conversationId: v.conversationId, status: v.status } : null };
+        }),
+      }));
       res.json({
-        colunas,
+        colunas: comChat,
         total: colunas.reduce((s, c) => s + c.total, 0),
         fechadosDesde,
         porColuna: q.porColuna,

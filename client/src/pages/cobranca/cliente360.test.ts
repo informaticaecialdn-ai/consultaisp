@@ -121,6 +121,13 @@ describe("honestidade do dado", () => {
     expect(pagina).toContain("abrir contato →");
   });
 
+  it("o chat com o cliente: botão de enviar para cobrança e o bloco da conversa, só com o chat pronto", () => {
+    expect(pagina).toContain('data-testid="acao-enviar-chat"');
+    expect(pagina).toContain("<ConversaDoChat");
+    expect(pagina).toContain("chatProntoParaEnviar(integracaoDoChat)");
+    expect(pagina).toContain("apiEnviarCasoParaChat(caso.id)");
+  });
+
   it("as ações do caso continuam: contato, negociação, abrir caso, fechar, salvar", () => {
     for (const id of ["acao-registrar-contato", "acao-abrir-negociacao", "acao-abrir-caso", "form-caso", "salvar-caso", "confirmar-fechar"]) {
       expect(pagina).toContain(`data-testid="${id}"`);

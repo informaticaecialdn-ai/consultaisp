@@ -97,6 +97,15 @@ describe("o quadro", () => {
     }
   });
 
+  it("o card oferece enviar para cobranca so com o chat pronto, e mostra o selo da conversa quando ja foi enviado", () => {
+    expect(pagina).toContain("chatProntoParaEnviar(integracaoDoChat)");
+    expect(pagina).toContain("onEnviarParaChat: chatPronto ? (item: ItemDaFila) => enviarParaChat.mutate(item) : undefined");
+    expect(pagina).toContain("apiEnviarCasoParaChat(item.id)");
+    expect(card).toContain("acoes.onEnviarParaChat && !item.chat");
+    expect(card).toContain("card-enviar-chat-${item.id}");
+    expect(card).toContain("card-chat-${item.id}");
+  });
+
   it("move com mutation otimista e desfaz no erro", () => {
     expect(quadro).toContain("moverNoQuadro");
     expect(quadro).toContain("onError");

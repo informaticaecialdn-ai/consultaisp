@@ -354,6 +354,7 @@ export interface Cliente360 {
   /** Os blocos calculados do Provedor.ai (selo, scores, prescrição, economia, resumo) — `montarFicha360`. */
   ficha?: Ficha360;
   fichaEntrada?: FichaEntrada;
+  chat?: ChatDoCaso | null;
   rede?: RedeDo360;
   alertas?: AlertaDo360[];
   recuperacao?: RecuperacaoDoCliente[];
@@ -381,6 +382,8 @@ export interface ClienteDaFila {
 
 /** Uma linha de `filaDeCobranca` do storage, como a rota a devolve — mais o tom de AGORA e a etapa de hoje. */
 export interface ItemDaFila extends CasoDetalhe {
+  /** Presente quando o caso foi enviado para cobranca pelo chat. */
+  chat?: ChatDoCaso | null;
   cliente: ClienteDaFila;
   quadrante?: string | null;
   tomSugerido?: string | null;
@@ -574,6 +577,40 @@ export function pausaDaResposta(resposta: unknown): { pausada: boolean; motivo: 
 /* ── Kanban ──────────────────────────────────────────────────────────────── */
 
 export const API_KANBAN = "/api/cobranca/kanban";
+export const API_CHAT_BULLQ = "/api/chat-bullq";
+export const apiEnviarCasoParaChat = (casoId: number) => `${API_CHAT_BULLQ}/cobranca/casos/${casoId}/enviar`;
+export const apiConversaDoCaso = (casoId: number) => `${API_CHAT_BULLQ}/cobranca/casos/${casoId}/conversa`;
+
+/** A conversa do Chat BullQ ligada ao caso, quando o caso foi enviado para cobranca pelo chat. */
+export interface ChatDoCaso { conversationId: string; status: string }
+
+export interface IntegracaoDoChat {
+  ligado: boolean;
+  provisionado: boolean;
+  organizationId: string | null;
+  canal: { id: string; nome: string | null } | null;
+  status: string | null;
+  ultimoErro: string | null;
+  inboxUrl: string;
+}
+
+export function lerIntegracaoDoChat(resposta: unknown): IntegracaoDoChat | null {
+  if (!resposta || typeof resposta !== "object") return null;
+  const r = resposta as Record<string, unknown>;
+  const canal = r.canal && typeof r.canal === "object" ? (r.canal as Record<string, unknown>) : null;
+  return {
+    ligado: r.ligado === true,
+    provisionado: r.provisionado === true,
+    organizationId: typeof r.organizationId === "string" ? r.organizationId : null,
+    canal: canal ? { id: String(canal.id), nome: typeof canal.nome === "string" ? canal.nome : null } : null,
+    status: typeof r.status === "string" ? r.status : null,
+    ultimoErro: typeof r.ultimoErro === "string" ? r.ultimoErro : null,
+    inboxUrl: typeof r.inboxUrl === "string" ? r.inboxUrl : "https://chat.consultaisp.com.br/inbox",
+  };
+}
+
+/** O chat esta pronto para mandar mensagem: ligado nesta instalacao e com o numero do provedor ativo. */
+export const chatProntoParaEnviar = (i: IntegracaoDoChat | null | undefined): boolean => !!i && i.ligado && i.status === "ativo" && !!i.canal;
 export const ROTA_KANBAN = "/cobranca/kanban";
 
 /** Uma coluna do quadro: o status, os casos que a rota mandou e o total do recorte. */

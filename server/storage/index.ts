@@ -28,7 +28,9 @@ import { UsersStorage } from "./users.storage";
 import { ProvidersStorage, type ProviderWithStats } from "./providers.storage";
 import { CustomersStorage } from "./customers.storage";
 import { ConsultationsStorage } from "./consultations.storage";
+import type { ChatBullqConversa, ChatBullqIntegracao } from "@shared/schema";
 import { AntifraudeStorage } from "./antifraude.storage";
+import { ChatBullqStorage, type DadosDaIntegracaoDoChat, type NovaConversaDoChat, type StatusDeIntegracaoDoChat } from "./chat-bullq.storage";
 import { FinancialStorage, type ResultadoLiberacao } from "./financial.storage";
 import { EquipmentStorage, type RecoveryCaseWithDetails, type ValidatedRecoverySignal } from "./equipment.storage";
 import { BigdataStorage } from "./bigdata.storage";
@@ -273,6 +275,17 @@ export interface IStorage {
   registrarUsoDoAcesso(acessoId: number, usadoPor: number): Promise<void>;
   historicoDeAcessos(providerId: number, limite?: number): Promise<AcessoDeSuporte[]>;
 
+  // Chat BullQ — a ponte com o atendimento. Ver server/storage/chat-bullq.storage.ts.
+  getIntegracaoDoChat(providerId: number): Promise<ChatBullqIntegracao | undefined>;
+  upsertIntegracaoDoChat(providerId: number, dados: DadosDaIntegracaoDoChat): Promise<ChatBullqIntegracao>;
+  marcarEstadoDaIntegracaoDoChat(providerId: number, estado: { status: StatusDeIntegracaoDoChat; ultimoErro?: string | null; canalId?: string | null; canalNome?: string | null }): Promise<ChatBullqIntegracao | undefined>;
+  registrarConversaDoChat(providerId: number, dados: NovaConversaDoChat): Promise<ChatBullqConversa>;
+  getConversaDoChatPorCaso(providerId: number, casoId: number): Promise<ChatBullqConversa | undefined>;
+  getConversaDoChatPorRecuperacao(providerId: number, recuperacaoId: number): Promise<ChatBullqConversa | undefined>;
+  listarConversasDoChatDoCliente(providerId: number, customerId: number): Promise<ChatBullqConversa[]>;
+  conversasDoChatPorCaso(providerId: number): Promise<Map<number, ChatBullqConversa>>;
+  atualizarConversaDoChat(providerId: number, conversationId: string, mudanca: { status?: string; ultimoEventoEm?: Date }): Promise<ChatBullqConversa | undefined>;
+
   // Cobranca — o funcionario no lugar do agente. Ver server/storage/cobranca.storage.ts:
   // toda consulta filtra por provider_id, e o storage grava a trilha mecanica
   // (etapa, responsavel, encerramento, acordo, parcela) na mesma transacao.
@@ -326,6 +339,7 @@ class DatabaseStorage implements IStorage {
   private _marcas = new MarcasStorage();
   private _suporte = new SuporteStorage();
   private _cobranca = new CobrancaStorage();
+  private _chatBullq = new ChatBullqStorage();
 
   // Users
   getUser = (id: number) => this._users.getUser(id);
@@ -538,6 +552,17 @@ class DatabaseStorage implements IStorage {
   historicoDeAcessos = (providerId: number, limite?: number) => this._suporte.historicoDeAcessos(providerId, limite);
 
   // Cobranca
+  // Chat BullQ
+  getIntegracaoDoChat = (providerId: number) => this._chatBullq.getIntegracaoDoChat(providerId);
+  upsertIntegracaoDoChat = (providerId: number, dados: DadosDaIntegracaoDoChat) => this._chatBullq.upsertIntegracaoDoChat(providerId, dados);
+  marcarEstadoDaIntegracaoDoChat = (providerId: number, estado: { status: StatusDeIntegracaoDoChat; ultimoErro?: string | null; canalId?: string | null; canalNome?: string | null }) => this._chatBullq.marcarEstadoDaIntegracaoDoChat(providerId, estado);
+  registrarConversaDoChat = (providerId: number, dados: NovaConversaDoChat) => this._chatBullq.registrarConversaDoChat(providerId, dados);
+  getConversaDoChatPorCaso = (providerId: number, casoId: number) => this._chatBullq.getConversaDoChatPorCaso(providerId, casoId);
+  getConversaDoChatPorRecuperacao = (providerId: number, recuperacaoId: number) => this._chatBullq.getConversaDoChatPorRecuperacao(providerId, recuperacaoId);
+  listarConversasDoChatDoCliente = (providerId: number, customerId: number) => this._chatBullq.listarConversasDoChatDoCliente(providerId, customerId);
+  conversasDoChatPorCaso = (providerId: number) => this._chatBullq.conversasDoChatPorCaso(providerId);
+  atualizarConversaDoChat = (providerId: number, conversationId: string, mudanca: { status?: string; ultimoEventoEm?: Date }) => this._chatBullq.atualizarConversaDoChat(providerId, conversationId, mudanca);
+
   getPoliticaDeCobranca = (providerId: number) => this._cobranca.getPoliticaDeCobranca(providerId);
   upsertPoliticaDeCobranca = (providerId: number, dados: PatchDePolitica) => this._cobranca.upsertPoliticaDeCobranca(providerId, dados);
   listarCasosDeCobranca = (providerId: number, filtros?: FiltrosDaCarteira, paginacao?: Paginacao) => this._cobranca.listarCasosDeCobranca(providerId, filtros, paginacao);

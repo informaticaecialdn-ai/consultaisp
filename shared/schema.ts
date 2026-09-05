@@ -1500,5 +1500,50 @@ export type InsertCobrancaNegociacao = typeof cobrancaNegociacoes.$inferInsert;
 export type CobrancaParcela = typeof cobrancaParcelas.$inferSelect;
 export type InsertCobrancaParcela = typeof cobrancaParcelas.$inferInsert;
 
+/* ── Chat BullQ — a ponte com o sistema de atendimento (migracao 0024, 05/09/2026) ──
+ *
+ * O Chat BullQ roda a parte; aqui fica so o VINCULO: a Organization de la que
+ * pertence ao provedor daqui, o canal de WhatsApp escolhido, e cada conversa
+ * aberta a partir de um caso de cobranca ou de recuperacao de equipamento.
+ * Nenhum segredo nestas tabelas. */
+
+export const chatBullqIntegracoes = pgTable("chat_bullq_integracoes", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  organizationId: text("organization_id").notNull(),
+  slug: text("slug").notNull(),
+  ownerEmail: text("owner_email").notNull(),
+  canalId: text("canal_id"),
+  canalNome: text("canal_nome"),
+  /** provisionado (org criada, sem canal) · ativo (canal testado) · erro */
+  status: text("status").notNull().default("provisionado"),
+  ultimoErro: text("ultimo_erro"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [uniqueIndex("chat_bullq_integracoes_provider").on(t.providerId)]);
+
+export const chatBullqConversas = pgTable("chat_bullq_conversas", {
+  id: serial("id").primaryKey(),
+  providerId: integer("provider_id").notNull().references(() => providers.id),
+  customerId: integer("customer_id").notNull().references(() => customers.id),
+  casoId: integer("caso_id").references(() => cobrancaCasos.id),
+  recuperacaoId: integer("recuperacao_id").references(() => equipmentRecoveryCases.id),
+  /** cobranca | equipamentos */
+  origem: text("origem").notNull(),
+  conversationId: text("conversation_id").notNull(),
+  canalId: text("canal_id").notNull(),
+  abertaPorUserId: integer("aberta_por_user_id").references(() => users.id),
+  /** Como o Chat BullQ devolve: PENDING · BOT · OPEN · WAITING · CLOSED */
+  status: text("status").notNull().default("BOT"),
+  abertaEm: timestamp("aberta_em").notNull().defaultNow(),
+  ultimoEventoEm: timestamp("ultimo_evento_em"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [uniqueIndex("chat_bullq_conversas_conversa").on(t.providerId, t.conversationId)]);
+
+export type ChatBullqIntegracao = typeof chatBullqIntegracoes.$inferSelect;
+export type InsertChatBullqIntegracao = typeof chatBullqIntegracoes.$inferInsert;
+export type ChatBullqConversa = typeof chatBullqConversas.$inferSelect;
+export type InsertChatBullqConversa = typeof chatBullqConversas.$inferInsert;
+
 export type LoginData = z.infer<typeof loginSchema>;
 export type RegisterData = z.infer<typeof registerSchema>;

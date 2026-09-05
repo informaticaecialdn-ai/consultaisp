@@ -62,6 +62,8 @@ const storageMock = vi.hoisted(() => ({
   getRecoveryCases: vi.fn(async (): Promise<any[]> => []),
   getRecentConsultationsForDocument: vi.fn(async (): Promise<any[]> => []),
   getAlertsByCustomer: vi.fn(async (): Promise<any[]> => []),
+  conversasDoChatPorCaso: vi.fn(async (): Promise<Map<number, any>> => new Map()),
+  getConversaDoChatPorCaso: vi.fn(async (): Promise<any> => undefined),
 }));
 const snapshotMock = vi.hoisted(() => ({
   snapshotAoVivoDoCliente: vi.fn(async (): Promise<any> => ({ ok: false, erpSource: null, encontrado: false, cliente: null, erro: "Sem integração", latenciaMs: 1, lidoEm: "2026-09-05T12:00:00.000Z", doCache: false })),

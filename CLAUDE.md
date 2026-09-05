@@ -80,6 +80,9 @@ SPC_PASSWORD=
 SPC_WSDL_URL=                       # Produção: https://api.spc.org.br/spc/remoting/ws/consulta/consultaWebService
 SPC_PRODUCT_CODE=257                # SPC MIX TOP +
 SPC_INSUMOS_OPCIONAIS=              # Insumos opcionais por consulta (ex.: 17,78,3082 = protesto, score 12 meses, obito) — a entidade pode cobrar
+CHAT_BULLQ_URL=                     # Base do Chat BullQ (fork privado, https://chat-api.consultaisp.com.br). Sem ela o chat fica desligado e a tela nao oferece "Enviar para cobranca"
+CHAT_BULLQ_PLATFORM_KEY=            # A mesma PLATFORM_API_KEY do .env.api do Chat BullQ: provisiona a organizacao de cada provedor e emite o token do dono dela
+CHAT_BULLQ_INBOX_URL=               # Opcional; padrao https://chat.consultaisp.com.br/inbox (para onde o 360 e o kanban levam o funcionario)
 ```
 
 ---
