@@ -76,6 +76,7 @@ vi.mock("../services/spc/spc.service", async (original) => ({
 import { registerConsultasRoutes } from "./consultas.routes";
 import { consultationCache } from "../services/consultation-cache.service";
 import { SpcError } from "../services/spc/spc-parser";
+import { calcularScoreISP } from "../utils/isp-score";
 
 let server: Server;
 let base: string;
@@ -250,7 +251,54 @@ describe("POST /api/isp-consultations — identificador", () => {
     expect(storageMock.createIspConsultation).not.toHaveBeenCalled();
 
     const linha = acharLog("CONSULTA sem resultado — nada gravado");
-    expect(linha?.contexto).toMatchObject({ consultaId: body.consultaId, motivo: "sem_erp_na_regiao" });
+    expect(linha?.contexto).toMatchObject({ consultaId: body.consultaId, motivo: "sem_erp_na_rede" });
+  });
+
+  /**
+   * A REDE INTEIRA, e nao a mesorregiao — decisao do dono em 05/09/2026.
+   *
+   * O caso e o de producao: dois provedores com mesorregiao VAZIA caiam sempre
+   * no caminho "sem ERP", porque o fan-out era `[eu, ...regionais]` e regional
+   * de quem nao tem regiao e ninguem. O ERP do parceiro existia, estava ligado,
+   * e nunca era perguntado.
+   */
+  it("provedor SEM mesorregiao enxerga o ERP do parceiro — a consulta e da rede, nao da regiao", async () => {
+    regionalMock.getRegionalProviderIds.mockResolvedValue([]);          // sem regiao: regional = ninguem
+    storageMock.getAllEnabledErpIntegrationsWithCredentials.mockResolvedValue([integracao(PARCEIRO)]);
+    erpMock.queryRegionalErps.mockResolvedValue([erpResult(PARCEIRO)]);
+
+    const { status, body } = await consultarIsp();
+    expect(status).toBe(200);
+    // Houve o que consultar: a linha foi gravada e o resultado nao e "sem ERP".
+    expect(body.consultation).not.toBeNull();
+    expect(body.result.source).not.toBe("no_erp");
+    // E o ERP perguntado foi o do parceiro, mesmo sem regiao em comum.
+    const [integracoesPerguntadas] = erpMock.queryRegionalErps.mock.calls[0];
+    expect((integracoesPerguntadas as any[]).map(i => i.providerId)).toEqual([PARCEIRO]);
+  });
+
+  /**
+   * SEM DADO NAO E NOTA MAXIMA.
+   *
+   * A resposta sem ERP era cravada: score 1000, "excelente", APROVAR, verde —
+   * para um documento que ninguem olhou. O motor diz que sem historico a nota
+   * parte de 700 e so chega a 1000 quem comprova tudo; menos informacao rendia
+   * nota MAIOR que a de um documento procurado e nao achado. A tela escondia
+   * com o card "Sem cobertura"; a API, o cache e o webhook recebiam o 1000.
+   */
+  it("sem ERP na rede a nota e a do motor com entrada vazia — nunca 1000/APROVAR", async () => {
+    storageMock.getAllEnabledErpIntegrationsWithCredentials.mockResolvedValue([]);
+
+    const { status, body } = await consultarIsp();
+    expect(status).toBe(200);
+    expect(body.result.source).toBe("no_erp");
+
+    const semDado = calcularScoreISP({});
+    expect(body.result.score).toBe(semDado.score);
+    expect(body.result.faixa).toBe(semDado.faixa);
+    expect(body.result.sugestaoIA).toBe(semDado.sugestaoIA);
+    expect(body.result.score).toBeLessThan(1000);
+    expect(body.result.faixa).not.toBe("excelente");
   });
 
   it("402 sem saldo: a consulta ja rodou e nada sobrou no banco — codigo na resposta e no log", async () => {

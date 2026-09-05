@@ -323,7 +323,7 @@ export default function ConsultaISPPage() {
                         : <CheckCircle size={20} style={{ color: "var(--ok)", flexShrink: 0 }} />}
                       <div>
                         <Kicker style={{ color: semCobertura ? "var(--gated)" : "var(--ok)" }}>
-                          {semCobertura ? "Sem cobertura na região" : "Nada consta"}
+                          {semCobertura ? "Sem cobertura na rede" : "Nada consta"}
                         </Kicker>
                         <div style={{
                           fontFamily: "var(--font-mono)", fontSize: 20, fontWeight: 700,
@@ -340,8 +340,8 @@ export default function ConsultaISPPage() {
                           consta na rede" seria afirmar uma varredura que não houve. */}
                       <p style={{ fontSize: 12.5, color: "var(--text-2)", lineHeight: 1.55 }}>
                         {semCobertura
-                          ? "Nenhum provedor da sua região tem integração de ERP ativa, então não houve o que consultar. Isto não é um \"nada consta\": a rede não foi varrida. Configure a integração em Painel do Provedor para que a consulta passe a valer."
-                          : "Nenhum registro na rede ISP colaborativa: nem no seu ERP, nem nos provedores parceiros da sua região. Ausência de ocorrência não é histórico de bom pagamento — significa apenas que a rede não tem o que informar sobre este documento."}
+                          ? "Nenhum provedor da rede tem integração de ERP ativa, então não houve o que consultar. Isto não é um \"nada consta\": a rede não foi varrida. Fale com o suporte para integrar o seu ERP e a consulta passa a valer."
+                          : "Nenhum registro na rede ISP colaborativa: nem no seu ERP, nem em nenhum provedor parceiro. Ausência de ocorrência não é histórico de bom pagamento — significa apenas que a rede não tem o que informar sobre este documento."}
                       </p>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         <span style={{

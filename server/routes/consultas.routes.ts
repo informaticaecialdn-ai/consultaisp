@@ -6,6 +6,16 @@ import { generatePartnerCode } from "../utils/provider-anonymizer";
 import { sanitizarResultadoGravado } from "../utils/historico-consulta";
 import { hashCPFForNetwork } from "../utils/cpf-hash";
 import { getRegionalProviderIds } from "../services/regional.service";
+
+/**
+ * A chave do cache de resposta bruta dos ERPs.
+ *
+ * Era a primeira mesorregiao de quem consultava. Desde que a consulta varre a
+ * rede inteira (05/09/2026), a resposta bruta nao depende de quem pergunta —
+ * entao uma chave so, e quem nao tem mesorregiao cadastrada tambem passa a
+ * aproveitar o cache, em vez de ir ao ERP a cada clique.
+ */
+const CHAVE_DA_REDE = "rede";
 import { queryRegionalErps, queryRegionalErpsByAddress, type RealtimeQueryResult } from "../services/realtime-query.service";
 import { chaveDeEndereco } from "../services/endereco-chave";
 import { calcularScoreISP, type ISPScoreInput } from "../utils/isp-score";
@@ -118,7 +128,6 @@ export function registerConsultasRoutes(): Router {
         return res.status(400).json({ message: "Provedor nao encontrado", consultaId });
       }
 
-      const mesoregiao = (provider as any).mesorregioes?.[0] || "";
 
       // ── CACHE CHECK (CACHE-01, CACHE-02) ─────────────────────────
       const cached = consultationCache.getResult(cleaned, providerId, searchType);
@@ -144,41 +153,49 @@ export function registerConsultasRoutes(): Router {
         });
       }
 
-      // ── REALTIME ERP QUERY ────────────────────────────────────────
-      // Query ERPs from the same mesoregion directly via connectors.
-      // LGPD: data is never stored. Fetched in real-time, masked, returned.
-      const allErpIntegrations = await storage.getAllEnabledErpIntegrationsWithCredentials();
-      const regionalProviderIds = await getRegionalProviderIds(providerId);
-      const allowedProviderIds = new Set([providerId, ...regionalProviderIds]);
-      const erpIntegrations = allErpIntegrations.filter(intg => allowedProviderIds.has(intg.providerId));
-
-      // RT-01: Real-time only guard — no local DB fallback exists.
-      // All data comes from ERP connectors for the consulting provider's region.
-      // If an integration somehow bypasses the allowedProviderIds filter, log and reject it.
-      for (const intg of erpIntegrations) {
-        if (!allowedProviderIds.has(intg.providerId)) {
-          logger.warn({ consultaId, providerId: intg.providerId }, "RT-01 ERP integration not in allowed set — skipping");
-        }
-      }
+      // ── CONSULTA AO VIVO, NA REDE INTEIRA ──────────────────────────
+      //
+      // A consulta varre TODOS os ERPs ativos da rede, e nao so os da
+      // mesorregiao de quem consulta. Decisao do dono, 05/09/2026: "consulta
+      // total; por mesorregiao somente dados de inadimplencia no mapa".
+      //
+      // O que a mesorregiao custava, medido em producao naquele dia:
+      //   · dois provedores com mesorregiao VAZIA caiam sempre no caminho
+      //     "sem ERP" — e recebiam score 1000 / APROVAR / verde para QUALQUER
+      //     documento, inclusive os 130 que a base local sabe que devem em
+      //     outro provedor;
+      //   · a Amplinet (SP) so enxergava o proprio ERP, e NsLink e NG (PR) so
+      //     se enxergavam entre si. O documento compartilhado entre PR e SP era
+      //     invisivel dos dois lados — e o migrador serial que troca de regiao
+      //     e exatamente quem a rede existe para pegar.
+      //
+      // A regiao continua valendo onde ela e a pergunta: o mapa de
+      // inadimplencia e o benchmark comparam o provedor com a vizinhanca dele.
+      //
+      // LGPD: nada e gravado. Buscado ao vivo, mascarado, devolvido; o parceiro
+      // sai como codigo pareado, nunca pelo nome.
+      const erpIntegrations = await storage.getAllEnabledErpIntegrationsWithCredentials();
+      const allowedProviderIds = new Set([providerId, ...erpIntegrations.map(intg => intg.providerId)]);
 
       if (erpIntegrations.length > 0) {
 
         // ── REGIONAL CACHE CHECK (CACHE-03) ─────────────────────────
         let erpResults: RealtimeQueryResult[];
         let regionalCacheHit = false;
-        const cachedRegional = mesoregiao
-          ? consultationCache.getRawResult(cleaned, mesoregiao, searchType)
-          : undefined;
+        // Uma chave so para a rede inteira. O cache era chaveado pela PRIMEIRA
+        // mesorregiao de quem consultou, entao quem nao tinha regiao nunca
+        // gravava nem lia — e a resposta bruta dos ERPs e a mesma seja quem for
+        // o consulente, agora que todos varrem os mesmos ERPs.
+        const cachedRegional = consultationCache.getRawResult(cleaned, CHAVE_DA_REDE, searchType);
 
         if (cachedRegional) {
-          // O cache e chaveado pela primeira mesorregiao de quem consultou
-          // antes, mas o conjunto permitido e por sobreposicao de regioes:
-          // um provedor de OUTRA regiao daquele consulente nao pode chegar a
-          // este. Filtra pelo conjunto permitido deste observador.
+          // O filtro fica: o conjunto permitido e "todo ERP ativo AGORA". Uma
+          // integracao desligada depois de o cache ter sido gravado nao pode
+          // continuar respondendo por ele.
           erpResults = (cachedRegional.erpResults as RealtimeQueryResult[])
             .filter(r => allowedProviderIds.has(r.providerId));
           regionalCacheHit = true;
-          logger.info({ consultaId, providerId, doc: cleaned.slice(0, 4) + "***", mesoregiao }, "CONSULTA regional cache hit");
+          logger.info({ consultaId, providerId, doc: cleaned.slice(0, 4) + "***" }, "CONSULTA cache da rede hit");
         } else {
           // ── CONSULTA E SEMPRE AO VIVO ───────────────────────────────────
           //
@@ -188,20 +205,18 @@ export function registerConsultasRoutes(): Router {
           // inaceitavel: o produto e um bureau, e a pergunta que ele responde e
           // "quanto esta devendo AGORA", nao "quanto devia na ultima varredura".
           //
-          // Por isso a consulta vai ao ERP de todos os provedores da regiao,
+          // Por isso a consulta vai ao ERP de todos os provedores da rede,
           // buscando SO o documento consultado — uma chamada barata e pontual,
-          // diferente da varredura noturna. O cache regional acima evita repetir
-          // a mesma pergunta em minutos.
+          // diferente da varredura noturna. O cache acima evita repetir a
+          // mesma pergunta em minutos.
           logger.info(
             { consultaId, providerId, doc: cleaned.slice(0, 4) + "***", erps: erpIntegrations.length },
-            "CONSULTA ao vivo nos ERPs da regiao",
+            "CONSULTA ao vivo nos ERPs da rede",
           );
           erpResults = await queryRegionalErps(erpIntegrations as any, cleaned, searchType, { consultaId });
 
-          // Store raw ERP results in regional cache for reuse by other providers
-          if (mesoregiao) {
-            consultationCache.setRawResult(cleaned, mesoregiao, searchType, erpResults);
-          }
+          // Guarda o bruto para o proximo consulente, seja de onde for.
+          consultationCache.setRawResult(cleaned, CHAVE_DA_REDE, searchType, erpResults);
         }
 
         // Um sinal patrimonial so entra na rede depois de prova, notificacao,
@@ -812,29 +827,45 @@ export function registerConsultasRoutes(): Router {
       }
 
       // A consulta ACONTECEU — o dono do CPF ate foi notificado acima — mas nao
-      // ha linha em isp_consultations para ela: sem ERP na regiao nao ha
+      // ha linha em isp_consultations para ela: sem ERP na rede nao ha
       // resultado a gravar nem credito a cobrar. Este e o caso em que o suporte
       // hoje nao tinha absolutamente nada para procurar.
       logger.info(
-        { consultaId, providerId, searchType, motivo: "sem_erp_na_regiao" },
+        { consultaId, providerId, searchType, motivo: "sem_erp_na_rede" },
         "CONSULTA sem resultado — nada gravado",
       );
 
-      // No ERP integrations configured for this provider's region
+      // SEM DADO NAO E NOTA MAXIMA.
+      //
+      // Esta resposta era cravada a mao: score 1000, "excelente", APROVAR,
+      // verde — para um documento que NINGUEM olhou. O motor de score diz o
+      // contrario em BASE_SEM_HISTORICO: so chega a 1000 quem comprova tudo, e
+      // quem nao tem historico parte de 700. Menos informacao rendia nota
+      // MAIOR que a de um documento procurado e nao achado (que passa pelo
+      // motor e sai em 700). A tela escondia isso com o card "Sem cobertura",
+      // mas a API, o cache e qualquer webhook recebiam o 1000.
+      //
+      // Agora e o proprio motor, com entrada vazia, quem diz a nota — o mesmo
+      // numero, a mesma faixa e a mesma sugestao que um documento inedito
+      // receberia com a rede inteira respondendo. Se o motor mudar o baseline,
+      // este caminho muda junto, em vez de mentir com um numero de 2026.
+      const semDado = calcularScoreISP({});
       const noErpResponse: Record<string, any> = {
         consultaId,
         consultation: null,
         result: {
-          cpfCnpj: cleaned, searchType, notFound: true, score: 1000,
-          faixa: "excelente", nivelRisco: "baixo", sugestaoIA: "APROVAR",
-          corIndicador: "verde", riskLabel: "SEM DADOS NA REDE",
-          recommendation: "Nenhum provedor com ERP configurado na sua regiao",
+          cpfCnpj: cleaned, searchType, notFound: true,
+          score: semDado.score, score100: semDado.score100,
+          faixa: semDado.faixa, nivelRisco: semDado.nivelRisco,
+          sugestaoIA: semDado.sugestaoIA, corIndicador: semDado.corIndicador,
+          riskLabel: "SEM DADOS NA REDE",
+          recommendation: "Nenhum provedor da rede tem ERP integrado",
           decisionReco: "Review", providersFound: 0, providerDetails: [],
           // A frase mandava o provedor "Configurar em Integracoes" — tela que ele
           // nao tem mais desde 03/09/2026: a configuracao de ERP passou a ser do
           // superadmin e a aba dele virou somente leitura. Mandar alguem fazer o
           // que acabou de ser tirado dele gera chamado, nao solucao.
-          alerts: ["Nenhum provedor da sua regiao tem ERP integrado. Fale com o suporte para integrar o seu."],
+          alerts: ["Nenhum provedor da rede tem ERP integrado. Fale com o suporte para integrar o seu."],
           recommendedActions: [], creditsCost: 0, isOwnCustomer: false,
           addressSource: null, addressUsed: null, addressParts: null, autoAddressCrossRef: false,
           source: "no_erp",
@@ -862,8 +893,10 @@ export function registerConsultasRoutes(): Router {
       const { cleaned } = validacao;
 
       const providerId = req.session.providerId!;
-      const regionalProviderIds = await getRegionalProviderIds(providerId);
-      const allProviderIds = [providerId, ...regionalProviderIds];
+      // Quem consultou este documento, na rede INTEIRA — mesma decisao da
+      // consulta (05/09/2026). O parceiro sai como codigo pareado, entao ver a
+      // linha de outra regiao nao expoe ninguem.
+      const allProviderIds = (await storage.getAllProviders()).map(p => p.id);
 
       const consultations = await storage.getConsultationTimeline(cleaned, allProviderIds, 50);
 
