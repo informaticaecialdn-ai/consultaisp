@@ -31,6 +31,7 @@ import {
  */
 const LISTA_VAZIA = async (): Promise<any> => ({ linhas: [], total: 0 });
 const storageMock = vi.hoisted(() => ({
+  fluxoDaEsteira: vi.fn(async (): Promise<any> => ({ entraram: 0, resolvidos: 0 })),
   kpisDaCobranca: vi.fn(async (): Promise<any> => ({ ativosComDivida: 3, exClientesComDivida: 10, emAberto: 5000, contatadosHoje: 1, recuperado30d: 300 })),
   composicaoDaCarteira: vi.fn(async (): Promise<any> => ({ emDia: 100, emCobranca: 3, exComDivida: 10 })),
   bairrosDaCarteira: vi.fn(async (): Promise<any[]> => [{ bairro: "Centro", total: 4 }]),
@@ -191,6 +192,7 @@ const clienteMaria = {
 
 const linhaCaso = (extra: Record<string, unknown> = {}) => ({
   id: 9, status: "aberto", carteira: "ativo", abertoEm: new Date("2026-09-01T10:00:00Z"), etapaAtual: "negociacao_recuperacao",
+  statusDesde: emDias(-3),
   diasAtrasoAbertura: 45, valorAbertura: 400, valorAtual: 400, responsavelUserId: null, responsavelNome: null,
   prioridade: "normal", proximoContatoEm: null, ultimoContatoEm: null, quadranteDna: "B3", tom: "cuidado",
   encerradoEm: null, motivoEncerramento: null,
@@ -837,7 +839,8 @@ describe("POST /api/cobranca/casos/:id/eventos", () => {
     storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso({ id: 9 }));
     const apaga = await json("POST", "/api/cobranca/casos/9/eventos", { tipo: "contato", canal: "telefone", resultado: "falou", proximaAcao: "" });
     expect(apaga.status).toBe(201);
-    expect(storageMock.atualizarCasoDeCobranca).toHaveBeenCalledWith(42, 9, { proximaAcao: null }, 8);
+    // "falou" num caso aberto tambem MOVE o caso: as duas escritas vao no mesmo patch.
+    expect(storageMock.atualizarCasoDeCobranca).toHaveBeenCalledWith(42, 9, { status: "em_contato", proximaAcao: null }, 8);
 
     // longa demais e recusada pelo schema, antes de tocar o storage
     storageMock.atualizarCasoDeCobranca.mockClear();
@@ -889,6 +892,71 @@ describe("POST /api/cobranca/casos/:id/eventos", () => {
       casoId: 9, userId: 8, tipo: "contato", canal: "whatsapp", resultado: "nao_atendeu", notas: "caixa cheia",
     }));
     expect(storageMock.atualizarCasoDeCobranca).toHaveBeenCalledWith(42, 9, { proximoContatoEm: new Date(proximo) }, 8);
+  });
+
+  /**
+   * A ESTEIRA: o caso anda pelo trabalho feito. Registrar a conversa e o que
+   * tira o caso de "ninguem ligou ainda" — o operador nao arrasta a mao o que
+   * acabou de fazer.
+   */
+  it("contato que conversou move o caso aberto para em contato, sem evento a mais", async () => {
+    sessao = OPERADOR;
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso({ id: 9, status: "aberto" }));
+    const res = await json("POST", "/api/cobranca/casos/9/eventos", { tipo: "contato", canal: "telefone", resultado: "falou" });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ movimento: { de: "aberto", para: "em_contato" } });
+    expect(storageMock.atualizarCasoDeCobranca).toHaveBeenCalledWith(42, 9, { status: "em_contato" }, 8);
+    // Um evento so: o contato. `aberto -> em_contato` nao tem evento proprio
+    // na maquina de estados — o contato registrado ja diz quem moveu e quando.
+    expect(storageMock.registrarEventoDeCobranca).toHaveBeenCalledTimes(1);
+  });
+
+  it("tentativa nao move: nao atendeu, caixa postal, numero errado e recusou deixam o caso onde esta", async () => {
+    sessao = OPERADOR;
+    for (const resultado of ["nao_atendeu", "caixa_postal", "numero_errado", "recusou"]) {
+      storageMock.atualizarCasoDeCobranca.mockClear();
+      storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso({ id: 9, status: "aberto" }));
+      const res = await json("POST", "/api/cobranca/casos/9/eventos", { tipo: "contato", canal: "telefone", resultado });
+      expect(res.status, resultado).toBe(201);
+      expect((await res.json()).movimento, resultado).toBeNull();
+      expect(storageMock.atualizarCasoDeCobranca, resultado).not.toHaveBeenCalled();
+    }
+  });
+
+  it("so o caso ABERTO anda pelo contato: em contato, negociando, acordo e negativado ficam", async () => {
+    sessao = OPERADOR;
+    for (const status of ["em_contato", "negociando", "acordo_ativo", "negativado"]) {
+      storageMock.atualizarCasoDeCobranca.mockClear();
+      storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso({ id: 9, status }));
+      const res = await json("POST", "/api/cobranca/casos/9/eventos", { tipo: "contato", canal: "telefone", resultado: "falou" });
+      expect(res.status, status).toBe(201);
+      expect((await res.json()).movimento, status).toBeNull();
+      expect(storageMock.atualizarCasoDeCobranca, status).not.toHaveBeenCalled();
+    }
+  });
+
+  it("caso fechado nao e tocado: 409 antes de gravar contato ou mover coluna", async () => {
+    sessao = OPERADOR;
+    for (const status of ["pago", "baixado", "encerrado", "cancelamento"]) {
+      storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso({ id: 9, status }));
+      const res = await json("POST", "/api/cobranca/casos/9/eventos", { tipo: "contato", canal: "telefone", resultado: "falou" });
+      expect(res.status, status).toBe(409);
+    }
+    expect(storageMock.registrarEventoDeCobranca).not.toHaveBeenCalled();
+    expect(storageMock.atualizarCasoDeCobranca).not.toHaveBeenCalled();
+  });
+
+  it("a promessa de pagamento move o caso e continua gravando a promessa, sem inventar outro status", async () => {
+    sessao = OPERADOR;
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso({ id: 9, status: "aberto" }));
+    const res = await json("POST", "/api/cobranca/casos/9/eventos", {
+      tipo: "contato", canal: "whatsapp", resultado: "promessa_pagamento", promessaPara: daquiADias(3),
+    });
+    expect(res.status).toBe(201);
+    expect(storageMock.registrarEventoDeCobranca).toHaveBeenCalledWith(42, expect.objectContaining({
+      tipo: "contato", resultado: "promessa_pagamento", metadata: { promessaPara: daquiADias(3) },
+    }));
+    expect(storageMock.atualizarCasoDeCobranca).toHaveBeenCalledWith(42, 9, { status: "em_contato" }, 8);
   });
 
   it("GET lista os eventos do caso com o nome de quem registrou", async () => {
@@ -1340,19 +1408,37 @@ describe("GET /api/cobranca/fila", () => {
 /* ── Kanban ──────────────────────────────────────────────────────────── */
 
 describe("GET /api/cobranca/kanban", () => {
-  it("devolve os indicadores sobre o mesmo recorte das colunas (casos vivos, em aberto, vencidos, para hoje)", async () => {
+  it("devolve os indicadores sobre o mesmo recorte das colunas (casos vivos, em aberto, vencidos, para hoje, criticos)", async () => {
     sessao = OPERADOR;
+    storageMock.fluxoDaEsteira.mockResolvedValueOnce({ entraram: 3, resolvidos: 1 });
     const ontem = new Date(Date.now() - 86_400_000);
     storageMock.listarCasosDeCobranca.mockImplementation(async (_p: number, filtros: any): Promise<any> => {
       if (filtros?.status === "todos" || Array.isArray(filtros?.status)) return { linhas: [], total: 0 };
-      return { linhas: [linhaCaso({ id: 1, valorAtual: 100, proximoContatoEm: ontem }), linhaCaso({ id: 2, valorAtual: 50.5, proximoContatoEm: null })], total: 2 };
+      return {
+        linhas: [
+          linhaCaso({ id: 1, valorAtual: 100, proximoContatoEm: ontem, prioridade: "critica" }),
+          linhaCaso({ id: 2, valorAtual: 50.5, proximoContatoEm: null }),
+        ],
+        total: 2,
+      };
     });
     const res = await json("GET", "/api/cobranca/kanban");
     const body = await res.json();
     expect(res.status).toBe(200);
     // follow-up: o caso 2 nao tem data — e caso PARADO, nao "para hoje"
-    expect(body.kpis).toEqual({ casosVivos: 2, emAberto: 150.5, vencidos: 1, paraHoje: 1, semProximaAcao: 1 });
+    // criticos: o indicador que so a fila tinha, contado na MESMA varredura
+    expect(body.kpis).toEqual({
+      casosVivos: 2, emAberto: 150.5, vencidos: 1, paraHoje: 1, semProximaAcao: 1, criticos: 1,
+      // fluxo do dia: agregacao propria, no mesmo recorte, desde a meia-noite local
+      entraramHoje: 3, resolvidosHoje: 1,
+    });
+    const [, filtrosDoFluxo, desde] = storageMock.fluxoDaEsteira.mock.calls[0] as any[];
+    expect(filtrosDoFluxo).toEqual({});
+    expect(desde.getHours()).toBe(0);
+    expect(desde.getMinutes()).toBe(0);
     expect(body.kpisMotivo).toBeNull();
+    // uma varredura so: nove colunas + a dos indicadores
+    expect(storageMock.listarCasosDeCobranca).toHaveBeenCalledTimes(10);
     storageMock.listarCasosDeCobranca.mockReset();
     storageMock.listarCasosDeCobranca.mockResolvedValue({ linhas: [], total: 0 });
   });
@@ -1396,9 +1482,10 @@ describe("GET /api/cobranca/kanban", () => {
     expect(body.porColuna).toBe(50);
     expect(typeof body.fechadosDesde).toBe("string");
 
-    // vivas: uma pagina de `porColuna`; fechadas: varredura de 200 — ambas com os filtros da barra
+    // vivas: uma pagina de `porColuna` na ORDEM DO DIA (vencido, hoje, sem data, agendado);
+    // fechadas: varredura de 200 na ordem padrao, porque ali a ordem e a do encerramento.
     const filtrosDaBarra = { carteira: "ativo", etapa: "lembrete_atraso", busca: "maria", responsavelUserId: null };
-    expect(storageMock.listarCasosDeCobranca).toHaveBeenCalledWith(42, { ...filtrosDaBarra, status: ["aberto"] }, { pagina: 1, porPagina: 50 });
+    expect(storageMock.listarCasosDeCobranca).toHaveBeenCalledWith(42, { ...filtrosDaBarra, status: ["aberto"] }, { pagina: 1, porPagina: 50, ordem: "dia", hoje: expect.any(Date) });
     expect(storageMock.listarCasosDeCobranca).toHaveBeenCalledWith(42, { ...filtrosDaBarra, status: ["pago"] }, { pagina: 1, porPagina: 200 });
     // uma chamada por coluna + a varredura dos indicadores (sem `status`)
     expect(storageMock.listarCasosDeCobranca).toHaveBeenCalledTimes(ORDEM_ESPERADA.length + 1);
@@ -1422,7 +1509,42 @@ describe("GET /api/cobranca/kanban", () => {
     expect(aberto).toMatchObject({ total: 7200, truncado: true });
     expect(aberto.casos).toHaveLength(2);
     expect(body.total).toBe(7200);
-    expect(storageMock.listarCasosDeCobranca).toHaveBeenCalledWith(42, { responsavelUserId: 8, status: ["aberto"] }, { pagina: 1, porPagina: 2 });
+    // "Minha fila" no quadro e MEUS + a fila geral (o que a tela de fila fazia):
+    // com o filtro exato por dono, o caso sem responsavel sumia e "Pegar para
+    // mim" nunca aparecia no escopo padrao.
+    expect(storageMock.listarCasosDeCobranca).toHaveBeenCalledWith(42, { meusMaisFilaGeral: 8, status: ["aberto"] }, { pagina: 1, porPagina: 2, ordem: "dia", hoje: expect.any(Date) });
+  });
+
+  it("o fluxo indisponivel vira null nos indicadores — a tela mostra \"—\", nunca zero", async () => {
+    sessao = OPERADOR;
+    storageMock.fluxoDaEsteira.mockRejectedValueOnce(new Error("timeout"));
+    const res = await json("GET", "/api/cobranca/kanban");
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.kpis.entraramHoje).toBeNull();
+    expect(body.kpis.resolvidosHoje).toBeNull();
+    expect(body.kpis.casosVivos).toBe(0);
+  });
+
+  it("cada card diz ha quantos dias esta parado na coluna, contado no servidor", async () => {
+    sessao = OPERADOR;
+    storageMock.listarCasosDeCobranca.mockImplementation(async (_p: number, filtros: any) =>
+      filtros.status?.[0] === "aberto"
+        ? {
+            linhas: [
+              linhaCaso({ id: 1, statusDesde: emDias(-3) }),
+              linhaCaso({ id: 2, statusDesde: new Date() }),
+              // Replica sem a 0030: sem a data, o card nao inventa "0 dias".
+              linhaCaso({ id: 3, statusDesde: null }),
+            ],
+            total: 3,
+          }
+        : { linhas: [], total: 0 });
+    const res = await json("GET", "/api/cobranca/kanban");
+    const body = await res.json();
+    const casos = body.colunas.find((c: any) => c.status === "aberto").casos;
+    expect(casos.map((c: any) => c.diasNoStatus)).toEqual([3, 0, null]);
+    expect(typeof casos[0].statusDesde).toBe("string");
   });
 
   it("400 para etapa ou porColuna fora do vocabulario, sem tocar o storage", async () => {

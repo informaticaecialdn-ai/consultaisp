@@ -293,6 +293,7 @@ describe("todo WHERE carrega o provider_id", () => {
     ["marcarParcelaPaga", () => storage.marcarParcelaPaga(PROVEDOR, 501, 100, new Date(), OPERADOR)],
     ["marcarParcelasAtrasadas", () => storage.marcarParcelasAtrasadas(PROVEDOR, new Date())],
     ["kpisDaCobranca", () => storage.kpisDaCobranca(PROVEDOR)],
+    ["fluxoDaEsteira", () => storage.fluxoDaEsteira(PROVEDOR, { carteira: "ativo" }, new Date())],
     ["composicaoDaCarteira", () => storage.composicaoDaCarteira(PROVEDOR)],
     ["bairrosDaCarteira", () => storage.bairrosDaCarteira(PROVEDOR)],
     ["filaDeCobranca", () => storage.filaDeCobranca(PROVEDOR, { responsavelUserId: OPERADOR })],
@@ -580,6 +581,28 @@ describe("a carteira", () => {
     expect(dados.params.slice(-2)).toEqual([25, 50]);
     expect(total.sql).toMatch(/^select count\(\*\) from "cobranca_casos" inner join "customers"/);
     expect(total.sql).toMatch(/"cobranca_casos"\."status" not in/);
+  });
+
+  it("a ordem padrao continua a maior divida primeiro, com o id fechando a paginacao", async () => {
+    await storage.listarCasosDeCobranca(PROVEDOR, {}, { pagina: 1, porPagina: 10 });
+    const ordem = banco.consultas[0].sql.slice(banco.consultas[0].sql.indexOf("order by"));
+    expect(ordem).toMatch(/^order by "cobranca_casos"\."valor_atual" desc, "cobranca_casos"\."id" asc limit/);
+  });
+
+  it("ordem 'dia': faixa do dia, prioridade, data e valor — tudo no SQL, com o provider_id no where", async () => {
+    const hoje = new Date(2026, 8, 6, 15, 30);
+    await storage.listarCasosDeCobranca(PROVEDOR, {}, { pagina: 1, porPagina: 10, ordem: "dia", hoje });
+    const { sql: s, params } = banco.consultas[0];
+    // a coluna e paginada: ordenar em memoria mentiria sobre o que ficou de fora
+    expect(s).toMatch(/"cobranca_casos"\."provider_id" = \$\d+/);
+    expect(params).toContain(PROVEDOR);
+    const ordem = s.slice(s.indexOf("order by"));
+    expect(ordem).toMatch(
+      /^order by case when "cobranca_casos"\."proximo_contato_em" is null then 2 when "cobranca_casos"\."proximo_contato_em" < \$\d+ then 0 when "cobranca_casos"\."proximo_contato_em" < \$\d+ then 1 else 3 end, case "cobranca_casos"\."prioridade" when 'critica' then 0 when 'alta' then 1 when 'normal' then 2 else 3 end, "cobranca_casos"\."proximo_contato_em" asc, "cobranca_casos"\."valor_atual" desc, "cobranca_casos"\."id" asc limit \$\d+$/,
+    );
+    // os cortes sao meia-noite de hoje e meia-noite de amanha, na hora local
+    expect(params).toContain(new Date(2026, 8, 6, 0, 0, 0, 0).toISOString());
+    expect(params).toContain(new Date(2026, 8, 7, 0, 0, 0, 0).toISOString());
   });
 
   it("os joins amarram cliente e responsavel ao MESMO provedor do caso", async () => {
@@ -1105,6 +1128,128 @@ describe("customers.contract_start_date — a fidelidade do DNA", () => {
     const [upd] = updates("customers");
     // So o SET importa: o RETURNING lista todas as colunas, inclusive esta.
     expect(upd.sql.slice(0, upd.sql.indexOf(" where "))).not.toContain('"contract_start_date"');
+  });
+});
+
+/**
+ * A ESTEIRA: o caso guarda desde quando esta no status atual, e so isso
+ * responde "ha quanto tempo este caso esta parado nesta coluna". `updated_at`
+ * nao responde — ele muda quando o job recalcula o valor da divida.
+ */
+describe("status_desde — o relogio da coluna", () => {
+  const setDoUpdate = (c: { sql: string }) => c.sql.slice(0, c.sql.indexOf(" where "));
+
+  it("mudar de status carimba status_desde junto com updated_at", async () => {
+    await storage.atualizarCasoDeCobranca(PROVEDOR, 10, { status: "em_contato" }, OPERADOR);
+    const [upd] = updates("cobranca_casos");
+    expect(setDoUpdate(upd)).toContain('"status_desde"');
+    expect(upd.params).toContain("em_contato");
+  });
+
+  it("mexer no caso por OUTRO motivo nao reinicia o relogio", async () => {
+    await storage.atualizarCasoDeCobranca(PROVEDOR, 10, {
+      valorAtual: 900, responsavelUserId: OPERADOR, prioridade: "alta", proximaAcao: "ligar de novo",
+    }, OPERADOR);
+    const [upd] = updates("cobranca_casos");
+    expect(setDoUpdate(upd)).toContain('"updated_at"');
+    expect(setDoUpdate(upd)).not.toContain('"status_desde"');
+  });
+
+  it("repetir o status que o caso ja tem nao reinicia o relogio", async () => {
+    await storage.atualizarCasoDeCobranca(PROVEDOR, 10, { status: "aberto" }, OPERADOR);
+    const [upd] = updates("cobranca_casos");
+    expect(setDoUpdate(upd)).not.toContain('"status_desde"');
+  });
+
+  it("encerrar, cancelar, propor acordo e aceitar tambem carimbam", async () => {
+    await storage.fecharCasoDeCobranca(PROVEDOR, 10, "baixado", "prescrita", OPERADOR);
+    expect(setDoUpdate(updates("cobranca_casos")[0])).toContain('"status_desde"');
+
+    banco.consultas.length = 0;
+    await storage.cancelarCaso(PROVEDOR, 10, "contrato cancelado no ERP", OPERADOR);
+    expect(setDoUpdate(updates("cobranca_casos")[0])).toContain('"status_desde"');
+
+    banco.consultas.length = 0;
+    semNegociacaoVivaNoCaso();
+    await storage.criarNegociacao(PROVEDOR, {
+      casoId: 10, tipo: "parcelamento", valorOriginal: 350, valorNegociado: 300, criadoPorUserId: OPERADOR,
+    }, [{ numero: 1, valor: 300, vencimento: "2026-09-10" }]);
+    expect(setDoUpdate(updates("cobranca_casos")[0])).toContain('"status_desde"');
+
+    banco.consultas.length = 0;
+    casoEm("acordo_ativo");
+    await storage.atualizarStatusDaNegociacao(PROVEDOR, 77, "quebrada", OPERADOR);
+    expect(setDoUpdate(updates("cobranca_casos")[0])).toContain('"status_desde"');
+  });
+
+  it("a carteira le a coluna, e a linha cai em aberto_em quando ela nao veio", async () => {
+    const [linha] = (await storage.listarCasosDeCobranca(PROVEDOR, {}, { pagina: 1, porPagina: 10 })).linhas;
+    // A fixture nao tem status_desde (replica sem a 0030): vale aberto_em.
+    expect(linha.statusDesde).toEqual(new Date("2026-09-01T10:00:00Z"));
+    expect(banco.consultas[0].sql).toContain('"status_desde"');
+
+    banco.linhas.set("cobranca_casos", [{ ...casoDaFixture(), statusDesde: "2026-09-04 08:00:00" }]);
+    const [comColuna] = (await storage.listarCasosDeCobranca(PROVEDOR, {}, { pagina: 1, porPagina: 10 })).linhas;
+    expect(comColuna.statusDesde).toEqual(new Date("2026-09-04T08:00:00Z"));
+  });
+
+  it("a migracao 0030 e idempotente, faz o backfill ANTES do default e o schema declara a mesma coluna", () => {
+    const migracao = fs.readFileSync(path.resolve(process.cwd(), "migrations/0030_caso_status_desde.sql"), "utf8");
+    expect(migracao).toContain("ALTER TABLE cobranca_casos ADD COLUMN IF NOT EXISTS status_desde timestamp;");
+    // Sem default no ADD COLUMN, senao o Postgres preenche tudo com now() e o backfill honesto nunca roda.
+    const add = migracao.indexOf("ADD COLUMN IF NOT EXISTS status_desde");
+    const backfill = migracao.indexOf("SET status_desde = CASE");
+    const padrao = migracao.indexOf("SET DEFAULT now()");
+    expect(add).toBeGreaterThan(-1);
+    expect(backfill).toBeGreaterThan(add);
+    expect(padrao).toBeGreaterThan(backfill);
+    // O backfill e aproximacao para as linhas antigas, e a migracao diz isso.
+    expect(migracao).toMatch(/APROXIMACAO/i);
+    expect(migracao).toContain("WHEN status = 'aberto' THEN aberto_em ELSE coalesce(updated_at, aberto_em) END");
+
+    const coluna = (getTableColumns(cobrancaCasos) as Record<string, { name: string; notNull: boolean; hasDefault: boolean }>).statusDesde;
+    expect(coluna?.name).toBe("status_desde");
+    expect(coluna?.notNull).toBe(true);
+    expect(coluna?.hasDefault).toBe(true);
+    expect(fs.readdirSync(path.resolve(process.cwd(), "migrations")).filter(f => f.startsWith("0030")))
+      .toEqual(["0030_caso_status_desde.sql"]);
+  });
+});
+
+/**
+ * O fluxo da esteira: quantos entraram e quantos foram resolvidos no periodo.
+ * Uma agregacao so, sobre o recorte do quadro, atravessando as colunas — a
+ * varredura do quadro ve so os vivos, e um caso aberto hoje pode ja ter
+ * fechado hoje.
+ */
+describe("fluxoDaEsteira", () => {
+  it("uma consulta agregada, com o provider_id, contando entradas e desfechos desde o corte", async () => {
+    banco.agregados.push({ quando: /count\(\*\) filter/, linha: [4, 2] });
+    const desde = new Date("2026-09-06T00:00:00Z");
+    const r = await storage.fluxoDaEsteira(PROVEDOR, { carteira: "ativo" }, desde);
+    expect(r).toEqual({ entraram: 4, resolvidos: 2 });
+    expect(banco.consultas).toHaveLength(1);
+    const [c] = banco.consultas;
+    provaProviderId(c, PROVEDOR);
+    expect(c.sql).toContain('"cobranca_casos"."aberto_em"');
+    expect(c.sql).toContain('"cobranca_casos"."encerrado_em"');
+    expect(c.params).toContain("ativo");
+    // O corte vai como Date: o parametro nasce de um sql`` cru, sem o mapeamento da coluna.
+    expect(c.params).toContainEqual(desde);
+    // Desfecho e a lista de fechados — negativado continua vivo e nao conta.
+    for (const fechado of STATUS_CASO_FECHADO) expect(c.params).toContain(fechado);
+    expect(c.params).not.toContain("negativado");
+  });
+
+  it("ignora o filtro de status de quem chamou: o fluxo atravessa as colunas", async () => {
+    await storage.fluxoDaEsteira(PROVEDOR, { status: ["aberto"] }, new Date("2026-09-06T00:00:00Z"));
+    const [c] = banco.consultas;
+    // Nao ha `status in (...)` de recorte: so o filter dos desfechos, dentro do count.
+    expect(c.sql.slice(c.sql.indexOf(" where "))).not.toContain('"status"');
+  });
+
+  it("sem linha de resposta devolve zero, e nao NaN", async () => {
+    expect(await storage.fluxoDaEsteira(PROVEDOR, {}, new Date())).toEqual({ entraram: 0, resolvidos: 0 });
   });
 });
 

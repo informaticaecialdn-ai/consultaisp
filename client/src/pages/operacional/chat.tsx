@@ -216,13 +216,13 @@ export default function ChatOperacional() {
         <Link
           href={
             origem === "cobranca"
-              ? `/cobranca/fila?carteira=${carteira}`
+              ? `/cobranca/kanban?carteira=${carteira}`
               : "/recuperacao"
           }
           className={cn(LINK_CHAT, "text-xs")}
         >
           {origem === "cobranca"
-            ? "Abrir fila de cobrança"
+            ? "Abrir quadro de cobrança"
             : "Abrir recuperação"}{" "}
           →
         </Link>

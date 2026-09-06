@@ -47,11 +47,12 @@ import { SuporteStorage } from "./suporte.storage";
 import {
   CobrancaStorage,
   type AberturaDeCaso, type CandidatoACaso, type ComposicaoDaCarteira, type ContagemPorEtapa,
-  type ContagemPorQuadrante, type FiltrosDaCarteira, type KpisDaCobranca, type LinhaDaCarteira,
+  type ContagemPorQuadrante, type FiltrosDaCarteira, type FluxoDaEsteira, type KpisDaCobranca, type LinhaDaCarteira,
   type NegociacaoComParcelas, type NovaNegociacao, type NovaParcela, type NovoEvento, type Paginacao,
   type PatchDeCaso, type PatchDePolitica, type StatusCasoFechado, type StatusNegociacao,
   type ResumoDaNegociacao,
   type ClienteEmDia,
+  type DnaDoCaso,
 } from "./cobranca.storage";
 
 export interface IStorage {
@@ -313,6 +314,19 @@ export interface IStorage {
   casoAbertoDoCliente(providerId: number, customerId: number): Promise<CobrancaCaso | undefined>;
   abrirCasoDeCobranca(providerId: number, dados: AberturaDeCaso): Promise<CobrancaCaso>;
   atualizarCasoDeCobranca(providerId: number, id: number, patch: PatchDeCaso, userId?: number | null): Promise<CobrancaCaso | undefined>;
+  /*
+   * As quatro abaixo existiam no CobrancaStorage e NUNCA foram ligadas aqui.
+   * Em runtime `storage.atualizarDnaDoCaso` era `undefined`: medido em
+   * producao em 06/09/2026, a regua diaria fechou a passada com 7.041 erros
+   * ("atualizarDnaDoCaso is not a function") e ZERO DNA atualizado — a causa
+   * do "quadrante DNA nulo" que estava anotado como pendencia do produto.
+   * O teste de paridade em storage-fachada.test.ts existe para isso nao
+   * voltar: metodo publico do storage de cobranca sem delegacao aqui quebra.
+   */
+  cancelarCaso(providerId: number, id: number, motivo: string, userId?: number | null): Promise<CobrancaCaso | undefined>;
+  atualizarDnaDoCaso(providerId: number, casoId: number, dna: DnaDoCaso, userId?: number | null): Promise<CobrancaCaso | undefined>;
+  obterNegociacao(providerId: number, id: number): Promise<NegociacaoComParcelas | undefined>;
+  obterParcela(providerId: number, id: number): Promise<CobrancaParcela | undefined>;
   fecharCasoDeCobranca(providerId: number, id: number, status: StatusCasoFechado, motivo: string | null, userId?: number | null): Promise<CobrancaCaso | undefined>;
   contarCasosPorEtapa(providerId: number): Promise<ContagemPorEtapa[]>;
   contarCasosPorQuadrante(providerId: number): Promise<ContagemPorQuadrante[]>;
@@ -327,6 +341,7 @@ export interface IStorage {
   marcarParcelaPaga(providerId: number, parcelaId: number, valorPago: number, pagoEm: Date, userId?: number | null): Promise<{ parcela: CobrancaParcela; negociacao: CobrancaNegociacao; acordoCumprido: boolean } | undefined>;
   marcarParcelasAtrasadas(providerId: number, hoje: Date): Promise<{ marcadas: number; negociacoes: number[] }>;
   kpisDaCobranca(providerId: number, hoje?: Date, carteira?: CarteiraDeCobranca): Promise<KpisDaCobranca>;
+  fluxoDaEsteira(providerId: number, filtros: FiltrosDaCarteira, desde: Date): Promise<FluxoDaEsteira>;
   composicaoDaCarteira(providerId: number, carteira?: CarteiraDeCobranca): Promise<ComposicaoDaCarteira>;
   bairrosDaCarteira(providerId: number, carteira?: CarteiraDeCobranca): Promise<Array<{ bairro: string; total: number }>>;
   filaDeCobranca(providerId: number, opcoes?: { responsavelUserId?: number; hoje?: Date; limite?: number; carteira?: CarteiraDeCobranca }): Promise<LinhaDaCarteira[]>;
@@ -609,6 +624,11 @@ class DatabaseStorage implements IStorage {
   casoAbertoDoCliente = (providerId: number, customerId: number) => this._cobranca.casoAbertoDoCliente(providerId, customerId);
   abrirCasoDeCobranca = (providerId: number, dados: AberturaDeCaso) => this._cobranca.abrirCasoDeCobranca(providerId, dados);
   atualizarCasoDeCobranca = (providerId: number, id: number, patch: PatchDeCaso, userId?: number | null) => this._cobranca.atualizarCasoDeCobranca(providerId, id, patch, userId);
+  cancelarCaso = (providerId: number, id: number, motivo: string, userId?: number | null) => this._cobranca.cancelarCaso(providerId, id, motivo, userId ?? null);
+  atualizarDnaDoCaso = (providerId: number, casoId: number, dna: DnaDoCaso, userId?: number | null) => this._cobranca.atualizarDnaDoCaso(providerId, casoId, dna, userId ?? null);
+  obterNegociacao = (providerId: number, id: number) => this._cobranca.obterNegociacao(providerId, id);
+  obterCliente = (providerId: number, customerId: number) => this._cobranca.obterCliente(providerId, customerId);
+  obterParcela = (providerId: number, id: number) => this._cobranca.obterParcela(providerId, id);
   fecharCasoDeCobranca = (providerId: number, id: number, status: StatusCasoFechado, motivo: string | null, userId?: number | null) => this._cobranca.fecharCasoDeCobranca(providerId, id, status, motivo, userId);
   contarCasosPorEtapa = (providerId: number) => this._cobranca.contarCasosPorEtapa(providerId);
   contarCasosPorQuadrante = (providerId: number) => this._cobranca.contarCasosPorQuadrante(providerId);
@@ -623,6 +643,7 @@ class DatabaseStorage implements IStorage {
   marcarParcelaPaga = (providerId: number, parcelaId: number, valorPago: number, pagoEm: Date, userId?: number | null) => this._cobranca.marcarParcelaPaga(providerId, parcelaId, valorPago, pagoEm, userId);
   marcarParcelasAtrasadas = (providerId: number, hoje: Date) => this._cobranca.marcarParcelasAtrasadas(providerId, hoje);
   kpisDaCobranca = (providerId: number, hoje?: Date, carteira?: CarteiraDeCobranca) => this._cobranca.kpisDaCobranca(providerId, hoje, carteira);
+  fluxoDaEsteira = (providerId: number, filtros: FiltrosDaCarteira, desde: Date) => this._cobranca.fluxoDaEsteira(providerId, filtros, desde);
   composicaoDaCarteira = (providerId: number, carteira?: CarteiraDeCobranca) => this._cobranca.composicaoDaCarteira(providerId, carteira);
   bairrosDaCarteira = (providerId: number, carteira?: CarteiraDeCobranca) => this._cobranca.bairrosDaCarteira(providerId, carteira);
   filaDeCobranca = (providerId: number, opcoes?: { responsavelUserId?: number; hoje?: Date; limite?: number; carteira?: CarteiraDeCobranca }) => this._cobranca.filaDeCobranca(providerId, opcoes);
@@ -646,6 +667,7 @@ class DatabaseStorage implements IStorage {
   upsertFaturasDoErpPorDocumento = (providerId: number, erpSource: string, cpfCnpj: string, faturas: FaturaAbertaDoErp[]) => this._faturas.upsertFaturasDoErpPorDocumento(providerId, erpSource, cpfCnpj, faturas);
   baixarFaturasSumidas = (providerId: number, erpSource: string, refsVistas: Set<string>, docsProtegidos?: string[]) => this._faturas.baixarFaturasSumidas(providerId, erpSource, refsVistas, docsProtegidos);
   resumoDoMes = (providerId: number, mes: string, hoje: Date) => this._faturas.resumoDoMes(providerId, mes, hoje);
+  recuperacaoAposContato = (...args: Parameters<FaturasStorage["recuperacaoAposContato"]>) => this._faturas.recuperacaoAposContato(...args);
   clientesDoMes = (providerId: number, mes: string, grupo: GrupoDoMes, opcoes?: { hoje?: Date; limite?: number }) => this._faturas.clientesDoMes(providerId, mes, grupo, opcoes);
 }
 

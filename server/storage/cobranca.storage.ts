@@ -130,6 +130,16 @@ export interface FiltrosDaCarteira {
   etapa?: string;
   /** `null` = so a fila geral (sem responsavel). Ausente = todos. */
   responsavelUserId?: number | null;
+  /**
+   * "Minha fila": os casos DESTE usuario mais os que nao tem dono.
+   *
+   * E o que a tela de fila fazia (`responsavel = eu OR responsavel IS NULL`) e
+   * que o quadro perdeu quando virou o unico lugar do dia: com o filtro exato
+   * por dono, o caso sem responsavel sumia do escopo padrao e o botao "Pegar
+   * para mim" nunca aparecia — ninguem puxava a fila geral. Vence
+   * `responsavelUserId` quando os dois vierem.
+   */
+  meusMaisFilaGeral?: number;
   /** Nome (ILIKE) ou documento (so digitos, prefixo). */
   busca?: string;
   /** `A` | `B` | `C` (grupo) ou `A1`..`C3` (quadrante). */
@@ -139,9 +149,30 @@ export interface FiltrosDaCarteira {
   bairro?: string;
 }
 
+/**
+ * A ordem em que a pagina sai — e ela vive no SQL, nunca em memoria: a lista e
+ * PAGINADA, e reordenar depois de trazer a pagina mentiria sobre o que ficou
+ * de fora.
+ *
+ *   `valor` (padrao) — a maior divida primeiro. E o que a carteira, a
+ *   varredura dos indicadores e o motor da regua pedem: lista de dinheiro.
+ *
+ *   `dia` — a ORDEM DO DIA do operador, a mesma de `filaDeCobranca`: primeiro
+ *   quem tem contato VENCIDO, depois o de hoje, depois o SEM DATA (o caso
+ *   parado, que e o que vira divida perdida) e por fim o agendado para o
+ *   futuro. Dentro de cada faixa a prioridade critica sobe, depois a data
+ *   (mais antiga primeiro entre os vencidos, mais proxima primeiro entre os
+ *   agendados), e o valor desempata.
+ */
+export type OrdemDaCarteira = "valor" | "dia";
+
 export interface Paginacao {
   pagina: number;
   porPagina: number;
+  /** Ausente = `valor`. So quem trabalha o dia (o kanban) pede `dia`. */
+  ordem?: OrdemDaCarteira;
+  /** So com `ordem: "dia"`: o instante que separa vencido, hoje e agendado. Ausente = agora. */
+  hoje?: Date;
 }
 const PAGINA_MAXIMA = 200;
 
@@ -171,6 +202,8 @@ export interface ClienteDaCarteira {
 export interface LinhaDaCarteira {
   id: number;
   status: string;
+  /** Desde quando o caso esta NESTE status — o tempo parado na coluna do quadro. */
+  statusDesde: Date;
   carteira: string;
   abertoEm: Date;
   etapaAtual: string | null;
@@ -302,6 +335,17 @@ export interface KpisDaCobranca {
   recuperado30d: number;
 }
 
+/**
+ * O fluxo da esteira num periodo: quantos casos ENTRARAM e quantos foram
+ * RESOLVIDOS. `resolvidos` conta desfecho — os quatro status fechados, que
+ * sao os unicos que carimbam `encerrado_em`; `negativado` nao entra porque o
+ * caso continua vivo e sendo trabalhado.
+ */
+export interface FluxoDaEsteira {
+  entraram: number;
+  resolvidos: number;
+}
+
 export interface ComposicaoDaCarteira {
   emDia: number;
   emCobranca: number;
@@ -346,6 +390,7 @@ const semDivida = () => sql`coalesce(${customers.totalOverdueAmount}, 0) <= 0`;
 const colunasDaLinha = {
   id: cobrancaCasos.id,
   status: cobrancaCasos.status,
+  statusDesde: cobrancaCasos.statusDesde,
   carteira: cobrancaCasos.carteira,
   abertoEm: cobrancaCasos.abertoEm,
   etapaAtual: cobrancaCasos.etapaAtual,
@@ -382,6 +427,10 @@ function montarLinha(l: LinhaCrua): LinhaDaCarteira {
   return {
     id: l.id as number,
     status: l.status as string,
+    // A coluna e NOT NULL desde a 0030; o coalesce cobre a leitura de uma
+    // linha antiga em replica que ainda nao aplicou a migracao — e ali
+    // `aberto_em` e a mesma aproximacao que o backfill usaria.
+    statusDesde: (l.statusDesde ?? l.abertoEm) as Date,
     carteira: l.carteira as string,
     abertoEm: l.abertoEm as Date,
     etapaAtual: l.etapaAtual,
@@ -469,7 +518,10 @@ function condicoesDaCarteira(providerId: number, f: FiltrosDaCarteira): SQL | un
   }
   if (f.carteira) conds.push(eq(cobrancaCasos.carteira, f.carteira));
   if (f.etapa) conds.push(eq(cobrancaCasos.etapaAtual, f.etapa));
-  if (f.responsavelUserId === null) conds.push(isNull(cobrancaCasos.responsavelUserId));
+  if (f.meusMaisFilaGeral !== undefined) {
+    // Meus + sem dono, numa condicao so: e o recorte com que o operador abre o dia.
+    conds.push(or(eq(cobrancaCasos.responsavelUserId, f.meusMaisFilaGeral), isNull(cobrancaCasos.responsavelUserId))!);
+  } else if (f.responsavelUserId === null) conds.push(isNull(cobrancaCasos.responsavelUserId));
   else if (f.responsavelUserId !== undefined) conds.push(eq(cobrancaCasos.responsavelUserId, f.responsavelUserId));
   if (f.quadrante) {
     const q = f.quadrante.trim().toUpperCase();
@@ -486,6 +538,32 @@ function condicoesDaCarteira(providerId: number, f: FiltrosDaCarteira): SQL | un
 /** critica antes de alta, alta antes de normal, normal antes de baixa. */
 const pesoDaPrioridade = () =>
   sql`case ${cobrancaCasos.prioridade} when 'critica' then 0 when 'alta' then 1 when 'normal' then 2 else 3 end`;
+
+/**
+ * A faixa do dia de um caso: 0 vencido, 1 hoje, 2 sem data, 3 agendado. Os
+ * cortes sao os mesmos que a tela usa (`proximoContato`, em
+ * components/cobranca/formatacao), na hora LOCAL do servidor — meia-noite de
+ * hoje e meia-noite de amanha.
+ */
+function faixaDoDia(hoje: Date): SQL {
+  const inicioDeHoje = new Date(hoje);
+  inicioDeHoje.setHours(0, 0, 0, 0);
+  const inicioDeAmanha = new Date(hoje);
+  inicioDeAmanha.setHours(24, 0, 0, 0);
+  return sql`case when ${isNull(cobrancaCasos.proximoContatoEm)} then 2 when ${lt(cobrancaCasos.proximoContatoEm, inicioDeHoje)} then 0 when ${lt(cobrancaCasos.proximoContatoEm, inicioDeAmanha)} then 1 else 3 end`;
+}
+
+/** O ORDER BY de cada `OrdemDaCarteira` (ver o tipo). O `id` fecha, para a paginacao ser estavel. */
+function ordenacaoDaCarteira(paginacao: Paginacao): SQL[] {
+  if (paginacao.ordem !== "dia") return [desc(cobrancaCasos.valorAtual), asc(cobrancaCasos.id)];
+  return [
+    faixaDoDia(paginacao.hoje ?? new Date()),
+    pesoDaPrioridade(),
+    asc(cobrancaCasos.proximoContatoEm),
+    desc(cobrancaCasos.valorAtual),
+    asc(cobrancaCasos.id),
+  ];
+}
 
 export class CobrancaStorage {
   // ── Politica ──────────────────────────────────────────────────────────────
@@ -523,6 +601,12 @@ export class CobrancaStorage {
 
   // ── Casos ─────────────────────────────────────────────────────────────────
 
+  /**
+   * Uma pagina do recorte, com o total exato do recorte inteiro. A ordem sai
+   * do SQL e e escolhida por quem chama (`paginacao.ordem`): `valor` por
+   * padrao — quem ja usava a funcao continua vendo a maior divida primeiro —,
+   * `dia` para o quadro do operador.
+   */
   async listarCasosDeCobranca(
     providerId: number,
     filtros: FiltrosDaCarteira = {},
@@ -533,7 +617,7 @@ export class CobrancaStorage {
     const condicao = condicoesDaCarteira(providerId, filtros);
 
     const linhas = await daCarteira(condicao)
-      .orderBy(desc(cobrancaCasos.valorAtual), asc(cobrancaCasos.id))
+      .orderBy(...ordenacaoDaCarteira(paginacao))
       .limit(porPagina)
       .offset((pagina - 1) * porPagina);
 
@@ -624,7 +708,14 @@ export class CobrancaStorage {
 
       const agora = new Date();
       const set: Partial<InsertCobrancaCaso> = { updatedAt: agora };
-      if (patch.status !== undefined) set.status = patch.status;
+      // O relogio da coluna so reinicia quando o caso MUDA de status: um patch
+      // de valor, de responsavel ou de proxima acao nao apaga ha quanto tempo
+      // o caso esta parado ali — e essa a diferenca entre `status_desde` e
+      // `updated_at`.
+      if (patch.status !== undefined) {
+        set.status = patch.status;
+        if (patch.status !== atual.status) set.statusDesde = agora;
+      }
       if (patch.etapaAtual !== undefined) set.etapaAtual = patch.etapaAtual;
       if (patch.valorAtual !== undefined) set.valorAtual = dinheiro(patch.valorAtual);
       if (patch.responsavelUserId !== undefined) set.responsavelUserId = patch.responsavelUserId;
@@ -965,7 +1056,7 @@ export class CobrancaStorage {
       const statusDoCaso = aceita ? "acordo_ativo" : "negociando";
       if (caso.status !== statusDoCaso) {
         await tx.update(cobrancaCasos)
-          .set({ status: statusDoCaso, updatedAt: agora })
+          .set({ status: statusDoCaso, statusDesde: agora, updatedAt: agora })
           .where(and(eq(cobrancaCasos.id, caso.id), eq(cobrancaCasos.providerId, providerId)));
       }
       await tx.insert(cobrancaEventos).values({
@@ -1037,7 +1128,7 @@ export class CobrancaStorage {
               ? statusAposNegociacaoDesfeita(await statusDeFundoDoCaso(tx, providerId, caso))
               : null;
           if (statusDoCaso && statusDoCaso !== caso.status) {
-            await tx.update(cobrancaCasos).set({ status: statusDoCaso, updatedAt: agora })
+            await tx.update(cobrancaCasos).set({ status: statusDoCaso, statusDesde: agora, updatedAt: agora })
               .where(and(eq(cobrancaCasos.id, caso.id), eq(cobrancaCasos.providerId, providerId)));
           }
         }
@@ -1344,6 +1435,30 @@ export class CobrancaStorage {
     };
   }
 
+  /**
+   * Quantos casos entraram e quantos sairam por um desfecho DESDE `desde`, no
+   * mesmo recorte do quadro (carteira, etapa, responsavel, busca, bairro).
+   *
+   * Uma consulta agregada so, e nao uma segunda varredura: o quadro varre os
+   * casos VIVOS, e o que entrou hoje pode ja ter fechado hoje — contar sobre a
+   * varredura mostraria menos do que aconteceu. O filtro de status do chamador
+   * e ignorado de proposito (`status: "todos"`): o fluxo do dia atravessa as
+   * colunas.
+   */
+  async fluxoDaEsteira(providerId: number, filtros: FiltrosDaCarteira, desde: Date): Promise<FluxoDaEsteira> {
+    const condicao = condicoesDaCarteira(providerId, { ...filtros, status: "todos" });
+    const [linha] = await db.select({
+      entraram: sql<number>`count(*) filter (where ${cobrancaCasos.abertoEm} >= ${desde})`.mapWith(Number),
+      resolvidos: sql<number>`count(*) filter (where ${cobrancaCasos.encerradoEm} >= ${desde} and ${inArray(cobrancaCasos.status, [...STATUS_CASO_FECHADO])})`.mapWith(Number),
+    }).from(cobrancaCasos)
+      .innerJoin(customers, and(
+        eq(customers.id, cobrancaCasos.customerId),
+        eq(customers.providerId, cobrancaCasos.providerId),
+      ))
+      .where(condicao);
+    return { entraram: num(linha?.entraram), resolvidos: num(linha?.resolvidos) };
+  }
+
   /** A barra de composicao: em dia + em cobranca + ex com divida, de `customers`. */
   async composicaoDaCarteira(providerId: number, carteira?: CarteiraDeCobranca): Promise<ComposicaoDaCarteira> {
     const [c] = await db.select({
@@ -1570,7 +1685,7 @@ async function encerrarCaso(
   metadataExtra: Record<string, unknown> = {},
 ): Promise<CobrancaCaso> {
   const [fechado] = await tx.update(cobrancaCasos)
-    .set({ status, encerradoEm: quando, motivoEncerramento: motivo, updatedAt: quando })
+    .set({ status, statusDesde: quando, encerradoEm: quando, motivoEncerramento: motivo, updatedAt: quando })
     .where(and(eq(cobrancaCasos.id, caso.id), eq(cobrancaCasos.providerId, providerId)))
     .returning();
   await tx.insert(cobrancaEventos).values({

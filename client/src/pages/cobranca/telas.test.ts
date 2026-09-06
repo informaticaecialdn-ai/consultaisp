@@ -1,5 +1,5 @@
 /**
- * As cinco telas da cobrança, as rotas e o menu — travados pelo texto da fonte.
+ * As quatro telas da cobrança, as rotas e o menu — travados pelo texto da fonte.
  *
  * A lógica (filtros, formatação, formulário de negociação e de política) tem
  * prova própria em `components/cobranca/*.test.ts`. O que NÃO tem prova é a
@@ -10,7 +10,7 @@
  * então, como em `admin-provedor-cadastro.test.ts`, o que se trava é a fonte.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync, readdirSync } from "fs";
+import { existsSync, readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import { PROVIDER_ONLY_PATHS, desvioDeRevenda, ehRotaDeCobranca, ehRotaDeProvedor } from "../../App";
 import { NAV_PROVEDOR, itemDeProvedorAtivo } from "../../components/app-sidebar";
@@ -24,7 +24,6 @@ const executavel = (fonte: string) => fonte.replace(/\/\*[\s\S]*?\*\//g, "").rep
 const PAGINAS = {
   carteira: executavel(ler("pages/cobranca/carteira.tsx")),
   cliente360: executavel(ler("pages/cobranca/cliente360.tsx")),
-  fila: executavel(ler("pages/cobranca/fila.tsx")),
   regua: executavel(ler("pages/cobranca/regua.tsx")),
   politica: executavel(ler("pages/cobranca/politica.tsx")),
 };
@@ -42,7 +41,7 @@ describe("rotas da cobrança em App.tsx", () => {
     ["/cobranca/ativos", "pages/cobranca/carteira"],
     ["/cobranca/ex-clientes", "pages/cobranca/carteira"],
     ["/cobranca/cliente/:id", "pages/cobranca/cliente360"],
-    ["/cobranca/fila", "pages/cobranca/fila"],
+    ["/cobranca/kanban", "pages/cobranca/kanban"],
     ["/cobranca/regua", "pages/cobranca/regua"],
     ["/cobranca/politica", "pages/cobranca/politica"],
   ];
@@ -54,8 +53,10 @@ describe("rotas da cobrança em App.tsx", () => {
     expect(app).toContain(`lazy(pagina(() => import("@/${modulo}")))`);
   });
 
-  it("as quatro telas fixas estão na lista de provedor; a ficha entra pelo prefixo", () => {
-    for (const rota of ["/cobranca", "/cobranca/fila", "/cobranca/regua", "/cobranca/politica"]) {
+  it("as telas fixas estão na lista de provedor; a ficha entra pelo prefixo", () => {
+    // `/cobranca` e `/cobranca/fila` so redirecionam, e ficam na lista de
+    // proposito: a guarda roda ANTES do desvio.
+    for (const rota of ["/cobranca", "/cobranca/fila", "/cobranca/kanban", "/cobranca/regua", "/cobranca/politica"]) {
       expect(PROVIDER_ONLY_PATHS).toContain(rota);
     }
     expect(ehRotaDeCobranca("/cobranca/cliente/42")).toBe(true);
@@ -66,6 +67,32 @@ describe("rotas da cobrança em App.tsx", () => {
   it("vizinho de nome parecido não entra de carona", () => {
     expect(ehRotaDeCobranca("/cobrancas-antigas")).toBe(false);
     expect(ehRotaDeCobranca("/cobrancador")).toBe(false);
+  });
+
+  /**
+   * A fila do dia saiu (pedido do dono, 06/09/2026) e o quadro ficou como
+   * unico lugar do trabalho diario. O endereco dela nao pode virar "pagina nao
+   * encontrada": link salvo, favorito e mensagem antiga continuam chegando.
+   */
+  describe("a fila do dia saiu, e o endereco dela leva ao quadro", () => {
+    it("nao existe mais tela de fila", () => {
+      expect(existsSync(join(raiz, "pages/cobranca/fila.tsx"))).toBe(false);
+      expect(app).not.toContain('import("@/pages/cobranca/fila")');
+    });
+
+    it("/cobranca/fila redireciona para o Kanban da MESMA carteira, com o resto do recorte", () => {
+      expect(app).toContain('<Route path="/cobranca/fila"><RedirecionarFila /></Route>');
+      expect(app).toContain('const carteira = carteiraDaNavegacao("/cobranca/fila", search);');
+      expect(app).toContain('caminhoNaCarteira(`/cobranca/kanban${search ? `?${search}` : ""}`, carteira)');
+    });
+
+    it("nenhuma tela importa a fila, e nenhum link do produto aponta para ela", () => {
+      const telas = [...Object.values(PAGINAS), ...componentes.map(([, f]) => f)];
+      for (const f of telas) expect(f).not.toContain("pages/cobranca/fila");
+      // O unico `ROTA_FILA` que sobra e o do quadro, e ele so existe enquanto
+      // o botao "Lista" nao sair; nenhuma outra tela pode voltar a apontar.
+      for (const [nome, f] of Object.entries(PAGINAS)) expect(f, nome).not.toContain("ROTA_FILA");
+    });
   });
 
   it("o revendedor é desviado da ficha do cliente, não só das telas fixas", () => {
@@ -108,16 +135,20 @@ describe("o grupo Cobrança na barra lateral", () => {
     expect(app).toContain('<Route path="/cobranca"><RedirecionarCarteira /></Route>');
   });
 
-  const urls = ["/", "/cobranca", "/cobranca/ativos", "/cobranca/ex-clientes", "/cobranca/fila", "/cobranca/regua", "/cobranca/politica", "/creditos"];
+  const urls = ["/", "/cobranca", "/cobranca/ativos", "/cobranca/ex-clientes", "/cobranca/kanban", "/cobranca/regua", "/cobranca/politica", "/creditos"];
   const acesos = (caminho: string) => urls.filter(u => itemDeProvedorAtivo(u, caminho));
 
   it("cada tela acende um item só, inclusive nos links antigos", () => {
     expect(acesos("/cobranca")).toEqual(["/cobranca/ativos"]);
     expect(acesos("/cobranca/ativos")).toEqual(["/cobranca/ativos"]);
     expect(acesos("/cobranca/ex-clientes")).toEqual(["/cobranca/ex-clientes"]);
-    expect(acesos("/cobranca/fila")).toEqual(["/cobranca/fila"]);
+    expect(acesos("/cobranca/kanban")).toEqual(["/cobranca/kanban"]);
     expect(acesos("/cobranca/regua")).toEqual(["/cobranca/regua"]);
     expect(acesos("/cobranca/politica")).toEqual(["/cobranca/politica"]);
+  });
+
+  it("o endereco antigo da fila nao acende nada — ele so redireciona", () => {
+    expect(acesos("/cobranca/fila")).toEqual([]);
   });
 
   it("a ficha do cliente acende Clientes ativos, de onde se abre", () => {
@@ -251,31 +282,6 @@ describe("cliente 360", () => {
   it("a máquina de estados vem de shared/cobranca, não de uma lista local", () => {
     expect(f).toContain("TRANSICOES_DE_CASO[statusDoCaso]");
     expect(f).toContain("TRANSICOES_DE_NEGOCIACAO[status]");
-  });
-});
-
-/* ── Fila ────────────────────────────────────────────────────────────── */
-
-describe("fila do dia", () => {
-  const f = PAGINAS.fila;
-
-  it("escopo eu/todos, KPIs, dois grupos, contato e pegar para mim", () => {
-    for (const id of ["cobranca-fila", "kpis-fila", "grupo-hoje", "grupo-agendados", "fila-vazia", "erro-fila", "aviso-pausada"]) {
-      expect(f, id).toContain(`"${id}"`);
-    }
-    expect(f).toContain("`fila-contato-${item.id}`");
-    expect(f).toContain("`fila-pegar-${item.id}`");
-    expect(f).toContain("`${API_FILA}?responsavel=${escopo}&carteira=${carteira}`");
-  });
-
-  it("a ação de hoje vem da rota; a régua só roda aqui como rede, e diz que derivou", () => {
-    expect(f).toContain("if (item.regua)");
-    expect(f).toContain("derivada: true");
-    expect(f).toContain("derivada do atraso");
-  });
-
-  it("pegar para mim só aparece em caso da fila geral", () => {
-    expect(f).toContain("item.responsavelUserId === null && user ? () => pegar.mutate(item.id) : undefined");
   });
 });
 
@@ -420,7 +426,7 @@ describe("política", () => {
 
 /* ── Importação — o que o tsc não vê ─────────────────────────────────── */
 
-describe("as cinco telas e os diálogos importam sem erro", () => {
+describe("as quatro telas e os diálogos importam sem erro", () => {
   // Uma tela é só JSX; o que quebra em tempo de import — um símbolo que a
   // versão do lucide não exporta, um nome errado de `@shared/cobranca` — não
   // dá erro de tipo quando o símbolo existe com outro valor. Importar de
@@ -428,7 +434,6 @@ describe("as cinco telas e os diálogos importam sem erro", () => {
   it.each([
     "../../pages/cobranca/carteira.tsx",
     "../../pages/cobranca/cliente360.tsx",
-    "../../pages/cobranca/fila.tsx",
     "../../pages/cobranca/regua.tsx",
     "../../pages/cobranca/politica.tsx",
   ])("%s", async modulo => {

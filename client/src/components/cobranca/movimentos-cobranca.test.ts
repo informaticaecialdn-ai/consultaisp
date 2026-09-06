@@ -5,10 +5,12 @@
  * servidor recusa com 409 depois de a coluna já ter mudado na tela — e o que
  * impede o operador de sumir com dívida (baixar/encerrar) por arrasto.
  */
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { STATUS_DE_CASO } from "@shared/cobranca/estados";
 import {
-  avaliarMovimentoDeCaso, COLUNAS_DESFECHO, COLUNAS_RECOLHIDAS, COLUNAS_VIVAS, ORDEM_DO_QUADRO,
+  acaoPrincipalDoCard, avaliarMovimentoDeCaso, COLUNAS_DESFECHO, COLUNAS_RECOLHIDAS, COLUNAS_VIVAS, contarGargalosDaColuna,
+  CORTES_DO_TEMPO_NA_COLUNA, ORDEM_DO_QUADRO, rotuloDoBotaoDeAcordo, tomDoTempoNaColuna, VERBO_DA_COLUNA, verboDaColuna,
   MOTIVO_ACORDO_NASCE_DO_ACEITE, MOTIVO_CASO_FECHADO, MOTIVO_MESMA_COLUNA, MOTIVO_SO_ADMIN, tituloDoMovimento, COR_DO_TOM, tomDaColunaDoKanban, tomDaEtapaDaRegua } from "./movimentos-cobranca";
 
 const caso = (status: string) => ({ id: 1, status, valorAtual: 100 });
@@ -111,5 +113,92 @@ describe("cores do funil", () => {
   });
   it("todo tom tem uma cor de token, nunca hex nem paleta do Tailwind", () => {
     for (const cor of Object.values(COR_DO_TOM)) expect(cor).toMatch(/^var\(--[a-z-]+\)$/);
+  });
+});
+
+/**
+ * A coluna como POSTO DE TRABALHO (pedido do dono, 06/09/2026: "o kanban
+ * precisa ser uma esteira de resolução da cobrança"): o verbo que tira o caso
+ * dali, o que trava a coluna e o tempo que esquenta.
+ */
+describe("o verbo da coluna", () => {
+  it("cada coluna viva diz o que se faz ali para o caso sair", () => {
+    expect(verboDaColuna("aberto")).toBe("registrar contato");
+    expect(verboDaColuna("em_contato")).toBe("propor acordo");
+    expect(verboDaColuna("negociando")).toBe("registrar o aceite");
+    expect(verboDaColuna("acordo_ativo")).toBe("conferir a parcela");
+  });
+
+  it("coluna de desfecho não tem verbo: o caso já saiu da esteira", () => {
+    for (const s of [...COLUNAS_DESFECHO, ...COLUNAS_RECOLHIDAS]) expect(verboDaColuna(s), s).toBeNull();
+    expect(verboDaColuna("inventada")).toBeNull();
+  });
+
+  it("toda coluna viva tem verbo — nenhuma gaveta sem trabalho declarado", () => {
+    for (const s of COLUNAS_VIVAS) expect(VERBO_DA_COLUNA[s], s).toBeTruthy();
+  });
+});
+
+describe("o botão de acordo do card", () => {
+  it("em contato PROPÕE; negociando REGISTRA o aceite; nas outras não há botão", () => {
+    expect(rotuloDoBotaoDeAcordo("em_contato")).toBe("Propor acordo");
+    expect(rotuloDoBotaoDeAcordo("negociando")).toBe("Registrar acordo");
+    for (const s of ["aberto", "acordo_ativo", "pago", "cancelamento", "negativado"]) {
+      expect(rotuloDoBotaoDeAcordo(s), s).toBeNull();
+    }
+  });
+
+  it("só 'negociando' troca o botão principal — nas demais o principal continua o contato", () => {
+    expect(acaoPrincipalDoCard("negociando")).toBe("acordo");
+    for (const s of ["aberto", "em_contato", "acordo_ativo", "pago"]) {
+      expect(acaoPrincipalDoCard(s), s).toBe("contato");
+    }
+  });
+});
+
+describe("o que trava a coluna", () => {
+  const hoje = new Date(2026, 8, 6, 10, 0);
+  const emDias = (dias: number) => new Date(2026, 8, 6 + dias, 9, 0).toISOString();
+
+  it("conta contato vencido, sem próxima ação e sem dono sobre os casos que a coluna recebeu", () => {
+    const g = contarGargalosDaColuna([
+      { responsavelUserId: 7, proximoContatoEm: emDias(-2) },   // vencido, com dono
+      { responsavelUserId: null, proximoContatoEm: null },      // parado e sem dono
+      { responsavelUserId: 7, proximoContatoEm: emDias(0) },    // hoje: não trava
+      { responsavelUserId: 7, proximoContatoEm: emDias(3) },    // agendado: não trava
+    ], hoje);
+    expect(g).toEqual({ contatoVencido: 1, semProximaAcao: 1, semDono: 1, base: 4 });
+  });
+
+  it("vencido e sem data são cortes disjuntos: quem tem data não entra em 'sem próxima ação'", () => {
+    const g = contarGargalosDaColuna([{ responsavelUserId: 1, proximoContatoEm: emDias(-9) }], hoje);
+    expect(g.contatoVencido).toBe(1);
+    expect(g.semProximaAcao).toBe(0);
+  });
+
+  it("coluna vazia não trava nada, e a base é zero — a tela decide não mostrar", () => {
+    expect(contarGargalosDaColuna([], hoje)).toEqual({ contatoVencido: 0, semProximaAcao: 0, semDono: 0, base: 0 });
+  });
+});
+
+describe("o tempo na coluna esquenta", () => {
+  it("os cortes são os declarados, e o limite pertence à faixa mais quente", () => {
+    expect(tomDoTempoNaColuna(0)).toBe("neutro");
+    expect(tomDoTempoNaColuna(CORTES_DO_TEMPO_NA_COLUNA.atencao - 1)).toBe("neutro");
+    expect(tomDoTempoNaColuna(CORTES_DO_TEMPO_NA_COLUNA.atencao)).toBe("gated");
+    expect(tomDoTempoNaColuna(CORTES_DO_TEMPO_NA_COLUNA.perigo - 1)).toBe("gated");
+    expect(tomDoTempoNaColuna(CORTES_DO_TEMPO_NA_COLUNA.perigo)).toBe("danger");
+    expect(tomDoTempoNaColuna(90)).toBe("danger");
+  });
+
+  it("sem medição não há tom: ausência não pinta de verde nem de vermelho", () => {
+    expect(tomDoTempoNaColuna(null)).toBe("neutro");
+    expect(tomDoTempoNaColuna(undefined)).toBe("neutro");
+  });
+
+  it("os cortes são crescentes e o comentário do fonte diz que são escolha nossa", () => {
+    expect(CORTES_DO_TEMPO_NA_COLUNA.atencao).toBeLessThan(CORTES_DO_TEMPO_NA_COLUNA.perigo);
+    const fonte = readFileSync(new URL("./movimentos-cobranca.ts", import.meta.url), "utf8");
+    expect(fonte).toMatch(/ESCOLHA NOSSA[\s\S]{0,200}não medição/);
   });
 });

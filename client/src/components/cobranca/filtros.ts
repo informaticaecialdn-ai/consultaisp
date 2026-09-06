@@ -61,6 +61,8 @@ export interface OpcaoDeFiltro {
   rotulo: string;
   /** Texto curto no chip quando selecionada; sem ele vale o rótulo. */
   chip?: string;
+  /** O que a opção significa — vai no `title` dela (o motivo da faixa de atraso, por exemplo). */
+  titulo?: string;
 }
 
 /** Grupo (A/B/C) e os nove quadrantes, com a abordagem no rótulo — como o Provedor.ai lista. */

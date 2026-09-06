@@ -582,6 +582,16 @@ A carteira tem DOIS ESPAÇOS separados (decisão do dono, 05/09/2026, no molde d
 "Sua carteira" do Provedor.ai): `/cobranca/ativos` e `/cobranca/ex-clientes`;
 `/cobranca` só redireciona para o de ativos. No menu, "Carteira" é uma PASTA cujo
 rótulo não acende — acende o espaço.
+
+**A fila do dia SAIU (pedido do dono, 06/09/2026).** O Kanban (`/cobranca/kanban`)
+é o ÚNICO lugar do trabalho diário: o que só a fila entregava — a ordem do dia
+(vencido → hoje → sem data → agendado), o indicador de "críticos" e o canal
+sugerido da etapa — foi para o quadro antes de ela sair. `client/src/pages/cobranca/fila.tsx`
+não existe mais; `/cobranca/fila` continua roteado, mas só como **redirecionamento**
+para o quadro da mesma carteira (link salvo, favorito e mensagem antiga não podem
+dar em página vazia). A ROTA DE API `GET /api/cobranca/fila` **continua no ar** e
+sem consumidor no client — remover API é irreversível para quem tiver integração.
+Não aponte tela nova para `/cobranca/fila`.
 ```
 GET  /api/cobranca/carteira            # ?carteira=ativo|ex_cliente + status/etapa/quadrante/saude/divida/bairro/busca
                                        # + mes=AAAA-MM & mesStatus=pago|inadimplente|a_vencer|sem_fatura (só ativos).
@@ -591,10 +601,11 @@ GET  /api/cobranca/carteira/mes        # ?mes=AAAA-MM → { live, motivo, resumo
                                        # Provedor.ai) sobre `invoices`: inadimplente = aberta vencida, aVencer = aberta
                                        # >= hoje, emConciliacao = baixada_no_erp, semFatura = cliente atual sem fatura
                                        # no mês. Sem fatura vinda do ERP → live=false e a tela mostra "—", nunca zero.
-GET  /api/cobranca/kanban              # colunas = fluxo do operador; `kpis` calculados sobre o MESMO recorte do quadro
-                                       # (casosVivos, emAberto, vencidos, paraHoje = quem TEM data até hoje,
-                                       # semProximaAcao = caso vivo sem data — follow-up parado)
-GET  /api/cobranca/fila | regua | dna | politica | equipe
+GET  /api/cobranca/kanban              # colunas = fluxo do operador, na ORDEM DO DIA; `kpis` calculados sobre o MESMO
+                                       # recorte do quadro (casosVivos, emAberto, vencidos, criticos,
+                                       # paraHoje = quem TEM data até hoje, semProximaAcao = caso vivo sem data)
+GET  /api/cobranca/fila                # SEM CONSUMIDOR no client desde 06/09/2026 (a tela saiu); mantida por integração
+GET  /api/cobranca/regua | dna | politica | equipe
 GET  /api/cobranca/clientes/:id/360 | 360/ao-vivo
 POST /api/cobranca/casos/:id/eventos   # contato termina com o follow-up: proximaAcao + proximoContatoEm gravados no caso
 POST /api/cobranca/casos/:id/negociacoes · PATCH /api/cobranca/casos/:id

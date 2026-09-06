@@ -1,6 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from "react";
 import { Switch, Route, Redirect, useLocation, useSearch } from "wouter";
-import { carteiraDaNavegacao, retornoDaCarteira } from "@/components/cobranca/carteiras";
+import { caminhoNaCarteira, carteiraDaNavegacao, retornoDaCarteira } from "@/components/cobranca/carteiras";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -22,6 +22,20 @@ function RedirecionarCarteira() {
   return <Redirect to={`${rota}${search ? `?${search}` : ""}`} />;
 }
 
+/**
+ * A fila do dia saiu (pedido do dono, 06/09/2026): o Kanban passou a ser o
+ * unico lugar do trabalho do dia — a ordem do dia, o indicador de criticos e o
+ * canal sugerido vieram com ela para o quadro. O endereco antigo continua
+ * valendo: link salvo, favorito e mensagem antiga caem no quadro DA MESMA
+ * carteira, com o resto do recorte que vier na URL. Sem isto, cada um desses
+ * caminhos daria em "pagina nao encontrada".
+ */
+function RedirecionarFila() {
+  const search = useSearch();
+  const carteira = carteiraDaNavegacao("/cobranca/fila", search);
+  return <Redirect to={caminhoNaCarteira(`/cobranca/kanban${search ? `?${search}` : ""}`, carteira)} />;
+}
+
 // Auth
 const LoginPage = lazy(pagina(() => import("@/pages/auth/login")));
 const VerificarEmailPage = lazy(pagina(() => import("@/pages/auth/verificar-email")));
@@ -40,10 +54,9 @@ const EquipamentosPage = lazy(pagina(() => import("@/pages/operacional/equipamen
 const RecuperacaoPage = lazy(pagina(() => import("@/pages/operacional/recuperacao")));
 const ChatOperacionalPage = lazy(pagina(() => import("@/pages/operacional/chat")));
 
-// Cobranca — carteira, ficha 360, fila do dia, regua + DNA e politica (05/09/2026).
+// Cobranca — carteira, ficha 360, kanban, regua + DNA e politica (05/09/2026).
 const CobrancaCarteiraPage = lazy(pagina(() => import("@/pages/cobranca/carteira")));
 const CobrancaCliente360Page = lazy(pagina(() => import("@/pages/cobranca/cliente360")));
-const CobrancaFilaPage = lazy(pagina(() => import("@/pages/cobranca/fila")));
 const CobrancaKanbanPage = lazy(pagina(() => import("@/pages/cobranca/kanban")));
 const CobrancaReguaPage = lazy(pagina(() => import("@/pages/cobranca/regua")));
 const CobrancaPoliticaPage = lazy(pagina(() => import("@/pages/cobranca/politica")));
@@ -118,7 +131,8 @@ function Router() {
         <Route path="/cobranca/ativos">{() => <CobrancaCarteiraPage key="ativos" espaco="ativos" />}</Route>
         <Route path="/cobranca/ex-clientes">{() => <CobrancaCarteiraPage key="ex" espaco="ex" />}</Route>
         <Route path="/cobranca/cliente/:id" component={CobrancaCliente360Page} />
-        <Route path="/cobranca/fila" component={CobrancaFilaPage} />
+        {/* A fila do dia saiu; o endereco dela leva ao quadro da mesma carteira. */}
+        <Route path="/cobranca/fila"><RedirecionarFila /></Route>
         <Route path="/cobranca/kanban" component={CobrancaKanbanPage} />
         <Route path="/cobranca/regua" component={CobrancaReguaPage} />
         <Route path="/cobranca/politica" component={CobrancaPoliticaPage} />
@@ -152,7 +166,10 @@ export const PROVIDER_ONLY_PATHS = [
   "/importacao-equipamentos", "/equipamentos", "/equipamentos/chat", "/recuperacao", "/administracao", "/painel-provedor",
   "/benchmark-regional",
   // A cobranca. `/cobranca/cliente/:id` nao cabe numa lista de caminho exato —
-  // e coberta por `ehRotaDeCobranca`, abaixo, pelo prefixo.
+  // e coberta por `ehRotaDeCobranca`, abaixo, pelo prefixo. `/cobranca` e
+  // `/cobranca/fila` so redirecionam, e continuam aqui de proposito: a guarda
+  // roda ANTES do desvio, e sem eles um papel sem provedor atravessaria o
+  // redirecionamento ate a tela do quadro.
   "/cobranca", "/cobranca/fila", "/cobranca/kanban", "/cobranca/regua", "/cobranca/politica",
   // Faltava desde que a tela nasceu: ela le `provider` da sessao e chama
   // `/api/regional/my-cidades`, que sem provedor nao responde nada. Ficava de

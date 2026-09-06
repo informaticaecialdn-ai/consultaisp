@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { ChevronLeft, ChevronRight, LayoutGrid, ListTodo, Route, Search, Users, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, KanbanSquare, LayoutGrid, Route, Search, Users, X } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { brl, num, Segmentado, TRACO } from "@/components/localizacao/ui";
@@ -31,7 +31,7 @@ import {
   OPCOES_STATUS, POR_PAGINA, queryDaCarteira, temFiltros, totalDePaginas, type FiltrosDaCarteira, type GrupoDoMes, type OpcaoDeFiltro, type VisaoDaCarteira,
 } from "@/components/cobranca/filtros";
 import {
-  API_CARTEIRA, API_CARTEIRA_MES, API_REGUA, ROTA_CARTEIRA_ATIVOS, ROTA_CARTEIRA_EX, ROTA_FILA, ROTA_REGUA, rotaDoCliente,
+  API_CARTEIRA, API_CARTEIRA_MES, API_REGUA, ROTA_CARTEIRA_ATIVOS, ROTA_CARTEIRA_EX, ROTA_KANBAN, ROTA_REGUA, rotaDoCliente,
   type RespostaDaCarteira, type RespostaDaRegua, type RespostaDoMes,
 } from "@/components/cobranca/tipos";
 import { caminhoNaCarteira } from "@/components/cobranca/carteiras";
@@ -299,7 +299,8 @@ export default function CarteiraPage({ espaco = "ativos" }: { espaco?: EspacoDaC
         testIdTitulo="titulo-carteira"
         acoes={
           <>
-            <Link href={caminhoNaCarteira(ROTA_FILA, meta.carteira)} className={BOTAO_SECUNDARIO} data-testid="link-fila"><ListTodo className="h-3.5 w-3.5" aria-hidden /> Fila do dia</Link>
+            {/* A fila do dia saiu (06/09/2026): o trabalho do dia inteiro acontece no quadro. */}
+            <Link href={caminhoNaCarteira(ROTA_KANBAN, meta.carteira)} className={BOTAO_SECUNDARIO} data-testid="link-kanban"><KanbanSquare className="h-3.5 w-3.5" aria-hidden /> Kanban</Link>
             <Link href={caminhoNaCarteira(ROTA_REGUA, meta.carteira)} className={BOTAO_SECUNDARIO} data-testid="link-regua"><Route className="h-3.5 w-3.5" aria-hidden /> Régua e DNA</Link>
           </>
         }

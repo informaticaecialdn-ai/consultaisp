@@ -11,6 +11,12 @@
  *
  * As colunas recolhidas (negativado · baixado · encerrado) só aparecem quando
  * o operador pede — são desfecho que se olha de vez em quando, não fila.
+ *
+ * Cada coluna é um POSTO DE TRABALHO (pedido do dono, 06/09/2026): o
+ * cabeçalho diz o VERBO — o que se faz ali para o caso sair — e quantos estão
+ * TRAVADOS (contato vencido, sem próxima ação, sem dono), contados sobre os
+ * casos que a coluna recebeu; quando a rota trunca a coluna, o cabeçalho diz
+ * que a conta é da página.
  */
 import { useMemo, useState } from "react";
 import {
@@ -29,9 +35,9 @@ import { BOTAO_SECUNDARIO } from "@/components/painel/ui";
 import { ROTULO_STATUS_DE_CASO, type StatusDeCaso } from "@shared/cobranca/estados";
 import type { Etapa } from "@shared/cobranca";
 import { CardCaso, CardCasoArrastavel, chaveDoCard, type AcoesDoCard } from "./CardCaso";
-import { avaliarMovimentoDeCaso, COLUNAS_RECOLHIDAS, COR_DO_TOM, tituloDoMovimento, tomDaColunaDoKanban, type MovimentoDeCaso } from "./movimentos-cobranca";
+import { avaliarMovimentoDeCaso, COLUNAS_RECOLHIDAS, contarGargalosDaColuna, COR_DO_TOM, tituloDoMovimento, tomDaColunaDoKanban, verboDaColuna, type MovimentoDeCaso } from "./movimentos-cobranca";
 import { API_CASOS, type ColunaDoKanban, type ItemDaFila, type RespostaDoKanban } from "./tipos";
-import { invalidarCobranca, mensagemDoErro } from "./ui";
+import { invalidarCobranca, mensagemDoErro, SeloCobranca } from "./ui";
 
 export const LARGURA_COLUNA_COBRANCA = 300;
 
@@ -83,8 +89,47 @@ function moverNoQuadro(quadro: RespostaDoKanban, casoId: number, destino: Status
   };
 }
 
-function Coluna({ coluna, cardAtivo, podeAdministrar, children }: {
-  coluna: ColunaDoKanban; cardAtivo: ItemDaFila | null; podeAdministrar: boolean; children: React.ReactNode;
+/**
+ * O cabeçalho da coluna como POSTO DE TRABALHO (pedido do dono, 06/09/2026:
+ * "o kanban precisa ser uma esteira de resolução da cobrança"): o VERBO — o
+ * que se faz ali para o caso sair — e o que está TRAVADO.
+ *
+ * A conta do travado é sobre os casos que a coluna RECEBEU. Quando a rota
+ * trunca a coluna (`porColuna`), isso é a página e não a coluna inteira — e o
+ * cabeçalho diz isso, na tela e no title. Contar o que não veio seria inventar.
+ */
+function GargalosDaColuna({ coluna, hoje }: { coluna: ColunaDoKanban; hoje: Date }) {
+  const g = contarGargalosDaColuna(coluna.casos, hoje);
+  if (g.base === 0) return null;
+  const base = coluna.truncado
+    ? `Contado sobre os ${num(g.base)} casos carregados desta coluna, de ${num(coluna.total)}: é a página, não a coluna inteira.`
+    : `Contado sobre os ${num(g.base)} casos desta coluna.`;
+  const travas = ([
+    { chave: "vencido", n: g.contatoVencido, rotulo: "contato vencido", tom: "danger", titulo: `Passou da data marcada do contato. ${base}` },
+    { chave: "sem-acao", n: g.semProximaAcao, rotulo: "sem próxima ação", tom: "danger", titulo: `Caso vivo sem data de próximo contato: está parado, e parado vira dívida perdida. ${base}` },
+    { chave: "sem-dono", n: g.semDono, rotulo: "sem dono", tom: "gated", titulo: `Ninguém puxou o caso da fila geral. ${base}` },
+  ] as const).filter(t => t.n > 0);
+  if (travas.length === 0) {
+    return (
+      <p className="px-3 pb-2 text-[10px] text-[var(--text-faint)]" title={`Nada travado nesta coluna. ${base}`} data-testid={`coluna-gargalo-${coluna.status}`}>
+        nada travado{coluna.truncado ? " na página" : ""}
+      </p>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1 px-3 pb-2" data-testid={`coluna-gargalo-${coluna.status}`}>
+      {travas.map(t => (
+        <SeloCobranca key={t.chave} tom={t.tom} titulo={t.titulo} className="normal-case tracking-normal" testId={`coluna-trava-${t.chave}-${coluna.status}`}>
+          {num(t.n)} {t.rotulo}
+        </SeloCobranca>
+      ))}
+      {coluna.truncado && <span className="text-[10px] text-[var(--text-faint)]" title={base}>na página</span>}
+    </div>
+  );
+}
+
+function Coluna({ coluna, cardAtivo, hoje, podeAdministrar, children }: {
+  coluna: ColunaDoKanban; cardAtivo: ItemDaFila | null; hoje: Date; podeAdministrar: boolean; children: React.ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: coluna.status, data: { status: coluna.status } });
   const veredito: MovimentoDeCaso | null = cardAtivo && ehStatus(coluna.status) ? avaliarMovimentoDeCaso(cardAtivo, coluna.status, { podeAdministrar }) : null;
@@ -97,6 +142,7 @@ function Coluna({ coluna, cardAtivo, podeAdministrar, children }: {
   // vermelho negativado, vinho cancelamento. Coluna fechada fica apagada.
   const tom = tomDaColunaDoKanban(coluna.status);
   const corDoTom = COR_DO_TOM[tom];
+  const verbo = coluna.fechada ? null : verboDaColuna(coluna.status);
   return (
     <section
       ref={setNodeRef}
@@ -113,6 +159,12 @@ function Coluna({ coluna, cardAtivo, podeAdministrar, children }: {
             <span className="inline-block h-2 w-2 flex-none rounded-full" style={{ background: coluna.fechada ? "var(--border-strong)" : corDoTom }} aria-hidden />
             {coluna.rotulo}
           </h2>
+          {/* O VERBO do posto: o que se faz aqui para o caso sair. Coluna de desfecho não tem — o caso já saiu da esteira. */}
+          {verbo && (
+            <p className="text-[10.5px] leading-4 text-[var(--text-muted)]" title={`Para o caso sair de "${coluna.rotulo}": ${verbo}.`} data-testid={`coluna-verbo-${coluna.status}`}>
+              para sair: <b className="font-medium text-[var(--text-2)]">{verbo}</b>
+            </p>
+          )}
           {coluna.fechada && <p className="text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--text-faint)]" style={MONO}>últimos 30 dias</p>}
           {coluna.truncado && <p className="text-[10px] text-[var(--text-faint)]" style={MONO}>mostrando {num(coluna.casos.length)} de {num(coluna.total)}</p>}
         </div>
@@ -121,6 +173,7 @@ function Coluna({ coluna, cardAtivo, podeAdministrar, children }: {
           <p className="text-[10px] tabular-nums text-[var(--text-muted)]">{brl(valor)}</p>
         </div>
       </header>
+      {!coluna.fechada && <GargalosDaColuna coluna={coluna} hoje={hoje} />}
       <div className="flex min-h-[120px] flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2" role="list" aria-label={`Casos em ${coluna.rotulo}`}>
         {coluna.casos.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-[var(--border)] px-3 py-6 text-center">
@@ -216,7 +269,7 @@ export function KanbanCobranca({ quadro, chaveDaQuery, etapas, hoje, podeAdminis
       <DndContext sensors={sensores} collisionDetection={detectarColisao} accessibility={{ announcements: anuncios }} onDragStart={aoComecar} onDragEnd={aoSoltar} onDragCancel={() => setCardAtivo(null)}>
         <div className="flex gap-3 overflow-x-auto pb-2" data-testid="colunas-kanban">
           {visiveis.map(coluna => (
-            <Coluna key={coluna.status} coluna={coluna} cardAtivo={cardAtivo} podeAdministrar={podeAdministrar}>
+            <Coluna key={coluna.status} coluna={coluna} cardAtivo={cardAtivo} hoje={hoje} podeAdministrar={podeAdministrar}>
               {coluna.casos.map(item => (
                 <CardCasoArrastavel key={item.id} item={item} etapas={etapas} hoje={hoje} acoes={acoes} ocupado={ocupadoId === item.id} />
               ))}

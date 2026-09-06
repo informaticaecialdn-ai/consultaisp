@@ -256,11 +256,15 @@ export function BarraComposicao({ composicao, carregando, testId, carteira }: {
  * de tela, celular) e sem popover para gerir. Ligado, ganha a borda e o fundo
  * da marca, como o chip de filtro de Localização.
  */
-export function FiltroPilula({ rotulo, valor, opcoes, onChange, testId }: {
+export function FiltroPilula({ rotulo, valor, opcoes, onChange, titulo, rotuloVazio = "Todos", testId }: {
   rotulo: string;
   valor: string;
   opcoes: OpcaoDeFiltro[];
   onChange: (valor: string) => void;
+  /** O que o filtro significa — no `title` do chip. A opção leva o seu próprio (`OpcaoDeFiltro.titulo`). */
+  titulo?: string;
+  /** O rótulo do "sem recorte". `Todos` serve à maioria; o de atraso diz "Todas as faixas". */
+  rotuloVazio?: string;
   testId?: string;
 }) {
   const ativo = valor !== "";
@@ -276,8 +280,10 @@ export function FiltroPilula({ rotulo, valor, opcoes, onChange, testId }: {
           : "border-[var(--border)] bg-[var(--surface)] text-[var(--text-2)] hover:border-[var(--border-strong)]",
       )}
       data-testid={testId}
+      title={titulo}
     >
-      <span>{rotulo}{ativo && atual ? `: ${atual.chip ?? atual.rotulo}` : ""}</span>
+      {/* O chip carrega número (faixa de dias, de dívida): mono tabular, como todo número. */}
+      <span>{rotulo}{ativo && atual ? <span className="font-mono tabular-nums">: {atual.chip ?? atual.rotulo}</span> : ""}</span>
       <span aria-hidden className="text-[var(--text-muted)]">▾</span>
       <select
         aria-label={rotulo}
@@ -285,8 +291,8 @@ export function FiltroPilula({ rotulo, valor, opcoes, onChange, testId }: {
         onChange={e => onChange(e.target.value)}
         className="absolute inset-0 h-full w-full cursor-pointer opacity-0 outline-none"
       >
-        <option value="">Todos</option>
-        {opcoes.map(o => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
+        <option value="">{rotuloVazio}</option>
+        {opcoes.map(o => <option key={o.valor} value={o.valor} title={o.titulo}>{o.rotulo}</option>)}
       </select>
     </label>
   );

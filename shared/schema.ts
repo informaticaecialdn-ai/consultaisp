@@ -1456,6 +1456,13 @@ export const cobrancaCasos = pgTable("cobranca_casos", {
   providerId: integer("provider_id").notNull().references(() => providers.id),
   customerId: integer("customer_id").notNull().references(() => customers.id),
   status: text("status").notNull().default("aberto"),
+  /**
+   * Desde quando o caso esta NESTE status (migracao 0030). `updated_at` muda
+   * por qualquer motivo (valor, responsavel, proxima acao) e nao responde
+   * "ha quanto tempo este caso esta parado nesta coluna" — que e o que a
+   * esteira precisa mostrar. Quem escreve e o storage, em TODA transicao.
+   */
+  statusDesde: timestamp("status_desde").notNull().defaultNow(),
   /** `ativo` | `ex_cliente`, fixada na abertura — ver o cabecalho da secao. */
   carteira: text("carteira").notNull(),
   abertoEm: timestamp("aberto_em").notNull().defaultNow(),

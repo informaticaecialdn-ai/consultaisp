@@ -36,6 +36,8 @@ import {
   casoFechado,
   eventoDaTransicaoDeCaso,
   negociacaoEncerrada,
+  RESULTADOS_QUE_CONVERSARAM,
+  statusAposContato,
   statusAposNegociacaoDesfeita,
   transicaoDeCaso,
   transicaoDeNegociacao,
@@ -202,6 +204,41 @@ describe("transicaoDeNegociacao", () => {
         expect(transicaoDeNegociacao(de, para).ok).toBe(de !== para && TRANSICOES_DE_NEGOCIACAO[de].includes(para));
       }
     }
+  });
+});
+
+describe("statusAposContato — a esteira anda pelo trabalho feito", () => {
+  it("caso aberto + conversa de verdade vai para em contato", () => {
+    expect(statusAposContato("aberto", "falou")).toBe("em_contato");
+    expect(statusAposContato("aberto", "promessa_pagamento")).toBe("em_contato");
+  });
+
+  it("tentativa não é conversa: não atendeu, caixa postal e número errado não movem nada", () => {
+    for (const resultado of ["nao_atendeu", "caixa_postal", "numero_errado"]) {
+      expect(statusAposContato("aberto", resultado), resultado).toBeNull();
+    }
+    // Sem resultado registrado não há prova de conversa — ausência não move o caso.
+    expect(statusAposContato("aberto", null)).toBeNull();
+    expect(statusAposContato("aberto", undefined)).toBeNull();
+  });
+
+  it("recusou não muda status (decisão do dono): o cliente disse não, o caso continua na fila", () => {
+    expect(statusAposContato("aberto", "recusou")).toBeNull();
+    expect([...RESULTADOS_QUE_CONVERSARAM]).toEqual(["falou", "promessa_pagamento"]);
+  });
+
+  it("uma regra só: nenhum outro status é tocado pelo contato", () => {
+    for (const status of STATUS_DE_CASO.filter(s => s !== "aberto")) {
+      expect(statusAposContato(status, "falou"), status).toBeNull();
+    }
+  });
+
+  it("o destino é uma transição que a máquina de estados autoriza", () => {
+    const destino = statusAposContato("aberto", "falou");
+    expect(destino).not.toBeNull();
+    expect(transicaoDeCaso("aberto", destino as typeof STATUS_DE_CASO[number])).toEqual({ ok: true });
+    // E o vocabulário dos resultados é o mesmo da lista oficial.
+    for (const r of RESULTADOS_QUE_CONVERSARAM) expect(RESULTADOS_DE_CONTATO).toContain(r);
   });
 });
 

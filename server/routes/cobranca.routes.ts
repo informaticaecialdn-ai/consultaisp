@@ -53,6 +53,7 @@ import {
   janelaDaEtapa,
   mesesDeContrato,
   prescrita,
+  statusAposContato,
   tomEfetivo,
   transicaoDeCaso,
   transicaoDeNegociacao,
@@ -1022,12 +1023,34 @@ async function agregarFila(
   return { total, kpis, kpisMotivo: null };
 }
 
+/**
+ * Ha quantos DIAS CIVIS o caso esta parado no status atual — o numero que
+ * transforma o quadro em esteira: sem ele nao se ve onde o trabalho empaca.
+ * Contado no servidor (o navegador tem outro fuso e outro relogio) e por dia
+ * civil, meia-noite a meia-noite, que e como o operador conta.
+ *
+ * `null` quando o caso nao tem `status_desde` — leitura de uma replica que
+ * ainda nao aplicou a 0030. Ausencia sai como "—" na tela, nunca como zero:
+ * "entrou hoje" e "nao sei desde quando" sao coisas diferentes.
+ */
+export function diasNoStatus(statusDesde: Date | string | null | undefined, hoje: Date): number | null {
+  if (statusDesde === null || statusDesde === undefined) return null;
+  const desde = statusDesde instanceof Date ? statusDesde : new Date(statusDesde);
+  if (Number.isNaN(desde.getTime())) return null;
+  const inicio = new Date(desde); inicio.setHours(0, 0, 0, 0);
+  const fim = new Date(hoje); fim.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.round((fim.getTime() - inicio.getTime()) / 86_400_000));
+}
+
 /** A linha da fila e do kanban: o caso, o cliente mascarado, e o tom e a etapa de AGORA. */
 function itemDaFila(l: LinhaDaCarteira, etapas: Etapa[], hoje: Date) {
   const cls = classificarCliente(l.cliente, hoje);
   const regua = reguaParaHoje(l.cliente.diasAtraso, carteiraValida(l.carteira), etapas);
   return {
     ...casoParaApi(l),
+    // O tempo parado nesta coluna, calculado aqui: `statusDesde` vai junto
+    // (a tela mostra a data no title), mas quem conta os dias e o servidor.
+    diasNoStatus: diasNoStatus(l.statusDesde, hoje),
     // O tom de AGORA, para o operador ler antes de ligar; `tom` e
     // `quadranteDna` acima sao a foto gravada no caso.
     quadrante: cls.dna?.quadrante ?? null,
@@ -1074,7 +1097,9 @@ function filtrosDoKanban(q: KanbanQuery, userId: number): FiltrosDaCarteira {
   if (q.carteira) f.carteira = q.carteira;
   if (q.etapa) f.etapa = q.etapa;
   if (q.busca) f.busca = q.busca;
-  if (q.responsavel === "eu") f.responsavelUserId = userId;
+  // No quadro, "Minha fila" e MEUS + a fila geral: e o que a tela de fila fazia,
+  // e sem isso o caso sem dono nao aparece e "Pegar para mim" nunca surge.
+  if (q.responsavel === "eu") f.meusMaisFilaGeral = userId;
   else if (q.responsavel === "geral") f.responsavelUserId = null;
   else if (typeof q.responsavel === "number") f.responsavelUserId = q.responsavel;
   return f;
@@ -1092,10 +1117,17 @@ interface ColunaDoKanban {
 }
 
 /**
- * Uma coluna viva e uma pagina do storage com o count exato. Uma fechada e
- * uma varredura filtrada em memoria pela data de encerramento: o storage
- * ordena por valor e nao filtra por `encerrado_em`, entao os 30 dias so se
- * acham lendo — ate a carteira ganhar o filtro `encerradoDesde`, e o que ha.
+ * Uma coluna viva e uma pagina do storage com o count exato, na ORDEM DO DIA
+ * (`ordem: "dia"`): contato vencido primeiro, depois o de hoje, depois o sem
+ * data (caso parado) e por fim os agendados — a ordem que a fila entregava e
+ * que o operador precisa para saber por onde comecar. A ordem vem do SQL
+ * porque a coluna e paginada: reordenar os `porColuna` primeiros por valor
+ * daria uma "ordem do dia" que ignora os que ficaram de fora.
+ *
+ * Uma coluna fechada e uma varredura filtrada em memoria pela data de
+ * encerramento — ali a ordem e a do encerramento, nao a do dia: o storage nao
+ * filtra por `encerrado_em`, entao os 30 dias so se acham lendo, ate a
+ * carteira ganhar o filtro `encerradoDesde`.
  */
 async function montarColuna(
   providerId: number,
@@ -1109,7 +1141,7 @@ async function montarColuna(
   const comStatus: FiltrosDaCarteira = { ...filtros, status: [status] };
   const base = { status, rotulo: ROTULO_STATUS_DE_CASO[status], fechada: casoFechado(status) };
   if (!base.fechada) {
-    const { linhas, total } = await storage.listarCasosDeCobranca(providerId, comStatus, { pagina: 1, porPagina: porColuna });
+    const { linhas, total } = await storage.listarCasosDeCobranca(providerId, comStatus, { pagina: 1, porPagina: porColuna, ordem: "dia", hoje });
     return { ...base, casos: linhas.map(l => itemDaFila(l, etapas, hoje)), total, truncado: total > linhas.length };
   }
   const varredura = await varrerCasos(providerId, comStatus);
@@ -1688,15 +1720,35 @@ export function registerCobrancaRoutes(): Router {
         metadata: Object.keys(metadata).length > 0 ? metadata : null,
         ocorridoEm: b.ocorridoEm,
       });
+      // A ESTEIRA ANDA PELO TRABALHO FEITO: contato registrado num caso
+      // "Aberto" o leva a "Em contato" sozinho — o operador nao arrasta a mao
+      // o que acabou de fazer. Quem decide e a maquina de estados; recusada a
+      // transicao, o contato ja esta gravado e nada se perde.
+      const de = caso.status as StatusDeCaso;
+      const destino = b.tipo === "contato" ? statusAposContato(de, b.resultado) : null;
+      const movimento = destino !== null && transicaoDeCaso(de, destino).ok ? { de, para: destino } : null;
+
       // Follow-up: o contato termina com a proxima acao e a data — as duas gravadas no caso, na mesma chamada.
-      if (b.proximoContatoEm !== undefined || b.proximaAcao !== undefined) {
+      if (movimento || b.proximoContatoEm !== undefined || b.proximaAcao !== undefined) {
         await storage.atualizarCasoDeCobranca(providerId, id, {
+          ...(movimento ? { status: movimento.para } : {}),
           ...(b.proximoContatoEm !== undefined ? { proximoContatoEm: b.proximoContatoEm } : {}),
           ...(b.proximaAcao !== undefined ? { proximaAcao: b.proximaAcao === "" ? null : b.proximaAcao } : {}),
         }, userId);
       }
-      logger.info({ providerId, casoId: id, userId, tipo: b.tipo, canal: b.canal ?? null, resultado: b.resultado ?? null }, "COBRANCA evento registrado");
-      res.status(201).json(evento);
+      if (movimento) {
+        // O evento que a linha do tempo espera desta transicao — para
+        // `aberto -> em_contato` a propria maquina diz que nao ha um: o
+        // contato registrado, com o autor e a hora, ja conta quem moveu.
+        const eventoDaMudanca = eventoDaTransicaoDeCaso(movimento.de, movimento.para);
+        if (eventoDaMudanca) {
+          await storage.registrarEventoDeCobranca(providerId, {
+            casoId: id, userId, tipo: eventoDaMudanca, metadata: { de: movimento.de, para: movimento.para, por: "contato" },
+          });
+        }
+      }
+      logger.info({ providerId, casoId: id, userId, tipo: b.tipo, canal: b.canal ?? null, resultado: b.resultado ?? null, moveuPara: movimento?.para ?? null }, "COBRANCA evento registrado");
+      res.status(201).json({ ...evento, movimento });
     } catch (e) {
       falha(res, e);
     }
@@ -1993,9 +2045,18 @@ export function registerCobrancaRoutes(): Router {
       ]);
       // Os indicadores do QUADRO, sobre o mesmo recorte das colunas (a fila usa
       // outro escopo — "eu" la inclui a fila geral — e a tela misturava os dois).
-      const varredura = await varrerCasos(providerId, filtros);
       const inicioDeHoje = new Date(hoje); inicioDeHoje.setHours(0, 0, 0, 0);
       const inicioDeAmanha = new Date(hoje); inicioDeAmanha.setHours(24, 0, 0, 0);
+      // O fluxo do dia NAO sai da varredura: ela ve os casos vivos, e um caso
+      // aberto hoje pode ja ter fechado hoje — ele entrou e saiu, e as duas
+      // coisas contam. Por isso uma agregacao propria, atravessando as colunas.
+      const [varredura, fluxo] = await Promise.all([
+        varrerCasos(providerId, filtros),
+        storage.fluxoDaEsteira(providerId, filtros, inicioDeHoje).catch((e: unknown) => {
+          logger.warn({ providerId, err: e }, "COBRANCA fluxo do quadro indisponivel");
+          return null;
+        }),
+      ]);
       const kpis = varredura.completa
         ? varredura.linhas.reduce((k, l) => ({
             casosVivos: k.casosVivos + 1,
@@ -2004,7 +2065,22 @@ export function registerCobrancaRoutes(): Router {
             // Follow-up: "para hoje" e quem TEM data ate hoje; sem data e caso parado — conta a parte.
             paraHoje: k.paraHoje + (l.proximoContatoEm !== null && l.proximoContatoEm.getTime() < inicioDeAmanha.getTime() ? 1 : 0),
             semProximaAcao: k.semProximaAcao + (l.proximoContatoEm === null ? 1 : 0),
-          }), { casosVivos: 0, emAberto: 0, vencidos: 0, paraHoje: 0, semProximaAcao: 0 })
+            // O indicador que so a fila tinha: prioridade critica no recorte do quadro,
+            // contada na MESMA varredura — nao ha uma segunda leitura por causa dele.
+            criticos: k.criticos + (l.prioridade === "critica" ? 1 : 0),
+            // Fluxo do dia: medido a parte, e null quando a agregacao falhou —
+            // a tela mostra "—", nunca um zero que pareceria "ninguem trabalhou".
+            entraramHoje: fluxo === null ? null : fluxo.entraram,
+            resolvidosHoje: fluxo === null ? null : fluxo.resolvidos,
+          }), {
+            casosVivos: 0, emAberto: 0, vencidos: 0, paraHoje: 0, semProximaAcao: 0, criticos: 0,
+            entraramHoje: fluxo === null ? null : fluxo.entraram,
+            resolvidosHoje: fluxo === null ? null : fluxo.resolvidos,
+          } as {
+            casosVivos: number; emAberto: number; vencidos: number; paraHoje: number;
+            semProximaAcao: number; criticos: number;
+            entraramHoje: number | null; resolvidosHoje: number | null;
+          })
         : null;
       const comChat = colunas.map(c => ({
         ...c,

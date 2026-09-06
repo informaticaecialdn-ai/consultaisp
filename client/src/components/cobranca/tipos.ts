@@ -47,6 +47,12 @@ export const ROTA_CARTEIRA = "/cobranca";
 /** Os dois espacos da carteira (Provedor.ai): /cobranca redireciona para o de ativos. */
 export const ROTA_CARTEIRA_ATIVOS = "/cobranca/ativos";
 export const ROTA_CARTEIRA_EX = "/cobranca/ex-clientes";
+/**
+ * O endereco antigo da fila do dia. A TELA saiu em 06/09/2026 (o quadro passou
+ * a ser o unico lugar do trabalho diario); a rota sobrevive como
+ * redirecionamento para o Kanban da mesma carteira, para link salvo e favorito
+ * nao darem em pagina vazia. Nao aponte nada novo para ca.
+ */
 export const ROTA_FILA = "/cobranca/fila";
 export const ROTA_REGUA = "/cobranca/regua";
 export const ROTA_POLITICA = "/cobranca/politica";
@@ -55,6 +61,11 @@ export const rotaDoCliente = (customerId: number, carteira?: string) => `/cobran
 export const API_CARTEIRA = "/api/cobranca/carteira";
 /** Realidade mensal do espaco de ativos: GET ?mes=AAAA-MM. */
 export const API_CARTEIRA_MES = "/api/cobranca/carteira/mes";
+/**
+ * A rota da fila continua no servidor — nenhuma tela a consome desde 06/09/2026,
+ * mas remover API e irreversivel para quem tiver integracao. `lerRespostaDaFila`
+ * segue sendo o leitor dela.
+ */
 export const API_FILA = "/api/cobranca/fila";
 export const API_REGUA = "/api/cobranca/regua";
 export const API_DNA = "/api/cobranca/dna";
@@ -192,6 +203,14 @@ export interface CasoDetalhe {
   /** Follow-up: a proxima acao escrita; ausente ou nula = caso sem proxima acao. */
   proximaAcao?: string | null;
   ultimoContatoEm: string | null;
+  /**
+   * Esteira: desde quando o caso está NESTE status, e há quantos dias. Os dois
+   * são OPCIONAIS — a rota pode ainda não medir (a coluna nasce agora, e
+   * `updatedAt` muda por qualquer motivo, então não serve de substituto). Sem
+   * eles a tela mostra "—" com o motivo, nunca zero.
+   */
+  statusDesde?: string | null;
+  diasNoStatus?: number | null;
   quadranteDna: string | null;
   tom: string | null;
   encerradoEm: string | null;
@@ -446,6 +465,14 @@ export interface KpisDaFila {
   vencidos: number | null;
   agendados: number | null;
   emAberto: number | null;
+  /**
+   * O FLUXO DO DIA da esteira (kanban): quantos casos entraram e quantos foram
+   * resolvidos hoje, no mesmo recorte do quadro. Opcionais — enquanto a rota
+   * não mandar, a tela mostra "—" com o motivo; somar nada e escrever 0 seria
+   * dizer que o dia não rendeu.
+   */
+  entraramHoje?: number | null;
+  resolvidosHoje?: number | null;
 }
 
 export interface RespostaDaFila {
@@ -727,7 +754,7 @@ export function lerKanban(resposta: unknown): RespostaDoKanban {
     });
   const pausa = pausaDaResposta(resposta);
   const kpisCrus = r.kpis && typeof r.kpis === "object" ? (r.kpis as Record<string, unknown>) : null;
-  const kpis: KpisDaFila | null = kpisCrus ? { casosVivos: numero(kpisCrus.casosVivos), paraHoje: numero(kpisCrus.paraHoje), vencidos: numero(kpisCrus.vencidos), agendados: numero(kpisCrus.agendados), emAberto: numero(kpisCrus.emAberto), semProximaAcao: numero(kpisCrus.semProximaAcao) } : null;
+  const kpis: KpisDaFila | null = kpisCrus ? { casosVivos: numero(kpisCrus.casosVivos), paraHoje: numero(kpisCrus.paraHoje), vencidos: numero(kpisCrus.vencidos), agendados: numero(kpisCrus.agendados), emAberto: numero(kpisCrus.emAberto), semProximaAcao: numero(kpisCrus.semProximaAcao), criticos: numero(kpisCrus.criticos), entraramHoje: numero(kpisCrus.entraramHoje), resolvidosHoje: numero(kpisCrus.resolvidosHoje) } : null;
   return { colunas, kpis, total: numero(r.total), pausada: pausa.pausada, pausadaMotivo: pausa.motivo };
 }
 

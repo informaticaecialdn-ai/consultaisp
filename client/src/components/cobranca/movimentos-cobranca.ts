@@ -23,6 +23,7 @@
  * revisor: operador não some com dívida); `pago` o operador pode.
  */
 import { casoFechado, transicaoDeCaso, type StatusDeCaso } from "@shared/cobranca/estados";
+import { proximoContato } from "./formatacao";
 import type { TomDeSelo } from "./ui";
 
 export const COLUNAS_VIVAS: readonly StatusDeCaso[] = ["aberto", "em_contato", "negociando", "acordo_ativo"];
@@ -137,4 +138,114 @@ export const TOM_DA_ETAPA: Record<string, TomDeSelo> = {
 
 export function tomDaEtapaDaRegua(etapaId: string | null | undefined): TomDeSelo {
   return (etapaId && TOM_DA_ETAPA[etapaId]) || "marca";
+}
+
+/* ── A coluna como POSTO DE TRABALHO (pedido do dono, 06/09/2026) ────────── */
+
+/**
+ * "O kanban precisa ser uma esteira de resolução da cobrança". Numa esteira,
+ * cada posto diz O QUE SE FAZ ali para a peça sair — senão a coluna é só uma
+ * gaveta com um rótulo. O VERBO é isso: a ação que tira o caso desta coluna.
+ *
+ * As colunas de desfecho (pago, cancelamento, negativado, baixado, encerrado)
+ * não têm verbo de propósito: o caso já saiu da esteira, não há trabalho a
+ * fazer ali. `null` é ausência de verbo, e a tela não escreve nada.
+ */
+export const VERBO_DA_COLUNA: Record<StatusDeCaso, string | null> = {
+  aberto: "registrar contato",
+  em_contato: "propor acordo",
+  negociando: "registrar o aceite",
+  acordo_ativo: "conferir a parcela",
+  pago: null,
+  negativado: null,
+  cancelamento: null,
+  baixado: null,
+  encerrado: null,
+};
+
+export function verboDaColuna(status: string): string | null {
+  return VERBO_DA_COLUNA[status as StatusDeCaso] ?? null;
+}
+
+/**
+ * O botão de acordo que o card oferece, pelo verbo da coluna: em contato se
+ * PROPÕE, negociando se REGISTRA o aceite. Nas outras colunas não há botão de
+ * acordo — em "aberto" o trabalho é o contato, e no desfecho não há trabalho.
+ */
+export const ROTULO_DO_BOTAO_DE_ACORDO: Record<string, string> = {
+  em_contato: "Propor acordo",
+  negociando: "Registrar acordo",
+};
+
+export function rotuloDoBotaoDeAcordo(status: string): string | null {
+  return ROTULO_DO_BOTAO_DE_ACORDO[status] ?? null;
+}
+
+/**
+ * Qual botão é o PRINCIPAL do card. Só "negociando" troca: ali o trabalho é
+ * fechar o acordo, e oferecer "Contato" em destaque manda o operador repetir
+ * o que ele já fez. Nas demais colunas o principal continua o contato — o
+ * botão de acordo, quando existe, entra como secundário.
+ */
+export type AcaoPrincipalDoCard = "contato" | "acordo";
+
+export function acaoPrincipalDoCard(status: string): AcaoPrincipalDoCard {
+  return status === "negociando" ? "acordo" : "contato";
+}
+
+/**
+ * O que TRAVA a coluna. Numa esteira o que importa não é quantos passaram, e
+ * sim quantos estão empacados — e por quê:
+ * - `contatoVencido`: passou da data marcada e ninguém falou com o cliente;
+ * - `semProximaAcao`: caso vivo sem data de próximo contato — está parado, e
+ *   parado vira dívida perdida (regra do dono, 05/09/2026). É o mesmo corte
+ *   do KPI `semProximaAcao` da rota e do card em vermelho;
+ * - `semDono`: na fila geral, ninguém puxou o caso.
+ *
+ * As três contas são sobre os casos QUE A COLUNA RECEBEU. Quando a coluna vem
+ * truncada (`porColuna` da rota), isso é a página e não a coluna inteira — a
+ * tela é obrigada a dizer isso, e diz.
+ */
+export interface CasoNaColuna {
+  responsavelUserId: number | null;
+  proximoContatoEm: string | null;
+}
+
+export interface GargalosDaColuna {
+  contatoVencido: number;
+  semProximaAcao: number;
+  semDono: number;
+  /** Quantos casos entraram nesta conta — a base do "de N". */
+  base: number;
+}
+
+export function contarGargalosDaColuna(casos: readonly CasoNaColuna[], hoje: Date): GargalosDaColuna {
+  let contatoVencido = 0;
+  let semProximaAcao = 0;
+  let semDono = 0;
+  for (const caso of casos) {
+    const urgencia = proximoContato(caso.proximoContatoEm, hoje).urgencia;
+    if (urgencia === "vencido") contatoVencido += 1;
+    if (urgencia === "sem_data") semProximaAcao += 1;
+    if (caso.responsavelUserId === null) semDono += 1;
+  }
+  return { contatoVencido, semProximaAcao, semDono, base: casos.length };
+}
+
+/**
+ * O TEMPO NA COLUNA esquenta com a espera. Os cortes são ESCOLHA NOSSA
+ * (06/09/2026), não medição: não existe base histórica de tempo por coluna
+ * — a coluna `status_desde` nasce agora. Vêm da régua, que é o único ritmo
+ * escrito do produto: ela cobra a cada poucos dias, então dois dias parados
+ * ainda é trabalho em curso, três a seis já é atraso do operador, e uma
+ * semana no mesmo posto é o gargalo que o dono quer enxergar. Quando houver
+ * histórico, refaça sobre ele — e troque este comentário.
+ */
+export const CORTES_DO_TEMPO_NA_COLUNA = { atencao: 3, perigo: 7 } as const;
+
+export function tomDoTempoNaColuna(dias: number | null | undefined): TomDeSelo {
+  if (dias === null || dias === undefined) return "neutro";
+  if (dias >= CORTES_DO_TEMPO_NA_COLUNA.perigo) return "danger";
+  if (dias >= CORTES_DO_TEMPO_NA_COLUNA.atencao) return "gated";
+  return "neutro";
 }

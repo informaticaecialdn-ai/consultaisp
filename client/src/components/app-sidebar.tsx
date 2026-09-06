@@ -29,7 +29,6 @@ import {
   Palette,
   Users,
   Wallet,
-  ListTodo,
   Route,
   Scale,
   UserX,
@@ -441,7 +440,7 @@ export const NAV_PROVEDOR: Array<{
     ],
   },
   {
-    // A cobranca e um trabalho proprio — carteira, fila, regua e politica —
+    // A cobranca e um trabalho proprio — carteira, quadro, regua e politica —
     // feito por um funcionario do provedor. Grupo entre Principal e Financeiro
     // porque vem depois de consultar e antes de comprar credito (05/09/2026).
     grupo: "Cobrança",
@@ -453,7 +452,6 @@ export const NAV_PROVEDOR: Array<{
         label: "Clientes Ativos", url: "/cobranca/ativos", Icone: Users, testId: "menu-cobranca-ativos",
         filhos: [
           { label: "Visão geral", url: caminhoNaCarteira("/cobranca/ativos", "ativo"), Icone: Wallet, testId: "link-cobranca-ativos" },
-          { label: "Fila do dia", url: caminhoNaCarteira("/cobranca/fila", "ativo"), Icone: ListTodo, testId: "link-cobranca-ativos-fila" },
           { label: "Kanban", url: caminhoNaCarteira("/cobranca/kanban", "ativo"), Icone: Kanban, testId: "link-cobranca-ativos-kanban" },
           { label: "Régua / DNA", url: caminhoNaCarteira("/cobranca/regua", "ativo"), Icone: Route, testId: "link-cobranca-ativos-regua" },
         ],
@@ -462,7 +460,6 @@ export const NAV_PROVEDOR: Array<{
         label: "Ex-Clientes", url: "/cobranca/ex-clientes", Icone: UserX, testId: "menu-cobranca-ex-clientes",
         filhos: [
           { label: "Visão geral", url: caminhoNaCarteira("/cobranca/ex-clientes", "ex_cliente"), Icone: Wallet, testId: "link-cobranca-ex-clientes" },
-          { label: "Fila do dia", url: caminhoNaCarteira("/cobranca/fila", "ex_cliente"), Icone: ListTodo, testId: "link-cobranca-ex-clientes-fila" },
           { label: "Kanban", url: caminhoNaCarteira("/cobranca/kanban", "ex_cliente"), Icone: Kanban, testId: "link-cobranca-ex-clientes-kanban" },
           { label: "Régua / DNA", url: caminhoNaCarteira("/cobranca/regua", "ex_cliente"), Icone: Route, testId: "link-cobranca-ex-clientes-regua" },
         ],

@@ -10,22 +10,34 @@
  * D+15..29…) é selo no card e filtro no topo. A lista da fila (/cobranca/fila)
  * continua existindo como a outra visão do mesmo dado.
  *
- * KPIs vêm do servidor (a fila devolve `kpis` e `total` contados sobre todos
+ * KPIs vêm do servidor (a rota devolve `kpis` e `total` contados sobre todos
  * os casos vivos do recorte) — nunca de `itens.length` de uma página.
+ *
+ * O quadro é o único lugar do trabalho do dia (pedido do dono, 06/09/2026), e
+ * por isso carrega o que só a fila tinha: as colunas vêm na ORDEM DO DIA
+ * (`ordem: "dia"` no storage — vencido, hoje, sem data, agendado), o card diz
+ * a que faixa pertence e qual o canal sugerido da etapa, e os indicadores
+ * incluem "críticos".
+ *
+ * E o quadro é uma ESTEIRA (pedido do dono, 06/09/2026): cada coluna é um
+ * posto com um VERBO — o que se faz ali para o caso sair — e a conta do que
+ * está travado; o card diz há quantos dias está parado naquele posto; e o topo
+ * mostra o FLUXO DO DIA (entraram · resolvidos), porque só o estoque esconde
+ * um quadro onde entra o dobro do que sai.
  */
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { carteiraDaNavegacao, caminhoNaCarteira, retornoDaCarteira, NOME_DA_CARTEIRA } from "@/components/cobranca/carteiras";
 import { NavegacaoCarteiras } from "@/components/cobranca/NavegacaoCarteiras";
-import { AlarmClock, ClipboardList, HandCoins, KanbanSquare, ListTodo, Pause, Search, TrendingUp } from "lucide-react";
+import { AlarmClock, ArrowRightLeft, ClipboardList, HandCoins, KanbanSquare, Pause, Search, Siren, TrendingUp } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import { ETAPA_IDS, type Carteira, type EtapaId } from "@shared/cobranca";
-import { brl, Kpi, num, Segmentado, TRACO } from "@/components/localizacao/ui";
+import { brl, Kicker, Kpi, num, Segmentado, TRACO } from "@/components/localizacao/ui";
 import { AvisoNaoCarregou, BOTAO_SECUNDARIO, CabecalhoPainel, CONTROLE_CAMPO, EstadoVazio } from "@/components/painel/ui";
 import { KanbanCobranca } from "@/components/cobranca/KanbanCobranca";
 import { DialogoContato, type AlvoDoContato } from "@/components/cobranca/DialogoContato";
@@ -36,8 +48,7 @@ import { podeAdministrarCobranca } from "@/components/cobranca/permissoes";
 import { etapaDoCard } from "@/components/cobranca/CardCaso";
 import {
   API_CASOS, API_CHAT_BULLQ, API_KANBAN, API_POLITICA, API_REGUA, apiEnviarCasoParaChat, apiRecuperacao, chatProntoParaEnviar,
-  DIAS_DA_RECUPERACAO, lerIntegracaoDoChat, lerKanban, lerRecuperacao,
-  ROTA_FILA, type ItemDaFila, type RespostaDaRegua,
+  DIAS_DA_RECUPERACAO, lerIntegracaoDoChat, lerKanban, lerRecuperacao, type ItemDaFila, type KpisDaFila, type RespostaDaRegua,
 } from "@/components/cobranca/tipos";
 import { invalidarCobranca, mensagemDoErro, useSkeletonAtrasado } from "@/components/cobranca/ui";
 
@@ -58,6 +69,52 @@ export function queryDoKanban(f: { escopo: Escopo; etapa: string; carteira: stri
   if (f.busca.trim()) p.set("busca", f.busca.trim());
   const s = p.toString();
   return s ? `?${s}` : "";
+}
+
+export const MOTIVO_SEM_FLUXO_DO_DIA =
+  "Fluxo de hoje: o servidor ainda não conta quantos casos entraram e quantos foram resolvidos no dia. Escrever 0 diria que o dia não rendeu — e isso a tela não sabe.";
+
+/** O outro motivo de não haver número: a rota não varreu o recorte (o mesmo que apaga os demais indicadores). */
+export const MOTIVO_RECORTE_SEM_INDICADORES =
+  "Fluxo de hoje: a rota não contou os indicadores deste recorte — o quadro é grande demais para varrer. Filtre por etapa, carteira ou busca.";
+
+const TITULO_DO_FLUXO_DO_DIA =
+  "Entraram: casos abertos hoje. Resolvidos: casos encerrados hoje (pago, baixado, encerrado ou cancelamento). Contados pelo servidor sobre o mesmo recorte do quadro.";
+
+/**
+ * O FLUXO DO DIA da esteira (pedido do dono, 06/09/2026): quantos casos
+ * entraram e quantos saíram resolvidos hoje. Sem os dois números a coluna
+ * conta o estoque e nunca a vazão — dá para o quadro parecer estável enquanto
+ * entra o dobro do que sai.
+ *
+ * Os números são do SERVIDOR. Enquanto a rota não os mandar, é "—" com o
+ * motivo: contar aqui só daria a conta da página.
+ */
+export function FluxoDoDia({ kpis, carregando }: { kpis: KpisDaFila | null; carregando: boolean }) {
+  const temFluxo = typeof kpis?.entraramHoje === "number" || typeof kpis?.resolvidosHoje === "number";
+  const valor = (n: number | null | undefined) => (carregando ? "…" : typeof n === "number" ? num(n) : TRACO);
+  return (
+    <div
+      className="col-span-2 flex items-start gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3.5"
+      title={temFluxo ? TITULO_DO_FLUXO_DO_DIA : kpis === null ? MOTIVO_RECORTE_SEM_INDICADORES : MOTIVO_SEM_FLUXO_DO_DIA}
+      data-testid="fluxo-do-dia"
+    >
+      <span className="grid h-8 w-8 flex-none place-items-center rounded-md" style={{ background: temFluxo ? "var(--info-bg)" : "var(--surface-2)", color: temFluxo ? "var(--info)" : "var(--text-muted)" }}>
+        <ArrowRightLeft className="h-4 w-4" aria-hidden />
+      </span>
+      <div className="min-w-0">
+        <Kicker>fluxo de hoje</Kicker>
+        <p className="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-[11px] text-[var(--text-muted)]">
+          <span>
+            <b className="font-mono text-[16px] font-medium tabular-nums text-[var(--text)]" data-testid="fluxo-entraram">{valor(kpis?.entraramHoje)}</b> entraram
+          </span>
+          <span>
+            <b className="font-mono text-[16px] font-medium tabular-nums" style={{ color: temFluxo && (kpis?.resolvidosHoje ?? 0) > 0 ? "var(--ok)" : "var(--text)" }} data-testid="fluxo-resolvidos">{valor(kpis?.resolvidosHoje)}</b> resolvidos
+          </span>
+        </p>
+      </div>
+    </div>
+  );
 }
 
 export default function KanbanPage() {
@@ -127,6 +184,8 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
 
   const acoes = {
     onContato: abrirContato,
+    // O verbo da coluna no botão do card: em contato PROPÕE, negociando REGISTRA o aceite.
+    onNegociar: abrirNegociacao,
     onPegar: user ? (item: ItemDaFila) => pegar.mutate(item.id) : undefined,
     pegando: pegar.isPending,
     onEnviarParaChat: chatPronto ? (item: ItemDaFila) => enviarParaChat.mutate(item) : undefined,
@@ -157,11 +216,10 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
     <div className="flex flex-col gap-4 p-4 lg:p-6" data-testid="cobranca-kanban">
       <CabecalhoPainel
         titulo={`Kanban · ${NOME_DA_CARTEIRA[carteira]}`}
-        descricao="Arraste o caso pelo fluxo: a contatar, em contato, negociando, acordo, pago ou cancelamento. A etapa da régua é o selo do card."
+        descricao="A esteira da cobrança: cada coluna diz o que se faz ali para o caso sair e quantos estão travados; o card diz há quantos dias está parado no posto. A coluna vem na ordem do dia — vencido, hoje, sem data, agendado — e a etapa da régua é o selo do card."
         acoes={
           <div className="flex flex-wrap items-center gap-2">
             <Segmentado opcoes={OPCOES_ESCOPO} valor={escopo} onChange={setEscopo} rotulo="Escopo do quadro" />
-            <Link href={caminhoNaCarteira(ROTA_FILA, carteira)} className={BOTAO_SECUNDARIO} data-testid="link-fila-lista"><ListTodo className="h-3.5 w-3.5" aria-hidden /> Lista</Link>
             <Link href={retornoDaCarteira(carteira)} className={BOTAO_SECUNDARIO} data-testid="link-carteira">Carteira</Link>
           </div>
         }
@@ -169,10 +227,12 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
 
       <NavegacaoCarteiras carteira={carteira} destino={caminho} />
 
-      <section className="grid grid-cols-2 gap-2.5 lg:grid-cols-3" aria-label="Indicadores" data-testid="kpis-kanban">
+      <section className="grid grid-cols-2 gap-2.5 lg:grid-cols-4" aria-label="Indicadores" data-testid="kpis-kanban">
         <Kpi icone={<KanbanSquare className="h-4 w-4" aria-hidden />} iconeCor="var(--brand-ink)" iconeBg="var(--brand-soft)" rotulo="casos vivos" valor={isLoading ? "…" : num(kpis?.casosVivos)} sub="no recorte" />
         <Kpi icone={<AlarmClock className="h-4 w-4" aria-hidden />} iconeCor={(kpis?.vencidos ?? 0) > 0 ? "var(--danger)" : "var(--text-muted)"} iconeBg={(kpis?.vencidos ?? 0) > 0 ? "var(--danger-bg)" : "var(--surface-2)"} rotulo="contato vencido" valor={isLoading ? "…" : num(kpis?.vencidos)} valorCor={(kpis?.vencidos ?? 0) > 0 ? "var(--danger)" : undefined} sub="passou da data" />
         <Kpi icone={<AlarmClock className="h-4 w-4" aria-hidden />} iconeCor="var(--gated)" iconeBg="var(--gated-bg)" rotulo="para hoje" valor={isLoading ? "…" : num(kpis?.paraHoje)} sub="contato marcado" />
+        {/* Críticos: o indicador que só a fila tinha. Prioridade crítica no MESMO recorte do quadro. */}
+        <Kpi icone={<Siren className="h-4 w-4" aria-hidden />} iconeCor={(kpis?.criticos ?? 0) > 0 ? "var(--danger)" : "var(--text-muted)"} iconeBg={(kpis?.criticos ?? 0) > 0 ? "var(--danger-bg)" : "var(--surface-2)"} rotulo="críticos" valor={isLoading ? "…" : num(kpis?.criticos)} valorCor={(kpis?.criticos ?? 0) > 0 ? "var(--danger)" : undefined} sub="prioridade crítica" />
         {/* Follow-up: caso sem proxima acao vira divida perdida — o quadro conta quantos estao parados. */}
         <Kpi icone={<ClipboardList className="h-4 w-4" aria-hidden />} iconeCor={(kpis?.semProximaAcao ?? 0) > 0 ? "var(--danger)" : "var(--text-muted)"} iconeBg={(kpis?.semProximaAcao ?? 0) > 0 ? "var(--danger-bg)" : "var(--surface-2)"} rotulo="sem próxima ação" valor={isLoading ? "…" : num(kpis?.semProximaAcao)} valorCor={(kpis?.semProximaAcao ?? 0) > 0 ? "var(--danger)" : undefined} sub="caso parado vira dívida perdida" />
         <Kpi icone={<HandCoins className="h-4 w-4" aria-hidden />} iconeCor="var(--money-neg)" iconeBg="var(--past-bg)" rotulo="em aberto" valor={isLoading ? "…" : brl(kpis?.emAberto)} valorCor={(kpis?.emAberto ?? 0) > 0 ? "var(--money-neg)" : undefined} sub="soma dos casos vivos" />
@@ -187,6 +247,7 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
           sub={`${DIAS_DA_RECUPERACAO} dias · após contato · toda a carteira`}
           titulo={tituloDaRecuperacao}
         />
+        <FluxoDoDia kpis={kpis} carregando={isLoading} />
       </section>
 
       <div className="flex flex-wrap items-center gap-2" data-testid="filtros-kanban">
@@ -243,8 +304,11 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
         />
       )}
 
-      <p className="text-[11px] text-[var(--text-faint)]">
-        Valor total no quadro: <span className="font-mono tabular-nums">{brl(quadro.colunas.filter(c => !c.fechada).reduce((s, c) => s + c.casos.reduce((t, x) => t + (x.valorAtual ?? 0), 0), 0))}</span> nos casos carregados · colunas fechadas mostram os últimos 30 dias.
+      <p className="text-[11px] text-[var(--text-faint)]" data-testid="rodape-kanban">
+        <span data-testid="ordem-do-dia" title="A ordem vem do servidor, sobre a coluna inteira — não é a página reordenada na tela.">
+          Cada coluna vem na <b className="font-medium text-[var(--text-2)]">ordem do dia</b>: contato vencido (o mais antigo primeiro), depois o de hoje, depois o que está sem data — o caso parado — e por fim os agendados; a prioridade crítica sobe dentro de cada faixa.
+        </span>{" "}
+        Valor total no quadro: <span className="font-mono tabular-nums">{brl(quadro.colunas.filter(c => !c.fechada).reduce((s, c) => s + c.casos.reduce((t, x) => t + (x.valorAtual ?? 0), 0), 0))}</span> nos casos carregados · colunas fechadas mostram os últimos 30 dias, do encerramento mais recente para o mais antigo.
       </p>
 
       <DialogoContato alvo={contato} aberto={contato !== null} onFechar={() => setContato(null)} />

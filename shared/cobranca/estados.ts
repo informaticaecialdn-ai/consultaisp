@@ -137,6 +137,43 @@ export function statusAposNegociacaoDesfeita(statusAnterior: StatusDeCaso | null
   return statusAnterior === "negativado" ? "negativado" : "aberto";
 }
 
+/* ── O caso anda pelo trabalho feito ─────────────────────────────────── */
+
+/**
+ * Os resultados que PROVAM que o operador falou com o cliente.
+ *
+ * `nao_atendeu`, `caixa_postal` e `numero_errado` sao tentativa, nao
+ * conversa: mover o caso para "Em contato" com eles diria que estamos
+ * conversando com quem nunca atendeu, e a coluna que separa "ninguem ligou
+ * ainda" de "estamos conversando" perderia o sentido — e com ela o gargalo,
+ * que e o que a esteira existe para mostrar.
+ *
+ * `recusou` fica de fora por decisao do dono (06/09/2026): o cliente
+ * atendeu e disse nao; isso nao e uma conversa em andamento, e o caso
+ * continua onde esta ate alguem tentar de novo.
+ */
+export const RESULTADOS_QUE_CONVERSARAM = ["falou", "promessa_pagamento"] as const;
+export type ResultadoQueConversou = (typeof RESULTADOS_QUE_CONVERSARAM)[number];
+
+/**
+ * Para onde o CONTATO registrado leva o caso, ou `null` quando ele nao move
+ * nada. A esteira anda pelo trabalho feito: registrar uma conversa com um
+ * caso "Aberto" e o que o tira da fila de "ninguem ligou ainda" — sem o
+ * operador ter de arrastar a mao o que ele acabou de fazer.
+ *
+ * Uma regra so, de proposito: `aberto` -> `em_contato`. Caso ja em contato,
+ * negociando, com acordo, negativado ou fechado nao e tocado — o que muda
+ * esses e a negociacao, o desfecho ou a mao do operador.
+ */
+export function statusAposContato(
+  status: StatusDeCaso,
+  resultado: string | null | undefined,
+): "em_contato" | null {
+  if (status !== "aberto") return null;
+  if (!resultado || !(RESULTADOS_QUE_CONVERSARAM as readonly string[]).includes(resultado)) return null;
+  return "em_contato";
+}
+
 /* ── Negociação ───────────────────────────────────────────────────────── */
 
 export const TIPOS_DE_NEGOCIACAO = ["parcelamento", "quitacao_desconto", "baixa_negociada"] as const;
