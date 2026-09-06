@@ -72,6 +72,7 @@ import {
   type Tom,
   montarFicha360,
 } from "@shared/cobranca";
+import { FAIXAS_DE_ATRASO } from "@shared/cobranca/faixa-atraso";
 
 /**
  * COBRANCA — as rotas do funcionario que cobra.
@@ -1086,6 +1087,8 @@ const MAXIMO_POR_COLUNA = 200;
 const KanbanQuerySchema = z.object({
   etapa: z.enum(ETAPA_IDS).optional(),
   carteira: z.enum(CARTEIRAS).optional(),
+  /** Faixa de dias de atraso — as seis do dono (shared/cobranca/faixa-atraso.ts). */
+  atraso: z.enum(FAIXAS_DE_ATRASO).optional(),
   busca: z.string().trim().min(1).max(120).optional(),
   responsavel: z.union([z.literal("eu"), z.literal("geral"), z.coerce.number().int().positive()]).optional(),
   porColuna: z.coerce.number().int().min(1).max(MAXIMO_POR_COLUNA).default(PADRAO_POR_COLUNA),
@@ -1097,6 +1100,7 @@ function filtrosDoKanban(q: KanbanQuery, userId: number): FiltrosDaCarteira {
   if (q.carteira) f.carteira = q.carteira;
   if (q.etapa) f.etapa = q.etapa;
   if (q.busca) f.busca = q.busca;
+  if (q.atraso) f.faixaAtraso = q.atraso;
   // No quadro, "Minha fila" e MEUS + a fila geral: e o que a tela de fila fazia,
   // e sem isso o caso sem dono nao aparece e "Pegar para mim" nunca surge.
   if (q.responsavel === "eu") f.meusMaisFilaGeral = userId;

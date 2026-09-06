@@ -30,6 +30,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { carteiraDaNavegacao, caminhoNaCarteira, retornoDaCarteira, NOME_DA_CARTEIRA } from "@/components/cobranca/carteiras";
 import { NavegacaoCarteiras } from "@/components/cobranca/NavegacaoCarteiras";
+import { FiltroDeAtraso } from "@/components/cobranca/filtro-atraso";
 import { AlarmClock, ArrowRightLeft, ClipboardList, HandCoins, KanbanSquare, Pause, Search, Siren, TrendingUp } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
@@ -60,12 +61,13 @@ const OPCOES_ESCOPO: Array<{ k: Escopo; rotulo: string }> = [
 ];
 
 /** A query string do quadro — só o que a rota aceita, e nada vazio. */
-export function queryDoKanban(f: { escopo: Escopo; etapa: string; carteira: string; busca: string }): string {
+export function queryDoKanban(f: { escopo: Escopo; etapa: string; carteira: string; busca: string; atraso?: string }): string {
   const p = new URLSearchParams();
   if (f.escopo === "eu") p.set("responsavel", "eu");
   if (f.escopo === "geral") p.set("responsavel", "geral");
   if (f.etapa) p.set("etapa", f.etapa);
   if (f.carteira) p.set("carteira", f.carteira);
+  if (f.atraso) p.set("atraso", f.atraso);
   if (f.busca.trim()) p.set("busca", f.busca.trim());
   const s = p.toString();
   return s ? `?${s}` : "";
@@ -133,6 +135,8 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
 
   const [escopo, setEscopo] = useState<Escopo>("eu");
   const [etapa, setEtapa] = useState("");
+  // A faixa de atraso do dono (ate 7 · 8-15 · 16-30 · 31-60 · 61-90 · +90).
+  const [atraso, setAtraso] = useState("");
   const [buscaDigitada, setBuscaDigitada] = useState("");
   const [busca, setBusca] = useState("");
 
@@ -140,7 +144,7 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
   const [negociacao, setNegociacao] = useState<AlvoDaNegociacao | null>(null);
   const [cancelamento, setCancelamento] = useState<AlvoDoCancelamento | null>(null);
 
-  const query = queryDoKanban({ escopo, etapa, carteira, busca });
+  const query = queryDoKanban({ escopo, etapa, carteira, busca, atraso });
   const chaveDoQuadro = useMemo(() => [`${API_KANBAN}${query}`], [query]);
   const { data, isLoading, isError, error, refetch } = useQuery<unknown>({ queryKey: chaveDoQuadro, staleTime: 15_000 });
   const { data: regua } = useQuery<RespostaDaRegua>({ queryKey: [API_REGUA], staleTime: 300_000 });
@@ -264,14 +268,15 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
             data-testid="busca-kanban"
           />
         </label>
+        <FiltroDeAtraso valor={atraso} onChange={setAtraso} carteira={carteira} />
         <select className={cn(CONTROLE_CAMPO, "w-auto")} value={etapa} onChange={e => setEtapa(e.target.value)} aria-label="Etapa da régua" data-testid="filtro-etapa">
           <option value="">Todas as etapas</option>
           {(regua?.etapas ?? []).map(e => <option key={e.id} value={e.id}>{e.rotulo}</option>)}
           {!regua && ETAPA_IDS.map(id => <option key={id} value={id}>{id}</option>)}
         </select>
 
-        {(etapa || busca) && (
-          <button type="button" className={cn(BOTAO_SECUNDARIO, "h-9")} onClick={() => { setEtapa(""); setBusca(""); setBuscaDigitada(""); }} data-testid="limpar-filtros-kanban">Limpar</button>
+        {(etapa || atraso || busca) && (
+          <button type="button" className={cn(BOTAO_SECUNDARIO, "h-9")} onClick={() => { setEtapa(""); setAtraso(""); setBusca(""); setBuscaDigitada(""); }} data-testid="limpar-filtros-kanban">Limpar</button>
         )}
         {quadro.total !== null && <span className="ml-auto font-mono text-[11px] tabular-nums text-[var(--text-muted)]">{num(quadro.total)} casos no quadro</span>}
       </div>

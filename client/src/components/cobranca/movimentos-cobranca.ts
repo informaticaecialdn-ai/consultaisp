@@ -174,8 +174,24 @@ export function verboDaColuna(status: string): string | null {
  */
 export const ROTULO_DO_BOTAO_DE_ACORDO: Record<string, string> = {
   em_contato: "Propor acordo",
-  negociando: "Registrar acordo",
+  negociando: "Registrar aceite",
 };
+
+/**
+ * PARA ONDE o botao de acordo leva — e por que os dois destinos existem.
+ *
+ * "Propor acordo" abre o dialogo, que CRIA a negociacao. Em "negociando" isso
+ * daria 409 sempre: o caso so esta nessa coluna porque ja tem negociacao viva
+ * (foi ela que o moveu), e o storage recusa a segunda com NEGOCIACAO_VIVA
+ * ("cancele-a antes de propor outra"). O aceite mora na ficha do cliente.
+ * Achado da revisao de 06/09/2026: o botao principal da coluna levava toda a
+ * populacao dela a um erro garantido.
+ */
+export type DestinoDoBotaoDeAcordo = "dialogo" | "ficha";
+
+export function destinoDoBotaoDeAcordo(status: string): DestinoDoBotaoDeAcordo {
+  return status === "negociando" ? "ficha" : "dialogo";
+}
 
 export function rotuloDoBotaoDeAcordo(status: string): string | null {
   return ROTULO_DO_BOTAO_DE_ACORDO[status] ?? null;
@@ -192,6 +208,7 @@ export type AcaoPrincipalDoCard = "contato" | "acordo";
 export function acaoPrincipalDoCard(status: string): AcaoPrincipalDoCard {
   return status === "negociando" ? "acordo" : "contato";
 }
+/* O destino do botao principal de "negociando" e a ficha — ver destinoDoBotaoDeAcordo. */
 
 /**
  * O que TRAVA a coluna. Numa esteira o que importa não é quantos passaram, e

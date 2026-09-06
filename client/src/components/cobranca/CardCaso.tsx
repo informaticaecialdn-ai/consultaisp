@@ -36,7 +36,7 @@ import {
   type Carteira, type Etapa, type EtapaId, type MotivoSemEtapa, type StatusDeCaso, type StatusDeNegociacao, type TipoDeNegociacao,
 } from "@shared/cobranca";
 import { dataBr, dataCivilBr, dataHoraBr, proximoContato, situacaoDoErp, whatsappDe, type UrgenciaDoContato } from "./formatacao";
-import { acaoPrincipalDoCard, CORTES_DO_TEMPO_NA_COLUNA, rotuloDoBotaoDeAcordo, tomDaEtapaDaRegua, tomDoTempoNaColuna, verboDaColuna } from "./movimentos-cobranca";
+import { acaoPrincipalDoCard, CORTES_DO_TEMPO_NA_COLUNA, destinoDoBotaoDeAcordo, rotuloDoBotaoDeAcordo, tomDaEtapaDaRegua, tomDoTempoNaColuna, verboDaColuna } from "./movimentos-cobranca";
 import { rotaDoCliente, type ItemDaFila, type NegociacaoResumo } from "./tipos";
 import { Avatar, LinkWhatsapp, PilulaAtraso, SeloCobranca, SeloPrioridade, SeloQuadrante, SeloTom, Traco, type TomDeSelo } from "./ui";
 
@@ -199,7 +199,10 @@ export function CardCaso({ item, etapas, hoje, acoes, ocupado, overlay, alca }: 
   // Esteira: ha quanto tempo o caso esta NESTA coluna, e o verbo que o tira dela.
   const diasAqui = diasNoStatusDoCaso(item, hoje);
   const rotuloDoAcordo = rotuloDoBotaoDeAcordo(item.status);
-  const ofereceAcordo = !overlay && !fechado && rotuloDoAcordo !== null && acoes.onNegociar !== undefined;
+  // Em "negociando" o aceite mora na ficha: o dialogo so cria negociacao, e o
+  // caso ja tem uma viva — o botao levaria a 409 (revisao de 06/09/2026).
+  const acordoNaFicha = destinoDoBotaoDeAcordo(item.status) === "ficha";
+  const ofereceAcordo = !overlay && !fechado && rotuloDoAcordo !== null && (acordoNaFicha || acoes.onNegociar !== undefined);
   const acordoEhPrincipal = ofereceAcordo && acaoPrincipalDoCard(item.status) === "acordo";
 
   return (
@@ -365,11 +368,20 @@ export function CardCaso({ item, etapas, hoje, acoes, ocupado, overlay, alca }: 
             que ele já fez. O contato continua ali, como secundário — nenhuma
             ação sai do card.
           */}
-          {acordoEhPrincipal && (
+          {acordoEhPrincipal && (acordoNaFicha ? (
+            <Link
+              href={rotaDoCliente(cliente.id, item.carteira)}
+              className={cn(BOTAO_MARCA, "h-8 px-2.5 text-[11.5px]")}
+              title={`${verboDaColuna(item.status)} — o aceite se registra na ficha do cliente, sobre a proposta que já existe`}
+              data-testid={`card-acordo-botao-${item.id}`}
+            >
+              <Handshake className="h-3 w-3" aria-hidden /> {rotuloDoAcordo}
+            </Link>
+          ) : (
             <button type="button" className={cn(BOTAO_MARCA, "h-8 px-2.5 text-[11.5px]")} title={`O que tira o caso desta coluna: ${verboDaColuna(item.status)}`} onClick={() => acoes.onNegociar?.(item)} data-testid={`card-acordo-botao-${item.id}`}>
               <Handshake className="h-3 w-3" aria-hidden /> {rotuloDoAcordo}
             </button>
-          )}
+          ))}
           <button type="button" className={cn(acordoEhPrincipal ? BOTAO_SECUNDARIO : BOTAO_MARCA, "h-8 px-2.5 text-[11.5px]")} onClick={() => acoes.onContato(item)} data-testid={`card-contato-${item.id}`}>
             <PhoneCall className="h-3 w-3" aria-hidden /> Contato
           </button>

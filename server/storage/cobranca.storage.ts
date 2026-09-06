@@ -30,6 +30,7 @@ import {
   type StatusDeCaso,
 } from "@shared/cobranca/estados";
 import { arredondar, brl } from "@shared/cobranca/politica";
+import { LIMITES_DA_FAIXA_DE_ATRASO, type FaixaDeAtraso } from "@shared/cobranca/faixa-atraso";
 import { dataSemHora } from "./customers.storage";
 
 /**
@@ -140,6 +141,13 @@ export interface FiltrosDaCarteira {
    * `responsavelUserId` quando os dois vierem.
    */
   meusMaisFilaGeral?: number;
+  /**
+   * Faixa de dias de atraso do CLIENTE (`customers.max_days_overdue`): as seis
+   * que o dono escreveu em 06/09/2026 — até 7 · 8 a 15 · 16 a 30 · 31 a 60 ·
+   * 61 a 90 · mais de 90. Filtra no SQL de propósito: filtrar na página faria
+   * o total do rodapé mentir. Ver shared/cobranca/faixa-atraso.ts.
+   */
+  faixaAtraso?: FaixaDeAtraso;
   /** Nome (ILIKE) ou documento (so digitos, prefixo). */
   busca?: string;
   /** `A` | `B` | `C` (grupo) ou `A1`..`C3` (quadrante). */
@@ -523,6 +531,17 @@ function condicoesDaCarteira(providerId: number, f: FiltrosDaCarteira): SQL | un
     conds.push(or(eq(cobrancaCasos.responsavelUserId, f.meusMaisFilaGeral), isNull(cobrancaCasos.responsavelUserId))!);
   } else if (f.responsavelUserId === null) conds.push(isNull(cobrancaCasos.responsavelUserId));
   else if (f.responsavelUserId !== undefined) conds.push(eq(cobrancaCasos.responsavelUserId, f.responsavelUserId));
+  if (f.faixaAtraso) {
+    /*
+     * O atraso mora no CLIENTE, não no caso: é a fatura mais antiga em aberto
+     * que o sync gravou (`max_days_overdue`), a mesma que o card mostra como
+     * D+N. `coalesce` porque cliente sem leitura vem nulo — e nulo não entra
+     * em faixa nenhuma, em vez de virar "até 7 dias".
+     */
+    const { min, max } = LIMITES_DA_FAIXA_DE_ATRASO[f.faixaAtraso];
+    conds.push(gte(sql`coalesce(${customers.maxDaysOverdue}, 0)`, min));
+    if (max !== null) conds.push(lte(sql`coalesce(${customers.maxDaysOverdue}, 0)`, max));
+  }
   if (f.quadrante) {
     const q = f.quadrante.trim().toUpperCase();
     conds.push(q.length === 1

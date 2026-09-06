@@ -11,7 +11,7 @@ import { STATUS_DE_CASO } from "@shared/cobranca/estados";
 import {
   acaoPrincipalDoCard, avaliarMovimentoDeCaso, COLUNAS_DESFECHO, COLUNAS_RECOLHIDAS, COLUNAS_VIVAS, contarGargalosDaColuna,
   CORTES_DO_TEMPO_NA_COLUNA, ORDEM_DO_QUADRO, rotuloDoBotaoDeAcordo, tomDoTempoNaColuna, VERBO_DA_COLUNA, verboDaColuna,
-  MOTIVO_ACORDO_NASCE_DO_ACEITE, MOTIVO_CASO_FECHADO, MOTIVO_MESMA_COLUNA, MOTIVO_SO_ADMIN, tituloDoMovimento, COR_DO_TOM, tomDaColunaDoKanban, tomDaEtapaDaRegua } from "./movimentos-cobranca";
+  MOTIVO_ACORDO_NASCE_DO_ACEITE, MOTIVO_CASO_FECHADO, MOTIVO_MESMA_COLUNA, MOTIVO_SO_ADMIN, tituloDoMovimento, COR_DO_TOM, tomDaColunaDoKanban, tomDaEtapaDaRegua , destinoDoBotaoDeAcordo} from "./movimentos-cobranca";
 
 const caso = (status: string) => ({ id: 1, status, valorAtual: 100 });
 const operador = { podeAdministrar: false };
@@ -142,7 +142,11 @@ describe("o verbo da coluna", () => {
 describe("o botão de acordo do card", () => {
   it("em contato PROPÕE; negociando REGISTRA o aceite; nas outras não há botão", () => {
     expect(rotuloDoBotaoDeAcordo("em_contato")).toBe("Propor acordo");
-    expect(rotuloDoBotaoDeAcordo("negociando")).toBe("Registrar acordo");
+    expect(rotuloDoBotaoDeAcordo("negociando")).toBe("Registrar aceite");
+    // E o aceite mora na FICHA: o dialogo so cria negociacao, e o caso em
+    // "negociando" ja tem uma viva — o botao daria 409 sempre.
+    expect(destinoDoBotaoDeAcordo("negociando")).toBe("ficha");
+    expect(destinoDoBotaoDeAcordo("em_contato")).toBe("dialogo");
     for (const s of ["aberto", "acordo_ativo", "pago", "cancelamento", "negativado"]) {
       expect(rotuloDoBotaoDeAcordo(s), s).toBeNull();
     }
