@@ -39,7 +39,18 @@ module.exports = {
       name: "consulta-isp-worker",
       script: "dist/worker.cjs",
       exec_mode: "fork",
-      max_memory_restart: "1G",
+      /*
+       * 4G, nao 1G. Medido em producao em 06/09/2026: o worker reiniciou 90
+       * vezes seguidas, uma a cada ~8 minutos, sempre logo depois de
+       * "Geocodificador local carregado" (6 municipios, 2.494.433 enderecos do
+       * CNEFE) e do indice de logradouros da carteira. O pm2 mandava SIGINT ao
+       * cruzar 1G e o backfill de geocodificacao NUNCA terminava — recomecava
+       * do zero a cada ciclo, gastando CPU e rede sem plotar ninguem.
+       * A VPS tem 32G, com 30G livres; 4G da folga para a base de enderecos e
+       * ainda protege contra vazamento de verdade. Se o consumo passar disso, o
+       * conserto e carregar o CNEFE sob demanda, nao subir o teto de novo.
+       */
+      max_memory_restart: "4G",
       // O worker drena o sync em voo por ate 30s antes de fechar o pool
       // (server/worker.ts). Sem esta linha o pm2 manda SIGKILL 1600ms depois do
       // SIGTERM e o dreno NUNCA transcorre: pool.end() nem chega a ser chamado
