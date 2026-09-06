@@ -24,7 +24,7 @@ import type {
 } from "@shared/schema";
 import type { AlertWithOwnership } from "./antifraude.storage";
 import type { FaturaAbertaDoErp } from "../erp/types";
-import { FaturasStorage, type GrupoDoMes, type ResumoDoMes } from "./faturas.storage";
+import { FaturasStorage, type FaturasDoCliente, type GrupoDoMes, type ResumoDoMes } from "./faturas.storage";
 
 import { UsersStorage } from "./users.storage";
 import { ProvidersStorage, type ProviderWithStats } from "./providers.storage";
@@ -360,6 +360,7 @@ export interface IStorage {
   baixarFaturasSumidas(providerId: number, erpSource: string, refsVistas: Set<string>, docsProtegidos?: string[]): Promise<number>;
   resumoDoMes(providerId: number, mes: string, hoje: Date): Promise<ResumoDoMes>;
   clientesDoMes(providerId: number, mes: string, grupo: GrupoDoMes, opcoes?: { hoje?: Date; limite?: number }): Promise<number[]>;
+  faturasDoCliente(providerId: number, customerId: number, opcoes?: { limite?: number; hoje?: Date }): Promise<FaturasDoCliente>;
 }
 
 class DatabaseStorage implements IStorage {
@@ -669,6 +670,7 @@ class DatabaseStorage implements IStorage {
   resumoDoMes = (providerId: number, mes: string, hoje: Date) => this._faturas.resumoDoMes(providerId, mes, hoje);
   recuperacaoAposContato = (...args: Parameters<FaturasStorage["recuperacaoAposContato"]>) => this._faturas.recuperacaoAposContato(...args);
   clientesDoMes = (providerId: number, mes: string, grupo: GrupoDoMes, opcoes?: { hoje?: Date; limite?: number }) => this._faturas.clientesDoMes(providerId, mes, grupo, opcoes);
+  faturasDoCliente = (providerId: number, customerId: number, opcoes?: { limite?: number; hoje?: Date }) => this._faturas.faturasDoCliente(providerId, customerId, opcoes);
 }
 
 export const storage = new DatabaseStorage();

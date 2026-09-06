@@ -16,14 +16,18 @@
  * O quadro é o único lugar do trabalho do dia (pedido do dono, 06/09/2026), e
  * por isso carrega o que só a fila tinha: as colunas vêm na ORDEM DO DIA
  * (`ordem: "dia"` no storage — vencido, hoje, sem data, agendado), o card diz
- * a que faixa pertence e qual o canal sugerido da etapa, e os indicadores
- * incluem "críticos".
+ * a que faixa pertence, e os indicadores incluem "críticos".
  *
  * E o quadro é uma ESTEIRA (pedido do dono, 06/09/2026): cada coluna é um
  * posto com um VERBO — o que se faz ali para o caso sair — e a conta do que
- * está travado; o card diz há quantos dias está parado naquele posto; e o topo
- * mostra o FLUXO DO DIA (entraram · resolvidos), porque só o estoque esconde
- * um quadro onde entra o dobro do que sai.
+ * está travado; e o topo mostra o FLUXO DO DIA (entraram · resolvidos), porque
+ * só o estoque esconde um quadro onde entra o dobro do que sai.
+ *
+ * O CARD É ENXUTO (pedido do dono, 06/09/2026: "o card está muito grande"):
+ * nome, documento mascarado, o valor vencido com o atraso e a faixa do dia.
+ * Clicar abre o `PainelDoCaso` — a dívida inteira, todos os boletos e o
+ * histórico da cobrança —, e é lá que moram a etapa da régua, o canal
+ * sugerido, o follow-up, o tempo na coluna e as ações secundárias.
  */
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -220,7 +224,7 @@ function QuadroDaCarteira({ carteira }: { carteira: Carteira }) {
     <div className="flex flex-col gap-4 p-4 lg:p-6" data-testid="cobranca-kanban">
       <CabecalhoPainel
         titulo={`Kanban · ${NOME_DA_CARTEIRA[carteira]}`}
-        descricao="A esteira da cobrança: cada coluna diz o que se faz ali para o caso sair e quantos estão travados; o card diz há quantos dias está parado no posto. A coluna vem na ordem do dia — vencido, hoje, sem data, agendado — e a etapa da régua é o selo do card."
+        descricao="A esteira da cobrança: cada coluna diz o que se faz ali para o caso sair e quantos estão travados. A coluna vem na ordem do dia — vencido, hoje, sem data, agendado. O card traz o essencial (quem, quanto, há quanto tempo); clique nele para ver a dívida inteira, todos os boletos e o histórico da cobrança."
         acoes={
           <div className="flex flex-wrap items-center gap-2">
             <Segmentado opcoes={OPCOES_ESCOPO} valor={escopo} onChange={setEscopo} rotulo="Escopo do quadro" />

@@ -368,3 +368,97 @@ describe("recuperacaoAposContato", () => {
     expect(r.janelaDias).toBe(90);
   });
 });
+
+/**
+ * `faturasDoCliente` — o que o painel do caso abre quando o operador clica no
+ * card (pedido do dono, 06/09/2026).
+ *
+ * O que precisa ficar provado, porque nada disso aparece na tela:
+ *
+ *   · as duas consultas filtram `provider_id` E `customer_id` — a lista de
+ *     faturas de um cliente e o lugar obvio para vazar tenant;
+ *   · a ordem e por vencimento, mais recente primeiro, com teto;
+ *   · os agregados saem da carteira INTEIRA do cliente, nao da pagina: a
+ *     fatura mais antiga e justamente a que o teto corta;
+ *   · vencida = ABERTA e antes de hoje (a que vence hoje ainda nao venceu),
+ *     a mesma regua do resumo do mes;
+ *   · sem fatura vencida gravada, `vencimentoMaisAntigo` e null — a tela
+ *     mostra "—" em vez de derivar "hoje menos os dias de atraso".
+ */
+describe("faturasDoCliente", () => {
+  const CLIENTE = 77;
+
+  /** A consulta que lista (tem `order by`) e a que agrega (tem `count(*)`). */
+  const listagem = () => banco.consultas.find(c => /order by/.test(c.sql))!;
+  const agregado = () => banco.consultas.find(c => /count\(\*\)/.test(c.sql))!;
+
+  it("duas consultas, as duas com provedor e cliente juntos", async () => {
+    await storage.faturasDoCliente(PROVEDOR, CLIENTE, { hoje: HOJE });
+    expect(banco.consultas).toHaveLength(2);
+    for (const c of banco.consultas) {
+      conferirTenant(c);
+      const oc = Array.from(c.sql.matchAll(/"customer_id" = \$(\d+)/g));
+      expect(oc.length, c.sql).toBeGreaterThan(0);
+      for (const o of oc) expect(c.params[Number(o[1]) - 1]).toBe(CLIENTE);
+    }
+  });
+
+  it("lista da mais recente para a mais antiga, com teto", async () => {
+    await storage.faturasDoCliente(PROVEDOR, CLIENTE, { hoje: HOJE, limite: 5 });
+    const c = listagem();
+    expect(c.sql).toContain('order by "invoices"."due_date" desc, "invoices"."id" desc');
+    expect(c.sql).toMatch(/limit \$\d+$/);
+    expect(c.params).toContain(5);
+  });
+
+  it("o teto e 200, mesmo que a rota peca mais — e nunca menos que 1", async () => {
+    expect((await storage.faturasDoCliente(PROVEDOR, CLIENTE, { limite: 5000 })).limite).toBe(200);
+    banco.consultas.length = 0;
+    expect((await storage.faturasDoCliente(PROVEDOR, CLIENTE, { limite: 0 })).limite).toBe(200);
+    banco.consultas.length = 0;
+    expect((await storage.faturasDoCliente(PROVEDOR, CLIENTE, { limite: -3 })).limite).toBe(1);
+  });
+
+  it("vencida e ABERTA e antes de hoje — a que vence hoje ainda nao venceu", async () => {
+    await storage.faturasDoCliente(PROVEDOR, CLIENTE, { hoje: HOJE });
+    const c = agregado();
+    expect(c.sql).toMatch(/filter \(where \("invoices"\."status" in \(\$\d+, \$\d+, \$\d+\) and "invoices"\."due_date" < \$\d+::timestamp\)\)/);
+    expect(c.params).toEqual(expect.arrayContaining(["aberta", "pending", "overdue", "2026-09-05"]));
+    // O agregado NAO tem janela de mes nem limite: e a carteira inteira do cliente.
+    expect(c.sql).not.toContain("limit");
+    expect(c.sql).toContain(`min("due_date") filter`);
+    expect(c.sql).toContain(`count(*) filter (where "erp_source" is not null)`);
+  });
+
+  // O texto do timestamp e o do Postgres ("AAAA-MM-DD HH:MM:SS"): e assim que o
+  // decodificador do Drizzle o le, somando +0000. O agregado passa pelo MESMO
+  // decodificador (`mapWith`), senao a fatura mais antiga escorregaria de dia.
+  it("devolve a fatura como a tela a mostra, e o valor vira numero", async () => {
+    banco.responder = (sql) => /order by/.test(sql)
+      ? [[10, "mk", "551", "2026-09-10 00:00:00", "99.90", "Mensalidade setembro", "aberta", null]]
+      : [[7, 7, 3, "310.50", "2026-07-10 00:00:00"]];
+
+    const r = await storage.faturasDoCliente(PROVEDOR, CLIENTE, { hoje: HOJE });
+    expect(r.linhas).toHaveLength(1);
+    expect(r.linhas[0]).toEqual({
+      id: 10, erpSource: "mk", erpRef: "551",
+      vencimento: new Date("2026-09-10T00:00:00.000Z"),
+      valor: 99.9, descricao: "Mensalidade setembro", status: "aberta", baixadaEm: null,
+    });
+    expect(r.total).toBe(7);
+    expect(r.doErp).toBe(7);
+    expect(r.vencidas).toBe(3);
+    expect(r.valorVencido).toBe(310.5);
+    expect(r.vencimentoMaisAntigo).toEqual(new Date("2026-07-10T00:00:00.000Z"));
+  });
+
+  it("cliente sem fatura gravada: tudo zero e vencimento NULO — a tela mostra o traco", async () => {
+    banco.responder = (sql) => /order by/.test(sql) ? [] : [[0, 0, 0, 0, null]];
+    const r = await storage.faturasDoCliente(PROVEDOR, CLIENTE, { hoje: HOJE });
+    expect(r.linhas).toEqual([]);
+    expect(r.total).toBe(0);
+    expect(r.doErp).toBe(0);
+    expect(r.vencidas).toBe(0);
+    expect(r.vencimentoMaisAntigo).toBeNull();
+  });
+});

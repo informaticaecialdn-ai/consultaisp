@@ -34,7 +34,7 @@
  *    vencimento e toda comparacao usa a mesma forma, para que "vence em
  *    setembro" nao escorregue tres horas para agosto.
  */
-import { and, eq, gte, inArray, isNotNull, lt, max, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, lt, max, sql, type SQL } from "drizzle-orm";
 import { db } from "../db";
 import { cobrancaEventos, customers, invoices } from "@shared/schema";
 import type { FaturaAbertaDoErp } from "../erp/types";
@@ -103,7 +103,43 @@ export interface RecuperacaoAposContato {
 
 const LOTE_DE_UPSERT = 500;
 const LIMITE_PADRAO = 20_000;
+/** O painel abre UM caso: 200 faturas ja e mais historico do que se le numa sentada. */
+const TETO_DE_FATURAS_DO_CLIENTE = 200;
 const DIA = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Uma fatura do cliente como o painel do caso a mostra — nada alem disso. */
+export interface FaturaDoCliente {
+  id: number;
+  /** `null` = veio do import CSV; "mk"/"ixc"/"sgp" = gravada pela varredura. */
+  erpSource: string | null;
+  /** O id da fatura no ERP. E a chave que a segunda via do chat pede. */
+  erpRef: string | null;
+  vencimento: Date;
+  valor: number;
+  descricao: string | null;
+  /** aberta | baixada_no_erp | pending | overdue | paid — ver o cabecalho. */
+  status: string;
+  baixadaEm: Date | null;
+}
+
+export interface FaturasDoCliente {
+  linhas: FaturaDoCliente[];
+  /** Quantas existem, mesmo que `linhas` tenha parado no teto. */
+  total: number;
+  limite: number;
+  /** Quantas vieram da varredura do ERP. Zero com `total > 0` = so import CSV. */
+  doErp: number;
+  /** Abertas e ja vencidas: quantas, quanto somam, e o vencimento mais antigo. */
+  vencidas: number;
+  valorVencido: number;
+  /**
+   * A data em que a fatura mais antiga venceu, LIDA das faturas. `null`
+   * quando nao ha nenhuma fatura vencida gravada — e ai a tela mostra "—".
+   * Derivar "hoje menos os dias de atraso" seria inventar um vencimento que
+   * ninguem gravou (regra do dono: integridade do dado).
+   */
+  vencimentoMaisAntigo: Date | null;
+}
 
 /**
  * AAAA-MM-DD como o timestamp que o Drizzle grava: meia-noite UTC. Quem le
@@ -412,6 +448,86 @@ export class FaturasStorage {
       ))
       .limit(limite);
     return linhas.map(l => l.id);
+  }
+
+  /**
+   * AS FATURAS DE UM CLIENTE, uma a uma — o que o painel do caso abre quando
+   * o operador clica no card.
+   *
+   * Ate aqui a tela so tinha o AGREGADO do sync (quanto deve, ha quantos dias,
+   * quantas faturas) e derivava o vencimento mais antigo de "hoje menos os
+   * dias de atraso". Desde a 0027 as faturas estao gravadas: a data sai da
+   * coluna, ou nao sai.
+   *
+   * Duas consultas, as duas com `provider_id` E `customer_id`:
+   *   1. a pagina — mais recentes primeiro por vencimento, teto de 200;
+   *   2. os agregados sobre a carteira INTEIRA do cliente — porque a fatura
+   *      mais antiga e justamente a que o teto corta.
+   *
+   * `hoje` decide o que esta vencido, pela mesma regua do resumo do mes:
+   * fatura que vence hoje ainda nao venceu.
+   */
+  async faturasDoCliente(
+    providerId: number,
+    customerId: number,
+    opcoes: { limite?: number; hoje?: Date } = {},
+  ): Promise<FaturasDoCliente> {
+    const limite = Math.max(
+      1,
+      Math.min(Math.trunc(opcoes.limite ?? TETO_DE_FATURAS_DO_CLIENTE) || TETO_DE_FATURAS_DO_CLIENTE, TETO_DE_FATURAS_DO_CLIENTE),
+    );
+    const corte = diaDeHoje(opcoes.hoje ?? new Date());
+    const doCliente = and(eq(invoices.providerId, providerId), eq(invoices.customerId, customerId))!;
+    const vencida = and(inArray(invoices.status, [...STATUS_FATURA_ABERTA]), lt(invoices.dueDate, ts(corte)))!;
+
+    const [linhas, agregado] = await Promise.all([
+      db.select({
+        id: invoices.id,
+        erpSource: invoices.erpSource,
+        erpRef: invoices.erpRef,
+        vencimento: invoices.dueDate,
+        valor: invoices.value,
+        descricao: invoices.descricao,
+        status: invoices.status,
+        baixadaEm: invoices.baixadaEm,
+      })
+        .from(invoices)
+        .where(doCliente)
+        .orderBy(desc(invoices.dueDate), desc(invoices.id))
+        .limit(limite),
+      db.select({
+        total: sql<number>`count(*)`.mapWith(Number),
+        doErp: sql<number>`count(*) filter (where ${invoices.erpSource} is not null)`.mapWith(Number),
+        vencidas: sql<number>`count(*) filter (where ${vencida})`.mapWith(Number),
+        valorVencido: sql<number>`coalesce(sum(${invoices.value}) filter (where ${vencida}), 0)`.mapWith(Number),
+        // `mapWith(due_date)` usa o MESMO decodificador da coluna: o agregado
+        // volta como Date exatamente como a linha volta, e nao como o texto
+        // cru do driver (que viraria dia local e escorregaria de mes).
+        vencimentoMaisAntigo: sql<Date | null>`min(${invoices.dueDate}) filter (where ${vencida})`.mapWith(invoices.dueDate),
+      })
+        .from(invoices)
+        .where(doCliente),
+    ]);
+
+    const a = agregado[0];
+    return {
+      linhas: linhas.map(l => ({
+        id: l.id,
+        erpSource: l.erpSource,
+        erpRef: l.erpRef,
+        vencimento: l.vencimento,
+        valor: Number(l.valor ?? 0),
+        descricao: l.descricao,
+        status: l.status,
+        baixadaEm: l.baixadaEm,
+      })),
+      total: a?.total ?? 0,
+      limite,
+      doErp: a?.doErp ?? 0,
+      vencidas: a?.vencidas ?? 0,
+      valorVencido: a?.valorVencido ?? 0,
+      vencimentoMaisAntigo: a?.vencimentoMaisAntigo ?? null,
+    };
   }
 
   /**

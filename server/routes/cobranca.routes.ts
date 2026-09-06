@@ -19,6 +19,7 @@ import {
   type PatchDeCaso,
   type StatusCasoFechado,
 } from "../storage/cobranca.storage";
+import type { FaturaDoCliente, FaturasDoCliente } from "../storage/faturas.storage";
 import type { CobrancaCaso, CobrancaEvento, CobrancaNegociacao, CobrancaParcela, Customer, Equipment } from "@shared/schema";
 import {
   ABORDAGEM_POR_QUADRANTE,
@@ -642,6 +643,81 @@ function negociacaoParaApi(n: CobrancaNegociacao, parcelamento: CobrancaParcela[
 
 function eventoParaApi(e: CobrancaEvento, nomes: Map<number, string>) {
   return { ...e, usuarioNome: e.userId === null ? null : nomes.get(e.userId) ?? null };
+}
+
+/* ── Detalhe do caso ─────────────────────────────────────────────────── */
+
+/**
+ * O painel abre UM caso. Os tetos existem para a resposta nao virar a carteira
+ * inteira num JSON; as duas listas dizem o `total` para a tela poder anunciar
+ * que parou no teto em vez de fingir que aquilo e tudo.
+ */
+const TETO_DE_FATURAS_NO_DETALHE = 200;
+const TETO_DE_EVENTOS_NO_DETALHE = 200;
+
+/**
+ * De onde saiu a lista de faturas. `indisponivel` NAO e "o cliente nao deve":
+ * e "este provedor ainda nao tem fatura a fatura", e a tela mostra "—" com
+ * este motivo no title, nunca uma lista vazia como se fosse a verdade.
+ */
+type OrigemDasFaturas = "erp" | "importacao" | "indisponivel";
+
+const MOTIVO_DA_ORIGEM: Record<OrigemDasFaturas, string | null> = {
+  erp: null,
+  importacao: "Estas faturas vieram de uma importacao CSV, nao da varredura do ERP.",
+  indisponivel: "A varredura deste provedor ainda nao gravou fatura a fatura; o que existe e o total em aberto do cliente, do agregado do sync.",
+};
+
+function origemDasFaturas(f: FaturasDoCliente): OrigemDasFaturas {
+  if (f.doErp > 0) return "erp";
+  return f.total > 0 ? "importacao" : "indisponivel";
+}
+
+/**
+ * Uma fatura do ERP: valor, vencimento e situacao. NAO e um boleto — nao ha
+ * linha digitavel nem PIX aqui. `erpRef` e a chave que a segunda via do chat
+ * usa (`segundaViaDoAtendimento`), e cada segunda via custa uma chamada ao
+ * vivo no ERP; por isso ela nao entra nesta resposta.
+ */
+function faturaParaApi(f: FaturaDoCliente) {
+  return {
+    id: f.id,
+    erpSource: f.erpSource,
+    erpRef: f.erpRef,
+    vencimento: f.vencimento,
+    valor: f.valor,
+    descricao: f.descricao,
+    status: f.status,
+    baixadaEm: f.baixadaEm,
+  };
+}
+
+/**
+ * O resumo da divida do caso, dizendo de onde vem cada numero.
+ *
+ * Valor, dias e contagem sao o AGREGADO da varredura (`customers`) — o mesmo
+ * que o card e o kanban mostram. O vencimento mais antigo sai da tabela de
+ * faturas, e so dela: a tela derivava "hoje menos os dias de atraso", que e
+ * uma data que ninguem gravou. Sem fatura vencida gravada vai `null` com o
+ * motivo, e a tela mostra "—".
+ */
+function dividaDoCaso(caso: LinhaDaCarteira, faturas: FaturasDoCliente) {
+  const temFatura = faturas.total > 0;
+  return {
+    valorAtual: caso.cliente.dividaAtual,
+    diasAtraso: caso.cliente.diasAtraso,
+    faturasVencidas: caso.cliente.faturasAbertas,
+    origem: "agregado_do_sync" as const,
+    vencimentoMaisAntigo: faturas.vencimentoMaisAntigo,
+    motivoSemVencimento: faturas.vencimentoMaisAntigo
+      ? null
+      : temFatura
+        ? "Nenhuma fatura vencida gravada para este cliente."
+        : MOTIVO_DA_ORIGEM.indisponivel,
+    // A conferencia fatura a fatura, quando ela existe: o operador ve o
+    // agregado e a soma das faturas lado a lado e nota quando discordam.
+    porFatura: temFatura ? { vencidas: faturas.vencidas, valor: faturas.valorVencido } : null,
+  };
 }
 
 /**
@@ -1653,6 +1729,62 @@ export function registerCobrancaRoutes(): Router {
 
       const atualizado = await storage.obterCasoDeCobranca(providerId, id);
       res.json(atualizado ? casoParaApi(atualizado) : { id });
+    } catch (e) {
+      falha(res, e);
+    }
+  });
+
+  // ── Detalhe do caso ───────────────────────────────────────────────────
+
+  /**
+   * TUDO o que o painel do caso mostra, numa resposta so.
+   *
+   * O pedido do dono (06/09/2026) foi enxugar o card do quadro e, ao clicar,
+   * abrir "todas as informacoes da divida, todos os boletos e o historico da
+   * cobranca". Um painel que fizesse quatro chamadas (caso, faturas, eventos,
+   * negociacoes) abriria em quatro tempos; aqui sao cinco consultas em
+   * paralelo, nenhuma por linha.
+   *
+   * O que NAO existe nesta resposta, de proposito: boleto. O que temos e a
+   * fatura do ERP com valor e vencimento. Linha digitavel e PIX so nascem da
+   * segunda via ao vivo (`segundaViaDoAtendimento`), uma chamada ao ERP por
+   * fatura — nao se pendura isso na abertura de um painel.
+   */
+  router.get("/api/cobranca/casos/:id/detalhe", requireAuth, requireProvider, async (req, res) => {
+    const id = idDaRota(req.params.id);
+    if (!id) return res.status(400).json({ message: "Caso invalido" });
+    const providerId = providerDaSessao(req);
+    try {
+      // O caso primeiro, e so dele: e ele que prova que o cliente e deste
+      // provedor antes de qualquer leitura por customerId.
+      const caso = await storage.obterCasoDeCobranca(providerId, id);
+      if (!caso) return res.status(404).json({ message: "Caso nao encontrado" });
+
+      const [faturas, eventos, negociacoes, equipe] = await Promise.all([
+        storage.faturasDoCliente(providerId, caso.cliente.id, { limite: TETO_DE_FATURAS_NO_DETALHE }),
+        storage.listarEventosDoCaso(providerId, id),
+        storage.listarNegociacoesDoCaso(providerId, id),
+        equipeDoProvedor(providerId),
+      ]);
+      const nomes = new Map(equipe.map(u => [u.id, u.nome]));
+
+      res.json({
+        caso: casoParaApi(caso),
+        divida: dividaDoCaso(caso, faturas),
+        faturas: {
+          linhas: faturas.linhas.map(faturaParaApi),
+          total: faturas.total,
+          limite: faturas.limite,
+          origem: origemDasFaturas(faturas),
+          motivo: MOTIVO_DA_ORIGEM[origemDasFaturas(faturas)],
+        },
+        eventos: {
+          linhas: eventos.slice(0, TETO_DE_EVENTOS_NO_DETALHE).map(e => eventoParaApi(e, nomes)),
+          total: eventos.length,
+          limite: TETO_DE_EVENTOS_NO_DETALHE,
+        },
+        negociacoes: negociacoes.map(n => negociacaoParaApi(n, n.parcelamento)),
+      });
     } catch (e) {
       falha(res, e);
     }

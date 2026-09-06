@@ -1,19 +1,26 @@
 /**
- * O card de cobrança conta a história do caso (pedido do dono, 05/09/2026):
- * quem, quanto e desde quando, o acordo e as parcelas, o que fazer agora e
- * com quem falar. As funções puras rodam de verdade; o JSX é travado pelo
- * fonte.
+ * O card do quadro depois do enxugamento (pedido do dono, 06/09/2026: "o card
+ * está muito grande… simplificar o card com o nome do cliente, CPF e dados dos
+ * valores vencidos").
+ *
+ * Estes testes travam as DUAS metades do pedido: o que FICOU no card e o que
+ * SAIU dele para o painel — porque um card que volta a crescer é exatamente a
+ * regressão que o dono reclamou. As funções puras rodam de verdade; o JSX é
+ * travado pelo fonte, como o resto da suíte de cobrança.
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  diasNoStatusDoCaso, MOTIVO_SEM_TEMPO_NA_COLUNA, resumoDoAcordo, textoDoTempoNaColuna,
-  TOM_DA_FAIXA_DO_DIA, vencimentoMaisAntigo,
+  casoFechado, diasNoStatusDoCaso, MOTIVO_SEM_TEMPO_NA_COLUNA, resumoDoAcordo,
+  STATUS_FECHADOS, textoDaFaixaDoDia, textoDoTempoNaColuna, TOM_DA_FAIXA_DO_DIA, vencimentoMaisAntigo,
 } from "./CardCaso";
 import { proximoContato } from "./formatacao";
 
 const fonte = readFileSync(new URL("./CardCaso.tsx", import.meta.url), "utf8");
-const semNbsp = (s: string) => s.replace(/ /g, " ");
+const painel = readFileSync(new URL("./PainelDoCaso.tsx", import.meta.url), "utf8");
+/** `brl` usa espaço FINO NÃO SEPARÁVEL depois do "R$"; o teste compara com espaço comum. */
+const NBSP = new RegExp(String.fromCharCode(160), "g");
+const semNbsp = (s: string) => s.replace(NBSP, " ");
 
 describe("vencimentoMaisAntigo", () => {
   it("é hoje menos os dias de atraso; sem atraso não há vencimento", () => {
@@ -35,9 +42,16 @@ describe("resumoDoAcordo", () => {
   });
 });
 
+describe("casoFechado", () => {
+  it("os quatro desfechos saem da esteira; o resto continua vivo", () => {
+    for (const s of STATUS_FECHADOS) expect(casoFechado(s)).toBe(true);
+    for (const s of ["aberto", "em_contato", "negociando", "acordo_ativo"]) expect(casoFechado(s)).toBe(false);
+  });
+});
+
 /**
  * A faixa do dia é a ordem em que a coluna vem do servidor (vencido, hoje,
- * sem data, agendado). O card diz a que faixa pertence — sem isso o operador
+ * sem data, agendado). É o ÚNICO selo que sobrou no card: sem ele o operador
  * não sabe por que aquele card está na frente.
  */
 describe("faixa do dia no card", () => {
@@ -58,70 +72,164 @@ describe("faixa do dia no card", () => {
     expect(TOM_DA_FAIXA_DO_DIA.futuro).toBe("neutro");
   });
 
-  it("o selo aparece no alto do card e some no caso fechado", () => {
+  /**
+   * O card não tem espaço para dois selos que dizem a mesma coisa: "sem data"
+   * e "sem próxima ação" são o MESMO campo vazio (`proximoContatoEm === null`).
+   * Fica a frase que diz o que fazer.
+   */
+  it("caso parado: a faixa lê 'sem próxima ação', e não 'sem data'", () => {
+    expect(textoDaFaixaDoDia("sem_data", "sem data")).toBe("sem próxima ação");
+    expect(textoDaFaixaDoDia("vencido", "vencido há 3 dias")).toBe("vencido há 3 dias");
+    expect(textoDaFaixaDoDia("hoje", "hoje")).toBe("hoje");
+    expect(textoDaFaixaDoDia("futuro", "em 2 dias")).toBe("em 2 dias");
+  });
+
+  it("o selo está no card e some no caso fechado", () => {
     expect(fonte).toContain("card-faixa-do-dia-${item.id}");
-    expect(fonte).toContain("{!fechado && (");
     expect(fonte).toContain("TOM_DA_FAIXA_DO_DIA[contato.urgencia]");
+    expect(fonte).toContain("textoDaFaixaDoDia(contato.urgencia, contato.texto)");
+    expect(fonte).toContain("{!fechado && (");
   });
 });
 
-describe("o card, pelo fonte", () => {
-  it("QUEM: nome inteiro (duas linhas, sem cortar), cidade e bairro, documento, situação do contrato", () => {
-    expect(fonte).toContain("[-webkit-line-clamp:2]");
+describe("o que FICOU no card", () => {
+  it("nome do cliente, em uma linha, com o nome inteiro no title", () => {
     expect(fonte).toContain("card-nome-${item.id}");
-    expect(fonte).toContain("[cliente.bairro, cliente.cidade].filter(Boolean)");
-    expect(fonte).toContain("situacaoDoErp(cliente.statusErp)");
+    expect(fonte).toContain("title={cliente.nome}");
+    // uma linha só: o clamp de duas linhas era do card antigo
+    expect(fonte).not.toContain("[-webkit-line-clamp:2]");
   });
-  it("QUANTO E DESDE QUANDO: a dívida em destaque, faturas vencidas, a mais antiga, o valor na abertura", () => {
+
+  it("o documento, mono tabular e MASCARADO — a listagem nunca mostra CPF em claro", () => {
+    expect(fonte).toContain("card-documento-${item.id}");
+    expect(fonte).toContain("{cliente.cpfCnpj}");
+    expect(fonte).toContain("TITULO_DO_DOCUMENTO");
+    expect(fonte).toMatch(/Documento mascarado/);
+    expect(fonte).toContain('const NUM = "font-mono tabular-nums"');
+  });
+
+  it("o valor vencido em destaque com o atraso D+N ao lado", () => {
     expect(fonte).toContain("card-divida-${item.id}");
-    expect(fonte).toContain("fatura${faturas === 1 ? \"\" : \"s\"} vencida");
-    expect(fonte).toContain("a mais antiga venceu ${dataBr(maisAntiga.toISOString())}");
-    expect(fonte).toContain("na abertura do caso: {brl(item.valorAbertura)}");
+    expect(fonte).toContain("{brl(item.valorAtual)}");
+    expect(fonte).toContain("var(--money-neg)");
+    expect(fonte).toContain("<PilulaAtraso dias={cliente.diasAtraso} />");
   });
-  it("O ACORDO: tipo, status e o andamento das parcelas quando há negociação viva", () => {
-    expect(fonte).toContain("card-acordo-${item.id}");
-    expect(fonte).toContain("resumoDoAcordo(acordo)");
-  });
-  it("O QUE FAZER AGORA: a etapa da régua com a AÇÃO escrita, o canal sugerido e o tom do DNA", () => {
-    expect(fonte).toContain("card-etapa-${item.id}");
-    expect(fonte).toContain("card-acao-${item.id}");
-    expect(fonte).toContain("{etapa.acao}");
-    expect(fonte).toContain("<SeloTom tom={tom} />");
-    // canal sugerido: sai da etapa da régua e só existe com etapa — canal não se inventa
-    expect(fonte).toContain("card-canal-${item.id}");
-    expect(fonte).toContain("ROTULO_CANAL[etapa.canalSugerido]");
-    expect(fonte).toMatch(/\{etapa && \(\s*<p className="mt-0\.5 pl-4/);
-  });
-  it("FOLLOW-UP: as quatro coisas claras (próxima ação, dono, quando, status) e o caso PARADO em vermelho", () => {
-    expect(fonte).toContain("card-followup-${item.id}");
-    expect(fonte).toContain("card-proxima-acao-${item.id}");
-    expect(fonte).toContain("sem próxima ação — defina no próximo contato");
-    expect(fonte).toContain("item.proximoContatoEm === null && !fechado");
-    expect(fonte).toContain("ROTULO_STATUS_DE_CASO[item.status as StatusDeCaso]");
-    // a régua só SUGERE (≈); a próxima ação escrita pelo operador vence
-    expect(fonte).toContain("item.proximaAcao ? (");
-    expect(fonte).toContain("≈ ${etapa.acao}");
-  });
-  it("COM QUEM: responsável, próximo e último contato, telefone com WhatsApp, chat", () => {
-    expect(fonte).toContain("próximo contato ${contato.texto}");
-    expect(fonte).toContain("último {dataBr(item.ultimoContatoEm)}");
-    expect(fonte).toContain("nenhum contato ainda");
-    expect(fonte).toContain("<LinkWhatsapp");
-    expect(fonte).toContain("card-chat-${item.id}");
-  });
-  it("as ações e os testids que o quadro e a fila esperam continuam", () => {
-    for (const id of ["card-caso-", "card-contato-", "card-pegar-", "card-enviar-chat-", "card-360-"]) expect(fonte).toContain(`${id}\${item.id}`);
-    expect(fonte).toContain("item.responsavelUserId === null && acoes.onPegar !== undefined");
-    expect(fonte).toContain("acoes.onEnviarParaChat && !item.chat");
+
+  it("duas ações rápidas: Contato e Conversa, e FORA do corpo clicável", () => {
+    // A da conversa entrou a pedido do dono, logo depois do card enxuto (06/09/2026).
+    expect(fonte).toContain("card-contato-${item.id}");
+    expect(fonte).toContain("card-conversa-${item.id}");
+    expect(fonte).toMatch(/As ações rápidas ficam FORA do corpo clicável/);
+    // os botões são irmãos do corpo, não filhos: clicar neles não abre o painel
+    expect(fonte).toMatch(/<\/div>\s*<\/div>\s*\n\s*\{\/\*/);
   });
 });
 
 /**
- * ESTEIRA (pedido do dono, 06/09/2026): o card diz há quantos dias o caso está
- * parado NAQUELE posto, e o botão principal ganha o verbo da coluna quando
- * insistir no contato mandaria o operador repetir o que ele já fez.
+ * O QUE SAIU. Cada linha aqui é uma parede que o card tinha e não tem mais —
+ * e cada uma é conferida no destino: nada foi apagado, tudo mudou de lugar.
  */
-describe("tempo na coluna", () => {
+describe("o botão da conversa", () => {
+  // Pedido do dono (06/09/2026): "o card precisa ter botao para ir para a conversa".
+  it("com conversa aberta, LEVA até ela pela tela de atendimento", () => {
+    expect(fonte).toContain("card-conversa-${item.id}");
+    expect(fonte).toContain("${ROTA_CHAT_COBRANCA}?conversa=");
+    expect(fonte).toContain("ROTA_CHAT_COBRANCA = \"/cobranca/chat\"");
+  });
+  it("sem conversa, INICIA — e sem chat ligado o botão explica em vez de sumir", () => {
+    expect(fonte).toContain("acoes.onEnviarParaChat?.(item)");
+    expect(fonte).toContain("O chat do provedor ainda não está ligado");
+  });
+  it("fica fora do corpo clicável, para não abrir o painel junto", () => {
+    const acoes = fonte.slice(fonte.indexOf("As ações rápidas ficam FORA do corpo clicável"));
+    expect(acoes).toContain("card-contato-${item.id}");
+    expect(acoes).toContain("card-conversa-${item.id}");
+  });
+});
+
+describe("o que SAIU do card e foi para o painel", () => {
+  const mudancas: Array<[string, RegExp, RegExp]> = [
+    ["a ação da régua escrita por extenso", /etapa\.acao/, /etapa\.acao/],
+    ["o canal sugerido", /ROTULO_CANAL\[etapa\.canalSugerido\]/, /ROTULO_CANAL\[etapa\.canalSugerido\]/],
+    ["o bloco de follow-up", /card-followup-/, /painel-followup/],
+    ["a próxima ação escrita", /card-proxima-acao-/, /painel-proxima-acao/],
+    ["o acordo detalhado", /resumoDoAcordo\(acordo\)/, /resumoDoAcordo\(acordoVivo\)/],
+    ["o telefone com WhatsApp", /<LinkWhatsapp/, /<LinkWhatsapp/],
+    ["a situação do contrato no ERP", /situacaoDoErp|<SeloErp/, /<SeloErp/],
+    ["o tempo na coluna", /card-tempo-na-coluna-/, /painel-tempo-na-coluna/],
+    ["o selo da conversa do chat", /card-chat-/, /painel-chat/],
+    ["o botão de pegar o caso", /card-pegar-/, /painel-pegar/],
+    ["o botão de enviar para o chat", /card-enviar-chat-/, /painel-enviar-chat/],
+    ["o atalho para o 360", /card-360-/, /painel-360/],
+    ["o botão de acordo", /card-acordo-botao-/, /painel-acordo/],
+  ];
+
+  for (const [oQue, noCard, noPainel] of mudancas) {
+    it(`${oQue}: saiu do card e está no painel`, () => {
+      expect(fonte).not.toMatch(noCard);
+      expect(painel).toMatch(noPainel);
+    });
+  }
+
+  it("o card cabe em poucas linhas: nome, documento, valor+atraso, faixa do dia e um botão", () => {
+    // Um bloco identificável por linha do card — o card antigo tinha treze.
+    const blocos = Array.from(new Set((fonte.match(/`card-[a-z0-9-]+-\$\{item\.id\}`/g) ?? []).map(s => s.slice(1, -"-${item.id}`".length))));
+    expect(blocos.sort()).toEqual([
+      "card-abrir",      // o corpo clicável
+      "card-alca",       // a alça de arrasto
+      "card-arrastavel", // o <article> do dnd-kit
+      "card-caso",       // o card
+      "card-contato",    // ação rápida
+      "card-conversa",   // ação rápida: leva à conversa (pedido do dono)
+      "card-divida",     // valor + atraso
+      "card-documento",
+      "card-faixa-do-dia",
+      "card-nome",
+    ]);
+  });
+});
+
+/**
+ * ARRASTAR ≠ ABRIR (o cuidado que o pedido do dono exige): a alça é só o
+ * ícone, e o corpo é um botão de verdade — teclado e anel de foco inclusos.
+ */
+describe("clicar abre o painel; arrastar continua arrastando", () => {
+  it("a alça de arrasto é o ÍCONE, não o bloco de identidade inteiro", () => {
+    expect(fonte).toContain("card-alca-${item.id}");
+    expect(fonte).toContain("<GripVertical");
+    expect(fonte).toContain("ref={alca.ref}");
+    expect(fonte).toContain("setActivatorNodeRef");
+    // o `alca.ref` e o corpo clicável são elementos DIFERENTES
+    expect(fonte).toMatch(/ref=\{alca\.ref\}[\s\S]{0,1400}O CORPO abre o painel/);
+  });
+
+  it("o corpo é role=button, focável, com Enter e Espaço", () => {
+    expect(fonte).toContain("card-abrir-${item.id}");
+    expect(fonte).toContain('role: "button"');
+    expect(fonte).toContain("tabIndex: 0");
+    expect(fonte).toContain('if (e.key !== "Enter" && e.key !== " ") return;');
+    // Espaço rolaria a coluna
+    expect(fonte).toContain("e.preventDefault();");
+    expect(fonte).toContain("Abrir o caso de ${cliente.nome}");
+    expect(fonte).toContain("FOCO");
+  });
+
+  it("no overlay do arrasto não há clique, alça nem botão", () => {
+    expect(fonte).toContain("const abrir = !overlay && acoes.onAbrir ? () => acoes.onAbrir?.(item) : null;");
+    expect(fonte).toContain("{!overlay && (");
+  });
+
+  it("`onAbrir` é opcional: sem ele o card não promete um painel que não abre", () => {
+    expect(fonte).toContain("onAbrir?: (item: ItemDaFila) => void;");
+    expect(fonte).toContain("{...(abrir");
+  });
+});
+
+/**
+ * Estas continuam exportadas daqui porque nasceram no card — quem as mostra
+ * hoje é o painel, e a fonte da verdade não se duplica.
+ */
+describe("o tempo na coluna (hoje mostrado no painel)", () => {
   const hoje = new Date(2026, 8, 6, 15, 0);
 
   it("prefere o número que a rota contou", () => {
@@ -142,6 +250,7 @@ describe("tempo na coluna", () => {
     expect(MOTIVO_SEM_TEMPO_NA_COLUNA).toMatch(/ainda não informa/);
     // updatedAt não vale como substituto, e o motivo diz por quê
     expect(MOTIVO_SEM_TEMPO_NA_COLUNA).toMatch(/updatedAt/);
+    expect(painel).toContain("MOTIVO_SEM_TEMPO_NA_COLUNA");
   });
 
   it("data no futuro (relógio adiantado) vira 0, nunca negativo", () => {
@@ -154,33 +263,11 @@ describe("tempo na coluna", () => {
     expect(textoDoTempoNaColuna(1)).toBe("há 1 dia aqui");
     expect(textoDoTempoNaColuna(12)).toBe("há 12 dias aqui");
   });
-
-  it("o selo está no card, em mono tabular, e some no caso fechado", () => {
-    expect(fonte).toContain("card-tempo-na-coluna-${item.id}");
-    expect(fonte).toContain("tomDoTempoNaColuna(diasAqui)");
-    expect(fonte).toContain("textoDoTempoNaColuna(diasAqui)");
-    expect(fonte).toContain("MOTIVO_SEM_TEMPO_NA_COLUNA");
-    // o selo vive dentro do mesmo `{!fechado && (` da faixa do dia
-    expect(fonte).toMatch(/\{!fechado && \([\s\S]{0,900}card-tempo-na-coluna/);
-  });
 });
 
-describe("o verbo da coluna no botão do card", () => {
-  it("negociando: o principal é registrar o acordo, e o contato continua ali como secundário", () => {
-    expect(fonte).toContain("acaoPrincipalDoCard(item.status) === \"acordo\"");
-    expect(fonte).toContain("card-acordo-botao-${item.id}");
-    expect(fonte).toContain("acordoEhPrincipal ? BOTAO_SECUNDARIO : BOTAO_MARCA");
-    // o botão de contato nunca sai do card
-    expect(fonte).toContain("card-contato-${item.id}");
-  });
-
-  it("sem `onNegociar` o card não oferece acordo nenhum — nada promete o que a tela não abre", () => {
-    expect(fonte).toContain("acoes.onNegociar !== undefined");
-    expect(fonte).toContain("rotuloDoAcordo !== null");
-    expect(fonte).toContain("!overlay && !fechado");
-  });
-
-  it("o title do botão diz o verbo que tira o caso da coluna", () => {
-    expect(fonte).toContain("O que tira o caso desta coluna: ${verboDaColuna(item.status)}");
+describe("os tokens do sistema", () => {
+  it("nada de paleta crua do Tailwind nem de sombra grande", () => {
+    expect(fonte).not.toMatch(/\b(bg|text|border)-(slate|gray|zinc|blue|emerald|red|amber|green)-\d{2,3}\b/);
+    expect(fonte).not.toMatch(/shadow-(md|lg|xl|2xl)\b/);
   });
 });

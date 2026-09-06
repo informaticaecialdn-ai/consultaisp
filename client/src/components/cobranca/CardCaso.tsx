@@ -1,44 +1,43 @@
 /**
- * O card de um caso de cobrança no kanban — a história do caso sem abrir a ficha.
+ * O card de um caso de cobrança no quadro — enxuto, para escanear a coluna.
  *
- * Pedido do dono (05/09/2026): "as informações não identificam o cliente; o
- * valor que ele deve, quais são as parcelas; é um card de cobrança, precisa
- * ter dados para entender na visualização o que se trata". Então o card diz,
- * nesta ordem: QUEM (nome inteiro, cidade e bairro, documento, situação do
- * contrato), QUANTO E DESDE QUANDO (dívida, faturas vencidas, a mais antiga,
- * o valor na abertura do caso), O QUE JÁ FOI COMBINADO (o acordo vivo e o
- * andamento das parcelas), O QUE FAZER AGORA (a etapa da régua com a ação, o
- * canal sugerido e o tom do DNA) e COM QUEM (responsável, próximo e último
- * contato, telefone, chat). As ações são as da fila: contato, pegar, enviar ao
- * chat, 360.
+ * Pedido do dono (06/09/2026, com o print de um card de vinte linhas): "o card
+ * está muito grande… simplificar o card com o nome do cliente, CPF e dados dos
+ * valores vencidos. Quando clicar no card, mostrar um card na tela com todas as
+ * informações da dívida, todos os boletos, e histórico da cobrança".
  *
- * O selo da FAIXA DO DIA (vencido · hoje · sem data · em N dias) fica no alto,
- * junto da identidade: é a ordem em que a coluna vem do servidor, e sem ele o
- * operador não sabe por que aquele card está na frente.
+ * Então o card diz QUATRO coisas e nada mais:
+ *   1. o NOME do cliente;
+ *   2. o DOCUMENTO — mascarado, como a rota o manda (LGPD; `mascararDocumento`
+ *      em `server/routes/cobranca.routes.ts`), nunca em claro na listagem;
+ *   3. o VALOR VENCIDO com o ATRASO (D+N e a faixa);
+ *   4. a FAIXA DO DIA, que é a ordem em que a coluna vem do servidor — sem ela
+ *      o operador não sabe por que aquele card está na frente. Quando o caso
+ *      está PARADO (vivo e sem data de próximo contato) a mesma faixa diz "sem
+ *      próxima ação", que é o que aquilo significa: dois selos para o mesmo
+ *      sinal seriam a parede de volta.
+ * Mais um botão de ação rápida: Contato.
  *
- * Ao lado dele, o TEMPO NA COLUNA ("há N dias aqui"), porque numa esteira o
- * que interessa é onde o trabalho empaca (pedido do dono, 06/09/2026). Ele sai
- * de `diasNoStatus`/`statusDesde`, que a rota pode ainda não mandar: sem eles
- * o selo é "—" com o motivo — nunca zero, que significaria "chegou hoje".
+ * TUDO O MAIS FOI PARA O PAINEL (`PainelDoCaso.tsx`), que abre no clique: a
+ * ação da régua escrita, o canal sugerido, o follow-up inteiro, o acordo e as
+ * parcelas, o telefone, a situação no ERP, o tempo na coluna, a conversa do
+ * chat e os botões secundários. Nada foi apagado — mudou de lugar.
  *
- * A alça de arrasto é o bloco de identidade (o `activator` do dnd-kit), para
- * o clique num botão não começar um arrasto — o mesmo cuidado do card de
- * equipamento.
+ * ARRASTAR ≠ ABRIR. A alça de arrasto é só o ícone (`setActivatorNodeRef`); o
+ * corpo do card é um `role="button"` com Enter, Espaço e anel de foco. Antes a
+ * alça era o bloco de identidade inteiro, e transformá-lo em botão faria um
+ * arrasto virar um clique.
  */
+import type { KeyboardEvent } from "react";
 import { useDraggable } from "@dnd-kit/core";
-import { Link } from "wouter";
-import { CalendarClock, ClipboardList, GripVertical, Handshake, Hourglass, MessageCircle, MessageSquareShare, PhoneCall, Route, UserRound } from "lucide-react";
+import { GripVertical, MessageSquareShare, PhoneCall } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { brl, num, TRACO } from "@/components/localizacao/ui";
-import { BOTAO_MARCA, BOTAO_SECUNDARIO, FOCO } from "@/components/painel/ui";
-import {
-  etapaParaAtraso, etapaPorId, janelaDaEtapa, ROTULO_CANAL, ROTULO_MOTIVO_SEM_ETAPA, ROTULO_STATUS_DE_CASO, ROTULO_STATUS_DE_NEGOCIACAO, ROTULO_TIPO_DE_NEGOCIACAO,
-  type Carteira, type Etapa, type EtapaId, type MotivoSemEtapa, type StatusDeCaso, type StatusDeNegociacao, type TipoDeNegociacao,
-} from "@shared/cobranca";
-import { dataBr, dataCivilBr, dataHoraBr, proximoContato, situacaoDoErp, whatsappDe, type UrgenciaDoContato } from "./formatacao";
-import { acaoPrincipalDoCard, CORTES_DO_TEMPO_NA_COLUNA, destinoDoBotaoDeAcordo, rotuloDoBotaoDeAcordo, tomDaEtapaDaRegua, tomDoTempoNaColuna, verboDaColuna } from "./movimentos-cobranca";
-import { rotaDoCliente, type ItemDaFila, type NegociacaoResumo } from "./tipos";
-import { Avatar, LinkWhatsapp, PilulaAtraso, SeloCobranca, SeloPrioridade, SeloQuadrante, SeloTom, Traco, type TomDeSelo } from "./ui";
+import { brl, TRACO } from "@/components/localizacao/ui";
+import { BOTAO_SECUNDARIO, FOCO } from "@/components/painel/ui";
+import { etapaParaAtraso, etapaPorId, ROTULO_MOTIVO_SEM_ETAPA, type Carteira, type Etapa, type EtapaId, type MotivoSemEtapa } from "@shared/cobranca";
+import { dataCivilBr, proximoContato, type UrgenciaDoContato } from "./formatacao";
+import type { ItemDaFila, NegociacaoResumo } from "./tipos";
+import { PilulaAtraso, SeloCobranca, type TomDeSelo } from "./ui";
 
 export interface EtapaDoCard {
   etapa: Etapa | null;
@@ -48,10 +47,10 @@ export interface EtapaDoCard {
 }
 
 /**
- * A etapa que o card mostra: a que a ROTA decidiu hoje; senão a gravada no
- * caso; e só em último caso a que a régua daria pelo atraso — dizendo que
- * derivou. Espelha `etapaDaLinha` da fila; vive aqui para o card não importar
- * uma página.
+ * A etapa que o caso tem hoje: a que a ROTA decidiu; senão a gravada no caso;
+ * e só em último caso a que a régua daria pelo atraso — dizendo que derivou.
+ * O CARD não a mostra mais (foi para o painel), mas a página do quadro a usa
+ * para o diálogo de contato e para a mensagem do chat, e o painel a exibe.
  */
 export function etapaDoCard(item: ItemDaFila, etapas: readonly Etapa[] | undefined): EtapaDoCard {
   if (item.regua) {
@@ -74,15 +73,24 @@ export function etapaDoCard(item: ItemDaFila, etapas: readonly Etapa[] | undefin
 const DIA_MS = 86_400_000;
 const inicioDoDia = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 
+/** Os status em que o caso já saiu da esteira: nada de faixa do dia nem de ação. */
+export const STATUS_FECHADOS = ["pago", "cancelamento", "baixado", "encerrado"] as const;
+
+export function casoFechado(status: string): boolean {
+  return (STATUS_FECHADOS as readonly string[]).includes(status);
+}
+
 export const MOTIVO_SEM_TEMPO_NA_COLUNA =
   "Tempo na coluna: o servidor ainda não informa desde quando o caso está neste status — a medição começa agora. `updatedAt` não serve: muda por qualquer motivo.";
 
 /**
  * Há quantos dias o caso está NESTA coluna. Prefere o número que a rota
- * contou; sem ele, deriva de `statusDesde`; sem os dois, `null` — e o card
+ * contou; sem ele, deriva de `statusDesde`; sem os dois, `null` — e a tela
  * mostra "—" com o motivo, nunca zero (zero é "chegou hoje", e é outra coisa).
  *
  * Data no futuro (relógio do servidor à frente) vira 0, não negativo.
+ *
+ * Mora aqui desde que o selo era do card; hoje quem o mostra é o painel.
  */
 export function diasNoStatusDoCaso(
   caso: { diasNoStatus?: number | null; statusDesde?: string | null },
@@ -104,7 +112,7 @@ export function textoDoTempoNaColuna(dias: number | null): string {
   return `há ${dias} ${dias === 1 ? "dia" : "dias"} aqui`;
 }
 
-/** A data em que a fatura mais antiga venceu: hoje menos os dias de atraso — o sync guarda só o agregado. */
+/** A data em que a fatura mais antiga venceu: hoje menos os dias de atraso — o agregado do sync. */
 export function vencimentoMaisAntigo(diasAtraso: number, hoje: Date): Date | null {
   if (diasAtraso <= 0) return null;
   return new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - diasAtraso);
@@ -125,13 +133,11 @@ export function resumoDoAcordo(n: NegociacaoResumo): string {
 }
 
 /**
- * A FAIXA DO DIA no card, que e a mesma ordem em que a coluna vem do servidor:
+ * A FAIXA DO DIA no card, que é a mesma ordem em que a coluna vem do servidor:
  * contato vencido, de hoje, sem data (o caso parado) e por fim os agendados.
- * Sem ela o operador teria de abrir o follow-up de cada card para saber por
- * que aquele veio primeiro.
  *
- * "Sem data" e vermelho como "vencido" de proposito: caso vivo sem proximo
- * contato esta parado, e parado vira divida perdida.
+ * "Sem data" é vermelho como "vencido" de propósito: caso vivo sem próximo
+ * contato está parado, e parado vira dívida perdida.
  */
 export const TOM_DA_FAIXA_DO_DIA: Record<UrgenciaDoContato, TomDeSelo> = {
   vencido: "danger",
@@ -143,11 +149,22 @@ export const TOM_DA_FAIXA_DO_DIA: Record<UrgenciaDoContato, TomDeSelo> = {
 const TITULO_DA_FAIXA_DO_DIA: Record<UrgenciaDoContato, string> = {
   vencido: "Contato vencido: passou da data marcada. A coluna traz estes primeiro, do mais antigo para o mais novo.",
   hoje: "Contato marcado para hoje.",
-  sem_data: "Caso sem próxima ação marcada: está parado. Defina a data no próximo contato.",
+  sem_data: "Caso sem próxima ação marcada: está parado, e parado vira dívida perdida. Abra o caso e defina a data no próximo contato.",
   futuro: "Contato agendado: vem depois do que está vencido, de hoje e do que está parado.",
 };
 
+/**
+ * O texto da faixa. Caso PARADO (sem data de próximo contato) lê "sem próxima
+ * ação" e não "sem data": as duas frases descrevem o mesmo campo vazio, e o
+ * card só tem espaço para a que diz o que fazer.
+ */
+export function textoDaFaixaDoDia(urgencia: UrgenciaDoContato, texto: string): string {
+  return urgencia === "sem_data" ? "sem próxima ação" : texto;
+}
+
 export interface AcoesDoCard {
+  /** Clicar no card: abre o painel com a dívida inteira, os boletos e o histórico. */
+  onAbrir?: (item: ItemDaFila) => void;
   onContato: (item: ItemDaFila) => void;
   onPegar?: (item: ItemDaFila) => void;
   pegando?: boolean;
@@ -158,9 +175,9 @@ export interface AcoesDoCard {
   /** O inbox do chat, para o selo "conversa" abrir a conversa la. */
   inboxUrl?: string | null;
   /**
-   * O verbo da coluna no botão: em contato se PROPÕE o acordo, negociando se
-   * REGISTRA o aceite. Sem ele o card não oferece acordo — nenhum botão
-   * aparece prometendo o que a tela não sabe abrir.
+   * O verbo da coluna: em contato se PROPÕE o acordo, negociando se REGISTRA o
+   * aceite. Sem ele o painel não oferece acordo — nenhum botão promete o que a
+   * tela não sabe abrir.
    */
   onNegociar?: (item: ItemDaFila) => void;
 }
@@ -169,41 +186,27 @@ export function chaveDoCard(item: ItemDaFila): string {
   return `caso-${item.id}`;
 }
 
+/** A tela de atendimento da cobranca; ela abre uma conversa direto por `?conversa=`. */
+const ROTA_CHAT_COBRANCA = "/cobranca/chat";
+
 const NUM = "font-mono tabular-nums";
 
-export function CardCaso({ item, etapas, hoje, acoes, ocupado, overlay, alca }: {
+const TITULO_DO_DOCUMENTO =
+  "Documento mascarado: a listagem nunca mostra CPF/CNPJ em claro. O documento inteiro fica na ficha do cliente (360).";
+
+export function CardCaso({ item, hoje, acoes, ocupado, overlay, alca }: {
   item: ItemDaFila;
-  etapas: readonly Etapa[] | undefined;
   hoje: Date;
   acoes: AcoesDoCard;
   ocupado?: boolean;
-  /** Renderizado dentro do DragOverlay: sem alça e sem botões vivos. */
+  /** Renderizado dentro do DragOverlay: sem alça, sem clique e sem botão. */
   overlay?: boolean;
   alca?: { ref: (el: HTMLElement | null) => void; listeners: Record<string, unknown> | undefined; atributos: Record<string, unknown> };
 }) {
   const { cliente } = item;
-  const { etapa, motivo, derivada } = etapaDoCard(item, etapas);
   const contato = proximoContato(item.proximoContatoEm, hoje);
-  const whatsapp = whatsappDe(cliente.telefone);
-  const tom = item.tomSugerido ?? item.tom;
-  const quadrante = item.quadrante ?? item.quadranteDna;
-  const podePegar = item.responsavelUserId === null && acoes.onPegar !== undefined;
-  const situacao = situacaoDoErp(cliente.statusErp);
-  const fechado = ["pago", "cancelamento", "baixado", "encerrado"].includes(item.status);
-  const maisAntiga = vencimentoMaisAntigo(cliente.diasAtraso, hoje);
-  const faturas = cliente.faturasAbertas ?? null;
-  const acordo = item.negociacao ?? null;
-  const lugar = [cliente.bairro, cliente.cidade].filter(Boolean).join(" · ");
-  // Follow-up: caso vivo sem data de proximo contato esta PARADO — e o que vira divida perdida.
-  const parado = !overlay && item.proximoContatoEm === null && !fechado;
-  // Esteira: ha quanto tempo o caso esta NESTA coluna, e o verbo que o tira dela.
-  const diasAqui = diasNoStatusDoCaso(item, hoje);
-  const rotuloDoAcordo = rotuloDoBotaoDeAcordo(item.status);
-  // Em "negociando" o aceite mora na ficha: o dialogo so cria negociacao, e o
-  // caso ja tem uma viva — o botao levaria a 409 (revisao de 06/09/2026).
-  const acordoNaFicha = destinoDoBotaoDeAcordo(item.status) === "ficha";
-  const ofereceAcordo = !overlay && !fechado && rotuloDoAcordo !== null && (acordoNaFicha || acoes.onNegociar !== undefined);
-  const acordoEhPrincipal = ofereceAcordo && acaoPrincipalDoCard(item.status) === "acordo";
+  const fechado = casoFechado(item.status);
+  const abrir = !overlay && acoes.onAbrir ? () => acoes.onAbrir?.(item) : null;
 
   return (
     <div
@@ -214,201 +217,135 @@ export function CardCaso({ item, etapas, hoje, acoes, ocupado, overlay, alca }: 
       )}
       data-testid={`card-caso-${item.id}`}
     >
-      {/* QUEM — a alça de arrasto */}
-      <div
-        ref={alca?.ref}
-        {...(alca?.listeners ?? {})}
-        {...(alca?.atributos ?? {})}
-        className={cn("flex items-start gap-2", alca && "cursor-grab active:cursor-grabbing", FOCO, "rounded")}
-        aria-label={`${cliente.nome} · ${brl(item.valorAtual)} · ${cliente.diasAtraso} dias`}
-      >
-        {alca && <GripVertical className="mt-0.5 h-3.5 w-3.5 flex-none text-[var(--text-faint)]" aria-hidden />}
-        <Avatar nome={cliente.nome} tamanho="sm" />
-        <div className="min-w-0 flex-1">
-          <p className="text-[12.5px] font-semibold leading-4 text-[var(--text)] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden" title={cliente.nome} data-testid={`card-nome-${item.id}`}>{cliente.nome}</p>
-          <p className={cn(NUM, "truncate text-[10.5px] text-[var(--text-muted)]")}>{cliente.cpfCnpj}{lugar ? <span className="font-sans"> · {lugar}</span> : null}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-1">
-            <SeloCobranca tom={situacao.tom} titulo="Situação do contrato no ERP, como veio no último sync">{situacao.rotulo}</SeloCobranca>
-            <SeloPrioridade prioridade={item.prioridade} />
-            {!fechado && (
+      <div className="flex items-start gap-1.5">
+        {/* A ALÇA é só o ícone: arrastar daqui, clicar no resto. */}
+        {alca && (
+          <span
+            ref={alca.ref}
+            {...(alca.listeners ?? {})}
+            {...(alca.atributos ?? {})}
+            className={cn(
+              "flex flex-none items-start justify-center rounded pt-[3px] text-[var(--text-faint)] hover:text-[var(--text-muted)]",
+              // No dedo a alça precisa ser um alvo de verdade (DESIGN_SYSTEM §7:
+              // 44×44). No mouse ela fica estreita, para não roubar largura da
+              // coluna — o ponteiro fino acerta 18px sem esforço.
+              "min-h-[24px] w-[18px] [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:w-11 [@media(pointer:coarse)]:items-center",
+              "cursor-grab active:cursor-grabbing",
+              FOCO,
+            )}
+            aria-label={`Arrastar o caso de ${cliente.nome} para outra coluna`}
+            title="Arraste por aqui para mudar o caso de coluna"
+            data-testid={`card-alca-${item.id}`}
+          >
+            <GripVertical className="h-3.5 w-3.5" aria-hidden />
+          </span>
+        )}
+
+        {/* O CORPO abre o painel: clique, Enter ou Espaço. */}
+        <div
+          className={cn("min-w-0 flex-1 rounded", abrir && "cursor-pointer", FOCO)}
+          {...(abrir
+            ? {
+                role: "button",
+                tabIndex: 0,
+                onClick: abrir,
+                onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
+                  if (e.key !== "Enter" && e.key !== " ") return;
+                  // Espaço rolaria a coluna; Enter dispararia o form de cima.
+                  e.preventDefault();
+                  abrir();
+                },
+                "aria-label": `Abrir o caso de ${cliente.nome} · ${brl(item.valorAtual)} · ${cliente.diasAtraso} dias de atraso`,
+              }
+            : {})}
+          data-testid={`card-abrir-${item.id}`}
+        >
+          <p
+            className="truncate text-[12.5px] font-semibold leading-4 text-[var(--text)]"
+            title={cliente.nome}
+            data-testid={`card-nome-${item.id}`}
+          >
+            {cliente.nome}
+          </p>
+          <p className={cn(NUM, "truncate text-[10.5px] text-[var(--text-muted)]")} title={TITULO_DO_DOCUMENTO} data-testid={`card-documento-${item.id}`}>
+            {cliente.cpfCnpj}
+          </p>
+          <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-1" data-testid={`card-divida-${item.id}`}>
+            <span className={cn(NUM, "text-[16px] font-semibold leading-none text-[var(--money-neg)]")}>{brl(item.valorAtual)}</span>
+            <PilulaAtraso dias={cliente.diasAtraso} />
+          </div>
+          {!fechado && (
+            <div className="mt-1.5">
               <SeloCobranca
                 tom={TOM_DA_FAIXA_DO_DIA[contato.urgencia]}
                 titulo={TITULO_DA_FAIXA_DO_DIA[contato.urgencia]}
                 className="normal-case tracking-normal"
                 testId={`card-faixa-do-dia-${item.id}`}
               >
-                <CalendarClock className="h-3 w-3" aria-hidden /> {contato.texto}
+                {textoDaFaixaDoDia(contato.urgencia, contato.texto)}
               </SeloCobranca>
-            )}
-            {/* Esteira: ha quanto tempo o caso esta PARADO nesta coluna — o gargalo que o quadro precisa mostrar. */}
-            {!fechado && (
-              <SeloCobranca
-                tom={tomDoTempoNaColuna(diasAqui)}
-                titulo={diasAqui === null
-                  ? MOTIVO_SEM_TEMPO_NA_COLUNA
-                  : `Tempo nesta coluna ("${ROTULO_STATUS_DE_CASO[item.status as StatusDeCaso] ?? item.status}"). A partir de ${CORTES_DO_TEMPO_NA_COLUNA.atencao} dias o selo esquenta; de ${CORTES_DO_TEMPO_NA_COLUNA.perigo} em diante é gargalo. Os cortes são escolha nossa, não medição histórica.`}
-                className="normal-case tracking-normal"
-                testId={`card-tempo-na-coluna-${item.id}`}
-              >
-                <Hourglass className="h-3 w-3" aria-hidden /> {textoDoTempoNaColuna(diasAqui)}
-              </SeloCobranca>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* QUANTO E DESDE QUANDO */}
-      <div className="mt-2 rounded-lg bg-[var(--surface-2)] px-2.5 py-2" data-testid={`card-divida-${item.id}`}>
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="font-mono text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">deve</span>
-          <span className={cn(NUM, "text-[16px] font-semibold leading-none text-[var(--money-neg)]")}>{brl(item.valorAtual)}</span>
-        </div>
-        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          <PilulaAtraso dias={cliente.diasAtraso} />
-          <span className={cn(NUM, "text-[11px] text-[var(--text-2)]")}>
-            {faturas !== null ? `${num(faturas)} fatura${faturas === 1 ? "" : "s"} vencida${faturas === 1 ? "" : "s"}` : "faturas —"}
-            {maisAntiga ? ` · a mais antiga venceu ${dataBr(maisAntiga.toISOString())}` : ""}
-          </span>
-        </div>
-        {item.valorAbertura !== item.valorAtual && (
-          <p className={cn(NUM, "mt-1 text-[10.5px] text-[var(--text-faint)]")}>na abertura do caso: {brl(item.valorAbertura)} · {dataBr(item.abertoEm)}</p>
-        )}
-        {acordo && (
-          <p className="mt-1.5 flex items-start gap-1 text-[11px] leading-4 text-[var(--text-2)]" data-testid={`card-acordo-${item.id}`}>
-            <Handshake className="mt-0.5 h-3 w-3 flex-none text-[var(--ok)]" aria-hidden />
-            <span>
-              <b className="text-[var(--text)]">{ROTULO_TIPO_DE_NEGOCIACAO[acordo.tipo as TipoDeNegociacao] ?? acordo.tipo}</b>
-              <span className="text-[var(--text-muted)]"> · {ROTULO_STATUS_DE_NEGOCIACAO[acordo.status as StatusDeNegociacao] ?? acordo.status}</span>
-              <br /><span className={NUM}>{resumoDoAcordo(acordo)}</span>
-            </span>
-          </p>
-        )}
-      </div>
-
-      {/* O QUE FAZER AGORA */}
-      <div className="mt-2 flex flex-wrap items-center gap-1">
-        {etapa ? (
-          <SeloCobranca
-            tom={tomDaEtapaDaRegua(etapa.id)}
-            titulo={derivada ? `${etapa.acao} — etapa derivada do atraso; o motor ainda não gravou` : etapa.acao}
-            testId={`card-etapa-${item.id}`}
-          >
-            {etapa.rotulo} <span className="tabular-nums normal-case tracking-normal">{janelaDaEtapa(etapa)}</span>
-            {derivada && <span aria-label="derivada do atraso">≈</span>}
-          </SeloCobranca>
-        ) : (
-          <span className="text-[10.5px] text-[var(--text-muted)]" title={motivo ?? undefined}>{motivo ?? <Traco />}</span>
-        )}
-        <SeloQuadrante quadrante={quadrante} />
-        <SeloTom tom={tom} />
-        {item.chat && (
-          (
-            <a href={`/cobranca/chat?conversa=${encodeURIComponent(item.chat.conversationId)}&carteira=${item.carteira}`} onClick={e => e.stopPropagation()} className="inline-flex" title={`Conversa no chat · ${item.chat.status}`} data-testid={`card-chat-${item.id}`}>
-              <SeloCobranca tom="info" className="normal-case tracking-normal"><MessageSquareShare className="h-3 w-3" aria-hidden /> chat · {item.chat.status.toLowerCase()}</SeloCobranca>
-            </a>
-          )
-        )}
-      </div>
-      {etapa && (
-        <p className="mt-1 flex items-start gap-1 text-[11px] leading-4 text-[var(--text-2)]" title={etapa.acao} data-testid={`card-acao-${item.id}`}>
-          <Route className="mt-0.5 h-3 w-3 flex-none text-[var(--text-faint)]" aria-hidden />
-          <span className="[display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">{etapa.acao}</span>
-        </p>
-      )}
-      {/* Canal sugerido: vem da etapa da régua. Sem etapa não há canal — e canal não se inventa. */}
-      {etapa && (
-        <p className="mt-0.5 pl-4 text-[10.5px] text-[var(--text-muted)]" data-testid={`card-canal-${item.id}`}>
-          canal sugerido <b className="font-medium text-[var(--text-2)]">{ROTULO_CANAL[etapa.canalSugerido]}</b>
-        </p>
-      )}
-
-      {/* FOLLOW-UP — as quatro coisas que todo caso precisa ter claras: próxima ação, dono, quando, status */}
-      <div
-        className={cn("mt-2 rounded-lg border px-2.5 py-2", parado ? "border-[var(--danger-border)] bg-[var(--danger-bg)]" : "border-[var(--border-faint)] bg-[var(--surface)]")}
-        data-testid={`card-followup-${item.id}`}
-        data-parado={parado ? "true" : undefined}
-      >
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-mono text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">follow-up</span>
-          <span className={cn("font-mono text-[10px] uppercase tracking-[var(--track-wide)]", parado ? "text-[var(--danger)]" : "text-[var(--text-faint)]")}>{ROTULO_STATUS_DE_CASO[item.status as StatusDeCaso] ?? item.status}</span>
-        </div>
-        <p className="mt-1 flex items-start gap-1 text-[11.5px] leading-4 text-[var(--text)]" data-testid={`card-proxima-acao-${item.id}`}>
-          <ClipboardList className={cn("mt-0.5 h-3 w-3 flex-none", parado ? "text-[var(--danger)]" : "text-[var(--text-faint)]")} aria-hidden />
-          {parado ? (
-            <span className="font-medium text-[var(--danger)]">sem próxima ação — defina no próximo contato</span>
-          ) : item.proximaAcao ? (
-            <span className="font-medium">{item.proximaAcao}</span>
-          ) : (
-            <span className="text-[var(--text-2)]" title="A régua sugere; o operador confirma no próximo contato">{etapa ? `≈ ${etapa.acao}` : "—"}</span>
+            </div>
           )}
-        </p>
-        <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[11px]">
-          <dt className="flex items-center gap-1 text-[var(--text-faint)]"><UserRound className="h-3 w-3" aria-hidden /></dt>
-          <dd className="truncate text-[var(--text-2)]">{item.responsavelNome ?? <span className="text-[var(--text-faint)]">fila geral · sem dono</span>}</dd>
-          <dt className="flex items-center gap-1 text-[var(--text-faint)]"><CalendarClock className="h-3 w-3" aria-hidden /></dt>
-          <dd
-            className={cn(NUM, contato.urgencia === "vencido" ? "text-[var(--danger)]" : contato.urgencia === "hoje" ? "text-[var(--gated)]" : contato.urgencia === "sem_data" ? "text-[var(--danger)]" : "text-[var(--text-2)]")}
-            title={item.proximoContatoEm ? dataHoraBr(item.proximoContatoEm) : undefined}
-          >
-            {contato.urgencia === "sem_data" ? "sem data" : `próximo contato ${contato.texto}`}{item.ultimoContatoEm ? <span className="text-[var(--text-faint)]"> · último {dataBr(item.ultimoContatoEm)}</span> : <span className="text-[var(--text-faint)]"> · nenhum contato ainda</span>}
-          </dd>
-          <dt className="flex items-center gap-1 text-[var(--text-faint)]"><PhoneCall className="h-3 w-3" aria-hidden /></dt>
-          <dd className={cn(NUM, "flex items-center gap-1 truncate text-[var(--text-2)]")}>
-            {cliente.telefone ?? TRACO}
-            {whatsapp && !overlay && <LinkWhatsapp whatsapp={whatsapp} nome={cliente.nome}><MessageCircle className="h-3.5 w-3.5" aria-hidden /></LinkWhatsapp>}
-          </dd>
-        </dl>
+        </div>
       </div>
 
+      {/*
+        As ações rápidas ficam FORA do corpo clicável: clicar nelas não pode
+        abrir o painel.
+
+        A da conversa é pedido do dono (06/09/2026): "o card precisa ter botão
+        para ir para a conversa". Com conversa aberta, o botão LEVA até ela (a
+        tela de chat aceita `?conversa=`); sem conversa, ele INICIA — que é o
+        que o antigo "Enviar p/ cobrança" fazia. Antes disso o acesso à
+        conversa era um selo pequeno de status, fácil de não ver.
+      */}
       {!overlay && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {/*
-            O verbo da coluna no botão principal: em "Negociando" o trabalho é
-            fechar o acordo, e destacar "Contato" mandaria o operador repetir o
-            que ele já fez. O contato continua ali, como secundário — nenhuma
-            ação sai do card.
-          */}
-          {acordoEhPrincipal && (acordoNaFicha ? (
-            <Link
-              href={rotaDoCliente(cliente.id, item.carteira)}
-              className={cn(BOTAO_MARCA, "h-8 px-2.5 text-[11.5px]")}
-              title={`${verboDaColuna(item.status)} — o aceite se registra na ficha do cliente, sobre a proposta que já existe`}
-              data-testid={`card-acordo-botao-${item.id}`}
-            >
-              <Handshake className="h-3 w-3" aria-hidden /> {rotuloDoAcordo}
-            </Link>
-          ) : (
-            <button type="button" className={cn(BOTAO_MARCA, "h-8 px-2.5 text-[11.5px]")} title={`O que tira o caso desta coluna: ${verboDaColuna(item.status)}`} onClick={() => acoes.onNegociar?.(item)} data-testid={`card-acordo-botao-${item.id}`}>
-              <Handshake className="h-3 w-3" aria-hidden /> {rotuloDoAcordo}
-            </button>
-          ))}
-          <button type="button" className={cn(acordoEhPrincipal ? BOTAO_SECUNDARIO : BOTAO_MARCA, "h-8 px-2.5 text-[11.5px]")} onClick={() => acoes.onContato(item)} data-testid={`card-contato-${item.id}`}>
-            <PhoneCall className="h-3 w-3" aria-hidden /> Contato
+        <div className="mt-2 grid grid-cols-2 gap-1.5">
+          <button
+            type="button"
+            className={cn(BOTAO_SECUNDARIO, "text-[12px]")}
+            onClick={() => acoes.onContato(item)}
+            data-testid={`card-contato-${item.id}`}
+          >
+            <PhoneCall className="h-3.5 w-3.5" aria-hidden /> Contato
           </button>
-          {ofereceAcordo && !acordoEhPrincipal && (
-            <button type="button" className={cn(BOTAO_SECUNDARIO, "h-8 px-2.5 text-[11.5px]")} title={`O que tira o caso desta coluna: ${verboDaColuna(item.status)}`} onClick={() => acoes.onNegociar?.(item)} data-testid={`card-acordo-botao-${item.id}`}>
-              <Handshake className="h-3 w-3" aria-hidden /> {rotuloDoAcordo}
+          {item.chat ? (
+            <a
+              href={`${ROTA_CHAT_COBRANCA}?conversa=${encodeURIComponent(item.chat.conversationId)}&carteira=${item.carteira}`}
+              className={cn(BOTAO_SECUNDARIO, "text-[12px]")}
+              title={`Abrir a conversa deste cliente · ${item.chat.status.toLowerCase()}`}
+              data-testid={`card-conversa-${item.id}`}
+            >
+              <MessageSquareShare className="h-3.5 w-3.5" aria-hidden /> Conversa
+            </a>
+          ) : acoes.onEnviarParaChat ? (
+            <button
+              type="button"
+              className={cn(BOTAO_SECUNDARIO, "text-[12px]")}
+              disabled={acoes.enviandoParaChat === item.id}
+              title="Abre a conversa deste cliente no WhatsApp do provedor, com a mensagem da etapa da régua"
+              onClick={() => acoes.onEnviarParaChat?.(item)}
+              data-testid={`card-conversa-${item.id}`}
+            >
+              <MessageSquareShare className="h-3.5 w-3.5" aria-hidden /> {acoes.enviandoParaChat === item.id ? "Abrindo…" : "Conversa"}
             </button>
+          ) : (
+            <span
+              className={cn(BOTAO_SECUNDARIO, "text-[12px] opacity-60")}
+              title="O chat do provedor ainda não está ligado: nenhum número de WhatsApp foi conectado no Painel do Provedor"
+              data-testid={`card-conversa-${item.id}`}
+            >
+              <MessageSquareShare className="h-3.5 w-3.5" aria-hidden /> Conversa
+            </span>
           )}
-          {podePegar && (
-            <button type="button" className={cn(BOTAO_SECUNDARIO, "h-8 px-2.5 text-[11.5px]")} disabled={acoes.pegando} onClick={() => acoes.onPegar?.(item)} data-testid={`card-pegar-${item.id}`}>
-              <UserRound className="h-3 w-3" aria-hidden /> Pegar
-            </button>
-          )}
-          {acoes.onEnviarParaChat && !item.chat && (
-            <button type="button" className={cn(BOTAO_SECUNDARIO, "h-8 px-2.5 text-[11.5px]")} disabled={acoes.enviandoParaChat === item.id} title="Abre a conversa do cliente no WhatsApp do provedor com a mensagem da etapa" onClick={() => acoes.onEnviarParaChat?.(item)} data-testid={`card-enviar-chat-${item.id}`}>
-              <MessageSquareShare className="h-3 w-3" aria-hidden /> {acoes.enviandoParaChat === item.id ? "Enviando…" : "Enviar p/ cobrança"}
-            </button>
-          )}
-          <Link href={rotaDoCliente(cliente.id, item.carteira)} className={cn(BOTAO_SECUNDARIO, "h-8 px-2.5 text-[11.5px]")} data-testid={`card-360-${item.id}`}>360</Link>
         </div>
       )}
     </div>
   );
 }
 
-export function CardCasoArrastavel({ item, etapas, hoje, acoes, ocupado }: {
-  item: ItemDaFila; etapas: readonly Etapa[] | undefined; hoje: Date; acoes: AcoesDoCard; ocupado?: boolean;
+export function CardCasoArrastavel({ item, hoje, acoes, ocupado }: {
+  item: ItemDaFila; hoje: Date; acoes: AcoesDoCard; ocupado?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, isDragging } = useDraggable({
     id: chaveDoCard(item),
@@ -419,7 +356,6 @@ export function CardCasoArrastavel({ item, etapas, hoje, acoes, ocupado }: {
     <article ref={setNodeRef} role="listitem" style={{ opacity: isDragging ? 0.35 : 1 }} data-testid={`card-arrastavel-${item.id}`}>
       <CardCaso
         item={item}
-        etapas={etapas}
         hoje={hoje}
         acoes={acoes}
         ocupado={ocupado}

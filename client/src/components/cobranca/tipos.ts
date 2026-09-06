@@ -882,3 +882,172 @@ export function lerRecuperacao(resposta: unknown): RecuperacaoDaCobranca {
     porCanal: recorte(r.porCanal, ROTULO_CANAL),
   };
 }
+
+/* ── Detalhe do caso — o painel que o card abre ──────────────────────── */
+
+/**
+ * Pedido do dono (06/09/2026): "quando clicar no card, mostrar um card na tela
+ * com todas as informações da dívida, todos os boletos, e histórico da
+ * cobrança". O card do quadro ficou com nome, documento e o valor vencido; o
+ * resto mora aqui.
+ *
+ * A rota é `GET /api/cobranca/casos/:id/detalhe` e devolve
+ * `{ caso, divida, faturas, eventos, negociacoes }`. CADA BLOCO É OPCIONAL, e
+ * a distinção é a regra do dono: `null` = a rota não mandou o bloco (a tela
+ * mostra "—" com o motivo), `[]` = mandou e não há nada (a tela diz que não
+ * há). Lista vazia e bloco ausente NÃO são a mesma coisa, e escrever zero no
+ * lugar do ausente diria que o cliente não deve fatura nenhuma.
+ */
+export const apiDetalheDoCaso = (casoId: number) => `${API_CASOS}/${casoId}/detalhe`;
+
+/**
+ * O status de uma fatura como o sync a grava (migração 0027) mais o legado do
+ * CSV. Nada aqui afirma pagamento confirmado além de `paid`, que só a
+ * importação por CSV produz.
+ */
+export const ROTULO_STATUS_DE_FATURA: Record<string, string> = {
+  aberta: "aberta",
+  pending: "aberta",
+  overdue: "aberta",
+  baixada_no_erp: "baixada no ERP",
+  paid: "paga",
+  cancelada: "cancelada",
+};
+
+export const MOTIVO_FATURA_ABERTA =
+  "Aberta: continua na lista de pendentes do ERP na última varredura.";
+export const MOTIVO_BAIXADA_NO_ERP =
+  "Baixada no ERP: a fatura sumiu da lista de pendentes numa varredura completa — pagamento provável, SEM confirmação de valor. Nenhum ERP nos diz quanto foi pago.";
+export const MOTIVO_FATURA_PAGA =
+  "Paga: baixa com valor confirmado. Hoje só a importação por CSV afirma isso — o ERP não confirma pagamento.";
+
+export const MOTIVO_SEM_FATURAS =
+  "A rota não devolveu as faturas deste caso. O sync grava fatura a fatura desde 05/09/2026 (MK, IXC e SGP); listar zero aqui diria que o cliente não tem boleto nenhum.";
+export const MOTIVO_NENHUMA_FATURA =
+  "Nenhuma fatura deste cliente veio do ERP. A dívida acima é o agregado que o sync grava por cliente — a fatura a fatura só existe para os ERPs que a devolvem.";
+export const MOTIVO_SEM_HISTORICO =
+  "A rota não devolveu os eventos deste caso. O histórico existe em `cobranca_eventos`; sem o bloco a tela não inventa uma linha do tempo vazia.";
+export const MOTIVO_SEM_ACORDOS =
+  "A rota não devolveu as negociações deste caso. Sem o bloco não dá para afirmar que não há acordo.";
+export const MOTIVO_SEM_DIVIDA_DETALHADA =
+  "A rota não devolveu o bloco da dívida. Os números abaixo são o agregado por cliente do último sync, o mesmo que o card do quadro mostra.";
+
+/** Uma fatura como a migração 0027 a guarda: o que o ERP devolveu, sem interpretação. */
+export interface FaturaDoCaso {
+  id: number;
+  /** O id da fatura no ERP (`erp_ref`); `null` nas linhas legadas do CSV. */
+  erpRef: string | null;
+  erpSource: string | null;
+  vencimento: string | null;
+  valor: number | null;
+  descricao: string | null;
+  status: string;
+  /** Quando a varredura completa deixou de ver a fatura nos pendentes. */
+  baixadaEm: string | null;
+}
+
+/** A dívida do caso, como a rota a resume. `base: false` = não há fatura vinda do ERP. */
+export interface DividaDoCaso {
+  total: number | null;
+  diasAtraso: number | null;
+  faturasAbertas: number | null;
+  faturasVencidas: number | null;
+  faturasAVencer: number | null;
+  vencimentoMaisAntigo: string | null;
+  base: boolean;
+  motivo: string | null;
+}
+
+export interface DetalheDoCaso {
+  caso: ItemDaFila | null;
+  divida: DividaDoCaso | null;
+  faturas: FaturaDoCaso[] | null;
+  eventos: EventoDeCobranca[] | null;
+  negociacoes: NegociacaoDeCobranca[] | null;
+}
+
+/** Pendente no ERP — os três nomes que convivem (`aberta` do sync, `pending`/`overdue` do CSV). */
+export function faturaEstaAberta(status: string | null | undefined): boolean {
+  return status === "aberta" || status === "pending" || status === "overdue";
+}
+
+/** A soma do que ainda está PENDENTE no ERP; fatura sem valor não entra (não vira zero). */
+export function somaDasFaturasAbertas(faturas: readonly FaturaDoCaso[]): number | null {
+  const abertas = faturas.filter(f => faturaEstaAberta(f.status) && f.valor !== null);
+  if (abertas.length === 0) return null;
+  return Math.round(abertas.reduce((s, f) => s + (f.valor ?? 0), 0) * 100) / 100;
+}
+
+function textoOuNulo(v: unknown): string | null {
+  return typeof v === "string" && v.trim() !== "" ? v : null;
+}
+
+/** Uma linha de fatura, tolerante aos dois vocabulários (o do storage e o da coluna do banco). */
+export function lerFaturaDoCaso(cru: unknown): FaturaDoCaso | null {
+  if (!cru || typeof cru !== "object" || Array.isArray(cru)) return null;
+  const f = cru as Record<string, unknown>;
+  const id = numero(f.id);
+  if (id === null) return null;
+  return {
+    id,
+    erpRef: textoOuNulo(f.erpRef) ?? textoOuNulo(f.erp_ref),
+    erpSource: textoOuNulo(f.erpSource) ?? textoOuNulo(f.erp_source),
+    vencimento: textoOuNulo(f.vencimento) ?? textoOuNulo(f.dueDate) ?? textoOuNulo(f.due_date),
+    valor: numero(f.valor) ?? numero(f.value),
+    descricao: textoOuNulo(f.descricao) ?? textoOuNulo(f.description),
+    status: textoOuNulo(f.status) ?? "",
+    baixadaEm: textoOuNulo(f.baixadaEm) ?? textoOuNulo(f.baixada_em),
+  };
+}
+
+/**
+ * O detalhe inteiro. Bloco que não veio fica `null` — nunca `[]`, nunca zero:
+ * a tela precisa poder dizer "a rota não mandou" com outras palavras que
+ * "não há".
+ */
+/**
+ * A lista de um bloco do detalhe, venha ela como array puro ou dentro do
+ * envelope `{ linhas, total, limite }` que a rota usa quando ha teto.
+ * `null` = o bloco nao veio (diferente de veio vazio).
+ */
+function linhasDaLista(valor: unknown): unknown[] | null {
+  if (Array.isArray(valor)) return valor;
+  if (valor && typeof valor === "object" && Array.isArray((valor as { linhas?: unknown }).linhas)) {
+    return (valor as { linhas: unknown[] }).linhas;
+  }
+  return null;
+}
+
+export function lerDetalheDoCaso(resposta: unknown): DetalheDoCaso {
+  const r = resposta && typeof resposta === "object" && !Array.isArray(resposta) ? (resposta as Record<string, unknown>) : {};
+  const cru = r.caso && typeof r.caso === "object" && !Array.isArray(r.caso) ? (r.caso as Record<string, unknown>) : null;
+  const d = r.divida && typeof r.divida === "object" && !Array.isArray(r.divida) ? (r.divida as Record<string, unknown>) : null;
+  return {
+    caso: cru as ItemDaFila | null,
+    divida: d
+      ? {
+          total: numero(d.total) ?? numero(d.valorAtual),
+          diasAtraso: numero(d.diasAtraso),
+          faturasAbertas: numero(d.faturasAbertas),
+          faturasVencidas: numero(d.faturasVencidas) ?? numero(d.vencidas),
+          faturasAVencer: numero(d.faturasAVencer) ?? numero(d.aVencer),
+          vencimentoMaisAntigo: textoOuNulo(d.vencimentoMaisAntigo) ?? textoOuNulo(d.maisAntiga),
+          base: d.base === true,
+          motivo: textoOuNulo(d.motivo),
+        }
+      : null,
+    /*
+     * A rota manda lista COM ENVELOPE (`{ linhas, total, limite }`), porque as
+     * duas listas tem teto e a tela precisa saber quantas ficaram de fora.
+     * Aceitamos as duas formas: array puro (contrato antigo) e envelope. Sem
+     * isto o painel abria sempre vazio dizendo "a rota nao devolveu" — as duas
+     * frentes combinaram formas diferentes e nenhum teste cruzava a costura
+     * (achado da revisao de 06/09/2026).
+     */
+    faturas: linhasDaLista(r.faturas)
+      ? linhasDaLista(r.faturas)!.map(lerFaturaDoCaso).filter((f): f is FaturaDoCaso => f !== null)
+      : null,
+    eventos: (linhasDaLista(r.eventos) as EventoDeCobranca[] | null),
+    negociacoes: Array.isArray(r.negociacoes) ? (r.negociacoes as NegociacaoDeCobranca[]) : null,
+  };
+}

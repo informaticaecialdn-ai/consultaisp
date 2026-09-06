@@ -15,6 +15,7 @@ const ler = (caminho: string) => readFileSync(new URL(caminho, import.meta.url),
 const pagina = ler("./kanban.tsx");
 const quadro = ler("../../components/cobranca/KanbanCobranca.tsx");
 const card = ler("../../components/cobranca/CardCaso.tsx");
+const painel = ler("../../components/cobranca/PainelDoCaso.tsx");
 const app = ler("../../App.tsx");
 const carteira = ler("./carteira.tsx");
 const sidebar = ler("../../components/app-sidebar.tsx");
@@ -111,9 +112,9 @@ describe("a página do kanban", () => {
     expect(pagina).toContain('data-testid="kanban-vazio"');
   });
 
-  it("só oferece 'pegar' a quem está logado, e o caso sem dono decide no card", () => {
+  it("só oferece 'pegar' a quem está logado, e o caso sem dono decide no painel", () => {
     expect(pagina).toContain("onPegar: user ? (item: ItemDaFila) => pegar.mutate(item.id) : undefined");
-    expect(card).toContain("item.responsavelUserId === null && acoes.onPegar !== undefined");
+    expect(painel).toContain("item.responsavelUserId === null && acoes.onPegar !== undefined");
   });
 });
 
@@ -124,13 +125,13 @@ describe("o quadro", () => {
     }
   });
 
-  it("o card oferece enviar para cobranca so com o chat pronto, e mostra o selo da conversa quando ja foi enviado", () => {
+  it("o painel oferece enviar para cobranca so com o chat pronto, e mostra o selo da conversa quando ja foi enviado", () => {
     expect(pagina).toContain("chatProntoParaEnviar(integracaoDoChat)");
     expect(pagina).toContain("onEnviarParaChat: chatPronto ? (item: ItemDaFila) => enviarParaChat.mutate(item) : undefined");
     expect(pagina).toContain("apiEnviarCasoParaChat(item.id)");
-    expect(card).toContain("acoes.onEnviarParaChat && !item.chat");
-    expect(card).toContain("card-enviar-chat-${item.id}");
-    expect(card).toContain("card-chat-${item.id}");
+    expect(painel).toContain("acoes.onEnviarParaChat && !item.chat");
+    expect(painel).toContain('data-testid="painel-enviar-chat"');
+    expect(painel).toContain('data-testid="painel-chat"');
   });
 
   it("move com mutation otimista e desfaz no erro", () => {
@@ -139,16 +140,42 @@ describe("o quadro", () => {
     expect(quadro).toContain("setQueryData");
   });
 
-  it("o card mostra a etapa como selo, não como coluna", () => {
-    expect(card).toContain("card-etapa-${item.id}");
-    expect(card).toContain("etapaDoCard");
-  });
-
-  it("o card diz a faixa do dia e o canal sugerido — o que só a fila mostrava", () => {
+  /**
+   * O CARD ENXUTO (pedido do dono, 06/09/2026: "o card está muito grande…").
+   * O quadro escaneia; o painel detalha. Quem trava o conteúdo do card é
+   * `card-caso.test.ts`; aqui só se trava a fronteira entre os dois.
+   */
+  it("o card leva o essencial e o resto abre no clique", () => {
+    expect(card).toContain("card-nome-${item.id}");
+    expect(card).toContain("card-documento-${item.id}");
+    expect(card).toContain("card-divida-${item.id}");
     expect(card).toContain("card-faixa-do-dia-${item.id}");
     expect(card).toContain("TOM_DA_FAIXA_DO_DIA[contato.urgencia]");
-    expect(card).toContain("card-canal-${item.id}");
-    expect(card).toContain("ROTULO_CANAL[etapa.canalSugerido]");
+    // a etapa da régua e o canal sugerido são do PAINEL agora
+    expect(card).not.toContain("card-etapa-${item.id}");
+    expect(card).not.toContain("card-canal-${item.id}");
+    expect(painel).toContain("etapaDoCard(item, etapas)");
+    expect(painel).toContain('data-testid="painel-etapa"');
+    expect(painel).toContain("ROTULO_CANAL[etapa.canalSugerido]");
+  });
+
+  it("clicar no card abre o painel, e arrastar continua sendo a alça", () => {
+    expect(card).toContain("card-abrir-${item.id}");
+    expect(card).toContain("card-alca-${item.id}");
+    expect(quadro).toContain("<PainelDoCaso");
+    expect(quadro).toContain("onAbrir: setCasoNoPainel");
+    // a alça é o ativador do dnd-kit; o corpo é um botão de verdade
+    expect(card).toContain("setActivatorNodeRef");
+    expect(card).toContain('role: "button"');
+  });
+
+  it("o painel busca o detalhe pela rota combinada e trata cada bloco como opcional", () => {
+    expect(tipos).toContain('export const apiDetalheDoCaso = (casoId: number) => `${API_CASOS}/${casoId}/detalhe`');
+    expect(painel).toContain("apiDetalheDoCaso(casoId)");
+    expect(painel).toContain("lerDetalheDoCaso(data)");
+    expect(tipos).toContain("faturas: FaturaDoCaso[] | null;");
+    expect(tipos).toContain("eventos: EventoDeCobranca[] | null;");
+    expect(tipos).toContain("negociacoes: NegociacaoDeCobranca[] | null;");
   });
 });
 
@@ -262,29 +289,30 @@ describe("o fluxo do dia", () => {
   });
 });
 
-describe("o card leva o verbo da coluna ao botão", () => {
-  it("a página passa `onNegociar` para o card, e o card só oferece acordo com ele", () => {
+describe("o painel leva o verbo da coluna ao botão", () => {
+  it("a página passa `onNegociar` adiante, e o painel só oferece acordo com ele", () => {
     expect(pagina).toContain("onNegociar: abrirNegociacao");
-    expect(card).toContain("acoes.onNegociar !== undefined");
-    expect(card).toContain("card-acordo-botao-${item.id}");
+    expect(painel).toContain("acoes.onNegociar !== undefined");
+    expect(painel).toContain('data-testid="painel-acordo"');
   });
 
   it("em 'negociando' o principal é o acordo; em toda outra coluna, o contato", () => {
-    expect(card).toContain('acaoPrincipalDoCard(item.status) === "acordo"');
+    expect(painel).toContain('acaoPrincipalDoCard(item.status) === "acordo"');
+    expect(painel).toContain("acordoEhPrincipal ? BOTAO_SECUNDARIO : BOTAO_MARCA");
     expect(movimentos).toContain('return status === "negociando" ? "acordo" : "contato";');
   });
 });
 
 describe("os tokens do sistema, sem paleta crua do Tailwind", () => {
   it("nada de cor literal do Tailwind nem de sombra grande no que a esteira acrescentou", () => {
-    for (const fonte of [pagina, quadro, card]) {
+    for (const fonte of [pagina, quadro, card, painel]) {
       expect(fonte).not.toMatch(/\b(bg|text|border)-(slate|gray|zinc|blue|emerald|red|amber|green)-\d{2,3}\b/);
       expect(fonte).not.toMatch(/shadow-(md|lg|xl|2xl)\b/);
     }
   });
 
   it("o tempo na coluna e o fluxo do dia pintam por token", () => {
-    expect(card).toContain("tomDoTempoNaColuna(diasAqui)");
+    expect(painel).toContain("tomDoTempoNaColuna(diasAqui)");
     expect(pagina).toContain("var(--info-bg)");
     expect(pagina).toContain("var(--ok)");
   });

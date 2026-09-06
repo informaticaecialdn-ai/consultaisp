@@ -17,6 +17,11 @@
  * TRAVADOS (contato vencido, sem próxima ação, sem dono), contados sobre os
  * casos que a coluna recebeu; quando a rota trunca a coluna, o cabeçalho diz
  * que a conta é da página.
+ *
+ * O CARD É ENXUTO e o detalhe abre no clique (pedido do dono, 06/09/2026):
+ * `PainelDoCaso` mora aqui, montado uma vez, e o caso aberto é resolvido no
+ * quadro mais recente — invalidou, o painel redesenha com o dado do servidor.
+ * Arrastar continua sendo a alça do card, e nunca abre o painel.
  */
 import { useMemo, useState } from "react";
 import {
@@ -35,6 +40,7 @@ import { BOTAO_SECUNDARIO } from "@/components/painel/ui";
 import { ROTULO_STATUS_DE_CASO, type StatusDeCaso } from "@shared/cobranca/estados";
 import type { Etapa } from "@shared/cobranca";
 import { CardCaso, CardCasoArrastavel, chaveDoCard, type AcoesDoCard } from "./CardCaso";
+import { PainelDoCaso } from "./PainelDoCaso";
 import { avaliarMovimentoDeCaso, COLUNAS_RECOLHIDAS, contarGargalosDaColuna, COR_DO_TOM, tituloDoMovimento, tomDaColunaDoKanban, verboDaColuna, type MovimentoDeCaso } from "./movimentos-cobranca";
 import { API_CASOS, type ColunaDoKanban, type ItemDaFila, type RespostaDoKanban } from "./tipos";
 import { invalidarCobranca, mensagemDoErro, SeloCobranca } from "./ui";
@@ -201,6 +207,13 @@ export function KanbanCobranca({ quadro, chaveDaQuery, etapas, hoje, podeAdminis
   const queryClient = useQueryClient();
   const [cardAtivo, setCardAtivo] = useState<ItemDaFila | null>(null);
   const [mostrarRecolhidas, setMostrarRecolhidas] = useState(false);
+  /**
+   * O caso aberto no painel. Guarda-se o ITEM, mas a tela sempre redesenha com
+   * a versão do quadro mais recente (`porId` abaixo): salvou um contato,
+   * invalidou, o painel se atualiza sozinho — o mesmo cuidado do drawer da
+   * recuperação. Se o caso sair do recorte, a última versão conhecida fica.
+   */
+  const [casoNoPainel, setCasoNoPainel] = useState<ItemDaFila | null>(null);
 
   const sensores = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -212,6 +225,16 @@ export function KanbanCobranca({ quadro, chaveDaQuery, etapas, hoje, podeAdminis
     for (const c of quadro.colunas) for (const item of c.casos) m.set(chaveDoCard(item), item);
     return m;
   }, [quadro]);
+
+  const porId = useMemo(() => {
+    const m = new Map<number, ItemDaFila>();
+    for (const c of quadro.colunas) for (const item of c.casos) m.set(item.id, item);
+    return m;
+  }, [quadro]);
+
+  const itemDoPainel = casoNoPainel ? porId.get(casoNoPainel.id) ?? casoNoPainel : null;
+  // Clicar no card abre o painel; arrastar (a alça) não passa por aqui.
+  const acoesComPainel: AcoesDoCard = useMemo(() => ({ ...acoes, onAbrir: setCasoNoPainel }), [acoes]);
 
   const mover = useMutation({
     mutationFn: async (m: MudancaDeCaso) => (await apiRequest("PATCH", `${API_CASOS}/${m.item.id}`, { status: m.status })).json(),
@@ -271,15 +294,25 @@ export function KanbanCobranca({ quadro, chaveDaQuery, etapas, hoje, podeAdminis
           {visiveis.map(coluna => (
             <Coluna key={coluna.status} coluna={coluna} cardAtivo={cardAtivo} hoje={hoje} podeAdministrar={podeAdministrar}>
               {coluna.casos.map(item => (
-                <CardCasoArrastavel key={item.id} item={item} etapas={etapas} hoje={hoje} acoes={acoes} ocupado={ocupadoId === item.id} />
+                <CardCasoArrastavel key={item.id} item={item} hoje={hoje} acoes={acoesComPainel} ocupado={ocupadoId === item.id} />
               ))}
             </Coluna>
           ))}
         </div>
         <DragOverlay dropAnimation={null}>
-          {cardAtivo && <div style={{ width: LARGURA_COLUNA_COBRANCA - 16 }}><CardCaso item={cardAtivo} etapas={etapas} hoje={hoje} acoes={acoes} overlay /></div>}
+          {cardAtivo && <div style={{ width: LARGURA_COLUNA_COBRANCA - 16 }}><CardCaso item={cardAtivo} hoje={hoje} acoes={acoes} overlay /></div>}
         </DragOverlay>
       </DndContext>
+
+      {/* O painel do caso: a dívida inteira, todos os boletos e o histórico. */}
+      <PainelDoCaso
+        item={itemDoPainel}
+        etapas={etapas}
+        hoje={hoje}
+        aberto={casoNoPainel !== null}
+        onFechar={() => setCasoNoPainel(null)}
+        acoes={acoes}
+      />
     </div>
   );
 }

@@ -62,6 +62,9 @@ const storageMock = vi.hoisted(() => ({
   clientesParaAbrirCaso: vi.fn(async (): Promise<any[]> => []),
   clientesAtivosEmDia: vi.fn(async (): Promise<any> => ({ linhas: [], total: 0 })),
   clientesDoMes: vi.fn(async (): Promise<number[]> => []),
+  faturasDoCliente: vi.fn(async (): Promise<any> => ({
+    linhas: [], total: 0, limite: 200, doErp: 0, vencidas: 0, valorVencido: 0, vencimentoMaisAntigo: null,
+  })),
   resumoDoMes: vi.fn(async (): Promise<any> => ({
     mes: "2026-09", base: false, faturado: 0, recebido: 0, recebidoConfirmado: false, emConciliacao: 0, inadimplente: 0, numInadimplentes: 0,
     aVencer: 0, numAVencer: 0, semFatura: 0, clientes: { emDia: 0, inadimplentes: 0 }, atualizadoEm: null,
@@ -1783,5 +1786,160 @@ describe("PUT /api/cobranca/politica", () => {
     expect(body.configurada).toBe(false);
     expect(body.politica.negociacao).toEqual(POLITICA_PADRAO.negociacao);
     expect(body.tetos.multaPct).toBe(2);
+  });
+});
+
+/* ── Detalhe do caso ─────────────────────────────────────────────────── */
+
+/**
+ * `GET /api/cobranca/casos/:id/detalhe` — a resposta unica que o painel abre
+ * quando o operador clica no card do quadro (pedido do dono, 06/09/2026).
+ *
+ * O que se prova aqui:
+ *   · sem sessao nao passa, e caso de outro provedor e 404 ANTES de qualquer
+ *     leitura por customerId;
+ *   · o documento sai mascarado, como em toda rota de cobranca;
+ *   · sem fatura gravada a origem e DECLARADA com motivo, e o vencimento mais
+ *     antigo e null — nunca "hoje menos os dias de atraso";
+ *   · a ordem das faturas e a do storage, sem reordenacao no meio do caminho;
+ *   · uma chamada por lista, nenhuma por linha.
+ */
+describe("GET /api/cobranca/casos/:id/detalhe", () => {
+  const faturasGravadas = {
+    linhas: [
+      { id: 30, erpSource: "mk", erpRef: "553", vencimento: new Date("2026-09-10T00:00:00Z"), valor: 99.9, descricao: "Setembro", status: "aberta", baixadaEm: null },
+      { id: 20, erpSource: "mk", erpRef: "552", vencimento: new Date("2026-08-10T00:00:00Z"), valor: 99.9, descricao: "Agosto", status: "aberta", baixadaEm: null },
+      { id: 10, erpSource: "mk", erpRef: "551", vencimento: new Date("2026-07-10T00:00:00Z"), valor: 200.2, descricao: "Julho", status: "baixada_no_erp", baixadaEm: new Date("2026-08-01T00:00:00Z") },
+    ],
+    total: 3, limite: 200, doErp: 3, vencidas: 2, valorVencido: 199.8,
+    vencimentoMaisAntigo: new Date("2026-08-10T00:00:00Z"),
+  };
+
+  it("401 sem sessao, e nada e lido", async () => {
+    sessao = {};
+    const res = await json("GET", "/api/cobranca/casos/9/detalhe");
+    expect(res.status).toBe(401);
+    expect(storageMock.obterCasoDeCobranca).not.toHaveBeenCalled();
+    expect(storageMock.faturasDoCliente).not.toHaveBeenCalled();
+  });
+
+  it("404 para caso de outro provedor — e as faturas nem chegam a ser lidas", async () => {
+    sessao = ADMIN;
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(undefined);
+    const res = await json("GET", "/api/cobranca/casos/9/detalhe");
+    expect(res.status).toBe(404);
+    expect(storageMock.obterCasoDeCobranca).toHaveBeenCalledWith(42, 9);
+    expect(storageMock.faturasDoCliente).not.toHaveBeenCalled();
+    expect(storageMock.listarEventosDoCaso).not.toHaveBeenCalled();
+  });
+
+  it("400 quando o id nao e id", async () => {
+    sessao = ADMIN;
+    expect((await json("GET", "/api/cobranca/casos/zero/detalhe")).status).toBe(400);
+    expect(storageMock.obterCasoDeCobranca).not.toHaveBeenCalled();
+  });
+
+  it("uma resposta so, com o documento mascarado e as faturas na ordem do storage", async () => {
+    sessao = OPERADOR;
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso());
+    storageMock.faturasDoCliente.mockResolvedValueOnce(faturasGravadas);
+    storageMock.listarEventosDoCaso.mockResolvedValueOnce([
+      { id: 2, casoId: 9, userId: 8, tipo: "contato", canal: "telefone", resultado: "falou", ocorridoEm: emDias(-1) },
+      { id: 1, casoId: 9, userId: null, tipo: "etapa_mudou", canal: "sistema", ocorridoEm: emDias(-4) },
+    ]);
+    storageMock.listarNegociacoesDoCaso.mockResolvedValueOnce([
+      {
+        id: 4, casoId: 9, customerId: 1, tipo: "parcelamento", valorOriginal: "400.00", valorNegociado: "400.00",
+        descontoPct: "0", entrada: "0", parcelas: 2, valorParcela: "200.00", primeiroVencimento: "2026-10-10",
+        status: "proposta", criadoPorUserId: 8, aceitaEm: null, quebradaEm: null, createdAt: emDias(-1), updatedAt: emDias(-1),
+        parcelamento: [{ id: 40, negociacaoId: 4, numero: 1, valor: "200.00", vencimento: "2026-10-10", pagoEm: null, valorPago: null, status: "aberta" }],
+      },
+    ]);
+    storageMock.getUsersByProvider.mockResolvedValueOnce(equipe);
+
+    const res = await json("GET", "/api/cobranca/casos/9/detalhe");
+    const body = await res.json();
+    expect(res.status).toBe(200);
+
+    // Toda leitura leva o provedor da sessao, e cada lista sai de UMA chamada.
+    expect(storageMock.faturasDoCliente).toHaveBeenCalledWith(42, 1, { limite: 200 });
+    expect(storageMock.faturasDoCliente).toHaveBeenCalledTimes(1);
+    expect(storageMock.listarEventosDoCaso).toHaveBeenCalledWith(42, 9);
+    expect(storageMock.listarNegociacoesDoCaso).toHaveBeenCalledWith(42, 9);
+    expect(storageMock.listarNegociacoesDoCaso).toHaveBeenCalledTimes(1);
+
+    // LGPD: o documento em claro nao sai daqui.
+    expect(body.caso.cliente.cpfCnpj).toBe("123.456.***-01");
+    expect(body.caso.cliente.documentoMascarado).toBe("123.456.***-01");
+    expect(JSON.stringify(body)).not.toContain("12345678901");
+    expect(JSON.stringify(body)).not.toContain("hash-secreto");
+
+    // A divida diz de onde vem cada numero.
+    expect(body.divida).toMatchObject({
+      valorAtual: 400, diasAtraso: 45, faturasVencidas: 2, origem: "agregado_do_sync",
+      motivoSemVencimento: null, porFatura: { vencidas: 2, valor: 199.8 },
+    });
+    expect(body.divida.vencimentoMaisAntigo).toBe("2026-08-10T00:00:00.000Z");
+
+    // As faturas, na ordem do storage — da mais recente para a mais antiga.
+    expect(body.faturas.origem).toBe("erp");
+    expect(body.faturas.motivo).toBeNull();
+    expect(body.faturas.total).toBe(3);
+    expect(body.faturas.linhas.map((f: any) => f.erpRef)).toEqual(["553", "552", "551"]);
+    expect(body.faturas.linhas[0]).toMatchObject({ id: 30, valor: 99.9, status: "aberta", descricao: "Setembro" });
+    expect(body.faturas.linhas[2]).toMatchObject({ status: "baixada_no_erp" });
+    // Fatura NAO e boleto: nada de linha digitavel nem PIX nesta resposta.
+    for (const chave of ["linhaDigitavel", "pix", "codigoDeBarras", "link"]) {
+      expect(body.faturas.linhas[0]).not.toHaveProperty(chave);
+    }
+
+    // O historico, com quem registrou.
+    expect(body.eventos.total).toBe(2);
+    expect(body.eventos.linhas[0].usuarioNome).toBe("Beto");
+    expect(body.eventos.linhas[1].usuarioNome).toBeNull();
+
+    expect(body.negociacoes[0]).toMatchObject({ id: 4, valorNegociado: 400, parcelas: 2 });
+    expect(body.negociacoes[0].parcelamento[0]).toMatchObject({ numero: 1, valor: 200 });
+  });
+
+  it("sem fatura gravada: a origem e declarada com motivo, e o vencimento mais antigo e NULO", async () => {
+    sessao = OPERADOR;
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso());
+    const res = await json("GET", "/api/cobranca/casos/9/detalhe");
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.faturas.linhas).toEqual([]);
+    expect(body.faturas.total).toBe(0);
+    expect(body.faturas.origem).toBe("indisponivel");
+    expect(body.faturas.motivo).toMatch(/ainda nao gravou fatura a fatura/);
+    // A divida agregada continua sendo mostrada — o que NAO existe e a data.
+    expect(body.divida.valorAtual).toBe(400);
+    expect(body.divida.vencimentoMaisAntigo).toBeNull();
+    expect(body.divida.motivoSemVencimento).toMatch(/ainda nao gravou fatura a fatura/);
+    expect(body.divida.porFatura).toBeNull();
+  });
+
+  it("fatura so de importacao CSV nao se passa por dado do ERP", async () => {
+    sessao = OPERADOR;
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso());
+    storageMock.faturasDoCliente.mockResolvedValueOnce({
+      linhas: [{ id: 1, erpSource: null, erpRef: null, vencimento: new Date("2026-08-10T00:00:00Z"), valor: 50, descricao: null, status: "overdue", baixadaEm: null }],
+      total: 1, limite: 200, doErp: 0, vencidas: 1, valorVencido: 50, vencimentoMaisAntigo: new Date("2026-08-10T00:00:00Z"),
+    });
+    const body = await (await json("GET", "/api/cobranca/casos/9/detalhe")).json();
+    expect(body.faturas.origem).toBe("importacao");
+    expect(body.faturas.motivo).toMatch(/importacao CSV/);
+  });
+
+  it("o historico para no teto e diz quantos existem", async () => {
+    sessao = OPERADOR;
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso());
+    storageMock.listarEventosDoCaso.mockResolvedValueOnce(
+      Array.from({ length: 250 }, (_, i) => ({ id: i + 1, casoId: 9, userId: null, tipo: "nota", ocorridoEm: emDias(-i) })),
+    );
+    const body = await (await json("GET", "/api/cobranca/casos/9/detalhe")).json();
+    expect(body.eventos.linhas).toHaveLength(200);
+    expect(body.eventos.total).toBe(250);
+    expect(body.eventos.limite).toBe(200);
   });
 });
