@@ -135,6 +135,13 @@ export async function configurarCanalWhatsapp(providerId: number, dados: { nome:
   }
   const teste = await cliente.testarCanal(intg.organizationId, criado.valor.id);
   const ok = !falhou(teste) && teste.valor.ok;
+  // O Chat BullQ so liga o agente aos canais que EXISTIAM quando ele foi criado.
+  // Numero ligado depois do agente precisa do vinculo explicito, senao a IA
+  // nunca responde neste canal.
+  if (intg.agenteId) {
+    const vinculo = await cliente.ligarAgenteAoCanal(intg.organizationId, intg.agenteId, criado.valor.id, "AUTONOMOUS");
+    if (falhou(vinculo)) logger.warn({ providerId, erro: vinculo.erro }, "Chat: canal criado, mas o agente de cobranca nao foi ligado a ele");
+  }
   const atualizada = await storage.marcarEstadoDaIntegracaoDoChat(providerId, {
     status: ok ? "ativo" : "erro",
     ultimoErro: ok ? null : falhou(teste) ? teste.erro : teste.valor.message ?? "O teste do canal falhou",

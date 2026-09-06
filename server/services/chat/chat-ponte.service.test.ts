@@ -116,6 +116,12 @@ describe("configurarCanalWhatsapp", () => {
     expect(r.canalOk).toBe(true);
     expect(fake.integracao).toMatchObject({ status: "ativo", canalId: "ch_1", canalNome: "Principal", ultimoErro: null });
   });
+  it("com agente de cobranca ja criado, o numero novo e ligado a ele (o Chat BullQ so liga aos canais que existiam)", async () => {
+    const c = clienteFalso({ ligarAgenteAoCanal: vi.fn(async () => ({ ok: true, valor: undefined })) });
+    fake.integracao = { id: 1, providerId: 6, organizationId: "org_1", slug: "isp-6", ownerEmail: "x", canalId: null, status: "provisionado", agenteId: "ag_1" };
+    await configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_secreto_123" });
+    expect(c.ligarAgenteAoCanal).toHaveBeenCalledWith("org_1", "ag_1", "ch_1", "AUTONOMOUS");
+  });
   it("teste do canal falhou: fica em erro com o motivo, mas o canal fica guardado", async () => {
     clienteFalso({ testarCanal: vi.fn(async () => ({ ok: true, valor: { ok: false, message: "instancia desconectada" } })) });
     const r = await configurarCanalWhatsapp(6, { nome: "Principal", token: "tok_secreto_123" });
