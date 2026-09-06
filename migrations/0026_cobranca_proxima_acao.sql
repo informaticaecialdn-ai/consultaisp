@@ -1,0 +1,11 @@
+-- 0026 — follow-up: todo caso de cobranca termina com a PROXIMA ACAO escrita (05/09/2026)
+--
+-- Conceito que o dono trouxe de vendas ("follow-up nao e cobranca, e
+-- continuidade"): cada caso precisa terminar com quatro coisas claras —
+-- qual e a proxima acao, quem e o dono, quando ela acontece e em que status
+-- esta. Tres ja existiam no caso (responsavel, proximo_contato_em, status);
+-- faltava a acao em si. Caso sem proxima acao e divida perdida — e agora o
+-- quadro conta quantos estao assim.
+--
+-- Idempotente: aplica no boot da API (server/migrate.ts).
+ALTER TABLE cobranca_casos ADD COLUMN IF NOT EXISTS proxima_acao text;

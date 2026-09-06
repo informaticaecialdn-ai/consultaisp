@@ -468,6 +468,7 @@ function casoResumo(l: LinhaDaCarteira) {
     etapa: l.etapaAtual,
     responsavel: l.responsavelUserId === null ? null : { id: l.responsavelUserId, nome: l.responsavelNome ?? "" },
     proximoContatoEm: l.proximoContatoEm,
+    proximaAcao: l.proximaAcao,
     prioridade: l.prioridade,
   };
 }
@@ -793,6 +794,8 @@ const AbrirCasoSchema = z.object({
   prioridade: z.enum(PRIORIDADES).optional(),
   responsavelUserId: z.number().int().positive().nullable().optional(),
   proximoContatoEm: z.coerce.date().nullable().optional(),
+  /** Follow-up: a proxima acao escrita ("ligar de novo"). Nula apaga. */
+  proximaAcao: z.string().trim().max(120).nullable().optional(),
 }).strict();
 
 const PatchCasoSchema = z.object({
@@ -801,6 +804,8 @@ const PatchCasoSchema = z.object({
   prioridade: z.enum(PRIORIDADES).optional(),
   responsavelUserId: z.number().int().positive().nullable().optional(),
   proximoContatoEm: z.coerce.date().nullable().optional(),
+  /** Follow-up: a proxima acao escrita ("ligar de novo"). Nula apaga. */
+  proximaAcao: z.string().trim().max(120).nullable().optional(),
 }).strict();
 
 /**
@@ -862,6 +867,8 @@ const EventoSchema = z.object({
   valorPrometido: z.number().positive().optional(),
   /** Agendar o proximo toque na mesma chamada — "nao atendeu, tentar amanha". */
   proximoContatoEm: z.coerce.date().nullable().optional(),
+  /** Follow-up: a proxima acao escrita ("ligar de novo"). Nula apaga. */
+  proximaAcao: z.string().trim().max(120).nullable().optional(),
 }).strict();
 
 const NegociacaoSchema = z.object({
@@ -1569,8 +1576,12 @@ export function registerCobrancaRoutes(): Router {
         metadata: Object.keys(metadata).length > 0 ? metadata : null,
         ocorridoEm: b.ocorridoEm,
       });
-      if (b.proximoContatoEm !== undefined) {
-        await storage.atualizarCasoDeCobranca(providerId, id, { proximoContatoEm: b.proximoContatoEm }, userId);
+      // Follow-up: o contato termina com a proxima acao e a data — as duas gravadas no caso, na mesma chamada.
+      if (b.proximoContatoEm !== undefined || b.proximaAcao !== undefined) {
+        await storage.atualizarCasoDeCobranca(providerId, id, {
+          ...(b.proximoContatoEm !== undefined ? { proximoContatoEm: b.proximoContatoEm } : {}),
+          ...(b.proximaAcao !== undefined ? { proximaAcao: b.proximaAcao === "" ? null : b.proximaAcao } : {}),
+        }, userId);
       }
       logger.info({ providerId, casoId: id, userId, tipo: b.tipo, canal: b.canal ?? null, resultado: b.resultado ?? null }, "COBRANCA evento registrado");
       res.status(201).json(evento);
@@ -1797,10 +1808,12 @@ export function registerCobrancaRoutes(): Router {
     try {
       const { politica, etapas } = await carregarPolitica(providerId);
       const filtros = filtrosDoKanban(q, usuarioDaSessao(req));
-      const [colunas, conversasDoChat] = await Promise.all([
+      const [colunas, conversasDoChat, negociacoesVivas] = await Promise.all([
         Promise.all(colunasDoKanban().map(status => montarColuna(providerId, status, filtros, q.porColuna, fechadosDesde, etapas, hoje))),
         // A conversa do Chat BullQ ligada ao caso, quando houver. Falha aqui nao derruba o quadro.
         storage.conversasDoChatPorCaso(providerId).catch(() => new Map()),
+        // O acordo vivo de cada caso (parcelas e andamento) — o card conta a historia sem abrir a ficha.
+        storage.negociacoesVivasPorCaso(providerId).catch(() => new Map()),
       ]);
       // Os indicadores do QUADRO, sobre o mesmo recorte das colunas (a fila usa
       // outro escopo — "eu" la inclui a fila geral — e a tela misturava os dois).
@@ -1812,14 +1825,21 @@ export function registerCobrancaRoutes(): Router {
             casosVivos: k.casosVivos + 1,
             emAberto: arredondar(k.emAberto + l.valorAtual),
             vencidos: k.vencidos + (l.proximoContatoEm !== null && l.proximoContatoEm.getTime() < inicioDeHoje.getTime() ? 1 : 0),
-            paraHoje: k.paraHoje + (l.proximoContatoEm === null || l.proximoContatoEm.getTime() < inicioDeAmanha.getTime() ? 1 : 0),
-          }), { casosVivos: 0, emAberto: 0, vencidos: 0, paraHoje: 0 })
+            // Follow-up: "para hoje" e quem TEM data ate hoje; sem data e caso parado — conta a parte.
+            paraHoje: k.paraHoje + (l.proximoContatoEm !== null && l.proximoContatoEm.getTime() < inicioDeAmanha.getTime() ? 1 : 0),
+            semProximaAcao: k.semProximaAcao + (l.proximoContatoEm === null ? 1 : 0),
+          }), { casosVivos: 0, emAberto: 0, vencidos: 0, paraHoje: 0, semProximaAcao: 0 })
         : null;
       const comChat = colunas.map(c => ({
         ...c,
         casos: c.casos.map(item => {
           const v = conversasDoChat.get(item.id);
-          return { ...item, chat: v ? { conversationId: v.conversationId, status: v.status } : null };
+          const n = negociacoesVivas.get(item.id);
+          return {
+            ...item,
+            chat: v ? { conversationId: v.conversationId, status: v.status } : null,
+            negociacao: n ? { ...n, aceitaEm: n.aceitaEm ? new Date(n.aceitaEm).toISOString() : null } : null,
+          };
         }),
       }));
       res.json({

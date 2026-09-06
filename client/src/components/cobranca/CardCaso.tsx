@@ -1,30 +1,34 @@
 /**
- * O card de um caso de cobrança no kanban.
+ * O card de um caso de cobrança no kanban — a história do caso sem abrir a ficha.
  *
- * Mostra o que o operador precisa para decidir o próximo gesto sem abrir a
- * ficha: quem é, quanto deve há quantos dias, em que ETAPA da régua está (selo,
- * não coluna — a coluna é o fluxo do operador), o tom sugerido pelo DNA, de
- * quem é o caso e quando é o próximo contato. As ações são as mesmas da fila:
- * registrar contato, pegar para mim, abrir o 360.
+ * Pedido do dono (05/09/2026): "as informações não identificam o cliente; o
+ * valor que ele deve, quais são as parcelas; é um card de cobrança, precisa
+ * ter dados para entender na visualização o que se trata". Então o card diz,
+ * nesta ordem: QUEM (nome inteiro, cidade e bairro, documento, situação do
+ * contrato), QUANTO E DESDE QUANDO (dívida, faturas vencidas, a mais antiga,
+ * o valor na abertura do caso), O QUE JÁ FOI COMBINADO (o acordo vivo e o
+ * andamento das parcelas), O QUE FAZER AGORA (a etapa da régua com a ação e o
+ * tom do DNA) e COM QUEM (responsável, próximo e último contato, telefone,
+ * chat). As ações são as da fila: contato, pegar, enviar ao chat, 360.
  *
- * A alça de arrasto é o card inteiro menos os botões (o `activator` do dnd-kit
- * fica no bloco de identidade), para o clique em "Registrar contato" não
- * começar um arrasto — o mesmo cuidado do card de equipamento.
+ * A alça de arrasto é o bloco de identidade (o `activator` do dnd-kit), para
+ * o clique num botão não começar um arrasto — o mesmo cuidado do card de
+ * equipamento.
  */
 import { useDraggable } from "@dnd-kit/core";
 import { Link } from "wouter";
-import { CalendarClock, GripVertical, MessageCircle, MessageSquareShare, PhoneCall, UserRound } from "lucide-react";
+import { CalendarClock, ClipboardList, GripVertical, Handshake, MessageCircle, MessageSquareShare, PhoneCall, Route, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { brl, TRACO } from "@/components/localizacao/ui";
+import { brl, num, TRACO } from "@/components/localizacao/ui";
 import { BOTAO_MARCA, BOTAO_SECUNDARIO, FOCO } from "@/components/painel/ui";
 import {
-  etapaParaAtraso, etapaPorId, janelaDaEtapa, ROTULO_MOTIVO_SEM_ETAPA,
-  type Carteira, type Etapa, type EtapaId, type MotivoSemEtapa,
+  etapaParaAtraso, etapaPorId, janelaDaEtapa, ROTULO_MOTIVO_SEM_ETAPA, ROTULO_STATUS_DE_CASO, ROTULO_STATUS_DE_NEGOCIACAO, ROTULO_TIPO_DE_NEGOCIACAO,
+  type Carteira, type Etapa, type EtapaId, type MotivoSemEtapa, type StatusDeCaso, type StatusDeNegociacao, type TipoDeNegociacao,
 } from "@shared/cobranca";
-import { dataHoraBr, proximoContato, whatsappDe } from "./formatacao";
+import { dataBr, dataCivilBr, dataHoraBr, proximoContato, situacaoDoErp, whatsappDe } from "./formatacao";
 import { tomDaEtapaDaRegua } from "./movimentos-cobranca";
-import { rotaDoCliente, type ItemDaFila } from "./tipos";
-import { Avatar, LinkWhatsapp, PilulaAtraso, SeloCarteira, SeloCobranca, SeloPrioridade, SeloQuadrante, SeloTom, Traco } from "./ui";
+import { rotaDoCliente, type ItemDaFila, type NegociacaoResumo } from "./tipos";
+import { Avatar, LinkWhatsapp, PilulaAtraso, SeloCobranca, SeloPrioridade, SeloQuadrante, SeloTom, Traco } from "./ui";
 
 export interface EtapaDoCard {
   etapa: Etapa | null;
@@ -57,6 +61,26 @@ export function etapaDoCard(item: ItemDaFila, etapas: readonly Etapa[] | undefin
     : { etapa: null, motivo: ROTULO_MOTIVO_SEM_ETAPA[decisao.motivo], derivada: true };
 }
 
+/** A data em que a fatura mais antiga venceu: hoje menos os dias de atraso — o sync guarda só o agregado. */
+export function vencimentoMaisAntigo(diasAtraso: number, hoje: Date): Date | null {
+  if (diasAtraso <= 0) return null;
+  return new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - diasAtraso);
+}
+
+/** "3x de R$ 100,00 · 1/3 pagas · próxima 10/09 (atrasada)" — o acordo numa linha. */
+export function resumoDoAcordo(n: NegociacaoResumo): string {
+  const partes: string[] = [];
+  if (n.tipo === "parcelamento" && n.parcelas > 0) {
+    partes.push(`${n.parcelas}x${n.valorParcela !== null ? ` de ${brl(n.valorParcela)}` : ""}`);
+    if (n.entrada > 0) partes.push(`entrada ${brl(n.entrada)}`);
+    partes.push(`${n.parcelasPagas}/${n.parcelas} pagas`);
+  } else {
+    partes.push(`à vista ${brl(n.valorNegociado)}`);
+  }
+  if (n.proximaParcela) partes.push(`próxima ${dataCivilBr(n.proximaParcela.vencimento)}${n.proximaParcela.atrasada ? " (atrasada)" : ""}`);
+  return partes.join(" · ");
+}
+
 export interface AcoesDoCard {
   onContato: (item: ItemDaFila) => void;
   onPegar?: (item: ItemDaFila) => void;
@@ -72,6 +96,8 @@ export interface AcoesDoCard {
 export function chaveDoCard(item: ItemDaFila): string {
   return `caso-${item.id}`;
 }
+
+const NUM = "font-mono tabular-nums";
 
 export function CardCaso({ item, etapas, hoje, acoes, ocupado, overlay, alca }: {
   item: ItemDaFila;
@@ -90,6 +116,14 @@ export function CardCaso({ item, etapas, hoje, acoes, ocupado, overlay, alca }: 
   const tom = item.tomSugerido ?? item.tom;
   const quadrante = item.quadrante ?? item.quadranteDna;
   const podePegar = item.responsavelUserId === null && acoes.onPegar !== undefined;
+  const situacao = situacaoDoErp(cliente.statusErp);
+  const fechado = ["pago", "cancelamento", "baixado", "encerrado"].includes(item.status);
+  const maisAntiga = vencimentoMaisAntigo(cliente.diasAtraso, hoje);
+  const faturas = cliente.faturasAbertas ?? null;
+  const acordo = item.negociacao ?? null;
+  const lugar = [cliente.bairro, cliente.cidade].filter(Boolean).join(" · ");
+  // Follow-up: caso vivo sem data de proximo contato esta PARADO — e o que vira divida perdida.
+  const parado = !overlay && item.proximoContatoEm === null && !fechado;
 
   return (
     <div
@@ -100,6 +134,7 @@ export function CardCaso({ item, etapas, hoje, acoes, ocupado, overlay, alca }: 
       )}
       data-testid={`card-caso-${item.id}`}
     >
+      {/* QUEM — a alça de arrasto */}
       <div
         ref={alca?.ref}
         {...(alca?.listeners ?? {})}
@@ -110,15 +145,44 @@ export function CardCaso({ item, etapas, hoje, acoes, ocupado, overlay, alca }: 
         {alca && <GripVertical className="mt-0.5 h-3.5 w-3.5 flex-none text-[var(--text-faint)]" aria-hidden />}
         <Avatar nome={cliente.nome} tamanho="sm" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[12.5px] font-semibold text-[var(--text)]">{cliente.nome}</p>
-          <p className="truncate font-mono text-[10.5px] tabular-nums text-[var(--text-muted)]">{cliente.cpfCnpj}</p>
-        </div>
-        <div className="flex-none text-right">
-          <p className="font-mono text-[12.5px] font-semibold tabular-nums text-[var(--money-neg)]">{brl(item.valorAtual)}</p>
-          <PilulaAtraso dias={cliente.diasAtraso} />
+          <p className="text-[12.5px] font-semibold leading-4 text-[var(--text)] [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden" title={cliente.nome} data-testid={`card-nome-${item.id}`}>{cliente.nome}</p>
+          <p className={cn(NUM, "truncate text-[10.5px] text-[var(--text-muted)]")}>{cliente.cpfCnpj}{lugar ? <span className="font-sans"> · {lugar}</span> : null}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-1">
+            <SeloCobranca tom={situacao.tom} titulo="Situação do contrato no ERP, como veio no último sync">{situacao.rotulo}</SeloCobranca>
+            <SeloPrioridade prioridade={item.prioridade} />
+          </div>
         </div>
       </div>
 
+      {/* QUANTO E DESDE QUANDO */}
+      <div className="mt-2 rounded-lg bg-[var(--surface-2)] px-2.5 py-2" data-testid={`card-divida-${item.id}`}>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="font-mono text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">deve</span>
+          <span className={cn(NUM, "text-[16px] font-semibold leading-none text-[var(--money-neg)]")}>{brl(item.valorAtual)}</span>
+        </div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          <PilulaAtraso dias={cliente.diasAtraso} />
+          <span className={cn(NUM, "text-[11px] text-[var(--text-2)]")}>
+            {faturas !== null ? `${num(faturas)} fatura${faturas === 1 ? "" : "s"} vencida${faturas === 1 ? "" : "s"}` : "faturas —"}
+            {maisAntiga ? ` · a mais antiga venceu ${dataBr(maisAntiga.toISOString())}` : ""}
+          </span>
+        </div>
+        {item.valorAbertura !== item.valorAtual && (
+          <p className={cn(NUM, "mt-1 text-[10.5px] text-[var(--text-faint)]")}>na abertura do caso: {brl(item.valorAbertura)} · {dataBr(item.abertoEm)}</p>
+        )}
+        {acordo && (
+          <p className="mt-1.5 flex items-start gap-1 text-[11px] leading-4 text-[var(--text-2)]" data-testid={`card-acordo-${item.id}`}>
+            <Handshake className="mt-0.5 h-3 w-3 flex-none text-[var(--ok)]" aria-hidden />
+            <span>
+              <b className="text-[var(--text)]">{ROTULO_TIPO_DE_NEGOCIACAO[acordo.tipo as TipoDeNegociacao] ?? acordo.tipo}</b>
+              <span className="text-[var(--text-muted)]"> · {ROTULO_STATUS_DE_NEGOCIACAO[acordo.status as StatusDeNegociacao] ?? acordo.status}</span>
+              <br /><span className={NUM}>{resumoDoAcordo(acordo)}</span>
+            </span>
+          </p>
+        )}
+      </div>
+
+      {/* O QUE FAZER AGORA */}
       <div className="mt-2 flex flex-wrap items-center gap-1">
         {etapa ? (
           <SeloCobranca
@@ -134,8 +198,6 @@ export function CardCaso({ item, etapas, hoje, acoes, ocupado, overlay, alca }: 
         )}
         <SeloQuadrante quadrante={quadrante} />
         <SeloTom tom={tom} />
-        <SeloCarteira carteira={item.carteira} />
-        <SeloPrioridade prioridade={item.prioridade} />
         {item.chat && (
           acoes.inboxUrl ? (
             <a href={acoes.inboxUrl} target="_blank" rel="noreferrer noopener" onClick={e => e.stopPropagation()} className="inline-flex" title={`Conversa no chat · ${item.chat.status}`} data-testid={`card-chat-${item.id}`}>
@@ -146,23 +208,50 @@ export function CardCaso({ item, etapas, hoje, acoes, ocupado, overlay, alca }: 
           )
         )}
       </div>
+      {etapa && (
+        <p className="mt-1 flex items-start gap-1 text-[11px] leading-4 text-[var(--text-2)]" title={etapa.acao} data-testid={`card-acao-${item.id}`}>
+          <Route className="mt-0.5 h-3 w-3 flex-none text-[var(--text-faint)]" aria-hidden />
+          <span className="[display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] overflow-hidden">{etapa.acao}</span>
+        </p>
+      )}
 
-      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[11px]">
-        <dt className="flex items-center gap-1 text-[var(--text-faint)]"><UserRound className="h-3 w-3" aria-hidden /></dt>
-        <dd className="truncate text-[var(--text-2)]">{item.responsavelNome ?? <span className="text-[var(--text-faint)]">fila geral</span>}</dd>
-        <dt className="flex items-center gap-1 text-[var(--text-faint)]"><CalendarClock className="h-3 w-3" aria-hidden /></dt>
-        <dd
-          className={cn("font-mono tabular-nums", contato.urgencia === "vencido" ? "text-[var(--danger)]" : contato.urgencia === "hoje" ? "text-[var(--gated)]" : "text-[var(--text-2)]")}
-          title={item.proximoContatoEm ? dataHoraBr(item.proximoContatoEm) : undefined}
-        >
-          {contato.texto}
-        </dd>
-        <dt className="flex items-center gap-1 text-[var(--text-faint)]"><PhoneCall className="h-3 w-3" aria-hidden /></dt>
-        <dd className="flex items-center gap-1 truncate font-mono tabular-nums text-[var(--text-2)]">
-          {cliente.telefone ?? TRACO}
-          {whatsapp && !overlay && <LinkWhatsapp whatsapp={whatsapp} nome={cliente.nome}><MessageCircle className="h-3.5 w-3.5" aria-hidden /></LinkWhatsapp>}
-        </dd>
-      </dl>
+      {/* FOLLOW-UP — as quatro coisas que todo caso precisa ter claras: próxima ação, dono, quando, status */}
+      <div
+        className={cn("mt-2 rounded-lg border px-2.5 py-2", parado ? "border-[var(--danger-border)] bg-[var(--danger-bg)]" : "border-[var(--border-faint)] bg-[var(--surface)]")}
+        data-testid={`card-followup-${item.id}`}
+        data-parado={parado ? "true" : undefined}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span className="font-mono text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--text-muted)]">follow-up</span>
+          <span className={cn("font-mono text-[10px] uppercase tracking-[var(--track-wide)]", parado ? "text-[var(--danger)]" : "text-[var(--text-faint)]")}>{ROTULO_STATUS_DE_CASO[item.status as StatusDeCaso] ?? item.status}</span>
+        </div>
+        <p className="mt-1 flex items-start gap-1 text-[11.5px] leading-4 text-[var(--text)]" data-testid={`card-proxima-acao-${item.id}`}>
+          <ClipboardList className={cn("mt-0.5 h-3 w-3 flex-none", parado ? "text-[var(--danger)]" : "text-[var(--text-faint)]")} aria-hidden />
+          {parado ? (
+            <span className="font-medium text-[var(--danger)]">sem próxima ação — defina no próximo contato</span>
+          ) : item.proximaAcao ? (
+            <span className="font-medium">{item.proximaAcao}</span>
+          ) : (
+            <span className="text-[var(--text-2)]" title="A régua sugere; o operador confirma no próximo contato">{etapa ? `≈ ${etapa.acao}` : "—"}</span>
+          )}
+        </p>
+        <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-[11px]">
+          <dt className="flex items-center gap-1 text-[var(--text-faint)]"><UserRound className="h-3 w-3" aria-hidden /></dt>
+          <dd className="truncate text-[var(--text-2)]">{item.responsavelNome ?? <span className="text-[var(--text-faint)]">fila geral · sem dono</span>}</dd>
+          <dt className="flex items-center gap-1 text-[var(--text-faint)]"><CalendarClock className="h-3 w-3" aria-hidden /></dt>
+          <dd
+            className={cn(NUM, contato.urgencia === "vencido" ? "text-[var(--danger)]" : contato.urgencia === "hoje" ? "text-[var(--gated)]" : contato.urgencia === "sem_data" ? "text-[var(--danger)]" : "text-[var(--text-2)]")}
+            title={item.proximoContatoEm ? dataHoraBr(item.proximoContatoEm) : undefined}
+          >
+            {contato.urgencia === "sem_data" ? "sem data" : `próximo contato ${contato.texto}`}{item.ultimoContatoEm ? <span className="text-[var(--text-faint)]"> · último {dataBr(item.ultimoContatoEm)}</span> : <span className="text-[var(--text-faint)]"> · nenhum contato ainda</span>}
+          </dd>
+          <dt className="flex items-center gap-1 text-[var(--text-faint)]"><PhoneCall className="h-3 w-3" aria-hidden /></dt>
+          <dd className={cn(NUM, "flex items-center gap-1 truncate text-[var(--text-2)]")}>
+            {cliente.telefone ?? TRACO}
+            {whatsapp && !overlay && <LinkWhatsapp whatsapp={whatsapp} nome={cliente.nome}><MessageCircle className="h-3.5 w-3.5" aria-hidden /></LinkWhatsapp>}
+          </dd>
+        </dl>
+      </div>
 
       {!overlay && (
         <div className="mt-2 flex flex-wrap gap-1.5">

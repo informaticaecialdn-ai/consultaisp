@@ -1383,6 +1383,8 @@ export const cobrancaCasos = pgTable("cobranca_casos", {
   /** critica | alta | normal | baixa (PRIORIDADES em shared/cobranca/estados.ts). Texto, como no CRM de recuperacao. */
   prioridade: text("prioridade").notNull().default("normal"),
   proximoContatoEm: timestamp("proximo_contato_em"),
+  /** Follow-up: a proxima acao escrita ("ligar de novo", "cobrar a promessa"). Nula = caso sem proxima acao. */
+  proximaAcao: text("proxima_acao"),
   ultimoContatoEm: timestamp("ultimo_contato_em"),
   /** A1..C3 do DNA 3x3, calculado pelo motor. */
   quadranteDna: text("quadrante_dna"),

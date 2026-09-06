@@ -181,6 +181,8 @@ export interface LinhaDaCarteira {
   responsavelNome: string | null;
   prioridade: string;
   proximoContatoEm: Date | null;
+  /** Follow-up: a proxima acao escrita; nula = caso sem proxima acao. */
+  proximaAcao: string | null;
   ultimoContatoEm: Date | null;
   quadranteDna: string | null;
   tom: string | null;
@@ -198,6 +200,7 @@ export interface AberturaDeCaso {
   responsavelUserId?: number | null;
   prioridade?: PrioridadeDeCaso;
   proximoContatoEm?: Date | null;
+  proximaAcao?: string | null;
   quadranteDna?: string | null;
   tom?: string | null;
 }
@@ -210,6 +213,7 @@ export interface PatchDeCaso {
   responsavelUserId?: number | null;
   prioridade?: PrioridadeDeCaso;
   proximoContatoEm?: Date | null;
+  proximaAcao?: string | null;
   quadranteDna?: string | null;
   tom?: string | null;
 }
@@ -247,6 +251,20 @@ export interface NovoEvento {
   notas?: string | null;
   metadata?: Record<string, unknown> | null;
   ocorridoEm?: Date;
+}
+
+/** O acordo vivo de um caso, resumido para o card do kanban. */
+export interface ResumoDaNegociacao {
+  id: number;
+  tipo: string;
+  status: string;
+  valorNegociado: number;
+  entrada: number;
+  parcelas: number;
+  valorParcela: number | null;
+  parcelasPagas: number;
+  proximaParcela: { numero: number; vencimento: string; valor: number; atrasada: boolean } | null;
+  aceitaEm: Date | null;
 }
 
 export interface NovaNegociacao {
@@ -335,6 +353,7 @@ const colunasDaLinha = {
   responsavelNome: users.name,
   prioridade: cobrancaCasos.prioridade,
   proximoContatoEm: cobrancaCasos.proximoContatoEm,
+  proximaAcao: cobrancaCasos.proximaAcao,
   ultimoContatoEm: cobrancaCasos.ultimoContatoEm,
   quadranteDna: cobrancaCasos.quadranteDna,
   tom: cobrancaCasos.tom,
@@ -370,6 +389,7 @@ function montarLinha(l: LinhaCrua): LinhaDaCarteira {
     responsavelNome: l.responsavelNome,
     prioridade: l.prioridade as string,
     proximoContatoEm: l.proximoContatoEm,
+    proximaAcao: l.proximaAcao ?? null,
     ultimoContatoEm: l.ultimoContatoEm,
     quadranteDna: l.quadranteDna,
     tom: l.tom,
@@ -571,6 +591,7 @@ export class CobrancaStorage {
       responsavelUserId: dados.responsavelUserId ?? null,
       prioridade: dados.prioridade ?? "normal",
       proximoContatoEm: dados.proximoContatoEm ?? null,
+      proximaAcao: dados.proximaAcao ?? null,
       quadranteDna: dados.quadranteDna ?? null,
       tom: dados.tom ?? null,
     }).returning();
@@ -605,6 +626,7 @@ export class CobrancaStorage {
       if (patch.responsavelUserId !== undefined) set.responsavelUserId = patch.responsavelUserId;
       if (patch.prioridade !== undefined) set.prioridade = patch.prioridade;
       if (patch.proximoContatoEm !== undefined) set.proximoContatoEm = patch.proximoContatoEm;
+      if (patch.proximaAcao !== undefined) set.proximaAcao = patch.proximaAcao;
       if (patch.quadranteDna !== undefined) set.quadranteDna = patch.quadranteDna;
       if (patch.tom !== undefined) set.tom = patch.tom;
 
@@ -1049,6 +1071,44 @@ export class CobrancaStorage {
       porNegociacao.set(p.negociacaoId, lista);
     }
     return negociacoes.map(n => ({ ...n, parcelamento: porNegociacao.get(n.id) ?? [] }));
+  }
+
+  /**
+   * O acordo VIVO de cada caso do provedor (proposta, aceita ou ativa), com o
+   * andamento das parcelas — uma consulta para o quadro inteiro, nao uma por
+   * card. E o que faz o card de cobranca dizer "3x de R$ 100 · 1/3 pagas ·
+   * proxima 10/09" sem abrir a ficha.
+   */
+  async negociacoesVivasPorCaso(providerId: number): Promise<Map<number, ResumoDaNegociacao>> {
+    const vivas = await db.select().from(cobrancaNegociacoes)
+      .where(and(eq(cobrancaNegociacoes.providerId, providerId), inArray(cobrancaNegociacoes.status, ["proposta", "aceita", "ativa"])))
+      .orderBy(desc(cobrancaNegociacoes.createdAt), desc(cobrancaNegociacoes.id));
+    const mapa = new Map<number, ResumoDaNegociacao>();
+    if (vivas.length === 0) return mapa;
+    const parcelas = await db.select().from(cobrancaParcelas)
+      .where(and(eq(cobrancaParcelas.providerId, providerId), inArray(cobrancaParcelas.negociacaoId, vivas.map(n => n.id))))
+      .orderBy(asc(cobrancaParcelas.numero));
+    const porNegociacao = new Map<number, CobrancaParcela[]>();
+    for (const p of parcelas) { const l = porNegociacao.get(p.negociacaoId) ?? []; l.push(p); porNegociacao.set(p.negociacaoId, l); }
+    for (const n of vivas) {
+      if (mapa.has(n.casoId)) continue; // a mais recente vence
+      const lista = porNegociacao.get(n.id) ?? [];
+      const pagas = lista.filter(p => p.status === "paga").length;
+      const proxima = lista.find(p => p.status === "pendente" || p.status === "atrasada") ?? null;
+      mapa.set(n.casoId, {
+        id: n.id,
+        tipo: n.tipo,
+        status: n.status,
+        valorNegociado: Number(n.valorNegociado),
+        entrada: Number(n.entrada ?? 0),
+        parcelas: n.parcelas,
+        valorParcela: n.valorParcela === null ? null : Number(n.valorParcela),
+        parcelasPagas: pagas,
+        proximaParcela: proxima ? { numero: proxima.numero, vencimento: String(proxima.vencimento), valor: Number(proxima.valor), atrasada: proxima.status === "atrasada" } : null,
+        aceitaEm: n.aceitaEm,
+      });
+    }
+    return mapa;
   }
 
   async listarParcelasDaNegociacao(providerId: number, negociacaoId: number): Promise<CobrancaParcela[]> {

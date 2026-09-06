@@ -72,6 +72,8 @@ export interface CasoResumo {
   etapa: string | null;
   responsavel: ResponsavelResumo | null;
   proximoContatoEm: string | null;
+  /** Follow-up: a proxima acao escrita; ausente ou nula = caso sem proxima acao. */
+  proximaAcao?: string | null;
   prioridade?: string | null;
 }
 
@@ -154,6 +156,8 @@ export interface CasoDetalhe {
   responsavelNome: string | null;
   prioridade: string;
   proximoContatoEm: string | null;
+  /** Follow-up: a proxima acao escrita; ausente ou nula = caso sem proxima acao. */
+  proximaAcao?: string | null;
   ultimoContatoEm: string | null;
   quadranteDna: string | null;
   tom: string | null;
@@ -384,6 +388,8 @@ export interface ClienteDaFila {
 export interface ItemDaFila extends CasoDetalhe {
   /** Presente quando o caso foi enviado para cobranca pelo chat. */
   chat?: ChatDoCaso | null;
+  /** O acordo vivo, quando ha — vem no kanban. */
+  negociacao?: NegociacaoResumo | null;
   cliente: ClienteDaFila;
   quadrante?: string | null;
   tomSugerido?: string | null;
@@ -400,6 +406,8 @@ export interface ItemDaFila extends CasoDetalhe {
 export interface KpisDaFila {
   casosVivos: number | null;
   paraHoje: number | null;
+  /** Follow-up (kanban): casos vivos sem data de proximo contato — caso parado. */
+  semProximaAcao?: number | null;
   vencidos: number | null;
   agendados: number | null;
   emAberto: number | null;
@@ -585,6 +593,20 @@ export const apiConversaDoCaso = (casoId: number) => `${API_CHAT_BULLQ}/cobranca
 /** A conversa do Chat BullQ ligada ao caso, quando o caso foi enviado para cobranca pelo chat. */
 export interface ChatDoCaso { conversationId: string; status: string }
 
+/** O acordo vivo do caso (proposta, aceita ou ativa), resumido para o card. */
+export interface NegociacaoResumo {
+  id: number;
+  tipo: string;
+  status: string;
+  valorNegociado: number;
+  entrada: number;
+  parcelas: number;
+  valorParcela: number | null;
+  parcelasPagas: number;
+  proximaParcela: { numero: number; vencimento: string; valor: number; atrasada: boolean } | null;
+  aceitaEm: string | null;
+}
+
 export interface IntegracaoDoChat {
   ligado: boolean;
   provisionado: boolean;
@@ -667,6 +689,6 @@ export function lerKanban(resposta: unknown): RespostaDoKanban {
     });
   const pausa = pausaDaResposta(resposta);
   const kpisCrus = r.kpis && typeof r.kpis === "object" ? (r.kpis as Record<string, unknown>) : null;
-  const kpis: KpisDaFila | null = kpisCrus ? { casosVivos: numero(kpisCrus.casosVivos), paraHoje: numero(kpisCrus.paraHoje), vencidos: numero(kpisCrus.vencidos), agendados: numero(kpisCrus.agendados), emAberto: numero(kpisCrus.emAberto) } : null;
+  const kpis: KpisDaFila | null = kpisCrus ? { casosVivos: numero(kpisCrus.casosVivos), paraHoje: numero(kpisCrus.paraHoje), vencidos: numero(kpisCrus.vencidos), agendados: numero(kpisCrus.agendados), emAberto: numero(kpisCrus.emAberto), semProximaAcao: numero(kpisCrus.semProximaAcao) } : null;
   return { colunas, kpis, total: numero(r.total), pausada: pausa.pausada, pausadaMotivo: pausa.motivo };
 }

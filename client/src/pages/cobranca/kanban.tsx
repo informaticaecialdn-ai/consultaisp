@@ -16,7 +16,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { AlarmClock, HandCoins, KanbanSquare, ListTodo, Pause, Search } from "lucide-react";
+import { AlarmClock, ClipboardList, HandCoins, KanbanSquare, ListTodo, Pause, Search } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
@@ -147,6 +147,8 @@ export default function KanbanPage() {
         <Kpi icone={<KanbanSquare className="h-4 w-4" aria-hidden />} iconeCor="var(--brand-ink)" iconeBg="var(--brand-soft)" rotulo="casos vivos" valor={isLoading ? "…" : num(kpis?.casosVivos ?? quadro.total)} sub="no recorte" />
         <Kpi icone={<AlarmClock className="h-4 w-4" aria-hidden />} iconeCor={(kpis?.vencidos ?? 0) > 0 ? "var(--danger)" : "var(--text-muted)"} iconeBg={(kpis?.vencidos ?? 0) > 0 ? "var(--danger-bg)" : "var(--surface-2)"} rotulo="contato vencido" valor={isLoading ? "…" : num(kpis?.vencidos)} valorCor={(kpis?.vencidos ?? 0) > 0 ? "var(--danger)" : undefined} sub="passou da data" />
         <Kpi icone={<AlarmClock className="h-4 w-4" aria-hidden />} iconeCor="var(--gated)" iconeBg="var(--gated-bg)" rotulo="para hoje" valor={isLoading ? "…" : num(kpis?.paraHoje)} sub="contato marcado" />
+        {/* Follow-up: caso sem proxima acao vira divida perdida — o quadro conta quantos estao parados. */}
+        <Kpi icone={<ClipboardList className="h-4 w-4" aria-hidden />} iconeCor={(kpis?.semProximaAcao ?? 0) > 0 ? "var(--danger)" : "var(--text-muted)"} iconeBg={(kpis?.semProximaAcao ?? 0) > 0 ? "var(--danger-bg)" : "var(--surface-2)"} rotulo="sem próxima ação" valor={isLoading ? "…" : num(kpis?.semProximaAcao)} valorCor={(kpis?.semProximaAcao ?? 0) > 0 ? "var(--danger)" : undefined} sub="caso parado vira dívida perdida" />
         <Kpi icone={<HandCoins className="h-4 w-4" aria-hidden />} iconeCor="var(--money-neg)" iconeBg="var(--past-bg)" rotulo="em aberto" valor={isLoading ? "…" : brl(kpis?.emAberto)} valorCor={(kpis?.emAberto ?? 0) > 0 ? "var(--money-neg)" : undefined} sub="soma dos casos vivos" />
       </section>
 

@@ -48,6 +48,7 @@ import {
   type ContagemPorQuadrante, type FiltrosDaCarteira, type KpisDaCobranca, type LinhaDaCarteira,
   type NegociacaoComParcelas, type NovaNegociacao, type NovaParcela, type NovoEvento, type Paginacao,
   type PatchDeCaso, type PatchDePolitica, type StatusCasoFechado, type StatusNegociacao,
+  type ResumoDaNegociacao,
 } from "./cobranca.storage";
 
 export interface IStorage {
@@ -309,6 +310,7 @@ export interface IStorage {
   criarNegociacao(providerId: number, dados: NovaNegociacao, parcelas: NovaParcela[]): Promise<NegociacaoComParcelas>;
   atualizarStatusDaNegociacao(providerId: number, id: number, status: StatusNegociacao, userId?: number | null): Promise<CobrancaNegociacao | undefined>;
   listarNegociacoesDoCaso(providerId: number, casoId: number): Promise<NegociacaoComParcelas[]>;
+  negociacoesVivasPorCaso(providerId: number): Promise<Map<number, ResumoDaNegociacao>>;
   listarParcelasDaNegociacao(providerId: number, negociacaoId: number): Promise<CobrancaParcela[]>;
   marcarParcelaPaga(providerId: number, parcelaId: number, valorPago: number, pagoEm: Date, userId?: number | null): Promise<{ parcela: CobrancaParcela; negociacao: CobrancaNegociacao; acordoCumprido: boolean } | undefined>;
   marcarParcelasAtrasadas(providerId: number, hoje: Date): Promise<{ marcadas: number; negociacoes: number[] }>;
@@ -587,6 +589,7 @@ class DatabaseStorage implements IStorage {
   criarNegociacao = (providerId: number, dados: NovaNegociacao, parcelas: NovaParcela[]) => this._cobranca.criarNegociacao(providerId, dados, parcelas);
   atualizarStatusDaNegociacao = (providerId: number, id: number, status: StatusNegociacao, userId?: number | null) => this._cobranca.atualizarStatusDaNegociacao(providerId, id, status, userId);
   listarNegociacoesDoCaso = (providerId: number, casoId: number) => this._cobranca.listarNegociacoesDoCaso(providerId, casoId);
+  negociacoesVivasPorCaso = (providerId: number) => this._cobranca.negociacoesVivasPorCaso(providerId);
   listarParcelasDaNegociacao = (providerId: number, negociacaoId: number) => this._cobranca.listarParcelasDaNegociacao(providerId, negociacaoId);
   marcarParcelaPaga = (providerId: number, parcelaId: number, valorPago: number, pagoEm: Date, userId?: number | null) => this._cobranca.marcarParcelaPaga(providerId, parcelaId, valorPago, pagoEm, userId);
   marcarParcelasAtrasadas = (providerId: number, hoje: Date) => this._cobranca.marcarParcelasAtrasadas(providerId, hoje);

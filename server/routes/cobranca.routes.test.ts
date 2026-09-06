@@ -63,6 +63,7 @@ const storageMock = vi.hoisted(() => ({
   getRecentConsultationsForDocument: vi.fn(async (): Promise<any[]> => []),
   getAlertsByCustomer: vi.fn(async (): Promise<any[]> => []),
   conversasDoChatPorCaso: vi.fn(async (): Promise<Map<number, any>> => new Map()),
+  negociacoesVivasPorCaso: vi.fn(async (): Promise<Map<number, any>> => new Map()),
   getConversaDoChatPorCaso: vi.fn(async (): Promise<any> => undefined),
 }));
 const snapshotMock = vi.hoisted(() => ({
@@ -697,6 +698,30 @@ describe("PATCH /api/cobranca/casos/:id", () => {
 /* ── Eventos ─────────────────────────────────────────────────────────── */
 
 describe("POST /api/cobranca/casos/:id/eventos", () => {
+  it("follow-up: a proxima acao e a data vao para o caso na mesma chamada; string vazia apaga a acao", async () => {
+    sessao = OPERADOR;
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso({ id: 9 }));
+    const quando = emDias(1);
+    const res = await json("POST", "/api/cobranca/casos/9/eventos", {
+      tipo: "contato", canal: "telefone", resultado: "nao_atendeu", proximaAcao: "  Ligar de novo  ", proximoContatoEm: quando.toISOString(),
+    });
+    expect(res.status).toBe(201);
+    expect(storageMock.registrarEventoDeCobranca).toHaveBeenCalledWith(42, expect.objectContaining({ casoId: 9, tipo: "contato", resultado: "nao_atendeu" }));
+    expect(storageMock.atualizarCasoDeCobranca).toHaveBeenCalledWith(42, 9, { proximoContatoEm: quando, proximaAcao: "Ligar de novo" }, 8);
+
+    storageMock.atualizarCasoDeCobranca.mockClear();
+    storageMock.obterCasoDeCobranca.mockResolvedValueOnce(linhaCaso({ id: 9 }));
+    const apaga = await json("POST", "/api/cobranca/casos/9/eventos", { tipo: "contato", canal: "telefone", resultado: "falou", proximaAcao: "" });
+    expect(apaga.status).toBe(201);
+    expect(storageMock.atualizarCasoDeCobranca).toHaveBeenCalledWith(42, 9, { proximaAcao: null }, 8);
+
+    // longa demais e recusada pelo schema, antes de tocar o storage
+    storageMock.atualizarCasoDeCobranca.mockClear();
+    const longa = await json("POST", "/api/cobranca/casos/9/eventos", { tipo: "contato", canal: "telefone", resultado: "falou", proximaAcao: "x".repeat(121) });
+    expect(longa.status).toBe(400);
+    expect(storageMock.atualizarCasoDeCobranca).not.toHaveBeenCalled();
+  });
+
   it("recusa os tipos que o sistema grava, e contato sem canal", async () => {
     sessao = OPERADOR;
     const sistema = await json("POST", "/api/cobranca/casos/9/eventos", { tipo: "etapa_mudou" });
@@ -1052,7 +1077,8 @@ describe("GET /api/cobranca/kanban", () => {
     const res = await json("GET", "/api/cobranca/kanban");
     const body = await res.json();
     expect(res.status).toBe(200);
-    expect(body.kpis).toEqual({ casosVivos: 2, emAberto: 150.5, vencidos: 1, paraHoje: 2 });
+    // follow-up: o caso 2 nao tem data — e caso PARADO, nao "para hoje"
+    expect(body.kpis).toEqual({ casosVivos: 2, emAberto: 150.5, vencidos: 1, paraHoje: 1, semProximaAcao: 1 });
     expect(body.kpisMotivo).toBeNull();
     storageMock.listarCasosDeCobranca.mockReset();
     storageMock.listarCasosDeCobranca.mockResolvedValue({ linhas: [], total: 0 });
