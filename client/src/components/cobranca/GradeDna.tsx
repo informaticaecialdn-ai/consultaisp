@@ -19,7 +19,7 @@ import {
 import { cn } from "@/lib/utils";
 import { brl, Kicker, num } from "@/components/localizacao/ui";
 import { FOCO, BOTAO_SECUNDARIO } from "@/components/painel/ui";
-import { ROTA_CARTEIRA, type ContagemPorQuadrante } from "./tipos";
+import { ROTA_CARTEIRA_ATIVOS, ROTA_CARTEIRA_EX, type ContagemPorQuadrante } from "./tipos";
 import { SeloQuadrante, Traco } from "./ui";
 
 const COR_DA_FAMILIA = {
@@ -76,7 +76,8 @@ export function GradeDna({ contagens, carteira, carregando = false, selecionado,
   const totalDoQ = contagemDoQuadrante(totais, q, carregando);
   const pctDoQ = totalDoQ && classificados > 0 ? ((totalDoQ.casos / classificados) * 100).toFixed(1).replace(".", ",") : null;
   const abordagem = ABORDAGEM_POR_QUADRANTE[q];
-  const linkCarteira = `${ROTA_CARTEIRA}?carteira=${carteira ?? "ativo"}&quadrante=${q}`;
+  // Cada carteira tem o proprio espaco na tela: o link ja abre o certo.
+  const linkCarteira = `${carteira === "ex_cliente" ? ROTA_CARTEIRA_EX : ROTA_CARTEIRA_ATIVOS}?quadrante=${q}`;
 
   return (
     <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(280px,1fr)]" data-testid={testId}>

@@ -577,6 +577,35 @@ GET /api/erp-connectors             # catálogo (requireAuth), inclui `naoImplem
   `erp_sync_logs` — que é o batente de `contarFalhasConsecutivas`, senão a tolerância de 3
   vira 1 para sempre.
 
+### Cobrança (requireAuth + requireProvider) — `server/routes/cobranca.routes.ts`
+A carteira tem DOIS ESPAÇOS separados (decisão do dono, 05/09/2026, no molde da
+"Sua carteira" do Provedor.ai): `/cobranca/ativos` e `/cobranca/ex-clientes`;
+`/cobranca` só redireciona para o de ativos. No menu, "Carteira" é uma PASTA cujo
+rótulo não acende — acende o espaço.
+```
+GET  /api/cobranca/carteira            # ?carteira=ativo|ex_cliente + status/etapa/quadrante/saude/divida/bairro/busca
+                                       # + mes=AAAA-MM & mesStatus=pago|inadimplente|a_vencer|sem_fatura (só ativos).
+                                       # No espaço de ativos lista a carteira INTEIRA: casos, quem deve sem caso e,
+                                       # por último, quem está em dia (`clientesAtivosEmDia`), como o Provedor.ai.
+GET  /api/cobranca/carteira/mes        # ?mes=AAAA-MM → { live, motivo, resumo } — a "realidade mensal" (safra do
+                                       # Provedor.ai) sobre `invoices`: inadimplente = aberta vencida, aVencer = aberta
+                                       # >= hoje, emConciliacao = baixada_no_erp, semFatura = cliente atual sem fatura
+                                       # no mês. Sem fatura vinda do ERP → live=false e a tela mostra "—", nunca zero.
+GET  /api/cobranca/kanban              # colunas = fluxo do operador; `kpis` calculados sobre o MESMO recorte do quadro
+                                       # (casosVivos, emAberto, vencidos, paraHoje = quem TEM data até hoje,
+                                       # semProximaAcao = caso vivo sem data — follow-up parado)
+GET  /api/cobranca/fila | regua | dna | politica | equipe
+GET  /api/cobranca/clientes/:id/360 | 360/ao-vivo
+POST /api/cobranca/casos/:id/eventos   # contato termina com o follow-up: proximaAcao + proximoContatoEm gravados no caso
+POST /api/cobranca/casos/:id/negociacoes · PATCH /api/cobranca/casos/:id
+```
+**Faturas fatura a fatura (migração 0027, 05/09/2026):** o sync grava em `invoices`
+as faturas ABERTAS (vencidas E a vencer) que MK, IXC e SGP devolvem em
+`faturasAbertas` (`erp_source`, `erp_ref` = id no ERP, status `aberta`), e só numa
+varredura COMPLETA marca `baixada_no_erp` o que sumiu dos pendentes (pagamento
+provável — nenhum ERP nos confirma o valor pago). SGP: só `status=abertos`, nunca
+cancelado/anulado. `server/storage/faturas.storage.ts` é a fonte do resumo mensal.
+
 ### Mapa de Calor (requireAuth)
 GET heatmap/provider, heatmap/regional, heatmap/city-ranking, heatmap/sync-info, heatmap/cache-status
 POST heatmap/refresh

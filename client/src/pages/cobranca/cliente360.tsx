@@ -53,7 +53,7 @@ import { podeAdministrarCobranca } from "@/components/cobranca/permissoes";
 import { lerPolitica } from "@/components/cobranca/politica-form";
 import { ConversaDoChat } from "@/components/cobranca/ConversaDoChat";
 import {
-  API_CHAT_BULLQ, API_EQUIPE, API_POLITICA, api360, api360AoVivo, apiEnviarCasoParaChat, chatProntoParaEnviar, lerEquipe, lerIntegracaoDoChat, numero, ROTA_CARTEIRA, ROTA_POLITICA, ROTA_REGUA,
+  API_CHAT_BULLQ, API_EQUIPE, API_POLITICA, api360, api360AoVivo, apiEnviarCasoParaChat, chatProntoParaEnviar, lerEquipe, lerIntegracaoDoChat, numero, ROTA_CARTEIRA_ATIVOS, ROTA_CARTEIRA_EX, ROTA_POLITICA, ROTA_REGUA,
   type CasoDetalhe, type Cliente360, type EquipamentoDoCliente, type NegociacaoDeCobranca, type SnapshotAoVivo,
 } from "@/components/cobranca/tipos";
 import {
@@ -288,9 +288,9 @@ export default function Cliente360Page() {
     <div className="flex flex-col gap-4 p-4 lg:p-6" data-testid="cobranca-cliente-360">
       {/* 0 · Breadcrumb */}
       <nav className="flex items-center gap-1 text-[12px] text-[var(--text-muted)]" aria-label="Caminho">
-        <Link href={ROTA_CARTEIRA} className="inline-flex items-center gap-1 hover:text-[var(--text)]" data-testid="voltar-carteira"><ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Voltar</Link>
+        <Link href={exCliente ? ROTA_CARTEIRA_EX : ROTA_CARTEIRA_ATIVOS} className="inline-flex items-center gap-1 hover:text-[var(--text)]" data-testid="voltar-carteira"><ArrowLeft className="h-3.5 w-3.5" aria-hidden /> Voltar</Link>
         <ChevronRight className="h-3 w-3" aria-hidden />
-        <Link href={ROTA_CARTEIRA} className="underline decoration-1 underline-offset-2 hover:text-[var(--brand-ink)]">Clientes</Link>
+        <Link href={exCliente ? ROTA_CARTEIRA_EX : ROTA_CARTEIRA_ATIVOS} className="underline decoration-1 underline-offset-2 hover:text-[var(--brand-ink)]">{exCliente ? "Ex-clientes" : "Clientes ativos"}</Link>
         <ChevronRight className="h-3 w-3" aria-hidden />
         <span className="text-[var(--text)]">{isLoading ? "…" : cliente?.nome ?? DASH}</span>
       </nav>
