@@ -29,7 +29,7 @@ import { BOTAO_SECUNDARIO } from "@/components/painel/ui";
 import { ROTULO_STATUS_DE_CASO, type StatusDeCaso } from "@shared/cobranca/estados";
 import type { Etapa } from "@shared/cobranca";
 import { CardCaso, CardCasoArrastavel, chaveDoCard, type AcoesDoCard } from "./CardCaso";
-import { avaliarMovimentoDeCaso, COLUNAS_RECOLHIDAS, tituloDoMovimento, type MovimentoDeCaso } from "./movimentos-cobranca";
+import { avaliarMovimentoDeCaso, COLUNAS_RECOLHIDAS, COR_DO_TOM, tituloDoMovimento, tomDaColunaDoKanban, type MovimentoDeCaso } from "./movimentos-cobranca";
 import { API_CASOS, type ColunaDoKanban, type ItemDaFila, type RespostaDoKanban } from "./tipos";
 import { invalidarCobranca, mensagemDoErro } from "./ui";
 
@@ -92,23 +92,32 @@ function Coluna({ coluna, cardAtivo, podeAdministrar, children }: {
   const recusa = veredito !== null && veredito.tipo === "recusado";
   const anel = isOver && aceita ? "0 0 0 2px var(--brand)" : isOver && recusa ? "0 0 0 2px var(--danger)" : aceita ? "0 0 0 1px var(--brand)" : "0 0 0 1px var(--border)";
   const valor = coluna.casos.reduce((s, c) => s + (c.valorAtual ?? 0), 0);
+  // A cor do funil (pedido do dono): borda no topo e contagem no tom da etapa —
+  // neutro a contatar, azul em contato, ambar negociando, verde acordo/pago,
+  // vermelho negativado, vinho cancelamento. Coluna fechada fica apagada.
+  const tom = tomDaColunaDoKanban(coluna.status);
+  const corDoTom = COR_DO_TOM[tom];
   return (
     <section
       ref={setNodeRef}
       aria-label={`${coluna.rotulo}: ${coluna.total} ${coluna.total === 1 ? "caso" : "casos"}`}
       data-coluna={coluna.status}
+      data-tom={tom}
       data-aceita={cardAtivo ? String(aceita) : undefined}
-      className="flex max-h-full flex-none flex-col rounded-lg"
-      style={{ width: LARGURA_COLUNA_COBRANCA, background: coluna.fechada ? "var(--surface-2)" : "var(--bg)", boxShadow: anel, opacity: recusa && !isOver ? 0.75 : 1, transition: "box-shadow .15s, opacity .15s" }}
+      className="flex max-h-full flex-none flex-col overflow-hidden rounded-lg"
+      style={{ width: LARGURA_COLUNA_COBRANCA, background: coluna.fechada ? "var(--surface-2)" : "var(--bg)", boxShadow: anel, borderTop: `3px solid ${coluna.fechada ? "var(--border-strong)" : corDoTom}`, opacity: recusa && !isOver ? 0.75 : 1, transition: "box-shadow .15s, opacity .15s" }}
     >
       <header className="flex items-baseline justify-between gap-2 px-3 pb-2 pt-3">
         <div className="min-w-0">
-          <h2 className="truncate text-[13px] font-medium tracking-[-0.01em] text-[var(--text)]">{coluna.rotulo}</h2>
+          <h2 className="flex items-center gap-1.5 truncate text-[13px] font-medium tracking-[-0.01em] text-[var(--text)]">
+            <span className="inline-block h-2 w-2 flex-none rounded-full" style={{ background: coluna.fechada ? "var(--border-strong)" : corDoTom }} aria-hidden />
+            {coluna.rotulo}
+          </h2>
           {coluna.fechada && <p className="text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--text-faint)]" style={MONO}>últimos 30 dias</p>}
           {coluna.truncado && <p className="text-[10px] text-[var(--text-faint)]" style={MONO}>mostrando {num(coluna.casos.length)} de {num(coluna.total)}</p>}
         </div>
         <div className="flex-none text-right" style={MONO}>
-          <p className="text-[13px] font-medium tabular-nums text-[var(--text)]">{num(coluna.total)}</p>
+          <p className="text-[13px] font-medium tabular-nums" style={{ color: coluna.fechada || coluna.total === 0 ? "var(--text-muted)" : corDoTom }}>{num(coluna.total)}</p>
           <p className="text-[10px] tabular-nums text-[var(--text-muted)]">{brl(valor)}</p>
         </div>
       </header>

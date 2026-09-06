@@ -9,8 +9,7 @@ import { describe, it, expect } from "vitest";
 import { STATUS_DE_CASO } from "@shared/cobranca/estados";
 import {
   avaliarMovimentoDeCaso, COLUNAS_DESFECHO, COLUNAS_RECOLHIDAS, COLUNAS_VIVAS, ORDEM_DO_QUADRO,
-  MOTIVO_ACORDO_NASCE_DO_ACEITE, MOTIVO_CASO_FECHADO, MOTIVO_MESMA_COLUNA, MOTIVO_SO_ADMIN, tituloDoMovimento,
-} from "./movimentos-cobranca";
+  MOTIVO_ACORDO_NASCE_DO_ACEITE, MOTIVO_CASO_FECHADO, MOTIVO_MESMA_COLUNA, MOTIVO_SO_ADMIN, tituloDoMovimento, COR_DO_TOM, tomDaColunaDoKanban, tomDaEtapaDaRegua } from "./movimentos-cobranca";
 
 const caso = (status: string) => ({ id: 1, status, valorAtual: 100 });
 const operador = { podeAdministrar: false };
@@ -87,5 +86,30 @@ describe("tituloDoMovimento", () => {
     for (const s of ["em_contato", "aberto", "pago", "negativado", "baixado", "encerrado", "cancelamento"] as const) {
       expect(tituloDoMovimento(s)).not.toBe("Caso movido");
     }
+  });
+});
+
+describe("cores do funil", () => {
+  it("cada coluna do fluxo tem um tom; desconhecida e neutra", () => {
+    expect(tomDaColunaDoKanban("aberto")).toBe("neutro");
+    expect(tomDaColunaDoKanban("em_contato")).toBe("info");
+    expect(tomDaColunaDoKanban("negociando")).toBe("gated");
+    expect(tomDaColunaDoKanban("acordo_ativo")).toBe("ok");
+    expect(tomDaColunaDoKanban("pago")).toBe("ok");
+    expect(tomDaColunaDoKanban("negativado")).toBe("danger");
+    expect(tomDaColunaDoKanban("cancelamento")).toBe("past");
+    expect(tomDaColunaDoKanban("qualquer")).toBe("neutro");
+  });
+  it("a etapa da regua esquenta com o atraso: lembrete azul, aviso e negociacao ambar, pre-negativacao vermelho, divida antiga e fim de linha vinho", () => {
+    expect(tomDaEtapaDaRegua("lembrete_atraso")).toBe("info");
+    expect(tomDaEtapaDaRegua("aviso_suspensao")).toBe("gated");
+    expect(tomDaEtapaDaRegua("negociacao_recuperacao")).toBe("gated");
+    expect(tomDaEtapaDaRegua("pre_negativacao")).toBe("danger");
+    expect(tomDaEtapaDaRegua("divida_antiga")).toBe("past");
+    expect(tomDaEtapaDaRegua("fim_de_linha")).toBe("past");
+    expect(tomDaEtapaDaRegua(null)).toBe("marca");
+  });
+  it("todo tom tem uma cor de token, nunca hex nem paleta do Tailwind", () => {
+    for (const cor of Object.values(COR_DO_TOM)) expect(cor).toMatch(/^var\(--[a-z-]+\)$/);
   });
 });

@@ -556,11 +556,12 @@ export function lerRespostaDaFila(resposta: unknown): RespostaDaFila {
   const kpisCrus = r.kpis && typeof r.kpis === "object" ? (r.kpis as Record<string, unknown>) : null;
   const kpis: KpisDaFila | null = kpisCrus
     ? {
-        casosVivos: numero(kpisCrus.casosVivos),
+        // A rota da fila escreve `casos`/`valor`; a do kanban, `casosVivos`/`emAberto`. Os dois valem.
+        casosVivos: numero(kpisCrus.casosVivos) ?? numero(kpisCrus.casos),
         paraHoje: numero(kpisCrus.paraHoje),
         vencidos: numero(kpisCrus.vencidos),
         agendados: numero(kpisCrus.agendados),
-        emAberto: numero(kpisCrus.emAberto),
+        emAberto: numero(kpisCrus.emAberto) ?? numero(kpisCrus.valor),
       }
     : null;
   const pausa = pausaDaResposta(resposta);
@@ -635,6 +636,8 @@ export interface ColunaDoKanban {
 export interface RespostaDoKanban {
   colunas: ColunaDoKanban[];
   total: number | null;
+  /** Sobre o MESMO recorte das colunas; `null` quando o quadro e grande demais para varrer. */
+  kpis: KpisDaFila | null;
   pausada: boolean;
   pausadaMotivo: string | null;
 }
@@ -663,5 +666,7 @@ export function lerKanban(resposta: unknown): RespostaDoKanban {
       };
     });
   const pausa = pausaDaResposta(resposta);
-  return { colunas, total: numero(r.total), pausada: pausa.pausada, pausadaMotivo: pausa.motivo };
+  const kpisCrus = r.kpis && typeof r.kpis === "object" ? (r.kpis as Record<string, unknown>) : null;
+  const kpis: KpisDaFila | null = kpisCrus ? { casosVivos: numero(kpisCrus.casosVivos), paraHoje: numero(kpisCrus.paraHoje), vencidos: numero(kpisCrus.vencidos), agendados: numero(kpisCrus.agendados), emAberto: numero(kpisCrus.emAberto) } : null;
+  return { colunas, kpis, total: numero(r.total), pausada: pausa.pausada, pausadaMotivo: pausa.motivo };
 }

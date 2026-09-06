@@ -1042,6 +1042,22 @@ describe("GET /api/cobranca/fila", () => {
 /* ── Kanban ──────────────────────────────────────────────────────────── */
 
 describe("GET /api/cobranca/kanban", () => {
+  it("devolve os indicadores sobre o mesmo recorte das colunas (casos vivos, em aberto, vencidos, para hoje)", async () => {
+    sessao = OPERADOR;
+    const ontem = new Date(Date.now() - 86_400_000);
+    storageMock.listarCasosDeCobranca.mockImplementation(async (_p: number, filtros: any): Promise<any> => {
+      if (filtros?.status === "todos" || Array.isArray(filtros?.status)) return { linhas: [], total: 0 };
+      return { linhas: [linhaCaso({ id: 1, valorAtual: 100, proximoContatoEm: ontem }), linhaCaso({ id: 2, valorAtual: 50.5, proximoContatoEm: null })], total: 2 };
+    });
+    const res = await json("GET", "/api/cobranca/kanban");
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.kpis).toEqual({ casosVivos: 2, emAberto: 150.5, vencidos: 1, paraHoje: 2 });
+    expect(body.kpisMotivo).toBeNull();
+    storageMock.listarCasosDeCobranca.mockReset();
+    storageMock.listarCasosDeCobranca.mockResolvedValue({ linhas: [], total: 0 });
+  });
+
   afterEach(() => {
     storageMock.listarCasosDeCobranca.mockImplementation(LISTA_VAZIA);
   });

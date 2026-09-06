@@ -22,6 +22,7 @@ import {
   type Carteira, type Etapa, type EtapaId, type MotivoSemEtapa,
 } from "@shared/cobranca";
 import { dataHoraBr, proximoContato, whatsappDe } from "./formatacao";
+import { tomDaEtapaDaRegua } from "./movimentos-cobranca";
 import { rotaDoCliente, type ItemDaFila } from "./tipos";
 import { Avatar, LinkWhatsapp, PilulaAtraso, SeloCarteira, SeloCobranca, SeloPrioridade, SeloQuadrante, SeloTom, Traco } from "./ui";
 
@@ -120,14 +121,14 @@ export function CardCaso({ item, etapas, hoje, acoes, ocupado, overlay, alca }: 
 
       <div className="mt-2 flex flex-wrap items-center gap-1">
         {etapa ? (
-          <span
-            className="inline-flex items-center gap-1 rounded bg-[var(--brand-soft)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[var(--track-wide)] text-[var(--brand-ink)]"
-            title={derivada ? `${etapa.acao} — etapa derivada do atraso; o motor ainda não gravou` : etapa.acao}
-            data-testid={`card-etapa-${item.id}`}
+          <SeloCobranca
+            tom={tomDaEtapaDaRegua(etapa.id)}
+            titulo={derivada ? `${etapa.acao} — etapa derivada do atraso; o motor ainda não gravou` : etapa.acao}
+            testId={`card-etapa-${item.id}`}
           >
             {etapa.rotulo} <span className="tabular-nums normal-case tracking-normal">{janelaDaEtapa(etapa)}</span>
             {derivada && <span aria-label="derivada do atraso">≈</span>}
-          </span>
+          </SeloCobranca>
         ) : (
           <span className="text-[10.5px] text-[var(--text-muted)]" title={motivo ?? undefined}>{motivo ?? <Traco />}</span>
         )}

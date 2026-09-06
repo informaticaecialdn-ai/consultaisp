@@ -23,6 +23,7 @@
  * revisor: operador não some com dívida); `pago` o operador pode.
  */
 import { casoFechado, transicaoDeCaso, type StatusDeCaso } from "@shared/cobranca/estados";
+import type { TomDeSelo } from "./ui";
 
 export const COLUNAS_VIVAS: readonly StatusDeCaso[] = ["aberto", "em_contato", "negociando", "acordo_ativo"];
 export const COLUNAS_DESFECHO: readonly StatusDeCaso[] = ["pago", "cancelamento"];
@@ -86,4 +87,54 @@ export function tituloDoMovimento(destino: StatusDeCaso): string {
     case "cancelamento": return "Contrato em cancelamento";
     default: return "Caso movido";
   }
+}
+
+/* ── Cores do funil (pedido do dono, 05/09/2026: "cores por tipo de etapa do funil") ── */
+
+/** O tom de cada coluna do fluxo: a contatar e neutro, em contato informa, negociando pede atencao, acordo e pago sao bons, negativado e perigo, cancelamento e passado. */
+export const TOM_DA_COLUNA: Record<string, TomDeSelo> = {
+  aberto: "neutro",
+  em_contato: "info",
+  negociando: "gated",
+  acordo_ativo: "ok",
+  pago: "ok",
+  negativado: "danger",
+  cancelamento: "past",
+  baixado: "neutro",
+  encerrado: "neutro",
+};
+
+export function tomDaColunaDoKanban(status: string): TomDeSelo {
+  return TOM_DA_COLUNA[status] ?? "neutro";
+}
+
+/** A cor de cada tom, para a borda da coluna e a contagem — os mesmos tokens dos selos. */
+export const COR_DO_TOM: Record<TomDeSelo, string> = {
+  ok: "var(--ok)",
+  gated: "var(--gated)",
+  past: "var(--past)",
+  danger: "var(--danger)",
+  info: "var(--info)",
+  marca: "var(--brand)",
+  neutro: "var(--text-faint)",
+};
+
+/**
+ * O tom da ETAPA da regua no selo do card: lembretes informam (azul), aviso de
+ * suspensao e negociacao pedem atencao (ambar), pre-negativacao e perigo
+ * (vermelho), divida antiga e fim de linha sao passado (vinho). O funil de
+ * cores acompanha o atraso: quanto mais a direita, mais quente.
+ */
+export const TOM_DA_ETAPA: Record<string, TomDeSelo> = {
+  lembrete_pre_vencimento: "info",
+  lembrete_atraso: "info",
+  aviso_suspensao: "gated",
+  negociacao_recuperacao: "gated",
+  pre_negativacao: "danger",
+  divida_antiga: "past",
+  fim_de_linha: "past",
+};
+
+export function tomDaEtapaDaRegua(etapaId: string | null | undefined): TomDeSelo {
+  return (etapaId && TOM_DA_ETAPA[etapaId]) || "marca";
 }

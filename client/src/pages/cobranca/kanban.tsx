@@ -126,7 +126,8 @@ export default function KanbanPage() {
     inboxUrl: integracaoDoChat?.inboxUrl ?? null,
   };
 
-  const kpis = fila.kpis;
+  // Os indicadores do QUADRO (mesmo recorte das colunas); a fila e so reserva quando o quadro nao os calculou.
+  const kpis = quadro.kpis ?? fila.kpis;
 
   return (
     <div className="flex flex-col gap-4 p-4 lg:p-6" data-testid="cobranca-kanban">

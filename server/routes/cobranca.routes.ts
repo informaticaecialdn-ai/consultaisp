@@ -1802,6 +1802,19 @@ export function registerCobrancaRoutes(): Router {
         // A conversa do Chat BullQ ligada ao caso, quando houver. Falha aqui nao derruba o quadro.
         storage.conversasDoChatPorCaso(providerId).catch(() => new Map()),
       ]);
+      // Os indicadores do QUADRO, sobre o mesmo recorte das colunas (a fila usa
+      // outro escopo — "eu" la inclui a fila geral — e a tela misturava os dois).
+      const varredura = await varrerCasos(providerId, filtros);
+      const inicioDeHoje = new Date(hoje); inicioDeHoje.setHours(0, 0, 0, 0);
+      const inicioDeAmanha = new Date(hoje); inicioDeAmanha.setHours(24, 0, 0, 0);
+      const kpis = varredura.completa
+        ? varredura.linhas.reduce((k, l) => ({
+            casosVivos: k.casosVivos + 1,
+            emAberto: arredondar(k.emAberto + l.valorAtual),
+            vencidos: k.vencidos + (l.proximoContatoEm !== null && l.proximoContatoEm.getTime() < inicioDeHoje.getTime() ? 1 : 0),
+            paraHoje: k.paraHoje + (l.proximoContatoEm === null || l.proximoContatoEm.getTime() < inicioDeAmanha.getTime() ? 1 : 0),
+          }), { casosVivos: 0, emAberto: 0, vencidos: 0, paraHoje: 0 })
+        : null;
       const comChat = colunas.map(c => ({
         ...c,
         casos: c.casos.map(item => {
@@ -1812,6 +1825,8 @@ export function registerCobrancaRoutes(): Router {
       res.json({
         colunas: comChat,
         total: colunas.reduce((s, c) => s + c.total, 0),
+        kpis,
+        kpisMotivo: kpis ? null : `Quadro com mais de ${PAGINAS_MAXIMAS_DA_VARREDURA * PAGINA_DA_VARREDURA} casos: os indicadores nao sao calculados neste recorte.`,
         fechadosDesde,
         porColuna: q.porColuna,
         pausada: politica.pausada,

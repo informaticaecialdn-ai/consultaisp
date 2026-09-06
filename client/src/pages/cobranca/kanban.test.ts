@@ -49,6 +49,9 @@ describe("a página do kanban", () => {
 
   it("os KPIs vêm do servidor pela fila, nunca contados na página", () => {
     expect(pagina).toContain("lerRespostaDaFila(filaCrua)");
+    // os indicadores vem do QUADRO (mesmo recorte das colunas); a fila e reserva
+    expect(pagina).toContain("const kpis = quadro.kpis ?? fila.kpis;");
+    expect(tipos).toContain("kpis: KpisDaFila | null;");
     expect(pagina).toContain("kpis?.casosVivos");
     expect(pagina).toContain("kpis?.vencidos");
     expect(pagina).toContain("kpis?.emAberto");
